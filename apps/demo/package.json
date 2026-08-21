@@ -72,7 +72,7 @@
         "cache": false,
         "options": {
           "cwd": "{projectRoot}",
-          "command": "wrangler deploy --env=\"\""
+          "command": "alchemy deploy --stage prod"
         }
       },
       "prepare-voice-assets": {

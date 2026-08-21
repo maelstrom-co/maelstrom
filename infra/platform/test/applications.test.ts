@@ -122,22 +122,19 @@ describe('application infrastructure contract', () => {
       nx: {
         targets: {
           deploy: {
-            options: { command: 'wrangler deploy --env=""' },
+            options: { command: 'alchemy deploy --stage prod' },
           },
         },
       },
     });
   });
 
-  test('keeps production builds credential-free and routes each deployer explicitly', () => {
+  test('keeps production builds credential-free and deploys every app through Alchemy', () => {
     const www = matrixApp('www');
-    expect(www).toContain('deployer: alchemy');
     expect(www).toContain('directory: apps/www');
     const docs = matrixApp('docs');
-    expect(docs).toContain('deployer: alchemy');
     expect(docs).toContain('directory: apps/docs');
     const demo = matrixApp('demo');
-    expect(demo).toContain('deployer: wrangler');
     expect(demo).toContain('directory: apps/demo');
 
     expect(productionWorkflow).toContain(
@@ -163,7 +160,6 @@ describe('application infrastructure contract', () => {
     );
 
     const alchemyDeploy = workflowStep('Deploy to Cloudflare with Alchemy');
-    expect(alchemyDeploy).toContain("matrix.deployer == 'alchemy'");
     expect(alchemyDeploy).toContain(
       'bun alchemy deploy --stage prod --profile production-ci --yes',
     );
@@ -172,14 +168,9 @@ describe('application infrastructure contract', () => {
     expect(alchemyDeploy).toContain('CLOUDFLARE_ACCOUNT_ID:');
     expect(alchemyDeploy).toContain('CLOUDFLARE_API_TOKEN:');
 
-    const wranglerDeploy = workflowStep('Deploy to Cloudflare with Wrangler');
-    expect(wranglerDeploy).toContain("matrix.deployer == 'wrangler'");
-    expect(wranglerDeploy).toContain('bunx wrangler deploy --env=""');
-    expect(wranglerDeploy).toContain('CLOUDFLARE_ACCOUNT_ID:');
-    expect(wranglerDeploy).toContain('CLOUDFLARE_API_TOKEN:');
-
-    expect(productionWorkflow.match(/CLOUDFLARE_ACCOUNT_ID:/g)).toHaveLength(2);
-    expect(productionWorkflow.match(/CLOUDFLARE_API_TOKEN:/g)).toHaveLength(2);
+    expect(productionWorkflow).not.toContain('wrangler deploy');
+    expect(productionWorkflow.match(/CLOUDFLARE_ACCOUNT_ID:/g)).toHaveLength(1);
+    expect(productionWorkflow.match(/CLOUDFLARE_API_TOKEN:/g)).toHaveLength(1);
     expect(productionWorkflow.match(/ALCHEMY_PROFILE:/g)).toHaveLength(1);
     expect(productionWorkflow).not.toContain('--adopt');
     expect(workflowStep('Smoke test primary domain')).toContain(
@@ -193,13 +184,12 @@ describe('application infrastructure contract', () => {
       'Build production artifact',
       'Recheck deployment revision',
       'Deploy to Cloudflare with Alchemy',
-      'Deploy to Cloudflare with Wrangler',
       'Smoke test primary domain',
       'Smoke test alias',
     );
   });
 
-  test('keeps preview and manual demo deployments on Wrangler', () => {
+  test('keeps previews on Wrangler and manual production deploys on Alchemy', () => {
     const previews = read('.github/workflows/deploy-preview.yml');
     expect(previews).toContain('cloudflare/wrangler-action@');
     expect(previews).toContain('Deploy www to Cloudflare');
@@ -209,7 +199,7 @@ describe('application infrastructure contract', () => {
 
     const playground = read('.github/workflows/deploy-playground.yml');
     expect(playground).toContain('group: production-demo');
-    expect(playground).not.toContain('alchemy deploy');
+    expect(playground).not.toContain('wrangler deploy');
     const playgroundBuild = namedStep(playground, 'Build production artifact');
     expect(playgroundBuild).not.toMatch(/CLOUDFLARE_|ALCHEMY_PROFILE/);
     const playgroundRecheck = namedStep(
@@ -221,11 +211,18 @@ describe('application infrastructure contract', () => {
     expect(playgroundRecheck).toContain(
       'if [ "$latest_green_sha" = "$DEPLOY_SHA" ]; then',
     );
-    const playgroundDeploy = namedStep(playground, 'Deploy to Cloudflare');
+    const playgroundDeploy = namedStep(
+      playground,
+      'Deploy to Cloudflare with Alchemy',
+    );
     expect(playgroundDeploy).toContain(
       "steps.deploy-revision.outputs.current == 'true'",
     );
-    expect(playgroundDeploy).toContain('bunx wrangler deploy --env=""');
+    expect(playgroundDeploy).toContain(
+      'bun alchemy deploy --stage prod --profile production-ci --yes',
+    );
+    expect(playgroundDeploy).not.toContain('--adopt');
+    expect(playgroundDeploy).toContain('ALCHEMY_PROFILE: production-ci');
     expect(playgroundDeploy).toContain('CLOUDFLARE_ACCOUNT_ID:');
     expect(playgroundDeploy).toContain('CLOUDFLARE_API_TOKEN:');
     expect(namedStep(playground, 'Smoke test production domain')).toContain(
@@ -235,7 +232,7 @@ describe('application infrastructure contract', () => {
       playground,
       'Build production artifact',
       'Recheck deployment revision',
-      'Deploy to Cloudflare',
+      'Deploy to Cloudflare with Alchemy',
       'Smoke test production domain',
     );
   });

@@ -74,11 +74,12 @@ jobs:
             echo "Skipping stale artifact $DEPLOY_SHA; latest green revision is $latest_green_sha"
           fi
 
-      - name: Deploy to Cloudflare
+      - name: Deploy to Cloudflare with Alchemy
         if: steps.deploy-revision.outputs.current == 'true'
         working-directory: apps/demo
-        run: bunx wrangler deploy --env=""
+        run: bun alchemy deploy --stage prod --profile production-ci --yes
         env:
+          ALCHEMY_PROFILE: production-ci
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_PRODUCTION_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PRODUCTION_API_TOKEN }}
 

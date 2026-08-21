@@ -14,9 +14,9 @@ Every package has a conventional `alchemy.run.ts` composition root. Resource
 configuration lives beside the resource under `src/` or `infra/`. Shared names
 and cross-stack references are exported by `@maelstrom-co/platform-infra`.
 
-Alchemy is authoritative for the platform, `www`, and docs. Wrangler remains
-authoritative for `demo` and all previews until the remaining app is adopted
-and its CI cutover is reviewed.
+Alchemy is authoritative for the platform and all three production
+applications. Wrangler remains authoritative only for PR previews until their
+separate migration is complete.
 
 ## Validate
 
@@ -80,7 +80,8 @@ Completed:
 
 1. Adopted `docs` without changing its prebuilt static asset shape.
 2. Adopted `www` without changing its prebuilt Worker shape.
-3. Switched the docs and `www` production jobs to Alchemy.
+3. Adopted `demo` without changing `SESSION_DO` or `SessionDO`.
+4. Switched all production application jobs to Alchemy.
 
 `alchemy@2.0.0-beta.72` is patched with
 [alchemy-run/alchemy#1300](https://github.com/alchemy-run/alchemy/pull/1300)
@@ -95,14 +96,13 @@ lets Alchemy upload only the resulting `dist` artifact.
 
 Next:
 
-1. Convert `www` to `Cloudflare.Website.Astro` in a separate deployment.
-2. Adopt `demo` without changing `SESSION_DO` or `SessionDO`.
+1. Migrate PR previews to Alchemy while retaining credential-free builds.
+2. Convert `www` to `Cloudflare.Website.Astro` in a separate deployment.
 3. Convert `demo` to `Cloudflare.Website.Vite` in a separate deployment.
 4. Convert `SessionDO` to the Effect-native implementation separately.
 
 Do not combine stack ownership transfer with a framework or Durable Object
-runtime migration. `demo` remains Wrangler-owned. Do not run its Alchemy stack
-with `--adopt` until that separate migration is approved and reviewed.
+runtime migration.
 
 ## Credentials
 

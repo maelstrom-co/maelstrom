@@ -38,21 +38,18 @@ jobs:
           - app: www
             project: '@maelstrom-co/www'
             build-target: build
-            deployer: alchemy
             directory: apps/www
             url: https://maelstrom-ai.co
             alias: https://www.maelstrom-ai.co
           - app: docs
             project: '@maelstrom-co/docs'
             build-target: build
-            deployer: alchemy
             directory: apps/docs
             url: https://docs.maelstrom-ai.co
             alias: ''
           - app: demo
             project: '@maelstrom-co/demo'
             build-target: build-hosted
-            deployer: wrangler
             directory: apps/demo
             url: https://demo.maelstrom-ai.co
             alias: ''
@@ -115,9 +112,7 @@ jobs:
           fi
 
       - name: Deploy to Cloudflare with Alchemy
-        if: >-
-          steps.deploy-revision.outputs.current == 'true'
-          && matrix.deployer == 'alchemy'
+        if: steps.deploy-revision.outputs.current == 'true'
         working-directory: ${{ matrix.directory }}
         run: bun alchemy deploy --stage prod --profile production-ci --yes
         env:
@@ -125,16 +120,6 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_PRODUCTION_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PRODUCTION_API_TOKEN }}
           DOCS_SOURCE_REF: ${{ env.DEPLOY_SHA }}
-
-      - name: Deploy to Cloudflare with Wrangler
-        if: >-
-          steps.deploy-revision.outputs.current == 'true'
-          && matrix.deployer == 'wrangler'
-        working-directory: ${{ matrix.directory }}
-        run: bunx wrangler deploy --env=""
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_PRODUCTION_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PRODUCTION_API_TOKEN }}
 
       - name: Smoke test primary domain
         if: steps.deploy-revision.outputs.current == 'true'
