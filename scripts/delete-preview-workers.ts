@@ -64,6 +64,21 @@ const responseSummary = (response: Response, body: string) => {
   return `HTTP ${response.status}${summary ? `: ${summary}` : ''}`;
 };
 
+const retryAfterMs = (response: Response) => {
+  const value = response.headers.get('retry-after');
+  if (!value) {
+    return 0;
+  }
+
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return seconds * 1_000;
+  }
+
+  const date = Date.parse(value);
+  return Number.isNaN(date) ? 0 : Math.max(0, date - Date.now());
+};
+
 export interface DeletePreviewWorkersOptions {
   readonly accountId: string;
   readonly apiToken: string;
@@ -97,8 +112,8 @@ export const deletePreviewWorkers = async (
     accountId,
     apiToken,
     prNumber,
-    attempts = 3,
-    retryDelayMs = 15_000,
+    attempts = 6,
+    retryDelayMs = 60_000,
     requestTimeoutMs = 30_000,
   } = options;
   const workers = previewWorkerNames(prNumber);
@@ -107,6 +122,7 @@ export const deletePreviewWorkers = async (
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     dependencies.log(`Preview deletion pass ${attempt} of ${attempts}`);
     let passFailed = false;
+    let nextRetryDelayMs = retryDelayMs;
 
     for (const workerName of workers) {
       try {
@@ -133,6 +149,10 @@ export const deletePreviewWorkers = async (
           continue;
         }
 
+        if (response.status === 429) {
+          nextRetryDelayMs = Math.max(nextRetryDelayMs, retryAfterMs(response));
+        }
+
         dependencies.error(
           `Failed to delete preview Worker ${workerName}: ${responseSummary(response, body)}`,
         );
@@ -147,7 +167,7 @@ export const deletePreviewWorkers = async (
 
     finalPassFailed = passFailed;
     if (attempt < attempts) {
-      await dependencies.sleep(retryDelayMs);
+      await dependencies.sleep(nextRetryDelayMs);
     }
   }
 
