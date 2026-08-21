@@ -153,6 +153,20 @@ describe('application infrastructure contract', () => {
         },
       },
     });
+
+    const previewStack = read('apps/demo/alchemy.preview.run.ts');
+    expect(previewStack).toContain("'MaelstromDemoPreview'");
+    expect(previewStack).toContain("requirePreviewStage('demo preview')");
+    const previewWebsite = read('apps/demo/infra/PreviewWebsite.ts');
+    expect(previewWebsite).toContain(
+      `name: \`maelstrom-playground-alchemy-${'$'}{stage}\``,
+    );
+    expect(previewWebsite).toContain('workersDev: true');
+    expect(previewWebsite).toContain("className: 'SessionDO'");
+    expect(previewWebsite).toContain("runWorkerFirst: ['/ws']");
+    expect(previewWebsite).not.toContain('transferredFrom');
+    expect(previewWebsite).not.toContain('domain:');
+    expect(previewWebsite).not.toContain('retain(');
   });
 
   test('keeps production builds credential-free and deploys every app through Alchemy', () => {

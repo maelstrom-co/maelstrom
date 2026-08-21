@@ -181,7 +181,7 @@
         },
         "cache": true,
         "inputs": [
-          "{projectRoot}/alchemy.run.ts",
+          "{projectRoot}/alchemy*.run.ts",
           "{projectRoot}/infra/**/*.ts",
           "{projectRoot}/tsconfig.alchemy.json",
           "{workspaceRoot}/infra/platform/src/**/*.ts",
