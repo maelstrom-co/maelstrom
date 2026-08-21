@@ -15,8 +15,15 @@ configuration lives beside the resource under `src/` or `infra/`. Shared names
 and cross-stack references are exported by `@maelstrom-co/platform-infra`.
 
 Alchemy is authoritative for the platform, all three production applications,
-and all PR previews. Wrangler remains only as a direct deletion safety net for
-legacy preview Workers and uploads that finish after workflow cancellation.
+and all PR previews. A direct Cloudflare API deletion remains as a safety net
+for legacy preview Workers and uploads that finish after deployment timeout or
+interruption.
+Preview teardown runs through `pull_request_target` and executes only trusted
+default-branch code at the workflow revision; it never checks out the pull
+request branch. Deployment and teardown serialize Cloudflare mutations per PR,
+then recheck the current PR state and label before changing cloud resources.
+Fallback Worker deletion repeats for five minutes so a timed-out upload can
+settle before the final reconciliation pass.
 
 ## Validate
 

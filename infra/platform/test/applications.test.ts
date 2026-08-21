@@ -231,9 +231,34 @@ describe('application infrastructure contract', () => {
 
   test('deploys and destroys every preview through Alchemy', () => {
     const previews = read('.github/workflows/deploy-preview.yml');
-    const teardown = section(previews, '  teardown:\n', '\n<end>');
+    const teardown = read('.github/workflows/teardown-preview.yml');
     expect(previews).not.toContain('cloudflare/wrangler-action@');
     expect(previews).not.toContain('Resolve the installed wrangler version');
+    expect(previews).not.toContain('  teardown:');
+    const deployIntent = namedStep(previews, 'Check current preview intent');
+    expect(deployIntent).toContain('gh api');
+    expect(deployIntent).toContain('.head.sha');
+    expect(deployIntent).toContain('deploy-preview');
+    expect(deployIntent).not.toContain('CLOUDFLARE_');
+    const branchEligibility = namedStep(
+      previews,
+      'Reject teardown-ineligible branch names',
+    );
+    expect(branchEligibility).toContain('github.event.pull_request.head.ref');
+    expect(branchEligibility).toContain('^[[:xdigit:]]+$');
+    expect(previews).toContain('timeout-minutes: 45');
+    expect(previews).toContain('cancel-in-progress: false');
+    expect(previews).toContain('queue: max');
+    expect(teardown).toContain('pull_request_target:');
+    expect(teardown).toContain('types: [unlabeled, closed]');
+    expect(teardown).toContain(`ref: ${'$'}{{ github.workflow_sha }}`);
+    expect(teardown).not.toContain('github.event.pull_request.head.sha');
+    expect(teardown).toContain('timeout-minutes: 60');
+    expect(teardown).toContain('cancel-in-progress: false');
+    expect(teardown).toContain('queue: max');
+    expect(`${previews}\n${teardown}`).not.toMatch(
+      /cloudflare\/wrangler-action@|\bwrangler(?:@\S+)?\s+(?:deploy|delete)\b/,
+    );
     const docsPreviewDeploy = namedStep(
       previews,
       'Deploy docs to Cloudflare with Alchemy',
@@ -242,6 +267,9 @@ describe('application infrastructure contract', () => {
       'bun alchemy deploy alchemy.preview.run.ts',
     );
     expect(docsPreviewDeploy).not.toContain('--adopt');
+    expect(docsPreviewDeploy).toContain(
+      "if: steps.preview-intent.outputs.current == 'true'",
+    );
     expect(docsPreviewDeploy).toContain('ALCHEMY_PROFILE: preview-ci');
     expect(docsPreviewDeploy).toContain('CLOUDFLARE_PREVIEW_ACCOUNT_ID');
     expect(docsPreviewDeploy).toContain('CLOUDFLARE_PREVIEW_API_TOKEN');
@@ -259,6 +287,9 @@ describe('application infrastructure contract', () => {
       'bun alchemy deploy alchemy.preview.run.ts',
     );
     expect(wwwPreviewDeploy).not.toContain('--adopt');
+    expect(wwwPreviewDeploy).toContain(
+      "if: steps.preview-intent.outputs.current == 'true'",
+    );
     expect(wwwPreviewDeploy).toContain('ALCHEMY_PROFILE: preview-ci');
     expect(wwwPreviewDeploy).toContain('CLOUDFLARE_PREVIEW_ACCOUNT_ID');
     expect(wwwPreviewDeploy).toContain('CLOUDFLARE_PREVIEW_API_TOKEN');
@@ -278,6 +309,9 @@ describe('application infrastructure contract', () => {
       'bun alchemy deploy alchemy.preview.run.ts',
     );
     expect(demoPreviewDeploy).not.toContain('--adopt');
+    expect(demoPreviewDeploy).toContain(
+      "if: steps.preview-intent.outputs.current == 'true'",
+    );
     expect(demoPreviewDeploy).toContain('ALCHEMY_PROFILE: preview-ci');
     expect(demoPreviewDeploy).toContain('CLOUDFLARE_PREVIEW_ACCOUNT_ID');
     expect(demoPreviewDeploy).toContain('CLOUDFLARE_PREVIEW_API_TOKEN');
@@ -299,6 +333,11 @@ describe('application infrastructure contract', () => {
     );
     expect(independentBuild).not.toMatch(/CLOUDFLARE_|ALCHEMY_PROFILE/);
 
+    const teardownIntent = namedStep(teardown, 'Check current preview intent');
+    expect(teardownIntent).toContain('gh api');
+    expect(teardownIntent).toContain('deploy-preview');
+    expect(teardownIntent).not.toContain('CLOUDFLARE_');
+
     const docsPreviewDestroy = namedStep(
       teardown,
       'Destroy docs preview with Alchemy',
@@ -307,13 +346,20 @@ describe('application infrastructure contract', () => {
       'bun alchemy destroy alchemy.preview.run.ts',
     );
     expect(docsPreviewDestroy).toContain('id: destroy-docs');
+    expect(docsPreviewDestroy).toContain(
+      "if: steps.preview-intent.outputs.current == 'true'",
+    );
+    expect(docsPreviewDestroy).toContain('timeout-minutes: 10');
     expect(docsPreviewDestroy).toContain('ALCHEMY_PROFILE: preview-ci');
     const wwwPreviewDestroy = namedStep(
       teardown,
       'Destroy www preview with Alchemy',
     );
     expect(wwwPreviewDestroy).toContain('id: destroy-www');
-    expect(wwwPreviewDestroy).toContain('if: always()');
+    expect(wwwPreviewDestroy).toContain(
+      "if: always() && steps.preview-intent.outputs.current == 'true'",
+    );
+    expect(wwwPreviewDestroy).toContain('timeout-minutes: 10');
     expect(wwwPreviewDestroy).toContain(
       'bun alchemy destroy alchemy.preview.run.ts',
     );
@@ -323,23 +369,26 @@ describe('application infrastructure contract', () => {
       'Destroy demo preview with Alchemy',
     );
     expect(demoPreviewDestroy).toContain('id: destroy-demo');
-    expect(demoPreviewDestroy).toContain('if: always()');
+    expect(demoPreviewDestroy).toContain(
+      "if: always() && steps.preview-intent.outputs.current == 'true'",
+    );
+    expect(demoPreviewDestroy).toContain('timeout-minutes: 10');
     expect(demoPreviewDestroy).toContain(
       'bun alchemy destroy alchemy.preview.run.ts',
     );
     expect(demoPreviewDestroy).toContain('ALCHEMY_PROFILE: preview-ci');
-    expect(previews).toContain('Checkout trusted teardown code');
-    const legacyPreviewDestroy = namedStep(teardown, 'Delete preview Workers');
+    expect(teardown).toContain('Checkout trusted teardown code');
+    const legacyPreviewDestroy = namedStep(
+      teardown,
+      'Delete orphaned preview Workers',
+    );
     expect(legacyPreviewDestroy).toContain('id: delete-workers');
-    expect(legacyPreviewDestroy).toContain('if: always()');
     expect(legacyPreviewDestroy).toContain(
-      '"maelstrom-docs-alchemy-pr-$PR_NUMBER"',
+      "if: always() && steps.preview-intent.outputs.current == 'true'",
     );
+    expect(legacyPreviewDestroy).toContain('timeout-minutes: 12');
     expect(legacyPreviewDestroy).toContain(
-      '"maelstrom-www-alchemy-pr-$PR_NUMBER"',
-    );
-    expect(legacyPreviewDestroy).toContain(
-      '"maelstrom-playground-alchemy-pr-$PR_NUMBER"',
+      'bun scripts/delete-preview-workers.ts',
     );
     expect(namedStep(teardown, 'Find existing preview comment')).toContain(
       'if: always()',

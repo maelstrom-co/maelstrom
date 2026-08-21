@@ -13,9 +13,12 @@ const absentResponse = () =>
 const dependencies = (
   fetch: typeof globalThis.fetch,
   errors: string[] = [],
+  sleeps: number[] = [],
 ) => ({
   fetch,
-  sleep: async () => {},
+  sleep: async (milliseconds: number) => {
+    sleeps.push(milliseconds);
+  },
   log: () => {},
   error: (message: string) => errors.push(message),
 });
@@ -37,8 +40,9 @@ describe('previewWorkerNames', () => {
 });
 
 describe('deletePreviewWorkers', () => {
-  test('repeats every deletion after success so a canceled upload cannot become orphaned', async () => {
+  test('repeats every deletion after success so a timed-out upload cannot become orphaned', async () => {
     const requests: Array<{ url: string; init?: RequestInit }> = [];
+    const sleeps: number[] = [];
     const fetch = Object.assign(
       async (input: string | URL | Request, init?: RequestInit) => {
         requests.push({ url: input.toString(), init });
@@ -52,13 +56,13 @@ describe('deletePreviewWorkers', () => {
         accountId: 'account',
         apiToken: 'secret',
         prNumber: '42',
-        retryDelayMs: 0,
       },
-      dependencies(fetch),
+      dependencies(fetch, [], sleeps),
     );
 
     expect(success).toBeTrue();
-    expect(requests).toHaveLength(18);
+    expect(requests).toHaveLength(36);
+    expect(sleeps).toEqual([60_000, 60_000, 60_000, 60_000, 60_000]);
     expect(
       requests.every(
         ({ url }) =>
@@ -100,7 +104,35 @@ describe('deletePreviewWorkers', () => {
     );
 
     expect(success).toBeTrue();
-    expect(request).toBe(18);
+    expect(request).toBe(36);
+  });
+
+  test('honors Cloudflare retry-after before retrying a rate-limited deletion', async () => {
+    let request = 0;
+    const sleeps: number[] = [];
+    const fetch = Object.assign(async () => {
+      request += 1;
+      return request <= 6
+        ? Response.json(
+            { success: false, errors: [{ code: 1015, message: 'Rate limit' }] },
+            { status: 429, headers: { 'Retry-After': '300' } },
+          )
+        : absentResponse();
+    }, globalThis.fetch);
+
+    const success = await deletePreviewWorkers(
+      {
+        accountId: 'account',
+        apiToken: 'secret',
+        prNumber: '42',
+        attempts: 2,
+        retryDelayMs: 0,
+      },
+      dependencies(fetch, [], sleeps),
+    );
+
+    expect(success).toBeTrue();
+    expect(sleeps).toEqual([300_000]);
   });
 
   test('fails closed when the final response contradicts its HTTP status', async () => {
