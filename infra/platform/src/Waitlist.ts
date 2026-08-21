@@ -16,7 +16,7 @@ const PRODUCTION_ZONE_ID = '4df25ea08d364f19471be7a179ce9f02';
 export const WaitlistPlatform = Effect.gen(function* () {
   const waitlist = yield* Cloudflare.D1.Database('Waitlist', {
     name: WAITLIST_DATABASE_NAME,
-    migrationsDir: resolve(import.meta.dirname, '../migrations'),
+    migrations: resolve(import.meta.dirname, '../migrations'),
   }).pipe(retain(true));
 
   const sending = yield* Cloudflare.Email.SendingSubdomain(

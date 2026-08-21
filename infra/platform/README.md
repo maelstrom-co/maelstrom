@@ -95,13 +95,13 @@ Completed:
 7. Migrated demo PR previews and their isolated `SessionDO` namespaces to
    Alchemy.
 
-`alchemy@2.0.0-beta.72` is patched with
+`alchemy@2.0.0-beta.73` is patched with
 [alchemy-run/alchemy#1300](https://github.com/alchemy-run/alchemy/pull/1300)
 so unresolved Worker bindings do not bypass adoption ownership checks. Remove
-`patches/alchemy@2.0.0-beta.72.patch` when upgrading to a release that includes
+`patches/alchemy@2.0.0-beta.73.patch` when upgrading to a release that includes
 that fix.
 
-`Cloudflare.Website.Astro` is deferred. In beta.72 it runs the Astro build in
+`Cloudflare.Website.Astro` is deferred. In beta.73 it runs the Astro build in
 the credentialed deployment process and cannot scrub Cloudflare credentials or
 hash `DOCS_SOURCE_REF`. Docs therefore keeps its credential-free Nx build and
 lets Alchemy upload only the resulting `dist` artifact.

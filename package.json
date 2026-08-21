@@ -155,7 +155,12 @@
     }
   },
   "dependencies": {},
+  "overrides": {
+    "@hono/node-server": "1.19.15",
+    "hono": "4.13.3",
+    "lodash": "4.18.1"
+  },
   "patchedDependencies": {
-    "alchemy@2.0.0-beta.72": "patches/alchemy@2.0.0-beta.72.patch"
+    "alchemy@2.0.0-beta.73": "patches/alchemy@2.0.0-beta.73.patch"
   }
 }

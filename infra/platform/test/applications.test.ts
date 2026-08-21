@@ -440,17 +440,17 @@ describe('application infrastructure contract', () => {
   test('installs the reviewed Alchemy ownership patch', () => {
     expect(readJson('package.json')).toMatchObject({
       patchedDependencies: {
-        'alchemy@2.0.0-beta.72': 'patches/alchemy@2.0.0-beta.72.patch',
+        'alchemy@2.0.0-beta.73': 'patches/alchemy@2.0.0-beta.73.patch',
       },
     });
     const lockfile = read('bun.lock');
     expect(lockfile).toContain(
-      '"alchemy@2.0.0-beta.72": "patches/alchemy@2.0.0-beta.72.patch"',
+      '"alchemy@2.0.0-beta.73": "patches/alchemy@2.0.0-beta.73.patch"',
     );
 
-    const patch = read('patches/alchemy@2.0.0-beta.72.patch');
+    const patch = read('patches/alchemy@2.0.0-beta.73.patch');
     expect(createHash('sha256').update(patch).digest('hex')).toBe(
-      '78c94e51c3d348164cf79d011ceea30ee8ef3bcfbe3908572b938df11d7f5045',
+      '50f99cadb46c44dd162d7a954e6571257ba9f197d6cfaaabd28421152a8c28a4',
     );
     expect(patch).toContain('resolveReadProps: resolveWorkerReadProps');
     expect(patch).toContain('provider.resolveReadProps?.(news)');
