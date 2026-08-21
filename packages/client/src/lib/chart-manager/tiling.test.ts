@@ -41,10 +41,9 @@ describe('parseTilingTree', () => {
     expect(result).toEqual({
       type: 'split',
       direction: 'H',
-      weights: [1, 1],
       children: [
-        { type: 'leaf', instanceId: InstanceId('inst-1') },
-        { type: 'leaf', instanceId: InstanceId('inst-2') },
+        { weight: 1, node: { type: 'leaf', instanceId: InstanceId('inst-1') } },
+        { weight: 1, node: { type: 'leaf', instanceId: InstanceId('inst-2') } },
       ],
     });
   });
@@ -58,10 +57,9 @@ describe('parseTilingTree', () => {
     expect(result).toEqual({
       type: 'split',
       direction: 'V',
-      weights: [1, 1],
       children: [
-        { type: 'leaf', instanceId: InstanceId('inst-1') },
-        { type: 'leaf', instanceId: InstanceId('inst-2') },
+        { weight: 1, node: { type: 'leaf', instanceId: InstanceId('inst-1') } },
+        { weight: 1, node: { type: 'leaf', instanceId: InstanceId('inst-2') } },
       ],
     });
   });
@@ -76,23 +74,43 @@ describe('parseTilingTree', () => {
     expect(result).toEqual({
       type: 'split',
       direction: 'V',
-      weights: [1, 1, 1],
       children: [
-        { type: 'leaf', instanceId: InstanceId('a') },
-        { type: 'leaf', instanceId: InstanceId('b') },
-        { type: 'leaf', instanceId: InstanceId('c') },
+        { weight: 1, node: { type: 'leaf', instanceId: InstanceId('a') } },
+        { weight: 1, node: { type: 'leaf', instanceId: InstanceId('b') } },
+        { weight: 1, node: { type: 'leaf', instanceId: InstanceId('c') } },
       ],
     });
   });
 
   it('parses uneven weights verbatim', () => {
     const result = parseTilingTree(['H:2,1', InstanceId('a'), InstanceId('b')]);
-    expect(result).toMatchObject({ direction: 'H', weights: [2, 1] });
+    expect(result).toMatchObject({
+      direction: 'H',
+      children: [{ weight: 2 }, { weight: 1 }],
+    });
   });
 
   it('falls back to an even two-way split for a malformed weight suffix', () => {
     const result = parseTilingTree(['V:abc', InstanceId('a'), InstanceId('b')]);
-    expect(result).toMatchObject({ direction: 'V', weights: [1, 1] });
+    expect(result).toMatchObject({
+      direction: 'V',
+      children: [{ weight: 1 }, { weight: 1 }],
+    });
+  });
+
+  it('warns that a malformed weight suffix was repaired', () => {
+    // A seed layout never passes through the engine's heal, so an author who
+    // writes ['V:abc', …] in a DEFAULT_LAYOUT gets a plausible render and,
+    // without this, an empty console.
+    parseTilingTree(['V:abc', InstanceId('a'), InstanceId('b')]);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('unreadable weight suffix'),
+    );
+  });
+
+  it('does not warn for a well-formed weighted token', () => {
+    parseTilingTree(['V:2,1', InstanceId('a'), InstanceId('b')]);
+    expect(warnSpy).not.toHaveBeenCalled();
   });
 
   it('leaves an unfilled child slot undefined', () => {
@@ -102,11 +120,10 @@ describe('parseTilingTree', () => {
       InstanceId('b'),
     ]);
     expect(result).toMatchObject({
-      weights: [1, 1, 1],
       children: [
-        { type: 'leaf', instanceId: InstanceId('a') },
-        { type: 'leaf', instanceId: InstanceId('b') },
-        undefined,
+        { weight: 1, node: { type: 'leaf', instanceId: InstanceId('a') } },
+        { weight: 1, node: { type: 'leaf', instanceId: InstanceId('b') } },
+        { weight: 1, node: undefined },
       ],
     });
   });
@@ -123,17 +140,24 @@ describe('parseTilingTree', () => {
     expect(result).toEqual({
       type: 'split',
       direction: 'H',
-      weights: [1, 1],
       children: [
-        { type: 'leaf', instanceId: InstanceId('inst-1') },
+        { weight: 1, node: { type: 'leaf', instanceId: InstanceId('inst-1') } },
         {
-          type: 'split',
-          direction: 'V',
-          weights: [1, 1],
-          children: [
-            { type: 'leaf', instanceId: InstanceId('inst-2') },
-            { type: 'leaf', instanceId: InstanceId('inst-3') },
-          ],
+          weight: 1,
+          node: {
+            type: 'split',
+            direction: 'V',
+            children: [
+              {
+                weight: 1,
+                node: { type: 'leaf', instanceId: InstanceId('inst-2') },
+              },
+              {
+                weight: 1,
+                node: { type: 'leaf', instanceId: InstanceId('inst-3') },
+              },
+            ],
+          },
         },
       ],
     });
@@ -176,6 +200,31 @@ describe('computeTilingLayout', () => {
       expectedVisibleIds: [weatherId],
     },
     { name: 'null leaf', tree: [null], expectedVisibleIds: [] },
+    {
+      name: 'a weighted split with a null in the middle',
+      tree: ['V:1,1,1', weatherId, null, calendarId],
+      expectedVisibleIds: [weatherId, calendarId],
+    },
+    {
+      name: 'a weighted split one subtree short',
+      tree: ['V:1,1,1', weatherId, calendarId],
+      expectedVisibleIds: [weatherId, calendarId],
+    },
+    {
+      name: 'a weighted split with a trailing token',
+      tree: ['V:1,1', weatherId, calendarId, InstanceId('never-placed')],
+      expectedVisibleIds: [weatherId, calendarId],
+    },
+    {
+      name: 'a malformed weight suffix falling back to two children',
+      tree: ['V:abc', weatherId, calendarId, InstanceId('never-placed')],
+      expectedVisibleIds: [weatherId, calendarId],
+    },
+    {
+      name: 'an empty weight field adding no child slot',
+      tree: ['V:1,1,', weatherId, calendarId, InstanceId('never-placed')],
+      expectedVisibleIds: [weatherId, calendarId],
+    },
   ];
 
   for (const { name, tree, expectedVisibleIds } of visibilityCases) {
@@ -460,19 +509,5 @@ describe('computeTilingLayout — weighted splits', () => {
     expect(tiles.size).toBe(2);
     expect(tiles.get('a')).toEqual({ x: 0, y: 0, width: 300, height: 600 });
     expect(tiles.get('b')).toEqual({ x: 300, y: 0, width: 300, height: 600 });
-  });
-
-  it('matches protocol visibility for a weighted tree', () => {
-    const tree: readonly TilingNode[] = [
-      'V:1,1,1',
-      InstanceId('a'),
-      null,
-      InstanceId('c'),
-    ];
-    const layout: TilingLayout = { type: 'tiling', tree, instances: [] };
-    const tiles = tilesOf(tree);
-    expect(new Set(tiles.keys())).toEqual(
-      new Set(getVisibleInstanceIds(layout)),
-    );
   });
 });

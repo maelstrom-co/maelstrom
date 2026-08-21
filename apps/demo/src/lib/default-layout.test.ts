@@ -18,8 +18,7 @@ function assertCompleteAndCollectLeaves(node: TilingTreeNode | null): string[] {
     expect(node.instanceId).not.toBeNull();
     return node.instanceId === null ? [] : [node.instanceId];
   }
-  expect(node.children).toHaveLength(node.weights.length);
-  return node.children.flatMap((child) => {
+  return node.children.flatMap(({ node: child }) => {
     expect(child).toBeDefined();
     return child ? assertCompleteAndCollectLeaves(child) : [];
   });

@@ -48,6 +48,7 @@ export type {
   ComputedTile,
   Rect,
   TilingLeafNode,
+  TilingSplitChild,
   TilingSplitNode,
   TilingTreeNode,
 } from './lib/chart-manager/tiling.js';

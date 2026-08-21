@@ -28,15 +28,28 @@ export interface TilingSplitNode {
   /** `H` divides top/bottom; `V` divides left/right. */
   readonly direction: TilingSplit;
   /**
-   * One weight per child slot, so `weights.length` is the split's arity and
-   * always matches `children.length`. A bare `H` / `V` token yields `[1, 1]`.
+   * One entry per child slot the token declared, so `children.length` is the
+   * split's arity. A bare `H` / `V` token yields two slots weighted `1` each.
    */
-  readonly weights: readonly number[];
+  readonly children: readonly TilingSplitChild[];
+}
+
+/**
+ * One child slot of a split, carrying the weight its region is sized by.
+ *
+ * The weight travels with the slot rather than in a parallel array, so a split
+ * whose weights and children disagree is unconstructable — the mismatch that
+ * would otherwise hand the last child the wrong fraction of its parent, or
+ * make every rect `NaN` when the weight list is empty.
+ */
+export interface TilingSplitChild {
+  /** Share of the parent region, relative to its siblings' weights. */
+  readonly weight: number;
   /**
-   * One entry per declared child slot, `undefined` where the token array ran
-   * out before the slot could be filled.
+   * The subtree filling this slot, or `undefined` where the token array ran
+   * out before the slot could be filled. The region is left empty either way.
    */
-  readonly children: readonly (TilingTreeNode | undefined)[];
+  readonly node: TilingTreeNode | undefined;
 }
 
 /** Leaf node that either names an Instance or reserves empty space. */
@@ -82,14 +95,24 @@ export function parseTilingTree(
     index++;
 
     if (isTilingSplit(node)) {
-      const { axis, weights } = parseTilingSplitToken(node);
-      const children: (TilingTreeNode | undefined)[] = [];
+      const { axis, weights, repaired } = parseTilingSplitToken(node);
+
+      if (repaired) {
+        // A seed layout never passes through the engine's heal, so this is the
+        // only signal an author gets that the token they wrote is not the
+        // token being rendered.
+        console.warn(
+          `[Maelstrom] Malformed tiling tree: split node '${node}' has an unreadable weight suffix, read as ${weights.length} children weighted ${weights.join(',')}`,
+        );
+      }
+
+      const children: TilingSplitChild[] = [];
       let missing = 0;
 
-      for (let slot = 0; slot < weights.length; slot++) {
+      for (const weight of weights) {
         const child = parseNode();
         if (child === null) missing++;
-        children.push(child ?? undefined);
+        children.push({ weight, node: child ?? undefined });
       }
 
       if (missing > 0) {
@@ -98,7 +121,7 @@ export function parseTilingTree(
         );
       }
 
-      return { type: 'split', direction: axis, weights, children };
+      return { type: 'split', direction: axis, children };
     }
 
     return {
@@ -158,7 +181,7 @@ export function computeTilingLayout(
     const alongHeight = node.direction === 'H';
     const start = alongHeight ? rect.y : rect.x;
     const extent = alongHeight ? rect.height : rect.width;
-    const total = node.weights.reduce((sum, weight) => sum + weight, 0);
+    const total = node.children.reduce((sum, { weight }) => sum + weight, 0);
     const lastIndex = node.children.length - 1;
 
     // Cumulative edges rather than accumulated widths: each child spans
@@ -167,8 +190,8 @@ export function computeTilingLayout(
     let edge = start;
     let cumulative = 0;
 
-    node.children.forEach((child, index) => {
-      cumulative += node.weights[index] ?? 0;
+    node.children.forEach(({ weight, node: child }, index) => {
+      cumulative += weight;
       const nextEdge =
         index === lastIndex
           ? start + extent
