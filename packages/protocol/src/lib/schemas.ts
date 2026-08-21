@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { ActionName } from './action-name.ts';
 import { InstanceId } from './instance.ts';
 import { MAX_ACTION_PARAMS_JSON_UTF8_BYTES } from './model-output-limits.ts';
+import type { TilingNode, TilingSplitToken } from './response.ts';
 import { VariantName } from './variant-name.ts';
 import { VesselId } from './vessel-id.ts';
 
@@ -103,27 +104,34 @@ export const GridLayoutSchema = z.object({
 // ---------------------------------------------------------------------------
 
 /**
- * A node in the tiling binary tree. The transform brands non-special
- * strings as `InstanceId`; `'H'` / `'V'` / `null` pass through unchanged so
- * the discriminator on the consumer side stays a simple string compare.
+ * A node in the tiling tree. The transform brands non-special strings as
+ * `InstanceId`; `null` and any token with an `H` / `V` axis prefix pass
+ * through unchanged.
+ *
+ * The prefix test claims malformed weight suffixes too. Rejecting them here
+ * would cost a model round trip; misreading them as Instance IDs would report
+ * an undeclared leaf instead of a bad weight. Interpretation belongs to
+ * `parseTilingSplitToken`, downstream.
  */
 export const TilingNodeSchema = z
   .string()
   .min(1)
   .nullable()
-  .transform((value) => {
-    if (value === null || value === 'H' || value === 'V') return value;
-    return InstanceId(value);
+  .transform((value): TilingNode => {
+    if (value === null) return value;
+    return SPLIT_TOKEN_PREFIX.test(value)
+      ? (value as TilingSplitToken)
+      : InstanceId(value);
   })
   .describe(
-    'A node in the tiling binary tree: "H" for horizontal split (top/bottom), "V" for vertical split (left/right), vessel instance ID string for leaf nodes, or null for empty space.',
+    'A node in the tiling tree: a split token, a vessel instance ID string for a leaf, or null for empty space. A split token is "H" (top/bottom) or "V" (left/right), optionally followed by ":" and comma-separated positive integer weights, e.g. "V:1,1,1" or "H:2,1". Bare "H"/"V" mean an even two-way split and are the preferred spelling for 50/50. The number of weights IS the number of children that token takes: "V:1,1,1" is followed by exactly three subtrees and gives each one third of the width, "H:2,1" is followed by exactly two and gives them two thirds and one third of the height.',
   );
 
 /** Parses a preorder tiling tree without checking tree completeness or references. */
 export const TilingTreeSchema = z
   .array(TilingNodeSchema)
   .describe(
-    'Preorder traversal of the tiling binary tree. Each split divides the current region in half.',
+    'Preorder traversal of the tiling tree. Each split token consumes exactly as many following subtrees as it declares weights (two for bare "H"/"V"), and divides its region along its axis in proportion to those weights. Use weights for arrangements that halving cannot reach: three equal columns is ["V:1,1,1", a, b, c]; a 3x3 grid is ["H:1,1,1", "V:1,1,1", a, b, c, "V:1,1,1", d, e, f, "V:1,1,1", g, h, i].',
   );
 
 /** Parses and brands an Instance identity, Vessel identity, and current Variant. */
@@ -157,7 +165,7 @@ export const VesselInstanceSnapshotSchema = z.object({
  */
 export const TilingLayoutSchema = z.object({
   tree: TilingTreeSchema.describe(
-    'Binary tree layout as preorder traversal. Instance IDs in this tree are VISIBLE; omitted instances are HIDDEN.',
+    'Tree layout as preorder traversal. Instance IDs in this tree are VISIBLE; omitted instances are HIDDEN. Each instance ID may appear at most once. Split tokens are "H"/"V" for an even two-way split, or an axis with weights such as "V:1,1,1", where the weight count is the number of subtrees that follow it.',
   ),
   instances: z
     .array(VesselInstanceSnapshotSchema)
@@ -165,3 +173,6 @@ export const TilingLayoutSchema = z.object({
       'All instances that should exist after this response. Include both existing instances (to keep) and new instances (to create). Instances not in this list will be deleted. IMPORTANT: When creating a new instance that needs configuration, you must ALSO add an action in executionPlan to configure it.',
     ),
 });
+
+/** Claims every axis-prefixed token, well formed or not. */
+const SPLIT_TOKEN_PREFIX = /^[HV](:|$)/;

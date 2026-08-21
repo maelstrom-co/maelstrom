@@ -12,6 +12,7 @@ import {
   UserIntentReasonSchema,
   VesselMutationReasonSchema,
 } from './request.js';
+import type { TilingSplitToken } from './response.js';
 import type { VesselInstanceSnapshotSchema } from './schemas.js';
 import { VariantName } from './variant-name.js';
 import { VesselId } from './vessel-id.js';
@@ -1112,7 +1113,7 @@ describe('schema branding', () => {
     // carry their respective brand.
     type _TreeNodeBrand = Equals<
       (typeof result.data.layout.tree)[number],
-      'H' | 'V' | InstanceId | null
+      TilingSplitToken | InstanceId | null
     >;
     type _InstancesInstanceIdBranded = Equals<
       (typeof result.data.layout.instances)[number]['instanceId'],

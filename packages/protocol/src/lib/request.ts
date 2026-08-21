@@ -10,6 +10,7 @@ import { InstanceId } from './instance.ts';
 import type { LayoutMode } from './layout.ts';
 import { MAX_EXECUTION_PLAN_ENTRIES } from './model-output-limits.ts';
 import type { GridLayout, TilingLayout } from './response.ts';
+import { isInstanceIdNode } from './response.ts';
 import {
   ActionExecutionSchema,
   GridLayoutSchema,
@@ -386,7 +387,7 @@ export const ChartRequestSchema = z
       });
 
       req.layout.tree.forEach((node, i) => {
-        if (node === null || node === 'H' || node === 'V') return;
+        if (!isInstanceIdNode(node)) return;
         if (!layoutInstanceIds.has(node)) {
           ctx.addIssue({
             code: 'custom',

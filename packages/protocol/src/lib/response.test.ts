@@ -2,10 +2,13 @@ import { describe, expect, test } from 'bun:test';
 
 import { InstanceId } from './instance.js';
 import {
+  findDuplicateTilingLeaf,
+  formatTilingSplitToken,
   type GridLayout,
   getVisibleInstanceIds,
   isInstanceIdNode,
   isTilingSplit,
+  parseTilingSplitToken,
   type TilingLayout,
   type TilingNode,
 } from './response.js';
@@ -20,6 +23,18 @@ describe('isInstanceIdNode', () => {
   test('false for the split operators', () => {
     expect(isInstanceIdNode('H')).toBe(false);
     expect(isInstanceIdNode('V')).toBe(false);
+  });
+
+  test('false for weighted split tokens, malformed suffixes included', () => {
+    expect(isInstanceIdNode('V:1,1,1')).toBe(false);
+    expect(isInstanceIdNode('H:2,1')).toBe(false);
+    expect(isInstanceIdNode('V:')).toBe(false);
+    expect(isInstanceIdNode('H:abc')).toBe(false);
+  });
+
+  test('true for an id that merely starts with an axis letter', () => {
+    expect(isInstanceIdNode(InstanceId('Header'))).toBe(true);
+    expect(isInstanceIdNode(InstanceId('Vessel-1'))).toBe(true);
   });
 
   test('false for null', () => {
@@ -48,6 +63,191 @@ describe('isTilingSplit', () => {
 
   test('false for null', () => {
     expect(isTilingSplit(null)).toBe(false);
+  });
+
+  test('true for weighted tokens on both axes', () => {
+    expect(isTilingSplit('V:1,1,1')).toBe(true);
+    expect(isTilingSplit('H:2,1')).toBe(true);
+  });
+
+  test('claims axis-prefixed tokens whose weights are malformed', () => {
+    // A prefixed token read as a leaf surfaces as "not declared in
+    // layout.instances", which points at the wrong thing entirely.
+    expect(isTilingSplit('V:')).toBe(true);
+    expect(isTilingSplit('H:abc')).toBe(true);
+    expect(isTilingSplit('V:1,,2')).toBe(true);
+  });
+
+  test('false for an id that merely starts with an axis letter', () => {
+    expect(isTilingSplit(InstanceId('Header'))).toBe(false);
+    expect(isTilingSplit(InstanceId('HV'))).toBe(false);
+  });
+});
+
+describe('parseTilingSplitToken', () => {
+  test('bare H and V parse as an even two-way split', () => {
+    expect(parseTilingSplitToken('H')).toEqual({
+      axis: 'H',
+      weights: [1, 1],
+      repaired: false,
+    });
+    expect(parseTilingSplitToken('V')).toEqual({
+      axis: 'V',
+      weights: [1, 1],
+      repaired: false,
+    });
+  });
+
+  test('null for nodes that are not split tokens', () => {
+    expect(parseTilingSplitToken(null)).toBeNull();
+    expect(parseTilingSplitToken(InstanceId('widget-1'))).toBeNull();
+    expect(parseTilingSplitToken(InstanceId('Header'))).toBeNull();
+  });
+
+  test('weight count is the arity', () => {
+    expect(parseTilingSplitToken('V:1,1,1')).toEqual({
+      axis: 'V',
+      weights: [1, 1, 1],
+      repaired: false,
+    });
+    expect(parseTilingSplitToken('H:1,1,1,1,1,1')?.weights).toHaveLength(6);
+  });
+
+  test('uneven weights are preserved verbatim', () => {
+    expect(parseTilingSplitToken('V:2,1')).toEqual({
+      axis: 'V',
+      weights: [2, 1],
+      repaired: false,
+    });
+    expect(parseTilingSplitToken('H:3,1,4')?.weights).toEqual([3, 1, 4]);
+  });
+
+  const repairCases: readonly {
+    readonly token: `${'H' | 'V'}:${string}`;
+    readonly weights: readonly number[];
+    readonly why: string;
+  }[] = [
+    { token: 'V:', weights: [1, 1], why: 'empty suffix' },
+    { token: 'V:abc', weights: [1, 1], why: 'non-numeric single field' },
+    { token: 'V:1', weights: [1, 1], why: 'single field pads to two' },
+    { token: 'V:1,0,2', weights: [1, 1, 2], why: 'zero clamps to one' },
+    { token: 'V:1,-4', weights: [1, 1], why: 'negative clamps to one' },
+    { token: 'V:1,5000', weights: [1, 1000], why: 'above the weight cap' },
+    { token: 'V:1,abc,2', weights: [1, 1, 2], why: 'non-numeric field' },
+    { token: 'V:1,,2', weights: [1, 1, 2], why: 'empty field' },
+    { token: 'V:1.6,1', weights: [2, 1], why: 'fractional rounds' },
+    { token: 'V:1,NaN', weights: [1, 1], why: 'literal NaN' },
+    { token: 'V:1,Infinity', weights: [1, 1], why: 'non-finite' },
+  ];
+
+  for (const { token, weights, why } of repairCases) {
+    test(`repairs "${token}" to [${weights.join(',')}] (${why})`, () => {
+      const parsed = parseTilingSplitToken(token);
+      expect(parsed).toEqual({ axis: 'V', weights, repaired: true });
+    });
+  }
+
+  test('truncates beyond the child cap and reports the repair', () => {
+    const parsed = parseTilingSplitToken(`V:${'1,'.repeat(19)}1`);
+    expect(parsed?.weights).toHaveLength(12);
+    expect(parsed?.repaired).toBe(true);
+  });
+
+  test('a well-formed token at the caps is not reported as repaired', () => {
+    const parsed = parseTilingSplitToken(`H:${'1,'.repeat(11)}1000`);
+    expect(parsed?.weights).toHaveLength(12);
+    expect(parsed?.repaired).toBe(false);
+  });
+
+  test('every parsed weight list is a usable arity', () => {
+    for (const token of ['V', 'V:', 'V:abc', 'V:0', 'V:-1,-1'] as const) {
+      const parsed = parseTilingSplitToken(token);
+      expect(parsed).not.toBeNull();
+      expect(parsed?.weights.length).toBeGreaterThanOrEqual(2);
+      expect(parsed?.weights.every((w) => Number.isInteger(w) && w >= 1)).toBe(
+        true,
+      );
+    }
+  });
+});
+
+describe('formatTilingSplitToken', () => {
+  test('even two-way splits render bare, so unweighted trees round-trip', () => {
+    expect(formatTilingSplitToken('H', [1, 1])).toBe('H');
+    expect(formatTilingSplitToken('V', [1, 1])).toBe('V');
+  });
+
+  test('anything else keeps its weights', () => {
+    expect(formatTilingSplitToken('V', [1, 1, 1])).toBe('V:1,1,1');
+    expect(formatTilingSplitToken('H', [2, 1])).toBe('H:2,1');
+  });
+
+  test('round-trips through the parser', () => {
+    for (const weights of [
+      [1, 1],
+      [2, 1],
+      [1, 1, 1],
+      [3, 1, 4, 1],
+    ]) {
+      const token = formatTilingSplitToken('V', weights);
+      expect(parseTilingSplitToken(token)).toEqual({
+        axis: 'V',
+        weights,
+        repaired: false,
+      });
+    }
+  });
+});
+
+describe('findDuplicateTilingLeaf', () => {
+  test('null when every leaf is distinct', () => {
+    expect(
+      findDuplicateTilingLeaf([
+        'V:1,1,1',
+        InstanceId('a'),
+        InstanceId('b'),
+        InstanceId('c'),
+      ]),
+    ).toBeNull();
+  });
+
+  test('null for an empty tree and for null-only leaves', () => {
+    expect(findDuplicateTilingLeaf([])).toBeNull();
+    expect(findDuplicateTilingLeaf(['H', null, null])).toBeNull();
+  });
+
+  test('reports the repeat, not the first occurrence', () => {
+    expect(
+      findDuplicateTilingLeaf(['V', InstanceId('a'), InstanceId('a')]),
+    ).toEqual({ instanceId: InstanceId('a'), atTokenIndex: 2 });
+  });
+
+  test('finds the first repeat when several exist', () => {
+    expect(
+      findDuplicateTilingLeaf([
+        'H',
+        'V',
+        InstanceId('a'),
+        InstanceId('b'),
+        'V',
+        InstanceId('b'),
+        InstanceId('a'),
+      ]),
+    ).toEqual({ instanceId: InstanceId('b'), atTokenIndex: 5 });
+  });
+
+  test('split tokens repeating is not duplication', () => {
+    expect(
+      findDuplicateTilingLeaf([
+        'H',
+        'V',
+        InstanceId('a'),
+        InstanceId('b'),
+        'V',
+        InstanceId('c'),
+        InstanceId('d'),
+      ]),
+    ).toBeNull();
   });
 });
 
@@ -116,6 +316,40 @@ describe('getVisibleInstanceIds', () => {
     const layout: TilingLayout = { type: 'tiling', tree, instances: [] };
 
     expect([...getVisibleInstanceIds(layout)]).toEqual([...expected]);
+  });
+
+  test('a weighted split consumes as many children as it declares', () => {
+    const layout: TilingLayout = {
+      type: 'tiling',
+      tree: ['V:1,1,1', weatherId, calendarId, tasksId],
+      instances: [],
+    };
+
+    expect([...getVisibleInstanceIds(layout)]).toEqual([
+      weatherId,
+      calendarId,
+      tasksId,
+    ]);
+  });
+
+  test('tokens trailing a weighted root are not visible', () => {
+    const layout: TilingLayout = {
+      type: 'tiling',
+      tree: ['V:1,1', weatherId, calendarId, tasksId],
+      instances: [],
+    };
+
+    expect([...getVisibleInstanceIds(layout)]).toEqual([weatherId, calendarId]);
+  });
+
+  test('a malformed weight suffix still consumes two children', () => {
+    const layout: TilingLayout = {
+      type: 'tiling',
+      tree: ['V:abc', weatherId, calendarId, tasksId],
+      instances: [],
+    };
+
+    expect([...getVisibleInstanceIds(layout)]).toEqual([weatherId, calendarId]);
   });
 
   test('deduplicates repeated tiling leaves', () => {
@@ -207,11 +441,16 @@ describe('getVisibleInstanceIds', () => {
 
 describe('isInstanceIdNode + isTilingSplit partition TilingNode', () => {
   test('every non-null node is classified by exactly one predicate', () => {
-    const nodes = [
+    const nodes: TilingNode[] = [
       InstanceId('widget-1'),
       InstanceId('calendar-main'),
-      'H' as const,
-      'V' as const,
+      InstanceId('Header'),
+      'H',
+      'V',
+      'V:1,1,1',
+      'H:2,1',
+      'V:',
+      'H:abc',
     ];
     for (const node of nodes) {
       expect(isInstanceIdNode(node) !== isTilingSplit(node)).toBe(true);
@@ -221,5 +460,23 @@ describe('isInstanceIdNode + isTilingSplit partition TilingNode', () => {
   test('null is classified by neither', () => {
     expect(isInstanceIdNode(null)).toBe(false);
     expect(isTilingSplit(null)).toBe(false);
+  });
+});
+
+describe('isTilingSplit and parseTilingSplitToken agree', () => {
+  test('a node is a split token exactly when it parses', () => {
+    const nodes: TilingNode[] = [
+      null,
+      InstanceId('widget-1'),
+      InstanceId('Header'),
+      'H',
+      'V',
+      'V:1,1,1',
+      'V:',
+      'H:abc',
+    ];
+    for (const node of nodes) {
+      expect(parseTilingSplitToken(node) !== null).toBe(isTilingSplit(node));
+    }
   });
 });
