@@ -114,6 +114,21 @@ describe('application infrastructure contract', () => {
         },
       },
     });
+
+    const previewStack = read('apps/www/alchemy.preview.run.ts');
+    expect(previewStack).toContain("'MaelstromWwwPreview'");
+    expect(previewStack).toContain("requirePreviewStage('www preview')");
+    const previewWebsite = read('apps/www/infra/PreviewWebsite.ts');
+    expect(previewWebsite).toContain(
+      `name: \`maelstrom-www-alchemy-${'$'}{stage}\``,
+    );
+    expect(previewWebsite).toContain('workersDev: true');
+    expect(previewWebsite).toContain("Cloudflare.Images.Images('IMAGES')");
+    expect(previewWebsite).not.toContain('WaitlistDatabase');
+    expect(previewWebsite).not.toContain('WaitlistTurnstile');
+    expect(previewWebsite).not.toContain('SendEmail');
+    expect(previewWebsite).not.toContain('domain:');
+    expect(previewWebsite).not.toContain('retain(');
   });
 
   test('preserves the hosted demo and Durable Object contracts', () => {
