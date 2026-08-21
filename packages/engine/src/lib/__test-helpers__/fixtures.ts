@@ -7,7 +7,6 @@ import type {
   TilingLayout,
   TilingNode,
   TilingResponse,
-  TilingSplitToken,
   Vessel,
   VesselAction,
   VesselInstanceSnapshot,
@@ -16,6 +15,7 @@ import type {
 import {
   ActionName,
   InstanceId,
+  isTilingSplitTokenString,
   VariantName,
   VesselId,
 } from '@maelstrom-co/protocol';
@@ -604,7 +604,5 @@ export function buildSkippedAction(author: AuthorSkippedAction): SkippedAction {
  */
 function brandTilingNode(node: AuthorTilingNode): TilingNode {
   if (node === null) return node;
-  return /^[HV](:|$)/.test(node)
-    ? (node as TilingSplitToken)
-    : InstanceId(node);
+  return isTilingSplitTokenString(node) ? node : InstanceId(node);
 }

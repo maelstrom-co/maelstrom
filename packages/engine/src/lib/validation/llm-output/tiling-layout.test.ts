@@ -5,7 +5,7 @@ import type {
   TilingResponse,
   TilingSplitToken,
 } from '@maelstrom-co/protocol';
-import { InstanceId } from '@maelstrom-co/protocol';
+import { InstanceId, isTilingSplitTokenString } from '@maelstrom-co/protocol';
 
 import {
   brandTilingResponse,
@@ -52,7 +52,7 @@ function requestWithVessels(): ChartRequest {
 function tree(...nodes: Array<string | null>): TilingNode[] {
   return nodes.map((n) => {
     if (n === null) return n;
-    return /^[HV](:|$)/.test(n) ? (n as TilingSplitToken) : InstanceId(n);
+    return isTilingSplitTokenString(n) ? n : InstanceId(n);
   });
 }
 
@@ -412,7 +412,7 @@ describe('healTilingLayout', () => {
     expect(healed.droppedEntries).toEqual([]);
   });
 
-  test('same leaf id referenced twice in the tree is dropped to one', () => {
+  test('same leaf id referenced twice in the tree is blanked to one', () => {
     // Pins the opposite of what this test used to assert. The shipped
     // renderer merges duplicate tiles into their bounding box, which is only
     // the right rectangle when the duplicates happen to form one — reorder
@@ -434,16 +434,15 @@ describe('healTilingLayout', () => {
       }),
       requestWithVessels(),
     );
-    // Removing the repeat leaves the split one child short, which collapses
-    // it to its survivor.
-    expect(healed.layout.tree).toEqual(tree('calendar-main'));
+    // The repeat becomes empty space rather than vanishing, so the split
+    // keeps the arity it declared and the survivor keeps its half.
+    expect(healed.layout.tree).toEqual(tree('V', 'calendar-main', null));
     expect(healed.droppedEntries).toEqual([
       {
         reason: 'tree_duplicate_leaf',
         atTokenIndex: 2,
         instanceId: InstanceId('calendar-main'),
       },
-      { reason: 'tree_missing_child', atTokenIndex: 0 },
     ]);
   });
 
@@ -460,7 +459,7 @@ describe('healTilingLayout', () => {
       }),
       requestWithVessels(),
     );
-    expect(healed.layout.tree).toEqual(tree('V', 'a', 'b'));
+    expect(healed.layout.tree).toEqual(tree('V:1,1,1', 'a', 'b', null));
     expect(healed.droppedEntries).toContainEqual({
       reason: 'tree_duplicate_leaf',
       atTokenIndex: 3,
@@ -468,7 +467,7 @@ describe('healTilingLayout', () => {
     });
   });
 
-  test('dropping a duplicate reshapes the tree around it', () => {
+  test('blanking a duplicate leaves the surrounding shape intact', () => {
     const healed = healTilingLayout(
       makeTilingResponse({
         layout: {
@@ -482,15 +481,63 @@ describe('healTilingLayout', () => {
       }),
       requestWithVessels(),
     );
-    // Removing a token from a preorder array re-parents everything after it:
-    // the inner `V` slides into the slot the duplicate vacated, the outer `H`
-    // is left one child short, and collapses to its survivor.
-    expect(healed.layout.tree).toEqual(tree('V', 'a', 'V', 'b', 'c'));
-    expect(healed.droppedEntries).toContainEqual({
-      reason: 'tree_duplicate_leaf',
-      atTokenIndex: 3,
-      instanceId: InstanceId('a'),
-    });
+    // Removing the token instead would re-parent everything after it: the
+    // inner `V` would slide into the slot the duplicate vacated, the outer
+    // `H` would be left a child short and collapse, and the top-level axis
+    // would flip. Blanking costs the repeat its tile and nothing else.
+    expect(healed.layout.tree).toEqual(
+      tree('H', 'V', 'a', null, 'V', 'b', 'c'),
+    );
+    expect(healed.droppedEntries).toEqual([
+      {
+        reason: 'tree_duplicate_leaf',
+        atTokenIndex: 3,
+        instanceId: InstanceId('a'),
+      },
+    ]);
+  });
+
+  test('duplicate, orphan and repaired-weight indices share one coordinate space', () => {
+    // Every diagnostic cites a position in the tree the model emitted. A
+    // duplicate that shortened the array would shift every later index by
+    // one, so two different tokens would report the same index and the
+    // rendered "at token index N" would point at the wrong token.
+    const healed = healTilingLayout(
+      makeTilingResponse({
+        layout: {
+          tree: ['H', 'V', 'a', 'a', 'V:xyz', 'ghost', 'c'],
+          instances: [
+            { instanceId: 'a', vesselId: 'calendar', variant: 'month' },
+            { instanceId: 'c', vesselId: 'calendar', variant: 'month' },
+          ],
+        },
+      }),
+      requestWithVessels(),
+    );
+
+    expect(healed.droppedEntries).toEqual([
+      {
+        reason: 'tree_duplicate_leaf',
+        atTokenIndex: 3,
+        instanceId: InstanceId('a'),
+      },
+      {
+        reason: 'tree_orphan_reference',
+        atTokenIndex: 5,
+        instanceId: InstanceId('ghost'),
+      },
+    ]);
+    expect(healed.warnings).toEqual([
+      {
+        kind: 'split_weights_repaired',
+        atTokenIndex: 4,
+        token: 'V:xyz',
+        weights: [1, 1],
+      },
+    ]);
+    // Index 3 is the repeated 'a', 4 is 'V:xyz', 5 is 'ghost' — the exact
+    // positions they occupy in the emitted array.
+    expect(healed.layout.tree).toEqual(tree('H', 'V', 'a', null, 'c'));
   });
 
   test('distinct split sites produce distinct tree_missing_child drops', () => {
@@ -679,7 +726,7 @@ describe('healTilingLayout — weighted splits', () => {
   });
 
   const repairCases: readonly {
-    readonly token: string;
+    readonly token: TilingSplitToken;
     readonly weights: readonly number[];
     readonly healedTo: TilingSplitToken;
   }[] = [
@@ -708,6 +755,44 @@ describe('healTilingLayout — weighted splits', () => {
   test('a well-formed weighted token warns about nothing', () => {
     const healed = healTree(['V:2,1', 'a', 'b']);
     expect(healed.warnings).toEqual([]);
+  });
+
+  test('an empty weight field adds no child, so the outer split survives', () => {
+    // Reading the stray comma as a third child would make the inner split
+    // consume 'c', starving the outer 'H' and deleting it from the layout.
+    const healed = healTree(['H', 'V:1,1,', 'a', 'b', 'c']);
+    expect(healed.layout.tree).toEqual(tree('H', 'V', 'a', 'b', 'c'));
+    expect(healed.droppedEntries).toEqual([]);
+    expect(healed.warnings).toEqual([
+      {
+        kind: 'split_weights_repaired',
+        atTokenIndex: 1,
+        token: 'V:1,1,',
+        weights: [1, 1],
+      },
+    ]);
+  });
+
+  test('a split declaring more children than the cap is a drop, not a repair', () => {
+    // Truncation cuts the token's arity, and arity is what advances the
+    // preorder cursor — the subtrees the discarded slots would have taken are
+    // re-parented onto an ancestor rather than removed. That is a different
+    // layout, so it must reach `droppedEntries` where the retry hint can see
+    // it; a warning alone would report a healthy heal.
+    const ids = Array.from({ length: 14 }, (_, i) => `k${i}`);
+    const healed = healTree(
+      [`V:${'1,'.repeat(19)}1`, ...ids, 'tail'],
+      [...ids, 'tail'],
+    );
+    expect(healed.droppedEntries).toContainEqual({
+      reason: 'tree_split_truncated',
+      atTokenIndex: 0,
+      declaredChildCount: 20,
+      keptChildCount: 12,
+    });
+    expect(healed.warnings).toContainEqual(
+      expect.objectContaining({ kind: 'split_weights_repaired' }),
+    );
   });
 
   test('a token declaring twelve children with three following does not overflow', () => {

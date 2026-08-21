@@ -31,31 +31,36 @@ export function pruneAst(
     if (task.op === 'combine') {
       // A 'split' pushes combine, then visit(child) for each child in reverse
       // (LIFO), so children resolve left to right and their results sit on the
-      // stack in that order — all `childCount` are guaranteed present here.
+      // stack in that order — one per declared weight, all present here.
       const children: TilingNode[][] = [];
-      for (let i = 0; i < task.childCount; i++) {
+      for (let i = 0; i < task.weights.length; i++) {
         // biome-ignore lint/style/noNonNullAssertion: paired visit results guaranteed pushed before this combine runs
         children.push(results.pop()!);
       }
       children.reverse();
 
-      const survivingWeights: number[] = [];
-      const survivingChildren: TilingNode[][] = [];
-      children.forEach((child, index) => {
-        if (child.length === 0) return;
-        survivingChildren.push(child);
-        survivingWeights.push(task.weights[index] ?? 1);
+      const survivors = task.weights.flatMap((weight, index) => {
+        const tokens = children[index];
+        return tokens === undefined || tokens.length === 0
+          ? []
+          : [{ weight, tokens }];
       });
 
-      const onlyChild = survivingChildren[0];
-      if (onlyChild === undefined) {
+      const [first, second, ...rest] = survivors;
+      if (first === undefined) {
         results.push([]);
-      } else if (survivingChildren.length === 1) {
-        results.push(onlyChild);
+      } else if (second === undefined) {
+        results.push(first.tokens);
       } else {
         results.push([
-          formatTilingSplitToken(task.axis, survivingWeights),
-          ...survivingChildren.flat(),
+          formatTilingSplitToken(task.axis, [
+            first.weight,
+            second.weight,
+            ...rest.map(({ weight }) => weight),
+          ]),
+          ...first.tokens,
+          ...second.tokens,
+          ...rest.flatMap(({ tokens }) => tokens),
         ]);
       }
       continue;
@@ -84,12 +89,11 @@ export function pruneAst(
         work.push({
           op: 'combine',
           axis: node.axis,
-          weights: node.weights,
-          childCount: node.children.length,
+          weights: node.children.map(({ weight }) => weight),
         });
         for (let i = node.children.length - 1; i >= 0; i--) {
           // biome-ignore lint/style/noNonNullAssertion: index is bounded by children.length
-          work.push({ op: 'visit', node: node.children[i]! });
+          work.push({ op: 'visit', node: node.children[i]!.node });
         }
         continue;
       default:
