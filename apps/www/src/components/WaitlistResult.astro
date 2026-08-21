@@ -25,14 +25,17 @@ const { eyebrow, title, message } = Astro.props;
     display: grid;
     place-items: center;
     padding: 2rem;
+    position: relative;
+    z-index: 2;
   }
 
   .result-card {
     width: min(100%, 42rem);
     padding: clamp(2rem, 6vw, 4rem);
-    border: 1px solid var(--border);
+    border: 1px solid var(--line-2);
     border-radius: 1.5rem;
-    background: var(--surface);
+    background: rgba(7, 9, 15, 0.82);
+    backdrop-filter: blur(18px);
     text-align: center;
   }
 
@@ -45,7 +48,7 @@ const { eyebrow, title, message } = Astro.props;
   p {
     margin: 0 auto 2rem;
     max-width: 32rem;
-    color: var(--text-muted);
+    color: var(--text-2);
     line-height: 1.7;
   }
 

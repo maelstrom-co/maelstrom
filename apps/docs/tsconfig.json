@@ -46,6 +46,9 @@
       "path": "../../packages/react"
     },
     {
+      "path": "../../infra/platform"
+    },
+    {
       "path": "./tsconfig.e2e.json"
     }
   ]

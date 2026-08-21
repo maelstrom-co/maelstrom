@@ -19,12 +19,16 @@
     "react-dom": "catalog:"
   },
   "devDependencies": {
+    "@effect/platform-bun": "4.0.0-rc.111",
+    "@maelstrom-co/platform-infra": "workspace:*",
     "@astrojs/check": "catalog:",
     "@astrojs/cloudflare": "catalog:",
     "@playwright/test": "^1.61.1",
     "@tailwindcss/vite": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
+    "alchemy": "2.0.0-beta.72",
+    "effect": "4.0.0-rc.111",
     "tailwindcss": "catalog:",
     "typescript": "catalog:",
     "vite-tsconfig-paths": "catalog:"
@@ -76,12 +80,13 @@
         "cache": false,
         "options": {
           "cwd": "{projectRoot}",
-          "command": "wrangler deploy"
+          "command": "alchemy deploy --stage prod"
         }
       },
       "typecheck": {
         "dependsOn": [
           "build",
+          "infra-typecheck",
           "typegen"
         ],
         "inputs": [
@@ -101,6 +106,22 @@
               "wrangler"
             ]
           }
+        ]
+      },
+      "infra-typecheck": {
+        "command": "tsc --noEmit -p tsconfig.alchemy.json",
+        "options": {
+          "cwd": "{projectRoot}"
+        },
+        "cache": true,
+        "inputs": [
+          "{projectRoot}/alchemy.run.ts",
+          "{projectRoot}/infra/**/*.ts",
+          "{projectRoot}/tsconfig.alchemy.json",
+          "{workspaceRoot}/infra/platform/src/**/*.ts",
+          "{workspaceRoot}/infra/platform/*.json",
+          "{workspaceRoot}/package.json",
+          "{workspaceRoot}/bun.lock"
         ]
       }
     }

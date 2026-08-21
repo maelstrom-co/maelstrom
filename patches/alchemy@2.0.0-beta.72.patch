@@ -1,0 +1,189 @@
+diff --git a/src/Cloudflare/Workers/WorkerProvider.ts b/src/Cloudflare/Workers/WorkerProvider.ts
+index 1687f8d0007cf2a97ecf73d2071d9658f22e0b9b..39542151d73834f1245646342e7c9089a7b0af6d 100644
+--- a/src/Cloudflare/Workers/WorkerProvider.ts
++++ b/src/Cloudflare/Workers/WorkerProvider.ts
+@@ -19,12 +19,19 @@ import { Unowned } from "../../AdoptPolicy.ts";
+ import * as Artifacts from "../../Artifacts.ts";
+ import type { ScopedPlanStatusSession } from "../../Cli/Cli.ts";
+ import { hashDirectory, type MemoOptions } from "../../Command/Memo.ts";
+-import { havePropsChanged, isResolved, stripEffects } from "../../Diff.ts";
++import {
++  havePropsChanged,
++  isResolved,
++  stripEffects,
++  stripUnresolved,
++} from "../../Diff.ts";
++import type { Input } from "../../Input.ts";
+ import * as ProviderLayer from "../../Local/ProviderLayer.ts";
+ import * as Provider from "../../Provider.ts";
+ import { type ResourceBinding } from "../../Resource.ts";
+ import { Stack } from "../../Stack.ts";
+ import { cachedFunction } from "../../Util/cached-function.ts";
++import { isPlainData } from "../../Util/data.ts";
+ import { initialCwd } from "../../Util/Node.ts";
+ import { sha256Object } from "../../Util/sha256.ts";
+ import { CloudflareEnvironment } from "../CloudflareEnvironment.ts";
+@@ -212,6 +219,77 @@ export const resolveVersionParentName = (
+   return typeof workerName === "string" ? workerName : undefined;
+ };
+-
++
++type WorkerReadInput = {
++  [K in keyof WorkerProps]?: Input<WorkerProps[K]>;
++};
++
++/**
++ * Project desired Worker props for a cold adoption read. Script name,
++ * dispatch namespace, and version parent determine which cloud resource is
++ * read, so each must already have a concrete identity. Other unresolved
++ * leaves, such as bindings in `env`, are safe to omit from the read.
++ *
++ * Domain, route, and cron props control optional observation calls. Keep each
++ * surface only when its complete declaration is resolved; reconcile performs
++ * the forced adoption update from the original desired props afterward.
++ *
++ * @internal exported for unit testing.
++ */
++export const resolveWorkerReadProps = (
++  news: Input<WorkerProps>,
++): Option.Option<WorkerProps> => {
++  if (!isPlainData(news) || Array.isArray(news)) return Option.none();
++  const desired = news as WorkerReadInput;
++
++  const name = desired.name;
++  if (name !== undefined && typeof name !== "string") return Option.none();
++
++  const namespace = desired.namespace;
++  let namespaceName: string | undefined;
++  if (namespace != null) {
++    if (
++      typeof namespace !== "string" &&
++      (!isPlainData(namespace) || Array.isArray(namespace))
++    ) {
++      return Option.none();
++    }
++    namespaceName = resolveNamespaceName(namespace);
++    if (typeof namespaceName !== "string") return Option.none();
++  }
++
++  const version = desired.version;
++  let parentName: string | undefined;
++  if (version != null) {
++    if (!isPlainData(version) || Array.isArray(version)) return Option.none();
++    const parent = version.parent;
++    if (parent != null) {
++      parentName =
++        typeof parent === "string"
++          ? parent
++          : isPlainData(parent) && !Array.isArray(parent)
++            ? typeof parent.workerName === "string"
++              ? parent.workerName
++              : undefined
++            : undefined;
++      if (parentName === undefined) return Option.none();
++    }
++  }
++
++  const projected = stripUnresolved(desired) as WorkerProps;
++  projected.name = name;
++  projected.namespace = namespaceName;
++  if (parentName === undefined) {
++    delete projected.version;
++  } else {
++    projected.version = { parent: parentName };
++  }
++  if (!isResolved(desired.domain)) delete projected.domain;
++  if (!isResolved(desired.routes)) delete projected.routes;
++  if (!isResolved(desired.crons)) delete projected.crons;
++
++  return Option.some(projected);
++};
++
+ /**
+  * The traffic percentage a *self-owned* Worker's new version should receive,
+  * or `undefined` for the default full cutover. Only a `version` prop without
+@@ -4068,6 +4146,7 @@ export const LiveWorkerProvider = () =>
+-
++
+       return Worker.Provider.of({
+         stables: ["workerId", "workerName"],
++        resolveReadProps: resolveWorkerReadProps,
+         list: () =>
+           Effect.gen(function* () {
+             const { accountId } = yield* yield* CloudflareEnvironment;
+diff --git a/src/Plan.ts b/src/Plan.ts
+index 8b37f64ea0d2e6b8e983ab59701a03841511ac64..8d99d690b4f13407fbb94d43c5ffed4d4d4dccec 100644
+--- a/src/Plan.ts
++++ b/src/Plan.ts
+@@ -1147,13 +1147,10 @@ export const make = <A>(
+             // update keeps the deploy idempotent: if cloud state already
+             // matches news, the provider's update is a no-op write.
+             //
+-            // Skip the adoption probe entirely when `news` still contains
+-            // unresolved upstream Outputs (e.g. a `streamArn` referencing
+-            // a stream being created in the same plan). Calling `read` with
+-            // an unresolved value would surface as `ParseError` from the
+-            // SDK protocol layer. Resources whose props depend on
+-            // not-yet-created upstreams cannot themselves be pre-existing
+-            // — there's nothing to adopt.
++            // Providers may opt into cold reads with unresolved desired props
++            // by projecting them to a safe shape. The projection owns the
++            // provider-specific distinction between identity and unrelated
++            // inputs. Without one, unresolved props skip the probe as before.
+             // A resource declared at a former FQN whose row just migrated
+             // away is genuinely NEW by declaration — skip the probe. Its
+             // predecessor's physical resource still carries tags branded
+@@ -1162,10 +1159,25 @@ export const make = <A>(
+             // and silently adopt the very resource that was renamed away.
+             const reusesMigratedFqn = migratedRowFqns.has(fqn);
+             let forceUpdateAfterAdoption = false;
++            const readProps =
++              oldState === undefined && provider.read && !reusesMigratedFqn
++                ? isResolved(news)
++                  ? Option.some(news)
++                  : (provider.resolveReadProps?.(news) ?? Option.none())
++                : Option.none();
++            if (Option.isSome(readProps) && !isResolved(readProps.value)) {
++              return yield* Effect.die(
++                new Error(
++                  `Provider '${resource.Type}' returned unresolved props from ` +
++                    `resolveReadProps for '${fqn}'. The hook must return fully ` +
++                    "resolved props or None.",
++                ),
++              );
++            }
+             if (
+               oldState === undefined &&
+               provider.read &&
+-              isResolved(news) &&
++              Option.isSome(readProps) &&
+               !reusesMigratedFqn
+             ) {
+               const adoptInstanceId = yield* generateInstanceId();
+@@ -1174,7 +1186,7 @@ export const make = <A>(
+                   id,
+                   fqn,
+                   instanceId: adoptInstanceId,
+-                  olds: news,
++                  olds: readProps.value,
+                   output: undefined,
+                 })
+                 .pipe(providePlanScope(fqn, adoptInstanceId));
+diff --git a/src/Provider.ts b/src/Provider.ts
+index f4ee819f49c27c32be5caac3e69ff74c9601d25b..7adeea89d186f875b08d813494501f3125807a6f 100644
+--- a/src/Provider.ts
++++ b/src/Provider.ts
+@@ -241,6 +241,13 @@ export interface ProviderService<
+     // what is the ARN?
+     output: Res["Attributes"] | undefined; // current state -> synced state
+   }): Effect.Effect<Res["Attributes"] | undefined, any, ReadReq>;
++  /**
++   * Projects unresolved desired props into a safe, resolved shape for a cold
++   * adoption read. Return `None` when any physical-identity input needed by
++   * {@link read} is still unresolved. Providers without this hook retain the
++   * default behavior of skipping cold reads until all desired props resolve.
++   */
++  resolveReadProps?(news: Input<Props<Res>>): Option.Option<Props<Res>>;
+   /**
+    * Properties that are always stable across any update.
+    */

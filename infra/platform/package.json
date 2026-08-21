@@ -1,11 +1,14 @@
 {
-  "name": "@maelstrom-co/alchemy",
+  "name": "@maelstrom-co/platform-infra",
   "version": "0.0.1",
   "private": true,
   "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "scripts": {
-    "test": "bun test src",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "bun test test",
+    "typecheck": "tsc --noEmit -p tsconfig.lib.json && tsc -p tsconfig.infra.json",
     "validate": "bun run typecheck && bun run test"
   },
   "nx": {

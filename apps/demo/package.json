@@ -146,6 +146,7 @@
       "typecheck": {
         "dependsOn": [
           "build",
+          "infra-typecheck",
           "typegen"
         ],
         "inputs": [
@@ -171,6 +172,22 @@
           "{projectRoot}/out-tsc/vitest/**/*.d.ts",
           "{projectRoot}/out-tsc/vitest/**/*.d.ts.map",
           "{projectRoot}/out-tsc/vitest/tsconfig.spec.tsbuildinfo"
+        ]
+      },
+      "infra-typecheck": {
+        "command": "tsc --noEmit -p tsconfig.alchemy.json",
+        "options": {
+          "cwd": "{projectRoot}"
+        },
+        "cache": true,
+        "inputs": [
+          "{projectRoot}/alchemy.run.ts",
+          "{projectRoot}/infra/**/*.ts",
+          "{projectRoot}/tsconfig.alchemy.json",
+          "{workspaceRoot}/infra/platform/src/**/*.ts",
+          "{workspaceRoot}/infra/platform/*.json",
+          "{workspaceRoot}/package.json",
+          "{workspaceRoot}/bun.lock"
         ]
       }
     }
@@ -209,6 +226,8 @@
     "zod": "catalog:"
   },
   "devDependencies": {
+    "@effect/platform-bun": "4.0.0-rc.111",
+    "@maelstrom-co/platform-infra": "workspace:*",
     "@tailwindcss/vite": "catalog:",
     "@testing-library/dom": "catalog:",
     "@testing-library/react": "catalog:",
@@ -216,7 +235,9 @@
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react": "catalog:",
+    "alchemy": "2.0.0-beta.72",
     "concurrently": "^9.1.2",
+    "effect": "4.0.0-rc.111",
     "happy-dom": "catalog:",
     "tailwindcss": "catalog:",
     "typescript": "catalog:",

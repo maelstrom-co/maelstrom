@@ -14,21 +14,17 @@
   ],
   "exclude": ["dist", "node_modules", "src/**/*.test.ts", "src/**/*.test.tsx"],
   "references": [
-    // Explicit `tsconfig.json` file paths, not the bare directories tsc also
-    // accepts. Playwright 1.62 resolves this file's `references` when it loads
-    // anything in this folder and does not implement tsc's directory ->
-    // tsconfig.json fallback, so bare directories abort the e2e run with
-    // "Failed to resolve references path" before a single test executes.
-    // `@nx/js:typescript-sync` treats these as up to date (verified with
-    // `nx sync:check`); it is `tsconfig.lib.json` that it rejects, not this.
     {
-      "path": "../../packages/react/tsconfig.json"
+      "path": "../../packages/react"
     },
     {
-      "path": "../../packages/protocol/tsconfig.json"
+      "path": "../../packages/protocol"
     },
     {
-      "path": "../../packages/client/tsconfig.json"
+      "path": "../../packages/client"
+    },
+    {
+      "path": "../../infra/platform"
     },
     {
       "path": "./tsconfig.e2e.json"

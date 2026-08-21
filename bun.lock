@@ -89,6 +89,8 @@
         "zod": "catalog:",
       },
       "devDependencies": {
+        "@effect/platform-bun": "4.0.0-rc.111",
+        "@maelstrom-co/platform-infra": "workspace:*",
         "@tailwindcss/vite": "catalog:",
         "@testing-library/dom": "catalog:",
         "@testing-library/react": "catalog:",
@@ -96,7 +98,9 @@
         "@types/react": "catalog:",
         "@types/react-dom": "catalog:",
         "@vitejs/plugin-react": "catalog:",
+        "alchemy": "2.0.0-beta.72",
         "concurrently": "^9.1.2",
+        "effect": "4.0.0-rc.111",
         "happy-dom": "catalog:",
         "tailwindcss": "catalog:",
         "typescript": "catalog:",
@@ -119,7 +123,9 @@
       },
       "devDependencies": {
         "@astrojs/check": "catalog:",
+        "@effect/platform-bun": "4.0.0-rc.111",
         "@maelstrom-co/client": "workspace:*",
+        "@maelstrom-co/platform-infra": "workspace:*",
         "@maelstrom-co/protocol": "workspace:*",
         "@maelstrom-co/react": "workspace:*",
         "@maelstrom-co/react-realtime": "workspace:*",
@@ -136,7 +142,9 @@
         "@types/jsdom": "^21.1.7",
         "@types/react": "catalog:",
         "@types/react-dom": "catalog:",
+        "alchemy": "2.0.0-beta.72",
         "astro-mermaid": "^2.1.0",
+        "effect": "4.0.0-rc.111",
         "jsdom": "catalog:",
         "mermaid": "^11.15.0",
         "starlight-llms-txt": "^0.11.0",
@@ -164,13 +172,31 @@
       "devDependencies": {
         "@astrojs/check": "catalog:",
         "@astrojs/cloudflare": "catalog:",
+        "@effect/platform-bun": "4.0.0-rc.111",
+        "@maelstrom-co/platform-infra": "workspace:*",
         "@playwright/test": "^1.61.1",
         "@tailwindcss/vite": "catalog:",
         "@types/react": "catalog:",
         "@types/react-dom": "catalog:",
+        "alchemy": "2.0.0-beta.72",
+        "effect": "4.0.0-rc.111",
         "tailwindcss": "catalog:",
         "typescript": "catalog:",
         "vite-tsconfig-paths": "catalog:",
+      },
+    },
+    "infra/platform": {
+      "name": "@maelstrom-co/platform-infra",
+      "version": "0.0.1",
+      "dependencies": {
+        "@effect/platform-bun": "4.0.0-rc.111",
+        "alchemy": "2.0.0-beta.72",
+        "effect": "4.0.0-rc.111",
+      },
+      "devDependencies": {
+        "@types/bun": "*",
+        "jsonc-parser": "3.3.1",
+        "typescript": "catalog:",
       },
     },
     "packages/client": {
@@ -188,7 +214,7 @@
       "name": "@maelstrom-co/engine",
       "version": "0.1.0-alpha.2",
       "dependencies": {
-        "@maelstrom-co/protocol": "0.1.0-alpha.0",
+        "@maelstrom-co/protocol": "0.1.0-alpha.2",
         "@tanstack/ai": "catalog:",
         "zod": "catalog:",
       },
@@ -223,10 +249,10 @@
       "name": "@maelstrom-co/react-realtime",
       "version": "0.1.0-alpha.2",
       "dependencies": {
-        "@maelstrom-co/client": "0.1.0-alpha.0",
-        "@maelstrom-co/protocol": "0.1.0-alpha.0",
-        "@maelstrom-co/react": "0.1.0-alpha.0",
-        "@maelstrom-co/realtime": "0.1.0-alpha.0",
+        "@maelstrom-co/client": "0.1.0-alpha.2",
+        "@maelstrom-co/protocol": "0.1.0-alpha.2",
+        "@maelstrom-co/react": "0.1.0-alpha.2",
+        "@maelstrom-co/realtime": "0.1.0-alpha.2",
       },
       "devDependencies": {
         "@testing-library/react": "catalog:",
@@ -252,11 +278,11 @@
       "name": "@maelstrom-co/realtime-livekit",
       "version": "0.1.0-alpha.2",
       "dependencies": {
-        "@maelstrom-co/client": "0.1.0-alpha.0",
-        "@maelstrom-co/protocol": "0.1.0-alpha.0",
-        "@maelstrom-co/realtime": "0.1.0-alpha.0",
-        "@maelstrom-co/realtime-protocol": "0.0.0",
-        "@maelstrom-co/realtime-vad": "0.0.0",
+        "@maelstrom-co/client": "0.1.0-alpha.2",
+        "@maelstrom-co/protocol": "0.1.0-alpha.2",
+        "@maelstrom-co/realtime": "0.1.0-alpha.2",
+        "@maelstrom-co/realtime-protocol": "0.1.0-alpha.2",
+        "@maelstrom-co/realtime-vad": "0.1.0-alpha.2",
         "zod": "catalog:",
       },
       "devDependencies": {
@@ -275,15 +301,15 @@
         "@livekit/agents-plugin-cartesia": "^1.4.8",
         "@livekit/agents-plugin-deepgram": "^1.4.8",
         "@livekit/rtc-node": "^0.13.29",
-        "@maelstrom-co/realtime-protocol": "0.0.0",
+        "@maelstrom-co/realtime-protocol": "0.1.0-alpha.2",
       },
     },
     "packages/realtime-livekit-server": {
       "name": "@maelstrom-co/realtime-livekit-server",
       "version": "0.1.0-alpha.2",
       "dependencies": {
-        "@maelstrom-co/protocol": "0.1.0-alpha.0",
-        "@maelstrom-co/realtime-protocol": "0.0.0",
+        "@maelstrom-co/protocol": "0.1.0-alpha.2",
+        "@maelstrom-co/realtime-protocol": "0.1.0-alpha.2",
         "livekit-server-sdk": "^2.13.1",
         "zod": "catalog:",
       },
@@ -306,8 +332,8 @@
       "name": "@maelstrom-co/realtime-openai-server",
       "version": "0.1.0-alpha.2",
       "dependencies": {
-        "@maelstrom-co/protocol": "0.1.0-alpha.0",
-        "@maelstrom-co/realtime-protocol": "0.0.0",
+        "@maelstrom-co/protocol": "0.1.0-alpha.2",
+        "@maelstrom-co/realtime-protocol": "0.1.0-alpha.2",
         "zod": "catalog:",
       },
     },
@@ -330,20 +356,6 @@
         "onnxruntime-web": "catalog:",
       },
     },
-    "tools/alchemy": {
-      "name": "@maelstrom-co/alchemy",
-      "version": "0.0.1",
-      "dependencies": {
-        "@effect/platform-bun": "4.0.0-rc.111",
-        "alchemy": "2.0.0-beta.72",
-        "effect": "4.0.0-rc.111",
-      },
-      "devDependencies": {
-        "@types/bun": "*",
-        "jsonc-parser": "3.3.1",
-        "typescript": "catalog:",
-      },
-    },
     "tools/astro-plugin": {
       "name": "@maelstrom-co/astro-plugin",
       "version": "0.0.1",
@@ -358,6 +370,9 @@
         "tslib": "^2.3.0",
       },
     },
+  },
+  "patchedDependencies": {
+    "alchemy@2.0.0-beta.72": "patches/alchemy@2.0.0-beta.72.patch",
   },
   "catalog": {
     "@astrojs/check": "^0.9.10",
@@ -1183,8 +1198,6 @@
 
     "@livekit/typed-emitter": ["@livekit/typed-emitter@3.0.0", "", {}, "sha512-9bl0k4MgBPZu3Qu3R3xy12rmbW17e3bE9yf4YY85gJIQ3ezLEj/uzpKHWBsLaDoL5Mozz8QCgggwIBudYQWeQg=="],
 
-    "@maelstrom-co/alchemy": ["@maelstrom-co/alchemy@workspace:tools/alchemy"],
-
     "@maelstrom-co/astro-plugin": ["@maelstrom-co/astro-plugin@workspace:tools/astro-plugin"],
 
     "@maelstrom-co/biome-plugin": ["@maelstrom-co/biome-plugin@workspace:tools/biome-plugin"],
@@ -1196,6 +1209,8 @@
     "@maelstrom-co/docs": ["@maelstrom-co/docs@workspace:apps/docs"],
 
     "@maelstrom-co/engine": ["@maelstrom-co/engine@workspace:packages/engine"],
+
+    "@maelstrom-co/platform-infra": ["@maelstrom-co/platform-infra@workspace:infra/platform"],
 
     "@maelstrom-co/protocol": ["@maelstrom-co/protocol@workspace:packages/protocol"],
 

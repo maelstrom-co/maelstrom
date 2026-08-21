@@ -98,6 +98,7 @@
   },
   "workspaces": [
     "apps/*",
+    "infra/*",
     "packages/*",
     "tools/*"
   ],
@@ -153,5 +154,8 @@
       }
     }
   },
-  "dependencies": {}
+  "dependencies": {},
+  "patchedDependencies": {
+    "alchemy@2.0.0-beta.72": "patches/alchemy@2.0.0-beta.72.patch"
+  }
 }

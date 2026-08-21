@@ -4,6 +4,7 @@
 // top-level `bun:test` import. The underscore lets it stay colocated with the
 // route it covers without shipping as an endpoint. `bun test` still picks it up.
 import { beforeEach, describe, expect, it, mock } from 'bun:test';
+import { hashWaitlistToken, isWaitlistToken } from '../../lib/waitlist-token';
 
 let preparedSql = '';
 let subscriber: {
@@ -36,12 +37,13 @@ const prepare = mock((sql: string) => {
   return { bind };
 });
 const send = mock(async () => ({ messageId: 'message-1' }));
-const siteverify = mock(async () =>
-  Response.json({
-    success: true,
-    action: 'turnstile-spin-v1',
-    hostname: 'maelstrom-ai.co',
-  }),
+const siteverify = mock(
+  async (_input: RequestInfo | URL, _init?: RequestInit) =>
+    Response.json({
+      success: true,
+      action: 'turnstile-spin-v1',
+      hostname: 'maelstrom-ai.co',
+    }),
 );
 globalThis.fetch = siteverify as typeof fetch;
 
@@ -131,6 +133,14 @@ describe('POST /api/waitlist', () => {
     expect(send.mock.calls[0]?.[0].text).toContain(
       'https://maelstrom-ai.co/waitlist/confirm/?token=',
     );
+    expect(send.mock.calls[0]?.[0].html).toContain('>Confirm my email</a>');
+    const emailedToken = send.mock.calls[0]?.[0].text.match(
+      /[?&]token=([A-Za-z0-9_-]{43})/,
+    )?.[1];
+    expect(isWaitlistToken(emailedToken)).toBe(true);
+    expect(await hashWaitlistToken(emailedToken ?? '')).toBe(
+      bind.mock.calls[1]?.[1],
+    );
   });
 
   it('does not resend confirmation to an already confirmed subscriber', async () => {
@@ -202,6 +212,17 @@ describe('POST /api/waitlist', () => {
     );
     const res = await callPost(signupBody());
     expect(res.status).toBe(400);
+    expect(prepare).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when bounded Turnstile verification is aborted', async () => {
+    siteverify.mockImplementationOnce(async (_input, init) => {
+      expect(init?.signal).toBeInstanceOf(AbortSignal);
+      throw new DOMException('Timed out', 'TimeoutError');
+    });
+    const res = await callPost(signupBody());
+    expect(res.status).toBe(503);
     expect(prepare).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalled();
   });

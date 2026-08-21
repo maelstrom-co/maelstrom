@@ -59,7 +59,23 @@ jobs:
       - name: Build production artifact
         run: bunx nx run @maelstrom-co/demo:build-hosted --skip-nx-cache
 
+      - name: Recheck deployment revision
+        id: deploy-revision
+        env:
+          DEPLOY_SHA: ${{ steps.revision.outputs.sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          latest_green_sha="$(bun scripts/latest-green-ci.ts)"
+          if [ "$latest_green_sha" = "$DEPLOY_SHA" ]; then
+            echo "current=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "current=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping stale artifact $DEPLOY_SHA; latest green revision is $latest_green_sha"
+          fi
+
       - name: Deploy to Cloudflare
+        if: steps.deploy-revision.outputs.current == 'true'
         working-directory: apps/demo
         run: bunx wrangler deploy --env=""
         env:
@@ -67,4 +83,5 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PRODUCTION_API_TOKEN }}
 
       - name: Smoke test production domain
+        if: steps.deploy-revision.outputs.current == 'true'
         run: curl --fail --silent --show-error --retry 12 --retry-all-errors --retry-delay 5 --max-time 20 https://demo.maelstrom-ai.co > /dev/null

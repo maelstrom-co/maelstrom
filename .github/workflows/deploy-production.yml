@@ -38,18 +38,21 @@ jobs:
           - app: www
             project: '@maelstrom-co/www'
             build-target: build
+            deployer: alchemy
             directory: apps/www
             url: https://maelstrom-ai.co
             alias: https://www.maelstrom-ai.co
           - app: docs
             project: '@maelstrom-co/docs'
             build-target: build
+            deployer: alchemy
             directory: apps/docs
             url: https://docs.maelstrom-ai.co
             alias: ''
           - app: demo
             project: '@maelstrom-co/demo'
             build-target: build-hosted
+            deployer: wrangler
             directory: apps/demo
             url: https://demo.maelstrom-ai.co
             alias: ''
@@ -95,21 +98,46 @@ jobs:
         env:
           DOCS_SOURCE_REF: ${{ env.DEPLOY_SHA }}
 
-      - name: Deploy to Cloudflare
+      # CI can turn green for a newer revision while this artifact builds.
+      - name: Recheck deployment revision
+        id: deploy-revision
         if: steps.revision.outputs.current == 'true'
-        working-directory: ${{ matrix.directory }}
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          if [ "${{ matrix.app }}" = "demo" ]; then
-            bunx wrangler deploy --env=""
+          set -euo pipefail
+          latest_green_sha="$(bun scripts/latest-green-ci.ts)"
+          if [ "$latest_green_sha" = "$DEPLOY_SHA" ]; then
+            echo "current=true" >> "$GITHUB_OUTPUT"
           else
-            bunx wrangler deploy
+            echo "current=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping stale artifact $DEPLOY_SHA; latest green revision is $latest_green_sha"
           fi
+
+      - name: Deploy to Cloudflare with Alchemy
+        if: >-
+          steps.deploy-revision.outputs.current == 'true'
+          && matrix.deployer == 'alchemy'
+        working-directory: ${{ matrix.directory }}
+        run: bun alchemy deploy --stage prod --profile production-ci --yes
+        env:
+          ALCHEMY_PROFILE: production-ci
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_PRODUCTION_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PRODUCTION_API_TOKEN }}
+          DOCS_SOURCE_REF: ${{ env.DEPLOY_SHA }}
+
+      - name: Deploy to Cloudflare with Wrangler
+        if: >-
+          steps.deploy-revision.outputs.current == 'true'
+          && matrix.deployer == 'wrangler'
+        working-directory: ${{ matrix.directory }}
+        run: bunx wrangler deploy --env=""
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_PRODUCTION_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PRODUCTION_API_TOKEN }}
 
       - name: Smoke test primary domain
-        if: steps.revision.outputs.current == 'true'
+        if: steps.deploy-revision.outputs.current == 'true'
         run: >-
           curl --fail --silent --show-error
           --header "x-maelstrom-health-check: $SMOKE_TEST_BYPASS_TOKEN"
@@ -119,7 +147,7 @@ jobs:
           SMOKE_TEST_BYPASS_TOKEN: ${{ secrets.SMOKE_TEST_BYPASS_TOKEN }}
 
       - name: Smoke test alias
-        if: steps.revision.outputs.current == 'true' && matrix.alias != ''
+        if: steps.deploy-revision.outputs.current == 'true' && matrix.alias != ''
         run: >-
           curl --fail --silent --show-error
           --header "x-maelstrom-health-check: $SMOKE_TEST_BYPASS_TOKEN"

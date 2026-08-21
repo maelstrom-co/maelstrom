@@ -50,6 +50,9 @@
     },
     {
       "path": "./packages/realtime-livekit-server"
+    },
+    {
+      "path": "./infra/platform"
     }
   ],
   "compilerOptions": {}

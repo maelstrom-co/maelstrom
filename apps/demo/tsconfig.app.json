@@ -73,6 +73,9 @@
     },
     {
       "path": "../../packages/client/tsconfig.lib.json"
+    },
+    {
+      "path": "../../infra/platform/tsconfig.lib.json"
     }
   ]
 }

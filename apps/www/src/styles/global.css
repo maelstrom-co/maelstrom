@@ -1451,6 +1451,9 @@ section {
   color: var(--text-2);
   font-size: 16px;
 }
+.waitlist-form-shell {
+  min-width: 0;
+}
 .waitlist-form {
   display: flex;
   gap: 10px;
@@ -1460,7 +1463,6 @@ section {
   padding: 6px 6px 6px 22px;
   transition: border-color 200ms;
   min-width: 0;
-  position: relative;
 }
 .waitlist-form:focus-within {
   border-color: rgba(0, 145, 255, 0.4);
@@ -1490,11 +1492,30 @@ section {
   cursor: not-allowed;
   transform: none;
 }
-.waitlist-error {
+.waitlist-turnstile {
+  height: 0;
+  min-width: 300px;
+  overflow: hidden;
+}
+.waitlist-turnstile.is-visible {
+  height: auto;
+  min-height: 65px;
+  margin-top: 10px;
+  overflow: visible;
+}
+.waitlist-security-status {
   position: absolute;
-  left: 22px;
-  top: calc(100% + 8px);
-  margin: 0;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.waitlist-error {
+  margin: 8px 0 0 22px;
   color: var(--pink);
   font-size: 12px;
 }
@@ -1510,6 +1531,12 @@ section {
     padding: 10px 14px;
     font-size: 13.5px;
     gap: 6px;
+  }
+  .waitlist-turnstile {
+    min-width: 150px;
+  }
+  .waitlist-turnstile.is-visible {
+    min-height: 140px;
   }
 }
 .waitlist-success {

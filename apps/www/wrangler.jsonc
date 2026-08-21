@@ -17,7 +17,7 @@
       "binding": "WAITLIST_DB",
       "database_name": "maelstrom-waitlist",
       "database_id": "936716c6-517e-449e-aee7-e1f17b87efdd",
-      "migrations_dir": "../../tools/alchemy/migrations"
+      "migrations_dir": "../../infra/platform/migrations"
     }
   ],
   "send_email": [

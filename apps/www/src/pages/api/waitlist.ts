@@ -5,6 +5,7 @@ import type { APIRoute } from 'astro';
 import { readLimitedBody } from '../../lib/read-limited-body';
 import { safeErrorMetadata } from '../../lib/safe-error-metadata';
 import { validateWaitlistEmail } from '../../lib/waitlist';
+import { buildWaitlistConfirmationEmail } from '../../lib/waitlist-confirmation-email';
 import {
   createWaitlistToken,
   hashWaitlistToken,
@@ -15,21 +16,6 @@ const RESEND_COOLDOWN_MS = 10 * 60 * 1000;
 const MAX_BODY_BYTES = 4096;
 const TURNSTILE_ACTION = 'turnstile-spin-v1';
 const TURNSTILE_HOSTNAMES = new Set(['maelstrom-ai.co', 'www.maelstrom-ai.co']);
-const FROM = {
-  email: 'waitlist@notifications.maelstrom-ai.co',
-  name: 'Maelstrom',
-};
-
-function confirmationMessage(token: string) {
-  const url = `https://maelstrom-ai.co/waitlist/confirm/?token=${token}`;
-  return {
-    from: FROM,
-    subject: 'Confirm your Maelstrom waitlist signup',
-    text: `Confirm your Maelstrom private beta signup: ${url}\n\nThis link expires in 24 hours. If you did not request this, you can ignore this email.`,
-    html: `<p>Confirm your Maelstrom private beta signup:</p><p><a href="${url}">Confirm my email</a></p><p>This link expires in 24 hours. If you did not request this, you can ignore this email.</p>`,
-  };
-}
-
 export const POST: APIRoute = async ({ request }) => {
   const body = await readJsonBody(request);
   if (!body.ok) {
@@ -169,7 +155,7 @@ export const POST: APIRoute = async ({ request }) => {
     if (subscriber.status === 'pending' && subscriber.should_send === 1) {
       try {
         await emailService.send({
-          ...confirmationMessage(token),
+          ...buildWaitlistConfirmationEmail(token),
           to: email,
         });
       } catch (error) {
@@ -280,6 +266,7 @@ async function verifyTurnstile(
       'https://challenges.cloudflare.com/turnstile/v0/siteverify',
       {
         method: 'POST',
+        signal: AbortSignal.timeout(5_000),
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           secret,
