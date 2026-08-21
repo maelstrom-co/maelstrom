@@ -77,7 +77,7 @@ Actions are transitions in the state machine:
 | `parameters`    | Optional parameters for the action            |
 | `transitionsTo` | Target variant (undefined if no state change) |
 
-#### Why State Machines?
+#### Benefits of state machines
 
 This design allows the LLM to:
 
@@ -129,7 +129,7 @@ This design allows:
 - Nested Charts (Chart inside another component)
 - Multiple Charts on a single page
 
-#### Why Grid-Based?
+#### Benefits of a grid
 
 1. **LLM Simplicity**: Integer coordinates are easier for LLMs to reason about than pixels
 2. **Container Agnostic**: The same layout logic works regardless of where the Chart is placed
@@ -401,7 +401,7 @@ SERVER    engine    realtime-openai-server    realtime-livekit-server
 WORKER    realtime-livekit-agent
 ```
 
-### Why This Structure?
+### Rationale for the package structure
 
 - **protocol**: Foundation - types and message contract shared by all
 - **realtime-protocol**: the realtime contract leaf — token-grant types, mint-failure taxonomy, wire topics. Depends on nothing but `protocol` and `zod`, so a minter can import it without pulling in a browser SDK

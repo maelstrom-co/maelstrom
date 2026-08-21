@@ -74,7 +74,7 @@ The hook is a `prepare-commit-msg` hook, so it only fires in tools that run that
 hook on commit — plain `git commit`, Graphite, GitKraken, GitHub Desktop, and
 VS Code all do. Some tools don't (see below).
 
-#### Using jujutsu?
+#### Using jujutsu
 
 jj never runs git hooks, so the hook above does nothing for `jj` commits. Instead,
 enable jj's built-in sign-off trailer once per repo (jj ≥ 0.24):
@@ -197,6 +197,15 @@ project vocabulary. Install Vale from its release archive or a package manager
 that provides version 3.18.0. CI fails on error-level findings across the
 complete authored corpus, while local runs also report warnings. Run
 `vale --version` to confirm it reports `3.18.0`.
+
+For editor feedback, use a [Vale language server integration](https://docs.vale.sh/guides/lsp)
+with the repository's Vale version and configuration. Editor settings are
+optional; `bun run docs:lint` remains the portable source of truth.
+
+Treat warnings as review prompts, not automatic rewrites. Before enabling a new
+rule, sample its findings against Maelstrom's technical audience, resolve valid
+findings, and document stable exceptions. Promote a rule to an error only after
+the complete authored corpus is clean and authors have a clear fix.
 
 ### Public API documentation audits
 

@@ -4,6 +4,10 @@
 # that token. Founders review it.
 /.github/ @NachoVazquez @Jacarte @ktrz
 
+# Vale configuration and vocabulary define repository-wide editorial policy.
+/.vale.ini @NachoVazquez @Jacarte @ktrz
+/.vale/ @NachoVazquez @Jacarte @ktrz
+
 # Deployment configuration for the hosted playground.
 /apps/demo/infra/Website.ts @NachoVazquez @Jacarte @ktrz
 /apps/demo/infra/PreviewWebsite.ts @NachoVazquez @Jacarte @ktrz

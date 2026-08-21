@@ -9,13 +9,13 @@ Most product interfaces assume that developers can predict the screen a user wil
 
 **Maelstrom orchestrates the components you designed.** It's an open-source library for AI-orchestrated UI: you author your components as Vessels — typed state machines with variants and size hints — and a model arranges, resizes, and invokes them on a spatial layout surface, by intent, in real time. It arranges the interface you designed; it never generates one.
 
-## What problem does it solve?
+## The problem Maelstrom solves
 
 Traditional UIs hardcode layouts, navigation flows, and component states at build time. Maelstrom keeps those pieces explicit, but moves the selection and arrangement decision to the engine at runtime. The result is not an LLM inventing arbitrary UI; it is an LLM choosing among the Vessels, variants, and actions your application already declared.
 
 That matters for products such as dashboards, data explorers, multi-tool workspaces, and conversational applications. In those products, the user often asks for an outcome rather than a page name. Maelstrom gives the engine a safe catalogue of UI capabilities, then lets it assemble the right surface for the current request.
 
-## Who is it for?
+## Intended audience
 
 Maelstrom is designed for developers building AI-powered applications where the interface should adapt to user intent. It ships first-class React bindings alongside a framework-agnostic client, so you can start with React and still keep the orchestration boundary independent from the UI framework.
 
