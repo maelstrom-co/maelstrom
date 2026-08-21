@@ -50,7 +50,7 @@ Three things matter about that shape:
 
 - **The reason is structured.** `UpdateReason` is a discriminated union of `user_intent`, `chart_resize`, and `vessel_mutation`. The engine prompts differently for each — a resize doesn't ask the LLM to invent new instances; it asks it to refit what's there.
 - **The vessels are *all* the vessels.** Not just the visible ones. The LLM needs to know it can summon `weather` into the layout, not only that `calendar` already exists.
-- **The current state is the truth.** `instances[]` carries the snapshot variant for each visible instance. The LLM's plan is judged against this — actions only count if they're valid *from the variant the instance is in*.
+- **The current snapshot is the truth.** `instances[]` carries the current Variant for each visible Instance. The LLM's plan is judged against this — Actions only count if they're valid *from that Variant*.
 
 `ChartRequestSchema` validates the whole shape before the engine touches it. Layout mode has to agree with the layout type; every instance has to reference a real vessel and a real variant; positions can't double-book an instance id. Garbage in becomes a `RequestValidationError` with a structured path, not a confused LLM call.
 
@@ -60,7 +60,7 @@ The engine takes the request and assembles a prompt with these slots (see the [A
 
 1. **System context** — what Maelstrom is and what the LLM's job is.
 2. **Available vessels** — every Vessel definition, every variant, every action, every parameter — including the descriptions the author wrote for the model to read.
-3. **Current instance state** — each visible instance's id, vessel, and current variant.
+3. **Current Instances** — each visible Instance's id, Vessel, and current Variant.
 4. **Chart constraints** — the grid dimensions and the chosen layout mode.
 5. **The update reasons** — why this turn is happening.
 
@@ -123,7 +123,7 @@ There is no separate "look up the new size" or "handle overflow" step. In grid m
 ## What this design avoids
 
 - **Hallucinated coordinates.** The LLM works in integer chart units inside known dimensions; out-of-range positions are caught at parse or healed.
-- **Hallucinated actions.** Actions are scoped to the *current* variant; the model can't fire transitions that don't exist in this state.
+- **Hallucinated Actions.** Actions are scoped to the *current* Variant; the model can't fire transitions that the Variant does not declare.
 - **Untyped components.** The model never invents a component — it picks among the Vessels you registered.
 - **Unrecoverable failures.** Drops, schema errors, and retries are bounded and categorised. A bad turn becomes a partial layout, not a blank page.
 

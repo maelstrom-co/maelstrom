@@ -59,6 +59,13 @@ export type ConnectionStatus =
 // Circuit Status
 // ============================================================================
 
+/**
+ * Circuit-breaker phase for engine connection attempts.
+ *
+ * `closed` permits normal attempts, `open` rejects explicit
+ * {@link ConnectionManager.connect} calls, and `half_open` marks the automatic
+ * recovery probe started after the reset timeout.
+ */
 export type CircuitStatus = 'closed' | 'open' | 'half_open';
 
 // ============================================================================

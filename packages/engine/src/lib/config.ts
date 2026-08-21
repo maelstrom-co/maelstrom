@@ -5,6 +5,7 @@ import type { Logger } from './logger.js';
 import { consoleLogger } from './logger.js';
 import type { PromptOptions } from './prompt/prompt-builder.js';
 
+/** Dependencies and optional policies used to construct an Engine. */
 export interface EngineConfig {
   /** TanStack AI text adapter (e.g. geminiText('gemini-2.0-flash'), openaiText('gpt-4o')) */
   readonly adapter: AnyTextAdapter;
@@ -46,6 +47,12 @@ export interface ResolvedEngineConfig {
 
 const DEFAULT_MAX_RETRIES = 1;
 
+/**
+ * Applies Engine defaults without cloning configured dependencies.
+ *
+ * The logger defaults to {@link consoleLogger}, prompt options to an empty
+ * object, and `maxRetries` to `1`; history and model options remain optional.
+ */
 export function resolveConfig(config: EngineConfig): ResolvedEngineConfig {
   return {
     adapter: config.adapter,

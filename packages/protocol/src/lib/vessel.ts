@@ -10,6 +10,10 @@ import { VesselId } from './vessel-id.ts';
 // Zod schemas
 // ---------------------------------------------------------------------------
 
+/**
+ * Parses one Action parameter definition, including a bounded enum candidate list.
+ * Parameter names are required but remain unbranded author-facing strings.
+ */
 export const ActionParameterSchema = z.object({
   name: z.string().min(1, 'Parameter name is required'),
   type: z.enum(['string', 'number', 'boolean', 'object']),
@@ -22,6 +26,7 @@ export const ActionParameterSchema = z.object({
     .optional(),
 });
 
+/** Brands an Action and defers transition-target existence to {@link VesselSchema}. */
 export const VesselActionSchema = z.object({
   name: z.string().min(1, 'Action name is required').transform(ActionName),
   description: z.string().min(1, 'Action description is required'),
@@ -33,6 +38,7 @@ export const VesselActionSchema = z.object({
     .optional(),
 });
 
+/** Validates local Variant shape; cross-Action invariants require {@link VesselSchema}. */
 export const VesselVariantSchema = z.object({
   description: z.string().optional(),
   props: z.record(z.string(), z.unknown()),
@@ -40,6 +46,12 @@ export const VesselVariantSchema = z.object({
   actions: z.array(VesselActionSchema),
 });
 
+/**
+ * Parses and brands a complete Vessel definition.
+ *
+ * Requires at least one Variant, a valid default Variant, unique Action and
+ * parameter names within their scopes, and valid Action transition targets.
+ */
 export const VesselSchema = z
   .object({
     id: z.string().min(1, 'Vessel id is required').transform(VesselId),

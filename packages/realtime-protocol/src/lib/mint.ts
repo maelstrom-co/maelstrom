@@ -35,7 +35,7 @@ export const MINT_FAILURE_REASONS = [
   'upstream-failure',
 ] as const;
 
-/** @see {@link MINT_FAILURE_REASONS} for what each reason means. */
+/** Stable transport-independent reason used for branching and HTTP-status mapping. */
 export type MintFailureReason = (typeof MINT_FAILURE_REASONS)[number];
 
 /**

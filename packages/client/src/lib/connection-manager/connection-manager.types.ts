@@ -2,11 +2,21 @@ import type { SessionId } from '@maelstrom-co/protocol';
 
 import type { ConnectionManagerState } from './connection-manager.state.js';
 
+/** Retry and circuit-breaker policy for an engine connection. */
 export interface ConnectionOptions {
+  /**
+   * Maximum connection attempts before the circuit opens. This includes the
+   * initial {@link ConnectionManager.connect} attempt and separately caps
+   * automatic reconnects after a dropped connection.
+   */
   maxRetries: number;
+  /** Delay before the first retry, in milliseconds. */
   initialDelayMs: number;
+  /** Upper bound for an individual retry delay, in milliseconds. */
   maxDelayMs: number;
+  /** Multiplier applied to each successive retry delay. */
   backoffMultiplier: number;
+  /** Delay before an open circuit attempts a half-open probe. */
   circuitBreakerTimeoutMs: number;
   /**
    * How long (ms) a connection must stay up before `connectionRetryCount` is

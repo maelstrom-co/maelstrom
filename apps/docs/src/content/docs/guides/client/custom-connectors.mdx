@@ -16,7 +16,7 @@ Maelstrom ships with two connector implementations that cover the most common de
 | `WebSocketConnector` | Long-lived browser-to-server connections with live connection state |
 | `HttpConnector` | Request/response flows without persistent sessions |
 
-Most React apps start with `WebSocketConnector` because the engine supports streaming and the browser needs live status feedback.
+Most React apps start with `WebSocketConnector` because interactive sessions benefit from a long-lived connection and the browser needs live status feedback.
 
 ## When you need a custom connector
 

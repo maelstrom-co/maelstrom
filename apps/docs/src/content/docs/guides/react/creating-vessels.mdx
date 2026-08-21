@@ -5,7 +5,7 @@ description: How to define and register Vessel components.
 
 import { Aside } from '@astrojs/starlight/components';
 
-A Vessel is Maelstrom's representation of a UI component — a definition that wraps your React component and gives the engine a typed manifest of its states, sizes, and actions. This guide shows you how to author one, from definition to render.
+A Vessel is Maelstrom's representation of a UI component — a definition that wraps your React component and gives the Engine a typed manifest of its Variants, sizes, and Actions. This guide shows you how to author one, from definition to render.
 
 <Aside type="note">
   **Before you start:** complete the [React quickstart](/getting-started/quick-start/) so you have a working `createMaelstrom()` setup. For a conceptual overview of how Vessels fit into the framework, see [Core concepts](/getting-started/core-concepts/).
@@ -13,17 +13,17 @@ A Vessel is Maelstrom's representation of a UI component — a definition that w
 
 ## What you'll wire up
 
-By the end of this guide you will have:
+By the end of this guide you will:
 
 1. Define a `greetingVessel` with a single variant and typed props.
 2. Build a React component that renders those props.
 3. Register the entry with `createMaelstrom()` and mount the Chart.
 
-## Define the vessel
+## Define the Vessel
 
-Descriptions are part of the runtime contract, not decoration. The engine reads the Vessel `description`, each variant description, and each action description to decide whether the component is relevant to a user's intent. Write them as product behavior, not implementation notes.
+Descriptions are part of the runtime contract, not decoration. The Engine reads the Vessel `description`, each Variant description, and each Action description to decide whether the Vessel is relevant to a user's intent. Write them as product behavior, not implementation notes.
 
-Use `defineVessel` from `@maelstrom-co/protocol` to describe the vessel. It's an identity function at runtime: it returns the input as is and exists purely for type safety. Its `<const V>` signature captures the literal types of your variant names, action names, and prop shapes. Those types flow downstream so your component and action runners are fully typed. It also constrains the object to `VesselDefinition`, so mistakes are caught at the definition site rather than at runtime.
+Use `defineVessel` from `@maelstrom-co/protocol` to describe the Vessel. It's an identity function at runtime: it returns the input as is and exists purely for type safety. Its `<const V>` signature captures the literal types of your Variant names, Action names, and prop shapes. Those types flow downstream so your component and Action runners are fully typed. It also constrains the object to `VesselDefinition`, so mistakes are caught at the definition site rather than at runtime.
 
 ```ts title="src/vessels/greeting/greeting.vessel.ts"
 import { defineVessel } from '@maelstrom-co/protocol';
@@ -47,10 +47,10 @@ export const greetingVessel = defineVessel({
 
 Key fields:
 
-- **`id`**: unique, short, and stable string the engine uses to address this vessel.
-- **`name` / `description`**: human-readable labels the LLM reads to decide when to show the vessel.
-- **`defaultVariant`**: the variant that renders before any action transitions the vessel. Must be a key in `variants`.
-- **`variants`**: a map of named states. Each variant carries `props` (the shape your component receives), `minSize` (in grid cells; see [Grid vs Tiling](/understanding/grid-vs-tiling/) for how cells map to pixels), and `actions` (covered in [Vessel Variants & Actions](/guides/react/variants-and-actions/)).
+- **`id`**: unique, short, and stable string the Engine uses to address this Vessel.
+- **`name` / `description`**: human-readable labels the LLM reads to decide when to show the Vessel.
+- **`defaultVariant`**: the Variant that renders before any Action transitions the Vessel. Must be a key in `variants`.
+- **`variants`**: a map of named Variants. Each Variant carries `props` (the shape your component receives), `minSize` (in grid cells; see [Grid vs Tiling](/understanding/grid-vs-tiling/) for how cells map to pixels), and `actions` (covered in [Vessel Variants & Actions](/guides/react/variants-and-actions/)).
 
 The `props` values in the definition are used only to infer the TypeScript shape. The LLM fills the actual values at runtime.
 
@@ -83,7 +83,7 @@ export default function GreetingComponent({
 | Prop | Type | Description |
 | --- | --- | --- |
 | `instanceId` | `InstanceId` | Unique ID for this placed instance of the vessel. |
-| `variantProps` | discriminated union | `{ variant: K } & props` for the active variant `K`. Narrow on `.variant` to access the typed props for that state. |
+| `variantProps` | discriminated union | `{ variant: K } & props` for the active Variant `K`. Narrow on `.variant` to access that Variant's typed props. |
 | `executeAction` | `(name, params?) => void` | Fire an action; covered in [Vessel Variants & Actions](/guides/react/variants-and-actions/). |
 
 Maelstrom generates and injects `instanceId` automatically. You'll need it if you want to call `executeAction` on a specific instance from outside the component — for example, from a toolbar or a global keyboard shortcut.

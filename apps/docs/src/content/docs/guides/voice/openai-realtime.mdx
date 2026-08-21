@@ -1,6 +1,6 @@
 ---
 title: OpenAI Realtime
-description: Connect OpenAI Realtime to Maelstrom with a server-minted credential and browser-direct WebRTC.
+description: Connect OpenAI Realtime to Maelstrom with a server-minted Grant and browser-direct WebRTC.
 ---
 
 import { Aside, CardGrid, LinkCard } from "@astrojs/starlight/components";
@@ -45,7 +45,7 @@ OpenAI manages voice activity and turn detection for this mode. `OpenAIAdapter` 
 
 ## What you own
 
-OpenAI Realtime uses two application-owned runtime roles: the browser session and a server token route.
+OpenAI Realtime uses two application-owned runtime roles: the browser session and a server mint route.
 
 <OwnershipDiagram
   id="openai-ownership"
@@ -192,7 +192,7 @@ Transcript-confirmed mode requires input transcription. Combining `bargeInMode: 
 
 The session also requests OpenAI's `near_field` input noise reduction. During capture, the adapter asks the browser for echo cancellation (AEC), noise suppression (NS), and automatic gain control (AGC). These configurations are requests, not acoustic guarantees: OpenAI, the browser, selected device, operating system, and audio route may apply them differently or not at all. When `debug: true` is enabled, the adapter inspects the accepted original microphone track and logs only the three browser-requested values plus each applied value as `true`, `false`, or `unavailable`. Raw speech-start diagnostics also include a `greetingActive` boolean so device tests can distinguish greeting overlap from later assistant output. `unavailable` covers a missing or throwing settings API and missing or non-boolean fields. Diagnostics never include the track, stream, complete settings object, device identity, audio, or transcript content, and they do not prove that echo cancellation or noise suppression works acoustically.
 
-OpenAI manages turn detection, model responses, and response audio for this mode. When OpenAI publishes audio, `OpenAIAdapter` attaches the remote audio stream to an autoplay audio element and exposes both microphone and playback streams through `getAudioStreams()`. `disconnect()` stops local tracks, pauses playback, clears both streams, and closes the data channel and peer connection. The adapter does not expose manual turn controls or an application-owned audio-response queue; this differs from the LiveKit cascade mode, where the application explicitly starts and ends held turns and the worker owns TTS.
+OpenAI manages turn detection, model responses, and response audio for this mode. When OpenAI publishes audio, `OpenAIAdapter` attaches the remote audio stream to an autoplay audio element and exposes both microphone and playback streams through `getAudioStreams()`. `disconnect()` stops local tracks, pauses playback, clears both streams, and closes the data channel and peer connection. The adapter does not expose manual turn controls or an application-owned audio-response queue. LiveKit cascade instead uses browser VAD by default, exposes manual controls only when VAD is disabled or safely degrades, and leaves TTS to its worker.
 
 When an application configures the optional OpenAI greeting synthesizer, a private greeting gate disables the adapter's current microphone audio tracks while the greeting is synthesized, decoded, and played, then restores each track's prior enabled state. Disabling sends silence without ending the tracks. That default gate does not accept spoken interruption. The experimental option below can add one playback-scoped local acceptance window; Skip greeting remains the reliable control.
 

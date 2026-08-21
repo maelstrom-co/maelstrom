@@ -39,7 +39,7 @@ The protocol defines the payload. The connector defines how that payload travels
 ## What a connector should not own
 
 - Choosing which Vessels appear.
-- Mutating Vessel state outside declared actions.
+- Changing an Instance's Variant outside declared Actions.
 - Converting provider-specific errors into user-facing policy by itself.
 
 Those responsibilities belong to the engine or application action handlers.

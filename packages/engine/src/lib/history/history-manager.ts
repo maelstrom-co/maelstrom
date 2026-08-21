@@ -25,6 +25,7 @@ export interface LLMContextMessage {
   readonly content: string;
 }
 
+/** Persistence, retention, and prompt-projection policy for Engine history. */
 export interface HistoryConfig<TMeta = unknown> {
   /**
    * Hard cap on per-session entry count. Omit to disable the entry-count
@@ -33,8 +34,12 @@ export interface HistoryConfig<TMeta = unknown> {
    */
   readonly maxEntries?: number;
   /**
-   * Budget for total chars across retained entries — a token proxy. Omit
-   * to disable the char budget entirely.
+   * Budget for total characters in retained LLM-context projections. Omit to
+   * disable it. With {@link createEngine}, this must be a positive integer and
+   * an `assistant_message` whose `content.length` exceeds it is rejected.
+   * Truncation retains the newest entry even if its projection alone exceeds
+   * the budget. Direct {@link createHistoryManager} calls skip those Engine
+   * boundary checks; a non-positive value retains no entries.
    */
   readonly maxChars?: number;
   /**
