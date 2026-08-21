@@ -16,8 +16,7 @@
     "@radix-ui/react-scroll-area": "catalog:",
     "astro": "catalog:",
     "react": "catalog:",
-    "react-dom": "catalog:",
-    "resend": "catalog:"
+    "react-dom": "catalog:"
   },
   "devDependencies": {
     "@astrojs/check": "catalog:",

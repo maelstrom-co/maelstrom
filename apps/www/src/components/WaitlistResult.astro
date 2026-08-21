@@ -1,0 +1,56 @@
+---
+interface Props {
+  eyebrow: string;
+  title: string;
+  message: string;
+}
+
+const { eyebrow, title, message } = Astro.props;
+---
+
+<main class="result-shell">
+  <div class="result-card">
+    <span class="eyebrow">{eyebrow}</span>
+    <h1>{title}</h1>
+    <p>{message}</p>
+    <slot>
+      <a class="btn btn-primary" href="/">Return to Maelstrom</a>
+    </slot>
+  </div>
+</main>
+
+<style>
+  .result-shell {
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    padding: 2rem;
+  }
+
+  .result-card {
+    width: min(100%, 42rem);
+    padding: clamp(2rem, 6vw, 4rem);
+    border: 1px solid var(--border);
+    border-radius: 1.5rem;
+    background: var(--surface);
+    text-align: center;
+  }
+
+  h1 {
+    margin: 1rem 0;
+    font-size: clamp(2rem, 6vw, 4rem);
+    line-height: 1;
+  }
+
+  p {
+    margin: 0 auto 2rem;
+    max-width: 32rem;
+    color: var(--text-muted);
+    line-height: 1.7;
+  }
+
+  :global(.result-card form) {
+    display: flex;
+    justify-content: center;
+  }
+</style>

@@ -1,10 +1,34 @@
 export const production = {
   stage: 'prod',
   zone: {
+    id: '4df25ea08d364f19471be7a179ce9f02',
     name: 'maelstrom-ai.co',
     type: 'full',
     paused: false,
     vanityNameServers: [],
+  },
+  waitlist: {
+    databaseName: 'maelstrom-waitlist',
+    sendingDomain: 'notifications.maelstrom-ai.co',
+    turnstile: {
+      name: 'Maelstrom waitlist',
+      sitekey: '0x4AAAAAAEXK9DFwilhX3Cla',
+      domains: [
+        'maelstrom-ai.co',
+        'www.maelstrom-ai.co',
+        'localhost',
+        '127.0.0.1',
+      ],
+      mode: 'managed',
+      action: 'turnstile-spin-v1',
+    },
+    rateLimit: {
+      description: 'Rate limit waitlist signup',
+      path: '/api/waitlist',
+      periodSeconds: 60,
+      requestsPerPeriod: 10,
+      action: 'managed_challenge',
+    },
   },
   www: {
     workerName: 'www',
@@ -15,11 +39,12 @@ export const production = {
     assets: '../../apps/www/dist/client',
     bundle: false,
     bindings: {
+      database: 'WAITLIST_DB',
+      email: 'EMAIL',
       images: 'IMAGES',
-      resendApiKey: 'RESEND_API_KEY',
-      resendSegmentId: 'RESEND_SEGMENT_ID',
+      turnstileSecret: 'TURNSTILE_SECRET_KEY',
     },
-    resendSegmentId: '5b0cbb3a-8c80-4a78-b5ff-3fad686af8bb',
+    senderAddress: 'waitlist@notifications.maelstrom-ai.co',
   },
   docs: {
     workerName: 'docs',
@@ -44,3 +69,6 @@ export const production = {
 
 export const isProductionStage = (stage: string): boolean =>
   stage === production.stage;
+
+export const isStateInspectionStage = (stage: string): boolean =>
+  stage === 'placeholder';

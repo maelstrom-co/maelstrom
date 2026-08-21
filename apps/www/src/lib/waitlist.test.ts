@@ -9,6 +9,13 @@ describe('validateWaitlistEmail', () => {
     });
   });
 
+  it('normalizes case before using an address as a D1 identity', () => {
+    expect(validateWaitlistEmail({ email: 'User@Example.COM' })).toEqual({
+      ok: true,
+      email: 'user@example.com',
+    });
+  });
+
   // Each must stay rejected: a regression here lets junk into Resend, so the
   // cases pin the exact contract the route depends on.
   const INVALID = [
@@ -52,7 +59,11 @@ describe('submitWaitlist', () => {
 
   it('returns ok on a 2xx response', async () => {
     expect(
-      await submitWaitlist('a@b.co', fetchResolving({ ok: true })),
+      await submitWaitlist(
+        'a@b.co',
+        'turnstile-token',
+        fetchResolving({ ok: true }),
+      ),
     ).toEqual({ ok: true });
   });
 
@@ -61,6 +72,7 @@ describe('submitWaitlist', () => {
   it('surfaces the server error message from a JSON error body', async () => {
     const res = await submitWaitlist(
       'a@b.co',
+      'turnstile-token',
       fetchResolving({
         ok: false,
         json: async () => ({ error: 'Already in' }),
@@ -72,6 +84,7 @@ describe('submitWaitlist', () => {
   it('falls back to a generic message when the error body is not JSON', async () => {
     const res = await submitWaitlist(
       'a@b.co',
+      'turnstile-token',
       fetchResolving({
         ok: false,
         json: async () => {
@@ -85,6 +98,7 @@ describe('submitWaitlist', () => {
   it('classifies a fetch TypeError as a network error', async () => {
     const res = await submitWaitlist(
       'a@b.co',
+      'turnstile-token',
       fetchRejecting(new TypeError('Failed to fetch')),
     );
     expect(res).toEqual({
@@ -94,7 +108,11 @@ describe('submitWaitlist', () => {
   });
 
   it('treats a non-TypeError rejection as a generic failure', async () => {
-    const res = await submitWaitlist('a@b.co', fetchRejecting(new Error('x')));
+    const res = await submitWaitlist(
+      'a@b.co',
+      'turnstile-token',
+      fetchRejecting(new Error('x')),
+    );
     expect(res).toEqual({ ok: false, message: 'Something went wrong' });
   });
 });

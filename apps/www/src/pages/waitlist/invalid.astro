@@ -1,0 +1,15 @@
+---
+import WaitlistResult from '../../components/WaitlistResult.astro';
+import Layout from '../../layouts/Layout.astro';
+---
+
+<Layout
+  title="Confirmation link expired — Maelstrom"
+  description="This Maelstrom waitlist confirmation link is invalid or expired."
+>
+  <WaitlistResult
+    eyebrow="Confirmation needed"
+    title="That link didn't work"
+    message="The confirmation link is invalid, expired, or already used. Submit the waitlist form again if you still need to confirm."
+  />
+</Layout>

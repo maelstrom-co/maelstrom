@@ -1,0 +1,28 @@
+---
+export const prerender = false;
+
+import WaitlistResult from '../../components/WaitlistResult.astro';
+import Layout from '../../layouts/Layout.astro';
+import { isWaitlistToken } from '../../lib/waitlist-token';
+
+const token = Astro.url.searchParams.get('token');
+if (!isWaitlistToken(token)) {
+  return Astro.redirect('/waitlist/invalid/');
+}
+---
+
+<Layout
+  title="Confirm your email — Maelstrom"
+  description="Confirm your Maelstrom private beta signup."
+>
+  <WaitlistResult
+    eyebrow="One last step"
+    title="Confirm your email"
+    message="Confirm that you requested a place on the Maelstrom private beta waitlist."
+  >
+    <form method="post" action="/api/waitlist/confirm">
+      <input type="hidden" name="token" value={token} />
+      <button class="btn btn-primary" type="submit">Confirm my email</button>
+    </form>
+  </WaitlistResult>
+</Layout>

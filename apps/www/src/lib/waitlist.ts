@@ -1,6 +1,7 @@
-// Email validation for the waitlist signup, kept pure (no cloudflare:workers /
-// Resend imports) so it can be unit-tested without the worker runtime.
+// Email validation for the waitlist signup, kept pure so it can be unit-tested
+// without the Worker runtime.
 export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+export const WAITLIST_TURNSTILE_SITE_KEY = '0x4AAAAAAEXK9DFwilhX3Cla';
 
 export type WaitlistEmailResult =
   | { ok: true; email: string }
@@ -11,7 +12,7 @@ export function validateWaitlistEmail(body: unknown): WaitlistEmailResult {
   if (typeof email !== 'string' || !EMAIL_RE.test(email)) {
     return { ok: false, error: 'A valid email is required' };
   }
-  return { ok: true, email };
+  return { ok: true, email: email.toLowerCase() };
 }
 
 export type WaitlistSubmitResult =
@@ -25,13 +26,14 @@ export type WaitlistSubmitResult =
  */
 export async function submitWaitlist(
   email: string,
+  turnstileToken: string,
   fetchImpl: typeof fetch = fetch,
 ): Promise<WaitlistSubmitResult> {
   try {
     const res = await fetchImpl('/api/waitlist', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email }),
+      body: JSON.stringify({ email, turnstileToken }),
     });
     if (!res.ok) {
       let message = 'Something went wrong';

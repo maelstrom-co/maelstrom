@@ -2,7 +2,11 @@ import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parse } from 'jsonc-parser';
-import { isProductionStage, production } from './production.js';
+import {
+  isProductionStage,
+  isStateInspectionStage,
+  production,
+} from './production.js';
 
 const workspaceRoot = resolve(import.meta.dirname, '../../..');
 const readJson = (path: string): unknown =>
@@ -40,11 +44,20 @@ describe('production infrastructure contract', () => {
         pattern,
         custom_domain: true,
       })),
-      vars: {
-        RESEND_SEGMENT_ID: production.www.resendSegmentId,
-      },
+      d1_databases: [
+        {
+          binding: production.www.bindings.database,
+          database_name: production.waitlist.databaseName,
+        },
+      ],
+      send_email: [
+        {
+          name: production.www.bindings.email,
+          allowed_sender_addresses: [production.www.senderAddress],
+        },
+      ],
       secrets: {
-        required: [production.www.bindings.resendApiKey],
+        required: [production.www.bindings.turnstileSecret],
       },
     });
   });
@@ -107,9 +120,10 @@ describe('production infrastructure contract', () => {
       assets: '../../apps/www/dist/client',
       bundle: false,
       bindings: {
+        database: 'WAITLIST_DB',
+        email: 'EMAIL',
         images: 'IMAGES',
-        resendApiKey: 'RESEND_API_KEY',
-        resendSegmentId: 'RESEND_SEGMENT_ID',
+        turnstileSecret: 'TURNSTILE_SECRET_KEY',
       },
       compatibilityDate: '2026-07-22',
       compatibilityFlags: ['nodejs_compat'],
@@ -124,5 +138,10 @@ describe('production infrastructure contract', () => {
     expect(isProductionStage('prod')).toBe(true);
     expect(isProductionStage('preview')).toBe(false);
     expect(isProductionStage('pr-118')).toBe(false);
+  });
+
+  test('recognizes Alchemy state inspection without treating it as production', () => {
+    expect(isStateInspectionStage('placeholder')).toBe(true);
+    expect(isStateInspectionStage('prod')).toBe(false);
   });
 });

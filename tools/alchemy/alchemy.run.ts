@@ -3,9 +3,12 @@ import * as Alchemy from 'alchemy';
 import { adopt } from 'alchemy/AdoptPolicy';
 import * as Cloudflare from 'alchemy/Cloudflare';
 import { retain } from 'alchemy/RemovalPolicy';
-import * as Config from 'effect/Config';
 import * as Effect from 'effect/Effect';
-import { isProductionStage, production } from './src/production.js';
+import {
+  isProductionStage,
+  isStateInspectionStage,
+  production,
+} from './src/production.js';
 
 const toolRoot = import.meta.dirname;
 
@@ -30,6 +33,8 @@ export default Alchemy.Stack(
     const stack = yield* Alchemy.Stack;
     const isProduction = isProductionStage(stack.stage);
 
+    if (isStateInspectionStage(stack.stage)) return {};
+
     if (!isProduction) {
       return yield* Effect.die(
         new Error(
@@ -48,6 +53,18 @@ export default Alchemy.Stack(
       status: 'active',
     }).pipe(adopt(true), retain(true));
 
+    const waitlist = yield* Cloudflare.D1.Database.ref('Waitlist', {
+      stack: 'MaelstromPlatform',
+      stage: production.stage,
+    });
+    const waitlistTurnstile = yield* Cloudflare.Turnstile.Widget.ref(
+      'WaitlistTurnstile',
+      {
+        stack: 'MaelstromPlatform',
+        stage: production.stage,
+      },
+    );
+
     const www = yield* Cloudflare.Worker('Www', {
       main: resolve(toolRoot, production.www.main),
       bundle: production.www.bundle,
@@ -64,14 +81,14 @@ export default Alchemy.Stack(
         flags: [...production.www.compatibilityFlags],
       },
       env: {
+        [production.www.bindings.database]: waitlist,
+        [production.www.bindings.email]: Cloudflare.Email.SendEmail('EMAIL', {
+          allowedSenderAddresses: [production.www.senderAddress],
+        }),
+        [production.www.bindings.turnstileSecret]: waitlistTurnstile.secret,
         [production.www.bindings.images]: Cloudflare.Images.Images(
           production.www.bindings.images,
         ),
-        [production.www.bindings.resendApiKey]: Config.redacted(
-          production.www.bindings.resendApiKey,
-        ),
-        [production.www.bindings.resendSegmentId]:
-          production.www.resendSegmentId,
       },
       observability: {
         ...observability,

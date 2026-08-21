@@ -9,5 +9,5 @@
     "noEmit": true,
     "types": ["bun"]
   },
-  "include": ["alchemy.run.ts", "src/**/*.ts"]
+  "include": ["*.run.ts", "src/**/*.ts"]
 }
