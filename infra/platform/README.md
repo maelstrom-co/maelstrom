@@ -15,8 +15,8 @@ configuration lives beside the resource under `src/` or `infra/`. Shared names
 and cross-stack references are exported by `@maelstrom-co/platform-infra`.
 
 Alchemy is authoritative for the platform, all three production applications,
-and docs and `www` PR previews. Wrangler remains authoritative for demo PR
-previews until its separate migration is complete.
+and all PR previews. Wrangler remains only as a direct deletion safety net for
+legacy preview Workers and uploads that finish after workflow cancellation.
 
 ## Validate
 
@@ -85,6 +85,8 @@ Completed:
 5. Migrated docs PR previews and teardown to Alchemy.
 6. Migrated `www` PR previews and teardown to Alchemy without production
    waitlist bindings.
+7. Migrated demo PR previews and their isolated `SessionDO` namespaces to
+   Alchemy.
 
 `alchemy@2.0.0-beta.72` is patched with
 [alchemy-run/alchemy#1300](https://github.com/alchemy-run/alchemy/pull/1300)
@@ -99,10 +101,9 @@ lets Alchemy upload only the resulting `dist` artifact.
 
 Next:
 
-1. Migrate demo PR previews to Alchemy while retaining credential-free builds.
-2. Convert `www` to `Cloudflare.Website.Astro` in a separate deployment.
-3. Convert `demo` to `Cloudflare.Website.Vite` in a separate deployment.
-4. Convert `SessionDO` to the Effect-native implementation separately.
+1. Convert `www` to `Cloudflare.Website.Astro` in a separate deployment.
+2. Convert `demo` to `Cloudflare.Website.Vite` in a separate deployment.
+3. Convert `SessionDO` to the Effect-native implementation separately.
 
 Do not combine stack ownership transfer with a framework or Durable Object
 runtime migration.

@@ -229,11 +229,11 @@ describe('application infrastructure contract', () => {
     );
   });
 
-  test('deploys docs and www previews through Alchemy while demo remains on Wrangler', () => {
+  test('deploys and destroys every preview through Alchemy', () => {
     const previews = read('.github/workflows/deploy-preview.yml');
     const teardown = section(previews, '  teardown:\n', '\n<end>');
-    expect(previews.match(/cloudflare\/wrangler-action@/g)).toHaveLength(1);
-    expect(previews).toContain('Deploy demo to Cloudflare');
+    expect(previews).not.toContain('cloudflare/wrangler-action@');
+    expect(previews).not.toContain('Resolve the installed wrangler version');
     const docsPreviewDeploy = namedStep(
       previews,
       'Deploy docs to Cloudflare with Alchemy',
@@ -270,6 +270,29 @@ describe('application infrastructure contract', () => {
       /CLOUDFLARE_(?:API_TOKEN|ACCOUNT_ID)|ALCHEMY_PROFILE/,
     );
 
+    const demoPreviewDeploy = namedStep(
+      previews,
+      'Deploy demo to Cloudflare with Alchemy',
+    );
+    expect(demoPreviewDeploy).toContain(
+      'bun alchemy deploy alchemy.preview.run.ts',
+    );
+    expect(demoPreviewDeploy).not.toContain('--adopt');
+    expect(demoPreviewDeploy).toContain('ALCHEMY_PROFILE: preview-ci');
+    expect(demoPreviewDeploy).toContain('CLOUDFLARE_PREVIEW_ACCOUNT_ID');
+    expect(demoPreviewDeploy).toContain('CLOUDFLARE_PREVIEW_API_TOKEN');
+    expect(demoPreviewDeploy).toContain('--stack MaelstromDemoPreview');
+    expect(demoPreviewDeploy).toContain('deployment-url=%s');
+    expectStepOrder(
+      previews,
+      'Build independent preview artifacts',
+      'Deploy demo to Cloudflare with Alchemy',
+      'Validate Playground preview URL',
+      'Build website preview',
+      'Deploy www to Cloudflare with Alchemy',
+      'Deploy docs to Cloudflare with Alchemy',
+    );
+
     const independentBuild = namedStep(
       previews,
       'Build independent preview artifacts',
@@ -295,6 +318,16 @@ describe('application infrastructure contract', () => {
       'bun alchemy destroy alchemy.preview.run.ts',
     );
     expect(wwwPreviewDestroy).toContain('ALCHEMY_PROFILE: preview-ci');
+    const demoPreviewDestroy = namedStep(
+      teardown,
+      'Destroy demo preview with Alchemy',
+    );
+    expect(demoPreviewDestroy).toContain('id: destroy-demo');
+    expect(demoPreviewDestroy).toContain('if: always()');
+    expect(demoPreviewDestroy).toContain(
+      'bun alchemy destroy alchemy.preview.run.ts',
+    );
+    expect(demoPreviewDestroy).toContain('ALCHEMY_PROFILE: preview-ci');
     expect(previews).toContain('Checkout trusted teardown code');
     const legacyPreviewDestroy = namedStep(teardown, 'Delete preview Workers');
     expect(legacyPreviewDestroy).toContain('id: delete-workers');
@@ -305,11 +338,15 @@ describe('application infrastructure contract', () => {
     expect(legacyPreviewDestroy).toContain(
       '"maelstrom-www-alchemy-pr-$PR_NUMBER"',
     );
+    expect(legacyPreviewDestroy).toContain(
+      '"maelstrom-playground-alchemy-pr-$PR_NUMBER"',
+    );
     expect(namedStep(teardown, 'Find existing preview comment')).toContain(
       'if: always()',
     );
     expect(teardown).toContain('Mark incomplete preview teardown');
     expect(teardown).toContain("steps.destroy-www.outcome == 'success'");
+    expect(teardown).toContain("steps.destroy-demo.outcome == 'success'");
 
     const playground = read('.github/workflows/deploy-playground.yml');
     expect(playground).toContain('group: production-demo');
