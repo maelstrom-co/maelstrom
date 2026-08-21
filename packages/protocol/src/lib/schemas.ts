@@ -2,8 +2,13 @@ import { z } from 'zod';
 
 import { ActionName } from './action-name.ts';
 import { InstanceId } from './instance.ts';
-import { MAX_ACTION_PARAMS_JSON_UTF8_BYTES } from './model-output-limits.ts';
-import type { TilingNode, TilingSplitToken } from './response.ts';
+import {
+  MAX_ACTION_PARAMS_JSON_UTF8_BYTES,
+  MAX_SPLIT_CHILDREN,
+  MAX_SPLIT_WEIGHT,
+} from './model-output-limits.ts';
+import type { TilingNode } from './response.ts';
+import { isTilingSplitTokenString } from './response.ts';
 import { VariantName } from './variant-name.ts';
 import { VesselId } from './vessel-id.ts';
 
@@ -119,19 +124,22 @@ export const TilingNodeSchema = z
   .nullable()
   .transform((value): TilingNode => {
     if (value === null) return value;
-    return SPLIT_TOKEN_PREFIX.test(value)
-      ? (value as TilingSplitToken)
-      : InstanceId(value);
+    return isTilingSplitTokenString(value) ? value : InstanceId(value);
   })
   .describe(
     'A node in the tiling tree: a split token, a vessel instance ID string for a leaf, or null for empty space. A split token is "H" (top/bottom) or "V" (left/right), optionally followed by ":" and comma-separated positive integer weights, e.g. "V:1,1,1" or "H:2,1". Bare "H"/"V" mean an even two-way split and are the preferred spelling for 50/50. The number of weights IS the number of children that token takes: "V:1,1,1" is followed by exactly three subtrees and gives each one third of the width, "H:2,1" is followed by exactly two and gives them two thirds and one third of the height.',
   );
 
-/** Parses a preorder tiling tree without checking tree completeness or references. */
+/**
+ * Preorder tiling tree. Carries the model-facing description directly, with no
+ * override at the {@link TilingLayoutSchema} level: `.describe()` replaces a
+ * description rather than appending to it, so a second call one level up would
+ * make this teaching unreachable by the model that needs it.
+ */
 export const TilingTreeSchema = z
   .array(TilingNodeSchema)
   .describe(
-    'Preorder traversal of the tiling tree. Each split token consumes exactly as many following subtrees as it declares weights (two for bare "H"/"V"), and divides its region along its axis in proportion to those weights. Use weights for arrangements that halving cannot reach: three equal columns is ["V:1,1,1", a, b, c]; a 3x3 grid is ["H:1,1,1", "V:1,1,1", a, b, c, "V:1,1,1", d, e, f, "V:1,1,1", g, h, i].',
+    `Preorder traversal of the tiling tree. Instance IDs in this tree are VISIBLE; omitted instances are HIDDEN. Each instance ID may appear AT MOST ONCE — to give an instance more space, weight its split rather than repeating it. Each split token consumes exactly as many following subtrees as it declares weights (two for bare "H"/"V"), and divides its region along its axis in proportion to those weights. Use weights for arrangements that halving cannot reach: three equal columns is ["V:1,1,1", a, b, c]; a 3x3 grid is ["H:1,1,1", "V:1,1,1", a, b, c, "V:1,1,1", d, e, f, "V:1,1,1", g, h, i]. A token may declare at most ${MAX_SPLIT_CHILDREN} weights, each an integer from 1 to ${MAX_SPLIT_WEIGHT}; nest splits for wider arrangements.`,
   );
 
 /** Parses and brands an Instance identity, Vessel identity, and current Variant. */
@@ -139,6 +147,10 @@ export const VesselInstanceSnapshotSchema = z.object({
   instanceId: z
     .string()
     .min(1, 'instanceId is required')
+    .refine((value) => !isTilingSplitTokenString(value), {
+      message:
+        '"H", "V", and any "H:"/"V:" prefixed value are reserved for tiling split tokens',
+    })
     .transform(InstanceId)
     .describe(
       'Unique instance ID. For new instances, use format "vesselId-identifier" (e.g., "calendar-main", "biomarkers-detail").',
@@ -164,15 +176,10 @@ export const VesselInstanceSnapshotSchema = z.object({
  * intentionally deferred to the Engine's heal layer.
  */
 export const TilingLayoutSchema = z.object({
-  tree: TilingTreeSchema.describe(
-    'Tree layout as preorder traversal. Instance IDs in this tree are VISIBLE; omitted instances are HIDDEN. Each instance ID may appear at most once. Split tokens are "H"/"V" for an even two-way split, or an axis with weights such as "V:1,1,1", where the weight count is the number of subtrees that follow it.',
-  ),
+  tree: TilingTreeSchema,
   instances: z
     .array(VesselInstanceSnapshotSchema)
     .describe(
       'All instances that should exist after this response. Include both existing instances (to keep) and new instances (to create). Instances not in this list will be deleted. IMPORTANT: When creating a new instance that needs configuration, you must ALSO add an action in executionPlan to configure it.',
     ),
 });
-
-/** Claims every axis-prefixed token, well formed or not. */
-const SPLIT_TOKEN_PREFIX = /^[HV](:|$)/;

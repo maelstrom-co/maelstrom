@@ -95,6 +95,7 @@ export {
   getVisibleInstanceIds,
   isInstanceIdNode,
   isTilingSplit,
+  isTilingSplitTokenString,
   parseTilingSplitToken,
 } from './lib/response.ts';
 export type { Result } from './lib/result.ts';

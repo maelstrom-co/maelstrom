@@ -200,7 +200,7 @@ export const TilingResponseSchema = z.object({
       `Actions to execute on vessel instances (in order), with at most ${MAX_EXECUTION_PLAN_ENTRIES} entries. Empty array if no actions needed. CRITICAL: Include actions for newly created instances that require configuration.`,
     ),
   layout: TilingLayoutSchema.describe(
-    'Tiling layout with binary tree structure and instance declarations.',
+    'Tiling layout as a preorder split tree with instance declarations.',
   ),
 });
 

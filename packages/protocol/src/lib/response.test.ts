@@ -90,11 +90,13 @@ describe('parseTilingSplitToken', () => {
       axis: 'H',
       weights: [1, 1],
       repaired: false,
+      discardedChildCount: 0,
     });
     expect(parseTilingSplitToken('V')).toEqual({
       axis: 'V',
       weights: [1, 1],
       repaired: false,
+      discardedChildCount: 0,
     });
   });
 
@@ -109,6 +111,7 @@ describe('parseTilingSplitToken', () => {
       axis: 'V',
       weights: [1, 1, 1],
       repaired: false,
+      discardedChildCount: 0,
     });
     expect(parseTilingSplitToken('H:1,1,1,1,1,1')?.weights).toHaveLength(6);
   });
@@ -118,6 +121,7 @@ describe('parseTilingSplitToken', () => {
       axis: 'V',
       weights: [2, 1],
       repaired: false,
+      discardedChildCount: 0,
     });
     expect(parseTilingSplitToken('H:3,1,4')?.weights).toEqual([3, 1, 4]);
   });
@@ -134,29 +138,77 @@ describe('parseTilingSplitToken', () => {
     { token: 'V:1,-4', weights: [1, 1], why: 'negative clamps to one' },
     { token: 'V:1,5000', weights: [1, 1000], why: 'above the weight cap' },
     { token: 'V:1,abc,2', weights: [1, 1, 2], why: 'non-numeric field' },
-    { token: 'V:1,,2', weights: [1, 1, 2], why: 'empty field' },
     { token: 'V:1.6,1', weights: [2, 1], why: 'fractional rounds' },
     { token: 'V:1,NaN', weights: [1, 1], why: 'literal NaN' },
     { token: 'V:1,Infinity', weights: [1, 1], why: 'non-finite' },
+    // Spelling, not value: each of these coerces to a number the grammar
+    // would accept, then re-serialises as a different string than the model
+    // wrote. `repaired` is the only signal about model output quality, so a
+    // silent rewrite here is exactly what it exists to catch.
+    { token: 'V:0x0C,1', weights: [12, 1], why: 'hex literal' },
+    { token: 'V:1e3,1', weights: [1000, 1], why: 'exponent notation' },
+    { token: 'V:+2,1', weights: [2, 1], why: 'explicit sign' },
+    { token: 'V:2.0,1', weights: [2, 1], why: 'trailing decimal point' },
+    { token: 'V:01,1', weights: [1, 1], why: 'leading zero' },
+    { token: 'V: 2 ,1', weights: [2, 1], why: 'surrounding whitespace' },
   ];
 
   for (const { token, weights, why } of repairCases) {
     test(`repairs "${token}" to [${weights.join(',')}] (${why})`, () => {
       const parsed = parseTilingSplitToken(token);
-      expect(parsed).toEqual({ axis: 'V', weights, repaired: true });
+      expect(parsed).toEqual({
+        axis: 'V',
+        weights,
+        repaired: true,
+        discardedChildCount: 0,
+      });
     });
   }
 
-  test('truncates beyond the child cap and reports the repair', () => {
+  // An empty field declares nothing. Reading it as a child would raise the
+  // token's arity, and arity is what advances the preorder cursor, so a stray
+  // comma would make the split consume a subtree that belonged to an ancestor
+  // — deleting an outer split from the layout rather than reproportioning it.
+  const emptyFieldCases: readonly {
+    readonly token: `${'H' | 'V'}:${string}`;
+    readonly weights: readonly number[];
+    readonly why: string;
+  }[] = [
+    { token: 'V:1,1,', weights: [1, 1], why: 'trailing comma' },
+    { token: 'V:1,1,,', weights: [1, 1], why: 'two trailing commas' },
+    { token: 'V:,1,1', weights: [1, 1], why: 'leading comma' },
+    { token: 'V:1,,2', weights: [1, 2], why: 'interior empty field' },
+    { token: 'V:,', weights: [1, 1], why: 'nothing but commas' },
+    { token: 'V:1, ,2', weights: [1, 2], why: 'whitespace-only field' },
+  ];
+
+  for (const { token, weights, why } of emptyFieldCases) {
+    test(`an empty field adds no child: "${token}" is arity ${weights.length} (${why})`, () => {
+      const parsed = parseTilingSplitToken(token);
+      expect(parsed).toEqual({
+        axis: 'V',
+        weights,
+        repaired: true,
+        discardedChildCount: 0,
+      });
+    });
+  }
+
+  test('truncates beyond the child cap and reports the discarded slots', () => {
     const parsed = parseTilingSplitToken(`V:${'1,'.repeat(19)}1`);
     expect(parsed?.weights).toHaveLength(12);
     expect(parsed?.repaired).toBe(true);
+    // The subtrees the discarded slots would have consumed are re-parented,
+    // not dropped, so the count is what lets a consumer treat truncation as a
+    // reshape rather than a reproportion.
+    expect(parsed?.discardedChildCount).toBe(8);
   });
 
   test('a well-formed token at the caps is not reported as repaired', () => {
     const parsed = parseTilingSplitToken(`H:${'1,'.repeat(11)}1000`);
     expect(parsed?.weights).toHaveLength(12);
     expect(parsed?.repaired).toBe(false);
+    expect(parsed?.discardedChildCount).toBe(0);
   });
 
   test('every parsed weight list is a usable arity', () => {
@@ -183,17 +235,19 @@ describe('formatTilingSplitToken', () => {
   });
 
   test('round-trips through the parser', () => {
-    for (const weights of [
+    const cases: readonly (readonly [number, number, ...number[]])[] = [
       [1, 1],
       [2, 1],
       [1, 1, 1],
       [3, 1, 4, 1],
-    ]) {
+    ];
+    for (const weights of cases) {
       const token = formatTilingSplitToken('V', weights);
       expect(parseTilingSplitToken(token)).toEqual({
         axis: 'V',
-        weights,
+        weights: [...weights],
         repaired: false,
+        discardedChildCount: 0,
       });
     }
   });

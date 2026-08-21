@@ -6,7 +6,12 @@ import {
   parseTilingSplitToken,
   type TilingNode,
 } from './response.js';
-import { TilingNodeSchema, TilingTreeSchema } from './schemas.js';
+import {
+  TilingLayoutSchema,
+  TilingNodeSchema,
+  TilingTreeSchema,
+  VesselInstanceSnapshotSchema,
+} from './schemas.js';
 
 describe('TilingNodeSchema', () => {
   test('passes bare split operators and null through unchanged', () => {
@@ -40,6 +45,34 @@ describe('TilingNodeSchema', () => {
     expect(TilingNodeSchema.parse('Vessel-1')).toBe(InstanceId('Vessel-1'));
   });
 
+  test('the split and instance-id arms cannot overlap', () => {
+    // A leaf named "H:main" would be branded a split token here, read as an
+    // arity-two divider, and made to consume the two subtrees that follow —
+    // while the instance it names is reported as never referenced. The
+    // namespace is reserved at the declaration boundary instead.
+    for (const reserved of ['H', 'V', 'H:main', 'V:sidebar'] as const) {
+      expect(TilingNodeSchema.parse(reserved)).toBe(reserved);
+      expect(() => InstanceId(reserved)).toThrow(/reserved/);
+      expect(
+        VesselInstanceSnapshotSchema.safeParse({
+          instanceId: reserved,
+          vesselId: 'calendar',
+          variant: 'month',
+        }).success,
+      ).toBe(false);
+    }
+  });
+
+  test('declares an instance whose id merely starts with an axis letter', () => {
+    expect(
+      VesselInstanceSnapshotSchema.parse({
+        instanceId: 'Header',
+        vesselId: 'calendar',
+        variant: 'month',
+      }).instanceId,
+    ).toBe(InstanceId('Header'));
+  });
+
   test('rejects the empty string', () => {
     expect(TilingNodeSchema.safeParse('').success).toBe(false);
   });
@@ -70,9 +103,17 @@ describe('TilingTreeSchema', () => {
   });
 
   test('the model-facing description teaches the arity rule', () => {
-    const described = TilingTreeSchema.description ?? '';
+    // Read through TilingLayoutSchema, which is what request.ts and
+    // envelope.ts build the model-facing schema from. Zod's `.describe()`
+    // replaces rather than appends, so a description pinned on
+    // TilingTreeSchema alone would pass this test while reaching no model.
+    const described = TilingLayoutSchema.shape.tree.description ?? '';
     expect(described).toContain('weights');
     expect(described).toContain('V:1,1,1');
+    expect(described).toContain('AT MOST ONCE');
+    expect(described).toContain(
+      '["H:1,1,1", "V:1,1,1", a, b, c, "V:1,1,1", d, e, f, "V:1,1,1", g, h, i]',
+    );
   });
 
   test('parsed split tokens are readable by the grammar parser', () => {
@@ -81,6 +122,7 @@ describe('TilingTreeSchema', () => {
       axis: 'V',
       weights: [1, 2, 3],
       repaired: false,
+      discardedChildCount: 0,
     });
   });
 });
