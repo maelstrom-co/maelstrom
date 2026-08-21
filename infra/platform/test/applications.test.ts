@@ -10,7 +10,7 @@ const read = (path: string) =>
 const readJson = (path: string): unknown => parse(read(path));
 const productionWorkflow = read('.github/workflows/deploy-production.yml');
 const deploymentSourcePaths = [
-  ...new Bun.Glob('apps/*/alchemy.run.ts').scanSync({ cwd: workspaceRoot }),
+  ...new Bun.Glob('apps/*/alchemy*.run.ts').scanSync({ cwd: workspaceRoot }),
   ...new Bun.Glob('apps/*/infra/**/*.ts').scanSync({ cwd: workspaceRoot }),
   ...new Bun.Glob('infra/platform/alchemy.run.ts').scanSync({
     cwd: workspaceRoot,
@@ -80,6 +80,17 @@ describe('application infrastructure contract', () => {
         },
       },
     });
+
+    const previewStack = read('apps/docs/alchemy.preview.run.ts');
+    expect(previewStack).toContain("'MaelstromDocsPreview'");
+    expect(previewStack).toContain("requirePreviewStage('docs preview')");
+    const previewWebsite = read('apps/docs/infra/PreviewWebsite.ts');
+    expect(previewWebsite).toContain(
+      `name: \`maelstrom-docs-alchemy-${'$'}{stage}\``,
+    );
+    expect(previewWebsite).toContain('workersDev: true');
+    expect(previewWebsite).not.toContain('domain:');
+    expect(previewWebsite).not.toContain('retain(');
   });
 
   test('deploys the prebuilt www Worker through Alchemy', () => {
@@ -189,13 +200,55 @@ describe('application infrastructure contract', () => {
     );
   });
 
-  test('keeps previews on Wrangler and manual production deploys on Alchemy', () => {
+  test('deploys docs previews through Alchemy while other previews remain on Wrangler', () => {
     const previews = read('.github/workflows/deploy-preview.yml');
-    expect(previews).toContain('cloudflare/wrangler-action@');
+    const teardown = section(previews, '  teardown:\n', '\n<end>');
+    expect(previews.match(/cloudflare\/wrangler-action@/g)).toHaveLength(2);
     expect(previews).toContain('Deploy www to Cloudflare');
-    expect(previews).toContain('Deploy docs to Cloudflare');
     expect(previews).toContain('Deploy demo to Cloudflare');
-    expect(previews).not.toContain('alchemy deploy');
+    const docsPreviewDeploy = namedStep(
+      previews,
+      'Deploy docs to Cloudflare with Alchemy',
+    );
+    expect(docsPreviewDeploy).toContain(
+      'bun alchemy deploy alchemy.preview.run.ts',
+    );
+    expect(docsPreviewDeploy).not.toContain('--adopt');
+    expect(docsPreviewDeploy).toContain('ALCHEMY_PROFILE: preview-ci');
+    expect(docsPreviewDeploy).toContain('CLOUDFLARE_PREVIEW_ACCOUNT_ID');
+    expect(docsPreviewDeploy).toContain('CLOUDFLARE_PREVIEW_API_TOKEN');
+    expect(docsPreviewDeploy).toContain('--stack MaelstromDocsPreview');
+    expect(docsPreviewDeploy).toContain('deployment-url=%s');
+    expect(previews).toContain(
+      `| Documentation | ${'$'}{{ steps.deploy-docs.outputs.deployment-url }} |`,
+    );
+
+    const independentBuild = namedStep(
+      previews,
+      'Build independent preview artifacts',
+    );
+    expect(independentBuild).not.toMatch(/CLOUDFLARE_|ALCHEMY_PROFILE/);
+
+    const docsPreviewDestroy = namedStep(
+      teardown,
+      'Destroy docs preview with Alchemy',
+    );
+    expect(docsPreviewDestroy).toContain(
+      'bun alchemy destroy alchemy.preview.run.ts',
+    );
+    expect(docsPreviewDestroy).toContain('id: destroy-docs');
+    expect(docsPreviewDestroy).toContain('ALCHEMY_PROFILE: preview-ci');
+    expect(previews).toContain('Checkout trusted teardown code');
+    const legacyPreviewDestroy = namedStep(teardown, 'Delete preview Workers');
+    expect(legacyPreviewDestroy).toContain('id: delete-workers');
+    expect(legacyPreviewDestroy).toContain('if: always()');
+    expect(legacyPreviewDestroy).toContain(
+      '"maelstrom-docs-alchemy-pr-$PR_NUMBER"',
+    );
+    expect(namedStep(teardown, 'Find existing preview comment')).toContain(
+      'if: always()',
+    );
+    expect(teardown).toContain('Mark incomplete preview teardown');
 
     const playground = read('.github/workflows/deploy-playground.yml');
     expect(playground).toContain('group: production-demo');
