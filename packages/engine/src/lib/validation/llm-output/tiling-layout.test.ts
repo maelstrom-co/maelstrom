@@ -3,6 +3,7 @@ import type {
   ChartRequest,
   TilingNode,
   TilingResponse,
+  TilingSplitToken,
 } from '@maelstrom-co/protocol';
 import { InstanceId } from '@maelstrom-co/protocol';
 
@@ -44,13 +45,15 @@ function requestWithVessels(): ChartRequest {
 
 /**
  * Brands raw strings as `InstanceId` for assertions against the healed
- * `readonly TilingNode[]` shape. Brands are erased at runtime, so this is
- * a type-only convenience for the test fixtures.
+ * `readonly TilingNode[]` shape. Split tokens, bare or weighted, pass
+ * through. Brands are erased at runtime, so this is a type-only convenience
+ * for the test fixtures.
  */
-function tree(...nodes: Array<'H' | 'V' | string | null>): TilingNode[] {
-  return nodes.map((n) =>
-    n === null || n === 'H' || n === 'V' ? n : InstanceId(n),
-  );
+function tree(...nodes: Array<string | null>): TilingNode[] {
+  return nodes.map((n) => {
+    if (n === null) return n;
+    return /^[HV](:|$)/.test(n) ? (n as TilingSplitToken) : InstanceId(n);
+  });
 }
 
 describe('healTilingLayout', () => {
@@ -409,10 +412,13 @@ describe('healTilingLayout', () => {
     expect(healed.droppedEntries).toEqual([]);
   });
 
-  test('same leaf id referenced twice in the tree is preserved (not flagged)', () => {
-    // Pins the contract that the heal does not dedup tree references.
-    // Multiple leaves pointing at the same instance ID are valid (a
-    // renderer may show the same panel in multiple split positions).
+  test('same leaf id referenced twice in the tree is dropped to one', () => {
+    // Pins the opposite of what this test used to assert. The shipped
+    // renderer merges duplicate tiles into their bounding box, which is only
+    // the right rectangle when the duplicates happen to form one — reorder
+    // them or mix axes and the box swallows a sibling, silently. Weighted
+    // splits remove the only sanctioned reason to repeat a leaf: claiming
+    // more space now has a spelling that says so.
     const healed = healTilingLayout(
       makeTilingResponse({
         layout: {
@@ -428,10 +434,63 @@ describe('healTilingLayout', () => {
       }),
       requestWithVessels(),
     );
-    expect(healed.layout.tree).toEqual(
-      tree('V', 'calendar-main', 'calendar-main'),
+    // Removing the repeat leaves the split one child short, which collapses
+    // it to its survivor.
+    expect(healed.layout.tree).toEqual(tree('calendar-main'));
+    expect(healed.droppedEntries).toEqual([
+      {
+        reason: 'tree_duplicate_leaf',
+        atTokenIndex: 2,
+        instanceId: InstanceId('calendar-main'),
+      },
+      { reason: 'tree_missing_child', atTokenIndex: 0 },
+    ]);
+  });
+
+  test('first preorder occurrence of a duplicated leaf wins', () => {
+    const healed = healTilingLayout(
+      makeTilingResponse({
+        layout: {
+          tree: ['V:1,1,1', 'a', 'b', 'a'],
+          instances: [
+            { instanceId: 'a', vesselId: 'calendar', variant: 'month' },
+            { instanceId: 'b', vesselId: 'calendar', variant: 'month' },
+          ],
+        },
+      }),
+      requestWithVessels(),
     );
-    expect(healed.droppedEntries).toEqual([]);
+    expect(healed.layout.tree).toEqual(tree('V', 'a', 'b'));
+    expect(healed.droppedEntries).toContainEqual({
+      reason: 'tree_duplicate_leaf',
+      atTokenIndex: 3,
+      instanceId: InstanceId('a'),
+    });
+  });
+
+  test('dropping a duplicate reshapes the tree around it', () => {
+    const healed = healTilingLayout(
+      makeTilingResponse({
+        layout: {
+          tree: ['H', 'V', 'a', 'a', 'V', 'b', 'c'],
+          instances: [
+            { instanceId: 'a', vesselId: 'calendar', variant: 'month' },
+            { instanceId: 'b', vesselId: 'calendar', variant: 'month' },
+            { instanceId: 'c', vesselId: 'calendar', variant: 'month' },
+          ],
+        },
+      }),
+      requestWithVessels(),
+    );
+    // Removing a token from a preorder array re-parents everything after it:
+    // the inner `V` slides into the slot the duplicate vacated, the outer `H`
+    // is left one child short, and collapses to its survivor.
+    expect(healed.layout.tree).toEqual(tree('V', 'a', 'V', 'b', 'c'));
+    expect(healed.droppedEntries).toContainEqual({
+      reason: 'tree_duplicate_leaf',
+      atTokenIndex: 3,
+      instanceId: InstanceId('a'),
+    });
   });
 
   test('distinct split sites produce distinct tree_missing_child drops', () => {
@@ -490,5 +549,197 @@ describe('healTilingLayout', () => {
     const reasons = healed.droppedEntries.map((d) => d.reason);
     expect(reasons).toContain('tree_missing_child');
     expect(reasons).toContain('tree_orphan_reference');
+  });
+});
+
+describe('healTilingLayout — weighted splits', () => {
+  function healTree(
+    tree: readonly (string | null)[],
+    ids: readonly string[] = ['a', 'b', 'c', 'd', 'e', 'f'],
+  ) {
+    return healTilingLayout(
+      makeTilingResponse({
+        layout: {
+          tree: [...tree],
+          instances: ids.map((instanceId) => ({
+            instanceId,
+            vesselId: 'calendar',
+            variant: 'month',
+          })),
+        },
+      }),
+      requestWithVessels(),
+    );
+  }
+
+  test('bare H and V still heal to themselves', () => {
+    const healed = healTree(['H', 'V', 'a', 'b', 'c']);
+    expect(healed.layout.tree).toEqual(tree('H', 'V', 'a', 'b', 'c'));
+    expect(healed.droppedEntries).toEqual([]);
+    expect(healed.warnings).toEqual([]);
+  });
+
+  test('a three-way split consumes three subtrees', () => {
+    const healed = healTree(['V:1,1,1', 'a', 'b', 'c']);
+    expect(healed.layout.tree).toEqual(tree('V:1,1,1', 'a', 'b', 'c'));
+    expect(healed.droppedEntries).toEqual([]);
+    expect(healed.warnings).toEqual([]);
+  });
+
+  test('a 3x3 grid heals to itself', () => {
+    const healed = healTree(
+      [
+        'H:1,1,1',
+        'V:1,1,1',
+        'a',
+        'b',
+        'c',
+        'V:1,1,1',
+        'd',
+        'e',
+        'f',
+        'V:1,1,1',
+        'g',
+        'h',
+        'i',
+      ],
+      ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'],
+    );
+    expect(healed.layout.tree).toHaveLength(13);
+    expect(healed.droppedEntries).toEqual([]);
+  });
+
+  test('uneven weights survive the round trip', () => {
+    const healed = healTree(['V:2,1', 'a', 'b']);
+    expect(healed.layout.tree).toEqual(tree('V:2,1', 'a', 'b'));
+  });
+
+  test('an even two-way weighted token normalizes to the bare spelling', () => {
+    // Same geometry, and it keeps unweighted output byte-identical to what
+    // the renderer has always received.
+    const healed = healTree(['V:1,1', 'a', 'b']);
+    expect(healed.layout.tree).toEqual(tree('V', 'a', 'b'));
+  });
+
+  test('a twelve-way split consumes twelve subtrees', () => {
+    const ids = Array.from({ length: 12 }, (_, i) => `w${i}`);
+    const healed = healTree([`V:${ids.map(() => 1).join(',')}`, ...ids], ids);
+    expect(healed.layout.tree).toHaveLength(13);
+    expect(healed.droppedEntries).toEqual([]);
+  });
+
+  test('a pruned child takes its weight with it', () => {
+    // 'orphan' is not in layout.instances, so it prunes; the surviving two
+    // keep the ratio they were given.
+    const healed = healTree(['V:3,1,2', 'a', 'orphan', 'b'], ['a', 'b']);
+    expect(healed.layout.tree).toEqual(tree('V:3,2', 'a', 'b'));
+    expect(healed.droppedEntries).toContainEqual({
+      reason: 'tree_orphan_reference',
+      atTokenIndex: 2,
+      instanceId: InstanceId('orphan'),
+    });
+  });
+
+  test('a split down to one survivor collapses to that survivor', () => {
+    const healed = healTree(['V:1,1,1', 'x', 'a', 'y'], ['a']);
+    expect(healed.layout.tree).toEqual(tree('a'));
+  });
+
+  test('a split with no survivors collapses to nothing', () => {
+    const healed = healTree(['V:1,1,1', 'x', 'y', 'z'], ['a']);
+    expect(healed.layout.tree).toEqual(tree());
+  });
+
+  test('fewer subtrees than declared reports a missing child on the prefix', () => {
+    const healed = healTree(['V:1,1,1', 'a', 'b']);
+    expect(healed.layout.tree).toEqual(tree('V', 'a', 'b'));
+    expect(healed.droppedEntries).toEqual([
+      { reason: 'tree_missing_child', atTokenIndex: 0 },
+    ]);
+  });
+
+  test('more subtrees than declared leaves the extras unconsumed', () => {
+    const healed = healTree(['V:1,1,1', 'a', 'b', 'c', 'd', 'e']);
+    expect(healed.layout.tree).toEqual(tree('V:1,1,1', 'a', 'b', 'c'));
+    expect(healed.droppedEntries).toEqual([
+      { reason: 'tree_extra_tokens', fromTokenIndex: 4, count: 2 },
+    ]);
+  });
+
+  test('an over-declared arity starves the ancestor, and that is detectable', () => {
+    // The inner token claims three subtrees, so it swallows 'd', which the
+    // outer split was going to use. The weight count is a checksum against
+    // the subtree count: the shortfall surfaces as a missing child at the
+    // ancestor rather than as silently uneven geometry.
+    const healed = healTree(['H', 'V:1,1,1', 'a', 'b', 'd']);
+    expect(healed.layout.tree).toEqual(tree('V:1,1,1', 'a', 'b', 'd'));
+    expect(healed.droppedEntries).toEqual([
+      { reason: 'tree_missing_child', atTokenIndex: 0 },
+    ]);
+  });
+
+  const repairCases: readonly {
+    readonly token: string;
+    readonly weights: readonly number[];
+    readonly healedTo: TilingSplitToken;
+  }[] = [
+    { token: 'V:', weights: [1, 1], healedTo: 'V' },
+    { token: 'V:abc', weights: [1, 1], healedTo: 'V' },
+    { token: 'V:1,0,2', weights: [1, 1, 2], healedTo: 'V:1,1,2' },
+    { token: 'V:1,5000', weights: [1, 1000], healedTo: 'V:1,1000' },
+  ];
+
+  for (const { token, weights, healedTo } of repairCases) {
+    test(`repairs "${token}" to [${weights.join(',')}] as a warning, not a drop`, () => {
+      const healed = healTree([token, 'a', 'b', 'c']);
+      expect(healed.warnings).toContainEqual({
+        kind: 'split_weights_repaired',
+        atTokenIndex: 0,
+        token,
+        weights,
+      });
+      expect(healed.droppedEntries).not.toContainEqual(
+        expect.objectContaining({ reason: 'tree_duplicate_leaf' }),
+      );
+      expect(healed.layout.tree[0]).toBe(healedTo);
+    });
+  }
+
+  test('a well-formed weighted token warns about nothing', () => {
+    const healed = healTree(['V:2,1', 'a', 'b']);
+    expect(healed.warnings).toEqual([]);
+  });
+
+  test('a token declaring twelve children with three following does not overflow', () => {
+    const healed = healTree([
+      `V:${Array(12).fill(1).join(',')}`,
+      'a',
+      'b',
+      'c',
+    ]);
+    expect(healed.layout.tree).toEqual(tree('V:1,1,1', 'a', 'b', 'c'));
+    expect(healed.droppedEntries).toEqual([
+      { reason: 'tree_missing_child', atTokenIndex: 0 },
+    ]);
+  });
+
+  test('a 10k weighted spine heals without stack overflow', () => {
+    const spine: (string | null)[] = [];
+    const ids: string[] = [];
+    for (let i = 0; i < 10_000; i += 1) {
+      spine.push('V:1,1,1', `s${i}`, null);
+      ids.push(`s${i}`);
+    }
+    spine.push(null);
+
+    const healed = healTree(spine, ids);
+    expect(healed.layout.tree.length).toBeGreaterThan(0);
+    expect(healed.droppedEntries).toEqual([]);
+  });
+
+  test('a 10k all-weighted-splits tree heals to empty without stack overflow', () => {
+    const healed = healTree(new Array(10_000).fill('V:1,1,1'), []);
+    expect(healed.layout.tree).toEqual(tree());
+    expect(healed.droppedEntries).toHaveLength(10_000);
   });
 });

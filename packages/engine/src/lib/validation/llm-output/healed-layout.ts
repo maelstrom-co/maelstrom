@@ -52,6 +52,11 @@ export type DroppedLayoutEntry =
     }
   | { readonly reason: 'tree_missing_child'; readonly atTokenIndex: number }
   | {
+      readonly reason: 'tree_duplicate_leaf';
+      readonly atTokenIndex: number;
+      readonly instanceId: InstanceId;
+    }
+  | {
       readonly reason: 'tree_orphan_reference';
       readonly atTokenIndex: number;
       readonly instanceId: InstanceId;
@@ -84,7 +89,23 @@ export const isTreeDrop = (
   entry: DroppedLayoutEntry,
 ): entry is TreeDroppedLayoutEntry => entry.reason.startsWith('tree_');
 
-export type LayoutWarning = { readonly kind: 'missing_rationale' };
+/**
+ * Repairs, as distinct from drops: nothing was removed from the layout, so
+ * these never belong in `droppedEntries`.
+ *
+ * A split token's arity is what its weight count says, so a malformed weight
+ * suffix cannot be dropped — dropping the token would mean dropping subtrees
+ * whose extent is exactly what could not be read. `weights` is the
+ * substitution that was used instead.
+ */
+export type LayoutWarning =
+  | { readonly kind: 'missing_rationale' }
+  | {
+      readonly kind: 'split_weights_repaired';
+      readonly atTokenIndex: number;
+      readonly token: string;
+      readonly weights: readonly number[];
+    };
 
 /**
  * Healed instance shape internal to the heal pipeline. All three IDs are
@@ -167,6 +188,8 @@ export function formatDroppedEntry(entry: DroppedLayoutEntry): string {
       return `instance "${entry.instanceId}" appeared multiple times in layout`;
     case 'tree_missing_child':
       return `tiling tree split at token index ${entry.atTokenIndex} is missing a child`;
+    case 'tree_duplicate_leaf':
+      return `tiling tree references instance "${entry.instanceId}" more than once, at token index ${entry.atTokenIndex}`;
     case 'tree_orphan_reference':
       return `tiling tree references unknown instance "${entry.instanceId}" at token index ${entry.atTokenIndex}`;
     case 'tree_extra_tokens':

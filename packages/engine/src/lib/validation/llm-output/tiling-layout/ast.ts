@@ -1,11 +1,15 @@
-import type { InstanceId } from '@maelstrom-co/protocol';
+import type { InstanceId, TilingSplit } from '@maelstrom-co/protocol';
 
 /**
  * Internal AST built by {@link ./parse-tree.ts:parseTree}. Three node kinds:
  * `leaf` (an instance reference), `null_leaf` (explicit empty space), and
- * `split` (binary `H`/`V` divider). `tokenIndex` is the source position in
+ * `split` (an `H`/`V` divider). `tokenIndex` is the source position in
  * the LLM-emitted tree array; preserved so drop entries and orphan-reference
  * diagnostics can cite the original index.
+ *
+ * A split carries one weight per child, so `weights.length` is its arity and
+ * `children.length` always matches — a split that lost children to a truncated
+ * token array loses the matching weights with them.
  */
 export type Ast =
   | {
@@ -17,37 +21,35 @@ export type Ast =
   | {
       readonly kind: 'split';
       readonly tokenIndex: number;
-      readonly dir: 'H' | 'V';
-      readonly left: Ast;
-      readonly right: Ast;
+      readonly axis: TilingSplit;
+      readonly weights: readonly number[];
+      readonly children: readonly Ast[];
     };
 
 /**
- * Parser state machine frame. `await-left` is pushed on encountering a
- * split operator; transitions to `await-right` after the left subtree
- * resolves; pops on the right subtree resolving (combining into a `split`
- * node). Iterative parse uses an explicit stack of these frames so
- * adversarial input ('H' × 10k with no leaves) cannot overflow.
+ * Parser state machine frame, pushed on encountering a split token and popped
+ * once `filled` reaches the arity its weights declare. Each resolved subtree
+ * appends to `filled`. Iterative parse uses an explicit stack of these frames
+ * so adversarial input ('H' × 10k with no leaves) cannot overflow.
  */
-export type StackFrame =
-  | {
-      readonly kind: 'await-left';
-      readonly dir: 'H' | 'V';
-      readonly tokenIndex: number;
-    }
-  | {
-      readonly kind: 'await-right';
-      readonly dir: 'H' | 'V';
-      readonly tokenIndex: number;
-      readonly leftSubtree: Ast;
-    };
+export interface StackFrame {
+  readonly axis: TilingSplit;
+  readonly weights: readonly number[];
+  readonly tokenIndex: number;
+  readonly filled: Ast[];
+}
 
 /**
  * Pruner task-queue entry. `visit` schedules an AST node for processing;
- * `combine` consumes the two most recent results from the value stack and
- * pushes a single combined result. Iterative post-order pruning uses these
+ * `combine` consumes the `childCount` most recent results from the value stack
+ * and pushes a single combined result. Iterative post-order pruning uses these
  * tasks so deep AST shapes (long right spines) don't risk stack overflow.
  */
 export type PruneTask =
   | { readonly op: 'visit'; readonly node: Ast }
-  | { readonly op: 'combine'; readonly dir: 'H' | 'V' };
+  | {
+      readonly op: 'combine';
+      readonly axis: TilingSplit;
+      readonly weights: readonly number[];
+      readonly childCount: number;
+    };

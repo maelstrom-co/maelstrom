@@ -7,6 +7,7 @@ import type {
   TilingLayout,
   TilingNode,
   TilingResponse,
+  TilingSplitToken,
   Vessel,
   VesselAction,
   VesselInstanceSnapshot,
@@ -218,12 +219,7 @@ const brandLayout = (
     ? { type: 'grid', positions: layout.positions.map(brandGridPosition) }
     : {
         type: 'tiling',
-        tree: layout.tree.map(
-          (node): TilingNode =>
-            node === null || node === 'H' || node === 'V'
-              ? node
-              : InstanceId(node),
-        ),
+        tree: layout.tree.map(brandTilingNode),
         instances: layout.instances.map(brandTilingInstance),
       };
 
@@ -418,10 +414,7 @@ const brandActionExecution = (
 });
 
 const brandTilingTree = (tree: ReadonlyArray<AuthorTilingNode>): TilingNode[] =>
-  tree.map(
-    (node): TilingNode =>
-      node === null || node === 'H' || node === 'V' ? node : InstanceId(node),
-  );
+  tree.map(brandTilingNode);
 
 /** Brands a complete grid LLM-output author shape into a typed `GridResponse`. */
 export function brandGridResponse(author: GridResponseAuthor): GridResponse {
@@ -603,4 +596,15 @@ export function buildSkippedAction(author: AuthorSkippedAction): SkippedAction {
         currentVariant: VariantName(author.currentVariant),
       };
   }
+}
+
+/**
+ * Brands an author-written tree token. Split tokens (bare or weighted) pass
+ * through; anything else becomes an `InstanceId`.
+ */
+function brandTilingNode(node: AuthorTilingNode): TilingNode {
+  if (node === null) return node;
+  return /^[HV](:|$)/.test(node)
+    ? (node as TilingSplitToken)
+    : InstanceId(node);
 }
