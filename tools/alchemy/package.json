@@ -1,0 +1,33 @@
+{
+  "name": "@maelstrom-co/alchemy",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "bun test src",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "validate": "bun run typecheck && bun run test"
+  },
+  "nx": {
+    "targets": {
+      "validate": {
+        "executor": "nx:run-commands",
+        "cache": true,
+        "options": {
+          "cwd": "{projectRoot}",
+          "command": "bun run validate"
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "@effect/platform-bun": "4.0.0-rc.111",
+    "alchemy": "2.0.0-beta.72",
+    "effect": "4.0.0-rc.111"
+  },
+  "devDependencies": {
+    "@types/bun": "*",
+    "jsonc-parser": "3.3.1",
+    "typescript": "catalog:"
+  }
+}

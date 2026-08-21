@@ -57,6 +57,7 @@ vitest.config.*.timestamp*
 # Astro
 .astro/
 .wrangler/
+.alchemy/
 
 # Generated API reference (starlight-typedoc emits these on docs build)
 apps/docs/src/content/docs/reference/
