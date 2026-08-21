@@ -3,6 +3,7 @@ import type { SkippedAction } from '../response/execution-plan/index.js';
 import type {
   DroppedLayoutEntry,
   InstanceDroppedLayoutEntry,
+  LayoutWarning,
 } from '../validation/llm-output/healed-layout.js';
 import { isTreeDrop } from '../validation/llm-output/healed-layout.js';
 
@@ -17,7 +18,7 @@ const textEncoder = new TextEncoder();
 
 interface DiagnosticSection {
   /** Trusted heading selected by the renderer, never model-authored text. */
-  readonly heading: 'Layout drops:' | 'Skipped actions:';
+  readonly heading: 'Layout drops:' | 'Layout repairs:' | 'Skipped actions:';
   /** Already identifier-safe diagnostic entries before global bounds. */
   readonly lines: readonly string[];
 }
@@ -36,13 +37,22 @@ interface DiagnosticLine {
  * skips are omitted because retry policy classifies them as non-retryable; they
  * remain omitted when another skip triggers a mixed retry. The caller's
  * original prompt is deliberately outside this renderer.
+ *
+ * Repairs are rendered alongside drops because a repair is still a rewrite of
+ * what the model asked for: a weight suffix the pipeline could not read was
+ * substituted, and the model is the only party that can stop emitting it.
  */
 export function renderRetryDiagnostics(
   drops: readonly DroppedLayoutEntry[],
   skippedActions: readonly SkippedAction[],
+  warnings: readonly LayoutWarning[] = [],
 ): string {
   const sections = [
     { heading: 'Layout drops:' as const, lines: describeLayoutDrops(drops) },
+    {
+      heading: 'Layout repairs:' as const,
+      lines: describeLayoutWarnings(warnings),
+    },
     {
       heading: 'Skipped actions:' as const,
       lines: describeSkippedActions(skippedActions),
@@ -75,21 +85,68 @@ function formatIdentifierList(identifiers: readonly string[]): string {
   return `${visible}; ${omitted} additional identifier${omitted === 1 ? '' : 's'} omitted`;
 }
 
-/** Collapses all tree drops while preserving bounded per-instance entries. */
+/**
+ * Collapses the shape-error tree drops while preserving bounded per-instance
+ * entries. A repeated leaf and an over-wide split each get their own line: the
+ * generic advisory tells the model its tree could not be parsed, which is the
+ * wrong diagnosis for a tree that parsed perfectly and merely broke a rule.
+ */
 function describeLayoutDrops(drops: readonly DroppedLayoutEntry[]): string[] {
   const lines: string[] = [];
+  const duplicateLeafIds: string[] = [];
+  const truncatedSplitLines: string[] = [];
   let hasTreeDrop = false;
+
   for (const drop of drops) {
+    if (drop.reason === 'tree_duplicate_leaf') {
+      duplicateLeafIds.push(drop.instanceId);
+      continue;
+    }
+    if (drop.reason === 'tree_split_truncated') {
+      truncatedSplitLines.push(
+        `A split token declared ${drop.declaredChildCount} children; a single split may declare at most ${drop.keptChildCount}. Nest splits to arrange more regions rather than widening one.`,
+      );
+      continue;
+    }
     if (isTreeDrop(drop)) {
       hasTreeDrop = true;
       continue;
     }
     lines.push(describeInstanceLayoutDrop(drop));
   }
+
+  if (duplicateLeafIds.length > 0) {
+    lines.push(
+      `The tiling tree named ${formatIdentifierList(duplicateLeafIds)} more than once, and each repeat was blanked out. Every instance ID may appear at most once in the tree — to give an instance more space, weight its split (for example "V:3,1") instead of repeating it.`,
+    );
+  }
+  lines.push(...truncatedSplitLines);
   if (hasTreeDrop) {
     lines.push(
-      'The tiling tree was malformed and could not be fully parsed. Re-emit a complete binary tree using only H/V splits and the requested instance IDs.',
+      'The tiling tree was malformed and could not be fully parsed. Re-emit it as a preorder traversal in which every split token is followed by exactly as many subtrees as it declares weights — two for a bare "H" or "V" — using only the requested instance IDs.',
     );
+  }
+  return lines;
+}
+
+/** Renders each layout repair as an instruction the model can act on. */
+function describeLayoutWarnings(warnings: readonly LayoutWarning[]): string[] {
+  const lines: string[] = [];
+  for (const warning of warnings) {
+    switch (warning.kind) {
+      case 'missing_rationale':
+        lines.push(
+          'The response omitted its rationale. Include a short rationale explaining the layout decision.',
+        );
+        break;
+      case 'split_weights_repaired':
+        lines.push(
+          `The split token ${quoteIdentifier(warning.token)} had an unreadable weight suffix and was read as ${warning.weights.length} children weighted ${warning.weights.join(',')}. Weights are comma-separated positive integers, and the weight count is exactly how many subtrees must follow the token.`,
+        );
+        break;
+      default:
+        assertNever(warning, 'describeLayoutWarnings');
+    }
   }
   return lines;
 }

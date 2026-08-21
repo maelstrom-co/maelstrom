@@ -2,6 +2,7 @@ import type {
   GridResponse,
   InstanceId,
   TilingNode,
+  TilingSplitToken,
   VariantName,
   VesselId,
 } from '@maelstrom-co/protocol';
@@ -65,6 +66,12 @@ export type DroppedLayoutEntry =
       readonly reason: 'tree_extra_tokens';
       readonly fromTokenIndex: number;
       readonly count: number;
+    }
+  | {
+      readonly reason: 'tree_split_truncated';
+      readonly atTokenIndex: number;
+      readonly declaredChildCount: number;
+      readonly keptChildCount: number;
     };
 
 /**
@@ -103,7 +110,7 @@ export type LayoutWarning =
   | {
       readonly kind: 'split_weights_repaired';
       readonly atTokenIndex: number;
-      readonly token: string;
+      readonly token: TilingSplitToken;
       readonly weights: readonly number[];
     };
 
@@ -194,7 +201,31 @@ export function formatDroppedEntry(entry: DroppedLayoutEntry): string {
       return `tiling tree references unknown instance "${entry.instanceId}" at token index ${entry.atTokenIndex}`;
     case 'tree_extra_tokens':
       return `tiling tree has ${entry.count} unconsumed token(s) from index ${entry.fromTokenIndex}`;
+    case 'tree_split_truncated':
+      return `tiling tree split at token index ${entry.atTokenIndex} declared ${entry.declaredChildCount} children, cut to ${entry.keptChildCount}`;
     default:
       return assertNever(entry, 'formatDroppedEntry');
+  }
+}
+
+/**
+ * Renders a single-line description of a layout repair. Used by the engine's
+ * `'Response healed'` log and the retry layer's prompt builder, so a repair
+ * the pipeline applied silently is legible to both the operator and the model
+ * that emitted it.
+ *
+ * The exhaustive `switch` with `assertNever` default is the runtime guard that
+ * locks the {@link LayoutWarning} discriminator, matching the lock
+ * {@link formatDroppedEntry} provides for drops — adding a new arm without
+ * updating this function breaks the build.
+ */
+export function formatLayoutWarning(warning: LayoutWarning): string {
+  switch (warning.kind) {
+    case 'missing_rationale':
+      return 'response omitted its rationale';
+    case 'split_weights_repaired':
+      return `tiling tree split token "${warning.token}" at token index ${warning.atTokenIndex} had an unreadable weight suffix, read as ${warning.weights.join(',')}`;
+    default:
+      return assertNever(warning, 'formatLayoutWarning');
   }
 }

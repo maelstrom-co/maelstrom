@@ -26,6 +26,7 @@ import type { SkippedAction } from '../response/execution-plan/index.js';
 import type { InternalResponse } from '../response/response-processor.js';
 import type {
   DroppedLayoutEntry,
+  LayoutWarning,
   RetryHint,
 } from '../validation/llm-output/healed-layout.js';
 
@@ -38,7 +39,7 @@ import { buildRetryPrompt, callWithRetry, type RunOnce } from './retry.js';
 interface DiagnosticsInput {
   skippedActions?: readonly SkippedAction[];
   droppedLayoutEntries?: readonly DroppedLayoutEntry[];
-  warnings?: readonly { kind: 'missing_rationale' }[];
+  warnings?: readonly LayoutWarning[];
   retryHint?: RetryHint;
 }
 
@@ -331,6 +332,118 @@ describe('callWithRetry', () => {
         ?.split('\n')
         .filter((l) => /tiling tree/i.test(l));
       expect(treeLines).toHaveLength(1);
+    });
+
+    test('the tree advisory teaches the grammar the same request carries', async () => {
+      // The schema description shipped alongside this prompt teaches weighted
+      // n-ary splits. An advisory telling the model to re-emit a binary tree
+      // using only H/V contradicts it, and fires on retries that had nothing
+      // to do with weights.
+      const failed = recommendingResponse({
+        droppedLayoutEntries: [
+          { reason: 'tree_missing_child', atTokenIndex: 3 },
+        ],
+      });
+      const { runOnce, prompts } = recordingRunOnce([
+        ok(failed),
+        ok(response()),
+      ]);
+
+      await callWithRetry({
+        runOnce,
+        originalUserPrompt: 'p',
+        maxRetries: 1,
+        logger: silentLogger,
+      });
+
+      expect(prompts[1]).not.toContain('binary');
+      expect(prompts[1]).toContain('as many subtrees as it declares weights');
+    });
+
+    test('a repeated leaf gets its own line naming the instance', async () => {
+      // Collapsing this into the malformed-tree advisory tells a model whose
+      // tree parsed perfectly that it could not be parsed, and never names
+      // the id it repeated.
+      const failed = recommendingResponse({
+        droppedLayoutEntries: [
+          {
+            reason: 'tree_duplicate_leaf',
+            atTokenIndex: 3,
+            instanceId: InstanceId('calendar-main'),
+          },
+        ],
+      });
+      const { runOnce, prompts } = recordingRunOnce([
+        ok(failed),
+        ok(response()),
+      ]);
+
+      await callWithRetry({
+        runOnce,
+        originalUserPrompt: 'p',
+        maxRetries: 1,
+        logger: silentLogger,
+      });
+
+      expect(prompts[1]).toContain('"calendar-main"');
+      expect(prompts[1]).toContain('at most once');
+      expect(prompts[1]).not.toContain('could not be fully parsed');
+    });
+
+    test('an over-wide split reports the count it declared', async () => {
+      const failed = recommendingResponse({
+        droppedLayoutEntries: [
+          {
+            reason: 'tree_split_truncated',
+            atTokenIndex: 0,
+            declaredChildCount: 20,
+            keptChildCount: 12,
+          },
+        ],
+      });
+      const { runOnce, prompts } = recordingRunOnce([
+        ok(failed),
+        ok(response()),
+      ]);
+
+      await callWithRetry({
+        runOnce,
+        originalUserPrompt: 'p',
+        maxRetries: 1,
+        logger: silentLogger,
+      });
+
+      expect(prompts[1]).toContain('declared 20 children');
+      expect(prompts[1]).toContain('at most 12');
+    });
+
+    test('a repaired weight suffix reaches the model verbatim', async () => {
+      // Repair-instead-of-reject is only safe if the repair is observable.
+      const failed = recommendingResponse({
+        warnings: [
+          {
+            kind: 'split_weights_repaired',
+            atTokenIndex: 2,
+            token: 'V:xyz',
+            weights: [1, 1],
+          },
+        ],
+      });
+      const { runOnce, prompts } = recordingRunOnce([
+        ok(failed),
+        ok(response()),
+      ]);
+
+      await callWithRetry({
+        runOnce,
+        originalUserPrompt: 'p',
+        maxRetries: 1,
+        logger: silentLogger,
+      });
+
+      expect(prompts[1]).toContain('Layout repairs:');
+      expect(prompts[1]).toContain('"V:xyz"');
+      expect(prompts[1]).toContain('read as 2 children weighted 1,1');
     });
 
     test('retry prompt mixes per-instance drops with the tree advisory', async () => {
