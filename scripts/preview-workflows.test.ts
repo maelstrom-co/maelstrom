@@ -174,7 +174,7 @@ describe('preview workflows', () => {
       expect(mutation).toContain('/usr/bin/sha256sum "$BUN_EXECUTABLE"');
       expect(mutation).toContain('scripts/preview-lifecycle.bunfig.toml');
       expect(mutation).toContain(
-        '--config scripts/preview-lifecycle.bunfig.toml',
+        '--config=scripts/preview-lifecycle.bunfig.toml',
       );
       expect(mutation).toContain('--no-env-file');
       expect(mutation).toContain('--no-install');
@@ -251,7 +251,7 @@ describe('preview workflows', () => {
         `BUN_EXECUTABLE: ${expression('steps.trusted-bun.outputs.path')}`,
       );
       expect(workflow).toContain(
-        '--config scripts/preview-lifecycle.bunfig.toml',
+        '--config=scripts/preview-lifecycle.bunfig.toml',
       );
       expect(workflow).toContain('--no-env-file');
       expect(workflow).toContain('--no-install');

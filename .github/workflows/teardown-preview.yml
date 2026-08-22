@@ -89,4 +89,4 @@ jobs:
         run: |
           bun_hash="$(/usr/bin/sha256sum "$BUN_EXECUTABLE")"
           test "${bun_hash%% *}" = "$TRUSTED_BUN_SHA256"
-          "$BUN_EXECUTABLE" --config scripts/preview-lifecycle.bunfig.toml --no-env-file --no-install scripts/preview-lifecycle.ts teardown
+          "$BUN_EXECUTABLE" --config=scripts/preview-lifecycle.bunfig.toml --no-env-file --no-install scripts/preview-lifecycle.ts teardown
