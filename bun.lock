@@ -8,7 +8,7 @@
         "@babel/core": "^7.14.5",
         "@babel/preset-react": "^7.14.5",
         "@biomejs/biome": "2.4.10",
-        "@effect/language-service": "^0.80.0",
+        "@effect/language-service": "^0.87.2",
         "@nx/devkit": "23.1.1",
         "@nx/jest": "23.1.1",
         "@nx/js": "23.1.1",
@@ -24,7 +24,7 @@
         "@swc-node/register": "1.11.1",
         "@swc/cli": "0.7.10",
         "@swc/core": "1.15.8",
-        "@swc/helpers": "0.5.19",
+        "@swc/helpers": "0.5.23",
         "@testing-library/dom": "10.4.1",
         "@testing-library/jest-dom": "^6.9.1",
         "@testing-library/react": "^16.3.2",
@@ -891,7 +891,7 @@
 
     "@distilled.cloud/planetscale": ["@distilled.cloud/planetscale@1.0.0-rc.6", "", { "dependencies": { "@distilled.cloud/core": "1.0.0-rc.6" }, "peerDependencies": { "effect": ">=4.0.0-rc.110 || >=4.0.0" } }, "sha512-6lIFwZAXiQCJ9u5QMIyY72qTdYbWmGAt7+HbONFEvmihwvecFuRo1i1QYkx5j9EN8c54KeO7CcEBq7HXpvwIhQ=="],
 
-    "@effect/language-service": ["@effect/language-service@0.80.0", "", { "bin": { "effect-language-service": "cli.js" } }, "sha512-dKMATT1fDzaCpNrICpXga7sjJBtFLpKCAoE/1MiGXI8UwcHA9rmAZ2t52JO9g/kJpERWyomkJ+rl+VFlwNIofg=="],
+    "@effect/language-service": ["@effect/language-service@0.87.2", "", { "bin": { "effect-language-service": "cli.js" } }, "sha512-CfiSoaVQO8pZgaMZGw5VvMvRGybsJ2LaSDoLYaqiVGvo/YYPYVR2GzUKY0h1NtIweq/+SQ5XLrvtzPIttWQ0GQ=="],
 
     "@effect/platform-bun": ["@effect/platform-bun@4.0.0-rc.111", "", { "dependencies": { "@effect/platform-node-shared": "^4.0.0-rc.111" }, "peerDependencies": { "effect": "^4.0.0-rc.111" } }, "sha512-z6MF1ztw8oSvh4nlvI90wraB63ib5K67JPaSYtz5K9IIAgjXgXYC0hjbcqF+PlC9ytlQmu8tWzk2+yGePWWe5A=="],
 
@@ -1805,7 +1805,7 @@
 
     "@swc/counter": ["@swc/counter@0.1.3", "", {}, "sha512-e2BR4lsJkkRlKZ/qCHPw9ZaSxc0MVUd7gtbtaB7aMvHeJVYe8sOB8DBZkP2DtISHGSku9sCK6T6cnY0CtXrOCQ=="],
 
-    "@swc/helpers": ["@swc/helpers@0.5.19", "", { "dependencies": { "tslib": "^2.8.0" } }, "sha512-QamiFeIK3txNjgUTNppE6MiG3p7TdninpZu0E0PbqVh1a9FNLT2FRhisaa4NcaX52XVhA5l7Pk58Ft7Sqi/2sA=="],
+    "@swc/helpers": ["@swc/helpers@0.5.23", "", { "dependencies": { "tslib": "^2.8.0" } }, "sha512-5lSsMOTXURePglDfvuAQUqkGek9Hg2kksOYay2m0+XR++b2NWYL/4sWyuvVBIs8oKnJaxkdi9whaL/sqN13afw=="],
 
     "@swc/types": ["@swc/types@0.1.28", "", { "dependencies": { "@swc/counter": "^0.1.3" } }, "sha512-V6Mnml8v09QALx6K0elJ7o9K/MkVDtW3t6L+7Ou/JcWtb3xwId2AH4FeOceySd2JaO87IMw4+6vSZxLm34LPbw=="],
 
