@@ -237,7 +237,7 @@
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react": "catalog:",
     "alchemy": "2.0.0-beta.73",
-    "concurrently": "^9.1.2",
+    "concurrently": "^10.0.5",
     "effect": "4.0.0-rc.111",
     "happy-dom": "catalog:",
     "tailwindcss": "catalog:",
