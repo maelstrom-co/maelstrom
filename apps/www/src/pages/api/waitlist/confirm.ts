@@ -4,6 +4,7 @@ import { env } from 'cloudflare:workers';
 import type { APIRoute } from 'astro';
 import { readLimitedBody } from '../../../lib/read-limited-body';
 import { WaitlistDeliveryStore } from '../../../lib/waitlist-delivery-store';
+import { buildWaitlistInvitationEmail } from '../../../lib/waitlist-invitation-email';
 import {
   hashWaitlistToken,
   isWaitlistToken,
@@ -19,7 +20,7 @@ const redirect = (request: Request, status: 'confirmed' | 'invalid') => {
 
 const MAX_CONFIRMATION_BODY_BYTES = 512;
 
-export const POST: APIRoute = async ({ request }) => {
+export const POST: APIRoute = async ({ request, locals }) => {
   const mediaType = request.headers
     .get('Content-Type')
     ?.split(';', 1)[0]
@@ -51,12 +52,26 @@ export const POST: APIRoute = async ({ request }) => {
   try {
     const tokenHash = await hashWaitlistToken(token);
     const now = new Date().toISOString();
-    const confirmed = await new WaitlistDeliveryStore(database).confirmToken(
+    const confirmation = await new WaitlistDeliveryStore(database).confirmToken(
       tokenHash,
       now,
     );
 
-    return redirect(request, confirmed ? 'confirmed' : 'invalid');
+    if (!confirmation) return redirect(request, 'invalid');
+
+    const emailService = env.EMAIL;
+    if (emailService) {
+      const delivery = deliverInvitationEmail(emailService, confirmation.email);
+      if (locals?.cfContext) {
+        locals.cfContext.waitUntil(delivery);
+      } else {
+        await delivery;
+      }
+    } else {
+      logInvitationEmailFailure('invitation_email_unavailable');
+    }
+
+    return redirect(request, 'confirmed');
   } catch {
     console.error({
       message: 'waitlist confirmation failed',
@@ -70,6 +85,28 @@ export const POST: APIRoute = async ({ request }) => {
     );
   }
 };
+
+async function deliverInvitationEmail(
+  emailService: SendEmail,
+  email: string,
+): Promise<void> {
+  try {
+    const result = await emailService.send({
+      ...buildWaitlistInvitationEmail(),
+      to: email,
+    });
+    if (!result.messageId) logInvitationEmailFailure('invitation_email_failed');
+  } catch {
+    logInvitationEmailFailure('invitation_email_failed');
+  }
+}
+
+function logInvitationEmailFailure(category: string): void {
+  console.error({
+    message: 'waitlist invitation email failed',
+    category,
+  });
+}
 
 function privateResponse(body: BodyInit | null, init: ResponseInit): Response {
   const headers = new Headers(init.headers);

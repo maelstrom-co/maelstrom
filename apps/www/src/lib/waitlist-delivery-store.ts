@@ -135,7 +135,10 @@ export class WaitlistDeliveryStore {
     await this.assertExistingTransition(id, 'retryable', null, failureCode);
   }
 
-  async confirmToken(tokenHash: string, now: string): Promise<boolean> {
+  async confirmToken(
+    tokenHash: string,
+    now: string,
+  ): Promise<{ email: string } | null> {
     const acceptAttempt = this.database
       .prepare(
         `UPDATE waitlist_confirmation_deliveries
@@ -174,7 +177,7 @@ export class WaitlistDeliveryStore {
       acceptAttempt,
       confirmSubscriber,
     ]);
-    return (confirmation?.results.length ?? 0) === 1;
+    return confirmation?.results[0] ?? null;
   }
 
   private async transition(

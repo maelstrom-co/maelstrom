@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { installPostHogRecorder } from './posthog';
 
 const RESULT_PAGES = [
   `/waitlist/confirm/#token=v1.${'a'.repeat(43)}`,
@@ -56,6 +57,41 @@ test('confirmation content remains visible without overflow on mobile', async ({
   ).toBe(true);
 });
 
+test('confirmed subscribers can join Discord and the page captures the interaction', async ({
+  page,
+}) => {
+  const captures = await installPostHogRecorder(page);
+  await page.goto('/waitlist/confirmed/');
+
+  const discordInvite = page.getByRole('link', {
+    name: 'Join the beta Discord',
+  });
+  await expect(discordInvite).toBeVisible();
+  await expect(discordInvite).toHaveAttribute(
+    'href',
+    'https://discord.gg/XAjJqrF2u3',
+  );
+  await expect
+    .poll(() => captures)
+    .toContainEqual({
+      event: 'waitlist_confirmation_page_viewed',
+      properties: undefined,
+    });
+
+  await discordInvite.evaluate((element) => {
+    element.addEventListener('click', (event) => event.preventDefault(), {
+      once: true,
+    });
+    (element as HTMLElement).click();
+  });
+  await expect
+    .poll(() => captures)
+    .toContainEqual({
+      event: 'waitlist_discord_invite_clicked',
+      properties: { source: 'confirmed_page' },
+    });
+});
+
 test('confirmation keeps its bearer token out of requests and telemetry', async ({
   page,
 }) => {
@@ -89,6 +125,11 @@ test('confirmation keeps its bearer token out of requests and telemetry', async 
   );
 
   await page.getByRole('button', { name: 'Confirm my email' }).click();
+
+  await expect(page).toHaveURL(/\/waitlist\/confirmed\/$/);
+  await expect(
+    page.getByRole('link', { name: 'Join the beta Discord' }),
+  ).toBeVisible();
 
   expect(confirmationRequest?.method()).toBe('POST');
   expect(confirmationRequest?.url()).not.toContain(token);

@@ -303,8 +303,8 @@ The adopted `www` Worker binding reads `TURNSTILE_SECRET_KEY` directly from the
 referenced `WaitlistTurnstile` resource.
 
 `@maelstrom-co/platform-infra/waitlist-contract` is dependency-free and owns the
-production origin, hostnames, sender identity, Turnstile action, and Cloudflare
-public test site key. The production widget permits only the two production
+production origin, hostnames, sender identity, Discord invitation, Turnstile
+action, and Cloudflare public test site key. The production widget permits only the two production
 hostnames. Local and preview website builds use Cloudflare's public test widget,
 while a production build fails unless CI supplies a managed `0x` site key.
 The public `PUBLIC_TURNSTILE_ENVIRONMENT` build input selects that fail-closed

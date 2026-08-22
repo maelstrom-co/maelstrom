@@ -3,6 +3,7 @@ import {
   PRODUCTION_RATE_LIMIT,
   PRODUCTION_RATE_LIMIT_RULES,
 } from '../src/RateLimitContract.js';
+import { WAITLIST_DISCORD_INVITE_URL } from '../src/WaitlistContract.js';
 
 const stackSource = await Bun.file(
   new URL('../alchemy.run.ts', import.meta.url),
@@ -27,6 +28,10 @@ const migration = await Bun.file(
 ).text();
 
 describe('platform stack contract', () => {
+  test('keeps the public beta community invite in the shared waitlist contract', () => {
+    expect(WAITLIST_DISCORD_INVITE_URL).toBe('https://discord.gg/XAjJqrF2u3');
+  });
+
   test('keeps the deployed stack identity and waitlist logical IDs stable', () => {
     expect(stackSource).toContain('MaelstromPlatform.make');
     expect(waitlistSource).toContain("D1.Database('Waitlist'");

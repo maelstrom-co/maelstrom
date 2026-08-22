@@ -1,8 +1,10 @@
 import { expect, test } from '@playwright/test';
+import { installPostHogRecorder } from './posthog';
 
 test('waitlist executes Turnstile on submit and continues without a second click', async ({
   page,
 }) => {
+  const captures = await installPostHogRecorder(page);
   await page.route(
     'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit',
     (route) =>
@@ -55,6 +57,12 @@ test('waitlist executes Turnstile on submit and continues without a second click
   await expect(
     page.getByText('If confirmation is needed, check your inbox.'),
   ).toBeVisible();
+  await expect
+    .poll(() => captures)
+    .toContainEqual({
+      event: 'waitlist_submission_accepted',
+      properties: undefined,
+    });
   expect(requestBody).toEqual({
     email: 'user@example.com',
     turnstileToken: 'smart-turnstile-token',

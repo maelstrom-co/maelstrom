@@ -1,4 +1,5 @@
 ---
+import { WAITLIST_DISCORD_INVITE_URL } from '@maelstrom-co/platform-infra/waitlist-contract';
 import WaitlistResult from '../../components/WaitlistResult.astro';
 import Layout from '../../layouts/Layout.astro';
 ---
@@ -10,6 +11,29 @@ import Layout from '../../layouts/Layout.astro';
   <WaitlistResult
     eyebrow="Private beta"
     title="You're confirmed"
-    message="Your place on the Maelstrom private beta waitlist is confirmed. We'll be in touch."
-  />
+    message="Your place on the Maelstrom private beta waitlist is confirmed. Join the community to meet the maintainers and get access details."
+  >
+    <a
+      class="btn btn-primary"
+      href={WAITLIST_DISCORD_INVITE_URL}
+      target="_blank"
+      rel="noopener noreferrer"
+      data-waitlist-discord-invite
+    >
+      Join the beta Discord
+    </a>
+  </WaitlistResult>
 </Layout>
+
+<script>
+  import { captureWaitlistEvent } from '../../lib/posthog';
+
+  captureWaitlistEvent('waitlist_confirmation_page_viewed');
+  document
+    .querySelector('[data-waitlist-discord-invite]')
+    ?.addEventListener('click', () => {
+      captureWaitlistEvent('waitlist_discord_invite_clicked', {
+        source: 'confirmed_page',
+      });
+    });
+</script>
