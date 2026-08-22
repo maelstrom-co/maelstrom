@@ -27,6 +27,10 @@ export const Website = Cloudflare.Worker(
         name: 'maelstrom-ai.co',
         aliases: ['www.maelstrom-ai.co'],
       },
+      // Production serves only the custom domains; the default would also
+      // publish a stable *.workers.dev URL plus version preview URLs outside
+      // zone-scoped WAF and rate limiting.
+      workersDev: false,
       compatibility: {
         date: '2026-07-22',
         flags: ['nodejs_compat'],

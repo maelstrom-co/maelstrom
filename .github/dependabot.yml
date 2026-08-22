@@ -4,3 +4,17 @@ updates:
     directory: /
     schedule:
       interval: weekly
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      # Alchemy, Effect, and the Cloudflare toolchain form one compatibility
+      # unit; updating them separately breaks deployment pinning assumptions.
+      cloudflare-runtime-unit:
+        patterns:
+          - alchemy
+          - effect
+          - '@effect/*'
+          - wrangler
+          - '@cloudflare/*'

@@ -1,7 +1,9 @@
 export { workerObservability } from './Observability.js';
 export { MaelstromPlatform, type MaelstromPlatformOutputs } from './Stack.js';
 export {
+  EXPECTED_ACCOUNT_ENV,
   PRODUCTION_STAGE,
+  requireExpectedAccount,
   requirePreviewStage,
   requireProductionStage,
 } from './Stage.js';
