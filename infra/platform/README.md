@@ -211,6 +211,26 @@ the production account and `maelstrom-ai.co` zone. Remote-state bootstrap also
 requires Secrets Store access. Alchemy profiles and state credentials stay
 outside the repository.
 
+### State-store bootstrap rules
+
+Both accounts' remote state stores are pre-bootstrapped with the pinned
+Alchemy version via `alchemy cloudflare bootstrap`. PR preview jobs must never
+perform implicit state-store bootstrap or upgrades: concurrent first-use or
+version transitions race the same account-wide Worker and Secrets Store
+resources.
+
+- After any Alchemy pin bump, run a serialized manual bootstrap of both
+  accounts before preview traffic resumes. Treat every beta upgrade as a
+  control-plane migration: canary the preview account first.
+- Outside CI, exactly one Alchemy execution is permitted against either
+  account: the pinned-version state-store bootstrap, run serialized from the
+  controlled operator environment (`state-store-bootstrap.sh` wrapping
+  `alchemy cloudflare bootstrap`). Every other local invocation is prohibited;
+  a client with a different version can upgrade the shared store mid-deploy.
+  All callers sharing an account stay on one exact pinned version.
+- If a state-store Worker is found missing, re-bootstrap manually before
+  deploying; do not let a queued PR job discover the absence implicitly.
+
 The preview account token also needs Secrets Store access so ephemeral CI
 runners can derive the Alchemy state-store credentials used by preview stacks.
 Set the repository variable `CLOUDFLARE_PREVIEW_WORKERS_DEV_SUFFIX` to the exact
