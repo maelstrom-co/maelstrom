@@ -55,6 +55,7 @@
     "@babel/preset-react": "^7.14.5",
     "@biomejs/biome": "2.4.10",
     "@effect/language-service": "^0.87.2",
+    "@microsoft/api-extractor": "^7.59.0",
     "@nx/devkit": "23.1.1",
     "@nx/jest": "23.1.1",
     "@nx/js": "23.1.1",
