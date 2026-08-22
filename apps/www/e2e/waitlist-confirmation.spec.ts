@@ -57,11 +57,41 @@ test('confirmation content remains visible without overflow on mobile', async ({
   ).toBe(true);
 });
 
-test('confirmed subscribers can join Discord and the page captures the interaction', async ({
+const RECEIPT = `v1.${'b'.repeat(43)}`;
+
+test('hides the Discord invitation from visitors without a receipt', async ({
   page,
 }) => {
   const captures = await installPostHogRecorder(page);
   await page.goto('/waitlist/confirmed/');
+
+  await expect(
+    page.getByRole('heading', { name: 'This access link has expired' }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('link', { name: 'Join the beta Discord' }),
+  ).toHaveCount(0);
+  expect(captures).toEqual([]);
+});
+
+test('confirmed subscribers reach Discord through the confirmation flow', async ({
+  page,
+}) => {
+  const captures = await installPostHogRecorder(page);
+  await page.route('**/api/waitlist/confirm', async (route) => {
+    await route.fulfill({
+      status: 303,
+      // Mirror the production cookie contract so the redirect lands gated-in.
+      headers: {
+        Location: '/waitlist/confirmed/',
+        'Set-Cookie': `waitlist_receipt=${RECEIPT}; Path=/waitlist/confirmed; HttpOnly; Secure; SameSite=Lax; Max-Age=3600`,
+      },
+    });
+  });
+
+  await page.goto(`/waitlist/confirm/#token=${RECEIPT}`);
+  await page.getByRole('button', { name: 'Confirm my email' }).click();
+  await expect(page).toHaveURL(/\/waitlist\/confirmed\/$/);
 
   const discordInvite = page.getByRole('link', {
     name: 'Join the beta Discord',
@@ -105,7 +135,12 @@ test('confirmation keeps its bearer token out of requests and telemetry', async 
     confirmationRequest = route.request();
     await route.fulfill({
       status: 303,
-      headers: { Location: '/waitlist/confirmed/' },
+      // Mirror the production cookie contract; without the receipt the
+      // redirect would land on the gated-out view.
+      headers: {
+        Location: '/waitlist/confirmed/',
+        'Set-Cookie': `waitlist_receipt=${RECEIPT}; Path=/waitlist/confirmed; HttpOnly; Secure; SameSite=Lax; Max-Age=3600`,
+      },
     });
   });
 

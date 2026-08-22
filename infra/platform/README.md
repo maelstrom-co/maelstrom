@@ -156,6 +156,19 @@ non-confirmable `retryable` state and create a provider-wide backoff without
 starting address cooldown; ambiguous results remain confirmable in case Email
 Service accepted before losing acknowledgement.
 
+The Discord invitation on `/waitlist/confirmed/` is receipt-gated for discovery
+friction, not membership control: confirmation issues a one-hour HttpOnly
+receipt cookie (`0005`) that the page validates against D1 before rendering the
+invite. Validation matches the receipt hash alone; only the confirmation
+transition ever writes one, so no status re-check is needed. Visitors without a
+valid receipt get an explicit expired view and fire no analytics events. The
+invitation email still carries the raw link by design; forwarding it requires
+completing the process first.
+
+Deploy `0005` through the platform stack before the application Worker: the
+gated page reads the new columns, so an app-first rollout would break
+`/waitlist/confirmed/` until the migration lands.
+
 ### Rate-limit ownership migration
 
 The two-revision migration is complete. The bootstrap deployment persisted and

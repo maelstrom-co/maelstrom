@@ -1,39 +1,85 @@
 ---
+export const prerender = false;
+
 import { WAITLIST_DISCORD_INVITE_URL } from '@maelstrom-co/platform-infra/waitlist-contract';
 import WaitlistResult from '../../components/WaitlistResult.astro';
 import Layout from '../../layouts/Layout.astro';
+import { WaitlistDeliveryStore } from '../../lib/waitlist-delivery-store';
+import { hashWaitlistToken, isWaitlistToken } from '../../lib/waitlist-token';
+
+// The Discord invitation is receipt-gated: only a browser that just completed
+// confirmation carries the cookie, so direct visitors and expired revisits get
+// the fallback view without revealing that a gated artifact exists.
+const receiptCookie = Astro.cookies.get('waitlist_receipt')?.value;
+let hasReceipt = false;
+if (receiptCookie && isWaitlistToken(receiptCookie)) {
+  if (import.meta.env.DEV) {
+    // `astro dev` drops the Cloudflare adapter (see astro.config.ts), so D1
+    // only exists inside a built Worker. Dev and the browser suite accept any
+    // well-formed cookie; production always validates against the database.
+    hasReceipt = true;
+  } else {
+    // `cloudflare:workers` is unresolvable outside a built Worker, so the
+    // runtime import stays lazy and any failure closes the gate.
+    try {
+      const { env } = await import('cloudflare:workers');
+      if (env.WAITLIST_DB) {
+        hasReceipt = await new WaitlistDeliveryStore(
+          env.WAITLIST_DB,
+        ).hasValidAccessReceipt(
+          await hashWaitlistToken(receiptCookie),
+          new Date().toISOString(),
+        );
+      }
+    } catch {}
+  }
+}
 ---
 
 <Layout
-  title="Email confirmed — Maelstrom"
+  title={hasReceipt ? "You're confirmed — Maelstrom" : 'Maelstrom private beta'}
   description="Your Maelstrom private beta signup is confirmed."
+  analytics={hasReceipt}
 >
-  <WaitlistResult
-    eyebrow="Private beta"
-    title="You're confirmed"
-    message="Your place on the Maelstrom private beta waitlist is confirmed. Join the community to meet the maintainers and get access details."
-  >
-    <a
-      class="btn btn-primary"
-      href={WAITLIST_DISCORD_INVITE_URL}
-      target="_blank"
-      rel="noopener noreferrer"
-      data-waitlist-discord-invite
-    >
-      Join the beta Discord
-    </a>
-  </WaitlistResult>
+  {
+    hasReceipt ? (
+      <WaitlistResult
+        eyebrow="Private beta"
+        title="You're confirmed"
+        message="Your place on the Maelstrom private beta waitlist is confirmed. Join the community to meet the maintainers and get access details."
+      >
+        <a
+          class="btn btn-primary"
+          href={WAITLIST_DISCORD_INVITE_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          data-waitlist-discord-invite
+        >
+          Join the beta Discord
+        </a>
+      </WaitlistResult>
+    ) : (
+      <WaitlistResult
+        eyebrow="Private beta"
+        title="This access link has expired"
+        message="Confirmation access is short-lived. Use the invitation email from your signup to reach the beta Discord."
+      />
+    )
+  }
 </Layout>
 
 <script>
   import { captureWaitlistEvent } from '../../lib/posthog';
 
-  captureWaitlistEvent('waitlist_confirmation_page_viewed');
-  document
-    .querySelector('[data-waitlist-discord-invite]')
-    ?.addEventListener('click', () => {
+  // Always rendered so Astro bundles it; the gate is decided by the CTA the
+  // server chose to render, not by client state.
+  const invite = document.querySelector('[data-waitlist-discord-invite]');
+  if (invite) {
+    captureWaitlistEvent('waitlist_confirmation_page_viewed');
+    invite.addEventListener('click', () => {
       captureWaitlistEvent('waitlist_discord_invite_clicked', {
         source: 'confirmed_page',
       });
     });
+  }
 </script>

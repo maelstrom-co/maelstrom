@@ -1,11 +1,12 @@
 export const prerender = false;
 
 import { env } from 'cloudflare:workers';
-import type { APIRoute } from 'astro';
+import type { APIRoute, AstroCookies } from 'astro';
 import { readLimitedBody } from '../../../lib/read-limited-body';
 import { WaitlistDeliveryStore } from '../../../lib/waitlist-delivery-store';
 import { buildWaitlistInvitationEmail } from '../../../lib/waitlist-invitation-email';
 import {
+  createWaitlistToken,
   hashWaitlistToken,
   isWaitlistToken,
 } from '../../../lib/waitlist-token';
@@ -19,8 +20,10 @@ const redirect = (request: Request, status: 'confirmed' | 'invalid') => {
 };
 
 const MAX_CONFIRMATION_BODY_BYTES = 512;
+const ACCESS_RECEIPT_TTL_SECONDS = 60 * 60;
+const ACCESS_RECEIPT_COOKIE = 'waitlist_receipt';
 
-export const POST: APIRoute = async ({ request, locals }) => {
+export const POST: APIRoute = async ({ request, cookies, locals }) => {
   const mediaType = request.headers
     .get('Content-Type')
     ?.split(';', 1)[0]
@@ -51,13 +54,21 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
   try {
     const tokenHash = await hashWaitlistToken(token);
-    const now = new Date().toISOString();
+    const now = new Date();
+    const receipt = createWaitlistToken();
     const confirmation = await new WaitlistDeliveryStore(database).confirmToken(
       tokenHash,
-      now,
+      now.toISOString(),
+      {
+        hash: await hashWaitlistToken(receipt),
+        expiresAt: new Date(
+          now.getTime() + ACCESS_RECEIPT_TTL_SECONDS * 1000,
+        ).toISOString(),
+      },
     );
 
     if (!confirmation) return redirect(request, 'invalid');
+    issueAccessReceiptCookie(cookies, receipt);
 
     const emailService = env.EMAIL;
     if (emailService) {
@@ -85,6 +96,19 @@ export const POST: APIRoute = async ({ request, locals }) => {
     );
   }
 };
+
+function issueAccessReceiptCookie(
+  cookies: AstroCookies,
+  receipt: string,
+): void {
+  cookies.set(ACCESS_RECEIPT_COOKIE, receipt, {
+    path: '/waitlist/confirmed',
+    httpOnly: true,
+    secure: true,
+    sameSite: 'lax',
+    maxAge: ACCESS_RECEIPT_TTL_SECONDS,
+  });
+}
 
 async function deliverInvitationEmail(
   emailService: SendEmail,
