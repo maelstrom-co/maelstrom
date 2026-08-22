@@ -1,18 +1,29 @@
 // Email validation for the waitlist signup, kept pure so it can be unit-tested
 // without the Worker runtime.
 export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-export const WAITLIST_TURNSTILE_SITE_KEY = '0x4AAAAAAEXK9DFwilhX3Cla';
 
 export type WaitlistEmailResult =
   | { ok: true; email: string }
   | { ok: false; error: string };
 
 export function validateWaitlistEmail(body: unknown): WaitlistEmailResult {
-  const email = (body as { email?: unknown } | null)?.email;
-  if (typeof email !== 'string' || !EMAIL_RE.test(email)) {
+  const value = (body as { email?: unknown } | null)?.email;
+  if (typeof value !== 'string') {
     return { ok: false, error: 'A valid email is required' };
   }
-  return { ok: true, email: email.toLowerCase() };
+  const email = value.trim().toLowerCase();
+  const domain = email.slice(email.lastIndexOf('@') + 1);
+  const hasValidDomainLabels = domain
+    .split('.')
+    .every((label) => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label));
+  if (
+    new TextEncoder().encode(email).byteLength > 254 ||
+    !EMAIL_RE.test(email) ||
+    !hasValidDomainLabels
+  ) {
+    return { ok: false, error: 'A valid email is required' };
+  }
+  return { ok: true, email };
 }
 
 export type WaitlistSubmitResult =

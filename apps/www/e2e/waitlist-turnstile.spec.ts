@@ -53,7 +53,7 @@ test('waitlist executes Turnstile on submit and continues without a second click
   await page.getByRole('button', { name: 'Join the Beta' }).click();
 
   await expect(
-    page.getByText('Check your inbox to confirm your place.'),
+    page.getByText('If confirmation is needed, check your inbox.'),
   ).toBeVisible();
   expect(requestBody).toEqual({
     email: 'user@example.com',
@@ -103,4 +103,75 @@ test('waitlist fails promptly when Turnstile reports an unsupported browser', as
     'This browser cannot run the security check.',
   );
   expect(submitted).toBe(false);
+});
+
+test('waitlist retries a transient Turnstile script failure on submit', async ({
+  page,
+}) => {
+  let scriptRequests = 0;
+  await page.route(
+    'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit',
+    async (route) => {
+      scriptRequests += 1;
+      if (scriptRequests === 1) {
+        await route.abort();
+        return;
+      }
+      await route.fulfill({
+        contentType: 'application/javascript',
+        body: `
+          let options;
+          window.turnstile = {
+            render(container, nextOptions) {
+              options = nextOptions;
+              container.dataset.turnstileReady = 'true';
+              return 'retried-widget';
+            },
+            execute() { queueMicrotask(() => options.callback('retried-token')); },
+            reset() {},
+            remove() {},
+          };
+        `,
+      });
+    },
+  );
+  await page.route('**/api/waitlist', (route) =>
+    route.fulfill({ json: { success: true } }),
+  );
+
+  await page.goto('/#waitlist');
+  await page.locator('#waitlist').scrollIntoViewIfNeeded();
+  await expect(page.getByRole('alert')).toContainText(
+    'The security check could not load.',
+  );
+
+  await page.getByPlaceholder('you@example.com').fill('user@example.com');
+  await page.getByRole('button', { name: 'Join the Beta' }).click();
+
+  await expect(
+    page.getByText('If confirmation is needed, check your inbox.'),
+  ).toBeVisible();
+  expect(scriptRequests).toBe(2);
+});
+
+test('waitlist removes a Turnstile script that misses its load deadline', async ({
+  page,
+}) => {
+  await page.route(
+    'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit',
+    () => new Promise(() => undefined),
+  );
+
+  await page.goto('/#waitlist', { waitUntil: 'domcontentloaded' });
+  await expect(page.getByPlaceholder('you@example.com')).toBeVisible();
+  const script = page.locator(
+    'script[src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit"]',
+  );
+  await expect(script).toBeAttached();
+
+  await expect(page.getByRole('alert')).toContainText(
+    'The security check could not load.',
+    { timeout: 7_000 },
+  );
+  await expect(script).toHaveCount(0);
 });

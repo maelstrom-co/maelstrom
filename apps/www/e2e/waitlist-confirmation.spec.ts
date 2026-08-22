@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 const RESULT_PAGES = [
-  `/waitlist/confirm/?token=${'a'.repeat(43)}`,
+  `/waitlist/confirm/#token=v1.${'a'.repeat(43)}`,
   '/waitlist/confirmed/',
   '/waitlist/invalid/',
 ];
@@ -42,7 +42,7 @@ test('confirmation content remains visible without overflow on mobile', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 375, height: 812 });
-  await page.goto(`/waitlist/confirm/?token=${'a'.repeat(43)}`);
+  await page.goto(`/waitlist/confirm/#token=v1.${'a'.repeat(43)}`);
 
   await expect(
     page.getByRole('heading', { name: 'Confirm your email' }),
@@ -53,5 +53,57 @@ test('confirmation content remains visible without overflow on mobile', async ({
     await page.evaluate(
       () => document.documentElement.scrollWidth <= window.innerWidth,
     ),
+  ).toBe(true);
+});
+
+test('confirmation keeps its bearer token out of requests and telemetry', async ({
+  page,
+}) => {
+  const token = `v1.${'a'.repeat(43)}`;
+  const requests: import('@playwright/test').Request[] = [];
+  let confirmationRequest: import('@playwright/test').Request | undefined;
+  page.on('request', (request) => {
+    requests.push(request);
+  });
+  await page.route('**/api/waitlist/confirm', async (route) => {
+    confirmationRequest = route.request();
+    await route.fulfill({
+      status: 303,
+      headers: { Location: '/waitlist/confirmed/' },
+    });
+  });
+
+  const response = await page.goto(`/waitlist/confirm/#token=${token}`);
+
+  expect(requests.map((request) => request.url())).not.toContainEqual(
+    expect.stringContaining(token),
+  );
+  expect(response?.headers()['cache-control']).toBe('no-store');
+  expect(response?.headers()['referrer-policy']).toBe('no-referrer');
+  expect(response?.headers()['x-robots-tag']).toBe('noindex');
+  expect(await response?.text()).not.toContain(token);
+  await expect(page).toHaveURL(/\/waitlist\/confirm\/$/);
+  await expect(page.locator('input[name="token"]')).toHaveValue(token);
+  expect(await page.locator('script').allTextContents()).not.toContainEqual(
+    expect.stringContaining('posthog.init'),
+  );
+
+  await page.getByRole('button', { name: 'Confirm my email' }).click();
+
+  expect(confirmationRequest?.method()).toBe('POST');
+  expect(confirmationRequest?.url()).not.toContain(token);
+  expect(confirmationRequest?.headers()['content-type']).toContain(
+    'application/x-www-form-urlencoded',
+  );
+  expect(
+    new URLSearchParams(confirmationRequest?.postData() ?? '').get('token'),
+  ).toBe(token);
+  expect(requests.map((request) => request.url())).not.toContainEqual(
+    expect.stringContaining(token),
+  );
+  expect(
+    requests
+      .filter((request) => request !== confirmationRequest)
+      .every((request) => !request.postData()?.includes(token)),
   ).toBe(true);
 });

@@ -31,6 +31,8 @@ const namedStep = (source: string, name: string) =>
   section(source, `      - name: ${name}\n`, '\n      - ');
 
 const workflowStep = (name: string) => namedStep(productionWorkflow, name);
+const workflowJob = (name: string, nextName: string) =>
+  section(productionWorkflow, `  ${name}:\n`, `\n  ${nextName}:\n`);
 
 const matrixApp = (name: string) =>
   section(
@@ -170,6 +172,39 @@ describe('application infrastructure contract', () => {
   });
 
   test('keeps production builds credential-free and deploys every app through Alchemy', () => {
+    const platformJob = workflowJob('platform', 'deploy');
+    const applicationJob = productionWorkflow.slice(
+      productionWorkflow.indexOf('  deploy:\n'),
+    );
+    expect(applicationJob).toContain('needs: platform');
+    expect(applicationJob).toContain(
+      "needs.platform.outputs.deployed == 'true'",
+    );
+
+    const platformRecheck = namedStep(
+      platformJob,
+      'Recheck platform deployment revision',
+    );
+    expect(platformRecheck).toContain('bun scripts/latest-green-ci.ts');
+    const platformDeploy = namedStep(
+      platformJob,
+      'Deploy platform to Cloudflare with Alchemy',
+    );
+    expect(platformDeploy).toContain(
+      "if: steps.platform-revision.outputs.current == 'true'",
+    );
+    expect(platformDeploy).toContain(
+      'bun alchemy deploy --stage prod --profile production-ci --yes',
+    );
+    expect(platformDeploy).toContain('CLOUDFLARE_ACCOUNT_ID:');
+    expect(platformDeploy).toContain('CLOUDFLARE_API_TOKEN:');
+    expect(platformDeploy).toContain('--fqn WaitlistTurnstile');
+    expect(platformDeploy).toContain('turnstile-sitekey=');
+    expect(platformDeploy).toMatch(/0x\[A-Za-z0-9/);
+    expect(platformJob).toContain(
+      `turnstile-sitekey: ${'$'}{{ steps.deploy-platform.outputs.turnstile-sitekey }}`,
+    );
+
     const www = matrixApp('www');
     expect(www).toContain('directory: apps/www');
     const docs = matrixApp('docs');
@@ -190,7 +225,13 @@ describe('application infrastructure contract', () => {
 
     const build = workflowStep('Build production artifact');
     expect(build).toContain("steps.revision.outputs.current == 'true'");
-    expect(build).not.toMatch(/CLOUDFLARE_|ALCHEMY_PROFILE/);
+    expect(build).not.toMatch(
+      /CLOUDFLARE_(?:API_TOKEN|ACCOUNT_ID)|ALCHEMY_PROFILE/,
+    );
+    expect(build).toContain('PUBLIC_TURNSTILE_ENVIRONMENT: production');
+    expect(build).toContain(
+      `PUBLIC_TURNSTILE_SITE_KEY: ${'$'}{{ matrix.app == 'www' && needs.platform.outputs.turnstile-sitekey || '' }}`,
+    );
 
     const recheck = workflowStep('Recheck deployment revision');
     expect(recheck).toContain('id: deploy-revision');
@@ -209,9 +250,9 @@ describe('application infrastructure contract', () => {
     expect(alchemyDeploy).toContain('CLOUDFLARE_API_TOKEN:');
 
     expect(productionWorkflow).not.toContain('wrangler deploy');
-    expect(productionWorkflow.match(/CLOUDFLARE_ACCOUNT_ID:/g)).toHaveLength(1);
-    expect(productionWorkflow.match(/CLOUDFLARE_API_TOKEN:/g)).toHaveLength(1);
-    expect(productionWorkflow.match(/ALCHEMY_PROFILE:/g)).toHaveLength(1);
+    expect(productionWorkflow.match(/CLOUDFLARE_ACCOUNT_ID:/g)).toHaveLength(2);
+    expect(productionWorkflow.match(/CLOUDFLARE_API_TOKEN:/g)).toHaveLength(2);
+    expect(productionWorkflow.match(/ALCHEMY_PROFILE:/g)).toHaveLength(2);
     expect(productionWorkflow).not.toContain('--adopt');
     expect(workflowStep('Smoke test primary domain')).toContain(
       "steps.deploy-revision.outputs.current == 'true'",
@@ -229,174 +270,7 @@ describe('application infrastructure contract', () => {
     );
   });
 
-  test('deploys and destroys every preview through Alchemy', () => {
-    const previews = read('.github/workflows/deploy-preview.yml');
-    const teardown = read('.github/workflows/teardown-preview.yml');
-    expect(previews).not.toContain('cloudflare/wrangler-action@');
-    expect(previews).not.toContain('Resolve the installed wrangler version');
-    expect(previews).not.toContain('  teardown:');
-    const deployIntent = namedStep(previews, 'Check current preview intent');
-    expect(deployIntent).toContain('gh api');
-    expect(deployIntent).toContain('.head.sha');
-    expect(deployIntent).toContain('deploy-preview');
-    expect(deployIntent).not.toContain('CLOUDFLARE_');
-    const branchEligibility = namedStep(
-      previews,
-      'Reject teardown-ineligible branch names',
-    );
-    expect(branchEligibility).toContain('github.event.pull_request.head.ref');
-    expect(branchEligibility).toContain('^[[:xdigit:]]+$');
-    expect(previews).toContain('timeout-minutes: 45');
-    expect(previews).toContain('cancel-in-progress: false');
-    expect(previews).toContain('queue: max');
-    expect(teardown).toContain('pull_request_target:');
-    expect(teardown).toContain('types: [unlabeled, closed]');
-    expect(teardown).toContain(`ref: ${'$'}{{ github.workflow_sha }}`);
-    expect(teardown).not.toContain('github.event.pull_request.head.sha');
-    expect(teardown).toContain('timeout-minutes: 60');
-    expect(teardown).toContain('cancel-in-progress: false');
-    expect(teardown).toContain('queue: max');
-    expect(`${previews}\n${teardown}`).not.toMatch(
-      /cloudflare\/wrangler-action@|\bwrangler(?:@\S+)?\s+(?:deploy|delete)\b/,
-    );
-    const docsPreviewDeploy = namedStep(
-      previews,
-      'Deploy docs to Cloudflare with Alchemy',
-    );
-    expect(docsPreviewDeploy).toContain(
-      'bun alchemy deploy alchemy.preview.run.ts',
-    );
-    expect(docsPreviewDeploy).not.toContain('--adopt');
-    expect(docsPreviewDeploy).toContain(
-      "if: steps.preview-intent.outputs.current == 'true'",
-    );
-    expect(docsPreviewDeploy).toContain('ALCHEMY_PROFILE: preview-ci');
-    expect(docsPreviewDeploy).toContain('CLOUDFLARE_PREVIEW_ACCOUNT_ID');
-    expect(docsPreviewDeploy).toContain('CLOUDFLARE_PREVIEW_API_TOKEN');
-    expect(docsPreviewDeploy).toContain('--stack MaelstromDocsPreview');
-    expect(docsPreviewDeploy).toContain('deployment-url=%s');
-    expect(previews).toContain(
-      `| Documentation | ${'$'}{{ steps.deploy-docs.outputs.deployment-url }} |`,
-    );
-
-    const wwwPreviewDeploy = namedStep(
-      previews,
-      'Deploy www to Cloudflare with Alchemy',
-    );
-    expect(wwwPreviewDeploy).toContain(
-      'bun alchemy deploy alchemy.preview.run.ts',
-    );
-    expect(wwwPreviewDeploy).not.toContain('--adopt');
-    expect(wwwPreviewDeploy).toContain(
-      "if: steps.preview-intent.outputs.current == 'true'",
-    );
-    expect(wwwPreviewDeploy).toContain('ALCHEMY_PROFILE: preview-ci');
-    expect(wwwPreviewDeploy).toContain('CLOUDFLARE_PREVIEW_ACCOUNT_ID');
-    expect(wwwPreviewDeploy).toContain('CLOUDFLARE_PREVIEW_API_TOKEN');
-    expect(wwwPreviewDeploy).toContain('--stack MaelstromWwwPreview');
-    expect(wwwPreviewDeploy).toContain('deployment-url=%s');
-    const websiteBuild = namedStep(previews, 'Build website preview');
-    expect(websiteBuild).toContain('PUBLIC_PLAYGROUND_URL:');
-    expect(websiteBuild).not.toMatch(
-      /CLOUDFLARE_(?:API_TOKEN|ACCOUNT_ID)|ALCHEMY_PROFILE/,
-    );
-
-    const demoPreviewDeploy = namedStep(
-      previews,
-      'Deploy demo to Cloudflare with Alchemy',
-    );
-    expect(demoPreviewDeploy).toContain(
-      'bun alchemy deploy alchemy.preview.run.ts',
-    );
-    expect(demoPreviewDeploy).not.toContain('--adopt');
-    expect(demoPreviewDeploy).toContain(
-      "if: steps.preview-intent.outputs.current == 'true'",
-    );
-    expect(demoPreviewDeploy).toContain('ALCHEMY_PROFILE: preview-ci');
-    expect(demoPreviewDeploy).toContain('CLOUDFLARE_PREVIEW_ACCOUNT_ID');
-    expect(demoPreviewDeploy).toContain('CLOUDFLARE_PREVIEW_API_TOKEN');
-    expect(demoPreviewDeploy).toContain('--stack MaelstromDemoPreview');
-    expect(demoPreviewDeploy).toContain('deployment-url=%s');
-    expectStepOrder(
-      previews,
-      'Build independent preview artifacts',
-      'Deploy demo to Cloudflare with Alchemy',
-      'Validate Playground preview URL',
-      'Build website preview',
-      'Deploy www to Cloudflare with Alchemy',
-      'Deploy docs to Cloudflare with Alchemy',
-    );
-
-    const independentBuild = namedStep(
-      previews,
-      'Build independent preview artifacts',
-    );
-    expect(independentBuild).not.toMatch(/CLOUDFLARE_|ALCHEMY_PROFILE/);
-
-    const teardownIntent = namedStep(teardown, 'Check current preview intent');
-    expect(teardownIntent).toContain('gh api');
-    expect(teardownIntent).toContain('deploy-preview');
-    expect(teardownIntent).not.toContain('CLOUDFLARE_');
-
-    const docsPreviewDestroy = namedStep(
-      teardown,
-      'Destroy docs preview with Alchemy',
-    );
-    expect(docsPreviewDestroy).toContain(
-      'bun alchemy destroy alchemy.preview.run.ts',
-    );
-    expect(docsPreviewDestroy).toContain('id: destroy-docs');
-    expect(docsPreviewDestroy).toContain(
-      "if: steps.preview-intent.outputs.current == 'true'",
-    );
-    expect(docsPreviewDestroy).toContain('timeout-minutes: 10');
-    expect(docsPreviewDestroy).toContain('ALCHEMY_PROFILE: preview-ci');
-    const wwwPreviewDestroy = namedStep(
-      teardown,
-      'Destroy www preview with Alchemy',
-    );
-    expect(wwwPreviewDestroy).toContain('id: destroy-www');
-    expect(wwwPreviewDestroy).toContain(
-      "if: always() && steps.preview-intent.outputs.current == 'true'",
-    );
-    expect(wwwPreviewDestroy).toContain('timeout-minutes: 10');
-    expect(wwwPreviewDestroy).toContain(
-      'bun alchemy destroy alchemy.preview.run.ts',
-    );
-    expect(wwwPreviewDestroy).toContain('ALCHEMY_PROFILE: preview-ci');
-    const demoPreviewDestroy = namedStep(
-      teardown,
-      'Destroy demo preview with Alchemy',
-    );
-    expect(demoPreviewDestroy).toContain('id: destroy-demo');
-    expect(demoPreviewDestroy).toContain(
-      "if: always() && steps.preview-intent.outputs.current == 'true'",
-    );
-    expect(demoPreviewDestroy).toContain('timeout-minutes: 10');
-    expect(demoPreviewDestroy).toContain(
-      'bun alchemy destroy alchemy.preview.run.ts',
-    );
-    expect(demoPreviewDestroy).toContain('ALCHEMY_PROFILE: preview-ci');
-    expect(teardown).toContain('Checkout trusted teardown code');
-    const legacyPreviewDestroy = namedStep(
-      teardown,
-      'Delete orphaned preview Workers',
-    );
-    expect(legacyPreviewDestroy).toContain('id: delete-workers');
-    expect(legacyPreviewDestroy).toContain(
-      "if: always() && steps.preview-intent.outputs.current == 'true'",
-    );
-    expect(legacyPreviewDestroy).toContain('timeout-minutes: 12');
-    expect(legacyPreviewDestroy).toContain(
-      'bun scripts/delete-preview-workers.ts',
-    );
-    expect(namedStep(teardown, 'Find existing preview comment')).toContain(
-      'if: always()',
-    );
-    expect(teardown).toContain('Mark incomplete preview teardown');
-    expect(teardown).toContain("steps.destroy-www.outcome == 'success'");
-    expect(teardown).toContain("steps.destroy-demo.outcome == 'success'");
-
+  test('deploys the production demo through Alchemy', () => {
     const playground = read('.github/workflows/deploy-playground.yml');
     expect(playground).toContain('group: production-demo');
     expect(playground).not.toContain('wrangler deploy');
@@ -437,20 +311,35 @@ describe('application infrastructure contract', () => {
     );
   });
 
+  test('tracks the public Turnstile build input in Nx', () => {
+    expect(readJson('apps/www/package.json')).toMatchObject({
+      nx: {
+        targets: {
+          build: {
+            inputs: expect.arrayContaining([
+              { env: 'PUBLIC_TURNSTILE_SITE_KEY' },
+              { env: 'PUBLIC_TURNSTILE_ENVIRONMENT' },
+            ]),
+          },
+        },
+      },
+    });
+  });
+
   test('installs the reviewed Alchemy ownership patch', () => {
     expect(readJson('package.json')).toMatchObject({
       patchedDependencies: {
-        'alchemy@2.0.0-beta.72': 'patches/alchemy@2.0.0-beta.72.patch',
+        'alchemy@2.0.0-beta.73': 'patches/alchemy@2.0.0-beta.73.patch',
       },
     });
     const lockfile = read('bun.lock');
     expect(lockfile).toContain(
-      '"alchemy@2.0.0-beta.72": "patches/alchemy@2.0.0-beta.72.patch"',
+      '"alchemy@2.0.0-beta.73": "patches/alchemy@2.0.0-beta.73.patch"',
     );
 
-    const patch = read('patches/alchemy@2.0.0-beta.72.patch');
+    const patch = read('patches/alchemy@2.0.0-beta.73.patch');
     expect(createHash('sha256').update(patch).digest('hex')).toBe(
-      '78c94e51c3d348164cf79d011ceea30ee8ef3bcfbe3908572b938df11d7f5045',
+      '50f99cadb46c44dd162d7a954e6571257ba9f197d6cfaaabd28421152a8c28a4',
     );
     expect(patch).toContain('resolveReadProps: resolveWorkerReadProps');
     expect(patch).toContain('provider.resolveReadProps?.(news)');

@@ -1,5 +1,7 @@
 ---
-const isPreview = !Astro.url.hostname.endsWith('maelstrom-ai.co');
+import { isWaitlistProductionHostname } from '@maelstrom-co/platform-infra/waitlist-contract';
+
+const isPreview = !isWaitlistProductionHostname(Astro.url.hostname);
 ---
 
 {!isPreview && (

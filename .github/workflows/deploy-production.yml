@@ -17,12 +17,75 @@ env:
   DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
 
 jobs:
-  deploy:
-    name: Deploy ${{ matrix.app }}
+  platform:
+    name: Deploy Platform
     if: >-
       github.event.workflow_run.conclusion == 'success'
       && github.event.workflow_run.event == 'push'
       && github.event.workflow_run.head_branch == 'main'
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 20
+    environment: production
+    concurrency:
+      group: production-platform
+      cancel-in-progress: false
+    outputs:
+      deployed: ${{ steps.deploy-platform.outputs.deployed }}
+      turnstile-sitekey: ${{ steps.deploy-platform.outputs.turnstile-sitekey }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ env.DEPLOY_SHA }}
+          filter: tree:0
+          fetch-depth: 0
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # This check is adjacent to the privileged mutation so a queued older
+      # platform run cannot deploy after a newer revision becomes green.
+      - name: Recheck platform deployment revision
+        id: platform-revision
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          latest_green_sha="$(bun scripts/latest-green-ci.ts)"
+          if [ "$latest_green_sha" = "$DEPLOY_SHA" ]; then
+            echo "current=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "current=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping stale platform revision $DEPLOY_SHA; latest green revision is $latest_green_sha"
+          fi
+
+      - name: Deploy platform to Cloudflare with Alchemy
+        id: deploy-platform
+        if: steps.platform-revision.outputs.current == 'true'
+        working-directory: infra/platform
+        run: |
+          set -euo pipefail
+          bun alchemy deploy --stage prod --profile production-ci --yes
+          state="$(bun alchemy state get state.run.ts --stack MaelstromPlatform --stage prod --fqn WaitlistTurnstile --profile production-ci)"
+          sitekey="$(printf '%s' "$state" | bun -e "const state = JSON.parse(await Bun.stdin.text()); const sitekey = state?.attr?.sitekey; if (typeof sitekey !== 'string' || !/^0x[A-Za-z0-9_-]{20,80}$/.test(sitekey)) throw new Error('Platform state must contain one managed Turnstile site key'); process.stdout.write(sitekey);")"
+          printf 'deployed=true\n' >> "$GITHUB_OUTPUT"
+          printf 'turnstile-sitekey=%s\n' "$sitekey" >> "$GITHUB_OUTPUT"
+        env:
+          ALCHEMY_PROFILE: production-ci
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_PRODUCTION_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PRODUCTION_API_TOKEN }}
+
+  deploy:
+    name: Deploy ${{ matrix.app }}
+    needs: platform
+    if: needs.platform.outputs.deployed == 'true'
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 30
     environment:
@@ -94,6 +157,8 @@ jobs:
         run: bunx nx run ${{ matrix.project }}:${{ matrix.build-target }} --skip-nx-cache
         env:
           DOCS_SOURCE_REF: ${{ env.DEPLOY_SHA }}
+          PUBLIC_TURNSTILE_ENVIRONMENT: production
+          PUBLIC_TURNSTILE_SITE_KEY: ${{ matrix.app == 'www' && needs.platform.outputs.turnstile-sitekey || '' }}
 
       # CI can turn green for a newer revision while this artifact builds.
       - name: Recheck deployment revision

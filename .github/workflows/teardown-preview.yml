@@ -3,170 +3,79 @@ name: Tear Down PR Preview
 on:
   pull_request_target:
     types: [unlabeled, closed]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Pull request number to reconcile
+        required: true
+        type: string
 
 permissions:
   contents: read
   pull-requests: write
 
-env:
-  NX_NO_CLOUD: 'true'
-
 jobs:
   teardown:
     name: Tear Down Preview
-    # This privileged workflow always executes default-branch code. It never
-    # checks out or runs the pull request branch.
     if: >-
-      github.event.pull_request.head.repo.full_name == github.repository
-      && (
-        (github.event.action == 'closed'
-          && contains(github.event.pull_request.labels.*.name, 'deploy-preview'))
-        || (github.event.action == 'unlabeled'
-          && github.event.label.name == 'deploy-preview')
-      )
+      (github.event_name == 'workflow_dispatch'
+        && github.ref == format('refs/heads/{0}', github.event.repository.default_branch))
+      || (github.event_name == 'pull_request_target'
+        && github.event.pull_request.head.repo.full_name == github.repository
+        && (github.event.action == 'closed'
+          || (github.event.action == 'unlabeled'
+            && github.event.label.name == 'deploy-preview')))
     runs-on: blacksmith-4vcpu-ubuntu-2404
     environment: preview
-    timeout-minutes: 60
-    # This group matches deployment and serializes all Cloudflare mutations for
-    # one PR. A relabel waits for teardown before creating a new preview.
+    timeout-minutes: 45
     concurrency:
-      group: deploy-preview-pr-${{ github.event.pull_request.number }}
+      group: deploy-preview-pr-${{ github.event.pull_request.number || inputs.pr_number }}
       cancel-in-progress: false
-      # actionlint 1.7.12 predates GitHub's May 2026 concurrency queue support.
+      # actionlint 1.7.12 predates GitHub's concurrency queue support.
       queue: max
     steps:
-      - name: Check current preview intent
-        id: preview-intent
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          set -euo pipefail
-          intent="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq '[.state, any(.labels[]; .name == "deploy-preview")] | @tsv')"
-          IFS=$'\t' read -r state has_label <<< "$intent"
-          if [ "$state" = closed ] || [ "$has_label" = false ]; then
-            echo 'current=true' >> "$GITHUB_OUTPUT"
-          else
-            echo 'current=false' >> "$GITHUB_OUTPUT"
-            echo "Skipping stale preview teardown event: state=$state labeled=$has_label"
-          fi
-
-      - name: Checkout trusted teardown code
-        if: steps.preview-intent.outputs.current == 'true'
+      - name: Checkout trusted lifecycle code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           ref: ${{ github.workflow_sha }}
 
       - name: Setup Node
-        if: steps.preview-intent.outputs.current == 'true'
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
 
       - name: Setup Bun
-        if: steps.preview-intent.outputs.current == 'true'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: .bun-version
 
-      - name: Install dependencies
-        if: steps.preview-intent.outputs.current == 'true'
+      - name: Capture trusted Bun executable
+        id: trusted-bun
+        run: |
+          bun_executable="$(command -v bun)"
+          case "$bun_executable" in /*) ;; *) exit 1 ;; esac
+          case "$bun_executable" in *[[:space:][:cntrl:]]*) exit 1 ;; esac
+          test -x "$bun_executable"
+          bun_hash="$(/usr/bin/sha256sum "$bun_executable")"
+          printf 'path=%s\n' "$bun_executable" >> "$GITHUB_OUTPUT"
+          printf 'sha256=%s\n' "${bun_hash%% *}" >> "$GITHUB_OUTPUT"
+
+      - name: Install trusted dependencies
         run: bun install --frozen-lockfile
 
-      - name: Destroy docs preview with Alchemy
-        id: destroy-docs
-        if: steps.preview-intent.outputs.current == 'true'
-        timeout-minutes: 10
-        working-directory: apps/docs
+      - name: Reconcile known preview resources
         env:
-          ALCHEMY_PROFILE: preview-ci
+          BUN_EXECUTABLE: ${{ steps.trusted-bun.outputs.path }}
+          BUN_OPTIONS: ''
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_PREVIEW_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PREVIEW_API_TOKEN }}
-          PREVIEW_STAGE: pr-${{ github.event.pull_request.number }}
-        run: bun alchemy destroy alchemy.preview.run.ts --stage "$PREVIEW_STAGE" --profile preview-ci --yes
-
-      - name: Destroy www preview with Alchemy
-        id: destroy-www
-        if: always() && steps.preview-intent.outputs.current == 'true'
-        timeout-minutes: 10
-        working-directory: apps/www
-        env:
-          ALCHEMY_PROFILE: preview-ci
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_PREVIEW_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PREVIEW_API_TOKEN }}
-          PREVIEW_STAGE: pr-${{ github.event.pull_request.number }}
-        run: bun alchemy destroy alchemy.preview.run.ts --stage "$PREVIEW_STAGE" --profile preview-ci --yes
-
-      - name: Destroy demo preview with Alchemy
-        id: destroy-demo
-        if: always() && steps.preview-intent.outputs.current == 'true'
-        timeout-minutes: 10
-        working-directory: apps/demo
-        env:
-          ALCHEMY_PROFILE: preview-ci
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_PREVIEW_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PREVIEW_API_TOKEN }}
-          PREVIEW_STAGE: pr-${{ github.event.pull_request.number }}
-        run: bun alchemy destroy alchemy.preview.run.ts --stage "$PREVIEW_STAGE" --profile preview-ci --yes
-
-      - name: Delete orphaned preview Workers
-        id: delete-workers
-        if: always() && steps.preview-intent.outputs.current == 'true'
-        timeout-minutes: 12
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PREVIEW_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_PREVIEW_ACCOUNT_ID }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: bun scripts/delete-preview-workers.ts
-
-      - name: Find existing preview comment
-        if: always() && steps.preview-intent.outputs.current == 'true'
-        uses: peter-evans/find-comment@b30e6a3c0ed37e7c023ccd3f1db5c6c0b0c23aad # v4.0.0
-        id: find-comment
-        with:
-          issue-number: ${{ github.event.pull_request.number }}
-          comment-author: 'github-actions[bot]'
-          body-includes: '<!-- pr-preview-demo -->'
-          direction: last
-
-      - name: Mark the preview comment torn down
-        # Only ever rewrites an existing comment. A PR whose deploy never
-        # succeeded has no comment, and a "torn down" notice there would be
-        # noise about something that never existed.
-        if: >-
-          always()
-          && steps.preview-intent.outputs.current == 'true'
-          && steps.find-comment.outputs.comment-id != ''
-          && steps.destroy-docs.outcome == 'success'
-          && steps.destroy-www.outcome == 'success'
-          && steps.destroy-demo.outcome == 'success'
-          && steps.delete-workers.outcome == 'success'
-        uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5.0.0
-        with:
-          issue-number: ${{ github.event.pull_request.number }}
-          comment-id: ${{ steps.find-comment.outputs.comment-id }}
-          edit-mode: replace
-          body: |
-            <!-- pr-preview-demo -->
-            **PR previews torn down.** The website, documentation, and demo preview Workers for this PR have been deleted.
-
-            Re-add the `deploy-preview` label while the PR is open to bring it back.
-
-      - name: Mark incomplete preview teardown
-        if: >-
-          always()
-          && steps.preview-intent.outputs.current == 'true'
-          && steps.find-comment.outputs.comment-id != ''
-          && (steps.destroy-docs.outcome != 'success'
-            || steps.destroy-www.outcome != 'success'
-            || steps.destroy-demo.outcome != 'success'
-            || steps.delete-workers.outcome != 'success')
-        uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5.0.0
-        with:
-          issue-number: ${{ github.event.pull_request.number }}
-          comment-id: ${{ steps.find-comment.outputs.comment-id }}
-          edit-mode: replace
-          body: |
-            <!-- pr-preview-demo -->
-            **PR preview teardown incomplete.** At least one Cloudflare cleanup step failed. Retry this workflow before assuming every preview resource is gone.
+          GH_TOKEN: ${{ github.token }}
+          NODE_OPTIONS: ''
+          PREVIEW_TRIGGER: ${{ github.event.action || 'manual' }}
+          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
+          TRUSTED_BUN_SHA256: ${{ steps.trusted-bun.outputs.sha256 }}
+        run: |
+          bun_hash="$(/usr/bin/sha256sum "$BUN_EXECUTABLE")"
+          test "${bun_hash%% *}" = "$TRUSTED_BUN_SHA256"
+          "$BUN_EXECUTABLE" --config scripts/preview-lifecycle.bunfig.toml --no-env-file --no-install scripts/preview-lifecycle.ts teardown

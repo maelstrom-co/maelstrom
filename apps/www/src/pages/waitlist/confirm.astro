@@ -3,26 +3,57 @@ export const prerender = false;
 
 import WaitlistResult from '../../components/WaitlistResult.astro';
 import Layout from '../../layouts/Layout.astro';
-import { isWaitlistToken } from '../../lib/waitlist-token';
 
-const token = Astro.url.searchParams.get('token');
-if (!isWaitlistToken(token)) {
-  return Astro.redirect('/waitlist/invalid/');
-}
+Astro.response.headers.set('Cache-Control', 'no-store');
+Astro.response.headers.set('Referrer-Policy', 'no-referrer');
+Astro.response.headers.set('X-Robots-Tag', 'noindex');
 ---
 
 <Layout
   title="Confirm your email — Maelstrom"
   description="Confirm your Maelstrom private beta signup."
+  analytics={false}
 >
   <WaitlistResult
     eyebrow="One last step"
     title="Confirm your email"
     message="Confirm that you requested a place on the Maelstrom private beta waitlist."
   >
-    <form method="post" action="/api/waitlist/confirm">
-      <input type="hidden" name="token" value={token} />
+    <form
+      method="post"
+      action="/api/waitlist/confirm"
+      data-waitlist-confirmation
+      hidden
+    >
+      <input type="hidden" name="token" />
       <button class="btn btn-primary" type="submit">Confirm my email</button>
     </form>
+    <noscript>
+      JavaScript is required to confirm your email without exposing your confirmation token in a request URL.
+    </noscript>
   </WaitlistResult>
 </Layout>
+
+<script>
+  import { isWaitlistToken } from '../../lib/waitlist-token';
+
+  const fragment = window.location.hash;
+  window.history.replaceState(
+    null,
+    '',
+    window.location.pathname,
+  );
+
+  const token = new URLSearchParams(fragment.slice(1)).get('token');
+  const form = document.querySelector<HTMLFormElement>(
+    '[data-waitlist-confirmation]',
+  );
+  const input = form?.querySelector<HTMLInputElement>('input[name="token"]');
+
+  if (!isWaitlistToken(token) || !form || !input) {
+    window.location.replace('/waitlist/invalid/');
+  } else {
+    input.value = token;
+    form.hidden = false;
+  }
+</script>

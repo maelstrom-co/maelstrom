@@ -1,8 +1,8 @@
 diff --git a/src/Cloudflare/Workers/WorkerProvider.ts b/src/Cloudflare/Workers/WorkerProvider.ts
-index 1687f8d0007cf2a97ecf73d2071d9658f22e0b9b..39542151d73834f1245646342e7c9089a7b0af6d 100644
+index 9d3f746..a3df00f 100644
 --- a/src/Cloudflare/Workers/WorkerProvider.ts
 +++ b/src/Cloudflare/Workers/WorkerProvider.ts
-@@ -19,12 +19,19 @@ import { Unowned } from "../../AdoptPolicy.ts";
+@@ -18,12 +18,19 @@ import { Unowned } from "../../AdoptPolicy.ts";
  import * as Artifacts from "../../Artifacts.ts";
  import type { ScopedPlanStatusSession } from "../../Cli/Cli.ts";
  import { hashDirectory, type MemoOptions } from "../../Command/Memo.ts";
@@ -23,11 +23,10 @@ index 1687f8d0007cf2a97ecf73d2071d9658f22e0b9b..39542151d73834f1245646342e7c9089
  import { initialCwd } from "../../Util/Node.ts";
  import { sha256Object } from "../../Util/sha256.ts";
  import { CloudflareEnvironment } from "../CloudflareEnvironment.ts";
-@@ -212,6 +219,77 @@ export const resolveVersionParentName = (
+@@ -214,6 +221,77 @@ export const resolveVersionParentName = (
    return typeof workerName === "string" ? workerName : undefined;
  };
--
-+
+ 
 +type WorkerReadInput = {
 +  [K in keyof WorkerProps]?: Input<WorkerProps[K]>;
 +};
@@ -102,9 +101,8 @@ index 1687f8d0007cf2a97ecf73d2071d9658f22e0b9b..39542151d73834f1245646342e7c9089
  /**
   * The traffic percentage a *self-owned* Worker's new version should receive,
   * or `undefined` for the default full cutover. Only a `version` prop without
-@@ -4068,6 +4146,7 @@ export const LiveWorkerProvider = () =>
--
-+
+@@ -4229,6 +4307,7 @@ export const LiveWorkerProvider = () =>
+ 
        return Worker.Provider.of({
          stables: ["workerId", "workerName"],
 +        resolveReadProps: resolveWorkerReadProps,
@@ -112,10 +110,10 @@ index 1687f8d0007cf2a97ecf73d2071d9658f22e0b9b..39542151d73834f1245646342e7c9089
            Effect.gen(function* () {
              const { accountId } = yield* yield* CloudflareEnvironment;
 diff --git a/src/Plan.ts b/src/Plan.ts
-index 8b37f64ea0d2e6b8e983ab59701a03841511ac64..8d99d690b4f13407fbb94d43c5ffed4d4d4dccec 100644
+index 5410fe6..354a8f2 100644
 --- a/src/Plan.ts
 +++ b/src/Plan.ts
-@@ -1147,13 +1147,10 @@ export const make = <A>(
+@@ -1165,13 +1165,10 @@ export const make = <A>(
              // update keeps the deploy idempotent: if cloud state already
              // matches news, the provider's update is a no-op write.
              //
@@ -133,7 +131,7 @@ index 8b37f64ea0d2e6b8e983ab59701a03841511ac64..8d99d690b4f13407fbb94d43c5ffed4d
              // A resource declared at a former FQN whose row just migrated
              // away is genuinely NEW by declaration — skip the probe. Its
              // predecessor's physical resource still carries tags branded
-@@ -1162,10 +1159,25 @@ export const make = <A>(
+@@ -1180,10 +1177,25 @@ export const make = <A>(
              // and silently adopt the very resource that was renamed away.
              const reusesMigratedFqn = migratedRowFqns.has(fqn);
              let forceUpdateAfterAdoption = false;
@@ -160,7 +158,7 @@ index 8b37f64ea0d2e6b8e983ab59701a03841511ac64..8d99d690b4f13407fbb94d43c5ffed4d
                !reusesMigratedFqn
              ) {
                const adoptInstanceId = yield* generateInstanceId();
-@@ -1174,7 +1186,7 @@ export const make = <A>(
+@@ -1192,7 +1204,7 @@ export const make = <A>(
                    id,
                    fqn,
                    instanceId: adoptInstanceId,
@@ -170,7 +168,7 @@ index 8b37f64ea0d2e6b8e983ab59701a03841511ac64..8d99d690b4f13407fbb94d43c5ffed4d
                  })
                  .pipe(providePlanScope(fqn, adoptInstanceId));
 diff --git a/src/Provider.ts b/src/Provider.ts
-index f4ee819f49c27c32be5caac3e69ff74c9601d25b..7adeea89d186f875b08d813494501f3125807a6f 100644
+index f4ee819..7adeea8 100644
 --- a/src/Provider.ts
 +++ b/src/Provider.ts
 @@ -241,6 +241,13 @@ export interface ProviderService<

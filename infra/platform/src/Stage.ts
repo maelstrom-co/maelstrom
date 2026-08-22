@@ -1,9 +1,11 @@
 import * as Alchemy from 'alchemy';
 import * as Effect from 'effect/Effect';
 
+/** Only stage permitted to own retained production resources. */
 export const PRODUCTION_STAGE = 'prod';
 const PREVIEW_STAGE_PATTERN = /^pr-[1-9]\d*$/;
 
+/** Fail an Effect when a retained stack is evaluated outside production. */
 export const requireProductionStage = (scope: string) =>
   Effect.gen(function* () {
     const { stage } = yield* Alchemy.Stack;
@@ -16,6 +18,7 @@ export const requireProductionStage = (scope: string) =>
     }
   });
 
+/** Require and return a canonical `pr-<number>` preview stage. */
 export const requirePreviewStage = (scope: string) =>
   Effect.gen(function* () {
     const { stage } = yield* Alchemy.Stack;

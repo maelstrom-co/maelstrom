@@ -1,12 +1,13 @@
 const TOKEN_BYTES = 32;
-const TOKEN_RE = /^[A-Za-z0-9_-]{43}$/;
+const TOKEN_RE = /^v1\.[A-Za-z0-9_-]{43}$/;
 
 export function createWaitlistToken(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(TOKEN_BYTES));
-  return btoa(String.fromCharCode(...bytes))
+  const value = btoa(String.fromCharCode(...bytes))
     .replaceAll('+', '-')
     .replaceAll('/', '_')
     .replace(/=+$/, '');
+  return `v1.${value}`;
 }
 
 export function isWaitlistToken(value: string | null): value is string {

@@ -11,6 +11,7 @@
     "@astrojs/react": "catalog:",
     "@astrojs/sitemap": "catalog:",
     "@maelstrom-co/client": "workspace:*",
+    "@maelstrom-co/platform-infra": "workspace:*",
     "@maelstrom-co/protocol": "workspace:*",
     "@maelstrom-co/react": "workspace:*",
     "@radix-ui/react-scroll-area": "catalog:",
@@ -20,14 +21,13 @@
   },
   "devDependencies": {
     "@effect/platform-bun": "4.0.0-rc.111",
-    "@maelstrom-co/platform-infra": "workspace:*",
     "@astrojs/check": "catalog:",
     "@astrojs/cloudflare": "catalog:",
     "@playwright/test": "^1.61.1",
     "@tailwindcss/vite": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
-    "alchemy": "2.0.0-beta.72",
+    "alchemy": "2.0.0-beta.73",
     "effect": "4.0.0-rc.111",
     "tailwindcss": "catalog:",
     "typescript": "catalog:",
@@ -47,6 +47,12 @@
           },
           {
             "env": "PUBLIC_PLAYGROUND_URL"
+          },
+          {
+            "env": "PUBLIC_TURNSTILE_SITE_KEY"
+          },
+          {
+            "env": "PUBLIC_TURNSTILE_ENVIRONMENT"
           }
         ],
         "outputs": [
