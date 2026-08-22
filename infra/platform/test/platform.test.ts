@@ -30,8 +30,8 @@ describe('platform stack contract', () => {
   type: 'full',
   paused: false,
   vanityNameServers: [],
-}).pipe(adopt(true), retain(true));`);
-    expect(zoneSource.match(/\.pipe\(adopt\(true\)/g)).toHaveLength(1);
+}).pipe(retain(true));`);
+    expect(zoneSource).not.toContain('adopt(');
     expect(zoneSource).not.toContain('Ruleset');
   });
 

@@ -156,22 +156,10 @@ describe('application infrastructure contract', () => {
     expect(read('apps/demo/alchemy.run.ts')).toContain("'MaelstromDemo'");
   });
 
-  test('permits only the temporary production Zone adoption', () => {
-    const adoptionCalls = deploymentSourcePaths.flatMap((path) => {
-      const source = read(path)
-        .replace(/\/\*[\s\S]*?\*\//g, '')
-        .replace(/\/\/.*$/gm, '');
-      return [...source.matchAll(/\badopt\(/g)].map(() => path);
-    });
-    expect(adoptionCalls).toEqual(['infra/platform/src/Zone.ts']);
-    expect(read(adoptionCalls[0] ?? '')).toContain(
-      "Cloudflare.Zone.Zone('ProductionZone'",
-    );
+  test('keeps adoption policy out of deployment declarations', () => {
     expect(
-      read(adoptionCalls[0] ?? '').match(
-        /\.pipe\(adopt\(true\), retain\(true\)\);/g,
-      ),
-    ).toHaveLength(1);
+      deploymentSourcePaths.filter((path) => read(path).includes('adopt(')),
+    ).toEqual([]);
   });
 
   test('deploys the credential-free docs artifact through Alchemy', () => {
