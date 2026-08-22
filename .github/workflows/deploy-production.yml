@@ -82,9 +82,13 @@ jobs:
         working-directory: infra/platform
         run: |
           set -euo pipefail
+          bun ../../scripts/cloudflare-rate-limit-preflight.ts
           bun alchemy deploy --stage prod --profile production-ci --yes
           zone_state="$(bun alchemy state get state.run.ts --stack MaelstromPlatform --stage prod --fqn ProductionZone --profile production-ci)"
           printf '%s' "$zone_state" | bun -e "const state = JSON.parse(await Bun.stdin.text()); const { zoneId, name, accountId } = state?.attr ?? {}; if (zoneId !== '4df25ea08d364f19471be7a179ce9f02' || name !== 'maelstrom-ai.co' || accountId !== '36ef30d02761b97ffb49b343ac17f2d2') throw new Error('Platform state does not contain the expected production Zone identity');"
+          ruleset_state="$(bun alchemy state get state.run.ts --stack MaelstromPlatform --stage prod --fqn ProductionRateLimit --profile production-ci)"
+          printf '%s' "$ruleset_state" | bun ../../scripts/cloudflare-rate-limit-preflight.ts state
+          bun ../../scripts/cloudflare-rate-limit-preflight.ts verify
           state="$(bun alchemy state get state.run.ts --stack MaelstromPlatform --stage prod --fqn WaitlistTurnstile --profile production-ci)"
           sitekey="$(printf '%s' "$state" | bun -e "const state = JSON.parse(await Bun.stdin.text()); const sitekey = state?.attr?.sitekey; if (typeof sitekey !== 'string' || !/^0x[A-Za-z0-9_-]{20,80}$/.test(sitekey)) throw new Error('Platform state must contain one managed Turnstile site key'); process.stdout.write(sitekey);")"
           printf 'deployed=true\n' >> "$GITHUB_OUTPUT"

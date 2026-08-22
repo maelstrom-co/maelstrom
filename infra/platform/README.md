@@ -5,7 +5,7 @@ the three applications have different deploy and destroy lifecycles.
 
 | Package | Stack | Current role |
 | --- | --- | --- |
-| `infra/platform` | `MaelstromPlatform` | Owns the Zone identity, D1, Email Sending, and Turnstile |
+| `infra/platform` | `MaelstromPlatform` | Owns the Zone identity, rate-limit phase, D1, Email Sending, and Turnstile |
 | `apps/www` | `MaelstromWww` | Owns the prebuilt Astro Worker |
 | `apps/docs` | `MaelstromDocs` | Owns the prebuilt static Astro Worker |
 | `apps/demo` | `MaelstromDemo` | Models the prebuilt hosted Worker and `SessionDO` |
@@ -91,12 +91,13 @@ bun alchemy deploy --stage prod --profile maelstrom-production-env
 `MaelstromPlatform/prod` keeps its existing stack name and logical IDs:
 
 - `ProductionZone`: Retained `maelstrom-ai.co` Zone identity.
+- `ProductionRateLimit`: Retained owner of the zone `http_ratelimit` phase.
 - `Waitlist`: D1 database `maelstrom-waitlist` and ordered SQL migrations.
 - `NotificationsEmail`: transactional sending subdomain.
 - `WaitlistTurnstile`: Managed Turnstile widget.
 
 Do not rename these resources or edit applied migration files. Append new D1
-migrations only. All four resources use retention policies.
+migrations only. All five resources use retention policies.
 `test/migrations.test.ts` pins the SHA-256 of every migration that has reached
 production, so editing an applied file fails CI instead of silently drifting
 from the live schema (D1 skips a re-applied file by name).
@@ -157,28 +158,40 @@ Service accepted before losing acknowledgement.
 
 ### Rate-limit ownership migration
 
-Move the production rate-limit phase into Alchemy in two revisions. Do not add a
-Ruleset to the bootstrap revision.
+The two-revision migration is complete. The bootstrap deployment persisted and
+verified the existing `ProductionZone` identity before Ruleset ownership was
+introduced. Routine deployments no longer use adoption. `ProductionZone` owns
+only type, paused state, and vanity nameservers; it does not own DNS records or
+DNSSEC.
 
-1. This revision declares the existing `maelstrom-ai.co` Zone with its observed
-   `full` type, unpaused state, and empty vanity nameservers. Resource-scoped
-   `adopt(true)` bootstraps the retained `ProductionZone` state. Remove
-   `adopt(true)` immediately after the first successful deployment persists and
-   verifies that state. The Zone resource owns only type, paused state, and
-   vanity nameservers. It does not manage DNS records or DNSSEC. This revision
-   does not declare a Ruleset and makes no live rate-limit rule changes.
-2. The next revision removes `adopt(true)` and verifies that missing Zone state
-   fails closed. It then preflights the exact full live `http_ratelimit`
-   baseline before adding a retained Alchemy Ruleset. Do not combine baseline
-   discovery or Ruleset ownership with the bootstrap deployment.
+`ProductionRateLimit` owns the entire zone `http_ratelimit` phase. Alchemy
+beta.73 reconciles that resource with one full-list replacement request, so an
+omitted, reordered, or unknown rule field could otherwise be erased. The
+privileged platform step therefore fetches the live phase immediately before
+`bun alchemy deploy` and fails closed unless it exactly matches one of two
+states: the captured legacy two-rule baseline, or the exact owned two-rule state
+from a previous successful deployment. This transition guard makes the first
+ownership deployment safe and later deployments idempotent. It rejects provider
+errors, malformed envelopes, changed ruleset or rule semantics, unknown
+semantic fields, and rule or characteristic reordering. It ignores only known
+provider-managed `version` and `last_updated` fields on the ruleset result and
+top level of each rule; the same names elsewhere are semantic drift. One
+dependency-free contract supplies the exact desired values to the Alchemy
+resource, API preflight adapter, and persisted-state validator. After deploy,
+the workflow verifies every ruleset and ordered rule semantic in both persisted
+Alchemy state and a fresh live phase response against that contract.
 
-The production token needs Zone Read for this revision. Alchemy reads the Zone
-during adoption and reconciliation. In Alchemy beta.73, reconciliation calls
-`patchZone` only when type, paused state, or vanity nameservers differ. The exact
-observed production values should therefore be a read-only no-op. Grant Zone
-Edit if the deployment must converge drift in those properties; without it,
-such drift fails instead of being changed. No Rulesets mutation permission is
-needed in this revision.
+The owned waitlist rule still matches `/api/waitlist` by exact equality and adds
+`/api/waitlist/confirm` with a second explicit equality. It does not use prefix
+matching. The preflight minimizes but cannot remove TOCTOU risk: Cloudflare does
+not provide a conditional phase replacement, so the live phase can still change
+between the guarded GET and Alchemy's PUT.
+
+The production token needs Zone Read and zone-scoped `Zone WAF Write` for
+`maelstrom-ai.co`; older Cloudflare dashboard wording may call the latter
+`Zone WAF Edit`. Existing account identity guards remain mandatory. Both the
+Zone and Ruleset use `retain(true)`, so removing the stack does not delete the
+production zone or rate-limit phase.
 
 ## Application Ownership
 
@@ -198,10 +211,9 @@ bun alchemy deploy \
 ```
 
 Routine deployment must not pass `--adopt` or encode `adopt(true)` on a resource
-declaration. The temporary `ProductionZone` bootstrap above is the only
-exception and must be removed after its first successful persisted deployment.
-Missing or mismatched ownership must otherwise stop the deployment for manual
-review.
+declaration. The temporary `ProductionZone` bootstrap is complete and its
+adoption policy has been removed. Missing or mismatched ownership stops the
+deployment for manual review.
 
 Production Workers set `workersDev: false` in their Alchemy declarations.
 Production serves only its custom domains; a default-enabled `workers.dev`

@@ -1,5 +1,6 @@
 import * as Cloudflare from 'alchemy/Cloudflare';
 import * as Effect from 'effect/Effect';
+import { ProductionRateLimit } from './src/RateLimit.js';
 import { MaelstromPlatform } from './src/Stack.js';
 import { requireProductionStage } from './src/Stage.js';
 import { WaitlistPlatform } from './src/Waitlist.js';
@@ -12,7 +13,8 @@ export default MaelstromPlatform.make(
   },
   Effect.gen(function* () {
     yield* requireProductionStage('platform');
-    yield* ProductionZone;
+    const zone = yield* ProductionZone;
+    yield* ProductionRateLimit(zone);
     const { sending, turnstile, waitlist } = yield* WaitlistPlatform;
 
     return {
