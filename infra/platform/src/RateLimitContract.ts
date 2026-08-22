@@ -1,6 +1,3 @@
-export const LEGACY_WAITLIST_RATE_LIMIT_EXPRESSION =
-  '(http.request.uri.path eq "/api/waitlist")';
-
 export const DESIRED_WAITLIST_RATE_LIMIT_EXPRESSION =
   '((http.request.uri.path eq "/api/waitlist") or (http.request.uri.path eq "/api/waitlist/confirm"))';
 
