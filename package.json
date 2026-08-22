@@ -90,9 +90,9 @@
     "tailwindcss": "^4.2.2",
     "tslib": "^2.3.0",
     "typescript": "~5.9.2",
+    "unplugin-dts": "^1.0.3",
     "verdaccio": "^6.0.5",
     "vite": "^8.0.13",
-    "vite-plugin-dts": "~5.0.3",
     "vite-tsconfig-paths": "^5.1.4",
     "vitest": "4.1.9"
   },
