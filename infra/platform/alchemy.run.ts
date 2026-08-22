@@ -3,6 +3,7 @@ import * as Effect from 'effect/Effect';
 import { MaelstromPlatform } from './src/Stack.js';
 import { requireProductionStage } from './src/Stage.js';
 import { WaitlistPlatform } from './src/Waitlist.js';
+import { ProductionZone } from './src/Zone.js';
 
 export default MaelstromPlatform.make(
   {
@@ -11,6 +12,7 @@ export default MaelstromPlatform.make(
   },
   Effect.gen(function* () {
     yield* requireProductionStage('platform');
+    yield* ProductionZone;
     const { sending, turnstile, waitlist } = yield* WaitlistPlatform;
 
     return {
