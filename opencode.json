@@ -17,6 +17,10 @@
       "type": "remote",
       "url": "https://mcp.clickup.com/mcp"
     },
+    "posthog": {
+      "type": "remote",
+      "url": "https://mcp.posthog.com/mcp"
+    },
     "github": {
       "type": "remote",
       "url": "https://api.githubcopilot.com/mcp",

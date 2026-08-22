@@ -261,7 +261,7 @@ describe('WaitlistDeliveryStore', () => {
         cooldownSince: '2026-08-20T23:51:00.000Z',
       }),
     ).toBe(true);
-    expect(await store.confirmToken('rejected-hash', attemptedAt)).toBe(false);
+    expect(await store.confirmToken('rejected-hash', attemptedAt)).toBeNull();
   });
 
   test('keeps retryable provider limits under cooldown without confirming', async () => {
@@ -313,7 +313,7 @@ describe('WaitlistDeliveryStore', () => {
         cooldownSince: '2026-08-21T00:01:00.000Z',
       }),
     ).toBe(true);
-    expect(await store.confirmToken('retryable-hash', attemptedAt)).toBe(false);
+    expect(await store.confirmToken('retryable-hash', attemptedAt)).toBeNull();
   });
 
   test('keeps an ambiguous attempt valid while blocking cooldown duplicates', async () => {
@@ -340,7 +340,9 @@ describe('WaitlistDeliveryStore', () => {
         cooldownSince: '2026-08-20T23:51:00.000Z',
       }),
     ).toBe(false);
-    expect(await store.confirmToken('unknown-hash', attemptedAt)).toBe(true);
+    expect(await store.confirmToken('unknown-hash', attemptedAt)).toEqual({
+      email: 'user@example.com',
+    });
     expect(
       database
         .query(
@@ -382,7 +384,7 @@ describe('WaitlistDeliveryStore', () => {
 
     expect(
       await store.confirmToken('accepted-hash', '2026-08-22T12:00:00.000Z'),
-    ).toBe(true);
+    ).toEqual({ email: 'user@example.com' });
   });
 
   test('rejects expired and already-consumed confirmation tokens', async () => {
@@ -403,7 +405,7 @@ describe('WaitlistDeliveryStore', () => {
     );
     expect(
       await store.confirmToken('expired-hash', '2026-08-21T01:00:00.000Z'),
-    ).toBe(false);
+    ).toBeNull();
 
     await store.claimDeliveryAttempt({
       id: 'consumed',
@@ -420,10 +422,10 @@ describe('WaitlistDeliveryStore', () => {
     );
     expect(
       await store.confirmToken('consumed-hash', '2026-08-21T00:30:00.000Z'),
-    ).toBe(true);
+    ).toEqual({ email: 'consumed@example.com' });
     expect(
       await store.confirmToken('consumed-hash', '2026-08-21T00:31:00.000Z'),
-    ).toBe(false);
+    ).toBeNull();
     expect(
       database
         .query('SELECT status FROM waitlist_subscribers WHERE email = ?')

@@ -39,7 +39,7 @@ describe('validateWaitlistEmail', () => {
     });
   }
 
-  // Each must stay rejected: a regression here lets junk into Resend, so the
+  // Each must stay rejected: a regression here pollutes the waitlist, so the
   // cases pin the exact contract the route depends on.
   const INVALID = [
     '', // empty

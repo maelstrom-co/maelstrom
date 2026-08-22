@@ -76,6 +76,11 @@ const callConfirm = (token: string) =>
       method: 'POST',
       body: new URLSearchParams({ token }),
     }),
+    locals: {
+      cfContext: {
+        waitUntil: (task: Promise<unknown>) => waitUntilTasks.push(task),
+      },
+    },
   } as Parameters<typeof CONFIRM>[0]);
 const expectPrivateConfirmationResponse = (response: Response) => {
   expect(response.headers.get('cache-control')).toBe('no-store');
@@ -465,6 +470,7 @@ describe('POST /api/waitlist/confirm', () => {
 
   it('confirms a pending subscriber with a live token', async () => {
     const res = await callConfirm(`v1.${'a'.repeat(43)}`);
+    await Promise.all(waitUntilTasks);
     expect(res.status).toBe(303);
     expect(res.headers.get('location')).toBe(
       'https://maelstrom-ai.co/waitlist/confirmed/',
@@ -472,6 +478,39 @@ describe('POST /api/waitlist/confirm', () => {
     expectPrivateConfirmationResponse(res);
     expect(preparedSql).toContain("SET status = 'confirmed'");
     expect(batch).toHaveBeenCalledTimes(1);
+    await Promise.all(waitUntilTasks);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: 'user@example.com',
+        subject: 'Join the Maelstrom beta community',
+        text: expect.stringContaining('https://discord.gg/XAjJqrF2u3'),
+        html: expect.stringContaining('https://discord.gg/XAjJqrF2u3'),
+      }),
+    );
+  });
+
+  it('keeps confirmation successful when invitation email delivery fails', async () => {
+    const errorLog = spyOn(console, 'error').mockImplementation(() => {});
+    send.mockRejectedValueOnce(new Error('private provider detail'));
+    try {
+      const res = await callConfirm(`v1.${'a'.repeat(43)}`);
+      await Promise.all(waitUntilTasks);
+
+      expect(res.status).toBe(303);
+      expect(res.headers.get('location')).toBe(
+        'https://maelstrom-ai.co/waitlist/confirmed/',
+      );
+      expect(errorLog).toHaveBeenCalledWith({
+        message: 'waitlist invitation email failed',
+        category: 'invitation_email_failed',
+      });
+      expect(JSON.stringify(errorLog.mock.calls)).not.toContain(
+        'private provider detail',
+      );
+    } finally {
+      errorLog.mockRestore();
+    }
   });
 
   it('shows an invalid result for an expired or already-used token', async () => {
@@ -485,6 +524,7 @@ describe('POST /api/waitlist/confirm', () => {
     expect(res.headers.get('location')).toBe(
       'https://maelstrom-ai.co/waitlist/invalid/',
     );
+    expect(send).not.toHaveBeenCalled();
   });
 
   it('503s without leaking D1 failure details', async () => {
