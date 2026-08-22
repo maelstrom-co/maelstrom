@@ -8,6 +8,8 @@ const appRoot = resolve(import.meta.dirname, '..');
 export const Website = Cloudflare.Worker('Website', {
   name: 'docs',
   domain: 'docs.maelstrom-ai.co',
+  // Production serves only the custom domain; see www for the rationale.
+  workersDev: false,
   compatibility: { date: '2026-03-30' },
   assets: { directory: resolve(appRoot, 'dist') },
   observability: workerObservability,

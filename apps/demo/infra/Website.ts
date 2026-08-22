@@ -9,6 +9,8 @@ export const Website = Cloudflare.Worker('Website', {
   main: resolve(appRoot, 'src/worker/index.ts'),
   name: 'maelstrom-playground',
   domain: 'demo.maelstrom-ai.co',
+  // Production serves only the custom domain; see www for the rationale.
+  workersDev: false,
   compatibility: { date: '2026-07-22' },
   assets: {
     directory: resolve(appRoot, 'dist/client'),

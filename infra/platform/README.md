@@ -96,11 +96,21 @@ bun alchemy deploy --stage prod --profile maelstrom-production-env
 
 Do not rename these resources or edit applied migration files. Append new D1
 migrations only. All three resources use retention policies.
+`test/migrations.test.ts` pins the SHA-256 of every migration that has reached
+production, so editing an applied file fails CI instead of silently drifting
+from the live schema (D1 skips a re-applied file by name).
 
 Production CI deploys this platform stack at the checked green revision before
 any application job. The platform job exposes only the managed widget's public
 `turnstileSiteKey`. The credential-free `www` build validates and embeds that
 output; Cloudflare account credentials remain confined to deployment steps.
+
+Every credentialed CI step also sets the non-secret repository variable
+`EXPECTED_CLOUDFLARE_ACCOUNT_ID` (from `PRODUCTION_ACCOUNT_ID` or
+`PREVIEW_ACCOUNT_ID`). Each stack guard compares it with the active
+`CLOUDFLARE_ACCOUNT_ID` before declaring resources, so a swapped or misscoped
+secret fails fast instead of mutating the wrong account. Keep the two variables
+pointing at different accounts.
 
 ### Waitlist confirmation rollout
 
@@ -171,6 +181,12 @@ bun alchemy deploy \
 Routine deployment must not pass `--adopt` or encode `adopt(true)` on a resource
 declaration. Missing or mismatched ownership must stop the deployment for manual
 review.
+
+Production Workers set `workersDev: false` (and `"workers_dev": false`,
+`"preview_urls": false` in Wrangler configuration). Production serves only its
+custom domains; a default-enabled `workers.dev` route would bypass the
+zone-scoped WAF and rate limiting. PR previews intentionally keep
+`workersDev: true`.
 
 Completed:
 

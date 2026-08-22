@@ -78,6 +78,40 @@ describe('preview workflows', () => {
     );
   });
 
+  test('every credentialed preview mutation asserts the expected account', () => {
+    const expected = [
+      'EXPECTED_CLOUDFLARE_ACCOUNT_ID:',
+      expression('vars.PREVIEW_ACCOUNT_ID'),
+    ].join(' ');
+    for (const name of ['Deploy demo preview', 'Deploy remaining previews']) {
+      expect(step(read('deploy-preview.yml'), name)).toContain(expected);
+    }
+    expect(
+      step(read('teardown-preview.yml'), 'Reconcile known preview resources'),
+    ).toContain(expected);
+    // The guard itself must stay in the stage guards so every stack
+    // composition root inherits it.
+    expect(
+      readFileSync(resolve(root, 'infra/platform/src/Stage.ts'), 'utf8'),
+    ).toContain('EXPECTED_CLOUDFLARE_ACCOUNT_ID');
+  });
+
+  test('both preview workflows reject equal production and preview variables', () => {
+    const guardName = 'name: Assert distinct account variables';
+    const comparison = 'test "$PRODUCTION_ACCOUNT_ID" != "$PREVIEW_ACCOUNT_ID"';
+    for (const workflow of [
+      read('deploy-preview.yml'),
+      read('teardown-preview.yml'),
+    ]) {
+      expect(workflow).toContain(guardName);
+      expect(workflow).toContain(comparison);
+      // The check must run before any credentialed step.
+      expect(workflow.indexOf(guardName)).toBeLessThan(
+        workflow.indexOf('CLOUDFLARE_ACCOUNT_ID: ${{ secrets.'),
+      );
+    }
+  });
+
   test('every credentialed deploy verifies trusted runtime files in the same shell step', () => {
     const workflow = read('deploy-preview.yml');
     const runtimeFiles = [

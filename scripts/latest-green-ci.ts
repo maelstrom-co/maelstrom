@@ -1,19 +1,11 @@
 interface WorkflowRun {
+  conclusion: string | null;
   head_sha: string;
   id: number;
 }
 
 interface WorkflowRunsResponse {
   workflow_runs: WorkflowRun[];
-}
-
-interface Job {
-  conclusion: string | null;
-  name: string;
-}
-
-interface JobsResponse {
-  jobs: Job[];
 }
 
 export type GitHubRequest = <Result>(path: string) => Promise<Result>;
@@ -28,15 +20,11 @@ export async function findLatestGreenCommit(
       `/actions/workflows/ci.yml/runs?branch=main&event=push&per_page=${perPage}&page=${page}`,
     );
 
+    // The run-level conclusion covers every required job, including jobs added
+    // after this selector was written. Job-name matching would silently miss a
+    // second failed gate.
     for (const run of runs) {
-      const { jobs } = await request<JobsResponse>(
-        `/actions/runs/${run.id}/jobs?filter=latest&per_page=${perPage}`,
-      );
-      const passed = jobs.some(
-        (job) => job.name === 'main' && job.conclusion === 'success',
-      );
-
-      if (passed) {
+      if (run.conclusion === 'success') {
         return run.head_sha;
       }
     }

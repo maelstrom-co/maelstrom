@@ -40,6 +40,16 @@ jobs:
           persist-credentials: false
           ref: ${{ github.workflow_sha }}
 
+      # Equal variables would let one swapped secret pass both account guards.
+      - name: Assert distinct account variables
+        env:
+          PRODUCTION_ACCOUNT_ID: ${{ vars.PRODUCTION_ACCOUNT_ID }}
+          PREVIEW_ACCOUNT_ID: ${{ vars.PREVIEW_ACCOUNT_ID }}
+        run: |
+          test -n "$PRODUCTION_ACCOUNT_ID"
+          test -n "$PREVIEW_ACCOUNT_ID"
+          test "$PRODUCTION_ACCOUNT_ID" != "$PREVIEW_ACCOUNT_ID"
+
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -70,6 +80,7 @@ jobs:
           BUN_OPTIONS: ''
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_PREVIEW_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PREVIEW_API_TOKEN }}
+          EXPECTED_CLOUDFLARE_ACCOUNT_ID: ${{ vars.PREVIEW_ACCOUNT_ID }}
           GH_TOKEN: ${{ github.token }}
           NODE_OPTIONS: ''
           PREVIEW_TRIGGER: ${{ github.event.action || 'manual' }}

@@ -31,6 +31,7 @@ const namedStep = (source: string, name: string) =>
   section(source, `      - name: ${name}\n`, '\n      - ');
 
 const workflowStep = (name: string) => namedStep(productionWorkflow, name);
+const expression = (value: string) => ['$', `{{ ${value} }}`].join('');
 const workflowJob = (name: string, nextName: string) =>
   section(productionWorkflow, `  ${name}:\n`, `\n  ${nextName}:\n`);
 
@@ -131,6 +132,7 @@ describe('application infrastructure contract', () => {
   test('deploys the prebuilt www Worker through Alchemy', () => {
     const website = read('apps/www/infra/Website.ts');
     expect(website).toMatch(/Cloudflare\.Worker\(\s*'Website'/);
+    expect(website).toContain('workersDev: false');
     expect(website).toContain('dist/server/entry.mjs');
     expect(website).toContain('dist/client');
     expect(website).not.toContain('Cloudflare.Website.Astro');
@@ -169,6 +171,7 @@ describe('application infrastructure contract', () => {
   test('preserves the hosted demo and Durable Object contracts', () => {
     const website = read('apps/demo/infra/Website.ts');
     expect(website).toMatch(/Cloudflare\.Worker\(\s*'Website'/);
+    expect(website).toContain('workersDev: false');
     expect(website).toContain("className: 'SessionDO'");
     expect(website).toContain("runWorkerFirst: ['/ws']");
     expect(readJson('apps/demo/wrangler.jsonc')).toMatchObject({
@@ -283,7 +286,13 @@ describe('application infrastructure contract', () => {
     expect(alchemyDeploy).toContain('CLOUDFLARE_API_TOKEN:');
 
     expect(productionWorkflow).not.toContain('wrangler deploy');
-    expect(productionWorkflow.match(/CLOUDFLARE_ACCOUNT_ID:/g)).toHaveLength(2);
+    // Two credentialed steps, each also asserting the expected account.
+    expect(
+      productionWorkflow.match(/(?<!EXPECTED_)CLOUDFLARE_ACCOUNT_ID:/g),
+    ).toHaveLength(2);
+    expect(
+      productionWorkflow.match(/EXPECTED_CLOUDFLARE_ACCOUNT_ID:/g),
+    ).toHaveLength(2);
     expect(productionWorkflow.match(/CLOUDFLARE_API_TOKEN:/g)).toHaveLength(2);
     expect(productionWorkflow.match(/ALCHEMY_PROFILE:/g)).toHaveLength(2);
     expect(productionWorkflow).not.toContain('--adopt');
@@ -301,6 +310,26 @@ describe('application infrastructure contract', () => {
       'Smoke test primary domain',
       'Smoke test alias',
     );
+  });
+
+  test('asserts distinct production and preview account variables before mutation', () => {
+    const guardName = 'name: Assert distinct account variables';
+    const comparison = 'test "$PRODUCTION_ACCOUNT_ID" != "$PREVIEW_ACCOUNT_ID"';
+    const cases = [
+      [productionWorkflow, 'Deploy platform to Cloudflare with Alchemy'],
+      [
+        read('.github/workflows/deploy-playground.yml'),
+        'Deploy to Cloudflare with Alchemy',
+      ],
+    ] as const;
+    for (const [workflow, firstCredentialedStep] of cases) {
+      expect(workflow).toContain(guardName);
+      expect(workflow).toContain(comparison);
+      // The check must gate the first credentialed step.
+      expect(workflow.indexOf(guardName)).toBeLessThan(
+        workflow.indexOf(`- name: ${firstCredentialedStep}`),
+      );
+    }
   });
 
   test('deploys the production demo through Alchemy', () => {
@@ -332,6 +361,12 @@ describe('application infrastructure contract', () => {
     expect(playgroundDeploy).toContain('ALCHEMY_PROFILE: production-ci');
     expect(playgroundDeploy).toContain('CLOUDFLARE_ACCOUNT_ID:');
     expect(playgroundDeploy).toContain('CLOUDFLARE_API_TOKEN:');
+    expect(playgroundDeploy).toContain(
+      [
+        'EXPECTED_CLOUDFLARE_ACCOUNT_ID:',
+        expression('vars.PRODUCTION_ACCOUNT_ID'),
+      ].join(' '),
+    );
     expect(namedStep(playground, 'Smoke test production domain')).toContain(
       "steps.deploy-revision.outputs.current == 'true'",
     );
@@ -389,6 +424,8 @@ describe('application infrastructure contract', () => {
     expect(www).toContain("aliases: ['www.maelstrom-ai.co']");
     expect(readJson('apps/www/wrangler.jsonc')).toMatchObject({
       name: 'www',
+      workers_dev: false,
+      preview_urls: false,
       routes: [
         { pattern: 'maelstrom-ai.co', custom_domain: true },
         { pattern: 'www.maelstrom-ai.co', custom_domain: true },
@@ -396,9 +433,12 @@ describe('application infrastructure contract', () => {
     });
     const docs = read('apps/docs/infra/Website.ts');
     expect(docs).toContain("name: 'docs'");
+    expect(docs).toContain('workersDev: false');
     expect(docs).toContain("domain: 'docs.maelstrom-ai.co'");
     expect(readJson('apps/docs/wrangler.json')).toMatchObject({
       name: 'docs',
+      workers_dev: false,
+      preview_urls: false,
       routes: [{ pattern: 'docs.maelstrom-ai.co', custom_domain: true }],
     });
     const demo = read('apps/demo/infra/Website.ts');
@@ -406,6 +446,8 @@ describe('application infrastructure contract', () => {
     expect(demo).toContain("domain: 'demo.maelstrom-ai.co'");
     expect(readJson('apps/demo/wrangler.jsonc')).toMatchObject({
       name: 'maelstrom-playground',
+      workers_dev: false,
+      preview_urls: false,
       routes: [{ pattern: 'demo.maelstrom-ai.co', custom_domain: true }],
     });
   });

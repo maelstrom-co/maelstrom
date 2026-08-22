@@ -404,6 +404,115 @@ describe('invalidatePreviewApproval', () => {
   });
 });
 
+describe('expected account boundary', () => {
+  const baseOptions = {
+    repository: REPOSITORY,
+    prNumber: '42',
+    bunExecutable: '/trusted/bun',
+    accountId: 'preview-account',
+    apiToken: 'secret',
+    expectedAccountId: 'preview-account',
+  };
+
+  test('forwards the expected account into the Alchemy child environment', async () => {
+    const state = baseState({
+      comments: [
+        {
+          id: 1,
+          body: markerBody(SHA_A),
+          user: { login: BOT_LOGIN, type: 'Bot' },
+        },
+      ],
+    });
+    const processes: Parameters<LifecycleDependencies['runProcess']>[0][] = [];
+    await deployPreviewApp(
+      {
+        ...baseOptions,
+        app: 'demo',
+        approvedSha: SHA_A,
+        sourceRoot: '/workspace/source',
+        workersDevSuffix: 'preview.workers.dev',
+      },
+      dependencies(githubFetch(state, []), {
+        runProcess: async (options) => {
+          processes.push(options);
+          if (options.argv.includes('rev-parse')) {
+            return { stdout: `${SHA_A}\n` };
+          }
+          if (options.argv.includes('get')) {
+            return {
+              stdout: JSON.stringify({
+                attr: {
+                  url: 'https://maelstrom-playground-alchemy-pr-42.preview.workers.dev/',
+                },
+              }),
+            };
+          }
+          return { stdout: '' };
+        },
+      }),
+    );
+    expect(processes[3]!.env).toMatchObject({
+      CLOUDFLARE_ACCOUNT_ID: 'preview-account',
+      EXPECTED_CLOUDFLARE_ACCOUNT_ID: 'preview-account',
+    });
+  });
+
+  test('rejects a deploy whose active account differs from the expectation before mutating', async () => {
+    const state = baseState({
+      comments: [
+        {
+          id: 1,
+          body: markerBody(SHA_A),
+          user: { login: BOT_LOGIN, type: 'Bot' },
+        },
+      ],
+    });
+    const processes: Parameters<LifecycleDependencies['runProcess']>[0][] = [];
+    await expect(
+      deployPreviewApp(
+        {
+          ...baseOptions,
+          accountId: 'wrong-account',
+          app: 'demo',
+          approvedSha: SHA_A,
+          sourceRoot: '/workspace/source',
+          workersDevSuffix: 'preview.workers.dev',
+        },
+        dependencies(githubFetch(state, []), {
+          runProcess: async (options) => {
+            processes.push(options);
+            return { stdout: `${SHA_A}\n` };
+          },
+        }),
+      ),
+    ).rejects.toThrow('does not match');
+    expect(processes).toEqual([]);
+  });
+
+  test('rejects a teardown whose active account differs from the expectation before deleting', async () => {
+    const state = baseState({ state: 'closed' });
+    let deleteCalls = 0;
+    await expect(
+      teardownPreview(
+        {
+          ...baseOptions,
+          trigger: 'manual',
+          root: '/trusted',
+          accountId: 'wrong-account',
+        },
+        dependencies(githubFetch(state, []), {
+          deleteWorkers: async () => {
+            deleteCalls += 1;
+            return true;
+          },
+        }),
+      ),
+    ).rejects.toThrow('does not match');
+    expect(deleteCalls).toBe(0);
+  });
+});
+
 describe('deployPreviewApp', () => {
   for (const app of ['demo', 'www', 'docs'] as const) {
     test(`${app} validates live intent and invokes exact app metadata`, async () => {
@@ -452,6 +561,7 @@ describe('deployPreviewApp', () => {
           bunExecutable: '/trusted/bun',
           sourceRoot: '/workspace/source',
           accountId: 'account',
+          expectedAccountId: 'account',
           apiToken: 'secret',
           workersDevSuffix: suffix,
         },
@@ -530,6 +640,7 @@ describe('deployPreviewApp', () => {
           bunExecutable: '/trusted/bun',
           sourceRoot: '/source',
           accountId: 'account',
+          expectedAccountId: 'account',
           apiToken: 'secret',
           workersDevSuffix: 'preview.workers.dev',
         },
@@ -572,6 +683,7 @@ describe('deployPreviewApp', () => {
             bunExecutable: '/trusted/bun',
             sourceRoot: '/source',
             accountId: 'account',
+            expectedAccountId: 'account',
             apiToken: 'secret',
             workersDevSuffix: 'preview.workers.dev',
           },
@@ -611,6 +723,7 @@ describe('deployPreviewApp', () => {
             bunExecutable,
             sourceRoot: '/source',
             accountId: 'account',
+            expectedAccountId: 'account',
             apiToken: 'secret',
             workersDevSuffix: 'preview.workers.dev',
           },
@@ -648,6 +761,7 @@ describe('deployPreviewApp', () => {
         bunExecutable: '/trusted/bun',
         sourceRoot: '/source',
         accountId: 'account',
+        expectedAccountId: 'account',
         apiToken: 'secret',
         workersDevSuffix: 'preview.workers.dev',
         demoUrl:
@@ -711,6 +825,7 @@ describe('deployPreviewApp', () => {
           bunExecutable: '/trusted/bun',
           sourceRoot: '/source',
           accountId: 'account',
+          expectedAccountId: 'account',
           apiToken: 'secret',
           workersDevSuffix: 'preview.workers.dev',
           demoUrl:
@@ -779,6 +894,7 @@ describe('teardown policy and execution', () => {
         trigger: 'unlabeled',
         bunExecutable: '/trusted/bun',
         accountId: 'account',
+        expectedAccountId: 'account',
         apiToken: 'secret',
         root: '/trusted',
       },
@@ -826,6 +942,7 @@ describe('teardown policy and execution', () => {
         trigger: 'schedule',
         bunExecutable: '/trusted/bun',
         accountId: 'account',
+        expectedAccountId: 'account',
         apiToken: 'secret',
         root: '/trusted',
       },
@@ -881,6 +998,7 @@ describe('teardown policy and execution', () => {
         trigger: 'schedule',
         bunExecutable: '/trusted/bun',
         accountId: 'account',
+        expectedAccountId: 'account',
         apiToken: 'secret',
         root: '/trusted',
       },
@@ -893,6 +1011,7 @@ describe('teardown policy and execution', () => {
         trigger: 'unlabeled',
         bunExecutable: '/trusted/bun',
         accountId: 'account',
+        expectedAccountId: 'account',
         apiToken: 'secret',
         root: '/trusted',
       },
@@ -943,6 +1062,7 @@ describe('teardown policy and execution', () => {
         trigger: 'schedule',
         bunExecutable: '/trusted/bun',
         accountId: 'account',
+        expectedAccountId: 'account',
         apiToken: 'secret',
         root: '/trusted',
       },
@@ -984,6 +1104,7 @@ describe('teardown policy and execution', () => {
         trigger: 'manual',
         bunExecutable: '/trusted/bun',
         accountId: 'account',
+        expectedAccountId: 'account',
         apiToken: 'secret',
         root: '/trusted',
       },
@@ -1020,6 +1141,7 @@ describe('teardown policy and execution', () => {
         trigger: 'schedule',
         bunExecutable: '/trusted/bun',
         accountId: 'account',
+        expectedAccountId: 'account',
         apiToken: 'secret',
         root: '/trusted',
       },
@@ -1063,6 +1185,7 @@ describe('teardown policy and execution', () => {
         trigger: 'manual',
         bunExecutable: '/trusted/bun',
         accountId: 'account',
+        expectedAccountId: 'account',
         apiToken: 'secret',
         root: '/trusted',
       },

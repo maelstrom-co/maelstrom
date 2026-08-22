@@ -574,13 +574,27 @@ const cloudflareEnvironment = (
   accountId: string,
   apiToken: string,
   prNumber: string,
+  expectedAccountId: string,
 ) =>
   processEnvironment({
     ALCHEMY_PROFILE: 'preview-ci',
     CLOUDFLARE_ACCOUNT_ID: accountId,
     CLOUDFLARE_API_TOKEN: apiToken,
+    EXPECTED_CLOUDFLARE_ACCOUNT_ID: expectedAccountId,
     PREVIEW_STAGE: `pr-${prNumber}`,
   });
+
+/** Refuse to mutate when the credential's account is not the expected one. */
+const assertExpectedAccount = (
+  accountId: string,
+  expectedAccountId: string,
+) => {
+  if (accountId !== expectedAccountId) {
+    throw new Error(
+      `Cloudflare account ${accountId} does not match the expected account`,
+    );
+  }
+};
 
 const assertApprovedSourceRevision = async (
   sourceRoot: string,
@@ -633,6 +647,7 @@ const deployApp = async (
     readonly sourceRoot: string;
     readonly accountId: string;
     readonly apiToken: string;
+    readonly expectedAccountId: string;
     readonly workersDevSuffix: string;
   },
   dependencies: LifecycleDependencies,
@@ -641,6 +656,7 @@ const deployApp = async (
   validatePrNumber(options.prNumber);
   validateSha('Approved SHA', options.approvedSha);
   validateBunExecutable(options.bunExecutable);
+  assertExpectedAccount(options.accountId, options.expectedAccountId);
   const metadata = APP_METADATA[options.app];
   if (!metadata) throw new Error('Preview app must be demo, www, or docs');
   await assertApprovedSourceRevision(
@@ -659,6 +675,7 @@ const deployApp = async (
     options.accountId,
     options.apiToken,
     options.prNumber,
+    options.expectedAccountId,
   );
   await dependencies.runProcess({
     argv: [
@@ -761,6 +778,7 @@ export const finishPreviewDeployment = async (
     readonly sourceRoot: string;
     readonly accountId: string;
     readonly apiToken: string;
+    readonly expectedAccountId: string;
     readonly workersDevSuffix: string;
     readonly demoUrl: string;
   },
@@ -770,6 +788,7 @@ export const finishPreviewDeployment = async (
   validatePrNumber(options.prNumber);
   validateSha('Approved SHA', options.approvedSha);
   validateBunExecutable(options.bunExecutable);
+  assertExpectedAccount(options.accountId, options.expectedAccountId);
   const demoUrl = validatePreviewWorkerUrl(
     options.demoUrl,
     `maelstrom-playground-alchemy-pr-${options.prNumber}`,
@@ -902,6 +921,7 @@ export const teardownPreview = async (
     readonly bunExecutable: string;
     readonly accountId: string;
     readonly apiToken: string;
+    readonly expectedAccountId: string;
     readonly root: string;
   },
   dependencies: LifecycleDependencies,
@@ -909,6 +929,7 @@ export const teardownPreview = async (
   validateRepository(options.repository);
   validatePrNumber(options.prNumber);
   validateBunExecutable(options.bunExecutable);
+  assertExpectedAccount(options.accountId, options.expectedAccountId);
   if (
     !['closed', 'manual', 'schedule', 'unlabeled'].includes(options.trigger)
   ) {
@@ -973,6 +994,7 @@ export const teardownPreview = async (
             options.accountId,
             options.apiToken,
             options.prNumber,
+            options.expectedAccountId,
           ),
           timeoutMs: 600_000,
         });
@@ -1134,6 +1156,10 @@ const cli = async () => {
         sourceRoot: required(environment, 'SOURCE_ROOT'),
         accountId: required(environment, 'CLOUDFLARE_ACCOUNT_ID'),
         apiToken: required(environment, 'CLOUDFLARE_API_TOKEN'),
+        expectedAccountId: required(
+          environment,
+          'EXPECTED_CLOUDFLARE_ACCOUNT_ID',
+        ),
         workersDevSuffix: required(environment, 'PREVIEW_WORKERS_DEV_SUFFIX'),
         demoUrl: required(environment, 'DEMO_URL'),
       },
@@ -1156,6 +1182,10 @@ const cli = async () => {
         sourceRoot: required(environment, 'SOURCE_ROOT'),
         accountId: required(environment, 'CLOUDFLARE_ACCOUNT_ID'),
         apiToken: required(environment, 'CLOUDFLARE_API_TOKEN'),
+        expectedAccountId: required(
+          environment,
+          'EXPECTED_CLOUDFLARE_ACCOUNT_ID',
+        ),
         workersDevSuffix: required(environment, 'PREVIEW_WORKERS_DEV_SUFFIX'),
       },
       dependencies,
@@ -1172,6 +1202,10 @@ const cli = async () => {
         bunExecutable: required(environment, 'BUN_EXECUTABLE'),
         accountId: required(environment, 'CLOUDFLARE_ACCOUNT_ID'),
         apiToken: required(environment, 'CLOUDFLARE_API_TOKEN'),
+        expectedAccountId: required(
+          environment,
+          'EXPECTED_CLOUDFLARE_ACCOUNT_ID',
+        ),
         root: process.cwd(),
       },
       dependencies,
