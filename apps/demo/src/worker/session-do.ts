@@ -73,12 +73,10 @@ interface ConnectionMarker {
 }
 
 /**
- * The Worker's bindings, generated from `wrangler.jsonc` into
- * `worker-configuration.d.ts` by the `typegen` target — deliberately not
- * hand-written. A hand-copied interface still compiles after a binding is
- * renamed in the config, so `env.SESSION_DO` becomes `undefined` at runtime
- * while typecheck stays green. Aliased rather than used directly only so the
- * name reads at the call sites.
+ * The Worker's bindings come from `Cloudflare.InferEnv` on the Alchemy Worker
+ * declaration. A hand-copied interface could still compile after a binding is
+ * renamed, leaving `env.SESSION_DO` undefined at runtime. This alias only
+ * gives the inferred type a domain-specific name at call sites.
  */
 export type PlaygroundEnv = Env;
 

@@ -182,11 +182,10 @@ Routine deployment must not pass `--adopt` or encode `adopt(true)` on a resource
 declaration. Missing or mismatched ownership must stop the deployment for manual
 review.
 
-Production Workers set `workersDev: false` (and `"workers_dev": false`,
-`"preview_urls": false` in Wrangler configuration). Production serves only its
-custom domains; a default-enabled `workers.dev` route would bypass the
-zone-scoped WAF and rate limiting. PR previews intentionally keep
-`workersDev: true`.
+Production Workers set `workersDev: false` in their Alchemy declarations.
+Production serves only its custom domains; a default-enabled `workers.dev`
+route would bypass the zone-scoped WAF and rate limiting. PR previews
+intentionally keep `workersDev: true`.
 
 Completed:
 
@@ -210,6 +209,21 @@ that fix.
 the credentialed deployment process and cannot scrub Cloudflare credentials or
 hash `DOCS_SOURCE_REF`. Docs therefore keeps its credential-free Nx build and
 lets Alchemy upload only the resulting `dist` artifact.
+
+Worker runtime packages compile against `@cloudflare/workers-types@5.20260722.1`,
+matching their `2026-07-22` compatibility date.
+Binding contracts come from `Cloudflare.InferEnv` on the Alchemy Worker
+declarations rather than a compatibility-date-generated snapshot. This
+combines date-aligned runtime APIs with the deployed binding source of truth.
+
+The root manifest has no direct Wrangler dependency and no repository command
+or configuration uses it. `@astrojs/cloudflare` still requires Wrangler as a
+peer, so it remains transitive in `bun.lock`; full package removal waits for the
+separate `Cloudflare.Website.Astro` conversion.
+
+The unchanged `@astrojs/cloudflare` adapter still generates
+`apps/www/.wrangler/deploy`, so Nx tracks that ignored adapter output. It is not
+a direct CLI or configuration surface.
 
 Next:
 

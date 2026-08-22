@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 
-// worker/index.ts re-exports SessionDO from ./session-do so wrangler can
-// find the class, which pulls in the same runtime-only dependencies
+// worker/index.ts re-exports SessionDO from ./session-do so the Alchemy Worker
+// declaration can bind the class, which pulls in the same runtime-only
+// dependencies
 // session-do.test.ts mocks: `cloudflare:workers` only exists inside an
 // actual Workers runtime, not under plain vitest, and WebSocketRequestResponsePair
 // is a Workers-runtime global rather than a module import.

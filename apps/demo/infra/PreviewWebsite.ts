@@ -9,14 +9,20 @@ export const PreviewWebsite = (stage: string) =>
     main: resolve(appRoot, 'src/worker/index.ts'),
     name: `maelstrom-playground-alchemy-${stage}`,
     workersDev: true,
-    compatibility: { date: '2026-07-22' },
+    compatibility: {
+      // Keep deployed APIs aligned with the cataloged runtime types.
+      date: '2026-07-22',
+    },
     assets: {
       directory: resolve(appRoot, 'dist/client'),
       notFoundHandling: 'single-page-application',
+      // Hosted token minting and greeting TTS are browser-direct, so only the
+      // WebSocket route needs the Worker ahead of static assets.
       runWorkerFirst: ['/ws'],
     },
     env: {
-      SESSION_DO: Cloudflare.DurableObject('SESSION_DO', {
+      // The Worker uses the inherited fetch surface, not SessionDO RPC methods.
+      SESSION_DO: Cloudflare.DurableObject<object>('SESSION_DO', {
         className: 'SessionDO',
       }),
     },

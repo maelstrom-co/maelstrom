@@ -31,7 +31,6 @@
     "src/**/*.ts",
     "src/**/*.tsx",
     "vite.config.ts",
-    "worker-configuration.d.ts",
     "vad-web-dev-plugin.ts"
   ],
   "references": [

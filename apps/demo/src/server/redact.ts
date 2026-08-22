@@ -81,9 +81,9 @@ function redactData(
  * A Logger that scrubs the session's apiKey (and any sk-*-shaped string) out
  * of every argument before delegating to consoleLogger. createEngine's
  * default logger is consoleLogger, which writes provider SDK errors —
- * including OpenAI's own 401 key echo — straight to stdout; the Worker's
- * `observability.logs.persist` (wrangler.jsonc) retains that. Every
- * hosted-mode engine must be built with one of these instead of the default.
+ * including OpenAI's own 401 key echo — straight to stdout; the Alchemy Worker
+ * declaration retains those logs. Every hosted-mode engine must be built with
+ * one of these instead of the default.
  */
 export function createRedactingLogger(apiKey: string): Logger {
   return {

@@ -351,8 +351,8 @@ describe('SessionDO', () => {
     await does.webSocketMessage(ws as never, CHART_REQUEST);
 
     // The single mechanism standing between a provider's error and a
-    // permanently retained log line: wrangler.jsonc sets
-    // observability.logs.persist, and createEngine's DEFAULT logger is
+    // permanently retained log line: the Alchemy Worker declaration persists
+    // logs, and createEngine's DEFAULT logger is
     // consoleLogger, which writes OpenAI's 401 echo of the rejected key
     // straight to stdout. Nothing else in this suite fails if the `logger`
     // option is dropped from #engineFor, so without this test the custody

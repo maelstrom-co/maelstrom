@@ -124,30 +124,10 @@
           "prepare-voice-assets"
         ]
       },
-      "typegen": {
-        "command": "wrangler types --env-file /dev/null",
-        "options": {
-          "cwd": "{projectRoot}"
-        },
-        "cache": true,
-        "inputs": [
-          "{projectRoot}/wrangler.jsonc",
-          "{projectRoot}/src/worker/**/*",
-          {
-            "externalDependencies": [
-              "wrangler"
-            ]
-          }
-        ],
-        "outputs": [
-          "{projectRoot}/worker-configuration.d.ts"
-        ]
-      },
       "typecheck": {
         "dependsOn": [
           "build",
-          "infra-typecheck",
-          "typegen"
+          "infra-typecheck"
         ],
         "inputs": [
           "production",
@@ -157,13 +137,7 @@
               "typescript"
             ]
           },
-          "{projectRoot}/wrangler.jsonc",
-          "{projectRoot}/tsconfig.json",
-          {
-            "externalDependencies": [
-              "wrangler"
-            ]
-          }
+          "{projectRoot}/tsconfig.json"
         ],
         "outputs": [
           "{projectRoot}/dist/**/*.d.ts",
@@ -228,6 +202,7 @@
   "devDependencies": {
     "@effect/platform-bun": "4.0.0-rc.111",
     "@effect/platform-node": "4.0.0-rc.111",
+    "@cloudflare/workers-types": "catalog:",
     "@maelstrom-co/platform-infra": "workspace:*",
     "@tailwindcss/vite": "catalog:",
     "@testing-library/dom": "catalog:",
