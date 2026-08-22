@@ -1,6 +1,4 @@
 import {
-  DESIRED_WAITLIST_RATE_LIMIT_EXPRESSION,
-  LEGACY_WAITLIST_RATE_LIMIT_EXPRESSION,
   PRODUCTION_RATE_LIMIT,
   PRODUCTION_RATE_LIMIT_RULES,
 } from '../infra/platform/src/RateLimitContract.js';
@@ -21,13 +19,8 @@ const toApiRule = (rule: (typeof PRODUCTION_RATE_LIMIT_RULES)[number]) => ({
 });
 
 const desiredApiRules = PRODUCTION_RATE_LIMIT_RULES.map(toApiRule);
-const legacyApiRules = desiredApiRules.map((rule, index) =>
-  index === 1
-    ? { ...rule, expression: LEGACY_WAITLIST_RATE_LIMIT_EXPRESSION }
-    : rule,
-);
 
-const legacyBaseline = {
+const desiredBaseline = {
   errors: [],
   messages: [],
   result: {
@@ -36,19 +29,11 @@ const legacyBaseline = {
     kind: PRODUCTION_RATE_LIMIT.kind,
     name: PRODUCTION_RATE_LIMIT.name,
     phase: PRODUCTION_RATE_LIMIT.phase,
-    rules: legacyApiRules,
+    rules: desiredApiRules,
     source: 'rate_limit',
   },
   success: true,
 } as const;
-
-const desiredBaseline = {
-  ...legacyBaseline,
-  result: {
-    ...legacyBaseline.result,
-    rules: desiredApiRules,
-  },
-};
 
 const apiVolatileFields = new Set(['last_updated', 'version']);
 const stateVolatileFields = new Set(['lastUpdated', 'version']);
@@ -116,38 +101,12 @@ const firstDifference = (
   return path;
 };
 
-/**
- * Rejects a live rate-limit phase unless it is the legacy baseline or the exact
- * owned state. Unknown semantic fields fail because Alchemy replaces the full
- * rule list and would otherwise erase them.
- */
-export const assertRateLimitPhaseBaseline = (value: unknown): void => {
-  const actual = apiSemanticValue(value);
-  const legacyDifference = firstDifference(actual, legacyBaseline);
-  if (!legacyDifference) return;
-  const desiredDifference = firstDifference(actual, desiredBaseline);
-  if (!desiredDifference) return;
-
-  const actualExpression = isRecord(value)
-    ? (value.result as { rules?: Array<{ expression?: unknown }> } | undefined)
-        ?.rules?.[1]?.expression
-    : undefined;
-  const difference =
-    actualExpression === DESIRED_WAITLIST_RATE_LIMIT_EXPRESSION
-      ? desiredDifference
-      : legacyDifference;
-  throw new Error(
-    `Production rate-limit phase drift detected at ${difference || 'response'}`,
-  );
-};
-
-export const assertDesiredRateLimitPhase = (value: unknown): void => {
+export const assertRateLimitPhase = (value: unknown): void => {
   const difference = firstDifference(apiSemanticValue(value), desiredBaseline);
-  if (difference) {
-    throw new Error(
-      `Live production rate-limit phase differs at ${difference}`,
-    );
-  }
+  if (!difference) return;
+  throw new Error(
+    `Production rate-limit phase drift detected at ${difference}`,
+  );
 };
 
 const desiredStateAttributes = {
@@ -210,7 +169,7 @@ export const preflightRateLimitPhase = async (
     init?: RequestInit,
   ) => Promise<Response> = fetch,
 ): Promise<void> => {
-  assertRateLimitPhaseBaseline(await fetchRateLimitPhase(apiToken, request));
+  assertRateLimitPhase(await fetchRateLimitPhase(apiToken, request));
 };
 
 export const verifyRateLimitPhase = async (
@@ -220,7 +179,7 @@ export const verifyRateLimitPhase = async (
     init?: RequestInit,
   ) => Promise<Response> = fetch,
 ): Promise<void> => {
-  assertDesiredRateLimitPhase(await fetchRateLimitPhase(apiToken, request));
+  assertRateLimitPhase(await fetchRateLimitPhase(apiToken, request));
 };
 
 if (import.meta.main) {

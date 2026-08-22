@@ -168,12 +168,10 @@ DNSSEC.
 beta.73 reconciles that resource with one full-list replacement request, so an
 omitted, reordered, or unknown rule field could otherwise be erased. The
 privileged platform step therefore fetches the live phase immediately before
-`bun alchemy deploy` and fails closed unless it exactly matches one of two
-states: the captured legacy two-rule baseline, or the exact owned two-rule state
-from a previous successful deployment. This transition guard makes the first
-ownership deployment safe and later deployments idempotent. It rejects provider
-errors, malformed envelopes, changed ruleset or rule semantics, unknown
-semantic fields, and rule or characteristic reordering. It ignores only known
+`bun alchemy deploy` and fails closed unless it exactly matches the owned
+two-rule state. It rejects provider errors, malformed envelopes, changed
+ruleset or rule semantics, unknown semantic fields, and rule or characteristic
+reordering. It ignores only known
 provider-managed `version` and `last_updated` fields on the ruleset result and
 top level of each rule; the same names elsewhere are semantic drift. One
 dependency-free contract supplies the exact desired values to the Alchemy

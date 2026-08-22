@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import {
-  assertDesiredRateLimitPhase,
-  assertRateLimitPhaseBaseline,
+  assertRateLimitPhase,
   assertRateLimitRulesetState,
   preflightRateLimitPhase,
   verifyRateLimitPhase,
@@ -36,7 +35,8 @@ const baseline = () => ({
         action: 'managed_challenge',
         description: 'Rate limit waitlist signup',
         enabled: true,
-        expression: '(http.request.uri.path eq "/api/waitlist")',
+        expression:
+          '((http.request.uri.path eq "/api/waitlist") or (http.request.uri.path eq "/api/waitlist/confirm"))',
         id: 'a38e81b4bcbe4f08953aaf7028b44b2f',
         last_updated: 'volatile',
         ratelimit: {
@@ -58,39 +58,31 @@ const baseline = () => ({
 });
 
 describe('production rate-limit phase preflight', () => {
-  test('accepts the captured phase while ignoring provider-managed timestamps and versions', () => {
+  test('accepts the owned phase while ignoring provider-managed timestamps and versions', () => {
     const live = baseline();
     live.result.last_updated = 'changed';
     live.result.version = '99';
     live.result.rules[0]!.last_updated = 'changed';
     live.result.rules[0]!.version = '99';
 
-    expect(() => assertRateLimitPhaseBaseline(live)).not.toThrow();
+    expect(() => assertRateLimitPhase(live)).not.toThrow();
   });
 
-  test('accepts the exact owned phase so later production deploys remain idempotent', () => {
+  test('rejects the superseded waitlist-only expression', async () => {
     const live = baseline();
     live.result.rules[1]!.expression =
-      '((http.request.uri.path eq "/api/waitlist") or (http.request.uri.path eq "/api/waitlist/confirm"))';
-
-    expect(() => assertRateLimitPhaseBaseline(live)).not.toThrow();
-
-    live.result.rules[1]!.ratelimit.period = 61;
-    expect(() => assertRateLimitPhaseBaseline(live)).toThrow(
-      'result.rules[1].ratelimit.period',
+      '(http.request.uri.path eq "/api/waitlist")';
+    expect(() => assertRateLimitPhase(live)).toThrow(
+      'result.rules[1].expression',
     );
+    await expect(
+      preflightRateLimitPhase('secret', async () => Response.json(live)),
+    ).rejects.toThrow('result.rules[1].expression');
   });
 
   test('requires the desired live phase after deployment', async () => {
-    const legacy = baseline();
-    await expect(
-      verifyRateLimitPhase('secret', async () => Response.json(legacy)),
-    ).rejects.toThrow('result.rules[1].expression');
-
     const desired = baseline();
-    desired.result.rules[1]!.expression =
-      '((http.request.uri.path eq "/api/waitlist") or (http.request.uri.path eq "/api/waitlist/confirm"))';
-    expect(() => assertDesiredRateLimitPhase(desired)).not.toThrow();
+    expect(() => assertRateLimitPhase(desired)).not.toThrow();
     await expect(
       verifyRateLimitPhase('secret', async () => Response.json(desired)),
     ).resolves.toBeUndefined();
@@ -99,11 +91,11 @@ describe('production rate-limit phase preflight', () => {
   test('rejects missing or reordered rules before Alchemy replaces the full phase', () => {
     const missing = baseline();
     missing.result.rules.pop();
-    expect(() => assertRateLimitPhaseBaseline(missing)).toThrow('result.rules');
+    expect(() => assertRateLimitPhase(missing)).toThrow('result.rules');
 
     const reordered = baseline();
     reordered.result.rules.reverse();
-    expect(() => assertRateLimitPhaseBaseline(reordered)).toThrow(
+    expect(() => assertRateLimitPhase(reordered)).toThrow(
       'result.rules[0].action',
     );
   });
@@ -159,22 +151,22 @@ describe('production rate-limit phase preflight', () => {
     for (const [path, mutate] of cases) {
       const live = baseline();
       mutate(live);
-      expect(() => assertRateLimitPhaseBaseline(live)).toThrow(path);
+      expect(() => assertRateLimitPhase(live)).toThrow(path);
     }
 
-    expect(() => assertRateLimitPhaseBaseline({ success: true })).toThrow();
+    expect(() => assertRateLimitPhase({ success: true })).toThrow();
   });
 
   test('ignores volatility only on the ruleset and rule objects', () => {
     const nested = baseline();
     Object.assign(nested.result.rules[0]!.ratelimit, { version: '1' });
-    expect(() => assertRateLimitPhaseBaseline(nested)).toThrow(
+    expect(() => assertRateLimitPhase(nested)).toThrow(
       'result.rules[0].ratelimit',
     );
 
     const envelope = baseline();
     Object.assign(envelope, { version: '1' });
-    expect(() => assertRateLimitPhaseBaseline(envelope)).toThrow('response');
+    expect(() => assertRateLimitPhase(envelope)).toThrow('response');
   });
 
   test('fails on HTTP and malformed JSON responses without printing response bodies', async () => {
