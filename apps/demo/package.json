@@ -227,6 +227,7 @@
   },
   "devDependencies": {
     "@effect/platform-bun": "4.0.0-rc.111",
+    "@effect/platform-node": "4.0.0-rc.111",
     "@maelstrom-co/platform-infra": "workspace:*",
     "@tailwindcss/vite": "catalog:",
     "@testing-library/dom": "catalog:",

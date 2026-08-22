@@ -54,6 +54,39 @@ const expectWorkflowOrder = (...names: string[]) =>
   expectStepOrder(productionWorkflow, ...names);
 
 describe('application infrastructure contract', () => {
+  test('declares the Node platform peer required by Alchemy Cloudflare Workers', () => {
+    const packagePaths = [
+      ...new Bun.Glob('apps/*/package.json').scanSync({ cwd: workspaceRoot }),
+      ...new Bun.Glob('infra/*/package.json').scanSync({ cwd: workspaceRoot }),
+    ];
+    const alchemyPackages = packagePaths.filter((path) => {
+      const packageJson = readJson(path) as {
+        dependencies?: Record<string, string>;
+        devDependencies?: Record<string, string>;
+      };
+      return Boolean(
+        packageJson.dependencies?.alchemy ??
+          packageJson.devDependencies?.alchemy,
+      );
+    });
+    expect(alchemyPackages).not.toEqual([]);
+
+    for (const path of alchemyPackages) {
+      const packageJson = readJson(path) as {
+        dependencies?: Record<string, string>;
+        devDependencies?: Record<string, string>;
+      };
+      const dependencies = {
+        ...packageJson.dependencies,
+        ...packageJson.devDependencies,
+      };
+
+      expect(dependencies['@effect/platform-node']).toBe(
+        dependencies['@effect/platform-bun'],
+      );
+    }
+  });
+
   test('gives each independently deployed app its own composition root', () => {
     expect(read('apps/www/alchemy.run.ts')).toContain("'MaelstromWww'");
     expect(read('apps/docs/alchemy.run.ts')).toContain("'MaelstromDocs'");

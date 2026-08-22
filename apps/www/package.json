@@ -21,6 +21,7 @@
   },
   "devDependencies": {
     "@effect/platform-bun": "4.0.0-rc.111",
+    "@effect/platform-node": "4.0.0-rc.111",
     "@astrojs/check": "catalog:",
     "@astrojs/cloudflare": "catalog:",
     "@playwright/test": "^1.61.1",
