@@ -53,7 +53,7 @@
     "@babel/core": "^7.14.5",
     "@babel/preset-react": "^7.14.5",
     "@biomejs/biome": "2.4.10",
-    "@effect/language-service": "^0.80.0",
+    "@effect/language-service": "^0.87.2",
     "@nx/devkit": "23.1.0",
     "@nx/jest": "23.1.0",
     "@nx/js": "23.1.0",
@@ -94,7 +94,7 @@
     "vite-plugin-dts": "~4.5.0",
     "vite-tsconfig-paths": "^5.1.4",
     "vitest": "4.1.9",
-    "wrangler": "4.115.0"
+    "wrangler": "4.123.0"
   },
   "workspaces": [
     "apps/*",
