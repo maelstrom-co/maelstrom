@@ -24,6 +24,7 @@
     "@effect/platform-node": "4.0.0-rc.111",
     "@astrojs/check": "catalog:",
     "@astrojs/cloudflare": "catalog:",
+    "@cloudflare/workers-types": "catalog:",
     "@playwright/test": "^1.61.1",
     "@tailwindcss/vite": "catalog:",
     "@types/react": "catalog:",
@@ -61,24 +62,6 @@
           "{projectRoot}/.wrangler/deploy"
         ]
       },
-      "typegen": {
-        "command": "wrangler types --env-file /dev/null",
-        "options": {
-          "cwd": "{projectRoot}"
-        },
-        "cache": true,
-        "inputs": [
-          "{projectRoot}/wrangler.jsonc",
-          {
-            "externalDependencies": [
-              "wrangler"
-            ]
-          }
-        ],
-        "outputs": [
-          "{projectRoot}/worker-configuration.d.ts"
-        ]
-      },
       "deploy": {
         "executor": "nx:run-commands",
         "dependsOn": [
@@ -93,8 +76,7 @@
       "typecheck": {
         "dependsOn": [
           "build",
-          "infra-typecheck",
-          "typegen"
+          "infra-typecheck"
         ],
         "inputs": [
           "{projectRoot}/astro.config.ts",
@@ -106,13 +88,7 @@
             ]
           },
           "^default",
-          "{projectRoot}/wrangler.jsonc",
-          "{projectRoot}/tsconfig.json",
-          {
-            "externalDependencies": [
-              "wrangler"
-            ]
-          }
+          "{projectRoot}/tsconfig.json"
         ]
       },
       "infra-typecheck": {

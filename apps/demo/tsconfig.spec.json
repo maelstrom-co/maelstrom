@@ -33,8 +33,7 @@
     "src/**/__test-utils__/**/*.ts",
     "src/**/__tests__/*.ts",
     "src/**/__tests__/*.tsx",
-    "src/**/*.d.ts",
-    "worker-configuration.d.ts"
+    "src/**/*.d.ts"
   ],
   "references": [
     {

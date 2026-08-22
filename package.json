@@ -15,6 +15,7 @@
     "@astrojs/cloudflare": "~14.1.6",
     "@astrojs/react": "^6.0.2",
     "@astrojs/sitemap": "^3.7.3",
+    "@cloudflare/workers-types": "5.20260722.1",
     "@sinonjs/fake-timers": "^15.1.1",
     "@tailwindcss/vite": "^4.2.2",
     "@tanstack/ai": "^0.43.0",
@@ -93,8 +94,7 @@
     "vite": "^8.0.13",
     "vite-plugin-dts": "~4.5.0",
     "vite-tsconfig-paths": "^5.1.4",
-    "vitest": "4.1.9",
-    "wrangler": "4.115.0"
+    "vitest": "4.1.9"
   },
   "workspaces": [
     "apps/*",

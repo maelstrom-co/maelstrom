@@ -54,6 +54,68 @@ const expectStepOrder = (source: string, ...names: string[]) => {
 const expectWorkflowOrder = (...names: string[]) =>
   expectStepOrder(productionWorkflow, ...names);
 
+const isRepositorySurface = (path: string) =>
+  !/(?:^|\/)(?:node_modules|dist|\.wrangler)(?:\/|$)/u.test(path);
+
+const collectCommandFields = (value: unknown): string[] => {
+  if (Array.isArray(value)) return value.flatMap(collectCommandFields);
+  if (!value || typeof value !== 'object') return [];
+
+  return Object.entries(value).flatMap(([key, child]) => {
+    if (key === 'command' && typeof child === 'string') return [child];
+    if (key === 'commands' && Array.isArray(child)) {
+      return child.flatMap((command) =>
+        typeof command === 'string' ? [command] : collectCommandFields(command),
+      );
+    }
+    return collectCommandFields(child);
+  });
+};
+
+const collectWorkflowCommands = (source: string): string[] => {
+  const lines = source.split('\n');
+  const commands: string[] = [];
+
+  for (let index = 0; index < lines.length; index++) {
+    const match = lines[index]?.match(
+      /^(\s*)(?:-\s*)?(?:run|command):\s*(.*)$/,
+    );
+    if (!match) continue;
+    const [, indentation = '', value = ''] = match;
+    if (!/^[>|]/u.test(value)) {
+      commands.push(value);
+      continue;
+    }
+
+    const block: string[] = [];
+    while (index + 1 < lines.length) {
+      const next = lines[index + 1] ?? '';
+      if (
+        next.trim() &&
+        (next.match(/^\s*/)?.[0].length ?? 0) <= indentation.length
+      ) {
+        break;
+      }
+      block.push(next);
+      index++;
+    }
+    commands.push(block.join('\n'));
+  }
+
+  return commands;
+};
+
+const invokesWrangler = (command: string) =>
+  /(?:^|[\s;&|])["']?(?:bunx?\s+|npx\s+|pnpm\s+exec\s+|yarn\s+dlx\s+|\S*\/)?wrangler(?=[\s"']|$)/iu.test(
+    command,
+  );
+
+const expectNoWranglerExecutable = (commands: string[]) => {
+  for (const command of commands) {
+    expect(invokesWrangler(command)).toBe(false);
+  }
+};
+
 describe('application infrastructure contract', () => {
   test('declares the Node platform peer required by Alchemy Cloudflare Workers', () => {
     const packagePaths = [
@@ -172,16 +234,10 @@ describe('application infrastructure contract', () => {
     const website = read('apps/demo/infra/Website.ts');
     expect(website).toMatch(/Cloudflare\.Worker\(\s*'Website'/);
     expect(website).toContain('workersDev: false');
+    expect(website).toContain("name: 'maelstrom-playground'");
+    expect(website).toContain("main: resolve(appRoot, 'src/worker/index.ts')");
     expect(website).toContain("className: 'SessionDO'");
     expect(website).toContain("runWorkerFirst: ['/ws']");
-    expect(readJson('apps/demo/wrangler.jsonc')).toMatchObject({
-      name: 'maelstrom-playground',
-      main: 'src/worker/index.ts',
-      durable_objects: {
-        bindings: [{ name: 'SESSION_DO', class_name: 'SessionDO' }],
-      },
-      migrations: [{ tag: 'v1', new_sqlite_classes: ['SessionDO'] }],
-    });
     expect(readJson('apps/demo/package.json')).toMatchObject({
       nx: {
         targets: {
@@ -285,7 +341,6 @@ describe('application infrastructure contract', () => {
     expect(alchemyDeploy).toContain('CLOUDFLARE_ACCOUNT_ID:');
     expect(alchemyDeploy).toContain('CLOUDFLARE_API_TOKEN:');
 
-    expect(productionWorkflow).not.toContain('wrangler deploy');
     // Two credentialed steps, each also asserting the expected account.
     expect(
       productionWorkflow.match(/(?<!EXPECTED_)CLOUDFLARE_ACCOUNT_ID:/g),
@@ -335,7 +390,6 @@ describe('application infrastructure contract', () => {
   test('deploys the production demo through Alchemy', () => {
     const playground = read('.github/workflows/deploy-playground.yml');
     expect(playground).toContain('group: production-demo');
-    expect(playground).not.toContain('wrangler deploy');
     const playgroundBuild = namedStep(playground, 'Build production artifact');
     expect(playgroundBuild).not.toMatch(/CLOUDFLARE_|ALCHEMY_PROFILE/);
     const playgroundRecheck = namedStep(
@@ -417,38 +471,126 @@ describe('application infrastructure contract', () => {
     expect(patch).toContain('olds: readProps.value');
   });
 
-  test('keeps Alchemy Worker identities aligned with Wrangler configuration', () => {
+  test('keeps Worker identities authoritative in Alchemy', () => {
     const www = read('apps/www/infra/Website.ts');
     expect(www).toContain("name: 'www'");
     expect(www).toContain("name: 'maelstrom-ai.co'");
     expect(www).toContain("aliases: ['www.maelstrom-ai.co']");
-    expect(readJson('apps/www/wrangler.jsonc')).toMatchObject({
-      name: 'www',
-      workers_dev: false,
-      preview_urls: false,
-      routes: [
-        { pattern: 'maelstrom-ai.co', custom_domain: true },
-        { pattern: 'www.maelstrom-ai.co', custom_domain: true },
-      ],
-    });
+    expect(www).toContain('workersDev: false');
     const docs = read('apps/docs/infra/Website.ts');
     expect(docs).toContain("name: 'docs'");
     expect(docs).toContain('workersDev: false');
     expect(docs).toContain("domain: 'docs.maelstrom-ai.co'");
-    expect(readJson('apps/docs/wrangler.json')).toMatchObject({
-      name: 'docs',
-      workers_dev: false,
-      preview_urls: false,
-      routes: [{ pattern: 'docs.maelstrom-ai.co', custom_domain: true }],
-    });
     const demo = read('apps/demo/infra/Website.ts');
     expect(demo).toContain("name: 'maelstrom-playground'");
+    expect(demo).toContain('workersDev: false');
     expect(demo).toContain("domain: 'demo.maelstrom-ai.co'");
-    expect(readJson('apps/demo/wrangler.jsonc')).toMatchObject({
-      name: 'maelstrom-playground',
-      workers_dev: false,
-      preview_urls: false,
-      routes: [{ pattern: 'demo.maelstrom-ai.co', custom_domain: true }],
+  });
+
+  test('derives Worker bindings from Alchemy and uses date-aligned runtime types', () => {
+    expect(readJson('package.json')).toMatchObject({
+      catalog: {
+        '@cloudflare/workers-types': '5.20260722.1',
+      },
     });
+    for (const app of ['www', 'demo']) {
+      expect(read(`apps/${app}/infra/Website.ts`)).toContain(
+        'export type WebsiteEnv = Cloudflare.InferEnv<typeof Website>',
+      );
+      expect(readJson(`apps/${app}/package.json`)).toMatchObject({
+        devDependencies: {
+          '@cloudflare/workers-types': 'catalog:',
+        },
+      });
+    }
+
+    const previewWebsite = read('apps/www/infra/PreviewWebsite.ts');
+    expect(previewWebsite).toContain(
+      'export type PreviewWebsiteEnv = Cloudflare.InferEnv<',
+    );
+    const wwwEnv = read('apps/www/src/env.d.ts');
+    expect(wwwEnv).toContain('PreviewWebsiteEnv');
+    expect(wwwEnv).toContain('Omit<WebsiteEnv, keyof PreviewWebsiteEnv>');
+    expect(wwwEnv).toContain('RuntimeWebsiteEnvContract');
+    expect(wwwEnv).not.toContain('Partial<WebsiteEnv>');
+    expect(read('apps/demo/src/env.d.ts')).toContain(
+      'interface Env extends WebsiteEnv',
+    );
+    expect(readJson('apps/docs/package.json')).not.toMatchObject({
+      devDependencies: { '@cloudflare/workers-types': expect.any(String) },
+    });
+  });
+
+  test('keeps Astro adapter build artifacts as declared Nx outputs', () => {
+    expect(readJson('apps/www/package.json')).toMatchObject({
+      nx: {
+        targets: {
+          build: {
+            outputs: ['{projectRoot}/dist', '{projectRoot}/.wrangler/deploy'],
+          },
+        },
+      },
+    });
+  });
+
+  test('protects both hosted demo deployment declarations', () => {
+    const codeowners = read('.github/CODEOWNERS');
+    expect(codeowners).toContain('/apps/demo/infra/Website.ts ');
+    expect(codeowners).toContain('/apps/demo/infra/PreviewWebsite.ts ');
+  });
+
+  test('has no direct Wrangler configuration, dependency, generated types, or executable', () => {
+    expect(invokesWrangler('wrangler deploy')).toBe(true);
+    expect(invokesWrangler('bunx wrangler types')).toBe(true);
+    expect(invokesWrangler("'./node_modules/.bin/wrangler' delete")).toBe(true);
+
+    const configPaths = [
+      ...new Bun.Glob('wrangler.{json,jsonc,toml}').scanSync({
+        cwd: workspaceRoot,
+      }),
+      ...new Bun.Glob(
+        '{apps,infra,packages,tools}/**/wrangler.{json,jsonc,toml}',
+      ).scanSync({ cwd: workspaceRoot }),
+    ].filter(isRepositorySurface);
+    expect(configPaths).toEqual([]);
+
+    const generatedTypePaths = [
+      ...new Bun.Glob('worker-configuration.d.ts').scanSync({
+        cwd: workspaceRoot,
+      }),
+      ...new Bun.Glob(
+        '{apps,infra,packages,tools}/**/worker-configuration.d.ts',
+      ).scanSync({ cwd: workspaceRoot }),
+    ].filter(isRepositorySurface);
+    expect(generatedTypePaths).toEqual([]);
+
+    const packagePaths = [
+      'package.json',
+      ...new Bun.Glob('{apps,infra,packages,tools}/*/package.json').scanSync({
+        cwd: workspaceRoot,
+      }),
+    ];
+    for (const path of packagePaths) {
+      const packageJson = readJson(path) as {
+        dependencies?: Record<string, string>;
+        devDependencies?: Record<string, string>;
+        scripts?: Record<string, string>;
+        nx?: { targets?: Record<string, unknown> };
+      };
+      expect(packageJson.dependencies?.wrangler).toBeUndefined();
+      expect(packageJson.devDependencies?.wrangler).toBeUndefined();
+      expect(packageJson.nx?.targets?.typegen).toBeUndefined();
+      expectNoWranglerExecutable([
+        ...Object.values(packageJson.scripts ?? {}),
+        ...collectCommandFields(packageJson.nx),
+      ]);
+    }
+
+    const workflowPaths = new Bun.Glob(
+      '.github/workflows/*.{yml,yaml}',
+    ).scanSync({ cwd: workspaceRoot });
+    for (const path of workflowPaths) {
+      expectNoWranglerExecutable(collectWorkflowCommands(read(path)));
+    }
   });
 });

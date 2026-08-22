@@ -9,8 +9,7 @@
     "src/**/*.ts",
     "src/**/*.tsx",
     "src/**/*.astro",
-    "astro.config.ts",
-    "worker-configuration.d.ts"
+    "astro.config.ts"
   ],
   "exclude": ["dist", "node_modules", "src/**/*.test.ts", "src/**/*.test.tsx"],
   "references": [

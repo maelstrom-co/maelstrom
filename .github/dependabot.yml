@@ -16,5 +16,4 @@ updates:
           - alchemy
           - effect
           - '@effect/*'
-          - wrangler
           - '@cloudflare/*'

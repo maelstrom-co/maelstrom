@@ -4,6 +4,6 @@
 # that token. Founders review it.
 /.github/ @NachoVazquez @Jacarte @ktrz
 
-# Deploy configuration for the hosted playground: names the Worker, its Durable
-# Object bindings, and the migration history the deploy depends on.
-/apps/demo/wrangler.jsonc @NachoVazquez @Jacarte @ktrz
+# Deployment configuration for the hosted playground.
+/apps/demo/infra/Website.ts @NachoVazquez @Jacarte @ktrz
+/apps/demo/infra/PreviewWebsite.ts @NachoVazquez @Jacarte @ktrz

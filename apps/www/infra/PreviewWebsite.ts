@@ -12,7 +12,10 @@ export const PreviewWebsite = (stage: string) =>
     name: `maelstrom-www-alchemy-${stage}`,
     workersDev: true,
     compatibility: {
+      // Keep deployed APIs aligned with the cataloged runtime types.
       date: '2026-07-22',
+      // Astro 7's Vite 8 runtime imports node:module. Without this flag,
+      // workerd rejects the prerender bundle before routes are emitted.
       flags: ['nodejs_compat'],
     },
     env: {
@@ -27,3 +30,7 @@ export const PreviewWebsite = (stage: string) =>
       },
     },
   });
+
+export type PreviewWebsiteEnv = Cloudflare.InferEnv<
+  ReturnType<typeof PreviewWebsite>
+>;
