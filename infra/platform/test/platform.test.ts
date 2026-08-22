@@ -3,6 +3,9 @@ import { describe, expect, test } from 'bun:test';
 const stackSource = await Bun.file(
   new URL('../alchemy.run.ts', import.meta.url),
 ).text();
+const zoneSource = await Bun.file(
+  new URL('../src/Zone.ts', import.meta.url),
+).text();
 const waitlistSource = await Bun.file(
   new URL('../src/Waitlist.ts', import.meta.url),
 ).text();
@@ -19,6 +22,25 @@ describe('platform stack contract', () => {
     expect(waitlistSource).toContain("D1.Database('Waitlist'");
     expect(waitlistSource).toContain("'NotificationsEmail'");
     expect(waitlistSource).toContain("'WaitlistTurnstile'");
+  });
+
+  test('bootstraps only the exact retained production zone identity', () => {
+    expect(zoneSource).toContain(`Cloudflare.Zone.Zone('ProductionZone', {
+  name: 'maelstrom-ai.co',
+  type: 'full',
+  paused: false,
+  vanityNameServers: [],
+}).pipe(adopt(true), retain(true));`);
+    expect(zoneSource.match(/\.pipe\(adopt\(true\)/g)).toHaveLength(1);
+    expect(zoneSource).not.toContain('Ruleset');
+  });
+
+  test('declares the production zone before platform resources and future rulesets', () => {
+    const zonePosition = stackSource.indexOf('yield* ProductionZone');
+    const waitlistPosition = stackSource.indexOf('yield* WaitlistPlatform');
+    expect(zonePosition).toBeGreaterThanOrEqual(0);
+    expect(waitlistPosition).toBeGreaterThan(zonePosition);
+    expect(stackSource).not.toContain('Ruleset');
   });
 
   test('cannot mutate application Workers', () => {

@@ -156,10 +156,22 @@ describe('application infrastructure contract', () => {
     expect(read('apps/demo/alchemy.run.ts')).toContain("'MaelstromDemo'");
   });
 
-  test('keeps adoption policy out of deployment declarations', () => {
+  test('permits only the temporary production Zone adoption', () => {
+    const adoptionCalls = deploymentSourcePaths.flatMap((path) => {
+      const source = read(path)
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/\/\/.*$/gm, '');
+      return [...source.matchAll(/\badopt\(/g)].map(() => path);
+    });
+    expect(adoptionCalls).toEqual(['infra/platform/src/Zone.ts']);
+    expect(read(adoptionCalls[0] ?? '')).toContain(
+      "Cloudflare.Zone.Zone('ProductionZone'",
+    );
     expect(
-      deploymentSourcePaths.filter((path) => read(path).includes('adopt(')),
-    ).toEqual([]);
+      read(adoptionCalls[0] ?? '').match(
+        /\.pipe\(adopt\(true\), retain\(true\)\);/g,
+      ),
+    ).toHaveLength(1);
   });
 
   test('deploys the credential-free docs artifact through Alchemy', () => {
@@ -293,6 +305,21 @@ describe('application infrastructure contract', () => {
     expect(platformDeploy).toContain('--fqn WaitlistTurnstile');
     expect(platformDeploy).toContain('turnstile-sitekey=');
     expect(platformDeploy).toMatch(/0x\[A-Za-z0-9/);
+    expect(platformDeploy).toContain('--fqn ProductionZone');
+    expect(platformDeploy).toContain(
+      "zoneId !== '4df25ea08d364f19471be7a179ce9f02'",
+    );
+    expect(platformDeploy).toContain("name !== 'maelstrom-ai.co'");
+    expect(platformDeploy).toContain(
+      "accountId !== '36ef30d02761b97ffb49b343ac17f2d2'",
+    );
+    expect(platformDeploy).toContain(
+      'bun alchemy deploy --stage prod --profile production-ci --yes\n' +
+        '          zone_state=',
+    );
+    expect(platformDeploy.indexOf('--fqn ProductionZone')).toBeLessThan(
+      platformDeploy.indexOf('--fqn WaitlistTurnstile'),
+    );
     expect(platformJob).toContain(
       `turnstile-sitekey: ${'$'}{{ steps.deploy-platform.outputs.turnstile-sitekey }}`,
     );
