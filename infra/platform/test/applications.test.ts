@@ -156,22 +156,14 @@ describe('application infrastructure contract', () => {
     expect(read('apps/demo/alchemy.run.ts')).toContain("'MaelstromDemo'");
   });
 
-  test('permits only the temporary production Zone adoption', () => {
+  test('has no deployment resource adoption after the production Zone bootstrap', () => {
     const adoptionCalls = deploymentSourcePaths.flatMap((path) => {
       const source = read(path)
         .replace(/\/\*[\s\S]*?\*\//g, '')
         .replace(/\/\/.*$/gm, '');
       return [...source.matchAll(/\badopt\(/g)].map(() => path);
     });
-    expect(adoptionCalls).toEqual(['infra/platform/src/Zone.ts']);
-    expect(read(adoptionCalls[0] ?? '')).toContain(
-      "Cloudflare.Zone.Zone('ProductionZone'",
-    );
-    expect(
-      read(adoptionCalls[0] ?? '').match(
-        /\.pipe\(adopt\(true\), retain\(true\)\);/g,
-      ),
-    ).toHaveLength(1);
+    expect(adoptionCalls).toEqual([]);
   });
 
   test('deploys the credential-free docs artifact through Alchemy', () => {
@@ -300,12 +292,26 @@ describe('application infrastructure contract', () => {
     expect(platformDeploy).toContain(
       'bun alchemy deploy --stage prod --profile production-ci --yes',
     );
+    expect(platformDeploy).toContain(
+      'bun ../../scripts/cloudflare-rate-limit-preflight.ts\n' +
+        '          bun alchemy deploy --stage prod --profile production-ci --yes',
+    );
+    expect(platformDeploy).toContain(
+      'bun ../../scripts/cloudflare-rate-limit-preflight.ts state\n' +
+        '          bun ../../scripts/cloudflare-rate-limit-preflight.ts verify',
+    );
+    expect(platformDeploy).not.toContain('wrangler');
     expect(platformDeploy).toContain('CLOUDFLARE_ACCOUNT_ID:');
     expect(platformDeploy).toContain('CLOUDFLARE_API_TOKEN:');
     expect(platformDeploy).toContain('--fqn WaitlistTurnstile');
     expect(platformDeploy).toContain('turnstile-sitekey=');
     expect(platformDeploy).toMatch(/0x\[A-Za-z0-9/);
     expect(platformDeploy).toContain('--fqn ProductionZone');
+    expect(platformDeploy).toContain('--fqn ProductionRateLimit');
+    expect(platformDeploy).toContain(
+      'printf \'%s\' "$ruleset_state" | bun ../../scripts/cloudflare-rate-limit-preflight.ts state',
+    );
+    expect(platformDeploy).not.toContain('rules[0]?.id');
     expect(platformDeploy).toContain(
       "zoneId !== '4df25ea08d364f19471be7a179ce9f02'",
     );
@@ -318,6 +324,9 @@ describe('application infrastructure contract', () => {
         '          zone_state=',
     );
     expect(platformDeploy.indexOf('--fqn ProductionZone')).toBeLessThan(
+      platformDeploy.indexOf('--fqn ProductionRateLimit'),
+    );
+    expect(platformDeploy.indexOf('--fqn ProductionRateLimit')).toBeLessThan(
       platformDeploy.indexOf('--fqn WaitlistTurnstile'),
     );
     expect(platformJob).toContain(

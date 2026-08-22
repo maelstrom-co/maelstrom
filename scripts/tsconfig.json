@@ -7,5 +7,5 @@
     "module": "preserve",
     "moduleResolution": "bundler"
   },
-  "include": ["**/*.ts"]
+  "include": ["**/*.ts", "../infra/platform/src/RateLimitContract.ts"]
 }
