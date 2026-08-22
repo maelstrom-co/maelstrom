@@ -9,7 +9,7 @@ export default defineConfig(() => ({
     dts({
       entryRoot: 'src',
       tsconfigPath: path.join(__dirname, 'tsconfig.lib.json'),
-      rollupTypes: true,
+      bundleTypes: true,
     }),
   ],
   build: {
