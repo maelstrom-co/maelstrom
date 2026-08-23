@@ -14,7 +14,7 @@ import {
 } from 'bun:test';
 import { hashWaitlistToken, isWaitlistToken } from '../../lib/waitlist-token';
 
-let preparedSql = '';
+let preparedSqls: string[] = [];
 let deliveryAttempt: { id: string } | null = { id: 'attempt-id' };
 let confirmation: { email: string } | null = { email: 'user@example.com' };
 let waitUntilTasks: Promise<unknown>[] = [];
@@ -22,7 +22,7 @@ const first = mock(async () => deliveryAttempt);
 const run = mock(async () => ({ success: true }));
 const bind = mock(() => ({ first, run }));
 const prepare = mock((sql: string) => {
-  preparedSql = sql;
+  preparedSqls.push(sql);
   return { bind };
 });
 const batch = mock(async () => [
@@ -70,18 +70,31 @@ const callPost = (body: string) =>
   } as unknown as Parameters<typeof POST>[0]);
 const signupBody = (email = 'user@example.com') =>
   JSON.stringify({ email, turnstileToken: 'turnstile-token' });
-const callConfirm = (token: string) =>
-  CONFIRM({
+const callConfirm = async (token: string) => {
+  const setCookies: Array<{
+    name: string;
+    value: string;
+    options?: Record<string, unknown>;
+  }> = [];
+  const response = await CONFIRM({
     request: new Request('https://maelstrom-ai.co/api/waitlist/confirm', {
       method: 'POST',
       body: new URLSearchParams({ token }),
     }),
+    cookies: {
+      get: () => undefined,
+      set: (name: string, value: string, options?: Record<string, unknown>) => {
+        setCookies.push({ name, value, options });
+      },
+    },
     locals: {
       cfContext: {
         waitUntil: (task: Promise<unknown>) => waitUntilTasks.push(task),
       },
     },
-  } as Parameters<typeof CONFIRM>[0]);
+  } as unknown as Parameters<typeof CONFIRM>[0]);
+  return { response, setCookies };
+};
 const expectPrivateConfirmationResponse = (response: Response) => {
   expect(response.headers.get('cache-control')).toBe('no-store');
   expect(response.headers.get('referrer-policy')).toBe('no-referrer');
@@ -89,7 +102,8 @@ const expectPrivateConfirmationResponse = (response: Response) => {
 };
 
 beforeEach(() => {
-  preparedSql = '';
+  preparedSqls = [];
+  preparedSqls = [];
   deliveryAttempt = { id: 'attempt-id' };
   confirmation = { email: 'user@example.com' };
   waitUntilTasks = [];
@@ -459,26 +473,34 @@ describe('POST /api/waitlist/confirm', () => {
   });
 
   it('rejects a malformed token without querying D1', async () => {
-    const res = await callConfirm('not-a-token');
+    const { response: res, setCookies } = await callConfirm('not-a-token');
     expect(res.status).toBe(303);
     expect(res.headers.get('location')).toBe(
       'https://maelstrom-ai.co/waitlist/invalid/',
     );
     expectPrivateConfirmationResponse(res);
+    expect(setCookies).toHaveLength(0);
     expect(prepare).not.toHaveBeenCalled();
   });
 
   it('confirms a pending subscriber with a live token', async () => {
-    const res = await callConfirm(`v1.${'a'.repeat(43)}`);
+    const { response: res, setCookies } = await callConfirm(
+      `v1.${'a'.repeat(43)}`,
+    );
     await Promise.all(waitUntilTasks);
     expect(res.status).toBe(303);
     expect(res.headers.get('location')).toBe(
       'https://maelstrom-ai.co/waitlist/confirmed/',
     );
     expectPrivateConfirmationResponse(res);
-    expect(preparedSql).toContain("SET status = 'confirmed'");
+    expect(preparedSqls).toContainEqual(
+      expect.stringContaining("SET status = 'confirmed'"),
+    );
+    // The receipt must commit inside the confirmation batch: a separate write
+    // would strand a confirmed visitor without page access if it failed.
     expect(batch).toHaveBeenCalledTimes(1);
-    await Promise.all(waitUntilTasks);
+    const batchedStatements = batch.mock.calls[0]?.[0] as unknown[];
+    expect(batchedStatements).toHaveLength(3);
     expect(send).toHaveBeenCalledTimes(1);
     expect(send).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -488,19 +510,38 @@ describe('POST /api/waitlist/confirm', () => {
         html: expect.stringContaining('https://discord.gg/XAjJqrF2u3'),
       }),
     );
+
+    // The receipt is the only way back onto the gated page, so its cookie
+    // must be unreadable to scripts and confined to the result path.
+    expect(setCookies).toHaveLength(1);
+    const [receipt] = setCookies;
+    expect(receipt?.name).toBe('waitlist_receipt');
+    expect(receipt?.value).toMatch(/^v1\.[A-Za-z0-9_-]{43}$/);
+    expect(receipt?.options).toMatchObject({
+      path: '/waitlist/confirmed',
+      httpOnly: true,
+      secure: true,
+      sameSite: 'lax',
+      maxAge: 3600,
+    });
   });
 
   it('keeps confirmation successful when invitation email delivery fails', async () => {
     const errorLog = spyOn(console, 'error').mockImplementation(() => {});
     send.mockRejectedValueOnce(new Error('private provider detail'));
     try {
-      const res = await callConfirm(`v1.${'a'.repeat(43)}`);
+      const { response: res, setCookies } = await callConfirm(
+        `v1.${'a'.repeat(43)}`,
+      );
       await Promise.all(waitUntilTasks);
 
       expect(res.status).toBe(303);
       expect(res.headers.get('location')).toBe(
         'https://maelstrom-ai.co/waitlist/confirmed/',
       );
+      // The gate is independent of email delivery: a confirmed visitor can
+      // always reach the community through the page itself.
+      expect(setCookies).toHaveLength(1);
       expect(errorLog).toHaveBeenCalledWith({
         message: 'waitlist invitation email failed',
         category: 'invitation_email_failed',
@@ -519,12 +560,15 @@ describe('POST /api/waitlist/confirm', () => {
       { results: [], success: true },
       { results: [], success: true },
     ]);
-    const res = await callConfirm(`v1.${'a'.repeat(43)}`);
+    const { response: res, setCookies } = await callConfirm(
+      `v1.${'a'.repeat(43)}`,
+    );
     expect(res.status).toBe(303);
     expect(res.headers.get('location')).toBe(
       'https://maelstrom-ai.co/waitlist/invalid/',
     );
     expect(send).not.toHaveBeenCalled();
+    expect(setCookies).toHaveLength(0);
   });
 
   it('503s without leaking D1 failure details', async () => {
@@ -536,7 +580,7 @@ describe('POST /api/waitlist/confirm', () => {
       }),
     );
     try {
-      const res = await callConfirm(`v1.${'a'.repeat(43)}`);
+      const { response: res } = await callConfirm(`v1.${'a'.repeat(43)}`);
       expect(res.status).toBe(503);
       expectPrivateConfirmationResponse(res);
       expect(await res.text()).not.toContain('private database detail');

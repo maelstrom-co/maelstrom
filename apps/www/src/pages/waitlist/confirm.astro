@@ -5,8 +5,11 @@ import WaitlistResult from '../../components/WaitlistResult.astro';
 import Layout from '../../layouts/Layout.astro';
 
 Astro.response.headers.set('Cache-Control', 'no-store');
-Astro.response.headers.set('Referrer-Policy', 'no-referrer');
 Astro.response.headers.set('X-Robots-Tag', 'noindex');
+// Deliberately no Referrer-Policy override here: `no-referrer` makes browsers
+// emit `Origin: null` on this page's form POST, which trips Astro's CSRF
+// check. The token cannot leak via Referer anyway — it lives in the URL
+// fragment, which browsers never transmit, and the page strips it on load.
 ---
 
 <Layout

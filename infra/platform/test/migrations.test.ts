@@ -19,6 +19,8 @@ const APPLIED_MIGRATION_HASHES: Record<string, string> = {
     '32bfae9320e15cf752513f28b9b507b5e2ba909dacbe7c8476bedb1dbc4e8399',
   '0004_create_waitlist_confirmation_deliveries.sql':
     '27da4a2eecc53aa9d55f6582012284599f56fd9c67928d4a09b521159a791585',
+  '0005_add_access_receipt.sql':
+    'a116b595ad6959774e248a71b6143a4a438a4fd73e82b6d9eddbffb25569324e',
 };
 
 describe('applied D1 migrations', () => {

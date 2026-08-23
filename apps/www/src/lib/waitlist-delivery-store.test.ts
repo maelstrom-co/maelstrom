@@ -72,6 +72,7 @@ function migratedDatabase() {
     '0002_index_confirmation_token.sql',
     '0003_add_confirmation_sent_at.sql',
     '0004_create_waitlist_confirmation_deliveries.sql',
+    '0005_add_access_receipt.sql',
   ]) {
     applyMigration(database, migration);
   }
@@ -459,6 +460,73 @@ describe('WaitlistDeliveryStore', () => {
         }),
       ).toBe(false);
     }
+  });
+
+  test('gates Discord access behind a receipt committed with the transition', async () => {
+    const database = migratedDatabase();
+    const store = new WaitlistDeliveryStore(d1(database));
+
+    // Without a receipt the confirmed subscriber has no page access.
+    await store.claimDeliveryAttempt({
+      id: 'attempt',
+      email: 'user@example.com',
+      tokenHash: 'token-hash',
+      expiresAt: '2026-08-23T13:00:00.000Z',
+      attemptedAt: '2026-08-22T12:00:00.000Z',
+      cooldownSince: '2026-08-22T11:50:00.000Z',
+    });
+    await store.markAccepted('attempt', 'message', '2026-08-22T12:00:01.000Z');
+    expect(
+      await store.confirmToken('token-hash', '2026-08-22T12:05:00.000Z'),
+    ).toEqual({ email: 'user@example.com' });
+    expect(
+      await store.hasValidAccessReceipt(
+        'receipt-hash',
+        '2026-08-22T12:06:00.000Z',
+      ),
+    ).toBe(false);
+
+    // A receipted confirmation grants access in the same commit, bounded by
+    // its expiry and keyed to its own hash. A different subscriber's receipt
+    // never matches.
+    await store.claimDeliveryAttempt({
+      id: 'attempt-receipted',
+      email: 'pending@example.com',
+      tokenHash: 'receipted-token-hash',
+      expiresAt: '2026-08-24T13:00:00.000Z',
+      attemptedAt: '2026-08-23T12:00:00.000Z',
+      cooldownSince: '2026-08-23T11:50:00.000Z',
+    });
+    await store.markAccepted(
+      'attempt-receipted',
+      'message-2',
+      '2026-08-23T12:00:01.000Z',
+    );
+    expect(
+      await store.confirmToken(
+        'receipted-token-hash',
+        '2026-08-23T12:05:00.000Z',
+        { hash: 'receipt-hash', expiresAt: '2026-08-24T12:05:00.000Z' },
+      ),
+    ).toEqual({ email: 'pending@example.com' });
+    expect(
+      await store.hasValidAccessReceipt(
+        'receipt-hash',
+        '2026-08-23T12:04:00.000Z',
+      ),
+    ).toBe(true);
+    expect(
+      await store.hasValidAccessReceipt(
+        'receipt-hash',
+        '2026-08-24T12:05:01.000Z',
+      ),
+    ).toBe(false);
+    expect(
+      await store.hasValidAccessReceipt(
+        'other-hash',
+        '2026-08-23T12:04:00.000Z',
+      ),
+    ).toBe(false);
   });
 
   test('reports missing and incompatible delivery transitions', async () => {

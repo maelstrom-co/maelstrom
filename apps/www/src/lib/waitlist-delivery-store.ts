@@ -138,6 +138,7 @@ export class WaitlistDeliveryStore {
   async confirmToken(
     tokenHash: string,
     now: string,
+    receipt?: { hash: string; expiresAt: string },
   ): Promise<{ email: string } | null> {
     const acceptAttempt = this.database
       .prepare(
@@ -173,11 +174,45 @@ export class WaitlistDeliveryStore {
       )
       .bind(now, now, tokenHash, now);
 
-    const [, confirmation] = await this.database.batch<{ email: string }>([
+    // The receipt rides the same transaction as the transition: a confirmed
+    // subscriber can never exist without their page-access receipt.
+    const statements: D1PreparedStatement[] = [
       acceptAttempt,
       confirmSubscriber,
-    ]);
+    ];
+    if (receipt) {
+      statements.push(
+        this.database
+          .prepare(
+            `UPDATE waitlist_subscribers
+            SET access_receipt_hash = ?, access_receipt_expires_at = ?, updated_at = ?
+            WHERE email = (
+              SELECT email FROM waitlist_confirmation_deliveries
+              WHERE token_hash = ? AND expires_at > ? AND state = 'accepted'
+            ) AND status = 'confirmed'`,
+          )
+          .bind(receipt.hash, receipt.expiresAt, now, tokenHash, now),
+      );
+    }
+
+    const [, confirmation] = await this.database.batch<{ email: string }>(
+      statements,
+    );
     return confirmation?.results[0] ?? null;
+  }
+
+  async hasValidAccessReceipt(
+    receiptHash: string,
+    now: string,
+  ): Promise<boolean> {
+    const match = await this.database
+      .prepare(
+        `SELECT 1 FROM waitlist_subscribers
+        WHERE access_receipt_hash = ? AND access_receipt_expires_at > ?`,
+      )
+      .bind(receiptHash, now)
+      .first<{ 1: number }>();
+    return match !== null;
   }
 
   private async transition(
