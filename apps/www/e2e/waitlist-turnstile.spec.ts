@@ -5,37 +5,32 @@ test('waitlist executes Turnstile on submit and continues without a second click
   page,
 }) => {
   const captures = await installPostHogRecorder(page);
-  await page.route(
-    'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit',
-    (route) =>
-      route.fulfill({
-        contentType: 'application/javascript',
-        body: `
-          const state = window.__turnstileTest = {
-            executeCount: 0,
-            renderCount: 0,
-            resetCount: 0,
-          };
-          let options;
-          window.turnstile = {
-            render(container, nextOptions) {
-              state.renderCount += 1;
-              options = nextOptions;
-              container.dataset.turnstileReady = 'true';
-              return 'waitlist-widget';
-            },
-            execute() {
-              state.executeCount += 1;
-              queueMicrotask(() => options.callback('smart-turnstile-token'));
-            },
-            reset() {
-              state.resetCount += 1;
-            },
-            remove() {},
-          };
-        `,
-      }),
-  );
+  await page.addInitScript({
+    content: `
+      const state = window.__turnstileTest = {
+        executeCount: 0,
+        renderCount: 0,
+        resetCount: 0,
+      };
+      let options;
+      window.turnstile = {
+        render(container, nextOptions) {
+          state.renderCount += 1;
+          options = nextOptions;
+          container.dataset.turnstileReady = 'true';
+          return 'waitlist-widget';
+        },
+        execute() {
+          state.executeCount += 1;
+          queueMicrotask(() => options.callback('smart-turnstile-token'));
+        },
+        reset() {
+          state.resetCount += 1;
+        },
+        remove() {},
+      };
+    `,
+  });
 
   let requestBody: unknown;
   await page.route('**/api/waitlist', async (route) => {
@@ -75,25 +70,20 @@ test('waitlist executes Turnstile on submit and continues without a second click
 test('waitlist fails promptly when Turnstile reports an unsupported browser', async ({
   page,
 }) => {
-  await page.route(
-    'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit',
-    (route) =>
-      route.fulfill({
-        contentType: 'application/javascript',
-        body: `
-          window.turnstile = {
-            render(container, options) {
-              container.dataset.turnstileReady = 'true';
-              queueMicrotask(() => options['unsupported-callback']());
-              return 'unsupported-widget';
-            },
-            execute() { throw new Error('execute must not run'); },
-            reset() {},
-            remove() {},
-          };
-        `,
-      }),
-  );
+  await page.addInitScript({
+    content: `
+      window.turnstile = {
+        render(container, options) {
+          container.dataset.turnstileReady = 'true';
+          queueMicrotask(() => options['unsupported-callback']());
+          return 'unsupported-widget';
+        },
+        execute() { throw new Error('execute must not run'); },
+        reset() {},
+        remove() {},
+      };
+    `,
+  });
 
   let submitted = false;
   await page.route('**/api/waitlist', async (route) => {
