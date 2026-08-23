@@ -13,31 +13,35 @@ export const WAITLIST_DATABASE_NAME = 'maelstrom-waitlist';
 /** Worker binding that receives the managed Turnstile secret. */
 export const WAITLIST_TURNSTILE_SECRET_BINDING = 'TURNSTILE_SECRET_KEY';
 
-const PRODUCTION_ZONE_ID = '4df25ea08d364f19471be7a179ce9f02';
+/**
+ * Retained production resources shared by independently deployed
+ * applications.
+ *
+ * @param zone — managed production zone that owns the sending subdomain.
+ */
+export const WaitlistPlatform = (zone: Cloudflare.Zone.Zone) =>
+  Effect.gen(function* () {
+    const waitlist = yield* Cloudflare.D1.Database('Waitlist', {
+      name: WAITLIST_DATABASE_NAME,
+      migrations: resolve(import.meta.dirname, '../migrations'),
+    }).pipe(retain(true));
 
-/** Retained production resources shared by independently deployed applications. */
-export const WaitlistPlatform = Effect.gen(function* () {
-  const waitlist = yield* Cloudflare.D1.Database('Waitlist', {
-    name: WAITLIST_DATABASE_NAME,
-    migrations: resolve(import.meta.dirname, '../migrations'),
-  }).pipe(retain(true));
+    const sending = yield* Cloudflare.Email.SendingSubdomain(
+      'NotificationsEmail',
+      {
+        zoneId: zone.zoneId,
+        name: WAITLIST_SENDING_DOMAIN,
+      },
+    ).pipe(retain(true));
 
-  const sending = yield* Cloudflare.Email.SendingSubdomain(
-    'NotificationsEmail',
-    {
-      zoneId: PRODUCTION_ZONE_ID,
-      name: WAITLIST_SENDING_DOMAIN,
-    },
-  ).pipe(retain(true));
+    const turnstile = yield* Cloudflare.Turnstile.Widget('WaitlistTurnstile', {
+      name: 'Maelstrom waitlist',
+      domains: [...WAITLIST_PRODUCTION_HOSTNAMES],
+      mode: 'managed',
+    }).pipe(retain(true));
 
-  const turnstile = yield* Cloudflare.Turnstile.Widget('WaitlistTurnstile', {
-    name: 'Maelstrom waitlist',
-    domains: [...WAITLIST_PRODUCTION_HOSTNAMES],
-    mode: 'managed',
-  }).pipe(retain(true));
-
-  return { sending, turnstile, waitlist };
-});
+    return { sending, turnstile, waitlist };
+  });
 
 /** Production D1 reference that never transfers database ownership. */
 export const WaitlistDatabase = Cloudflare.D1.Database.ref('Waitlist', {

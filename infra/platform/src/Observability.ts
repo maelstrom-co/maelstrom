@@ -16,3 +16,16 @@ export const workerObservability = {
     persist: true,
   },
 } as const;
+
+/**
+ * Worker telemetry policy for sites that do not emit traces.
+ *
+ * Same log posture as {@link workerObservability}; only the trace surface
+ * differs.
+ */
+export const workerObservabilityNoTraces = {
+  ...workerObservability,
+  traces: {
+    enabled: false,
+  },
+} as const;

@@ -1,5 +1,8 @@
 import { resolve } from 'node:path';
-import { workerObservability } from '@maelstrom-co/platform-infra';
+import {
+  WORKER_COMPATIBILITY_DATE,
+  workerObservability,
+} from '@maelstrom-co/platform-infra';
 import * as Cloudflare from 'alchemy/Cloudflare';
 
 const appRoot = resolve(import.meta.dirname, '..');
@@ -10,8 +13,7 @@ export const PreviewWebsite = (stage: string) =>
     name: `maelstrom-playground-alchemy-${stage}`,
     workersDev: true,
     compatibility: {
-      // Keep deployed APIs aligned with the cataloged runtime types.
-      date: '2026-07-22',
+      date: WORKER_COMPATIBILITY_DATE,
     },
     assets: {
       directory: resolve(appRoot, 'dist/client'),
