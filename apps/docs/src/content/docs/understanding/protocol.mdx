@@ -76,7 +76,7 @@ Validation enforces that `defaultVariant` exists, action names are unique within
 Two layout modes are first-class:
 
 - **`GridLayout`** — explicit `(row, column, width, height)` placement on a discrete grid.
-- **`TilingLayout`** — a binary tree of horizontal / vertical splits with instance leaves.
+- **`TilingLayout`** — a tree of horizontal / vertical splits with instance leaves. A split is even and two-way by default, or carries integer weights that set both its child count and their proportions.
 
 The engine returns one or the other inside `MaelstromResponse`; the client renders it.
 

@@ -33,7 +33,7 @@ Both choices look opinionated. Both are load-bearing.
 
 **A discrete surface** because the smallest thing that still describes layout is not a pixel. The LLM never sees one. It works in whichever of [two modes](/understanding/grid-vs-tiling/) the app chose, and both are small enough to validate exhaustively:
 
-- **Tiling** (the default) — a binary tree serialized as a preorder token array: `H` to split top/bottom, `V` to split left/right, an instance ID for a leaf, `null` for empty space. Each split halves its region. There are no coordinates; the shape of the tree *is* the layout.
+- **Tiling** (the default) — a split tree serialized as a preorder token array: `H` to split top/bottom, `V` to split left/right, an instance ID for a leaf, `null` for empty space. A bare split halves its region; a weighted one such as `V:1,1,1` names both how many children it takes and the share each gets. There are no coordinates; the shape of the tree *is* the layout.
 - **Grid** — explicit integer placement: `row`, `column`, `width`, `height`, in whole cells.
 
 The container computes its own pixel size in both cases; the model never has to.

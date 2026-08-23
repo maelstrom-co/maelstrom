@@ -52,7 +52,7 @@ export default function App() {
 }
 ```
 
-That seeds two `greetingVessel` instances side by side before any engine round-trip happens. Seeding is layout-only: unlike an engine response, which pairs each new instance with a configuring `executionPlan`, `initialLayout` runs no actions. The seeded instances render in their named variant with no engine-supplied configuration until the first response or a user action runs. `tree` is a preorder traversal of the tiling binary tree, same encoding you saw described in [Grid vs Tiling](/understanding/grid-vs-tiling/):
+That seeds two `greetingVessel` instances side by side before any engine round-trip happens. Seeding is layout-only: unlike an engine response, which pairs each new instance with a configuring `executionPlan`, `initialLayout` runs no actions. The seeded instances render in their named variant with no engine-supplied configuration until the first response or a user action runs. `tree` is a preorder traversal of the tiling split tree, same encoding you saw described in [Grid vs Tiling](/understanding/grid-vs-tiling/):
 
 - `'V'` splits the current region left/right.
 - `'H'` splits the current region top/bottom.
