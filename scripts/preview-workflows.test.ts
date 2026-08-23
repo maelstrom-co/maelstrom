@@ -89,6 +89,9 @@ describe('preview workflows', () => {
     expect(
       step(read('teardown-preview.yml'), 'Reconcile known preview resources'),
     ).toContain(expected);
+    expect(
+      step(read('reconcile-previews.yml'), 'Reconcile known preview resources'),
+    ).toContain(expected);
     // The guard itself must stay in the stage guards so every stack
     // composition root inherits it.
     expect(
@@ -102,6 +105,7 @@ describe('preview workflows', () => {
     for (const workflow of [
       read('deploy-preview.yml'),
       read('teardown-preview.yml'),
+      read('reconcile-previews.yml'),
     ]) {
       expect(workflow).toContain(guardName);
       expect(workflow).toContain(comparison);
