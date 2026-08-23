@@ -1,4 +1,4 @@
-import { HEARTBEAT_PING_FRAME } from '@maelstrom-co/client';
+import { HEARTBEAT_PING_FRAME } from '@maelstrom-co/connectors';
 import {
   ChartRequestMessage,
   encodeEnvelope,

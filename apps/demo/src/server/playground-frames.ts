@@ -1,4 +1,4 @@
-import { isHeartbeatPingFrame } from '@maelstrom-co/client';
+import { isHeartbeatPingFrame } from '@maelstrom-co/connectors';
 import {
   decodeClientEnvelope,
   EngineErrorMessage,
@@ -78,10 +78,11 @@ export const PLAYGROUND_NOKEY_FRAME = JSON.stringify({
   type: 'playground.nokey',
 });
 
-// Delegates to @maelstrom-co/client's isHeartbeatPingFrame — the same
-// package that owns the client-side half of this handshake
-// (WebSocketConnector's heartbeat sender) — so the wire literal is defined
-// once, not reimplemented on each side of the connection.
+// Delegates to @maelstrom-co/connectors' isHeartbeatPingFrame — the shared
+// contract package that owns this handshake's wire shape for both sides
+// (WebSocketConnector's heartbeat sender on the client, this guard on the
+// host) — so the wire literal is defined once, not reimplemented on each side
+// of the connection.
 export function isHeartbeatPing(
   value: unknown,
 ): value is { type: 'heartbeat.ping' } {

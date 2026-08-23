@@ -1,6 +1,6 @@
 /**
- * Wire shape of the WebSocket heartbeat mechanism ({@link
- * WebSocketConnectorOptions.heartbeatIntervalMs}). These frames are
+ * Wire shape of the WebSocket heartbeat mechanism — the client connector's
+ * `heartbeatIntervalMs` option. These frames are
  * transport-level only: they are deliberately **not** part of the
  * `@maelstrom-co/protocol` envelope union, so a host answering the heartbeat
  * (e.g. a hosted deployment's server) must match this shape exactly rather
