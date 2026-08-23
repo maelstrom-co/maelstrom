@@ -1,5 +1,36 @@
-import { expect, test } from '@playwright/test';
+import { expect, type Page, test } from '@playwright/test';
 import { installPostHogRecorder } from './posthog';
+
+async function openHydratedWaitlist(
+  page: Page,
+  waitUntil: 'load' | 'domcontentloaded' = 'load',
+): Promise<void> {
+  await page.goto('/#waitlist', { waitUntil });
+  const waitlistForm = page.locator('astro-island').filter({
+    has: page.getByPlaceholder('you@example.com'),
+  });
+  await waitlistForm.scrollIntoViewIfNeeded();
+  await waitlistForm.evaluate(
+    (island) =>
+      new Promise<void>((resolve) => {
+        const hasAttribute = Reflect.get(island, 'hasAttribute') as (
+          name: string,
+        ) => boolean;
+        if (!hasAttribute.call(island, 'ssr')) {
+          resolve();
+          return;
+        }
+        const addEventListener = Reflect.get(island, 'addEventListener') as (
+          type: string,
+          listener: () => void,
+          options: { once: boolean },
+        ) => void;
+        addEventListener.call(island, 'astro:hydrate', () => resolve(), {
+          once: true,
+        });
+      }),
+  );
+}
 
 test('waitlist executes Turnstile on submit and continues without a second click', async ({
   page,
@@ -38,12 +69,11 @@ test('waitlist executes Turnstile on submit and continues without a second click
     await route.fulfill({ json: { ok: true } });
   });
 
-  await page.goto('/#waitlist');
-  await page.locator('#waitlist').scrollIntoViewIfNeeded();
+  await openHydratedWaitlist(page);
   await expect(page.locator('[data-turnstile-ready="true"]')).toBeAttached();
 
   expect(
-    await page.evaluate(() => Reflect.get(window, '__turnstileTest')),
+    await page.evaluate(() => Reflect.get(globalThis, '__turnstileTest')),
   ).toMatchObject({ executeCount: 0, renderCount: 1 });
 
   await page.getByPlaceholder('you@example.com').fill('user@example.com');
@@ -63,7 +93,7 @@ test('waitlist executes Turnstile on submit and continues without a second click
     turnstileToken: 'smart-turnstile-token',
   });
   expect(
-    await page.evaluate(() => Reflect.get(window, '__turnstileTest')),
+    await page.evaluate(() => Reflect.get(globalThis, '__turnstileTest')),
   ).toMatchObject({ executeCount: 1, renderCount: 1, resetCount: 1 });
 });
 
@@ -91,8 +121,7 @@ test('waitlist fails promptly when Turnstile reports an unsupported browser', as
     await route.abort();
   });
 
-  await page.goto('/#waitlist');
-  await page.locator('#waitlist').scrollIntoViewIfNeeded();
+  await openHydratedWaitlist(page);
   await expect(page.locator('[data-turnstile-ready="true"]')).toBeAttached();
   await page.getByPlaceholder('you@example.com').fill('user@example.com');
   await page.getByRole('button', { name: 'Join the Beta' }).click();
@@ -137,8 +166,7 @@ test('waitlist retries a transient Turnstile script failure on submit', async ({
     route.fulfill({ json: { success: true } }),
   );
 
-  await page.goto('/#waitlist');
-  await page.locator('#waitlist').scrollIntoViewIfNeeded();
+  await openHydratedWaitlist(page);
   await expect(page.getByRole('alert')).toContainText(
     'The security check could not load.',
   );
@@ -160,7 +188,7 @@ test('waitlist removes a Turnstile script that misses its load deadline', async 
     () => new Promise(() => undefined),
   );
 
-  await page.goto('/#waitlist', { waitUntil: 'domcontentloaded' });
+  await openHydratedWaitlist(page, 'domcontentloaded');
   await expect(page.getByPlaceholder('you@example.com')).toBeVisible();
   const script = page.locator(
     'script[src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit"]',
@@ -219,7 +247,7 @@ test.describe('expired recovery Turnstile', () => {
     ).toBeDisabled();
     expect(requestBody).toBeUndefined();
     await page.evaluate(() =>
-      Reflect.get(window, '__resendTurnstileTest').complete(),
+      Reflect.get(globalThis, '__resendTurnstileTest').complete(),
     );
 
     await expect(
@@ -230,7 +258,9 @@ test.describe('expired recovery Turnstile', () => {
       turnstileToken: 'resend-proof',
     });
     expect(
-      await page.evaluate(() => Reflect.get(window, '__resendTurnstileTest')),
+      await page.evaluate(() =>
+        Reflect.get(globalThis, '__resendTurnstileTest'),
+      ),
     ).toEqual({ executeCount: 1, resetCount: 1 });
   });
 
