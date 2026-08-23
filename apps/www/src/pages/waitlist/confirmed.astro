@@ -34,6 +34,12 @@ if (receiptCookie && isWaitlistToken(receiptCookie)) {
     } catch {}
   }
 }
+
+if (!hasReceipt) {
+  Astro.response.headers.set('Cache-Control', 'no-store');
+  Astro.response.headers.set('Referrer-Policy', 'no-referrer');
+  Astro.response.headers.set('X-Robots-Tag', 'noindex');
+}
 ---
 
 <Layout
@@ -62,14 +68,245 @@ if (receiptCookie && isWaitlistToken(receiptCookie)) {
       <WaitlistResult
         eyebrow="Private beta"
         title="This access link has expired"
-        message="Confirmation access is short-lived. Use the invitation email from your signup to reach the beta Discord."
-      />
+        message="Confirmation access is short-lived. Enter your email to request another invitation."
+      >
+        <form class="resend-form" data-waitlist-resend>
+          <label for="waitlist-resend-email">Email address</label>
+          <div class="resend-fields">
+            <input
+              id="waitlist-resend-email"
+              name="email"
+              type="email"
+              autocomplete="email"
+              maxlength="254"
+              placeholder="you@example.com"
+              required
+            />
+            <button class="btn btn-primary" type="submit">
+              Resend invitation
+            </button>
+          </div>
+          <div class="resend-turnstile" data-waitlist-resend-turnstile></div>
+          <span
+            class="resend-security-status"
+            data-waitlist-resend-security-status
+            role="status"
+            aria-live="polite"
+          ></span>
+          <p data-waitlist-resend-error role="alert" hidden></p>
+        </form>
+        <p data-waitlist-resend-feedback role="status" aria-live="polite" hidden>
+          If an invitation can be sent, check your inbox. If it does not arrive,
+          try again in a few minutes.
+        </p>
+      </WaitlistResult>
     )
   }
 </Layout>
 
 <script>
+  import {
+    WAITLIST_TURNSTILE_ACTION,
+  } from '@maelstrom-co/platform-infra/waitlist-contract';
+  import { WAITLIST_TURNSTILE_SITE_KEY } from '../../data/turnstile-site-key';
   import { captureWaitlistEvent } from '../../lib/posthog';
+
+  interface ResendTurnstileApi {
+    render(
+      container: HTMLElement,
+      options: {
+        sitekey: string;
+        action: string;
+        appearance: 'interaction-only';
+        execution: 'execute';
+        language: 'auto';
+        retry: 'auto';
+        size: 'compact' | 'flexible';
+        theme: 'auto';
+        'refresh-expired': 'auto';
+        'refresh-timeout': 'auto';
+        callback(token: string): void;
+        'after-interactive-callback'(): void;
+        'before-interactive-callback'(): void;
+        'error-callback'(): void;
+        'expired-callback'(): void;
+        'timeout-callback'(): void;
+        'unsupported-callback'(): void;
+      },
+    ): string;
+    execute(widgetId: string): void;
+    reset(widgetId: string): void;
+  }
+
+  const TURNSTILE_SCRIPT_URL =
+    'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+
+  const currentTurnstile = () =>
+    Reflect.get(window, 'turnstile') as ResendTurnstileApi | undefined;
+
+  function loadTurnstile(): Promise<ResendTurnstileApi> {
+    const loaded = currentTurnstile();
+    if (loaded) return Promise.resolve(loaded);
+
+    return new Promise<ResendTurnstileApi>((resolve, reject) => {
+      const script = document.createElement('script');
+      const timeout = window.setTimeout(() => {
+        script.remove();
+        reject(new Error('security-check-unavailable'));
+      }, 5_000);
+      script.src = TURNSTILE_SCRIPT_URL;
+      script.async = true;
+      script.onload = () => {
+        window.clearTimeout(timeout);
+        const turnstile = currentTurnstile();
+        turnstile
+          ? resolve(turnstile)
+          : reject(new Error('security-check-unavailable'));
+      };
+      script.onerror = () => {
+        window.clearTimeout(timeout);
+        script.remove();
+        reject(new Error('security-check-unavailable'));
+      };
+      document.head.insertAdjacentElement('beforeend', script);
+    });
+  }
+
+  const resendForm = document.querySelector<HTMLFormElement>(
+    '[data-waitlist-resend]',
+  );
+  if (resendForm) {
+    const emailInput = resendForm.querySelector<HTMLInputElement>(
+      'input[name="email"]',
+    );
+    const submitButton = resendForm.querySelector<HTMLButtonElement>(
+      'button[type="submit"]',
+    );
+    const turnstileContainer = resendForm.querySelector<HTMLElement>(
+      '[data-waitlist-resend-turnstile]',
+    );
+    const securityStatus = resendForm.querySelector<HTMLElement>(
+      '[data-waitlist-resend-security-status]',
+    );
+    const errorMessage = resendForm.querySelector<HTMLElement>(
+      '[data-waitlist-resend-error]',
+    );
+    const feedback = document.querySelector<HTMLElement>(
+      '[data-waitlist-resend-feedback]',
+    );
+    let inFlight = false;
+
+    const widget =
+      emailInput &&
+      submitButton &&
+      turnstileContainer &&
+      securityStatus &&
+      errorMessage &&
+      feedback
+        ? loadTurnstile().then((turnstile) => {
+            let widgetId = '';
+            const restoreForm = (message: string) => {
+              if (widgetId) turnstile.reset(widgetId);
+              securityStatus.textContent = '';
+              errorMessage.textContent = message;
+              errorMessage.hidden = false;
+              submitButton.disabled = false;
+              submitButton.textContent = 'Resend invitation';
+              inFlight = false;
+            };
+            widgetId = turnstile.render(turnstileContainer, {
+              sitekey: WAITLIST_TURNSTILE_SITE_KEY,
+              action: WAITLIST_TURNSTILE_ACTION,
+              appearance: 'interaction-only',
+              execution: 'execute',
+              language: 'auto',
+              retry: 'auto',
+              size: window.matchMedia('(max-width: 420px)').matches
+                ? 'compact'
+                : 'flexible',
+              theme: 'auto',
+              'refresh-expired': 'auto',
+              'refresh-timeout': 'auto',
+              callback: async (token) => {
+                try {
+                  await fetch('/api/waitlist/resend', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      email: emailInput.value,
+                      turnstileToken: token,
+                    }),
+                    credentials: 'same-origin',
+                  });
+                } catch {}
+                turnstile.reset(widgetId);
+                emailInput.value = '';
+                resendForm.remove();
+                feedback.hidden = false;
+                inFlight = false;
+              },
+              'before-interactive-callback': () => {
+                securityStatus.textContent = 'Security check required.';
+              },
+              'after-interactive-callback': () => {
+                securityStatus.textContent = '';
+              },
+              'error-callback': () =>
+                restoreForm('The security check failed. Please try again.'),
+              'expired-callback': () =>
+                restoreForm('The security check expired. Please try again.'),
+              'timeout-callback': () =>
+                restoreForm('The security check timed out. Please try again.'),
+              'unsupported-callback': () =>
+                restoreForm(
+                  'This browser cannot run the security check. Please try another browser.',
+                ),
+            });
+            return { turnstile, widgetId };
+          })
+        : undefined;
+
+    widget?.catch(() => {
+      if (!errorMessage) return;
+      errorMessage.textContent =
+        'The security check could not load. Please refresh.';
+      errorMessage.hidden = false;
+    });
+
+    resendForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      if (
+        inFlight ||
+        !emailInput ||
+        !submitButton ||
+        !securityStatus ||
+        !errorMessage ||
+        !feedback ||
+        !widget
+      ) {
+        return;
+      }
+
+      inFlight = true;
+      submitButton.disabled = true;
+      submitButton.textContent = 'Requesting...';
+      errorMessage.hidden = true;
+      securityStatus.textContent = 'Checking your browser...';
+
+      try {
+        const { turnstile, widgetId } = await widget;
+        turnstile.execute(widgetId);
+      } catch {
+        securityStatus.textContent = '';
+        errorMessage.textContent =
+          'The security check could not load. Please refresh.';
+        errorMessage.hidden = false;
+        submitButton.disabled = false;
+        submitButton.textContent = 'Resend invitation';
+        inFlight = false;
+      }
+    });
+  }
 
   // Always rendered so Astro bundles it; the gate is decided by the CTA the
   // server chose to render, not by client state.
@@ -83,3 +320,53 @@ if (receiptCookie && isWaitlistToken(receiptCookie)) {
     });
   }
 </script>
+
+<style>
+  .resend-form {
+    width: min(100%, 30rem);
+    margin-inline: auto;
+    flex-direction: column;
+    gap: 0.75rem;
+    text-align: left;
+  }
+
+  .resend-form label {
+    color: var(--text-2);
+    font-size: 0.875rem;
+  }
+
+  .resend-fields {
+    display: flex;
+    gap: 0.75rem;
+  }
+
+  .resend-fields input {
+    min-width: 0;
+    flex: 1;
+    padding: 0.8rem 1rem;
+    border: 1px solid var(--line-2);
+    border-radius: 0.75rem;
+    background: rgba(7, 9, 15, 0.82);
+    color: var(--text-1);
+  }
+
+  .resend-turnstile,
+  .resend-security-status {
+    min-height: 1px;
+  }
+
+  [data-waitlist-resend-error] {
+    margin: 0;
+    color: var(--error, #ff8f8f);
+  }
+
+  [data-waitlist-resend-feedback] {
+    margin-bottom: 0;
+  }
+
+  @media (max-width: 36rem) {
+    .resend-fields {
+      flex-direction: column;
+    }
+  }
+</style>
