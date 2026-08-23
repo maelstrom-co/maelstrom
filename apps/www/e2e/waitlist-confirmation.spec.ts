@@ -71,6 +71,129 @@ test('hides the Discord invitation from visitors without a receipt', async ({
   await expect(
     page.getByRole('link', { name: 'Join the beta Discord' }),
   ).toHaveCount(0);
+  await expect(page.getByLabel('Email address')).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Resend invitation' }),
+  ).toBeVisible();
+  expect(captures).toEqual([]);
+});
+
+test('native resend fallback keeps the email out of URLs without JavaScript', async ({
+  browser,
+  baseURL,
+}) => {
+  const email = 'native-resend@example.com';
+  const page = await browser.newPage({ baseURL, javaScriptEnabled: false });
+  const requestUrls: string[] = [];
+  let resendRequest: import('@playwright/test').Request | undefined;
+  page.on('request', (request) => requestUrls.push(request.url()));
+  await page.route('**/api/waitlist/resend', async (route) => {
+    resendRequest = route.request();
+    await route.fulfill({ status: 415, body: 'Unsupported media type' });
+  });
+
+  await page.goto('/waitlist/confirmed/');
+  const form = page.locator('[data-waitlist-resend]');
+  await expect(form).toHaveAttribute('method', 'post');
+  await expect(form).toHaveAttribute('action', '/api/waitlist/resend');
+  await page.getByLabel('Email address').fill(email);
+  await page.getByRole('button', { name: 'Resend invitation' }).click();
+
+  await expect(page).toHaveURL(/\/api\/waitlist\/resend$/);
+  expect(resendRequest?.method()).toBe('POST');
+  expect(resendRequest?.url()).not.toContain(email);
+  expect(requestUrls.every((url) => !url.includes(email))).toBe(true);
+  await page.goBack();
+  expect(page.url()).not.toContain(email);
+
+  await page.close();
+});
+
+test('expired recovery keeps accepted and failed feedback generic and private', async ({
+  page,
+}) => {
+  const email = 'confirmed@example.com';
+  const token = 'resend-turnstile-token';
+  const captures = await installPostHogRecorder(page);
+  const consoleMessages: string[] = [];
+  const requestUrls: string[] = [];
+  page.on('console', (message) => consoleMessages.push(message.text()));
+  page.on('request', (request) => requestUrls.push(request.url()));
+  await page.route(
+    'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit',
+    (route) =>
+      route.fulfill({
+        contentType: 'application/javascript',
+        body: `
+          let options;
+          window.turnstile = {
+            render(container, nextOptions) {
+              options = nextOptions;
+              container.dataset.turnstileReady = 'true';
+              return 'resend-widget';
+            },
+            execute() { queueMicrotask(() => options.callback('${token}')); },
+            reset() {},
+            remove() {},
+          };
+        `,
+      }),
+  );
+
+  const resendRequests: import('@playwright/test').Request[] = [];
+  await page.route('**/api/waitlist/resend', async (route) => {
+    resendRequests.push(route.request());
+    await route.fulfill({
+      status: resendRequests.length === 1 ? 202 : 500,
+      headers: {
+        'Cache-Control': 'no-store',
+        'Referrer-Policy': 'no-referrer',
+        'X-Robots-Tag': 'noindex',
+      },
+      json: { success: true },
+    });
+  });
+
+  const cookiesBefore = await page.context().cookies();
+  for (const expectedStatus of [202, 500]) {
+    const response = await page.goto('/waitlist/confirmed/');
+    expect(response?.headers()['cache-control']).toBe('no-store');
+    expect(response?.headers()['referrer-policy']).toBe('no-referrer');
+    expect(response?.headers()['x-robots-tag']).toBe('noindex');
+    await expect(page.locator('[data-turnstile-ready="true"]')).toBeAttached();
+    await page.getByLabel('Email address').fill(email);
+    await page.getByRole('button', { name: 'Resend invitation' }).click();
+
+    await expect(
+      page.getByText(
+        'If an invitation can be sent, check your inbox. If it does not arrive, try again in a few minutes.',
+      ),
+    ).toBeVisible();
+    await expect(page.getByLabel('Email address')).toHaveCount(0);
+    expect((await resendRequests.at(-1)?.response())?.status()).toBe(
+      expectedStatus,
+    );
+  }
+
+  for (const resendRequest of resendRequests) {
+    expect(resendRequest.method()).toBe('POST');
+    expect(resendRequest.headers().origin).toBe(new URL(page.url()).origin);
+    expect(resendRequest.headers()['content-type']).toContain(
+      'application/json',
+    );
+    expect(resendRequest.postDataJSON()).toEqual({
+      email,
+      turnstileToken: token,
+    });
+  }
+  expect(
+    requestUrls.every((url) => !url.includes(email) && !url.includes(token)),
+  ).toBe(true);
+  expect(await page.context().cookies()).toEqual(cookiesBefore);
+  expect(await page.locator('body').textContent()).not.toContain(email);
+  expect(await page.locator('body').textContent()).not.toContain(token);
+  expect(consoleMessages.join('\n')).not.toContain(email);
+  expect(consoleMessages.join('\n')).not.toContain(token);
   expect(captures).toEqual([]);
 });
 
@@ -101,6 +224,7 @@ test('confirmed subscribers reach Discord through the confirmation flow', async 
     'href',
     'https://discord.gg/XAjJqrF2u3',
   );
+  await expect(page.getByLabel('Email address')).toHaveCount(0);
   await expect
     .poll(() => captures)
     .toContainEqual({

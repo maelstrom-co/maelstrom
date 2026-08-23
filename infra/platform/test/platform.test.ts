@@ -82,7 +82,7 @@ describe('platform stack contract', () => {
         description: 'Rate limit waitlist signup',
         enabled: true,
         expression:
-          '((http.request.uri.path eq "/api/waitlist") or (http.request.uri.path eq "/api/waitlist/confirm"))',
+          '((http.request.uri.path eq "/api/waitlist") or (http.request.uri.path eq "/api/waitlist/confirm") or (http.request.uri.path eq "/api/waitlist/resend"))',
         ratelimit: {
           characteristics: ['ip.src', 'cf.colo.id'],
           period: 60,

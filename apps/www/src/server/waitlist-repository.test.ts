@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { Effect, Layer } from 'effect';
 import {
   type ClaimDeliveryAttempt,
+  type ClaimResendAttempt,
   DeliveryStateConflictError,
 } from '../lib/waitlist-delivery-store';
 import type {
@@ -18,9 +19,16 @@ const claimInput: ClaimDeliveryAttempt = {
   attemptedAt: '2026-08-22T00:00:00.000Z',
   cooldownSince: '2026-08-21T23:50:00.000Z',
 };
+const resendInput: ClaimResendAttempt = {
+  id: 'resend-1',
+  email: 'user@example.com',
+  attemptedAt: '2026-08-22T00:00:00.000Z',
+  cooldownSince: '2026-08-21T23:50:00.000Z',
+};
 
 type StoreShape = {
   claimDeliveryAttempt(input: ClaimDeliveryAttempt): Promise<boolean>;
+  claimResendAttempt(input: ClaimResendAttempt): Promise<boolean>;
   markAccepted(id: string, messageId: string, changedAt: string): Promise<void>;
   markRejected(
     id: string,
@@ -33,6 +41,26 @@ type StoreShape = {
     changedAt: string,
   ): Promise<void>;
   markRetryable(
+    id: string,
+    failureCode: string,
+    changedAt: string,
+  ): Promise<void>;
+  markResendAccepted(
+    id: string,
+    messageId: string,
+    changedAt: string,
+  ): Promise<void>;
+  markResendRejected(
+    id: string,
+    failureCode: string,
+    changedAt: string,
+  ): Promise<void>;
+  markResendUnknown(
+    id: string,
+    failureCode: string,
+    changedAt: string,
+  ): Promise<void>;
+  markResendRetryable(
     id: string,
     failureCode: string,
     changedAt: string,
@@ -55,10 +83,15 @@ const storeLayerWith = (
 ): Layer.Layer<WaitlistRepository> => {
   const base: StoreShape = {
     claimDeliveryAttempt: async () => true,
+    claimResendAttempt: async () => true,
     markAccepted: async () => {},
     markRejected: async () => {},
     markUnknown: async () => {},
     markRetryable: async () => {},
+    markResendAccepted: async () => {},
+    markResendRejected: async () => {},
+    markResendUnknown: async () => {},
+    markResendRetryable: async () => {},
     confirmToken: async () => ({ email: 'user@example.com' }),
     hasValidAccessReceipt: async () => false,
     ...overrides,
@@ -98,6 +131,38 @@ describe('waitlist repository', () => {
     );
     expect(result).toBe(true);
     expect(calls.operations).toEqual(['claimDeliveryAttempt']);
+  });
+
+  test('claims a confirmed resend through the typed repository seam', async () => {
+    const calls = { operations: [] };
+    const layer = storeLayerWith(
+      { claimResendAttempt: async () => true },
+      calls,
+    );
+    const result = await Effect.runPromise(
+      run(layer, (repo) => repo.claimResendAttempt(resendInput)),
+    );
+    expect(result).toBe(true);
+    expect(calls.operations).toEqual(['claimResendAttempt']);
+  });
+
+  test('names resend persistence failures without leaking subscriber identity', async () => {
+    const layer = storeLayerWith(
+      {
+        claimResendAttempt: async () => {
+          throw new Error('user@example.com');
+        },
+      },
+      { operations: [] },
+    );
+    const error = await Effect.runPromise(
+      Effect.flip(run(layer, (repo) => repo.claimResendAttempt(resendInput))),
+    );
+    expect(error).toMatchObject({
+      _tag: 'WaitlistPersistenceError',
+      operation: 'claimResendAttempt',
+    });
+    expect(JSON.stringify(error)).not.toContain('user@example.com');
   });
 
   test('maps a store failure to a typed persistence error naming the operation', async () => {

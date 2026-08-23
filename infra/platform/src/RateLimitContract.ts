@@ -1,5 +1,5 @@
 export const DESIRED_WAITLIST_RATE_LIMIT_EXPRESSION =
-  '((http.request.uri.path eq "/api/waitlist") or (http.request.uri.path eq "/api/waitlist/confirm"))';
+  '((http.request.uri.path eq "/api/waitlist") or (http.request.uri.path eq "/api/waitlist/confirm") or (http.request.uri.path eq "/api/waitlist/resend"))';
 
 export const PRODUCTION_RATE_LIMIT = {
   logicalId: 'ProductionRateLimit',

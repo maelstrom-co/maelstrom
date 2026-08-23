@@ -73,6 +73,7 @@ function migratedDatabase() {
     '0003_add_confirmation_sent_at.sql',
     '0004_create_waitlist_confirmation_deliveries.sql',
     '0005_add_access_receipt.sql',
+    '0006_create_waitlist_resends.sql',
   ]) {
     applyMigration(database, migration);
   }
@@ -205,6 +206,193 @@ describe('waitlist delivery migrations', () => {
 });
 
 describe('WaitlistDeliveryStore', () => {
+  test('claims only confirmed subscribers once per durable cooldown window', async () => {
+    const database = migratedDatabase();
+    const store = new WaitlistDeliveryStore(d1(database));
+    database
+      .query(
+        `INSERT INTO waitlist_subscribers (email, status) VALUES
+         ('confirmed@example.com', 'confirmed'),
+         ('pending@example.com', 'pending'),
+         ('unsubscribed@example.com', 'unsubscribed')`,
+      )
+      .run();
+    const attempt = {
+      email: 'confirmed@example.com',
+      attemptedAt: '2026-08-23T12:00:00.000Z',
+      cooldownSince: '2026-08-23T11:50:00.000Z',
+    };
+
+    const claims = await Promise.all([
+      store.claimResendAttempt({ ...attempt, id: 'resend-1' }),
+      store.claimResendAttempt({ ...attempt, id: 'resend-2' }),
+    ]);
+    expect(claims.filter(Boolean)).toHaveLength(1);
+    expect(
+      await store.claimResendAttempt({
+        id: 'boundary',
+        email: 'confirmed@example.com',
+        attemptedAt: '2026-08-23T12:10:00.000Z',
+        cooldownSince: '2026-08-23T12:00:00.000Z',
+      }),
+    ).toBe(true);
+    for (const email of [
+      'missing@example.com',
+      'pending@example.com',
+      'unsubscribed@example.com',
+    ]) {
+      expect(
+        await store.claimResendAttempt({
+          id: email,
+          email,
+          attemptedAt: '2026-08-23T13:00:00.000Z',
+          cooldownSince: '2026-08-23T12:50:00.000Z',
+        }),
+      ).toBe(false);
+    }
+  });
+
+  test('uses one confirmed claim statement without a preliminary read', async () => {
+    const sql: string[] = [];
+    const database = {
+      prepare(statement: string) {
+        sql.push(statement);
+        return {
+          bind: () => ({ first: async () => null }),
+        };
+      },
+    } as unknown as D1Database;
+    const store = new WaitlistDeliveryStore(database);
+
+    await store.claimResendAttempt({
+      id: 'attempt',
+      email: 'confirmed@example.com',
+      attemptedAt: '2026-08-23T12:00:00.000Z',
+      cooldownSince: '2026-08-23T11:50:00.000Z',
+    });
+
+    expect(sql).toHaveLength(1);
+    expect(sql[0]).toContain("status = 'confirmed'");
+    expect(sql[0]).toContain('RETURNING id');
+  });
+
+  test('records resend retryable state and global backoff atomically', async () => {
+    const database = migratedDatabase();
+    const store = new WaitlistDeliveryStore(d1(database));
+    database
+      .query(
+        "INSERT INTO waitlist_subscribers (email, status) VALUES ('confirmed@example.com', 'confirmed')",
+      )
+      .run();
+    await store.claimResendAttempt({
+      id: 'retryable-resend',
+      email: 'confirmed@example.com',
+      attemptedAt: '2026-08-23T12:00:00.000Z',
+      cooldownSince: '2026-08-23T11:50:00.000Z',
+    });
+    await store.markResendRetryable(
+      'retryable-resend',
+      'E_RATE_LIMIT_EXCEEDED',
+      '2026-08-23T12:00:01.000Z',
+    );
+
+    expect(
+      database
+        .query(
+          'SELECT state, failure_code FROM waitlist_resend_deliveries WHERE id = ?',
+        )
+        .get('retryable-resend'),
+    ).toEqual({ state: 'retryable', failure_code: 'E_RATE_LIMIT_EXCEEDED' });
+    expect(
+      database
+        .query(
+          "SELECT retry_after FROM waitlist_delivery_backoffs WHERE provider = 'email'",
+        )
+        .get(),
+    ).toEqual({ retry_after: '2026-08-23T12:10:01.000Z' });
+    expect(
+      await store.claimResendAttempt({
+        id: 'blocked',
+        email: 'confirmed@example.com',
+        attemptedAt: '2026-08-23T12:05:00.000Z',
+        cooldownSince: '2026-08-23T11:55:00.000Z',
+      }),
+    ).toBe(false);
+  });
+
+  test('uses daily-limit backoff and never extends it on replay or conflict', async () => {
+    const database = migratedDatabase();
+    const store = new WaitlistDeliveryStore(d1(database));
+    database
+      .query(
+        "INSERT INTO waitlist_subscribers (email, status) VALUES ('confirmed@example.com', 'confirmed')",
+      )
+      .run();
+    await store.claimResendAttempt({
+      id: 'daily-limit',
+      email: 'confirmed@example.com',
+      attemptedAt: '2026-08-23T12:00:00.000Z',
+      cooldownSince: '2026-08-23T11:50:00.000Z',
+    });
+    await store.markResendRetryable(
+      'daily-limit',
+      'E_DAILY_LIMIT_EXCEEDED',
+      '2026-08-23T12:00:01.000Z',
+    );
+    await store.markResendRetryable(
+      'daily-limit',
+      'E_DAILY_LIMIT_EXCEEDED',
+      '2026-08-23T12:30:01.000Z',
+    );
+    await expect(
+      store.markResendRetryable(
+        'missing',
+        'E_RATE_LIMIT_EXCEEDED',
+        '2026-08-23T12:45:01.000Z',
+      ),
+    ).rejects.toMatchObject({ code: 'DELIVERY_STATE_CONFLICT' });
+
+    expect(
+      database
+        .query(
+          "SELECT retry_after FROM waitlist_delivery_backoffs WHERE provider = 'email'",
+        )
+        .get(),
+    ).toEqual({ retry_after: '2026-08-23T13:00:01.000Z' });
+  });
+
+  test('keeps resend transitions idempotent and rejects conflicting replay', async () => {
+    const database = migratedDatabase();
+    const store = new WaitlistDeliveryStore(d1(database));
+    database
+      .query(
+        "INSERT INTO waitlist_subscribers (email, status) VALUES ('confirmed@example.com', 'confirmed')",
+      )
+      .run();
+    await store.claimResendAttempt({
+      id: 'accepted-resend',
+      email: 'confirmed@example.com',
+      attemptedAt: '2026-08-23T12:00:00.000Z',
+      cooldownSince: '2026-08-23T11:50:00.000Z',
+    });
+    await store.markResendAccepted(
+      'accepted-resend',
+      'message-1',
+      '2026-08-23T12:00:01.000Z',
+    );
+    await store.markResendAccepted(
+      'accepted-resend',
+      'message-1',
+      '2026-08-23T12:00:02.000Z',
+    );
+    await expect(
+      store.markResendRejected(
+        'accepted-resend',
+        'E_DELIVERY_FAILED',
+        '2026-08-23T12:00:03.000Z',
+      ),
+    ).rejects.toMatchObject({ code: 'DELIVERY_STATE_CONFLICT' });
+  });
   test('allows only one concurrent delivery claim per cooldown window', async () => {
     const database = migratedDatabase();
     const store = new WaitlistDeliveryStore(d1(database));

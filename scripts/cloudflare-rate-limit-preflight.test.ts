@@ -6,7 +6,7 @@ import {
   verifyRateLimitPhase,
 } from './cloudflare-rate-limit-preflight';
 
-const baseline = () => ({
+const legacyBaseline = () => ({
   result: {
     description: '',
     id: '189a3c2125bc40c2b9565ae2268587ed',
@@ -57,9 +57,16 @@ const baseline = () => ({
   messages: [],
 });
 
+const desiredBaseline = () => {
+  const baseline = legacyBaseline();
+  baseline.result.rules[1]!.expression =
+    '((http.request.uri.path eq "/api/waitlist") or (http.request.uri.path eq "/api/waitlist/confirm") or (http.request.uri.path eq "/api/waitlist/resend"))';
+  return baseline;
+};
+
 describe('production rate-limit phase preflight', () => {
-  test('accepts the owned phase while ignoring provider-managed timestamps and versions', () => {
-    const live = baseline();
+  test('accepts the desired phase while ignoring provider-managed timestamps and versions', () => {
+    const live = desiredBaseline();
     live.result.last_updated = 'changed';
     live.result.version = '99';
     live.result.rules[0]!.last_updated = 'changed';
@@ -69,7 +76,7 @@ describe('production rate-limit phase preflight', () => {
   });
 
   test('rejects the superseded waitlist-only expression', async () => {
-    const live = baseline();
+    const live = desiredBaseline();
     live.result.rules[1]!.expression =
       '(http.request.uri.path eq "/api/waitlist")';
     expect(() => assertRateLimitPhase(live)).toThrow(
@@ -80,20 +87,39 @@ describe('production rate-limit phase preflight', () => {
     ).rejects.toThrow('result.rules[1].expression');
   });
 
+  test('accepts only the exact legacy or desired phase before deployment', async () => {
+    await expect(
+      preflightRateLimitPhase('secret', async () =>
+        Response.json(legacyBaseline()),
+      ),
+    ).resolves.toBeUndefined();
+    await expect(
+      preflightRateLimitPhase('secret', async () =>
+        Response.json(desiredBaseline()),
+      ),
+    ).resolves.toBeUndefined();
+  });
+
   test('requires the desired live phase after deployment', async () => {
-    const desired = baseline();
+    const desired = desiredBaseline();
     expect(() => assertRateLimitPhase(desired)).not.toThrow();
     await expect(
       verifyRateLimitPhase('secret', async () => Response.json(desired)),
     ).resolves.toBeUndefined();
+
+    await expect(
+      verifyRateLimitPhase('secret', async () =>
+        Response.json(legacyBaseline()),
+      ),
+    ).rejects.toThrow('result.rules[1].expression');
   });
 
   test('rejects missing or reordered rules before Alchemy replaces the full phase', () => {
-    const missing = baseline();
+    const missing = desiredBaseline();
     missing.result.rules.pop();
     expect(() => assertRateLimitPhase(missing)).toThrow('result.rules');
 
-    const reordered = baseline();
+    const reordered = desiredBaseline();
     reordered.result.rules.reverse();
     expect(() => assertRateLimitPhase(reordered)).toThrow(
       'result.rules[0].action',
@@ -101,55 +127,56 @@ describe('production rate-limit phase preflight', () => {
   });
 
   test('rejects rule, ratelimit, envelope, and provider-error drift', () => {
-    const cases: Array<[string, (value: ReturnType<typeof baseline>) => void]> =
+    const cases: Array<
+      [string, (value: ReturnType<typeof desiredBaseline>) => void]
+    > = [
       [
-        [
-          'result.name',
-          (value) => {
-            value.result.name = 'changed';
-          },
-        ],
-        [
-          'result.rules[1].expression',
-          (value) => {
-            value.result.rules[1]!.expression = 'true';
-          },
-        ],
-        [
-          'result.rules[0].ratelimit.characteristics[0]',
-          (value) => value.result.rules[0]!.ratelimit.characteristics.reverse(),
-        ],
-        [
-          'result.rules[0].ratelimit.requests_per_period',
-          (value) => {
-            value.result.rules[0]!.ratelimit.requests_per_period = 6;
-          },
-        ],
-        ['errors', (value) => value.errors.push({ code: 1000 } as never)],
-        [
-          'success',
-          (value) => {
-            value.success = false;
-          },
-        ],
-        [
-          'result.rules[0].ratelimit',
-          (value) =>
-            void Object.assign(value.result.rules[0]!.ratelimit, {
-              counting_expression: 'true',
-            }),
-        ],
-        [
-          'result.rules[0]',
-          (value) =>
-            void Object.assign(value.result.rules[0]!, {
-              action_parameters: {},
-            }),
-        ],
-      ];
+        'result.name',
+        (value) => {
+          value.result.name = 'changed';
+        },
+      ],
+      [
+        'result.rules[1].expression',
+        (value) => {
+          value.result.rules[1]!.expression = 'true';
+        },
+      ],
+      [
+        'result.rules[0].ratelimit.characteristics[0]',
+        (value) => value.result.rules[0]!.ratelimit.characteristics.reverse(),
+      ],
+      [
+        'result.rules[0].ratelimit.requests_per_period',
+        (value) => {
+          value.result.rules[0]!.ratelimit.requests_per_period = 6;
+        },
+      ],
+      ['errors', (value) => value.errors.push({ code: 1000 } as never)],
+      [
+        'success',
+        (value) => {
+          value.success = false;
+        },
+      ],
+      [
+        'result.rules[0].ratelimit',
+        (value) =>
+          void Object.assign(value.result.rules[0]!.ratelimit, {
+            counting_expression: 'true',
+          }),
+      ],
+      [
+        'result.rules[0]',
+        (value) =>
+          void Object.assign(value.result.rules[0]!, {
+            action_parameters: {},
+          }),
+      ],
+    ];
 
     for (const [path, mutate] of cases) {
-      const live = baseline();
+      const live = desiredBaseline();
       mutate(live);
       expect(() => assertRateLimitPhase(live)).toThrow(path);
     }
@@ -157,14 +184,38 @@ describe('production rate-limit phase preflight', () => {
     expect(() => assertRateLimitPhase({ success: true })).toThrow();
   });
 
+  test('preflight rejects partial, extra, reordered, wrong-rule, and unknown drift', async () => {
+    const cases = [
+      (value: ReturnType<typeof legacyBaseline>) => value.result.rules.pop(),
+      (value: ReturnType<typeof legacyBaseline>) =>
+        value.result.rules.push(value.result.rules[0]!),
+      (value: ReturnType<typeof legacyBaseline>) =>
+        value.result.rules.reverse(),
+      (value: ReturnType<typeof legacyBaseline>) =>
+        Object.assign(value.result.rules[0]!, { action: 'log' }),
+      (value: ReturnType<typeof legacyBaseline>) =>
+        Object.assign(value.result.rules[0]!, { unknown: true }),
+      (value: ReturnType<typeof legacyBaseline>) =>
+        Object.assign(value.result.rules[1]!, { unknown: true }),
+    ];
+
+    for (const mutate of cases) {
+      const live = legacyBaseline();
+      mutate(live);
+      await expect(
+        preflightRateLimitPhase('secret', async () => Response.json(live)),
+      ).rejects.toThrow('Production rate-limit phase drift detected');
+    }
+  });
+
   test('ignores volatility only on the ruleset and rule objects', () => {
-    const nested = baseline();
+    const nested = desiredBaseline();
     Object.assign(nested.result.rules[0]!.ratelimit, { version: '1' });
     expect(() => assertRateLimitPhase(nested)).toThrow(
       'result.rules[0].ratelimit',
     );
 
-    const envelope = baseline();
+    const envelope = desiredBaseline();
     Object.assign(envelope, { version: '1' });
     expect(() => assertRateLimitPhase(envelope)).toThrow('response');
   });
@@ -215,7 +266,7 @@ const desiredState = () => ({
         description: 'Rate limit waitlist signup',
         enabled: true,
         expression:
-          '((http.request.uri.path eq "/api/waitlist") or (http.request.uri.path eq "/api/waitlist/confirm"))',
+          '((http.request.uri.path eq "/api/waitlist") or (http.request.uri.path eq "/api/waitlist/confirm") or (http.request.uri.path eq "/api/waitlist/resend"))',
         ratelimit: {
           characteristics: ['ip.src', 'cf.colo.id'],
           period: 60,

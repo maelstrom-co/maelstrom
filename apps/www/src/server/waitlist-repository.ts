@@ -1,6 +1,7 @@
 import { Context, Data, Effect, Layer } from 'effect';
 import {
   type ClaimDeliveryAttempt,
+  type ClaimResendAttempt,
   DeliveryStateConflictError,
   WaitlistDeliveryStore,
 } from '../lib/waitlist-delivery-store';
@@ -19,10 +20,15 @@ export interface ConfirmedSignup {
 /** Persistence operations that can fail; names appear in typed errors. */
 export type WaitlistOperation =
   | 'claimDeliveryAttempt'
+  | 'claimResendAttempt'
   | 'markAccepted'
   | 'markRejected'
   | 'markUnknown'
   | 'markRetryable'
+  | 'markResendAccepted'
+  | 'markResendRejected'
+  | 'markResendUnknown'
+  | 'markResendRetryable'
   | 'confirmToken'
   | 'hasValidAccessReceipt';
 
@@ -57,6 +63,10 @@ export interface WaitlistRepositoryService {
     input: ClaimDeliveryAttempt,
   ) => Effect.Effect<boolean, WaitlistRepositoryError>;
 
+  readonly claimResendAttempt: (
+    input: ClaimResendAttempt,
+  ) => Effect.Effect<boolean, WaitlistRepositoryError>;
+
   readonly markAccepted: (
     id: string,
     messageId: string,
@@ -76,6 +86,30 @@ export interface WaitlistRepositoryService {
   ) => Effect.Effect<void, WaitlistRepositoryError>;
 
   readonly markRetryable: (
+    id: string,
+    failureCode: string,
+    changedAt: string,
+  ) => Effect.Effect<void, WaitlistRepositoryError>;
+
+  readonly markResendAccepted: (
+    id: string,
+    messageId: string,
+    changedAt: string,
+  ) => Effect.Effect<void, WaitlistRepositoryError>;
+
+  readonly markResendRejected: (
+    id: string,
+    failureCode: string,
+    changedAt: string,
+  ) => Effect.Effect<void, WaitlistRepositoryError>;
+
+  readonly markResendUnknown: (
+    id: string,
+    failureCode: string,
+    changedAt: string,
+  ) => Effect.Effect<void, WaitlistRepositoryError>;
+
+  readonly markResendRetryable: (
     id: string,
     failureCode: string,
     changedAt: string,
@@ -118,6 +152,9 @@ export const makeRepository = (
   claimDeliveryAttempt: (input) =>
     persist('claimDeliveryAttempt', () => store.claimDeliveryAttempt(input)),
 
+  claimResendAttempt: (input) =>
+    persist('claimResendAttempt', () => store.claimResendAttempt(input)),
+
   markAccepted: (id, messageId, changedAt) =>
     persist('markAccepted', () => store.markAccepted(id, messageId, changedAt)),
 
@@ -132,6 +169,26 @@ export const makeRepository = (
   markRetryable: (id, failureCode, changedAt) =>
     persist('markRetryable', () =>
       store.markRetryable(id, failureCode, changedAt),
+    ),
+
+  markResendAccepted: (id, messageId, changedAt) =>
+    persist('markResendAccepted', () =>
+      store.markResendAccepted(id, messageId, changedAt),
+    ),
+
+  markResendRejected: (id, failureCode, changedAt) =>
+    persist('markResendRejected', () =>
+      store.markResendRejected(id, failureCode, changedAt),
+    ),
+
+  markResendUnknown: (id, failureCode, changedAt) =>
+    persist('markResendUnknown', () =>
+      store.markResendUnknown(id, failureCode, changedAt),
+    ),
+
+  markResendRetryable: (id, failureCode, changedAt) =>
+    persist('markResendRetryable', () =>
+      store.markResendRetryable(id, failureCode, changedAt),
     ),
 
   confirmToken: (tokenHash, now, receipt) =>

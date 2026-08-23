@@ -7,6 +7,15 @@ export interface ClaimDeliveryAttempt {
   cooldownSince: string;
 }
 
+/** Inputs for the single-statement confirmed-subscriber resend claim. */
+export interface ClaimResendAttempt {
+  id: string;
+  email: string;
+  attemptedAt: string;
+  /** Attempts newer than this exclusive boundary suppress the claim. */
+  cooldownSince: string;
+}
+
 const EMAIL_RETRY_BACKOFF_MS = 10 * 60 * 1000;
 const EMAIL_DAILY_LIMIT_BACKOFF_MS = 60 * 60 * 1000;
 
@@ -59,6 +68,127 @@ export class WaitlistDeliveryStore {
       )
       .first<{ id: string }>();
     return attempt !== null;
+  }
+
+  /** Atomically claims a confirmed subscriber when cooldowns permit delivery. */
+  async claimResendAttempt(input: ClaimResendAttempt): Promise<boolean> {
+    const attempt = await this.database
+      .prepare(
+        `INSERT INTO waitlist_resend_deliveries (
+          id, email, state, attempted_at, state_changed_at
+        )
+        SELECT ?, email, 'attempting', ?, ?
+        FROM waitlist_subscribers
+        WHERE email = ?
+          AND status = 'confirmed'
+          AND NOT EXISTS (
+            SELECT 1 FROM waitlist_resend_deliveries
+            WHERE email = ? AND attempted_at > ?
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM waitlist_delivery_backoffs
+            WHERE provider = 'email' AND retry_after > ?
+          )
+        RETURNING id`,
+      )
+      .bind(
+        input.id,
+        input.attemptedAt,
+        input.attemptedAt,
+        input.email,
+        input.email,
+        input.cooldownSince,
+        input.attemptedAt,
+      )
+      .first<{ id: string }>();
+    return attempt !== null;
+  }
+
+  /** Settles an attempting resend with the provider message identifier. */
+  async markResendAccepted(
+    id: string,
+    messageId: string,
+    changedAt: string,
+  ): Promise<void> {
+    await this.resendTransition(id, 'accepted', changedAt, messageId, null);
+  }
+
+  /** Settles an attempting resend after a definite provider rejection. */
+  async markResendRejected(
+    id: string,
+    failureCode: string,
+    changedAt: string,
+  ): Promise<void> {
+    await this.resendTransition(id, 'rejected', changedAt, null, failureCode);
+  }
+
+  /** Settles an attempting resend whose provider outcome is ambiguous. */
+  async markResendUnknown(
+    id: string,
+    failureCode: string,
+    changedAt: string,
+  ): Promise<void> {
+    await this.resendTransition(id, 'unknown', changedAt, null, failureCode);
+  }
+
+  /**
+   * Settles an attempting resend and atomically extends the global provider
+   * backoff. Exact replays do not move the existing retry boundary.
+   */
+  async markResendRetryable(
+    id: string,
+    failureCode: string,
+    changedAt: string,
+  ): Promise<void> {
+    const changedTime = Date.parse(changedAt);
+    if (
+      !Number.isFinite(changedTime) ||
+      new Date(changedTime).toISOString() !== changedAt
+    ) {
+      throw new Error('changedAt must be a canonical ISO timestamp');
+    }
+    const backoffMs =
+      failureCode === 'E_DAILY_LIMIT_EXCEEDED'
+        ? EMAIL_DAILY_LIMIT_BACKOFF_MS
+        : EMAIL_RETRY_BACKOFF_MS;
+    const retryAfter = new Date(changedTime + backoffMs).toISOString();
+    const transition = this.database
+      .prepare(
+        `UPDATE waitlist_resend_deliveries
+         SET state = 'retryable', state_changed_at = ?,
+             provider_message_id = NULL, failure_code = ?
+         WHERE id = ? AND state = 'attempting'
+         RETURNING state`,
+      )
+      .bind(changedAt, failureCode, id);
+    const providerBackoff = this.database
+      .prepare(
+        `INSERT INTO waitlist_delivery_backoffs (
+           provider, retry_after, failure_code, updated_at
+         )
+         SELECT 'email', ?, ?, ?
+         WHERE EXISTS (
+           SELECT 1 FROM waitlist_resend_deliveries
+           WHERE id = ? AND state = 'retryable' AND failure_code = ?
+             AND state_changed_at = ?
+         )
+         ON CONFLICT(provider) DO UPDATE SET
+           retry_after = max(waitlist_delivery_backoffs.retry_after, excluded.retry_after),
+           failure_code = excluded.failure_code,
+           updated_at = excluded.updated_at`,
+      )
+      .bind(retryAfter, failureCode, changedAt, id, failureCode, changedAt);
+    const [updated] = await this.database.batch<{ state: string }>([
+      transition,
+      providerBackoff,
+    ]);
+    if ((updated?.results.length ?? 0) === 1) return;
+    await this.assertExistingResendTransition(
+      id,
+      'retryable',
+      null,
+      failureCode,
+    );
   }
 
   async markAccepted(
@@ -235,6 +365,59 @@ export class WaitlistDeliveryStore {
     if (updated) return;
 
     await this.assertExistingTransition(id, state, messageId, failureCode);
+  }
+
+  private async resendTransition(
+    id: string,
+    state: 'accepted' | 'rejected' | 'unknown',
+    changedAt: string,
+    messageId: string | null,
+    failureCode: string | null,
+  ): Promise<void> {
+    const updated = await this.database
+      .prepare(
+        `UPDATE waitlist_resend_deliveries
+         SET state = ?, state_changed_at = ?, provider_message_id = ?,
+             failure_code = ?
+         WHERE id = ? AND state = 'attempting'
+         RETURNING state`,
+      )
+      .bind(state, changedAt, messageId, failureCode, id)
+      .first<{ state: string }>();
+    if (updated) return;
+    await this.assertExistingResendTransition(
+      id,
+      state,
+      messageId,
+      failureCode,
+    );
+  }
+
+  private async assertExistingResendTransition(
+    id: string,
+    state: 'accepted' | 'rejected' | 'retryable' | 'unknown',
+    messageId: string | null,
+    failureCode: string | null,
+  ): Promise<void> {
+    const current = await this.database
+      .prepare(
+        `SELECT state, provider_message_id, failure_code
+         FROM waitlist_resend_deliveries WHERE id = ?`,
+      )
+      .bind(id)
+      .first<{
+        state: string;
+        provider_message_id: string | null;
+        failure_code: string | null;
+      }>();
+    if (
+      current?.state === state &&
+      current.provider_message_id === messageId &&
+      current.failure_code === failureCode
+    ) {
+      return;
+    }
+    throw new DeliveryStateConflictError();
   }
 
   private async assertExistingTransition(
