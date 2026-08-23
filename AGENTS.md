@@ -50,6 +50,7 @@ The `@maelstrom-co/*` packages serve external consumers. The full contract is `a
 
 - Never commit provider keys. `.env.example` documents the variables.
 - Packages are private, published to GitHub Packages under the `@maelstrom-co` scope. `CONTRIBUTING.md` covers tokens and preview releases.
+- Effect versions come from the root catalog (`4.0.0-rc.111`, matching Alchemy). Do not pin `effect` or `@effect/platform-*` in app manifests, and do not add `@effect/language-service` until a `tsconfig` plugin loads it.
 
 ## Agent skills
 

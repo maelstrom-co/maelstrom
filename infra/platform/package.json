@@ -25,10 +25,10 @@
     }
   },
   "dependencies": {
-    "@effect/platform-bun": "4.0.0-rc.111",
-    "@effect/platform-node": "4.0.0-rc.111",
+    "@effect/platform-bun": "catalog:",
+    "@effect/platform-node": "catalog:",
     "alchemy": "2.0.0-beta.73",
-    "effect": "4.0.0-rc.111"
+    "effect": "catalog:"
   },
   "devDependencies": {
     "@types/bun": "*",
