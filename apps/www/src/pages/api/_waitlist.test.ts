@@ -546,13 +546,24 @@ describe('POST /api/waitlist/resend', () => {
       'repository failure',
       () => first.mockRejectedValueOnce(new Error('private database detail')),
     ],
-    ['missing email binding', () => delete runtimeEnv.EMAIL],
   ])('keeps %s generic after valid proof', async (_name, arrange) => {
     arrange();
     const response = await callResend();
     expect(response.status).toBe(202);
     expect(await response.json()).toEqual({ success: true });
     expectPrivateConfirmationResponse(response);
+  });
+
+  it('fails closed before proof when the email binding is missing', async () => {
+    delete runtimeEnv.EMAIL;
+    const response = await callResend();
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      error: 'Waitlist resend is temporarily unavailable.',
+    });
+    expectPrivateConfirmationResponse(response);
+    expect(resendEvents).toEqual([]);
+    expect(send).not.toHaveBeenCalled();
   });
 
   it.each([

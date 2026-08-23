@@ -9,11 +9,8 @@ export interface ClaimDeliveryAttempt {
 
 /** Inputs for the single-statement confirmed-subscriber resend claim. */
 export interface ClaimResendAttempt {
-  /** Unique delivery attempt identifier. */
   id: string;
-  /** Normalized subscriber email. */
   email: string;
-  /** Canonical ISO timestamp for this attempt. */
   attemptedAt: string;
   /** Attempts newer than this exclusive boundary suppress the claim. */
   cooldownSince: string;

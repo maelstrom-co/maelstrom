@@ -38,9 +38,9 @@ const desiredBaseline = {
 const legacyWaitlistExpression =
   '((http.request.uri.path eq "/api/waitlist") or (http.request.uri.path eq "/api/waitlist/confirm"))';
 
-// Temporary migration compatibility tracked by GitHub issue #160. Remove this
-// baseline, its preflight branch, and legacy-only tests after the first successful
-// production deployment whose desired persisted-state and live-phase verification pass.
+// Temporary one-deploy compatibility. Remove this baseline, its preflight
+// branch, and legacy-only tests after the first successful production
+// deployment whose desired persisted-state and live-phase verification pass.
 const legacyBaseline = {
   ...desiredBaseline,
   result: {

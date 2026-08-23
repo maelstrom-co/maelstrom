@@ -179,8 +179,9 @@ gated page reads the new columns, so an app-first rollout would break
 
 Deploy `0006` and the retained rate-limit rule through the platform stack before
 the Worker that queries the resend ledger. For rollback, restore the previous
-Worker first and retain the additive migration and rate-limit rule; never edit
-an applied migration.
+Worker first and retain the additive migration and the three-path rate-limit
+rule. Do not revert the contract while a Worker that serves
+`/api/waitlist/resend` is live. Never edit an applied migration.
 
 ### Rate-limit ownership migration
 
@@ -204,6 +205,14 @@ dependency-free contract supplies the exact desired values to the Alchemy
 resource, API preflight adapter, and persisted-state validator. After deploy,
 the workflow verifies every ruleset and ordered rule semantic in both persisted
 Alchemy state and a fresh live phase response against that contract.
+
+Until the first production deploy that adds `/api/waitlist/resend`, preflight
+also accepts the previous two-path waitlist expression
+(`eq "/api/waitlist"` or `eq "/api/waitlist/confirm"`). That exception is
+exact: same two-rule envelope, same rule ids and order, only the known
+waitlist expression. Post-deploy `verify` and persisted-state checks stay on
+the three-path desired contract. Remove the legacy preflight baseline after
+that first green verify. Do not leave the exception in later deploys.
 
 The owned waitlist rule matches `/api/waitlist`, `/api/waitlist/confirm`, and
 `/api/waitlist/resend` through three explicit equality branches. It does not use

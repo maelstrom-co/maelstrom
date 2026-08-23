@@ -91,7 +91,9 @@ function readTurnstileToken(body: unknown): string | null {
     return null;
   }
   const token = Reflect.get(body, 'turnstileToken');
-  return typeof token === 'string' && token.length <= MAX_TURNSTILE_TOKEN_CHARS
+  return typeof token === 'string' &&
+    token.length > 0 &&
+    token.length <= MAX_TURNSTILE_TOKEN_CHARS
     ? token
     : null;
 }

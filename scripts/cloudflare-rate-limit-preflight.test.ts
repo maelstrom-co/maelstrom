@@ -195,6 +195,8 @@ describe('production rate-limit phase preflight', () => {
         Object.assign(value.result.rules[0]!, { action: 'log' }),
       (value: ReturnType<typeof legacyBaseline>) =>
         Object.assign(value.result.rules[0]!, { unknown: true }),
+      (value: ReturnType<typeof legacyBaseline>) =>
+        Object.assign(value.result.rules[1]!, { unknown: true }),
     ];
 
     for (const mutate of cases) {

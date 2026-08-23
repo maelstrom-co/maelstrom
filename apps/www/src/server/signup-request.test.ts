@@ -62,6 +62,7 @@ describe('decodeSignupRequest', () => {
 
   test.each([
     ['missing token', { email: 'user@example.com' }],
+    ['empty token', { email: 'user@example.com', turnstileToken: '' }],
     ['non-string token', { email: 'user@example.com', turnstileToken: 42 }],
     [
       'token above 2048 chars',

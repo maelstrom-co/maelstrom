@@ -7,30 +7,29 @@ import * as FetchHttpClient from 'effect/unstable/http/FetchHttpClient';
 import { WaitlistDeliveryStore } from '../../../lib/waitlist-delivery-store';
 import { runOrErrorResponse } from '../../../server/run-or-error';
 import {
+  decodeSignupRequest,
+  requireTurnstileToken,
+} from '../../../server/signup-request';
+import {
   TurnstileVerifier,
   type TurnstileVerifierError,
 } from '../../../server/turnstile-verifier';
 import { makeRepository } from '../../../server/waitlist-repository';
-import {
-  decodeWaitlistResendRequest,
-  requireResendTurnstileToken,
-} from '../../../server/waitlist-resend-request';
 import { WaitlistResendWorkflow } from '../../../server/waitlist-resend-workflow';
+import {
+  privateResponse,
+  toSignupDecodeResponse,
+} from '../../../server/waitlist-responses';
 
 export const POST: APIRoute = async ({ request, locals }) => {
   const decoded = await runOrErrorResponse(
-    decodeWaitlistResendRequest(request),
+    decodeSignupRequest(request),
     (error) => {
-      switch (error._tag) {
-        case 'UnsupportedMediaType':
-          return jsonResponse({ error: 'Unsupported media type' }, 415);
-        case 'BodyTooLarge':
-          return jsonResponse({ error: 'Request body is too large' }, 413);
-        case 'InvalidBody':
-          return jsonResponse({ error: 'Invalid request body' }, 400);
-        case 'InvalidEmail':
-          return jsonResponse({ error: error.error }, 400);
-      }
+      const mapped = toSignupDecodeResponse(error);
+      return privateResponse(mapped.body, {
+        status: mapped.status,
+        headers: mapped.headers,
+      });
     },
   );
   if (decoded instanceof Response) return decoded;
@@ -45,8 +44,9 @@ export const POST: APIRoute = async ({ request, locals }) => {
   }
 
   const database = env.WAITLIST_DB;
+  const emailService = env.EMAIL;
   const turnstileSecret = env.TURNSTILE_SECRET_KEY;
-  if (!database || !turnstileSecret) {
+  if (!database || !emailService || !turnstileSecret) {
     return jsonResponse(
       { error: 'Waitlist resend is temporarily unavailable.' },
       503,
@@ -54,7 +54,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
   }
 
   const token = await runOrErrorResponse(
-    requireResendTurnstileToken(decoded.turnstileToken),
+    requireTurnstileToken(decoded.turnstileToken),
     () => jsonResponse({ error: 'Security check failed.' }, 400),
   );
   if (token instanceof Response) return token;
@@ -69,9 +69,6 @@ export const POST: APIRoute = async ({ request, locals }) => {
     turnstileFailureResponse,
   );
   if (verified instanceof Response) return verified;
-
-  const emailService = env.EMAIL;
-  if (!emailService) return acceptedResponse();
 
   const workflowLayer = WaitlistResendWorkflow.layer({
     repository: makeRepository(new WaitlistDeliveryStore(database)),
@@ -123,9 +120,8 @@ function acceptedResponse(): Response {
 }
 
 function jsonResponse(value: unknown, status: number): Response {
-  const headers = new Headers({ 'Content-Type': 'application/json' });
-  headers.set('Cache-Control', 'no-store');
-  headers.set('Referrer-Policy', 'no-referrer');
-  headers.set('X-Robots-Tag', 'noindex');
-  return new Response(JSON.stringify(value), { status, headers });
+  return privateResponse(JSON.stringify(value), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
 }
