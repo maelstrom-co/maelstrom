@@ -3,11 +3,14 @@ import * as Result from 'effect/Result';
 import { buildWaitlistConfirmationEmail } from '../lib/waitlist-confirmation-email';
 import type { ClaimDeliveryAttempt } from '../lib/waitlist-delivery-store';
 import { createWaitlistToken, hashWaitlistToken } from '../lib/waitlist-token';
-import { readProperty } from './read-property';
 import type {
   TurnstileVerifierError,
   TurnstileVerifierService,
 } from './turnstile-verifier';
+import {
+  classifyEmailFailure,
+  type EmailDisposition,
+} from './waitlist-email-failure';
 import type {
   WaitlistRepositoryError,
   WaitlistRepositoryService,
@@ -15,30 +18,6 @@ import type {
 
 const CONFIRMATION_TTL_MS = 24 * 60 * 60 * 1000;
 const RESEND_COOLDOWN_MS = 10 * 60 * 1000;
-
-const DEFINITE_EMAIL_FAILURE_CODES = new Set([
-  'E_VALIDATION_ERROR',
-  'E_FIELD_MISSING',
-  'E_TOO_MANY_RECIPIENTS',
-  'E_TOO_MANY_ATTACHMENTS',
-  'E_SENDER_NOT_VERIFIED',
-  'E_RECIPIENT_NOT_ALLOWED',
-  'E_RECIPIENT_SUPPRESSED',
-  'E_SENDER_DOMAIN_NOT_AVAILABLE',
-  'E_CONTENT_TOO_LARGE',
-  'E_DELIVERY_FAILED',
-  'E_HEADER_NOT_ALLOWED',
-  'E_HEADER_USE_API_FIELD',
-  'E_HEADER_VALUE_INVALID',
-  'E_HEADER_VALUE_TOO_LONG',
-  'E_HEADER_NAME_INVALID',
-  'E_HEADERS_TOO_LARGE',
-  'E_HEADERS_TOO_MANY',
-]);
-const RETRYABLE_EMAIL_FAILURE_CODES = new Set([
-  'E_RATE_LIMIT_EXCEEDED',
-  'E_DAILY_LIMIT_EXCEEDED',
-]);
 
 /** Delivery work waiting on the background execution context. */
 export interface PendingDelivery {
@@ -57,8 +36,6 @@ export type SignupBeginResult =
 export type SignupWorkflowError =
   | TurnstileVerifierError
   | WaitlistRepositoryError;
-
-type EmailDisposition = 'rejected' | 'retryable' | 'unknown';
 
 export interface SignupWorkflowService {
   /**
@@ -210,23 +187,6 @@ const recordFailure = (
       providerCode: failure.code,
     });
   });
-
-function classifyEmailFailure(error: unknown): {
-  code: string;
-  disposition: EmailDisposition;
-} {
-  const value = readProperty(error, 'code');
-  if (typeof value === 'string' && RETRYABLE_EMAIL_FAILURE_CODES.has(value)) {
-    return { code: value, disposition: 'retryable' };
-  }
-  if (value === 'E_INTERNAL_SERVER_ERROR') {
-    return { code: value, disposition: 'unknown' };
-  }
-  if (typeof value === 'string' && DEFINITE_EMAIL_FAILURE_CODES.has(value)) {
-    return { code: value, disposition: 'rejected' };
-  }
-  return { code: 'unclassified', disposition: 'unknown' };
-}
 
 function logDeliveryStateFailure(attemptId: string): void {
   console.error({

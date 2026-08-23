@@ -17,10 +17,14 @@ import { toSignupFailureResponse } from '../../server/signup-failure-response';
 import { DeliveryStateConflict } from '../../server/waitlist-repository';
 
 let preparedSqls: string[] = [];
+let resendEvents: string[] = [];
 let deliveryAttempt: { id: string } | null = { id: 'attempt-id' };
 let confirmation: { email: string } | null = { email: 'user@example.com' };
 let waitUntilTasks: Promise<unknown>[] = [];
-const first = mock(async () => deliveryAttempt);
+const first = mock(async () => {
+  resendEvents.push('d1');
+  return deliveryAttempt;
+});
 const run = mock(async () => ({ success: true }));
 const bind = mock(() => ({ first, run }));
 const prepare = mock((sql: string) => {
@@ -33,29 +37,34 @@ const batch = mock(async () => [
 ]);
 const send = mock(async () => ({ messageId: 'message-1' }));
 const siteverify = mock(
-  async (_input: RequestInfo | URL, _init?: RequestInit) =>
-    Response.json({
+  async (_input: RequestInfo | URL, _init?: RequestInit) => {
+    resendEvents.push('turnstile');
+    return Response.json({
       success: true,
       action: 'turnstile-spin-v1',
       hostname: 'maelstrom-ai.co',
-    }),
+    });
+  },
 );
-globalThis.fetch = siteverify as typeof fetch;
+globalThis.fetch = siteverify as unknown as typeof fetch;
+
+const runtimeEnv: Record<string, unknown> = {
+  WAITLIST_DB: { batch, prepare },
+  EMAIL: { send },
+  TURNSTILE_SECRET_KEY: 'turnstile-secret',
+};
 
 // Registered before the dynamic import below so the route's top-level
 // `cloudflare:workers` import resolves to these stubs.
 mock.module('cloudflare:workers', () => ({
-  env: {
-    WAITLIST_DB: { batch, prepare },
-    EMAIL: { send },
-    TURNSTILE_SECRET_KEY: 'turnstile-secret',
-  },
+  env: runtimeEnv,
 }));
 
 // Dynamic import is required here: mock.module must run before the module loads,
 // and static imports are hoisted above it.
 const { POST } = await import('./waitlist');
 const { POST: CONFIRM } = await import('./waitlist/confirm');
+const { POST: RESEND } = await import('./waitlist/resend');
 
 const callPost = (body: string) =>
   POST({
@@ -72,6 +81,29 @@ const callPost = (body: string) =>
   } as unknown as Parameters<typeof POST>[0]);
 const signupBody = (email = 'user@example.com') =>
   JSON.stringify({ email, turnstileToken: 'turnstile-token' });
+const callResend = (
+  options: { origin?: string | null; locals?: boolean; body?: string } = {},
+) => {
+  const headers = new Headers({ 'Content-Type': 'application/json' });
+  if (options.origin !== null) {
+    headers.set('Origin', options.origin ?? 'https://maelstrom-ai.co');
+  }
+  return RESEND({
+    request: new Request('https://maelstrom-ai.co/api/waitlist/resend', {
+      method: 'POST',
+      headers,
+      body: options.body ?? signupBody(),
+    }),
+    locals:
+      options.locals === false
+        ? undefined
+        : {
+            cfContext: {
+              waitUntil: (task: Promise<unknown>) => waitUntilTasks.push(task),
+            },
+          },
+  } as unknown as Parameters<typeof RESEND>[0]);
+};
 const callConfirm = async (token: string) => {
   const setCookies: Array<{
     name: string;
@@ -104,6 +136,11 @@ const expectPrivateConfirmationResponse = (response: Response) => {
 };
 
 beforeEach(() => {
+  globalThis.fetch = siteverify as unknown as typeof fetch;
+  runtimeEnv.WAITLIST_DB = { batch, prepare };
+  runtimeEnv.EMAIL = { send };
+  runtimeEnv.TURNSTILE_SECRET_KEY = 'turnstile-secret';
+  resendEvents = [];
   preparedSqls = [];
   preparedSqls = [];
   deliveryAttempt = { id: 'attempt-id' };
@@ -121,13 +158,14 @@ beforeEach(() => {
   send.mockReset();
   send.mockResolvedValue({ messageId: 'message-1' });
   siteverify.mockReset();
-  siteverify.mockResolvedValue(
-    Response.json({
+  siteverify.mockImplementation(async () => {
+    resendEvents.push('turnstile');
+    return Response.json({
       success: true,
       action: 'turnstile-spin-v1',
       hostname: 'maelstrom-ai.co',
-    }),
-  );
+    });
+  });
 });
 
 afterEach(async () => {
@@ -456,6 +494,100 @@ describe('POST /api/waitlist', () => {
     expect(res.status).toBe(503);
     expect(prepare).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /api/waitlist/resend', () => {
+  it.each([
+    ['missing', null],
+    ['literal null', 'null'],
+    ['cross-origin', 'https://attacker.example'],
+  ])('rejects %s Origin before Turnstile and D1', async (_name, origin) => {
+    const response = await callResend({ origin });
+    expect(response.status).toBe(403);
+    expectPrivateConfirmationResponse(response);
+    expect(resendEvents).toEqual([]);
+  });
+
+  it('enforces Origin before rejecting a missing Turnstile token', async () => {
+    const response = await callResend({
+      origin: 'https://attacker.example',
+      body: JSON.stringify({ email: 'user@example.com' }),
+    });
+    expect(response.status).toBe(403);
+    expect(resendEvents).toEqual([]);
+  });
+
+  it('verifies Turnstile before the first confirmed claim', async () => {
+    const response = await callResend();
+    expect(response.status).toBe(202);
+    expect(resendEvents.slice(0, 2)).toEqual(['turnstile', 'd1']);
+    expect(await response.json()).toEqual({ success: true });
+    expectPrivateConfirmationResponse(response);
+    expect(response.headers.has('set-cookie')).toBe(false);
+  });
+
+  it('rejects invalid proof without D1 or email delivery', async () => {
+    siteverify.mockResolvedValueOnce(
+      Response.json({
+        success: false,
+        'error-codes': ['timeout-or-duplicate'],
+      }),
+    );
+    const response = await callResend();
+    expect(response.status).toBe(400);
+    expect(resendEvents).not.toContain('d1');
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['unknown subscriber', () => (deliveryAttempt = null)],
+    [
+      'repository failure',
+      () => first.mockRejectedValueOnce(new Error('private database detail')),
+    ],
+    ['missing email binding', () => delete runtimeEnv.EMAIL],
+  ])('keeps %s generic after valid proof', async (_name, arrange) => {
+    arrange();
+    const response = await callResend();
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({ success: true });
+    expectPrivateConfirmationResponse(response);
+  });
+
+  it.each([
+    [
+      'send rejection',
+      () => send.mockRejectedValueOnce(new Error('private provider detail')),
+    ],
+    ['missing message id', () => send.mockResolvedValueOnce({} as never)],
+    [
+      'transition failure',
+      () =>
+        first
+          .mockResolvedValueOnce(deliveryAttempt)
+          .mockRejectedValueOnce(new Error('private transition detail')),
+    ],
+  ])('consumes %s in the waitUntil promise', async (_name, arrange) => {
+    arrange();
+    const response = await callResend();
+    expect(response.status).toBe(202);
+    expect(waitUntilTasks).toHaveLength(1);
+    await expect(waitUntilTasks[0]).resolves.toBeUndefined();
+  });
+
+  it('awaits delivery when waitUntil is unavailable', async () => {
+    const deferred = Promise.withResolvers<{ messageId: string }>();
+    send.mockImplementationOnce(() => deferred.promise);
+    let response: Response | undefined;
+    void Promise.resolve(callResend({ locals: false })).then((value) => {
+      response = value;
+    });
+    await Bun.sleep(0);
+    expect(response).toBeUndefined();
+    deferred.resolve({ messageId: 'message-1' });
+    await Bun.sleep(0);
+    expect(response?.status).toBe(202);
   });
 });
 

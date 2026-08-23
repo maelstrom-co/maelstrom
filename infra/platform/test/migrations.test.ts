@@ -21,9 +21,27 @@ const APPLIED_MIGRATION_HASHES: Record<string, string> = {
     '27da4a2eecc53aa9d55f6582012284599f56fd9c67928d4a09b521159a791585',
   '0005_add_access_receipt.sql':
     'a116b595ad6959774e248a71b6143a4a438a4fd73e82b6d9eddbffb25569324e',
+  '0006_create_waitlist_resends.sql':
+    '70f8577fe7b58d2d8fb3232215114d6bcc1d9d213456f5e538594ceac2f11cf7',
 };
 
 describe('applied D1 migrations', () => {
+  test('defines the dedicated confirmed resend delivery invariants', () => {
+    const migration = readFileSync(
+      resolve(migrationsDir, '0006_create_waitlist_resends.sql'),
+      'utf8',
+    );
+    expect(migration).toContain('CREATE TABLE waitlist_resend_deliveries');
+    expect(migration).toContain(
+      "CHECK (state IN ('attempting', 'accepted', 'rejected', 'retryable', 'unknown'))",
+    );
+    expect(migration).toContain(
+      'REFERENCES waitlist_subscribers(email) ON DELETE CASCADE',
+    );
+    expect(migration).toContain(
+      'ON waitlist_resend_deliveries (email, attempted_at DESC)',
+    );
+  });
   test('remain byte-identical to the released artifacts', () => {
     for (const [name, hash] of Object.entries(APPLIED_MIGRATION_HASHES)) {
       const content = readFileSync(resolve(migrationsDir, name), 'utf8');
