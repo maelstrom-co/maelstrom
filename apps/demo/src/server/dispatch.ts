@@ -29,12 +29,13 @@ export interface DispatchContext {
   /**
    * Resolves the engine to dispatch to, or null when none could be built.
    * Lazy — and called at most once, only on the real-dispatch path below —
-   * so a transport whose resolution has side effects (SessionDO's
-   * `#engineFor` constructs a fresh `createEngine(...)`, which can throw)
-   * never pays for it on a heartbeat or hello frame, which this function
-   * returns for before ever reaching that point.
+   * so a transport whose resolution has side effects (SessionDO's engine
+   * construction, which can fail) never pays for it on a heartbeat or hello
+   * frame, which this function returns for before ever reaching that point.
+   * May resolve asynchronously; a rejection propagates out of `dispatchFrame`
+   * so the transport's own error channel can redact and report it.
    */
-  readonly getEngine: () => Engine | null;
+  readonly getEngine: () => Engine | null | Promise<Engine | null>;
   /**
    * Whether this connection completed a handshake at some point, even if the
    * key backing it is gone. Only ever true after a Durable Object wakes from
@@ -111,7 +112,7 @@ export async function dispatchFrame(
     return { kind: 'reply', wire: encodeEnvelope(outcome.message) };
   }
 
-  const engine = ctx.getEngine();
+  const engine = await ctx.getEngine();
   if (!engine) {
     return {
       kind: 'reply',

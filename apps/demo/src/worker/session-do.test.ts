@@ -467,10 +467,16 @@ describe('SessionDO', () => {
       does.webSocketMessage(ws as never, CHART_REQUEST),
     ).resolves.toBeUndefined();
 
-    // A correlated engine.error reply instead, with the key redacted out of
-    // the (already-redacted-by-#engineFor) error message.
+    // A correlated engine.error reply instead, carrying the factory's
+    // redacted message VERBATIM. Asserting the exact sentence, not just any
+    // error frame: whatever rejects getEngine's promise is rendered into
+    // this reply verbatim (the pinned Effect rc.111 rejects with the typed
+    // error itself), so this pins both that the typed error reached the
+    // handler and that its text is the scrubbed one — a wrapper or
+    // diagnostic substitution would fail here.
     expect(ws.sent).toHaveLength(1);
     expect(ws.sent[0]).not.toContain(secret);
+    expect(ws.sent[0]).toContain('upstream rejected key [redacted]');
     expect(ws.sent[0]).toContain('engine.error');
   });
 
