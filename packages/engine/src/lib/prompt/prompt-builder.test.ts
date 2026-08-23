@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { MAX_SPLIT_CHILDREN, MAX_SPLIT_WEIGHT } from '@maelstrom-co/protocol';
 import {
   makeGridRequest,
   makeTilingRequest,
@@ -263,6 +264,30 @@ describe('buildSystemPrompt', () => {
     const prompt = buildSystemPrompt('tiling');
     expect(prompt).toContain('exactly ONE method');
     expect(prompt).toContain('NEVER mix the two');
+  });
+
+  // Regression lock for the duplicate-instance-ID footgun. This prompt used
+  // to tell the model that repeating an ID across leaves was how a vessel
+  // claimed more space; weighted splits replace that exactly, and the client
+  // now refuses a duplicate-bearing set_layout while a seed throws at
+  // construction. The negative assertion is the load-bearing half: the
+  // failure mode is the deleted advice coming back through a revert or a
+  // merge resolution, which would teach the model to emit trees every client
+  // gate rejects. Pin: the rule is taught, the old remedy is gone, and the
+  // arity rule that replaces it is stated.
+  test('tiling system prompt teaches one leaf per instance, never a repeated ID', () => {
+    const prompt = buildSystemPrompt('tiling');
+    expect(prompt).toContain('AT MOST ONCE');
+    expect(prompt).not.toContain('include it multiple times');
+    expect(prompt).toContain('as many children as it declares weights');
+  });
+
+  // The caps the model is told must be the caps the parser enforces, so pin
+  // the interpolated constants rather than the numbers they hold today.
+  test('tiling system prompt interpolates the split caps from the protocol', () => {
+    const prompt = buildSystemPrompt('tiling');
+    expect(prompt).toContain(`from 1 to ${MAX_SPLIT_WEIGHT}`);
+    expect(prompt).toContain(`between 2 and ${MAX_SPLIT_CHILDREN} of them`);
   });
 
   test('accepts section overrides', () => {

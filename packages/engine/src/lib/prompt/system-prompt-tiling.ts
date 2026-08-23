@@ -51,7 +51,9 @@ A split token may carry a weight suffix: the axis, a colon, then comma-separated
 
 - THE NUMBER OF WEIGHTS IS THE NUMBER OF CHILDREN. "V:1,1,1" is followed by exactly three subtrees, not two. "H:2,1" is followed by exactly two. Count them before you emit the array.
 - Each child receives (its weight) / (sum of the weights) of the parent region along the split axis. "V:2,1" gives the left child two thirds of the width and the right child one third.
-- Weights are whole numbers from 1 to ${MAX_SPLIT_WEIGHT}, at most ${MAX_SPLIT_CHILDREN} per token. NEVER write decimals: "V:1,1,1" IS exact thirds, while "V:0.33,0.33,0.33" is not and will be rewritten.
+- Weights are whole numbers from 1 to ${MAX_SPLIT_WEIGHT}, and a token declares between 2 and ${MAX_SPLIT_CHILDREN} of them. Fewer than two is not a split: "V:1" is read as an even two-way split and still takes TWO subtrees.
+- NO TRAILING OR EMPTY FIELDS. An empty field is ignored, not counted: "V:1,1," declares TWO children, takes only two subtrees, and silently re-parents the third onto an ancestor.
+- NEVER write decimals. A decimal field is rounded to a whole number with a floor of 1, so "V:0.7,0.3" becomes "V:1,1" — an even split, not 70/30. Write the ratio in whole numbers instead: "V:7,3".
 - Bare "H" / "V" mean an even two-way split — exactly the same as "H:1,1" / "V:1,1". PREFER the bare form for 50/50: it is shorter and always correct.
 
 Reach for weights whenever repeated halving cannot express the arrangement: three equal columns, an uneven ratio, a 3x3 grid, two rows of six.
