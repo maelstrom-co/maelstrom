@@ -82,7 +82,7 @@ The engine validates inputs at three boundaries and the LLM's output at a fourth
 
 For step 4, an empty UI is worse than a partial one. The heal layer drops invalid pieces and records each one with a structured reason — categorical labels such as `position_overflow`, `unknown_vessel`, `unknown_variant`, `size_below_minimum`, `duplicate_instance_id`, or `tree_missing_child`. Soft-failures like a missing `rationale` are recorded as warnings. Drop entries and warnings stay engine-internal: they feed the retry decision and engine logs, but the engine strips them at its boundary. Consumers receive only the surviving layout; rendering proceeds with whatever made it through.
 
-### Example: healed output
+### Example: Healed output
 
 If the model returns two positions and one overflows the chart, the engine can keep the valid position and drop the invalid one:
 

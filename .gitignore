@@ -9,6 +9,15 @@ out-tsc
 # dependencies
 node_modules
 
+# Vale packages downloaded by `vale sync`; keep the project vocabulary.
+.vale/styles/*
+!.vale/styles/config/
+.vale/styles/config/*
+!.vale/styles/config/vocabularies/
+.vale/styles/config/vocabularies/*
+!.vale/styles/config/vocabularies/Maelstrom/
+!.vale/styles/config/vocabularies/Maelstrom/*.txt
+
 # IDEs and editors
 /.idea
 .project

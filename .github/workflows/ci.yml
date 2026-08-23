@@ -37,6 +37,21 @@ jobs:
           # files here.
           bun-version-file: .bun-version
       - run: bun install --frozen-lockfile
+
+      # Vale scans the complete authored corpus. Reviewdog must not hide errors
+      # outside the pull request diff when a rule or configuration changes.
+      - name: Lint documentation prose
+        uses: vale-cli/vale-action@518a9136acc6e6668ce7c00d367051e0941e87ff # v3.0.0
+        with:
+          fail_on_error: true
+          files: '["README.md", "CONTRIBUTING.md", "SECURITY.md", "CODE_OF_CONDUCT.md", "docs", "apps/docs/src/content/docs", "apps/demo/README.md", "packages/client/README.md", "packages/engine/README.md", "packages/protocol/README.md", "packages/react/README.md", "packages/react-realtime/README.md", "packages/realtime/README.md", "packages/realtime-livekit/README.md", "packages/realtime-livekit-agent/README.md", "packages/realtime-livekit-server/README.md", "packages/realtime-openai/README.md", "packages/realtime-openai-server/README.md", "packages/realtime-protocol/README.md", "packages/realtime-vad/README.md", "tools/biome-plugin/README.md"]'
+          filter_mode: nofilter
+          glob: '!apps/docs/src/content/docs/reference/*'
+          min_alert_level: error
+          reporter: github-pr-annotations
+          vale_flags: --no-global
+          version: 3.18.0
+
       - uses: nrwl/nx-set-shas@afb73a62d26e41464e9254689e1fd6122ee683c1 # v5.0.1
 
       # Browsers install per machine, not per project, so this one step covers

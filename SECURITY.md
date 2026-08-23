@@ -17,7 +17,7 @@ Email **security@maelstrom-ai.co** with:
 
 - A description of the vulnerability
 - Steps to reproduce or a proof-of-concept
-- The package(s) and version(s) affected
+- The affected packages and versions
 - Any potential impact you've identified
 
 We will acknowledge receipt within **48 hours** and aim to provide a fix or mitigation plan within **7 days** for confirmed issues.

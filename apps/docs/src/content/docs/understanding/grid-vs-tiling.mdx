@@ -7,7 +7,7 @@ Maelstrom ships two layout modes. The `ChartRequest` selects a mode through `lay
 
 Both modes describe the same screen — the set of visible Vessel instances and their current variants — and differ mainly in how they express placement. (Each variant also declares a `minSize`, but as we'll see, it is enforced only in grid mode.)
 
-## Grid layout: explicit coordinates
+## Grid layout: Explicit coordinates
 
 A `GridLayout` is a flat list of placements on a discrete grid:
 
@@ -45,7 +45,7 @@ The engine returns a `GridLayout` when the response shape was negotiated as `lay
 
 Coordinates have to fit. The LLM has to keep every `position.row + size.height` inside `chartDimensions.rows`, and the same for columns. The engine heals overflows when it can (drops invalid positions, records the reason) rather than failing the whole turn, but the prompt makes the constraint explicit so the model rarely needs healing in the first place.
 
-## Tiling layout: a recursive binary tree
+## Tiling layout: A recursive binary tree
 
 A `TilingLayout` describes the same screen as a tree of splits with Vessel instances at the leaves:
 

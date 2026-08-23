@@ -154,6 +154,7 @@ see above) over `git merge main` on a branch, and the case does not arise.
 
 - [Bun](https://bun.sh) (package manager — the repo is a Bun workspace)
 - Node.js 24 (matches `.nvmrc` and CI)
+- [Vale](https://vale.sh/docs/vale-cli/installation/) 3.18.0 (documentation prose checks)
 
 ## Getting started
 
@@ -181,10 +182,21 @@ bunx nx dev demo               # run the demo app (see apps/demo/README.md for e
 nx run-many -t build           # build all packages
 nx run-many -t test            # run all tests
 nx run-many -t typecheck       # type-check all packages
+bun run docs:lint              # check documentation prose
 ```
 
 Tests depend on built packages (`dependsOn: ["^build"]`), so build before
 testing if you haven't already.
+
+### Documentation prose checks
+
+Run `bun run docs:lint` from the repository root after changing Markdown or
+MDX documentation. The command downloads the pinned Vale style packages and
+checks public documentation with the Microsoft technical-writing rules and the
+project vocabulary. Install Vale from its release archive or a package manager
+that provides version 3.18.0. CI fails on error-level findings across the
+complete authored corpus, while local runs also report warnings. Run
+`vale --version` to confirm it reports `3.18.0`.
 
 ### Public API documentation audits
 
