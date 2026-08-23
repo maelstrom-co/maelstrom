@@ -15,8 +15,8 @@
     "react-dom": "catalog:"
   },
   "devDependencies": {
-    "@effect/platform-bun": "4.0.0-rc.111",
-    "@effect/platform-node": "4.0.0-rc.111",
+    "@effect/platform-bun": "catalog:",
+    "@effect/platform-node": "catalog:",
     "@maelstrom-co/platform-infra": "workspace:*",
     "@astrojs/check": "catalog:",
     "@maelstrom-co/client": "workspace:*",
@@ -38,7 +38,7 @@
     "@types/react-dom": "catalog:",
     "alchemy": "2.0.0-beta.73",
     "astro-mermaid": "^2.1.0",
-    "effect": "4.0.0-rc.111",
+    "effect": "catalog:",
     "jsdom": "catalog:",
     "mermaid": "^11.15.0",
     "starlight-llms-txt": "^0.11.0",

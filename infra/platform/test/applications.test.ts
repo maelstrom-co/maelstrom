@@ -150,6 +150,47 @@ describe('application infrastructure contract', () => {
     }
   });
 
+  test('pins Effect to the Alchemy-compatible catalog version and leaves the language service unwired', () => {
+    const root = readJson('package.json') as {
+      catalog?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+    };
+    const catalog = root.catalog ?? {};
+    expect(catalog.effect).toBe('4.0.0-rc.111');
+    expect(catalog['@effect/platform-node']).toBe(catalog.effect);
+    expect(catalog['@effect/platform-bun']).toBe(catalog.effect);
+
+    const packagePaths = [
+      'package.json',
+      ...new Bun.Glob('apps/*/package.json').scanSync({ cwd: workspaceRoot }),
+      ...new Bun.Glob('infra/*/package.json').scanSync({ cwd: workspaceRoot }),
+    ];
+    for (const path of packagePaths) {
+      const packageJson = readJson(path) as {
+        dependencies?: Record<string, string>;
+        devDependencies?: Record<string, string>;
+      };
+      const dependencies = {
+        ...packageJson.dependencies,
+        ...packageJson.devDependencies,
+      };
+      expect(dependencies['@effect/language-service']).toBeUndefined();
+      const consumesEffectCatalog = Boolean(
+        dependencies.effect ||
+          dependencies['@effect/platform-node'] ||
+          dependencies['@effect/platform-bun'],
+      );
+      if (!consumesEffectCatalog) continue;
+      if (dependencies.effect) expect(dependencies.effect).toBe('catalog:');
+      if (dependencies['@effect/platform-node']) {
+        expect(dependencies['@effect/platform-node']).toBe('catalog:');
+      }
+      if (dependencies['@effect/platform-bun']) {
+        expect(dependencies['@effect/platform-bun']).toBe('catalog:');
+      }
+    }
+  });
+
   test('gives each independently deployed app its own composition root', () => {
     expect(read('apps/www/alchemy.run.ts')).toContain("'MaelstromWww'");
     expect(read('apps/docs/alchemy.run.ts')).toContain("'MaelstromDocs'");

@@ -200,8 +200,8 @@
     "zod": "catalog:"
   },
   "devDependencies": {
-    "@effect/platform-bun": "4.0.0-rc.111",
-    "@effect/platform-node": "4.0.0-rc.111",
+    "@effect/platform-bun": "catalog:",
+    "@effect/platform-node": "catalog:",
     "@cloudflare/workers-types": "catalog:",
     "@maelstrom-co/platform-infra": "workspace:*",
     "@tailwindcss/vite": "catalog:",
@@ -213,7 +213,7 @@
     "@vitejs/plugin-react": "catalog:",
     "alchemy": "2.0.0-beta.73",
     "concurrently": "^10.0.5",
-    "effect": "4.0.0-rc.111",
+    "effect": "catalog:",
     "happy-dom": "catalog:",
     "tailwindcss": "catalog:",
     "typescript": "catalog:",

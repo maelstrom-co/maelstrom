@@ -254,6 +254,12 @@ the credentialed deployment process and cannot scrub Cloudflare credentials or
 hash `DOCS_SOURCE_REF`. Docs therefore keeps its credential-free Nx build and
 lets Alchemy upload only the resulting `dist` artifact.
 
+Alchemy, Effect, and the Cloudflare toolchain are one compatibility unit.
+The root catalog pins `effect`, `@effect/platform-node`, and
+`@effect/platform-bun` to `4.0.0-rc.111` (Alchemy's peer floor). App and
+infra packages take those through `catalog:`. Do not add
+`@effect/language-service` until a `tsconfig` plugin actually loads it.
+
 Worker runtime packages compile against `@cloudflare/workers-types@5.20260722.1`,
 matching their `2026-07-22` compatibility date.
 Binding contracts come from `Cloudflare.InferEnv` on the Alchemy Worker
