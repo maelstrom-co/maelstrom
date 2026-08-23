@@ -52,7 +52,11 @@ export interface GridLayout {
 
 /** Retained tiling Instance metadata, whether or not the tree renders it. */
 export interface TilingInstance {
-  /** Stable retained identity that may be absent from the tree or used by several leaves. */
+  /**
+   * Stable retained identity, which may be absent from the tree entirely — a
+   * retained but hidden Instance. When present it names exactly one leaf:
+   * see {@link findDuplicateTilingLeaves}.
+   */
   readonly instanceId: InstanceId;
   /** Vessel implemented by the Instance. */
   readonly vesselId: VesselId;
