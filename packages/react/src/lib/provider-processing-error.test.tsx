@@ -73,7 +73,10 @@ describe('Provider processing_error forwarding', () => {
     expect(errors).toHaveLength(1);
     expect(errors[0].message).toMatch(/"orders-main" more than once/);
     // The refusal is the whole failure mode: the seed stays on screen.
-    expect(commandProcessor.store.state.layout?.tree).toEqual([
+    const onScreen = commandProcessor.store.state.layout;
+    if (onScreen?.type !== 'tiling')
+      throw new Error('expected a tiling layout');
+    expect(onScreen.tree).toEqual([
       'V',
       InstanceId('orders-main'),
       InstanceId('orders-side'),
