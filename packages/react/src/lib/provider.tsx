@@ -64,7 +64,14 @@ interface MaelstromProviderBaseProps {
    * re-renders all Maelstrom consumers.
    */
   motion?: ChartMotionConfig;
-  /** Called on Orchestrator startup failures, connection failures, processIntent failures, and executeAction failures. Errors also surface via useMaelstrom(). */
+  /**
+   * Called on Orchestrator startup failures, connection failures,
+   * processIntent failures, executeAction failures, and command-processing
+   * failures (a refused `set_layout` — see `CommandProcessor`'s
+   * `processing_error`). Errors from `processIntent` also surface via
+   * `useMaelstrom()`; a refused command does not, because it has no call to
+   * attach to.
+   */
   onError?: (error: Error) => void;
   children: ReactNode;
 }
@@ -281,12 +288,26 @@ export function createProvider(
 
       setOrchestrator(instance);
 
+      // A refused command — a `set_layout` naming the same instance in two
+      // tiling leaves is the only one today — is otherwise invisible to the
+      // app: `dispatch`/`setLayout` return void, `waitForIdle` resolves the
+      // same either way, and `store.state.lastError` is cleared by whatever
+      // command runs next. Routing it to `onError` is what makes "the layout
+      // did not update, plus an error event" an event somebody receives.
+      const unsubProcessingError = instance.commandProcessor.events.on(
+        'processing_error',
+        ({ error }) => {
+          onErrorRef.current?.(error);
+        },
+      );
+
       instance.connect().catch((err) => {
         const error = toError(err);
         onErrorRef.current?.(error);
       });
 
       return () => {
+        unsubProcessingError();
         instance.dispose().catch((err) => {
           console.error('[Maelstrom] Dispose error:', err);
         });

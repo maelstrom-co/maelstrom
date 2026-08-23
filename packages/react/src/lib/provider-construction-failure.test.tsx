@@ -28,6 +28,12 @@ class FakeOrchestrator {
     }
   }
 
+  // The Provider subscribes to processing_error here to route a refused
+  // command to onError; only the subscription surface matters to this test.
+  readonly commandProcessor = {
+    events: { on: () => () => {} },
+  };
+
   connect(): Promise<void> {
     return Promise.resolve();
   }

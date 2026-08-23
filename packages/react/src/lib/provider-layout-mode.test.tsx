@@ -19,6 +19,11 @@ class FakeOrchestrator {
   readonly setLayoutModeCalls: LayoutMode[] = [];
   #layoutMode: LayoutMode;
   readonly vesselManager = { registerVessel: () => {} };
+  // The Provider subscribes to processing_error here to route a refused
+  // command to onError; only the subscription surface matters to this test.
+  readonly commandProcessor = {
+    events: { on: () => () => {} },
+  };
 
   constructor(
     public readonly connector: unknown,
