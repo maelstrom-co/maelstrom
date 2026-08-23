@@ -290,9 +290,12 @@ Layout-level problems are filtered, not rejected:
 | Position smaller than variant `minSize` | Drop that position. |
 | Layout references unknown instance / vessel / variant | Drop that position (or tree leaf). |
 | Duplicate `instanceId` in the same layout | Keep first occurrence; drop subsequent duplicates. |
-| Tiling tree split missing a child | Collapse the split to its surviving child, or drop the entire branch if both are missing. |
+| Tiling tree split missing a child | Collapse the split to its single surviving child, or drop the entire branch when every child is missing. |
 | Tiling tree has trailing extra tokens | Truncate to first complete subtree. |
 | Tiling leaf references unknown instance | Drop that leaf; collapse the parent split. |
+| Tiling tree names the same instance twice | Blank the repeat to `null`, keeping the split's arity and every following token's index. |
+| Tiling split token has an unreadable weight suffix | Repair the weights in place — a warning, not a drop, because nothing was removed. |
+| Tiling split token declares more than `MAX_SPLIT_CHILDREN` weights | Cut the arity to the cap. Recorded as a drop: the subtrees the discarded slots would have consumed re-parent onto an ancestor, reshaping the tree. |
 | `rationale` field is empty | Demote to a non-fatal warning. |
 
 Action-level problems (`SkippedAction`, exposed via `parseExecutionPlan`) are filtered the same way — `unknown_*`, `action_not_valid`, `params_parse_failed` etc. drop the bad action without affecting the rest of the execution plan.

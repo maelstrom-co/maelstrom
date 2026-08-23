@@ -233,7 +233,7 @@ interface GridPosition {
 
 ### Tiling
 
-A binary tree of horizontal / vertical splits with instance leaves, expressed as a preorder array.
+A split tree of horizontal / vertical divisions with instance leaves, expressed as a preorder array. A split token is an axis, optionally followed by `:` and comma-separated integer weights — and the weight count declares the token's arity.
 
 ```ts
 interface TilingLayout {
@@ -267,6 +267,49 @@ for (const node of layout.tree) {
   else { /* null — empty subtree */ }
 }
 ```
+
+Classification is not enough to walk the tree, because a split's arity is declared rather than fixed at two. A two-child walker over an n-ary tree fails silently: it consumes two subtrees from a token that declared six, and every token after that is read at the wrong position.
+
+```ts
+import {
+  isTilingSplit,
+  parseTilingSplitToken,
+  type TilingNode,
+} from '@maelstrom-co/protocol';
+
+/** Consumes the subtree starting at `index`; returns the index just past it. */
+function walk(tree: readonly TilingNode[], index: number): number {
+  const node = tree[index];
+  if (node === undefined) return index;
+
+  if (isTilingSplit(node)) {
+    const { weights } = parseTilingSplitToken(node);
+    let cursor = index + 1;
+    for (let child = 0; child < weights.length; child++) {
+      cursor = walk(tree, cursor);
+    }
+    return cursor;
+  }
+
+  // A leaf: an `ID:`-prefixed Instance token, or null for empty space.
+  return index + 1;
+}
+```
+
+#### Split tokens and weights
+
+| Token | Children | Proportions |
+| ----- | -------- | ----------- |
+| `'V'` | 2 | 50% / 50%, left to right |
+| `'H'` | 2 | 50% / 50%, top to bottom |
+| `'V:1,1,1'` | 3 | one third each, left to right |
+| `'H:2,1'` | 2 | two thirds top, one third bottom |
+
+- **The number of weights is the number of children.** `'V:1,1,1'` consumes the next three subtrees from the preorder array, not two.
+- Each child takes `weight / sum(weights)` of the parent region along the axis, so a weight is a share relative to its siblings rather than a fraction of the parent. Bare `'H'` / `'V'` mean exactly `[1, 1]` and stay the preferred spelling for an even two-way split.
+- A token declares between 2 and `MAX_SPLIT_CHILDREN` (12) weights, each an integer between 1 and `MAX_SPLIT_WEIGHT` (1000). Empty fields are ignored rather than counted, so `'V:1,1,'` is a two-way split.
+- `parseTilingSplitToken(token)` reads a token into `{ axis, weights, repaired, discardedChildCount }`; `formatTilingSplitToken(axis, weights)` writes one back, emitting the bare axis for an even two-way split. A malformed suffix is repaired rather than rejected — `repaired` reports that the weights are a substitute, and a non-zero `discardedChildCount` means the arity itself was cut.
+- **An instance id appears at most once in the tree.** An Instance is one entry in the store rendering as one tile, so a repeat describes something that cannot be rendered. Weight the split instead of repeating the leaf; `findDuplicateTilingLeaf` is the shared predicate the client gates use.
 
 ---
 
