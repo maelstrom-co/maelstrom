@@ -13,6 +13,8 @@ import {
   spyOn,
 } from 'bun:test';
 import { hashWaitlistToken, isWaitlistToken } from '../../lib/waitlist-token';
+import { toSignupFailureResponse } from '../../server/signup-failure-response';
+import { DeliveryStateConflict } from '../../server/waitlist-repository';
 
 let preparedSqls: string[] = [];
 let deliveryAttempt: { id: string } | null = { id: 'attempt-id' };
@@ -606,5 +608,20 @@ describe('POST /api/waitlist/confirm', () => {
     expect(res.status).toBe(413);
     expectPrivateConfirmationResponse(res);
     expect(prepare).not.toHaveBeenCalled();
+  });
+});
+
+describe('signup failure mapping', () => {
+  it('treats a delivery-state conflict as an outage, not a security rejection', async () => {
+    const errorLog = spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const res = toSignupFailureResponse(new DeliveryStateConflict({}));
+      expect(res.status).toBe(500);
+      expect(await res.json()).toEqual({
+        error: 'Could not start your signup. Please try again.',
+      });
+    } finally {
+      errorLog.mockRestore();
+    }
   });
 });
