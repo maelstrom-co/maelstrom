@@ -246,6 +246,14 @@ export function parseTilingTree(
  * overlap for any weighting. `padding` is then inset per leaf, never per
  * split, so it never accumulates with depth. Empty trees and empty leaves
  * produce no tile, and padding never yields negative size.
+ *
+ * One tile per Instance leaf, with no post-pass. A tree naming the same
+ * Instance twice is refused by the seed validator and by the command
+ * processor, and heal blanks the repeat before it reaches the store, so a
+ * duplicate arriving here means the public API was bypassed. Merging the
+ * repeats into a bounding box used to hide that: correct only when the rects
+ * happen to form a rectangle, and silently painting over a sibling when they
+ * do not. Emitting both tiles surfaces it as a duplicate React key instead.
  */
 export function computeTilingLayout(
   tree: TilingTreeNode | null,
@@ -313,7 +321,7 @@ export function computeTilingLayout(
 
   traverse(tree, containerRect);
 
-  return mergeDuplicateTiles(tiles);
+  return tiles;
 }
 
 function toSplitChild(child: {
@@ -321,55 +329,4 @@ function toSplitChild(child: {
   node?: TilingTreeNode;
 }): TilingSplitChild {
   return { weight: child.weight, node: child.node } as TilingSplitChild;
-}
-
-function mergeDuplicateTiles(tiles: ComputedTile[]): ComputedTile[] {
-  const instanceMap = new Map<InstanceId, ComputedTile[]>();
-
-  for (const tile of tiles) {
-    const existing = instanceMap.get(tile.instanceId);
-    if (existing) {
-      existing.push(tile);
-    } else {
-      instanceMap.set(tile.instanceId, [tile]);
-    }
-  }
-
-  const merged: ComputedTile[] = [];
-
-  for (const [instanceId, instanceTiles] of instanceMap) {
-    if (instanceTiles.length === 1) {
-      const tile = instanceTiles[0];
-      if (!tile)
-        throw new Error(
-          'instanceTiles must contain an element when length is 1',
-        );
-      merged.push(tile);
-    } else {
-      const boundingBox = computeBoundingBox(instanceTiles.map((t) => t.rect));
-      merged.push({ instanceId, rect: boundingBox });
-    }
-  }
-
-  return merged;
-}
-
-function computeBoundingBox(rects: Rect[]): Rect {
-  if (rects.length === 0) {
-    return { x: 0, y: 0, width: 0, height: 0 };
-  }
-
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-
-  for (const rect of rects) {
-    minX = Math.min(minX, rect.x);
-    minY = Math.min(minY, rect.y);
-    maxX = Math.max(maxX, rect.x + rect.width);
-    maxY = Math.max(maxY, rect.y + rect.height);
-  }
-
-  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
 }

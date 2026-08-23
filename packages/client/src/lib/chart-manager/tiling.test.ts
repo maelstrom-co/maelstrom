@@ -284,11 +284,6 @@ describe('computeTilingLayout', () => {
       tree: ['H', weatherLeaf],
       expectedVisibleIds: [weatherId],
     },
-    {
-      name: 'duplicate leaves',
-      tree: ['H', weatherLeaf, weatherLeaf],
-      expectedVisibleIds: [weatherId],
-    },
     { name: 'null leaf', tree: [null], expectedVisibleIds: [] },
     {
       name: 'a weighted split with a null in the middle',
@@ -385,17 +380,6 @@ describe('computeTilingLayout', () => {
     expect(left.rect.width).toBe(400);
     expect(right.rect.x).toBe(400);
     expect(right.rect.width).toBe(400);
-  });
-
-  it('merges duplicate instanceIds into bounding box', () => {
-    // Tree: V split with same instanceId on both sides
-    const tree = parseTilingTree(['V', 'ID:inst-1', 'ID:inst-1']);
-    if (!tree) throw new Error('expected parsed tree');
-    const tiles = computeTilingLayout(tree, containerRect, 0);
-    expect(tiles).toHaveLength(1);
-    expect(tiles[0].instanceId).toBe(InstanceId('inst-1'));
-    // Bounding box should span the full container
-    expect(tiles[0].rect).toEqual({ x: 0, y: 0, width: 800, height: 600 });
   });
 });
 
