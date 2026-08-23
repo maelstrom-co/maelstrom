@@ -676,7 +676,7 @@ describe('buildGridChartState', () => {
 describe('buildTilingChartState', () => {
   test('includes layout mode header and visible instances', () => {
     const output = buildTilingChartState(makeTilingRequest());
-    expect(output).toContain('Layout Mode: Tiling (binary tree)');
+    expect(output).toContain('Layout Mode: Tiling (split tree)');
     expect(output).toContain('Currently Visible:');
     expect(output).toContain('calendar-main (calendar), variant: month');
   });
@@ -978,6 +978,6 @@ describe('buildDefaultUserSections', () => {
   test('routes to tiling chart-state builder for tiling mode', () => {
     const sections = buildDefaultUserSections(makeTilingRequest());
     const chartState = sections.find((s) => s.key === 'chartState');
-    expect(chartState?.content).toContain('Layout Mode: Tiling (binary tree)');
+    expect(chartState?.content).toContain('Layout Mode: Tiling (split tree)');
   });
 });

@@ -20,7 +20,7 @@ describe('buildPrompt', () => {
       const result = buildPrompt(makeGridRequest());
       expect(result.systemPrompt).toContain('grid layout system');
       expect(result.systemPrompt).toContain('GRID LAYOUT SYSTEM');
-      expect(result.systemPrompt).not.toContain('binary tree');
+      expect(result.systemPrompt).not.toContain('split tree');
     });
   });
 
@@ -29,7 +29,7 @@ describe('buildPrompt', () => {
       const result = buildPrompt(makeTilingRequest());
       expect(result.systemPrompt).toContain('tiling layout system');
       expect(result.systemPrompt).toContain('TILING LAYOUT SYSTEM');
-      expect(result.systemPrompt).toContain('binary tree');
+      expect(result.systemPrompt).toContain('split tree');
       expect(result.systemPrompt).not.toContain('GRID LAYOUT SYSTEM');
     });
   });
@@ -244,13 +244,13 @@ describe('buildSystemPrompt', () => {
   test('builds grid system prompt', () => {
     const prompt = buildSystemPrompt('grid');
     expect(prompt).toContain('grid layout system');
-    expect(prompt).not.toContain('binary tree');
+    expect(prompt).not.toContain('split tree');
   });
 
   test('builds tiling system prompt', () => {
     const prompt = buildSystemPrompt('tiling');
     expect(prompt).toContain('tiling layout system');
-    expect(prompt).toContain('binary tree');
+    expect(prompt).toContain('split tree');
   });
 
   // Regression lock for the LLM "two ways to change a variant" footgun.
