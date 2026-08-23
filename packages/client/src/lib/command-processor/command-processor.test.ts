@@ -230,6 +230,31 @@ describe('CommandProcessor (Event Loop)', () => {
       expect(processor.store.state.status).toBe('idle');
     });
 
+    it('abandons the rest of the batch when the layout is refused', async () => {
+      // Orchestrator.#dispatchResponse pairs set_layout with the
+      // execute_actions that targets the instances that layout creates, so
+      // running the tail against the pre-refusal store would stall each
+      // action for its readiness timeout and then record it as `skipped`
+      // with an ok result — a batch reporting zero failures.
+      const abandoned: Command[][] = [];
+      processor.events.on('batch_abandoned', (event) => {
+        abandoned.push([...event.abandoned]);
+      });
+
+      const actions = createExecuteActionsCommand('never-created', 'refresh');
+      processor.dispatch(
+        {
+          kind: 'set_layout',
+          layout: tilingLayout(['V', InstanceId('a'), InstanceId('a')]),
+        },
+        actions,
+      );
+      await processor.waitForIdle();
+
+      expect(abandoned).toEqual([[actions]]);
+      expect(processor.store.state.layout).toBeNull();
+    });
+
     it('applies a weighted layout whose leaves are all distinct', async () => {
       const layout = tilingLayout(['V:2,1', 'ID:a', 'ID:b']);
 

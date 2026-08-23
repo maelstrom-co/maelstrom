@@ -41,6 +41,18 @@ export type CommandProcessorEvents = {
     error: Error;
     timestamp: number;
   };
+  /**
+   * Fired when a command in a multi-command batch throws and the rest of
+   * that batch is abandoned. `failed` is the command that threw (already
+   * reported through `processing_error`); `abandoned` are the commands after
+   * it that never ran.
+   */
+  batch_abandoned: {
+    failed: Command;
+    abandoned: readonly Command[];
+    error: Error;
+    timestamp: number;
+  };
   /** Fired when one or more actions in a batch fail or are skipped. */
   action_error: {
     instanceId: InstanceId;
@@ -158,7 +170,10 @@ export class CommandProcessor {
    * Dispatch one or more commands for processing.
    * A single command is processed immediately (or queued).
    * Multiple commands form an atomic batch — processed sequentially
-   * without returning to idle between them.
+   * without returning to idle between them, and a command that throws
+   * abandons the rest of its batch (`processing_error` names the failure,
+   * `batch_abandoned` names what never ran). Commands dispatched separately
+   * are independent: a failure in one does not stop the next.
    */
   dispatch(...commands: Command[]): void {
     if (commands.length === 0) return;
@@ -275,8 +290,19 @@ export class CommandProcessor {
 
     while (currentItem) {
       if (Array.isArray(currentItem)) {
-        for (const command of currentItem) {
-          await this.#processCommand(command);
+        // A batch is atomic to its producer: #dispatchResponse pairs a
+        // set_layout with the execute_actions that targets the instances
+        // that layout creates. Running the tail after the head threw would
+        // execute those actions against the pre-command store — every action
+        // waiting out its readiness timeout, recording as `skipped` with an
+        // `ok` result, and the batch reporting zero failures. Abandon
+        // instead, and say which commands were abandoned.
+        for (const [index, command] of currentItem.entries()) {
+          const error = await this.#processCommand(command);
+          if (error) {
+            this.#abandonBatch(command, currentItem.slice(index + 1), error);
+            break;
+          }
         }
       } else {
         await this.#processCommand(currentItem);
@@ -286,7 +312,39 @@ export class CommandProcessor {
     }
   }
 
-  async #processCommand(command: Command): Promise<void> {
+  #abandonBatch(
+    failed: Command,
+    abandoned: readonly Command[],
+    error: Error,
+  ): void {
+    if (abandoned.length === 0) return;
+
+    this.#logger.error(
+      `Abandoning ${abandoned.length} command(s) after ${failed.kind} failed: ${abandoned.map((c) => c.kind).join(', ')}`,
+    );
+
+    // Settle before the event so an awaiting runLocalAction cannot hang on a
+    // command that will never run (undefined → 'failed', which reverts an
+    // optimistic transition rather than assuming success).
+    for (const command of abandoned) {
+      const resolve = this.#actionResultResolvers.get(command);
+      if (resolve) {
+        this.#actionResultResolvers.delete(command);
+        resolve(undefined);
+      }
+    }
+
+    this.#emitter.emit('batch_abandoned', {
+      failed,
+      abandoned,
+      error,
+      timestamp: performance.now(),
+    });
+  }
+
+  // Returns the error a command threw, or `null` when it completed — the
+  // signal #runEventLoop needs to abandon the rest of an atomic batch.
+  async #processCommand(command: Command): Promise<Error | null> {
     const startTime = performance.now();
 
     this.#logger.info(`Processing command: ${command.kind}`);
@@ -303,6 +361,7 @@ export class CommandProcessor {
     });
 
     let actionResult: BatchExecutionResult | undefined;
+    let failure: Error | null = null;
     try {
       switch (command.kind) {
         case 'set_layout': {
@@ -338,6 +397,7 @@ export class CommandProcessor {
     } catch (error) {
       this.#logger.error('Error processing command:', error);
       const errorObj = toError(error);
+      failure = errorObj;
       this.store.setState((state) => ({
         ...state,
         status: 'error' as const,
@@ -365,6 +425,8 @@ export class CommandProcessor {
       this.#actionResultResolvers.delete(command);
       resolve(actionResult);
     }
+
+    return failure;
   }
 
   #dequeueNext(): Command | Command[] | null {
