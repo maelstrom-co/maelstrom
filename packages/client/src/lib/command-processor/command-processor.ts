@@ -7,7 +7,7 @@ import type {
   VariantName,
   VesselDefinition,
 } from '@maelstrom-co/protocol';
-import { toError } from '@maelstrom-co/protocol';
+import { findDuplicateTilingLeaf, toError } from '@maelstrom-co/protocol';
 import { Store } from '@tanstack/store';
 
 import type { Unsubscribe } from '../types.js';
@@ -306,6 +306,7 @@ export class CommandProcessor {
     try {
       switch (command.kind) {
         case 'set_layout': {
+          assertNoDuplicateTilingLeaf(command.layout);
           const newInstances = applyLayout(
             command.layout,
             this.store.state.instances,
@@ -378,4 +379,29 @@ export class CommandProcessor {
 
     return null;
   }
+}
+
+/**
+ * Refuses a tiling layout that names the same Instance in two tree slots.
+ *
+ * An Instance is one entry in the store with one Variant and one action
+ * surface, and tiles are keyed by Instance ID, so a repeated leaf describes
+ * something the renderer cannot draw. Weighted split tokens replace the only
+ * reason a producer ever had to repeat a leaf — claiming more space — so the
+ * repeat is now unambiguously a producer bug.
+ *
+ * Throwing rather than repairing is deliberate: `#processCommand` converts it
+ * into a `processing_error` event and leaves the store untouched, so the
+ * previously rendered layout stays on screen. The failure mode is "the layout
+ * did not update, plus an error event", never a blank chart.
+ */
+function assertNoDuplicateTilingLeaf(layout: GridLayout | TilingLayout): void {
+  if (layout.type !== 'tiling') return;
+
+  const duplicate = findDuplicateTilingLeaf(layout.tree);
+  if (!duplicate) return;
+
+  throw new Error(
+    `set_layout rejected: tiling tree names instance "${duplicate.instanceId}" more than once (tree index ${duplicate.atTokenIndex}). An instance renders as exactly one tile — weight the split token instead of repeating the leaf.`,
+  );
 }

@@ -3,6 +3,7 @@ import {
   type ActionName,
   ChartRequestMessage,
   type ChartResizeReason,
+  findDuplicateTilingLeaf,
   type InstanceId,
   type LayoutMode,
   type MaelstromResponse,
@@ -1153,6 +1154,13 @@ function validateTilingSeedInvariants(layout: TilingLayout): void {
       );
     }
     seenIds.add(instance.instanceId);
+  }
+
+  const duplicateLeaf = findDuplicateTilingLeaf(layout.tree);
+  if (duplicateLeaf) {
+    throw new Error(
+      `initialLayout.tree names instance "${duplicateLeaf.instanceId}" more than once (tree index ${duplicateLeaf.atTokenIndex}). An instance renders as exactly one tile — weight the split token instead of repeating the leaf.`,
+    );
   }
 
   const treedIds = new Set<InstanceId>();

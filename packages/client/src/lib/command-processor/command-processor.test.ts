@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, it } from 'bun:test';
-import { InstanceId } from '@maelstrom-co/protocol';
+import {
+  type GridLayout,
+  InstanceId,
+  type TilingLayout,
+  tilingLeafInstanceId,
+  VariantName,
+  VesselId,
+} from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
 
 import {
@@ -173,6 +180,92 @@ describe('CommandProcessor (Event Loop)', () => {
       sub.unsubscribe();
 
       expect(statusTransitions).toContain('error');
+      expect(processor.store.state.status).toBe('idle');
+    });
+  });
+
+  // Weighted split tokens replace the only sanctioned reason a producer had
+  // to repeat a leaf, so a repeat is now a producer bug. The renderer no
+  // longer bounding-boxes duplicates away, so this gate is what keeps a
+  // duplicate out of the store in the first place.
+  describe('duplicate tiling leaf gate', () => {
+    function tilingLayout(tree: TilingLayout['tree']): TilingLayout {
+      const leaves = new Set<InstanceId>();
+      for (const node of tree) {
+        const instanceId = tilingLeafInstanceId(node);
+        if (instanceId !== null) leaves.add(instanceId);
+      }
+      return {
+        type: 'tiling',
+        tree,
+        instances: [...leaves].map((instanceId) => ({
+          instanceId,
+          vesselId: VesselId('vessel-1'),
+          variant: VariantName('default'),
+        })),
+      };
+    }
+
+    it('refuses a duplicate-bearing tiling layout, emitting processing_error and leaving the previous layout on screen', async () => {
+      const errors: Error[] = [];
+      processor.events.on('processing_error', ({ error }) => {
+        errors.push(error);
+      });
+
+      const good = tilingLayout(['V', 'ID:a', 'ID:b']);
+      processor.dispatch({ kind: 'set_layout', layout: good });
+      await processor.waitForIdle();
+
+      processor.dispatch({
+        kind: 'set_layout',
+        layout: tilingLayout(['V', 'ID:a', 'ID:a']),
+      });
+      await processor.waitForIdle();
+
+      expect(errors).toHaveLength(1);
+      expect(errors[0].message).toContain('"a"');
+      // The failure mode is "the layout did not update", not a blank chart.
+      expect(processor.store.state.layout).toBe(good);
+      expect(processor.store.state.instances.has(InstanceId('b'))).toBe(true);
+      expect(processor.store.state.status).toBe('idle');
+    });
+
+    it('applies a weighted layout whose leaves are all distinct', async () => {
+      const layout = tilingLayout(['V:2,1', 'ID:a', 'ID:b']);
+
+      processor.dispatch({ kind: 'set_layout', layout });
+      await processor.waitForIdle();
+
+      expect(processor.store.state.layout).toBe(layout);
+      expect(processor.store.state.instances.size).toBe(2);
+      expect(processor.store.state.status).toBe('idle');
+    });
+
+    it('leaves grid layouts alone — a repeated instance there is a repositioning, not a second tile', async () => {
+      const seeded = tilingLayout(['V', 'ID:a', 'ID:b']);
+      processor.dispatch({ kind: 'set_layout', layout: seeded });
+      await processor.waitForIdle();
+
+      const grid: GridLayout = {
+        type: 'grid',
+        positions: [
+          {
+            instanceId: InstanceId('a'),
+            position: { column: 0, row: 0 },
+            size: { width: 1, height: 1 },
+          },
+          {
+            instanceId: InstanceId('a'),
+            position: { column: 1, row: 0 },
+            size: { width: 1, height: 1 },
+          },
+        ],
+      };
+
+      processor.dispatch({ kind: 'set_layout', layout: grid });
+      await processor.waitForIdle();
+
+      expect(processor.store.state.layout).toBe(grid);
       expect(processor.store.state.status).toBe('idle');
     });
   });

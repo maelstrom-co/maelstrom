@@ -3041,6 +3041,23 @@ describe('Orchestrator', () => {
         ).toThrow(/duplicate.*calendar-main/i);
       });
 
+      // Not redundant with the command-processor gate: #processCommand
+      // swallows a throw into a processing_error event, so without this a bad
+      // seed would fail silently at construction rather than loudly.
+      it('throws when initialLayout.tree names the same instance twice', () => {
+        expect(() =>
+          createTestOrchestrator(undefined, {
+            vessels: [calendarVessel],
+            initialLayout: {
+              ...calendarSeed,
+              tree: ['V', 'ID:calendar-main', 'ID:calendar-main'],
+            },
+          }),
+        ).toThrow(
+          /more than once.*calendar-main|calendar-main.*more than once/is,
+        );
+      });
+
       it('throws when initialLayout.tree references a leaf absent from initialLayout.instances', () => {
         expect(() =>
           createTestOrchestrator(undefined, {
@@ -3136,27 +3153,6 @@ describe('Orchestrator', () => {
           initialLayout: {
             ...calendarSeed,
             tree: ['V', 'ID:calendar-main', null],
-          },
-        });
-
-        await orchestrator.commandProcessor.waitForIdle();
-        expect(orchestrator.commandProcessor.store.state.instances.size).toBe(
-          1,
-        );
-
-        orchestrator.dispose();
-      });
-
-      // Tolerated rather than validated: both membership directions hold, so
-      // the seed is coherent — the renderer decides what a twice-placed leaf
-      // means. Pinned here so a future decision to reject it is a deliberate
-      // change rather than an accident.
-      it('constructs when the same instance appears as a tree leaf twice', async () => {
-        const { orchestrator } = createTestOrchestrator(undefined, {
-          vessels: [calendarVessel],
-          initialLayout: {
-            ...calendarSeed,
-            tree: ['V', 'ID:calendar-main', 'ID:calendar-main'],
           },
         });
 
