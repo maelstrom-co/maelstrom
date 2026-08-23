@@ -102,6 +102,14 @@ type FencedSend =
  * @throws If `options.initialLayout` is present and `options.layoutMode` is
  * `'grid'` — the seed's type and the mode must agree.
  * @throws If `options.initialLayout` declares the same `instanceId` twice.
+ * @throws If an `options.initialLayout` tree contains a split token whose
+ * weight suffix is malformed — anything an engine response would have
+ * repaired, such as `"V:1,5000"` or `"V:01,1"`. A seed is rejected rather
+ * than repaired: the lenient-LLM / strict-developer asymmetry means the
+ * author is told, instead of being handed geometry they did not write.
+ * @throws If an `options.initialLayout` tree names the same instance in two
+ * leaves. An instance renders as exactly one tile; weight the split token
+ * instead of repeating the leaf.
  * @throws If an `options.initialLayout` tree leaf is not declared in its
  * `instances`, or a declared instance is referenced by no tree leaf.
  * @throws If an `options.initialLayout` instance names a vessel that is not

@@ -453,9 +453,17 @@ export class CommandProcessor {
  * repeat is now unambiguously a producer bug.
  *
  * Throwing rather than repairing is deliberate: `#processCommand` converts it
- * into a `processing_error` event and leaves the store untouched, so the
- * previously rendered layout stays on screen. The failure mode is "the layout
- * did not update, plus an error event", never a blank chart.
+ * into a `processing_error` event, which the React Provider forwards to its
+ * `onError` prop. `layout` and `instances` keep their previous values, so a
+ * layout already on screen stays on screen; `status` and `lastError` do
+ * record the refusal, and `lastError` outlives the return to `'idle'` until
+ * the next command clears it. Dispatched as part of a batch, the refusal also
+ * abandons the commands after it (`batch_abandoned`).
+ *
+ * The failure mode is therefore "the layout did not update, plus an error
+ * event" — with one exception. Refusing the *first* layout leaves
+ * `store.state.layout` at its initial `null`, and there is nothing to fall
+ * back to: the React chart renders its empty-grid placeholder.
  */
 function assertNoDuplicateTilingLeaf(layout: GridLayout | TilingLayout): void {
   if (layout.type !== 'tiling') return;

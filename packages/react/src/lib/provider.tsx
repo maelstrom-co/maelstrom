@@ -105,6 +105,13 @@ interface TilingProviderProps extends MaelstromProviderBaseProps {
    * naming one can never resolve. The seed must also carry no duplicate
    * `instanceId`, and every leaf of `tree` must appear in `instances`.
    *
+   * The tree is held to the strict spelling of the grammar: no instance may
+   * appear in two leaves (weight the split token instead of repeating it),
+   * and every weight suffix must be well formed. A suffix an engine response
+   * would have repaired — `"V:1,5000"`, `"V:01,1"` — is rejected here rather
+   * than silently rewritten, so an author is never handed geometry they did
+   * not write.
+   *
    * Validated during construction, and a validation failure is fatal to the
    * Provider: the error goes to `onError` and `console.error`, but the
    * Orchestrator is never created and everything under `<MaelstromProvider>`

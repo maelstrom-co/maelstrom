@@ -91,7 +91,11 @@ export interface TilingLeafNode {
 
 /** Renderable tile computed for one Instance. */
 export interface ComputedTile {
-  /** Repeated leaves with this identity coalesce into one bounding tile. */
+  /**
+   * Instance this tile renders. Each Instance leaf produces exactly one tile;
+   * a repeated leaf is refused upstream rather than merged here, so two tiles
+   * can carry the same identity only when the public API was bypassed.
+   */
   readonly instanceId: InstanceId;
   /** Padded pixel-space bounds for the Instance. */
   readonly rect: Rect;
