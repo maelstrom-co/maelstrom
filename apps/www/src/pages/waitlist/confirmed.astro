@@ -70,7 +70,12 @@ if (!hasReceipt) {
         title="This access link has expired"
         message="Confirmation access is short-lived. Enter your email to request another invitation."
       >
-        <form class="resend-form" data-waitlist-resend>
+        <form
+          class="resend-form"
+          method="post"
+          action="/api/waitlist/resend"
+          data-waitlist-resend
+        >
           <label for="waitlist-resend-email">Email address</label>
           <div class="resend-fields">
             <input

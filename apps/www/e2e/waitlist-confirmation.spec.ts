@@ -78,6 +78,37 @@ test('hides the Discord invitation from visitors without a receipt', async ({
   expect(captures).toEqual([]);
 });
 
+test('native resend fallback keeps the email out of URLs without JavaScript', async ({
+  browser,
+  baseURL,
+}) => {
+  const email = 'native-resend@example.com';
+  const page = await browser.newPage({ baseURL, javaScriptEnabled: false });
+  const requestUrls: string[] = [];
+  let resendRequest: import('@playwright/test').Request | undefined;
+  page.on('request', (request) => requestUrls.push(request.url()));
+  await page.route('**/api/waitlist/resend', async (route) => {
+    resendRequest = route.request();
+    await route.fulfill({ status: 415, body: 'Unsupported media type' });
+  });
+
+  await page.goto('/waitlist/confirmed/');
+  const form = page.locator('[data-waitlist-resend]');
+  await expect(form).toHaveAttribute('method', 'post');
+  await expect(form).toHaveAttribute('action', '/api/waitlist/resend');
+  await page.getByLabel('Email address').fill(email);
+  await page.getByRole('button', { name: 'Resend invitation' }).click();
+
+  await expect(page).toHaveURL(/\/api\/waitlist\/resend$/);
+  expect(resendRequest?.method()).toBe('POST');
+  expect(resendRequest?.url()).not.toContain(email);
+  expect(requestUrls.every((url) => !url.includes(email))).toBe(true);
+  await page.goBack();
+  expect(page.url()).not.toContain(email);
+
+  await page.close();
+});
+
 test('expired recovery keeps accepted and failed feedback generic and private', async ({
   page,
 }) => {
