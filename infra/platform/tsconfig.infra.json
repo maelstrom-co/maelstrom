@@ -9,5 +9,11 @@
     "noEmit": true,
     "types": ["bun"]
   },
-  "include": ["alchemy.run.ts", "state.run.ts", "src/**/*.ts", "test/**/*.ts"]
+  "include": [
+    "alchemy.run.ts",
+    "drizzle.config.ts",
+    "state.run.ts",
+    "src/**/*.ts",
+    "test/**/*.ts"
+  ]
 }
