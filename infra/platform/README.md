@@ -161,13 +161,26 @@ friction, not membership control: confirmation issues a one-hour HttpOnly
 receipt cookie (`0005`) that the page validates against D1 before rendering the
 invite. Validation matches the receipt hash alone; only the confirmation
 transition ever writes one, so no status re-check is needed. Visitors without a
-valid receipt get an explicit expired view and fire no analytics events. The
-invitation email still carries the raw link by design; forwarding it requires
-completing the process first.
+valid receipt get an explicit expired view with a Turnstile-protected resend
+form and fire no analytics events. After valid proof, the resend route returns
+the same generic `202` for every subscriber, cooldown, backoff, and delivery
+outcome. It sends only the existing invitation email and issues no new receipt
+or cookie. The invitation email still carries the raw link by design;
+forwarding it requires completing the process first.
+
+Immutable migration `0006` adds the dedicated
+`waitlist_resend_deliveries` ledger. Its atomic confirmed-subscriber claim
+durably suppresses another resend for ten minutes and also observes the global
+email-provider backoff.
 
 Deploy `0005` through the platform stack before the application Worker: the
 gated page reads the new columns, so an app-first rollout would break
 `/waitlist/confirmed/` until the migration lands.
+
+Deploy `0006` and the retained rate-limit rule through the platform stack before
+the Worker that queries the resend ledger. For rollback, restore the previous
+Worker first and retain the additive migration and rate-limit rule; never edit
+an applied migration.
 
 ### Rate-limit ownership migration
 
@@ -192,11 +205,11 @@ resource, API preflight adapter, and persisted-state validator. After deploy,
 the workflow verifies every ruleset and ordered rule semantic in both persisted
 Alchemy state and a fresh live phase response against that contract.
 
-The owned waitlist rule still matches `/api/waitlist` by exact equality and adds
-`/api/waitlist/confirm` with a second explicit equality. It does not use prefix
-matching. The preflight minimizes but cannot remove TOCTOU risk: Cloudflare does
-not provide a conditional phase replacement, so the live phase can still change
-between the guarded GET and Alchemy's PUT.
+The owned waitlist rule matches `/api/waitlist`, `/api/waitlist/confirm`, and
+`/api/waitlist/resend` through three explicit equality branches. It does not use
+prefix matching. The preflight minimizes but cannot remove TOCTOU risk:
+Cloudflare does not provide a conditional phase replacement, so the live phase
+can still change between the guarded GET and Alchemy's PUT.
 
 The production token needs Zone Read and zone-scoped `Zone WAF Write` for
 `maelstrom-ai.co`; older Cloudflare dashboard wording may call the latter
