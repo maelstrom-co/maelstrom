@@ -99,11 +99,45 @@ describe('preview workflows', () => {
     ).toContain('EXPECTED_CLOUDFLARE_ACCOUNT_ID');
   });
 
-  test('both preview workflows reject equal production and preview variables', () => {
+  test('deploy checks trusted configuration before installing or building source', () => {
+    const workflow = read('deploy-preview.yml');
+    const name = 'Assert required preview configuration';
+    const preflight = step(workflow, name);
+    for (const [key, context] of [
+      ['PRODUCTION_ACCOUNT_ID', 'vars'],
+      ['PREVIEW_ACCOUNT_ID', 'vars'],
+      ['CLOUDFLARE_PREVIEW_WORKERS_DEV_SUFFIX', 'vars'],
+      ['CLOUDFLARE_PREVIEW_ACCOUNT_ID', 'secrets'],
+      ['CLOUDFLARE_PREVIEW_API_TOKEN', 'secrets'],
+    ]) {
+      expect(preflight).toContain(`${key}: ${expression(`${context}.${key}`)}`);
+    }
+    expect(preflight).toContain(
+      `BUN_EXECUTABLE: ${expression('steps.trusted-bun.outputs.path')}`,
+    );
+    expect(preflight).toContain("BUN_OPTIONS: ''");
+    expect(preflight).toContain("NODE_OPTIONS: ''");
+    expect(preflight).toContain(
+      '"$BUN_EXECUTABLE" --config=scripts/preview-lifecycle.bunfig.toml --no-env-file --no-install scripts/preview-preflight.ts',
+    );
+    expect(preflight).not.toContain('working-directory:');
+    expect(workflow).toContain('environment: preview');
+    expect(workflow.indexOf('Capture trusted Bun executable')).toBeLessThan(
+      workflow.indexOf(name),
+    );
+    for (const next of [
+      'Install source dependencies',
+      'Build independent preview artifacts',
+      'Deploy demo preview',
+    ]) {
+      expect(workflow.indexOf(name)).toBeLessThan(workflow.indexOf(next));
+    }
+  });
+
+  test('teardown workflows reject equal production and preview variables', () => {
     const guardName = 'name: Assert distinct account variables';
     const comparison = 'test "$PRODUCTION_ACCOUNT_ID" != "$PREVIEW_ACCOUNT_ID"';
     for (const workflow of [
-      read('deploy-preview.yml'),
       read('teardown-preview.yml'),
       read('reconcile-previews.yml'),
     ]) {
