@@ -5,9 +5,13 @@ import {
   type ChartResizeReason,
   findDuplicateTilingLeaf,
   type InstanceId,
+  isTilingSplit,
   type LayoutMode,
+  MAX_SPLIT_CHILDREN,
+  MAX_SPLIT_WEIGHT,
   type MaelstromResponse,
   MessageId,
+  parseTilingSplitToken,
   type SessionHistoryEntry,
   type SessionId,
   type TilingLayout,
@@ -1154,6 +1158,21 @@ function validateTilingSeedInvariants(layout: TilingLayout): void {
       );
     }
     seenIds.add(instance.instanceId);
+  }
+
+  // Malformed weight suffixes are repaired everywhere else in the system,
+  // because a model's typo must still render something. A seed is a
+  // developer's literal, and the lenient-LLM / strict-developer doctrine says
+  // a strict site rejects what a lenient one repairs: silently rewriting
+  // "V:1,0,2" to "V:1,1,2" would hand an author geometry they never asked for
+  // with nothing in the layout to point at.
+  for (const [index, node] of layout.tree.entries()) {
+    if (!isTilingSplit(node)) continue;
+    const parsed = parseTilingSplitToken(node);
+    if (!parsed.repaired && parsed.discardedChildCount === 0) continue;
+    throw new Error(
+      `initialLayout.tree[${index}] is the malformed split token "${node}". Weights must be a comma-separated list of two to ${MAX_SPLIT_CHILDREN} integers from 1 to ${MAX_SPLIT_WEIGHT}, e.g. "V:1,1,1"; bare "H"/"V" mean an even two-way split.`,
+    );
   }
 
   const duplicateLeaf = findDuplicateTilingLeaf(layout.tree);

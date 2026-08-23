@@ -19,6 +19,7 @@ import {
   SessionId,
   type TilingLayout,
   tilingLeafToken,
+  type TilingNode,
   VariantName,
   type Vessel,
   type VesselDefinition,
@@ -3056,6 +3057,48 @@ describe('Orchestrator', () => {
         ).toThrow(
           /more than once.*calendar-main|calendar-main.*more than once/is,
         );
+      });
+
+      // The lenient-LLM / strict-developer split: heal repairs a malformed
+      // weight suffix so a model's typo still renders, but a seed is a
+      // literal an author wrote, and silently rewriting it would hand them
+      // geometry they never asked for with nothing in the layout to point at.
+      const malformedWeightCases: readonly [string, string][] = [
+        ['a non-numeric field', 'V:abc'],
+        ['a zero weight', 'V:1,0,2'],
+        ['a weight above the cap', 'V:1,5000'],
+        ['a stray trailing comma, which declares no child slot', 'V:1,1,'],
+        ['a leading-zero spelling', 'V:01,1'],
+        ['more weights than a token may declare', `V:${'1,'.repeat(12)}1`],
+      ];
+
+      for (const [name, token] of malformedWeightCases) {
+        it(`throws when initialLayout.tree carries a split token with ${name}`, () => {
+          expect(() =>
+            createTestOrchestrator(undefined, {
+              vessels: [calendarVessel],
+              initialLayout: {
+                ...calendarSeed,
+                tree: [token as TilingNode, 'ID:calendar-main'],
+              },
+            }),
+          ).toThrow(/malformed split token/i);
+        });
+      }
+
+      it('accepts a well-formed weighted split token', () => {
+        const orchestrator = createTestOrchestrator(undefined, {
+          vessels: [calendarVessel],
+          initialLayout: {
+            ...calendarSeed,
+            tree: ['H:2,1', 'ID:calendar-main', null],
+          },
+        }).orchestrator;
+
+        expect(orchestrator.commandProcessor.store.state.layoutMode).toBe(
+          'tiling',
+        );
+        orchestrator.dispose();
       });
 
       it('throws when initialLayout.tree references a leaf absent from initialLayout.instances', () => {
