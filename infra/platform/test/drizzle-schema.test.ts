@@ -171,9 +171,18 @@ describe('Drizzle waitlist schema', () => {
       resolve(workspaceRoot, '.github/workflows/deploy-production.yml'),
       'utf8',
     );
+    const stack = readFileSync(
+      resolve(workspaceRoot, 'infra/platform/alchemy.run.ts'),
+      'utf8',
+    );
     expect(waitlist).toContain("D1.Database('Waitlist'");
     expect(waitlist).toContain('../migrations');
-    expect(waitlist).not.toContain('WaitlistNext');
+    expect(waitlist).toContain("D1.Database('WaitlistNext'");
+    expect(waitlist).toContain('../drizzle/migrations');
+    expect(waitlist).not.toContain('Drizzle.Schema');
+    expect(stack).not.toContain('Drizzle.providers');
+    expect(waitlist).toContain("Database.ref('Waitlist'");
+    expect(waitlist).not.toContain("Database.ref('WaitlistNext'");
     expect(deploy).not.toContain('drizzle-kit generate');
     expect(deploy).not.toContain('db:generate');
   });

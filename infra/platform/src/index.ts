@@ -16,6 +16,7 @@ export {
 } from './Stage.js';
 export {
   WAITLIST_DATABASE_NAME,
+  WAITLIST_NEXT_DATABASE_NAME,
   WAITLIST_TURNSTILE_SECRET_BINDING,
   WaitlistDatabase,
   WaitlistTurnstile,
