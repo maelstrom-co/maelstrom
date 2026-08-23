@@ -11,6 +11,7 @@ import {
   hashWaitlistToken,
 } from '../../lib/waitlist-token';
 import { readProperty } from '../../server/read-property';
+import { runOrErrorResponse } from '../../server/run-or-error';
 import {
   decodeSignupRequest,
   requireTurnstileToken,
@@ -19,6 +20,10 @@ import {
   TurnstileVerifier,
   type TurnstileVerifierError,
 } from '../../server/turnstile-verifier';
+import {
+  makeRepository,
+  type WaitlistRepositoryService,
+} from '../../server/waitlist-repository';
 
 const CONFIRMATION_TTL_MS = 24 * 60 * 60 * 1000;
 const RESEND_COOLDOWN_MS = 10 * 60 * 1000;
@@ -109,21 +114,33 @@ export const POST: APIRoute = async ({ request, locals }) => {
   const expiresAt = new Date(now.getTime() + CONFIRMATION_TTL_MS).toISOString();
   const cooldown = new Date(now.getTime() - RESEND_COOLDOWN_MS).toISOString();
   const attemptId = crypto.randomUUID();
-  const deliveries = new WaitlistDeliveryStore(database);
+  const deliveries = makeRepository(new WaitlistDeliveryStore(database));
 
-  try {
-    const claimed = await deliveries.claimDeliveryAttempt({
+  const claim = await runOrErrorResponse(
+    deliveries.claimDeliveryAttempt({
       id: attemptId,
       email,
       tokenHash,
       expiresAt,
       attemptedAt: nowIso,
       cooldownSince: cooldown,
-    });
-    if (!claimed) {
-      return acceptedResponse();
-    }
-
+    }),
+    () => {
+      console.error({
+        message: 'waitlist signup failed',
+        category: 'signup_store_failed',
+      });
+      return jsonResponse(
+        { error: 'Could not start your signup. Please try again.' },
+        500,
+      );
+    },
+  );
+  if (claim instanceof Response) return claim;
+  if (!claim) {
+    return acceptedResponse();
+  }
+  {
     const delivery = deliverConfirmationEmail({
       attemptId,
       deliveries,
@@ -137,20 +154,6 @@ export const POST: APIRoute = async ({ request, locals }) => {
       await delivery;
     }
     return acceptedResponse();
-  } catch {
-    console.error({
-      message: 'waitlist signup failed',
-      category: 'signup_store_failed',
-    });
-    return new Response(
-      JSON.stringify({
-        error: 'Could not start your signup. Please try again.',
-      }),
-      {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' },
-      },
-    );
   }
 };
 
@@ -165,15 +168,6 @@ function jsonResponse(value: unknown, status = 200): Response {
  * Runs one server effect and converts its typed failure into a Response at
  * this transport boundary, so handlers stay thin decision tables.
  */
-async function runOrErrorResponse<A, E>(
-  effect: Effect.Effect<A, E>,
-  toResponse: (error: E) => Response,
-): Promise<Response | A> {
-  return Effect.runPromise(
-    Effect.catch(effect, (error) => Effect.succeed(toResponse(error))),
-  );
-}
-
 function toTurnstileResponse(error: TurnstileVerifierError): Response {
   if (error._tag === 'TurnstileUnavailable') {
     return jsonResponse(
@@ -193,7 +187,7 @@ function acceptedResponse(): Response {
 
 async function deliverConfirmationEmail(input: {
   attemptId: string;
-  deliveries: WaitlistDeliveryStore;
+  deliveries: WaitlistRepositoryService;
   email: string;
   emailService: SendEmail;
   token: string;
@@ -218,15 +212,14 @@ async function deliverConfirmationEmail(input: {
     return;
   }
 
-  try {
-    await input.deliveries.markAccepted(
+  const accepted = await Effect.runPromiseExit(
+    input.deliveries.markAccepted(
       input.attemptId,
       result.messageId,
       new Date().toISOString(),
-    );
-  } catch {
-    logDeliveryStateFailure(input.attemptId);
-  }
+    ),
+  );
+  if (accepted._tag === 'Failure') logDeliveryStateFailure(input.attemptId);
 }
 
 function classifyEmailFailure(error: unknown): {
@@ -247,36 +240,22 @@ function classifyEmailFailure(error: unknown): {
 }
 
 async function recordEmailFailure(
-  deliveries: WaitlistDeliveryStore,
+  deliveries: WaitlistRepositoryService,
   attemptId: string,
   failure: {
     code: string;
     disposition: 'rejected' | 'retryable' | 'unknown';
   },
 ): Promise<void> {
-  try {
-    if (failure.disposition === 'rejected') {
-      await deliveries.markRejected(
-        attemptId,
-        failure.code,
-        new Date().toISOString(),
-      );
-    } else if (failure.disposition === 'retryable') {
-      await deliveries.markRetryable(
-        attemptId,
-        failure.code,
-        new Date().toISOString(),
-      );
-    } else {
-      await deliveries.markUnknown(
-        attemptId,
-        failure.code,
-        new Date().toISOString(),
-      );
-    }
-  } catch {
-    logDeliveryStateFailure(attemptId);
-  }
+  const changedAt = new Date().toISOString();
+  const transition =
+    failure.disposition === 'rejected'
+      ? deliveries.markRejected(attemptId, failure.code, changedAt)
+      : failure.disposition === 'retryable'
+        ? deliveries.markRetryable(attemptId, failure.code, changedAt)
+        : deliveries.markUnknown(attemptId, failure.code, changedAt);
+  const recorded = await Effect.runPromiseExit(transition);
+  if (recorded._tag === 'Failure') logDeliveryStateFailure(attemptId);
   console.error({
     message: 'waitlist email attempt failed',
     attemptId,

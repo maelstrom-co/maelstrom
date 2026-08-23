@@ -266,7 +266,8 @@ export class WaitlistDeliveryStore {
   }
 }
 
-class DeliveryStateConflictError extends Error {
+/** Thrown when the attempt is missing or already in an incompatible state. */
+export class DeliveryStateConflictError extends Error {
   readonly code = 'DELIVERY_STATE_CONFLICT';
 
   constructor() {
