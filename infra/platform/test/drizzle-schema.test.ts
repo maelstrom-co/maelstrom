@@ -181,8 +181,8 @@ describe('Drizzle waitlist schema', () => {
     expect(waitlist).toContain('../drizzle/migrations');
     expect(waitlist).not.toContain('Drizzle.Schema');
     expect(stack).not.toContain('Drizzle.providers');
-    expect(waitlist).toContain("Database.ref('Waitlist'");
-    expect(waitlist).not.toContain("Database.ref('WaitlistNext'");
+    expect(waitlist).toContain("Database.ref('WaitlistNext',");
+    expect(waitlist).not.toContain("Database.ref('Waitlist',");
     expect(deploy).not.toContain('drizzle-kit generate');
     expect(deploy).not.toContain('db:generate');
   });
