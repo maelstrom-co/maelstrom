@@ -67,82 +67,84 @@ export class TurnstileVerifier extends Context.Service<
    * per stack (Workers bindings are not environment variables), so production
    * wires it from `TURNSTILE_SECRET_KEY`.
    */
+  static readonly make = (options: {
+    readonly secret: string;
+    readonly timeout?: Duration.Input;
+  }): Effect.Effect<TurnstileVerifierService, never, HttpClient> =>
+    Effect.gen(function* () {
+      const client = yield* HttpClient;
+      const timeoutDuration = options.timeout ?? Duration.seconds(5);
+
+      return TurnstileVerifier.of({
+        verify: Effect.fn('TurnstileVerifier.verify')(
+          function* (token, remoteIp) {
+            const request = HttpClientRequest.bodyJsonUnsafe(
+              HttpClientRequest.post(SITEVERIFY_URL),
+              {
+                secret: options.secret,
+                response: token,
+                ...(remoteIp ? { remoteip: remoteIp } : {}),
+              },
+            );
+
+            const response = yield* client.execute(request).pipe(
+              Effect.catch(() => failLogged('request_failed', [])),
+              Effect.timeoutOption(timeoutDuration),
+              Effect.flatMap((timed) =>
+                Option.isNone(timed)
+                  ? failLogged('request_timeout', [])
+                  : Effect.succeed(timed.value),
+              ),
+            );
+
+            if (response.status !== 200) {
+              return yield* logAndFail('provider_http', []);
+            }
+
+            const payload = yield* response.json.pipe(
+              Effect.catch(() => logAndFail('provider_response', [])),
+            );
+            if (!isRecord(payload)) {
+              return yield* logAndFail('provider_response', []);
+            }
+
+            const success = readProperty(payload, 'success');
+            if (success !== true) {
+              const codes = readProviderCodes(payload);
+              const category = codes.some((code) => UNAVAILABLE_CODES.has(code))
+                ? 'provider_unavailable'
+                : 'challenge_rejected';
+              logFailure(category, codes);
+              return yield* category === 'provider_unavailable'
+                ? failUnavailable(category)
+                : new TurnstileRejected({
+                    reason: category,
+                    providerCodes: codes,
+                  });
+            }
+
+            const action = readProperty(payload, 'action');
+            if (action !== WAITLIST_TURNSTILE_ACTION) {
+              return yield* rejectedWithCodes('action_mismatch', payload);
+            }
+            const hostname = readProperty(payload, 'hostname');
+            if (
+              typeof hostname !== 'string' ||
+              !isWaitlistProductionHostname(hostname)
+            ) {
+              return yield* rejectedWithCodes('hostname_mismatch', payload);
+            }
+          },
+        ),
+      });
+    });
+
+  /** Layer form of {@link TurnstileVerifier.make} over the ambient client. */
   static readonly layer = (options: {
     readonly secret: string;
     readonly timeout?: Duration.Input;
   }): Layer.Layer<TurnstileVerifier, never, HttpClient> =>
-    Layer.effect(
-      TurnstileVerifier,
-      Effect.gen(function* () {
-        const client = yield* HttpClient;
-        const timeoutDuration = options.timeout ?? Duration.seconds(5);
-
-        return TurnstileVerifier.of({
-          verify: Effect.fn('TurnstileVerifier.verify')(
-            function* (token, remoteIp) {
-              const request = HttpClientRequest.bodyJsonUnsafe(
-                HttpClientRequest.post(SITEVERIFY_URL),
-                {
-                  secret: options.secret,
-                  response: token,
-                  ...(remoteIp ? { remoteip: remoteIp } : {}),
-                },
-              );
-
-              const response = yield* client.execute(request).pipe(
-                Effect.catch(() => failLogged('request_failed', [])),
-                Effect.timeoutOption(timeoutDuration),
-                Effect.flatMap((timed) =>
-                  Option.isNone(timed)
-                    ? failLogged('request_timeout', [])
-                    : Effect.succeed(timed.value),
-                ),
-              );
-
-              if (response.status !== 200) {
-                return yield* logAndFail('provider_http', []);
-              }
-
-              const payload = yield* response.json.pipe(
-                Effect.catch(() => logAndFail('provider_response', [])),
-              );
-              if (!isRecord(payload)) {
-                return yield* logAndFail('provider_response', []);
-              }
-
-              const success = readProperty(payload, 'success');
-              if (success !== true) {
-                const codes = readProviderCodes(payload);
-                const category = codes.some((code) =>
-                  UNAVAILABLE_CODES.has(code),
-                )
-                  ? 'provider_unavailable'
-                  : 'challenge_rejected';
-                logFailure(category, codes);
-                return yield* category === 'provider_unavailable'
-                  ? failUnavailable(category)
-                  : new TurnstileRejected({
-                      reason: category,
-                      providerCodes: codes,
-                    });
-              }
-
-              const action = readProperty(payload, 'action');
-              if (action !== WAITLIST_TURNSTILE_ACTION) {
-                return yield* rejectedWithCodes('action_mismatch', payload);
-              }
-              const hostname = readProperty(payload, 'hostname');
-              if (
-                typeof hostname !== 'string' ||
-                !isWaitlistProductionHostname(hostname)
-              ) {
-                return yield* rejectedWithCodes('hostname_mismatch', payload);
-              }
-            },
-          ),
-        });
-      }),
-    );
+    Layer.effect(TurnstileVerifier, TurnstileVerifier.make(options));
 }
 
 /** Every unavailability path must leave a trace in operational logs. */
