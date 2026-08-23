@@ -150,7 +150,6 @@ test('confirmation keeps its bearer token out of requests and telemetry', async 
     expect.stringContaining(token),
   );
   expect(response?.headers()['cache-control']).toBe('no-store');
-  expect(response?.headers()['referrer-policy']).toBe('no-referrer');
   expect(response?.headers()['x-robots-tag']).toBe('noindex');
   expect(await response?.text()).not.toContain(token);
   await expect(page).toHaveURL(/\/waitlist\/confirm\/$/);
@@ -168,6 +167,11 @@ test('confirmation keeps its bearer token out of requests and telemetry', async 
 
   expect(confirmationRequest?.method()).toBe('POST');
   expect(confirmationRequest?.url()).not.toContain(token);
+  // A `no-referrer` policy on the page makes browsers emit `Origin: null`
+  // here, which production CSRF checking rejects. The Origin must be real.
+  expect(confirmationRequest?.headers().origin).toBe(
+    new URL(page.url()).origin,
+  );
   expect(confirmationRequest?.headers()['content-type']).toContain(
     'application/x-www-form-urlencoded',
   );
