@@ -54,10 +54,11 @@ export default function App() {
 
 That seeds two `greetingVessel` instances side by side before any engine round-trip happens. Seeding is layout-only: unlike an engine response, which pairs each new instance with a configuring `executionPlan`, `initialLayout` runs no actions. The seeded instances render in their named variant with no engine-supplied configuration until the first response or a user action runs. `tree` is a preorder traversal of the tiling split tree, same encoding you saw described in [Grid vs Tiling](/understanding/grid-vs-tiling/):
 
-- `'V'` splits the current region left/right.
-- `'H'` splits the current region top/bottom.
+- `'V'` splits the current region left/right; `'H'` splits it top/bottom. A bare token divides its region evenly in two.
+- `'V:<weights>'` / `'H:<weights>'` split the same axes in declared proportions, and **the number of weights is the number of children**: `'V:1,1,1'` consumes the next three subtrees and gives each a third of the width, `'V:2,1'` consumes two and gives the left one two thirds. See [Split tokens and weights](/understanding/grid-vs-tiling/#split-tokens-and-weights) for the full grammar.
 - `'ID:'` followed by an instance ID is a leaf — `tilingLeafToken` writes one for you.
 - `null` is an empty leaf — a blank pane.
+- Each instance ID appears at most once. To give an instance more room, weight its split instead of repeating the leaf.
 
 A split token can also carry a weight suffix, like `'V:2,1'`, to divide the region unevenly instead of splitting it in half.
 
