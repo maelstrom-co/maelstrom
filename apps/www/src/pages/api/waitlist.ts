@@ -6,7 +6,6 @@ import { Effect } from 'effect';
 import * as FetchHttpClient from 'effect/unstable/http/FetchHttpClient';
 import { WaitlistDeliveryStore } from '../../lib/waitlist-delivery-store';
 import { runOrErrorResponse } from '../../server/run-or-error';
-import { toSignupFailureResponse } from '../../server/signup-failure-response';
 import {
   decodeSignupRequest,
   requireTurnstileToken,
@@ -14,22 +13,15 @@ import {
 import { SignupWorkflow } from '../../server/signup-workflow';
 import { TurnstileVerifier } from '../../server/turnstile-verifier';
 import { makeRepository } from '../../server/waitlist-repository';
+import {
+  toSignupDecodeResponse,
+  toSignupFailureResponse,
+} from '../../server/waitlist-responses';
 
 export const POST: APIRoute = async ({ request, locals }) => {
   const decoded = await runOrErrorResponse(
     decodeSignupRequest(request),
-    (error) => {
-      switch (error._tag) {
-        case 'UnsupportedMediaType':
-          return jsonResponse({ error: 'Unsupported media type' }, 415);
-        case 'BodyTooLarge':
-          return jsonResponse({ error: 'Request body is too large' }, 413);
-        case 'InvalidBody':
-          return jsonResponse({ error: 'Invalid request body' }, 400);
-        case 'InvalidEmail':
-          return jsonResponse({ error: error.error }, 400);
-      }
-    },
+    toSignupDecodeResponse,
   );
   if (decoded instanceof Response) return decoded;
   const { email } = decoded;
