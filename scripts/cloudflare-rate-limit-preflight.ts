@@ -35,6 +35,24 @@ const desiredBaseline = {
   success: true,
 } as const;
 
+const legacyWaitlistExpression =
+  '((http.request.uri.path eq "/api/waitlist") or (http.request.uri.path eq "/api/waitlist/confirm"))';
+
+// Temporary migration compatibility tracked by GitHub issue #160. Remove this
+// baseline, its preflight branch, and legacy-only tests after the first successful
+// production deployment whose desired persisted-state and live-phase verification pass.
+const legacyBaseline = {
+  ...desiredBaseline,
+  result: {
+    ...desiredBaseline.result,
+    rules: desiredApiRules.map((rule) =>
+      rule.id === 'a38e81b4bcbe4f08953aaf7028b44b2f'
+        ? { ...rule, expression: legacyWaitlistExpression }
+        : rule,
+    ),
+  },
+};
+
 const apiVolatileFields = new Set(['last_updated', 'version']);
 const stateVolatileFields = new Set(['lastUpdated', 'version']);
 
@@ -109,6 +127,16 @@ export const assertRateLimitPhase = (value: unknown): void => {
   );
 };
 
+const assertPreflightRateLimitPhase = (value: unknown): void => {
+  const semanticValue = apiSemanticValue(value);
+  const desiredDifference = firstDifference(semanticValue, desiredBaseline);
+  if (!desiredDifference) return;
+  if (!firstDifference(semanticValue, legacyBaseline)) return;
+  throw new Error(
+    `Production rate-limit phase drift detected at ${desiredDifference}`,
+  );
+};
+
 const desiredStateAttributes = {
   rulesetId: PRODUCTION_RATE_LIMIT.rulesetId,
   zoneId: PRODUCTION_RATE_LIMIT.zoneId,
@@ -169,7 +197,7 @@ export const preflightRateLimitPhase = async (
     init?: RequestInit,
   ) => Promise<Response> = fetch,
 ): Promise<void> => {
-  assertRateLimitPhase(await fetchRateLimitPhase(apiToken, request));
+  assertPreflightRateLimitPhase(await fetchRateLimitPhase(apiToken, request));
 };
 
 export const verifyRateLimitPhase = async (
