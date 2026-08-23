@@ -1,4 +1,11 @@
-export { workerObservability } from './Observability.js';
+export {
+  workerObservability,
+  workerObservabilityNoTraces,
+} from './Observability.js';
+export {
+  ASTRO_WORKER_FLAGS,
+  WORKER_COMPATIBILITY_DATE,
+} from './RuntimeContract.js';
 export { MaelstromPlatform, type MaelstromPlatformOutputs } from './Stack.js';
 export {
   EXPECTED_ACCOUNT_ENV,

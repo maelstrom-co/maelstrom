@@ -76,12 +76,18 @@ jobs:
             echo "Skipping stale platform revision $DEPLOY_SHA; latest green revision is $latest_green_sha"
           fi
 
+      # The dry run must compute cleanly against live state before anything
+      # applies; a failed plan aborts here. It does not police diff content —
+      # an unexpected but valid diff still applies below. Credentials stay
+      # confined to this one step.
       - name: Deploy platform to Cloudflare with Alchemy
         id: deploy-platform
         if: steps.platform-revision.outputs.current == 'true'
         working-directory: infra/platform
         run: |
           set -euo pipefail
+          bun ../../scripts/cloudflare-rate-limit-preflight.ts
+          bun alchemy deploy --stage prod --profile production-ci --dry-run --yes
           bun ../../scripts/cloudflare-rate-limit-preflight.ts
           bun alchemy deploy --stage prod --profile production-ci --yes
           zone_state="$(bun alchemy state get state.run.ts --stack MaelstromPlatform --stage prod --fqn ProductionZone --profile production-ci)"
@@ -193,10 +199,14 @@ jobs:
             echo "Skipping stale artifact $DEPLOY_SHA; latest green revision is $latest_green_sha"
           fi
 
+      # Dry-run first: the plan must compute cleanly before anything applies.
       - name: Deploy to Cloudflare with Alchemy
         if: steps.deploy-revision.outputs.current == 'true'
         working-directory: ${{ matrix.directory }}
-        run: bun alchemy deploy --stage prod --profile production-ci --yes
+        run: |
+          set -euo pipefail
+          bun alchemy deploy --stage prod --profile production-ci --dry-run --yes
+          bun alchemy deploy --stage prod --profile production-ci --yes
         env:
           ALCHEMY_PROFILE: production-ci
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_PRODUCTION_ACCOUNT_ID }}

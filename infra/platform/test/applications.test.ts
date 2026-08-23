@@ -166,6 +166,13 @@ describe('application infrastructure contract', () => {
     expect(adoptionCalls).toEqual([]);
   });
 
+  test('derives the sending subdomain zone from the managed Zone resource', () => {
+    const waitlist = read('infra/platform/src/Waitlist.ts');
+    expect(waitlist).toContain('zoneId: zone.zoneId');
+    // The deployed Zone resource is the only source of zone identity.
+    expect(waitlist).not.toContain("'4df25ea08d364f19471be7a179ce9f02'");
+  });
+
   test('deploys the credential-free docs artifact through Alchemy', () => {
     const website = read('apps/docs/infra/Website.ts');
     expect(website).toMatch(/Cloudflare\.Worker\(\s*'Website'/);
@@ -294,7 +301,16 @@ describe('application infrastructure contract', () => {
     );
     expect(platformDeploy).toContain(
       'bun ../../scripts/cloudflare-rate-limit-preflight.ts\n' +
-        '          bun alchemy deploy --stage prod --profile production-ci --yes',
+        '          bun alchemy deploy --stage prod --profile production-ci --dry-run --yes',
+    );
+    // The live-phase check must also immediately precede the mutating apply,
+    // or the planning time widens the window where another actor's phase
+    // change could be erased.
+    expect(platformDeploy).toContain(
+      'bun alchemy deploy --stage prod --profile production-ci --dry-run --yes\n' +
+        '          bun ../../scripts/cloudflare-rate-limit-preflight.ts\n' +
+        '          bun alchemy deploy --stage prod --profile production-ci --yes\n' +
+        '          zone_state=',
     );
     expect(platformDeploy).toContain(
       'bun ../../scripts/cloudflare-rate-limit-preflight.ts state\n' +
@@ -369,8 +385,10 @@ describe('application infrastructure contract', () => {
     );
 
     const alchemyDeploy = workflowStep('Deploy to Cloudflare with Alchemy');
+    // The dry-run plan must precede and gate the mutating deploy.
     expect(alchemyDeploy).toContain(
-      'bun alchemy deploy --stage prod --profile production-ci --yes',
+      'bun alchemy deploy --stage prod --profile production-ci --dry-run --yes\n' +
+        '          bun alchemy deploy --stage prod --profile production-ci --yes',
     );
     expect(alchemyDeploy).not.toContain('--adopt');
     expect(alchemyDeploy).toContain('ALCHEMY_PROFILE: production-ci');

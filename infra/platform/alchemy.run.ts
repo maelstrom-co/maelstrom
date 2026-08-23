@@ -15,7 +15,7 @@ export default MaelstromPlatform.make(
     yield* requireProductionStage('platform');
     const zone = yield* ProductionZone;
     yield* ProductionRateLimit(zone);
-    const { sending, turnstile, waitlist } = yield* WaitlistPlatform;
+    const { sending, turnstile, waitlist } = yield* WaitlistPlatform(zone);
 
     return {
       sendingDomain: sending.name.as<string>(),

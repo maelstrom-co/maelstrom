@@ -1,5 +1,8 @@
 import { resolve } from 'node:path';
-import { workerObservability } from '@maelstrom-co/platform-infra';
+import {
+  WORKER_COMPATIBILITY_DATE,
+  workerObservability,
+} from '@maelstrom-co/platform-infra';
 import * as Cloudflare from 'alchemy/Cloudflare';
 import { retain } from 'alchemy/RemovalPolicy';
 
@@ -12,8 +15,7 @@ export const Website = Cloudflare.Worker('Website', {
   // Production serves only the custom domain; see www for the rationale.
   workersDev: false,
   compatibility: {
-    // Keep deployed APIs aligned with the cataloged runtime types.
-    date: '2026-07-22',
+    date: WORKER_COMPATIBILITY_DATE,
   },
   assets: {
     directory: resolve(appRoot, 'dist/client'),
