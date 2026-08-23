@@ -10,6 +10,8 @@ import {
   hashWaitlistToken,
   isWaitlistToken,
 } from '../../../lib/waitlist-token';
+import { runOrErrorResponse } from '../../../server/run-or-error';
+import { makeRepository } from '../../../server/waitlist-repository';
 
 const redirect = (request: Request, status: 'confirmed' | 'invalid') => {
   const target = new URL(`/waitlist/${status}/`, request.url);
@@ -52,27 +54,31 @@ export const POST: APIRoute = async ({ request, cookies, locals }) => {
     );
   }
 
-  try {
+  {
     const tokenHash = await hashWaitlistToken(token);
     const now = new Date();
     const receipt = createWaitlistToken();
-    const confirmation = await new WaitlistDeliveryStore(database).confirmToken(
-      tokenHash,
-      now.toISOString(),
-      {
-        hash: await hashWaitlistToken(receipt),
-        expiresAt: new Date(
-          now.getTime() + ACCESS_RECEIPT_TTL_SECONDS * 1000,
-        ).toISOString(),
-      },
+    const confirmed = await runOrErrorResponse(
+      makeRepository(new WaitlistDeliveryStore(database)).confirmToken(
+        tokenHash,
+        now.toISOString(),
+        {
+          hash: await hashWaitlistToken(receipt),
+          expiresAt: new Date(
+            now.getTime() + ACCESS_RECEIPT_TTL_SECONDS * 1000,
+          ).toISOString(),
+        },
+      ),
+      () => storeFailureResponse(),
     );
+    if (confirmed instanceof Response) return confirmed;
 
-    if (!confirmation) return redirect(request, 'invalid');
+    if (!confirmed) return redirect(request, 'invalid');
     issueAccessReceiptCookie(cookies, receipt);
 
     const emailService = env.EMAIL;
     if (emailService) {
-      const delivery = deliverInvitationEmail(emailService, confirmation.email);
+      const delivery = deliverInvitationEmail(emailService, confirmed.email);
       if (locals?.cfContext) {
         locals.cfContext.waitUntil(delivery);
       } else {
@@ -83,19 +89,18 @@ export const POST: APIRoute = async ({ request, cookies, locals }) => {
     }
 
     return redirect(request, 'confirmed');
-  } catch {
-    console.error({
-      message: 'waitlist confirmation failed',
-      category: 'confirmation_store_failed',
-    });
-    return privateResponse(
-      'Waitlist confirmation is temporarily unavailable.',
-      {
-        status: 503,
-      },
-    );
   }
 };
+
+function storeFailureResponse(): Response {
+  console.error({
+    message: 'waitlist confirmation failed',
+    category: 'confirmation_store_failed',
+  });
+  return privateResponse('Waitlist confirmation is temporarily unavailable.', {
+    status: 503,
+  });
+}
 
 function issueAccessReceiptCookie(
   cookies: AstroCookies,
