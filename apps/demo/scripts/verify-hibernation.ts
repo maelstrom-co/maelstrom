@@ -64,7 +64,7 @@
 import {
   DEFAULT_HEARTBEAT_INTERVAL_MS,
   HEARTBEAT_PING_FRAME,
-} from '@maelstrom-co/client';
+} from '@maelstrom-co/connectors';
 import {
   ChartRequestMessage,
   encodeEnvelope,

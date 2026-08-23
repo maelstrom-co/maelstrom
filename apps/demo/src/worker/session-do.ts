@@ -34,7 +34,7 @@ import { DurableObject } from 'cloudflare:workers';
 import {
   HEARTBEAT_PING_FRAME,
   HEARTBEAT_PONG_FRAME,
-} from '@maelstrom-co/client';
+} from '@maelstrom-co/connectors';
 import type { Engine } from '@maelstrom-co/engine';
 import { encodeEnvelope } from '@maelstrom-co/protocol';
 import {

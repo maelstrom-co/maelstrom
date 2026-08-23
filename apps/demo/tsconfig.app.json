@@ -71,6 +71,9 @@
       "path": "../../packages/engine/tsconfig.lib.json"
     },
     {
+      "path": "../../packages/connectors/tsconfig.lib.json"
+    },
+    {
       "path": "../../packages/client/tsconfig.lib.json"
     },
     {

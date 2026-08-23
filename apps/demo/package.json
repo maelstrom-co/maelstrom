@@ -170,6 +170,7 @@
     "@fontsource/inter": "^5.2.8",
     "@fontsource/jetbrains-mono": "^5.2.8",
     "@maelstrom-co/client": "workspace:*",
+    "@maelstrom-co/connectors": "workspace:*",
     "@maelstrom-co/engine": "workspace:*",
     "@maelstrom-co/protocol": "workspace:*",
     "@maelstrom-co/react": "workspace:*",

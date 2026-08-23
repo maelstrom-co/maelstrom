@@ -14,6 +14,8 @@ import {
 const [reactTypeDoc, reactTypeDocSidebarGroup] = createStarlightTypeDocPlugin();
 const [clientTypeDoc, clientTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
+const [connectorsTypeDoc, connectorsTypeDocSidebarGroup] =
+  createStarlightTypeDocPlugin();
 const [protocolTypeDoc, protocolTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
 const [engineTypeDoc, engineTypeDocSidebarGroup] =
@@ -167,6 +169,17 @@ export default defineConfig({
           tsconfig: '../../packages/client/tsconfig.lib.json',
           output: 'reference/client',
           sidebar: { label: '@maelstrom-co/client', collapsed: true },
+          typeDoc: {
+            excludeInternal: true,
+            basePath: repoRoot,
+            sourceLinkTemplate,
+          },
+        }),
+        connectorsTypeDoc({
+          entryPoints: ['../../packages/connectors/src/index.ts'],
+          tsconfig: '../../packages/connectors/tsconfig.lib.json',
+          output: 'reference/connectors',
+          sidebar: { label: '@maelstrom-co/connectors', collapsed: true },
           typeDoc: {
             excludeInternal: true,
             basePath: repoRoot,
@@ -404,6 +417,7 @@ export default defineConfig({
           items: [
             reactTypeDocSidebarGroup,
             clientTypeDocSidebarGroup,
+            connectorsTypeDocSidebarGroup,
             protocolTypeDocSidebarGroup,
             engineTypeDocSidebarGroup,
             {

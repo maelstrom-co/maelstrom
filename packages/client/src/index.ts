@@ -21,6 +21,18 @@
  * ```
  */
 
+export type { CloseCodeClassification } from '@maelstrom-co/connectors';
+// Shared connection contract — the wire-level pieces moved to
+// @maelstrom-co/connectors so engine hosts can import them without a browser
+// package. Re-exported here so client consumers keep one import surface.
+export {
+  classifyCloseCode,
+  DEFAULT_HEARTBEAT_INTERVAL_MS,
+  HEARTBEAT_PING_FRAME,
+  HEARTBEAT_PONG_FRAME,
+  isHeartbeatPingFrame,
+  isHeartbeatPongFrame,
+} from '@maelstrom-co/connectors';
 // Identity primitives re-exported from protocol for convenience.
 // Each name exports both the branded type and the factory function.
 export { MessageId, SessionId } from '@maelstrom-co/protocol';
@@ -97,13 +109,6 @@ export {
   isAcknowledgedAssistantConnector,
   WireEngineError,
 } from './lib/connection-manager/connector.types.js';
-export {
-  DEFAULT_HEARTBEAT_INTERVAL_MS,
-  HEARTBEAT_PING_FRAME,
-  HEARTBEAT_PONG_FRAME,
-  isHeartbeatPingFrame,
-  isHeartbeatPongFrame,
-} from './lib/connection-manager/connectors/heartbeat-frame.js';
 export type { HttpConnectorOptions } from './lib/connection-manager/connectors/http-connector.js';
 // Connectors
 export { HttpConnector } from './lib/connection-manager/connectors/http-connector.js';

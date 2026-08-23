@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { isCorrelatableId } from '../utils.js';
+import { isCorrelatableId } from './utils.js';
 
 describe('isCorrelatableId', () => {
   test('rejects null and undefined', () => {

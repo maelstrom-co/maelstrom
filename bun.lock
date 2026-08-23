@@ -58,6 +58,7 @@
         "@fontsource/inter": "^5.2.8",
         "@fontsource/jetbrains-mono": "^5.2.8",
         "@maelstrom-co/client": "workspace:*",
+        "@maelstrom-co/connectors": "workspace:*",
         "@maelstrom-co/engine": "workspace:*",
         "@maelstrom-co/protocol": "workspace:*",
         "@maelstrom-co/react": "workspace:*",
@@ -208,11 +209,19 @@
       "name": "@maelstrom-co/client",
       "version": "0.1.0-alpha.3",
       "dependencies": {
+        "@maelstrom-co/connectors": "0.1.0-alpha.3",
         "@maelstrom-co/protocol": "0.1.0-alpha.3",
         "@tanstack/store": "catalog:",
       },
       "devDependencies": {
         "@sinonjs/fake-timers": "catalog:",
+      },
+    },
+    "packages/connectors": {
+      "name": "@maelstrom-co/connectors",
+      "version": "0.1.0-alpha.3",
+      "dependencies": {
+        "@maelstrom-co/protocol": "0.1.0-alpha.3",
       },
     },
     "packages/engine": {
@@ -1220,6 +1229,8 @@
     "@maelstrom-co/biome-plugin": ["@maelstrom-co/biome-plugin@workspace:tools/biome-plugin"],
 
     "@maelstrom-co/client": ["@maelstrom-co/client@workspace:packages/client"],
+
+    "@maelstrom-co/connectors": ["@maelstrom-co/connectors@workspace:packages/connectors"],
 
     "@maelstrom-co/demo": ["@maelstrom-co/demo@workspace:apps/demo"],
 
