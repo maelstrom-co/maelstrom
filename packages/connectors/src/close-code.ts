@@ -25,7 +25,8 @@ export interface CloseCodeClassification {
   /**
    * False only when retrying cannot fix the rejection (RFC 6455 1008,
    * "Policy Violation": the server is deliberately refusing this client).
-   * Every other code keeps the default of retrying.
+   * Every other code is retryable, although a clean 1000 close independently
+   * suppresses the client's auto-reconnect behavior.
    */
   readonly retryable: boolean;
 }
