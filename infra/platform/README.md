@@ -93,6 +93,8 @@ bun alchemy deploy --stage prod --profile maelstrom-production-env
 - `ProductionZone`: Retained `maelstrom-ai.co` Zone identity.
 - `ProductionRateLimit`: Retained owner of the zone `http_ratelimit` phase.
 - `Waitlist`: D1 database `maelstrom-waitlist` and ordered SQL migrations.
+- `WaitlistNext`: retained parallel D1 `maelstrom-waitlist-v2` from the
+  committed Drizzle journal. www still binds `Waitlist` until R3.
 - `NotificationsEmail`: transactional sending subdomain.
 - `WaitlistTurnstile`: Managed Turnstile widget.
 
@@ -105,8 +107,9 @@ from the live schema (D1 skips a re-applied file by name).
 The live `Waitlist` database still applies `migrations/`. The Drizzle model of
 the same effective schema lives in `src/waitlist-schema.ts`. Generate SQL
 locally with `bun run db:generate` into `drizzle/migrations/` and commit the
-folder. Never let `Drizzle.Schema` regenerate inside a credentialed deploy.
-The next database (`WaitlistNext`) will apply only that generated journal.
+folder. `WaitlistNext` applies that committed journal as a path. Do not
+register `Drizzle.Schema` in the stack — a credentialed deploy must not
+generate SQL.
 
 Production CI deploys this platform stack at the checked green revision before
 any application job. The platform job exposes only the managed widget's public

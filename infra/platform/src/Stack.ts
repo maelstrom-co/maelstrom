@@ -12,6 +12,10 @@ export interface MaelstromPlatformOutputs {
   readonly waitlistDatabaseId: string;
   /** Stable name of the retained waitlist database. */
   readonly waitlistDatabaseName: string;
+  /** Provider ID of the parallel Drizzle waitlist database. */
+  readonly waitlistNextDatabaseId: string;
+  /** Stable name of the parallel Drizzle waitlist database. */
+  readonly waitlistNextDatabaseName: string;
 }
 
 /** Production platform stack that cannot run under a preview stage. */
