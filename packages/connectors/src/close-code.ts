@@ -1,18 +1,17 @@
 /**
  * Classification of WebSocket close codes for reconnect decisions.
  *
- * This is the shared taxonomy behind {@link ConnectorEvent}'s `retryable`
- * flag: a client connector maps a close event through this to decide what it
- * tells its connection manager, and an engine host uses the same function to
- * assert that the codes it closes with mean what the client will assume they
- * mean. Both sides importing one function is what keeps the wire semantics
- * from drifting into comments.
+ * The `@maelstrom-co/client` WebSocket connector maps close events through
+ * this taxonomy before reporting the client package's `ConnectorEvent`
+ * `retryable` flag. Its connection manager consumes that flag when deciding
+ * whether to reconnect. The classifier remains available from
+ * `@maelstrom-co/connectors` as the shared close-code contract for other
+ * WebSocket participants.
  *
  * @example
  * ```ts
- * // Host side: closing a socket for a reason the client must not retry.
- * const c = classifyCloseCode(1008);
- * ws.close(1008, 'policy violation'); // client classifies retryable: false
+ * const { clean, retryable } = classifyCloseCode(event.code);
+ * // A client connector can include both values in its disconnect event.
  * ```
  */
 
@@ -32,11 +31,11 @@ export interface CloseCodeClassification {
 }
 
 /**
- * Map a WebSocket close code to the reconnect semantics both sides assume.
+ * Map a WebSocket close code to the reconnect semantics used by the client
+ * connector.
  *
- * Only 1000 and 1008 carry meaning beyond "the transport went away"; every
- * other code classifies as unclean but retryable, which matches how the
- * reference client's connector has always treated them.
+ * Only 1000 and 1008 carry meaning beyond "the transport went away". Every
+ * other number classifies as unclean but retryable.
  */
 export function classifyCloseCode(code: number): CloseCodeClassification {
   return {
