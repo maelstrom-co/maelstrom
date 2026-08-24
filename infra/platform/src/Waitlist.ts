@@ -51,7 +51,7 @@ export const WaitlistPlatform = (zone: Cloudflare.Zone.Zone) =>
   });
 
 /** Production D1 reference that never transfers database ownership. */
-export const WaitlistDatabase = Cloudflare.D1.Database.ref('Waitlist', {
+export const WaitlistDatabase = Cloudflare.D1.Database.ref('WaitlistNext', {
   stack: 'MaelstromPlatform',
   stage: PRODUCTION_STAGE,
 });

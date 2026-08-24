@@ -94,7 +94,8 @@ bun alchemy deploy --stage prod --profile maelstrom-production-env
 - `ProductionRateLimit`: Retained owner of the zone `http_ratelimit` phase.
 - `Waitlist`: D1 database `maelstrom-waitlist` and ordered SQL migrations.
 - `WaitlistNext`: retained parallel D1 `maelstrom-waitlist-v2` from the
-  committed Drizzle journal. www still binds `Waitlist` until R3.
+  committed Drizzle journal. www binds this database. The legacy
+  `Waitlist` resource stays retained for rollback.
 - `NotificationsEmail`: transactional sending subdomain.
 - `WaitlistTurnstile`: Managed Turnstile widget.
 

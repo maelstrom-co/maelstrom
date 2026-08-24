@@ -119,7 +119,7 @@ describe('platform stack contract', () => {
   });
 
   test('exports platform resources as references for application stacks', () => {
-    expect(waitlistSource).toContain("D1.Database.ref('Waitlist'");
+    expect(waitlistSource).toContain("D1.Database.ref('WaitlistNext'");
     expect(waitlistSource).toContain('Turnstile.Widget.ref(');
   });
 
