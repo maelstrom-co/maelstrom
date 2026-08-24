@@ -7,7 +7,13 @@
   },
   "files": {
     "ignoreUnknown": false,
-    "includes": ["**", "!**/routeTree.gen.ts", "!**/dist", "!**/*.css"]
+    "includes": [
+      "**",
+      "!**/routeTree.gen.ts",
+      "!**/dist",
+      "!**/*.css",
+      "!**/drizzle/migrations"
+    ]
   },
   "formatter": {
     "enabled": true,

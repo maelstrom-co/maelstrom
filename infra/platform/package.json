@@ -5,11 +5,13 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./waitlist-contract": "./src/WaitlistContract.ts"
+    "./waitlist-contract": "./src/WaitlistContract.ts",
+    "./waitlist-schema": "./src/waitlist-schema.ts"
   },
   "scripts": {
     "test": "bun test test",
     "typecheck": "tsc --noEmit -p tsconfig.lib.json && tsc -p tsconfig.infra.json",
+    "db:generate": "drizzle-kit generate --config drizzle.config.ts",
     "validate": "bun run typecheck && bun run test"
   },
   "nx": {
@@ -28,10 +30,12 @@
     "@effect/platform-bun": "catalog:",
     "@effect/platform-node": "catalog:",
     "alchemy": "2.0.0-beta.73",
+    "drizzle-orm": "1.0.0-rc.5-ab785fc",
     "effect": "catalog:"
   },
   "devDependencies": {
     "@types/bun": "*",
+    "drizzle-kit": "1.0.0-rc.5-ab785fc",
     "jsonc-parser": "3.3.1",
     "typescript": "catalog:"
   }

@@ -102,6 +102,12 @@ migrations only. All five resources use retention policies.
 production, so editing an applied file fails CI instead of silently drifting
 from the live schema (D1 skips a re-applied file by name).
 
+The live `Waitlist` database still applies `migrations/`. The Drizzle model of
+the same effective schema lives in `src/waitlist-schema.ts`. Generate SQL
+locally with `bun run db:generate` into `drizzle/migrations/` and commit the
+folder. Never let `Drizzle.Schema` regenerate inside a credentialed deploy.
+The next database (`WaitlistNext`) will apply only that generated journal.
+
 Production CI deploys this platform stack at the checked green revision before
 any application job. The platform job exposes only the managed widget's public
 `turnstileSiteKey`. The credential-free `www` build validates and embeds that

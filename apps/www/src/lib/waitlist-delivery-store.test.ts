@@ -1,6 +1,6 @@
 import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { WaitlistDeliveryStore } from './waitlist-delivery-store';
 
@@ -8,9 +8,37 @@ const migrationsDir = resolve(
   import.meta.dir,
   '../../../../infra/platform/migrations',
 );
+const drizzleMigrationsDir = resolve(
+  import.meta.dir,
+  '../../../../infra/platform/drizzle/migrations',
+);
+
+function drizzleMigrationSql() {
+  const files = readdirSync(drizzleMigrationsDir, { withFileTypes: true })
+    .flatMap((entry) => {
+      if (!entry.isDirectory()) return [];
+      return readdirSync(resolve(drizzleMigrationsDir, entry.name))
+        .filter((file) => file.endsWith('.sql'))
+        .map((file) => resolve(drizzleMigrationsDir, entry.name, file));
+    })
+    .sort();
+  if (files.length !== 1) {
+    throw new Error(
+      `expected one generated Drizzle SQL file, found ${files.length}`,
+    );
+  }
+  return readFileSync(files[0], 'utf8');
+}
 
 function applyMigration(database: Database, name: string) {
   database.exec(readFileSync(resolve(migrationsDir, name), 'utf8'));
+}
+
+function applySql(database: Database, sql: string) {
+  for (const statement of sql.split('--> statement-breakpoint')) {
+    const trimmed = statement.trim();
+    if (trimmed.length > 0) database.exec(trimmed);
+  }
 }
 
 class SqliteStatement {
@@ -77,6 +105,13 @@ function migratedDatabase() {
   ]) {
     applyMigration(database, migration);
   }
+  return database;
+}
+
+function drizzleMigratedDatabase() {
+  const database = new Database(':memory:');
+  database.exec('PRAGMA foreign_keys = ON');
+  applySql(database, drizzleMigrationSql());
   return database;
 }
 
@@ -205,9 +240,12 @@ describe('waitlist delivery migrations', () => {
   });
 });
 
-describe('WaitlistDeliveryStore', () => {
+describe.each([
+  ['legacy SQL migrations', migratedDatabase],
+  ['generated Drizzle migration', drizzleMigratedDatabase],
+] as const)('WaitlistDeliveryStore (%s)', (_label, createDatabase) => {
   test('claims only confirmed subscribers once per durable cooldown window', async () => {
-    const database = migratedDatabase();
+    const database = createDatabase();
     const store = new WaitlistDeliveryStore(d1(database));
     database
       .query(
@@ -277,7 +315,7 @@ describe('WaitlistDeliveryStore', () => {
   });
 
   test('records resend retryable state and global backoff atomically', async () => {
-    const database = migratedDatabase();
+    const database = createDatabase();
     const store = new WaitlistDeliveryStore(d1(database));
     database
       .query(
@@ -321,7 +359,7 @@ describe('WaitlistDeliveryStore', () => {
   });
 
   test('uses daily-limit backoff and never extends it on replay or conflict', async () => {
-    const database = migratedDatabase();
+    const database = createDatabase();
     const store = new WaitlistDeliveryStore(d1(database));
     database
       .query(
@@ -362,7 +400,7 @@ describe('WaitlistDeliveryStore', () => {
   });
 
   test('keeps resend transitions idempotent and rejects conflicting replay', async () => {
-    const database = migratedDatabase();
+    const database = createDatabase();
     const store = new WaitlistDeliveryStore(d1(database));
     database
       .query(
@@ -393,8 +431,9 @@ describe('WaitlistDeliveryStore', () => {
       ),
     ).rejects.toMatchObject({ code: 'DELIVERY_STATE_CONFLICT' });
   });
+
   test('allows only one concurrent delivery claim per cooldown window', async () => {
-    const database = migratedDatabase();
+    const database = createDatabase();
     const store = new WaitlistDeliveryStore(d1(database));
     const input = {
       email: 'user@example.com',
@@ -425,7 +464,7 @@ describe('WaitlistDeliveryStore', () => {
   });
 
   test('does not start cooldown for a definitely rejected attempt', async () => {
-    const database = migratedDatabase();
+    const database = createDatabase();
     const store = new WaitlistDeliveryStore(d1(database));
     const attemptedAt = '2026-08-21T00:00:00.000Z';
     expect(
@@ -454,7 +493,7 @@ describe('WaitlistDeliveryStore', () => {
   });
 
   test('keeps retryable provider limits under cooldown without confirming', async () => {
-    const database = migratedDatabase();
+    const database = createDatabase();
     const store = new WaitlistDeliveryStore(d1(database));
     const attemptedAt = '2026-08-21T00:00:00.000Z';
     await store.claimDeliveryAttempt({
@@ -506,7 +545,7 @@ describe('WaitlistDeliveryStore', () => {
   });
 
   test('keeps an ambiguous attempt valid while blocking cooldown duplicates', async () => {
-    const database = migratedDatabase();
+    const database = createDatabase();
     const store = new WaitlistDeliveryStore(d1(database));
     const attemptedAt = '2026-08-21T00:00:00.000Z';
     await store.claimDeliveryAttempt({
@@ -542,7 +581,7 @@ describe('WaitlistDeliveryStore', () => {
   });
 
   test('preserves a previous accepted token after a later attempt is rejected', async () => {
-    const database = migratedDatabase();
+    const database = createDatabase();
     const store = new WaitlistDeliveryStore(d1(database));
     await store.claimDeliveryAttempt({
       id: 'accepted',
@@ -577,7 +616,7 @@ describe('WaitlistDeliveryStore', () => {
   });
 
   test('rejects expired and already-consumed confirmation tokens', async () => {
-    const database = migratedDatabase();
+    const database = createDatabase();
     const store = new WaitlistDeliveryStore(d1(database));
     await store.claimDeliveryAttempt({
       id: 'expired',
@@ -623,7 +662,7 @@ describe('WaitlistDeliveryStore', () => {
   });
 
   test('keeps unsubscribed and confirmed subscribers terminal for signup claims', async () => {
-    const database = migratedDatabase();
+    const database = createDatabase();
     const store = new WaitlistDeliveryStore(d1(database));
     database
       .query(
@@ -651,7 +690,7 @@ describe('WaitlistDeliveryStore', () => {
   });
 
   test('gates Discord access behind a receipt committed with the transition', async () => {
-    const database = migratedDatabase();
+    const database = createDatabase();
     const store = new WaitlistDeliveryStore(d1(database));
 
     // Without a receipt the confirmed subscriber has no page access.
@@ -718,7 +757,7 @@ describe('WaitlistDeliveryStore', () => {
   });
 
   test('reports missing and incompatible delivery transitions', async () => {
-    const database = migratedDatabase();
+    const database = createDatabase();
     const store = new WaitlistDeliveryStore(d1(database));
 
     await expect(
@@ -749,7 +788,7 @@ describe('WaitlistDeliveryStore', () => {
   });
 
   test('rejects idempotent transitions with conflicting provider metadata', async () => {
-    const database = migratedDatabase();
+    const database = createDatabase();
     const store = new WaitlistDeliveryStore(d1(database));
     await store.claimDeliveryAttempt({
       id: 'accepted-metadata',

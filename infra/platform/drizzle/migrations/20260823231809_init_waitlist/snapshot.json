@@ -1,0 +1,518 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "id": "7eced013-d20e-4c69-83e5-666856a28bc7",
+  "prevIds": [
+    "00000000-0000-0000-0000-000000000000"
+  ],
+  "ddl": [
+    {
+      "name": "waitlist_confirmation_deliveries",
+      "entityType": "tables"
+    },
+    {
+      "name": "waitlist_delivery_backoffs",
+      "entityType": "tables"
+    },
+    {
+      "name": "waitlist_resend_deliveries",
+      "entityType": "tables"
+    },
+    {
+      "name": "waitlist_subscribers",
+      "entityType": "tables"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "waitlist_confirmation_deliveries"
+    },
+    {
+      "type": "TEXT COLLATE NOCASE",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "email",
+      "entityType": "columns",
+      "table": "waitlist_confirmation_deliveries"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "token_hash",
+      "entityType": "columns",
+      "table": "waitlist_confirmation_deliveries"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "expires_at",
+      "entityType": "columns",
+      "table": "waitlist_confirmation_deliveries"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "state",
+      "entityType": "columns",
+      "table": "waitlist_confirmation_deliveries"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "attempted_at",
+      "entityType": "columns",
+      "table": "waitlist_confirmation_deliveries"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "state_changed_at",
+      "entityType": "columns",
+      "table": "waitlist_confirmation_deliveries"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "provider_message_id",
+      "entityType": "columns",
+      "table": "waitlist_confirmation_deliveries"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "failure_code",
+      "entityType": "columns",
+      "table": "waitlist_confirmation_deliveries"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "provider",
+      "entityType": "columns",
+      "table": "waitlist_delivery_backoffs"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "retry_after",
+      "entityType": "columns",
+      "table": "waitlist_delivery_backoffs"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "failure_code",
+      "entityType": "columns",
+      "table": "waitlist_delivery_backoffs"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "table": "waitlist_delivery_backoffs"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "waitlist_resend_deliveries"
+    },
+    {
+      "type": "TEXT COLLATE NOCASE",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "email",
+      "entityType": "columns",
+      "table": "waitlist_resend_deliveries"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "state",
+      "entityType": "columns",
+      "table": "waitlist_resend_deliveries"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "attempted_at",
+      "entityType": "columns",
+      "table": "waitlist_resend_deliveries"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "state_changed_at",
+      "entityType": "columns",
+      "table": "waitlist_resend_deliveries"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "provider_message_id",
+      "entityType": "columns",
+      "table": "waitlist_resend_deliveries"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "failure_code",
+      "entityType": "columns",
+      "table": "waitlist_resend_deliveries"
+    },
+    {
+      "type": "TEXT COLLATE NOCASE",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "email",
+      "entityType": "columns",
+      "table": "waitlist_subscribers"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'pending'",
+      "generated": null,
+      "name": "status",
+      "entityType": "columns",
+      "table": "waitlist_subscribers"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "confirmation_token_hash",
+      "entityType": "columns",
+      "table": "waitlist_subscribers"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "confirmation_expires_at",
+      "entityType": "columns",
+      "table": "waitlist_subscribers"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "confirmed_at",
+      "entityType": "columns",
+      "table": "waitlist_subscribers"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "unsubscribed_at",
+      "entityType": "columns",
+      "table": "waitlist_subscribers"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "waitlist_subscribers"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+      "generated": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "table": "waitlist_subscribers"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "confirmation_sent_at",
+      "entityType": "columns",
+      "table": "waitlist_subscribers"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "access_receipt_hash",
+      "entityType": "columns",
+      "table": "waitlist_subscribers"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "access_receipt_expires_at",
+      "entityType": "columns",
+      "table": "waitlist_subscribers"
+    },
+    {
+      "columns": [
+        "email"
+      ],
+      "tableTo": "waitlist_subscribers",
+      "columnsTo": [
+        "email"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
+      "name": "fk_waitlist_confirmation_deliveries_email_waitlist_subscribers_email_fk",
+      "entityType": "fks",
+      "table": "waitlist_confirmation_deliveries"
+    },
+    {
+      "columns": [
+        "email"
+      ],
+      "tableTo": "waitlist_subscribers",
+      "columnsTo": [
+        "email"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
+      "name": "fk_waitlist_resend_deliveries_email_waitlist_subscribers_email_fk",
+      "entityType": "fks",
+      "table": "waitlist_resend_deliveries"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "waitlist_confirmation_deliveries_pk",
+      "table": "waitlist_confirmation_deliveries",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "provider"
+      ],
+      "nameExplicit": false,
+      "name": "waitlist_delivery_backoffs_pk",
+      "table": "waitlist_delivery_backoffs",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "waitlist_resend_deliveries_pk",
+      "table": "waitlist_resend_deliveries",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "email"
+      ],
+      "nameExplicit": false,
+      "name": "waitlist_subscribers_pk",
+      "table": "waitlist_subscribers",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        {
+          "value": "email",
+          "isExpression": false
+        },
+        {
+          "value": "\"attempted_at\" DESC",
+          "isExpression": true
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "waitlist_confirmation_deliveries_email_attempted_at",
+      "entityType": "indexes",
+      "table": "waitlist_confirmation_deliveries"
+    },
+    {
+      "columns": [
+        {
+          "value": "email",
+          "isExpression": false
+        },
+        {
+          "value": "\"attempted_at\" DESC",
+          "isExpression": true
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "waitlist_resend_deliveries_email_attempted_at",
+      "entityType": "indexes",
+      "table": "waitlist_resend_deliveries"
+    },
+    {
+      "columns": [
+        {
+          "value": "status",
+          "isExpression": false
+        },
+        {
+          "value": "created_at",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "waitlist_subscribers_status_created_at",
+      "entityType": "indexes",
+      "table": "waitlist_subscribers"
+    },
+    {
+      "columns": [
+        {
+          "value": "confirmation_token_hash",
+          "isExpression": false
+        }
+      ],
+      "isUnique": true,
+      "where": "\"waitlist_subscribers\".\"confirmation_token_hash\" IS NOT NULL",
+      "origin": "manual",
+      "name": "waitlist_subscribers_confirmation_token_hash",
+      "entityType": "indexes",
+      "table": "waitlist_subscribers"
+    },
+    {
+      "columns": [
+        {
+          "value": "access_receipt_hash",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "waitlist_subscribers_access_receipt",
+      "entityType": "indexes",
+      "table": "waitlist_subscribers"
+    },
+    {
+      "columns": [
+        "token_hash"
+      ],
+      "nameExplicit": false,
+      "name": "waitlist_confirmation_deliveries_token_hash_unique",
+      "entityType": "uniques",
+      "table": "waitlist_confirmation_deliveries"
+    },
+    {
+      "value": "\"state\" IN ('attempting', 'accepted', 'rejected', 'retryable', 'unknown')",
+      "name": "waitlist_confirmation_deliveries_state_check",
+      "entityType": "checks",
+      "table": "waitlist_confirmation_deliveries"
+    },
+    {
+      "value": "\"provider\" = 'email'",
+      "name": "waitlist_delivery_backoffs_provider_check",
+      "entityType": "checks",
+      "table": "waitlist_delivery_backoffs"
+    },
+    {
+      "value": "\"state\" IN ('attempting', 'accepted', 'rejected', 'retryable', 'unknown')",
+      "name": "waitlist_resend_deliveries_state_check",
+      "entityType": "checks",
+      "table": "waitlist_resend_deliveries"
+    },
+    {
+      "value": "\"status\" IN ('pending', 'confirmed', 'unsubscribed')",
+      "name": "waitlist_subscribers_status_check",
+      "entityType": "checks",
+      "table": "waitlist_subscribers"
+    }
+  ],
+  "renames": []
+}
