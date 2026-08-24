@@ -1,7 +1,7 @@
 import {
   HEARTBEAT_PING_FRAME,
   HEARTBEAT_PONG_FRAME,
-} from '@maelstrom-co/client';
+} from '@maelstrom-co/connectors';
 import {
   ChartRequestMessage,
   encodeEnvelope,

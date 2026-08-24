@@ -45,6 +45,7 @@
     "registry": "https://npm.pkg.github.com"
   },
   "dependencies": {
+    "@maelstrom-co/connectors": "0.1.0-alpha.3",
     "@maelstrom-co/protocol": "0.1.0-alpha.3",
     "@tanstack/store": "catalog:"
   },

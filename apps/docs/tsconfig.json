@@ -16,6 +16,9 @@
       "path": "../../packages/realtime-vad"
     },
     {
+      "path": "../../packages/connectors"
+    },
+    {
       "path": "../../packages/realtime-openai"
     },
     {

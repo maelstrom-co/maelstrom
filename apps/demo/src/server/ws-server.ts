@@ -8,7 +8,7 @@
  * and @maelstrom-co/protocol as the hosted transport (`src/worker/session-do.ts`),
  * via the shared dispatchFrame core in `./dispatch`.
  */
-import { HEARTBEAT_PONG_FRAME } from '@maelstrom-co/client';
+import { HEARTBEAT_PONG_FRAME } from '@maelstrom-co/connectors';
 import type { Engine } from '@maelstrom-co/engine';
 import { dispatchFrame } from './dispatch';
 import { createPlaygroundEngine } from './engine-config';

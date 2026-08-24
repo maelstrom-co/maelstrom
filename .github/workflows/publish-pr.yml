@@ -200,4 +200,5 @@ jobs:
             Or install by tag:
             ```sh
             bun add @maelstrom-co/client@pr-${{ github.event.pull_request.number }}
+            bun add @maelstrom-co/connectors@pr-${{ github.event.pull_request.number }}
             ```

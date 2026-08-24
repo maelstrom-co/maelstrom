@@ -132,7 +132,11 @@ const BROWSER_PACKAGES = new Set([
 function classify(name: string): Layer {
   if (
     name === '@maelstrom-co/protocol' ||
-    name === '@maelstrom-co/realtime-protocol'
+    name === '@maelstrom-co/realtime-protocol' ||
+    // Shared client/host wire contracts (heartbeat frames, close-code
+    // semantics): a contract leaf so engine hosts import it directly instead
+    // of reaching into browser-side @maelstrom-co/client.
+    name === '@maelstrom-co/connectors'
   ) {
     return 'contract';
   }

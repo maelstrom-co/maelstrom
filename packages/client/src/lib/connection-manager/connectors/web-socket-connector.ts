@@ -1,3 +1,8 @@
+import {
+  classifyCloseCode,
+  HEARTBEAT_PING_FRAME,
+  isHeartbeatPongFrame,
+} from '@maelstrom-co/connectors';
 import type {
   ChartRequestMessage,
   EnvelopeError,
@@ -26,10 +31,6 @@ import {
   type ConnectorEvent,
   WireEngineError,
 } from '../connector.types.js';
-import {
-  HEARTBEAT_PING_FRAME,
-  isHeartbeatPongFrame,
-} from './heartbeat-frame.js';
 
 // A ping is "missed" if its interval elapses with no pong seen since. Two
 // consecutive misses are required before the socket is closed: one miss is
@@ -527,19 +528,16 @@ export class WebSocketConnector implements AcknowledgedAssistantConnector {
       this.#correlator.rejectAll(closed);
       this.#historyCorrelator.rejectAll(closed);
       this.#assistantCorrelator.rejectAll(closed);
-      const isClean = event.code === 1000;
-      // RFC 6455: 1008 ("Policy Violation") means the server is deliberately
-      // rejecting this client. Retrying is pointless by definition, so this
-      // is flagged non-retryable regardless of `clean` (a server-initiated
-      // close is never the 1000 "clean" case, but it is also not a
-      // transient failure ConnectionManager should retry).
-      const isPolicyViolation = event.code === 1008;
+      // The close-code taxonomy lives in @maelstrom-co/connectors so the
+      // server side closes with codes whose meaning the client actually
+      // assumes — one shared mapping instead of two that can drift.
+      const classification = classifyCloseCode(event.code);
       this.#handlers.forEach((h) => {
         h({
           type: 'disconnected',
-          clean: isClean,
+          clean: classification.clean,
           message: event.reason || `Connection closed with code ${event.code}`,
-          ...(isPolicyViolation ? { retryable: false } : {}),
+          ...(classification.retryable ? {} : { retryable: false }),
         });
       });
     };

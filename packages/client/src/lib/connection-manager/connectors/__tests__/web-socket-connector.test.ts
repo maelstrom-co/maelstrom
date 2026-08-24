@@ -7,6 +7,7 @@ import {
   spyOn,
   test,
 } from 'bun:test';
+import { HEARTBEAT_PONG_FRAME } from '@maelstrom-co/connectors';
 import {
   ActionName,
   decodeClientEnvelope,
@@ -24,10 +25,8 @@ import {
   SessionId,
 } from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
-
 import type { ConnectorEvent } from '../../connector.types.js';
 import { WireEngineError } from '../../connector.types.js';
-import { HEARTBEAT_PONG_FRAME } from '../heartbeat-frame.js';
 import { WebSocketConnector } from '../web-socket-connector.js';
 import { buildEnvelope, connectAndOpen } from './connector-test-helpers.js';
 import { FakeWebSocket, installFakeWebSocket } from './fake-websocket.js';

@@ -1,11 +1,11 @@
 /**
- * Wire shape of the WebSocket heartbeat mechanism ({@link
- * WebSocketConnectorOptions.heartbeatIntervalMs}). These frames are
- * transport-level only: they are deliberately **not** part of the
- * `@maelstrom-co/protocol` envelope union, so a host answering the heartbeat
- * (e.g. a hosted deployment's server) must match this shape exactly rather
- * than reimplementing it from memory or trying to route it through the
- * protocol codec.
+ * Wire shape of the WebSocket heartbeat mechanism configured by
+ * `@maelstrom-co/client`'s `WebSocketConnectorOptions.heartbeatIntervalMs`
+ * option. These frames are transport-level only: they are deliberately
+ * **not** part of the `@maelstrom-co/protocol` envelope union, so a host
+ * answering the heartbeat (e.g. a hosted deployment's server) must match
+ * this shape exactly rather than reimplementing it from memory or trying to
+ * route it through the protocol codec.
  *
  * @example
  * ```ts

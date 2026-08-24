@@ -8,6 +8,7 @@ import { basename, join, resolve, sep } from 'node:path';
  */
 export const PACKED_PACKAGE_NAMES = Object.freeze([
   '@maelstrom-co/client',
+  '@maelstrom-co/connectors',
   '@maelstrom-co/engine',
   '@maelstrom-co/protocol',
   '@maelstrom-co/react',

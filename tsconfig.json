@@ -53,6 +53,9 @@
     },
     {
       "path": "./infra/platform"
+    },
+    {
+      "path": "./packages/connectors"
     }
   ],
   "compilerOptions": {}
