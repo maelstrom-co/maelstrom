@@ -12,6 +12,7 @@
     "rootDir": "."
   },
   "include": ["scripts/**/*.ts"],
+  "exclude": ["scripts/hosted-e2e-server.ts"],
   "references": [
     {
       "path": "../../packages/protocol/tsconfig.lib.json"

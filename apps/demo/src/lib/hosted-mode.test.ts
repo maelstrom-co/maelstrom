@@ -3,6 +3,7 @@ import {
   isHosted,
   usesBrowserKey,
   usesBrowserOpenAIVoice,
+  usesOpenAIVoice,
 } from './hosted-mode';
 
 afterEach(() => {
@@ -54,8 +55,18 @@ describe('usesBrowserOpenAIVoice', () => {
   });
 
   it('is false for LiveKit even when text uses a browser key', () => {
+    vi.stubEnv('VITE_HOSTED', '0');
     vi.stubEnv('VITE_BROWSER_KEY_MODE', '1');
     vi.stubEnv('VITE_VOICE_PROVIDER', 'livekit');
     expect(usesBrowserOpenAIVoice()).toBe(false);
+  });
+
+  it('ignores an unsupported hosted LiveKit setting consistently', () => {
+    vi.stubEnv('VITE_HOSTED', '1');
+    vi.stubEnv('VITE_BROWSER_KEY_MODE', '1');
+    vi.stubEnv('VITE_VOICE_PROVIDER', 'livekit');
+
+    expect(usesOpenAIVoice()).toBe(true);
+    expect(usesBrowserOpenAIVoice()).toBe(true);
   });
 });

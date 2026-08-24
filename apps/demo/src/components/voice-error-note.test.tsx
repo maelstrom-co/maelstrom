@@ -82,19 +82,43 @@ describe('VoiceErrorNote', () => {
     ],
     [
       'TOKEN_MINT_FAILED',
-      "Voice couldn't start — the server couldn't mint a session token. Check the server logs or configuration, then try again.",
+      "Voice couldn't start because a session token could not be created. Check the key or server configuration, then retry.",
     ],
     [
       'CONNECTION_FAILED',
-      'Voice connection dropped. Click the orb to reconnect.',
+      'Voice connection failed. Click the orb to reconnect.',
     ],
     [
       'DATA_CHANNEL_ERROR',
-      'Voice connection dropped. Click the orb to reconnect.',
+      'The voice channel failed. Click the orb to reconnect.',
     ],
   ] as const)('shows the %s guidance', async (code, expected) => {
     const { container, session } = renderNote();
     session.lastError = new RealtimeVoiceError(code, 'boom');
+    await act(async () => {
+      session.emitState('error');
+    });
+
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+      expected,
+    );
+  });
+
+  it.each([
+    [
+      403,
+      "OpenAI denied Realtime access (HTTP 403). Check the key's project permissions and model access, then retry.",
+    ],
+    [
+      429,
+      "OpenAI rate-limited voice setup (HTTP 429). Check the API project's usage limits, then retry.",
+    ],
+  ] as const)('shows actionable OpenAI setup status %s', async (status, expected) => {
+    const { container, session } = renderNote();
+    session.lastError = new RealtimeVoiceError(
+      'CONNECTION_FAILED',
+      `OpenAI realtime call setup failed with status ${status}`,
+    );
     await act(async () => {
       session.emitState('error');
     });
@@ -171,7 +195,7 @@ describe('VoiceErrorNote', () => {
     });
 
     expect(container.querySelector('[role="alert"]')?.textContent).toMatch(
-      /server couldn't mint a session token/,
+      /session token could not be created/,
     );
   });
 
@@ -185,7 +209,7 @@ describe('VoiceErrorNote', () => {
     });
 
     expect(container.querySelector('[role="alert"]')?.textContent).toMatch(
-      /couldn't mint a session token/,
+      /session token could not be created/,
     );
   });
 

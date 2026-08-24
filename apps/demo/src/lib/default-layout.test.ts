@@ -4,7 +4,7 @@ import type { InstanceId } from '@maelstrom-co/protocol';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { calendarVessel } from '../vessels/calendar.vessel';
 import { tasksVessel } from '../vessels/tasks.vessel';
-import { DEFAULT_LAYOUT } from './default-layout';
+import { DEFAULT_LAYOUT, NARROW_LAYOUT } from './default-layout';
 
 // Walks the parsed tree, asserting every split node has both children (a
 // malformed tree — e.g. a 'V' with only one leaf — silently drops a tile at
@@ -76,5 +76,17 @@ describe('DEFAULT_LAYOUT', () => {
       expect(vessel).toBeDefined();
       expect(Object.keys(vessel.variants)).toContain(instance.variant);
     }
+  });
+
+  it('stacks the seeded vessels on narrow chart containers', () => {
+    const tree = parseTilingTree(NARROW_LAYOUT.tree);
+
+    expect(tree?.type).toBe('split');
+    if (tree?.type !== 'split') throw new Error('expected a split layout');
+    expect(tree.direction).toBe('H');
+    expect(new Set(assertCompleteAndCollectLeaves(tree))).toEqual(
+      new Set(['calendar-main', 'tasks-main']),
+    );
+    expect(NARROW_LAYOUT.instances).toEqual(DEFAULT_LAYOUT.instances);
   });
 });

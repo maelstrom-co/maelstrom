@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "prepare:voice-assets": "maelstrom-vad-assets public/vad-web",
+    "prepare:voice-assets": "bun ../../packages/realtime-vad/dist/bin/maelstrom-vad-assets.js public/vad-web",
     "dev": "concurrently --kill-others-on-fail --names ws,vite \"bun --env-file=../../.env run src/server/ws-server.ts\" \"bun run dev:client\"",
     "dev-livekit": "concurrently --kill-others-on-fail --names ws,agent,vite \"bun --env-file=../../.env run src/server/ws-server.ts\" \"bun run dev-agent\" \"bun run dev:client:livekit\"",
     "dev:ws": "bun --env-file=../../.env run src/server/ws-server.ts",
@@ -42,7 +42,9 @@
       "build-hosted": {
         "executor": "nx:run-commands",
         "dependsOn": [
-          "^build"
+          "^build",
+          "build",
+          "prepare-voice-assets"
         ],
         "cache": true,
         "inputs": [
@@ -74,6 +76,22 @@
           "cwd": "{projectRoot}",
           "command": "alchemy deploy --stage prod"
         }
+      },
+      "e2e": {
+        "dependsOn": [
+          "build-hosted"
+        ]
+      },
+      "e2e-ci": {
+        "dependsOn": [
+          "...",
+          "build-hosted"
+        ]
+      },
+      "e2e-ci--e2e/launch-readiness.e2e.ts": {
+        "dependsOn": [
+          "build-hosted"
+        ]
       },
       "prepare-voice-assets": {
         "executor": "nx:run-commands",

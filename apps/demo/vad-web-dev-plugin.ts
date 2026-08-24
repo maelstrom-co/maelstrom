@@ -14,6 +14,7 @@ import { isAbsolute, posix, relative, resolve, win32 } from 'node:path';
 import type { Connect, Plugin } from 'vite';
 
 const VAD_WEB_PREFIX = '/vad-web/';
+const VAD_WEB_OUTPUT_PREFIX = VAD_WEB_PREFIX.slice(1);
 const VAD_WEB_TRANSACTION_PATH = /^\.vad-web\.(?:backup|stage)-/;
 const JAVASCRIPT_CONTENT_TYPE = 'application/javascript; charset=utf-8';
 
@@ -47,6 +48,7 @@ interface BuildPublicAssetsPluginOptions {
   readonly build: boolean;
   readonly publicDirectory: string;
   readonly relativePath?: RelativePath;
+  readonly requiredVadWebAssetNames?: readonly [string, ...string[]];
 }
 
 /** Returns whether a filesystem operation failed because its target is absent. */
@@ -141,15 +143,16 @@ async function readValidatedAsset(
 
 /**
  * Collects one deterministic snapshot of regular files beneath a real public
- * directory. A missing root yields an empty snapshot. The top-level `vad-web`
- * entry is intentionally omitted by name before its kind or target is inspected,
- * including when generated tooling left it as a symlink. Top-level VAD staging
- * or backup debris rejects the snapshot before reads or emissions; symlinks
- * anywhere in the included tree, path escapes, and unsupported entry kinds reject.
+ * directory. A missing root yields an empty snapshot. Unless VAD inclusion is
+ * requested, the top-level `vad-web` entry is omitted by name before its kind or
+ * target is inspected. Top-level VAD staging or backup debris rejects the
+ * snapshot before reads or emissions; symlinks anywhere in the included tree,
+ * path escapes, and unsupported entry kinds reject.
  */
 async function collectPublicAssets(
   rootDirectory: string,
   relativePath: RelativePath,
+  includeVadWeb: boolean,
 ): Promise<ValidatedAsset[]> {
   let rootMetadata: BigIntStats;
   try {
@@ -184,7 +187,7 @@ async function collectPublicAssets(
     entries.sort((left, right) => left.name.localeCompare(right.name));
 
     for (const entry of entries) {
-      if (topLevel && entry.name === 'vad-web') {
+      if (topLevel && entry.name === 'vad-web' && !includeVadWeb) {
         continue;
       }
       if (topLevel && VAD_WEB_TRANSACTION_PATH.test(entry.name)) {
@@ -328,17 +331,18 @@ export function createVadWebDevPlugin({
 }
 
 /**
- * Creates a build plugin that emits validated public assets while
- * excluding the top-level generated `vad-web` entry. Non-build mode and a
- * missing public root are no-ops; an ordinary local non-LiveKit production build
- * does run this plugin. The demo's local LiveKit build disables it because Vite
- * performs its native complete `publicDir` copy for that mode instead. The
- * excluded `vad-web` entry is skipped by name before inspection, including when
- * it is the generated symlink. Top-level VAD staging or backup debris fails the
- * build before reads or emissions; symlinks anywhere in the included tree fail.
- * The complete included tree is validated and read before any file is emitted,
- * so symlinks, path escapes, unsupported entries, identity changes, and read
- * failures reject the build without partial plugin output. Selected files are
+ * Creates a build plugin that emits validated public assets. The generated
+ * top-level `vad-web` entry is excluded unless an explicit filename allowlist is
+ * provided. Non-build mode and a missing public root are no-ops; an ordinary
+ * local non-LiveKit production build does run this plugin. The demo's local
+ * LiveKit build disables it because Vite performs its native complete
+ * `publicDir` copy for that mode instead. Top-level VAD staging or backup debris
+ * fails the build before reads or emissions; symlinks anywhere in the included
+ * tree fail.
+ * The complete included tree is validated and every selected file is read
+ * before any file is emitted, so symlinks, path escapes, unsupported entries,
+ * identity changes, and read failures reject the build without partial plugin
+ * output. Selected files are
  * opened without following final symlinks and must retain their validated file
  * and directory identities before their bytes are read. Emitted names are
  * root-relative and normalized to forward slashes for Vite and Rollup. An
@@ -355,6 +359,7 @@ export function createBuildPublicAssetsPlugin({
   beforeReadAssets,
   publicDirectory,
   relativePath = relative,
+  requiredVadWebAssetNames,
 }: BuildPublicAssetsPluginOptions): Plugin {
   return {
     name: 'maelstrom-build-public-assets',
@@ -367,10 +372,31 @@ export function createBuildPublicAssetsPlugin({
       const assets = await collectPublicAssets(
         resolve(publicDirectory),
         relativePath,
+        requiredVadWebAssetNames !== undefined,
       );
-      await beforeReadAssets?.(assets);
+      const selectedAssets = assets.filter((asset) => {
+        if (!asset.fileName.startsWith(VAD_WEB_OUTPUT_PREFIX)) return true;
+        return (
+          requiredVadWebAssetNames?.includes(
+            asset.fileName.slice(VAD_WEB_OUTPUT_PREFIX.length),
+          ) ?? false
+        );
+      });
+      for (const assetName of requiredVadWebAssetNames ?? []) {
+        if (
+          !selectedAssets.some(
+            (asset) =>
+              asset.fileName === `${VAD_WEB_OUTPUT_PREFIX}${assetName}`,
+          )
+        ) {
+          throw new Error(
+            `Required browser VAD asset is missing: ${assetName}`,
+          );
+        }
+      }
+      await beforeReadAssets?.(selectedAssets);
       const contents = await Promise.all(
-        assets.map(async (asset) => ({
+        selectedAssets.map(async (asset) => ({
           fileName: asset.fileName,
           source: await readValidatedAsset(asset, relativePath),
         })),

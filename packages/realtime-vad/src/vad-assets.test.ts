@@ -12,7 +12,7 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, parse, relative } from 'node:path';
-
+import { browserVadAssetNamesForModel } from './vad-asset-manifest.js';
 import { copyBrowserVadAssets } from './vad-assets.js';
 
 const realFs = {
@@ -38,6 +38,21 @@ const expectedAssets = [
 ];
 
 const tempDirectories: string[] = [];
+
+test('model manifests select one model and the standard WASM runtime', () => {
+  expect(browserVadAssetNamesForModel('legacy')).toEqual([
+    'ort-wasm-simd-threaded.mjs',
+    'ort-wasm-simd-threaded.wasm',
+    'silero_vad_legacy.onnx',
+    'vad.worklet.bundle.min.js',
+  ]);
+  expect(browserVadAssetNamesForModel('v5')).toEqual([
+    'ort-wasm-simd-threaded.mjs',
+    'ort-wasm-simd-threaded.wasm',
+    'silero_vad_v5.onnx',
+    'vad.worklet.bundle.min.js',
+  ]);
+});
 
 async function createTempDirectory(): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), 'maelstrom-vad-assets-'));

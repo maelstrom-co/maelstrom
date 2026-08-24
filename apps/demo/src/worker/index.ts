@@ -17,14 +17,23 @@ export default {
     if (url.pathname === '/ws') {
       // Rejecting a non-upgrade request before touching the DO means a
       // plain unauthenticated GET never wakes the object at all. This
-      // doesn't stop a well-formed upgrade request from doing the same
-      // thing deliberately; that needs edge rate limiting, out of scope
-      // here. (SessionDO.fetch carries the same guard itself -- defence in
-      // depth, not redundancy: this one avoids waking the object, the DO's
-      // own guard protects any caller that reaches it directly.)
+      // SessionDO.fetch carries the same guard itself: this one avoids waking
+      // the object, while the DO's guard protects direct callers.
       const upgrade = request.headers.get('Upgrade');
       if (upgrade?.toLowerCase() !== 'websocket') {
         return new Response('Expected WebSocket upgrade', { status: 426 });
+      }
+      const origin = request.headers.get('Origin');
+      if (origin !== null && origin !== url.origin) {
+        return new Response('Cross-origin WebSocket rejected', { status: 403 });
+      }
+      const actor =
+        request.headers.get('CF-Connecting-IP') ?? origin ?? 'unknown';
+      const rateLimit = await env.WS_RATE_LIMITER.limit({
+        key: `${url.host}:${actor}`,
+      });
+      if (!rateLimit.success) {
+        return new Response('WebSocket rate limit exceeded', { status: 429 });
       }
 
       // Session identity is object identity. SessionDO holds exactly one
@@ -35,6 +44,9 @@ export default {
       const session = url.searchParams.get('session');
       if (!session) {
         return new Response('Missing session query param', { status: 400 });
+      }
+      if (session.length > 128) {
+        return new Response('Session query param is too long', { status: 400 });
       }
       return env.SESSION_DO.get(env.SESSION_DO.idFromName(session)).fetch(
         request,

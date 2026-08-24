@@ -64,6 +64,34 @@ describe('KeyDrawer', () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
+  it('contains keyboard focus within the open dialog', () => {
+    render(<KeyDrawer isOpen onClose={() => {}} onSave={() => {}} />);
+    const input = screen.getByLabelText(/api key/i) as HTMLElement;
+    const cancel = screen.getByRole('button', { name: /cancel/i });
+
+    cancel.focus();
+    fireEvent.keyDown(document, { key: 'Tab' });
+    expect(document.activeElement).toBe(input);
+
+    input.focus();
+    fireEvent.keyDown(document, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(cancel);
+  });
+
+  it('restores focus to the control that opened the dialog', () => {
+    const trigger = document.createElement('button');
+    document.body.appendChild(trigger);
+    trigger.focus();
+    const { rerender } = render(
+      <KeyDrawer isOpen onClose={() => {}} onSave={() => {}} />,
+    );
+
+    rerender(<KeyDrawer isOpen={false} onClose={() => {}} onSave={() => {}} />);
+
+    expect(document.activeElement).toBe(trigger);
+    trigger.remove();
+  });
+
   it('passes only the trimmed key to onSave and does not persist it', () => {
     const onSave = vi.fn();
     render(<KeyDrawer isOpen onClose={() => {}} onSave={onSave} />);

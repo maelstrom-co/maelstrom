@@ -1,0 +1,11 @@
+/*
+  Content-Security-Policy: default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob: https://tiles.openfreemap.org; connect-src 'self' ws://127.0.0.1:* ws://localhost:* wss://demo.maelstrom-ai.co wss://*.maelstrom-dev.workers.dev https://api.openai.com https://router.project-osrm.org https://geocoding-api.open-meteo.com https://api.open-meteo.com https://tiles.openfreemap.org; worker-src 'self' blob:; media-src 'self' blob:
+  Permissions-Policy: camera=(), geolocation=(), microphone=(self)
+  Referrer-Policy: strict-origin-when-cross-origin
+  X-Content-Type-Options: nosniff
+
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/vad-web/*
+  Cache-Control: public, max-age=3600

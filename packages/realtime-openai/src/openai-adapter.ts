@@ -876,7 +876,7 @@ export class OpenAIAdapter
     try {
       parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
     } catch (error) {
-      this.#logger.error('← data-channel parse error', raw, error);
+      this.#logger.error('← data-channel parse error');
       this.#emit({ type: 'error', error });
       return;
     }
@@ -939,12 +939,10 @@ export class OpenAIAdapter
       }
     }
     if (lifecycleCategory === undefined && !isInputTranscriptDelta) {
-      // Noisy transcript deltas flood the console — log only their type.
-      if (type === 'response.audio_transcript.delta') {
-        this.#logger.debug('←', type);
-      } else {
-        this.#logger.debug('←', type, parsed);
-      }
+      this.#logger.debug(
+        '←',
+        this.#unexpectedEvents.knownType(type) ?? 'event',
+      );
     }
 
     // Response-lifecycle bookkeeping is driven off the raw event type, not
@@ -1019,15 +1017,18 @@ export class OpenAIAdapter
     const event = parseOpenAIServerEvent(parsed);
     if (event) {
       if (lifecycleCategory === undefined && !isInputTranscriptDelta) {
-        this.#logger.debug('parsed →', event.type, event);
+        this.#logger.debug('parsed →', event.type);
       }
       this.#emit(event);
     } else {
       if (lifecycleCategory === undefined && !isInputTranscriptDelta) {
-        this.#logger.debug('unrecognized or unparsed event', type, parsed);
+        this.#logger.debug(
+          'unrecognized or unparsed event',
+          this.#unexpectedEvents.knownType(type) ?? 'unknown',
+        );
       }
       if (type !== undefined && this.#unexpectedEvents.track(type)) {
-        this.#logger.warn('unexpected realtime event type', type);
+        this.#logger.warn('unexpected realtime event type');
       }
     }
   }

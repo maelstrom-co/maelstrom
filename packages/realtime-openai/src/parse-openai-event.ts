@@ -16,12 +16,9 @@ export function asString(value: unknown): string | undefined {
  * `RealtimeSession` needs.
  *
  * `function_call` is mapped per the OpenAI Realtime API docs (`{name,
- * arguments, call_id}` at the top level). The transcript / speech-started /
- * error mappings below are not documented there — OpenAI's Realtime API
- * doesn't document a settled shape for those event names for
- * `gpt-realtime-2` at this point, so these are the maintainer's best-known
- * shapes from prior Realtime API versions, isolated here so they're cheap to
- * correct once real traffic is observed.
+ * arguments, call_id}` at the top level). Current assistant transcripts use
+ * `response.output_audio_transcript.*`; the prior
+ * `response.audio_transcript.*` names remain accepted for older sessions.
  *
  * `conversation.item.created` is intentionally unmapped: greeting playback no
  * longer waits on provider item-acks, and the event remains a known benign
@@ -64,7 +61,8 @@ export function parseOpenAIServerEvent(
       };
     }
 
-    case 'response.audio_transcript.delta': {
+    case 'response.audio_transcript.delta':
+    case 'response.output_audio_transcript.delta': {
       const delta = asString(raw.delta);
       if (delta === undefined) return null;
       return {
@@ -75,7 +73,8 @@ export function parseOpenAIServerEvent(
       };
     }
 
-    case 'response.audio_transcript.done': {
+    case 'response.audio_transcript.done':
+    case 'response.output_audio_transcript.done': {
       const transcript = asString(raw.transcript);
       if (transcript === undefined) return null;
       return {

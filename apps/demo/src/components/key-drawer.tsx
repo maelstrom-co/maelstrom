@@ -45,6 +45,8 @@ export function KeyDrawer({
   const [apiKey, setApiKey] = useState('');
   const storedKey = useStore(playgroundKeyStore, (state) => state.apiKey);
   const inputRef = useRef<HTMLInputElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const returnFocusRef = useRef<HTMLElement | null>(null);
 
   const trimmedApiKey = apiKey.trim();
   const isTooShort =
@@ -70,13 +72,46 @@ export function KeyDrawer({
   // the drawer stays mounted across open/close (see the save/reopen and
   // Cancel/reopen tests), so hooks must run unconditionally on every render.
   useEffect(() => {
-    if (isOpen) inputRef.current?.focus();
+    if (!isOpen) return;
+    returnFocusRef.current =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+    inputRef.current?.focus();
+    return () => {
+      const returnFocus = returnFocusRef.current;
+      returnFocusRef.current = null;
+      if (returnFocus?.isConnected) returnFocus.focus();
+    };
   }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen) return;
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') handleClose();
+      if (event.key === 'Escape') {
+        handleClose();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const focusable = Array.from(
+        panelRef.current?.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ) ?? [],
+      );
+      if (focusable.length === 0) {
+        event.preventDefault();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable.at(-1);
+      if (!first || !last) return;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
@@ -99,7 +134,7 @@ export function KeyDrawer({
       aria-labelledby="key-drawer-heading"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
     >
-      <div className="surface w-full max-w-md p-6">
+      <div ref={panelRef} className="surface w-full max-w-md p-6">
         <p className="eyebrow">BYOK Playground</p>
         <h2
           id="key-drawer-heading"

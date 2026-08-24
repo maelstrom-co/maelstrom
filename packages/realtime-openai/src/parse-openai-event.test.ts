@@ -30,7 +30,7 @@ describe('parseOpenAIServerEvent — tool calls', () => {
 describe('parseOpenAIServerEvent — transcript', () => {
   it('maps an assistant transcript delta to a non-final transcript event', () => {
     const raw = {
-      type: 'response.audio_transcript.delta',
+      type: 'response.output_audio_transcript.delta',
       item_id: 'item_1',
       delta: 'Pulling that up',
     };
@@ -45,7 +45,7 @@ describe('parseOpenAIServerEvent — transcript', () => {
 
   it('maps an assistant transcript done to a final transcript event', () => {
     const raw = {
-      type: 'response.audio_transcript.done',
+      type: 'response.output_audio_transcript.done',
       item_id: 'item_1',
       transcript: 'Pulling that up for you now.',
     };
@@ -54,6 +54,31 @@ describe('parseOpenAIServerEvent — transcript', () => {
       type: 'transcript',
       role: 'assistant',
       text: 'Pulling that up for you now.',
+      final: true,
+    });
+  });
+
+  it('keeps prior assistant transcript event names compatible', () => {
+    expect(
+      parseOpenAIServerEvent({
+        type: 'response.audio_transcript.delta',
+        delta: 'Still ',
+      }),
+    ).toEqual({
+      type: 'transcript',
+      role: 'assistant',
+      text: 'Still ',
+      final: false,
+    });
+    expect(
+      parseOpenAIServerEvent({
+        type: 'response.audio_transcript.done',
+        transcript: 'Still supported.',
+      }),
+    ).toEqual({
+      type: 'transcript',
+      role: 'assistant',
+      text: 'Still supported.',
       final: true,
     });
   });

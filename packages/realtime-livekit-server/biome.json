@@ -32,6 +32,9 @@
               "@maelstrom-co/realtime-vad": {
                 "message": "Server and worker packages may not import @maelstrom-co/realtime-vad — it's a browser package. See packages/realtime-protocol/src/layer-boundary.test.ts for the enforced layering rule."
               },
+              "@maelstrom-co/realtime-vad/asset-manifest": {
+                "message": "Server and worker packages may not import @maelstrom-co/realtime-vad/asset-manifest — it's a browser package. See packages/realtime-protocol/src/layer-boundary.test.ts for the enforced layering rule."
+              },
               "@maelstrom-co/realtime-vad/assets": {
                 "message": "Server and worker packages may not import @maelstrom-co/realtime-vad/assets — it's a browser package. See packages/realtime-protocol/src/layer-boundary.test.ts for the enforced layering rule."
               },

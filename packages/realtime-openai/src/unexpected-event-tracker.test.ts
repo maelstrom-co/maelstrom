@@ -38,6 +38,8 @@ describe('track', () => {
       'response.function_call_arguments.delta',
       'response.audio.delta',
       'response.audio.done',
+      'response.output_audio.delta',
+      'response.output_audio.done',
       'response.text.delta',
       'response.text.done',
       'output_audio_buffer.started',

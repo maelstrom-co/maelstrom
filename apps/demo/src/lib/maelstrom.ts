@@ -18,7 +18,8 @@ import {
   DEMO_GREETING,
   DEMO_OPENAI_VOICE,
 } from './demo-greeting-tts';
-import { isHosted, usesBrowserKey } from './hosted-mode';
+import { isHosted, usesBrowserKey, usesOpenAIVoice } from './hosted-mode';
+import { HOSTED_VAD_MODEL } from './hosted-vad';
 import { createBrowserMintToken, mintOpenAIToken } from './mint-token';
 import { orchestrationLegibility } from './orchestration-legibility';
 import { playgroundKeyStore } from './playground-key-store';
@@ -74,7 +75,7 @@ function createAdapter({
 }: CreateAdapterContext): RealtimeProviderAdapter {
   const hosted = isHosted();
   const browserKeyMode = usesBrowserKey();
-  if (!hosted && import.meta.env.VITE_VOICE_PROVIDER === 'livekit') {
+  if (!usesOpenAIVoice()) {
     return new LiveKitAdapter({
       mintToken: (roomName) => getLivekitToken({ data: { roomName } }),
       roomName: `maelstrom-${sessionId}`,
@@ -105,10 +106,13 @@ function createAdapter({
         }
       : {}),
     voice: DEMO_OPENAI_VOICE,
+    transcription: { model: 'gpt-4o-transcribe' },
     synthesizeGreeting: browserKeyMode
       ? hostedSynthesizeGreeting
       : localSynthesizeGreeting,
-    greetingInterruption: true,
+    greetingInterruption: hosted
+      ? { providerOptions: { model: HOSTED_VAD_MODEL } }
+      : true,
     debug: isDebugRequested(),
   });
 }

@@ -15,7 +15,10 @@ import {
   createBuildPublicAssetsPlugin,
   createVadWebDevPlugin,
 } from './vad-web-dev-plugin.ts';
-import createViteConfig, { resolveBrowserKeyMode } from './vite.config.mjs';
+import createViteConfig, {
+  hostedVadAssetNames,
+  resolveBrowserKeyMode,
+} from './vite.config.mjs';
 
 const temporaryDirectories = [];
 
@@ -207,6 +210,45 @@ describe('build public assets', () => {
     ]);
   });
 
+  test('emits only the requested validated VAD assets', async () => {
+    const publicDirectory = await mkdtemp(join(tmpdir(), 'maelstrom-public-'));
+    temporaryDirectories.push(publicDirectory);
+    await mkdir(join(publicDirectory, 'vad-web'));
+    await writeFile(join(publicDirectory, 'vad-web', 'model.onnx'), 'model');
+    await writeFile(join(publicDirectory, 'vad-web', 'unused.wasm'), 'unused');
+    await writeFile(join(publicDirectory, 'favicon.ico'), 'icon');
+
+    expect(
+      await generateBuildAssets({
+        build: true,
+        publicDirectory,
+        requiredVadWebAssetNames: ['model.onnx'],
+      }),
+    ).toEqual([
+      { type: 'asset', fileName: 'favicon.ico', source: Buffer.from('icon') },
+      {
+        type: 'asset',
+        fileName: 'vad-web/model.onnx',
+        source: Buffer.from('model'),
+      },
+    ]);
+  });
+
+  test('rejects a missing required VAD asset before emitting files', async () => {
+    const publicDirectory = await mkdtemp(join(tmpdir(), 'maelstrom-public-'));
+    temporaryDirectories.push(publicDirectory);
+    await mkdir(join(publicDirectory, 'vad-web'));
+    await writeFile(join(publicDirectory, 'favicon.ico'), 'icon');
+
+    await expect(
+      generateBuildAssets({
+        build: true,
+        publicDirectory,
+        requiredVadWebAssetNames: ['model.onnx'],
+      }),
+    ).rejects.toThrow(/model\.onnx/);
+  });
+
   test('emits contained files whose names start with two dots', async () => {
     const publicDirectory = await mkdtemp(join(tmpdir(), 'maelstrom-public-'));
     temporaryDirectories.push(publicDirectory);
@@ -257,6 +299,25 @@ describe('build public assets', () => {
     expect(await generateBuildAssets({ build: true, publicDirectory })).toEqual(
       [{ type: 'asset', fileName: 'favicon.ico', source: Buffer.from('icon') }],
     );
+  });
+
+  test('rejects a VAD symlink when hosted assets are requested', async () => {
+    const parent = await mkdtemp(join(tmpdir(), 'maelstrom-public-vad-link-'));
+    temporaryDirectories.push(parent);
+    const publicDirectory = join(parent, 'public');
+    const externalVadDirectory = join(parent, 'external-vad');
+    await mkdir(publicDirectory);
+    await mkdir(externalVadDirectory);
+    await writeFile(join(externalVadDirectory, 'model.onnx'), 'vad');
+    await symlink(externalVadDirectory, join(publicDirectory, 'vad-web'));
+
+    await expect(
+      generateBuildAssets({
+        build: true,
+        publicDirectory,
+        requiredVadWebAssetNames: ['model.onnx'],
+      }),
+    ).rejects.toThrow(/symlink/i);
   });
 
   test.each([
@@ -438,6 +499,18 @@ describe('build public assets', () => {
 });
 
 describe('demo voice asset targets', () => {
+  test('limits hosted VAD output to the configured legacy WASM runtime', () => {
+    expect(hostedVadAssetNames).toEqual([
+      'ort-wasm-simd-threaded.mjs',
+      'ort-wasm-simd-threaded.wasm',
+      'silero_vad_legacy.onnx',
+      'vad.worklet.bundle.min.js',
+    ]);
+    expect(demoPackage.scripts['prepare:voice-assets']).toBe(
+      'bun ../../packages/realtime-vad/dist/bin/maelstrom-vad-assets.js public/vad-web',
+    );
+  });
+
   test('keeps ordinary builds asset-free and prepares the LiveKit build', () => {
     expect(demoPackage.scripts.build).toBe('vite build');
     expect(demoPackage.scripts['build-livekit']).toBe(
@@ -451,6 +524,11 @@ describe('demo voice asset targets', () => {
         command: 'vite build --mode livekit',
       },
     });
+    expect(demoPackage.nx.targets['build-hosted'].dependsOn).toEqual([
+      '^build',
+      'build',
+      'prepare-voice-assets',
+    ]);
   });
 
   test.each([
@@ -504,7 +582,7 @@ describe('Vite public asset modes', () => {
     );
   });
 
-  test('keeps hosted output VAD-free even when livekit mode is requested', async () => {
+  test('keeps hosted output on validated asset emission even in livekit mode', async () => {
     const previousHosted = process.env.VITE_HOSTED;
     process.env.VITE_HOSTED = '1';
     try {

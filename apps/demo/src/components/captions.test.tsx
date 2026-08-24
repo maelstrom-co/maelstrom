@@ -58,7 +58,8 @@ describe('Captions', () => {
     // chart_resize. The band must stay mounted at a stable height even idle.
     const { container } = renderCaptions();
     const root = must(container.querySelector('[data-testid="captions"]'));
-    expect(root.className).toMatch(/\bh-5\b/);
+    expect(root.className).toContain('h-24');
+    expect(root.className).toContain('sm:h-14');
     expect(container.querySelector('[data-role="assistant"]')).toBeNull();
     expect(container.querySelector('[data-role="user"]')).toBeNull();
   });
@@ -96,7 +97,7 @@ describe('Captions', () => {
     expect(container.querySelector('[data-role="user"]')).toBeNull();
   });
 
-  it('clamps caption text to a single line so streaming cannot grow the band', async () => {
+  it('clamps caption text to two lines inside the fixed band', async () => {
     const { container, session } = renderCaptions();
     await act(async () => {
       session.emitState('listening');
@@ -108,10 +109,8 @@ describe('Captions', () => {
     });
 
     const line = must(container.querySelector('[data-role="assistant"]'));
-    // Truncation lives on the text span (flex parent + truncate on the same
-    // node does not ellipsize); the line itself is width-capped at half.
-    expect(line.className).toMatch(/max-w-\[50%\]/);
-    expect(line.querySelector('.truncate')).not.toBeNull();
+    expect(line.className).toContain('sm:col-span-2');
+    expect(line.querySelector('.line-clamp-2')).not.toBeNull();
   });
 
   it('streams non-final assistant text live, left-aligned with an accent color', async () => {
@@ -145,9 +144,11 @@ describe('Captions', () => {
     expect(line.textContent).toBe('show labs');
     expect(line.className).toContain('text-right');
     expect(line.className).toContain('text-ink-3');
+    expect(line.className).toContain('line-clamp-2');
+    expect(line.getAttribute('aria-label')).toBe('Approximate user transcript');
   });
 
-  it('omits the empty side so a single caption can use up to half the row', async () => {
+  it('lets a single caption use the full row', async () => {
     const { container, session } = renderCaptions();
     await act(async () => {
       session.emitState('listening');
@@ -155,7 +156,30 @@ describe('Captions', () => {
     });
 
     expect(container.querySelector('[data-role="assistant"]')).toBeNull();
-    expect(container.querySelector('[data-role="user"]')).not.toBeNull();
+    expect(
+      must(container.querySelector('[data-role="user"]')).className,
+    ).toContain('sm:col-span-2');
+  });
+
+  it('stacks both speakers on mobile and separates them into desktop columns', async () => {
+    const { container, session } = renderCaptions();
+    await act(async () => {
+      session.emitState('listening');
+      session.emitTranscript({
+        role: 'assistant',
+        text: 'On it',
+        final: false,
+      });
+      session.emitTranscript({ role: 'user', text: 'show labs', final: true });
+    });
+
+    const root = must(container.querySelector('[data-testid="captions"]'));
+    const assistant = must(container.querySelector('[data-role="assistant"]'));
+    const user = must(container.querySelector('[data-role="user"]'));
+    expect(root.className).toContain('grid-cols-1');
+    expect(root.className).toContain('sm:grid-cols-2');
+    expect(assistant.className).not.toContain('sm:col-span-2');
+    expect(user.className).not.toContain('sm:col-span-2');
   });
 
   it('keeps the assistant caption dot when an assistant transcript is present', async () => {

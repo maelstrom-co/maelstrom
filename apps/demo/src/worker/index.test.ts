@@ -43,13 +43,16 @@ function makeEnv() {
   const stub = { fetch: vi.fn(async () => new Response('do reached')) };
   const idFromName = vi.fn((name: string) => `id:${name}`);
   const get = vi.fn(() => stub);
+  const rateLimit = vi.fn(async () => ({ success: true }));
   return {
     env: {
       SESSION_DO: { idFromName, get },
       ASSETS: { fetch: async () => new Response('assets') },
+      WS_RATE_LIMITER: { limit: rateLimit },
     } as unknown as Parameters<typeof worker.fetch>[1],
     idFromName,
     get,
+    rateLimit,
     stub,
   };
 }
@@ -90,6 +93,48 @@ describe('worker /ws upgrade guard', () => {
 });
 
 describe('worker /ws routing to SessionDO', () => {
+  it('rejects cross-origin browser upgrades before addressing a Durable Object', async () => {
+    const { env, idFromName, get } = makeEnv();
+    const request = new Request('https://example.com/ws?session=visitor-1', {
+      headers: { Upgrade: 'websocket', Origin: 'https://attacker.example' },
+    });
+
+    const response = await worker.fetch(request, env);
+
+    expect(response.status).toBe(403);
+    expect(idFromName).not.toHaveBeenCalled();
+    expect(get).not.toHaveBeenCalled();
+  });
+
+  it('allows same-origin browser upgrades', async () => {
+    const { env, idFromName, rateLimit } = makeEnv();
+    const request = new Request('https://example.com/ws?session=visitor-1', {
+      headers: { Upgrade: 'websocket', Origin: 'https://example.com' },
+    });
+
+    const response = await worker.fetch(request, env);
+
+    expect(response.status).toBe(200);
+    expect(idFromName).toHaveBeenCalledWith('visitor-1');
+    expect(rateLimit).toHaveBeenCalledWith({
+      key: 'example.com:https://example.com',
+    });
+  });
+
+  it('rejects a rate-limited upgrade before addressing a Durable Object', async () => {
+    const { env, idFromName, get, rateLimit } = makeEnv();
+    rateLimit.mockResolvedValue({ success: false });
+    const request = new Request('https://example.com/ws?session=visitor-1', {
+      headers: { Upgrade: 'websocket', 'CF-Connecting-IP': '192.0.2.1' },
+    });
+
+    const response = await worker.fetch(request, env);
+
+    expect(response.status).toBe(429);
+    expect(idFromName).not.toHaveBeenCalled();
+    expect(get).not.toHaveBeenCalled();
+  });
+
   it('routes an upgrade request to the SessionDO named after the session query param, matched case-insensitively', async () => {
     const { env, idFromName, get, stub } = makeEnv();
     const request = new Request('https://example.com/ws?session=visitor-1', {
@@ -130,6 +175,20 @@ describe('worker /ws routing to SessionDO', () => {
     const request = new Request('https://example.com/ws?session=', {
       headers: { Upgrade: 'websocket' },
     });
+
+    const response = await worker.fetch(request, env);
+
+    expect(response.status).toBe(400);
+    expect(idFromName).not.toHaveBeenCalled();
+    expect(get).not.toHaveBeenCalled();
+  });
+
+  it('rejects an oversized session identity before addressing a Durable Object', async () => {
+    const { env, idFromName, get } = makeEnv();
+    const request = new Request(
+      `https://example.com/ws?session=${'x'.repeat(129)}`,
+      { headers: { Upgrade: 'websocket' } },
+    );
 
     const response = await worker.fetch(request, env);
 

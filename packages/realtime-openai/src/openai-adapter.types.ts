@@ -30,7 +30,11 @@ export interface OpenAIAdapterOptions {
    * the adapter — `RealtimeSession` never sees a credential.
    */
   readonly mintToken: () => Promise<OpenAITokenGrant>;
-  /** Enable verbose debug tracing (default false). */
+  /**
+   * Enable verbose debug tracing (default false). Inbound provider events are
+   * logged as metadata only; transcripts, audio, identifiers, and raw payloads
+   * are never included.
+   */
   readonly debug?: boolean;
   /**
    * Input-audio transcription configuration for the realtime session.
