@@ -162,7 +162,7 @@ describe('Drizzle waitlist schema', () => {
     ).toBe('./src/waitlist-schema.ts');
   });
 
-  test('leaves the live Waitlist database on the append-only SQL journal', () => {
+  test('owns only the live Drizzle waitlist database', () => {
     const waitlist = readFileSync(
       resolve(workspaceRoot, 'infra/platform/src/Waitlist.ts'),
       'utf8',
@@ -175,12 +175,17 @@ describe('Drizzle waitlist schema', () => {
       resolve(workspaceRoot, 'infra/platform/alchemy.run.ts'),
       'utf8',
     );
-    expect(waitlist).toContain("D1.Database('Waitlist'");
-    expect(waitlist).toContain('../migrations');
     expect(waitlist).toContain("D1.Database('WaitlistNext'");
     expect(waitlist).toContain('../drizzle/migrations');
+    expect(waitlist).toContain(
+      "WAITLIST_DATABASE_NAME = 'maelstrom-waitlist-v2'",
+    );
+    expect(waitlist).not.toContain("D1.Database('Waitlist'");
+    expect(waitlist).not.toContain('WAITLIST_NEXT_DATABASE_NAME');
+    expect(waitlist).not.toContain('../migrations');
     expect(waitlist).not.toContain('Drizzle.Schema');
     expect(stack).not.toContain('Drizzle.providers');
+    expect(stack).not.toContain('waitlistNextDatabase');
     expect(waitlist).toContain("Database.ref('WaitlistNext',");
     expect(waitlist).not.toContain("Database.ref('Waitlist',");
     expect(deploy).not.toContain('drizzle-kit generate');

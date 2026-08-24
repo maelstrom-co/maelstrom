@@ -34,8 +34,8 @@ describe('platform stack contract', () => {
 
   test('keeps the deployed stack identity and waitlist logical IDs stable', () => {
     expect(stackSource).toContain('MaelstromPlatform.make');
-    expect(waitlistSource).toContain("D1.Database('Waitlist'");
     expect(waitlistSource).toContain("D1.Database('WaitlistNext'");
+    expect(waitlistSource).not.toContain("D1.Database('Waitlist'");
     expect(waitlistSource).toContain("'NotificationsEmail'");
     expect(waitlistSource).toContain("'WaitlistTurnstile'");
   });
@@ -124,7 +124,7 @@ describe('platform stack contract', () => {
   });
 
   test('retains subscriber data, sender configuration, and bot protection', () => {
-    expect(waitlistSource.match(/retain\(true\)/g)).toHaveLength(4);
+    expect(waitlistSource.match(/retain\(true\)/g)).toHaveLength(3);
     expect(waitlistSource).toContain('WAITLIST_PRODUCTION_HOSTNAMES');
     expect(waitlistSource).not.toMatch(/localhost|127\.0\.0\.1/);
   });

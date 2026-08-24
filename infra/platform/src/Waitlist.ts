@@ -8,10 +8,8 @@ import {
   WAITLIST_SENDING_DOMAIN,
 } from './WaitlistContract.js';
 
-/** Stable D1 database name retained across platform deployments. */
-export const WAITLIST_DATABASE_NAME = 'maelstrom-waitlist';
-/** Stable name of the retained Drizzle-owned waitlist D1. */
-export const WAITLIST_NEXT_DATABASE_NAME = 'maelstrom-waitlist-v2';
+/** Stable name of the retained waitlist D1. */
+export const WAITLIST_DATABASE_NAME = 'maelstrom-waitlist-v2';
 /** Worker binding that receives the managed Turnstile secret. */
 export const WAITLIST_TURNSTILE_SECRET_BINDING = 'TURNSTILE_SECRET_KEY';
 
@@ -23,13 +21,8 @@ export const WAITLIST_TURNSTILE_SECRET_BINDING = 'TURNSTILE_SECRET_KEY';
  */
 export const WaitlistPlatform = (zone: Cloudflare.Zone.Zone) =>
   Effect.gen(function* () {
-    const waitlist = yield* Cloudflare.D1.Database('Waitlist', {
+    const waitlist = yield* Cloudflare.D1.Database('WaitlistNext', {
       name: WAITLIST_DATABASE_NAME,
-      migrations: resolve(import.meta.dirname, '../migrations'),
-    }).pipe(retain(true));
-
-    const waitlistNext = yield* Cloudflare.D1.Database('WaitlistNext', {
-      name: WAITLIST_NEXT_DATABASE_NAME,
       migrations: resolve(import.meta.dirname, '../drizzle/migrations'),
     }).pipe(retain(true));
 
@@ -47,7 +40,7 @@ export const WaitlistPlatform = (zone: Cloudflare.Zone.Zone) =>
       mode: 'managed',
     }).pipe(retain(true));
 
-    return { sending, turnstile, waitlist, waitlistNext };
+    return { sending, turnstile, waitlist };
   });
 
 /** Production D1 reference that never transfers database ownership. */

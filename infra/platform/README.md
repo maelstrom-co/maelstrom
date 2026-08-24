@@ -92,25 +92,22 @@ bun alchemy deploy --stage prod --profile maelstrom-production-env
 
 - `ProductionZone`: Retained `maelstrom-ai.co` Zone identity.
 - `ProductionRateLimit`: Retained owner of the zone `http_ratelimit` phase.
-- `Waitlist`: D1 database `maelstrom-waitlist` and ordered SQL migrations.
-- `WaitlistNext`: retained parallel D1 `maelstrom-waitlist-v2` from the
-  committed Drizzle journal. www binds this database. The legacy
-  `Waitlist` resource stays retained for rollback.
+- `WaitlistNext`: retained D1 `maelstrom-waitlist-v2` from the committed
+  Drizzle journal. The Alchemy logical ID stays `WaitlistNext` so deploy
+  does not create a third database. The Cloudflare name cannot change.
 - `NotificationsEmail`: transactional sending subdomain.
 - `WaitlistTurnstile`: Managed Turnstile widget.
 
 Do not rename these resources or edit applied migration files. Append new D1
-migrations only. All five resources use retention policies.
+migrations only. All five remaining resources use retention policies.
 `test/migrations.test.ts` pins the SHA-256 of every migration that has reached
 production, so editing an applied file fails CI instead of silently drifting
 from the live schema (D1 skips a re-applied file by name).
 
-The live `Waitlist` database still applies `migrations/`. The Drizzle model of
-the same effective schema lives in `src/waitlist-schema.ts`. Generate SQL
-locally with `bun run db:generate` into `drizzle/migrations/` and commit the
-folder. `WaitlistNext` applies that committed journal as a path. Do not
-register `Drizzle.Schema` in the stack — a credentialed deploy must not
-generate SQL.
+The live waitlist D1 applies the committed journal in `drizzle/migrations/`.
+The model lives in `src/waitlist-schema.ts`. Generate SQL locally with
+`bun run db:generate` and commit the folder. Do not register
+`Drizzle.Schema` in the stack — a credentialed deploy must not generate SQL.
 
 Production CI deploys this platform stack at the checked green revision before
 any application job. The platform job exposes only the managed widget's public
