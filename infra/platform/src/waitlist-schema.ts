@@ -1,4 +1,4 @@
-import { sql } from 'drizzle-orm';
+import { defineRelations, sql } from 'drizzle-orm';
 import {
   check,
   customType,
@@ -117,4 +117,34 @@ export const waitlistDeliveryBackoffs = sqliteTable(
       sql`${table.provider} = 'email'`,
     ),
   ],
+);
+
+/** Typed joins for `db.query.*`. Does not change generated SQL. */
+export const waitlistRelations = defineRelations(
+  {
+    waitlistSubscribers,
+    waitlistConfirmationDeliveries,
+    waitlistResendDeliveries,
+    waitlistDeliveryBackoffs,
+  },
+  (r) => ({
+    waitlistSubscribers: {
+      confirmationDeliveries: r.many.waitlistConfirmationDeliveries(),
+      resendDeliveries: r.many.waitlistResendDeliveries(),
+    },
+    waitlistConfirmationDeliveries: {
+      subscriber: r.one.waitlistSubscribers({
+        from: r.waitlistConfirmationDeliveries.email,
+        to: r.waitlistSubscribers.email,
+        optional: false,
+      }),
+    },
+    waitlistResendDeliveries: {
+      subscriber: r.one.waitlistSubscribers({
+        from: r.waitlistResendDeliveries.email,
+        to: r.waitlistSubscribers.email,
+        optional: false,
+      }),
+    },
+  }),
 );

@@ -2,6 +2,8 @@ import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
 import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { drizzle } from 'drizzle-orm/bun-sqlite';
+import { waitlistRelations } from '../src/waitlist-schema.js';
 
 const workspaceRoot = resolve(import.meta.dirname, '../../..');
 const legacyMigrationsDir = resolve(import.meta.dirname, '../migrations');
@@ -198,5 +200,54 @@ describe('Drizzle waitlist schema', () => {
     applyLegacy(legacy);
     applyDrizzle(drizzle);
     expect(schemaDump(drizzle)).toEqual(schemaDump(legacy));
+  });
+
+  test('joins subscribers to both delivery ledgers', async () => {
+    const database = new Database(':memory:');
+    applyDrizzle(database);
+    database.exec(`
+      INSERT INTO waitlist_subscribers (email) VALUES ('user@example.com');
+      INSERT INTO waitlist_confirmation_deliveries (
+        id, email, token_hash, expires_at, state, attempted_at, state_changed_at
+      ) VALUES (
+        'confirmation', 'user@example.com', 'token-hash',
+        '2026-08-25T01:00:00.000Z', 'attempting',
+        '2026-08-25T00:00:00.000Z', '2026-08-25T00:00:00.000Z'
+      );
+      INSERT INTO waitlist_resend_deliveries (
+        id, email, state, attempted_at, state_changed_at
+      ) VALUES (
+        'resend', 'user@example.com', 'attempting',
+        '2026-08-25T00:05:00.000Z', '2026-08-25T00:05:00.000Z'
+      );
+      INSERT INTO waitlist_delivery_backoffs (
+        provider, retry_after, failure_code, updated_at
+      ) VALUES (
+        'email', '2026-08-25T00:15:00.000Z', 'E_DELIVERY_FAILED',
+        '2026-08-25T00:05:00.000Z'
+      );
+    `);
+    const db = drizzle({ client: database, relations: waitlistRelations });
+
+    const subscriber = await db.query.waitlistSubscribers.findFirst({
+      where: { email: 'user@example.com' },
+      with: { confirmationDeliveries: true, resendDeliveries: true },
+    });
+    const confirmation =
+      await db.query.waitlistConfirmationDeliveries.findFirst({
+        where: { id: 'confirmation' },
+        with: { subscriber: true },
+      });
+    const resend = await db.query.waitlistResendDeliveries.findFirst({
+      where: { id: 'resend' },
+      with: { subscriber: true },
+    });
+    const backoff = await db.query.waitlistDeliveryBackoffs.findFirst();
+
+    expect(subscriber?.confirmationDeliveries).toHaveLength(1);
+    expect(subscriber?.resendDeliveries).toHaveLength(1);
+    expect(confirmation?.subscriber.email).toBe('user@example.com');
+    expect(resend?.subscriber.email).toBe('user@example.com');
+    expect(backoff?.provider).toBe('email');
   });
 });
