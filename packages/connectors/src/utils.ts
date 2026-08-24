@@ -1,18 +1,19 @@
 import type { MessageId } from '@maelstrom-co/protocol';
 
 /**
- * Runtime guard for wire-level request IDs.
+ * Determines whether a parsed wire value can identify a protocol message for
+ * request correlation.
  *
- * `requestId` arrives from `JSON.parse` as `unknown`; the `MessageId` brand is
- * a compile-time tag with no runtime presence. Use this guard before routing
- * to the correlator so we don't misroute non-strings (`true`/`42`/`{}`) or
- * empty strings as legitimate ids — the previous truthy check accepted any
- * truthy value and rejected `''`/`0` indiscriminately.
+ * Protocol IDs cross the wire without the compile-time
+ * `@maelstrom-co/protocol` `MessageId` brand, so decoded fields must be checked
+ * before they are used to address a correlator. This guard accepts strings
+ * containing at least one non-whitespace character, including
+ * whitespace-padded strings. It rejects empty or whitespace-only strings and
+ * every non-string value.
  *
- * The runtime check (`typeof === 'string' && trim().length > 0`) matches the
- * invariant `requireNonEmptyBrand` enforces in the `MessageId` smart
- * constructor (which rejects whitespace-only strings via `trim() === ''`),
- * so claiming the brand here is sound.
+ * The accepted values satisfy the same non-empty invariant as the
+ * `MessageId` constructor. The guard does not trim or otherwise transform the
+ * value; a successful check only narrows the original value to `MessageId`.
  */
 export function isCorrelatableId(value: unknown): value is MessageId {
   return typeof value === 'string' && value.trim().length > 0;

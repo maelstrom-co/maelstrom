@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
-import { isCorrelatableId } from './utils.js';
+import { isCorrelatableId } from '@maelstrom-co/connectors';
+import type { MessageId } from '@maelstrom-co/protocol';
 
 describe('isCorrelatableId', () => {
   test('rejects null and undefined', () => {
@@ -49,10 +50,8 @@ describe('isCorrelatableId', () => {
   test('narrows to MessageId for the type checker', () => {
     const value: unknown = 'req-x';
     if (isCorrelatableId(value)) {
-      // Type-only check: this assignment compiles only if value narrowed
-      // to a string-compatible type. The brand is erased at runtime.
-      const branded: string = value;
-      expect(branded).toBe('req-x');
+      const branded: MessageId = value;
+      expect(branded as string).toBe('req-x');
     }
   });
 });
