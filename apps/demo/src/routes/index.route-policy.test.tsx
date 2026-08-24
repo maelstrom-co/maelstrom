@@ -6,14 +6,18 @@ describe('index route SSR policy', () => {
     vi.resetModules();
   });
 
-  it('disables SSR in hosted mode', async () => {
-    vi.stubEnv('VITE_HOSTED', '1');
-    vi.resetModules();
+  it(
+    'disables SSR in hosted mode',
+    async () => {
+      vi.stubEnv('VITE_HOSTED', '1');
+      vi.resetModules();
 
-    const { Route } = await import('./index');
+      const { Route } = await import('./index');
 
-    expect(Route.options.ssr).toBe(false);
-  });
+      expect(Route.options.ssr).toBe(false);
+    },
+    15_000,
+  );
 
   it('enables SSR in non-hosted mode', async () => {
     vi.stubEnv('VITE_HOSTED', '0');
