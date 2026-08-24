@@ -45,8 +45,8 @@ function isInvalidKeyError(error: Error): boolean {
 }
 
 export const Route = createFileRoute('/')({
-  // The workspace is browser-owned in both deployment profiles. Local Start
-  // still serves server functions and the document shell.
+  // Hosted builds use the prerendered SPA shell and keep this route client-only.
+  // Non-hosted Start builds render the route on the server.
   ssr: !isHosted(),
   component: HomePage,
 });
