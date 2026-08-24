@@ -47,7 +47,7 @@ function isInvalidKeyError(error: Error): boolean {
 export const Route = createFileRoute('/')({
   // The workspace is browser-owned in both deployment profiles. Local Start
   // still serves server functions and the document shell.
-  ssr: false,
+  ssr: !isHosted(),
   component: HomePage,
 });
 
