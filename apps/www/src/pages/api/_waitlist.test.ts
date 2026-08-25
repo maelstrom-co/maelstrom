@@ -16,7 +16,6 @@ import { hashWaitlistToken, isWaitlistToken } from '../../lib/waitlist-token';
 import { toSignupFailureResponse } from '../../server/signup-failure-response';
 import { DeliveryStateConflict } from '../../server/waitlist-repository';
 
-let preparedSqls: string[] = [];
 let resendEvents: string[] = [];
 let deliveryAttempt: { id: string } | null = { id: 'attempt-id' };
 let confirmation: { email: string } | null = { email: 'user@example.com' };
@@ -28,10 +27,7 @@ const rawResult = async () => {
 };
 const raw = mock(rawResult);
 const bind = mock(() => ({ all, raw: () => raw() }));
-const prepare = mock((sql: string) => {
-  preparedSqls.push(sql);
-  return { bind };
-});
+const prepare = mock((_sql: string) => ({ bind }));
 const batch = mock(async () => [
   { results: [], success: true },
   { results: confirmation ? [confirmation] : [], success: true },
@@ -142,7 +138,6 @@ beforeEach(() => {
   runtimeEnv.EMAIL = { send };
   runtimeEnv.TURNSTILE_SECRET_KEY = 'turnstile-secret';
   resendEvents = [];
-  preparedSqls = [];
   deliveryAttempt = { id: 'attempt-id' };
   confirmation = { email: 'user@example.com' };
   waitUntilTasks = [];
@@ -641,14 +636,11 @@ describe('POST /api/waitlist/confirm', () => {
       'https://maelstrom-ai.co/waitlist/confirmed/',
     );
     expectPrivateConfirmationResponse(res);
-    expect(preparedSqls).toContainEqual(
-      expect.stringContaining("SET status = 'confirmed'"),
-    );
-    // The receipt must commit inside the confirmation batch: a separate write
-    // would strand a confirmed visitor without page access if it failed.
+    // Attempt acceptance and the receipted subscriber update must share D1's
+    // atomic batch so neither can commit without the other.
     expect(batch).toHaveBeenCalledTimes(1);
     const batchedStatements = batch.mock.calls[0]?.[0] as unknown[];
-    expect(batchedStatements).toHaveLength(3);
+    expect(batchedStatements).toHaveLength(2);
     expect(send).toHaveBeenCalledTimes(1);
     expect(send).toHaveBeenCalledWith(
       expect.objectContaining({

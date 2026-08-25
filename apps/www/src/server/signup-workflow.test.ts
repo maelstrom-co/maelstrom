@@ -1,13 +1,15 @@
 import { describe, expect, test } from 'bun:test';
 import { Effect, Layer } from 'effect';
-import type { ClaimDeliveryAttempt } from '../lib/waitlist-delivery-store';
 import { SignupWorkflow } from './signup-workflow';
 import {
   TurnstileRejected,
   type TurnstileVerifierService,
 } from './turnstile-verifier';
-import { WaitlistRepository } from './waitlist-repository';
-import { makeRawStoreTestRepository } from './waitlist-repository.test-support';
+import {
+  type ClaimDeliveryAttempt,
+  WaitlistPersistenceError,
+} from './waitlist-repository';
+import { makeWaitlistRepositoryTestLayer } from './waitlist-repository.test-layer';
 
 const FIXED_NOW_ISO = '2026-08-23T12:00:00.000Z';
 
@@ -29,28 +31,39 @@ const harness = (options?: {
     },
   };
 
-  const store = {
-    claimDeliveryAttempt: async (input: ClaimDeliveryAttempt) => {
+  const repository = {
+    claimDeliveryAttempt: Effect.fn(
+      'TestWaitlistRepository.claimDeliveryAttempt',
+    )(function* (input: ClaimDeliveryAttempt) {
       events.push(`claim:${input.email}:${input.tokenHash}`);
-      return options?.claim ? options.claim(input) : true;
-    },
-    markAccepted: async () => {
-      if (options?.markAcceptedThrows) {
-        throw new Error('state update raced');
-      }
-      events.push('markAccepted');
-    },
-    markRejected: async (_id: string, failureCode: string) => {
-      events.push(`markRejected:${failureCode}`);
-    },
-    markUnknown: async (_id: string, failureCode: string) => {
-      events.push(`markUnknown:${failureCode}`);
-    },
-    markRetryable: async (_id: string, failureCode: string) => {
-      events.push(`markRetryable:${failureCode}`);
-    },
-    confirmToken: async () => null,
-    hasValidAccessReceipt: async () => false,
+      return options?.claim
+        ? yield* Effect.promise(
+            () => options.claim?.(input) ?? Promise.resolve(true),
+          )
+        : true;
+    }),
+    markAccepted: Effect.fn('TestWaitlistRepository.markAccepted')(
+      function* () {
+        if (options?.markAcceptedThrows) {
+          return yield* new WaitlistPersistenceError({
+            operation: 'markAccepted',
+          });
+        }
+        events.push('markAccepted');
+      },
+    ),
+    markRejected: (_id: string, failureCode: string) =>
+      Effect.sync(() => {
+        events.push(`markRejected:${failureCode}`);
+      }),
+    markUnknown: (_id: string, failureCode: string) =>
+      Effect.sync(() => {
+        events.push(`markUnknown:${failureCode}`);
+      }),
+    markRetryable: (_id: string, failureCode: string) =>
+      Effect.sync(() => {
+        events.push(`markRetryable:${failureCode}`);
+      }),
   };
 
   const emailService = {
@@ -65,11 +78,7 @@ const harness = (options?: {
     verifier,
     emailService,
     nowIso: () => FIXED_NOW_ISO,
-  }).pipe(
-    Layer.provide(
-      Layer.succeed(WaitlistRepository, makeRawStoreTestRepository(store)),
-    ),
-  );
+  }).pipe(Layer.provide(makeWaitlistRepositoryTestLayer(repository)));
 
   return { events, layer };
 };

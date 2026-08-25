@@ -1,6 +1,6 @@
 import { Database } from 'bun:sqlite';
 import { describe, expect, mock, spyOn, test } from 'bun:test';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { Effect } from 'effect';
@@ -14,20 +14,37 @@ import {
   type WaitlistRepositoryService,
 } from './waitlist-repository';
 
-const migration = readFileSync(
+const platformDir = resolve(import.meta.dirname, '../../../../infra/platform');
+const drizzleMigration = readFileSync(
   resolve(
-    import.meta.dirname,
-    '../../../../infra/platform/drizzle/migrations/20260823231809_init_waitlist/migration.sql',
+    platformDir,
+    'drizzle/migrations/20260823231809_init_waitlist/migration.sql',
   ),
   'utf8',
 );
 
-const applyMigration = (database: Database) => {
+const applyDrizzleMigration = (database: Database) => {
   database.exec('PRAGMA foreign_keys = ON');
-  for (const statement of migration.split('--> statement-breakpoint')) {
+  for (const statement of drizzleMigration.split('--> statement-breakpoint')) {
     if (statement.trim()) database.exec(statement);
   }
 };
+
+const applyLegacyMigrations = (database: Database) => {
+  database.exec('PRAGMA foreign_keys = ON');
+  for (const name of readdirSync(resolve(platformDir, 'migrations'))
+    .filter((file) => file.endsWith('.sql'))
+    .sort()) {
+    database.exec(
+      readFileSync(resolve(platformDir, 'migrations', name), 'utf8'),
+    );
+  }
+};
+
+const schemaSetups = [
+  ['fully applied legacy SQL migrations', applyLegacyMigrations],
+  ['generated Drizzle migration', applyDrizzleMigration],
+] as const;
 
 class BunSqliteD1Statement {
   constructor(
@@ -48,6 +65,25 @@ class BunSqliteD1Statement {
 
   async all() {
     await this.beforeExecute?.(this.sql);
+    return this.execute();
+  }
+
+  async first<T>() {
+    await this.beforeExecute?.(this.sql);
+    const statement = this.database.prepare(this.sql);
+    try {
+      return (statement.get(...this.parameters) as T | null) ?? null;
+    } finally {
+      statement.finalize();
+    }
+  }
+
+  async run() {
+    await this.beforeExecute?.(this.sql);
+    return this.execute();
+  }
+
+  execute() {
     const statement = this.database.prepare(this.sql);
     try {
       return {
@@ -81,13 +117,15 @@ const d1 = (
       onPrepare?.(sql);
       return new BunSqliteD1Statement(database, sql, [], beforeExecute);
     },
+    // Models D1's documented batch guarantee: ordered execution and rollback
+    // of every statement when any statement fails.
+    batch: async (statements: D1PreparedStatement[]) =>
+      database.transaction(() =>
+        statements.map((statement) =>
+          (statement as unknown as BunSqliteD1Statement).execute(),
+        ),
+      )(),
   }) as unknown as D1Database;
-
-const makeDatabase = () => {
-  const database = new Database(':memory:');
-  applyMigration(database);
-  return database;
-};
 
 const makeBarrier = (parties: number) => {
   let arrived = 0;
@@ -208,7 +246,26 @@ const transition = (
   return repository.markResendUnknown(id, metadata, changedAt);
 };
 
-describe('WaitlistRepository Bun SQLite-backed D1 adapter integration', () => {
+const markRetryable = (
+  repository: WaitlistRepositoryService,
+  ledger: Ledger,
+  id: string,
+  failureCode: string,
+  changedAt: string,
+) =>
+  ledger === 'confirmation'
+    ? repository.markRetryable(id, failureCode, changedAt)
+    : repository.markResendRetryable(id, failureCode, changedAt);
+
+describe.each(
+  schemaSetups,
+)('WaitlistRepository behavior using %s', (_schemaName, applySchema) => {
+  const makeDatabase = () => {
+    const database = new Database(':memory:');
+    applySchema(database);
+    return database;
+  };
+
   test('creates an initial pending subscriber and confirmation delivery', async () => {
     const database = makeDatabase();
     const statements: string[] = [];
@@ -530,7 +587,7 @@ describe('WaitlistRepository Bun SQLite-backed D1 adapter integration', () => {
     let second: Database | undefined;
 
     try {
-      applyMigration(first);
+      applySchema(first);
       second = new Database(databasePath);
       second.exec('PRAGMA foreign_keys = ON');
       if (ledger === 'resend') {
@@ -719,6 +776,422 @@ describe('WaitlistRepository Bun SQLite-backed D1 adapter integration', () => {
       ),
     );
     expect(error).toMatchObject({ _tag: 'DeliveryStateConflict' });
+  });
+
+  test.each([
+    'confirmation',
+    'resend',
+  ] as const)('atomically records a retryable %s attempt and ten-minute provider backoff', async (ledger) => {
+    const database = makeDatabase();
+    const id = `${ledger}-retryable`;
+    seedAttempt(database, ledger, id);
+
+    await run(d1(database), (repository) =>
+      markRetryable(
+        repository,
+        ledger,
+        id,
+        'E_RATE_LIMIT_EXCEEDED',
+        '2026-08-25T00:00:01.000Z',
+      ),
+    );
+
+    const table =
+      ledger === 'confirmation'
+        ? 'waitlist_confirmation_deliveries'
+        : 'waitlist_resend_deliveries';
+    expect(
+      database
+        .query(`SELECT state, failure_code FROM ${table} WHERE id = ?`)
+        .get(id),
+    ).toEqual({ state: 'retryable', failure_code: 'E_RATE_LIMIT_EXCEEDED' });
+    expect(
+      database
+        .query(
+          "SELECT retry_after FROM waitlist_delivery_backoffs WHERE provider = 'email'",
+        )
+        .get(),
+    ).toEqual({ retry_after: '2026-08-25T00:10:01.000Z' });
+  });
+
+  test.each([
+    [
+      'confirmation',
+      'extends provider backoff on a matching replay',
+      '2026-08-25T01:30:01.000Z',
+    ],
+    [
+      'resend',
+      'does not extend provider backoff on a matching replay',
+      '2026-08-25T01:00:01.000Z',
+    ],
+  ] as const)('%s daily-limit retry %s, while conflicts never extend it', async (ledger, _behavior, expectedRetryAfter) => {
+    const database = makeDatabase();
+    const id = `${ledger}-daily-limit`;
+    seedAttempt(database, ledger, id);
+    const binding = d1(database);
+
+    await run(binding, (repository) =>
+      markRetryable(
+        repository,
+        ledger,
+        id,
+        'E_DAILY_LIMIT_EXCEEDED',
+        '2026-08-25T00:00:01.000Z',
+      ),
+    );
+    await run(binding, (repository) =>
+      markRetryable(
+        repository,
+        ledger,
+        id,
+        'E_DAILY_LIMIT_EXCEEDED',
+        '2026-08-25T00:30:01.000Z',
+      ),
+    );
+    const metadataConflict = await run(binding, (repository) =>
+      Effect.flip(
+        markRetryable(
+          repository,
+          ledger,
+          id,
+          'E_RATE_LIMIT_EXCEEDED',
+          '2026-08-25T02:00:01.000Z',
+        ),
+      ),
+    );
+    const conflict = await run(binding, (repository) =>
+      Effect.flip(
+        markRetryable(
+          repository,
+          ledger,
+          'missing',
+          'E_RATE_LIMIT_EXCEEDED',
+          '2026-08-25T02:15:01.000Z',
+        ),
+      ),
+    );
+
+    expect(metadataConflict).toMatchObject({ _tag: 'DeliveryStateConflict' });
+    expect(conflict).toMatchObject({ _tag: 'DeliveryStateConflict' });
+    expect(
+      database
+        .query(
+          "SELECT retry_after FROM waitlist_delivery_backoffs WHERE provider = 'email'",
+        )
+        .get(),
+    ).toEqual({ retry_after: expectedRetryAfter });
+  });
+
+  test.each([
+    'confirmation',
+    'resend',
+  ] as const)('rolls back the %s retry transition when its provider backoff write fails', async (ledger) => {
+    const database = makeDatabase();
+    const id = `${ledger}-rollback`;
+    seedAttempt(database, ledger, id);
+    database.exec(`
+      CREATE TRIGGER reject_waitlist_backoff
+      BEFORE INSERT ON waitlist_delivery_backoffs
+      BEGIN
+        SELECT RAISE(ABORT, 'private backoff failure');
+      END;
+    `);
+
+    const error = await run(d1(database), (repository) =>
+      Effect.flip(
+        markRetryable(
+          repository,
+          ledger,
+          id,
+          'E_RATE_LIMIT_EXCEEDED',
+          '2026-08-25T00:00:01.000Z',
+        ),
+      ),
+    );
+
+    expect(error).toMatchObject({
+      _tag: 'WaitlistPersistenceError',
+      operation:
+        ledger === 'confirmation' ? 'markRetryable' : 'markResendRetryable',
+    });
+    const table =
+      ledger === 'confirmation'
+        ? 'waitlist_confirmation_deliveries'
+        : 'waitlist_resend_deliveries';
+    expect(
+      database.query(`SELECT state FROM ${table} WHERE id = ?`).get(id),
+    ).toEqual({ state: 'attempting' });
+  });
+
+  test.each([
+    'confirmation',
+    'resend',
+  ] as const)('rejects a non-canonical %s retry timestamp without writing', async (ledger) => {
+    const database = makeDatabase();
+    const id = `${ledger}-invalid-time`;
+    seedAttempt(database, ledger, id);
+
+    const error = await run(d1(database), (repository) =>
+      Effect.flip(
+        markRetryable(
+          repository,
+          ledger,
+          id,
+          'E_RATE_LIMIT_EXCEEDED',
+          '2026-08-25T00:00:01Z',
+        ),
+      ),
+    );
+
+    expect(error).toMatchObject({
+      _tag: 'WaitlistPersistenceError',
+      operation:
+        ledger === 'confirmation' ? 'markRetryable' : 'markResendRetryable',
+    });
+    expect(
+      database
+        .query('SELECT count(*) AS count FROM waitlist_delivery_backoffs')
+        .get(),
+    ).toEqual({ count: 0 });
+  });
+
+  test.each([
+    'attempting',
+    'accepted',
+    'unknown',
+  ] as const)('confirms one pending subscriber from an eligible %s delivery', async (state) => {
+    const database = makeDatabase();
+    seedAttempt(database, 'confirmation', `confirm-${state}`);
+    if (state !== 'attempting') {
+      database
+        .query(
+          `UPDATE waitlist_confirmation_deliveries
+           SET state = ?, failure_code = ? WHERE id = ?`,
+        )
+        .run(
+          state,
+          state === 'unknown' ? 'E_INTERNAL_SERVER_ERROR' : null,
+          `confirm-${state}`,
+        );
+    }
+
+    const confirmed = await run(d1(database), (repository) =>
+      repository.confirmToken(
+        `confirm-${state}-token`,
+        '2026-08-25T01:00:00.000Z',
+        {
+          hash: `${state}-receipt`,
+          expiresAt: '2026-08-25T02:00:00.000Z',
+        },
+      ),
+    );
+
+    expect(confirmed).toEqual({ email: 'confirmation@example.com' });
+    expect(
+      database
+        .query(
+          `SELECT status, access_receipt_hash
+           FROM waitlist_subscribers WHERE email = 'confirmation@example.com'`,
+        )
+        .get(),
+    ).toEqual({ status: 'confirmed', access_receipt_hash: `${state}-receipt` });
+  });
+
+  test.each([
+    'rejected',
+    'retryable',
+  ] as const)('does not confirm an ineligible %s delivery', async (state) => {
+    const database = makeDatabase();
+    seedAttempt(database, 'confirmation', `ineligible-${state}`);
+    database
+      .query(
+        `UPDATE waitlist_confirmation_deliveries
+         SET state = ?, failure_code = 'E_DELIVERY_FAILED' WHERE id = ?`,
+      )
+      .run(state, `ineligible-${state}`);
+
+    expect(
+      await run(d1(database), (repository) =>
+        repository.confirmToken(
+          `ineligible-${state}-token`,
+          '2026-08-25T01:00:00.000Z',
+        ),
+      ),
+    ).toBeNull();
+    expect(
+      database
+        .query(
+          "SELECT status FROM waitlist_subscribers WHERE email = 'confirmation@example.com'",
+        )
+        .get(),
+    ).toEqual({ status: 'pending' });
+  });
+
+  test('rejects expired and already-used confirmation tokens without adding a replay receipt', async () => {
+    const database = makeDatabase();
+    seedAttempt(database, 'confirmation', 'consumed');
+    const binding = d1(database);
+
+    expect(
+      await run(binding, (repository) =>
+        repository.confirmToken('consumed-token', '2026-08-25T02:00:00.000Z'),
+      ),
+    ).toBeNull();
+    expect(
+      await run(binding, (repository) =>
+        repository.confirmToken('consumed-token', '2026-08-25T01:00:00.000Z'),
+      ),
+    ).toEqual({ email: 'confirmation@example.com' });
+    expect(
+      await run(binding, (repository) =>
+        repository.confirmToken('consumed-token', '2026-08-25T01:00:00.000Z', {
+          hash: 'replay-receipt',
+          expiresAt: '2026-08-25T02:00:00.000Z',
+        }),
+      ),
+    ).toBeNull();
+    expect(
+      database
+        .query(
+          `SELECT access_receipt_hash FROM waitlist_subscribers
+           WHERE email = 'confirmation@example.com'`,
+        )
+        .get(),
+    ).toEqual({ access_receipt_hash: null });
+  });
+
+  test('preserves an older accepted token when a later attempt is rejected', async () => {
+    const database = makeDatabase();
+    database
+      .query(
+        "INSERT INTO waitlist_subscribers (email, status) VALUES ('user@example.com', 'pending')",
+      )
+      .run();
+    database.exec(`
+      INSERT INTO waitlist_confirmation_deliveries (
+        id, email, token_hash, expires_at, state, attempted_at,
+        state_changed_at, provider_message_id
+      ) VALUES (
+        'older', 'user@example.com', 'older-token', '2026-08-26T00:00:00.000Z',
+        'accepted', '2026-08-24T00:00:00.000Z', '2026-08-24T00:00:01.000Z',
+        'provider-message'
+      );
+      INSERT INTO waitlist_confirmation_deliveries (
+        id, email, token_hash, expires_at, state, attempted_at,
+        state_changed_at, failure_code
+      ) VALUES (
+        'later', 'user@example.com', 'later-token', '2026-08-26T00:00:00.000Z',
+        'rejected', '2026-08-25T00:00:00.000Z', '2026-08-25T00:00:01.000Z',
+        'E_DELIVERY_FAILED'
+      );
+    `);
+
+    expect(
+      await run(d1(database), (repository) =>
+        repository.confirmToken('older-token', '2026-08-25T01:00:00.000Z'),
+      ),
+    ).toEqual({ email: 'user@example.com' });
+  });
+
+  test('rolls back token acceptance when the receipted subscriber update fails', async () => {
+    const database = makeDatabase();
+    seedAttempt(database, 'confirmation', 'receipt-rollback');
+    database
+      .query(
+        `UPDATE waitlist_confirmation_deliveries
+         SET state = 'unknown', failure_code = 'E_INTERNAL_SERVER_ERROR'
+         WHERE id = 'receipt-rollback'`,
+      )
+      .run();
+    database.exec(`
+      CREATE TRIGGER reject_waitlist_receipt
+      BEFORE UPDATE ON waitlist_subscribers
+      WHEN NEW.access_receipt_hash = 'failing-receipt'
+      BEGIN
+        SELECT RAISE(ABORT, 'private receipt failure');
+      END;
+    `);
+
+    const error = await run(d1(database), (repository) =>
+      Effect.flip(
+        repository.confirmToken(
+          'receipt-rollback-token',
+          '2026-08-25T01:00:00.000Z',
+          {
+            hash: 'failing-receipt',
+            expiresAt: '2026-08-25T02:00:00.000Z',
+          },
+        ),
+      ),
+    );
+
+    expect(error).toMatchObject({
+      _tag: 'WaitlistPersistenceError',
+      operation: 'confirmToken',
+    });
+    expect(
+      database
+        .query(
+          `SELECT state, failure_code FROM waitlist_confirmation_deliveries
+           WHERE id = 'receipt-rollback'`,
+        )
+        .get(),
+    ).toEqual({ state: 'unknown', failure_code: 'E_INTERNAL_SERVER_ERROR' });
+    expect(
+      database
+        .query(
+          `SELECT status, access_receipt_hash FROM waitlist_subscribers
+           WHERE email = 'confirmation@example.com'`,
+        )
+        .get(),
+    ).toEqual({ status: 'pending', access_receipt_hash: null });
+  });
+
+  test('maps a malformed confirmation batch row to a sanitized persistence error', async () => {
+    const secret = 'private-malformed-confirmation-row';
+    const malformedBinding = {
+      prepare: () => ({
+        bind: () => ({}),
+      }),
+      batch: async () => [
+        { results: [], success: true },
+        { results: [{ email: 42, secret }], success: true },
+      ],
+    } as unknown as D1Database;
+
+    const error = await run(malformedBinding, (repository) =>
+      Effect.flip(
+        repository.confirmToken('token-hash', '2026-08-25T01:00:00.000Z'),
+      ),
+    );
+
+    expect(error).toMatchObject({
+      _tag: 'WaitlistPersistenceError',
+      operation: 'confirmToken',
+    });
+    expect(JSON.stringify(error)).not.toContain(secret);
+    expectNoCauseOrRenderedSecret(error, secret);
+  });
+
+  test('maps a missing confirmation batch result to a sanitized persistence error', async () => {
+    const incompleteBinding = {
+      prepare: () => ({
+        bind: () => ({}),
+      }),
+      batch: async () => [{ results: [], success: true }],
+    } as unknown as D1Database;
+
+    const error = await run(incompleteBinding, (repository) =>
+      Effect.flip(
+        repository.confirmToken('token-hash', '2026-08-25T01:00:00.000Z'),
+      ),
+    );
+
+    expect(error).toMatchObject({
+      _tag: 'WaitlistPersistenceError',
+      operation: 'confirmToken',
+    });
   });
 
   test.each([
