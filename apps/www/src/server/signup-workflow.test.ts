@@ -2,8 +2,12 @@ import { describe, expect, test } from 'bun:test';
 import { Effect, Layer } from 'effect';
 import type { ClaimDeliveryAttempt } from '../lib/waitlist-delivery-store';
 import { SignupWorkflow } from './signup-workflow';
-import type { TurnstileVerifierService } from './turnstile-verifier';
-import { makeRepository, WaitlistRepository } from './waitlist-repository';
+import {
+  TurnstileRejected,
+  type TurnstileVerifierService,
+} from './turnstile-verifier';
+import { WaitlistRepository } from './waitlist-repository';
+import { makeRawStoreTestRepository } from './waitlist-repository.test-support';
 
 const FIXED_NOW_ISO = '2026-08-23T12:00:00.000Z';
 
@@ -55,15 +59,15 @@ const harness = (options?: {
       if (options?.sendThrows !== undefined) throw options.sendThrows;
       return { messageId: 'msg-1' };
     },
-  };
+  } satisfies SendEmail;
 
   const layer = SignupWorkflow.layer({
     verifier,
-    emailService: emailService as never,
+    emailService,
     nowIso: () => FIXED_NOW_ISO,
   }).pipe(
     Layer.provide(
-      Layer.succeed(WaitlistRepository, makeRepository(store as never)),
+      Layer.succeed(WaitlistRepository, makeRawStoreTestRepository(store)),
     ),
   );
 
@@ -101,11 +105,12 @@ describe('signup workflow', () => {
   test('verifies the challenge before any persistence happens', async () => {
     const h = harness({
       verify: () =>
-        Effect.fail({
-          _tag: 'TurnstileRejected',
-          reason: 'challenge_rejected',
-          providerCodes: [],
-        }) as never,
+        Effect.fail(
+          new TurnstileRejected({
+            reason: 'challenge_rejected',
+            providerCodes: [],
+          }),
+        ),
     });
     const exit = await begin(h);
     expect(exit._tag).toBe('Failure');

@@ -3,7 +3,8 @@ import { Effect, Layer } from 'effect';
 import { isWaitlistToken } from '../lib/waitlist-token';
 import { ConfirmWorkflow } from './confirm-workflow';
 import type { AccessReceipt } from './waitlist-repository';
-import { makeRepository, WaitlistRepository } from './waitlist-repository';
+import { WaitlistRepository } from './waitlist-repository';
+import { makeRawStoreTestRepository } from './waitlist-repository.test-support';
 
 const FIXED_NOW_ISO = '2026-08-23T12:00:00.000Z';
 const LIVE_TOKEN = `v1.${'a'.repeat(43)}`;
@@ -48,19 +49,19 @@ const harness = (options?: {
   };
 
   const emailService = {
-    send: async (message: { to?: string }) => {
+    send: async (message: Parameters<SendEmail['send']>[0]) => {
       events.push(`send:${message.to ?? ''}`);
       if (options?.sendThrows !== undefined) throw options.sendThrows;
       return { messageId: options?.sendMessageId ?? 'msg-1' };
     },
-  };
+  } satisfies SendEmail;
 
   const layer = ConfirmWorkflow.layer({
-    emailService: emailService as never,
+    emailService,
     nowIso: () => FIXED_NOW_ISO,
   }).pipe(
     Layer.provide(
-      Layer.succeed(WaitlistRepository, makeRepository(store as never)),
+      Layer.succeed(WaitlistRepository, makeRawStoreTestRepository(store)),
     ),
   );
 
@@ -141,7 +142,7 @@ describe('confirm workflow', () => {
         nowIso: () => FIXED_NOW_ISO,
       }).pipe(
         Layer.provide(
-          Layer.succeed(WaitlistRepository, makeRepository(store as never)),
+          Layer.succeed(WaitlistRepository, makeRawStoreTestRepository(store)),
         ),
       );
       const outcome = await Effect.runPromiseExit(
