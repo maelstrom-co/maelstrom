@@ -21,13 +21,13 @@ let resendEvents: string[] = [];
 let deliveryAttempt: { id: string } | null = { id: 'attempt-id' };
 let confirmation: { email: string } | null = { email: 'user@example.com' };
 let waitUntilTasks: Promise<unknown>[] = [];
-const first = mock(async () => {
+const all = mock(async () => ({ results: [], success: true, meta: {} }));
+const rawResult = async () => {
   resendEvents.push('d1');
-  return deliveryAttempt;
-});
-const run = mock(async () => ({ success: true }));
-const raw = mock(async () => (deliveryAttempt ? [[deliveryAttempt.id]] : []));
-const bind = mock(() => ({ first, raw: () => raw(), run }));
+  return deliveryAttempt ? [[deliveryAttempt.id]] : [];
+};
+const raw = mock(rawResult);
+const bind = mock(() => ({ all, raw: () => raw() }));
 const prepare = mock((sql: string) => {
   preparedSqls.push(sql);
   return { bind };
@@ -143,17 +143,14 @@ beforeEach(() => {
   runtimeEnv.TURNSTILE_SECRET_KEY = 'turnstile-secret';
   resendEvents = [];
   preparedSqls = [];
-  preparedSqls = [];
   deliveryAttempt = { id: 'attempt-id' };
   confirmation = { email: 'user@example.com' };
   waitUntilTasks = [];
-  first.mockClear();
+  all.mockReset();
+  all.mockResolvedValue({ results: [], success: true, meta: {} });
   raw.mockReset();
-  raw.mockImplementation(async () =>
-    deliveryAttempt ? [[deliveryAttempt.id]] : [],
-  );
+  raw.mockImplementation(rawResult);
   bind.mockClear();
-  run.mockClear();
   prepare.mockClear();
   batch.mockReset();
   batch.mockResolvedValue([
@@ -260,16 +257,16 @@ describe('POST /api/waitlist', () => {
   });
 
   it('persists the delivery claim before calling Email Service', async () => {
-    const claim = Promise.withResolvers<{ id: string }>();
-    first.mockImplementationOnce(() => claim.promise);
+    const claim = Promise.withResolvers<string[][]>();
+    raw.mockImplementationOnce(() => claim.promise);
 
     const response = callPost(signupBody());
     await Bun.sleep(0);
 
-    expect(first).toHaveBeenCalledTimes(1);
+    expect(raw).toHaveBeenCalledTimes(1);
     expect(send).not.toHaveBeenCalled();
 
-    claim.resolve({ id: 'attempt-id' });
+    claim.resolve([['attempt-id']]);
     expect((await response).status).toBe(202);
     expect(send).toHaveBeenCalledTimes(1);
   });
@@ -317,7 +314,7 @@ describe('POST /api/waitlist', () => {
 
   it('500s with a generic message when D1 fails', async () => {
     const errorLog = spyOn(console, 'error').mockImplementation(() => {});
-    first.mockRejectedValueOnce(
+    all.mockRejectedValueOnce(
       Object.assign(new Error('query contained private detail'), {
         name: 'user@example.com',
         code: `v1.${'a'.repeat(43)}`,
@@ -348,9 +345,8 @@ describe('POST /api/waitlist', () => {
     await Promise.all(waitUntilTasks);
     expect(res.status).toBe(202);
     expect(await res.json()).toEqual({ success: true });
-    expect(run).toHaveBeenCalledTimes(1);
-    expect(first).toHaveBeenCalledTimes(1);
-    expect(raw).toHaveBeenCalledTimes(1);
+    expect(all).toHaveBeenCalledTimes(1);
+    expect(raw).toHaveBeenCalledTimes(2);
     expect(bind.mock.calls.at(-1)?.[0]).toBe('unknown');
   });
 
@@ -364,9 +360,8 @@ describe('POST /api/waitlist', () => {
     await Promise.all(waitUntilTasks);
     expect(res.status).toBe(202);
     expect(await res.json()).toEqual({ success: true });
-    expect(run).toHaveBeenCalledTimes(1);
-    expect(first).toHaveBeenCalledTimes(1);
-    expect(raw).toHaveBeenCalledTimes(1);
+    expect(all).toHaveBeenCalledTimes(1);
+    expect(raw).toHaveBeenCalledTimes(2);
     expect(bind.mock.calls.at(-1)?.[0]).toBe('rejected');
     expect(bind.mock.calls.at(-1)?.[3]).toBe('E_RECIPIENT_SUPPRESSED');
   });
@@ -407,7 +402,9 @@ describe('POST /api/waitlist', () => {
 
   it('separates accepted-email state failures from provider failures', async () => {
     const errorLog = spyOn(console, 'error').mockImplementation(() => {});
-    raw.mockRejectedValueOnce(new Error('D1 transition unavailable'));
+    raw
+      .mockImplementationOnce(rawResult)
+      .mockRejectedValueOnce(new Error('D1 transition unavailable'));
     try {
       const res = await callPost(signupBody());
       await Promise.all(waitUntilTasks);
@@ -550,7 +547,7 @@ describe('POST /api/waitlist/resend', () => {
     ['unknown subscriber', () => (deliveryAttempt = null)],
     [
       'repository failure',
-      () => first.mockRejectedValueOnce(new Error('private database detail')),
+      () => raw.mockRejectedValueOnce(new Error('private database detail')),
     ],
   ])('keeps %s generic after valid proof', async (_name, arrange) => {
     arrange();
@@ -580,7 +577,10 @@ describe('POST /api/waitlist/resend', () => {
     ['missing message id', () => send.mockResolvedValueOnce({} as never)],
     [
       'transition failure',
-      () => raw.mockRejectedValueOnce(new Error('private transition detail')),
+      () =>
+        raw
+          .mockImplementationOnce(rawResult)
+          .mockRejectedValueOnce(new Error('private transition detail')),
     ],
   ])('consumes %s in the waitUntil promise', async (_name, arrange) => {
     arrange();

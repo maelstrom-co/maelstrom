@@ -1,11 +1,12 @@
 import * as D1Client from '@effect/sql-d1/D1Client';
 import {
   waitlistConfirmationDeliveries,
+  waitlistDeliveryBackoffs,
   waitlistRelations,
   waitlistResendDeliveries,
   waitlistSubscribers,
 } from '@maelstrom-co/platform-infra/waitlist-schema';
-import { and, eq, gt } from 'drizzle-orm';
+import { and, eq, gt, notExists, notInArray, sql } from 'drizzle-orm';
 import * as DrizzleD1 from 'drizzle-orm/effect-d1';
 import { Context, Data, Effect, Layer } from 'effect';
 import {
@@ -178,6 +179,16 @@ export class WaitlistRepository extends Context.Service<
           relations: waitlistRelations,
         });
         const store = new WaitlistDeliveryStore(database);
+        const activeEmailProviderBackoff = (attemptedAt: string) =>
+          db
+            .select({ provider: waitlistDeliveryBackoffs.provider })
+            .from(waitlistDeliveryBackoffs)
+            .where(
+              and(
+                eq(waitlistDeliveryBackoffs.provider, 'email'),
+                gt(waitlistDeliveryBackoffs.retryAfter, attemptedAt),
+              ),
+            );
 
         function makeTransition(
           table: typeof waitlistConfirmationDeliveries,
@@ -243,16 +254,120 @@ export class WaitlistRepository extends Context.Service<
           claimDeliveryAttempt: Effect.fn(
             'WaitlistRepository.claimDeliveryAttempt',
           )(function* (input) {
-            return yield* persistRaw('claimDeliveryAttempt', () =>
-              store.claimDeliveryAttempt(input),
-            );
+            yield* db
+              .insert(waitlistSubscribers)
+              .values({
+                email: input.email,
+                status: 'pending',
+                updatedAt: input.attemptedAt,
+              })
+              .onConflictDoNothing()
+              .pipe(persistQuery('claimDeliveryAttempt'));
+
+            const recentDelivery = db
+              .select({ id: waitlistConfirmationDeliveries.id })
+              .from(waitlistConfirmationDeliveries)
+              .where(
+                and(
+                  eq(
+                    waitlistConfirmationDeliveries.email,
+                    waitlistSubscribers.email,
+                  ),
+                  notInArray(waitlistConfirmationDeliveries.state, [
+                    'rejected',
+                    'retryable',
+                  ]),
+                  gt(
+                    waitlistConfirmationDeliveries.attemptedAt,
+                    input.cooldownSince,
+                  ),
+                ),
+              );
+            const eligibleSubscriber = db
+              .select({
+                id: sql<string>`${input.id}`.as('id'),
+                email: waitlistSubscribers.email,
+                tokenHash: sql<string>`${input.tokenHash}`.as('token_hash'),
+                expiresAt: sql<string>`${input.expiresAt}`.as('expires_at'),
+                state: sql<string>`'attempting'`.as('state'),
+                attemptedAt: sql<string>`${input.attemptedAt}`.as(
+                  'attempted_at',
+                ),
+                stateChangedAt: sql<string>`${input.attemptedAt}`.as(
+                  'state_changed_at',
+                ),
+              })
+              .from(waitlistSubscribers)
+              .where(
+                and(
+                  eq(waitlistSubscribers.email, input.email),
+                  eq(waitlistSubscribers.status, 'pending'),
+                  notExists(activeEmailProviderBackoff(input.attemptedAt)),
+                  notExists(recentDelivery),
+                ),
+              );
+            const inserted = yield* db
+              .insert(
+                waitlistConfirmationDeliveries,
+                'id',
+                'email',
+                'tokenHash',
+                'expiresAt',
+                'state',
+                'attemptedAt',
+                'stateChangedAt',
+              )
+              .select(eligibleSubscriber)
+              .returning({ id: waitlistConfirmationDeliveries.id })
+              .pipe(persistQuery('claimDeliveryAttempt'));
+            return inserted.length > 0;
           }),
           claimResendAttempt: Effect.fn(
             'WaitlistRepository.claimResendAttempt',
           )(function* (input) {
-            return yield* persistRaw('claimResendAttempt', () =>
-              store.claimResendAttempt(input),
-            );
+            const recentDelivery = db
+              .select({ id: waitlistResendDeliveries.id })
+              .from(waitlistResendDeliveries)
+              .where(
+                and(
+                  eq(waitlistResendDeliveries.email, waitlistSubscribers.email),
+                  gt(waitlistResendDeliveries.attemptedAt, input.cooldownSince),
+                ),
+              );
+            const eligibleSubscriber = db
+              .select({
+                id: sql<string>`${input.id}`.as('id'),
+                email: waitlistSubscribers.email,
+                state: sql<string>`'attempting'`.as('state'),
+                attemptedAt: sql<string>`${input.attemptedAt}`.as(
+                  'attempted_at',
+                ),
+                stateChangedAt: sql<string>`${input.attemptedAt}`.as(
+                  'state_changed_at',
+                ),
+              })
+              .from(waitlistSubscribers)
+              .where(
+                and(
+                  eq(waitlistSubscribers.email, input.email),
+                  eq(waitlistSubscribers.status, 'confirmed'),
+                  notExists(activeEmailProviderBackoff(input.attemptedAt)),
+                  notExists(recentDelivery),
+                ),
+              );
+            const inserted = yield* db
+              .insert(
+                waitlistResendDeliveries,
+                'id',
+                'email',
+                'state',
+                'attemptedAt',
+                'stateChangedAt',
+              )
+              .select(eligibleSubscriber)
+              .returning({ id: waitlistResendDeliveries.id })
+              .pipe(persistQuery('claimResendAttempt'));
+            return inserted.length > 0;
           }),
           markAccepted: Effect.fn('WaitlistRepository.markAccepted')(
             function* (id, messageId, changedAt) {
