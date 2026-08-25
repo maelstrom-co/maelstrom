@@ -18,7 +18,12 @@ import {
   DEMO_GREETING,
   DEMO_OPENAI_VOICE,
 } from './demo-greeting-tts';
-import { isHosted, usesBrowserKey, usesOpenAIVoice } from './hosted-mode';
+import {
+  isHosted,
+  usesBrowserKey,
+  usesBrowserOpenAIVoice,
+  usesOpenAIVoice,
+} from './hosted-mode';
 import { HOSTED_VAD_MODEL } from './hosted-vad';
 import { createBrowserMintToken, mintOpenAIToken } from './mint-token';
 import { orchestrationLegibility } from './orchestration-legibility';
@@ -48,6 +53,16 @@ const hostedMintToken = createBrowserMintToken(
   DEMO_OPENAI_VOICE,
 );
 
+let preparedBrowserOpenAIAdapter: OpenAIAdapter | undefined;
+
+/** Unlocks the next browser-key OpenAI adapter inside the current user gesture. */
+export function prepareBrowserOpenAIVoice(): boolean {
+  if (!usesBrowserOpenAIVoice()) return false;
+  preparedBrowserOpenAIAdapter ??= createOpenAIAdapter(hostedMintToken);
+  preparedBrowserOpenAIAdapter.activateAudio();
+  return true;
+}
+
 export const m = createMaelstrom({
   vessels,
 })
@@ -73,7 +88,6 @@ export const m = createMaelstrom({
 function createAdapter({
   sessionId,
 }: CreateAdapterContext): RealtimeProviderAdapter {
-  const hosted = isHosted();
   const browserKeyMode = usesBrowserKey();
   if (!usesOpenAIVoice()) {
     return new LiveKitAdapter({
@@ -93,10 +107,23 @@ function createAdapter({
       debug: isDebugRequested(),
     });
   }
+  if (browserKeyMode && preparedBrowserOpenAIAdapter) {
+    const adapter = preparedBrowserOpenAIAdapter;
+    preparedBrowserOpenAIAdapter = undefined;
+    return adapter;
+  }
+  return createOpenAIAdapter(
+    browserKeyMode ? hostedMintToken : () => mintOpenAIToken(sessionId),
+  );
+}
+
+function createOpenAIAdapter(
+  mintToken: ConstructorParameters<typeof OpenAIAdapter>[0]['mintToken'],
+): OpenAIAdapter {
+  const hosted = isHosted();
+  const browserKeyMode = usesBrowserKey();
   return new OpenAIAdapter({
-    mintToken: browserKeyMode
-      ? hostedMintToken
-      : () => mintOpenAIToken(sessionId),
+    mintToken,
     ...(hosted
       ? {
           serverVad: {

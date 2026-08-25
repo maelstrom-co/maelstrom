@@ -48,8 +48,13 @@ vi.mock('@maelstrom-co/realtime', async (importOriginal) => {
   };
 });
 
+const openAIAdapter = vi.hoisted(() => ({ activations: 0 }));
 vi.mock('@maelstrom-co/realtime-openai', () => ({
-  OpenAIAdapter: class {},
+  OpenAIAdapter: class {
+    activateAudio() {
+      openAIAdapter.activations += 1;
+    }
+  },
 }));
 
 vi.mock('../lib/mint-token', () => ({
@@ -131,6 +136,7 @@ beforeEach(() => {
   connectorOverride.process = null;
   connectorOverride.createCalls = 0;
   hostedVad.preloadCalls = 0;
+  openAIAdapter.activations = 0;
   vi.stubGlobal('ResizeObserver', LayoutHostResizeObserver);
 });
 
@@ -147,8 +153,26 @@ afterEach(() => {
 });
 
 describe('key drawer gating (hosted, no key)', () => {
+  it('starts voice after the first lobby key save without a second orb click', async () => {
+    const { HomePage } = await import('../components/home-page');
+    render(<HomePage />);
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Start interactive demo' }),
+    );
+    fireEvent.change(screen.getByLabelText('API key'), {
+      target: { value: 'sk-first-lobby-key-1234567890' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => {
+      expect(FakeRealtimeSession.instances.at(-1)?.connectCalls).toBe(1);
+    });
+    expect(openAIAdapter.activations).toBe(1);
+  });
+
   it('keeps hosted prompting interaction-driven on initial load', async () => {
-    const { HomePage } = await import('./index');
+    const { HomePage } = await import('../components/home-page');
     render(<HomePage />);
 
     expect(screen.queryByRole('dialog')).toBeNull();
@@ -170,7 +194,7 @@ describe('key drawer gating (hosted, no key)', () => {
   it('builds the keyless preview from the workspace seed stores', async () => {
     calendarActions.addEvent('Lunch with Maya', '12:00');
     tasksActions.addTask('Review launch feedback');
-    const { HomePage } = await import('./index');
+    const { HomePage } = await import('../components/home-page');
 
     render(<HomePage />);
 
@@ -181,7 +205,7 @@ describe('key drawer gating (hosted, no key)', () => {
   it('also prompts on localhost when the server has no OpenAI key', async () => {
     vi.stubEnv('VITE_HOSTED', '0');
     vi.stubEnv('VITE_BROWSER_KEY_MODE', '1');
-    const { HomePage } = await import('./index');
+    const { HomePage } = await import('../components/home-page');
     render(<HomePage />);
 
     expect(screen.getByRole('dialog')).toBeTruthy();
@@ -191,14 +215,14 @@ describe('key drawer gating (hosted, no key)', () => {
   it('reopens the drawer when keyless localhost Send follows a dismissal', async () => {
     vi.stubEnv('VITE_HOSTED', '0');
     vi.stubEnv('VITE_BROWSER_KEY_MODE', '1');
-    const { HomePage } = await import('./index');
+    const { HomePage } = await import('../components/home-page');
     render(<HomePage />);
     closeInitialKeyPrompt();
 
     fireEvent.change(screen.getByPlaceholderText(/tell maelstrom/i), {
       target: { value: 'plan my day' },
     });
-    fireEvent.click(screen.getByRole('button', { name: /send/i }));
+    fireEvent.click(screen.getByRole('button', { name: /add key/i }));
 
     await waitFor(() => {
       expect(screen.getByLabelText(/api key/i)).toBeTruthy();
@@ -219,7 +243,7 @@ describe('typed assistant feedback', () => {
       layout: { type: 'grid', positions: [] },
     });
 
-    const { HomePage } = await import('./index');
+    const { HomePage } = await import('../components/home-page');
     render(<HomePage />);
 
     fireEvent.change(screen.getByPlaceholderText(/tell maelstrom/i), {
@@ -246,7 +270,7 @@ describe('typed assistant feedback', () => {
 describe('voice mint failures (hosted)', () => {
   it('reopens the drawer with an actionable message on a token-mint failure', async () => {
     setPlaygroundKey('sk-rejected');
-    const { HomePage } = await import('./index');
+    const { HomePage } = await import('../components/home-page');
     const { RealtimeVoiceError } = await import('@maelstrom-co/realtime');
     render(<HomePage />);
 
@@ -273,7 +297,7 @@ describe('voice mint failures (hosted)', () => {
     vi.stubEnv('VITE_BROWSER_KEY_MODE', '1');
     vi.stubEnv('VITE_VOICE_PROVIDER', 'livekit');
     setPlaygroundKey('sk-openai-text-key');
-    const { HomePage } = await import('./index');
+    const { HomePage } = await import('../components/home-page');
     const { RealtimeVoiceError } = await import('@maelstrom-co/realtime');
     render(<HomePage />);
 
@@ -291,7 +315,7 @@ describe('voice mint failures (hosted)', () => {
 
   it('does not reopen the drawer for a non-mint voice error', async () => {
     setPlaygroundKey('sk-present');
-    const { HomePage } = await import('./index');
+    const { HomePage } = await import('../components/home-page');
     const { RealtimeVoiceError } = await import('@maelstrom-co/realtime');
     render(<HomePage />);
 
@@ -315,7 +339,7 @@ describe('text-path key failures (hosted)', () => {
       );
     };
 
-    const { HomePage } = await import('./index');
+    const { HomePage } = await import('../components/home-page');
     render(<HomePage />);
 
     // A stored key means no drawer up front — the failure must be what
@@ -348,7 +372,7 @@ describe('text-path key failures (hosted)', () => {
       );
     };
 
-    const { HomePage } = await import('./index');
+    const { HomePage } = await import('../components/home-page');
     render(<HomePage />);
 
     fireEvent.change(screen.getByPlaceholderText(/tell maelstrom/i), {
@@ -373,7 +397,7 @@ describe('text-path key failures (hosted)', () => {
       throw new WireEngineError('rate limit exceeded', 'ProviderError');
     };
 
-    const { HomePage } = await import('./index');
+    const { HomePage } = await import('../components/home-page');
     render(<HomePage />);
 
     fireEvent.change(screen.getByPlaceholderText(/tell maelstrom/i), {
@@ -406,13 +430,13 @@ describe('resumed auto-submit rejected by an invalid key', () => {
       );
     };
 
-    const { HomePage } = await import('./index');
+    const { HomePage } = await import('../components/home-page');
     render(<HomePage />);
 
     fireEvent.change(screen.getByPlaceholderText(/tell maelstrom/i), {
       target: { value: 'show me the weather in Lisbon' },
     });
-    fireEvent.click(screen.getByRole('button', { name: /send/i }));
+    fireEvent.click(screen.getByRole('button', { name: /add key/i }));
 
     await waitFor(() => {
       expect(screen.getByLabelText(/api key/i)).toBeTruthy();
@@ -446,7 +470,7 @@ describe('saving an unchanged key mid-session', () => {
     // hook constructs one per Provider mount.
     setPlaygroundKey('sk-existing-1234567890');
 
-    const { HomePage } = await import('./index');
+    const { HomePage } = await import('../components/home-page');
     render(<HomePage />);
 
     const sessionCountBeforeSave = FakeRealtimeSession.instances.length;
@@ -471,7 +495,7 @@ describe('saving an unchanged key mid-session', () => {
 describe('hosted voice readiness', () => {
   it('starts preloading VAD assets as soon as a browser key exists', async () => {
     setPlaygroundKey('sk-existing-1234567890');
-    const { HomePage } = await import('./index');
+    const { HomePage } = await import('../components/home-page');
 
     render(<HomePage />);
 
@@ -483,7 +507,7 @@ describe('mic-path key gating (browser-owned key)', () => {
   it('reopens the localhost drawer instead of starting voice after dismissal', async () => {
     vi.stubEnv('VITE_HOSTED', '0');
     vi.stubEnv('VITE_BROWSER_KEY_MODE', '1');
-    const { HomePage } = await import('./index');
+    const { HomePage } = await import('../components/home-page');
     render(<HomePage />);
     closeInitialKeyPrompt();
 
@@ -559,7 +583,7 @@ function expectVisibleDisclosure(): HTMLElement {
 
 describe('voice greeting (hosted, with a key)', () => {
   it('shows the exact AI-generated disclosure before any orb click in local and hosted modes', async () => {
-    const { HomePage } = await import('./index');
+    const { HomePage } = await import('../components/home-page');
 
     // Local mode: no visitor key, disclosure must be visible before interaction.
     vi.stubEnv('VITE_HOSTED', '0');
@@ -578,7 +602,7 @@ describe('voice greeting (hosted, with a key)', () => {
 
   it('greets through the voice orb once, exactly, per session', async () => {
     setPlaygroundKey('sk-greeting-1234567890');
-    const { HomePage } = await import('./index');
+    const { HomePage } = await import('../components/home-page');
     render(<HomePage />);
 
     fireEvent.click(screen.getByRole('button', { name: /voice/i }));
@@ -604,7 +628,7 @@ describe('voice greeting (hosted, with a key)', () => {
 
   it('greets again on a new session (new keyEpoch)', async () => {
     setPlaygroundKey('sk-first-key-1234567890');
-    const { HomePage } = await import('./index');
+    const { HomePage } = await import('../components/home-page');
     render(<HomePage />);
 
     fireEvent.click(screen.getByRole('button', { name: /voice/i }));
@@ -657,21 +681,21 @@ describe('header "API key" affordance', () => {
   it('is hidden when local mode has a server-owned key', async () => {
     vi.stubEnv('VITE_HOSTED', '0');
     vi.stubEnv('VITE_BROWSER_KEY_MODE', '0');
-    const { HomePage } = await import('./index');
+    const { HomePage } = await import('../components/home-page');
     render(<HomePage />);
 
     expect(screen.queryByRole('button', { name: /api key/i })).toBeNull();
   });
 
   it('is visible when hosted', async () => {
-    const { HomePage } = await import('./index');
+    const { HomePage } = await import('../components/home-page');
     render(<HomePage />);
 
     expect(screen.getByRole('button', { name: /api key/i })).toBeTruthy();
   });
 
   it('opens the drawer when clicked, with no key set', async () => {
-    const { HomePage } = await import('./index');
+    const { HomePage } = await import('../components/home-page');
     render(<HomePage />);
 
     fireEvent.click(screen.getByRole('button', { name: /api key/i }));
@@ -683,7 +707,7 @@ describe('header "API key" affordance', () => {
     // Regression: onSave used to unconditionally arm resumeIntent off
     // whatever text happened to be in the box, so opening the drawer from
     // the header (not a blocked Send) still auto-submitted it on save.
-    const { HomePage } = await import('./index');
+    const { HomePage } = await import('../components/home-page');
     render(<HomePage />);
 
     fireEvent.change(screen.getByPlaceholderText(/tell maelstrom/i), {
@@ -712,13 +736,13 @@ describe('header "API key" affordance', () => {
 
 describe('resumeIntent auto-submit', () => {
   it('sends the intent typed before the drawer interrupted, once the post-save reconnect lands', async () => {
-    const { HomePage } = await import('./index');
+    const { HomePage } = await import('../components/home-page');
     render(<HomePage />);
 
     fireEvent.change(screen.getByPlaceholderText(/tell maelstrom/i), {
       target: { value: 'plan my day' },
     });
-    fireEvent.click(screen.getByRole('button', { name: /send/i }));
+    fireEvent.click(screen.getByRole('button', { name: /add key/i }));
 
     await waitFor(() => {
       expect(screen.getByLabelText(/api key/i)).toBeTruthy();
@@ -749,7 +773,7 @@ describe('removing a session key', () => {
   it('clears the in-memory key, closes the drawer, and re-prompts on the next Send', async () => {
     setPlaygroundKey('sk-session-key');
 
-    const { HomePage } = await import('./index');
+    const { HomePage } = await import('../components/home-page');
     render(<HomePage />);
 
     fireEvent.click(screen.getByRole('button', { name: /api key/i }));
@@ -763,7 +787,7 @@ describe('removing a session key', () => {
     fireEvent.change(screen.getByPlaceholderText(/tell maelstrom/i), {
       target: { value: 'plan my day' },
     });
-    fireEvent.click(screen.getByRole('button', { name: /send/i }));
+    fireEvent.click(screen.getByRole('button', { name: /add key/i }));
 
     await waitFor(() => {
       expect(screen.getByLabelText(/api key/i)).toBeTruthy();
@@ -777,7 +801,7 @@ describe('captions placement (footer chrome)', () => {
     // site, not class names — CSS or a moved parent would still fail here.
     vi.stubEnv('VITE_HOSTED', '0');
     vi.stubEnv('VITE_BROWSER_KEY_MODE', '0');
-    const { HomePage } = await import('./index');
+    const { HomePage } = await import('../components/home-page');
     const { container } = render(<HomePage />);
 
     const captions = must(container.querySelector('[data-testid="captions"]'));
@@ -848,7 +872,7 @@ describe('the seeded first screen', () => {
       },
     );
     setPlaygroundKey('sk-seeded-layout-1234567890');
-    const { HomePage } = await import('./index');
+    const { HomePage } = await import('../components/home-page');
     await act(async () => {
       render(<HomePage />);
     });
@@ -906,7 +930,7 @@ describe('the seeded first screen', () => {
     );
     setPlaygroundKey('sk-narrow-chart-1234567890');
 
-    const { HomePage } = await import('./index');
+    const { HomePage } = await import('../components/home-page');
     const { container } = render(<HomePage />);
 
     await waitFor(() => {
@@ -937,7 +961,7 @@ describe('the seeded first screen', () => {
     setPlaygroundKey('sk-action-sync-1234567890');
     const updateVesselSpy = vi.spyOn(m, 'updateVessel');
 
-    const { HomePage } = await import('./index');
+    const { HomePage } = await import('../components/home-page');
     await act(async () => {
       render(<HomePage />);
     });

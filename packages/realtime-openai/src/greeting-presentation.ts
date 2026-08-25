@@ -33,7 +33,11 @@ export interface GreetingPresentationOptions {
   readonly microphone: () => MediaStream | undefined;
   readonly generation: () => number;
   readonly debug: (
-    category: 'presentation-failed' | 'interruption-failed',
+    category:
+      | 'presentation-failed'
+      | 'interruption-failed'
+      | 'playback-started'
+      | 'playback-ended',
   ) => void;
   readonly interruption?: GreetingInterruption;
 }
@@ -93,6 +97,7 @@ export class GreetingPresentation {
     readonly id: MessageId;
     readonly text: string;
     readonly signal: AbortSignal;
+    readonly onPlaybackStart?: () => void;
   }): Promise<GreetingSpeechResult> {
     const channel = this.#options.channel();
     const synthesize = this.#options.synthesize;
@@ -166,9 +171,16 @@ export class GreetingPresentation {
         return 'accepted';
       await this.#options.player.play(synthesized.value, controller.signal, {
         onPlaybackStart: () => {
+          this.#options.debug('playback-started');
+          try {
+            args.onPlaybackStart?.();
+          } catch {
+            // Presentation observers cannot stop audio that already started.
+          }
           if (this.#operation === operation) operation.interruption?.arm();
         },
         onPlaybackEnd: () => {
+          this.#options.debug('playback-ended');
           if (this.#operation === operation) operation.interruption?.disarm();
         },
       });

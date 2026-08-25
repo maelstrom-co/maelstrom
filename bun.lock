@@ -106,7 +106,6 @@
         "happy-dom": "catalog:",
         "tailwindcss": "catalog:",
         "typescript": "catalog:",
-        "vite-tsconfig-paths": "catalog:",
       },
     },
     "apps/docs": {

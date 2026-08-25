@@ -63,7 +63,7 @@ export function Captions() {
   return (
     <div
       data-testid="captions"
-      className="mx-auto mb-3 grid h-24 w-full max-w-4xl grid-cols-1 content-center gap-x-4 gap-y-1 overflow-hidden sm:h-14 sm:grid-cols-2"
+      className="mx-auto mb-2 grid h-12 w-full max-w-4xl grid-cols-2 content-center gap-x-4 gap-y-1 overflow-hidden"
     >
       {showAssistant && assistant ? (
         <p
@@ -71,7 +71,7 @@ export function Captions() {
           data-faded={Boolean(assistant.faded)}
           className={cn(
             'caption-line flex min-w-0 items-start gap-2 text-sm font-medium text-ink',
-            !showUser && 'sm:col-span-2',
+            !showUser && 'col-span-2',
             assistant.faded && 'caption-line--faded',
           )}
         >
@@ -90,7 +90,7 @@ export function Captions() {
           aria-label="Approximate user transcript"
           className={cn(
             'caption-line min-w-0 text-right text-sm text-ink-3 line-clamp-2',
-            !showAssistant && 'sm:col-span-2',
+            !showAssistant && 'col-span-2',
             user.faded && 'caption-line--faded',
           )}
         >

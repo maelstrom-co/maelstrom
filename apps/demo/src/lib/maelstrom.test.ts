@@ -19,6 +19,7 @@ const state = vi.hoisted(() => ({
   realtimeOptions: undefined as MaelstromRealtimeOptions | undefined,
   liveKitAdapterOptions: [] as unknown[],
   openAIAdapterOptions: [] as unknown[],
+  openAIAdapterInstances: [] as Array<{ activateAudioCalls: number }>,
 }));
 
 vi.mock('@maelstrom-co/react', async (importOriginal) => ({
@@ -43,8 +44,13 @@ vi.mock('@maelstrom-co/react-realtime', async (importOriginal) => ({
 vi.mock('@maelstrom-co/realtime-openai', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@maelstrom-co/realtime-openai')>()),
   OpenAIAdapter: class {
+    activateAudioCalls = 0;
     constructor(options: unknown) {
       state.openAIAdapterOptions.push(options);
+      state.openAIAdapterInstances.push(this);
+    }
+    activateAudio() {
+      this.activateAudioCalls += 1;
     }
   },
 }));
@@ -77,7 +83,7 @@ vi.mock('./voice/get-livekit-token', () => ({
 
 // Static import of maelstrom under a stable specifier (existing pattern).
 const providerTestSpecifier = './maelstrom.ts' + '?provider-test';
-await import(providerTestSpecifier);
+const providerModule = await import(providerTestSpecifier);
 
 function createAdapter(provider: 'livekit' | 'openai') {
   vi.stubEnv('VITE_VOICE_PROVIDER', provider);
@@ -111,6 +117,7 @@ afterEach(() => {
   clearPlaygroundKey();
   state.liveKitAdapterOptions.length = 0;
   state.openAIAdapterOptions.length = 0;
+  state.openAIAdapterInstances.length = 0;
 });
 
 describe('demo voice provider wiring', () => {
@@ -192,6 +199,20 @@ describe('demo voice provider wiring', () => {
       providerOptions: { model: 'legacy' },
     });
     expect(state.liveKitAdapterOptions).toHaveLength(0);
+  });
+
+  it('activates and hands off one browser-key adapter before session creation', () => {
+    vi.stubEnv('VITE_HOSTED', '1');
+    vi.stubEnv('VITE_BROWSER_KEY_MODE', '1');
+    vi.stubEnv('VITE_VOICE_PROVIDER', 'openai');
+
+    expect(providerModule.prepareBrowserOpenAIVoice()).toBe(true);
+    expect(state.openAIAdapterInstances).toHaveLength(1);
+    expect(state.openAIAdapterInstances[0]?.activateAudioCalls).toBe(1);
+
+    const prepared = state.openAIAdapterInstances[0];
+    expect(createAdapter('openai')).toBe(prepared);
+    expect(state.openAIAdapterInstances).toHaveLength(1);
   });
 
   it('passes the demo greeting to maelstromRealtime', () => {

@@ -246,6 +246,9 @@ export class LiveKitAdapter
   // invalidates it. Keeping unrelated status from clearing this id fences stale
   // worker packets from newer turns.
   #currentUtteranceId: number | undefined;
+  #greetingPlaybackStart:
+    | { readonly utteranceId: number; readonly callback: () => void }
+    | undefined;
   // Rescues an empty push-to-talk turn (no speech) that would otherwise wedge
   // the UI in `thinking` — see #startThinkingFallback.
   #thinkingFallbackTimer: ReturnType<typeof setTimeout> | undefined;
@@ -683,6 +686,7 @@ export class LiveKitAdapter
     readonly id: MessageId;
     readonly text: string;
     readonly signal: AbortSignal;
+    readonly onPlaybackStart?: () => void;
   }): Promise<GreetingSpeechResult> {
     void args.id;
     if (!this.#room) return 'not_started';
@@ -701,6 +705,9 @@ export class LiveKitAdapter
     this.#utteranceSeq += 1;
     const utteranceId = this.#utteranceSeq;
     this.#currentUtteranceId = utteranceId;
+    this.#greetingPlaybackStart = args.onPlaybackStart
+      ? { utteranceId, callback: args.onPlaybackStart }
+      : undefined;
     this.#unmutePlaybackForNextTtsTurn();
     this.#emit({ type: 'state', state: 'speaking' });
     try {
@@ -714,6 +721,7 @@ export class LiveKitAdapter
       // but suppress retries so an ambiguous send cannot duplicate speech.
       if (this.#currentUtteranceId === utteranceId) {
         this.#currentUtteranceId = undefined;
+        this.#greetingPlaybackStart = undefined;
         this.#collapseSpeaking();
       }
       return 'accepted';
@@ -839,6 +847,31 @@ export class LiveKitAdapter
     } catch {
       type = undefined;
     }
+    if (type === 'tts_started') {
+      // Start status has no legacy id-less form. The greeting callback is
+      // retained independently from the latest queued utterance because the
+      // worker serializes speech and may start the greeting after a later
+      // assistant response has already been handed off.
+      const start = this.#greetingPlaybackStart;
+      if (
+        typeof utteranceId !== 'number' ||
+        !start ||
+        utteranceId !== start.utteranceId
+      ) {
+        return;
+      }
+      this.#greetingPlaybackStart = undefined;
+      try {
+        start.callback();
+      } catch {
+        // Presentation callbacks never affect transport state.
+      }
+      if (utteranceId === this.#currentUtteranceId) {
+        this.#clearThinkingFallback();
+      }
+      return;
+    }
+    const isTerminal = type === 'tts_done' || type === 'tts_error';
     // Drop status for an utterance the client has already barged past: a
     // cancelled utterance's late `tts_done` must be a full no-op — not clear the
     // empty-turn fallback, not move state — or the UI wedges in `thinking`. Only
@@ -848,9 +881,14 @@ export class LiveKitAdapter
       typeof utteranceId === 'number' &&
       utteranceId !== this.#currentUtteranceId
     ) {
+      if (
+        isTerminal &&
+        utteranceId === this.#greetingPlaybackStart?.utteranceId
+      ) {
+        this.#greetingPlaybackStart = undefined;
+      }
       return;
     }
-    const isTerminal = type === 'tts_done' || type === 'tts_error';
     // Older workers omit utteranceId. Preserve compatibility only while a worker
     // response is outstanding; after barge-in invalidates that response, a late
     // id-less terminal packet is indistinguishable from stale and must be ignored.
@@ -863,6 +901,9 @@ export class LiveKitAdapter
     }
     if (isTerminal) {
       this.#currentUtteranceId = undefined;
+      if (utteranceId === this.#greetingPlaybackStart?.utteranceId) {
+        this.#greetingPlaybackStart = undefined;
+      }
     }
     // A live TTS signal means the worker is alive and driving state — the turn
     // was not empty, so cancel the empty-turn fallback.
@@ -1038,6 +1079,7 @@ export class LiveKitAdapter
       // The worker may still report completion after cancellation. Invalidate
       // this utterance before publishing so that late status is ignored.
       this.#currentUtteranceId = undefined;
+      this.#greetingPlaybackStart = undefined;
       const cancel: TtsCancelMessage = { type: 'tts_cancel' };
       try {
         await room.localParticipant.publishData(
@@ -1824,6 +1866,7 @@ export class LiveKitAdapter
     this.#connecting = false;
     this.#closing = false;
     this.#currentUtteranceId = undefined;
+    this.#greetingPlaybackStart = undefined;
     this.#ttsReady = false;
     this.#greetGestureUnlocked = false;
     if (this.#ttsReadyTimer !== undefined) {

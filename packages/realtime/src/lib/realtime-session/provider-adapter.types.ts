@@ -23,6 +23,13 @@ export interface RealtimeToolSpec<Name extends string = string> {
 export interface AdapterConnectOptions {
   readonly tools: readonly RealtimeToolSpec[];
   readonly instructions: string;
+  /**
+   * Whether this connection may present the configured fixed greeting.
+   * Defaults to `true` for direct adapter callers. RealtimeSession always sets
+   * this explicitly so reconnects with terminal greeting proof can skip
+   * greeting-only microphone preparation.
+   */
+  readonly prepareGreeting?: boolean;
 }
 
 /** Provider-neutral turn-boundary mode established for the current connection. */
@@ -208,7 +215,11 @@ export interface RealtimeGreetingAdapter extends RealtimeProviderAdapter {
    */
   activateAudio(): void;
   /**
-   * Speak the exact configured text once. `not_started` proves no provider
+   * Speak the exact configured text once. Call `onPlaybackStart` at the
+   * provider's closest reliable playout-start boundary. Local players can use
+   * the exact source start; remote transports may only prove that their first
+   * frame entered the playout queue. Providers that never start must not call it.
+   * `not_started` proves no provider
    * send or playback began — the only retriable outcome. `accepted` is
    * terminal: delivery is ambiguous past invocation and is never retried.
    */
@@ -216,6 +227,8 @@ export interface RealtimeGreetingAdapter extends RealtimeProviderAdapter {
     readonly id: MessageId;
     readonly text: string;
     readonly signal: AbortSignal;
+    /** Called at most once at the provider's documented playout-start boundary. */
+    readonly onPlaybackStart?: () => void;
   }): Promise<GreetingSpeechResult>;
 }
 

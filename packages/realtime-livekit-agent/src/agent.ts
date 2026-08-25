@@ -41,6 +41,7 @@ import {
   type TtsDoneMessage,
   type TtsErrorMessage,
   type TtsReadyMessage,
+  type TtsStartedMessage,
   TURN_TOPIC,
   USER_PARTICIPANT_IDENTITY,
 } from '@maelstrom-co/realtime-protocol/livekit-wire';
@@ -342,7 +343,30 @@ export async function maelstromVoiceJob(ctx: JobContext): Promise<void> {
         stream.pushText(trimmed);
         stream.flush();
         stream.endInput();
-        await pumpTtsStream(stream, (frame) => ttsSource.captureFrame(frame));
+        let started = false;
+        await pumpTtsStream(stream, async (frame) => {
+          await ttsSource.captureFrame(frame);
+          if (!started) {
+            started = true;
+            if (utteranceId === undefined) return;
+            const status: TtsStartedMessage = {
+              type: 'tts_started',
+              utteranceId,
+            };
+            void localParticipant
+              .publishData(new TextEncoder().encode(JSON.stringify(status)), {
+                reliable: true,
+                topic: TTS_TOPIC,
+              })
+              .catch((error) =>
+                logWorkerDiagnostic(
+                  'warn',
+                  'tts-status-publication-failed',
+                  error,
+                ),
+              );
+          }
+        });
         // Frames are queued into the shared AudioSource but not yet heard; block
         // until the queue drains so the client collapses `speaking`→`connected`
         // on real playout end, not on synthesis end. A barge-in `clearQueue()`

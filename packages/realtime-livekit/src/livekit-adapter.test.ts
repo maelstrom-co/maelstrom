@@ -4393,11 +4393,15 @@ describe('LiveKitAdapter greeting capability', () => {
     });
     await adapter.connect({ tools: [], instructions: '' });
     adapter.activateAudio();
+    let playbackStarts = 0;
 
     const speak = adapter.speakAssistantText({
       id: greetingId,
       text: greetingText,
       signal: new AbortController().signal,
+      onPlaybackStart: () => {
+        playbackStarts += 1;
+      },
     });
     // Yield so the waiter is registered, then announce ready.
     await Promise.resolve();
@@ -4410,7 +4414,111 @@ describe('LiveKitAdapter greeting capability', () => {
     );
     await expect(speak).resolves.toBe('accepted');
     expectSpoke(greetingText);
+    expect(playbackStarts).toBe(0);
+    currentRoom._emit(
+      'dataReceived',
+      new TextEncoder().encode(
+        JSON.stringify({
+          type: 'tts_started',
+          utteranceId: lastUtteranceId(),
+        }),
+      ),
+      undefined,
+      undefined,
+      TTS_TOPIC,
+    );
+    expect(playbackStarts).toBe(1);
     expect(states(events).at(-1)).toBe('speaking');
+  });
+
+  test('requires a matching utterance id before publishing the greeting caption', async () => {
+    const { adapter } = makeAdapter(undefined, { greetingReadyWaitMs: 5000 });
+    await adapter.connect({ tools: [], instructions: '' });
+    adapter.activateAudio();
+    currentRoom._emit(
+      'dataReceived',
+      new TextEncoder().encode(JSON.stringify({ type: 'tts_ready' })),
+      undefined,
+      undefined,
+      TTS_READY_TOPIC,
+    );
+    let playbackStarts = 0;
+    await adapter.speakAssistantText({
+      id: greetingId,
+      text: greetingText,
+      signal: new AbortController().signal,
+      onPlaybackStart: () => {
+        playbackStarts += 1;
+      },
+    });
+    const utteranceId = lastUtteranceId();
+
+    for (const payload of [
+      { type: 'tts_started' },
+      { type: 'tts_started', utteranceId: utteranceId + 1 },
+    ]) {
+      currentRoom._emit(
+        'dataReceived',
+        new TextEncoder().encode(JSON.stringify(payload)),
+        undefined,
+        undefined,
+        TTS_TOPIC,
+      );
+    }
+    expect(playbackStarts).toBe(0);
+
+    currentRoom._emit(
+      'dataReceived',
+      new TextEncoder().encode(
+        JSON.stringify({ type: 'tts_started', utteranceId }),
+      ),
+      undefined,
+      undefined,
+      TTS_TOPIC,
+    );
+    expect(playbackStarts).toBe(1);
+  });
+
+  test('retains a queued greeting caption when a later utterance becomes current', async () => {
+    const { adapter } = makeAdapter(undefined, { greetingReadyWaitMs: 5000 });
+    await adapter.connect({ tools: [], instructions: '' });
+    adapter.activateAudio();
+    currentRoom._emit(
+      'dataReceived',
+      new TextEncoder().encode(JSON.stringify({ type: 'tts_ready' })),
+      undefined,
+      undefined,
+      TTS_READY_TOPIC,
+    );
+    let playbackStarts = 0;
+    await adapter.speakAssistantText({
+      id: greetingId,
+      text: greetingText,
+      signal: new AbortController().signal,
+      onPlaybackStart: () => {
+        playbackStarts += 1;
+      },
+    });
+    const greetingUtteranceId = lastUtteranceId();
+    await adapter.sendToolResult('later-call' as never, {
+      ok: true,
+      summary: 'Later response.',
+    });
+    expect(lastUtteranceId()).toBe(greetingUtteranceId + 1);
+
+    currentRoom._emit(
+      'dataReceived',
+      new TextEncoder().encode(
+        JSON.stringify({
+          type: 'tts_started',
+          utteranceId: greetingUtteranceId,
+        }),
+      ),
+      undefined,
+      undefined,
+      TTS_TOPIC,
+    );
+    expect(playbackStarts).toBe(1);
   });
 
   test('abort while waiting for ready returns not_started without send', async () => {

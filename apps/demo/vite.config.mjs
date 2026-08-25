@@ -5,7 +5,6 @@ import tailwindcss from '@tailwindcss/vite';
 import { tanstackStart } from '@tanstack/react-start/plugin/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig, loadEnv } from 'vite';
-import tsConfigPaths from 'vite-tsconfig-paths';
 
 import { browserVadAssetNamesForModel } from '../../packages/realtime-vad/src/vad-asset-manifest.ts';
 import { HOSTED_VAD_MODEL } from './src/lib/hosted-vad-model.ts';
@@ -84,6 +83,7 @@ export default defineConfig(({ command, mode }) => {
     // separately. Vite 7 replaces (not merges) these arrays, so Vite's own
     // default conditions are spelled out here rather than dropped.
     resolve: {
+      tsconfigPaths: true,
       conditions: [
         'module',
         'browser',
@@ -111,11 +111,11 @@ export default defineConfig(({ command, mode }) => {
       createVadWebDevPlugin({
         assetDirectory: join(rootDir, 'public', 'vad-web'),
       }),
-      tsConfigPaths({
-        root: '../..',
-      }),
       tailwindcss(),
       tanstackStart({
+        router: {
+          routeFileIgnorePattern: '\\.test\\.',
+        },
         ...(hosted
           ? {
               spa: {

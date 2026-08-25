@@ -123,9 +123,9 @@ export function KeylessDemo({
         </section>
       </main>
 
-      <div className="keyless-input border-t p-4 bg-bg-1">
+      <div className="keyless-input border-t p-3 bg-bg-1">
         <form onSubmit={handleSubmit} className="max-w-4xl mx-auto">
-          <div className="intent-row flex gap-2">
+          <div className="intent-row flex items-center gap-2">
             <input
               id="demo-intent"
               name="intent"
@@ -133,10 +133,13 @@ export function KeylessDemo({
               value={intent}
               onChange={(event) => onIntentChange(event.target.value)}
               placeholder="Tell Maelstrom what you want to arrange..."
-              className="intent-pill flex-1 min-w-0 px-4 py-3"
+              className="intent-pill flex-1 min-w-0 px-4 py-2.5"
             />
-            <button type="submit" className="btn btn-primary">
-              Add key to send
+            <button
+              type="submit"
+              className="btn btn-primary min-h-11 shrink-0 px-4"
+            >
+              Add key
             </button>
           </div>
         </form>

@@ -235,7 +235,6 @@
     "effect": "catalog:",
     "happy-dom": "catalog:",
     "tailwindcss": "catalog:",
-    "typescript": "catalog:",
-    "vite-tsconfig-paths": "catalog:"
+    "typescript": "catalog:"
   }
 }
