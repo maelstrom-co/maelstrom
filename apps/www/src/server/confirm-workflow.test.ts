@@ -3,8 +3,7 @@ import { Effect, Layer } from 'effect';
 import { isWaitlistToken } from '../lib/waitlist-token';
 import { ConfirmWorkflow } from './confirm-workflow';
 import type { AccessReceipt } from './waitlist-repository';
-import { WaitlistRepository } from './waitlist-repository';
-import { makeRawStoreTestRepository } from './waitlist-repository.test-support';
+import { makeWaitlistRepositoryTestLayer } from './waitlist-repository.test-layer';
 
 const FIXED_NOW_ISO = '2026-08-23T12:00:00.000Z';
 const LIVE_TOKEN = `v1.${'a'.repeat(43)}`;
@@ -28,24 +27,22 @@ const harness = (options?: {
     } | null;
   } = { current: null };
 
-  const store = {
-    claimDeliveryAttempt: async () => false,
-    markAccepted: async () => {},
-    markRejected: async () => {},
-    markUnknown: async () => {},
-    markRetryable: async () => {},
-    confirmToken: async (
+  const repository = {
+    confirmToken: Effect.fn('TestWaitlistRepository.confirmToken')(function* (
       tokenHash: string,
       now: string,
       receipt?: AccessReceipt,
-    ) => {
+    ) {
       lastConfirm.current = { tokenHash, now, receipt };
       events.push(`confirm:${tokenHash}`);
       return options?.confirm
-        ? options.confirm(tokenHash, now, receipt)
+        ? yield* Effect.promise(
+            () =>
+              options.confirm?.(tokenHash, now, receipt) ??
+              Promise.resolve(null),
+          )
         : { email: 'user@example.com' };
-    },
-    hasValidAccessReceipt: async () => false,
+    }),
   };
 
   const emailService = {
@@ -59,11 +56,7 @@ const harness = (options?: {
   const layer = ConfirmWorkflow.layer({
     emailService,
     nowIso: () => FIXED_NOW_ISO,
-  }).pipe(
-    Layer.provide(
-      Layer.succeed(WaitlistRepository, makeRawStoreTestRepository(store)),
-    ),
-  );
+  }).pipe(Layer.provide(makeWaitlistRepositoryTestLayer(repository)));
 
   return { events, lastConfirm, layer };
 };
@@ -129,20 +122,13 @@ describe('confirm workflow', () => {
       errorLog.push(value);
     };
     try {
-      const store = {
-        claimDeliveryAttempt: async () => false,
-        markAccepted: async () => {},
-        markRejected: async () => {},
-        markUnknown: async () => {},
-        markRetryable: async () => {},
-        confirmToken: async () => ({ email: 'user@example.com' }),
-        hasValidAccessReceipt: async () => false,
-      };
       const layer = ConfirmWorkflow.layer({
         nowIso: () => FIXED_NOW_ISO,
       }).pipe(
         Layer.provide(
-          Layer.succeed(WaitlistRepository, makeRawStoreTestRepository(store)),
+          makeWaitlistRepositoryTestLayer({
+            confirmToken: () => Effect.succeed({ email: 'user@example.com' }),
+          }),
         ),
       );
       const outcome = await Effect.runPromiseExit(

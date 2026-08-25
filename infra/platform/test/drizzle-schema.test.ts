@@ -20,10 +20,13 @@ const applySql = (database: Database, sql: string) => {
   }
 };
 
-const applyLegacy = (database: Database) => {
-  for (const name of readdirSync(legacyMigrationsDir)
+const legacySqlFiles = () =>
+  readdirSync(legacyMigrationsDir)
     .filter((file) => file.endsWith('.sql'))
-    .sort()) {
+    .sort();
+
+const applyLegacy = (database: Database, names = legacySqlFiles()) => {
+  for (const name of names) {
     database.exec(readFileSync(resolve(legacyMigrationsDir, name), 'utf8'));
   }
 };
@@ -200,6 +203,72 @@ describe('Drizzle waitlist schema', () => {
     applyLegacy(legacy);
     applyDrizzle(drizzle);
     expect(schemaDump(drizzle)).toEqual(schemaDump(legacy));
+  });
+
+  test('upgrades an existing subscriber without losing access or delivery support', () => {
+    const database = new Database(':memory:');
+    const migrations = legacySqlFiles();
+    database.exec('PRAGMA foreign_keys = ON');
+    applyLegacy(database, migrations.slice(0, 3));
+    database
+      .query(
+        `INSERT INTO waitlist_subscribers (
+          email, confirmation_token_hash, confirmation_expires_at,
+          confirmation_sent_at
+        ) VALUES (?, ?, ?, ?)`,
+      )
+      .run(
+        'existing@example.com',
+        'old-token-hash',
+        '2026-08-25T01:00:00.000Z',
+        '2026-08-25T00:00:00.000Z',
+      );
+
+    applyLegacy(database, migrations.slice(3));
+    database.exec(`
+      INSERT INTO waitlist_confirmation_deliveries (
+        id, email, token_hash, expires_at, state, attempted_at, state_changed_at
+      ) VALUES (
+        'confirmation', 'existing@example.com', 'new-token-hash',
+        '2026-08-26T01:00:00.000Z', 'accepted',
+        '2026-08-25T01:00:00.000Z', '2026-08-25T01:00:01.000Z'
+      );
+      INSERT INTO waitlist_resend_deliveries (
+        id, email, state, attempted_at, state_changed_at
+      ) VALUES (
+        'resend', 'existing@example.com', 'attempting',
+        '2026-08-25T02:00:00.000Z', '2026-08-25T02:00:00.000Z'
+      );
+      UPDATE waitlist_subscribers
+      SET access_receipt_hash = 'receipt-hash',
+          access_receipt_expires_at = '2026-08-25T03:00:00.000Z'
+      WHERE email = 'existing@example.com';
+    `);
+
+    expect(
+      database
+        .query(
+          `SELECT email, confirmation_token_hash, confirmation_sent_at,
+                  access_receipt_hash, access_receipt_expires_at
+           FROM waitlist_subscribers WHERE email = 'existing@example.com'`,
+        )
+        .get(),
+    ).toEqual({
+      email: 'existing@example.com',
+      confirmation_token_hash: 'old-token-hash',
+      confirmation_sent_at: '2026-08-25T00:00:00.000Z',
+      access_receipt_hash: 'receipt-hash',
+      access_receipt_expires_at: '2026-08-25T03:00:00.000Z',
+    });
+    expect(
+      database
+        .query(
+          `SELECT
+            (SELECT count(*) FROM waitlist_confirmation_deliveries) AS confirmations,
+            (SELECT count(*) FROM waitlist_resend_deliveries) AS resends`,
+        )
+        .get(),
+    ).toEqual({ confirmations: 1, resends: 1 });
   });
 
   test('joins subscribers to both delivery ledgers', async () => {

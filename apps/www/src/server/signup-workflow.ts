@@ -1,7 +1,6 @@
 import { Context, Effect, Layer } from 'effect';
 import * as Result from 'effect/Result';
 import { buildWaitlistConfirmationEmail } from '../lib/waitlist-confirmation-email';
-import type { ClaimDeliveryAttempt } from '../lib/waitlist-delivery-store';
 import { createWaitlistToken, hashWaitlistToken } from '../lib/waitlist-token';
 import type {
   TurnstileVerifierError,
@@ -12,6 +11,7 @@ import {
   type EmailDisposition,
 } from './waitlist-email-failure';
 import {
+  type ClaimDeliveryAttempt,
   WaitlistRepository,
   type WaitlistRepositoryError,
   type WaitlistRepositoryService,

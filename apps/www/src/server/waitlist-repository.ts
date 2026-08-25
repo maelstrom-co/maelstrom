@@ -6,24 +6,61 @@ import {
   waitlistResendDeliveries,
   waitlistSubscribers,
 } from '@maelstrom-co/platform-infra/waitlist-schema';
-import { and, eq, gt, notExists, notInArray, sql } from 'drizzle-orm';
+import {
+  and,
+  eq,
+  exists,
+  gt,
+  inArray,
+  notExists,
+  notInArray,
+  sql,
+} from 'drizzle-orm';
 import * as DrizzleD1 from 'drizzle-orm/effect-d1';
 import { Context, Data, Effect, Layer } from 'effect';
-import {
-  type ClaimDeliveryAttempt,
-  type ClaimResendAttempt,
-  DeliveryStateConflictError,
-  WaitlistDeliveryStore,
-} from '../lib/waitlist-delivery-store';
+
+const EMAIL_RETRY_BACKOFF_MS = 10 * 60 * 1000;
+const EMAIL_DAILY_LIMIT_BACKOFF_MS = 60 * 60 * 1000;
+
+/** Input for an atomic pending-subscriber confirmation delivery claim. */
+export interface ClaimDeliveryAttempt {
+  /** Idempotency key for this delivery attempt. */
+  readonly id: string;
+  /** Case-insensitive subscriber key after input normalization. */
+  readonly email: string;
+  /** Raw confirmation tokens never enter persistence. */
+  readonly tokenHash: string;
+  /** Canonical ISO timestamp with an exclusive boundary. */
+  readonly expiresAt: string;
+  /** Canonical ISO timestamp used for ordering and backoff comparisons. */
+  readonly attemptedAt: string;
+  /** Attempts exactly on this boundary remain eligible. */
+  readonly cooldownSince: string;
+}
+
+/** Input for an atomic confirmed-subscriber resend claim. */
+export interface ClaimResendAttempt {
+  /** Idempotency key for this resend attempt. */
+  readonly id: string;
+  /** Case-insensitive confirmed-subscriber key. */
+  readonly email: string;
+  /** Canonical ISO timestamp used for ordering and backoff comparisons. */
+  readonly attemptedAt: string;
+  /** Attempts exactly on this boundary remain eligible. */
+  readonly cooldownSince: string;
+}
 
 /** One-time receipt stored atomically with the confirmed transition. */
 export interface AccessReceipt {
+  /** Raw receipt values never enter persistence. */
   readonly hash: string;
+  /** Canonical ISO timestamp with an exclusive boundary. */
   readonly expiresAt: string;
 }
 
 /** The confirmed subscriber identity needed by downstream delivery work. */
 export interface ConfirmedSignup {
+  /** Case-insensitive subscriber key returned only for a new confirmation. */
   readonly email: string;
 }
 
@@ -90,77 +127,91 @@ type Transition<TOperation extends TransitionOperation> = (
   providerMessageId: string | null,
   failureCode: string | null,
 ) => Effect.Effect<void, WaitlistRepositoryError>;
+type RetryEvidence = 'state-and-failure' | 'state-failure-and-changed-at';
 
 /** D1-backed waitlist persistence behind typed errors. */
 export interface WaitlistRepositoryService {
+  /** Returns false without revealing which eligibility rule denied the claim. */
   readonly claimDeliveryAttempt: (
     input: ClaimDeliveryAttempt,
   ) => Effect.Effect<boolean, WaitlistRepositoryError>;
 
+  /** Returns false for unknown, ineligible, and cooling-down addresses alike. */
   readonly claimResendAttempt: (
     input: ClaimResendAttempt,
   ) => Effect.Effect<boolean, WaitlistRepositoryError>;
 
+  /** Exact replays succeed without rewriting settlement time. */
   readonly markAccepted: (
     id: string,
     messageId: string,
     changedAt: string,
   ) => Effect.Effect<void, WaitlistRepositoryError>;
 
+  /** Exact replays succeed without rewriting settlement time. */
   readonly markRejected: (
     id: string,
     failureCode: string,
     changedAt: string,
   ) => Effect.Effect<void, WaitlistRepositoryError>;
 
+  /** Exact replays succeed without rewriting settlement time. */
   readonly markUnknown: (
     id: string,
     failureCode: string,
     changedAt: string,
   ) => Effect.Effect<void, WaitlistRepositoryError>;
 
+  /** Matching replays preserve the legacy ability to extend max backoff. */
   readonly markRetryable: (
     id: string,
     failureCode: string,
     changedAt: string,
   ) => Effect.Effect<void, WaitlistRepositoryError>;
 
+  /** Exact replays succeed without rewriting settlement time. */
   readonly markResendAccepted: (
     id: string,
     messageId: string,
     changedAt: string,
   ) => Effect.Effect<void, WaitlistRepositoryError>;
 
+  /** Exact replays succeed without rewriting settlement time. */
   readonly markResendRejected: (
     id: string,
     failureCode: string,
     changedAt: string,
   ) => Effect.Effect<void, WaitlistRepositoryError>;
 
+  /** Exact replays succeed without rewriting settlement time. */
   readonly markResendUnknown: (
     id: string,
     failureCode: string,
     changedAt: string,
   ) => Effect.Effect<void, WaitlistRepositoryError>;
 
+  /** Matching replays never extend the original provider backoff. */
   readonly markResendRetryable: (
     id: string,
     failureCode: string,
     changedAt: string,
   ) => Effect.Effect<void, WaitlistRepositoryError>;
 
+  /** Returns email only for a new confirmation; receipt writes are atomic. */
   readonly confirmToken: (
     tokenHash: string,
     now: string,
     receipt?: AccessReceipt,
   ) => Effect.Effect<ConfirmedSignup | null, WaitlistRepositoryError>;
 
+  /** Expiry is exclusive. */
   readonly hasValidAccessReceipt: (
     receiptHash: string,
     now: string,
   ) => Effect.Effect<boolean, WaitlistRepositoryError>;
 }
 
+/** Owns the scoped D1 client used by one consuming Effect. */
 export class WaitlistRepository extends Context.Service<
   WaitlistRepository,
   WaitlistRepositoryService
@@ -178,7 +229,15 @@ export class WaitlistRepository extends Context.Service<
         const db = yield* DrizzleD1.makeWithDefaults({
           relations: waitlistRelations,
         });
-        const store = new WaitlistDeliveryStore(database);
+        const compileBatchStatement = (query: {
+          toSQL(): { readonly sql: string; readonly params: unknown[] };
+        }) => {
+          const compiled = query.toSQL();
+          return db.$client.unsafe<Record<string, unknown>>(
+            compiled.sql,
+            compiled.params,
+          );
+        };
         const activeEmailProviderBackoff = (attemptedAt: string) =>
           db
             .select({ provider: waitlistDeliveryBackoffs.provider })
@@ -249,6 +308,103 @@ export class WaitlistRepository extends Context.Service<
           waitlistResendDeliveries,
           'WaitlistRepository.resendTransition',
         );
+        const retryableTransition = Effect.fn(
+          'WaitlistRepository.retryableTransition',
+        )(function* (
+          table: TransitionTable,
+          operation: 'markRetryable' | 'markResendRetryable',
+          backoffEvidence: RetryEvidence,
+          id: string,
+          failureCode: string,
+          changedAt: string,
+        ) {
+          const changedTime = Date.parse(changedAt);
+          if (
+            !Number.isFinite(changedTime) ||
+            new Date(changedTime).toISOString() !== changedAt
+          ) {
+            return yield* new WaitlistPersistenceError({ operation });
+          }
+          const backoffMs =
+            failureCode === 'E_DAILY_LIMIT_EXCEEDED'
+              ? EMAIL_DAILY_LIMIT_BACKOFF_MS
+              : EMAIL_RETRY_BACKOFF_MS;
+          const retryAfter = new Date(changedTime + backoffMs).toISOString();
+          const transition = db
+            .update(table)
+            .set({
+              state: 'retryable',
+              stateChangedAt: changedAt,
+              providerMessageId: null,
+              failureCode,
+            })
+            .where(and(eq(table.id, id), eq(table.state, 'attempting')))
+            .returning({ state: table.state });
+          const matchingRetry = db
+            .select({
+              provider: sql<string>`'email'`.as('provider'),
+              retryAfter: sql<string>`${retryAfter}`.as('retry_after'),
+              failureCode: sql<string>`${failureCode}`.as('failure_code'),
+              updatedAt: sql<string>`${changedAt}`.as('updated_at'),
+            })
+            .from(table)
+            .where(
+              and(
+                eq(table.id, id),
+                eq(table.state, 'retryable'),
+                eq(table.failureCode, failureCode),
+                backoffEvidence === 'state-failure-and-changed-at'
+                  ? eq(table.stateChangedAt, changedAt)
+                  : undefined,
+              ),
+            );
+          const providerBackoff = db
+            .insert(
+              waitlistDeliveryBackoffs,
+              'provider',
+              'retryAfter',
+              'failureCode',
+              'updatedAt',
+            )
+            .select(matchingRetry)
+            .onConflictDoUpdate({
+              target: waitlistDeliveryBackoffs.provider,
+              set: {
+                retryAfter: sql`max(${waitlistDeliveryBackoffs.retryAfter}, ${retryAfter})`,
+                failureCode,
+                updatedAt: changedAt,
+              },
+            });
+
+          // Effect SQL cannot transact on D1; its native batch is the atomic
+          // boundary for the state transition and provider-wide backoff.
+          const [updated] = yield* db.$client
+            .batch([
+              compileBatchStatement(transition),
+              compileBatchStatement(providerBackoff),
+            ])
+            .pipe(persistQuery(operation));
+          if (updated.length > 0) return;
+
+          const current = yield* db
+            .select({
+              state: table.state,
+              providerMessageId: table.providerMessageId,
+              failureCode: table.failureCode,
+            })
+            .from(table)
+            .where(eq(table.id, id))
+            .limit(1)
+            .pipe(persistQuery(operation));
+          if (
+            current[0]?.state === 'retryable' &&
+            current[0].providerMessageId === null &&
+            current[0].failureCode === failureCode
+          ) {
+            return;
+          }
+          return yield* new DeliveryStateConflict({});
+        });
 
         return WaitlistRepository.of({
           claimDeliveryAttempt: Effect.fn(
@@ -407,8 +563,13 @@ export class WaitlistRepository extends Context.Service<
           ),
           markRetryable: Effect.fn('WaitlistRepository.markRetryable')(
             function* (id, failureCode, changedAt) {
-              return yield* persistRaw('markRetryable', () =>
-                store.markRetryable(id, failureCode, changedAt),
+              return yield* retryableTransition(
+                waitlistConfirmationDeliveries,
+                'markRetryable',
+                'state-and-failure',
+                id,
+                failureCode,
+                changedAt,
               );
             },
           ),
@@ -451,15 +612,103 @@ export class WaitlistRepository extends Context.Service<
           markResendRetryable: Effect.fn(
             'WaitlistRepository.markResendRetryable',
           )(function* (id, failureCode, changedAt) {
-            return yield* persistRaw('markResendRetryable', () =>
-              store.markResendRetryable(id, failureCode, changedAt),
+            return yield* retryableTransition(
+              waitlistResendDeliveries,
+              'markResendRetryable',
+              'state-failure-and-changed-at',
+              id,
+              failureCode,
+              changedAt,
             );
           }),
           confirmToken: Effect.fn('WaitlistRepository.confirmToken')(
             function* (tokenHash, now, receipt) {
-              return yield* persistRaw('confirmToken', () =>
-                store.confirmToken(tokenHash, now, receipt),
-              );
+              const pendingSubscriber = db
+                .select({ email: waitlistSubscribers.email })
+                .from(waitlistSubscribers)
+                .where(
+                  and(
+                    eq(
+                      waitlistSubscribers.email,
+                      waitlistConfirmationDeliveries.email,
+                    ),
+                    eq(waitlistSubscribers.status, 'pending'),
+                  ),
+                );
+              const acceptAttempt = db
+                .update(waitlistConfirmationDeliveries)
+                .set({
+                  state: 'accepted',
+                  stateChangedAt: now,
+                  failureCode: null,
+                })
+                .where(
+                  and(
+                    eq(waitlistConfirmationDeliveries.tokenHash, tokenHash),
+                    gt(waitlistConfirmationDeliveries.expiresAt, now),
+                    inArray(waitlistConfirmationDeliveries.state, [
+                      'attempting',
+                      'accepted',
+                      'unknown',
+                    ]),
+                    exists(pendingSubscriber),
+                  ),
+                );
+              const acceptedAttempt = db
+                .select({ email: waitlistConfirmationDeliveries.email })
+                .from(waitlistConfirmationDeliveries)
+                .where(
+                  and(
+                    eq(waitlistConfirmationDeliveries.tokenHash, tokenHash),
+                    gt(waitlistConfirmationDeliveries.expiresAt, now),
+                    eq(waitlistConfirmationDeliveries.state, 'accepted'),
+                  ),
+                );
+              const confirmSubscriber = db
+                .update(waitlistSubscribers)
+                .set({
+                  status: 'confirmed',
+                  confirmationTokenHash: null,
+                  confirmationExpiresAt: null,
+                  confirmationSentAt: null,
+                  confirmedAt: now,
+                  updatedAt: now,
+                  ...(receipt
+                    ? {
+                        accessReceiptHash: receipt.hash,
+                        accessReceiptExpiresAt: receipt.expiresAt,
+                      }
+                    : {}),
+                })
+                .where(
+                  and(
+                    eq(waitlistSubscribers.status, 'pending'),
+                    inArray(waitlistSubscribers.email, acceptedAttempt),
+                  ),
+                )
+                .returning({ email: waitlistSubscribers.email });
+
+              // Receipt fields belong to the subscriber update so a used token
+              // cannot attach a receipt in a later batch statement.
+              const [, confirmation] = yield* db.$client
+                .batch([
+                  compileBatchStatement(acceptAttempt),
+                  compileBatchStatement(confirmSubscriber),
+                ])
+                .pipe(persistQuery('confirmToken'));
+              if (confirmation === undefined) {
+                return yield* new WaitlistPersistenceError({
+                  operation: 'confirmToken',
+                });
+              }
+              const confirmed = confirmation[0];
+              if (confirmed === undefined) return null;
+              if (typeof confirmed.email !== 'string') {
+                return yield* new WaitlistPersistenceError({
+                  operation: 'confirmToken',
+                });
+              }
+              return { email: confirmed.email };
             },
           ),
           hasValidAccessReceipt: Effect.fn(
@@ -482,18 +731,6 @@ export class WaitlistRepository extends Context.Service<
       }),
     ).pipe(Layer.provide(D1Client.layer({ db: database }).pipe(Layer.orDie)));
 }
-
-const persistRaw = <A>(
-  operation: WaitlistOperation,
-  run: () => Promise<A>,
-): Effect.Effect<A, WaitlistRepositoryError> =>
-  Effect.tryPromise({
-    try: run,
-    catch: (cause) =>
-      cause instanceof DeliveryStateConflictError
-        ? new DeliveryStateConflict({})
-        : new WaitlistPersistenceError({ operation }),
-  });
 
 const persistQuery = (operation: WaitlistOperation) =>
   Effect.mapError(() => new WaitlistPersistenceError({ operation }));

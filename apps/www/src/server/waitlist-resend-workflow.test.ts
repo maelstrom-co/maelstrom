@@ -1,8 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 import { Effect, Layer } from 'effect';
-import type { ClaimResendAttempt } from '../lib/waitlist-delivery-store';
-import { WaitlistRepository } from './waitlist-repository';
-import { makeRawStoreTestRepository } from './waitlist-repository.test-support';
+import {
+  type ClaimResendAttempt,
+  WaitlistPersistenceError,
+} from './waitlist-repository';
+import { makeWaitlistRepositoryTestLayer } from './waitlist-repository.test-layer';
 import { WaitlistResendWorkflow } from './waitlist-resend-workflow';
 
 const NOW = '2026-08-23T12:00:00.000Z';
@@ -14,21 +16,33 @@ const harness = (options?: {
   transitionThrows?: boolean;
 }) => {
   const events: string[] = [];
-  const store = {
-    claimResendAttempt: async (input: ClaimResendAttempt) => {
-      events.push(`claim:${input.email}:${input.cooldownSince}`);
-      return options?.claim ? options.claim(input) : true;
-    },
-    markResendAccepted: async () => {
-      events.push('accepted');
-      if (options?.transitionThrows) throw new Error('private D1 detail');
-    },
-    markResendRejected: async (_id: string, code: string) =>
-      events.push(`rejected:${code}`),
-    markResendUnknown: async (_id: string, code: string) =>
-      events.push(`unknown:${code}`),
-    markResendRetryable: async (_id: string, code: string) =>
-      events.push(`retryable:${code}`),
+  const repository = {
+    claimResendAttempt: Effect.fn('TestWaitlistRepository.claimResendAttempt')(
+      function* (input: ClaimResendAttempt) {
+        events.push(`claim:${input.email}:${input.cooldownSince}`);
+        return options?.claim
+          ? yield* Effect.promise(
+              () => options.claim?.(input) ?? Promise.resolve(true),
+            )
+          : true;
+      },
+    ),
+    markResendAccepted: Effect.fn('TestWaitlistRepository.markResendAccepted')(
+      function* () {
+        events.push('accepted');
+        if (options?.transitionThrows) {
+          return yield* new WaitlistPersistenceError({
+            operation: 'markResendAccepted',
+          });
+        }
+      },
+    ),
+    markResendRejected: (_id: string, code: string) =>
+      Effect.sync(() => events.push(`rejected:${code}`)),
+    markResendUnknown: (_id: string, code: string) =>
+      Effect.sync(() => events.push(`unknown:${code}`)),
+    markResendRetryable: (_id: string, code: string) =>
+      Effect.sync(() => events.push(`retryable:${code}`)),
   };
   const emailService = {
     send: async (message: Parameters<SendEmail['send']>[0]) => {
@@ -42,11 +56,7 @@ const harness = (options?: {
   const layer = WaitlistResendWorkflow.layer({
     emailService,
     nowIso: () => NOW,
-  }).pipe(
-    Layer.provide(
-      Layer.succeed(WaitlistRepository, makeRawStoreTestRepository(store)),
-    ),
-  );
+  }).pipe(Layer.provide(makeWaitlistRepositoryTestLayer(repository)));
   return { events, layer };
 };
 
