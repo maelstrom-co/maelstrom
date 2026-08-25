@@ -11,9 +11,10 @@ import {
   classifyEmailFailure,
   type EmailDisposition,
 } from './waitlist-email-failure';
-import type {
-  WaitlistRepositoryError,
-  WaitlistRepositoryService,
+import {
+  WaitlistRepository,
+  type WaitlistRepositoryError,
+  type WaitlistRepositoryService,
 } from './waitlist-repository';
 
 const CONFIRMATION_TTL_MS = 24 * 60 * 60 * 1000;
@@ -62,15 +63,16 @@ export class SignupWorkflow extends Context.Service<
   SignupWorkflow,
   SignupWorkflowService
 >()('@maelstrom/www/SignupWorkflow') {
+  /** Context injection keeps the repository's scoped D1 client live for each workflow execution. */
   static readonly layer = (options: {
     readonly verifier: TurnstileVerifierService;
-    readonly repository: WaitlistRepositoryService;
     readonly emailService: SendEmail;
     readonly nowIso: () => string;
-  }): Layer.Layer<SignupWorkflow, never, never> =>
+  }): Layer.Layer<SignupWorkflow, never, WaitlistRepository> =>
     Layer.effect(
       SignupWorkflow,
       Effect.gen(function* () {
+        const repository = yield* WaitlistRepository;
         const begin = Effect.fn('SignupWorkflow.begin')(function* (input: {
           readonly email: string;
           readonly turnstileToken: string;
@@ -94,7 +96,7 @@ export class SignupWorkflow extends Context.Service<
             attemptedAt: nowIso,
             cooldownSince: new Date(nowMs - RESEND_COOLDOWN_MS).toISOString(),
           };
-          const claimed = yield* options.repository.claimDeliveryAttempt(claim);
+          const claimed = yield* repository.claimDeliveryAttempt(claim);
           if (!claimed) return { kind: 'suppressed' as const };
 
           return {
@@ -120,7 +122,7 @@ export class SignupWorkflow extends Context.Service<
           );
           if (Result.isFailure(sent)) {
             yield* recordFailure(
-              options.repository,
+              repository,
               delivery.attemptId,
               classifyEmailFailure(sent.failure),
               options.nowIso,
@@ -131,7 +133,7 @@ export class SignupWorkflow extends Context.Service<
 
           if (!result.messageId) {
             yield* recordFailure(
-              options.repository,
+              repository,
               delivery.attemptId,
               {
                 code: 'unclassified',
@@ -142,7 +144,7 @@ export class SignupWorkflow extends Context.Service<
             return;
           }
 
-          const accepted = yield* options.repository
+          const accepted = yield* repository
             .markAccepted(
               delivery.attemptId,
               result.messageId,

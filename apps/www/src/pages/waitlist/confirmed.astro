@@ -2,10 +2,11 @@
 export const prerender = false;
 
 import { WAITLIST_DISCORD_INVITE_URL } from '@maelstrom-co/platform-infra/waitlist-contract';
+import { Effect } from 'effect';
 import WaitlistResult from '../../components/WaitlistResult.astro';
 import Layout from '../../layouts/Layout.astro';
-import { WaitlistDeliveryStore } from '../../lib/waitlist-delivery-store';
 import { hashWaitlistToken, isWaitlistToken } from '../../lib/waitlist-token';
+import { WaitlistRepository } from '../../server/waitlist-repository';
 
 // The Discord invitation is receipt-gated: only a browser that just completed
 // confirmation carries the cookie, so direct visitors and expired revisits get
@@ -24,11 +25,14 @@ if (receiptCookie && isWaitlistToken(receiptCookie)) {
     try {
       const { env } = await import('cloudflare:workers');
       if (env.WAITLIST_DB) {
-        hasReceipt = await new WaitlistDeliveryStore(
-          env.WAITLIST_DB,
-        ).hasValidAccessReceipt(
-          await hashWaitlistToken(receiptCookie),
-          new Date().toISOString(),
+        hasReceipt = await Effect.runPromise(
+          Effect.gen(function* () {
+            const repository = yield* WaitlistRepository;
+            return yield* repository.hasValidAccessReceipt(
+              yield* Effect.promise(() => hashWaitlistToken(receiptCookie)),
+              new Date().toISOString(),
+            );
+          }).pipe(Effect.provide(WaitlistRepository.layer(env.WAITLIST_DB))),
         );
       }
     } catch {}

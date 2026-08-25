@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'bun:test';
-import { Effect } from 'effect';
+import { Effect, Layer } from 'effect';
 import type { ClaimDeliveryAttempt } from '../lib/waitlist-delivery-store';
 import { SignupWorkflow } from './signup-workflow';
 import type { TurnstileVerifierService } from './turnstile-verifier';
-import { makeRepository } from './waitlist-repository';
+import { makeRepository, WaitlistRepository } from './waitlist-repository';
 
 const FIXED_NOW_ISO = '2026-08-23T12:00:00.000Z';
 
@@ -59,10 +59,13 @@ const harness = (options?: {
 
   const layer = SignupWorkflow.layer({
     verifier,
-    repository: makeRepository(store as never),
     emailService: emailService as never,
     nowIso: () => FIXED_NOW_ISO,
-  });
+  }).pipe(
+    Layer.provide(
+      Layer.succeed(WaitlistRepository, makeRepository(store as never)),
+    ),
+  );
 
   return { events, layer };
 };

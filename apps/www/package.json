@@ -10,12 +10,14 @@
   "dependencies": {
     "@astrojs/react": "catalog:",
     "@astrojs/sitemap": "catalog:",
+    "@effect/sql-d1": "catalog:",
     "@maelstrom-co/client": "workspace:*",
     "@maelstrom-co/platform-infra": "workspace:*",
     "@maelstrom-co/protocol": "workspace:*",
     "@maelstrom-co/react": "workspace:*",
     "@radix-ui/react-scroll-area": "catalog:",
     "astro": "catalog:",
+    "drizzle-orm": "1.0.0-rc.5-ab785fc",
     "react": "catalog:",
     "react-dom": "catalog:"
   },

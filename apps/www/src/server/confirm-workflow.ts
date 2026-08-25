@@ -2,9 +2,9 @@ import { Context, Effect, Layer } from 'effect';
 import * as Result from 'effect/Result';
 import { buildWaitlistInvitationEmail } from '../lib/waitlist-invitation-email';
 import { createWaitlistToken, hashWaitlistToken } from '../lib/waitlist-token';
-import type {
-  WaitlistRepositoryError,
-  WaitlistRepositoryService,
+import {
+  WaitlistRepository,
+  type WaitlistRepositoryError,
 } from './waitlist-repository';
 
 const ACCESS_RECEIPT_TTL_MS = 60 * 60 * 1000;
@@ -43,14 +43,15 @@ export class ConfirmWorkflow extends Context.Service<
   ConfirmWorkflow,
   ConfirmWorkflowService
 >()('@maelstrom/www/ConfirmWorkflow') {
+  /** Context injection keeps the repository's scoped D1 client live for each workflow execution. */
   static readonly layer = (options: {
-    readonly repository: WaitlistRepositoryService;
     readonly emailService?: SendEmail;
     readonly nowIso: () => string;
-  }): Layer.Layer<ConfirmWorkflow, never, never> =>
+  }): Layer.Layer<ConfirmWorkflow, never, WaitlistRepository> =>
     Layer.effect(
       ConfirmWorkflow,
       Effect.gen(function* () {
+        const repository = yield* WaitlistRepository;
         const begin = Effect.fn('ConfirmWorkflow.begin')(function* (input: {
           readonly token: string;
         }) {
@@ -63,14 +64,10 @@ export class ConfirmWorkflow extends Context.Service<
           );
           const nowIso = options.nowIso();
           const nowMs = Date.parse(nowIso);
-          const confirmed = yield* options.repository.confirmToken(
-            tokenHash,
-            nowIso,
-            {
-              hash: receiptHash,
-              expiresAt: new Date(nowMs + ACCESS_RECEIPT_TTL_MS).toISOString(),
-            },
-          );
+          const confirmed = yield* repository.confirmToken(tokenHash, nowIso, {
+            hash: receiptHash,
+            expiresAt: new Date(nowMs + ACCESS_RECEIPT_TTL_MS).toISOString(),
+          });
           if (!confirmed) return { kind: 'invalid' as const };
           return {
             kind: 'confirmed' as const,

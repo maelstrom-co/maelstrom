@@ -120,6 +120,30 @@ const run = (
   }).pipe(Effect.provide(layer));
 
 describe('waitlist repository', () => {
+  test('provides raw repository behavior through the live D1 layer', async () => {
+    const calls: Array<unknown> = [];
+    const database = {
+      prepare: (sql: string) => {
+        calls.push(sql);
+        return {
+          bind: (...values: Array<unknown>) => {
+            calls.push(values);
+            return { first: async () => ({ 1: 1 }) };
+          },
+        };
+      },
+    } as unknown as D1Database;
+
+    const valid = await Effect.runPromise(
+      run(WaitlistRepository.layer(database), (repo) =>
+        repo.hasValidAccessReceipt('receipt-hash', '2026-08-22T00:30:00.000Z'),
+      ),
+    );
+
+    expect(valid).toBe(true);
+    expect(calls[1]).toEqual(['receipt-hash', '2026-08-22T00:30:00.000Z']);
+  });
+
   test('claims a delivery attempt through to the store', async () => {
     const calls = { operations: [] };
     const layer = storeLayerWith(
