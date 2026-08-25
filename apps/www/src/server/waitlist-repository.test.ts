@@ -101,6 +101,14 @@ const run = (
     return yield* program(repo);
   }).pipe(Effect.provide(layer));
 
+const expectNoCauseOrRenderedSecret = (error: unknown, secret: string) => {
+  const errorObject = Object(error);
+  expect(Object.hasOwn(errorObject, 'cause')).toBe(false);
+  expect(Reflect.has(errorObject, 'cause')).toBe(false);
+  expect(String(error)).not.toContain(secret);
+  if (error instanceof Error) expect(error.stack ?? '').not.toContain(secret);
+};
+
 describe('waitlist repository', () => {
   test('claims a delivery attempt through to the store', async () => {
     const calls = { operations: [] };
@@ -145,6 +153,7 @@ describe('waitlist repository', () => {
       operation: 'claimResendAttempt',
     });
     expect(JSON.stringify(error)).not.toContain('user@example.com');
+    expectNoCauseOrRenderedSecret(error, 'user@example.com');
   });
 
   test('maps a store failure to a typed persistence error naming the operation', async () => {
@@ -164,6 +173,7 @@ describe('waitlist repository', () => {
     expect(error.operation).toBe('claimDeliveryAttempt');
     // Raw causes may carry provider payloads; they must not reach callers.
     expect(JSON.stringify(error)).not.toContain('D1 unavailable');
+    expectNoCauseOrRenderedSecret(error, 'D1 unavailable');
   });
 
   test('maps a missing or incompatible transition to DeliveryStateConflict', async () => {
@@ -269,6 +279,8 @@ describe('waitlist repository', () => {
     if (error._tag !== 'WaitlistPersistenceError') return;
     expect(error.operation).toBe('confirmToken');
     expect(JSON.stringify(error)).not.toContain('hash-sentinel');
+    expect(JSON.stringify(error)).not.toContain('boom');
+    expectNoCauseOrRenderedSecret(error, 'boom');
   });
 
   test('receipt validation passes the verdict through unchanged', async () => {
