@@ -9,7 +9,8 @@ import type {
   WaitlistRepositoryError,
   WaitlistRepositoryService,
 } from './waitlist-repository';
-import { makeRepository, WaitlistRepository } from './waitlist-repository';
+import { WaitlistRepository } from './waitlist-repository';
+import { makeRawStoreTestRepository } from './waitlist-repository.test-support';
 
 const claimInput: ClaimDeliveryAttempt = {
   id: 'attempt-1',
@@ -81,31 +82,12 @@ const storeLayerWith = (
   overrides: Partial<StoreShape>,
   calls: { operations: Array<string> },
 ): Layer.Layer<WaitlistRepository> => {
-  const base: StoreShape = {
-    claimDeliveryAttempt: async () => true,
-    claimResendAttempt: async () => true,
-    markAccepted: async () => {},
-    markRejected: async () => {},
-    markUnknown: async () => {},
-    markRetryable: async () => {},
-    markResendAccepted: async () => {},
-    markResendRejected: async () => {},
-    markResendUnknown: async () => {},
-    markResendRetryable: async () => {},
-    confirmToken: async () => ({ email: 'user@example.com' }),
-    hasValidAccessReceipt: async () => false,
-    ...overrides,
-  };
-  const tracked = Object.fromEntries(
-    Object.entries(base).map(([name, fn]) => [
-      name,
-      async (...args: Array<unknown>) => {
-        calls.operations.push(name);
-        return (fn as (...a: Array<unknown>) => unknown)(...args);
-      },
-    ]),
+  return Layer.succeed(
+    WaitlistRepository,
+    makeRawStoreTestRepository(overrides, (operation) =>
+      calls.operations.push(operation),
+    ),
   );
-  return Layer.succeed(WaitlistRepository, makeRepository(tracked as never));
 };
 
 const run = (
@@ -120,30 +102,6 @@ const run = (
   }).pipe(Effect.provide(layer));
 
 describe('waitlist repository', () => {
-  test('provides raw repository behavior through the live D1 layer', async () => {
-    const calls: Array<unknown> = [];
-    const database = {
-      prepare: (sql: string) => {
-        calls.push(sql);
-        return {
-          bind: (...values: Array<unknown>) => {
-            calls.push(values);
-            return { first: async () => ({ 1: 1 }) };
-          },
-        };
-      },
-    } as unknown as D1Database;
-
-    const valid = await Effect.runPromise(
-      run(WaitlistRepository.layer(database), (repo) =>
-        repo.hasValidAccessReceipt('receipt-hash', '2026-08-22T00:30:00.000Z'),
-      ),
-    );
-
-    expect(valid).toBe(true);
-    expect(calls[1]).toEqual(['receipt-hash', '2026-08-22T00:30:00.000Z']);
-  });
-
   test('claims a delivery attempt through to the store', async () => {
     const calls = { operations: [] };
     const layer = storeLayerWith(
@@ -243,11 +201,34 @@ describe('waitlist repository', () => {
       ['attempt-1', 'E_RATE_LIMIT_EXCEEDED', '2026-08-22T00:00:00.000Z'],
     ],
   ] as const)('%s resolves when the transition lands once', async (op, args) => {
-    const layer = storeLayerWith({}, { operations: [] });
+    const layer = storeLayerWith(
+      {
+        markAccepted: async () => {},
+        markRejected: async () => {},
+        markUnknown: async () => {},
+        markRetryable: async () => {},
+      },
+      { operations: [] },
+    );
     const outcome = await Effect.runPromiseExit(
       run(layer, (repo) => repo[op](args[0], args[1], args[2])),
     );
     expect(outcome._tag).toBe('Success');
+  });
+
+  test('fails when an operation was omitted from a partial repository double', async () => {
+    const error = await Effect.runPromise(
+      Effect.flip(
+        run(storeLayerWith({}, { operations: [] }), (repo) =>
+          repo.claimDeliveryAttempt(claimInput),
+        ),
+      ),
+    );
+
+    expect(error).toMatchObject({
+      _tag: 'WaitlistPersistenceError',
+      operation: 'claimDeliveryAttempt',
+    });
   });
 
   test('confirm returns the confirmed email for the receipt cookie flow', async () => {

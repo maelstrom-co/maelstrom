@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import { Effect, Layer } from 'effect';
 import type { ClaimResendAttempt } from '../lib/waitlist-delivery-store';
-import { makeRepository, WaitlistRepository } from './waitlist-repository';
+import { WaitlistRepository } from './waitlist-repository';
+import { makeRawStoreTestRepository } from './waitlist-repository.test-support';
 import { WaitlistResendWorkflow } from './waitlist-resend-workflow';
 
 const NOW = '2026-08-23T12:00:00.000Z';
@@ -30,20 +31,20 @@ const harness = (options?: {
       events.push(`retryable:${code}`),
   };
   const emailService = {
-    send: async (message: { to: string; subject: string }) => {
+    send: async (message: Parameters<SendEmail['send']>[0]) => {
       events.push(`send:${message.to}:${message.subject}`);
       if (options && 'sendThrows' in options) throw options.sendThrows;
       return options?.sendResult
         ? options.sendResult
         : { messageId: 'message-1' };
     },
-  };
+  } satisfies SendEmail;
   const layer = WaitlistResendWorkflow.layer({
-    emailService: emailService as never,
+    emailService,
     nowIso: () => NOW,
   }).pipe(
     Layer.provide(
-      Layer.succeed(WaitlistRepository, makeRepository(store as never)),
+      Layer.succeed(WaitlistRepository, makeRawStoreTestRepository(store)),
     ),
   );
   return { events, layer };
