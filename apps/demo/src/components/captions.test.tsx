@@ -58,8 +58,8 @@ describe('Captions', () => {
     // chart_resize. The band must stay mounted at a stable height even idle.
     const { container } = renderCaptions();
     const root = must(container.querySelector('[data-testid="captions"]'));
-    expect(root.className).toContain('h-24');
-    expect(root.className).toContain('sm:h-14');
+    expect(root.className).toContain('h-12');
+    expect(root.className).not.toContain('h-24');
     expect(container.querySelector('[data-role="assistant"]')).toBeNull();
     expect(container.querySelector('[data-role="user"]')).toBeNull();
   });
@@ -109,7 +109,7 @@ describe('Captions', () => {
     });
 
     const line = must(container.querySelector('[data-role="assistant"]'));
-    expect(line.className).toContain('sm:col-span-2');
+    expect(line.className).toContain('col-span-2');
     expect(line.querySelector('.line-clamp-2')).not.toBeNull();
   });
 
@@ -158,10 +158,10 @@ describe('Captions', () => {
     expect(container.querySelector('[data-role="assistant"]')).toBeNull();
     expect(
       must(container.querySelector('[data-role="user"]')).className,
-    ).toContain('sm:col-span-2');
+    ).toContain('col-span-2');
   });
 
-  it('stacks both speakers on mobile and separates them into desktop columns', async () => {
+  it('keeps simultaneous speakers in separate columns at every width', async () => {
     const { container, session } = renderCaptions();
     await act(async () => {
       session.emitState('listening');
@@ -176,10 +176,10 @@ describe('Captions', () => {
     const root = must(container.querySelector('[data-testid="captions"]'));
     const assistant = must(container.querySelector('[data-role="assistant"]'));
     const user = must(container.querySelector('[data-role="user"]'));
-    expect(root.className).toContain('grid-cols-1');
-    expect(root.className).toContain('sm:grid-cols-2');
-    expect(assistant.className).not.toContain('sm:col-span-2');
-    expect(user.className).not.toContain('sm:col-span-2');
+    expect(root.className).toContain('grid-cols-2');
+    expect(root.className).not.toContain('grid-cols-1');
+    expect(assistant.className).not.toContain('col-span-2');
+    expect(user.className).not.toContain('col-span-2');
   });
 
   it('keeps the assistant caption dot when an assistant transcript is present', async () => {

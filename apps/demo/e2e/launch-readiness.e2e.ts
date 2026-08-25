@@ -8,6 +8,7 @@ test('serves the hosted VAD runtime instead of the SPA fallback', async ({
     'Asset contract is viewport-neutral',
   );
   const documentResponse = await request.get('/');
+  expect(documentResponse.headers()['cache-control']).toContain('no-cache');
   expect(documentResponse.headers()['content-security-policy']).toContain(
     "default-src 'self'",
   );
@@ -118,8 +119,11 @@ test('loads the keyless workspace cleanly without horizontal overflow', async ({
 
 test('keeps the interactive Chart nonzero on a short viewport', async ({
   page,
-}) => {
-  await page.setViewportSize({ width: 1_440, height: 300 });
+}, testInfo) => {
+  await page.setViewportSize({
+    width: testInfo.project.name === 'mobile' ? 390 : 1_440,
+    height: 300,
+  });
   await page.goto('/');
   const apiKeyInput = page.getByRole('textbox', { name: 'API key' });
   if (!(await apiKeyInput.isVisible())) {
@@ -129,8 +133,14 @@ test('keeps the interactive Chart nonzero on a short viewport', async ({
   await page.getByRole('button', { name: 'Save' }).click();
 
   const calendar = page.locator('[data-instance-id="calendar-main"]');
-  await expect(calendar).toBeVisible();
+  await expect(calendar).toBeAttached();
   expect((await calendar.boundingBox())?.height).toBeGreaterThan(0);
+  const composer = page.locator('.connected-input');
+  await expect(composer).toBeAttached();
+  const composerBounds = await composer.boundingBox();
+  expect(
+    (composerBounds?.y ?? Infinity) + (composerBounds?.height ?? 0),
+  ).toBeLessThanOrEqual(300);
 });
 
 test('contains drawer focus and restores the invoking control', async ({
@@ -185,6 +195,12 @@ test('shows a visible seeded workspace after adding a key', async ({
   const connectedInput = page.getByPlaceholder(
     'Tell Maelstrom what you want to arrange...',
   );
+  const voiceOrb = page.getByRole('button', { name: 'Start voice' });
+  const orbBounds = await voiceOrb.boundingBox();
+  expect(orbBounds?.width).toBeGreaterThanOrEqual(44);
+  expect(orbBounds?.height).toBeGreaterThanOrEqual(44);
+  const composerBounds = await page.locator('.connected-input').boundingBox();
+  expect(composerBounds?.height).toBeLessThanOrEqual(160);
   const inputBounds = await connectedInput.boundingBox();
   const viewport = page.viewportSize();
   expect(

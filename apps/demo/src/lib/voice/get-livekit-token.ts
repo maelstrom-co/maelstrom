@@ -12,7 +12,7 @@ import { createServerFn } from '@tanstack/react-start';
  * adapter wraps as a `TOKEN_MINT_FAILED` voice error.
  */
 export const getLivekitToken = createServerFn({ method: 'GET' })
-  .inputValidator((data: unknown) => data)
+  .validator((data: unknown) => data)
   .handler(async ({ data }) => {
     const result = await mintLiveKitToken(data);
     if (isErr(result)) {

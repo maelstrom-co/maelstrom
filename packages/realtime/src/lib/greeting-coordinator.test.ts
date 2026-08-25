@@ -6,7 +6,10 @@ import {
   SessionId as brandSessionId,
 } from '@maelstrom-co/protocol';
 
-import { GreetingCoordinator } from './greeting-coordinator.js';
+import {
+  GreetingCoordinator,
+  type GreetingRunDisposition,
+} from './greeting-coordinator.js';
 import type {
   GreetingSpeechResult,
   RealtimeGreetingAdapter,
@@ -101,6 +104,7 @@ interface FakeAdapter {
     id: MessageId;
     text: string;
     signal: AbortSignal;
+    onPlaybackStart?: () => void;
   }>;
   setSpeak(
     result: GreetingSpeechResult | (() => Promise<GreetingSpeechResult>),
@@ -112,6 +116,7 @@ function makeFakeAdapter(): FakeAdapter {
     id: MessageId;
     text: string;
     signal: AbortSignal;
+    onPlaybackStart?: () => void;
   }> = [];
   let activateCalls = 0;
   let speakResult:
@@ -130,8 +135,10 @@ function makeFakeAdapter(): FakeAdapter {
     },
     async speakAssistantText(args) {
       speakCalls.push(args);
-      if (typeof speakResult === 'function') return speakResult();
-      return speakResult;
+      const result =
+        typeof speakResult === 'function' ? await speakResult() : speakResult;
+      if (result === 'accepted') args.onPlaybackStart?.();
+      return result;
     },
   };
 
@@ -165,7 +172,7 @@ describe('GreetingCoordinator', () => {
     expect(coordinator.greetingIdFor(a)).not.toBe(coordinator.greetingIdFor(b));
   });
 
-  it('orders persist before caption before speech', async () => {
+  it('publishes the caption only after persisted speech starts', async () => {
     const coordinator = new GreetingCoordinator();
     const fake = makeFakeInstance();
     const adapter = makeFakeAdapter();
@@ -199,7 +206,7 @@ describe('GreetingCoordinator', () => {
     release();
     await run;
 
-    expect(order).toEqual(['ack', 'caption:Hello', 'speak']);
+    expect(order).toEqual(['ack', 'speak', 'caption:Hello']);
   });
 
   it('is a no-op after a full success for the same session', async () => {
@@ -224,7 +231,7 @@ describe('GreetingCoordinator', () => {
     expect(adapter.speakCalls).toHaveLength(1);
   });
 
-  it('retries speech only after not_started without re-publishing the caption', async () => {
+  it('retries speech after not_started and publishes only the accepted playback caption', async () => {
     const coordinator = new GreetingCoordinator();
     const fake = makeFakeInstance();
     const adapter = makeFakeAdapter();
@@ -241,7 +248,7 @@ describe('GreetingCoordinator', () => {
     };
 
     await coordinator.run(ctx);
-    expect(captions).toEqual(['Hello']);
+    expect(captions).toEqual([]);
     expect(adapter.speakCalls).toHaveLength(1);
 
     adapter.setSpeak('accepted');
@@ -605,13 +612,14 @@ describe('GreetingCoordinator', () => {
     expect(adapter.speakCalls).toEqual([]);
   });
 
-  it('does not invoke speak after a synchronous mid-caption session adoption', async () => {
+  it('stops a stale continuation after a playback-start caption adopts a new session', async () => {
     const coordinator = new GreetingCoordinator();
     const fakeA = makeFakeInstance();
     const fakeB = makeFakeInstance();
     const adapterA = makeFakeAdapter();
     const adapterB = makeFakeAdapter();
     const captions: string[] = [];
+    let runB: Promise<GreetingRunDisposition> | undefined;
 
     await coordinator.run({
       sessionId: session('a'),
@@ -621,8 +629,8 @@ describe('GreetingCoordinator', () => {
       signal: new AbortController().signal,
       emitTranscript: (t) => {
         captions.push(t);
-        // Re-enter synchronously during the caption emit: adopt session B.
-        void coordinator.run({
+        // Re-enter synchronously during A's playback-start caption: adopt B.
+        runB = coordinator.run({
           sessionId: session('b'),
           text: 'Hi B',
           instance: fakeB.instance,
@@ -636,9 +644,11 @@ describe('GreetingCoordinator', () => {
     // Drain the re-entrant B run started from the caption handler.
     await flushTasks();
     await flushTasks();
+    await runB;
 
-    // Abandoned A never spoke; B spoke exactly once with B's greeting id.
-    expect(adapterA.speakCalls).toEqual([]);
+    // A had already started presentation when its caption adopted B. B then
+    // presents exactly once with its own greeting id.
+    expect(adapterA.speakCalls).toHaveLength(1);
     expect(adapterB.speakCalls).toHaveLength(1);
     expect(adapterB.speakCalls[0]?.id).toBe(brandMessageId('greeting:b'));
     expect(adapterB.speakCalls[0]?.text).toBe('Hi B');
@@ -796,12 +806,13 @@ describe('GreetingCoordinator', () => {
     releaseSpeak();
     await Promise.all([first, second]);
     expect(adapter.speakCalls).toHaveLength(1);
-    expect(captions).toEqual(['Hello']);
+    expect(captions).toEqual([]);
 
     // Later generation may retry not_started.
     adapter.setSpeak('accepted');
     await coordinator.run(ctx);
     expect(adapter.speakCalls).toHaveLength(2);
+    expect(captions).toEqual(['Hello']);
   });
 
   it('leaves speech retriable when the adapter throws before a verdict', async () => {
@@ -824,11 +835,12 @@ describe('GreetingCoordinator', () => {
 
     await coordinator.run(ctx);
     expect(adapter.speakCalls).toHaveLength(1);
-    expect(captions).toEqual(['Hello']);
+    expect(captions).toEqual([]);
 
     adapter.setSpeak('accepted');
     await coordinator.run(ctx);
     expect(adapter.speakCalls).toHaveLength(2);
+    expect(captions).toEqual(['Hello']);
   });
 
   it('ignores a stale session-A speech completion after session B adopts', async () => {
@@ -879,7 +891,7 @@ describe('GreetingCoordinator', () => {
     speakReleases[0]!();
     await Promise.all([runA, runB]);
 
-    expect(captions).toEqual(['Hi A', 'Hi B']);
+    expect(captions).toEqual([]);
 
     // B stays not_started (retriable); stale A must not mark B accepted.
     adapter.setSpeak('accepted');
@@ -893,8 +905,7 @@ describe('GreetingCoordinator', () => {
     });
     expect(adapter.speakCalls).toHaveLength(3);
     expect(adapter.speakCalls[2]?.id).toBe(brandMessageId('greeting:b'));
-    // Caption remains once for B.
-    expect(captions.filter((c) => c === 'Hi B')).toHaveLength(1);
+    expect(captions).toEqual(['Hi B']);
   });
 
   it('records Skip synchronously and prevents side effects across every pre-speech race', async () => {

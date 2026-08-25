@@ -153,15 +153,6 @@ export class GreetingCoordinator {
       if (context.signal.aborted) return 'aborted';
       if (persistAfterAttempt !== 'inserted') return 'failed';
 
-      if (this.#caption === 'unpublished') {
-        // Mark published before emit so a re-entrant generation cannot double-fire.
-        this.#caption = 'published';
-        context.emitTranscript(context.text);
-      }
-
-      // Caption handlers can synchronously adopt a different session or Skip.
-      if (!this.#isCurrentSession(runSessionId)) return 'stale';
-      if (this.#skipped) return 'skipped';
       if (this.#speech === 'accepted') return 'already_terminal';
       if (context.signal.aborted) return 'aborted';
 
@@ -233,12 +224,20 @@ export class GreetingCoordinator {
     // newer #speechInFlight (cross-session race).
     const attemptSessionId = runSessionId;
 
-    this.#speechInFlight = (async () => {
+    const attempt = Promise.resolve().then(async () => {
       try {
         const result = await context.adapter.speakAssistantText({
           id: greetingId,
           text: context.text,
           signal: context.signal,
+          onPlaybackStart: () => {
+            if (!this.#isCurrentSession(attemptSessionId) || this.#skipped)
+              return;
+            if (this.#caption === 'published') return;
+            // Mark before emit so re-entrant playback signals cannot double-fire.
+            this.#caption = 'published';
+            context.emitTranscript(context.text);
+          },
         });
         if (!this.#isCurrentSession(attemptSessionId)) return 'stale';
         if (this.#skipped) return 'skipped';
@@ -261,15 +260,17 @@ export class GreetingCoordinator {
         // Do not write #speech; a later generation may retry.
         return 'failed';
       }
-    })().finally(() => {
+    });
+    const trackedAttempt = attempt.finally(() => {
       // Only the owning generation may clear the pointer; otherwise a stale
       // finally would drop a newer session's in-flight promise.
       if (this.#isCurrentSession(attemptSessionId)) {
         this.#speechInFlight = undefined;
       }
     });
+    this.#speechInFlight = trackedAttempt;
 
-    return this.#speechInFlight;
+    return trackedAttempt;
   }
 
   async #persistGreeting(context: GreetingRunContext): Promise<void> {

@@ -48,8 +48,8 @@ interface VoiceControlProps {
  * exposes `turnControl`. An active manual turn is ended before a mode change or
  * disconnect hides the control. Automatic-mode degradation shows generic
  * recovery guidance based only on diagnostic presence; the diagnostic itself
- * is never rendered or serialized. A configured greeting shows indeterminate
- * preparation until it settles, while idle, error, and active-turn labels keep
+ * is never rendered or serialized. A configured greeting shows preparation
+ * status until it settles, while idle, error, and active-turn labels keep
  * precedence over the preparation label.
  */
 export function VoiceControl({ showOrb = true }: VoiceControlProps = {}) {
@@ -68,8 +68,12 @@ export function VoiceControl({ showOrb = true }: VoiceControlProps = {}) {
   let statusLabel = STATE_LABEL[state];
   if (state === 'error') {
     statusLabel = getVoiceErrorStatusLabel(error);
-  } else if (isPreparing && !ACTIVE_STATES.has(state)) {
-    statusLabel = 'Preparing voice…';
+  } else if (
+    isPreparing &&
+    state !== 'connecting' &&
+    !ACTIVE_STATES.has(state)
+  ) {
+    statusLabel = 'Preparing greeting…';
   } else if (
     (greetingState === 'settled' || greetingState === 'skipped') &&
     state === 'connected'
@@ -135,15 +139,6 @@ export function VoiceControl({ showOrb = true }: VoiceControlProps = {}) {
         role="status"
       >
         <span className="min-w-0 truncate">{statusLabel}</span>
-        {isPreparing && (
-          <span
-            aria-label="Voice preparation progress"
-            className="h-1 w-16 max-w-[20vw] shrink-0 overflow-hidden rounded-full bg-ink-2/20"
-            role="progressbar"
-          >
-            <span className="block h-full w-1/2 animate-pulse rounded-full bg-accent motion-reduce:animate-none" />
-          </span>
-        )}
       </div>
       {isPreparing && (
         <button

@@ -19,6 +19,7 @@ import { GreetingCoordinator } from '../greeting-coordinator.js';
 import { RealtimeVoiceError } from '../realtime-voice-error.js';
 import type {
   AdapterAudioStreams,
+  AdapterConnectOptions,
   AdapterTurnControl,
   GreetingSpeechResult,
   RealtimeAdapterEvent,
@@ -47,6 +48,7 @@ interface MockAdapter extends RealtimeProviderAdapter {
   readonly toolResults: Array<{ callId: string; output: unknown }>;
   readonly groundingCalls: string[];
   readonly connectCalls: number;
+  readonly connectOptions: readonly AdapterConnectOptions[];
   readonly disconnectCalls: number;
   /** Tools passed to the most recent `connect()` call. */
   readonly lastConnectTools: readonly RealtimeToolSpec[] | undefined;
@@ -81,6 +83,7 @@ function makeMockAdapter(): MockAdapter {
   const toolResults: Array<{ callId: string; output: unknown }> = [];
   const groundingCalls: string[] = [];
   const handlers = new Set<(event: RealtimeAdapterEvent) => void>();
+  const connectOptions: AdapterConnectOptions[] = [];
   let connectCalls = 0;
   let disconnectCalls = 0;
   let lastConnectTools: readonly RealtimeToolSpec[] | undefined;
@@ -96,6 +99,7 @@ function makeMockAdapter(): MockAdapter {
   return {
     toolResults,
     groundingCalls,
+    connectOptions,
     lastAudioStreams,
     getAudioStreams: () => lastAudioStreams,
     get connectCalls() {
@@ -135,6 +139,7 @@ function makeMockAdapter(): MockAdapter {
     },
     connect: async (opts) => {
       connectCalls += 1;
+      connectOptions.push(opts);
       lastConnectTools = opts.tools;
       if (gate) {
         await gate;
@@ -331,6 +336,7 @@ interface MockGreetingAdapter extends MockAdapter, RealtimeGreetingAdapter {
     id: MessageId;
     text: string;
     signal: AbortSignal;
+    onPlaybackStart?: () => void;
   }>;
   setSpeakResult(
     result: GreetingSpeechResult | (() => Promise<GreetingSpeechResult>),
@@ -345,6 +351,7 @@ function makeGreetingAdapter(): MockGreetingAdapter {
     id: MessageId;
     text: string;
     signal: AbortSignal;
+    onPlaybackStart?: () => void;
   }> = [];
   let activateAudioCalls = 0;
   let speakResult:
@@ -365,8 +372,10 @@ function makeGreetingAdapter(): MockGreetingAdapter {
   };
   greeting.speakAssistantText = async (args) => {
     speakCalls.push(args);
-    if (typeof speakResult === 'function') return speakResult();
-    return speakResult;
+    const result =
+      typeof speakResult === 'function' ? await speakResult() : speakResult;
+    if (result === 'accepted') args.onPlaybackStart?.();
+    return result;
   };
   greeting.setSpeakResult = (result) => {
     speakResult = result;
@@ -505,6 +514,42 @@ describe('RealtimeSession — tool registration', () => {
 // ============================================================================
 
 describe('RealtimeSession — update_ui speak-after-render', () => {
+  it('rejects malformed arguments without logging their contents', async () => {
+    const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const adapter = makeMockAdapter();
+      const session = new RealtimeSession({
+        adapter,
+        instance: makeMockInstance(emptySnapshot),
+        sessionId: testSessionId,
+      });
+      await session.connect();
+      const sensitiveArguments = '{"intent":"private unfinished request';
+
+      adapter.emitToolCall({
+        callId: 'malformed-call',
+        name: 'update_ui',
+        argumentsJson: sensitiveArguments,
+      });
+      await flushMicrotasks();
+
+      expect(adapter.toolResults).toContainEqual({
+        callId: 'malformed-call',
+        output: {
+          ok: false,
+          summary: 'Could not understand that request.',
+        },
+      });
+      expect(
+        warnSpy.mock.calls
+          .flat()
+          .some((argument) => String(argument).includes(sensitiveArguments)),
+      ).toBe(false);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
   it('withholds the update_ui tool-result until the render settles', async () => {
     const { session, adapter, instance } = makeHarness();
     await session.connect();
@@ -2194,6 +2239,57 @@ describe('RealtimeSession — greeting activation and validation', () => {
     expect(adapter.speakCalls[0]?.id).toBe(
       coordinator.greetingIdFor(testSessionId),
     );
+  });
+
+  it('skips greeting-only adapter preparation after a completed greeting reconnects', async () => {
+    const adapter = makeGreetingAdapter();
+    const coordinator = new GreetingCoordinator();
+    const session = new RealtimeSession({
+      adapter,
+      instance: makeMockInstance(emptySnapshot),
+      sessionId: testSessionId,
+      greeting: { text: 'Welcome back.', coordinator },
+    });
+
+    await session.connect();
+    await flushMicrotasks();
+    expect(adapter.connectOptions[0]?.prepareGreeting).toBe(true);
+    expect(coordinator.getSnapshot(testSessionId).lifecycle).toBe('terminal');
+
+    await session.disconnect();
+    await session.connect();
+
+    expect(adapter.connectOptions[1]?.prepareGreeting).toBe(false);
+  });
+
+  it('keeps greeting playback alive when transcript observers throw', async () => {
+    const adapter = makeGreetingAdapter();
+    const instance = makeMockInstance(emptySnapshot);
+    const coordinator = new GreetingCoordinator();
+    const seen: string[] = [];
+    const session = new RealtimeSession({
+      adapter,
+      instance,
+      sessionId: testSessionId,
+      onEvent: () => {
+        throw new Error('sidechannel observer failed');
+      },
+      greeting: { text: 'Welcome back.', coordinator },
+    });
+    session.on('transcript', () => {
+      throw new Error('transcript observer failed');
+    });
+    session.on('transcript', (entry) => seen.push(entry.text));
+
+    await session.connect();
+    await flushMicrotasks();
+
+    expect(seen).toEqual(['Welcome back.']);
+    expect(adapter.speakCalls).toHaveLength(1);
+    expect(coordinator.getSnapshot(testSessionId)).toEqual({
+      lifecycle: 'terminal',
+      reason: 'presented',
+    });
   });
 
   it('rejects greeting config against a plain adapter before any provider connect', async () => {

@@ -1,6 +1,13 @@
 import { StartClient } from '@tanstack/react-start/client';
 import { StrictMode, startTransition } from 'react';
 import { createRoot, hydrateRoot } from 'react-dom/client';
+import { installStaleAssetRecovery } from './lib/stale-asset-recovery';
+
+installStaleAssetRecovery(window, {
+  storage: window.sessionStorage,
+  entryUrl: import.meta.url,
+  reload: () => window.location.reload(),
+});
 
 const client = (
   <StrictMode>

@@ -356,6 +356,7 @@ export class RealtimeSession implements VoiceSession {
       await this.#adapter.connect({
         tools: [UPDATE_UI_TOOL, GET_UI_STATE_TOOL, GET_CAPABILITIES_TOOL],
         instructions: DEFAULT_INSTRUCTIONS,
+        prepareGreeting: this.#greetingState === 'preparing',
       });
     } catch (error) {
       // A disconnect() that raced this attempt already reset state/cleanup —
@@ -539,15 +540,25 @@ export class RealtimeSession implements VoiceSession {
 
   #emitGreetingTranscript(text: string): void {
     const entry: TranscriptEntry = { role: 'assistant', text, final: true };
-    for (const handler of this.#transcriptHandlers) handler(entry);
-    this.#emit({
-      type: 'transcript',
-      sessionId: this.#sessionId,
-      at: Date.now(),
-      role: 'assistant',
-      text,
-      final: true,
-    });
+    for (const handler of this.#transcriptHandlers) {
+      try {
+        handler(entry);
+      } catch {
+        this.#logger.warn('greeting transcript handler failed');
+      }
+    }
+    try {
+      this.#emit({
+        type: 'transcript',
+        sessionId: this.#sessionId,
+        at: Date.now(),
+        role: 'assistant',
+        text,
+        final: true,
+      });
+    } catch {
+      this.#logger.warn('greeting transcript event handler failed');
+    }
   }
 
   on(event: 'state', handler: (s: VoiceSessionState) => void): Unsubscribe;
@@ -746,7 +757,7 @@ export class RealtimeSession implements VoiceSession {
       }
       intent = value;
     } catch (error) {
-      this.#logger.warn('update_ui: bad arguments', argumentsJson, error);
+      this.#logger.warn('update_ui: bad arguments', error);
       await this.#sendUpdateUIResult(callId, {
         ok: false,
         summary: 'Could not understand that request.',

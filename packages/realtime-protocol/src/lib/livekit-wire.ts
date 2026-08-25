@@ -23,7 +23,8 @@ export const TURN_TOPIC = 'turn';
 
 /**
  * Data topic the worker uses to report TTS status back to the client: a
- * `tts_done` when playout of a summary finishes (so the client can collapse
+ * `tts_started` after the first frame enters the worker's playout queue, `tts_done` when
+ * playout of a summary finishes (so the client can collapse
  * `speaking`→`connected` on actual audio end, not on text hand-off), or a
  * `tts_error` when synthesis fails.
  */
@@ -71,6 +72,18 @@ export interface TtsErrorMessage {
    * handling.
    */
   utteranceId?: number;
+}
+
+/**
+ * Sent worker → browser adapter after the first synthesized frame enters the
+ * LiveKit AudioSource queue. This is the nearest provider boundary available;
+ * it does not prove that the browser has rendered the frame audibly.
+ */
+export interface TtsStartedMessage {
+  /** Identifies this status as the first-frame start boundary. */
+  readonly type: 'tts_started';
+  /** The utterance this status refers to. Required so stale starts are rejected. */
+  readonly utteranceId: number;
 }
 
 /** Sent worker → browser adapter on the `TTS_TOPIC` when TTS playout finishes. */

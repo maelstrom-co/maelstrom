@@ -35,6 +35,7 @@ import {
   isRecord,
   parseOpenAIServerEvent,
 } from './parse-openai-event.js';
+import { WebRtcPlayoutDiagnostics } from './playout-diagnostics.js';
 import { ResponseArbiter } from './response-arbiter.js';
 import {
   createUnexpectedEventTracker,
@@ -186,6 +187,7 @@ export class OpenAIAdapter
   readonly #greetingInterruption: ResolvedBrowserVadConfig;
   readonly #greetingGate: MicrophonePublicationGate;
   readonly #greetingPresentation: GreetingPresentation;
+  readonly #playoutDiagnostics: WebRtcPlayoutDiagnostics | undefined;
   readonly #handlers = new Set<(event: RealtimeAdapterEvent) => void>();
 
   #pc: RTCPeerConnection | undefined;
@@ -241,6 +243,11 @@ export class OpenAIAdapter
     this.#voice = options.voice ?? DEFAULT_OUTPUT_VOICE;
     this.#synthesizeGreeting = options.synthesizeGreeting;
     this.#logger = new Logger(options.debug ?? false, 'OpenAIAdapter');
+    this.#playoutDiagnostics = this.#logger.isEnabled
+      ? new WebRtcPlayoutDiagnostics((diagnostic) =>
+          this.#logger.debug('audio playout', diagnostic),
+        )
+      : undefined;
     this.#greetingGate = new MicrophonePublicationGate(
       () => this.#connectionGeneration,
     );
@@ -335,7 +342,9 @@ export class OpenAIAdapter
         });
       }
       preparedMicrophone =
-        await this.#greetingPresentation.prepareMicrophone(micStream);
+        opts.prepareGreeting === false
+          ? undefined
+          : await this.#greetingPresentation.prepareMicrophone(micStream);
       attempt.assertCurrent();
       let publicationSender: RTCRtpSender | undefined;
       for (const track of micStream.getTracks()) {
@@ -508,6 +517,7 @@ export class OpenAIAdapter
     readonly id: MessageId;
     readonly text: string;
     readonly signal: AbortSignal;
+    readonly onPlaybackStart?: () => void;
   }): Promise<GreetingSpeechResult> {
     return this.#greetingPresentation.speak(args);
   }
@@ -867,6 +877,7 @@ export class OpenAIAdapter
     this.#connecting = false;
     this.#voiceActivity = 'connected';
     this.#unexpectedEvents = createUnexpectedEventTracker();
+    this.#playoutDiagnostics?.clear();
     this.#startConnectionGeneration();
   }
 
@@ -960,10 +971,16 @@ export class OpenAIAdapter
       );
     } else if (type === 'output_audio_buffer.started') {
       this.#arbiter?.outputStarted();
+      if (this.#pc)
+        this.#playoutDiagnostics?.start(this.#pc, this.#connectionGeneration);
     } else if (type === 'output_audio_buffer.stopped') {
       this.#arbiter?.outputStopped();
+      if (this.#pc)
+        this.#playoutDiagnostics?.finish(this.#pc, this.#connectionGeneration);
     } else if (type === 'output_audio_buffer.cleared') {
       this.#arbiter?.outputCleared();
+      if (this.#pc)
+        this.#playoutDiagnostics?.finish(this.#pc, this.#connectionGeneration);
     }
 
     if (type !== undefined) {

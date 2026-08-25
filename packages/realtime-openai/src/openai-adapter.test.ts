@@ -3262,10 +3262,11 @@ describe('OpenAIAdapter — greeting speakAssistantText', () => {
         id: engineGreetingId,
         text: greetingText,
         signal: new AbortController().signal,
+        onPlaybackStart: () => order.push('playback'),
       }),
     );
 
-    expect(order).toEqual(['send', 'tts']);
+    expect(order).toEqual(['send', 'tts', 'playback']);
     const frames = channel.sent.map(
       (s) => JSON.parse(s) as { type: string; item?: unknown },
     );
@@ -4884,6 +4885,53 @@ describe('OpenAIAdapter — greeting speakAssistantText', () => {
     }
   });
 
+  it('publishes the raw microphone when reconnect has no pending greeting', async () => {
+    const raw = new FakeTrack('audio', true);
+    const generated = new FakeTrack('audio', true);
+    getUserMediaImpl = async () => new FakeMediaStream([raw]);
+    let bridgeCreates = 0;
+    const restoreRuntime = setGreetingInterruptionRuntimeImporterForTests(
+      async () =>
+        ({
+          createLocalAudioPreRoll: async () => {
+            bridgeCreates += 1;
+            return {
+              track: generated as unknown as MediaStreamTrack,
+              startAutomaticTurn: async () => {},
+              startManualTurn: async () => {},
+              clear: async () => {},
+              endTurn: async () => {},
+              destroy: async () => {},
+            };
+          },
+          createBrowserVad: async () => ({ destroy: async () => {} }),
+        }) as never,
+    );
+    const adapter = new OpenAIAdapter({
+      mintToken: async () => fakeToken,
+      greetingInterruption: true,
+      synthesizeGreeting: async () => new ArrayBuffer(8),
+    });
+
+    try {
+      const previousChannel =
+        FakeRTCPeerConnection.instances.at(-1)?.dataChannel;
+      const connecting = adapter.connect({
+        ...connectOpts,
+        prepareGreeting: false,
+      });
+      const channel = await latestDataChannel(previousChannel);
+      channel.triggerOpen();
+      await connecting;
+
+      const connection = FakeRTCPeerConnection.instances.at(-1)!;
+      expect(connection.getSenders()[0]?.track).toBe(raw);
+      expect(bridgeCreates).toBe(0);
+    } finally {
+      restoreRuntime();
+    }
+  });
+
   it('Skip versus local acceptance produces exactly one terminal publication', async () => {
     const raw = new FakeTrack('audio', true);
     const generated = new FakeTrack('audio', true);
@@ -5191,7 +5239,7 @@ describe('GreetingCoordinator × OpenAIAdapter — cross-layer ordering', () => 
     GreetingFakeAudioContext.instances = [];
   });
 
-  it('orders Engine ack → caption → exact provider item → TTS without provider ack or response.create', async () => {
+  it('orders Engine ack → exact provider item → TTS → playback caption without provider ack or response.create', async () => {
     const order: string[] = [];
     const adapter = new OpenAIAdapter({
       mintToken: async () => fakeToken,
@@ -5281,7 +5329,7 @@ describe('GreetingCoordinator × OpenAIAdapter — cross-layer ordering', () => 
     }
     await run;
 
-    expect(order).toEqual(['engine-ack', 'caption', 'provider-item', 'tts']);
+    expect(order).toEqual(['engine-ack', 'provider-item', 'tts', 'caption']);
 
     const frames = channel.sent.map(
       (s) => JSON.parse(s) as { type: string; item?: unknown },

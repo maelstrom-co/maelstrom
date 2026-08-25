@@ -44,12 +44,14 @@ function makeEnv() {
   const idFromName = vi.fn((name: string) => `id:${name}`);
   const get = vi.fn(() => stub);
   const rateLimit = vi.fn(async () => ({ success: true }));
+  const assetsFetch = vi.fn(async () => new Response('assets'));
   return {
     env: {
       SESSION_DO: { idFromName, get },
-      ASSETS: { fetch: async () => new Response('assets') },
+      ASSETS: { fetch: assetsFetch },
       WS_RATE_LIMITER: { limit: rateLimit },
     } as unknown as Parameters<typeof worker.fetch>[1],
+    assetsFetch,
     idFromName,
     get,
     rateLimit,
@@ -81,13 +83,14 @@ describe('worker /ws upgrade guard', () => {
     expect(get).not.toHaveBeenCalled();
   });
 
-  it('does not apply the upgrade guard to non-/ws paths', async () => {
-    const { env, get } = makeEnv();
+  it('rejects direct non-/ws invocations instead of claiming to serve static assets', async () => {
+    const { env, assetsFetch, get } = makeEnv();
     const request = new Request('https://example.com/some-asset.js');
 
     const response = await worker.fetch(request, env);
 
-    expect(await response.text()).toBe('assets');
+    expect(response.status).toBe(404);
+    expect(assetsFetch).not.toHaveBeenCalled();
     expect(get).not.toHaveBeenCalled();
   });
 });

@@ -244,9 +244,9 @@ describe('VoiceControl greeting Skip action', () => {
 
 describe('VoiceControl hold-to-talk button', () => {
   it.each([
-    'connecting',
-    'connected',
-  ] as const)('shows preparation while the voice is %s', (state) => {
+    ['connecting', 'Connecting…'],
+    ['connected', 'Preparing greeting…'],
+  ] as const)('shows preparation while the voice is %s', (state, label) => {
     voiceResult = makeVoiceResult(
       state,
       undefined,
@@ -254,18 +254,11 @@ describe('VoiceControl hold-to-talk button', () => {
       undefined,
       'preparing',
     );
-    const { getAllByRole, getByRole } = render(<VoiceControl />);
+    const { getAllByRole, getByRole, queryByRole } = render(<VoiceControl />);
 
     expect(getAllByRole('status')).toHaveLength(1);
-    expect(getByRole('status').textContent).toContain('Preparing voice…');
-    const progress = getByRole('progressbar');
-    expect(progress.getAttribute('aria-label')).toBeTruthy();
-    expect(progress.hasAttribute('aria-valuenow')).toBe(false);
-    expect(progress.hasAttribute('aria-valuemin')).toBe(false);
-    expect(progress.hasAttribute('aria-valuemax')).toBe(false);
-    expect(progress.firstElementChild?.className).toContain(
-      'motion-reduce:animate-none',
-    );
+    expect(getByRole('status').textContent).toContain(label);
+    expect(queryByRole('progressbar')).toBeNull();
   });
 
   it.each([
@@ -280,11 +273,11 @@ describe('VoiceControl hold-to-talk button', () => {
       undefined,
       'preparing',
     );
-    const { getAllByRole, getByRole } = render(<VoiceControl />);
+    const { getAllByRole, getByRole, queryByRole } = render(<VoiceControl />);
 
     expect(getAllByRole('status')).toHaveLength(1);
     expect(getByRole('status').textContent).toContain(label);
-    expect(getByRole('progressbar')).toBeDefined();
+    expect(queryByRole('progressbar')).toBeNull();
   });
 
   it('keeps fatal and disconnected presentation ahead of greeting preparation', () => {
@@ -300,7 +293,7 @@ describe('VoiceControl hold-to-talk button', () => {
       expect(container.textContent).toContain(
         state === 'error' ? 'Voice error' : 'Voice off',
       );
-      expect(container.textContent).not.toContain('Preparing voice…');
+      expect(container.textContent).not.toContain('Preparing greeting…');
       unmount();
     }
   });
@@ -334,11 +327,13 @@ describe('VoiceControl hold-to-talk button', () => {
       new Error('VAD unavailable'),
       'preparing',
     );
-    const { getAllByRole, getByRole, container } = render(<VoiceControl />);
+    const { getAllByRole, getByRole, queryByRole, container } = render(
+      <VoiceControl />,
+    );
 
     expect(getAllByRole('status')).toHaveLength(1);
-    expect(getByRole('status').textContent).toContain('Preparing voice…');
-    expect(getByRole('progressbar')).toBeDefined();
+    expect(getByRole('status').textContent).toContain('Preparing greeting…');
+    expect(queryByRole('progressbar')).toBeNull();
     expect(getHoldButton(container)).toBeDefined();
     expect(container.textContent).toContain(
       'Automatic voice detection unavailable; hold to talk.',
