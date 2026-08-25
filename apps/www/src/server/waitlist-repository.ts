@@ -1,3 +1,6 @@
+import * as D1Client from '@effect/sql-d1/D1Client';
+import { waitlistRelations } from '@maelstrom-co/platform-infra/waitlist-schema';
+import * as DrizzleD1 from 'drizzle-orm/effect-d1';
 import { Context, Data, Effect, Layer } from 'effect';
 import {
   type ClaimDeliveryAttempt,
@@ -132,17 +135,18 @@ export class WaitlistRepository extends Context.Service<
   WaitlistRepositoryService
 >()('@maelstrom/www/WaitlistRepository') {
   /**
-   * Builds the repository over one D1 binding. The store owns all SQL; this
-   * seam adds typed failures so workflows can branch on conflict versus
-   * outage without knowing either SQL or D1 error shapes.
+   * Keeps the scoped D1 client and prepared-statement cache live until the
+   * consuming Effect completes, then finalizes both.
    */
   static readonly layer = (
     database: D1Database,
   ): Layer.Layer<WaitlistRepository> =>
-    Layer.succeed(
+    Layer.effect(
       WaitlistRepository,
-      makeRepository(new WaitlistDeliveryStore(database)),
-    );
+      DrizzleD1.makeWithDefaults({ relations: waitlistRelations }).pipe(
+        Effect.as(makeRepository(new WaitlistDeliveryStore(database))),
+      ),
+    ).pipe(Layer.provide(D1Client.layer({ db: database }).pipe(Layer.orDie)));
 }
 
 /** Builds the service over a store; tests supply recording doubles. */

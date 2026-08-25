@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'bun:test';
-import { Effect } from 'effect';
+import { Effect, Layer } from 'effect';
 import { isWaitlistToken } from '../lib/waitlist-token';
 import { ConfirmWorkflow } from './confirm-workflow';
 import type { AccessReceipt } from './waitlist-repository';
-import { makeRepository } from './waitlist-repository';
+import { makeRepository, WaitlistRepository } from './waitlist-repository';
 
 const FIXED_NOW_ISO = '2026-08-23T12:00:00.000Z';
 const LIVE_TOKEN = `v1.${'a'.repeat(43)}`;
@@ -56,10 +56,13 @@ const harness = (options?: {
   };
 
   const layer = ConfirmWorkflow.layer({
-    repository: makeRepository(store as never),
     emailService: emailService as never,
     nowIso: () => FIXED_NOW_ISO,
-  });
+  }).pipe(
+    Layer.provide(
+      Layer.succeed(WaitlistRepository, makeRepository(store as never)),
+    ),
+  );
 
   return { events, lastConfirm, layer };
 };
@@ -135,9 +138,12 @@ describe('confirm workflow', () => {
         hasValidAccessReceipt: async () => false,
       };
       const layer = ConfirmWorkflow.layer({
-        repository: makeRepository(store as never),
         nowIso: () => FIXED_NOW_ISO,
-      });
+      }).pipe(
+        Layer.provide(
+          Layer.succeed(WaitlistRepository, makeRepository(store as never)),
+        ),
+      );
       const outcome = await Effect.runPromiseExit(
         Effect.gen(function* () {
           const workflow = yield* ConfirmWorkflow;

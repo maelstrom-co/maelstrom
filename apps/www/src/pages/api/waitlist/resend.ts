@@ -2,9 +2,8 @@ export const prerender = false;
 
 import { env } from 'cloudflare:workers';
 import type { APIRoute } from 'astro';
-import { Effect } from 'effect';
+import { Effect, Layer } from 'effect';
 import * as FetchHttpClient from 'effect/unstable/http/FetchHttpClient';
-import { WaitlistDeliveryStore } from '../../../lib/waitlist-delivery-store';
 import { runOrErrorResponse } from '../../../server/run-or-error';
 import {
   decodeSignupRequest,
@@ -14,7 +13,7 @@ import {
   TurnstileVerifier,
   type TurnstileVerifierError,
 } from '../../../server/turnstile-verifier';
-import { makeRepository } from '../../../server/waitlist-repository';
+import { WaitlistRepository } from '../../../server/waitlist-repository';
 import { WaitlistResendWorkflow } from '../../../server/waitlist-resend-workflow';
 import {
   privateResponse,
@@ -71,10 +70,9 @@ export const POST: APIRoute = async ({ request, locals }) => {
   if (verified instanceof Response) return verified;
 
   const workflowLayer = WaitlistResendWorkflow.layer({
-    repository: makeRepository(new WaitlistDeliveryStore(database)),
     emailService,
     nowIso: () => new Date().toISOString(),
-  });
+  }).pipe(Layer.provide(WaitlistRepository.layer(database)));
   const begun = await runOrErrorResponse(
     Effect.gen(function* () {
       const workflow = yield* WaitlistResendWorkflow;

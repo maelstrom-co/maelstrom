@@ -2,12 +2,11 @@ export const prerender = false;
 
 import { env } from 'cloudflare:workers';
 import type { APIRoute, AstroCookies } from 'astro';
-import { Effect } from 'effect';
-import { WaitlistDeliveryStore } from '../../../lib/waitlist-delivery-store';
+import { Effect, Layer } from 'effect';
 import { decodeConfirmRequest } from '../../../server/confirm-request';
 import { ConfirmWorkflow } from '../../../server/confirm-workflow';
 import { runOrErrorResponse } from '../../../server/run-or-error';
-import { makeRepository } from '../../../server/waitlist-repository';
+import { WaitlistRepository } from '../../../server/waitlist-repository';
 import {
   confirmRedirect,
   privateResponse,
@@ -34,10 +33,9 @@ export const POST: APIRoute = async ({ request, cookies, locals }) => {
   }
 
   const workflowLayer = ConfirmWorkflow.layer({
-    repository: makeRepository(new WaitlistDeliveryStore(database)),
     emailService: env.EMAIL,
     nowIso: () => new Date().toISOString(),
-  });
+  }).pipe(Layer.provide(WaitlistRepository.layer(database)));
 
   const begun = await runOrErrorResponse(
     Effect.gen(function* () {

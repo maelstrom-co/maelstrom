@@ -5,9 +5,10 @@ import {
   classifyEmailFailure,
   type EmailDisposition,
 } from './waitlist-email-failure';
-import type {
-  WaitlistRepositoryError,
-  WaitlistRepositoryService,
+import {
+  WaitlistRepository,
+  type WaitlistRepositoryError,
+  type WaitlistRepositoryService,
 } from './waitlist-repository';
 
 const RESEND_COOLDOWN_MS = 10 * 60 * 1000;
@@ -41,21 +42,21 @@ export class WaitlistResendWorkflow extends Context.Service<
   WaitlistResendWorkflow,
   WaitlistResendWorkflowService
 >()('@maelstrom/www/WaitlistResendWorkflow') {
-  /** Builds the claim-and-delivery workflow over server-only dependencies. */
+  /** Context injection keeps the repository's scoped D1 client live for each workflow execution. */
   static readonly layer = (options: {
-    readonly repository: WaitlistRepositoryService;
     readonly emailService: SendEmail;
     readonly nowIso: () => string;
-  }): Layer.Layer<WaitlistResendWorkflow> =>
+  }): Layer.Layer<WaitlistResendWorkflow, never, WaitlistRepository> =>
     Layer.effect(
       WaitlistResendWorkflow,
       Effect.gen(function* () {
+        const repository = yield* WaitlistRepository;
         const begin = Effect.fn('WaitlistResendWorkflow.begin')(function* (
           email: string,
         ) {
           const attemptedAt = options.nowIso();
           const attemptId = crypto.randomUUID();
-          const claimed = yield* options.repository.claimResendAttempt({
+          const claimed = yield* repository.claimResendAttempt({
             id: attemptId,
             email,
             attemptedAt,
@@ -85,7 +86,7 @@ export class WaitlistResendWorkflow extends Context.Service<
 
           if (Result.isFailure(sent)) {
             yield* settleFailure(
-              options.repository,
+              repository,
               delivery.attemptId,
               classifyEmailFailure(sent.failure),
               options.nowIso(),
@@ -94,7 +95,7 @@ export class WaitlistResendWorkflow extends Context.Service<
           }
           if (!sent.success.messageId) {
             yield* settleFailure(
-              options.repository,
+              repository,
               delivery.attemptId,
               { code: 'unclassified', disposition: 'unknown' },
               options.nowIso(),
@@ -102,7 +103,7 @@ export class WaitlistResendWorkflow extends Context.Service<
             return;
           }
 
-          const settled = yield* options.repository
+          const settled = yield* repository
             .markResendAccepted(
               delivery.attemptId,
               sent.success.messageId,

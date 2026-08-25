@@ -17,6 +17,7 @@
     "@astrojs/react": "^6.0.2",
     "@astrojs/sitemap": "^3.7.3",
     "@cloudflare/workers-types": "5.20260722.1",
+    "@effect/sql-d1": "4.0.0-rc.111",
     "@effect/platform-bun": "4.0.0-rc.111",
     "@effect/platform-node": "4.0.0-rc.111",
     "@sinonjs/fake-timers": "^15.1.1",

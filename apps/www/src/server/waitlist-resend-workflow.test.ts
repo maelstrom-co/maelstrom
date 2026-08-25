@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
-import { Effect } from 'effect';
+import { Effect, Layer } from 'effect';
 import type { ClaimResendAttempt } from '../lib/waitlist-delivery-store';
-import { makeRepository } from './waitlist-repository';
+import { makeRepository, WaitlistRepository } from './waitlist-repository';
 import { WaitlistResendWorkflow } from './waitlist-resend-workflow';
 
 const NOW = '2026-08-23T12:00:00.000Z';
@@ -39,10 +39,13 @@ const harness = (options?: {
     },
   };
   const layer = WaitlistResendWorkflow.layer({
-    repository: makeRepository(store as never),
     emailService: emailService as never,
     nowIso: () => NOW,
-  });
+  }).pipe(
+    Layer.provide(
+      Layer.succeed(WaitlistRepository, makeRepository(store as never)),
+    ),
+  );
   return { events, layer };
 };
 
