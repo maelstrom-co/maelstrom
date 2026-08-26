@@ -219,7 +219,7 @@ const brandLayout = (
     ? { type: 'grid', positions: layout.positions.map(brandGridPosition) }
     : {
         type: 'tiling',
-        tree: layout.tree.map(brandTilingNode),
+        tree: brandTilingTree(layout.tree),
         instances: layout.instances.map(brandTilingInstance),
       };
 
@@ -413,8 +413,13 @@ const brandActionExecution = (
   ...(exec.paramsJson !== undefined ? { paramsJson: exec.paramsJson } : {}),
 });
 
-const brandTilingTree = (tree: ReadonlyArray<AuthorTilingNode>): TilingNode[] =>
-  tree.map(brandTilingNode);
+/**
+ * Brands an author-written tree, the one place the split-token-versus-instance
+ * rule is applied to a whole tree.
+ */
+export const brandTilingTree = (
+  tree: ReadonlyArray<AuthorTilingNode>,
+): TilingNode[] => tree.map(brandTilingNode);
 
 /** Brands a complete grid LLM-output author shape into a typed `GridResponse`. */
 export function brandGridResponse(author: GridResponseAuthor): GridResponse {

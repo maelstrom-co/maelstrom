@@ -8,8 +8,8 @@ import type { Ast, PruneTask } from './ast.js';
 
 /**
  * Iterative post-order prune. Avoids recursion entirely so legal-but-deep
- * AST shapes (e.g. an N-deep right spine of splits + leaves) don't risk
- * stack overflow even when token count is large. Orphan instance leaves
+ * AST shapes (e.g. a deep chain of nested splits) don't risk stack overflow
+ * even when token count is large. Orphan instance leaves
  * (referencing IDs not in `validIds`) become `tree_orphan_reference` drops
  * and collapse to nothing; a split drops the weight of every child that
  * pruned to empty, collapses to its single survivor when only one is left,
@@ -22,46 +22,44 @@ export function pruneAst(
 ): TilingNode[] {
   if (ast === null) return [];
 
-  const work: PruneTask[] = [{ op: 'visit', node: ast }];
-  const results: TilingNode[][] = [];
+  const work: PruneTask[] = [
+    { op: 'visit', weight: ROOT_SLOT_WEIGHT, node: ast },
+  ];
+  const results: PrunedSlot[] = [];
 
   while (work.length > 0) {
     // biome-ignore lint/style/noNonNullAssertion: work.length > 0 is the loop condition
     const task = work.pop()!;
     if (task.op === 'combine') {
       // A 'split' pushes combine, then visit(child) for each child in reverse
-      // (LIFO), so children resolve left to right and their results sit on the
-      // stack in that order — one per declared weight, all present here.
-      const children: TilingNode[][] = [];
-      for (let i = 0; i < task.weights.length; i++) {
-        // biome-ignore lint/style/noNonNullAssertion: paired visit results guaranteed pushed before this combine runs
-        children.push(results.pop()!);
+      // (LIFO), so children resolve left to right and their slots sit on the
+      // stack in that order — one per child, all present here. Popping walks
+      // them right to left, so collect and then reverse.
+      const survivors: PrunedSlot[] = [];
+      for (let i = 0; i < task.childCount; i++) {
+        // biome-ignore lint/style/noNonNullAssertion: one visit result per child is on the stack before its combine runs
+        const child = results.pop()!;
+        if (child.tokens.length > 0) survivors.push(child);
       }
-      children.reverse();
-
-      const survivors = task.weights.flatMap((weight, index) => {
-        const tokens = children[index];
-        return tokens === undefined || tokens.length === 0
-          ? []
-          : [{ weight, tokens }];
-      });
+      survivors.reverse();
 
       const [first, second, ...rest] = survivors;
       if (first === undefined) {
-        results.push([]);
+        results.push({ weight: task.weight, tokens: [] });
       } else if (second === undefined) {
-        results.push(first.tokens);
+        results.push({ weight: task.weight, tokens: first.tokens });
       } else {
-        results.push([
-          formatTilingSplitToken(task.axis, [
-            first.weight,
-            second.weight,
-            ...rest.map(({ weight }) => weight),
-          ]),
-          ...first.tokens,
-          ...second.tokens,
-          ...rest.flatMap(({ tokens }) => tokens),
-        ]);
+        results.push({
+          weight: task.weight,
+          tokens: [
+            formatTilingSplitToken(task.axis, [
+              first.weight,
+              second.weight,
+              ...rest.map(({ weight }) => weight),
+            ]),
+            ...survivors.flatMap(({ tokens }) => tokens),
+          ],
+        });
       }
       continue;
     }
@@ -69,18 +67,18 @@ export function pruneAst(
     const node = task.node;
     switch (node.kind) {
       case 'null_leaf':
-        results.push([null]);
+        results.push({ weight: task.weight, tokens: [null] });
         continue;
       case 'leaf':
         if (validIds.has(node.id)) {
-          results.push([node.id]);
+          results.push({ weight: task.weight, tokens: [node.id] });
         } else {
           drops.push({
             reason: 'tree_orphan_reference',
             atTokenIndex: node.tokenIndex,
             instanceId: node.id,
           });
-          results.push([]);
+          results.push({ weight: task.weight, tokens: [] });
         }
         continue;
       case 'split':
@@ -89,11 +87,13 @@ export function pruneAst(
         work.push({
           op: 'combine',
           axis: node.axis,
-          weights: node.children.map(({ weight }) => weight),
+          weight: task.weight,
+          childCount: node.children.length,
         });
         for (let i = node.children.length - 1; i >= 0; i--) {
           // biome-ignore lint/style/noNonNullAssertion: index is bounded by children.length
-          work.push({ op: 'visit', node: node.children[i]!.node });
+          const child = node.children[i]!;
+          work.push({ op: 'visit', weight: child.weight, node: child.node });
         }
         continue;
       default:
@@ -107,5 +107,17 @@ export function pruneAst(
       `pruneAst invariant violation: expected 1 result, got ${results.length}`,
     );
   }
-  return result;
+  return result.tokens;
+}
+
+/** The root has no parent split, so nothing ever reads the weight it carries. */
+const ROOT_SLOT_WEIGHT = 1;
+
+/**
+ * A pruned subtree paired with the weight of the slot it occupies, so the
+ * combine step never has to look a weight up by index.
+ */
+interface PrunedSlot {
+  readonly weight: number;
+  readonly tokens: TilingNode[];
 }

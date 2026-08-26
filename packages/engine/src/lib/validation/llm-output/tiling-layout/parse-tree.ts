@@ -1,5 +1,8 @@
-import type { TilingNode } from '@maelstrom-co/protocol';
-import { isTilingSplit, parseTilingSplitToken } from '@maelstrom-co/protocol';
+import type { TilingNode, TilingSplitToken } from '@maelstrom-co/protocol';
+import {
+  isInstanceIdNode,
+  parseTilingSplitToken,
+} from '@maelstrom-co/protocol';
 
 import type { DroppedLayoutEntry, LayoutWarning } from '../healed-layout.js';
 
@@ -42,15 +45,19 @@ export function parseTree(
     const token = tokens[i];
     if (token === undefined) continue;
 
-    if (isTilingSplit(token)) {
-      const { axis, weights, repaired, discardedChildCount } =
-        parseTilingSplitToken(token);
-      if (repaired) {
+    const split = parseTilingSplitToken(token);
+    if (split !== null) {
+      const { axis, weights, repairReason, discardedChildCount } = split;
+      if (repairReason !== null) {
         warnings.push({
           kind: 'split_weights_repaired',
           atTokenIndex: i,
-          token,
+          // A parse is only returned for a split token, but that fact does not
+          // travel back to the token's own type, and the repair has to name
+          // the token the model actually emitted.
+          token: token as TilingSplitToken,
           weights,
+          repairReason,
         });
       }
       if (discardedChildCount > 0) {
@@ -65,12 +72,9 @@ export function parseTree(
       continue;
     }
 
-    // Explicit null check; the else branch narrows to InstanceId since
-    // isTilingSplit ruled out every split token.
-    let subtree: Ast =
-      token === null
-        ? { kind: 'null_leaf', tokenIndex: i }
-        : { kind: 'leaf', tokenIndex: i, id: token };
+    let subtree: Ast = isInstanceIdNode(token)
+      ? { kind: 'leaf', tokenIndex: i, id: token }
+      : { kind: 'null_leaf', tokenIndex: i };
 
     while (true) {
       const top = stack[stack.length - 1];
@@ -114,21 +118,20 @@ export function parseTree(
       reportedMissingAt.add(frame.tokenIndex);
     }
 
-    // A split reduced to one surviving child is that child; reduced to none,
-    // it is nothing at all.
-    const onlySurvivor = survivors[0];
-    if (onlySurvivor === undefined) {
-      pending = null;
-    } else if (survivors.length === 1) {
-      pending = onlySurvivor.node;
-    } else {
-      pending = {
-        kind: 'split',
-        tokenIndex: frame.tokenIndex,
-        axis: frame.axis,
-        children: survivors,
-      };
-    }
+    // Collapsing a split to its single survivor is the prune pass's rule, so
+    // the frame emits whatever survived and lets that pass apply it. A frame
+    // with nothing left emits nothing rather than an empty split, because an
+    // empty split would fill a slot in the parent frame and mask its own
+    // missing child.
+    pending =
+      survivors.length === 0
+        ? null
+        : {
+            kind: 'split',
+            tokenIndex: frame.tokenIndex,
+            axis: frame.axis,
+            children: survivors,
+          };
   }
 
   if (root === null && pending !== null) root = pending;

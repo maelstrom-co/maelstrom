@@ -50,14 +50,21 @@ export interface StackFrame {
 
 /**
  * Pruner task-queue entry. `visit` schedules an AST node for processing;
- * `combine` consumes one result per declared weight from the value stack and
- * pushes a single combined result. Iterative post-order pruning uses these
- * tasks so deep AST shapes (long right spines) don't risk stack overflow.
+ * `combine` consumes one result per child from the value stack and pushes a
+ * single combined result. Iterative post-order pruning uses these tasks so
+ * deep AST shapes (long chains of single-surviving-child splits) don't risk
+ * stack overflow.
+ *
+ * Both arms carry the `weight` of the slot their result lands in, mirroring
+ * {@link SplitChild}: a weight travels with the subtree it proportions from
+ * the moment the child is scheduled until its parent combines, so no change
+ * to the scheduling order can desync a weight from its child.
  */
 export type PruneTask =
-  | { readonly op: 'visit'; readonly node: Ast }
+  | { readonly op: 'visit'; readonly weight: number; readonly node: Ast }
   | {
       readonly op: 'combine';
       readonly axis: TilingSplit;
-      readonly weights: readonly number[];
+      readonly weight: number;
+      readonly childCount: number;
     };

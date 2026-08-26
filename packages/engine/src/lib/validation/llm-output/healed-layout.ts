@@ -2,12 +2,14 @@ import type {
   GridResponse,
   InstanceId,
   TilingNode,
+  TilingSplitRepairReason,
   TilingSplitToken,
   VariantName,
   VesselId,
 } from '@maelstrom-co/protocol';
 
 import { assertNever } from '../../assert-never.js';
+import { quoteIdentifier } from '../../quote-identifier.js';
 
 /**
  * Mirrors the SkippedAction discriminated-union pattern: each `reason` arm
@@ -112,6 +114,14 @@ export type LayoutWarning =
       readonly atTokenIndex: number;
       readonly token: TilingSplitToken;
       readonly weights: readonly number[];
+      /**
+       * Which repair the parser applied. An over-wide token and an illegible
+       * one are different things to tell whoever reads the repair — the
+       * parser could read a suffix perfectly and still refuse the arity it
+       * declared — so every renderer words its message from this rather than
+       * from the fact that some repair happened.
+       */
+      readonly repairReason: TilingSplitRepairReason;
     };
 
 /**
@@ -223,9 +233,48 @@ export function formatLayoutWarning(warning: LayoutWarning): string {
   switch (warning.kind) {
     case 'missing_rationale':
       return 'response omitted its rationale';
-    case 'split_weights_repaired':
-      return `tiling tree split token "${warning.token}" at token index ${warning.atTokenIndex} had an unreadable weight suffix, read as ${warning.weights.join(',')}`;
+    case 'split_weights_repaired': {
+      const token = quoteIdentifier(warning.token);
+      const cause = describeSplitRepairReason(warning.repairReason);
+      return `tiling tree split token ${token} at token index ${warning.atTokenIndex} ${cause}, read as ${warning.weights.join(',')}`;
+    }
     default:
       return assertNever(warning, 'formatLayoutWarning');
+  }
+}
+
+const MAX_LOGGED_WARNINGS = 16;
+
+/**
+ * Renders the operator-log view of a response's repairs under a list ceiling.
+ *
+ * One entry per malformed split token in a tree whose size the model chooses,
+ * so the array is bounded here rather than at the log call: a count in the
+ * tail keeps the scale of what was cut visible.
+ */
+export function formatLayoutWarnings(
+  warnings: readonly LayoutWarning[],
+): string[] {
+  const visible = warnings
+    .slice(0, MAX_LOGGED_WARNINGS)
+    .map(formatLayoutWarning);
+  const omitted = warnings.length - visible.length;
+  if (omitted <= 0) return visible;
+  return [
+    ...visible,
+    `${omitted} additional warning${omitted === 1 ? '' : 's'} omitted`,
+  ];
+}
+
+function describeSplitRepairReason(reason: TilingSplitRepairReason): string {
+  switch (reason) {
+    case 'truncated':
+      return 'declared more children than a split may hold';
+    case 'unreadable':
+      return 'had an unreadable weight suffix';
+    case 'padded':
+      return 'declared fewer than the two weights a split needs';
+    default:
+      return assertNever(reason, 'describeSplitRepairReason');
   }
 }

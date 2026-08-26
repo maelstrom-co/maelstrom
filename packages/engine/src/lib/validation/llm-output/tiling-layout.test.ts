@@ -3,12 +3,14 @@ import type {
   ChartRequest,
   TilingNode,
   TilingResponse,
+  TilingSplitRepairReason,
   TilingSplitToken,
 } from '@maelstrom-co/protocol';
-import { InstanceId, isTilingSplitTokenString } from '@maelstrom-co/protocol';
+import { InstanceId } from '@maelstrom-co/protocol';
 
 import {
   brandTilingResponse,
+  brandTilingTree,
   makeTilingRequest,
   type TilingResponseAuthor,
 } from '../../__test-helpers__/fixtures.js';
@@ -44,16 +46,11 @@ function requestWithVessels(): ChartRequest {
 }
 
 /**
- * Brands raw strings as `InstanceId` for assertions against the healed
- * `readonly TilingNode[]` shape. Split tokens, bare or weighted, pass
- * through. Brands are erased at runtime, so this is a type-only convenience
- * for the test fixtures.
+ * Variadic spelling of the shared tree-branding helper, for assertions against
+ * the healed `readonly TilingNode[]` shape.
  */
 function tree(...nodes: Array<string | null>): TilingNode[] {
-  return nodes.map((n) => {
-    if (n === null) return n;
-    return isTilingSplitTokenString(n) ? n : InstanceId(n);
-  });
+  return brandTilingTree(nodes);
 }
 
 describe('healTilingLayout', () => {
@@ -533,6 +530,7 @@ describe('healTilingLayout', () => {
         atTokenIndex: 4,
         token: 'V:xyz',
         weights: [1, 1],
+        repairReason: 'unreadable',
       },
     ]);
     // Index 3 is the repeated 'a', 4 is 'V:xyz', 5 is 'ghost' — the exact
@@ -729,14 +727,28 @@ describe('healTilingLayout — weighted splits', () => {
     readonly token: TilingSplitToken;
     readonly weights: readonly number[];
     readonly healedTo: TilingSplitToken;
+    readonly reason: TilingSplitRepairReason;
   }[] = [
-    { token: 'V:', weights: [1, 1], healedTo: 'V' },
-    { token: 'V:abc', weights: [1, 1], healedTo: 'V' },
-    { token: 'V:1,0,2', weights: [1, 1, 2], healedTo: 'V:1,1,2' },
-    { token: 'V:1,5000', weights: [1, 1000], healedTo: 'V:1,1000' },
+    { token: 'V:', weights: [1, 1], healedTo: 'V', reason: 'unreadable' },
+    { token: 'V:abc', weights: [1, 1], healedTo: 'V', reason: 'unreadable' },
+    {
+      token: 'V:1,0,2',
+      weights: [1, 1, 2],
+      healedTo: 'V:1,1,2',
+      reason: 'unreadable',
+    },
+    {
+      token: 'V:1,5000',
+      weights: [1, 1000],
+      healedTo: 'V:1,1000',
+      reason: 'unreadable',
+    },
+    // A single well-spelled field is short, not illegible: the arity was
+    // filled in and nothing about the declared value was misread.
+    { token: 'V:5', weights: [5, 1], healedTo: 'V:5,1', reason: 'padded' },
   ];
 
-  for (const { token, weights, healedTo } of repairCases) {
+  for (const { token, weights, healedTo, reason } of repairCases) {
     test(`repairs "${token}" to [${weights.join(',')}] as a warning, not a drop`, () => {
       const healed = healTree([token, 'a', 'b', 'c']);
       expect(healed.warnings).toContainEqual({
@@ -744,6 +756,7 @@ describe('healTilingLayout — weighted splits', () => {
         atTokenIndex: 0,
         token,
         weights,
+        repairReason: reason,
       });
       expect(healed.droppedEntries).not.toContainEqual(
         expect.objectContaining({ reason: 'tree_duplicate_leaf' }),
@@ -769,6 +782,7 @@ describe('healTilingLayout — weighted splits', () => {
         atTokenIndex: 1,
         token: 'V:1,1,',
         weights: [1, 1],
+        repairReason: 'unreadable',
       },
     ]);
   });

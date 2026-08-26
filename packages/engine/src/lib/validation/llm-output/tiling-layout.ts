@@ -7,7 +7,7 @@ import type {
   VesselId,
 } from '@maelstrom-co/protocol';
 
-import { isInstanceIdNode } from '@maelstrom-co/protocol';
+import { findDuplicateTilingLeaves } from '@maelstrom-co/protocol';
 
 import {
   pushMissingRationaleWarningIfEmpty,
@@ -135,19 +135,14 @@ function withDuplicateLeavesBlanked(
   tree: readonly TilingNode[],
   drops: DroppedLayoutEntry[],
 ): readonly TilingNode[] {
-  const seen = new Set<InstanceId>();
+  const duplicates = findDuplicateTilingLeaves(tree);
+  if (duplicates.length === 0) return tree;
 
-  return tree.map((node, atTokenIndex) => {
-    if (!isInstanceIdNode(node)) return node;
-    if (seen.has(node)) {
-      drops.push({
-        reason: 'tree_duplicate_leaf',
-        atTokenIndex,
-        instanceId: node,
-      });
-      return null;
-    }
-    seen.add(node);
-    return node;
-  });
+  const blankedIndices = new Set<number>();
+  for (const { instanceId, atTokenIndex } of duplicates) {
+    blankedIndices.add(atTokenIndex);
+    drops.push({ reason: 'tree_duplicate_leaf', atTokenIndex, instanceId });
+  }
+
+  return tree.map((node, index) => (blankedIndices.has(index) ? null : node));
 }

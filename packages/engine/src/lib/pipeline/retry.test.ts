@@ -426,6 +426,7 @@ describe('callWithRetry', () => {
             atTokenIndex: 2,
             token: 'V:xyz',
             weights: [1, 1],
+            repairReason: 'unreadable',
           },
         ],
       });
@@ -444,6 +445,146 @@ describe('callWithRetry', () => {
       expect(prompts[1]).toContain('Layout repairs:');
       expect(prompts[1]).toContain('"V:xyz"');
       expect(prompts[1]).toContain('read as 2 children weighted 1,1');
+    });
+
+    test('an over-wide split is never reported as an unreadable suffix', async () => {
+      // A token whose only fault is declaring too many children still parses
+      // as `repaired`, so the repair line must not contradict the truncation
+      // drop line rendered from the same token.
+      const failed = recommendingResponse({
+        droppedLayoutEntries: [
+          {
+            reason: 'tree_split_truncated',
+            atTokenIndex: 0,
+            declaredChildCount: 14,
+            keptChildCount: 12,
+          },
+        ],
+        warnings: [
+          {
+            kind: 'split_weights_repaired',
+            atTokenIndex: 0,
+            token: 'V:1,1,1,1,1,1,1,1,1,1,1,1,1,1',
+            weights: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            repairReason: 'truncated',
+          },
+        ],
+      });
+      const { runOnce, prompts } = recordingRunOnce([
+        ok(failed),
+        ok(response()),
+      ]);
+
+      await callWithRetry({
+        runOnce,
+        originalUserPrompt: 'p',
+        maxRetries: 1,
+        logger: silentLogger,
+      });
+
+      expect(prompts[1]).toContain('declared 14 children');
+      expect(prompts[1]).not.toContain('unreadable weight suffix');
+    });
+
+    test('a one-weight split is reported as short, not as illegible', async () => {
+      // "V:5" spells its weight exactly as the grammar asks; the arity is the
+      // only thing missing, so telling the model its suffix was unreadable
+      // sends it after a defect the token does not have.
+      const failed = recommendingResponse({
+        warnings: [
+          {
+            kind: 'split_weights_repaired',
+            atTokenIndex: 0,
+            token: 'V:5',
+            weights: [5, 1],
+            repairReason: 'padded',
+          },
+        ],
+      });
+      const { runOnce, prompts } = recordingRunOnce([
+        ok(failed),
+        ok(response()),
+      ]);
+
+      await callWithRetry({
+        runOnce,
+        originalUserPrompt: 'p',
+        maxRetries: 1,
+        logger: silentLogger,
+      });
+
+      expect(prompts[1]).toContain(
+        'declared fewer than the two weights a split needs',
+      );
+      expect(prompts[1]).not.toContain('unreadable weight suffix');
+    });
+
+    test('an omitted rationale is not filed under layout repairs', async () => {
+      // Nothing about the layout was rewritten, so filing it under repairs
+      // teaches the model to go fix a tree that was fine.
+      const failed = recommendingResponse({
+        skippedActions: [paramsParseFailed('a', 'go')],
+        warnings: [{ kind: 'missing_rationale' }],
+      });
+      const { runOnce, prompts } = recordingRunOnce([
+        ok(failed),
+        ok(response()),
+      ]);
+
+      await callWithRetry({
+        runOnce,
+        originalUserPrompt: 'p',
+        maxRetries: 1,
+        logger: silentLogger,
+      });
+
+      expect(prompts[1]).toContain('Response quality:');
+      expect(prompts[1]).not.toContain('Layout repairs:');
+      expect(prompts[1]).toContain('omitted its rationale');
+    });
+
+    test('a drop and a repair in one response render as two sections', async () => {
+      // Each section is covered alone elsewhere; this pins that neither one
+      // swallows the other when both are non-empty, and that drops precede
+      // repairs.
+      const failed = recommendingResponse({
+        droppedLayoutEntries: [
+          {
+            reason: 'tree_duplicate_leaf',
+            atTokenIndex: 3,
+            instanceId: InstanceId('calendar-main'),
+          },
+        ],
+        warnings: [
+          {
+            kind: 'split_weights_repaired',
+            atTokenIndex: 0,
+            token: 'V:xyz',
+            weights: [1, 1],
+            repairReason: 'unreadable',
+          },
+        ],
+      });
+      const { runOnce, prompts } = recordingRunOnce([
+        ok(failed),
+        ok(response()),
+      ]);
+
+      await callWithRetry({
+        runOnce,
+        originalUserPrompt: 'p',
+        maxRetries: 1,
+        logger: silentLogger,
+      });
+
+      const prompt = prompts[1] ?? '';
+      expect(prompt).toContain('Layout drops:');
+      expect(prompt).toContain('"calendar-main"');
+      expect(prompt).toContain('Layout repairs:');
+      expect(prompt).toContain('"V:xyz"');
+      expect(prompt.indexOf('Layout drops:')).toBeLessThan(
+        prompt.indexOf('Layout repairs:'),
+      );
     });
 
     test('retry prompt mixes per-instance drops with the tree advisory', async () => {

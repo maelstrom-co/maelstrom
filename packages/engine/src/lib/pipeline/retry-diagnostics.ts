@@ -1,4 +1,7 @@
+import type { TilingSplitRepairReason } from '@maelstrom-co/protocol';
+
 import { assertNever } from '../assert-never.js';
+import { quoteIdentifier } from '../quote-identifier.js';
 import type { SkippedAction } from '../response/execution-plan/index.js';
 import type {
   DroppedLayoutEntry,
@@ -7,18 +10,20 @@ import type {
 } from '../validation/llm-output/healed-layout.js';
 import { isTreeDrop } from '../validation/llm-output/healed-layout.js';
 
-const MAX_IDENTIFIER_CODE_POINTS = 128;
 const MAX_LIST_IDENTIFIERS = 16;
 const MAX_DIAGNOSTIC_LINES = 32;
 const MAX_DIAGNOSTIC_UTF8_BYTES = 8_192;
-const IDENTIFIER_TRUNCATION_SUFFIX = '…[truncated]';
 const BYTE_OMISSION_LINE =
   'Additional diagnostic text omitted to fit the byte limit.';
 const textEncoder = new TextEncoder();
 
 interface DiagnosticSection {
   /** Trusted heading selected by the renderer, never model-authored text. */
-  readonly heading: 'Layout drops:' | 'Layout repairs:' | 'Skipped actions:';
+  readonly heading:
+    | 'Layout drops:'
+    | 'Layout repairs:'
+    | 'Response quality:'
+    | 'Skipped actions:';
   /** Already identifier-safe diagnostic entries before global bounds. */
   readonly lines: readonly string[];
 }
@@ -45,14 +50,13 @@ interface DiagnosticLine {
 export function renderRetryDiagnostics(
   drops: readonly DroppedLayoutEntry[],
   skippedActions: readonly SkippedAction[],
-  warnings: readonly LayoutWarning[] = [],
+  warnings: readonly LayoutWarning[],
 ): string {
+  const described = describeLayoutWarnings(warnings);
   const sections = [
     { heading: 'Layout drops:' as const, lines: describeLayoutDrops(drops) },
-    {
-      heading: 'Layout repairs:' as const,
-      lines: describeLayoutWarnings(warnings),
-    },
+    { heading: 'Layout repairs:' as const, lines: described.repairs },
+    { heading: 'Response quality:' as const, lines: described.quality },
     {
       heading: 'Skipped actions:' as const,
       lines: describeSkippedActions(skippedActions),
@@ -60,17 +64,6 @@ export function renderRetryDiagnostics(
   ].filter((section) => section.lines.length > 0);
 
   return boundDiagnosticSection(sections);
-}
-
-/** Sanitizes, code-point-bounds, and JSON-quotes one untrusted identifier. */
-function quoteIdentifier(identifier: string): string {
-  const sanitized = identifier.replace(/[\p{Cc}\u2028\u2029]/gu, '\uFFFD');
-  const codePoints = Array.from(sanitized);
-  const bounded =
-    codePoints.length <= MAX_IDENTIFIER_CODE_POINTS
-      ? sanitized
-      : `${codePoints.slice(0, MAX_IDENTIFIER_CODE_POINTS).join('')}${IDENTIFIER_TRUNCATION_SUFFIX}`;
-  return JSON.stringify(bounded);
 }
 
 /** Renders at most 16 quoted identifiers plus a trusted omission count. */
@@ -98,21 +91,27 @@ function describeLayoutDrops(drops: readonly DroppedLayoutEntry[]): string[] {
   let hasTreeDrop = false;
 
   for (const drop of drops) {
-    if (drop.reason === 'tree_duplicate_leaf') {
-      duplicateLeafIds.push(drop.instanceId);
+    if (!isTreeDrop(drop)) {
+      lines.push(describeInstanceLayoutDrop(drop));
       continue;
     }
-    if (drop.reason === 'tree_split_truncated') {
-      truncatedSplitLines.push(
-        `A split token declared ${drop.declaredChildCount} children; a single split may declare at most ${drop.keptChildCount}. Nest splits to arrange more regions rather than widening one.`,
-      );
-      continue;
+    switch (drop.reason) {
+      case 'tree_duplicate_leaf':
+        duplicateLeafIds.push(drop.instanceId);
+        break;
+      case 'tree_split_truncated':
+        truncatedSplitLines.push(
+          `A split token declared ${drop.declaredChildCount} children; a single split may declare at most ${drop.keptChildCount}. Nest splits to arrange more regions rather than widening one.`,
+        );
+        break;
+      case 'tree_missing_child':
+      case 'tree_orphan_reference':
+      case 'tree_extra_tokens':
+        hasTreeDrop = true;
+        break;
+      default:
+        assertNever(drop, 'describeLayoutDrops');
     }
-    if (isTreeDrop(drop)) {
-      hasTreeDrop = true;
-      continue;
-    }
-    lines.push(describeInstanceLayoutDrop(drop));
   }
 
   if (duplicateLeafIds.length > 0) {
@@ -129,26 +128,39 @@ function describeLayoutDrops(drops: readonly DroppedLayoutEntry[]): string[] {
   return lines;
 }
 
-/** Renders each layout repair as an instruction the model can act on. */
-function describeLayoutWarnings(warnings: readonly LayoutWarning[]): string[] {
-  const lines: string[] = [];
+/**
+ * Sorts each warning into the section that describes it, as an instruction the
+ * model can act on.
+ *
+ * An omitted rationale rewrote nothing, so filing it under repairs would tell
+ * a model whose layout was untouched to go and fix that layout. The `switch`
+ * makes every future warning kind pick a section rather than inherit one.
+ */
+function describeLayoutWarnings(warnings: readonly LayoutWarning[]): {
+  repairs: string[];
+  quality: string[];
+} {
+  const repairs: string[] = [];
+  const quality: string[] = [];
   for (const warning of warnings) {
     switch (warning.kind) {
       case 'missing_rationale':
-        lines.push(
+        quality.push(
           'The response omitted its rationale. Include a short rationale explaining the layout decision.',
         );
         break;
-      case 'split_weights_repaired':
-        lines.push(
-          `The split token ${quoteIdentifier(warning.token)} had an unreadable weight suffix and was read as ${warning.weights.length} children weighted ${warning.weights.join(',')}. Weights are comma-separated positive integers, and the weight count is exactly how many subtrees must follow the token.`,
+      case 'split_weights_repaired': {
+        const cause = repairClause(warning.repairReason);
+        repairs.push(
+          `The split token ${quoteIdentifier(warning.token)} ${cause} read as ${warning.weights.length} children weighted ${warning.weights.join(',')}. Weights are comma-separated positive integers, and the weight count is exactly how many subtrees must follow the token.`,
         );
         break;
+      }
       default:
         assertNever(warning, 'describeLayoutWarnings');
     }
   }
-  return lines;
+  return { repairs, quality };
 }
 
 /** Renders one non-tree layout drop without exposing an unquoted identifier. */
@@ -299,4 +311,22 @@ function renderLines(lines: readonly DiagnosticLine[]): string {
     output.push(`- ${line.text}`);
   }
   return output.join('\n');
+}
+
+/**
+ * The clause naming what the parser did, worded so the model reads a defect
+ * it actually has: an over-wide token's arity is reported by its own drop
+ * line, and a short one declared nothing illegible at all.
+ */
+function repairClause(reason: TilingSplitRepairReason): string {
+  switch (reason) {
+    case 'truncated':
+      return 'was';
+    case 'unreadable':
+      return 'had an unreadable weight suffix and was';
+    case 'padded':
+      return 'declared fewer than the two weights a split needs and was';
+    default:
+      return assertNever(reason, 'repairClause');
+  }
 }

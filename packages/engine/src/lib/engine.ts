@@ -43,7 +43,7 @@ import {
   logValidationFailure,
   validateEngineMessage,
 } from './validation/engine-message.js';
-import { formatLayoutWarning } from './validation/llm-output/healed-layout.js';
+import { formatLayoutWarnings } from './validation/llm-output/healed-layout.js';
 
 // ---------------------------------------------------------------------------
 // Engine interface
@@ -337,13 +337,13 @@ export function createEngine(config: EngineConfig): Engine {
         skippedActions: diagnostics.skippedActions.length,
         droppedLayoutEntries: diagnostics.droppedLayoutEntries.length,
         warnings: diagnostics.warnings.length,
-        // Counts alone cannot distinguish a repaired weight suffix from a
-        // missing rationale, and a repair is a silent rewrite of model output
-        // — the rendered lines are the only place an operator can see which
-        // token was rewritten and to what.
-        warningDetail: diagnostics.warnings.map(formatLayoutWarning),
         retrySeverity: diagnostics.retryHint.severity,
         retryRecommend: diagnostics.retryHint.recommend,
+        // Two layers: the counts above stay scalar so a log backend can
+        // aggregate and alert on them, while `detail` carries the forensic
+        // lines — model-derived, bounded, and first to be truncated by a
+        // transport that has to cut something.
+        detail: { warnings: formatLayoutWarnings(diagnostics.warnings) },
       });
     }
 
