@@ -2,7 +2,8 @@ import { describe, expect, test } from 'bun:test';
 
 import { InstanceId } from './instance.js';
 import {
-  findDuplicateTilingLeaf,
+  assertValidSplitWeights,
+  findDuplicateTilingLeaves,
   formatTilingSplitToken,
   type GridLayout,
   getVisibleInstanceIds,
@@ -11,6 +12,7 @@ import {
   parseTilingSplitToken,
   type TilingLayout,
   type TilingNode,
+  type TilingSplitRepairReason,
 } from './response.js';
 import { VariantName } from './variant-name.js';
 import { VesselId } from './vessel-id.js';
@@ -90,12 +92,14 @@ describe('parseTilingSplitToken', () => {
       axis: 'H',
       weights: [1, 1],
       repaired: false,
+      repairReason: null,
       discardedChildCount: 0,
     });
     expect(parseTilingSplitToken('V')).toEqual({
       axis: 'V',
       weights: [1, 1],
       repaired: false,
+      repairReason: null,
       discardedChildCount: 0,
     });
   });
@@ -111,6 +115,7 @@ describe('parseTilingSplitToken', () => {
       axis: 'V',
       weights: [1, 1, 1],
       repaired: false,
+      repairReason: null,
       discardedChildCount: 0,
     });
     expect(parseTilingSplitToken('H:1,1,1,1,1,1')?.weights).toHaveLength(6);
@@ -121,6 +126,7 @@ describe('parseTilingSplitToken', () => {
       axis: 'V',
       weights: [2, 1],
       repaired: false,
+      repairReason: null,
       discardedChildCount: 0,
     });
     expect(parseTilingSplitToken('H:3,1,4')?.weights).toEqual([3, 1, 4]);
@@ -128,38 +134,115 @@ describe('parseTilingSplitToken', () => {
 
   const repairCases: readonly {
     readonly token: `${'H' | 'V'}:${string}`;
-    readonly weights: readonly number[];
+    readonly weights: readonly [number, number, ...number[]];
+    readonly reason: TilingSplitRepairReason;
     readonly why: string;
   }[] = [
-    { token: 'V:', weights: [1, 1], why: 'empty suffix' },
-    { token: 'V:abc', weights: [1, 1], why: 'non-numeric single field' },
-    { token: 'V:1', weights: [1, 1], why: 'single field pads to two' },
-    { token: 'V:1,0,2', weights: [1, 1, 2], why: 'zero clamps to one' },
-    { token: 'V:1,-4', weights: [1, 1], why: 'negative clamps to one' },
-    { token: 'V:1,5000', weights: [1, 1000], why: 'above the weight cap' },
-    { token: 'V:1,abc,2', weights: [1, 1, 2], why: 'non-numeric field' },
-    { token: 'V:1.6,1', weights: [2, 1], why: 'fractional rounds' },
-    { token: 'V:1,NaN', weights: [1, 1], why: 'literal NaN' },
-    { token: 'V:1,Infinity', weights: [1, 1], why: 'non-finite' },
+    { token: 'V:', weights: [1, 1], reason: 'unreadable', why: 'empty suffix' },
+    {
+      token: 'V:abc',
+      weights: [1, 1],
+      reason: 'unreadable',
+      why: 'non-numeric single field',
+    },
+    {
+      token: 'V:1',
+      weights: [1, 1],
+      reason: 'padded',
+      why: 'single field pads to two',
+    },
+    {
+      token: 'V:1,0,2',
+      weights: [1, 1, 2],
+      reason: 'unreadable',
+      why: 'zero clamps to one',
+    },
+    {
+      token: 'V:1,-4',
+      weights: [1, 1],
+      reason: 'unreadable',
+      why: 'negative clamps to one',
+    },
+    {
+      token: 'V:1,5000',
+      weights: [1, 1000],
+      reason: 'unreadable',
+      why: 'above the weight cap',
+    },
+    {
+      token: 'V:1,abc,2',
+      weights: [1, 1, 2],
+      reason: 'unreadable',
+      why: 'non-numeric field',
+    },
+    {
+      token: 'V:1.6,1',
+      weights: [2, 1],
+      reason: 'unreadable',
+      why: 'fractional rounds',
+    },
+    {
+      token: 'V:1,NaN',
+      weights: [1, 1],
+      reason: 'unreadable',
+      why: 'literal NaN',
+    },
+    {
+      token: 'V:1,Infinity',
+      weights: [1, 1],
+      reason: 'unreadable',
+      why: 'non-finite',
+    },
     // Spelling, not value: each of these coerces to a number the grammar
     // would accept, then re-serialises as a different string than the model
     // wrote. `repaired` is the only signal about model output quality, so a
     // silent rewrite here is exactly what it exists to catch.
-    { token: 'V:0x0C,1', weights: [12, 1], why: 'hex literal' },
-    { token: 'V:1e3,1', weights: [1000, 1], why: 'exponent notation' },
-    { token: 'V:+2,1', weights: [2, 1], why: 'explicit sign' },
-    { token: 'V:2.0,1', weights: [2, 1], why: 'trailing decimal point' },
-    { token: 'V:01,1', weights: [1, 1], why: 'leading zero' },
-    { token: 'V: 2 ,1', weights: [2, 1], why: 'surrounding whitespace' },
+    {
+      token: 'V:0x0C,1',
+      weights: [12, 1],
+      reason: 'unreadable',
+      why: 'hex literal',
+    },
+    {
+      token: 'V:1e3,1',
+      weights: [1000, 1],
+      reason: 'unreadable',
+      why: 'exponent notation',
+    },
+    {
+      token: 'V:+2,1',
+      weights: [2, 1],
+      reason: 'unreadable',
+      why: 'explicit sign',
+    },
+    {
+      token: 'V:2.0,1',
+      weights: [2, 1],
+      reason: 'unreadable',
+      why: 'trailing decimal point',
+    },
+    {
+      token: 'V:01,1',
+      weights: [1, 1],
+      reason: 'unreadable',
+      why: 'leading zero',
+    },
+    {
+      token: 'V: 2 ,1',
+      weights: [2, 1],
+      reason: 'unreadable',
+      why: 'surrounding whitespace',
+    },
   ];
 
-  for (const { token, weights, why } of repairCases) {
+  for (const { token, weights, reason, why } of repairCases) {
     test(`repairs "${token}" to [${weights.join(',')}] (${why})`, () => {
       const parsed = parseTilingSplitToken(token);
       expect(parsed).toEqual({
         axis: 'V',
         weights,
         repaired: true,
+        repairReason: reason,
         discardedChildCount: 0,
       });
     });
@@ -171,7 +254,7 @@ describe('parseTilingSplitToken', () => {
   // — deleting an outer split from the layout rather than reproportioning it.
   const emptyFieldCases: readonly {
     readonly token: `${'H' | 'V'}:${string}`;
-    readonly weights: readonly number[];
+    readonly weights: readonly [number, number, ...number[]];
     readonly why: string;
   }[] = [
     { token: 'V:1,1,', weights: [1, 1], why: 'trailing comma' },
@@ -189,6 +272,7 @@ describe('parseTilingSplitToken', () => {
         axis: 'V',
         weights,
         repaired: true,
+        repairReason: 'unreadable',
         discardedChildCount: 0,
       });
     });
@@ -202,12 +286,22 @@ describe('parseTilingSplitToken', () => {
     // not dropped, so the count is what lets a consumer treat truncation as a
     // reshape rather than a reproportion.
     expect(parsed?.discardedChildCount).toBe(8);
+    expect(parsed?.repairReason).toBe('truncated');
+  });
+
+  test('truncation outranks a malformed field in the reported reason', () => {
+    // Re-parenting the discarded slots' subtrees onto an ancestor reshapes the
+    // tree; substituting a value for "abc" does not. A consumer wording one
+    // message needs the consequential half.
+    const parsed = parseTilingSplitToken(`V:abc,${'1,'.repeat(18)}1`);
+    expect(parsed?.repairReason).toBe('truncated');
   });
 
   test('a well-formed token at the caps is not reported as repaired', () => {
     const parsed = parseTilingSplitToken(`H:${'1,'.repeat(11)}1000`);
     expect(parsed?.weights).toHaveLength(12);
     expect(parsed?.repaired).toBe(false);
+    expect(parsed?.repairReason).toBeNull();
     expect(parsed?.discardedChildCount).toBe(0);
   });
 
@@ -247,38 +341,72 @@ describe('formatTilingSplitToken', () => {
         axis: 'V',
         weights: [...weights],
         repaired: false,
+        repairReason: null,
         discardedChildCount: 0,
       });
     }
   });
 });
 
-describe('findDuplicateTilingLeaf', () => {
-  test('null when every leaf is distinct', () => {
+describe('assertValidSplitWeights', () => {
+  test('accepts every weight list the parser can produce', () => {
+    for (const token of ['V', 'V:', 'V:abc', 'V:2,1', 'V:1,1000'] as const) {
+      const parsed = parseTilingSplitToken(token);
+      expect(parsed).not.toBeNull();
+      if (parsed === null) throw new Error('expected a split');
+      expect(() => assertValidSplitWeights(parsed.weights)).not.toThrow();
+    }
+  });
+
+  test('rejects weights that are not usable extents', () => {
+    expect(() => assertValidSplitWeights([0, 1])).toThrow(/out of range/);
+    expect(() => assertValidSplitWeights([-5, 1])).toThrow(/out of range/);
+    expect(() => assertValidSplitWeights([1.5, 1])).toThrow(/out of range/);
+    expect(() => assertValidSplitWeights([1, 1001])).toThrow(/out of range/);
+    expect(() => assertValidSplitWeights([Number.NaN, 1])).toThrow(
+      /out of range/,
+    );
+  });
+
+  test('rejects a list that is not a usable arity', () => {
+    expect(() => assertValidSplitWeights([])).toThrow(/2 to 12 weights/);
+    expect(() => assertValidSplitWeights([1])).toThrow(/2 to 12 weights/);
+    expect(() => assertValidSplitWeights(Array(13).fill(1))).toThrow(
+      /2 to 12 weights/,
+    );
+  });
+
+  test('formatTilingSplitToken refuses to render an invalid weight', () => {
+    expect(() => formatTilingSplitToken('V', [0, 1])).toThrow(/out of range/);
+  });
+});
+
+describe('findDuplicateTilingLeaves', () => {
+  test('empty when every leaf is distinct', () => {
     expect(
-      findDuplicateTilingLeaf([
+      findDuplicateTilingLeaves([
         'V:1,1,1',
         InstanceId('a'),
         InstanceId('b'),
         InstanceId('c'),
       ]),
-    ).toBeNull();
+    ).toEqual([]);
   });
 
-  test('null for an empty tree and for null-only leaves', () => {
-    expect(findDuplicateTilingLeaf([])).toBeNull();
-    expect(findDuplicateTilingLeaf(['H', null, null])).toBeNull();
+  test('empty for an empty tree and for null-only leaves', () => {
+    expect(findDuplicateTilingLeaves([])).toEqual([]);
+    expect(findDuplicateTilingLeaves(['H', null, null])).toEqual([]);
   });
 
   test('reports the repeat, not the first occurrence', () => {
     expect(
-      findDuplicateTilingLeaf(['V', InstanceId('a'), InstanceId('a')]),
-    ).toEqual({ instanceId: InstanceId('a'), atTokenIndex: 2 });
+      findDuplicateTilingLeaves(['V', InstanceId('a'), InstanceId('a')]),
+    ).toEqual([{ instanceId: InstanceId('a'), atTokenIndex: 2 }]);
   });
 
-  test('finds the first repeat when several exist', () => {
+  test('reports every repeat in ascending token order', () => {
     expect(
-      findDuplicateTilingLeaf([
+      findDuplicateTilingLeaves([
         'H',
         'V',
         InstanceId('a'),
@@ -287,12 +415,29 @@ describe('findDuplicateTilingLeaf', () => {
         InstanceId('b'),
         InstanceId('a'),
       ]),
-    ).toEqual({ instanceId: InstanceId('b'), atTokenIndex: 5 });
+    ).toEqual([
+      { instanceId: InstanceId('b'), atTokenIndex: 5 },
+      { instanceId: InstanceId('a'), atTokenIndex: 6 },
+    ]);
+  });
+
+  test('a leaf used three times yields two repeats', () => {
+    expect(
+      findDuplicateTilingLeaves([
+        'V:1,1,1',
+        InstanceId('a'),
+        InstanceId('a'),
+        InstanceId('a'),
+      ]),
+    ).toEqual([
+      { instanceId: InstanceId('a'), atTokenIndex: 2 },
+      { instanceId: InstanceId('a'), atTokenIndex: 3 },
+    ]);
   });
 
   test('split tokens repeating is not duplication', () => {
     expect(
-      findDuplicateTilingLeaf([
+      findDuplicateTilingLeaves([
         'H',
         'V',
         InstanceId('a'),
@@ -301,7 +446,7 @@ describe('findDuplicateTilingLeaf', () => {
         InstanceId('c'),
         InstanceId('d'),
       ]),
-    ).toBeNull();
+    ).toEqual([]);
   });
 });
 

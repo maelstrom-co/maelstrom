@@ -18,20 +18,28 @@ export interface Rect {
   readonly height: number;
 }
 
-/** Parsed node in a binary tiling tree. */
+/** Parsed node in a tiling tree of weighted n-ary splits. */
 export type TilingTreeNode = TilingSplitNode | TilingLeafNode;
 
-/** Split node whose children divide the current rectangle into equal regions. */
+/**
+ * Split node dividing the current rectangle along its axis, each child taking
+ * a share proportional to its weight.
+ */
 export interface TilingSplitNode {
-  /** Selects recursive equal-region traversal. */
+  /** Selects recursive weighted traversal of the child slots. */
   readonly type: 'split';
   /** `H` divides top/bottom; `V` divides left/right. */
   readonly direction: TilingSplit;
   /**
    * One entry per child slot the token declared, so `children.length` is the
-   * split's arity. A bare `H` / `V` token yields two slots weighted `1` each.
+   * split's arity. A bare `H` / `V` token yields two slots weighted `1` each,
+   * and a split of fewer than two slots is unconstructable.
    */
-  readonly children: readonly TilingSplitChild[];
+  readonly children: readonly [
+    TilingSplitChild,
+    TilingSplitChild,
+    ...TilingSplitChild[],
+  ];
 }
 
 /**
@@ -39,8 +47,7 @@ export interface TilingSplitNode {
  *
  * The weight travels with the slot rather than in a parallel array, so a split
  * whose weights and children disagree is unconstructable — the mismatch that
- * would otherwise hand the last child the wrong fraction of its parent, or
- * make every rect `NaN` when the weight list is empty.
+ * would otherwise hand the last child the wrong fraction of its parent.
  */
 export interface TilingSplitChild {
   /** Share of the parent region, relative to its siblings' weights. */
@@ -95,25 +102,42 @@ export function parseTilingTree(
     index++;
 
     if (isTilingSplit(node)) {
-      const { axis, weights, repaired } = parseTilingSplitToken(node);
+      const { axis, weights, repairReason, discardedChildCount } =
+        parseTilingSplitToken(node);
 
-      if (repaired) {
-        // A seed layout never passes through the engine's heal, so this is the
-        // only signal an author gets that the token they wrote is not the
-        // token being rendered.
+      // A seed layout never passes through the engine's heal, so this is the
+      // only signal an author gets that the token they wrote is not the token
+      // being rendered. Each repair is reported apart from the others:
+      // truncation reshapes the tree rather than substituting a value, and a
+      // short suffix is perfectly legible.
+      if (repairReason === 'truncated') {
+        console.warn(
+          `[Maelstrom] Malformed tiling tree: split node '${node}' declares ${weights.length + discardedChildCount} children, ${discardedChildCount} past the limit of ${weights.length}; the subtrees the discarded slots would have taken are re-parented onto an ancestor split`,
+        );
+      } else if (repairReason === 'unreadable') {
         console.warn(
           `[Maelstrom] Malformed tiling tree: split node '${node}' has an unreadable weight suffix, read as ${weights.length} children weighted ${weights.join(',')}`,
         );
+      } else if (repairReason === 'padded') {
+        console.warn(
+          `[Maelstrom] Malformed tiling tree: split node '${node}' declares fewer than the two weights a split needs, read as ${weights.length} children weighted ${weights.join(',')}`,
+        );
       }
 
-      const children: TilingSplitChild[] = [];
       let missing = 0;
 
-      for (const weight of weights) {
+      const toChild = (weight: number): TilingSplitChild => {
         const child = parseNode();
         if (child === null) missing++;
-        children.push({ weight, node: child ?? undefined });
-      }
+        return { weight, node: child ?? undefined };
+      };
+
+      const [first, second, ...rest] = weights;
+      const children: [
+        TilingSplitChild,
+        TilingSplitChild,
+        ...TilingSplitChild[],
+      ] = [toChild(first), toChild(second), ...rest.map(toChild)];
 
       if (missing > 0) {
         console.warn(

@@ -86,11 +86,13 @@ export type {
   TilingLayout,
   TilingNode,
   TilingSplit,
+  TilingSplitRepairReason,
   TilingSplitToken,
   TilingWeightedSplit,
 } from './lib/response.ts';
 export {
-  findDuplicateTilingLeaf,
+  assertValidSplitWeights,
+  findDuplicateTilingLeaves,
   formatTilingSplitToken,
   getVisibleInstanceIds,
   isInstanceIdNode,
@@ -107,6 +109,7 @@ export {
   ChartSizeSchema,
   GridLayoutSchema,
   GridPositionSchema,
+  InstanceIdSchema,
   TilingLayoutSchema,
   TilingNodeSchema,
   TilingTreeSchema,

@@ -2,8 +2,17 @@ import type { ActionName } from './action-name.ts';
 import type { InstanceId } from './instance.ts';
 import type { MessageId } from './message.ts';
 import { MAX_SPLIT_CHILDREN, MAX_SPLIT_WEIGHT } from './model-output-limits.ts';
+import type { TilingSplit, TilingSplitToken } from './tiling-split-token.ts';
+import { isTilingSplitTokenString } from './tiling-split-token.ts';
 import type { VariantName } from './variant-name.ts';
 import type { VesselId } from './vessel-id.ts';
+
+export type {
+  TilingSplit,
+  TilingSplitToken,
+  TilingWeightedSplit,
+} from './tiling-split-token.ts';
+export { isTilingSplitTokenString } from './tiling-split-token.ts';
 
 // ---------------------------------------------------------------------------
 // Action execution — parsed form (params as object, not JSON string)
@@ -51,39 +60,22 @@ export interface TilingInstance {
   readonly variant: VariantName;
 }
 
-/** Split axis in the tiling tree: `H` (horizontal) or `V` (vertical). */
-export type TilingSplit = 'H' | 'V';
-
-/**
- * A split token carrying an explicit weight suffix: an axis, a colon, then
- * comma-separated positive integers — `"V:1,1,1"`, `"H:2,1"`.
- *
- * The weight count **declares the token's arity**. `"V:1,1,1"` consumes the
- * next three subtrees from the preorder array, not two, and each child takes
- * `weight / sum(weights)` of the parent region.
- *
- * Weights are integers rather than decimals because integers normalized by
- * their sum are exact: `1,1,1` *is* thirds, where `0.33,0.33,0.33` leaves a
- * one-percent gap and reintroduces the inexactness weighted splits exist to
- * remove. Integers also keep the validity predicate total — no NaN, no
- * float-precision edge cases.
- *
- * The template literal admits any suffix, including malformed ones, so that a
- * prefixed token is never mistaken for an Instance ID leaf.
- * {@link parseTilingSplitToken} is where a suffix is interpreted.
- */
-export type TilingWeightedSplit = `${TilingSplit}:${string}`;
-
-/**
- * Any token that divides its region: a bare axis or a weighted axis.
- *
- * Bare `'H'` / `'V'` mean exactly `weights: [1, 1]` and stay the preferred
- * spelling for an even two-way split.
- */
-export type TilingSplitToken = TilingSplit | TilingWeightedSplit;
-
 /** A preorder tiling tree node: a split token, a leaf instance ID, or null. */
 export type TilingNode = TilingSplitToken | InstanceId | null;
+
+/**
+ * Why a parsed split's `weights` differ from what its token spelled.
+ *
+ * `'truncated'` is a structural event and the others are not: the token
+ * declared more children than a split may have, so the subtrees the discarded
+ * slots would have consumed are re-parented onto an ancestor. `'unreadable'`
+ * means a weight field was not spelled as the grammar requires and a
+ * substitute value stands in its place. `'padded'` means the token declared
+ * fewer than two weights, so the arity — not any declared value — was filled
+ * in. Truncation is reported ahead of the other two when a token manages
+ * both, because re-parenting is the consequential half.
+ */
+export type TilingSplitRepairReason = 'truncated' | 'unreadable' | 'padded';
 
 /** The axis and per-child weights a split token declares. */
 export interface ParsedTilingSplit {
@@ -93,8 +85,12 @@ export interface ParsedTilingSplit {
    * One weight per child, so `weights.length` is the token's arity. Always
    * between 2 and `MAX_SPLIT_CHILDREN` entries, each an integer between 1 and
    * `MAX_SPLIT_WEIGHT`.
+   *
+   * The two-or-more tuple is the arity half of that invariant, stated in the
+   * type: a consumer pairing each weight with a child slot can destructure
+   * two of them without inventing a fallback for a split that has neither.
    */
-  readonly weights: readonly number[];
+  readonly weights: readonly [number, number, ...number[]];
   /**
    * True when the token's suffix was not spelled as the grammar requires and
    * `weights` holds the repaired substitute rather than a faithful reading.
@@ -103,8 +99,20 @@ export interface ParsedTilingSplit {
    * and `"V:+2,1"` are reported here even though they coerce to a number.
    * Consumers that report on model output surface this; consumers that only
    * need geometry can ignore it.
+   *
+   * Equivalent to `repairReason !== null`, and never a sufficient basis for
+   * an explanation on its own — a consumer that words a message from this
+   * flag alone mis-describes the other repair kinds.
    */
   readonly repaired: boolean;
+  /**
+   * Which of the repairs `repaired` reports actually happened, or `null` when
+   * the token was read faithfully.
+   *
+   * Consumers that render a message about model output branch on this rather
+   * than on `repaired`, so the wording matches the defect.
+   */
+  readonly repairReason: TilingSplitRepairReason | null;
   /**
    * How many weight fields past `MAX_SPLIT_CHILDREN` the token declared and
    * this parse discarded.
@@ -118,10 +126,13 @@ export interface ParsedTilingSplit {
 }
 
 /**
- * The second preorder occurrence of an Instance already used as a tree leaf.
+ * An occurrence of an Instance already used as a tree leaf earlier in
+ * preorder.
  */
 export interface DuplicateTilingLeaf {
+  /** The Instance the tree names more than once. */
   readonly instanceId: InstanceId;
+  /** Index of the repeat itself, never of the earlier legitimate occurrence. */
   readonly atTokenIndex: number;
 }
 
@@ -151,22 +162,6 @@ export function isTilingSplit(node: TilingNode): node is TilingSplitToken {
 }
 
 /**
- * The one definition of what a split token looks like, for callers holding a
- * plain string rather than a {@link TilingNode}.
- *
- * Schemas, brand factories and test helpers all have to answer the same
- * question — arity-bearing split or Instance ID leaf — before a `TilingNode`
- * exists to ask it about. Answering it in more than one place lets a token be
- * branded an Instance ID in one layer and read as a split in another, which
- * surfaces as the unrelated "leaf not declared in layout.instances".
- */
-export function isTilingSplitTokenString(
-  value: string,
-): value is TilingSplitToken {
-  return SPLIT_TOKEN_PREFIX.test(value);
-}
-
-/**
  * Reads a split token's axis and arity, or returns null for a node that is not
  * a split token.
  *
@@ -186,12 +181,18 @@ export function isTilingSplitTokenString(
  * the preorder cursor, so a typo would silently steal the following subtree
  * from whichever ancestor owned it.
  *
+ * Every returned object carries all five fields; none is optional.
+ *
  * @example
  * ```ts
- * parseTilingSplitToken('V');        // { axis: 'V', weights: [1, 1], repaired: false }
- * parseTilingSplitToken('V:1,1,1');  // { axis: 'V', weights: [1, 1, 1], repaired: false }
- * parseTilingSplitToken('V:abc');    // { axis: 'V', weights: [1, 1], repaired: true }
- * parseTilingSplitToken(null);       // null
+ * // { axis: 'V', weights: [1, 1], repaired: false, repairReason: null, discardedChildCount: 0 }
+ * parseTilingSplitToken('V');
+ * // { axis: 'V', weights: [1, 1, 1], repaired: false, repairReason: null, discardedChildCount: 0 }
+ * parseTilingSplitToken('V:1,1,1');
+ * // { axis: 'V', weights: [1, 1], repaired: true, repairReason: 'unreadable', discardedChildCount: 0 }
+ * parseTilingSplitToken('V:abc');
+ * // null
+ * parseTilingSplitToken(null);
  * ```
  */
 export function parseTilingSplitToken(
@@ -211,6 +212,7 @@ export function parseTilingSplitToken(
       axis,
       weights: EVEN_BINARY_WEIGHTS,
       repaired: false,
+      repairReason: null,
       discardedChildCount: 0,
     };
   }
@@ -218,10 +220,7 @@ export function parseTilingSplitToken(
   const declaredFields = token.slice(2).split(',');
   const fields = declaredFields.filter((field) => field.trim() !== '');
   const discardedChildCount = Math.max(0, fields.length - MAX_SPLIT_CHILDREN);
-  let repaired =
-    fields.length !== declaredFields.length ||
-    fields.length < 2 ||
-    discardedChildCount > 0;
+  let unreadable = fields.length !== declaredFields.length;
   const weights: number[] = [];
 
   for (const field of fields.slice(0, MAX_SPLIT_CHILDREN)) {
@@ -230,13 +229,28 @@ export function parseTilingSplitToken(
       ? Math.min(MAX_SPLIT_WEIGHT, Math.max(1, Math.round(declared)))
       : 1;
     if (!CANONICAL_WEIGHT_FIELD.test(field) || weight !== declared) {
-      repaired = true;
+      unreadable = true;
     }
     weights.push(weight);
   }
-  while (weights.length < 2) weights.push(1);
 
-  return { axis, weights, repaired, discardedChildCount };
+  const padded = weights.length < 2;
+  while (weights.length < 2) weights.push(1);
+  // The loop above is the proof: nothing leaves it under two entries.
+  const arity = weights as [number, number, ...number[]];
+
+  const repairReason = pickSplitRepairReason({
+    discardedChildCount,
+    unreadable,
+    padded,
+  });
+  return {
+    axis,
+    weights: arity,
+    repaired: repairReason !== null,
+    repairReason,
+    discardedChildCount,
+  };
 }
 
 /**
@@ -254,37 +268,75 @@ export function formatTilingSplitToken(
   axis: TilingSplit,
   weights: readonly [number, number, ...number[]],
 ): TilingSplitToken {
+  assertValidSplitWeights(weights);
   return weights.length === 2 && weights[0] === weights[1]
     ? axis
     : `${axis}:${weights.join(',')}`;
 }
 
 /**
- * Finds the first tree position that repeats an Instance leaf, or null when
- * every leaf is distinct.
+ * Throws unless `weights` satisfies the invariant {@link ParsedTilingSplit}
+ * documents: 2 to `MAX_SPLIT_CHILDREN` entries, each an integer from 1 to
+ * `MAX_SPLIT_WEIGHT`.
+ *
+ * {@link parseTilingSplitToken} clamps its way to that invariant, so nothing
+ * it returns can violate it — but the type is a plain `number[]`, and every
+ * other path that builds a weighted split (a renderer's child list, a test
+ * fixture, a healer rewriting an arity) type-checks fine with `0`, `-5` or
+ * `1.5`. Those values do not fail loudly downstream; they produce a region
+ * of zero or negative extent, or a normalizing sum that no longer divides the
+ * parent cleanly. Construction is the last point where the offending value is
+ * still attributable to the code that invented it.
+ */
+export function assertValidSplitWeights(weights: readonly number[]): void {
+  if (weights.length < 2 || weights.length > MAX_SPLIT_CHILDREN) {
+    throw new RangeError(
+      `A split declares 2 to ${MAX_SPLIT_CHILDREN} weights, not ${weights.length}.`,
+    );
+  }
+  for (const weight of weights) {
+    if (!Number.isInteger(weight) || weight < 1 || weight > MAX_SPLIT_WEIGHT) {
+      throw new RangeError(
+        `Split weight ${weight} is out of range: expected an integer from 1 to ${MAX_SPLIT_WEIGHT}.`,
+      );
+    }
+  }
+}
+
+/**
+ * Reports every tree position that repeats an Instance leaf, in ascending
+ * token order.
  *
  * An Instance is one entry in the store with one Variant and one action
  * surface, and tiles are keyed by Instance ID, so a tree naming the same
  * Instance in two places describes something that cannot be rendered. The
- * first preorder occurrence is the legitimate one; this reports the repeat.
+ * first preorder occurrence is the legitimate one; every later one is
+ * reported here.
+ *
+ * Detection is all this owns: what to do with a repeat — blank it, drop it,
+ * refuse the tree — is a healing policy that belongs to the layer applying it.
  *
  * The whole token array is scanned, including tokens trailing a completed
- * root, because a caller removing the repeat must not shift indices it has
+ * root, because a caller removing the repeats must not shift indices it has
  * not inspected.
  */
-export function findDuplicateTilingLeaf(
+export function findDuplicateTilingLeaves(
   tree: readonly TilingNode[],
-): DuplicateTilingLeaf | null {
+): readonly DuplicateTilingLeaf[] {
   const seen = new Set<InstanceId>();
+  const duplicates: DuplicateTilingLeaf[] = [];
 
   for (let index = 0; index < tree.length; index++) {
     const node = tree[index];
     if (node === undefined || !isInstanceIdNode(node)) continue;
-    if (seen.has(node)) return { instanceId: node, atTokenIndex: index };
+    if (seen.has(node)) {
+      duplicates.push({ instanceId: node, atTokenIndex: index });
+      continue;
+    }
     seen.add(node);
   }
 
-  return null;
+  return duplicates;
 }
 
 /** Tiling layout with separate tree visibility and retained Instance metadata. */
@@ -375,10 +427,17 @@ export interface MaelstromResponse {
   readonly layout: GridLayout | TilingLayout;
 }
 
-const EVEN_BINARY_WEIGHTS: readonly number[] = Object.freeze([1, 1]);
+function pickSplitRepairReason(repairs: {
+  discardedChildCount: number;
+  unreadable: boolean;
+  padded: boolean;
+}): TilingSplitRepairReason | null {
+  if (repairs.discardedChildCount > 0) return 'truncated';
+  if (repairs.unreadable) return 'unreadable';
+  return repairs.padded ? 'padded' : null;
+}
 
-/** Claims every axis-prefixed token, well formed or not. */
-const SPLIT_TOKEN_PREFIX = /^[HV](:|$)/;
+const EVEN_BINARY_WEIGHTS: readonly [number, number] = Object.freeze([1, 1]);
 
 /** A weight field the grammar can read back verbatim: no sign, no leading
  * zero, no exponent, no radix prefix. */

@@ -124,6 +124,7 @@ describe('TilingTreeSchema', () => {
       axis: 'V',
       weights: [1, 2, 3],
       repaired: false,
+      repairReason: null,
       discardedChildCount: 0,
     });
   });

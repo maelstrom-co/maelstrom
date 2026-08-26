@@ -2840,10 +2840,10 @@ describe('Orchestrator', () => {
     });
 
     it('accepts a weighted seed and carries it to the wire unchanged', async () => {
-      // Phase 1's demoable deliverable: a hand-written weighted seed with no
-      // engine involvement. Both the seed validator and Gate 1 walk the tree
-      // asking "is this a leaf?", and a weighted token answered wrongly there
-      // is reported as an undeclared instance.
+      // A hand-written weighted seed with no engine involvement — the seed
+      // validator and Gate 1 both walk the tree asking "is this a leaf?", so a
+      // weighted token misclassified there is reported as an undeclared
+      // instance instead of a parse error.
       const weightedSeed: TilingLayout = {
         type: 'tiling',
         tree: [

@@ -108,6 +108,32 @@ describe('parseTilingTree', () => {
     );
   });
 
+  it('warns that a split token past the arity limit was truncated', () => {
+    parseTilingTree([
+      'V:1,1,1,1,1,1,1,1,1,1,1,1,1',
+      ...Array.from({ length: 12 }, (_, i) => InstanceId(`i${i}`)),
+    ]);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('re-parented onto an ancestor split'),
+    );
+    expect(warnSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining('unreadable weight suffix'),
+    );
+  });
+
+  it('warns that a one-weight token was padded rather than misread', () => {
+    // "V:5" spells its single weight perfectly; what it got wrong is the
+    // arity. Calling that an unreadable suffix sends the author after a typo
+    // that is not there.
+    parseTilingTree(['V:5', InstanceId('a'), InstanceId('b')]);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('declares fewer than the two weights'),
+    );
+    expect(warnSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining('unreadable weight suffix'),
+    );
+  });
+
   it('does not warn for a well-formed weighted token', () => {
     parseTilingTree(['V:2,1', InstanceId('a'), InstanceId('b')]);
     expect(warnSpy).not.toHaveBeenCalled();
@@ -373,6 +399,12 @@ describe('computeTilingLayout — weighted splits', () => {
     const tiles = tilesOf(['V:2,1', InstanceId('a'), InstanceId('b')]);
     expect(tiles.get('a')).toEqual({ x: 0, y: 0, width: 600, height: 600 });
     expect(tiles.get('b')).toEqual({ x: 600, y: 0, width: 300, height: 600 });
+  });
+
+  it('honours uneven weights on the H axis', () => {
+    const tiles = tilesOf(['H:2,1', InstanceId('a'), InstanceId('b')]);
+    expect(tiles.get('a')).toEqual({ x: 0, y: 0, width: 900, height: 400 });
+    expect(tiles.get('b')).toEqual({ x: 0, y: 400, width: 900, height: 200 });
   });
 
   it('lays out an exact 3x3', () => {
