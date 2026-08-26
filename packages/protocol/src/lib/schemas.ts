@@ -25,6 +25,26 @@ function isActionParamsJsonWithinByteLimit(value: string): boolean {
 // Shared schemas
 // ---------------------------------------------------------------------------
 
+/**
+ * Parses and brands an Instance identity from wire or model output.
+ *
+ * The reserved-namespace check is a `.refine()` ahead of the branding
+ * `.transform()` rather than a bare transform over {@link InstanceId}. The
+ * brand factory throws on a reserved value, and a throw raised inside a Zod
+ * transform escapes `safeParse` instead of becoming an issue — which would
+ * turn a hostile or careless `"H"` into an uncaught error at whichever
+ * boundary parsed it. Refusing first keeps a reserved id an ordinary
+ * validation failure everywhere an Instance ID is read.
+ */
+export const InstanceIdSchema = z
+  .string()
+  .min(1, 'instanceId is required')
+  .refine((value) => !isTilingSplitTokenString(value), {
+    message:
+      '"H", "V", and any "H:"/"V:" prefixed value are reserved for tiling split tokens',
+  })
+  .transform(InstanceId);
+
 /** Parses a non-negative, zero-based Chart cell position. */
 export const ChartPositionSchema = z.object({
   row: z
@@ -52,11 +72,9 @@ export const ChartSizeSchema = z.object({
  * JSON syntax and semantic parameters are validated later by the Engine.
  */
 export const ActionExecutionSchema = z.object({
-  instanceId: z
-    .string()
-    .min(1, 'instanceId is required')
-    .transform(InstanceId)
-    .describe('The ID of the vessel instance to act upon'),
+  instanceId: InstanceIdSchema.describe(
+    'The ID of the vessel instance to act upon',
+  ),
   action: z
     .string()
     .min(1, 'action is required')
@@ -79,11 +97,9 @@ export const ActionExecutionSchema = z.object({
 
 /** Parses and brands one grid-mode Instance allocation. */
 export const GridPositionSchema = z.object({
-  instanceId: z
-    .string()
-    .min(1, 'instanceId is required')
-    .transform(InstanceId)
-    .describe('The ID of the vessel instance to position'),
+  instanceId: InstanceIdSchema.describe(
+    'The ID of the vessel instance to position',
+  ),
   position: ChartPositionSchema.describe(
     'Where to place the vessel on the chart',
   ),
@@ -144,17 +160,9 @@ export const TilingTreeSchema = z
 
 /** Parses and brands an Instance identity, Vessel identity, and current Variant. */
 export const VesselInstanceSnapshotSchema = z.object({
-  instanceId: z
-    .string()
-    .min(1, 'instanceId is required')
-    .refine((value) => !isTilingSplitTokenString(value), {
-      message:
-        '"H", "V", and any "H:"/"V:" prefixed value are reserved for tiling split tokens',
-    })
-    .transform(InstanceId)
-    .describe(
-      'Unique instance ID. For new instances, use format "vesselId-identifier" (e.g., "calendar-main", "biomarkers-detail").',
-    ),
+  instanceId: InstanceIdSchema.describe(
+    'Unique instance ID. For new instances, use format "vesselId-identifier" (e.g., "calendar-main", "biomarkers-detail").',
+  ),
   vesselId: z
     .string()
     .min(1, 'vesselId is required')

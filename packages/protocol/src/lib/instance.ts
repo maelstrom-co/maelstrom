@@ -1,5 +1,5 @@
 import { type Brand, requireNonEmptyBrand } from './brand.ts';
-import { isTilingSplitTokenString } from './response.ts';
+import { isTilingSplitTokenString } from './tiling-split-token.ts';
 
 /**
  * Opaque identifier for a vessel instance in a chart.

@@ -7,6 +7,8 @@ import {
   type TilingNode,
 } from './response.js';
 import {
+  ActionExecutionSchema,
+  GridPositionSchema,
   TilingLayoutSchema,
   TilingNodeSchema,
   TilingTreeSchema,
@@ -124,5 +126,40 @@ describe('TilingTreeSchema', () => {
       repaired: false,
       discardedChildCount: 0,
     });
+  });
+});
+
+describe('reserved instance ids across every branding schema', () => {
+  const reserved = ['H', 'V', 'H:main', 'V:sidebar'] as const;
+
+  test('ActionExecutionSchema reports an issue instead of throwing', () => {
+    for (const instanceId of reserved) {
+      const result = ActionExecutionSchema.safeParse({
+        instanceId,
+        action: 'open',
+      });
+      expect(result.success).toBe(false);
+    }
+  });
+
+  test('GridPositionSchema reports an issue instead of throwing', () => {
+    for (const instanceId of reserved) {
+      const result = GridPositionSchema.safeParse({
+        instanceId,
+        position: { row: 0, column: 0 },
+        size: { width: 1, height: 1 },
+      });
+      expect(result.success).toBe(false);
+    }
+  });
+
+  test('an id that merely starts with an axis letter still brands', () => {
+    const result = ActionExecutionSchema.safeParse({
+      instanceId: 'Header',
+      action: 'open',
+    });
+    expect(result.success).toBe(true);
+    if (!result.success) throw new Error('expected success');
+    expect(result.data.instanceId).toBe(InstanceId('Header'));
   });
 });

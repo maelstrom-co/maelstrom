@@ -6,7 +6,7 @@ import { ChartDimensionsSchema } from './chart.ts';
 // Referenced via `{@link}` in the ChartRequest JSDoc below — type-only import
 // keeps IDE hover/jump-to-definition uniform across resolvers.
 import type { ChartRequestMessage } from './engine-message.ts';
-import { InstanceId } from './instance.ts';
+import type { InstanceId } from './instance.ts';
 import type { LayoutMode } from './layout.ts';
 import { MAX_EXECUTION_PLAN_ENTRIES } from './model-output-limits.ts';
 import type { GridLayout, TilingLayout } from './response.ts';
@@ -14,6 +14,7 @@ import { isInstanceIdNode } from './response.ts';
 import {
   ActionExecutionSchema,
   GridLayoutSchema,
+  InstanceIdSchema,
   TilingLayoutSchema,
   VesselInstanceSnapshotSchema,
 } from './schemas.ts';
@@ -83,12 +84,12 @@ export const ChartResizeReasonSchema = z.object({
 
 /**
  * Wire-format Zod parser for {@link VesselMutationReason}. `instanceId`
- * is branded to {@link InstanceId} via `.transform(...)` so the inferred
- * shape matches the hand-written interface end-to-end.
+ * is branded through {@link InstanceIdSchema} so the inferred shape matches
+ * the hand-written interface end-to-end and a reserved id fails validation.
  */
 export const VesselMutationReasonSchema = z.object({
   type: z.literal('vessel_mutation'),
-  instanceId: z.string().min(1, 'instanceId is required').transform(InstanceId),
+  instanceId: InstanceIdSchema,
   changes: z.string(),
 });
 

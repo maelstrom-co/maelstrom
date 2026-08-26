@@ -22,6 +22,7 @@ import { InstanceId } from './instance.js';
 import { MessageId } from './message.js';
 import type { ChartRequest } from './request.js';
 import type { MaelstromResponse } from './response.js';
+import { isErr } from './result.js';
 import { SessionId } from './session.js';
 import type { SessionHistoryEntry } from './session-history-entry.js';
 
@@ -441,5 +442,19 @@ describe('EngineMessage ↔ ClientEnvelope', () => {
     // host would safeParse against must accept exactly what the codec accepts.
     expect(ClientEnvelopeSchema.options).toHaveLength(4);
     expect(ServerEnvelopeSchema.options).toHaveLength(4);
+  });
+});
+
+describe('reserved instance ids reaching the envelope boundary', () => {
+  test('a reserved execution-plan id decodes to an error, not a throw', () => {
+    const decoded = decodeServerEnvelope({
+      type: 'engine.maelstrom.response',
+      requestId: 'req-1',
+      response: {
+        ...validMaelstromResponse(),
+        executionPlan: [{ instanceId: 'H:hero', action: 'open' }],
+      },
+    });
+    expect(isErr(decoded)).toBe(true);
   });
 });

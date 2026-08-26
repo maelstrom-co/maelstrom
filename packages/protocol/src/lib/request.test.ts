@@ -1201,3 +1201,47 @@ describe('contextual validation messages', () => {
     ).toBe(true);
   });
 });
+
+describe('reserved instance ids reaching the request boundary', () => {
+  test('ChartRequestSchema rejects a reserved id in updateReasons', () => {
+    const req = validChartRequest();
+    const result = ChartRequestSchema.safeParse({
+      ...req,
+      context: {
+        ...req.context,
+        updateReasons: [
+          { type: 'vessel_mutation', instanceId: 'H', changes: 'x' },
+        ],
+      },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test('ChartRequestSchema rejects a reserved id in a grid position', () => {
+    const req = validChartRequest();
+    const result = ChartRequestSchema.safeParse({
+      ...req,
+      layout: {
+        type: 'grid',
+        positions: [
+          {
+            instanceId: 'V:sidebar',
+            position: { row: 0, column: 0 },
+            size: { width: 1, height: 1 },
+          },
+        ],
+      },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test('GridResponseSchema rejects a reserved id in the execution plan', () => {
+    const result = GridResponseSchema.safeParse({
+      userMessage: 'ok',
+      rationale: 'r',
+      executionPlan: [{ instanceId: 'H:hero', action: 'open' }],
+      layout: { positions: [] },
+    });
+    expect(result.success).toBe(false);
+  });
+});
