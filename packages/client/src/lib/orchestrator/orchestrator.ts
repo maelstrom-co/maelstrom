@@ -3,7 +3,7 @@ import {
   type ActionName,
   ChartRequestMessage,
   type ChartResizeReason,
-  findDuplicateTilingLeaf,
+  findDuplicateTilingLeaves,
   type InstanceId,
   isTilingSplit,
   type LayoutMode,
@@ -1183,8 +1183,8 @@ function validateTilingSeedInvariants(layout: TilingLayout): void {
     );
   }
 
-  const duplicateLeaf = findDuplicateTilingLeaf(layout.tree);
-  if (duplicateLeaf) {
+  const duplicateLeaf = findDuplicateTilingLeaves(layout.tree).at(0);
+  if (duplicateLeaf !== undefined) {
     throw new Error(
       `initialLayout.tree names instance "${duplicateLeaf.instanceId}" more than once (tree index ${duplicateLeaf.atTokenIndex}). An instance renders as exactly one tile — weight the split token instead of repeating the leaf.`,
     );

@@ -7,7 +7,7 @@ import type {
   VariantName,
   VesselDefinition,
 } from '@maelstrom-co/protocol';
-import { findDuplicateTilingLeaf, toError } from '@maelstrom-co/protocol';
+import { findDuplicateTilingLeaves, toError } from '@maelstrom-co/protocol';
 import { Store } from '@tanstack/store';
 
 import type { Unsubscribe } from '../types.js';
@@ -468,8 +468,8 @@ export class CommandProcessor {
 function assertNoDuplicateTilingLeaf(layout: GridLayout | TilingLayout): void {
   if (layout.type !== 'tiling') return;
 
-  const duplicate = findDuplicateTilingLeaf(layout.tree);
-  if (!duplicate) return;
+  const duplicate = findDuplicateTilingLeaves(layout.tree).at(0);
+  if (duplicate === undefined) return;
 
   throw new Error(
     `set_layout rejected: tiling tree names instance "${duplicate.instanceId}" more than once (tree index ${duplicate.atTokenIndex}). An instance renders as exactly one tile — weight the split token instead of repeating the leaf.`,
