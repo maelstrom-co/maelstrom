@@ -37,6 +37,7 @@ export {
 export type { TilingSplit } from '@maelstrom-co/protocol';
 // Identity primitives re-exported from protocol for convenience.
 // Each name exports both the branded type and the factory function.
+export type { Result } from '@maelstrom-co/protocol';
 export { MessageId, SessionId } from '@maelstrom-co/protocol';
 // Chart Manager
 export type { ChartManagerEvents } from './lib/chart-manager/chart-manager.js';
