@@ -405,6 +405,25 @@ export function findDuplicateTilingLeaves(
   return duplicates;
 }
 
+/**
+ * Renders the shared half of a duplicate-leaf refusal: which Instance
+ * repeated, where, and what to do instead.
+ *
+ * The text opens with a verb so it reads as the predicate of whatever subject
+ * the caller names, leaving a call site to supply only its own prefix — the
+ * seed field or command it is refusing. Holding the wording in one place keeps
+ * the guard and the sentence explaining it from drifting apart.
+ *
+ * @param duplicate - A repeat reported by {@link findDuplicateTilingLeaves}.
+ * @returns The refusal's shared half, opening lowercase and ending in a full
+ * stop.
+ */
+export function describeDuplicateTilingLeaf(
+  duplicate: DuplicateTilingLeaf,
+): string {
+  return `names instance "${duplicate.instanceId}" more than once (tree index ${duplicate.atTokenIndex}). An instance renders as exactly one tile — weight the split token instead of repeating the leaf.`;
+}
+
 /** Tiling layout with separate tree visibility and retained Instance metadata. */
 export interface TilingLayout {
   /** Must agree with the request's `layoutMode`. */

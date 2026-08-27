@@ -3,6 +3,7 @@ import { describe, expect, spyOn, test } from 'bun:test';
 import { InstanceId } from './instance.js';
 import {
   assertValidSplitWeights,
+  describeDuplicateTilingLeaf,
   findDuplicateTilingLeaves,
   formatTilingSplitToken,
   type GridLayout,
@@ -561,6 +562,36 @@ describe('findDuplicateTilingLeaves', () => {
         'ID:d',
       ]),
     ).toEqual([]);
+  });
+});
+
+describe('describeDuplicateTilingLeaf', () => {
+  test('names the repeat, its token index and the remedy', () => {
+    expect(
+      describeDuplicateTilingLeaf({
+        instanceId: InstanceId('calendar-side'),
+        atTokenIndex: 5,
+      }),
+    ).toBe(
+      'names instance "calendar-side" more than once (tree index 5). An instance renders as exactly one tile — weight the split token instead of repeating the leaf.',
+    );
+  });
+
+  test('reads as the predicate of a caller-supplied subject', () => {
+    const duplicates = findDuplicateTilingLeaves([
+      'V',
+      InstanceId('a'),
+      InstanceId('a'),
+    ]);
+
+    expect(
+      duplicates.map(
+        (duplicate) =>
+          `initialLayout.tree ${describeDuplicateTilingLeaf(duplicate)}`,
+      ),
+    ).toEqual([
+      'initialLayout.tree names instance "a" more than once (tree index 2). An instance renders as exactly one tile — weight the split token instead of repeating the leaf.',
+    ]);
   });
 });
 
