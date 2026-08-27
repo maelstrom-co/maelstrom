@@ -3,6 +3,7 @@ import {
   type ActionName,
   ChartRequestMessage,
   type ChartResizeReason,
+  describeDuplicateTilingLeaf,
   findDuplicateTilingLeaves,
   type InstanceId,
   isTilingSplit,
@@ -1177,16 +1178,17 @@ function validateTilingSeedInvariants(layout: TilingLayout): void {
   for (const [index, node] of layout.tree.entries()) {
     if (!isTilingSplit(node)) continue;
     const parsed = parseTilingSplitToken(node);
-    if (!parsed.repaired && parsed.discardedChildCount === 0) continue;
-    throw new Error(
-      `initialLayout.tree[${index}] is the malformed split token "${node}". Weights must be a comma-separated list of two to ${MAX_SPLIT_CHILDREN} integers from 1 to ${MAX_SPLIT_WEIGHT}, e.g. "V:1,1,1"; bare "H"/"V" mean an even two-way split.`,
-    );
+    if (parsed.repaired || parsed.discardedChildCount > 0) {
+      throw new Error(
+        `initialLayout.tree[${index}] is the malformed split token "${node}". Weights must be a comma-separated list of two to ${MAX_SPLIT_CHILDREN} integers from 1 to ${MAX_SPLIT_WEIGHT}, e.g. "V:1,1,1"; bare "H"/"V" mean an even two-way split.`,
+      );
+    }
   }
 
   const duplicateLeaf = findDuplicateTilingLeaves(layout.tree).at(0);
   if (duplicateLeaf !== undefined) {
     throw new Error(
-      `initialLayout.tree names instance "${duplicateLeaf.instanceId}" more than once (tree index ${duplicateLeaf.atTokenIndex}). An instance renders as exactly one tile — weight the split token instead of repeating the leaf.`,
+      `initialLayout.tree ${describeDuplicateTilingLeaf(duplicateLeaf)}`,
     );
   }
 

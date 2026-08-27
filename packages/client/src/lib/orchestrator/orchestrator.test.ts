@@ -3059,6 +3059,62 @@ describe('Orchestrator', () => {
         );
       });
 
+      // The finder reports every repeat; the seed gate names only the first.
+      // A third occurrence must not drag the reported index along with it.
+      it('names the first repeat, not the last, when a tree leaf appears three times', () => {
+        expect(() =>
+          createTestOrchestrator(undefined, {
+            vessels: [calendarVessel],
+            initialLayout: {
+              ...calendarSeed,
+              tree: [
+                'V:1,1,1',
+                InstanceId('calendar-main'),
+                InstanceId('calendar-main'),
+                InstanceId('calendar-main'),
+              ],
+            },
+          }),
+        ).toThrow(/"calendar-main".*tree index 2/is);
+      });
+
+      // Two independent offenders, so "the first repeat wins" has something to
+      // win against: the message must name the one repeating first in preorder
+      // and leave the later one unmentioned.
+      it('names only the earlier repeat when two instances are each duplicated', () => {
+        const construct = () =>
+          createTestOrchestrator(undefined, {
+            vessels: [calendarVessel],
+            initialLayout: {
+              type: 'tiling',
+              tree: [
+                'H',
+                'V',
+                InstanceId('calendar-main'),
+                InstanceId('calendar-side'),
+                'V',
+                InstanceId('calendar-side'),
+                InstanceId('calendar-main'),
+              ],
+              instances: [
+                {
+                  instanceId: InstanceId('calendar-main'),
+                  vesselId: VesselId('calendar'),
+                  variant: VariantName('day'),
+                },
+                {
+                  instanceId: InstanceId('calendar-side'),
+                  vesselId: VesselId('calendar'),
+                  variant: VariantName('day'),
+                },
+              ],
+            },
+          });
+
+        expect(construct).toThrow(/"calendar-side".*tree index 5/is);
+        expect(construct).not.toThrow(/calendar-main/);
+      });
+
       // The lenient-LLM / strict-developer split: heal repairs a malformed
       // weight suffix so a model's typo still renders, but a seed is a
       // literal an author wrote, and silently rewriting it would hand them
@@ -3086,18 +3142,30 @@ describe('Orchestrator', () => {
         });
       }
 
-      it('accepts a well-formed weighted split token', () => {
-        const orchestrator = createTestOrchestrator(undefined, {
+      // The negative control for the cases above, and a check that the weights
+      // survive: the strict seed gate must reject a malformed suffix without
+      // quietly normalizing a well-formed one on its way into the store.
+      it('accepts a well-formed weighted split token and stores it unrewritten', async () => {
+        const { orchestrator } = createTestOrchestrator(undefined, {
           vessels: [calendarVessel],
           initialLayout: {
             ...calendarSeed,
             tree: ['H:2,1', 'ID:calendar-main', null],
           },
-        }).orchestrator;
+        });
+
+        await orchestrator.commandProcessor.waitForIdle();
 
         expect(orchestrator.commandProcessor.store.state.layoutMode).toBe(
           'tiling',
         );
+        const layout = orchestrator.commandProcessor.store.state.layout;
+        expect(layout?.type === 'tiling' ? layout.tree : []).toEqual([
+          'H:2,1',
+          InstanceId('calendar-main'),
+          null,
+        ]);
+
         orchestrator.dispose();
       });
 

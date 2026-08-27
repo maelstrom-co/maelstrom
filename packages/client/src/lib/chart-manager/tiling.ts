@@ -92,9 +92,8 @@ export interface TilingLeafNode {
 /** Renderable tile computed for one Instance. */
 export interface ComputedTile {
   /**
-   * Instance this tile renders. Each Instance leaf produces exactly one tile;
-   * a repeated leaf is refused upstream rather than merged here, so two tiles
-   * can carry the same identity only when the public API was bypassed.
+   * Instance this tile renders. Not guaranteed distinct across tiles —
+   * disambiguate before using as a collection key.
    */
   readonly instanceId: InstanceId;
   /** Padded pixel-space bounds for the Instance. */
@@ -254,10 +253,7 @@ export function parseTilingTree(
  * One tile per Instance leaf, with no post-pass. A tree naming the same
  * Instance twice is refused by the seed validator and by the command
  * processor, and heal blanks the repeat before it reaches the store, so a
- * duplicate arriving here means the public API was bypassed. Merging the
- * repeats into a bounding box used to hide that: correct only when the rects
- * happen to form a rectangle, and silently painting over a sibling when they
- * do not. Emitting both tiles surfaces it as a duplicate React key instead.
+ * duplicate arriving here means the public API was bypassed.
  */
 export function computeTilingLayout(
   tree: TilingTreeNode | null,
