@@ -67,10 +67,14 @@ interface MaelstromProviderBaseProps {
   /**
    * Called on Orchestrator startup failures, connection failures,
    * processIntent failures, executeAction failures, and command-processing
-   * failures (a refused `set_layout` — see `CommandProcessor`'s
-   * `processing_error`). Errors from `processIntent` also surface via
-   * `useMaelstrom()`; a refused command does not, because it has no call to
-   * attach to.
+   * failures — both of `CommandProcessor`'s failure events route here:
+   * `processing_error` (a command threw, a refused `set_layout` being the
+   * common case) and `batch_abandoned` (the trailing commands of that
+   * command's atomic batch never ran), the latter wrapped in an error naming
+   * the abandoned command kinds. One failing command inside a batch therefore
+   * calls this twice, once per half of the damage. Errors from `processIntent`
+   * also surface via `useMaelstrom()`; a refused command does not, because it
+   * has no call to attach to.
    */
   onError?: (error: Error) => void;
   children: ReactNode;
@@ -297,14 +301,32 @@ export function createProvider(
 
       // A refused command — a `set_layout` naming the same instance in two
       // tiling leaves is the only one today — is otherwise invisible to the
-      // app: `dispatch`/`setLayout` return void, `waitForIdle` resolves the
-      // same either way, and `store.state.lastError` is cleared by whatever
-      // command runs next. Routing it to `onError` is what makes "the layout
-      // did not update, plus an error event" an event somebody receives.
+      // app: `dispatch`/`setLayout` return void, and `store.state.lastError`
+      // is cleared by whatever command runs next. `waitForIdle` now reports
+      // it too, but only to direct callers of the client package — the
+      // Provider doesn't consume that Result. Routing the event to `onError`
+      // is what makes "the layout did not update, plus an error event" an
+      // event a React app receives.
       const unsubProcessingError = instance.commandProcessor.events.on(
         'processing_error',
         ({ error }) => {
           onErrorRef.current?.(error);
+        },
+      );
+
+      // Fires alongside the `processing_error` above for one root failure, so
+      // `onError` sees two errors: the throw, then this — which reports the
+      // *other* half of the damage, the trailing commands of an atomic batch
+      // that silently never ran. Without it those are traceable only through
+      // an internal logger line.
+      const unsubBatchAbandoned = instance.commandProcessor.events.on(
+        'batch_abandoned',
+        ({ failed, abandoned }) => {
+          onErrorRef.current?.(
+            new Error(
+              `[Maelstrom] Abandoned ${abandoned.length} command(s) after "${failed.kind}" failed; these never ran: ${abandoned.map((command) => command.kind).join(', ')}`,
+            ),
+          );
         },
       );
 
@@ -315,6 +337,7 @@ export function createProvider(
 
       return () => {
         unsubProcessingError();
+        unsubBatchAbandoned();
         instance.dispose().catch((err) => {
           console.error('[Maelstrom] Dispose error:', err);
         });

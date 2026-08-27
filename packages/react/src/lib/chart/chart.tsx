@@ -37,6 +37,38 @@ interface RenderEntry {
   readonly exiting?: ResolvedChartMotionConfig;
 }
 
+interface KeyedRenderEntry extends RenderEntry {
+  readonly key: string;
+}
+
+// A repeated instanceId reaches React as two siblings sharing one key, which
+// reconciliation resolves by dropping or reusing the wrong subtree — vessel
+// state silently attaching to the wrong tile. Suffixing every sighting after
+// the first turns that into two mounted subtrees rendering the same instance:
+// visibly wrong instead of quietly wrong. The first sighting keeps the bare
+// id, so the all-unique case (every case the layout gates admit) produces the
+// keys it always did, and component reuse across a re-tile plus live -> ghost
+// exit continuity are untouched.
+//
+// The warning is deliberately not `config.debug`-gated: debug defaults to
+// false, and React's own duplicate-key warning is compiled out of production
+// react-dom, so gating here would leave production with no signal at all.
+function withCollisionKeys(
+  entries: readonly RenderEntry[],
+): readonly KeyedRenderEntry[] {
+  const seen = new Map<string, number>();
+  return entries.map((entry) => {
+    const seenBefore = seen.get(entry.id) ?? 0;
+    seen.set(entry.id, seenBefore + 1);
+    if (seenBefore === 0) return { ...entry, key: entry.id };
+    warnOnce(
+      `chart:duplicate-instance:${entry.id}`,
+      `[Maelstrom] Duplicate instanceId "${entry.id}" in layout; tiles overlap`,
+    );
+    return { ...entry, key: `${entry.id}#${seenBefore}` };
+  });
+}
+
 // Exit ghost's visual style: absolute-positioned at its last known live rect,
 // non-interactive, and behind live content (zIndex 0 vs. live's 1).
 function exitGhostStyle(rect: MotionRect): CSSProperties {
@@ -576,9 +608,9 @@ export function createChart(
           {config.debug && columns > 0 && rows > 0 && (
             <GridDebugOverlay columns={columns} rows={rows} />
           )}
-          {renderEntries.map((entry) => (
+          {withCollisionKeys(renderEntries).map((entry) => (
             <VesselRenderer
-              key={entry.id}
+              key={entry.key}
               instance={entry.instance}
               style={entry.style}
               exiting={entry.exiting}
@@ -645,9 +677,9 @@ export function createChart(
 
       return (
         <div ref={containerRef} className={className} style={containerStyle}>
-          {renderEntries.map((entry) => (
+          {withCollisionKeys(renderEntries).map((entry) => (
             <VesselRenderer
-              key={entry.id}
+              key={entry.key}
               instance={entry.instance}
               style={entry.style}
               exiting={entry.exiting}
