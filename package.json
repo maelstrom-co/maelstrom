@@ -71,7 +71,7 @@
     "@nx/workspace": "23.1.1",
     "@playwright/test": "^1.36.0",
     "@sinonjs/fake-timers": "15.1.1",
-    "@swc-node/register": "1.11.1",
+    "@swc-node/register": "1.12.1",
     "@swc/cli": "0.7.10",
     "@swc/core": "1.15.8",
     "@swc/helpers": "0.5.23",
