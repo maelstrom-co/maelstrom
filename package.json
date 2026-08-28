@@ -83,7 +83,7 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.0.0",
     "@types/sinonjs__fake-timers": "^15.0.1",
-    "@vitejs/plugin-react": "^5.2.0",
+    "@vitejs/plugin-react": "^6.1.0",
     "@vitejs/plugin-react-swc": "^4.3.2",
     "@vitest/coverage-v8": "4.1.9",
     "@vitest/ui": "4.1.9",
