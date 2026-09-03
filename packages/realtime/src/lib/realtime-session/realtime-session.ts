@@ -159,7 +159,9 @@ function defaultSummarize(snapshot: UIStructuralSnapshot): string {
  *       orchestrator
  *         .processIntent(intent)
  *         .then((r) => ({ userMessage: r.userMessage })),
- *     waitForIdle: () => orchestrator.commandProcessor.waitForIdle(),
+ *     waitForIdle: async () => {
+ *       await orchestrator.commandProcessor.waitForIdle();
+ *     },
  *     getStructuralSnapshot: () => orchestrator.getStructuralSnapshot(),
  *     getCapabilitySnapshot: () => orchestrator.getCapabilitySnapshot(),
  *     onSettled: (cb) => orchestrator.onSettled(cb),
