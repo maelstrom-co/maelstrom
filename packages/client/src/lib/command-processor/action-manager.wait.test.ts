@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import {
   type ActionExecution,
   ActionName,
@@ -433,6 +433,74 @@ describe('ActionManager waitForReady', () => {
       expect((result as unknown as BatchExecutionResult).allSucceeded).toBe(
         true,
       );
+    });
+  });
+
+  describe('dispose', () => {
+    let warnSpy: ReturnType<typeof spyOn>;
+
+    beforeEach(() => {
+      warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      warnSpy.mockRestore();
+    });
+
+    it('should settle a pending waiter without warning', async () => {
+      let promiseResolved = false;
+      let result = true;
+      manager.waitForReady(i1, 1000).then((_result) => {
+        promiseResolved = true;
+        result = _result;
+        return _result;
+      });
+
+      await clock.tickAsync(0);
+      expect(promiseResolved).toBe(false);
+
+      manager.dispose();
+      await clock.tickAsync(0);
+
+      expect(promiseResolved).toBe(true);
+      expect(result).toBe(false);
+
+      // Past the original timeout: the cancelled timer must not fire.
+      await clock.tickAsync(2000);
+      expect(warnSpy).not.toHaveBeenCalled();
+    });
+
+    it('should stay silent when a batch is disposed mid-wait', async () => {
+      const executionPlan: ActionExecution[] = [
+        { instanceId: i1, action: ActionName('testAction') },
+      ];
+      let result: BatchExecutionResult | null = null;
+      manager.executeActions(executionPlan).then((_result) => {
+        result = _result;
+        return _result;
+      });
+
+      await clock.tickAsync(0);
+      manager.dispose();
+      await clock.tickAsync(2000);
+
+      expect((result as unknown as BatchExecutionResult).skippedCount).toBe(1);
+      expect(warnSpy).not.toHaveBeenCalled();
+    });
+
+    it('should not schedule a readiness timer after disposal', async () => {
+      manager.dispose();
+
+      let result = true;
+      manager.waitForReady(i1, 1000).then((_result) => {
+        result = _result;
+        return _result;
+      });
+
+      await clock.tickAsync(2000);
+
+      expect(result).toBe(false);
+      expect(warnSpy).not.toHaveBeenCalled();
     });
   });
 });

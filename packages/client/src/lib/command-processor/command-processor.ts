@@ -309,6 +309,7 @@ export class CommandProcessor {
 
     this.#emitter.dispose();
     this.#commandQueue = [];
+    this.#actionManager.dispose();
 
     // Resolve any pending waitForIdle promises so they don't hang
     for (const resolve of this.#idleResolvers) {

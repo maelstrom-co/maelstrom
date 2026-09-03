@@ -54,10 +54,11 @@ import type {
  */
 export class ActionManager {
   #runners: Map<InstanceId, AnyActionRunner> = new Map();
-  #readinessWaiters: Map<InstanceId, Set<() => void>> = new Map();
+  #readinessWaiters: Map<InstanceId, Set<(ready: boolean) => void>> = new Map();
   #logger: Logger;
   #readinessTimeoutMs: number;
   #executionTimeoutMs: number;
+  #disposed = false;
 
   constructor(options?: {
     logger?: Logger;
@@ -96,8 +97,8 @@ export class ActionManager {
     // Resolve any waiters waiting for this instance
     const waiters = this.#readinessWaiters.get(instanceId);
     if (waiters) {
-      for (const resolve of waiters) {
-        resolve();
+      for (const settle of waiters) {
+        settle(true);
       }
       this.#readinessWaiters.delete(instanceId);
     }
@@ -141,7 +142,8 @@ export class ActionManager {
    *
    * @param instanceId - The branded instance ID to wait for
    * @param timeoutMs - Maximum time to wait (default: 5000ms)
-   * @returns Promise that resolves to true if runner registered, false if timeout
+   * @returns Promise that resolves to true if runner registered, false if the
+   * wait timed out or the manager was disposed
    *
    * @example
    * ```typescript
@@ -160,24 +162,31 @@ export class ActionManager {
       return true;
     }
 
+    if (this.#disposed) {
+      return false;
+    }
+
     this.#logger.debug(
       `Waiting for runner for instance "${instanceId}" (timeout: ${timeoutMs}ms)`,
     );
 
     return new Promise((resolve) => {
       const timeoutId = setTimeout(() => {
-        this.#cleanupWaiter(instanceId, waiter);
-        this.#logger.warn(
+        this.#warn(
           `Timeout waiting for runner for instance "${instanceId}" after ${timeoutMs}ms`,
         );
-        resolve(false);
+        settle(false);
       }, timeoutMs);
 
-      const waiter = () => {
+      const settle = (ready: boolean) => {
         clearTimeout(timeoutId);
-        this.#cleanupWaiter(instanceId, waiter);
-        this.#logger.debug(`Runner for instance "${instanceId}" is now ready`);
-        resolve(true);
+        this.#cleanupWaiter(instanceId, settle);
+        if (ready) {
+          this.#logger.debug(
+            `Runner for instance "${instanceId}" is now ready`,
+          );
+        }
+        resolve(ready);
       };
 
       // Add to waiters
@@ -186,7 +195,7 @@ export class ActionManager {
         waiters = new Set();
         this.#readinessWaiters.set(instanceId, waiters);
       }
-      waiters.add(waiter);
+      waiters.add(settle);
     });
   }
 
@@ -234,7 +243,7 @@ export class ActionManager {
           );
 
           if (!isReady) {
-            this.#logger.warn(
+            this.#warn(
               `No runner registered for instance "${instanceId}", skipping ${actionDefs.length} actions`,
             );
             // Return skipped actions (not a failure)
@@ -282,9 +291,34 @@ export class ActionManager {
   }
 
   /**
+   * Release the manager: cancel every pending readiness wait so no timer
+   * outlives disposal, and settle its waiters as not-ready.
+   *
+   * Waiters resolve `false` rather than rejecting so an in-flight
+   * {@link executeActions} still returns its actions as skipped instead of
+   * surfacing a rejection its callers do not expect. A disposed manager stays
+   * silent and never schedules another readiness timer.
+   */
+  dispose(): void {
+    if (this.#disposed) return;
+    this.#disposed = true;
+
+    const pending = Array.from(this.#readinessWaiters.values());
+    this.#readinessWaiters.clear();
+    for (const waiters of pending) {
+      for (const settle of waiters) {
+        settle(false);
+      }
+    }
+  }
+
+  /**
    * Cleanup a waiter from the waiters map.
    */
-  #cleanupWaiter(instanceId: InstanceId, waiter: () => void): void {
+  #cleanupWaiter(
+    instanceId: InstanceId,
+    waiter: (ready: boolean) => void,
+  ): void {
     const waiters = this.#readinessWaiters.get(instanceId);
     if (!waiters) return;
 
@@ -340,7 +374,7 @@ export class ActionManager {
 
       if (!runner) {
         // Should not happen since we wait for ready, but just in case
-        this.#logger.warn(
+        this.#warn(
           `No runner available for instance "${instanceId}" action "${execution.action}", skipping`,
         );
         records.push({
@@ -356,7 +390,7 @@ export class ActionManager {
       // Look up the specific handler for this action
       const handler = runner[execution.action];
       if (!handler) {
-        this.#logger.warn(
+        this.#warn(
           `No handler for action "${execution.action}" on instance "${instanceId}", skipping`,
         );
         records.push({
@@ -416,6 +450,11 @@ export class ActionManager {
     }
 
     return records;
+  }
+
+  #warn(message: string): void {
+    if (this.#disposed) return;
+    this.#logger.warn(message);
   }
 
   /**
