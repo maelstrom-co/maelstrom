@@ -857,6 +857,76 @@ describe('engine.handle — chart_request', () => {
       retryRecommend: true,
     });
   });
+
+  test('"Response healed" detail renders drops under a list ceiling', async () => {
+    // A drop count alone tells an operator that something was cut but never
+    // what, so the forensic lines belong beside the repairs already there.
+    const overflowCount = 17;
+    const extras = Array.from(
+      { length: overflowCount },
+      (_, index) => `extra-${index}`,
+    );
+    mockChat.mockResolvedValueOnce(
+      buildGridResponse({
+        layout: {
+          positions: [
+            {
+              instanceId: 'calendar-main',
+              position: { row: 0, column: 0 },
+              size: { width: 6, height: 4 },
+            },
+            ...extras.map((instanceId) => ({
+              instanceId,
+              position: { row: 0, column: 0 },
+              size: { width: 15, height: 4 },
+            })),
+          ],
+        },
+      }),
+    );
+
+    const logEntries: Array<{ level: string; msg: string; ctx?: unknown }> = [];
+    const spyLogger = {
+      debug: () => {},
+      info: (msg: string, ctx?: unknown) =>
+        logEntries.push({ level: 'info', msg, ctx }),
+      warn: (msg: string, ctx?: unknown) =>
+        logEntries.push({ level: 'warn', msg, ctx }),
+      error: (msg: string, _error?: unknown, ctx?: unknown) =>
+        logEntries.push({ level: 'error', msg, ctx }),
+    };
+
+    const engine = createEngine({ adapter: dummyAdapter, logger: spyLogger });
+    const request = makeGridRequest({
+      instances: [
+        {
+          instanceId: InstanceId('calendar-main'),
+          vesselId: 'calendar',
+          variant: 'month',
+        },
+        ...extras.map((instanceId) => ({
+          instanceId: InstanceId(instanceId),
+          vesselId: 'calendar',
+          variant: 'month',
+        })),
+      ],
+    });
+    await engine.handle(toChartRequestMessage(request));
+
+    const healed = logEntries.filter((e) => e.msg === 'Response healed');
+    expect(healed).toHaveLength(1);
+    const detail = (healed[0]?.ctx as { detail: { drops: string[] } }).detail;
+    // 16 rendered plus the tail count, matching `formatLayoutWarnings`.
+    expect(detail.drops).toHaveLength(17);
+    expect(detail.drops[0]).toBe(
+      'instance "extra-0" at (0,0) size 15x4 exceeds chart bounds (12x8)',
+    );
+    expect(detail.drops[15]).toContain('"extra-15"');
+    expect(detail.drops.at(-1)).toBe('1 additional drop omitted');
+    expect(healed[0]?.ctx).toMatchObject({
+      droppedLayoutEntries: overflowCount,
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------

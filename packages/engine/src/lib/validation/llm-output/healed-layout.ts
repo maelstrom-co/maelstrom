@@ -243,7 +243,11 @@ export function formatLayoutWarning(warning: LayoutWarning): string {
   }
 }
 
-const MAX_LOGGED_WARNINGS = 16;
+/**
+ * Shared list ceiling for the `'Response healed'` log's repairs and drops
+ * sections, so tuning one bound tunes both.
+ */
+export const MAX_LOGGED_ENTRIES = 16;
 
 /**
  * Renders the operator-log view of a response's repairs under a list ceiling.
@@ -256,7 +260,7 @@ export function formatLayoutWarnings(
   warnings: readonly LayoutWarning[],
 ): string[] {
   const visible = warnings
-    .slice(0, MAX_LOGGED_WARNINGS)
+    .slice(0, MAX_LOGGED_ENTRIES)
     .map(formatLayoutWarning);
   const omitted = warnings.length - visible.length;
   if (omitted <= 0) return visible;

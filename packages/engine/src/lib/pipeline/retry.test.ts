@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import type { Result } from '@maelstrom-co/protocol';
+import type { Result, TilingSplitToken } from '@maelstrom-co/protocol';
 import {
   ActionName,
   err,
@@ -29,6 +29,7 @@ import type {
   LayoutWarning,
   RetryHint,
 } from '../validation/llm-output/healed-layout.js';
+import { deriveRetryHint } from '../validation/llm-output/retry-hint.js';
 
 import { buildRetryPrompt, callWithRetry, type RunOnce } from './retry.js';
 
@@ -364,7 +365,24 @@ describe('callWithRetry', () => {
       // Collapsing this into the malformed-tree advisory tells a model whose
       // tree parsed perfectly that it could not be parsed, and never names
       // the id it repeated.
-      const failed = recommendingResponse({
+      //
+      // The repeat itself never asks for a retry — blanking it still leaves
+      // a renderable layout — so the hint here is derived from the skip
+      // beside it rather than asserted into existence.
+      const skipped = paramsParseFailed('a', 'go');
+      const retryHint = deriveRetryHint({
+        healedLayoutSize: 1,
+        requestInstanceCount: 2,
+        proposedActionCount: 1,
+        acceptedActionCount: 0,
+        skippedActions: [skipped],
+        droppedLayoutCount: 1,
+        warningCount: 0,
+      });
+      expect(retryHint).toEqual({ severity: 'medium', recommend: true });
+
+      const failed = response({
+        skippedActions: [skipped],
         droppedLayoutEntries: [
           {
             reason: 'tree_duplicate_leaf',
@@ -372,6 +390,7 @@ describe('callWithRetry', () => {
             instanceId: InstanceId('calendar-main'),
           },
         ],
+        retryHint,
       });
       const { runOnce, prompts } = recordingRunOnce([
         ok(failed),
@@ -1413,6 +1432,100 @@ describe('buildRetryPrompt', () => {
     );
     expect(overLimit).toContain('diagnostic text omitted');
     expect(overLimit).not.toContain(JSON.stringify('last'));
+  });
+
+  // The line ceiling used to be applied after every entry had been rendered,
+  // so a response carrying hundreds of thousands of drops paid for hundreds
+  // of thousands of interpolated strings to publish 32 of them. Each spy
+  // counts reads of the one field its renderer interpolates.
+  describe('formatting stops at the line ceiling', () => {
+    test('skipped actions past the ceiling are counted, not rendered', () => {
+      let rendered = 0;
+      const skippedActions = Array.from(
+        { length: 200 },
+        (_, index): SkippedAction => ({
+          reason: 'params_parse_failed',
+          instanceId: InstanceId(`instance-${index}`),
+          get action() {
+            rendered += 1;
+            return ActionName(`action-${index}`);
+          },
+        }),
+      );
+
+      const section = retryDiagnosticSection(
+        buildRetryPrompt('original', {
+          skippedActions,
+          droppedLayoutEntries: [],
+          warnings: [],
+          retryHint: recommendMedium,
+        }),
+      );
+
+      expect(rendered).toBe(32);
+      expect(section).toContain('169 diagnostic lines omitted');
+    });
+
+    test('layout drops past the ceiling are counted, not rendered', () => {
+      let rendered = 0;
+      const droppedLayoutEntries = Array.from(
+        { length: 200 },
+        (_, index): DroppedLayoutEntry => ({
+          reason: 'position_overflow',
+          row: 10,
+          column: 5,
+          width: 4,
+          height: 3,
+          chartColumns: 12,
+          chartRows: 8,
+          get instanceId() {
+            rendered += 1;
+            return InstanceId(`instance-${index}`);
+          },
+        }),
+      );
+
+      const section = retryDiagnosticSection(
+        buildRetryPrompt('original', {
+          skippedActions: [],
+          droppedLayoutEntries,
+          warnings: [],
+          retryHint: recommendMedium,
+        }),
+      );
+
+      expect(rendered).toBe(32);
+      expect(section).toContain('169 diagnostic lines omitted');
+    });
+
+    test('layout warnings past the ceiling are counted, not rendered', () => {
+      let rendered = 0;
+      const warnings = Array.from(
+        { length: 200 },
+        (): LayoutWarning => ({
+          kind: 'split_weights_repaired',
+          atTokenIndex: 2,
+          weights: [1, 1],
+          repairReason: 'unreadable',
+          get token(): TilingSplitToken {
+            rendered += 1;
+            return 'V:xyz';
+          },
+        }),
+      );
+
+      const section = retryDiagnosticSection(
+        buildRetryPrompt('original', {
+          skippedActions: [],
+          droppedLayoutEntries: [],
+          warnings,
+          retryHint: recommendMedium,
+        }),
+      );
+
+      expect(rendered).toBe(32);
+      expect(section).toContain('169 diagnostic lines omitted');
+    });
   });
 });
 

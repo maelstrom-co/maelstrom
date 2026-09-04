@@ -35,6 +35,13 @@ interface DiagnosticLine {
   readonly text: string;
 }
 
+interface BoundedLines {
+  /** Entries rendered before the line ceiling was reached. */
+  readonly lines: readonly string[];
+  /** Entries the ceiling left unrendered, carried into the omission tail. */
+  readonly omitted: number;
+}
+
 /**
  * Renders retry diagnostics under identifier, list, line, and UTF-8 ceilings.
  * Model-derived identifiers are control-sanitized, truncated by Unicode code
@@ -46,24 +53,31 @@ interface DiagnosticLine {
  * Repairs are rendered alongside drops because a repair is still a rewrite of
  * what the model asked for: a weight suffix the pipeline could not read was
  * substituted, and the model is the only party that can stop emitting it.
+ *
+ * The model chooses how many entries it produces, so each describer stops
+ * interpolating at the line ceiling and counts the rest: rendering every entry
+ * first and cutting afterwards costs memory proportional to the model's worst
+ * output to publish a fixed-size section.
  */
 export function renderRetryDiagnostics(
   drops: readonly DroppedLayoutEntry[],
   skippedActions: readonly SkippedAction[],
   warnings: readonly LayoutWarning[],
 ): string {
+  const describedDrops = describeLayoutDrops(drops);
   const described = describeLayoutWarnings(warnings);
+  const describedSkips = describeSkippedActions(skippedActions);
   const sections = [
-    { heading: 'Layout drops:' as const, lines: describeLayoutDrops(drops) },
+    { heading: 'Layout drops:' as const, lines: describedDrops.lines },
     { heading: 'Layout repairs:' as const, lines: described.repairs },
     { heading: 'Response quality:' as const, lines: described.quality },
-    {
-      heading: 'Skipped actions:' as const,
-      lines: describeSkippedActions(skippedActions),
-    },
+    { heading: 'Skipped actions:' as const, lines: describedSkips.lines },
   ].filter((section) => section.lines.length > 0);
 
-  return boundDiagnosticSection(sections);
+  return boundDiagnosticSection(
+    sections,
+    describedDrops.omitted + described.omitted + describedSkips.omitted,
+  );
 }
 
 /** Renders at most 16 quoted identifiers plus a trusted omission count. */
@@ -84,15 +98,26 @@ function formatIdentifierList(identifiers: readonly string[]): string {
  * generic advisory tells the model its tree could not be parsed, which is the
  * wrong diagnosis for a tree that parsed perfectly and merely broke a rule.
  */
-function describeLayoutDrops(drops: readonly DroppedLayoutEntry[]): string[] {
+function describeLayoutDrops(
+  drops: readonly DroppedLayoutEntry[],
+): BoundedLines {
   const lines: string[] = [];
   const duplicateLeafIds: string[] = [];
   const truncatedSplitLines: string[] = [];
   let hasTreeDrop = false;
+  let omitted = 0;
 
   for (const drop of drops) {
+    // Repeats and malformed-tree drops collapse into one line each, so they
+    // never consume the budget however many arrive.
+    const exhausted =
+      lines.length + truncatedSplitLines.length >= MAX_DIAGNOSTIC_LINES;
     if (!isTreeDrop(drop)) {
-      lines.push(describeInstanceLayoutDrop(drop));
+      if (exhausted) {
+        omitted += 1;
+      } else {
+        lines.push(describeInstanceLayoutDrop(drop));
+      }
       continue;
     }
     switch (drop.reason) {
@@ -100,6 +125,10 @@ function describeLayoutDrops(drops: readonly DroppedLayoutEntry[]): string[] {
         duplicateLeafIds.push(drop.instanceId);
         break;
       case 'tree_split_truncated':
+        if (exhausted) {
+          omitted += 1;
+          break;
+        }
         truncatedSplitLines.push(
           `A split token declared ${drop.declaredChildCount} children; a single split may declare at most ${drop.keptChildCount}. Nest splits to arrange more regions rather than widening one.`,
         );
@@ -125,7 +154,7 @@ function describeLayoutDrops(drops: readonly DroppedLayoutEntry[]): string[] {
       'The tiling tree was malformed and could not be fully parsed. Re-emit it as a preorder traversal in which every split token is followed by exactly as many subtrees as it declares weights — two for a bare "H" or "V" — using only the requested instance IDs.',
     );
   }
-  return lines;
+  return { lines, omitted };
 }
 
 /**
@@ -139,10 +168,16 @@ function describeLayoutDrops(drops: readonly DroppedLayoutEntry[]): string[] {
 function describeLayoutWarnings(warnings: readonly LayoutWarning[]): {
   repairs: string[];
   quality: string[];
+  omitted: number;
 } {
   const repairs: string[] = [];
   const quality: string[] = [];
+  let omitted = 0;
   for (const warning of warnings) {
+    if (repairs.length + quality.length >= MAX_DIAGNOSTIC_LINES) {
+      omitted += 1;
+      continue;
+    }
     switch (warning.kind) {
       case 'missing_rationale':
         quality.push(
@@ -160,7 +195,7 @@ function describeLayoutWarnings(warnings: readonly LayoutWarning[]): {
         assertNever(warning, 'describeLayoutWarnings');
     }
   }
-  return { repairs, quality };
+  return { repairs, quality, omitted };
 }
 
 /** Renders one non-tree layout drop without exposing an unquoted identifier. */
@@ -185,13 +220,47 @@ function describeInstanceLayoutDrop(entry: InstanceDroppedLayoutEntry): string {
 }
 
 /** Omits non-actionable skips and renders each remaining skip once. */
-function describeSkippedActions(skipped: readonly SkippedAction[]): string[] {
+function describeSkippedActions(
+  skipped: readonly SkippedAction[],
+): BoundedLines {
   const lines: string[] = [];
+  let omitted = 0;
   for (const entry of skipped) {
+    if (!isDiagnosableSkip(entry.reason)) continue;
+    if (lines.length >= MAX_DIAGNOSTIC_LINES) {
+      omitted += 1;
+      continue;
+    }
     const line = describeSkippedAction(entry);
     if (line !== undefined) lines.push(line);
   }
-  return lines;
+  return { lines, omitted };
+}
+
+/**
+ * Whether a skip contributes a line at all. Both this and
+ * {@link describeSkippedAction} exhaust the union, so a new reason has to
+ * choose twice; the split exists so a skip past the line ceiling can be
+ * counted without paying to render it.
+ */
+function isDiagnosableSkip(reason: SkippedAction['reason']): boolean {
+  switch (reason) {
+    case 'state_drift':
+    case 'params_limits_exceeded':
+    case 'invalid_action_definition':
+      return false;
+    case 'self_transition_noop':
+    case 'params_parse_failed':
+    case 'params_validation_failed':
+    case 'unknown_instance':
+    case 'unknown_vessel':
+    case 'no_simulated_variant':
+    case 'variant_not_on_vessel':
+    case 'action_not_valid':
+      return true;
+    default:
+      return assertNever(reason, 'isDiagnosableSkip');
+  }
 }
 
 /** Returns one safe retry line, or undefined for a non-actionable skip. */
@@ -259,6 +328,7 @@ function formatIssueList(
 /** Caps the section at 32 diagnostic entries and 8,192 rendered UTF-8 bytes. */
 function boundDiagnosticSection(
   sections: readonly DiagnosticSection[],
+  unrendered: number,
 ): string {
   const lines = sections.flatMap((section) =>
     section.lines.map((text) => ({ heading: section.heading, text })),
@@ -266,9 +336,9 @@ function boundDiagnosticSection(
   if (lines.length === 0) return '';
 
   let bounded = lines;
-  if (lines.length > MAX_DIAGNOSTIC_LINES) {
+  if (lines.length + unrendered > MAX_DIAGNOSTIC_LINES) {
     const retained = lines.slice(0, MAX_DIAGNOSTIC_LINES - 1);
-    const omitted = lines.length - retained.length;
+    const omitted = lines.length - retained.length + unrendered;
     const heading = retained.at(-1)?.heading ?? lines[0]?.heading;
     if (heading === undefined) return '';
     bounded = [

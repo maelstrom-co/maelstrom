@@ -60,6 +60,12 @@ export function isFixableSkip(reason: SkippedAction['reason']): boolean {
  * their own — if any *other* skip in the same response is fixable AND no
  * actions survived, retry still has a chance of producing a usable plan.
  *
+ * Layout drops arrive as a count, never as reasons, and deliberately so: a
+ * response whose only fault is a repeated leaf that left a survivor ships
+ * without a retry, because blanking the repeat leaves a layout the user can
+ * use and a re-roll would cost a round trip to close a cosmetic gap. Drops
+ * severe enough to matter empty the layout and are caught above.
+ *
  * `severity = 'unrecoverable'` is reserved for the layout-empty case. The
  * action-empty-only case is `'medium' + recommend: true` — the layout
  * itself is renderable.
