@@ -428,6 +428,28 @@ describe('CommandProcessor (Event Loop)', () => {
 
       expect(burstError(first)).toBe(burstError(second));
     });
+
+    it('survives a store subscriber that dispatches on the return to idle', async () => {
+      // A subscriber registered before the waiter starts a fresh burst from
+      // inside the idle notification. The waiter must still report the burst
+      // it was waiting on, not the one that reentrancy started.
+      let reentered = false;
+      const watcher = processor.store.subscribe(() => {
+        if (reentered || processor.store.state.status !== 'idle') return;
+        reentered = true;
+        processor.dispatch(createSetLayoutCommand('instance-1'));
+      });
+
+      try {
+        processor.dispatch(refusedLayoutCommand());
+        const result = await processor.waitForIdle();
+
+        expect(reentered).toBe(true);
+        expect(burstError(result).message).toMatch(/more than once/);
+      } finally {
+        watcher.unsubscribe();
+      }
+    });
   });
 
   describe('stress tests', () => {

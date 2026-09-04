@@ -163,28 +163,17 @@ export class CommandProcessor {
    * completed (`ok` on a fresh processor).
    *
    * The queue is shared, so the Result describes the burst as a whole, not
-   * any one caller's commands; concurrent waiters observe the same value.
-   * The promise never rejects, and disposal settles pending waiters with the
-   * outcome recorded so far.
+   * any one caller's commands; concurrent waiters observe the same value. A
+   * waiter is bound to the burst that was in flight when it was issued, so a
+   * burst started from the return-to-idle notification itself cannot overwrite
+   * its result. The promise never rejects, and disposal settles pending waiters
+   * with the outcome recorded so far.
    */
   waitForIdle(): Promise<Result<void, Error>> {
     if (this.store.state.status === 'idle' && this.#commandQueue.length === 0) {
       return Promise.resolve(this.#snapshotBurstResult());
     }
     return new Promise((resolve) => {
-      const cleanup = () => {
-        sub.unsubscribe();
-        this.#idleResolvers.delete(resolve);
-      };
-      const sub = this.store.subscribe(() => {
-        if (
-          this.store.state.status === 'idle' &&
-          this.#commandQueue.length === 0
-        ) {
-          cleanup();
-          resolve(this.#snapshotBurstResult());
-        }
-      });
       this.#idleResolvers.add(resolve);
     });
   }
@@ -312,10 +301,7 @@ export class CommandProcessor {
     this.#actionManager.dispose();
 
     // Resolve any pending waitForIdle promises so they don't hang
-    for (const resolve of this.#idleResolvers) {
-      resolve(this.#snapshotBurstResult());
-    }
-    this.#idleResolvers.clear();
+    this.#settleIdleWaiters();
 
     // Settle any in-flight runLocalAction awaiters (undefined → 'failed') so
     // they don't hang past disposal.
@@ -478,12 +464,29 @@ export class CommandProcessor {
       return this.#commandQueue.shift() ?? null;
     }
 
+    // Settle before publishing 'idle': a subscriber can synchronously dispatch
+    // from that notification, and the burst it starts resets #lastBurstError.
+    // Waiters on the burst that just drained would then read the reset value
+    // and report a clean run over a refusal.
+    this.#settleIdleWaiters();
+
     this.store.setState((state) => ({
       ...state,
       status: 'idle' as const,
     }));
 
     return null;
+  }
+
+  #settleIdleWaiters(): void {
+    if (this.#idleResolvers.size === 0) return;
+
+    const result = this.#snapshotBurstResult();
+    const resolvers = [...this.#idleResolvers];
+    this.#idleResolvers.clear();
+    for (const resolve of resolvers) {
+      resolve(result);
+    }
   }
 
   #settleActionResult(
