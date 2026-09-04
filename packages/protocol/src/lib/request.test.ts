@@ -12,6 +12,7 @@ import {
   UserIntentReasonSchema,
   VesselMutationReasonSchema,
 } from './request.js';
+import type { TilingLeafToken, TilingSplitToken } from './response.js';
 import type { VesselInstanceSnapshotSchema } from './schemas.js';
 import { VariantName } from './variant-name.js';
 import { VesselId } from './vessel-id.js';
@@ -110,7 +111,7 @@ describe('TilingResponseSchema', () => {
   test('accepts a tree with splits, instance ids, and null', () => {
     const result = TilingResponseSchema.safeParse(
       tilingPayload({
-        tree: ['V', 'calendar-main', 'H', 'tasks-main', null],
+        tree: ['V', 'ID:calendar-main', 'H', 'ID:tasks-main', null],
         instances: [
           {
             instanceId: 'calendar-main',
@@ -935,7 +936,7 @@ describe('ChartRequestSchema cross-validation', () => {
         layoutInstances: [
           { instanceId: 'cal-1', vesselId: 'calendar', variant: 'default' },
         ],
-        tree: ['cal-1', 'ghost-leaf'],
+        tree: ['ID:cal-1', 'ID:ghost-leaf'],
       });
       const result = ChartRequestSchema.safeParse(req);
       expect(result.success).toBe(false);
@@ -949,14 +950,14 @@ describe('ChartRequestSchema cross-validation', () => {
       ).toBe(true);
     });
 
-    test('accepts H/V/null tree nodes without flagging', () => {
+    test('accepts split tokens and null without flagging', () => {
       const req = tilingChartRequest({
         instances: [],
         vessels: [minimalVessel('calendar', ['default'])],
         layoutInstances: [
           { instanceId: 'cal-1', vesselId: 'calendar', variant: 'default' },
         ],
-        tree: ['V', 'cal-1', 'H', null],
+        tree: ['V', 'ID:cal-1', 'H', null],
       });
       expect(ChartRequestSchema.safeParse(req).success).toBe(true);
     });
@@ -1016,7 +1017,7 @@ describe('ChartRequestSchema cross-validation', () => {
         layoutInstances: [
           { instanceId: 'tasks-1', vesselId: 'unknown', variant: 'default' },
         ],
-        tree: ['ghost-leaf'],
+        tree: ['ID:ghost-leaf'],
       });
       const result = ChartRequestSchema.safeParse(req);
       expect(result.success).toBe(false);
@@ -1076,13 +1077,13 @@ describe('schema branding', () => {
     void _checkPositionInstanceId;
   });
 
-  test('TilingResponseSchema brands tree InstanceIds and instance vesselId/variant', () => {
+  test('TilingResponseSchema keeps tree tokens and brands instance fields', () => {
     const result = TilingResponseSchema.safeParse({
       userMessage: 'hi',
       rationale: 'r',
       executionPlan: [],
       layout: {
-        tree: ['V', 'calendar-main', 'tasks-main'],
+        tree: ['V', 'ID:calendar-main', 'ID:tasks-main'],
         instances: [
           {
             instanceId: 'calendar-main',
@@ -1097,8 +1098,8 @@ describe('schema branding', () => {
     if (!result.success) throw new Error('expected success');
 
     // Runtime: structural shape preserved (brand erases).
-    expect(result.data.layout.tree).toContain(InstanceId('calendar-main'));
-    expect(result.data.layout.tree).toContain(InstanceId('tasks-main'));
+    expect(result.data.layout.tree).toContain('ID:calendar-main');
+    expect(result.data.layout.tree).toContain('ID:tasks-main');
     expect(result.data.layout.instances[0]?.instanceId).toBe(
       InstanceId('calendar-main'),
     );
@@ -1107,12 +1108,12 @@ describe('schema branding', () => {
     );
     expect(result.data.layout.instances[0]?.variant).toBe(VariantName('month'));
 
-    // Type-level: tree leaves must be branded as `InstanceId` (split tokens
-    // and `null` pass through unchanged). The instance fields must each
-    // carry their respective brand.
+    // Type-level: tree tokens keep the spelling they arrived with — a leaf
+    // is an `ID:`-prefixed token, not a bare `InstanceId`. The instance
+    // fields must each carry their respective brand.
     type _TreeNodeBrand = Equals<
       (typeof result.data.layout.tree)[number],
-      'H' | 'V' | InstanceId | null
+      TilingSplitToken | TilingLeafToken | null
     >;
     type _InstancesInstanceIdBranded = Equals<
       (typeof result.data.layout.instances)[number]['instanceId'],
@@ -1198,5 +1199,51 @@ describe('contextual validation messages', () => {
     expect(
       result.error.issues.some((i) => /variant is required/.test(i.message)),
     ).toBe(true);
+  });
+});
+
+describe('split-shaped instance ids reaching the request boundary', () => {
+  // The tiling grammar marks its own leaves, so no part of the Instance ID
+  // namespace is reserved at a branding boundary.
+  test('ChartRequestSchema brands a split-shaped id in updateReasons', () => {
+    const req = validChartRequest();
+    const result = ChartRequestSchema.safeParse({
+      ...req,
+      context: {
+        ...req.context,
+        updateReasons: [
+          { type: 'vessel_mutation', instanceId: 'H', changes: 'x' },
+        ],
+      },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test('GridResponseSchema brands a split-shaped id in a layout position', () => {
+    const result = GridResponseSchema.safeParse({
+      userMessage: 'ok',
+      rationale: 'r',
+      executionPlan: [],
+      layout: {
+        positions: [
+          {
+            instanceId: 'V:sidebar',
+            position: { row: 0, column: 0 },
+            size: { width: 1, height: 1 },
+          },
+        ],
+      },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test('GridResponseSchema brands a split-shaped id in the execution plan', () => {
+    const result = GridResponseSchema.safeParse({
+      userMessage: 'ok',
+      rationale: 'r',
+      executionPlan: [{ instanceId: 'H:hero', action: 'open' }],
+      layout: { positions: [] },
+    });
+    expect(result.success).toBe(true);
   });
 });

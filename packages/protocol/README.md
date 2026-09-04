@@ -238,7 +238,7 @@ A binary tree of horizontal / vertical splits with instance leaves, expressed as
 ```ts
 interface TilingLayout {
   type: 'tiling';
-  tree: readonly TilingNode[];      // 'H' | 'V' | InstanceId | null
+  tree: readonly TilingNode[];      // 'H' | 'V' | `ID:${InstanceId}` | null
   instances: readonly TilingInstance[];
 }
 
@@ -249,14 +249,21 @@ interface TilingInstance {
 }
 ```
 
-The wire shape `'H' | 'V' | string | null` makes `InstanceId` structurally indistinguishable from the split operators at the value level. Use the predicates instead of hand-rolled discrimination:
+A leaf carries the mandatory `ID:` prefix, so no Instance ID can be mistaken for a split token — an Instance called `H:hero` appears as `ID:H:hero`. Build leaves with `tilingLeafToken` and read them with `tilingLeafInstanceId` rather than slicing the prefix by hand:
 
 ```ts
-import { isInstanceIdNode, isTilingSplit } from '@maelstrom-co/protocol';
+import {
+  isTilingSplit,
+  tilingLeafInstanceId,
+  tilingLeafToken,
+} from '@maelstrom-co/protocol';
+
+const tree = ['V', tilingLeafToken(calendarId), tilingLeafToken(tasksId)];
 
 for (const node of layout.tree) {
-  if (isTilingSplit(node)) { /* 'H' or 'V' */ }
-  else if (isInstanceIdNode(node)) { /* an InstanceId leaf */ }
+  const instanceId = tilingLeafInstanceId(node);
+  if (instanceId !== null) { /* a leaf naming instanceId */ }
+  else if (isTilingSplit(node)) { /* 'H', 'V', or a weighted token */ }
   else { /* null — empty subtree */ }
 }
 ```

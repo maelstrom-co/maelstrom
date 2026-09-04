@@ -6,13 +6,15 @@ import { ChartDimensionsSchema } from './chart.ts';
 // Referenced via `{@link}` in the ChartRequest JSDoc below — type-only import
 // keeps IDE hover/jump-to-definition uniform across resolvers.
 import type { ChartRequestMessage } from './engine-message.ts';
-import { InstanceId } from './instance.ts';
+import type { InstanceId } from './instance.ts';
 import type { LayoutMode } from './layout.ts';
 import { MAX_EXECUTION_PLAN_ENTRIES } from './model-output-limits.ts';
 import type { GridLayout, TilingLayout } from './response.ts';
+import { tilingLeafInstanceId } from './response.ts';
 import {
   ActionExecutionSchema,
   GridLayoutSchema,
+  InstanceIdSchema,
   TilingLayoutSchema,
   VesselInstanceSnapshotSchema,
 } from './schemas.ts';
@@ -82,12 +84,12 @@ export const ChartResizeReasonSchema = z.object({
 
 /**
  * Wire-format Zod parser for {@link VesselMutationReason}. `instanceId`
- * is branded to {@link InstanceId} via `.transform(...)` so the inferred
- * shape matches the hand-written interface end-to-end.
+ * is branded through {@link InstanceIdSchema} so the inferred shape matches
+ * the hand-written interface end-to-end and a reserved id fails validation.
  */
 export const VesselMutationReasonSchema = z.object({
   type: z.literal('vessel_mutation'),
-  instanceId: z.string().min(1, 'instanceId is required').transform(InstanceId),
+  instanceId: InstanceIdSchema,
   changes: z.string(),
 });
 
@@ -199,7 +201,7 @@ export const TilingResponseSchema = z.object({
       `Actions to execute on vessel instances (in order), with at most ${MAX_EXECUTION_PLAN_ENTRIES} entries. Empty array if no actions needed. CRITICAL: Include actions for newly created instances that require configuration.`,
     ),
   layout: TilingLayoutSchema.describe(
-    'Tiling layout with binary tree structure and instance declarations.',
+    'Tiling layout as a preorder split tree with instance declarations.',
   ),
 });
 
@@ -386,11 +388,12 @@ export const ChartRequestSchema = z
       });
 
       req.layout.tree.forEach((node, i) => {
-        if (node === null || node === 'H' || node === 'V') return;
-        if (!layoutInstanceIds.has(node)) {
+        const instanceId = tilingLeafInstanceId(node);
+        if (instanceId === null) return;
+        if (!layoutInstanceIds.has(instanceId)) {
           ctx.addIssue({
             code: 'custom',
-            message: `Tiling tree leaf "${node}" is not declared in layout.instances`,
+            message: `Tiling tree leaf "${instanceId}" is not declared in layout.instances`,
             path: ['layout', 'tree', i],
           });
         }

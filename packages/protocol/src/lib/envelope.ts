@@ -9,7 +9,6 @@ import {
   EngineMessageSchema,
 } from './engine-message.ts';
 import { MaelstromError } from './errors/index.ts';
-import { InstanceId } from './instance.ts';
 import { MessageId, MessageIdSchema } from './message.ts';
 import type {
   ActionExecution,
@@ -18,7 +17,11 @@ import type {
   TilingLayout,
 } from './response.ts';
 import { err, ok, type Result } from './result.ts';
-import { GridLayoutSchema, TilingLayoutSchema } from './schemas.ts';
+import {
+  GridLayoutSchema,
+  InstanceIdSchema,
+  TilingLayoutSchema,
+} from './schemas.ts';
 import { type SessionId, SessionIdSchema } from './session.ts';
 import type { SessionHistoryEntry } from './session-history-entry.ts';
 import { SessionHistoryEntryArraySchema } from './session-history-entry.ts';
@@ -37,7 +40,7 @@ import { SessionHistoryEntryArraySchema } from './session-history-entry.ts';
 // ---------------------------------------------------------------------------
 
 const ActionExecutionParsedSchema = z.object({
-  instanceId: z.string().min(1, 'instanceId is required').transform(InstanceId),
+  instanceId: InstanceIdSchema,
   action: z.string().min(1, 'action is required').transform(ActionName),
   params: z.record(z.string(), z.unknown()).optional(),
 });

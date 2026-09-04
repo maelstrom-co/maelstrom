@@ -2,7 +2,16 @@ import { z } from 'zod';
 
 import { ActionName } from './action-name.ts';
 import { InstanceId } from './instance.ts';
-import { MAX_ACTION_PARAMS_JSON_UTF8_BYTES } from './model-output-limits.ts';
+import {
+  MAX_ACTION_PARAMS_JSON_UTF8_BYTES,
+  MAX_SPLIT_CHILDREN,
+  MAX_SPLIT_WEIGHT,
+} from './model-output-limits.ts';
+import type { TilingNode } from './response.ts';
+import {
+  isTilingLeafTokenString,
+  isTilingSplitTokenString,
+} from './response.ts';
 import { VariantName } from './variant-name.ts';
 import { VesselId } from './vessel-id.ts';
 
@@ -18,6 +27,12 @@ function isActionParamsJsonWithinByteLimit(value: string): boolean {
 // ---------------------------------------------------------------------------
 // Shared schemas
 // ---------------------------------------------------------------------------
+
+/** Parses and brands an Instance identity from wire or model output. */
+export const InstanceIdSchema = z
+  .string()
+  .min(1, 'instanceId is required')
+  .transform(InstanceId);
 
 /** Parses a non-negative, zero-based Chart cell position. */
 export const ChartPositionSchema = z.object({
@@ -46,11 +61,9 @@ export const ChartSizeSchema = z.object({
  * JSON syntax and semantic parameters are validated later by the Engine.
  */
 export const ActionExecutionSchema = z.object({
-  instanceId: z
-    .string()
-    .min(1, 'instanceId is required')
-    .transform(InstanceId)
-    .describe('The ID of the vessel instance to act upon'),
+  instanceId: InstanceIdSchema.describe(
+    'The ID of the vessel instance to act upon',
+  ),
   action: z
     .string()
     .min(1, 'action is required')
@@ -73,11 +86,9 @@ export const ActionExecutionSchema = z.object({
 
 /** Parses and brands one grid-mode Instance allocation. */
 export const GridPositionSchema = z.object({
-  instanceId: z
-    .string()
-    .min(1, 'instanceId is required')
-    .transform(InstanceId)
-    .describe('The ID of the vessel instance to position'),
+  instanceId: InstanceIdSchema.describe(
+    'The ID of the vessel instance to position',
+  ),
   position: ChartPositionSchema.describe(
     'Where to place the vessel on the chart',
   ),
@@ -103,38 +114,61 @@ export const GridLayoutSchema = z.object({
 // ---------------------------------------------------------------------------
 
 /**
- * A node in the tiling binary tree. The transform brands non-special
- * strings as `InstanceId`; `'H'` / `'V'` / `null` pass through unchanged so
- * the discriminator on the consumer side stays a simple string compare.
+ * A node in the tiling tree: a split token, an `ID:`-prefixed leaf, or `null`.
+ * Tokens keep the spelling they arrived with.
+ *
+ * A malformed weight suffix still passes — `"H:2,x"` is a split whose weights
+ * are repaired downstream by `parseTilingSplitToken`, because rejecting it
+ * costs a model round trip over something the tree's shape survives. A token
+ * belonging to no class is refused instead: it has no shape to survive, and
+ * the only alternatives are guessing which class it meant or letting it stand
+ * as empty space, which turns a mis-spelled layout into a blank Chart with
+ * nothing said about it.
+ *
+ * The refusal is `ctx.addIssue` inside the transform rather than a throw. A
+ * throw raised in a Zod transform escapes `safeParse` instead of becoming an
+ * issue, which would turn careless model output into an uncaught error at
+ * whichever boundary parsed it.
  */
 export const TilingNodeSchema = z
   .string()
   .min(1)
   .nullable()
-  .transform((value) => {
-    if (value === null || value === 'H' || value === 'V') return value;
-    return InstanceId(value);
+  .transform((value, ctx): TilingNode => {
+    if (
+      value === null ||
+      isTilingSplitTokenString(value) ||
+      isTilingLeafTokenString(value)
+    ) {
+      return value;
+    }
+    ctx.addIssue({
+      code: 'custom',
+      message: `"${value}" is not a tiling tree node: a leaf is "ID:" followed by an instance ID, a split is "H"/"V" with optional ":" weights`,
+    });
+    return z.NEVER;
   })
   .describe(
-    'A node in the tiling binary tree: "H" for horizontal split (top/bottom), "V" for vertical split (left/right), vessel instance ID string for leaf nodes, or null for empty space.',
+    'A node in the tiling tree: a leaf, a split token, or null for empty space. A LEAF is the literal prefix "ID:" followed by an instance ID from layout.instances — write "ID:calendar-main", never a bare "calendar-main". A SPLIT TOKEN is "H" (top/bottom) or "V" (left/right), never prefixed, optionally followed by ":" and comma-separated positive integer weights, e.g. "V:1,1,1" or "H:2,1". Bare "H"/"V" mean an even two-way split and are the preferred spelling for 50/50. The number of weights IS the number of children that token takes: "V:1,1,1" is followed by exactly three subtrees and gives each one third of the width, "H:2,1" is followed by exactly two and gives them two thirds and one third of the height. A string that is neither prefixed with "ID:" nor an "H"/"V" split is rejected.',
   );
 
-/** Parses a preorder tiling tree without checking tree completeness or references. */
+/**
+ * Preorder tiling tree. Carries the model-facing description directly, with no
+ * override at the {@link TilingLayoutSchema} level: `.describe()` replaces a
+ * description rather than appending to it, so a second call one level up would
+ * make this teaching unreachable by the model that needs it.
+ */
 export const TilingTreeSchema = z
   .array(TilingNodeSchema)
   .describe(
-    'Preorder traversal of the tiling binary tree. Each split divides the current region in half.',
+    `Preorder traversal of the tiling tree. EVERY leaf is written as "ID:" followed by an instance ID: an instance called "a" appears in this array as "ID:a", and a bare "a" is rejected. Split tokens are never prefixed. Instances named in this tree are VISIBLE; omitted instances are HIDDEN. Each instance may appear AT MOST ONCE — to give an instance more space, weight its split rather than repeating it. Each split token consumes exactly as many following subtrees as it declares weights (two for bare "H"/"V"), and divides its region along its axis in proportion to those weights. Use weights for arrangements that halving cannot reach: one instance filling the chart is ["ID:a"]; two side by side is ["V", "ID:a", "ID:b"]; three equal columns is ["V:1,1,1", "ID:a", "ID:b", "ID:c"]; a left column twice as wide as the right is ["V:2,1", "ID:a", "ID:b"]; a 3x3 grid is ["H:1,1,1", "V:1,1,1", "ID:a", "ID:b", "ID:c", "V:1,1,1", "ID:d", "ID:e", "ID:f", "V:1,1,1", "ID:g", "ID:h", "ID:i"]. A token may declare at most ${MAX_SPLIT_CHILDREN} weights, each an integer from 1 to ${MAX_SPLIT_WEIGHT}; nest splits for wider arrangements.`,
   );
 
 /** Parses and brands an Instance identity, Vessel identity, and current Variant. */
 export const VesselInstanceSnapshotSchema = z.object({
-  instanceId: z
-    .string()
-    .min(1, 'instanceId is required')
-    .transform(InstanceId)
-    .describe(
-      'Unique instance ID. For new instances, use format "vesselId-identifier" (e.g., "calendar-main", "biomarkers-detail").',
-    ),
+  instanceId: InstanceIdSchema.describe(
+    'Unique instance ID. For new instances, use format "vesselId-identifier" (e.g., "calendar-main", "biomarkers-detail").',
+  ),
   vesselId: z
     .string()
     .min(1, 'vesselId is required')
@@ -156,9 +190,7 @@ export const VesselInstanceSnapshotSchema = z.object({
  * intentionally deferred to the Engine's heal layer.
  */
 export const TilingLayoutSchema = z.object({
-  tree: TilingTreeSchema.describe(
-    'Binary tree layout as preorder traversal. Instance IDs in this tree are VISIBLE; omitted instances are HIDDEN.',
-  ),
+  tree: TilingTreeSchema,
   instances: z
     .array(VesselInstanceSnapshotSchema)
     .describe(

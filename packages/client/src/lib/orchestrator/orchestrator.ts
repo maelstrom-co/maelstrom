@@ -4,7 +4,6 @@ import {
   ChartRequestMessage,
   type ChartResizeReason,
   type InstanceId,
-  isInstanceIdNode,
   type LayoutMode,
   type MaelstromResponse,
   MessageId,
@@ -12,6 +11,7 @@ import {
   type SessionId,
   type TilingLayout,
   TilingLayoutSchema,
+  tilingLeafInstanceId,
   toError,
   type UpdateReason,
   type VariantName,
@@ -1157,13 +1157,14 @@ function validateTilingSeedInvariants(layout: TilingLayout): void {
 
   const treedIds = new Set<InstanceId>();
   for (const node of layout.tree) {
-    if (!isInstanceIdNode(node)) continue;
-    if (!seenIds.has(node)) {
+    const instanceId = tilingLeafInstanceId(node);
+    if (instanceId === null) continue;
+    if (!seenIds.has(instanceId)) {
       throw new Error(
-        `initialLayout.tree references instance "${node}", which is not declared in initialLayout.instances.`,
+        `initialLayout.tree references instance "${instanceId}", which is not declared in initialLayout.instances.`,
       );
     }
-    treedIds.add(node);
+    treedIds.add(instanceId);
   }
 
   for (const instance of layout.instances) {

@@ -15,6 +15,8 @@ import type {
 import {
   ActionName,
   InstanceId,
+  isTilingSplitTokenString,
+  tilingLeafToken,
   VariantName,
   VesselId,
 } from '@maelstrom-co/protocol';
@@ -218,12 +220,7 @@ const brandLayout = (
     ? { type: 'grid', positions: layout.positions.map(brandGridPosition) }
     : {
         type: 'tiling',
-        tree: layout.tree.map(
-          (node): TilingNode =>
-            node === null || node === 'H' || node === 'V'
-              ? node
-              : InstanceId(node),
-        ),
+        tree: brandTilingTree(layout.tree),
         instances: layout.instances.map(brandTilingInstance),
       };
 
@@ -347,7 +344,7 @@ export function makeTilingRequest(
       ],
       layout: {
         type: 'tiling',
-        tree: [InstanceId('calendar-main')],
+        tree: [tilingLeafToken(InstanceId('calendar-main'))],
         instances: [
           brandTilingInstance({
             instanceId: 'calendar-main',
@@ -417,11 +414,13 @@ const brandActionExecution = (
   ...(exec.paramsJson !== undefined ? { paramsJson: exec.paramsJson } : {}),
 });
 
-const brandTilingTree = (tree: ReadonlyArray<AuthorTilingNode>): TilingNode[] =>
-  tree.map(
-    (node): TilingNode =>
-      node === null || node === 'H' || node === 'V' ? node : InstanceId(node),
-  );
+/**
+ * Brands an author-written tree, the one place the split-token-versus-instance
+ * rule is applied to a whole tree.
+ */
+export const brandTilingTree = (
+  tree: ReadonlyArray<AuthorTilingNode>,
+): TilingNode[] => tree.map(brandTilingNode);
 
 /** Brands a complete grid LLM-output author shape into a typed `GridResponse`. */
 export function brandGridResponse(author: GridResponseAuthor): GridResponse {
@@ -603,4 +602,16 @@ export function buildSkippedAction(author: AuthorSkippedAction): SkippedAction {
         currentVariant: VariantName(author.currentVariant),
       };
   }
+}
+
+/**
+ * Brands an author-written tree token. Split tokens (bare or weighted) pass
+ * through; anything else is an Instance ID and takes the leaf prefix, so a
+ * fixture is written in instance IDs rather than in wire tokens.
+ */
+function brandTilingNode(node: AuthorTilingNode): TilingNode {
+  if (node === null) return node;
+  return isTilingSplitTokenString(node)
+    ? node
+    : tilingLeafToken(InstanceId(node));
 }

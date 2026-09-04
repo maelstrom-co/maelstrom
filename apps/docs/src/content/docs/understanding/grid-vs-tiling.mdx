@@ -57,7 +57,7 @@ const layout: TilingLayout = {
   // Preorder traversal: split operators (`H`/`V`) followed by their two children.
   // This tree splits horizontally; the top half is `calendar-1`, the bottom
   // half splits vertically into `weather-1` (left) and `tasks-1` (right).
-  tree: ['H', 'calendar-1', 'V', 'weather-1', 'tasks-1'],
+  tree: ['H', 'ID:calendar-1', 'V', 'ID:weather-1', 'ID:tasks-1'],
   instances: [
     { instanceId: 'calendar-1', vesselId: 'calendar', variant: 'month' },
     { instanceId: 'weather-1',  vesselId: 'weather',  variant: 'current' },
@@ -66,7 +66,7 @@ const layout: TilingLayout = {
 };
 ```
 
-`tree` is a preorder list of `TilingNode` values: `'H'` (horizontal split), `'V'` (vertical split), an instance id, or `null` for an empty leaf. The client's parser (`packages/client/src/lib/chart-manager/tiling.ts`) walks the list, builds an in-memory tree, and recursively bisects the container rect — every horizontal split divides the available height, every vertical split divides the available width.
+`tree` is a preorder list of `TilingNode` values: `'H'` (horizontal split), `'V'` (vertical split), a leaf written as `'ID:'` followed by an instance id, or `null` for an empty leaf. The `ID:` prefix is mandatory and is what separates a leaf from a split token, so an instance may be named anything — `ID:H:hero` is a leaf, not a split. The client's parser (`packages/client/src/lib/chart-manager/tiling.ts`) walks the list, builds an in-memory tree, and recursively bisects the container rect — every horizontal split divides the available height, every vertical split divides the available width.
 
 There is no `chartDimensions` row-and-column count to honour at the leaf level. The tree itself is the structure; the container size is the only spatial input.
 

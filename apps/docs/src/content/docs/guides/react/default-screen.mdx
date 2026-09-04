@@ -22,6 +22,7 @@ Pass a `TilingLayout` to `<m.Provider>` via the `initialLayout` prop. It's appli
 ```tsx title="src/app.tsx"
 import {
   InstanceId,
+  tilingLeafToken,
   VariantName,
   VesselId,
   type TilingLayout,
@@ -35,7 +36,7 @@ const RIGHT = InstanceId('greeting-b');
 const DEFAULT_LAYOUT: TilingLayout = {
   type: 'tiling',
   // Preorder: 'V' splits the region left/right; both children are leaves.
-  tree: ['V', LEFT, RIGHT],
+  tree: ['V', tilingLeafToken(LEFT), tilingLeafToken(RIGHT)],
   instances: [
     { instanceId: LEFT, vesselId: VesselId('greeting'), variant: VariantName('card') },
     { instanceId: RIGHT, vesselId: VesselId('greeting'), variant: VariantName('card') },
@@ -55,7 +56,7 @@ That seeds two `greetingVessel` instances side by side before any engine round-t
 
 - `'V'` splits the current region left/right.
 - `'H'` splits the current region top/bottom.
-- Any other string is the instance ID of a leaf.
+- `'ID:'` followed by an instance ID is a leaf — `tilingLeafToken` writes one for you.
 - `null` is an empty leaf — a blank pane.
 
 `InstanceId`, `VesselId`, and `VariantName` are branded constructors from `@maelstrom-co/protocol` — the same ones you'd use to build any tiling layout by hand (see [Programmatic Layout Control](/guides/client/programmatic-layout/)).

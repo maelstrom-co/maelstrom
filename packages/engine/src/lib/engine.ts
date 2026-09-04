@@ -43,6 +43,12 @@ import {
   logValidationFailure,
   validateEngineMessage,
 } from './validation/engine-message.js';
+import type { DroppedLayoutEntry } from './validation/llm-output/healed-layout.js';
+import {
+  formatDroppedEntry,
+  formatLayoutWarnings,
+  MAX_LOGGED_ENTRIES,
+} from './validation/llm-output/healed-layout.js';
 
 // ---------------------------------------------------------------------------
 // Engine interface
@@ -338,6 +344,14 @@ export function createEngine(config: EngineConfig): Engine {
         warnings: diagnostics.warnings.length,
         retrySeverity: diagnostics.retryHint.severity,
         retryRecommend: diagnostics.retryHint.recommend,
+        // Two layers: the counts above stay scalar so a log backend can
+        // aggregate and alert on them, while `detail` carries the forensic
+        // lines — model-derived, bounded, and first to be truncated by a
+        // transport that has to cut something.
+        detail: {
+          drops: formatDroppedEntries(diagnostics.droppedLayoutEntries),
+          warnings: formatLayoutWarnings(diagnostics.warnings),
+        },
       });
     }
 
@@ -480,4 +494,22 @@ function logEngineError(
   // _tag, stack, and per-variant context (cause / raw / timeoutMs) reach
   // structured loggers; correlation fields stay in the data slot.
   logger.error('LLM call failed', error, { messageId, errorTag: error._tag });
+}
+
+/**
+ * Renders the operator-log view of a response's drops under the same list
+ * ceiling `formatLayoutWarnings` applies to repairs. A tree the model sizes
+ * can drop arbitrarily many entries, so the count in the tail is what keeps
+ * the scale of the cut visible.
+ */
+function formatDroppedEntries(
+  entries: readonly DroppedLayoutEntry[],
+): string[] {
+  const visible = entries.slice(0, MAX_LOGGED_ENTRIES).map(formatDroppedEntry);
+  const omitted = entries.length - visible.length;
+  if (omitted <= 0) return visible;
+  return [
+    ...visible,
+    `${omitted} additional drop${omitted === 1 ? '' : 's'} omitted`,
+  ];
 }

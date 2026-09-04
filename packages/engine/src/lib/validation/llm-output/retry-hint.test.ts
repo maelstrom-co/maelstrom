@@ -180,6 +180,23 @@ describe('deriveRetryHint', () => {
     expect(hint).toEqual({ severity: 'low', recommend: false });
   });
 
+  test('a repeated leaf that left a survivor ships without a retry', () => {
+    // Pin the documented policy: drops arrive as a count, so a blanked
+    // repeat is indistinguishable from any other partial-layout drop and
+    // takes the partial-layout branch. Reclassifying it as retry-worthy
+    // would spend a round trip on a layout the user can already use.
+    const hint = deriveRetryHint({
+      healedLayoutSize: 1,
+      requestInstanceCount: 2,
+      proposedActionCount: 0,
+      acceptedActionCount: 0,
+      skippedActions: [],
+      droppedLayoutCount: 1,
+      warningCount: 0,
+    });
+    expect(hint).toEqual({ severity: 'medium', recommend: false });
+  });
+
   test('partial accept + partial skip does not recommend retry', () => {
     // Pin: deriveRetryHint only flips recommend=true when ALL proposed
     // actions were skipped (and any are fixable). If at least one survived,

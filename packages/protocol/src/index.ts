@@ -53,6 +53,8 @@ export {
   MAX_ACTION_PARAMETER_ENUM_CANDIDATES,
   MAX_ACTION_PARAMS_JSON_UTF8_BYTES,
   MAX_EXECUTION_PLAN_ENTRIES,
+  MAX_SPLIT_CHILDREN,
+  MAX_SPLIT_WEIGHT,
 } from './lib/model-output-limits.ts';
 export type {
   ChartRequest,
@@ -75,18 +77,33 @@ export {
 } from './lib/request.ts';
 export type {
   ActionExecution,
+  DuplicateTilingLeaf,
   GridLayout,
   GridPosition,
   MaelstromResponse,
+  ParsedTilingSplit,
   TilingInstance,
   TilingLayout,
+  TilingLeafToken,
   TilingNode,
   TilingSplit,
+  TilingSplitRepairReason,
+  TilingSplitToken,
+  TilingWeightedSplit,
 } from './lib/response.ts';
 export {
+  assertValidSplitWeights,
+  findDuplicateTilingLeaves,
+  formatTilingSplitToken,
   getVisibleInstanceIds,
   isInstanceIdNode,
+  isTilingLeafTokenString,
   isTilingSplit,
+  isTilingSplitTokenString,
+  parseTilingSplitToken,
+  TILING_LEAF_PREFIX,
+  tilingLeafInstanceId,
+  tilingLeafToken,
 } from './lib/response.ts';
 export type { Result } from './lib/result.ts';
 export { err, isErr, isOk, ok, unwrap } from './lib/result.ts';
@@ -97,6 +114,7 @@ export {
   ChartSizeSchema,
   GridLayoutSchema,
   GridPositionSchema,
+  InstanceIdSchema,
   TilingLayoutSchema,
   TilingNodeSchema,
   TilingTreeSchema,

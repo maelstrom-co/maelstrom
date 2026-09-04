@@ -81,7 +81,7 @@ describe('Orchestrator identity', () => {
       executionPlan: [],
       layout: {
         type: 'tiling',
-        tree: [InstanceId('seed-1')],
+        tree: ['ID:seed-1'],
         instances: [
           {
             instanceId: InstanceId('seed-1'),

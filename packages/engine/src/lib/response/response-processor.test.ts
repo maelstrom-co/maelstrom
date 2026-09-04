@@ -148,7 +148,7 @@ describe('processResponse', () => {
 
       expect(result.value.layout.type).toBe('tiling');
       if (result.value.layout.type === 'tiling') {
-        expect(result.value.layout.tree).toEqual([InstanceId('calendar-main')]);
+        expect(result.value.layout.tree).toEqual(['ID:calendar-main']);
       }
     });
 

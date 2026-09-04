@@ -346,3 +346,28 @@ describe('EngineMessageSchema (discriminated union)', () => {
     }
   });
 });
+
+describe('EngineMessageSchema split-shaped instance ids', () => {
+  test('a chart_request naming a split-shaped id parses', () => {
+    const result = EngineMessageSchema.safeParse({
+      type: 'chart_request',
+      id: 'm-1',
+      sessionId: 's-1',
+      timestamp: 0,
+      request: {
+        type: 'chart_request',
+        context: {
+          updateReasons: [
+            { type: 'vessel_mutation', instanceId: 'H', changes: 'x' },
+          ],
+          chartDimensions: { rows: 12, columns: 16 },
+          layoutMode: 'grid',
+        },
+        instances: [],
+        vessels: [],
+        layout: { type: 'grid', positions: [] },
+      },
+    });
+    expect(result.success).toBe(true);
+  });
+});

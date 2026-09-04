@@ -213,7 +213,7 @@ describe('buildChartRequest', () => {
     ]);
     const layout = {
       type: 'tiling' as const,
-      tree: [weatherId],
+      tree: ['ID:weather-1' as const],
       instances: [...instances.values()].map(
         ({ instanceId, vesselId, variant }) => ({
           instanceId,
@@ -237,7 +237,7 @@ describe('buildChartRequest', () => {
     expect(
       request.layout.instances.map(({ instanceId }) => instanceId),
     ).toEqual([weatherId, calendarId, tasksId]);
-    expect(request.layout.tree).toEqual([weatherId]);
+    expect(request.layout.tree).toEqual(['ID:weather-1']);
     expect(() => ChartRequestSchema.parse(request)).not.toThrow();
   });
 

@@ -1,6 +1,7 @@
 import {
   InstanceId,
   type TilingLayout,
+  tilingLeafToken,
   VariantName,
   VesselId,
 } from '@maelstrom-co/protocol';
@@ -14,6 +15,11 @@ const LAB = InstanceId('hero-lab');
 const VITALS = InstanceId('hero-vitals');
 const MEDS = InstanceId('hero-meds');
 const APPTS = InstanceId('hero-appts');
+
+const LAB_LEAF = tilingLeafToken(LAB);
+const VITALS_LEAF = tilingLeafToken(VITALS);
+const MEDS_LEAF = tilingLeafToken(MEDS);
+const APPTS_LEAF = tilingLeafToken(APPTS);
 
 type Inst = TilingLayout['instances'][number];
 
@@ -55,21 +61,21 @@ const DESKTOP_LAYOUTS: TilingLayout[] = [
   // Initial: full overview — all four vessels.
   {
     type: 'tiling',
-    tree: ['H', 'V', LAB, VITALS, 'V', MEDS, APPTS],
+    tree: ['H', 'V', LAB_LEAF, VITALS_LEAF, 'V', MEDS_LEAF, APPTS_LEAF],
     instances: [labFull, vitalsDefault, medsDefault, apptsDefault],
   },
   // "show me my lab results" → labs only; everything irrelevant recedes.
-  { type: 'tiling', tree: [LAB], instances: [labFull] },
+  { type: 'tiling', tree: [LAB_LEAF], instances: [labFull] },
   // "check my vitals" → vitals strip + labs (two-up shows the tiling).
   {
     type: 'tiling',
-    tree: ['H', VITALS, LAB],
+    tree: ['H', VITALS_LEAF, LAB_LEAF],
     instances: [vitalsWide, labFull],
   },
   // "what are my appointments this week" → appointments + medications.
   {
     type: 'tiling',
-    tree: ['V', APPTS, MEDS],
+    tree: ['V', APPTS_LEAF, MEDS_LEAF],
     instances: [apptsBig, medsDefault],
   },
 ];
@@ -79,7 +85,11 @@ const DESKTOP_LAYOUTS: TilingLayout[] = [
 function stacked(top: Inst, bottom: Inst): TilingLayout {
   return {
     type: 'tiling',
-    tree: ['H', top.instanceId, bottom.instanceId],
+    tree: [
+      'H',
+      tilingLeafToken(top.instanceId),
+      tilingLeafToken(bottom.instanceId),
+    ],
     instances: [top, bottom],
   };
 }

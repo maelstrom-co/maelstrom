@@ -14,6 +14,7 @@ export function buildRetryPrompt(
   const diagnosticSection = renderRetryDiagnostics(
     diagnostics.droppedLayoutEntries,
     diagnostics.skippedActions,
+    diagnostics.warnings,
   );
 
   const lines: string[] = [

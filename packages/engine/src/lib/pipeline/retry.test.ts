@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import type { Result } from '@maelstrom-co/protocol';
+import type { Result, TilingSplitToken } from '@maelstrom-co/protocol';
 import {
   ActionName,
   err,
@@ -26,8 +26,10 @@ import type { SkippedAction } from '../response/execution-plan/index.js';
 import type { InternalResponse } from '../response/response-processor.js';
 import type {
   DroppedLayoutEntry,
+  LayoutWarning,
   RetryHint,
 } from '../validation/llm-output/healed-layout.js';
+import { deriveRetryHint } from '../validation/llm-output/retry-hint.js';
 
 import { buildRetryPrompt, callWithRetry, type RunOnce } from './retry.js';
 
@@ -38,7 +40,7 @@ import { buildRetryPrompt, callWithRetry, type RunOnce } from './retry.js';
 interface DiagnosticsInput {
   skippedActions?: readonly SkippedAction[];
   droppedLayoutEntries?: readonly DroppedLayoutEntry[];
-  warnings?: readonly { kind: 'missing_rationale' }[];
+  warnings?: readonly LayoutWarning[];
   retryHint?: RetryHint;
 }
 
@@ -331,6 +333,277 @@ describe('callWithRetry', () => {
         ?.split('\n')
         .filter((l) => /tiling tree/i.test(l));
       expect(treeLines).toHaveLength(1);
+    });
+
+    test('the tree advisory teaches the grammar the same request carries', async () => {
+      // The schema description shipped alongside this prompt teaches weighted
+      // n-ary splits. An advisory telling the model to re-emit a binary tree
+      // using only H/V contradicts it, and fires on retries that had nothing
+      // to do with weights.
+      const failed = recommendingResponse({
+        droppedLayoutEntries: [
+          { reason: 'tree_missing_child', atTokenIndex: 3 },
+        ],
+      });
+      const { runOnce, prompts } = recordingRunOnce([
+        ok(failed),
+        ok(response()),
+      ]);
+
+      await callWithRetry({
+        runOnce,
+        originalUserPrompt: 'p',
+        maxRetries: 1,
+        logger: silentLogger,
+      });
+
+      expect(prompts[1]).not.toContain('binary');
+      expect(prompts[1]).toContain('as many subtrees as it declares weights');
+    });
+
+    test('a repeated leaf gets its own line naming the instance', async () => {
+      // Collapsing this into the malformed-tree advisory tells a model whose
+      // tree parsed perfectly that it could not be parsed, and never names
+      // the id it repeated.
+      //
+      // The repeat itself never asks for a retry — blanking it still leaves
+      // a renderable layout — so the hint here is derived from the skip
+      // beside it rather than asserted into existence.
+      const skipped = paramsParseFailed('a', 'go');
+      const retryHint = deriveRetryHint({
+        healedLayoutSize: 1,
+        requestInstanceCount: 2,
+        proposedActionCount: 1,
+        acceptedActionCount: 0,
+        skippedActions: [skipped],
+        droppedLayoutCount: 1,
+        warningCount: 0,
+      });
+      expect(retryHint).toEqual({ severity: 'medium', recommend: true });
+
+      const failed = response({
+        skippedActions: [skipped],
+        droppedLayoutEntries: [
+          {
+            reason: 'tree_duplicate_leaf',
+            atTokenIndex: 3,
+            instanceId: InstanceId('calendar-main'),
+          },
+        ],
+        retryHint,
+      });
+      const { runOnce, prompts } = recordingRunOnce([
+        ok(failed),
+        ok(response()),
+      ]);
+
+      await callWithRetry({
+        runOnce,
+        originalUserPrompt: 'p',
+        maxRetries: 1,
+        logger: silentLogger,
+      });
+
+      expect(prompts[1]).toContain('"calendar-main"');
+      expect(prompts[1]).toContain('at most once');
+      expect(prompts[1]).not.toContain('could not be fully parsed');
+    });
+
+    test('an over-wide split reports the count it declared', async () => {
+      const failed = recommendingResponse({
+        droppedLayoutEntries: [
+          {
+            reason: 'tree_split_truncated',
+            atTokenIndex: 0,
+            declaredChildCount: 20,
+            keptChildCount: 12,
+          },
+        ],
+      });
+      const { runOnce, prompts } = recordingRunOnce([
+        ok(failed),
+        ok(response()),
+      ]);
+
+      await callWithRetry({
+        runOnce,
+        originalUserPrompt: 'p',
+        maxRetries: 1,
+        logger: silentLogger,
+      });
+
+      expect(prompts[1]).toContain('declared 20 children');
+      expect(prompts[1]).toContain('at most 12');
+    });
+
+    test('a repaired weight suffix reaches the model verbatim', async () => {
+      // Repair-instead-of-reject is only safe if the repair is observable.
+      const failed = recommendingResponse({
+        warnings: [
+          {
+            kind: 'split_weights_repaired',
+            atTokenIndex: 2,
+            token: 'V:xyz',
+            weights: [1, 1],
+            repairReason: 'unreadable',
+          },
+        ],
+      });
+      const { runOnce, prompts } = recordingRunOnce([
+        ok(failed),
+        ok(response()),
+      ]);
+
+      await callWithRetry({
+        runOnce,
+        originalUserPrompt: 'p',
+        maxRetries: 1,
+        logger: silentLogger,
+      });
+
+      expect(prompts[1]).toContain('Layout repairs:');
+      expect(prompts[1]).toContain('"V:xyz"');
+      expect(prompts[1]).toContain('read as 2 children weighted 1,1');
+    });
+
+    test('an over-wide split is never reported as an unreadable suffix', async () => {
+      // A token whose only fault is declaring too many children still parses
+      // as `repaired`, so the repair line must not contradict the truncation
+      // drop line rendered from the same token.
+      const failed = recommendingResponse({
+        droppedLayoutEntries: [
+          {
+            reason: 'tree_split_truncated',
+            atTokenIndex: 0,
+            declaredChildCount: 14,
+            keptChildCount: 12,
+          },
+        ],
+        warnings: [
+          {
+            kind: 'split_weights_repaired',
+            atTokenIndex: 0,
+            token: 'V:1,1,1,1,1,1,1,1,1,1,1,1,1,1',
+            weights: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            repairReason: 'truncated',
+          },
+        ],
+      });
+      const { runOnce, prompts } = recordingRunOnce([
+        ok(failed),
+        ok(response()),
+      ]);
+
+      await callWithRetry({
+        runOnce,
+        originalUserPrompt: 'p',
+        maxRetries: 1,
+        logger: silentLogger,
+      });
+
+      expect(prompts[1]).toContain('declared 14 children');
+      expect(prompts[1]).not.toContain('unreadable weight suffix');
+    });
+
+    test('a one-weight split is reported as short, not as illegible', async () => {
+      // "V:5" spells its weight exactly as the grammar asks; the arity is the
+      // only thing missing, so telling the model its suffix was unreadable
+      // sends it after a defect the token does not have.
+      const failed = recommendingResponse({
+        warnings: [
+          {
+            kind: 'split_weights_repaired',
+            atTokenIndex: 0,
+            token: 'V:5',
+            weights: [5, 1],
+            repairReason: 'padded',
+          },
+        ],
+      });
+      const { runOnce, prompts } = recordingRunOnce([
+        ok(failed),
+        ok(response()),
+      ]);
+
+      await callWithRetry({
+        runOnce,
+        originalUserPrompt: 'p',
+        maxRetries: 1,
+        logger: silentLogger,
+      });
+
+      expect(prompts[1]).toContain(
+        'declared fewer than the two weights a split needs',
+      );
+      expect(prompts[1]).not.toContain('unreadable weight suffix');
+    });
+
+    test('an omitted rationale is not filed under layout repairs', async () => {
+      // Nothing about the layout was rewritten, so filing it under repairs
+      // teaches the model to go fix a tree that was fine.
+      const failed = recommendingResponse({
+        skippedActions: [paramsParseFailed('a', 'go')],
+        warnings: [{ kind: 'missing_rationale' }],
+      });
+      const { runOnce, prompts } = recordingRunOnce([
+        ok(failed),
+        ok(response()),
+      ]);
+
+      await callWithRetry({
+        runOnce,
+        originalUserPrompt: 'p',
+        maxRetries: 1,
+        logger: silentLogger,
+      });
+
+      expect(prompts[1]).toContain('Response quality:');
+      expect(prompts[1]).not.toContain('Layout repairs:');
+      expect(prompts[1]).toContain('omitted its rationale');
+    });
+
+    test('a drop and a repair in one response render as two sections', async () => {
+      // Each section is covered alone elsewhere; this pins that neither one
+      // swallows the other when both are non-empty, and that drops precede
+      // repairs.
+      const failed = recommendingResponse({
+        droppedLayoutEntries: [
+          {
+            reason: 'tree_duplicate_leaf',
+            atTokenIndex: 3,
+            instanceId: InstanceId('calendar-main'),
+          },
+        ],
+        warnings: [
+          {
+            kind: 'split_weights_repaired',
+            atTokenIndex: 0,
+            token: 'V:xyz',
+            weights: [1, 1],
+            repairReason: 'unreadable',
+          },
+        ],
+      });
+      const { runOnce, prompts } = recordingRunOnce([
+        ok(failed),
+        ok(response()),
+      ]);
+
+      await callWithRetry({
+        runOnce,
+        originalUserPrompt: 'p',
+        maxRetries: 1,
+        logger: silentLogger,
+      });
+
+      const prompt = prompts[1] ?? '';
+      expect(prompt).toContain('Layout drops:');
+      expect(prompt).toContain('"calendar-main"');
+      expect(prompt).toContain('Layout repairs:');
+      expect(prompt).toContain('"V:xyz"');
+      expect(prompt.indexOf('Layout drops:')).toBeLessThan(
+        prompt.indexOf('Layout repairs:'),
+      );
     });
 
     test('retry prompt mixes per-instance drops with the tree advisory', async () => {
@@ -1159,6 +1432,100 @@ describe('buildRetryPrompt', () => {
     );
     expect(overLimit).toContain('diagnostic text omitted');
     expect(overLimit).not.toContain(JSON.stringify('last'));
+  });
+
+  // The line ceiling used to be applied after every entry had been rendered,
+  // so a response carrying hundreds of thousands of drops paid for hundreds
+  // of thousands of interpolated strings to publish 32 of them. Each spy
+  // counts reads of the one field its renderer interpolates.
+  describe('formatting stops at the line ceiling', () => {
+    test('skipped actions past the ceiling are counted, not rendered', () => {
+      let rendered = 0;
+      const skippedActions = Array.from(
+        { length: 200 },
+        (_, index): SkippedAction => ({
+          reason: 'params_parse_failed',
+          instanceId: InstanceId(`instance-${index}`),
+          get action() {
+            rendered += 1;
+            return ActionName(`action-${index}`);
+          },
+        }),
+      );
+
+      const section = retryDiagnosticSection(
+        buildRetryPrompt('original', {
+          skippedActions,
+          droppedLayoutEntries: [],
+          warnings: [],
+          retryHint: recommendMedium,
+        }),
+      );
+
+      expect(rendered).toBe(32);
+      expect(section).toContain('169 diagnostic lines omitted');
+    });
+
+    test('layout drops past the ceiling are counted, not rendered', () => {
+      let rendered = 0;
+      const droppedLayoutEntries = Array.from(
+        { length: 200 },
+        (_, index): DroppedLayoutEntry => ({
+          reason: 'position_overflow',
+          row: 10,
+          column: 5,
+          width: 4,
+          height: 3,
+          chartColumns: 12,
+          chartRows: 8,
+          get instanceId() {
+            rendered += 1;
+            return InstanceId(`instance-${index}`);
+          },
+        }),
+      );
+
+      const section = retryDiagnosticSection(
+        buildRetryPrompt('original', {
+          skippedActions: [],
+          droppedLayoutEntries,
+          warnings: [],
+          retryHint: recommendMedium,
+        }),
+      );
+
+      expect(rendered).toBe(32);
+      expect(section).toContain('169 diagnostic lines omitted');
+    });
+
+    test('layout warnings past the ceiling are counted, not rendered', () => {
+      let rendered = 0;
+      const warnings = Array.from(
+        { length: 200 },
+        (): LayoutWarning => ({
+          kind: 'split_weights_repaired',
+          atTokenIndex: 2,
+          weights: [1, 1],
+          repairReason: 'unreadable',
+          get token(): TilingSplitToken {
+            rendered += 1;
+            return 'V:xyz';
+          },
+        }),
+      );
+
+      const section = retryDiagnosticSection(
+        buildRetryPrompt('original', {
+          skippedActions: [],
+          droppedLayoutEntries: [],
+          warnings,
+          retryHint: recommendMedium,
+        }),
+      );
+
+      expect(rendered).toBe(32);
+      expect(section).toContain('169 diagnostic lines omitted');
+    });
   });
 });
 

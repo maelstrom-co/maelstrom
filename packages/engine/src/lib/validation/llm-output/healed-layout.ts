@@ -2,11 +2,14 @@ import type {
   GridResponse,
   InstanceId,
   TilingNode,
+  TilingSplitRepairReason,
+  TilingSplitToken,
   VariantName,
   VesselId,
 } from '@maelstrom-co/protocol';
 
 import { assertNever } from '../../assert-never.js';
+import { quoteIdentifier } from '../../quote-identifier.js';
 
 /**
  * Mirrors the SkippedAction discriminated-union pattern: each `reason` arm
@@ -52,6 +55,11 @@ export type DroppedLayoutEntry =
     }
   | { readonly reason: 'tree_missing_child'; readonly atTokenIndex: number }
   | {
+      readonly reason: 'tree_duplicate_leaf';
+      readonly atTokenIndex: number;
+      readonly instanceId: InstanceId;
+    }
+  | {
       readonly reason: 'tree_orphan_reference';
       readonly atTokenIndex: number;
       readonly instanceId: InstanceId;
@@ -60,6 +68,12 @@ export type DroppedLayoutEntry =
       readonly reason: 'tree_extra_tokens';
       readonly fromTokenIndex: number;
       readonly count: number;
+    }
+  | {
+      readonly reason: 'tree_split_truncated';
+      readonly atTokenIndex: number;
+      readonly declaredChildCount: number;
+      readonly keptChildCount: number;
     };
 
 /**
@@ -84,7 +98,31 @@ export const isTreeDrop = (
   entry: DroppedLayoutEntry,
 ): entry is TreeDroppedLayoutEntry => entry.reason.startsWith('tree_');
 
-export type LayoutWarning = { readonly kind: 'missing_rationale' };
+/**
+ * Repairs, as distinct from drops: nothing was removed from the layout, so
+ * these never belong in `droppedEntries`.
+ *
+ * A split token's arity is what its weight count says, so a malformed weight
+ * suffix cannot be dropped — dropping the token would mean dropping subtrees
+ * whose extent is exactly what could not be read. `weights` is the
+ * substitution that was used instead.
+ */
+export type LayoutWarning =
+  | { readonly kind: 'missing_rationale' }
+  | {
+      readonly kind: 'split_weights_repaired';
+      readonly atTokenIndex: number;
+      readonly token: TilingSplitToken;
+      readonly weights: readonly number[];
+      /**
+       * Which repair the parser applied. An over-wide token and an illegible
+       * one are different things to tell whoever reads the repair — the
+       * parser could read a suffix perfectly and still refuse the arity it
+       * declared — so every renderer words its message from this rather than
+       * from the fact that some repair happened.
+       */
+      readonly repairReason: TilingSplitRepairReason;
+    };
 
 /**
  * Healed instance shape internal to the heal pipeline. All three IDs are
@@ -103,8 +141,8 @@ export interface HealedTilingInstance {
  * need a parallel `mode` parameter. The `layout` shape is narrowed per-arm.
  * `droppedEntries` and `warnings` are shared across both modes.
  *
- * The tiling tree carries the branded `readonly TilingNode[]` shape: the
- * heal pipeline establishes the `H | V | InstanceId | null` invariant
+ * The tiling tree carries the `readonly TilingNode[]` shape: the heal
+ * pipeline establishes the split-token / `ID:` leaf / `null` invariant
  * internally (via `parseTree` / `pruneAst`), so consumers (`layoutEntryCount`,
  * `buildTilingLayout`) operate on the canonical type without per-element
  * casts.
@@ -167,11 +205,80 @@ export function formatDroppedEntry(entry: DroppedLayoutEntry): string {
       return `instance "${entry.instanceId}" appeared multiple times in layout`;
     case 'tree_missing_child':
       return `tiling tree split at token index ${entry.atTokenIndex} is missing a child`;
+    case 'tree_duplicate_leaf':
+      return `tiling tree references instance "${entry.instanceId}" more than once, at token index ${entry.atTokenIndex}`;
     case 'tree_orphan_reference':
       return `tiling tree references unknown instance "${entry.instanceId}" at token index ${entry.atTokenIndex}`;
     case 'tree_extra_tokens':
       return `tiling tree has ${entry.count} unconsumed token(s) from index ${entry.fromTokenIndex}`;
+    case 'tree_split_truncated':
+      return `tiling tree split at token index ${entry.atTokenIndex} declared ${entry.declaredChildCount} children, cut to ${entry.keptChildCount}`;
     default:
       return assertNever(entry, 'formatDroppedEntry');
+  }
+}
+
+/**
+ * Renders a single-line description of a layout repair. Used by the engine's
+ * `'Response healed'` log and the retry layer's prompt builder, so a repair
+ * the pipeline applied silently is legible to both the operator and the model
+ * that emitted it.
+ *
+ * The exhaustive `switch` with `assertNever` default is the runtime guard that
+ * locks the {@link LayoutWarning} discriminator, matching the lock
+ * {@link formatDroppedEntry} provides for drops — adding a new arm without
+ * updating this function breaks the build.
+ */
+export function formatLayoutWarning(warning: LayoutWarning): string {
+  switch (warning.kind) {
+    case 'missing_rationale':
+      return 'response omitted its rationale';
+    case 'split_weights_repaired': {
+      const token = quoteIdentifier(warning.token);
+      const cause = describeSplitRepairReason(warning.repairReason);
+      return `tiling tree split token ${token} at token index ${warning.atTokenIndex} ${cause}, read as ${warning.weights.join(',')}`;
+    }
+    default:
+      return assertNever(warning, 'formatLayoutWarning');
+  }
+}
+
+/**
+ * Shared list ceiling for the `'Response healed'` log's repairs and drops
+ * sections, so tuning one bound tunes both.
+ */
+export const MAX_LOGGED_ENTRIES = 16;
+
+/**
+ * Renders the operator-log view of a response's repairs under a list ceiling.
+ *
+ * One entry per malformed split token in a tree whose size the model chooses,
+ * so the array is bounded here rather than at the log call: a count in the
+ * tail keeps the scale of what was cut visible.
+ */
+export function formatLayoutWarnings(
+  warnings: readonly LayoutWarning[],
+): string[] {
+  const visible = warnings
+    .slice(0, MAX_LOGGED_ENTRIES)
+    .map(formatLayoutWarning);
+  const omitted = warnings.length - visible.length;
+  if (omitted <= 0) return visible;
+  return [
+    ...visible,
+    `${omitted} additional warning${omitted === 1 ? '' : 's'} omitted`,
+  ];
+}
+
+function describeSplitRepairReason(reason: TilingSplitRepairReason): string {
+  switch (reason) {
+    case 'truncated':
+      return 'declared more children than a split may hold';
+    case 'unreadable':
+      return 'had an unreadable weight suffix';
+    case 'padded':
+      return 'declared fewer than the two weights a split needs';
+    default:
+      return assertNever(reason, 'describeSplitRepairReason');
   }
 }

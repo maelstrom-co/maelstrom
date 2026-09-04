@@ -18,6 +18,7 @@ import {
   type SessionHistoryEntry,
   SessionId,
   type TilingLayout,
+  tilingLeafToken,
   VariantName,
   type Vessel,
   type VesselDefinition,
@@ -2807,7 +2808,7 @@ describe('Orchestrator', () => {
   // instance, treed. Tests spread and override the one field under test.
   const calendarSeed: TilingLayout = {
     type: 'tiling',
-    tree: [InstanceId('calendar-main')],
+    tree: ['ID:calendar-main'],
     instances: [
       {
         instanceId: InstanceId('calendar-main'),
@@ -2839,6 +2840,46 @@ describe('Orchestrator', () => {
       orchestrator.dispose();
     });
 
+    it('accepts a weighted seed and carries it to the wire unchanged', async () => {
+      // A hand-written weighted seed with no engine involvement — the seed
+      // validator and Gate 1 both walk the tree asking "is this a leaf?", so a
+      // weighted token misclassified there is reported as an undeclared
+      // instance instead of a parse error.
+      const weightedSeed: TilingLayout = {
+        type: 'tiling',
+        tree: [
+          'V:1,1,1',
+          'ID:calendar-main',
+          'ID:calendar-two',
+          'ID:calendar-three',
+        ],
+        instances: ['calendar-main', 'calendar-two', 'calendar-three'].map(
+          (id) => ({
+            instanceId: InstanceId(id),
+            vesselId: VesselId('calendar'),
+            variant: VariantName('day'),
+          }),
+        ),
+      };
+
+      const { connector, orchestrator } = createTestOrchestrator(undefined, {
+        vessels: [calendarVessel],
+        initialLayout: weightedSeed,
+      });
+
+      await orchestrator.connect();
+      orchestrator.chartManager.setDimensions({ columns: 10, rows: 6 });
+      await orchestrator.flushUpdates();
+
+      const { request } = (connector.process as ReturnType<typeof mock>).mock
+        .calls[0][0] as ChartRequestMessage;
+      expect(
+        request.layout.type === 'tiling' ? request.layout.tree : [],
+      ).toEqual(weightedSeed.tree);
+
+      orchestrator.dispose();
+    });
+
     // The store is an intermediate. What the feature promises is that the
     // engine *sees* the proposal, which means surviving buildChartRequest's
     // layout/mode reconciliation and landing on the wire.
@@ -2857,7 +2898,7 @@ describe('Orchestrator', () => {
       expect(request.layout.type).toBe('tiling');
       expect(
         request.layout.type === 'tiling' ? request.layout.tree : [],
-      ).toContain(InstanceId('calendar-main'));
+      ).toContain('ID:calendar-main');
       expect(request.instances).toEqual([
         {
           instanceId: InstanceId('calendar-main'),
@@ -3006,7 +3047,7 @@ describe('Orchestrator', () => {
             vessels: [calendarVessel],
             initialLayout: {
               ...calendarSeed,
-              tree: [InstanceId('ghost-main')],
+              tree: ['ID:ghost-main'],
             },
           }),
         ).toThrow(/ghost-main/);
@@ -3049,11 +3090,7 @@ describe('Orchestrator', () => {
           vessels: [calendarVessel],
           initialLayout: {
             type: 'tiling',
-            tree: [
-              'H',
-              InstanceId('calendar-main'),
-              InstanceId('calendar-side'),
-            ],
+            tree: ['H', 'ID:calendar-main', 'ID:calendar-side'],
             instances: [
               {
                 instanceId: InstanceId('calendar-main'),
@@ -3098,7 +3135,7 @@ describe('Orchestrator', () => {
           vessels: [calendarVessel],
           initialLayout: {
             ...calendarSeed,
-            tree: ['V', InstanceId('calendar-main'), null],
+            tree: ['V', 'ID:calendar-main', null],
           },
         });
 
@@ -3119,11 +3156,7 @@ describe('Orchestrator', () => {
           vessels: [calendarVessel],
           initialLayout: {
             ...calendarSeed,
-            tree: [
-              'V',
-              InstanceId('calendar-main'),
-              InstanceId('calendar-main'),
-            ],
+            tree: ['V', 'ID:calendar-main', 'ID:calendar-main'],
           },
         });
 
@@ -3172,7 +3205,7 @@ describe('Orchestrator', () => {
             vessels: [calendarVessel],
             initialLayout: {
               type: 'tiling',
-              tree: [emptyId],
+              tree: [tilingLeafToken(emptyId)],
               instances: [
                 {
                   instanceId: emptyId,
@@ -3214,7 +3247,7 @@ describe('Orchestrator', () => {
         executionPlan: [],
         layout: {
           type: 'tiling',
-          tree: [InstanceId('pushed-main')],
+          tree: ['ID:pushed-main'],
           instances: [
             {
               instanceId: InstanceId('pushed-main'),
@@ -3338,7 +3371,7 @@ describe('Orchestrator', () => {
             vessels: [brokenVessel],
             initialLayout: {
               type: 'tiling',
-              tree: [InstanceId('broken-main')],
+              tree: ['ID:broken-main'],
               instances: [
                 {
                   instanceId: InstanceId('broken-main'),
@@ -3359,7 +3392,7 @@ describe('Orchestrator', () => {
           vessels: [brokenVessel],
           initialLayout: {
             type: 'tiling',
-            tree: [InstanceId('broken-main')],
+            tree: ['ID:broken-main'],
             instances: [
               {
                 instanceId: InstanceId('broken-main'),

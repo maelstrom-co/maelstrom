@@ -424,7 +424,7 @@ const visibleWeatherSnapshot: UIStructuralSnapshot = {
   ],
   layout: {
     type: 'tiling',
-    tree: [InstanceId('weather-1')],
+    tree: ['ID:weather-1'],
     instances: [
       {
         instanceId: InstanceId('weather-1'),
@@ -447,7 +447,7 @@ const visibleCalendarSnapshot: UIStructuralSnapshot = {
   ],
   layout: {
     type: 'tiling',
-    tree: [InstanceId('calendar-1')],
+    tree: ['ID:calendar-1'],
     instances: [
       {
         instanceId: InstanceId('calendar-1'),

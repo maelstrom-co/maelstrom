@@ -20,6 +20,7 @@ import {
   InstanceId,
   MessageId,
   ok,
+  tilingLeafToken,
   VariantName,
   VesselId,
 } from '@maelstrom-co/protocol';
@@ -554,7 +555,7 @@ function connectorWithTilingInstance(
       executionPlan: [],
       layout: {
         type: 'tiling',
-        tree: [brandedId],
+        tree: [tilingLeafToken(brandedId)],
         instances: [
           {
             instanceId: brandedId,

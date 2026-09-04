@@ -1,8 +1,15 @@
 import type { TilingLayout } from '@maelstrom-co/protocol';
-import { InstanceId, VariantName, VesselId } from '@maelstrom-co/protocol';
+import {
+  InstanceId,
+  tilingLeafToken,
+  VariantName,
+  VesselId,
+} from '@maelstrom-co/protocol';
 
 const CALENDAR = InstanceId('calendar-main');
 const TASKS = InstanceId('tasks-main');
+const CALENDAR_LEAF = tilingLeafToken(CALENDAR);
+const TASKS_LEAF = tilingLeafToken(TASKS);
 
 /**
  * The screen every visitor lands on: today's schedule beside the task list.
@@ -12,7 +19,7 @@ const TASKS = InstanceId('tasks-main');
 export const DEFAULT_LAYOUT: TilingLayout = {
   type: 'tiling',
   // Preorder: 'V' splits the region left/right, its two children are leaves.
-  tree: ['V', CALENDAR, TASKS],
+  tree: ['V', CALENDAR_LEAF, TASKS_LEAF],
   instances: [
     {
       instanceId: CALENDAR,
@@ -29,5 +36,5 @@ export const DEFAULT_LAYOUT: TilingLayout = {
 
 export const NARROW_LAYOUT: TilingLayout = {
   ...DEFAULT_LAYOUT,
-  tree: ['H', CALENDAR, TASKS],
+  tree: ['H', CALENDAR_LEAF, TASKS_LEAF],
 };
