@@ -1,7 +1,7 @@
 import type { TilingNode, TilingSplitToken } from '@maelstrom-co/protocol';
 import {
-  isInstanceIdNode,
   parseTilingSplitToken,
+  tilingLeafInstanceId,
 } from '@maelstrom-co/protocol';
 
 import type { DroppedLayoutEntry, LayoutWarning } from '../healed-layout.js';
@@ -72,9 +72,11 @@ export function parseTree(
       continue;
     }
 
-    let subtree: Ast = isInstanceIdNode(token)
-      ? { kind: 'leaf', tokenIndex: i, id: token }
-      : { kind: 'null_leaf', tokenIndex: i };
+    const instanceId = tilingLeafInstanceId(token);
+    let subtree: Ast =
+      instanceId === null
+        ? { kind: 'null_leaf', tokenIndex: i }
+        : { kind: 'leaf', tokenIndex: i, id: instanceId };
 
     while (true) {
       const top = stack[stack.length - 1];

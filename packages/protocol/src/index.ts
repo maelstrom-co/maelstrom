@@ -84,6 +84,7 @@ export type {
   ParsedTilingSplit,
   TilingInstance,
   TilingLayout,
+  TilingLeafToken,
   TilingNode,
   TilingSplit,
   TilingSplitRepairReason,
@@ -96,9 +97,13 @@ export {
   formatTilingSplitToken,
   getVisibleInstanceIds,
   isInstanceIdNode,
+  isTilingLeafTokenString,
   isTilingSplit,
   isTilingSplitTokenString,
   parseTilingSplitToken,
+  TILING_LEAF_PREFIX,
+  tilingLeafInstanceId,
+  tilingLeafToken,
 } from './lib/response.ts';
 export type { Result } from './lib/result.ts';
 export { err, isErr, isOk, ok, unwrap } from './lib/result.ts';

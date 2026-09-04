@@ -1,10 +1,15 @@
 import { describe, expect, it } from 'bun:test';
-import type { TilingLayout } from '@maelstrom-co/protocol';
+import {
+  type TilingLayout,
+  tilingLeafInstanceId,
+} from '@maelstrom-co/protocol';
 import { createHeroConnector } from './connector';
 
 // Instance IDs referenced as leaves in the tiling tree (drop split markers).
 const treeLeaves = (layout: TilingLayout) =>
-  layout.tree.filter((n) => n !== 'H' && n !== 'V' && n !== null);
+  layout.tree
+    .map(tilingLeafInstanceId)
+    .filter((instanceId) => instanceId !== null);
 
 // Every declared instance must appear as a tree leaf and vice versa — a hero
 // tile whose leaf has no matching instance renders broken, and the hero is the

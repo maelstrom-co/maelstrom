@@ -365,7 +365,7 @@ describe('validateEngineMessage — cross-validation rejections', () => {
     env.request.context.layoutMode = 'tiling';
     env.request.layout = {
       type: 'tiling',
-      tree: ['cal-1', 'ghost-leaf'],
+      tree: ['ID:cal-1', 'ID:ghost-leaf'],
       instances: [
         { instanceId: 'cal-1', vesselId: 'calendar', variant: 'default' },
       ],

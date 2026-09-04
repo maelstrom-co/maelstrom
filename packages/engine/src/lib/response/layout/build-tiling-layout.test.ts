@@ -5,7 +5,7 @@ import { buildTilingLayout } from './build-tiling-layout.js';
 
 describe('buildTilingLayout', () => {
   test('attaches `type: "tiling"` discriminator and passes tree/instances through', () => {
-    const tree = ['H' as const, InstanceId('a'), InstanceId('b')];
+    const tree = ['H' as const, 'ID:a' as const, 'ID:b' as const];
     const instances = [
       {
         instanceId: InstanceId('a'),
@@ -42,9 +42,9 @@ describe('buildTilingLayout', () => {
     const tree = [
       'H' as const,
       'V' as const,
-      InstanceId('a'),
-      InstanceId('b'),
-      InstanceId('c'),
+      'ID:a' as const,
+      'ID:b' as const,
+      'ID:c' as const,
     ];
     const instances = [
       {
@@ -55,13 +55,7 @@ describe('buildTilingLayout', () => {
     ];
     const result = buildTilingLayout({ tree, instances });
     expect(result.tree).toBe(tree);
-    expect(result.tree).toEqual([
-      'H',
-      'V',
-      InstanceId('a'),
-      InstanceId('b'),
-      InstanceId('c'),
-    ]);
+    expect(result.tree).toEqual(['H', 'V', 'ID:a', 'ID:b', 'ID:c']);
   });
 
   test('accepts a non-empty tree with no instances (split-only structure)', () => {

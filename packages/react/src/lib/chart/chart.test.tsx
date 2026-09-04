@@ -14,7 +14,13 @@ import type {
   MaelstromResponse,
   TilingLayout,
 } from '@maelstrom-co/protocol';
-import { InstanceId, ok, VariantName, VesselId } from '@maelstrom-co/protocol';
+import {
+  InstanceId,
+  ok,
+  tilingLeafToken,
+  VariantName,
+  VesselId,
+} from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
 import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import { useEffect } from 'react';
@@ -104,7 +110,7 @@ function connectorWithGridInstance(
           executionPlan: [],
           layout: {
             type: 'tiling',
-            tree: [brandedId],
+            tree: [tilingLeafToken(brandedId)],
             instances: [
               {
                 instanceId: brandedId,
@@ -152,7 +158,7 @@ function connectorWithTilingLayout(
       executionPlan: [],
       layout: {
         type: 'tiling',
-        tree: [brandedId],
+        tree: [tilingLeafToken(brandedId)],
         instances: [
           {
             instanceId: brandedId,
@@ -1123,10 +1129,10 @@ describe('m.Chart — motion', () => {
       },
     ];
     const connector = connectorSeq([
-      { type: 'tiling', tree: [InstanceId('a')], instances },
+      { type: 'tiling', tree: ['ID:a'], instances },
       {
         type: 'tiling',
-        tree: ['V', InstanceId('a'), InstanceId('b')],
+        tree: ['V', 'ID:a', 'ID:b'],
         instances,
       },
     ]);

@@ -64,6 +64,17 @@ describe('healTilingLayout', () => {
     expect(healed.warnings).toEqual([]);
   });
 
+  test('a healed leaf carries the ID prefix, a healed split does not', () => {
+    // Pinned against literals rather than the branding helper, so a healed
+    // tree that lost the prefix cannot agree with the fixture that wrote it.
+    const healed = healTilingLayout(makeTilingResponse(), requestWithVessels());
+    expect(healed.layout.tree).toEqual([
+      'V',
+      'ID:calendar-main',
+      'ID:tasks-main',
+    ]);
+  });
+
   test('orphan leaf: prune from tree, keep valid sibling', () => {
     const healed = healTilingLayout(
       makeTilingResponse({
@@ -304,18 +315,18 @@ describe('healTilingLayout', () => {
     // The AST is fully nested to depth N. A recursive prune would blow
     // the JS call stack on this; the iterative prune handles it.
     const N = 5000;
-    const tree: TilingNode[] = [];
+    const tree: string[] = [];
     const instances = [];
     for (let i = 0; i < N; i += 1) {
       tree.push('H');
-      tree.push(`a${i}` as TilingNode);
+      tree.push(`a${i}`);
       instances.push({
         instanceId: `a${i}`,
         vesselId: 'calendar',
         variant: 'month',
       });
     }
-    tree.push(`a${N}` as TilingNode);
+    tree.push(`a${N}`);
     instances.push({
       instanceId: `a${N}`,
       vesselId: 'calendar',

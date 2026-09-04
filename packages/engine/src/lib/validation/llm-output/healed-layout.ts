@@ -141,8 +141,8 @@ export interface HealedTilingInstance {
  * need a parallel `mode` parameter. The `layout` shape is narrowed per-arm.
  * `droppedEntries` and `warnings` are shared across both modes.
  *
- * The tiling tree carries the branded `readonly TilingNode[]` shape: the
- * heal pipeline establishes the `H | V | InstanceId | null` invariant
+ * The tiling tree carries the `readonly TilingNode[]` shape: the heal
+ * pipeline establishes the split-token / `ID:` leaf / `null` invariant
  * internally (via `parseTree` / `pruneAst`), so consumers (`layoutEntryCount`,
  * `buildTilingLayout`) operate on the canonical type without per-element
  * casts.

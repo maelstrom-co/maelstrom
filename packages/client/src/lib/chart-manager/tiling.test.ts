@@ -28,7 +28,7 @@ describe('parseTilingTree', () => {
   });
 
   it('parses a single leaf node', () => {
-    const result = parseTilingTree([InstanceId('inst-1')]);
+    const result = parseTilingTree(['ID:inst-1']);
     expect(result).toEqual({ type: 'leaf', instanceId: InstanceId('inst-1') });
   });
 
@@ -38,11 +38,7 @@ describe('parseTilingTree', () => {
   });
 
   it('parses a horizontal split with two leaves', () => {
-    const result = parseTilingTree([
-      'H',
-      InstanceId('inst-1'),
-      InstanceId('inst-2'),
-    ]);
+    const result = parseTilingTree(['H', 'ID:inst-1', 'ID:inst-2']);
     // A split node's brand is type-level only, so the literal below is the
     // whole runtime object. Widening the actual is what lets a plain literal
     // stand in for a branded type; nothing about the value differs.
@@ -57,11 +53,7 @@ describe('parseTilingTree', () => {
   });
 
   it('parses a vertical split with two leaves', () => {
-    const result = parseTilingTree([
-      'V',
-      InstanceId('inst-1'),
-      InstanceId('inst-2'),
-    ]);
+    const result = parseTilingTree(['V', 'ID:inst-1', 'ID:inst-2']);
     expect<unknown>(result).toEqual({
       type: 'split',
       direction: 'V',
@@ -73,12 +65,7 @@ describe('parseTilingTree', () => {
   });
 
   it('parses a weighted split, arity from the weight count', () => {
-    const result = parseTilingTree([
-      'V:1,1,1',
-      InstanceId('a'),
-      InstanceId('b'),
-      InstanceId('c'),
-    ]);
+    const result = parseTilingTree(['V:1,1,1', 'ID:a', 'ID:b', 'ID:c']);
     expect<unknown>(result).toEqual({
       type: 'split',
       direction: 'V',
@@ -91,7 +78,7 @@ describe('parseTilingTree', () => {
   });
 
   it('parses uneven weights verbatim', () => {
-    const result = parseTilingTree(['H:2,1', InstanceId('a'), InstanceId('b')]);
+    const result = parseTilingTree(['H:2,1', 'ID:a', 'ID:b']);
     expect(result).toMatchObject({
       direction: 'H',
       children: [{ weight: 2 }, { weight: 1 }],
@@ -99,7 +86,7 @@ describe('parseTilingTree', () => {
   });
 
   it('falls back to an even two-way split for a malformed weight suffix', () => {
-    const result = parseTilingTree(['V:abc', InstanceId('a'), InstanceId('b')]);
+    const result = parseTilingTree(['V:abc', 'ID:a', 'ID:b']);
     expect(result).toMatchObject({
       direction: 'V',
       children: [{ weight: 1 }, { weight: 1 }],
@@ -110,7 +97,7 @@ describe('parseTilingTree', () => {
     // A seed layout never passes through the engine's heal, so an author who
     // writes ['V:abc', …] in a DEFAULT_LAYOUT gets a plausible render and,
     // without this, an empty console.
-    parseTilingTree(['V:abc', InstanceId('a'), InstanceId('b')]);
+    parseTilingTree(['V:abc', 'ID:a', 'ID:b']);
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining('unreadable weight suffix'),
     );
@@ -119,7 +106,7 @@ describe('parseTilingTree', () => {
   it('warns that a split token past the arity limit was truncated', () => {
     parseTilingTree([
       'V:1,1,1,1,1,1,1,1,1,1,1,1,1',
-      ...Array.from({ length: 12 }, (_, i) => InstanceId(`i${i}`)),
+      ...Array.from({ length: 12 }, (_, i): TilingNode => `ID:i${i}`),
     ]);
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining('re-parented onto an ancestor split'),
@@ -133,7 +120,7 @@ describe('parseTilingTree', () => {
     // "V:5" spells its single weight perfectly; what it got wrong is the
     // arity. Calling that an unreadable suffix sends the author after a typo
     // that is not there.
-    parseTilingTree(['V:5', InstanceId('a'), InstanceId('b')]);
+    parseTilingTree(['V:5', 'ID:a', 'ID:b']);
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining('declares fewer than the two weights'),
     );
@@ -143,16 +130,12 @@ describe('parseTilingTree', () => {
   });
 
   it('does not warn for a well-formed weighted token', () => {
-    parseTilingTree(['V:2,1', InstanceId('a'), InstanceId('b')]);
+    parseTilingTree(['V:2,1', 'ID:a', 'ID:b']);
     expect(warnSpy).not.toHaveBeenCalled();
   });
 
   it('leaves an unfilled child slot undefined', () => {
-    const result = parseTilingTree([
-      'V:1,1,1',
-      InstanceId('a'),
-      InstanceId('b'),
-    ]);
+    const result = parseTilingTree(['V:1,1,1', 'ID:a', 'ID:b']);
     expect(result).toMatchObject({
       children: [
         { weight: 1, node: { type: 'leaf', instanceId: InstanceId('a') } },
@@ -166,10 +149,10 @@ describe('parseTilingTree', () => {
     // H splits into inst-1 and (V splits inst-2 and inst-3)
     const result = parseTilingTree([
       'H',
-      InstanceId('inst-1'),
+      'ID:inst-1',
       'V',
-      InstanceId('inst-2'),
-      InstanceId('inst-3'),
+      'ID:inst-2',
+      'ID:inst-3',
     ]);
     expect<unknown>(result).toEqual({
       type: 'split',
@@ -197,13 +180,28 @@ describe('parseTilingTree', () => {
     });
   });
 
+  it('renders a token that is neither a split nor a leaf as empty space', () => {
+    // Unreachable through the schema, which refuses such a token; a seed
+    // layout written by hand reaches the parser without one.
+    const result = parseTilingTree(['V', 'ID:a', 'b' as TilingNode]);
+    expect(result).toMatchObject({
+      children: [
+        { node: { type: 'leaf', instanceId: InstanceId('a') } },
+        { node: { type: 'leaf', instanceId: null } },
+      ],
+    });
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('neither a split nor an "ID:" leaf'),
+    );
+  });
+
   it('warns when trailing tokens remain unconsumed', () => {
-    parseTilingTree([InstanceId('inst-1'), InstanceId('inst-2')]);
+    parseTilingTree(['ID:inst-1', 'ID:inst-2']);
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('unconsumed'));
   });
 
   it('warns when split node has missing children', () => {
-    parseTilingTree(['H', InstanceId('inst-1')]);
+    parseTilingTree(['H', 'ID:inst-1']);
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('missing'));
   });
 
@@ -211,7 +209,7 @@ describe('parseTilingTree', () => {
     // The token is model output. Quoting it verbatim lets a crafted token
     // forge log lines, and the index is what the engine's own diagnostics
     // report anyway.
-    parseTilingTree(['H', 'V:abc', InstanceId('a'), InstanceId('b')]);
+    parseTilingTree(['H', 'V:abc', 'ID:a', 'ID:b']);
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining('split at token index 1'),
     );
@@ -268,6 +266,8 @@ describe('computeTilingLayout', () => {
   const containerRect: Rect = { x: 0, y: 0, width: 800, height: 600 };
   const weatherId = InstanceId('weather-1');
   const calendarId = InstanceId('calendar-1');
+  const weatherLeaf = 'ID:weather-1' satisfies TilingNode;
+  const calendarLeaf = 'ID:calendar-1' satisfies TilingNode;
 
   const visibilityCases: readonly {
     readonly name: string;
@@ -276,43 +276,43 @@ describe('computeTilingLayout', () => {
   }[] = [
     {
       name: 'trailing tokens',
-      tree: [weatherId, calendarId],
+      tree: [weatherLeaf, calendarLeaf],
       expectedVisibleIds: [weatherId],
     },
     {
       name: 'incomplete split',
-      tree: ['H', weatherId],
+      tree: ['H', weatherLeaf],
       expectedVisibleIds: [weatherId],
     },
     {
       name: 'duplicate leaves',
-      tree: ['H', weatherId, weatherId],
+      tree: ['H', weatherLeaf, weatherLeaf],
       expectedVisibleIds: [weatherId],
     },
     { name: 'null leaf', tree: [null], expectedVisibleIds: [] },
     {
       name: 'a weighted split with a null in the middle',
-      tree: ['V:1,1,1', weatherId, null, calendarId],
+      tree: ['V:1,1,1', weatherLeaf, null, calendarLeaf],
       expectedVisibleIds: [weatherId, calendarId],
     },
     {
       name: 'a weighted split one subtree short',
-      tree: ['V:1,1,1', weatherId, calendarId],
+      tree: ['V:1,1,1', weatherLeaf, calendarLeaf],
       expectedVisibleIds: [weatherId, calendarId],
     },
     {
       name: 'a weighted split with a trailing token',
-      tree: ['V:1,1', weatherId, calendarId, InstanceId('never-placed')],
+      tree: ['V:1,1', weatherLeaf, calendarLeaf, 'ID:never-placed'],
       expectedVisibleIds: [weatherId, calendarId],
     },
     {
       name: 'a malformed weight suffix falling back to two children',
-      tree: ['V:abc', weatherId, calendarId, InstanceId('never-placed')],
+      tree: ['V:abc', weatherLeaf, calendarLeaf, 'ID:never-placed'],
       expectedVisibleIds: [weatherId, calendarId],
     },
     {
       name: 'an empty weight field adding no child slot',
-      tree: ['V:1,1,', weatherId, calendarId, InstanceId('never-placed')],
+      tree: ['V:1,1,', weatherLeaf, calendarLeaf, 'ID:never-placed'],
       expectedVisibleIds: [weatherId, calendarId],
     },
   ];
@@ -339,7 +339,7 @@ describe('computeTilingLayout', () => {
   });
 
   it('returns one tile for a single leaf', () => {
-    const tree = parseTilingTree([InstanceId('inst-1')]);
+    const tree = parseTilingTree(['ID:inst-1']);
     if (!tree) throw new Error('expected parsed tree');
     const tiles = computeTilingLayout(tree, containerRect, 0);
     expect(tiles).toHaveLength(1);
@@ -355,18 +355,14 @@ describe('computeTilingLayout', () => {
   });
 
   it('applies padding to tile rects', () => {
-    const tree = parseTilingTree([InstanceId('inst-1')]);
+    const tree = parseTilingTree(['ID:inst-1']);
     if (!tree) throw new Error('expected parsed tree');
     const tiles = computeTilingLayout(tree, containerRect, 8);
     expect(tiles[0].rect).toEqual({ x: 4, y: 4, width: 792, height: 592 });
   });
 
   it('horizontal split divides container top/bottom equally', () => {
-    const tree = parseTilingTree([
-      'H',
-      InstanceId('top'),
-      InstanceId('bottom'),
-    ]);
+    const tree = parseTilingTree(['H', 'ID:top', 'ID:bottom']);
     if (!tree) throw new Error('expected parsed tree');
     const tiles = computeTilingLayout(tree, containerRect, 0);
     const top = tiles.find((t) => t.instanceId === 'top');
@@ -379,11 +375,7 @@ describe('computeTilingLayout', () => {
   });
 
   it('vertical split divides container left/right equally', () => {
-    const tree = parseTilingTree([
-      'V',
-      InstanceId('left'),
-      InstanceId('right'),
-    ]);
+    const tree = parseTilingTree(['V', 'ID:left', 'ID:right']);
     if (!tree) throw new Error('expected parsed tree');
     const tiles = computeTilingLayout(tree, containerRect, 0);
     const left = tiles.find((t) => t.instanceId === 'left');
@@ -397,11 +389,7 @@ describe('computeTilingLayout', () => {
 
   it('merges duplicate instanceIds into bounding box', () => {
     // Tree: V split with same instanceId on both sides
-    const tree = parseTilingTree([
-      'V',
-      InstanceId('inst-1'),
-      InstanceId('inst-1'),
-    ]);
+    const tree = parseTilingTree(['V', 'ID:inst-1', 'ID:inst-1']);
     if (!tree) throw new Error('expected parsed tree');
     const tiles = computeTilingLayout(tree, containerRect, 0);
     expect(tiles).toHaveLength(1);
@@ -448,25 +436,20 @@ describe('computeTilingLayout — weighted splits', () => {
   }
 
   it('splits into exact thirds', () => {
-    const tiles = tilesOf([
-      'V:1,1,1',
-      InstanceId('a'),
-      InstanceId('b'),
-      InstanceId('c'),
-    ]);
+    const tiles = tilesOf(['V:1,1,1', 'ID:a', 'ID:b', 'ID:c']);
     expect(tiles.get('a')).toEqual({ x: 0, y: 0, width: 300, height: 600 });
     expect(tiles.get('b')).toEqual({ x: 300, y: 0, width: 300, height: 600 });
     expect(tiles.get('c')).toEqual({ x: 600, y: 0, width: 300, height: 600 });
   });
 
   it('honours uneven weights', () => {
-    const tiles = tilesOf(['V:2,1', InstanceId('a'), InstanceId('b')]);
+    const tiles = tilesOf(['V:2,1', 'ID:a', 'ID:b']);
     expect(tiles.get('a')).toEqual({ x: 0, y: 0, width: 600, height: 600 });
     expect(tiles.get('b')).toEqual({ x: 600, y: 0, width: 300, height: 600 });
   });
 
   it('honours uneven weights on the H axis', () => {
-    const tiles = tilesOf(['H:2,1', InstanceId('a'), InstanceId('b')]);
+    const tiles = tilesOf(['H:2,1', 'ID:a', 'ID:b']);
     expect(tiles.get('a')).toEqual({ x: 0, y: 0, width: 900, height: 400 });
     expect(tiles.get('b')).toEqual({ x: 0, y: 400, width: 900, height: 200 });
   });
@@ -477,7 +460,7 @@ describe('computeTilingLayout — weighted splits', () => {
     for (let row = 0; row < 3; row++) {
       tree.push('V:1,1,1');
       for (let col = 0; col < 3; col++) {
-        tree.push(InstanceId(ids[row * 3 + col] ?? ''));
+        tree.push(`ID:${ids[row * 3 + col] ?? ''}`);
       }
     }
 
@@ -502,7 +485,7 @@ describe('computeTilingLayout — weighted splits', () => {
     for (let row = 0; row < 2; row++) {
       tree.push('V:1,1,1,1,1,1');
       for (let col = 0; col < 6; col++) {
-        tree.push(InstanceId(ids[row * 6 + col] ?? ''));
+        tree.push(`ID:${ids[row * 6 + col] ?? ''}`);
       }
     }
 
@@ -527,14 +510,14 @@ describe('computeTilingLayout — weighted splits', () => {
       [
         'H:1,1,1',
         'V:1,1,1',
-        InstanceId('a'),
-        InstanceId('b'),
-        InstanceId('c'),
+        'ID:a',
+        'ID:b',
+        'ID:c',
         'V:2,1',
-        InstanceId('d'),
-        InstanceId('e'),
+        'ID:d',
+        'ID:e',
         'V:1,1,1,1,1,1',
-        ...Array.from({ length: 6 }, (_, i) => InstanceId(`f${i}`)),
+        ...Array.from({ length: 6 }, (_, i): TilingNode => `ID:f${i}`),
       ],
       awkward,
     );
@@ -555,42 +538,27 @@ describe('computeTilingLayout — weighted splits', () => {
   });
 
   it('bare H and V produce the same geometry as the explicit even weights', () => {
-    const bare = tilesOf([
-      'H',
-      InstanceId('a'),
-      'V',
-      InstanceId('b'),
-      InstanceId('c'),
-    ]);
-    const weighted = tilesOf([
-      'H:1,1',
-      InstanceId('a'),
-      'V:1,1',
-      InstanceId('b'),
-      InstanceId('c'),
-    ]);
+    const bare = tilesOf(['H', 'ID:a', 'V', 'ID:b', 'ID:c']);
+    const weighted = tilesOf(['H:1,1', 'ID:a', 'V:1,1', 'ID:b', 'ID:c']);
     expect([...bare.entries()]).toEqual([...weighted.entries()]);
   });
 
   it('bare H and V geometry is unchanged from 50/50 bisection', () => {
     // Pins the pre-weights output exactly: an unweighted tree must render
     // byte-identically to what it rendered before splits gained weights.
-    const tiles = tilesOf(
-      ['H', InstanceId('a'), 'V', InstanceId('b'), InstanceId('c')],
-      { x: 0, y: 0, width: 800, height: 600 },
-    );
+    const tiles = tilesOf(['H', 'ID:a', 'V', 'ID:b', 'ID:c'], {
+      x: 0,
+      y: 0,
+      width: 800,
+      height: 600,
+    });
     expect(tiles.get('a')).toEqual({ x: 0, y: 0, width: 800, height: 300 });
     expect(tiles.get('b')).toEqual({ x: 0, y: 300, width: 400, height: 300 });
     expect(tiles.get('c')).toEqual({ x: 400, y: 300, width: 400, height: 300 });
   });
 
   it('applies padding per leaf, not per split', () => {
-    const parsed = parseTilingTree([
-      'V:1,1,1',
-      InstanceId('a'),
-      InstanceId('b'),
-      InstanceId('c'),
-    ]);
+    const parsed = parseTilingTree(['V:1,1,1', 'ID:a', 'ID:b', 'ID:c']);
     if (!parsed) throw new Error('expected parsed tree');
     const tiles = computeTilingLayout(parsed, containerRect, 10);
     expect(tiles.map(({ rect }) => rect)).toEqual([
@@ -601,7 +569,7 @@ describe('computeTilingLayout — weighted splits', () => {
   });
 
   it('an unfilled child slot leaves its region empty', () => {
-    const tiles = tilesOf(['V:1,1,1', InstanceId('a'), InstanceId('b')]);
+    const tiles = tilesOf(['V:1,1,1', 'ID:a', 'ID:b']);
     expect(tiles.size).toBe(2);
     expect(tiles.get('a')).toEqual({ x: 0, y: 0, width: 300, height: 600 });
     expect(tiles.get('b')).toEqual({ x: 300, y: 0, width: 300, height: 600 });

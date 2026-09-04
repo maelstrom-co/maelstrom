@@ -2,6 +2,7 @@ import {
   ActionName,
   InstanceId,
   type TilingLayout,
+  tilingLeafToken,
   VariantName,
   VesselId,
 } from '@maelstrom-co/protocol';
@@ -15,6 +16,11 @@ const WEATHER_ID = InstanceId('weather-1');
 const CALENDAR_ID = InstanceId('calendar-1');
 const NOTES_ID = InstanceId('notes-1');
 const TASKS_ID = InstanceId('tasks-1');
+
+const WEATHER = tilingLeafToken(WEATHER_ID);
+const CALENDAR = tilingLeafToken(CALENDAR_ID);
+const NOTES = tilingLeafToken(NOTES_ID);
+const TASKS = tilingLeafToken(TASKS_ID);
 
 type Inst = TilingLayout['instances'][number];
 
@@ -53,17 +59,17 @@ const tasksList: Inst = {
 const DESKTOP_LAYOUTS: TilingLayout[] = [
   {
     type: 'tiling',
-    tree: ['H', 'V', WEATHER_ID, NOTES_ID, 'V', CALENDAR_ID, TASKS_ID],
+    tree: ['H', 'V', WEATHER, NOTES, 'V', CALENDAR, TASKS],
     instances: [weatherCompact, calendarMonth, notesDefault, tasksList],
   },
   {
     type: 'tiling',
-    tree: ['H', WEATHER_ID, 'V', CALENDAR_ID, 'H', NOTES_ID, TASKS_ID],
+    tree: ['H', WEATHER, 'V', CALENDAR, 'H', NOTES, TASKS],
     instances: [weatherFull, calendarWeek, notesDefault, tasksList],
   },
   {
     type: 'tiling',
-    tree: [TASKS_ID],
+    tree: [TASKS],
     instances: [tasksList],
   },
 ];
@@ -74,17 +80,17 @@ const DESKTOP_LAYOUTS: TilingLayout[] = [
 const MOBILE_LAYOUTS: TilingLayout[] = [
   {
     type: 'tiling',
-    tree: ['H', WEATHER_ID, NOTES_ID],
+    tree: ['H', WEATHER, NOTES],
     instances: [weatherCompact, notesDefault],
   },
   {
     type: 'tiling',
-    tree: ['H', WEATHER_ID, CALENDAR_ID],
+    tree: ['H', WEATHER, CALENDAR],
     instances: [weatherFull, calendarWeek],
   },
   {
     type: 'tiling',
-    tree: ['H', TASKS_ID, CALENDAR_ID],
+    tree: ['H', TASKS, CALENDAR],
     instances: [tasksList, calendarWeek],
   },
 ];

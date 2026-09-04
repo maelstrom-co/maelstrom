@@ -29,19 +29,12 @@ export type TilingWeightedSplit = `${TilingSplit}:${string}`;
  */
 export type TilingSplitToken = TilingSplit | TilingWeightedSplit;
 
-// Lives in a dependency-free leaf module: the brand factory that mints
-// Instance IDs has to consult it, and the layout module that owns the rest
-// of the grammar imports that brand. Homing the predicate in either one
-// would close a cycle between them.
 /**
  * Tests whether `value` matches the split-token grammar — a bare axis or a
  * weighted axis — as opposed to an Instance ID leaf.
  *
  * This is the one definition of what a split token looks like, for code
- * holding a plain string rather than a parsed `TilingNode`. Answering the
- * question in more than one place lets a token be branded an Instance ID in
- * one layer and read as a split in another, which surfaces as the unrelated
- * "leaf not declared in layout.instances".
+ * holding a plain string rather than a parsed `TilingNode`.
  */
 export function isTilingSplitTokenString(
   value: string,

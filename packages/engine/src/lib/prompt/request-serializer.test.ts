@@ -683,7 +683,7 @@ describe('buildTilingChartState', () => {
 
   test('shows tiling tree preorder', () => {
     const output = buildTilingChartState(makeTilingRequest());
-    expect(output).toContain('Preorder: ["calendar-main"]');
+    expect(output).toContain('Preorder: ["ID:calendar-main"]');
   });
 
   test('shows hidden instances separately from visible', () => {
@@ -741,10 +741,7 @@ describe('buildTilingChartState', () => {
     expect(
       request.layout.instances.map(({ instanceId }) => instanceId),
     ).toEqual([InstanceId('weather-1'), InstanceId('calendar-1')]);
-    expect(request.layout.tree).toEqual([
-      InstanceId('weather-1'),
-      InstanceId('calendar-1'),
-    ]);
+    expect(request.layout.tree).toEqual(['ID:weather-1', 'ID:calendar-1']);
 
     const output = buildTilingChartState(request);
     const visibleSection = output
@@ -756,7 +753,7 @@ describe('buildTilingChartState', () => {
 
     expect(visibleSection).toBe('- weather-1 (calendar), variant: month');
     expect(hiddenSection).toBe('- calendar-1 (calendar), variant: month');
-    expect(output).toContain('Preorder: ["weather-1","calendar-1"]');
+    expect(output).toContain('Preorder: ["ID:weather-1","ID:calendar-1"]');
   });
 
   test('does not invent a visible instance for an incomplete split', () => {
@@ -806,7 +803,7 @@ describe('buildTilingChartState', () => {
     expect(output).toContain('Currently Visible:');
     expect(output).toContain('- a (calendar)');
     expect(output).toContain('- b (calendar)');
-    expect(output).toContain('Preorder: ["V","a","H","b",null]');
+    expect(output).toContain('Preorder: ["V","ID:a","H","ID:b",null]');
   });
 
   test('shows no vessels when tree is empty', () => {

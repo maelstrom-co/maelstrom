@@ -2,9 +2,9 @@ import {
   type ChartDimensions,
   type GridLayout,
   getVisibleInstanceIds,
-  isInstanceIdNode,
   type LayoutMode,
   type TilingLayout,
+  tilingLeafInstanceId,
   type VesselInstanceSnapshot,
 } from '@maelstrom-co/protocol';
 
@@ -67,8 +67,9 @@ export function readStructuralSnapshot(
     visibleLayout = {
       ...layout,
       tree: layout.tree.map((token) => {
-        if (!isInstanceIdNode(token)) return token;
-        return renderedInstanceIds.has(token) ? token : null;
+        const instanceId = tilingLeafInstanceId(token);
+        if (instanceId === null) return token;
+        return renderedInstanceIds.has(instanceId) ? token : null;
       }),
       instances: layout.instances.filter(({ instanceId }) =>
         renderedInstanceIds.has(instanceId),

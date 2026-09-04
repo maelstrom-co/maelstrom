@@ -16,6 +16,7 @@ import {
   ActionName,
   InstanceId,
   isTilingSplitTokenString,
+  tilingLeafToken,
   VariantName,
   VesselId,
 } from '@maelstrom-co/protocol';
@@ -343,7 +344,7 @@ export function makeTilingRequest(
       ],
       layout: {
         type: 'tiling',
-        tree: [InstanceId('calendar-main')],
+        tree: [tilingLeafToken(InstanceId('calendar-main'))],
         instances: [
           brandTilingInstance({
             instanceId: 'calendar-main',
@@ -605,9 +606,12 @@ export function buildSkippedAction(author: AuthorSkippedAction): SkippedAction {
 
 /**
  * Brands an author-written tree token. Split tokens (bare or weighted) pass
- * through; anything else becomes an `InstanceId`.
+ * through; anything else is an Instance ID and takes the leaf prefix, so a
+ * fixture is written in instance IDs rather than in wire tokens.
  */
 function brandTilingNode(node: AuthorTilingNode): TilingNode {
   if (node === null) return node;
-  return isTilingSplitTokenString(node) ? node : InstanceId(node);
+  return isTilingSplitTokenString(node)
+    ? node
+    : tilingLeafToken(InstanceId(node));
 }

@@ -4,6 +4,7 @@ import {
   MessageId,
   ChartRequestMessage as makeChartRequestMessage,
   SessionId,
+  tilingLeafInstanceId,
 } from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
 import { ScriptedConnector } from '../shared/ScriptedConnector';
@@ -144,7 +145,9 @@ describe('createDemoConnector', () => {
   const asTiling = (layout: unknown) => layout as TilingLayout;
   // Instance IDs referenced as leaves in the tiling tree (drop split markers).
   const treeLeaves = (layout: TilingLayout) =>
-    layout.tree.filter((n) => n !== 'H' && n !== 'V' && n !== null);
+    layout.tree
+      .map(tilingLeafInstanceId)
+      .filter((instanceId) => instanceId !== null);
 
   it('shows exactly two vessels per mobile step, with no tree/instance drift', async () => {
     const connector = createDemoConnector(true);

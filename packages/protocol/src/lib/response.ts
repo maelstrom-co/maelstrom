@@ -1,5 +1,5 @@
 import type { ActionName } from './action-name.ts';
-import type { InstanceId } from './instance.ts';
+import { InstanceId } from './instance.ts';
 import type { MessageId } from './message.ts';
 import { MAX_SPLIT_CHILDREN, MAX_SPLIT_WEIGHT } from './model-output-limits.ts';
 import type { TilingSplit, TilingSplitToken } from './tiling-split-token.ts';
@@ -60,8 +60,32 @@ export interface TilingInstance {
   readonly variant: VariantName;
 }
 
-/** A preorder tiling tree node: a split token, a leaf instance ID, or null. */
-export type TilingNode = TilingSplitToken | InstanceId | null;
+/**
+ * The literal marker that opens a leaf token, separating the tiling grammar's
+ * leaves from its split tokens.
+ */
+export const TILING_LEAF_PREFIX = 'ID:';
+
+/**
+ * A tiling-tree leaf: {@link TILING_LEAF_PREFIX} followed by the Instance ID
+ * the leaf renders.
+ *
+ * The prefix is what makes a leaf a leaf. Without it the grammar would have to
+ * separate leaves from splits by elimination, which puts every Instance whose
+ * ID happens to start `H`/`V` — `"H:hero"`, and `"V"` itself — one string
+ * comparison away from being read as an arity-two divider that consumes the
+ * two subtrees behind it. Marking leaves instead of constraining Instance IDs
+ * keeps the grammar's needs inside the grammar.
+ *
+ * The template literal admits `"ID:"` with nothing after it, mirroring
+ * {@link TilingWeightedSplit}'s tolerance of a malformed suffix: classifying a
+ * token is separate from reading one, and {@link tilingLeafInstanceId} is
+ * where a leaf's payload is read.
+ */
+export type TilingLeafToken = `${typeof TILING_LEAF_PREFIX}${string}`;
+
+/** A preorder tiling tree node: a split token, a leaf token, or null. */
+export type TilingNode = TilingSplitToken | TilingLeafToken | null;
 
 /**
  * Why a parsed split's `weights` differ from what its token spelled.
@@ -137,28 +161,67 @@ export interface DuplicateTilingLeaf {
 }
 
 /**
- * Positive narrowing predicate: true iff the node names an Instance.
+ * True iff the node is a leaf naming an Instance.
  *
- * A {@link TilingNode} arrives off the wire as a bare string, so a
- * {@link TilingSplitToken} is structurally indistinguishable from an
- * `InstanceId` at the value level and consumers must narrow by negation. The
- * split test is delegated to {@link isTilingSplit}, so this guard isolates
- * that negation to one place and call sites read positively.
+ * Every class of node is recognised by what it is spelled like rather than by
+ * what it is not, so a token belonging to no class stays in no class instead
+ * of falling into whichever one was defined by elimination.
+ * {@link tilingLeafInstanceId} reads the Instance out; this only classifies.
  */
-export function isInstanceIdNode(node: TilingNode): node is InstanceId {
-  return node !== null && !isTilingSplit(node);
+export function isInstanceIdNode(node: TilingNode): node is TilingLeafToken {
+  return node !== null && isTilingLeafTokenString(node);
 }
 
 /**
  * True iff the node divides its region rather than naming an Instance.
  *
  * Claims every token with an `H` / `V` axis prefix, including one whose weight
- * suffix is malformed. A prefixed token read as an Instance ID leaf surfaces
- * as the unrelated "leaf not declared in layout.instances", so classification
- * deliberately precedes interpretation.
+ * suffix is malformed, so classification precedes interpretation.
  */
 export function isTilingSplit(node: TilingNode): node is TilingSplitToken {
   return node !== null && isTilingSplitTokenString(node);
+}
+
+/**
+ * Tests whether `value` matches the leaf grammar, for code holding a plain
+ * string rather than a parsed {@link TilingNode}.
+ *
+ * The bare prefix does not qualify: `"ID:"` names no Instance, and there is no
+ * repair for an absent identity the way there is for an unreadable weight.
+ */
+export function isTilingLeafTokenString(
+  value: string,
+): value is TilingLeafToken {
+  return (
+    value.length > TILING_LEAF_PREFIX.length &&
+    value.startsWith(TILING_LEAF_PREFIX)
+  );
+}
+
+/**
+ * Renders an Instance as the leaf token a tiling tree carries.
+ *
+ * @example
+ * ```ts
+ * // ['V', 'ID:calendar-main', 'ID:tasks-main']
+ * ['V', tilingLeafToken(calendarId), tilingLeafToken(tasksId)];
+ * ```
+ */
+export function tilingLeafToken(instanceId: InstanceId): TilingLeafToken {
+  return `${TILING_LEAF_PREFIX}${instanceId}`;
+}
+
+/**
+ * Reads the Instance a leaf names, or returns null for a node that is not a
+ * leaf token.
+ *
+ * The counterpart of {@link parseTilingSplitToken}: a node that yields neither
+ * an Instance here nor a split there occupies its slot as empty space.
+ */
+export function tilingLeafInstanceId(node: TilingNode): InstanceId | null {
+  return node !== null && isTilingLeafTokenString(node)
+    ? InstanceId(node.slice(TILING_LEAF_PREFIX.length))
+    : null;
 }
 
 /**
@@ -330,12 +393,13 @@ export function findDuplicateTilingLeaves(
 
   for (let index = 0; index < tree.length; index++) {
     const node = tree[index];
-    if (node === undefined || !isInstanceIdNode(node)) continue;
-    if (seen.has(node)) {
-      duplicates.push({ instanceId: node, atTokenIndex: index });
+    const instanceId = node === undefined ? null : tilingLeafInstanceId(node);
+    if (instanceId === null) continue;
+    if (seen.has(instanceId)) {
+      duplicates.push({ instanceId, atTokenIndex: index });
       continue;
     }
-    seen.add(node);
+    seen.add(instanceId);
   }
 
   return duplicates;
@@ -402,7 +466,8 @@ function collectVisibleTilingLeaves(
       pendingSlots += split.weights.length - 1;
     } else {
       pendingSlots -= 1;
-      if (isInstanceIdNode(node)) visible.add(node);
+      const instanceId = tilingLeafInstanceId(node);
+      if (instanceId !== null) visible.add(instanceId);
     }
   }
 

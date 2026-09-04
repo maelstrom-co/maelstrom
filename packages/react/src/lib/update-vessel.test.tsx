@@ -9,6 +9,7 @@ import {
   defineVessel,
   InstanceId,
   ok,
+  tilingLeafToken,
   VariantName,
   VesselId,
 } from '@maelstrom-co/protocol';
@@ -134,7 +135,7 @@ function tilingResponse(msg: ChartRequestMessage): MaelstromResponse {
     executionPlan: [],
     layout: {
       type: 'tiling',
-      tree: [instanceId],
+      tree: [tilingLeafToken(instanceId)],
       instances: [
         {
           instanceId,
@@ -737,7 +738,10 @@ describe('m.updateVessel()', () => {
         executionPlan: [],
         layout: {
           type: 'tiling',
-          tree: [listInstance, detailInstance],
+          tree: [
+            tilingLeafToken(listInstance),
+            tilingLeafToken(detailInstance),
+          ],
           instances: [
             {
               instanceId: listInstance,
@@ -830,7 +834,10 @@ describe('m.updateVessel()', () => {
           executionPlan: [],
           layout: {
             type: 'tiling',
-            tree: [journalInstance, otherInstance],
+            tree: [
+              tilingLeafToken(journalInstance),
+              tilingLeafToken(otherInstance),
+            ],
             instances: [
               {
                 instanceId: journalInstance,

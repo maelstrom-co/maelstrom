@@ -8,18 +8,21 @@ import {
   type GridLayout,
   getVisibleInstanceIds,
   isInstanceIdNode,
+  isTilingLeafTokenString,
   isTilingSplit,
   parseTilingSplitToken,
   type TilingLayout,
   type TilingNode,
   type TilingSplitRepairReason,
+  tilingLeafInstanceId,
+  tilingLeafToken,
 } from './response.js';
 import { VariantName } from './variant-name.js';
 import { VesselId } from './vessel-id.js';
 
 describe('isInstanceIdNode', () => {
-  test('true for a branded instance id', () => {
-    expect(isInstanceIdNode(InstanceId('widget-1'))).toBe(true);
+  test('true for a prefixed leaf token', () => {
+    expect(isInstanceIdNode('ID:widget-1')).toBe(true);
   });
 
   test('false for the split operators', () => {
@@ -35,21 +38,70 @@ describe('isInstanceIdNode', () => {
   });
 
   test('true for an id that merely starts with an axis letter', () => {
-    expect(isInstanceIdNode(InstanceId('Header'))).toBe(true);
-    expect(isInstanceIdNode(InstanceId('Vessel-1'))).toBe(true);
+    expect(isInstanceIdNode('ID:Header')).toBe(true);
+    expect(isInstanceIdNode('ID:Vessel-1')).toBe(true);
+  });
+
+  test('true for an id spelled exactly like a split token', () => {
+    expect(isInstanceIdNode(tilingLeafToken(InstanceId('H')))).toBe(true);
+    expect(isInstanceIdNode(tilingLeafToken(InstanceId('H:hero')))).toBe(true);
   });
 
   test('false for null', () => {
     expect(isInstanceIdNode(null)).toBe(false);
   });
 
-  test('narrows the node to InstanceId at the type level', () => {
-    const tree = [InstanceId('widget-1'), 'H' as const, null];
+  test('false for the bare prefix, which names no instance', () => {
+    expect(isInstanceIdNode('ID:')).toBe(false);
+  });
+
+  test('narrows the node to a leaf token at the type level', () => {
+    const tree: TilingNode[] = ['ID:widget-1', 'H', null];
     const leaves = tree.filter(isInstanceIdNode);
-    // Compile-time: every element of `leaves` is InstanceId.
+    // Compile-time: every element of `leaves` is TilingLeafToken.
     // Runtime: only the first element survives the filter.
     expect(leaves).toHaveLength(1);
-    expect(leaves[0]).toBe(InstanceId('widget-1'));
+    expect(leaves[0]).toBe('ID:widget-1');
+  });
+});
+
+describe('isTilingLeafTokenString', () => {
+  test('true for the prefix followed by an instance id', () => {
+    expect(isTilingLeafTokenString('ID:widget-1')).toBe(true);
+  });
+
+  test('false for an unprefixed token', () => {
+    expect(isTilingLeafTokenString('widget-1')).toBe(false);
+    expect(isTilingLeafTokenString('id:widget-1')).toBe(false);
+    expect(isTilingLeafTokenString('')).toBe(false);
+  });
+
+  test('false for the bare prefix', () => {
+    expect(isTilingLeafTokenString('ID:')).toBe(false);
+  });
+});
+
+describe('tilingLeafToken and tilingLeafInstanceId', () => {
+  test('a leaf token round trips through its instance id', () => {
+    for (const id of ['a', 'calendar-main', 'H', 'V:1,1', 'ID:nested']) {
+      const instanceId = InstanceId(id);
+      expect(tilingLeafInstanceId(tilingLeafToken(instanceId))).toBe(
+        instanceId,
+      );
+    }
+  });
+
+  test('renders the prefix followed by the id verbatim', () => {
+    expect(tilingLeafToken(InstanceId('calendar-main'))).toBe(
+      'ID:calendar-main',
+    );
+  });
+
+  test('null for every node that is not a leaf', () => {
+    expect(tilingLeafInstanceId(null)).toBeNull();
+    expect(tilingLeafInstanceId('H')).toBeNull();
+    expect(tilingLeafInstanceId('V:1,1,1')).toBeNull();
+    expect(tilingLeafInstanceId('ID:')).toBeNull();
   });
 });
 
@@ -60,7 +112,7 @@ describe('isTilingSplit', () => {
   });
 
   test('false for a branded instance id', () => {
-    expect(isTilingSplit(InstanceId('widget-1'))).toBe(false);
+    expect(isTilingSplit('ID:widget-1')).toBe(false);
   });
 
   test('false for null', () => {
@@ -81,8 +133,9 @@ describe('isTilingSplit', () => {
   });
 
   test('false for an id that merely starts with an axis letter', () => {
-    expect(isTilingSplit(InstanceId('Header'))).toBe(false);
-    expect(isTilingSplit(InstanceId('HV'))).toBe(false);
+    expect(isTilingSplit('ID:Header')).toBe(false);
+    expect(isTilingSplit('ID:HV')).toBe(false);
+    expect(isTilingSplit(tilingLeafToken(InstanceId('H:hero')))).toBe(false);
   });
 });
 
@@ -106,8 +159,8 @@ describe('parseTilingSplitToken', () => {
 
   test('null for nodes that are not split tokens', () => {
     expect(parseTilingSplitToken(null)).toBeNull();
-    expect(parseTilingSplitToken(InstanceId('widget-1'))).toBeNull();
-    expect(parseTilingSplitToken(InstanceId('Header'))).toBeNull();
+    expect(parseTilingSplitToken('ID:widget-1')).toBeNull();
+    expect(parseTilingSplitToken('ID:Header')).toBeNull();
   });
 
   test('weight count is the arity', () => {
@@ -455,12 +508,7 @@ describe('assertValidSplitWeights', () => {
 describe('findDuplicateTilingLeaves', () => {
   test('empty when every leaf is distinct', () => {
     expect(
-      findDuplicateTilingLeaves([
-        'V:1,1,1',
-        InstanceId('a'),
-        InstanceId('b'),
-        InstanceId('c'),
-      ]),
+      findDuplicateTilingLeaves(['V:1,1,1', 'ID:a', 'ID:b', 'ID:c']),
     ).toEqual([]);
   });
 
@@ -470,9 +518,9 @@ describe('findDuplicateTilingLeaves', () => {
   });
 
   test('reports the repeat, not the first occurrence', () => {
-    expect(
-      findDuplicateTilingLeaves(['V', InstanceId('a'), InstanceId('a')]),
-    ).toEqual([{ instanceId: InstanceId('a'), atTokenIndex: 2 }]);
+    expect(findDuplicateTilingLeaves(['V', 'ID:a', 'ID:a'])).toEqual([
+      { instanceId: InstanceId('a'), atTokenIndex: 2 },
+    ]);
   });
 
   test('reports every repeat in ascending token order', () => {
@@ -480,11 +528,11 @@ describe('findDuplicateTilingLeaves', () => {
       findDuplicateTilingLeaves([
         'H',
         'V',
-        InstanceId('a'),
-        InstanceId('b'),
+        'ID:a',
+        'ID:b',
         'V',
-        InstanceId('b'),
-        InstanceId('a'),
+        'ID:b',
+        'ID:a',
       ]),
     ).toEqual([
       { instanceId: InstanceId('b'), atTokenIndex: 5 },
@@ -494,12 +542,7 @@ describe('findDuplicateTilingLeaves', () => {
 
   test('a leaf used three times yields two repeats', () => {
     expect(
-      findDuplicateTilingLeaves([
-        'V:1,1,1',
-        InstanceId('a'),
-        InstanceId('a'),
-        InstanceId('a'),
-      ]),
+      findDuplicateTilingLeaves(['V:1,1,1', 'ID:a', 'ID:a', 'ID:a']),
     ).toEqual([
       { instanceId: InstanceId('a'), atTokenIndex: 2 },
       { instanceId: InstanceId('a'), atTokenIndex: 3 },
@@ -511,11 +554,11 @@ describe('findDuplicateTilingLeaves', () => {
       findDuplicateTilingLeaves([
         'H',
         'V',
-        InstanceId('a'),
-        InstanceId('b'),
+        'ID:a',
+        'ID:b',
         'V',
-        InstanceId('c'),
-        InstanceId('d'),
+        'ID:c',
+        'ID:d',
       ]),
     ).toEqual([]);
   });
@@ -525,11 +568,14 @@ describe('getVisibleInstanceIds', () => {
   const weatherId = InstanceId('weather-1');
   const calendarId = InstanceId('calendar-1');
   const tasksId = InstanceId('tasks-1');
+  const weatherLeaf = 'ID:weather-1' satisfies TilingNode;
+  const calendarLeaf = 'ID:calendar-1' satisfies TilingNode;
+  const tasksLeaf = 'ID:tasks-1' satisfies TilingNode;
 
   test('returns only tiling tree leaves', () => {
     const layout: TilingLayout = {
       type: 'tiling',
-      tree: ['H', weatherId, 'V', null, calendarId],
+      tree: ['H', weatherLeaf, 'V', null, calendarLeaf],
       instances: [],
     };
 
@@ -543,13 +589,12 @@ describe('getVisibleInstanceIds', () => {
 
     for (let index = 0; index < depth; index += 1) {
       const instanceId = InstanceId(`instance-${index}`);
-      tree.push('H', instanceId);
+      tree.push('H', `ID:instance-${index}`);
       expected.push(instanceId);
     }
 
-    const finalInstanceId = InstanceId(`instance-${depth}`);
-    tree.push(finalInstanceId);
-    expected.push(finalInstanceId);
+    tree.push(`ID:instance-${depth}`);
+    expected.push(InstanceId(`instance-${depth}`));
 
     const layout: TilingLayout = { type: 'tiling', tree, instances: [] };
 
@@ -574,12 +619,17 @@ describe('getVisibleInstanceIds', () => {
     },
     {
       name: 'a split with its right child missing',
-      tree: ['H', weatherId] satisfies readonly TilingNode[],
+      tree: ['H', weatherLeaf] satisfies readonly TilingNode[],
       expected: [weatherId],
     },
     {
       name: 'a nested split with its final child missing',
-      tree: ['H', weatherId, 'V', calendarId] satisfies readonly TilingNode[],
+      tree: [
+        'H',
+        weatherLeaf,
+        'V',
+        calendarLeaf,
+      ] satisfies readonly TilingNode[],
       expected: [weatherId, calendarId],
     },
   ])('collects encountered leaves from $name', ({ tree, expected }) => {
@@ -591,7 +641,7 @@ describe('getVisibleInstanceIds', () => {
   test('a weighted split consumes as many children as it declares', () => {
     const layout: TilingLayout = {
       type: 'tiling',
-      tree: ['V:1,1,1', weatherId, calendarId, tasksId],
+      tree: ['V:1,1,1', weatherLeaf, calendarLeaf, tasksLeaf],
       instances: [],
     };
 
@@ -605,7 +655,7 @@ describe('getVisibleInstanceIds', () => {
   test('tokens trailing a weighted root are not visible', () => {
     const layout: TilingLayout = {
       type: 'tiling',
-      tree: ['V:1,1', weatherId, calendarId, tasksId],
+      tree: ['V:1,1', weatherLeaf, calendarLeaf, tasksLeaf],
       instances: [],
     };
 
@@ -615,7 +665,7 @@ describe('getVisibleInstanceIds', () => {
   test('a malformed weight suffix still consumes two children', () => {
     const layout: TilingLayout = {
       type: 'tiling',
-      tree: ['V:abc', weatherId, calendarId, tasksId],
+      tree: ['V:abc', weatherLeaf, calendarLeaf, tasksLeaf],
       instances: [],
     };
 
@@ -625,7 +675,7 @@ describe('getVisibleInstanceIds', () => {
   test('deduplicates repeated tiling leaves', () => {
     const layout: TilingLayout = {
       type: 'tiling',
-      tree: ['H', weatherId, weatherId],
+      tree: ['H', weatherLeaf, weatherLeaf],
       instances: [],
     };
 
@@ -679,7 +729,7 @@ describe('getVisibleInstanceIds', () => {
   test('ignores trailing tiling tokens after the first complete tree', () => {
     const layout: TilingLayout = {
       type: 'tiling',
-      tree: [weatherId, calendarId],
+      tree: [weatherLeaf, calendarLeaf],
       instances: [],
     };
 
@@ -689,7 +739,7 @@ describe('getVisibleInstanceIds', () => {
   test('does not treat tiling declarations omitted from the tree as visible', () => {
     const layout: TilingLayout = {
       type: 'tiling',
-      tree: [weatherId],
+      tree: [weatherLeaf],
       instances: [
         {
           instanceId: weatherId,
@@ -712,9 +762,9 @@ describe('getVisibleInstanceIds', () => {
 describe('isInstanceIdNode + isTilingSplit partition TilingNode', () => {
   test('every non-null node is classified by exactly one predicate', () => {
     const nodes: TilingNode[] = [
-      InstanceId('widget-1'),
-      InstanceId('calendar-main'),
-      InstanceId('Header'),
+      'ID:widget-1',
+      'ID:calendar-main',
+      'ID:Header',
       'H',
       'V',
       'V:1,1,1',
@@ -737,8 +787,8 @@ describe('isTilingSplit and parseTilingSplitToken agree', () => {
   test('a node is a split token exactly when it parses', () => {
     const nodes: TilingNode[] = [
       null,
-      InstanceId('widget-1'),
-      InstanceId('Header'),
+      'ID:widget-1',
+      'ID:Header',
       'H',
       'V',
       'V:1,1,1',

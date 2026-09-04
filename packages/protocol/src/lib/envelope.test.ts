@@ -445,8 +445,8 @@ describe('EngineMessage ↔ ClientEnvelope', () => {
   });
 });
 
-describe('reserved instance ids reaching the envelope boundary', () => {
-  test('a reserved execution-plan id decodes to an error, not a throw', () => {
+describe('split-shaped instance ids reaching the envelope boundary', () => {
+  test('a split-shaped execution-plan id decodes without error', () => {
     const decoded = decodeServerEnvelope({
       type: 'engine.maelstrom.response',
       requestId: 'req-1',
@@ -455,6 +455,6 @@ describe('reserved instance ids reaching the envelope boundary', () => {
         executionPlan: [{ instanceId: 'H:hero', action: 'open' }],
       },
     });
-    expect(isErr(decoded)).toBe(true);
+    expect(isErr(decoded)).toBe(false);
   });
 });

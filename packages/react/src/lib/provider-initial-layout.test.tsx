@@ -22,7 +22,7 @@ const seedLayout: TilingLayout = freshSeedLayout();
 // that still resolves against the registered test vessel.
 const detailSeedLayout: TilingLayout = {
   type: 'tiling',
-  tree: [InstanceId('orders-main')],
+  tree: ['ID:orders-main'],
   instances: [
     {
       instanceId: InstanceId('orders-main'),
@@ -34,7 +34,7 @@ const detailSeedLayout: TilingLayout = {
 
 const secondarySeedLayout: TilingLayout = {
   type: 'tiling',
-  tree: [InstanceId('orders-secondary')],
+  tree: ['ID:orders-secondary'],
   instances: [
     {
       instanceId: InstanceId('orders-secondary'),
@@ -253,7 +253,7 @@ describe('Provider initialLayout — rejection under layoutMode "grid"', () => {
 function freshSeedLayout(): TilingLayout {
   return {
     type: 'tiling',
-    tree: [InstanceId('orders-main')],
+    tree: ['ID:orders-main'],
     instances: [
       {
         instanceId: InstanceId('orders-main'),

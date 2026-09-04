@@ -1,5 +1,8 @@
 import type { InstanceId, TilingNode } from '@maelstrom-co/protocol';
-import { formatTilingSplitToken } from '@maelstrom-co/protocol';
+import {
+  formatTilingSplitToken,
+  tilingLeafToken,
+} from '@maelstrom-co/protocol';
 
 import { assertNever } from '../../../assert-never.js';
 import type { DroppedLayoutEntry } from '../healed-layout.js';
@@ -77,7 +80,10 @@ export function pruneAst(
         continue;
       case 'leaf':
         if (validIds.has(node.id)) {
-          results.push({ weight: task.weight, tokens: [node.id] });
+          results.push({
+            weight: task.weight,
+            tokens: [tilingLeafToken(node.id)],
+          });
         } else {
           drops.push({
             reason: 'tree_orphan_reference',

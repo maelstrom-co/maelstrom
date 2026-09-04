@@ -5,6 +5,7 @@ import {
   parseTilingSplitToken,
   type TilingNode,
   type TilingSplit,
+  tilingLeafInstanceId,
 } from '@maelstrom-co/protocol';
 
 /** Pixel-space rectangle used while projecting a tiling tree. */
@@ -211,9 +212,17 @@ export function parseTilingTree(
       return createTilingSplitNode(axis, children);
     }
 
+    const instanceId = tilingLeafInstanceId(node);
+
+    if (instanceId === null && node !== null) {
+      console.warn(
+        `[Maelstrom] Malformed tiling tree: token at index ${tokenIndex} is neither a split nor an "ID:" leaf; rendered as empty space`,
+      );
+    }
+
     return {
       type: 'leaf',
-      instanceId: node,
+      instanceId,
     };
   }
 

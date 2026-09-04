@@ -10,7 +10,7 @@ import type { InstanceId } from './instance.ts';
 import type { LayoutMode } from './layout.ts';
 import { MAX_EXECUTION_PLAN_ENTRIES } from './model-output-limits.ts';
 import type { GridLayout, TilingLayout } from './response.ts';
-import { isInstanceIdNode } from './response.ts';
+import { tilingLeafInstanceId } from './response.ts';
 import {
   ActionExecutionSchema,
   GridLayoutSchema,
@@ -388,11 +388,12 @@ export const ChartRequestSchema = z
       });
 
       req.layout.tree.forEach((node, i) => {
-        if (!isInstanceIdNode(node)) return;
-        if (!layoutInstanceIds.has(node)) {
+        const instanceId = tilingLeafInstanceId(node);
+        if (instanceId === null) return;
+        if (!layoutInstanceIds.has(instanceId)) {
           ctx.addIssue({
             code: 'custom',
-            message: `Tiling tree leaf "${node}" is not declared in layout.instances`,
+            message: `Tiling tree leaf "${instanceId}" is not declared in layout.instances`,
             path: ['layout', 'tree', i],
           });
         }

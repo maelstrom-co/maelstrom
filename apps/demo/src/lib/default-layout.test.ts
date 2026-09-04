@@ -1,6 +1,6 @@
 import type { TilingTreeNode } from '@maelstrom-co/client';
 import { parseTilingTree } from '@maelstrom-co/client';
-import { type InstanceId, isInstanceIdNode } from '@maelstrom-co/protocol';
+import { type InstanceId, tilingLeafInstanceId } from '@maelstrom-co/protocol';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { calendarVessel } from '../vessels/calendar.vessel';
 import { tasksVessel } from '../vessels/tasks.vessel';
@@ -46,7 +46,9 @@ describe('DEFAULT_LAYOUT', () => {
     const declared = DEFAULT_LAYOUT.instances.map(
       (instance) => instance.instanceId as string,
     );
-    const leaves: InstanceId[] = DEFAULT_LAYOUT.tree.filter(isInstanceIdNode);
+    const leaves: InstanceId[] = DEFAULT_LAYOUT.tree
+      .map(tilingLeafInstanceId)
+      .filter((instanceId) => instanceId !== null);
 
     expect(leaves.length).toBeGreaterThan(0);
     // Both directions: every leaf is declared (above) and every declared

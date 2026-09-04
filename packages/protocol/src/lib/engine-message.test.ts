@@ -347,8 +347,8 @@ describe('EngineMessageSchema (discriminated union)', () => {
   });
 });
 
-describe('EngineMessageSchema reserved instance ids', () => {
-  test('a chart_request naming a reserved id fails validation, not the parse', () => {
+describe('EngineMessageSchema split-shaped instance ids', () => {
+  test('a chart_request naming a split-shaped id parses', () => {
     const result = EngineMessageSchema.safeParse({
       type: 'chart_request',
       id: 'm-1',
@@ -368,6 +368,6 @@ describe('EngineMessageSchema reserved instance ids', () => {
         layout: { type: 'grid', positions: [] },
       },
     });
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
   });
 });

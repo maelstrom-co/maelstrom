@@ -3,8 +3,9 @@ import {
   type GridLayout,
   getVisibleInstanceIds,
   InstanceId,
-  isInstanceIdNode,
   type TilingLayout,
+  tilingLeafInstanceId,
+  tilingLeafToken,
   VariantName,
   VesselId,
 } from '@maelstrom-co/protocol';
@@ -20,6 +21,9 @@ const weatherId = InstanceId('weather-1');
 const calendarId = InstanceId('calendar-1');
 const tasksId = InstanceId('tasks-1');
 const ghostId = InstanceId('ghost');
+const weatherLeaf = tilingLeafToken(weatherId);
+const calendarLeaf = tilingLeafToken(calendarId);
+const ghostLeaf = tilingLeafToken(ghostId);
 
 const tilingDeclarations: TilingLayout['instances'] = [
   {
@@ -111,8 +115,9 @@ function expectEmittedLayoutToBeCoherent(snapshot: UIStructuralSnapshot) {
 
   if (snapshot.layout?.type === 'tiling') {
     for (const token of snapshot.layout.tree) {
-      if (isInstanceIdNode(token)) {
-        expect(snapshotIds.has(token)).toBe(true);
+      const instanceId = tilingLeafInstanceId(token);
+      if (instanceId !== null) {
+        expect(snapshotIds.has(instanceId)).toBe(true);
       }
     }
     for (const { instanceId } of snapshot.layout.instances) {
@@ -143,7 +148,7 @@ describe('readStructuralSnapshot', () => {
         ]),
         layout: {
           type: 'tiling',
-          tree: [instanceId],
+          tree: [tilingLeafToken(instanceId)],
           instances: [
             {
               instanceId,
@@ -175,7 +180,7 @@ describe('readStructuralSnapshot', () => {
 
   it('ignores trailing tiling tokens that the Chart does not render', () => {
     const { orchestrator } = createTestOrchestrator();
-    const layout = createTilingLayout([weatherId, calendarId]);
+    const layout = createTilingLayout([weatherLeaf, calendarLeaf]);
     const sourceTree = [...layout.tree];
     const sourceDeclarations = [...layout.instances];
     const retainedInstances = seedState(orchestrator, layout);
@@ -189,7 +194,7 @@ describe('readStructuralSnapshot', () => {
         throw new Error('expected tiling layout');
       }
       expect(snapshot.layout.instances).toEqual([tilingDeclarations[0]]);
-      expect(snapshot.layout.tree).toEqual([weatherId, null]);
+      expect(snapshot.layout.tree).toEqual([weatherLeaf, null]);
       expect(getVisibleInstanceIds(snapshot.layout)).toEqual(
         new Set([weatherId]),
       );
@@ -211,7 +216,7 @@ describe('readStructuralSnapshot', () => {
 
   it('reports only tiling tree leaves and projects tiling declarations', () => {
     const { orchestrator } = createTestOrchestrator();
-    const layout = createTilingLayout([weatherId]);
+    const layout = createTilingLayout([weatherLeaf]);
     const retainedInstances = seedState(orchestrator, layout);
 
     try {
@@ -223,7 +228,7 @@ describe('readStructuralSnapshot', () => {
         throw new Error('expected tiling layout');
       }
       expect(snapshot.layout.instances).toEqual([tilingDeclarations[0]]);
-      expect(snapshot.layout.tree).toEqual([weatherId]);
+      expect(snapshot.layout.tree).toEqual([weatherLeaf]);
       expect(snapshot.instances).not.toContainEqual(tilingDeclarations[1]);
       expect(snapshot.instances).not.toContainEqual(tilingDeclarations[2]);
       expect(snapshot.layout.instances).not.toContainEqual(
@@ -321,7 +326,7 @@ describe('readStructuralSnapshot', () => {
     const { orchestrator } = createTestOrchestrator();
     const layout: TilingLayout = {
       type: 'tiling',
-      tree: ['H', weatherId, ghostId],
+      tree: ['H', weatherLeaf, ghostLeaf],
       instances: [
         tilingDeclarations[0],
         {
@@ -343,7 +348,7 @@ describe('readStructuralSnapshot', () => {
       if (snapshot.layout?.type !== 'tiling') {
         throw new Error('expected tiling layout');
       }
-      expect(snapshot.layout.tree).toEqual(['H', weatherId, null]);
+      expect(snapshot.layout.tree).toEqual(['H', weatherLeaf, null]);
       expect(snapshot.layout.instances).toEqual([tilingDeclarations[0]]);
       expect(getVisibleInstanceIds(snapshot.layout)).toEqual(
         new Set([weatherId]),
@@ -367,7 +372,7 @@ describe('readStructuralSnapshot', () => {
     const { orchestrator } = createTestOrchestrator();
     const layout: TilingLayout = {
       type: 'tiling',
-      tree: ['H', weatherId, 'V', ghostId],
+      tree: ['H', weatherLeaf, 'V', ghostLeaf],
       instances: [
         tilingDeclarations[0],
         {
@@ -386,7 +391,7 @@ describe('readStructuralSnapshot', () => {
       if (snapshot.layout?.type !== 'tiling') {
         throw new Error('expected tiling layout');
       }
-      expect(snapshot.layout.tree).toEqual(['H', weatherId, 'V', null]);
+      expect(snapshot.layout.tree).toEqual(['H', weatherLeaf, 'V', null]);
       expect(snapshot.layout.instances).toEqual([tilingDeclarations[0]]);
       expect(snapshot.instances).toEqual([tilingDeclarations[0]]);
       expect(getVisibleInstanceIds(snapshot.layout)).toEqual(
@@ -423,7 +428,7 @@ describe('readStructuralSnapshot', () => {
     const { orchestrator } = createTestOrchestrator();
     const retainedInstances = seedState(
       orchestrator,
-      createTilingLayout([weatherId]),
+      createTilingLayout([weatherLeaf]),
     );
     const weatherInstance = retainedInstances.get(weatherId);
     const calendarInstance = retainedInstances.get(calendarId);
@@ -435,7 +440,7 @@ describe('readStructuralSnapshot', () => {
 
       orchestrator.commandProcessor.store.setState((state) => ({
         ...state,
-        layout: createTilingLayout(['H', weatherId, calendarId]),
+        layout: createTilingLayout(['H', weatherLeaf, calendarLeaf]),
       }));
 
       const snapshot = readStructuralSnapshot(orchestrator);

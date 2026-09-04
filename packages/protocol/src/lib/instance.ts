@@ -1,5 +1,4 @@
 import { type Brand, requireNonEmptyBrand } from './brand.ts';
-import { isTilingSplitTokenString } from './tiling-split-token.ts';
 
 /**
  * Opaque identifier for a vessel instance in a chart.
@@ -17,12 +16,6 @@ export type InstanceId = Brand<string, 'InstanceId'>;
  * Generating one client-side would mean inventing an identity for an entity
  * Maelstrom didn't create, which is never what callers want.
  *
- * Rejects the tiling grammar's reserved namespace — `H`, `V`, and anything
- * prefixed `H:` or `V:` — so the `TilingSplitToken | InstanceId | null`
- * partition holds at runtime and not just on paper. An Instance called
- * `H:hero` would otherwise be branded a split token by the tree schema, read
- * as an arity-two divider, and made to consume the two subtrees that follow.
- *
  * @example
  * ```ts
  * const id = InstanceId('calendar-main');
@@ -31,10 +24,5 @@ export type InstanceId = Brand<string, 'InstanceId'>;
  */
 export const InstanceId = (value: string): InstanceId => {
   requireNonEmptyBrand(value, 'InstanceId');
-  if (isTilingSplitTokenString(value)) {
-    throw new Error(
-      `InstanceId("${value}") is not allowed. "H", "V", and any "H:"/"V:" prefixed value are reserved for tiling split tokens.`,
-    );
-  }
   return value as InstanceId;
 };

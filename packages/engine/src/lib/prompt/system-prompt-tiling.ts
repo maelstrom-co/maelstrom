@@ -38,7 +38,7 @@ The layout uses a binary tree structure serialized as a preorder traversal array
 Node types:
 - "H" = Horizontal split (divides space into TOP and BOTTOM halves)
 - "V" = Vertical split (divides space into LEFT and RIGHT halves)
-- "<instanceId>" = A vessel instance ID (leaf node, takes up the allocated space)
+- "ID:<instanceId>" = A vessel instance (leaf node, takes up the allocated space). The "ID:" prefix is mandatory; a bare "<instanceId>" is rejected.
 - null = Empty space (leaf node, leaves the space empty)
 
 INSTANCE MANAGEMENT:
@@ -70,18 +70,19 @@ To CHANGE an EXISTING instance's variant — pick exactly ONE method, never both
 - ${NO_OP_VARIANT_ACKNOWLEDGEMENT}
 
 Examples:
-- tree: ["vessel-a"] → vessel-a takes 100% of the space
-- tree: ["V", "vessel-a", "vessel-b"] → V splits left/right: vessel-a (50% left), vessel-b (50% right)
-- tree: ["H", "vessel-a", "vessel-b"] → H splits top/bottom: vessel-a (50% top), vessel-b (50% bottom)
+- tree: ["ID:vessel-a"] → vessel-a takes 100% of the space
+- tree: ["V", "ID:vessel-a", "ID:vessel-b"] → V splits left/right: vessel-a (50% left), vessel-b (50% right)
+- tree: ["H", "ID:vessel-a", "ID:vessel-b"] → H splits top/bottom: vessel-a (50% top), vessel-b (50% bottom)
 - tree: [] with instances: [] → Nothing visible, no instances exist
 
-To give a vessel MORE space, include it multiple times in different leaves:
-- ["V", "vessel-a", "V", "vessel-a", "vessel-b"] → vessel-a gets 50% + 25% = 75%, vessel-b gets 25%`,
+To give a vessel MORE space, weight its split — do not repeat the vessel:
+- ["V:3,1", "ID:vessel-a", "ID:vessel-b"] → vessel-a gets 75% of the width, vessel-b gets 25%`,
 
   actions: SHARED_ACTIONS,
   rules: `Rules:
 ${SHARED_RULES}
-- The tree must be valid: each split node (H/V) must have exactly 2 children
+- The tree must be valid: bare "H"/"V" takes exactly 2 children, and a weighted token takes exactly as many children as it declares weights
+- Each instance ID appears AT MOST ONCE in the tree; a repeat renders as empty space
 - When creating new instances, use descriptive identifiers that reflect the content shown (e.g., "calendar-appointments", "comparison-left")
 - Include ALL existing instances you want to keep in the instances array
 - CRITICAL: When creating a new instance that needs specific data or state, add an action for it in the executionPlan array
