@@ -45,7 +45,7 @@ The engine returns a `GridLayout` when the response shape was negotiated as `lay
 
 Coordinates have to fit. The LLM has to keep every `position.row + size.height` inside `chartDimensions.rows`, and the same for columns. The engine heals overflows when it can (drops invalid positions, records the reason) rather than failing the whole turn, but the prompt makes the constraint explicit so the model rarely needs healing in the first place.
 
-## Tiling layout: A recursive binary tree
+## Tiling layout: A recursive split tree
 
 A `TilingLayout` describes the same screen as a tree of splits with Vessel instances at the leaves:
 
@@ -54,7 +54,7 @@ import type { TilingLayout } from '@maelstrom-co/protocol';
 
 const layout: TilingLayout = {
   type: 'tiling',
-  // Preorder traversal: split operators (`H`/`V`) followed by their two children.
+  // Preorder traversal: each split operator (`H`/`V`) is followed by its children.
   // This tree splits horizontally; the top half is `calendar-1`, the bottom
   // half splits vertically into `weather-1` (left) and `tasks-1` (right).
   tree: ['H', 'ID:calendar-1', 'V', 'ID:weather-1', 'ID:tasks-1'],
@@ -66,19 +66,80 @@ const layout: TilingLayout = {
 };
 ```
 
-`tree` is a preorder list of `TilingNode` values: `'H'` (horizontal split), `'V'` (vertical split), a leaf written as `'ID:'` followed by an instance id, or `null` for an empty leaf. The `ID:` prefix is mandatory and is what separates a leaf from a split token, so an instance may be named anything — `ID:H:hero` is a leaf, not a split. The client's parser (`packages/client/src/lib/chart-manager/tiling.ts`) walks the list, builds an in-memory tree, and recursively bisects the container rect — every horizontal split divides the available height, every vertical split divides the available width.
+`tree` is a preorder list of `TilingNode` values: a split token — `'H'` (horizontal split) or `'V'` (vertical split), optionally weighted — a leaf written as `'ID:'` followed by an instance id, or `null` for an empty leaf. The `ID:` prefix is mandatory and is what separates a leaf from a split token, so an instance may be named anything — `ID:H:hero` is a leaf, not a split. The client's parser (`packages/client/src/lib/chart-manager/tiling.ts`) walks the list, builds an in-memory tree, and recursively divides the container rect — every horizontal split divides the available height, every vertical split divides the available width.
 
 There is no `chartDimensions` row-and-column count to honour at the leaf level. The tree itself is the structure; the container size is the only spatial input.
+
+### Split tokens and weights
+
+A split token is an axis, optionally followed by `:` and comma-separated positive integers:
+
+| Token | Children | Proportions |
+| ----- | -------- | ----------- |
+| `'V'` | 2 | 50% / 50%, left to right |
+| `'H'` | 2 | 50% / 50%, top to bottom |
+| `'V:1,1,1'` | 3 | one third each, left to right |
+| `'H:2,1'` | 2 | two thirds top, one third bottom |
+| `'V:3,1'` | 2 | 75% left, 25% right |
+
+Three rules govern the suffix:
+
+1. **The number of weights *is* the number of children.** `'V:1,1,1'` consumes exactly the next three subtrees from the preorder array, not two. This is what makes a miscount detectable: the weight count is a checksum against the subtree count, so the engine's heal pass can see a short or long split and report it — dropping the pieces it cannot resolve — rather than silently emitting well-formed, wrongly-proportioned geometry.
+2. **Weights are relative shares, normalised by their sum.** Each child takes `weight / sum(weights)` of the region along the axis, so a weight is not a fraction of the parent and any uniform scaling is a no-op: `1,1,1` and `2,2,2` are both exact thirds. They are integers because integers keep the validity check total — no NaN, no float-precision edges — and because the parser does not interpret a decimal field: it rounds each field to the nearest whole number with a floor of 1. `'V:0.7,0.3'` therefore renders as 50/50, not 70/30, and the parse reports itself `repaired`.
+3. **A token declares between two and `MAX_SPLIT_CHILDREN` (12) weights, each between 1 and `MAX_SPLIT_WEIGHT` (1000).** Empty fields are ignored rather than counted, so `'V:1,1,'` is a two-way split; a list shorter than two pads to `[1, 1]`, so `'V:1'` is a two-way split as well. Both then consume two subtrees — one fewer, or one more, than whoever wrote that suffix intended. A field outside 1 to 1000 is clamped to the nearest bound. More than twelve fields is different in kind: the surplus slots are discarded, so the token's arity is cut and the subtrees those slots would have consumed re-parent onto an ancestor, reshaping the tree rather than merely re-proportioning it.
+
+Bare `'H'` / `'V'` mean exactly `weights: [1, 1]` and remain the preferred spelling for an even two-way split: shorter, and identical in output. Everything written before weights existed still renders byte-identically.
+
+Weights are what make arrangements that repeated halving cannot reach expressible at all. Three equal columns:
+
+```ts
+tree: ['V:1,1,1', 'ID:a', 'ID:b', 'ID:c'];
+```
+
+A 3×3 grid — one three-way row split, each row a three-way column split:
+
+```ts
+tree: [
+  'H:1,1,1',
+  'V:1,1,1', 'ID:a1', 'ID:a2', 'ID:a3',
+  'V:1,1,1', 'ID:b1', 'ID:b2', 'ID:b3',
+  'V:1,1,1', 'ID:c1', 'ID:c2', 'ID:c3',
+];
+```
+
+Two rows of six — a bare `'H'` for the even halving, then a six-weight split per row:
+
+```ts
+tree: [
+  'H',
+  'V:1,1,1,1,1,1', 'ID:a1', 'ID:a2', 'ID:a3', 'ID:a4', 'ID:a5', 'ID:a6',
+  'V:1,1,1,1,1,1', 'ID:b1', 'ID:b2', 'ID:b3', 'ID:b4', 'ID:b5', 'ID:b6',
+];
+```
+
+To read or construct a token programmatically, `@maelstrom-co/protocol` exports `parseTilingSplitToken` (token → `{ axis, weights, ... }`) and `formatTilingSplitToken` (axis + weights → token), plus `isTilingSplit` to tell a split token from an instance id.
+
+The two sides of the system read a malformed suffix differently, and deliberately so. Model output is repaired: `parseTilingSplitToken` clamps each field independently and reports `repaired: true`, so the engine records a warning and still renders something rather than burning a retry. A hand-written `initialLayout` seed is not — the orchestrator throws on any token whose suffix is not spelled as the grammar requires, because that is a developer's typo and should surface at construction. A layout pushed through `commandProcessor.setLayout` sits between the two: it is neither healed nor seed-validated, so a malformed suffix there is repaired at render time with a `console.warn` as its only signal.
+
+### One leaf per instance
+
+An instance id may appear **at most once** in the tree. An Instance is a single entry in the store with one Variant and one action surface, and tiles are keyed by instance id, so a tree naming the same instance twice describes something that cannot be rendered. The rule is enforced in three places: the engine's heal pass blanks the repeat to `null` (keeping the parent split's arity and every following token's index intact), the client's `commandProcessor` refuses a duplicate-bearing `set_layout` outright, and a duplicate-bearing `initialLayout` seed throws at construction. The client's `commandProcessor` and the orchestrator's seed check both call `findFirstDuplicateTilingLeaf`, which exits at the first repeat; the engine's heal pass calls `findDuplicateTilingLeaves` instead, since blanking every repeat needs all of them. Both are internal to `@maelstrom-co/protocol` and do not appear in the published reference.
+
+The `set_layout` refusal is worth knowing in detail, because its only signal is a `processing_error` event on `commandProcessor.events` — subscribe to it, or the update disappears with nothing in the console to explain it. The throw also abandons the rest of the dispatched batch, so an engine turn that pairs `set_layout` with `execute_actions` loses the actions too. The previous layout stays on screen, except when there is no previous layout: refusing the *first* one leaves `layout` at its initial `null` and the chart renders its empty placeholder.
+
+Repeating an id used to be the documented way to give a Vessel more space. Weights replace it exactly and correctly: `['V:3,1', 'ID:a', 'ID:b']` gives `a` 75% of the width in one leaf.
 
 ### When tiling fits
 
 - **Filling whatever screen you give it.** A fully populated tiling tree covers the whole container — no gaps, no whitespace columns. (A `null` empty leaf is the one way to leave a pane blank.) If you resize, every Vessel resizes with you.
-- **A few Vessels at a time.** Three to five panes feels natural. Twenty leaves would compute fine but read as visual noise.
+- **Regular arrangements.** Bands, columns, and even grids fall out of the tree directly — three equal columns, a 3×3, two rows of six. A split declares at most twelve children — a token declaring more has its arity cut — so wider rows are built by nesting.
 - **Letting the LLM compose freely.** "Show me the calendar with weather and tasks alongside" maps cleanly to "split horizontally, then split the bottom vertically" — no coordinate arithmetic.
 
 ### What tiling asks of the LLM
 
-The tree has to be well-formed: every `'H'` and `'V'` needs two children, every leaf id has to appear in `instances`, and the input instance list has to be a subset of `layout.instances` (the LLM may *add* instances for a turn — useful when the response brings a new Vessel into view). Two layers keep that contract: `ChartRequestSchema` rejects a request whose leaf ids don't match its `instances` at parse time, and the engine's heal pass repairs a malformed response tree from the LLM — dropping unresolvable children (reason `tree_missing_child`) and collapsing orphaned splits — so the renderer receives a clean tree.
+The tree has to be well-formed: every split needs exactly as many children as it declares weights (two for a bare `'H'` / `'V'`), every leaf id has to appear in `instances` and appear only once in the tree, and the input instance list has to be a subset of `layout.instances` (the LLM may *add* instances for a turn — useful when the response brings a new Vessel into view). Two layers keep that contract: `ChartRequestSchema` rejects a request whose leaf ids don't match its `instances` at parse time, and the engine's heal pass repairs a malformed response tree from the LLM so the renderer receives a clean tree.
+
+Only one heal outcome is a pure repair: a weight suffix that is unreadable but stays within the caps is rewritten in place and reported as a `split_weights_repaired` warning, because nothing was removed. Everything else is recorded as a drop — an unresolvable child (`tree_missing_child`), a repeated leaf blanked to `null` (`tree_duplicate_leaf`), a leaf naming an instance the layout never declared (`tree_orphan_reference`), tokens trailing the first complete tree (`tree_extra_tokens`), and a token declaring more than twelve weights (`tree_split_truncated`). That last one is a drop rather than a repair precisely because cutting the arity re-parents the subtrees the discarded slots would have consumed, which changes the tree's shape.
 
 ## Where `minSize` applies
 
@@ -93,14 +154,37 @@ So `minSize` is a server-side backstop, not something the LLM reasons with. A Ca
 
 You choose at instance-creation time via `layoutMode` in the request context, and the engine returns the matching shape. The two modes are not interchangeable per turn — the request and response have to agree, and `ChartRequestSchema` rejects the mismatch.
 
-| Need                                      | Likely fit         |
-| ----------------------------------------- | ------------------ |
-| Multi-widget dashboard, designed grid     | `'grid'`           |
-| Adaptive split layout, fills the viewport | `'tiling'`         |
-| Mixed: dense rows + a focus pane          | `'grid'` usually wins; tiling can't carve out fixed-pixel rails |
-| LLM-driven composition with few panes     | `'tiling'`         |
+The old rule of thumb was "grid when you need proportions halving can't reach". Weighted splits removed that reason: thirds, fifths, 3×3 and 2×6 are all exactly expressible in tiling now. Three differences survive, and they are the ones to decide on.
 
-When in doubt, start with grid. It's the easier model to reason about — both for you and for the LLM.
+### Tiling fills the container; grid does not
+
+A fully populated tiling tree covers its container exactly, at every container size, with no leftover strip (each tile is then inset by `tilingPaddingPx`, 8 by default, to leave a gutter). Sizes are *proportional*, which cuts both ways: add a Vessel to a split and every sibling in that split shrinks to make room, automatically and without the LLM computing anything. In grid, cells are absolute — six columns of `cellSizePx` is the same number of pixels whatever else is on screen — so an unfilled grid simply leaves the remaining cells blank.
+
+Choose **tiling** when "use the whole screen" is the requirement. Choose **grid** when a panel must stay physically the same size as the layout changes around it, because a user is reading it and you do not want it resizing under them.
+
+### `minSize` is a grid-only guarantee
+
+`minSize` is enforced in grid and ignored in tiling — see [Where `minSize` applies](#where-minsize-applies) above. If your Vessels have real lower bounds below which their variants are unusable, grid is the mode that honours them. A tiling leaf is whatever fraction of the container its position in the tree works out to, however small.
+
+### Grid can express arrangements tiling structurally cannot
+
+This one is permanent, and it is not about weights. Every tiling tree is built from cuts that cross their whole region: a split divides its rectangle edge to edge, and its children only ever subdivide the pieces that result. Layouts reachable that way are exactly the *guillotine* layouts — the ones you could cut out of a sheet of paper with a series of straight, full-width cuts.
+
+A **pinwheel** is the standard counterexample: four panels arranged rotationally around a fifth, so that each one's edge stops partway across a neighbour rather than running through to the far side. No straight cut crosses that container without slicing through a panel, so there is no first split to write down — and therefore no tiling tree at all, at any weighting. The same holds wherever interior boundaries are offset rather than aligned — a panel's edge stopping partway across its neighbour, so no straight cut spans the region without slicing through something. An ordinary T-junction is *not* that case: three columns whose right column is then halved, `['V:1,1,1', 'ID:a', 'ID:m', 'H', 'ID:p', 'ID:q']`, is a full-width cut followed by a subdivision, and tiling renders it directly. Grid places each panel by coordinate and does not care either way.
+
+If your target layout is one a designer drew and it is not made of full-width bands, that is the durable reason to reach for grid.
+
+### Summary
+
+| Need                                                        | Mode      |
+| ----------------------------------------------------------- | --------- |
+| Fill the container exactly, at any size                     | `'tiling'` |
+| Panels resize proportionally as Vessels come and go         | `'tiling'` |
+| LLM-driven composition with few panes                       | `'tiling'` |
+| Exact thirds, sixths, 3×3, 2×6                              | either — tiling expresses these with weights |
+| `minSize` must be honoured                                  | `'grid'`  |
+| A panel's pixel size must stay stable as the layout changes | `'grid'`  |
+| A non-guillotine arrangement (pinwheel, offset panels)      | `'grid'`  |
 
 ## Next steps
 

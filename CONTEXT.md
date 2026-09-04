@@ -24,6 +24,10 @@ _Avoid_: element, node
 The layout surface Instances are arranged on, sized by its container. In grid mode, addressed in integer grid coordinates, never pixels. In tiling mode, addressed as a split tree whose leaves derive their size from the tree and container.
 _Avoid_: canvas, board, grid container
 
+**Weighted Split**:
+A tiling split token carrying comma-separated integer weights, as in `"V:1,1,1"`. The weight count declares the token's arity — how many following subtrees it consumes — and each child takes its weight over their sum. Bare `H`/`V` are the same thing with weights `1,1`.
+_Avoid_: ratio node, proportional split, n-ary split
+
 **Engine**:
 The stateless decision core: takes user intent plus current Chart state and returns an Execution Plan and Layout Directives.
 _Avoid_: brain, orchestrator (that names a client-side module)

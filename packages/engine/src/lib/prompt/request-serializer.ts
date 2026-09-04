@@ -307,7 +307,7 @@ function buildTilingChartStateWithSnapshot(
   logger?: Logger,
 ): string {
   const lines: string[] = [...CHART_STATE_HEADING];
-  lines.push('Layout Mode: Tiling (binary tree)');
+  lines.push('Layout Mode: Tiling (split tree)');
   lines.push('');
 
   const { layout } = request;

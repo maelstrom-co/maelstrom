@@ -9,11 +9,13 @@ export type TilingSplit = 'H' | 'V';
  * next three subtrees from the preorder array, not two, and each child takes
  * `weight / sum(weights)` of the parent region.
  *
- * Weights are integers rather than decimals because integers normalized by
- * their sum are exact: `1,1,1` *is* thirds, where `0.33,0.33,0.33` leaves a
- * one-percent gap and reintroduces the inexactness weighted splits exist to
- * remove. Integers also keep the validity predicate total — no NaN, no
- * float-precision edge cases.
+ * A weight is a share relative to its siblings, not a fraction of the parent,
+ * so any uniform scaling is a no-op: `1,1,1` and `2,2,2` are both exact
+ * thirds. Weights are integers because integers keep the validity predicate
+ * total — no NaN, no float-precision edge cases — and because a decimal field
+ * is not interpreted: {@link parseTilingSplitToken} rounds it to the nearest
+ * integer with a floor of 1, so `"V:0.7,0.3"` reads as an even two-way split
+ * and reports itself repaired.
  *
  * The template literal admits any suffix, including malformed ones, so that a
  * prefixed token is never mistaken for an Instance ID leaf.
