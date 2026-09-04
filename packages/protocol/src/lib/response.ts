@@ -54,8 +54,8 @@ export interface GridLayout {
 export interface TilingInstance {
   /**
    * Stable retained identity, which may be absent from the tree entirely — a
-   * retained but hidden Instance. When present it names exactly one leaf:
-   * see {@link findDuplicateTilingLeaves}.
+   * retained but hidden Instance. When present it names exactly one leaf;
+   * the tree never repeats an instance id.
    */
   readonly instanceId: InstanceId;
   /** Vessel implemented by the Instance. */

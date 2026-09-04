@@ -309,7 +309,7 @@ function walk(tree: readonly TilingNode[], index: number): number {
 - Each child takes `weight / sum(weights)` of the parent region along the axis, so a weight is a share relative to its siblings rather than a fraction of the parent. Bare `'H'` / `'V'` mean exactly `[1, 1]` and stay the preferred spelling for an even two-way split.
 - A token declares between 2 and `MAX_SPLIT_CHILDREN` (12) weights, each an integer between 1 and `MAX_SPLIT_WEIGHT` (1000). Empty fields are ignored rather than counted, so `'V:1,1,'` is a two-way split.
 - `parseTilingSplitToken(token)` reads a token into `{ axis, weights, repaired, discardedChildCount }`; `formatTilingSplitToken(axis, weights)` writes one back, emitting the bare axis for an even two-way split. A malformed suffix is repaired rather than rejected — `repaired` reports that the weights are a substitute, and a non-zero `discardedChildCount` means the arity itself was cut.
-- **An instance id appears at most once in the tree.** An Instance is one entry in the store rendering as one tile, so a repeat describes something that cannot be rendered. Weight the split instead of repeating the leaf; `findDuplicateTilingLeaves` is the shared predicate the client gates use.
+- **An instance id appears at most once in the tree.** An Instance is one entry in the store rendering as one tile, so a repeat describes something that cannot be rendered. Weight the split instead of repeating the leaf; the client gates call `findFirstDuplicateTilingLeaf`, while the engine's heal pass uses `findDuplicateTilingLeaves` to collect every repeat.
 
 ---
 
