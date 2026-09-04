@@ -33,11 +33,11 @@ export {
   isHeartbeatPingFrame,
   isHeartbeatPongFrame,
 } from '@maelstrom-co/connectors';
-// Axis type accepted by createTilingSplitNode's `direction` parameter.
-export type { TilingSplit } from '@maelstrom-co/protocol';
+// `TilingSplit` is the axis type accepted by createTilingSplitNode's
+// `direction` parameter; `Result` is what CommandProcessor.waitForIdle resolves.
+export type { Result, TilingSplit } from '@maelstrom-co/protocol';
 // Identity primitives re-exported from protocol for convenience.
 // Each name exports both the branded type and the factory function.
-export type { Result } from '@maelstrom-co/protocol';
 export { MessageId, SessionId } from '@maelstrom-co/protocol';
 // Chart Manager
 export type { ChartManagerEvents } from './lib/chart-manager/chart-manager.js';

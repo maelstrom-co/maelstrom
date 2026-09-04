@@ -580,8 +580,8 @@ describe('describeDuplicateTilingLeaf', () => {
   test('reads as the predicate of a caller-supplied subject', () => {
     const duplicates = findDuplicateTilingLeaves([
       'V',
-      InstanceId('a'),
-      InstanceId('a'),
+      tilingLeafToken(InstanceId('a')),
+      tilingLeafToken(InstanceId('a')),
     ]);
 
     expect(

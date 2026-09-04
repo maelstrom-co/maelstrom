@@ -2,8 +2,8 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import {
   ActionName,
   InstanceId,
-  isInstanceIdNode,
   type TilingLayout,
+  tilingLeafInstanceId,
   VariantName,
   VesselId,
 } from '@maelstrom-co/protocol';
@@ -17,7 +17,11 @@ import { vessel } from './vessel.js';
 const entry = vessel(testVessel, () => null);
 
 function layoutOf(tree: TilingLayout['tree']): TilingLayout {
-  const leaves = new Set(tree.filter(isInstanceIdNode));
+  const leaves = new Set<InstanceId>();
+  for (const node of tree) {
+    const instanceId = tilingLeafInstanceId(node);
+    if (instanceId !== null) leaves.add(instanceId);
+  }
   return {
     type: 'tiling',
     tree,
@@ -49,11 +53,7 @@ describe('Provider processing_error forwarding', () => {
       render(
         <Provider
           connector={connector}
-          initialLayout={layoutOf([
-            'V',
-            InstanceId('orders-main'),
-            InstanceId('orders-side'),
-          ])}
+          initialLayout={layoutOf(['V', 'ID:orders-main', 'ID:orders-side'])}
           onError={(error) => errors.push(error)}
         >
           <div />
@@ -67,7 +67,7 @@ describe('Provider processing_error forwarding', () => {
 
     await act(async () => {
       commandProcessor.setLayout(
-        layoutOf(['V', InstanceId('orders-main'), InstanceId('orders-main')]),
+        layoutOf(['V', 'ID:orders-main', 'ID:orders-main']),
       );
       await commandProcessor.waitForIdle();
     });
@@ -78,11 +78,7 @@ describe('Provider processing_error forwarding', () => {
     const onScreen = commandProcessor.store.state.layout;
     if (onScreen?.type !== 'tiling')
       throw new Error('expected a tiling layout');
-    expect(onScreen.tree).toEqual([
-      'V',
-      InstanceId('orders-main'),
-      InstanceId('orders-side'),
-    ]);
+    expect(onScreen.tree).toEqual(['V', 'ID:orders-main', 'ID:orders-side']);
   });
 });
 
@@ -101,11 +97,7 @@ describe('Provider batch_abandoned forwarding', () => {
       render(
         <Provider
           connector={connector}
-          initialLayout={layoutOf([
-            'V',
-            InstanceId('orders-main'),
-            InstanceId('orders-side'),
-          ])}
+          initialLayout={layoutOf(['V', 'ID:orders-main', 'ID:orders-side'])}
           onError={(error) => errors.push(error)}
         >
           <div />
@@ -121,11 +113,7 @@ describe('Provider batch_abandoned forwarding', () => {
       commandProcessor.dispatch(
         {
           kind: 'set_layout',
-          layout: layoutOf([
-            'V',
-            InstanceId('orders-main'),
-            InstanceId('orders-main'),
-          ]),
+          layout: layoutOf(['V', 'ID:orders-main', 'ID:orders-main']),
         },
         {
           kind: 'execute_actions',

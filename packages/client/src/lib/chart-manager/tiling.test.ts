@@ -292,7 +292,7 @@ describe('computeTilingLayout', () => {
       // That deliberate divergence is pinned by 'emits one tile per leaf for
       // a duplicated instance' below.
       name: 'duplicate leaves',
-      tree: ['H', weatherId, weatherId],
+      tree: ['H', weatherLeaf, weatherLeaf],
       expectedVisibleIds: [weatherId],
     },
     { name: 'null leaf', tree: [null], expectedVisibleIds: [] },
@@ -404,11 +404,7 @@ describe('computeTilingLayout', () => {
   // duplicate leaf is "returned once": the renderer counts tiles, the
   // protocol helper counts distinct Instances.
   it('emits one tile per leaf for a duplicated instance, with no merge', () => {
-    const tree = parseTilingTree([
-      'V',
-      InstanceId('inst-1'),
-      InstanceId('inst-1'),
-    ]);
+    const tree = parseTilingTree(['V', 'ID:inst-1', 'ID:inst-1']);
     if (!tree) throw new Error('expected parsed tree');
     const tiles = computeTilingLayout(tree, containerRect, 0);
 

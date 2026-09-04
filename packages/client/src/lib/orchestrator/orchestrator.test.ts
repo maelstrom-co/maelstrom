@@ -18,8 +18,8 @@ import {
   type SessionHistoryEntry,
   SessionId,
   type TilingLayout,
-  tilingLeafToken,
   type TilingNode,
+  tilingLeafToken,
   VariantName,
   type Vessel,
   type VesselDefinition,
@@ -3069,9 +3069,9 @@ describe('Orchestrator', () => {
               ...calendarSeed,
               tree: [
                 'V:1,1,1',
-                InstanceId('calendar-main'),
-                InstanceId('calendar-main'),
-                InstanceId('calendar-main'),
+                'ID:calendar-main',
+                'ID:calendar-main',
+                'ID:calendar-main',
               ],
             },
           }),
@@ -3090,11 +3090,11 @@ describe('Orchestrator', () => {
               tree: [
                 'H',
                 'V',
-                InstanceId('calendar-main'),
-                InstanceId('calendar-side'),
+                'ID:calendar-main',
+                'ID:calendar-side',
                 'V',
-                InstanceId('calendar-side'),
-                InstanceId('calendar-main'),
+                'ID:calendar-side',
+                'ID:calendar-main',
               ],
               instances: [
                 {
@@ -3162,7 +3162,7 @@ describe('Orchestrator', () => {
         const layout = orchestrator.commandProcessor.store.state.layout;
         expect(layout?.type === 'tiling' ? layout.tree : []).toEqual([
           'H:2,1',
-          InstanceId('calendar-main'),
+          'ID:calendar-main',
           null,
         ]);
 

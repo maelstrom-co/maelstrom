@@ -8,7 +8,12 @@ import {
   spyOn,
 } from 'bun:test';
 import type { GridLayout, TilingLayout } from '@maelstrom-co/protocol';
-import { InstanceId, VariantName, VesselId } from '@maelstrom-co/protocol';
+import {
+  InstanceId,
+  tilingLeafToken,
+  VariantName,
+  VesselId,
+} from '@maelstrom-co/protocol';
 import { act, cleanup, render } from '@testing-library/react';
 import { resetWarnings } from '../../_testing.js';
 import { createMockConnector } from '../__tests__/mock-connector.js';
@@ -73,12 +78,13 @@ afterEach(() => {
 
 const entry = vessel(testVessel, () => <div>content</div>);
 const seededId = InstanceId('orders-main');
+const seededLeaf = tilingLeafToken(seededId);
 const duplicateWarning = `[Maelstrom] Duplicate instanceId "${seededId}" in layout; tiles overlap`;
 
 function seedLayout(): TilingLayout {
   return {
     type: 'tiling',
-    tree: [seededId],
+    tree: [seededLeaf],
     instances: [
       {
         instanceId: seededId,
@@ -172,7 +178,7 @@ describe('m.Chart — duplicate instanceId keys', () => {
     // silently collapsing to one tile.
     const duplicate: TilingLayout = {
       ...seedLayout(),
-      tree: ['V', seededId, seededId],
+      tree: ['V', seededLeaf, seededLeaf],
     };
     await act(async () => {
       commandProcessor.store.setState((state) => ({
@@ -199,7 +205,7 @@ describe('m.Chart — duplicate instanceId keys', () => {
     await act(async () => {
       commandProcessor.setLayout({
         type: 'tiling',
-        tree: ['V', seededId, otherId],
+        tree: ['V', seededLeaf, tilingLeafToken(otherId)],
         instances: [
           {
             instanceId: seededId,
