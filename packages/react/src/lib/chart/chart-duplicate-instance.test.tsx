@@ -81,6 +81,11 @@ const seededId = InstanceId('orders-main');
 const seededLeaf = tilingLeafToken(seededId);
 const duplicateWarning = `[Maelstrom] Duplicate instanceId "${seededId}" in layout; tiles overlap`;
 
+// A protocol-valid InstanceId that a naive `${id}#${occurrence}` scheme would
+// collide with: `[seededId, seededId, collidingId]` generates `collidingId`
+// twice unless the key encoding is injective.
+const collidingId = InstanceId(`${seededId}#1`);
+
 function seedLayout(): TilingLayout {
   return {
     type: 'tiling',
@@ -95,8 +100,27 @@ function seedLayout(): TilingLayout {
   };
 }
 
-/** Mounts a Chart on a one-tile seed, then clears the console capture. */
-function renderSeededChart() {
+function collidingSeedLayout(): TilingLayout {
+  return {
+    type: 'tiling',
+    tree: ['V', seededLeaf, tilingLeafToken(collidingId)],
+    instances: [
+      {
+        instanceId: seededId,
+        vesselId: VesselId('orders'),
+        variant: VariantName('list'),
+      },
+      {
+        instanceId: collidingId,
+        vesselId: VesselId('orders'),
+        variant: VariantName('list'),
+      },
+    ],
+  };
+}
+
+/** Mounts a Chart on a seed layout, then clears the console capture. */
+function renderSeededChart(options?: { seed?: TilingLayout; debug?: boolean }) {
   const contextPair = createMaelstromContext();
   const Provider = createProvider(contextPair, [entry], {});
   const Chart = createChart(contextPair);
@@ -104,7 +128,11 @@ function renderSeededChart() {
   let container!: HTMLElement;
   act(() => {
     ({ container } = render(
-      <Provider connector={createMockConnector()} initialLayout={seedLayout()}>
+      <Provider
+        connector={createMockConnector()}
+        initialLayout={options?.seed ?? seedLayout()}
+        debug={options?.debug ?? false}
+      >
         <Chart />
       </Provider>,
     ));
@@ -191,6 +219,72 @@ describe('m.Chart — duplicate instanceId keys', () => {
       occurrences(container.innerHTML, `data-instance-id="${seededId}"`),
     ).toBe(2);
     expect(warnings).toEqual([duplicateWarning]);
+    expect(errors.join('\n')).not.toContain('same key');
+  });
+
+  it('separates a repeat from an instanceId shaped like a generated key', async () => {
+    const { container, commandProcessor } = renderSeededChart({
+      seed: collidingSeedLayout(),
+    });
+
+    const grid: GridLayout = {
+      type: 'grid',
+      positions: [
+        {
+          instanceId: seededId,
+          position: { column: 0, row: 0 },
+          size: { width: 2, height: 2 },
+        },
+        {
+          instanceId: seededId,
+          position: { column: 2, row: 0 },
+          size: { width: 2, height: 2 },
+        },
+        {
+          instanceId: collidingId,
+          position: { column: 4, row: 0 },
+          size: { width: 2, height: 2 },
+        },
+      ],
+    };
+
+    await act(async () => {
+      commandProcessor.setLayout(grid);
+      await commandProcessor.waitForIdle();
+    });
+
+    expect(
+      occurrences(container.innerHTML, `data-instance-id="${seededId}"`),
+    ).toBe(2);
+    expect(
+      occurrences(container.innerHTML, `data-instance-id="${collidingId}"`),
+    ).toBe(1);
+    expect(warnings).toEqual([duplicateWarning]);
+    expect(errors.join('\n')).not.toContain('same key');
+  });
+
+  it('keys the tiling debug overlay past a repeated tile', async () => {
+    const { container, commandProcessor } = renderSeededChart({ debug: true });
+
+    await act(async () => {
+      resizeTo(800, 600);
+    });
+
+    const duplicate: TilingLayout = {
+      ...seedLayout(),
+      tree: ['V', seededLeaf, seededLeaf],
+    };
+    await act(async () => {
+      commandProcessor.store.setState((state) => ({
+        ...state,
+        layout: duplicate,
+      }));
+    });
+
+    expect(occurrences(container.innerHTML, 'data-chart-debug="tiling"')).toBe(
+      1,
+    );
+    expect(occurrences(container.innerHTML, 'dashed')).toBe(2);
     expect(errors.join('\n')).not.toContain('same key');
   });
 

@@ -37,35 +37,33 @@ interface RenderEntry {
   readonly exiting?: ResolvedChartMotionConfig;
 }
 
-interface KeyedRenderEntry extends RenderEntry {
-  readonly key: string;
-}
-
 // A repeated instanceId reaches React as two siblings sharing one key, which
 // reconciliation resolves by dropping or reusing the wrong subtree — vessel
-// state silently attaching to the wrong tile. Suffixing every sighting after
-// the first turns that into two mounted subtrees rendering the same instance:
-// visibly wrong instead of quietly wrong. The first sighting keeps the bare
-// id, so the all-unique case (every case the layout gates admit) produces the
-// keys it always did, and component reuse across a re-tile plus live -> ghost
-// exit continuity are untouched.
+// state silently attaching to the wrong tile. Encoding the occurrence index
+// into the key turns that into two mounted subtrees rendering the same
+// instance: visibly wrong instead of quietly wrong. An InstanceId is any
+// non-empty string, so a plain separator is not enough — ids `a` and `a#1`
+// would both reach `a#1`. Length-prefixing makes the encoding injective, and
+// every occurrence including the first is encoded so no id can be written two
+// ways.
 //
 // The warning is deliberately not `config.debug`-gated: debug defaults to
 // false, and React's own duplicate-key warning is compiled out of production
 // react-dom, so gating here would leave production with no signal at all.
-function withCollisionKeys(
-  entries: readonly RenderEntry[],
-): readonly KeyedRenderEntry[] {
+function withCollisionKeys<T extends { readonly id: string }>(
+  entries: readonly T[],
+): ReadonlyArray<T & { readonly key: string }> {
   const seen = new Map<string, number>();
   return entries.map((entry) => {
     const seenBefore = seen.get(entry.id) ?? 0;
     seen.set(entry.id, seenBefore + 1);
-    if (seenBefore === 0) return { ...entry, key: entry.id };
-    warnOnce(
-      `chart:duplicate-instance:${entry.id}`,
-      `[Maelstrom] Duplicate instanceId "${entry.id}" in layout; tiles overlap`,
-    );
-    return { ...entry, key: `${entry.id}#${seenBefore}` };
+    if (seenBefore > 0) {
+      warnOnce(
+        `chart:duplicate-instance:${entry.id}`,
+        `[Maelstrom] Duplicate instanceId "${entry.id}" in layout; tiles overlap`,
+      );
+    }
+    return { ...entry, key: `${entry.id.length}:${entry.id}:${seenBefore}` };
   });
 }
 
@@ -321,9 +319,11 @@ export function createChart(
         }}
         data-chart-debug="tiling"
       >
-        {tiles.map((tile) => (
+        {withCollisionKeys(
+          tiles.map((tile) => ({ ...tile, id: tile.instanceId })),
+        ).map((tile) => (
           <div
-            key={tile.instanceId}
+            key={tile.key}
             style={{
               position: 'absolute',
               left: tile.rect.x,
