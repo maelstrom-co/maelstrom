@@ -5,7 +5,12 @@ import {
   type TilingLayout,
   type TilingNode,
 } from '@maelstrom-co/protocol';
-import { computeTilingLayout, parseTilingTree, type Rect } from './tiling.js';
+import {
+  computeTilingLayout,
+  createTilingSplitNode,
+  parseTilingTree,
+  type Rect,
+} from './tiling.js';
 
 let warnSpy: ReturnType<typeof spyOn>;
 
@@ -38,7 +43,10 @@ describe('parseTilingTree', () => {
       InstanceId('inst-1'),
       InstanceId('inst-2'),
     ]);
-    expect(result).toEqual({
+    // A split node's brand is type-level only, so the literal below is the
+    // whole runtime object. Widening the actual is what lets a plain literal
+    // stand in for a branded type; nothing about the value differs.
+    expect<unknown>(result).toEqual({
       type: 'split',
       direction: 'H',
       children: [
@@ -54,7 +62,7 @@ describe('parseTilingTree', () => {
       InstanceId('inst-1'),
       InstanceId('inst-2'),
     ]);
-    expect(result).toEqual({
+    expect<unknown>(result).toEqual({
       type: 'split',
       direction: 'V',
       children: [
@@ -71,7 +79,7 @@ describe('parseTilingTree', () => {
       InstanceId('b'),
       InstanceId('c'),
     ]);
-    expect(result).toEqual({
+    expect<unknown>(result).toEqual({
       type: 'split',
       direction: 'V',
       children: [
@@ -163,7 +171,7 @@ describe('parseTilingTree', () => {
       InstanceId('inst-2'),
       InstanceId('inst-3'),
     ]);
-    expect(result).toEqual({
+    expect<unknown>(result).toEqual({
       type: 'split',
       direction: 'H',
       children: [
@@ -197,6 +205,62 @@ describe('parseTilingTree', () => {
   it('warns when split node has missing children', () => {
     parseTilingTree(['H', InstanceId('inst-1')]);
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('missing'));
+  });
+
+  it('locates a malformed split by token index, not by token text', () => {
+    // The token is model output. Quoting it verbatim lets a crafted token
+    // forge log lines, and the index is what the engine's own diagnostics
+    // report anyway.
+    parseTilingTree(['H', 'V:abc', InstanceId('a'), InstanceId('b')]);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('split at token index 1'),
+    );
+    expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('V:abc'));
+  });
+});
+
+describe('createTilingSplitNode', () => {
+  it('builds a split whose weights pass validation', () => {
+    const node = createTilingSplitNode('V', [
+      { weight: 2, node: { type: 'leaf', instanceId: InstanceId('a') } },
+      { weight: 1 },
+    ]);
+    expect<unknown>(node).toEqual({
+      type: 'split',
+      direction: 'V',
+      children: [
+        { weight: 2, node: { type: 'leaf', instanceId: InstanceId('a') } },
+        { weight: 1, node: undefined },
+      ],
+    });
+  });
+
+  it('carries no runtime brand', () => {
+    const node = createTilingSplitNode('V', [{ weight: 1 }, { weight: 1 }]);
+    expect(Object.getOwnPropertySymbols(node)).toEqual([]);
+    expect(
+      node.children.flatMap((child) => Object.getOwnPropertySymbols(child)),
+    ).toEqual([]);
+  });
+
+  it('rejects weights that sum to zero', () => {
+    expect(() =>
+      createTilingSplitNode('V', [{ weight: 1 }, { weight: -1 }]),
+    ).toThrow(RangeError);
+  });
+
+  it('rejects a negative weight whose siblings hide it in the sum', () => {
+    // [5, -1] sums to 4, so a guard on the total alone lets it through and
+    // the second child gets a region that runs back over the first.
+    expect(() =>
+      createTilingSplitNode('V', [{ weight: 5 }, { weight: -1 }]),
+    ).toThrow(RangeError);
+  });
+
+  it('rejects a fractional weight', () => {
+    expect(() =>
+      createTilingSplitNode('H', [{ weight: 1.5 }, { weight: 1 }]),
+    ).toThrow(RangeError);
   });
 });
 

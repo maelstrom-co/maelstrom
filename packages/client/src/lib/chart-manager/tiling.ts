@@ -1,4 +1,5 @@
 import {
+  assertValidSplitWeights,
   type InstanceId,
   isTilingSplit,
   parseTilingSplitToken,
@@ -21,11 +22,24 @@ export interface Rect {
 /** Parsed node in a tiling tree of weighted n-ary splits. */
 export type TilingTreeNode = TilingSplitNode | TilingLeafNode;
 
+declare const validWeights: unique symbol;
+
 /**
  * Split node dividing the current rectangle along its axis, each child taking
  * a share proportional to its weight.
+ *
+ * {@link createTilingSplitNode} and {@link parseTilingTree} are the only ways
+ * to reach this type without an assertion, so a split that reaches layout has
+ * had its weights checked.
  */
 export interface TilingSplitNode {
+  /**
+   * Type-level marker for weights that passed validation. Declared and never
+   * assigned, so no runtime object carries it.
+   *
+   * @internal
+   */
+  readonly [validWeights]: true;
   /** Selects recursive weighted traversal of the child slots. */
   readonly type: 'split';
   /** `H` divides top/bottom; `V` divides left/right. */
@@ -50,6 +64,13 @@ export interface TilingSplitNode {
  * would otherwise hand the last child the wrong fraction of its parent.
  */
 export interface TilingSplitChild {
+  /**
+   * Type-level marker for weights that passed validation. Declared and never
+   * assigned, so no runtime object carries it.
+   *
+   * @internal
+   */
+  readonly [validWeights]: true;
   /** Share of the parent region, relative to its siblings' weights. */
   readonly weight: number;
   /**
@@ -76,6 +97,44 @@ export interface ComputedTile {
 }
 
 /**
+ * Builds a validated split node.
+ *
+ * A weight that is zero, negative or fractional does not fail loudly during
+ * layout: it hands a child a region of zero or negative extent, or a sum that
+ * no longer divides the parent, so the malformed geometry surfaces far from
+ * the code that invented the weight. Guarding the sum is not enough — weights
+ * `[5, -1]` sum to 4 and still overlap.
+ *
+ * @throws {RangeError} If `children`'s weights violate the split invariant —
+ * see {@link assertValidSplitWeights}.
+ */
+export function createTilingSplitNode(
+  direction: TilingSplit,
+  children: readonly [
+    { weight: number; node?: TilingTreeNode },
+    { weight: number; node?: TilingTreeNode },
+    ...{ weight: number; node?: TilingTreeNode }[],
+  ],
+): TilingSplitNode {
+  assertValidSplitWeights(children.map(({ weight }) => weight));
+
+  const [first, second, ...rest] = children;
+  const slots: [TilingSplitChild, TilingSplitChild, ...TilingSplitChild[]] = [
+    toSplitChild(first),
+    toSplitChild(second),
+    ...rest.map(toSplitChild),
+  ];
+
+  const split: Omit<TilingSplitNode, typeof validWeights> = {
+    type: 'split',
+    direction,
+    children: slots,
+  };
+
+  return split as TilingSplitNode;
+}
+
+/**
  * Builds a tree from the flat preorder token array.
  *
  * Each split token consumes exactly as many following subtrees as its weights
@@ -98,7 +157,8 @@ export function parseTilingTree(
       return null;
     }
 
-    const node = nodes[index];
+    const tokenIndex = index;
+    const node = nodes[tokenIndex];
     index++;
 
     if (isTilingSplit(node)) {
@@ -112,40 +172,43 @@ export function parseTilingTree(
       // short suffix is perfectly legible.
       if (repairReason === 'truncated') {
         console.warn(
-          `[Maelstrom] Malformed tiling tree: split node '${node}' declares ${weights.length + discardedChildCount} children, ${discardedChildCount} past the limit of ${weights.length}; the subtrees the discarded slots would have taken are re-parented onto an ancestor split`,
+          `[Maelstrom] Malformed tiling tree: split at token index ${tokenIndex} declares ${weights.length + discardedChildCount} children, ${discardedChildCount} past the limit of ${weights.length}; the subtrees the discarded slots would have taken are re-parented onto an ancestor split`,
         );
       } else if (repairReason === 'unreadable') {
         console.warn(
-          `[Maelstrom] Malformed tiling tree: split node '${node}' has an unreadable weight suffix, read as ${weights.length} children weighted ${weights.join(',')}`,
+          `[Maelstrom] Malformed tiling tree: split at token index ${tokenIndex} has an unreadable weight suffix, read as ${weights.length} children weighted ${weights.join(',')}`,
         );
       } else if (repairReason === 'padded') {
         console.warn(
-          `[Maelstrom] Malformed tiling tree: split node '${node}' declares fewer than the two weights a split needs, read as ${weights.length} children weighted ${weights.join(',')}`,
+          `[Maelstrom] Malformed tiling tree: split at token index ${tokenIndex} declares fewer than the two weights a split needs, read as ${weights.length} children weighted ${weights.join(',')}`,
         );
       }
 
       let missing = 0;
 
-      const toChild = (weight: number): TilingSplitChild => {
+      const toChild = (weight: number) => {
         const child = parseNode();
         if (child === null) missing++;
         return { weight, node: child ?? undefined };
       };
 
       const [first, second, ...rest] = weights;
-      const children: [
-        TilingSplitChild,
-        TilingSplitChild,
-        ...TilingSplitChild[],
-      ] = [toChild(first), toChild(second), ...rest.map(toChild)];
+      const children = [
+        toChild(first),
+        toChild(second),
+        ...rest.map(toChild),
+      ] as const;
 
       if (missing > 0) {
         console.warn(
-          `[Maelstrom] Malformed tiling tree: split node '${node}' declares ${weights.length} children but ${missing} are missing`,
+          `[Maelstrom] Malformed tiling tree: split at token index ${tokenIndex} declares ${weights.length} children but ${missing} are missing`,
         );
       }
 
-      return { type: 'split', direction: axis, children };
+      // Every weight came from parseTilingSplitToken, which clamps each field
+      // to the split invariant, so the factory cannot throw here and this
+      // function stays as tolerant of malformed input as its contract says.
+      return createTilingSplitNode(axis, children);
     }
 
     return {
@@ -242,6 +305,13 @@ export function computeTilingLayout(
   traverse(tree, containerRect);
 
   return mergeDuplicateTiles(tiles);
+}
+
+function toSplitChild(child: {
+  weight: number;
+  node?: TilingTreeNode;
+}): TilingSplitChild {
+  return { weight: child.weight, node: child.node } as TilingSplitChild;
 }
 
 function mergeDuplicateTiles(tiles: ComputedTile[]): ComputedTile[] {

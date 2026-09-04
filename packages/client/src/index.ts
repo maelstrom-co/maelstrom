@@ -33,6 +33,8 @@ export {
   isHeartbeatPingFrame,
   isHeartbeatPongFrame,
 } from '@maelstrom-co/connectors';
+// Axis type accepted by createTilingSplitNode's `direction` parameter.
+export type { TilingSplit } from '@maelstrom-co/protocol';
 // Identity primitives re-exported from protocol for convenience.
 // Each name exports both the branded type and the factory function.
 export { MessageId, SessionId } from '@maelstrom-co/protocol';
@@ -54,6 +56,7 @@ export type {
 } from './lib/chart-manager/tiling.js';
 export {
   computeTilingLayout,
+  createTilingSplitNode,
   parseTilingTree,
 } from './lib/chart-manager/tiling.js';
 // Action Manager
