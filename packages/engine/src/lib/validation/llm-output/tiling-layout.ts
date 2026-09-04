@@ -128,8 +128,8 @@ export function healTilingLayout(
  * and `split_weights_repaired` warnings cite.
  *
  * Deleting the token instead would re-parent the entire remainder of the
- * preorder array: `['H','V','a','a','V','b','c']` would heal to a two-row
- * layout whose top-level axis had flipped.
+ * preorder array: `['H','V','ID:a','ID:a','V','ID:b','ID:c']` would heal to a
+ * two-row layout whose top-level axis had flipped.
  */
 function withDuplicateLeavesBlanked(
   tree: readonly TilingNode[],

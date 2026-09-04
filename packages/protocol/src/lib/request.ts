@@ -85,7 +85,7 @@ export const ChartResizeReasonSchema = z.object({
 /**
  * Wire-format Zod parser for {@link VesselMutationReason}. `instanceId`
  * is branded through {@link InstanceIdSchema} so the inferred shape matches
- * the hand-written interface end-to-end and a reserved id fails validation.
+ * the hand-written interface end-to-end.
  */
 export const VesselMutationReasonSchema = z.object({
   type: z.literal('vessel_mutation'),

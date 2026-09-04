@@ -59,22 +59,22 @@ A split token may carry a weight suffix: the axis, a colon, then comma-separated
 Reach for weights whenever repeated halving cannot express the arrangement: three equal columns, an uneven ratio, a 3x3 grid, two rows of six.
 
 WORKED EXAMPLE - three equal columns:
-["V:1,1,1", "vessel-a", "vessel-b", "vessel-c"]
+["V:1,1,1", "ID:vessel-a", "ID:vessel-b", "ID:vessel-c"]
 - "V:1,1,1" declares three weights, so it takes the next three subtrees; each is a leaf and each gets one third of the width.
 
 WORKED EXAMPLE - a 3x3 grid of nine instances:
-["H:1,1,1", "V:1,1,1", "a1", "a2", "a3", "V:1,1,1", "b1", "b2", "b3", "V:1,1,1", "c1", "c2", "c3"]
+["H:1,1,1", "V:1,1,1", "ID:a1", "ID:a2", "ID:a3", "V:1,1,1", "ID:b1", "ID:b2", "ID:b3", "V:1,1,1", "ID:c1", "ID:c2", "ID:c3"]
 - "H:1,1,1" declares three weights, so it takes the next three subtrees: three equal-height rows.
 - Each of those subtrees is a "V:1,1,1" that takes the next three subtrees: the three equal-width cells of that row.
 - Thirteen tokens in total: one row split, then three column splits of four tokens each.
 
 WORKED EXAMPLE - two rows of six:
-["H", "V:1,1,1,1,1,1", "a1", "a2", "a3", "a4", "a5", "a6", "V:1,1,1,1,1,1", "b1", "b2", "b3", "b4", "b5", "b6"]
+["H", "V:1,1,1,1,1,1", "ID:a1", "ID:a2", "ID:a3", "ID:a4", "ID:a5", "ID:a6", "V:1,1,1,1,1,1", "ID:b1", "ID:b2", "ID:b3", "ID:b4", "ID:b5", "ID:b6"]
 - Bare "H" halves the height into two rows, because 50/50 needs no weights.
 - Each row is a six-weight "V" taking exactly six leaves.
 
 WORKED EXAMPLE - an uneven split:
-["V:3,1", "vessel-a", "vessel-b"]
+["V:3,1", "ID:vessel-a", "ID:vessel-b"]
 - vessel-a gets 3/4 = 75% of the width on the left, vessel-b gets 1/4 = 25% on the right.
 
 INSTANCE MANAGEMENT:
