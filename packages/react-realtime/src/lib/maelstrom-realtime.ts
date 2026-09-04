@@ -141,6 +141,7 @@ function createBridge(orchestrator: Orchestrator): RealtimeInstance {
     waitForIdle: async () => {
       await orchestrator.commandProcessor.waitForIdle();
     },
+    waitForIdleResult: () => orchestrator.commandProcessor.waitForIdle(),
     getStructuralSnapshot: () => orchestrator.getStructuralSnapshot(),
     getCapabilitySnapshot: () => orchestrator.getCapabilitySnapshot(),
     onSettled: (callback) => orchestrator.onSettled(callback),

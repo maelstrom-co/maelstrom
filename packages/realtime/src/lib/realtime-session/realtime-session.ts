@@ -7,10 +7,12 @@ import type {
 } from '@maelstrom-co/client';
 import { Logger, RequestInFlightError } from '@maelstrom-co/client';
 import type {
+  Result,
   SessionId,
   SidechannelEvent,
   ToolCallId,
 } from '@maelstrom-co/protocol';
+import { ok } from '@maelstrom-co/protocol';
 import type {
   GreetingCoordinator,
   GreetingRunDisposition,
@@ -162,6 +164,7 @@ function defaultSummarize(snapshot: UIStructuralSnapshot): string {
  *     waitForIdle: async () => {
  *       await orchestrator.commandProcessor.waitForIdle();
  *     },
+ *     waitForIdleResult: () => orchestrator.commandProcessor.waitForIdle(),
  *     getStructuralSnapshot: () => orchestrator.getStructuralSnapshot(),
  *     getCapabilitySnapshot: () => orchestrator.getCapabilitySnapshot(),
  *     onSettled: (cb) => orchestrator.onSettled(cb),
@@ -770,11 +773,12 @@ export class RealtimeSession implements VoiceSession {
     this.#logger.debug('update_ui: submitting intent', intent);
     const renderStart = Date.now();
     let outcome: SubmitIntentResult;
+    let settled: Result<void, Error>;
     try {
       // Domain-data boundary: only the plain intent string crosses here.
       outcome = (await this.#instance.submitIntent(intent)) ?? {};
       this.#logger.debug('update_ui: submitIntent resolved, awaiting idle');
-      await this.#instance.waitForIdle();
+      settled = await this.#settleAfterSubmit();
       this.#logger.debug('update_ui: idle (render settled)', {
         ms: Date.now() - renderStart,
       });
@@ -807,6 +811,25 @@ export class RealtimeSession implements VoiceSession {
       // busy-ness — mislabeling it as "try again" would be a non-recovery
       // loop. Surface it distinctly, still without letting the exception
       // reach the adapter.
+      this.#emit({
+        type: 'timing',
+        sessionId: this.#sessionId,
+        at: Date.now(),
+        label: 'update_ui.error',
+        ms: Date.now() - renderStart,
+      });
+      await this.#sendUpdateUIResult(callId, {
+        ok: false,
+        summary: APPLY_FAILED_SUMMARY,
+      });
+      return false;
+    }
+
+    // A refusal returns to idle without throwing, so the post-settle snapshot
+    // still describes the screen the intent failed to change — reporting it as
+    // a success would confirm a render that never happened.
+    if (!settled.ok) {
+      this.#logger.debug('update_ui: settle reported a refusal', settled.error);
       this.#emit({
         type: 'timing',
         sessionId: this.#sessionId,
@@ -864,6 +887,12 @@ export class RealtimeSession implements VoiceSession {
     };
   }
 
+  #settleAfterSubmit(): Promise<Result<void, Error>> {
+    const instance = this.#instance;
+    if (instance.waitForIdleResult) return instance.waitForIdleResult();
+    return instance.waitForIdle().then(() => ok(undefined));
+  }
+
   // Latest-wins: replaces whatever was queued, answering the call it bumps
   // right away. #queuedIntent stays assigned to an entry for its whole
   // pending lifetime (across every waitForIdle() wait, up to the point a
@@ -900,6 +929,9 @@ export class RealtimeSession implements VoiceSession {
       while (this.#queuedIntent) {
         const entry = this.#queuedIntent;
         attempt += 1;
+        // Deliberately the void wait: this settle belongs to the burst that
+        // was already running when the barge-in queued, so a failure in it
+        // answers the call that queued this one, never this one.
         await this.#instance.waitForIdle();
         if (this.#queuedIntent !== entry) {
           attempt = 0;
@@ -950,8 +982,24 @@ export class RealtimeSession implements VoiceSession {
           attempt = 0;
           continue; // superseded mid-submit — already answered; the change may still apply, but this call is done
         }
-        await this.#instance.waitForIdle();
+        const settled = await this.#settleAfterSubmit();
         this.#queuedIntent = undefined;
+        if (!settled.ok) {
+          this.#emit({
+            type: 'timing',
+            sessionId: this.#sessionId,
+            at: Date.now(),
+            label: 'update_ui.error',
+            ms: Date.now() - renderStart,
+          });
+          await this.#sendUpdateUIResult(entry.callId, {
+            ok: false,
+            summary: APPLY_FAILED_SUMMARY,
+          });
+          entry.resolve(false);
+          attempt = 0;
+          continue;
+        }
         this.#emit({
           type: 'timing',
           sessionId: this.#sessionId,

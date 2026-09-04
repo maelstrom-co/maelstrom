@@ -1,6 +1,7 @@
 import type {
   AssistantMessageOutcome,
   CapabilitySnapshot,
+  Result,
   UIStructuralSnapshot,
   Unsubscribe,
 } from '@maelstrom-co/client';
@@ -32,9 +33,10 @@ export interface SubmitIntentResult {
 /**
  * The minimal bridge `RealtimeSession` needs from a Maelstrom instance.
  * `Orchestrator` maps onto this via a small wrapper (`submitIntent` ->
- * `processIntent`, `waitForIdle` -> `commandProcessor.waitForIdle`) — this
- * interface exists so the realtime package depends on a narrow seam rather
- * than the whole `Orchestrator` surface. `getStructuralSnapshot` backs the
+ * `processIntent`, `waitForIdle` and `waitForIdleResult` ->
+ * `commandProcessor.waitForIdle`) — this interface exists so the realtime
+ * package depends on a narrow seam rather than the whole `Orchestrator`
+ * surface. `getStructuralSnapshot` backs the
  * `get_ui_state` pull (what's on screen); `getCapabilitySnapshot` backs the
  * `get_capabilities` pull (what CAN be shown).
  *
@@ -47,6 +49,27 @@ export interface SubmitIntentResult {
 export interface RealtimeInstance {
   submitIntent(intent: string): Promise<SubmitIntentResult>;
   waitForIdle(): Promise<void>;
+  /**
+   * Result-bearing settle wait, preferred over {@link RealtimeInstance.waitForIdle}
+   * wherever the session needs to know whether the settled work succeeded.
+   *
+   * It is optional so that an instance written against the void-only
+   * {@link RealtimeInstance.waitForIdle} still satisfies this interface; a
+   * session that finds it absent falls back to that wait and can only treat
+   * every settle as successful. An `Orchestrator`-backed instance supplies it
+   * directly, because `commandProcessor.waitForIdle()` already resolves with
+   * this {@link Result}.
+   *
+   * A `!ok` result means the settled work failed — a refused `set_layout`
+   * (duplicate tiling leaf, malformed weight token) being the ordinary case.
+   * Such a refusal neither throws nor rejects and leaves the previous screen
+   * in place, so this is the only signal that the intent changed nothing, and
+   * `RealtimeSession` answers the `update_ui` tool call as a failure rather
+   * than describing a snapshot the intent never produced. Like
+   * {@link RealtimeInstance.waitForIdle} it must never reject: the barge-in
+   * retry loop awaits it outside any catch.
+   */
+  waitForIdleResult?(): Promise<Result<void, Error>>;
   getStructuralSnapshot(): UIStructuralSnapshot;
   getCapabilitySnapshot(): CapabilitySnapshot;
   onSettled(cb: () => void): Unsubscribe;

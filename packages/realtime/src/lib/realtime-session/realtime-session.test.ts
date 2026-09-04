@@ -5,10 +5,16 @@ import type {
   VoiceSession,
 } from '@maelstrom-co/client';
 import { RequestInFlightError } from '@maelstrom-co/client';
-import type { MessageId, SidechannelEvent } from '@maelstrom-co/protocol';
+import type {
+  MessageId,
+  Result,
+  SidechannelEvent,
+} from '@maelstrom-co/protocol';
 import {
   ActionName,
+  err,
   InstanceId,
+  ok,
   SessionId,
   ToolCallId,
   VariantName,
@@ -611,6 +617,273 @@ describe('RealtimeSession — update_ui speak-after-render', () => {
     expect(output.summary).toContain('weekly');
     expect(output.summary).not.toContain('calendar');
     expect(output.summary).not.toContain('tasks');
+  });
+});
+
+// ============================================================================
+// Behavior 1b: a refused settle is answered as a failure, not a stale success
+// ============================================================================
+
+describe('RealtimeSession — refused settle', () => {
+  const refusal = new Error(
+    'set_layout rejected: tiling tree names instance "a" more than once',
+  );
+
+  function makeRefusingInstance(): {
+    readonly instance: RealtimeInstance;
+    settle(result: Result<void, Error>): void;
+  } {
+    let resolvers: Array<(result: Result<void, Error>) => void> = [];
+    return {
+      instance: {
+        submitIntent: async () => ({ userMessage: 'Here are your labs.' }),
+        waitForIdle: async () => {},
+        waitForIdleResult: () =>
+          new Promise<Result<void, Error>>((resolve) => {
+            resolvers.push(resolve);
+          }),
+        // Deliberately non-empty: a stale post-settle snapshot is exactly what
+        // the model must not be handed as proof the intent applied.
+        getStructuralSnapshot: () => visibleCalendarSnapshot,
+        getCapabilitySnapshot: () => emptyCapabilitySnapshot,
+        onSettled: () => () => {},
+        ...inertInstanceMembers,
+      },
+      settle(result) {
+        const pending = resolvers;
+        resolvers = [];
+        for (const resolve of pending) resolve(result);
+      },
+    };
+  }
+
+  it('answers ok:false when the settled work reports a refusal', async () => {
+    const adapter = makeMockAdapter();
+    const events: SidechannelEvent[] = [];
+    const { instance, settle } = makeRefusingInstance();
+    const session = new RealtimeSession({
+      adapter,
+      instance,
+      sessionId: testSessionId,
+      onEvent: (e) => events.push(e),
+    });
+    await session.connect();
+
+    adapter.emitToolCall({
+      callId: 'c1',
+      name: 'update_ui',
+      argumentsJson: '{"intent":"show labs"}',
+    });
+    await flushMicrotasks();
+    settle(err(refusal));
+    await flushMicrotasks();
+
+    expect(adapter.toolResults).toHaveLength(1);
+    expect(adapter.toolResults[0]).toEqual({
+      callId: 'c1',
+      output: {
+        ok: false,
+        summary: 'Something went wrong applying that change.',
+      },
+    });
+    expect(
+      events.some((e) => e.type === 'timing' && e.label === 'update_ui.error'),
+    ).toBe(true);
+    expect(events.some((e) => e.type === 'tool_result' && e.ok === true)).toBe(
+      false,
+    );
+  });
+
+  it('still answers ok:true when the settled work reports success', async () => {
+    const adapter = makeMockAdapter();
+    const { instance, settle } = makeRefusingInstance();
+    const session = new RealtimeSession({
+      adapter,
+      instance,
+      sessionId: testSessionId,
+    });
+    await session.connect();
+
+    adapter.emitToolCall({
+      callId: 'c1',
+      name: 'update_ui',
+      argumentsJson: '{"intent":"show labs"}',
+    });
+    await flushMicrotasks();
+    settle(ok(undefined));
+    await flushMicrotasks();
+
+    expect(adapter.toolResults[0].output).toEqual({
+      ok: true,
+      summary: expect.any(String),
+      userMessage: 'Here are your labs.',
+    });
+  });
+
+  it('falls back to the void wait for an instance without a result-bearing wait', async () => {
+    const { session, adapter, instance } = makeHarness();
+    await session.connect();
+
+    adapter.emitToolCall({
+      callId: 'c1',
+      name: 'update_ui',
+      argumentsJson: '{"intent":"show labs"}',
+    });
+    await flushMicrotasks();
+    instance.settle();
+    await flushMicrotasks();
+
+    expect(adapter.toolResults[0].output).toEqual({
+      ok: true,
+      summary: expect.any(String),
+    });
+  });
+
+  it('answers a queued barge-in as a failure when its own settle is refused', async () => {
+    const adapter = makeMockAdapter();
+    const submitted: string[] = [];
+    let resolvers: Array<(result: Result<void, Error>) => void> = [];
+    let voidResolvers: Array<() => void> = [];
+    let inFlight = false;
+    const instance: RealtimeInstance = {
+      submitIntent: async (intent) => {
+        if (inFlight) throw new RequestInFlightError();
+        inFlight = true;
+        submitted.push(intent);
+        return {};
+      },
+      waitForIdle: () =>
+        new Promise<void>((resolve) => {
+          voidResolvers.push(resolve);
+        }),
+      waitForIdleResult: () =>
+        new Promise<Result<void, Error>>((resolve) => {
+          resolvers.push(resolve);
+        }),
+      getStructuralSnapshot: () => visibleCalendarSnapshot,
+      getCapabilitySnapshot: () => emptyCapabilitySnapshot,
+      onSettled: () => () => {},
+      ...inertInstanceMembers,
+    };
+    const settle = (result: Result<void, Error>) => {
+      inFlight = false;
+      const pendingResults = resolvers;
+      const pendingVoids = voidResolvers;
+      resolvers = [];
+      voidResolvers = [];
+      for (const resolve of pendingResults) resolve(result);
+      for (const resolve of pendingVoids) resolve();
+    };
+    const session = new RealtimeSession({
+      adapter,
+      instance,
+      sessionId: testSessionId,
+    });
+    await session.connect();
+
+    adapter.emitToolCall({
+      callId: 'c1',
+      name: 'update_ui',
+      argumentsJson: '{"intent":"show labs"}',
+    });
+    await flushMicrotasks();
+    adapter.emitToolCall({
+      callId: 'c2',
+      name: 'update_ui',
+      argumentsJson: '{"intent":"show revenue"}',
+    });
+    await flushMicrotasks();
+
+    settle(ok(undefined)); // c1 applies; the queued c2 submits next
+    await flushMicrotasks();
+    expect(submitted).toEqual(['show labs', 'show revenue']);
+
+    settle(err(refusal)); // c2's own render is refused
+    await flushMicrotasks();
+
+    expect(adapter.toolResults.find((r) => r.callId === 'c2')?.output).toEqual({
+      ok: false,
+      summary: 'Something went wrong applying that change.',
+    });
+  });
+
+  it('does not answer a queued barge-in from a refusal recorded before its own submit', async () => {
+    // The pre-submit wait observes the burst that was already running when the
+    // barge-in queued, so its failure belongs to the call that queued this one.
+    const adapter = makeMockAdapter();
+    const submitted: string[] = [];
+    let resolvers: Array<(result: Result<void, Error>) => void> = [];
+    let voidResolvers: Array<() => void> = [];
+    let inFlight = false;
+    let settleResult: Result<void, Error> = ok(undefined);
+    const instance: RealtimeInstance = {
+      submitIntent: async (intent) => {
+        if (inFlight) throw new RequestInFlightError();
+        inFlight = true;
+        submitted.push(intent);
+        // Each submit starts a fresh burst, which clears whatever failure the
+        // previous one recorded: here the first burst is refused, the second
+        // is not.
+        settleResult = submitted.length === 1 ? err(refusal) : ok(undefined);
+        return {};
+      },
+      waitForIdle: () =>
+        new Promise<void>((resolve) => {
+          voidResolvers.push(resolve);
+        }),
+      waitForIdleResult: () =>
+        new Promise<Result<void, Error>>((resolve) => {
+          resolvers.push(resolve);
+        }),
+      getStructuralSnapshot: () => visibleCalendarSnapshot,
+      getCapabilitySnapshot: () => emptyCapabilitySnapshot,
+      onSettled: () => () => {},
+      ...inertInstanceMembers,
+    };
+    const settle = () => {
+      inFlight = false;
+      const pendingResults = resolvers;
+      const pendingVoids = voidResolvers;
+      resolvers = [];
+      voidResolvers = [];
+      for (const resolve of pendingResults) resolve(settleResult);
+      for (const resolve of pendingVoids) resolve();
+    };
+    const session = new RealtimeSession({
+      adapter,
+      instance,
+      sessionId: testSessionId,
+    });
+    await session.connect();
+
+    adapter.emitToolCall({
+      callId: 'c1',
+      name: 'update_ui',
+      argumentsJson: '{"intent":"show labs"}',
+    });
+    await flushMicrotasks();
+    adapter.emitToolCall({
+      callId: 'c2',
+      name: 'update_ui',
+      argumentsJson: '{"intent":"show revenue"}',
+    });
+    await flushMicrotasks();
+
+    settle(); // c1's burst failed; c2 was queued while it was running
+    await flushMicrotasks();
+    expect(adapter.toolResults.find((r) => r.callId === 'c1')?.output).toEqual({
+      ok: false,
+      summary: 'Something went wrong applying that change.',
+    });
+    expect(submitted).toEqual(['show labs', 'show revenue']);
+
+    settle(); // c2's own render settles cleanly
+    await flushMicrotasks();
+
+    expect(adapter.toolResults.find((r) => r.callId === 'c2')?.output).toEqual({
+      ok: true,
+      summary: expect.any(String),
+    });
   });
 });
 
