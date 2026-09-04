@@ -5,6 +5,7 @@ import {
   assertValidSplitWeights,
   describeDuplicateTilingLeaf,
   findDuplicateTilingLeaves,
+  findFirstDuplicateTilingLeaf,
   formatTilingSplitToken,
   type GridLayout,
   getVisibleInstanceIds,
@@ -562,6 +563,38 @@ describe('findDuplicateTilingLeaves', () => {
         'ID:d',
       ]),
     ).toEqual([]);
+  });
+});
+
+describe('findFirstDuplicateTilingLeaf', () => {
+  test('undefined when every leaf is distinct', () => {
+    expect(
+      findFirstDuplicateTilingLeaf(['V:1,1,1', 'ID:a', 'ID:b', 'ID:c']),
+    ).toBeUndefined();
+  });
+
+  test('finds a duplicate early in a long tree without scanning the rest', () => {
+    const tree: TilingNode[] = [
+      'V',
+      'ID:a',
+      'ID:a',
+      ...Array.from({ length: 500 }, (_, i) =>
+        tilingLeafToken(InstanceId(`filler-${i}`)),
+      ),
+    ];
+
+    expect(findFirstDuplicateTilingLeaf(tree)).toEqual({
+      instanceId: InstanceId('a'),
+      atTokenIndex: 2,
+    });
+  });
+
+  test('returns the same first entry findDuplicateTilingLeaves(...).at(0) would', () => {
+    const tree: TilingNode[] = ['H', 'V', 'ID:a', 'ID:b', 'V', 'ID:b', 'ID:a'];
+
+    expect(findFirstDuplicateTilingLeaf(tree)).toEqual(
+      findDuplicateTilingLeaves(tree).at(0),
+    );
   });
 });
 

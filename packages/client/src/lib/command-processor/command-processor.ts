@@ -11,7 +11,7 @@ import type {
 import {
   describeDuplicateTilingLeaf,
   err,
-  findDuplicateTilingLeaves,
+  findFirstDuplicateTilingLeaf,
   ok,
   toError,
 } from '@maelstrom-co/protocol';
@@ -37,15 +37,29 @@ import { applyLayout } from './layout-manager.js';
  * Event map for CommandProcessor lifecycle events.
  */
 export type CommandProcessorEvents = {
-  command_start: { command: Command; timestamp: number };
-  command_complete: {
+  /** Fired when a command begins processing. */
+  command_start: {
+    /** The command that began processing. */
     command: Command;
-    duration: number;
+    /** `performance.now()` reading taken when the command started. */
     timestamp: number;
   };
-  processing_error: {
+  /** Fired when a command finishes processing, whether it succeeded or threw. */
+  command_complete: {
+    /** The command that finished processing. */
     command: Command;
+    /** Milliseconds elapsed between `command_start` and this event. */
+    duration: number;
+    /** `performance.now()` reading taken when the command completed. */
+    timestamp: number;
+  };
+  /** Fired when a command throws while processing. */
+  processing_error: {
+    /** The command that threw. */
+    command: Command;
+    /** The error the command threw. */
     error: Error;
+    /** `performance.now()` reading taken when the error was reported. */
     timestamp: number;
   };
   /**
@@ -55,16 +69,24 @@ export type CommandProcessorEvents = {
    * it that never ran.
    */
   batch_abandoned: {
+    /** The command that threw and stopped the batch. */
     failed: Command;
+    /** The commands after `failed` that were never processed. */
     abandoned: readonly Command[];
+    /** The error `failed` threw. */
     error: Error;
+    /** `performance.now()` reading taken when the batch was abandoned. */
     timestamp: number;
   };
   /** Fired when one or more actions in a batch fail or are skipped. */
   action_error: {
+    /** The Instance the failing action targeted. */
     instanceId: InstanceId;
+    /** The action that failed. */
     action: ActionName;
+    /** The error the action failed with, or `undefined` if it was skipped. */
     error: Error | undefined;
+    /** `performance.now()` reading taken when the error was reported. */
     timestamp: number;
   };
 };
@@ -220,8 +242,10 @@ export class CommandProcessor {
    * promise, because the layout is applied after this call returns. Subscribe
    * to the `processing_error` event to detect one; dispatched as part of a
    * batch, a refusal also emits `batch_abandoned`. A refused layout (duplicate
-   * tiling leaf, malformed weight token) leaves the previous layout in place;
-   * observe the refusal via `waitForIdle()` or `processing_error`.
+   * tiling leaf) leaves the previous layout in place; observe the refusal via
+   * `waitForIdle()` or `processing_error`. A malformed weight token is not a
+   * refusal reason here — it is healed at render time — so only an
+   * `initialLayout` seed rejects one.
    *
    * @param layout - The layout to apply
    */
@@ -514,7 +538,7 @@ export class CommandProcessor {
  * repeat is a producer bug rather than an intent worth repairing.
  */
 function assertNoDuplicateTilingLeaf(layout: TilingLayout): void {
-  const duplicate = findDuplicateTilingLeaves(layout.tree).at(0);
+  const duplicate = findFirstDuplicateTilingLeaf(layout.tree);
   if (duplicate === undefined) return;
 
   throw new Error(

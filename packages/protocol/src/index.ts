@@ -95,6 +95,7 @@ export {
   assertValidSplitWeights,
   describeDuplicateTilingLeaf,
   findDuplicateTilingLeaves,
+  findFirstDuplicateTilingLeaf,
   formatTilingSplitToken,
   getVisibleInstanceIds,
   isInstanceIdNode,

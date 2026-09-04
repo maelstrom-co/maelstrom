@@ -4,7 +4,7 @@ import {
   ChartRequestMessage,
   type ChartResizeReason,
   describeDuplicateTilingLeaf,
-  findDuplicateTilingLeaves,
+  findFirstDuplicateTilingLeaf,
   type InstanceId,
   isTilingSplit,
   type LayoutMode,
@@ -1185,7 +1185,7 @@ function validateTilingSeedInvariants(layout: TilingLayout): void {
     }
   }
 
-  const duplicateLeaf = findDuplicateTilingLeaves(layout.tree).at(0);
+  const duplicateLeaf = findFirstDuplicateTilingLeaf(layout.tree);
   if (duplicateLeaf !== undefined) {
     throw new Error(
       `initialLayout.tree ${describeDuplicateTilingLeaf(duplicateLeaf)}`,
