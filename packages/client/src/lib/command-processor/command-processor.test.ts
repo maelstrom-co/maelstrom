@@ -1,5 +1,13 @@
 import { beforeEach, describe, expect, it } from 'bun:test';
-import { InstanceId } from '@maelstrom-co/protocol';
+import {
+  type GridLayout,
+  InstanceId,
+  type Result,
+  type TilingLayout,
+  tilingLeafInstanceId,
+  VariantName,
+  VesselId,
+} from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
 
 import {
@@ -7,7 +15,10 @@ import {
   createSetLayoutCommand,
 } from '../../../test-utils/command-mocks.js';
 import type { Command } from './command.types.js';
-import { CommandProcessor } from './command-processor.js';
+import {
+  CommandProcessor,
+  type CommandProcessorEvents,
+} from './command-processor.js';
 
 describe('CommandProcessor (Event Loop)', () => {
   let processor: CommandProcessor;
@@ -108,6 +119,7 @@ describe('CommandProcessor (Event Loop)', () => {
 
         const result = await racePromise;
         expect(result).toBe('resolved');
+        expect((await idlePromise).ok).toBe(true);
       } finally {
         clock.uninstall();
       }
@@ -174,6 +186,269 @@ describe('CommandProcessor (Event Loop)', () => {
 
       expect(statusTransitions).toContain('error');
       expect(processor.store.state.status).toBe('idle');
+    });
+  });
+
+  // Weighted split tokens replace the only sanctioned reason a producer had
+  // to repeat a leaf, so a repeat is now a producer bug. The renderer no
+  // longer bounding-boxes duplicates away, so this gate is what keeps a
+  // duplicate out of the store in the first place.
+  describe('duplicate tiling leaf gate', () => {
+    it('refuses a duplicate-bearing tiling layout, emitting processing_error and leaving the previous layout on screen', async () => {
+      const errors: Error[] = [];
+      processor.events.on('processing_error', ({ error }) => {
+        errors.push(error);
+      });
+
+      const good = tilingLayout(['V', 'ID:a', 'ID:b']);
+      processor.dispatch({ kind: 'set_layout', layout: good });
+      await processor.waitForIdle();
+
+      processor.dispatch({
+        kind: 'set_layout',
+        layout: tilingLayout(['V', 'ID:a', 'ID:a']),
+      });
+      await processor.waitForIdle();
+
+      expect(errors).toHaveLength(1);
+      expect(errors[0].message).toContain('"a"');
+      // The failure mode is "the layout did not update", not a blank chart.
+      expect(processor.store.state.layout).toBe(good);
+      expect(processor.store.state.instances.has(InstanceId('b'))).toBe(true);
+      expect(processor.store.state.status).toBe('idle');
+    });
+
+    it('abandons the rest of the batch when the layout is refused', async () => {
+      // Orchestrator.#dispatchResponse pairs set_layout with the
+      // execute_actions that targets the instances that layout creates, so
+      // running the tail against the pre-refusal store would stall each
+      // action for its readiness timeout and then record it as `skipped`
+      // with an ok result — a batch reporting zero failures.
+      const events: CommandProcessorEvents['batch_abandoned'][] = [];
+      processor.events.on('batch_abandoned', (event) => {
+        events.push(event);
+      });
+
+      const refused: Command = {
+        kind: 'set_layout',
+        layout: tilingLayout(['V', 'ID:a', 'ID:a']),
+      };
+      const actions = createExecuteActionsCommand('never-created', 'refresh');
+      processor.dispatch(refused, actions);
+      await processor.waitForIdle();
+
+      expect(events).toHaveLength(1);
+      expect(events[0].failed).toBe(refused);
+      expect(events[0].abandoned).toEqual([actions]);
+      expect(events[0].error.message).toContain('"a"');
+      expect(processor.store.state.layout).toBeNull();
+      expect(processor.store.state.status).toBe('idle');
+    });
+
+    it('abandons every command after the refusal, in dispatch order', async () => {
+      const events: CommandProcessorEvents['batch_abandoned'][] = [];
+      processor.events.on('batch_abandoned', (event) => {
+        events.push(event);
+      });
+
+      const refused: Command = {
+        kind: 'set_layout',
+        layout: tilingLayout(['V', 'ID:a', 'ID:a']),
+      };
+      const actions = createExecuteActionsCommand('never-created', 'refresh');
+      const trailing = createSetLayoutCommand('never-applied');
+
+      processor.dispatch(refused, actions, trailing);
+      await processor.waitForIdle();
+
+      expect(events).toHaveLength(1);
+      expect(events[0].abandoned).toEqual([actions, trailing]);
+      expect(
+        processor.store.state.instances.has(InstanceId('never-applied')),
+      ).toBe(false);
+      expect(processor.store.state.status).toBe('idle');
+    });
+
+    it('emits no batch_abandoned when the refusal is the last command in the batch', async () => {
+      let abandonedEvents = 0;
+      processor.events.on('batch_abandoned', () => {
+        abandonedEvents += 1;
+      });
+      const errors: Error[] = [];
+      processor.events.on('processing_error', ({ error }) => {
+        errors.push(error);
+      });
+
+      processor.dispatch(createSetLayoutCommand('instance-1'), {
+        kind: 'set_layout',
+        layout: tilingLayout(['V', 'ID:a', 'ID:a']),
+      });
+      await processor.waitForIdle();
+
+      expect(errors).toHaveLength(1);
+      expect(abandonedEvents).toBe(0);
+      expect(processor.store.state.status).toBe('idle');
+    });
+
+    it('applies a weighted layout whose leaves are all distinct', async () => {
+      const layout = tilingLayout(['V:2,1', 'ID:a', 'ID:b']);
+
+      processor.dispatch({ kind: 'set_layout', layout });
+      await processor.waitForIdle();
+
+      expect(processor.store.state.layout).toBe(layout);
+      expect(processor.store.state.instances.size).toBe(2);
+      expect(processor.store.state.status).toBe('idle');
+    });
+
+    it('refuses a duplicate leaf under a weighted split token', async () => {
+      const errors: Error[] = [];
+      processor.events.on('processing_error', ({ error }) => {
+        errors.push(error);
+      });
+
+      processor.dispatch({
+        kind: 'set_layout',
+        layout: tilingLayout(['V:2,1', 'ID:a', 'ID:a']),
+      });
+      await processor.waitForIdle();
+
+      expect(errors).toHaveLength(1);
+      expect(errors[0].message).toContain('"a"');
+      expect(processor.store.state.layout).toBeNull();
+      expect(processor.store.state.status).toBe('idle');
+    });
+
+    it('does not gate grid layouts', async () => {
+      // Out of scope, not benign: two grid positions naming one instance
+      // render it twice. The engine's grid healer already drops that as
+      // `duplicate_instance_id`; this gate covers the tiling grammar only.
+      const seeded = tilingLayout(['V', 'ID:a', 'ID:b']);
+      processor.dispatch({ kind: 'set_layout', layout: seeded });
+      await processor.waitForIdle();
+
+      const grid: GridLayout = {
+        type: 'grid',
+        positions: [
+          {
+            instanceId: InstanceId('a'),
+            position: { column: 0, row: 0 },
+            size: { width: 1, height: 1 },
+          },
+          {
+            instanceId: InstanceId('a'),
+            position: { column: 1, row: 0 },
+            size: { width: 1, height: 1 },
+          },
+        ],
+      };
+
+      processor.dispatch({ kind: 'set_layout', layout: grid });
+      await processor.waitForIdle();
+
+      expect(processor.store.state.layout).toBe(grid);
+      expect(processor.store.state.status).toBe('idle');
+    });
+  });
+
+  describe('waitForIdle result', () => {
+    function refusedLayoutCommand(): Command {
+      return {
+        kind: 'set_layout',
+        layout: tilingLayout(['V', 'ID:a', 'ID:a']),
+      };
+    }
+
+    function burstError(result: Result<void, Error>): Error {
+      if (result.ok) throw new Error('Expected the burst to report a failure');
+      return result.error;
+    }
+
+    it('resolves ok on an idle processor with no history', async () => {
+      const result = await processor.waitForIdle();
+
+      expect(result.ok).toBe(true);
+    });
+
+    it('resolves err with the refusal from a rejected set_layout', async () => {
+      processor.dispatch(refusedLayoutCommand());
+      const result = await processor.waitForIdle();
+
+      expect(result.ok).toBe(false);
+      expect(burstError(result).message).toMatch(/more than once/);
+    });
+
+    it('still reports the failure when called after returning to idle', async () => {
+      processor.dispatch(refusedLayoutCommand());
+      const first = await processor.waitForIdle();
+      const second = await processor.waitForIdle();
+
+      expect(burstError(second)).toBe(burstError(first));
+    });
+
+    it('a later success in the same burst does not mask an earlier failure', async () => {
+      // Dispatched without yielding, so the good command queues behind the
+      // refusal instead of starting a burst of its own.
+      processor.dispatch(refusedLayoutCommand());
+      processor.dispatch(createSetLayoutCommand('instance-1'));
+      const result = await processor.waitForIdle();
+
+      expect(burstError(result).message).toMatch(/more than once/);
+      expect(
+        processor.store.state.instances.has(InstanceId('instance-1')),
+      ).toBe(true);
+    });
+
+    it("a new burst clears the previous burst's error", async () => {
+      processor.dispatch(refusedLayoutCommand());
+      expect((await processor.waitForIdle()).ok).toBe(false);
+
+      processor.dispatch(createSetLayoutCommand('instance-1'));
+
+      expect((await processor.waitForIdle()).ok).toBe(true);
+      expect((await processor.waitForIdle()).ok).toBe(true);
+    });
+
+    it('a refusal inside an atomic batch surfaces through waitForIdle', async () => {
+      processor.dispatch(
+        refusedLayoutCommand(),
+        createExecuteActionsCommand('never-created', 'refresh'),
+      );
+      const result = await processor.waitForIdle();
+
+      expect(burstError(result).message).toMatch(/more than once/);
+    });
+
+    it('concurrent waiters resolve with the same result', async () => {
+      processor.dispatch(refusedLayoutCommand());
+      const [first, second] = await Promise.all([
+        processor.waitForIdle(),
+        processor.waitForIdle(),
+      ]);
+
+      expect(burstError(first)).toBe(burstError(second));
+    });
+
+    it('survives a store subscriber that dispatches on the return to idle', async () => {
+      // A subscriber registered before the waiter starts a fresh burst from
+      // inside the idle notification. The waiter must still report the burst
+      // it was waiting on, not the one that reentrancy started.
+      let reentered = false;
+      const watcher = processor.store.subscribe(() => {
+        if (reentered || processor.store.state.status !== 'idle') return;
+        reentered = true;
+        processor.dispatch(createSetLayoutCommand('instance-1'));
+      });
+
+      try {
+        processor.dispatch(refusedLayoutCommand());
+        const result = await processor.waitForIdle();
+
+        expect(reentered).toBe(true);
+        expect(burstError(result).message).toMatch(/more than once/);
+      } finally {
+        watcher.unsubscribe();
+      }
     });
   });
 
@@ -305,3 +580,20 @@ describe('CommandProcessor (Event Loop)', () => {
     });
   });
 });
+
+function tilingLayout(tree: TilingLayout['tree']): TilingLayout {
+  const leaves = new Set<InstanceId>();
+  for (const node of tree) {
+    const instanceId = tilingLeafInstanceId(node);
+    if (instanceId !== null) leaves.add(instanceId);
+  }
+  return {
+    type: 'tiling',
+    tree,
+    instances: [...leaves].map((instanceId) => ({
+      instanceId,
+      vesselId: VesselId('vessel-1'),
+      variant: VariantName('default'),
+    })),
+  };
+}

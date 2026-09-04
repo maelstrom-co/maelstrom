@@ -22,7 +22,9 @@ export type CommandProcessingState = {
   layoutMode: LayoutMode;
   /**
    * Last thrown command error. Individual Action failures emit `action_error`;
-   * this field clears when the next command starts.
+   * this field clears when the next command starts. `waitForIdle()` is the
+   * supported way to observe a failure after the fact; it does not read this
+   * field.
    */
   lastError: Error | null;
 };

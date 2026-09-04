@@ -18,6 +18,7 @@ import {
   type SessionHistoryEntry,
   SessionId,
   type TilingLayout,
+  type TilingNode,
   tilingLeafToken,
   VariantName,
   type Vessel,
@@ -3041,6 +3042,133 @@ describe('Orchestrator', () => {
         ).toThrow(/duplicate.*calendar-main/i);
       });
 
+      // Not redundant with the command-processor gate: #processCommand
+      // swallows a throw into a processing_error event, so without this a bad
+      // seed would fail silently at construction rather than loudly.
+      it('throws when initialLayout.tree names the same instance twice', () => {
+        expect(() =>
+          createTestOrchestrator(undefined, {
+            vessels: [calendarVessel],
+            initialLayout: {
+              ...calendarSeed,
+              tree: ['V', 'ID:calendar-main', 'ID:calendar-main'],
+            },
+          }),
+        ).toThrow(
+          /more than once.*calendar-main|calendar-main.*more than once/is,
+        );
+      });
+
+      // The finder reports every repeat; the seed gate names only the first.
+      // A third occurrence must not drag the reported index along with it.
+      it('names the first repeat, not the last, when a tree leaf appears three times', () => {
+        expect(() =>
+          createTestOrchestrator(undefined, {
+            vessels: [calendarVessel],
+            initialLayout: {
+              ...calendarSeed,
+              tree: [
+                'V:1,1,1',
+                'ID:calendar-main',
+                'ID:calendar-main',
+                'ID:calendar-main',
+              ],
+            },
+          }),
+        ).toThrow(/"calendar-main".*tree index 2/is);
+      });
+
+      // Two independent offenders, so "the first repeat wins" has something to
+      // win against: the message must name the one repeating first in preorder
+      // and leave the later one unmentioned.
+      it('names only the earlier repeat when two instances are each duplicated', () => {
+        const construct = () =>
+          createTestOrchestrator(undefined, {
+            vessels: [calendarVessel],
+            initialLayout: {
+              type: 'tiling',
+              tree: [
+                'H',
+                'V',
+                'ID:calendar-main',
+                'ID:calendar-side',
+                'V',
+                'ID:calendar-side',
+                'ID:calendar-main',
+              ],
+              instances: [
+                {
+                  instanceId: InstanceId('calendar-main'),
+                  vesselId: VesselId('calendar'),
+                  variant: VariantName('day'),
+                },
+                {
+                  instanceId: InstanceId('calendar-side'),
+                  vesselId: VesselId('calendar'),
+                  variant: VariantName('day'),
+                },
+              ],
+            },
+          });
+
+        expect(construct).toThrow(/"calendar-side".*tree index 5/is);
+        expect(construct).not.toThrow(/calendar-main/);
+      });
+
+      // The lenient-LLM / strict-developer split: heal repairs a malformed
+      // weight suffix so a model's typo still renders, but a seed is a
+      // literal an author wrote, and silently rewriting it would hand them
+      // geometry they never asked for with nothing in the layout to point at.
+      const malformedWeightCases: readonly [string, string][] = [
+        ['a non-numeric field', 'V:abc'],
+        ['a zero weight', 'V:1,0,2'],
+        ['a weight above the cap', 'V:1,5000'],
+        ['a stray trailing comma, which declares no child slot', 'V:1,1,'],
+        ['a leading-zero spelling', 'V:01,1'],
+        ['more weights than a token may declare', `V:${'1,'.repeat(12)}1`],
+      ];
+
+      for (const [name, token] of malformedWeightCases) {
+        it(`throws when initialLayout.tree carries a split token with ${name}`, () => {
+          expect(() =>
+            createTestOrchestrator(undefined, {
+              vessels: [calendarVessel],
+              initialLayout: {
+                ...calendarSeed,
+                tree: [token as TilingNode, 'ID:calendar-main'],
+              },
+            }),
+          ).toThrow(/malformed split token/i);
+        });
+      }
+
+      // The negative control for the cases above, and a check that the weights
+      // survive: the strict seed gate must reject a malformed suffix without
+      // quietly normalizing a well-formed one on its way into the store.
+      it('accepts a well-formed weighted split token and stores it unrewritten', async () => {
+        const { orchestrator } = createTestOrchestrator(undefined, {
+          vessels: [calendarVessel],
+          initialLayout: {
+            ...calendarSeed,
+            tree: ['H:2,1', 'ID:calendar-main', null],
+          },
+        });
+
+        await orchestrator.commandProcessor.waitForIdle();
+
+        expect(orchestrator.commandProcessor.store.state.layoutMode).toBe(
+          'tiling',
+        );
+        const layout = orchestrator.commandProcessor.store.state.layout;
+        expect(layout?.type === 'tiling' ? layout.tree : []).toEqual([
+          'H:2,1',
+          'ID:calendar-main',
+          null,
+        ]);
+
+        orchestrator.dispose();
+      });
+
       it('throws when initialLayout.tree references a leaf absent from initialLayout.instances', () => {
         expect(() =>
           createTestOrchestrator(undefined, {
@@ -3136,27 +3264,6 @@ describe('Orchestrator', () => {
           initialLayout: {
             ...calendarSeed,
             tree: ['V', 'ID:calendar-main', null],
-          },
-        });
-
-        await orchestrator.commandProcessor.waitForIdle();
-        expect(orchestrator.commandProcessor.store.state.instances.size).toBe(
-          1,
-        );
-
-        orchestrator.dispose();
-      });
-
-      // Tolerated rather than validated: both membership directions hold, so
-      // the seed is coherent — the renderer decides what a twice-placed leaf
-      // means. Pinned here so a future decision to reject it is a deliberate
-      // change rather than an accident.
-      it('constructs when the same instance appears as a tree leaf twice', async () => {
-        const { orchestrator } = createTestOrchestrator(undefined, {
-          vessels: [calendarVessel],
-          initialLayout: {
-            ...calendarSeed,
-            tree: ['V', 'ID:calendar-main', 'ID:calendar-main'],
           },
         });
 

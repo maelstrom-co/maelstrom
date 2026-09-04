@@ -384,6 +384,8 @@ export function assertValidSplitWeights(weights: readonly number[]): void {
  * The whole token array is scanned, including tokens trailing a completed
  * root, because a caller removing the repeats must not shift indices it has
  * not inspected.
+ *
+ * @internal
  */
 export function findDuplicateTilingLeaves(
   tree: readonly TilingNode[],
@@ -403,6 +405,60 @@ export function findDuplicateTilingLeaves(
   }
 
   return duplicates;
+}
+
+/**
+ * Reports the first tree position that repeats an Instance leaf, in
+ * ascending token order, or `undefined` when every leaf is distinct.
+ *
+ * Equivalent to `findDuplicateTilingLeaves(tree).at(0)`, but exits at the
+ * first repeat instead of scanning and collecting every one. Use this for a
+ * gate that only needs to know whether a tree is refusable — a caller that
+ * needs every repeat (to blank or drop each one) still needs
+ * {@link findDuplicateTilingLeaves}.
+ *
+ * @param tree - The tiling tree to scan, in preorder.
+ * @returns The first repeat, or `undefined` if `tree` names no Instance more
+ * than once.
+ *
+ * @internal
+ */
+export function findFirstDuplicateTilingLeaf(
+  tree: readonly TilingNode[],
+): DuplicateTilingLeaf | undefined {
+  const seen = new Set<InstanceId>();
+
+  for (let index = 0; index < tree.length; index++) {
+    const node = tree[index];
+    const instanceId = node === undefined ? null : tilingLeafInstanceId(node);
+    if (instanceId === null) continue;
+    if (seen.has(instanceId)) return { instanceId, atTokenIndex: index };
+    seen.add(instanceId);
+  }
+
+  return undefined;
+}
+
+/**
+ * Renders the shared half of a duplicate-leaf refusal: which Instance
+ * repeated, where, and what to do instead.
+ *
+ * The text opens with a verb so it reads as the predicate of whatever subject
+ * the caller names, leaving a call site to supply only its own prefix — the
+ * seed field or command it is refusing. Holding the wording in one place keeps
+ * the guard and the sentence explaining it from drifting apart.
+ *
+ * @param duplicate - A repeat reported by {@link findDuplicateTilingLeaves} or
+ * {@link findFirstDuplicateTilingLeaf}.
+ * @returns The refusal's shared half, opening lowercase and ending in a full
+ * stop.
+ *
+ * @internal
+ */
+export function describeDuplicateTilingLeaf(
+  duplicate: DuplicateTilingLeaf,
+): string {
+  return `names instance "${duplicate.instanceId}" more than once (tree index ${duplicate.atTokenIndex}). An instance renders as exactly one tile — weight the split token instead of repeating the leaf.`;
 }
 
 /** Tiling layout with separate tree visibility and retained Instance metadata. */

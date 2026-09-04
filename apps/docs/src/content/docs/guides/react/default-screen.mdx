@@ -59,6 +59,8 @@ That seeds two `greetingVessel` instances side by side before any engine round-t
 - `'ID:'` followed by an instance ID is a leaf — `tilingLeafToken` writes one for you.
 - `null` is an empty leaf — a blank pane.
 
+A split token can also carry a weight suffix, like `'V:2,1'`, to divide the region unevenly instead of splitting it in half.
+
 `InstanceId`, `VesselId`, and `VariantName` are branded constructors from `@maelstrom-co/protocol` — the same ones you'd use to build any tiling layout by hand (see [Programmatic Layout Control](/guides/client/programmatic-layout/)).
 
 ## It's a proposal, not a contract
@@ -85,6 +87,9 @@ The grid/`layoutMode` rejections above aren't the mistake you're most likely to 
 - A leaf's `variant` isn't declared by that vessel.
 - `instances` contains a duplicate `instanceId`.
 - `tree` references an `instanceId` that isn't in `instances`.
+- `instances` declares an `instanceId` that no `tree` leaf references — it would be created but never rendered.
+- `tree` names the same `instanceId` in two leaves — weight the split token instead of repeating the leaf.
+- A split token's weight suffix is malformed — weights must be two to `MAX_SPLIT_CHILDREN` comma-separated integers from 1 to `MAX_SPLIT_WEIGHT`. A seed is rejected outright rather than repaired the way an engine response's weights would be, so a typo like `'V:1,0,2'` or `'V:01,1'` throws instead of silently rendering something else.
 
 Because this happens during construction, it fails before there's an Orchestrator for `<m.Provider>` to hand to its children — the Provider renders nothing (its subtree stays blank) instead of the app you expected. Two things tell you why: the browser console logs `[Maelstrom] Failed to create Orchestrator:` followed by the error, and, if you passed an `onError` handler, it's called with the same error.
 

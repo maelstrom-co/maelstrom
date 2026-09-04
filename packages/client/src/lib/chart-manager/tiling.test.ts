@@ -285,6 +285,12 @@ describe('computeTilingLayout', () => {
       expectedVisibleIds: [weatherId],
     },
     {
+      // Compares the visible id *sets*, which still agree across the two
+      // layers. What the two layers no longer agree on is the count: the
+      // renderer emits one tile per leaf, so a repeat produces two tiles for
+      // this one visible id, while getVisibleInstanceIds returns it once.
+      // That deliberate divergence is pinned by 'emits one tile per leaf for
+      // a duplicated instance' below.
       name: 'duplicate leaves',
       tree: ['H', weatherLeaf, weatherLeaf],
       expectedVisibleIds: [weatherId],
@@ -387,15 +393,30 @@ describe('computeTilingLayout', () => {
     expect(right.rect.width).toBe(400);
   });
 
-  it('merges duplicate instanceIds into bounding box', () => {
-    // Tree: V split with same instanceId on both sides
+  // Pins the contract left behind by deleting mergeDuplicateTiles: one tile
+  // per Instance leaf, unprocessed. Reintroducing a de-duplication pass, or a
+  // traversal that skips a repeat, fails here. The input is unreachable
+  // through the public API — the seed validator and the command processor
+  // both refuse it, and heal blanks it — so this pins what the side doors
+  // (`store.setState`, `new CommandProcessor({ initialState })`) produce.
+  //
+  // Deliberately divergent from getVisibleInstanceIds, whose JSDoc promises a
+  // duplicate leaf is "returned once": the renderer counts tiles, the
+  // protocol helper counts distinct Instances.
+  it('emits one tile per leaf for a duplicated instance, with no merge', () => {
     const tree = parseTilingTree(['V', 'ID:inst-1', 'ID:inst-1']);
     if (!tree) throw new Error('expected parsed tree');
     const tiles = computeTilingLayout(tree, containerRect, 0);
-    expect(tiles).toHaveLength(1);
-    expect(tiles[0].instanceId).toBe(InstanceId('inst-1'));
-    // Bounding box should span the full container
-    expect(tiles[0].rect).toEqual({ x: 0, y: 0, width: 800, height: 600 });
+
+    expect(tiles).toHaveLength(2);
+    expect(tiles.map(({ instanceId }) => instanceId)).toEqual([
+      InstanceId('inst-1'),
+      InstanceId('inst-1'),
+    ]);
+    expect(tiles.map(({ rect }) => rect)).toEqual([
+      { x: 0, y: 0, width: 400, height: 600 },
+      { x: 400, y: 0, width: 400, height: 600 },
+    ]);
   });
 });
 

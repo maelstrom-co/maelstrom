@@ -3,7 +3,9 @@ import { describe, expect, spyOn, test } from 'bun:test';
 import { InstanceId } from './instance.js';
 import {
   assertValidSplitWeights,
+  describeDuplicateTilingLeaf,
   findDuplicateTilingLeaves,
+  findFirstDuplicateTilingLeaf,
   formatTilingSplitToken,
   type GridLayout,
   getVisibleInstanceIds,
@@ -561,6 +563,68 @@ describe('findDuplicateTilingLeaves', () => {
         'ID:d',
       ]),
     ).toEqual([]);
+  });
+});
+
+describe('findFirstDuplicateTilingLeaf', () => {
+  test('undefined when every leaf is distinct', () => {
+    expect(
+      findFirstDuplicateTilingLeaf(['V:1,1,1', 'ID:a', 'ID:b', 'ID:c']),
+    ).toBeUndefined();
+  });
+
+  test('finds a duplicate early in a long tree without scanning the rest', () => {
+    const tree: TilingNode[] = [
+      'V',
+      'ID:a',
+      'ID:a',
+      ...Array.from({ length: 500 }, (_, i) =>
+        tilingLeafToken(InstanceId(`filler-${i}`)),
+      ),
+    ];
+
+    expect(findFirstDuplicateTilingLeaf(tree)).toEqual({
+      instanceId: InstanceId('a'),
+      atTokenIndex: 2,
+    });
+  });
+
+  test('returns the same first entry findDuplicateTilingLeaves(...).at(0) would', () => {
+    const tree: TilingNode[] = ['H', 'V', 'ID:a', 'ID:b', 'V', 'ID:b', 'ID:a'];
+
+    expect(findFirstDuplicateTilingLeaf(tree)).toEqual(
+      findDuplicateTilingLeaves(tree).at(0),
+    );
+  });
+});
+
+describe('describeDuplicateTilingLeaf', () => {
+  test('names the repeat, its token index and the remedy', () => {
+    expect(
+      describeDuplicateTilingLeaf({
+        instanceId: InstanceId('calendar-side'),
+        atTokenIndex: 5,
+      }),
+    ).toBe(
+      'names instance "calendar-side" more than once (tree index 5). An instance renders as exactly one tile — weight the split token instead of repeating the leaf.',
+    );
+  });
+
+  test('reads as the predicate of a caller-supplied subject', () => {
+    const duplicates = findDuplicateTilingLeaves([
+      'V',
+      tilingLeafToken(InstanceId('a')),
+      tilingLeafToken(InstanceId('a')),
+    ]);
+
+    expect(
+      duplicates.map(
+        (duplicate) =>
+          `initialLayout.tree ${describeDuplicateTilingLeaf(duplicate)}`,
+      ),
+    ).toEqual([
+      'initialLayout.tree names instance "a" more than once (tree index 2). An instance renders as exactly one tile — weight the split token instead of repeating the leaf.',
+    ]);
   });
 });
 

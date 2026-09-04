@@ -93,7 +93,9 @@ export type {
 } from './lib/response.ts';
 export {
   assertValidSplitWeights,
+  describeDuplicateTilingLeaf,
   findDuplicateTilingLeaves,
+  findFirstDuplicateTilingLeaf,
   formatTilingSplitToken,
   getVisibleInstanceIds,
   isInstanceIdNode,

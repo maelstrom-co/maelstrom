@@ -3,10 +3,16 @@ import {
   type ActionName,
   ChartRequestMessage,
   type ChartResizeReason,
+  describeDuplicateTilingLeaf,
+  findFirstDuplicateTilingLeaf,
   type InstanceId,
+  isTilingSplit,
   type LayoutMode,
+  MAX_SPLIT_CHILDREN,
+  MAX_SPLIT_WEIGHT,
   type MaelstromResponse,
   MessageId,
+  parseTilingSplitToken,
   type SessionHistoryEntry,
   type SessionId,
   type TilingLayout,
@@ -97,6 +103,14 @@ type FencedSend =
  * @throws If `options.initialLayout` is present and `options.layoutMode` is
  * `'grid'` — the seed's type and the mode must agree.
  * @throws If `options.initialLayout` declares the same `instanceId` twice.
+ * @throws If an `options.initialLayout` tree contains a split token whose
+ * weight suffix is malformed — anything an engine response would have
+ * repaired, such as `"V:1,5000"` or `"V:01,1"`. A seed is rejected rather
+ * than repaired: the lenient-LLM / strict-developer asymmetry means the
+ * author is told, instead of being handed geometry they did not write.
+ * @throws If an `options.initialLayout` tree names the same instance in two
+ * leaves. An instance renders as exactly one tile; weight the split token
+ * instead of repeating the leaf.
  * @throws If an `options.initialLayout` tree leaf is not declared in its
  * `instances`, or a declared instance is referenced by no tree leaf.
  * @throws If an `options.initialLayout` instance names a vessel that is not
@@ -1153,6 +1167,29 @@ function validateTilingSeedInvariants(layout: TilingLayout): void {
       );
     }
     seenIds.add(instance.instanceId);
+  }
+
+  // Malformed weight suffixes are repaired everywhere else in the system,
+  // because a model's typo must still render something. A seed is a
+  // developer's literal, and the lenient-LLM / strict-developer doctrine says
+  // a strict site rejects what a lenient one repairs: silently rewriting
+  // "V:1,0,2" to "V:1,1,2" would hand an author geometry they never asked for
+  // with nothing in the layout to point at.
+  for (const [index, node] of layout.tree.entries()) {
+    if (!isTilingSplit(node)) continue;
+    const parsed = parseTilingSplitToken(node);
+    if (parsed.repaired || parsed.discardedChildCount > 0) {
+      throw new Error(
+        `initialLayout.tree[${index}] is the malformed split token "${node}". Weights must be a comma-separated list of two to ${MAX_SPLIT_CHILDREN} integers from 1 to ${MAX_SPLIT_WEIGHT}, e.g. "V:1,1,1"; bare "H"/"V" mean an even two-way split.`,
+      );
+    }
+  }
+
+  const duplicateLeaf = findFirstDuplicateTilingLeaf(layout.tree);
+  if (duplicateLeaf !== undefined) {
+    throw new Error(
+      `initialLayout.tree ${describeDuplicateTilingLeaf(duplicateLeaf)}`,
+    );
   }
 
   const treedIds = new Set<InstanceId>();

@@ -3,11 +3,18 @@ import type {
   ActionName,
   GridLayout,
   InstanceId,
+  Result,
   TilingLayout,
   VariantName,
   VesselDefinition,
 } from '@maelstrom-co/protocol';
-import { toError } from '@maelstrom-co/protocol';
+import {
+  describeDuplicateTilingLeaf,
+  err,
+  findFirstDuplicateTilingLeaf,
+  ok,
+  toError,
+} from '@maelstrom-co/protocol';
 import { Store } from '@tanstack/store';
 
 import type { Unsubscribe } from '../types.js';
@@ -30,22 +37,56 @@ import { applyLayout } from './layout-manager.js';
  * Event map for CommandProcessor lifecycle events.
  */
 export type CommandProcessorEvents = {
-  command_start: { command: Command; timestamp: number };
-  command_complete: {
+  /** Fired when a command begins processing. */
+  command_start: {
+    /** The command that began processing. */
     command: Command;
-    duration: number;
+    /** `performance.now()` reading taken when the command started. */
     timestamp: number;
   };
-  processing_error: {
+  /** Fired when a command finishes processing, whether it succeeded or threw. */
+  command_complete: {
+    /** The command that finished processing. */
     command: Command;
+    /** Milliseconds elapsed between `command_start` and this event. */
+    duration: number;
+    /** `performance.now()` reading taken when the command completed. */
+    timestamp: number;
+  };
+  /** Fired when a command throws while processing. */
+  processing_error: {
+    /** The command that threw. */
+    command: Command;
+    /** The error the command threw. */
     error: Error;
+    /** `performance.now()` reading taken when the error was reported. */
+    timestamp: number;
+  };
+  /**
+   * Fired when a command in a multi-command batch throws and the rest of
+   * that batch is abandoned. `failed` is the command that threw (already
+   * reported through `processing_error`); `abandoned` are the commands after
+   * it that never ran.
+   */
+  batch_abandoned: {
+    /** The command that threw and stopped the batch. */
+    failed: Command;
+    /** The commands after `failed` that were never processed. */
+    abandoned: readonly Command[];
+    /** The error `failed` threw. */
+    error: Error;
+    /** `performance.now()` reading taken when the batch was abandoned. */
     timestamp: number;
   };
   /** Fired when one or more actions in a batch fail or are skipped. */
   action_error: {
+    /** The Instance the failing action targeted. */
     instanceId: InstanceId;
+    /** The action that failed. */
     action: ActionName;
+    /** The error the action failed with, or `undefined` if it was skipped. */
     error: Error | undefined;
+    /** `performance.now()` reading taken when the error was reported. */
     timestamp: number;
   };
 };
@@ -87,7 +128,10 @@ export class CommandProcessor {
   readonly #actionManager: ActionManager;
   readonly #logger: Logger;
   #commandQueue: Array<Command | Command[]> = [];
-  #idleResolvers: Set<() => void> = new Set();
+  #idleResolvers: Set<(result: Result<void, Error>) => void> = new Set();
+  // Outlives the return to 'idle' so a wait issued after the fact still sees
+  // the failure.
+  #lastBurstError: Error | null = null;
   // Keyed by command identity so a locally-invoked action can await the
   // outcome of *its* execute_actions command specifically, even when other
   // commands (engine batches, other local invocations) interleave in the
@@ -127,29 +171,31 @@ export class CommandProcessor {
   }
 
   /**
-   * Returns a promise that resolves when the processor is idle
-   * and the command queue is empty.
+   * Returns a promise that resolves when the processor is idle and the
+   * command queue is empty. Resolves immediately if already idle.
    *
-   * Resolves immediately if already idle.
+   * The resolved {@link Result} reports whether the observed activity burst —
+   * the run of commands between leaving idle and draining the queue — failed:
+   * `ok` when every command in it completed, `err` with the most recent
+   * failure otherwise. A refusal (such as a rejected `set_layout`) is
+   * therefore visible to `dispatch(cmd); await waitForIdle();` without
+   * subscribing to `processing_error` first: the error outlives the return
+   * to idle and is only discarded when a new burst begins. Called while
+   * already idle, it reports the outcome of the burst that most recently
+   * completed (`ok` on a fresh processor).
+   *
+   * The queue is shared, so the Result describes the burst as a whole, not
+   * any one caller's commands; concurrent waiters observe the same value. A
+   * waiter is bound to the burst that was in flight when it was issued, so a
+   * burst started from the return-to-idle notification itself cannot overwrite
+   * its result. The promise never rejects, and disposal settles pending waiters
+   * with the outcome recorded so far.
    */
-  waitForIdle(): Promise<void> {
+  waitForIdle(): Promise<Result<void, Error>> {
     if (this.store.state.status === 'idle' && this.#commandQueue.length === 0) {
-      return Promise.resolve();
+      return Promise.resolve(this.#snapshotBurstResult());
     }
     return new Promise((resolve) => {
-      const cleanup = () => {
-        sub.unsubscribe();
-        this.#idleResolvers.delete(resolve);
-      };
-      const sub = this.store.subscribe(() => {
-        if (
-          this.store.state.status === 'idle' &&
-          this.#commandQueue.length === 0
-        ) {
-          cleanup();
-          resolve();
-        }
-      });
       this.#idleResolvers.add(resolve);
     });
   }
@@ -158,7 +204,13 @@ export class CommandProcessor {
    * Dispatch one or more commands for processing.
    * A single command is processed immediately (or queued).
    * Multiple commands form an atomic batch — processed sequentially
-   * without returning to idle between them.
+   * without returning to idle between them, and a command that throws
+   * abandons the rest of its batch (`processing_error` names the failure,
+   * `batch_abandoned` names what never ran). Commands dispatched separately
+   * are independent: a failure in one does not stop the next.
+   *
+   * A failure is reported through the `processing_error` event and through
+   * the `Result` that `waitForIdle()` resolves with.
    */
   dispatch(...commands: Command[]): void {
     if (commands.length === 0) return;
@@ -185,6 +237,16 @@ export class CommandProcessor {
   /**
    * Convenience method to dispatch a SetLayoutCommand.
    *
+   * The layout can be refused — a tiling tree that names the same instance in
+   * two slots is rejected — and a refusal neither throws nor rejects a
+   * promise, because the layout is applied after this call returns. Subscribe
+   * to the `processing_error` event to detect one; dispatched as part of a
+   * batch, a refusal also emits `batch_abandoned`. A refused layout (duplicate
+   * tiling leaf) leaves the previous layout in place; observe the refusal via
+   * `waitForIdle()` or `processing_error`. A malformed weight token is not a
+   * refusal reason here — it is healed at render time — so only an
+   * `initialLayout` seed rejects one.
+   *
    * @param layout - The layout to apply
    */
   setLayout(layout: GridLayout | TilingLayout): void {
@@ -193,6 +255,11 @@ export class CommandProcessor {
 
   /**
    * Convenience method to dispatch an ExecuteActionsCommand.
+   *
+   * The actions run after this call returns, so neither a failing action nor
+   * a failing command throws or rejects a promise here. Subscribe to
+   * `action_error` for an individual action and to `processing_error` for the
+   * command as a whole.
    *
    * @param executionPlan - The actions to execute
    */
@@ -255,12 +322,10 @@ export class CommandProcessor {
 
     this.#emitter.dispose();
     this.#commandQueue = [];
+    this.#actionManager.dispose();
 
     // Resolve any pending waitForIdle promises so they don't hang
-    for (const resolve of this.#idleResolvers) {
-      resolve();
-    }
-    this.#idleResolvers.clear();
+    this.#settleIdleWaiters();
 
     // Settle any in-flight runLocalAction awaiters (undefined → 'failed') so
     // they don't hang past disposal.
@@ -271,14 +336,33 @@ export class CommandProcessor {
   }
 
   async #runEventLoop(firstItem: Command | Command[]): Promise<void> {
+    this.#lastBurstError = null;
     let currentItem: Command | Command[] | null = firstItem;
 
     while (currentItem) {
       if (Array.isArray(currentItem)) {
-        for (const command of currentItem) {
-          await this.#processCommand(command);
+        // A batch is atomic to its producer: a set_layout is paired with the
+        // execute_actions that targets the instances that layout creates.
+        // Running the tail after the head threw would execute those actions
+        // against the pre-command store — every action waiting out its
+        // readiness timeout, recording as `skipped` with an `ok` result, and
+        // the batch reporting zero failures. Abandon instead, and say which
+        // commands were abandoned.
+        for (const [index, command] of currentItem.entries()) {
+          const outcome = await this.#processCommand(command);
+          if (!outcome.ok) {
+            this.#abandonBatch(
+              command,
+              currentItem.slice(index + 1),
+              outcome.error,
+            );
+            break;
+          }
         }
       } else {
+        // Discarding the outcome is the handling: a command dispatched alone
+        // has no batch tail to abandon, and `processing_error` has already
+        // named the failure.
         await this.#processCommand(currentItem);
       }
 
@@ -286,7 +370,36 @@ export class CommandProcessor {
     }
   }
 
-  async #processCommand(command: Command): Promise<void> {
+  #abandonBatch(
+    failed: Command,
+    abandoned: readonly Command[],
+    error: Error,
+  ): void {
+    if (abandoned.length === 0) return;
+
+    this.#logger.error(
+      `Abandoning ${abandoned.length} command(s) after ${failed.kind} failed: ${abandoned.map((c) => c.kind).join(', ')}`,
+    );
+
+    // Forward-cover, not a live hazard: today only runLocalAction registers a
+    // resolver, and it dispatches its command alone, so no batch element can
+    // carry one. If runLocalAction commands ever get batched, settle here
+    // before the event (undefined → 'failed', which reverts an optimistic
+    // transition rather than assuming success).
+    for (const command of abandoned) {
+      this.#settleActionResult(command, undefined);
+    }
+
+    this.#emitter.emit('batch_abandoned', {
+      failed,
+      abandoned,
+      error,
+      timestamp: performance.now(),
+    });
+  }
+
+  // The signal #runEventLoop needs to abandon the rest of an atomic batch.
+  async #processCommand(command: Command): Promise<Result<void, Error>> {
     const startTime = performance.now();
 
     this.#logger.info(`Processing command: ${command.kind}`);
@@ -303,9 +416,13 @@ export class CommandProcessor {
     });
 
     let actionResult: BatchExecutionResult | undefined;
+    let outcome: Result<void, Error> = ok(undefined);
     try {
       switch (command.kind) {
         case 'set_layout': {
+          if (command.layout.type === 'tiling') {
+            assertNoDuplicateTilingLeaf(command.layout);
+          }
           const newInstances = applyLayout(
             command.layout,
             this.store.state.instances,
@@ -337,6 +454,8 @@ export class CommandProcessor {
     } catch (error) {
       this.#logger.error('Error processing command:', error);
       const errorObj = toError(error);
+      outcome = err(errorObj);
+      this.#lastBurstError = errorObj;
       this.store.setState((state) => ({
         ...state,
         status: 'error' as const,
@@ -359,17 +478,21 @@ export class CommandProcessor {
     // A thrown command leaves actionResult undefined → the awaiter resolves
     // 'failed' (safe: revert an optimistic transition rather than assume
     // success on a command that never produced a result).
-    const resolve = this.#actionResultResolvers.get(command);
-    if (resolve) {
-      this.#actionResultResolvers.delete(command);
-      resolve(actionResult);
-    }
+    this.#settleActionResult(command, actionResult);
+
+    return outcome;
   }
 
   #dequeueNext(): Command | Command[] | null {
     if (this.#commandQueue.length > 0) {
       return this.#commandQueue.shift() ?? null;
     }
+
+    // Settle before publishing 'idle': a subscriber can synchronously dispatch
+    // from that notification, and the burst it starts resets #lastBurstError.
+    // Waiters on the burst that just drained would then read the reset value
+    // and report a clean run over a refusal.
+    this.#settleIdleWaiters();
 
     this.store.setState((state) => ({
       ...state,
@@ -378,4 +501,47 @@ export class CommandProcessor {
 
     return null;
   }
+
+  #settleIdleWaiters(): void {
+    if (this.#idleResolvers.size === 0) return;
+
+    const result = this.#snapshotBurstResult();
+    const resolvers = [...this.#idleResolvers];
+    this.#idleResolvers.clear();
+    for (const resolve of resolvers) {
+      resolve(result);
+    }
+  }
+
+  #settleActionResult(
+    command: Command,
+    result: BatchExecutionResult | undefined,
+  ): void {
+    const resolve = this.#actionResultResolvers.get(command);
+    if (!resolve) return;
+    this.#actionResultResolvers.delete(command);
+    resolve(result);
+  }
+
+  #snapshotBurstResult(): Result<void, Error> {
+    return this.#lastBurstError ? err(this.#lastBurstError) : ok(undefined);
+  }
+}
+
+/**
+ * Refuses a tiling layout that names the same Instance in two tree slots.
+ *
+ * An Instance is one entry in the store with one Variant and one action
+ * surface, and tiles are keyed by Instance ID, so a repeated leaf describes
+ * something the renderer cannot draw. Weighted split tokens replace the only
+ * reason a producer ever had to repeat a leaf — claiming more space — so the
+ * repeat is a producer bug rather than an intent worth repairing.
+ */
+function assertNoDuplicateTilingLeaf(layout: TilingLayout): void {
+  const duplicate = findFirstDuplicateTilingLeaf(layout.tree);
+  if (duplicate === undefined) return;
+
+  throw new Error(
+    `set_layout rejected: tiling tree ${describeDuplicateTilingLeaf(duplicate)}`,
+  );
 }

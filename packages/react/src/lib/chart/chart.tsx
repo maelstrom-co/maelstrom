@@ -37,6 +37,36 @@ interface RenderEntry {
   readonly exiting?: ResolvedChartMotionConfig;
 }
 
+// A repeated instanceId reaches React as two siblings sharing one key, which
+// reconciliation resolves by dropping or reusing the wrong subtree — vessel
+// state silently attaching to the wrong tile. Encoding the occurrence index
+// into the key turns that into two mounted subtrees rendering the same
+// instance: visibly wrong instead of quietly wrong. An InstanceId is any
+// non-empty string, so a plain separator is not enough — ids `a` and `a#1`
+// would both reach `a#1`. Length-prefixing makes the encoding injective, and
+// every occurrence including the first is encoded so no id can be written two
+// ways.
+//
+// The warning is deliberately not `config.debug`-gated: debug defaults to
+// false, and React's own duplicate-key warning is compiled out of production
+// react-dom, so gating here would leave production with no signal at all.
+function withCollisionKeys<T extends { readonly id: string }>(
+  entries: readonly T[],
+): ReadonlyArray<T & { readonly key: string }> {
+  const seen = new Map<string, number>();
+  return entries.map((entry) => {
+    const seenBefore = seen.get(entry.id) ?? 0;
+    seen.set(entry.id, seenBefore + 1);
+    if (seenBefore > 0) {
+      warnOnce(
+        `chart:duplicate-instance:${entry.id}`,
+        `[Maelstrom] Duplicate instanceId "${entry.id}" in layout; tiles overlap`,
+      );
+    }
+    return { ...entry, key: `${entry.id.length}:${entry.id}:${seenBefore}` };
+  });
+}
+
 // Exit ghost's visual style: absolute-positioned at its last known live rect,
 // non-interactive, and behind live content (zIndex 0 vs. live's 1).
 function exitGhostStyle(rect: MotionRect): CSSProperties {
@@ -289,9 +319,11 @@ export function createChart(
         }}
         data-chart-debug="tiling"
       >
-        {tiles.map((tile) => (
+        {withCollisionKeys(
+          tiles.map((tile) => ({ ...tile, id: tile.instanceId })),
+        ).map((tile) => (
           <div
-            key={tile.instanceId}
+            key={tile.key}
             style={{
               position: 'absolute',
               left: tile.rect.x,
@@ -576,9 +608,9 @@ export function createChart(
           {config.debug && columns > 0 && rows > 0 && (
             <GridDebugOverlay columns={columns} rows={rows} />
           )}
-          {renderEntries.map((entry) => (
+          {withCollisionKeys(renderEntries).map((entry) => (
             <VesselRenderer
-              key={entry.id}
+              key={entry.key}
               instance={entry.instance}
               style={entry.style}
               exiting={entry.exiting}
@@ -645,9 +677,9 @@ export function createChart(
 
       return (
         <div ref={containerRef} className={className} style={containerStyle}>
-          {renderEntries.map((entry) => (
+          {withCollisionKeys(renderEntries).map((entry) => (
             <VesselRenderer
-              key={entry.id}
+              key={entry.key}
               instance={entry.instance}
               style={entry.style}
               exiting={entry.exiting}

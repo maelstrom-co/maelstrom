@@ -1,10 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import type { TranscriptEntry, VoiceSessionState } from '@maelstrom-co/client';
-import { defineVessel, SessionId } from '@maelstrom-co/protocol';
+import {
+  defineVessel,
+  InstanceId,
+  SessionId,
+  VariantName,
+  VesselId,
+} from '@maelstrom-co/protocol';
 import { createMaelstrom, vessel } from '@maelstrom-co/react';
 import type {
   AdapterTurnControl,
   GreetingState,
+  RealtimeInstance,
   RealtimeProviderAdapter,
   TurnModeEvent,
 } from '@maelstrom-co/realtime';
@@ -56,6 +63,7 @@ class FakeRealtimeSession {
   connectCalls = 0;
   disconnectCalls = 0;
   readonly options: {
+    instance: RealtimeInstance;
     greeting?: { text: string; coordinator: unknown };
   };
   readonly #stateHandlers = new Set<(state: VoiceSessionState) => void>();
@@ -65,7 +73,10 @@ class FakeRealtimeSession {
     (state: FakeRealtimeSession['greetingState']) => void
   >();
 
-  constructor(options: { greeting?: { text: string; coordinator: unknown } }) {
+  constructor(options: {
+    instance: RealtimeInstance;
+    greeting?: { text: string; coordinator: unknown };
+  }) {
     this.options = options;
     const coordinator = options.greeting?.coordinator as
       | FakeGreetingCoordinator
@@ -1223,5 +1234,54 @@ describe('maelstromRealtime() greeting option', () => {
     expect(
       must(FakeRealtimeSession.instances[0]).options.greeting,
     ).toBeUndefined();
+  });
+});
+
+// Asserted at the bridge rather than through a tool result: the module mock
+// above replaces RealtimeSession for the whole bun test process, so the
+// tool-call path is covered by realtime-session.test.ts instead.
+describe('maelstromRealtime() instance bridge', () => {
+  it('reports a refused layout through the settle result', async () => {
+    const { m } = setup();
+    const connector = createMockConnector({
+      process: async (message) => ({
+        type: 'maelstrom_response',
+        requestId: message.id,
+        userMessage: 'Here are your labs.',
+        rationale: '',
+        executionPlan: [],
+        layout: {
+          type: 'tiling',
+          tree: ['V', 'ID:dup', 'ID:dup'],
+          instances: [
+            {
+              instanceId: InstanceId('dup'),
+              vesselId: VesselId('use-voice-test-vessel'),
+              variant: VariantName('default'),
+            },
+          ],
+        },
+      }),
+    });
+    function Consumer() {
+      m.useVoice();
+      return null;
+    }
+
+    await act(async () => {
+      render(
+        <m.Provider connector={connector}>
+          <Consumer />
+        </m.Provider>,
+      );
+    });
+    const { instance } = must(FakeRealtimeSession.instances[0]).options;
+
+    await act(async () => {
+      await instance.submitIntent('show labs');
+    });
+    const settled = await instance.waitForIdleResult?.();
+
+    expect(settled).toEqual({ ok: false, error: expect.any(Error) });
   });
 });
