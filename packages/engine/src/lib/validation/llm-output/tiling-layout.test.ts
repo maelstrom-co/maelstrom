@@ -685,6 +685,16 @@ describe('healTilingLayout — weighted splits', () => {
     });
   });
 
+  test('a nested split keeps its own weights, not its parent slot weight', () => {
+    // The inner token is spelled from its children's weights (2 and 1) and the
+    // outer from its own children's (5 and 1). Reading the weight of the slot a
+    // split occupies as one of its children's would rewrite both tokens here.
+    const healed = healTree(['V:5,1', 'H:2,1', 'a', 'b', 'c']);
+    expect(healed.layout.tree).toEqual(tree('V:5,1', 'H:2,1', 'a', 'b', 'c'));
+    expect(healed.droppedEntries).toEqual([]);
+    expect(healed.warnings).toEqual([]);
+  });
+
   test('a split down to one survivor collapses to that survivor', () => {
     const healed = healTree(['V:1,1,1', 'x', 'a', 'y'], ['a']);
     expect(healed.layout.tree).toEqual(tree('a'));
@@ -807,6 +817,28 @@ describe('healTilingLayout — weighted splits', () => {
     expect(healed.warnings).toContainEqual(
       expect.objectContaining({ kind: 'split_weights_repaired' }),
     );
+  });
+
+  test('a truncated inner split re-parents its overflow onto the ancestor', () => {
+    // The inner token declares 13 slots and keeps 12, so the 13th subtree is
+    // not consumed there. It bubbles up to the outer split's open slot instead
+    // of being deleted: 'l12' is the last token, the outer 'H' second child.
+    const ids = Array.from({ length: 13 }, (_, i) => `l${i}`);
+    const declared = Array.from({ length: 13 }, (_, i) => i + 1).join(',');
+
+    const healed = healTree(['H', `V:${declared}`, ...ids], ids);
+
+    expect(healed.layout.tree).toEqual(
+      tree('H', 'V:1,2,3,4,5,6,7,8,9,10,11,12', ...ids.slice(0, 12), 'l12'),
+    );
+    expect(healed.droppedEntries).toEqual([
+      {
+        reason: 'tree_split_truncated',
+        atTokenIndex: 1,
+        declaredChildCount: 13,
+        keptChildCount: 12,
+      },
+    ]);
   });
 
   test('a token declaring twelve children with three following does not overflow', () => {

@@ -49,17 +49,23 @@ export function pruneAst(
       } else if (second === undefined) {
         results.push({ weight: task.weight, tokens: first.tokens });
       } else {
-        results.push({
-          weight: task.weight,
-          tokens: [
-            formatTilingSplitToken(task.axis, [
-              first.weight,
-              second.weight,
-              ...rest.map(({ weight }) => weight),
-            ]),
-            ...survivors.flatMap(({ tokens }) => tokens),
-          ],
-        });
+        let tokenCount = 1;
+        for (const survivor of survivors) tokenCount += survivor.tokens.length;
+
+        // Pre-sized and copied into. Spreading or flat-mapping the surviving
+        // children instead copies every token of the subtree twice over at
+        // every ancestor, which is quadratic down a deep chain of splits.
+        const tokens: TilingNode[] = new Array(tokenCount);
+        tokens[0] = formatTilingSplitToken(task.axis, [
+          first.weight,
+          second.weight,
+          ...rest.map(({ weight }) => weight),
+        ]);
+        let at = 1;
+        for (const survivor of survivors) {
+          at = appendTokens(tokens, at, survivor.tokens);
+        }
+        results.push({ weight: task.weight, tokens });
       }
       continue;
     }
@@ -120,4 +126,24 @@ const ROOT_SLOT_WEIGHT = 1;
 interface PrunedSlot {
   readonly weight: number;
   readonly tokens: TilingNode[];
+}
+
+/**
+ * Copies `source` into `target` from index `at`, and reports the next free
+ * index.
+ *
+ * Deliberately its own function: the same loop written inline in `pruneAst`
+ * runs several times slower, and this is the pruner's hot path — a surviving
+ * subtree is copied once per ancestor above it.
+ */
+function appendTokens(
+  target: TilingNode[],
+  at: number,
+  source: readonly TilingNode[],
+): number {
+  for (let i = 0; i < source.length; i++) {
+    // biome-ignore lint/style/noNonNullAssertion: i is bounded by source.length
+    target[at + i] = source[i]!;
+  }
+  return at + source.length;
 }
