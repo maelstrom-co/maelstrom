@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, spyOn, test } from 'bun:test';
 
 import { InstanceId } from './instance.js';
 import {
@@ -304,6 +304,77 @@ describe('parseTilingSplitToken', () => {
     expect(parsed?.repairReason).toBeNull();
     expect(parsed?.discardedChildCount).toBe(0);
   });
+
+  // The regex reads an all-digit field as a plain integer, but `Number`
+  // overflows a long enough numeral to Infinity. The capping rule has to
+  // survive a weight no double can hold.
+  test('a numeral too large for a double caps rather than reading as one', () => {
+    for (const digits of [400, 5000]) {
+      expect(parseTilingSplitToken(`V:${'9'.repeat(digits)},1`)).toEqual({
+        axis: 'V',
+        weights: [1000, 1],
+        repaired: true,
+        repairReason: 'unreadable',
+        discardedChildCount: 0,
+      });
+    }
+  });
+
+  // A token is model output, so nothing bounds how many fields it spells.
+  // Reading one must not allocate in proportion to what the model wrote.
+  test('an oversized token is counted without materialising its fields', () => {
+    const hostile: `V:${string}` = `V:${'1,'.repeat(500_000)}1`;
+    const split = spyOn(String.prototype, 'split');
+
+    try {
+      const parsed = parseTilingSplitToken(hostile);
+      expect(split).not.toHaveBeenCalled();
+      expect(parsed?.weights).toEqual([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
+      expect(parsed?.discardedChildCount).toBe(499_989);
+      expect(parsed?.repairReason).toBe('truncated');
+    } finally {
+      split.mockRestore();
+    }
+  });
+
+  test('an oversized token still reads the weights it keeps', () => {
+    const parsed = parseTilingSplitToken(`V:3,4${',1'.repeat(2000)}`);
+    expect(parsed?.weights).toEqual([3, 4, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
+    expect(parsed?.discardedChildCount).toBe(1990);
+    expect(parsed?.repairReason).toBe('truncated');
+  });
+
+  // Counting fields and splitting them apart are two spellings of one rule,
+  // so a field that declares nothing has to disappear the same way in both.
+  const oversizedEquivalents: readonly {
+    readonly oversized: `${'H' | 'V'}:${string}`;
+    readonly short: `${'H' | 'V'}:${string}`;
+    readonly why: string;
+  }[] = [
+    {
+      oversized: `V:1,${','.repeat(2000)}2`,
+      short: 'V:1,,2',
+      why: 'empty fields',
+    },
+    {
+      oversized: `V:1,${' '.repeat(2000)},2`,
+      short: 'V:1, ,2',
+      why: 'a blank field',
+    },
+    {
+      oversized: `V:2,1${','.repeat(2000)}`,
+      short: 'V:2,1,',
+      why: 'trailing commas',
+    },
+  ];
+
+  for (const { oversized, short, why } of oversizedEquivalents) {
+    test(`an oversized token drops ${why} as the short spelling does`, () => {
+      expect(parseTilingSplitToken(oversized)).toEqual(
+        parseTilingSplitToken(short),
+      );
+    });
+  }
 
   test('every parsed weight list is a usable arity', () => {
     for (const token of ['V', 'V:', 'V:abc', 'V:0', 'V:-1,-1'] as const) {

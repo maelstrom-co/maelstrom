@@ -217,17 +217,14 @@ export function parseTilingSplitToken(
     };
   }
 
-  const declaredFields = token.slice(2).split(',');
-  const fields = declaredFields.filter((field) => field.trim() !== '');
-  const discardedChildCount = Math.max(0, fields.length - MAX_SPLIT_CHILDREN);
-  let unreadable = fields.length !== declaredFields.length;
+  const { weightFields, discardedChildCount, blankFieldSeen } =
+    readSplitWeightFields(token);
+  let unreadable = blankFieldSeen;
   const weights: number[] = [];
 
-  for (const field of fields.slice(0, MAX_SPLIT_CHILDREN)) {
+  for (const field of weightFields) {
     const declared = Number(field);
-    const weight = Number.isFinite(declared)
-      ? Math.min(MAX_SPLIT_WEIGHT, Math.max(1, Math.round(declared)))
-      : 1;
+    const weight = clampSplitWeight(field, declared);
     if (!CANONICAL_WEIGHT_FIELD.test(field) || weight !== declared) {
       unreadable = true;
     }
@@ -263,6 +260,11 @@ export function parseTilingSplitToken(
  * than that is not a split: `[1]` would render `"V:1"`, which parses back as
  * an even two-way split and reports itself repaired, breaking the round trip
  * this function exists to preserve.
+ *
+ * @throws {RangeError} If `weights` breaks the invariant
+ *   {@link assertValidSplitWeights} enforces: fewer than 2 or more than
+ *   `MAX_SPLIT_CHILDREN` entries, or an entry that is not an integer from 1
+ *   to `MAX_SPLIT_WEIGHT`.
  */
 export function formatTilingSplitToken(
   axis: TilingSplit,
@@ -436,6 +438,81 @@ function pickSplitRepairReason(repairs: {
   if (repairs.unreadable) return 'unreadable';
   return repairs.padded ? 'padded' : null;
 }
+
+// A token's field count is model output, so nothing bounds it: a hostile
+// suffix can spell hundreds of thousands of fields, of which only the first
+// MAX_SPLIT_CHILDREN and a count of the rest ever reach the result. Splitting
+// the suffix apart is the cheaper read at any plausible length, so short
+// tokens take it and longer ones are walked comma by comma, allocating
+// nothing per discarded field.
+function readSplitWeightFields(token: TilingSplitToken): {
+  weightFields: readonly string[];
+  discardedChildCount: number;
+  blankFieldSeen: boolean;
+} {
+  if (token.length <= MAX_EAGERLY_SPLIT_TOKEN_LENGTH) {
+    const declaredFields = token.slice(2).split(',');
+    const fields = declaredFields.filter((field) => field.trim() !== '');
+    return {
+      weightFields: fields.slice(0, MAX_SPLIT_CHILDREN),
+      discardedChildCount: Math.max(0, fields.length - MAX_SPLIT_CHILDREN),
+      blankFieldSeen: fields.length !== declaredFields.length,
+    };
+  }
+
+  const weightFields: string[] = [];
+  let fieldCount = 0;
+  let blankFieldSeen = false;
+
+  for (let start = 2; start <= token.length; ) {
+    const comma = token.indexOf(',', start);
+    const end = comma === -1 ? token.length : comma;
+    if (isBlankRange(token, start, end)) {
+      blankFieldSeen = true;
+    } else {
+      fieldCount += 1;
+      if (weightFields.length < MAX_SPLIT_CHILDREN) {
+        weightFields.push(token.slice(start, end));
+      }
+    }
+    start = end + 1;
+  }
+
+  return {
+    weightFields,
+    discardedChildCount: Math.max(0, fieldCount - MAX_SPLIT_CHILDREN),
+    blankFieldSeen,
+  };
+}
+
+function clampSplitWeight(field: string, declared: number): number {
+  if (Number.isFinite(declared)) {
+    return Math.min(MAX_SPLIT_WEIGHT, Math.max(1, Math.round(declared)));
+  }
+  // A numeral the grammar reads but a double cannot hold overflows to
+  // Infinity. That is an above-range weight, so it caps like any other rather
+  // than falling to the substitute an unreadable field gets.
+  return CANONICAL_WEIGHT_FIELD.test(field) ? MAX_SPLIT_WEIGHT : 1;
+}
+
+// Sticky, so a field is measured where it sits: `field.trim() === ''` would
+// mean extracting the substring the counting walk exists to avoid. `\s` is
+// specified as the set `String.prototype.trim` strips, so the two agree.
+function isBlankRange(text: string, start: number, end: number): boolean {
+  BLANK_RUN.lastIndex = start;
+  BLANK_RUN.exec(text);
+  return BLANK_RUN.lastIndex >= end;
+}
+
+const BLANK_RUN = /\s*/y;
+
+/**
+ * Longest token whose fields are cheaper to split apart than to walk.
+ *
+ * A well-formed token runs to about sixty characters, so anything past this
+ * is malformed already and its field count is unbounded model output.
+ */
+const MAX_EAGERLY_SPLIT_TOKEN_LENGTH = 1024;
 
 const EVEN_BINARY_WEIGHTS: readonly [number, number] = Object.freeze([1, 1]);
 
