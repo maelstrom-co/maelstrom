@@ -127,6 +127,7 @@
         "@effect/platform-bun": "catalog:",
         "@effect/platform-node": "catalog:",
         "@maelstrom-co/client": "workspace:*",
+        "@maelstrom-co/connectors": "workspace:*",
         "@maelstrom-co/platform-infra": "workspace:*",
         "@maelstrom-co/protocol": "workspace:*",
         "@maelstrom-co/react": "workspace:*",
