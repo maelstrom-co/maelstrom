@@ -3,6 +3,10 @@ const WORKER_NAME_PATTERN =
 const WORKERS_DEV_SUFFIX_PATTERN =
   /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.workers\.dev$/;
 
+/** Checks a complete account-specific workers.dev suffix without trailing characters. */
+export const isWorkersDevSuffix = (value: string): boolean =>
+  WORKERS_DEV_SUFFIX_PATTERN.exec(value)?.[0] === value;
+
 /**
  * Validates a state-derived preview URL against one exact Worker identity and
  * the trusted preview account's workers.dev suffix.
@@ -15,7 +19,7 @@ export const validatePreviewWorkerUrl = (
   if (!WORKER_NAME_PATTERN.test(expectedWorkerName)) {
     throw new Error('Expected preview Worker name is invalid');
   }
-  if (!WORKERS_DEV_SUFFIX_PATTERN.test(workersDevSuffix)) {
+  if (!isWorkersDevSuffix(workersDevSuffix)) {
     throw new Error('Preview workers.dev suffix is missing or invalid');
   }
 
