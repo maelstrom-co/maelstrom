@@ -308,7 +308,10 @@ Next:
 
 1. Convert `www` to `Cloudflare.Website.Astro` in a separate deployment.
 2. Convert `demo` to `Cloudflare.Website.Vite` in a separate deployment.
-3. Convert `SessionDO` to the Effect-native implementation separately.
+3. ~~Convert `SessionDO` to the Effect-native implementation separately~~
+   Done: `SessionDO` now composes Effect services/layers
+   (`apps/demo/src/worker/session/`), with its hibernation contract verified
+   by the deployed `verify:hibernation` gate.
 
 Do not combine stack ownership transfer with a framework or Durable Object
 runtime migration.

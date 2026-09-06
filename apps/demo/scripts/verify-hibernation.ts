@@ -138,6 +138,13 @@ if (!host) {
     'missing <host> (e.g. maelstrom-playground-spike.<account>.workers.dev)',
   );
 }
+// Accept the host in whatever shape it was copied as — a full preview URL
+// with scheme, or with a trailing slash — rather than failing later with a
+// malformed `wss://https://…//ws` connect that reads as a dead deployment.
+const normalizedHost = host.replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+if (normalizedHost !== host) {
+  console.log(`normalizing host to ${normalizedHost}`);
+}
 
 const idleMinutesArg = process.argv[3];
 const idleMinutes =
@@ -173,8 +180,8 @@ const frames: string[] = [];
 let rehelloAt = 0;
 let replyAt = 0;
 
-console.log(`connecting to wss://${host}/ws?session=${session} ...`);
-const ws = new WebSocket(`wss://${host}/ws?session=${session}`);
+console.log(`connecting to wss://${normalizedHost}/ws?session=${session} ...`);
+const ws = new WebSocket(`wss://${normalizedHost}/ws?session=${session}`);
 
 // True only once the run has reached its own deliberate verdict (including
 // the `ws.close()` that produces it). Until then, any close or error is a
