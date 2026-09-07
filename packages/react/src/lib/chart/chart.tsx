@@ -413,7 +413,11 @@ export function createChart(
         const entry = entries[0];
         if (!entry) return;
         const { width, height } = entry.contentRect;
-        setContainerRect({ x: 0, y: 0, width, height });
+        setContainerRect((prev) =>
+          prev.width === width && prev.height === height
+            ? prev
+            : { x: 0, y: 0, width, height },
+        );
         const columns = Math.floor(width / config.cellSizePx);
         const rows = Math.floor(height / config.cellSizePx);
         orchestrator.chartManager.setDimensions({ columns, rows });
@@ -431,18 +435,20 @@ export function createChart(
       return computeTilingLayout(tree, containerRect, config.tilingPaddingPx);
     }, [layout, containerRect, config.tilingPaddingPx]);
 
-    // The logical layout (layoutKey) and the container pixel size (sizeKey)
-    // are kept as separate keys: useChartMotion animates only on layoutKey
-    // changes and silently re-measures on size-only changes, while exit
-    // tracking must re-snapshot on both — so it receives the combined
-    // signature. Note tiling's layoutKey is built from computed pixel rects,
-    // so a container resize changes it there by construction. Grid track
-    // counts are folded in too: a cellSizePx change can alter columns/rows
-    // with the container's own pixel size unchanged, which remaps every grid
-    // position to a new pixel rect without touching layoutKey (grid units)
-    // or the width/height above — omitting them would leave the next FLIP
-    // animating from a stale pre-resize baseline.
-    const sizeKey = `${Math.round(containerRect.width)}x${Math.round(containerRect.height)}:${chartDimensions.columns}x${chartDimensions.rows}`;
+    // layoutKey and sizeKey are separate params because they drive different
+    // responses: useChartMotion animates on a layoutKey change and silently
+    // re-measures on a sizeKey change, while exit tracking must re-snapshot on
+    // either and so receives the combined signature. layoutKey must therefore
+    // stay structural in both modes — grid cell units, tiling tree tokens. A
+    // pixel-derived layoutKey turns every ResizeObserver tick into a layout
+    // change, and because FLIP measures through the in-flight transform, each
+    // tick's scale then compounds the previous one's.
+    //
+    // Grid track counts and tiling padding sit in sizeKey rather than
+    // layoutKey: both remap every rect to new pixels while leaving every
+    // logical unit and tree token alone, so omitting them would leave the next
+    // FLIP animating from a stale pre-resize baseline.
+    const sizeKey = `${Math.round(containerRect.width)}x${Math.round(containerRect.height)}:${chartDimensions.columns}x${chartDimensions.rows}:${config.tilingPaddingPx}`;
 
     const layoutKey = useMemo(() => {
       if (!layout || layout.type === 'grid') {
@@ -456,17 +462,10 @@ export function createChart(
         return `grid:${key}`;
       }
       if (layout.type === 'tiling') {
-        const tiles = tilingComputed ?? [];
-        const key = tiles
-          .map(
-            (t) =>
-              `${t.instanceId}:${t.rect.x}:${t.rect.y}:${t.rect.width}:${t.rect.height}`,
-          )
-          .join('|');
-        return `tiling:${key}`;
+        return `tiling:${layout.tree.join('|')}`;
       }
       return 'unknown';
-    }, [layout, tilingComputed]);
+    }, [layout]);
 
     const layoutSignature = `${layoutKey}@${sizeKey}`;
 
