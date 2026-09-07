@@ -863,6 +863,54 @@ describe('m.Chart — motion', () => {
     });
   }
 
+  // The block-level rect stub above is grid-only, so every tiling wrapper
+  // measures as a zero rect under it and computeFlipDelta's zero-size guard
+  // discards the animation before it is ever recorded — a tiling motion
+  // assertion written against that stub cannot fail. This override reads the
+  // absolute-position inline styles the tiling branch writes instead, and is
+  // installed per test rather than widened into the block stub because the
+  // enter-keyframe test depends on tiling rects measuring as zero.
+  function installTilingRectStub(): () => void {
+    const baseRect = window.Element.prototype.getBoundingClientRect;
+    window.Element.prototype.getBoundingClientRect = function (this: Element) {
+      const px = (value: string) => Number.parseFloat(value) || 0;
+      const style = (this as HTMLElement).style;
+      const r =
+        this.hasAttribute('data-instance-id') && style.position === 'absolute'
+          ? {
+              x: px(style.left),
+              y: px(style.top),
+              width: px(style.width),
+              height: px(style.height),
+            }
+          : { x: 0, y: 0, width: 0, height: 0 };
+      return {
+        x: r.x,
+        y: r.y,
+        width: r.width,
+        height: r.height,
+        top: r.y,
+        left: r.x,
+        right: r.x + r.width,
+        bottom: r.y + r.height,
+        toJSON() {
+          return {};
+        },
+      } as DOMRect;
+    } as never;
+    return () => {
+      window.Element.prototype.getBoundingClientRect = baseRect;
+    };
+  }
+
+  function tilingInstances(ids: string[]) {
+    return ids.map((id) => ({
+      instanceId: InstanceId(id),
+      vesselId: VesselId('orders'),
+      variant: VariantName('list'),
+    }));
+  }
+
   it('(a) layout change triggers FLIP animate calls on moved instance wrappers', async () => {
     const entry = vessel(testVessel, () => <div>content</div>);
     const m = createMaelstrom({ vessels: [entry] });
@@ -1104,6 +1152,117 @@ describe('m.Chart — motion', () => {
       expect(aCalls[0]!.keyframes[0]!.transform).not.toContain('scale(0.5');
     } finally {
       window.Element.prototype.getBoundingClientRect = baseRect;
+    }
+  });
+
+  it('a container resize alone animates nothing in tiling mode', async () => {
+    const restoreRect = installTilingRectStub();
+    try {
+      const entry = vessel(testVessel, () => <div>content</div>);
+      const m = createMaelstrom({ vessels: [entry] });
+      // connectorSeq clamps to its last entry, so every intent returns this
+      // same tree: across the whole test the container size is the only input
+      // that ever changes.
+      const connector = connectorSeq([
+        {
+          type: 'tiling',
+          tree: ['V', 'ID:a', 'ID:b'],
+          instances: tilingInstances(['a', 'b']),
+        },
+      ]);
+
+      let processIntent: ((intent: string) => Promise<void>) | undefined;
+      function Reader() {
+        processIntent = m.useMaelstrom().processIntent;
+        return null;
+      }
+
+      await act(async () => {
+        render(
+          <m.Provider connector={connector}>
+            <m.Chart />
+            <Reader />
+          </m.Provider>,
+        );
+      });
+
+      await act(async () => {
+        triggerResize(800, 600);
+      });
+      await act(async () => {
+        await processIntent!('layout');
+      });
+
+      animateCalls = [];
+      await act(async () => {
+        triggerResize(1000, 600);
+      });
+      await act(async () => {
+        triggerResize(1200, 600);
+      });
+      await act(async () => {
+        triggerResize(1400, 600);
+      });
+
+      expect(animateCalls).toHaveLength(0);
+    } finally {
+      restoreRect();
+    }
+  });
+
+  it('a tiling tree change still FLIPs the instances it moves', async () => {
+    const restoreRect = installTilingRectStub();
+    try {
+      const entry = vessel(testVessel, () => <div>content</div>);
+      const m = createMaelstrom({ vessels: [entry] });
+      const connector = connectorSeq([
+        {
+          type: 'tiling',
+          tree: ['V', 'ID:a', 'ID:b'],
+          instances: tilingInstances(['a', 'b']),
+        },
+        {
+          type: 'tiling',
+          tree: ['H', 'ID:a', 'ID:b'],
+          instances: tilingInstances(['a', 'b']),
+        },
+      ]);
+
+      let processIntent: ((intent: string) => Promise<void>) | undefined;
+      function Reader() {
+        processIntent = m.useMaelstrom().processIntent;
+        return null;
+      }
+
+      await act(async () => {
+        render(
+          <m.Provider connector={connector}>
+            <m.Chart />
+            <Reader />
+          </m.Provider>,
+        );
+      });
+
+      await act(async () => {
+        triggerResize(800, 600);
+      });
+      await act(async () => {
+        await processIntent!('layout1');
+      });
+
+      animateCalls = [];
+      await act(async () => {
+        await processIntent!('layout2');
+      });
+
+      const bCalls = animateCalls.filter((c) => c.id === 'b');
+      expect(bCalls.length).toBeGreaterThan(0);
+      const frame = bCalls[0]!.keyframes[0]!;
+      expect(frame.transformOrigin).toBe('top left');
+      expect(String(frame.transform)).toContain('translate');
+      expect(frame.opacity).toBeUndefined();
+    } finally {
+      restoreRect();
     }
   });
 
