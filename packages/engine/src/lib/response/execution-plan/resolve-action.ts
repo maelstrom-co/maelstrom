@@ -12,6 +12,7 @@ import { err, ok } from '@maelstrom-co/protocol';
 
 import { assertNever } from '../../assert-never.js';
 import type { Logger } from '../../logger.js';
+import type { ExecutionPolicy } from './policy.js';
 import type { SimulationState, ValidationLookups } from './state.js';
 import type { RawActionExecution, SkippedAction } from './types.js';
 
@@ -42,6 +43,10 @@ export type ResolveFailure =
       readonly kind: 'self_transition_noop';
       readonly vesselId: VesselId;
       readonly currentVariant: VariantName;
+    }
+  | {
+      readonly kind: 'non_transition_on_resize';
+      readonly vesselId: VesselId;
     };
 
 // Compile-time witness: every `ResolveFailure.kind` must also be a
@@ -58,6 +63,7 @@ export type _KindsCoverReasons = _AssertTrue<
 export function resolveAction(
   item: RawActionExecution,
   lookups: ValidationLookups,
+  policy: ExecutionPolicy,
   sim: SimulationState,
 ): Result<ResolvedAction, ResolveFailure> {
   const instance = lookups.instanceMap.get(item.instanceId);
@@ -99,6 +105,23 @@ export function resolveAction(
       vesselId: instance.vesselId,
       variant: currentVariant,
       validActions,
+    });
+  }
+
+  // The Engine never sees Vessel contents, so on a turn triggered by nothing
+  // but a resize it cannot tell a first content mutation apart from one it
+  // already ran on an earlier turn, and re-running the action would duplicate
+  // its effect. Variant transitions stay allowed — reshaping a Vessel is the
+  // point of a resize — as do instances this same response introduced, whose
+  // configuring action has no earlier turn to have run on.
+  if (
+    policy.resizeOnly &&
+    actionDef.transitionsTo === undefined &&
+    policy.preExisting.has(item.instanceId)
+  ) {
+    return err({
+      kind: 'non_transition_on_resize',
+      vesselId: instance.vesselId,
     });
   }
 
@@ -199,6 +222,14 @@ export function logResolveFailure(
         `Action "${item.action}" on instance "${item.instanceId}" is a no-op transition — vessel "${failure.vesselId}" is already in variant "${failure.currentVariant}", skipping`,
       );
       return;
+    case 'non_transition_on_resize':
+      // Same severity tier as the other LLM-sourced skips; the message names
+      // the resize trigger so on-call doesn't read it as a broken action
+      // definition.
+      logger.warn(
+        `Action "${item.action}" on instance "${item.instanceId}" of vessel "${failure.vesselId}" is not a Variant transition and this update was triggered by chart resize alone, skipping`,
+      );
+      return;
     default:
       assertNever(failure, 'Unhandled ResolveFailure kind');
   }
@@ -241,6 +272,12 @@ export function resolveFailureToSkipped(
         reason: 'self_transition_noop',
         vesselId: failure.vesselId,
         currentVariant: failure.currentVariant,
+      };
+    case 'non_transition_on_resize':
+      return {
+        ...base,
+        reason: 'non_transition_on_resize',
+        vesselId: failure.vesselId,
       };
     default:
       assertNever(failure, 'Unhandled ResolveFailure kind');

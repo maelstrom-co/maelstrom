@@ -1188,6 +1188,15 @@ describe('buildRetryPrompt', () => {
       },
       'Action "showWeek" on instance "cal-main" is already a no-op — instance "cal-main" is already in variant "week". Omit this specific (instance, action) pair from your next response. Other instances may still legitimately call "showWeek".',
     ],
+    [
+      {
+        reason: 'non_transition_on_resize' as const,
+        instanceId: InstanceId('tasks-main'),
+        action: ActionName('addTask'),
+        vesselId: VesselId('task-list'),
+      },
+      'Action "addTask" on instance "tasks-main" was refused: this update was triggered by a chart resize alone, so an existing instance accepts only Variant transitions. Omit this specific (instance, action) pair from your next response.',
+    ],
   ] satisfies Array<
     [SkippedAction, string]
   >)('formats SkippedAction %p', (skipped, expected) => {

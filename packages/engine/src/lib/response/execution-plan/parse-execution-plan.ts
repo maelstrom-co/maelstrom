@@ -8,6 +8,7 @@ import { isErr } from '@maelstrom-co/protocol';
 import type { ActionParameterEnumSnapshot } from '../../action-parameter-enum.js';
 import type { Logger } from '../../logger.js';
 import { parseParams } from './parse-params.js';
+import type { ExecutionPolicy } from './policy.js';
 import {
   logResolveFailure,
   resolveAction,
@@ -31,13 +32,14 @@ import {
 function parseSingleAction(
   item: RawActionExecution,
   lookups: ValidationLookups,
+  policy: ExecutionPolicy,
   simReader: SimulationState,
   simWriter: SimulationStateWriter,
   skippedActions: SkippedAction[],
   enumSnapshot: ActionParameterEnumSnapshot,
   logger: Logger,
 ): ActionExecution[] {
-  const resolution = resolveAction(item, lookups, simReader);
+  const resolution = resolveAction(item, lookups, policy, simReader);
   if (isErr(resolution)) {
     logResolveFailure(item, resolution.error, logger);
     skippedActions.push(resolveFailureToSkipped(item, resolution.error));
@@ -134,6 +136,7 @@ export function parseExecutionPlan(
   vessels: readonly Vessel[],
   enumSnapshot: ActionParameterEnumSnapshot,
   logger: Logger,
+  policy: ExecutionPolicy,
 ): ParsedExecutionPlan {
   const lookups: ValidationLookups = {
     instanceMap: new Map(instances.map((i) => [i.instanceId, i])),
@@ -152,6 +155,7 @@ export function parseExecutionPlan(
     parseSingleAction(
       item,
       lookups,
+      policy,
       simReader,
       simWriter,
       skippedActions,

@@ -2799,4 +2799,157 @@ describe('processResponse', () => {
       expect(result.value.diagnostics.retryHint.severity).toBe('unrecoverable');
     });
   });
+
+  // Chart resizes are the one trigger that arrives without any user or vessel
+  // signal, so the serialized state the LLM sees is identical to the state
+  // before an action it already ran. The Engine refuses content mutations on
+  // such a turn rather than replaying them.
+  describe('resize-only update reasons', () => {
+    const journalVessel: AuthorVessel = {
+      id: 'journal',
+      name: 'Journal',
+      description: 'Captures journal entries',
+      defaultVariant: 'compose',
+      variants: {
+        compose: {
+          props: {},
+          minSize: { width: 2, height: 2 },
+          actions: [
+            {
+              name: 'createEntry',
+              description: 'Create a new journal entry',
+              parameters: [
+                { name: 'title', type: 'string', description: 'Entry title' },
+              ],
+            },
+            {
+              name: 'showRead',
+              description: 'Switch to reading',
+              transitionsTo: 'read',
+            },
+          ],
+        },
+        read: {
+          props: {},
+          minSize: { width: 1, height: 1 },
+          actions: [],
+        },
+      },
+    };
+
+    const existingInstance: AuthorInstanceSnapshot = {
+      instanceId: 'journal-existing',
+      vesselId: 'journal',
+      variant: 'compose',
+    };
+
+    const resizeRequest = (): ChartRequest =>
+      makeTilingRequest({
+        context: {
+          updateReasons: [
+            {
+              type: 'chart_resize',
+              previous: { columns: 12, rows: 8 },
+              current: { columns: 6, rows: 8 },
+            },
+          ],
+          chartDimensions: { columns: 6, rows: 8 },
+          layoutMode: 'tiling',
+        },
+        instances: [existingInstance],
+        vessels: [journalVessel],
+        layout: {
+          type: 'tiling',
+          tree: ['journal-existing'],
+          instances: [existingInstance],
+        },
+      });
+
+    test('refuses the replay on an existing instance but keeps it for one introduced by the same response', () => {
+      // `mergeTilingInstances` puts both instances in front of the resolver;
+      // only the one carried by the request counts as pre-existing.
+      const llmOutput: TilingResponseAuthor = {
+        userMessage: 'Reflowed for the narrower chart',
+        rationale: 'Resize with a re-emitted entry plus a fresh journal',
+        executionPlan: [
+          {
+            instanceId: 'journal-existing',
+            action: 'createEntry',
+            paramsJson: '{"title":"Today"}',
+          },
+          {
+            instanceId: 'journal-new',
+            action: 'createEntry',
+            paramsJson: '{"title":"Scratch"}',
+          },
+        ],
+        layout: {
+          tree: ['H', 'journal-existing', 'journal-new'],
+          instances: [
+            existingInstance,
+            {
+              instanceId: 'journal-new',
+              vesselId: 'journal',
+              variant: 'compose',
+            },
+          ],
+        },
+      };
+
+      const result = processResponse({
+        llmOutput,
+        request: resizeRequest(),
+        messageId: MessageId('req-1'),
+        logger: silentLogger,
+      });
+      expect(isOk(result)).toBe(true);
+      if (!isOk(result)) return;
+
+      expect(result.value.executionPlan).toEqual([
+        {
+          instanceId: InstanceId('journal-new'),
+          action: ActionName('createEntry'),
+          params: { title: 'Scratch' },
+        },
+      ]);
+      expect(result.value.diagnostics.skippedActions).toEqual([
+        buildSkippedAction({
+          reason: 'non_transition_on_resize',
+          instanceId: 'journal-existing',
+          action: 'createEntry',
+          vesselId: 'journal',
+        }),
+      ]);
+      expect(result.value.diagnostics.retryHint.recommend).toBe(false);
+    });
+
+    test('keeps a Variant transition on an existing instance', () => {
+      const llmOutput: TilingResponseAuthor = {
+        userMessage: 'Switched the journal to reading',
+        rationale: 'Narrower chart suits the read variant',
+        executionPlan: [{ instanceId: 'journal-existing', action: 'showRead' }],
+        layout: {
+          tree: ['journal-existing'],
+          instances: [existingInstance],
+        },
+      };
+
+      const result = processResponse({
+        llmOutput,
+        request: resizeRequest(),
+        messageId: MessageId('req-1'),
+        logger: silentLogger,
+      });
+      expect(isOk(result)).toBe(true);
+      if (!isOk(result)) return;
+
+      expect(result.value.diagnostics.skippedActions).toEqual([]);
+      expect(result.value.executionPlan).toEqual([
+        {
+          instanceId: InstanceId('journal-existing'),
+          action: ActionName('showRead'),
+        },
+      ]);
+    });
+  });
 });

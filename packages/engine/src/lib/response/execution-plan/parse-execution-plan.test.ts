@@ -1,17 +1,30 @@
 import { describe, expect, test } from 'bun:test';
 import {
   ActionName,
+  type ChartRequest,
   InstanceId,
+  type UpdateReason,
   VariantName,
   type Vessel,
   type VesselAction,
   VesselId,
   type VesselInstanceSnapshot,
 } from '@maelstrom-co/protocol';
-import { makeVessel, silentLogger } from '../../__test-helpers__/fixtures.js';
+import {
+  makeGridRequest,
+  makeVessel,
+  silentLogger,
+} from '../../__test-helpers__/fixtures.js';
 import { buildActionParameterEnumSnapshot } from '../../action-parameter-enum.js';
+import { deriveRetryHint } from '../../validation/llm-output/retry-hint.js';
 import { parseExecutionPlan } from './parse-execution-plan.js';
+import { createExecutionPolicy } from './policy.js';
 import type { RawActionExecution } from './types.js';
+
+// Suites below this line are about action resolution, not update-reason
+// policy. The default request fixture carries a single `user_intent` reason,
+// so the resize guard stays inert for all of them.
+const userIntentPolicy = createExecutionPolicy(makeGridRequest());
 
 // Two-action plan whose validity depends on the writer mutating between
 // iterations: action #2's `expand` is only valid on variant `expanded`,
@@ -76,6 +89,7 @@ describe('parseExecutionPlan — sequential simulation hand-off', () => {
       [panelVessel],
       buildActionParameterEnumSnapshot([panelVessel]),
       silentLogger,
+      userIntentPolicy,
     );
 
     // Both actions accepted: the second resolves against the variant the
@@ -104,6 +118,7 @@ describe('parseExecutionPlan — sequential simulation hand-off', () => {
       [panelVessel],
       buildActionParameterEnumSnapshot([panelVessel]),
       silentLogger,
+      userIntentPolicy,
     );
 
     expect(result).toHaveLength(1);
@@ -195,6 +210,7 @@ describe('parseExecutionPlan — self-transition no-op classification', () => {
       [calendarVessel],
       buildActionParameterEnumSnapshot([calendarVessel]),
       silentLogger,
+      userIntentPolicy,
     );
 
     expect(result).toHaveLength(0);
@@ -221,6 +237,7 @@ describe('parseExecutionPlan — self-transition no-op classification', () => {
       [calendarVessel],
       buildActionParameterEnumSnapshot([calendarVessel]),
       silentLogger,
+      userIntentPolicy,
     );
 
     expect(result).toHaveLength(0);
@@ -300,6 +317,7 @@ describe('parseExecutionPlan — self-transition no-op classification', () => {
       [ambiguousVessel],
       buildActionParameterEnumSnapshot([ambiguousVessel]),
       silentLogger,
+      userIntentPolicy,
     );
 
     expect(result).toHaveLength(0);
@@ -370,6 +388,7 @@ describe('parseExecutionPlan — self-transition no-op classification', () => {
       [customVessel],
       buildActionParameterEnumSnapshot([customVessel]),
       silentLogger,
+      userIntentPolicy,
     );
 
     expect(result).toHaveLength(0);
@@ -524,6 +543,7 @@ describe('parseExecutionPlan — action parameter validation', () => {
       [vessel],
       buildActionParameterEnumSnapshot([vessel]),
       silentLogger,
+      userIntentPolicy,
     );
 
   test('accepts params matching every supported type and enum', () => {
@@ -802,6 +822,7 @@ describe('parseExecutionPlan — action parameter validation', () => {
       [duplicateVessel],
       buildActionParameterEnumSnapshot([]),
       silentLogger,
+      userIntentPolicy,
     );
 
     expect(result.plan).toEqual([]);
@@ -875,6 +896,7 @@ describe('parseExecutionPlan — parameter work budgets', () => {
       [vessel],
       enumSnapshot,
       silentLogger,
+      userIntentPolicy,
     );
 
   test('accepts paramsJson at 16384 UTF-8 bytes and rejects 16385', () => {
@@ -1081,5 +1103,211 @@ describe('parseExecutionPlan — parameter work budgets', () => {
       'params_limits_exceeded',
       'action_not_valid',
     ]);
+  });
+});
+
+describe('parseExecutionPlan — resize-only policy guard', () => {
+  const taskListVesselId = VesselId('task-list');
+  const list = VariantName('list');
+  const compact = VariantName('compact');
+  const addTask = ActionName('addTask');
+  const goCompact = ActionName('goCompact');
+  const goList = ActionName('goList');
+  const existingInstanceId = InstanceId('task-list-1');
+  const introducedInstanceId = InstanceId('task-list-2');
+
+  const taskListVessel = makeVessel({
+    id: taskListVesselId,
+    name: 'Task list',
+    description: 'Task list whose contents the Engine cannot observe',
+    defaultVariant: list,
+    variants: {
+      [list]: {
+        description: 'Full list',
+        props: {},
+        minSize: { width: 2, height: 2 },
+        actions: [
+          {
+            name: addTask,
+            description: 'Append a task',
+            parameters: [
+              { name: 'title', type: 'string', description: 'Task title' },
+            ],
+          },
+          {
+            name: goCompact,
+            description: 'Switch to compact',
+            transitionsTo: compact,
+          },
+        ],
+      },
+      [compact]: {
+        description: 'Compact list',
+        props: {},
+        minSize: { width: 1, height: 1 },
+        actions: [
+          { name: goList, description: 'Switch to full', transitionsTo: list },
+        ],
+      },
+    },
+  });
+
+  const existingInstance: VesselInstanceSnapshot = {
+    instanceId: existingInstanceId,
+    vesselId: taskListVesselId,
+    variant: list,
+  };
+  const introducedInstance: VesselInstanceSnapshot = {
+    instanceId: introducedInstanceId,
+    vesselId: taskListVesselId,
+    variant: list,
+  };
+
+  const resizeReason: UpdateReason = {
+    type: 'chart_resize',
+    previous: { columns: 12, rows: 8 },
+    current: { columns: 6, rows: 8 },
+  };
+  const intentReason: UpdateReason = {
+    type: 'user_intent',
+    intent: 'Add "Buy milk" to my list',
+  };
+
+  const requestWith = (
+    updateReasons: readonly UpdateReason[],
+  ): ChartRequest => ({
+    type: 'chart_request',
+    context: {
+      updateReasons,
+      chartDimensions: { columns: 12, rows: 8 },
+      layoutMode: 'grid',
+    },
+    instances: [existingInstance],
+    vessels: [taskListVessel],
+    layout: { type: 'grid', positions: [] },
+  });
+
+  const parseWith = (
+    request: ChartRequest,
+    plan: readonly RawActionExecution[],
+    planInstances: readonly VesselInstanceSnapshot[] = request.instances,
+  ) =>
+    parseExecutionPlan(
+      plan,
+      planInstances,
+      [taskListVessel],
+      buildActionParameterEnumSnapshot([taskListVessel]),
+      silentLogger,
+      createExecutionPolicy(request),
+    );
+
+  const addBuyMilk = (instanceId: InstanceId): RawActionExecution => ({
+    instanceId,
+    action: addTask,
+    paramsJson: JSON.stringify({ title: 'Buy milk' }),
+  });
+
+  test('refuses a non-transition action on a pre-existing instance when the only reason is a resize', () => {
+    const { plan, skippedActions } = parseWith(requestWith([resizeReason]), [
+      addBuyMilk(existingInstanceId),
+    ]);
+
+    expect(plan).toEqual([]);
+    expect(skippedActions).toEqual([
+      {
+        reason: 'non_transition_on_resize',
+        instanceId: existingInstanceId,
+        action: addTask,
+        vesselId: taskListVesselId,
+      },
+    ]);
+  });
+
+  test('the same action survives when the reason is a user intent', () => {
+    const { plan, skippedActions } = parseWith(requestWith([intentReason]), [
+      addBuyMilk(existingInstanceId),
+    ]);
+
+    expect(skippedActions).toEqual([]);
+    expect(plan).toHaveLength(1);
+    expect(plan[0]).toEqual({
+      instanceId: existingInstanceId,
+      action: addTask,
+      params: { title: 'Buy milk' },
+    });
+  });
+
+  test('a Variant transition survives a resize-only turn', () => {
+    // Reshaping a Vessel is exactly what a resize should be able to do.
+    const { plan, skippedActions } = parseWith(requestWith([resizeReason]), [
+      { instanceId: existingInstanceId, action: goCompact },
+    ]);
+
+    expect(skippedActions).toEqual([]);
+    expect(plan).toHaveLength(1);
+    expect(plan[0]).toEqual({
+      instanceId: existingInstanceId,
+      action: goCompact,
+    });
+  });
+
+  test('an instance introduced by this response is exempt', () => {
+    // The instance reaches the resolver through the merged plan instances but
+    // is absent from the request, so its configuring action is a first write,
+    // not a replay.
+    const { plan, skippedActions } = parseWith(
+      requestWith([resizeReason]),
+      [addBuyMilk(introducedInstanceId)],
+      [existingInstance, introducedInstance],
+    );
+
+    expect(skippedActions).toEqual([]);
+    expect(plan).toHaveLength(1);
+    expect(plan[0]).toEqual({
+      instanceId: introducedInstanceId,
+      action: addTask,
+      params: { title: 'Buy milk' },
+    });
+  });
+
+  test('a batch mixing a resize with a user intent is not guarded', () => {
+    // The client coalesces reasons, so a resize arriving alongside an intent
+    // is a legitimate turn for content mutation.
+    const { plan, skippedActions } = parseWith(
+      requestWith([resizeReason, intentReason]),
+      [addBuyMilk(existingInstanceId)],
+    );
+
+    expect(skippedActions).toEqual([]);
+    expect(plan).toHaveLength(1);
+  });
+
+  test('an empty reason list is not treated as resize-only', () => {
+    const { plan, skippedActions } = parseWith(requestWith([]), [
+      addBuyMilk(existingInstanceId),
+    ]);
+
+    expect(skippedActions).toEqual([]);
+    expect(plan).toHaveLength(1);
+  });
+
+  test('the refusal does not recommend a retry', () => {
+    // A policy refusal is not re-promptable: the retry would show the LLM the
+    // same chart state and reach the same refusal at double the cost.
+    const { plan, skippedActions } = parseWith(requestWith([resizeReason]), [
+      addBuyMilk(existingInstanceId),
+    ]);
+
+    const hint = deriveRetryHint({
+      healedLayoutSize: 1,
+      requestInstanceCount: 1,
+      proposedActionCount: 1,
+      acceptedActionCount: plan.length,
+      skippedActions,
+      droppedLayoutCount: 0,
+      warningCount: 0,
+    });
+
+    expect(hint.recommend).toBe(false);
   });
 });

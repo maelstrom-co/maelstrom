@@ -53,6 +53,8 @@ const skip = (reason: SkippedAction['reason']): SkippedAction => {
       return { reason, instanceId, action, vesselId, targetVariant: variant };
     case 'self_transition_noop':
       return { reason, instanceId, action, vesselId, currentVariant: variant };
+    case 'non_transition_on_resize':
+      return { reason, instanceId, action, vesselId };
   }
 };
 
@@ -76,6 +78,7 @@ describe('deriveRetryHint', () => {
       ['invalid_action_definition' as const, false],
       ['state_drift' as const, false],
       ['self_transition_noop' as const, false],
+      ['non_transition_on_resize' as const, false],
     ])('skip reason %p → recommend = %p', (reason, expectedRecommend) => {
       const hint = deriveRetryHint({
         healedLayoutSize: 1,

@@ -536,6 +536,12 @@ export type AuthorSkippedAction =
       readonly action: string;
       readonly vesselId: string;
       readonly currentVariant: string;
+    }
+  | {
+      readonly reason: 'non_transition_on_resize';
+      readonly instanceId: string;
+      readonly action: string;
+      readonly vesselId: string;
     };
 
 /** Brands a raw-string `SkippedAction` author shape into the typed union. */
@@ -600,6 +606,13 @@ export function buildSkippedAction(author: AuthorSkippedAction): SkippedAction {
         action: ActionName(author.action),
         vesselId: VesselId(author.vesselId),
         currentVariant: VariantName(author.currentVariant),
+      };
+    case 'non_transition_on_resize':
+      return {
+        reason: author.reason,
+        instanceId: InstanceId(author.instanceId),
+        action: ActionName(author.action),
+        vesselId: VesselId(author.vesselId),
       };
   }
 }

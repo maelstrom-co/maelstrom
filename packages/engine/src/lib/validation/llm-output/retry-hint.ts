@@ -24,6 +24,10 @@ interface DeriveRetryHintInput {
  * - `self_transition_noop`: LLM emitted a transition action whose target
  *   equals the simulator's current variant; the chart is already in the
  *   desired variant and the LLM has nothing useful to change on retry.
+ * - `non_transition_on_resize`: a policy refusal, not a mistake in the
+ *   response. Re-prompting shows the LLM the same chart state that produced
+ *   the action, so a retry can only cost a second call to reach the same
+ *   refusal.
  * - parameter work limits: fail closed without repeating over-budget work,
  *   even though a later independent request may supply a smaller value.
  * - invalid definitions: only the application can correct the authored Action
@@ -33,6 +37,7 @@ export function isFixableSkip(reason: SkippedAction['reason']): boolean {
   switch (reason) {
     case 'state_drift':
     case 'self_transition_noop':
+    case 'non_transition_on_resize':
     case 'params_limits_exceeded':
     case 'invalid_action_definition':
       return false;
