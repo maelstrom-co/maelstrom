@@ -509,7 +509,9 @@ export function createChart(
       layoutSignature,
     );
 
-    useChartMotion(containerRef, layoutKey, sizeKey, config.motion);
+    // Shorthand properties, so a transposed assignment has to be written out
+    // as a mismatched key name (`{ layoutKey: sizeKey }`) to compile.
+    useChartMotion(containerRef, { layoutKey, sizeKey }, config.motion);
 
     // ── Guard: duplicate Chart ────────────────────────────────────────────────
 

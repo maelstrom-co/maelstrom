@@ -63,8 +63,7 @@ function Harness({
   const containerRef = useRef<HTMLDivElement | null>(null);
   useChartMotion(
     containerRef,
-    layoutKey ?? signatureOf(items),
-    sizeKey,
+    { layoutKey: layoutKey ?? signatureOf(items), sizeKey },
     motion,
   );
   return (
@@ -487,7 +486,11 @@ describe('useChartMotion', () => {
 
     function OverlayHarness({ motion }: { motion: ResolvedChartMotionConfig }) {
       const containerRef = useRef<HTMLDivElement | null>(null);
-      useChartMotion(containerRef, 'L1', '800x600', motion);
+      useChartMotion(
+        containerRef,
+        { layoutKey: 'L1', sizeKey: '800x600' },
+        motion,
+      );
       return (
         <div ref={containerRef}>
           <div
