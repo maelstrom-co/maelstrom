@@ -814,6 +814,61 @@ describe('engine.handle — chart_request', () => {
     });
   });
 
+  test('"Response healed" carries the identity of every refused action', async () => {
+    // The scalar count says how many actions were refused; only these fields
+    // say which. An eval harness reads them to tell a specific replay apart
+    // from any other skip, so a reword of the shape has to break a test.
+    mockChat.mockResolvedValueOnce(
+      buildGridResponse({
+        executionPlan: [{ instanceId: 'calendar-main', action: 'showWeek' }],
+      }),
+    );
+
+    const logEntries: Array<{ msg: string; ctx?: unknown }> = [];
+    const spyLogger = {
+      debug: () => {},
+      info: (msg: string, ctx?: unknown) => logEntries.push({ msg, ctx }),
+      warn: (msg: string, ctx?: unknown) => logEntries.push({ msg, ctx }),
+      error: (msg: string, _error?: unknown, ctx?: unknown) =>
+        logEntries.push({ msg, ctx }),
+    };
+
+    const engine = createEngine({ adapter: dummyAdapter, logger: spyLogger });
+    await engine.handle(
+      toChartRequestMessage(
+        makeGridRequest({
+          context: {
+            updateReasons: [
+              {
+                type: 'chart_resize',
+                previous: { columns: 12, rows: 8 },
+                current: { columns: 8, rows: 8 },
+              },
+            ],
+            chartDimensions: { columns: 8, rows: 8 },
+            layoutMode: 'grid',
+          },
+        }),
+      ),
+    );
+
+    const healed = logEntries.filter((e) => e.msg === 'Response healed');
+    expect(healed).toHaveLength(1);
+    expect(healed[0]?.ctx).toMatchObject({
+      skippedActions: 1,
+      detail: {
+        skips: [
+          {
+            reason: 'non_idempotent_on_resize',
+            instanceId: 'calendar-main',
+            action: 'showWeek',
+            vesselId: 'calendar',
+          },
+        ],
+      },
+    });
+  });
+
   test('"Response healed" routes to error level for unrecoverable severity', async () => {
     // Single-instance request + overflowing position → healed layout empty
     // → severity='unrecoverable' → error-level routing on first attempt.

@@ -36,6 +36,11 @@ import {
   buildSystemPrompt,
   buildUserPromptWithSnapshot,
 } from './prompt/prompt-builder.js';
+import type {
+  SkippedAction,
+  SkippedActionIdentity,
+} from './response/execution-plan/index.js';
+import { skippedActionIdentity } from './response/execution-plan/index.js';
 import { processResponse } from './response/response-processor.js';
 import { logAtSeverity } from './severity-router.js';
 import { validateEngineConfig } from './validation/engine-config.js';
@@ -351,6 +356,7 @@ export function createEngine(config: EngineConfig): Engine {
         detail: {
           drops: formatDroppedEntries(diagnostics.droppedLayoutEntries),
           warnings: formatLayoutWarnings(diagnostics.warnings),
+          skips: formatSkippedActions(diagnostics.skippedActions),
         },
       });
     }
@@ -512,4 +518,19 @@ function formatDroppedEntries(
     ...visible,
     `${omitted} additional drop${omitted === 1 ? '' : 's'} omitted`,
   ];
+}
+
+/**
+ * Renders the operator-log view of a response's refused actions under the
+ * same list ceiling drops and repairs use.
+ *
+ * Structured rather than prose because a skip is the one diagnostic class an
+ * operator has to match back to a specific (instance, action) pair, and the
+ * scalar count beside it already carries the scale of anything the ceiling
+ * cuts.
+ */
+function formatSkippedActions(
+  entries: readonly SkippedAction[],
+): SkippedActionIdentity[] {
+  return entries.slice(0, MAX_LOGGED_ENTRIES).map(skippedActionIdentity);
 }

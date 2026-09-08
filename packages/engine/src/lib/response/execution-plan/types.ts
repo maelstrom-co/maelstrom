@@ -123,3 +123,31 @@ export type SkippedAction =
       readonly action: ActionName;
       readonly vesselId: VesselId;
     };
+
+/**
+ * The parts of a {@link SkippedAction} that name which action was refused.
+ *
+ * `instanceId`, `action` and `vesselId` are each absent from at least one arm
+ * of the union, so every field but `reason` is optional.
+ */
+export type SkippedActionIdentity = {
+  readonly reason: SkippedAction['reason'];
+  readonly instanceId?: InstanceId;
+  readonly action?: ActionName;
+  readonly vesselId?: VesselId;
+};
+
+/**
+ * Projects a {@link SkippedAction} down to the fields that identify it,
+ * dropping the per-reason evidence a diagnostic renderer needs.
+ */
+export function skippedActionIdentity(
+  entry: SkippedAction,
+): SkippedActionIdentity {
+  return {
+    reason: entry.reason,
+    ...('instanceId' in entry ? { instanceId: entry.instanceId } : {}),
+    ...('action' in entry ? { action: entry.action } : {}),
+    ...('vesselId' in entry ? { vesselId: entry.vesselId } : {}),
+  };
+}
