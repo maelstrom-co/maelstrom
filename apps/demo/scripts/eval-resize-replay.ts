@@ -11,20 +11,25 @@
  * history records a resize-triggered turn), then sends a final resize-only
  * request and records what the model proposed.
  *
- * `executionPlan.length` alone is not a defect signal now that the Engine's
- * guard drops a re-emitted action into `diagnostics.skippedActions`: a
- * guard-suppressed hit would read as 0 for the wrong reason. The Engine
- * strips `diagnostics` before `handle()` returns and logs a scalar summary on
- * the "Response healed" line (packages/engine/src/lib/engine.ts), so this
- * harness injects a custom `Logger` and reads the scalar `skippedActions`
- * count off that log line instead. Per trial this harness records:
- *   - `plan`    — executionPlan.length (actions that survived to the client)
- *   - `skipped` — skippedActions count from the "Response healed" log (0 when
- *                 the line never fires, which is also the healthy case)
- *   - `emitted` — plan + skipped, i.e. what the model actually proposed
- * The headline rate is `emitted > 0` over N. `plan > 0` and `skipped > 0` are
- * reported separately: together they distinguish "model emitted nothing"
- * (prompt fix worked) from "model emitted, guard dropped it" (guard worked).
+ * "The model returned an action" is not the defect signal. A resize-only turn
+ * may legitimately return an idempotent variant transition, and the prompt
+ * invites exactly that, so counting any surviving action scores correct
+ * behaviour as a reproduction. Only a replay of the seeded action counts, and
+ * `isSeededReplay` owns that decision.
+ *
+ * The replay can land on either side of the Engine's guard, so both are read.
+ * The surviving `executionPlan` comes back from `handle()` with params
+ * intact. A refused action never reaches the caller: the Engine strips
+ * `diagnostics` at its boundary and reports each refusal on the "Response
+ * healed" log line, so this harness injects a custom `Logger` and reads the
+ * refusals off that line's `detail.skips`. Per trial it records:
+ *   - `survived` — the seeded replay reached the client (guard let it past)
+ *   - `refused`  — the seeded replay was refused (guard held)
+ *   - `other`    — every action that is not the seeded replay, printed but
+ *                  never counted toward the headline rate
+ * The headline rate is `survived || refused` over N. Reported apart, the two
+ * distinguish "model emitted nothing" (prompt fix worked) from "model
+ * emitted, guard dropped it" (guard worked).
  *
  * One LLM call per trial.
  *
@@ -48,8 +53,9 @@
  * exit; an uninterrupted run prints the same summary format once at the end,
  * labeled FINAL.
  *
- * Exits non-zero when any trial reproduces the defect (`emitted > 0`), when
- * any trial errored, or when no trial completed.
+ * Exits non-zero when any trial replayed the seeded action, when any trial
+ * errored, or when no trial completed. Actions that are not the seeded replay
+ * are printed and never affect the exit code.
  */
 import {
   createEngine,
@@ -64,6 +70,8 @@ import { journalVessel } from '../src/vessels/journal.vessel.def';
 import { mapVessel } from '../src/vessels/map.vessel.def';
 import { tasksVessel } from '../src/vessels/tasks.vessel.def';
 import { weatherVessel } from '../src/vessels/weather.vessel.def';
+import type { RefusedAction, TrialObservation } from './resize-replay-verdict';
+import { SEEDED_ACTION, scoreTrial } from './resize-replay-verdict';
 
 /**
  * The reported hit rates were measured on `gpt-4o-mini` (openai) and
@@ -138,13 +146,7 @@ function priorTurn(sessionId: string) {
         requestId: 'req-prior',
         userMessage: config.priorMessage,
         rationale: 'User asked to add a task.',
-        executionPlan: [
-          {
-            instanceId: 'tasks-main',
-            action: 'addTask',
-            params: { title: 'Buy milk' },
-          },
-        ],
+        executionPlan: [SEEDED_ACTION],
         layout,
       },
     },
@@ -225,13 +227,12 @@ function resizeRequest(
 
 function createDiagnosticsLogger(): {
   logger: Logger;
-  skippedActions: () => number;
+  refusedActions: () => readonly RefusedAction[];
 } {
-  let skipped = 0;
+  let refused: readonly RefusedAction[] = [];
   const capture = (message: string, data?: Record<string, unknown>) => {
     if (message !== 'Response healed') return;
-    const count = data?.skippedActions;
-    if (typeof count === 'number') skipped = count;
+    refused = readRefusals(data);
   };
   return {
     logger: {
@@ -240,13 +241,14 @@ function createDiagnosticsLogger(): {
       warn: capture,
       error: (message, _error, data) => capture(message, data),
     },
-    skippedActions: () => skipped,
+    refusedActions: () => refused,
   };
 }
 
 let hits = 0;
-let planHits = 0;
-let skippedHits = 0;
+let survivedHits = 0;
+let refusedHits = 0;
+let otherTrials = 0;
 let errors = 0;
 let completed = 0;
 
@@ -256,7 +258,8 @@ function printSummary(final: boolean): void {
   console.log(
     `\n[${label}] provider=${config.provider} model=${model} ` +
       `N=${config.trials} hits=${hits} rate=${rate}% ` +
-      `completed=${completed} plan>0=${planHits} skipped>0=${skippedHits} errors=${errors}`,
+      `completed=${completed} survived=${survivedHits} refused=${refusedHits} ` +
+      `other=${otherTrials} errors=${errors}`,
   );
   if (errors === completed && completed > 0) {
     console.error(
@@ -300,7 +303,7 @@ printConfig();
 for (let trial = 0; trial < config.trials; trial += 1) {
   const sessionId = `eval-${Date.now()}-${trial}`;
   const store = createInMemoryStore();
-  const { logger, skippedActions } = createDiagnosticsLogger();
+  const { logger, refusedActions } = createDiagnosticsLogger();
 
   // Branded ids and schema-validated payloads are enforced at the wire
   // boundary; this harness constructs both by hand on purpose.
@@ -343,30 +346,32 @@ for (let trial = 0; trial < config.trials; trial += 1) {
     continue;
   }
 
-  const plan =
-    result.value.type === 'chart_response'
-      ? result.value.response.executionPlan
-      : [];
-  const skipped = skippedActions();
-  const emitted = plan.length + skipped;
+  const observation: TrialObservation = {
+    plan:
+      result.value.type === 'chart_response'
+        ? result.value.response.executionPlan
+        : [],
+    refused: refusedActions(),
+  };
+  const verdict = scoreTrial(observation);
 
-  if (plan.length > 0) planHits += 1;
-  if (skipped > 0) skippedHits += 1;
-  if (emitted > 0) {
+  if (verdict.survived) survivedHits += 1;
+  if (verdict.refused) refusedHits += 1;
+  if (verdict.otherActions.length > 0) otherTrials += 1;
+
+  const other =
+    verdict.otherActions.length > 0
+      ? ` other=[${verdict.otherActions.join(', ')}]`
+      : '';
+  if (verdict.replayed) {
     hits += 1;
-    const rendered = plan
-      .map(
-        (action) =>
-          `${action.instanceId}.${action.action}(${JSON.stringify(action.params ?? {})})`,
-      )
-      .join(', ');
     console.log(
-      `${trial} HIT plan=${plan.length} skipped=${skipped} emitted=${emitted}` +
-        `${rendered.length > 0 ? ` [${rendered}]` : ''} | tally hits=${hits}/${completed}`,
+      `${trial} HIT survived=${verdict.survived} refused=${verdict.refused}` +
+        `${other} | tally hits=${hits}/${completed}`,
     );
   } else {
     console.log(
-      `${trial} ok plan=0 skipped=0 emitted=0 | tally hits=${hits}/${completed}`,
+      `${trial} ok no replay${other} | tally hits=${hits}/${completed}`,
     );
   }
 }
@@ -419,8 +424,45 @@ function dimsEqual(a: ChartDims, b: ChartDims): boolean {
   return a.columns === b.columns && a.rows === b.rows;
 }
 
+/**
+ * Only a seeded replay, a trial error, or an empty run fails the script. An
+ * action that is not the replay is reported and deliberately ignored: the
+ * resize instruction invites idempotent transitions, so failing on those
+ * would exit non-zero on correct Engine behaviour.
+ */
 function runFailed(): boolean {
   return hits > 0 || errors > 0 || completed === 0;
+}
+
+/**
+ * Reads the refused actions off a "Response healed" log entry. Missing or
+ * unrecognised shapes yield nothing rather than throwing: the log's contract
+ * is pinned by an Engine test, and a harness that dies here would report a
+ * measurement failure as a trial error.
+ */
+function readRefusals(
+  data?: Record<string, unknown>,
+): readonly RefusedAction[] {
+  const detail = data?.detail;
+  if (typeof detail !== 'object' || detail === null) return [];
+  const skips = (detail as { skips?: unknown }).skips;
+  if (!Array.isArray(skips)) return [];
+  return skips.flatMap((entry) => {
+    if (typeof entry !== 'object' || entry === null) return [];
+    const { reason, instanceId, action, vesselId } = entry as Record<
+      string,
+      unknown
+    >;
+    if (typeof reason !== 'string') return [];
+    return [
+      {
+        reason,
+        ...(typeof instanceId === 'string' ? { instanceId } : {}),
+        ...(typeof action === 'string' ? { action } : {}),
+        ...(typeof vesselId === 'string' ? { vesselId } : {}),
+      },
+    ];
+  });
 }
 
 function parseProvider(value: string): Provider {
