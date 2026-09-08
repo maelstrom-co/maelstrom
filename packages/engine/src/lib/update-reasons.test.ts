@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import type { ChartRequest, UpdateReason } from '@maelstrom-co/protocol';
 import { InstanceId } from '@maelstrom-co/protocol';
+import { makeGridRequest } from './__test-helpers__/fixtures.js';
 import { buildUpdateTriggersSection } from './prompt/request-serializer.js';
 import { classifyExecutionTurn } from './response/execution-plan/turn.js';
 import { isResizeOnlyBatch } from './update-reasons.js';
@@ -32,17 +33,13 @@ const batches: ReadonlyArray<readonly UpdateReason[]> = [
 ];
 
 function requestWith(updateReasons: readonly UpdateReason[]): ChartRequest {
-  return {
-    type: 'chart_request',
+  return makeGridRequest({
     context: {
       updateReasons,
       chartDimensions: { columns: 12, rows: 8 },
       layoutMode: 'grid',
     },
-    instances: [],
-    vessels: [],
-    layout: { type: 'grid', positions: [] },
-  };
+  });
 }
 
 describe('isResizeOnlyBatch', () => {

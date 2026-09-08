@@ -808,6 +808,7 @@ describe('engine.handle — chart_request', () => {
     // medium severity (drops > 0, but layout still renders) → warn level.
     expect(healed[0]?.level).toBe('warn');
     expect(healed[0]?.ctx).toMatchObject({
+      skippedActions: expect.any(Number),
       retrySeverity: 'medium',
       retryRecommend: false,
     });

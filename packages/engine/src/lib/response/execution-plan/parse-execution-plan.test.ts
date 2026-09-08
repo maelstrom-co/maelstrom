@@ -1191,19 +1191,17 @@ describe('parseExecutionPlan — resize-only policy guard', () => {
     intent: 'Add "Buy milk" to my list',
   };
 
-  const requestWith = (
-    updateReasons: readonly UpdateReason[],
-  ): ChartRequest => ({
-    type: 'chart_request',
-    context: {
-      updateReasons,
-      chartDimensions: { columns: 12, rows: 8 },
-      layoutMode: 'grid',
-    },
-    instances: [existingInstance],
-    vessels: [taskListVessel],
-    layout: { type: 'grid', positions: [] },
-  });
+  const requestWith = (updateReasons: readonly UpdateReason[]): ChartRequest =>
+    makeGridRequest({
+      context: {
+        updateReasons,
+        chartDimensions: { columns: 12, rows: 8 },
+        layoutMode: 'grid',
+      },
+      instances: [existingInstance],
+      vessels: [taskListVessel],
+      layout: { type: 'grid', positions: [] },
+    });
 
   const parseWith = (
     request: ChartRequest,
