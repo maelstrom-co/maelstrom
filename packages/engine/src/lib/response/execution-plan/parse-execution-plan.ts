@@ -28,17 +28,45 @@ import {
   validateParams,
 } from './validate-params.js';
 
+interface ActionContext {
+  /** Enum candidates frozen for the request, shared by every Action. */
+  readonly enumSnapshot: ActionParameterEnumSnapshot;
+  /** What triggered the turn, which decides whether a replayed Action runs. */
+  readonly turn: ExecutionTurn;
+  /** Sink for per-Action skip and validation warnings. */
+  readonly logger: Logger;
+}
+
+/**
+ * Immutable inputs every Action in one plan resolves against.
+ *
+ * `parseSingleAction` takes the narrower {@link ActionContext} this extends,
+ * so the same object satisfies both without unpacking.
+ */
+export interface PlanContext extends ActionContext {
+  /** Instances the Actions may target, request and response merged. */
+  readonly instances: readonly VesselInstanceSnapshot[];
+  /** Registered Vessels the instances resolve against. */
+  readonly vessels: readonly Vessel[];
+}
+
+/** Scratch state one `parseExecutionPlan` call threads through its Actions. */
+interface PlanRun {
+  readonly lookups: ValidationLookups;
+  readonly simReader: SimulationState;
+  readonly simWriter: SimulationStateWriter;
+  readonly skippedActions: SkippedAction[];
+}
+
 /** Parses one Action without mutating simulated Variant state on any failure. */
 function parseSingleAction(
   item: RawActionExecution,
-  lookups: ValidationLookups,
-  turn: ExecutionTurn,
-  simReader: SimulationState,
-  simWriter: SimulationStateWriter,
-  skippedActions: SkippedAction[],
-  enumSnapshot: ActionParameterEnumSnapshot,
-  logger: Logger,
+  context: ActionContext,
+  run: PlanRun,
 ): ActionExecution[] {
+  const { enumSnapshot, turn, logger } = context;
+  const { lookups, simReader, simWriter, skippedActions } = run;
+
   const resolution = resolveAction(item, lookups, turn, simReader);
   if (isErr(resolution)) {
     logResolveFailure(item, resolution.error, logger);
@@ -132,37 +160,29 @@ export interface ParsedExecutionPlan {
  */
 export function parseExecutionPlan(
   plan: readonly RawActionExecution[],
-  instances: readonly VesselInstanceSnapshot[],
-  vessels: readonly Vessel[],
-  enumSnapshot: ActionParameterEnumSnapshot,
-  logger: Logger,
-  turn: ExecutionTurn,
+  context: PlanContext,
 ): ParsedExecutionPlan {
-  const lookups: ValidationLookups = {
-    instanceMap: new Map(instances.map((i) => [i.instanceId, i])),
-    vesselMap: new Map(vessels.map((v) => [v.id, v])),
-  };
+  const { instances, vessels } = context;
 
   const { reader: simReader, writer: simWriter } = createSimulationState(
     instances.map((i) => [i.instanceId, i.variant]),
   );
-  const skippedActions: SkippedAction[] = [];
+  const run: PlanRun = {
+    lookups: {
+      instanceMap: new Map(instances.map((i) => [i.instanceId, i])),
+      vesselMap: new Map(vessels.map((v) => [v.id, v])),
+    },
+    simReader,
+    simWriter,
+    skippedActions: [],
+  };
 
   // Sequential: simWriter mutates between iterations, so each action validates
   // against the variant left by the previous one. Reordering would break the
   // validation contract.
   const resultPlan = plan.flatMap((item) =>
-    parseSingleAction(
-      item,
-      lookups,
-      turn,
-      simReader,
-      simWriter,
-      skippedActions,
-      enumSnapshot,
-      logger,
-    ),
+    parseSingleAction(item, context, run),
   );
 
-  return { plan: resultPlan, skippedActions };
+  return { plan: resultPlan, skippedActions: run.skippedActions };
 }

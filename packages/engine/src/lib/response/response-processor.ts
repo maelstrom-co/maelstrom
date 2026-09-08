@@ -137,11 +137,13 @@ export function processResponse({
       : request.instances;
   const { plan: executionPlan, skippedActions } = parseExecutionPlan(
     llmOutput.executionPlan,
-    planInstances,
-    request.vessels,
-    enumSnapshot,
-    logger,
-    classifyExecutionTurn(request),
+    {
+      instances: planInstances,
+      vessels: request.vessels,
+      enumSnapshot,
+      turn: classifyExecutionTurn(request),
+      logger,
+    },
   );
 
   const retryHint = deriveRetryHint({

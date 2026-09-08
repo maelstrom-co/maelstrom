@@ -83,14 +83,13 @@ describe('parseExecutionPlan — sequential simulation hand-off', () => {
       { instanceId, action: expandAction },
     ];
 
-    const { plan: result, skippedActions } = parseExecutionPlan(
-      plan,
-      [initialInstance],
-      [panelVessel],
-      buildActionParameterEnumSnapshot([panelVessel]),
-      silentLogger,
-      userIntentTurn,
-    );
+    const { plan: result, skippedActions } = parseExecutionPlan(plan, {
+      instances: [initialInstance],
+      vessels: [panelVessel],
+      enumSnapshot: buildActionParameterEnumSnapshot([panelVessel]),
+      turn: userIntentTurn,
+      logger: silentLogger,
+    });
 
     // Both actions accepted: the second resolves against the variant the
     // first transitioned the instance into. If the simulation state didn't
@@ -112,14 +111,13 @@ describe('parseExecutionPlan — sequential simulation hand-off', () => {
       { instanceId, action: goExpanded },
     ];
 
-    const { plan: result, skippedActions } = parseExecutionPlan(
-      plan,
-      [initialInstance],
-      [panelVessel],
-      buildActionParameterEnumSnapshot([panelVessel]),
-      silentLogger,
-      userIntentTurn,
-    );
+    const { plan: result, skippedActions } = parseExecutionPlan(plan, {
+      instances: [initialInstance],
+      vessels: [panelVessel],
+      enumSnapshot: buildActionParameterEnumSnapshot([panelVessel]),
+      turn: userIntentTurn,
+      logger: silentLogger,
+    });
 
     expect(result).toHaveLength(1);
     expect(result[0]).toEqual({ instanceId, action: goExpanded });
@@ -204,14 +202,13 @@ describe('parseExecutionPlan — self-transition no-op classification', () => {
       { instanceId: calendarInstanceId, action: showDay },
     ];
 
-    const { plan: result, skippedActions } = parseExecutionPlan(
-      plan,
-      [inDayVariant],
-      [calendarVessel],
-      buildActionParameterEnumSnapshot([calendarVessel]),
-      silentLogger,
-      userIntentTurn,
-    );
+    const { plan: result, skippedActions } = parseExecutionPlan(plan, {
+      instances: [inDayVariant],
+      vessels: [calendarVessel],
+      enumSnapshot: buildActionParameterEnumSnapshot([calendarVessel]),
+      turn: userIntentTurn,
+      logger: silentLogger,
+    });
 
     expect(result).toHaveLength(0);
     expect(skippedActions).toHaveLength(1);
@@ -231,14 +228,13 @@ describe('parseExecutionPlan — self-transition no-op classification', () => {
       { instanceId: calendarInstanceId, action: ActionName('showQuarter') },
     ];
 
-    const { plan: result, skippedActions } = parseExecutionPlan(
-      plan,
-      [inDayVariant],
-      [calendarVessel],
-      buildActionParameterEnumSnapshot([calendarVessel]),
-      silentLogger,
-      userIntentTurn,
-    );
+    const { plan: result, skippedActions } = parseExecutionPlan(plan, {
+      instances: [inDayVariant],
+      vessels: [calendarVessel],
+      enumSnapshot: buildActionParameterEnumSnapshot([calendarVessel]),
+      turn: userIntentTurn,
+      logger: silentLogger,
+    });
 
     expect(result).toHaveLength(0);
     expect(skippedActions).toHaveLength(1);
@@ -311,14 +307,13 @@ describe('parseExecutionPlan — self-transition no-op classification', () => {
       { instanceId: calendarInstanceId, action: showWeek },
     ];
 
-    const { plan: result, skippedActions } = parseExecutionPlan(
-      plan,
-      [inWeekVariant],
-      [ambiguousVessel],
-      buildActionParameterEnumSnapshot([ambiguousVessel]),
-      silentLogger,
-      userIntentTurn,
-    );
+    const { plan: result, skippedActions } = parseExecutionPlan(plan, {
+      instances: [inWeekVariant],
+      vessels: [ambiguousVessel],
+      enumSnapshot: buildActionParameterEnumSnapshot([ambiguousVessel]),
+      turn: userIntentTurn,
+      logger: silentLogger,
+    });
 
     expect(result).toHaveLength(0);
     expect(skippedActions).toHaveLength(1);
@@ -382,14 +377,13 @@ describe('parseExecutionPlan — self-transition no-op classification', () => {
       { instanceId: calendarInstanceId, action: showWeek },
     ];
 
-    const { plan: result, skippedActions } = parseExecutionPlan(
-      plan,
-      [inDayVariant],
-      [customVessel],
-      buildActionParameterEnumSnapshot([customVessel]),
-      silentLogger,
-      userIntentTurn,
-    );
+    const { plan: result, skippedActions } = parseExecutionPlan(plan, {
+      instances: [inDayVariant],
+      vessels: [customVessel],
+      enumSnapshot: buildActionParameterEnumSnapshot([customVessel]),
+      turn: userIntentTurn,
+      logger: silentLogger,
+    });
 
     expect(result).toHaveLength(0);
     expect(skippedActions).toHaveLength(1);
@@ -537,14 +531,13 @@ describe('parseExecutionPlan — action parameter validation', () => {
   };
 
   const parse = (...items: RawActionExecution[]) =>
-    parseExecutionPlan(
-      items,
-      [instance],
-      [vessel],
-      buildActionParameterEnumSnapshot([vessel]),
-      silentLogger,
-      userIntentTurn,
-    );
+    parseExecutionPlan(items, {
+      instances: [instance],
+      vessels: [vessel],
+      enumSnapshot: buildActionParameterEnumSnapshot([vessel]),
+      turn: userIntentTurn,
+      logger: silentLogger,
+    });
 
   test('accepts params matching every supported type and enum', () => {
     const params = {
@@ -818,11 +811,13 @@ describe('parseExecutionPlan — action parameter validation', () => {
         },
         { instanceId, action: afterTransition },
       ],
-      [instance],
-      [duplicateVessel],
-      buildActionParameterEnumSnapshot([]),
-      silentLogger,
-      userIntentTurn,
+      {
+        instances: [instance],
+        vessels: [duplicateVessel],
+        enumSnapshot: buildActionParameterEnumSnapshot([]),
+        turn: userIntentTurn,
+        logger: silentLogger,
+      },
     );
 
     expect(result.plan).toEqual([]);
@@ -892,11 +887,13 @@ describe('parseExecutionPlan — parameter work budgets', () => {
         },
         ...following,
       ],
-      [instance],
-      [vessel],
-      enumSnapshot,
-      silentLogger,
-      userIntentTurn,
+      {
+        instances: [instance],
+        vessels: [vessel],
+        enumSnapshot,
+        turn: userIntentTurn,
+        logger: silentLogger,
+      },
     );
 
   test('accepts paramsJson at 16384 UTF-8 bytes and rejects 16385', () => {
@@ -1213,14 +1210,13 @@ describe('parseExecutionPlan — resize-only policy guard', () => {
     plan: readonly RawActionExecution[],
     planInstances: readonly VesselInstanceSnapshot[] = request.instances,
   ) =>
-    parseExecutionPlan(
-      plan,
-      planInstances,
-      [taskListVessel],
-      buildActionParameterEnumSnapshot([taskListVessel]),
-      silentLogger,
-      classifyExecutionTurn(request),
-    );
+    parseExecutionPlan(plan, {
+      instances: planInstances,
+      vessels: [taskListVessel],
+      enumSnapshot: buildActionParameterEnumSnapshot([taskListVessel]),
+      turn: classifyExecutionTurn(request),
+      logger: silentLogger,
+    });
 
   const addBuyMilk = (instanceId: InstanceId): RawActionExecution => ({
     instanceId,
