@@ -790,8 +790,6 @@ describe('m.Chart — motion', () => {
     };
   }
 
-  // Every rect stub in this file fabricates its DOMRect from the same four
-  // numbers; only the measurement rule differs between them.
   function toDomRect(r: {
     x: number;
     y: number;

@@ -420,6 +420,11 @@ export function createChart(
         const entry = entries[0];
         if (!entry) return;
         const { width, height } = entry.contentRect;
+        // Exact comparison, not rounded: a sub-pixel resize (800.1→800.2)
+        // still updates containerRect and re-runs tiling, it just won't
+        // change sizeKey — which rounds — so it won't refresh the motion
+        // baseline. Trades a pixel of baseline staleness for skipping a
+        // state update on truly identical measurements.
         setContainerRect((prev) =>
           prev.width === width && prev.height === height
             ? prev
@@ -726,8 +731,10 @@ interface ChartGeometryInputs {
 }
 
 // Destructured in the body rather than the parameter list on purpose:
-// `noUnusedLocals` is on and `noUnusedParameters` is not, so an input added to
-// ChartGeometryInputs and then consumed by neither key fails to compile.
+// `noUnusedLocals` is on and `noUnusedParameters` is not, so once an input is
+// destructured here, leaving it unused by both keys fails to compile — the
+// compiler doesn't catch a property added to ChartGeometryInputs and never
+// destructured.
 //
 // layoutKey stays structural in both modes — grid cell units, tiling tree
 // tokens. A pixel-derived layoutKey turns every ResizeObserver tick into a
