@@ -228,12 +228,14 @@ export interface VesselActionDefinition {
   readonly parameters?: ReadonlyArray<ActionParameter>;
   readonly transitionsTo?: string;
   /**
-   * Whether re-running this Action leaves the Vessel in the state a single
-   * run would. The Engine may re-emit an Action on a turn triggered by
-   * nothing but a chart resize, and it cannot see Vessel contents to tell a
-   * first run from a repeat; only actions marked `true` are allowed through
-   * on such a turn. Omit it for anything that appends, removes, or otherwise
-   * accumulates. Defaults to `false`.
+   * Whether re-running this Action with the same parameters leaves the Vessel
+   * in the state a single run would. The Engine may re-emit an Action on a
+   * turn triggered by nothing but a chart resize, and it cannot see Vessel
+   * contents to tell a first run from a repeat; such a turn admits only
+   * actions marked `true` that the model invoked with no parameters, since a
+   * parameter value there could only have come from an earlier turn. Omit the
+   * flag for anything that appends, removes, or otherwise accumulates.
+   * Defaults to `false`.
    */
   readonly idempotent?: boolean;
 }
