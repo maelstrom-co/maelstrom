@@ -26,7 +26,13 @@ export const ActionParameterSchema = z.object({
     .optional(),
 });
 
-/** Brands an Action and defers transition-target existence to {@link VesselSchema}. */
+/**
+ * Brands an Action and defers transition-target existence to {@link VesselSchema}.
+ *
+ * `idempotent` parses to an explicit boolean so consumers never branch on
+ * `undefined`; see {@link VesselActionDefinition.idempotent} for what the flag
+ * promises.
+ */
 export const VesselActionSchema = z.object({
   name: z.string().min(1, 'Action name is required').transform(ActionName),
   description: z.string().min(1, 'Action description is required'),
@@ -36,6 +42,7 @@ export const VesselActionSchema = z.object({
     .min(1, 'transitionsTo must be non-empty')
     .transform(VariantName)
     .optional(),
+  idempotent: z.boolean().optional().default(false),
 });
 
 /** Validates local Variant shape; cross-Action invariants require {@link VesselSchema}. */
@@ -220,6 +227,15 @@ export interface VesselActionDefinition {
   readonly description: string;
   readonly parameters?: ReadonlyArray<ActionParameter>;
   readonly transitionsTo?: string;
+  /**
+   * Whether re-running this Action leaves the Vessel in the state a single
+   * run would. The Engine may re-emit an Action on a turn triggered by
+   * nothing but a chart resize, and it cannot see Vessel contents to tell a
+   * first run from a repeat; only actions marked `true` are allowed through
+   * on such a turn. Omit it for anything that appends, removes, or otherwise
+   * accumulates. Defaults to `false`.
+   */
+  readonly idempotent?: boolean;
 }
 
 // ---------------------------------------------------------------------------
