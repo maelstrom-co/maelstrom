@@ -1305,13 +1305,33 @@ describe('parseExecutionPlan — resize-only policy guard', () => {
     ]);
   });
 
-  test('an instance introduced by this response is exempt', () => {
-    // The instance reaches the resolver through the merged plan instances but
-    // is absent from the request, so its configuring action is a first write,
-    // not a replay.
+  test('an instance introduced by this response is refused all the same', () => {
+    // A fresh instance id is no evidence of fresh state: a Vessel may back
+    // every instance of itself with one store, so replaying the append at a
+    // new id duplicates into the same contents the old id showed.
     const { plan, skippedActions } = parseWith(
       requestWith([resizeReason]),
       [addBuyMilk(introducedInstanceId)],
+      [existingInstance, introducedInstance],
+    );
+
+    expect(plan).toEqual([]);
+    expect(skippedActions).toEqual([
+      {
+        reason: 'non_idempotent_on_resize',
+        instanceId: introducedInstanceId,
+        action: addTask,
+        vesselId: taskListVesselId,
+      },
+    ]);
+  });
+
+  test('an idempotent action on an introduced instance survives', () => {
+    // Declared idempotence is the whole gate; where the instance came from
+    // never enters into it.
+    const { plan, skippedActions } = parseWith(
+      requestWith([resizeReason]),
+      [{ instanceId: introducedInstanceId, action: goCompact }],
       [existingInstance, introducedInstance],
     );
 
@@ -1319,8 +1339,7 @@ describe('parseExecutionPlan — resize-only policy guard', () => {
     expect(plan).toHaveLength(1);
     expect(plan[0]).toEqual({
       instanceId: introducedInstanceId,
-      action: addTask,
-      params: { title: 'Buy milk' },
+      action: goCompact,
     });
   });
 

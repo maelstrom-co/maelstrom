@@ -2866,28 +2866,23 @@ describe('processResponse', () => {
         },
       });
 
-    test('refuses the replay on an existing instance but keeps it for one introduced by the same response', () => {
-      // `mergeTilingInstances` puts both instances in front of the resolver;
-      // only the one carried by the request counts as pre-existing.
+    test('refuses the replay even when the response swaps in a new instance id', () => {
+      // Dropping the old instance and declaring a new one does not reset the
+      // Vessel: one store can back every instance of a Vessel, so the replayed
+      // entry lands in the same contents the retired id showed.
       const llmOutput: TilingResponseAuthor = {
         userMessage: 'Reflowed for the narrower chart',
-        rationale: 'Resize with a re-emitted entry plus a fresh journal',
+        rationale: 'Resize that retires the journal and declares a fresh one',
         executionPlan: [
-          {
-            instanceId: 'journal-existing',
-            action: 'createEntry',
-            paramsJson: '{"title":"Today"}',
-          },
           {
             instanceId: 'journal-new',
             action: 'createEntry',
-            paramsJson: '{"title":"Scratch"}',
+            paramsJson: '{"title":"Today"}',
           },
         ],
         layout: {
-          tree: ['H', 'journal-existing', 'journal-new'],
+          tree: ['journal-new'],
           instances: [
-            existingInstance,
             {
               instanceId: 'journal-new',
               vesselId: 'journal',
@@ -2906,17 +2901,11 @@ describe('processResponse', () => {
       expect(isOk(result)).toBe(true);
       if (!isOk(result)) return;
 
-      expect(result.value.executionPlan).toEqual([
-        {
-          instanceId: InstanceId('journal-new'),
-          action: ActionName('createEntry'),
-          params: { title: 'Scratch' },
-        },
-      ]);
+      expect(result.value.executionPlan).toEqual([]);
       expect(result.value.diagnostics.skippedActions).toEqual([
         buildSkippedAction({
           reason: 'non_idempotent_on_resize',
-          instanceId: 'journal-existing',
+          instanceId: 'journal-new',
           action: 'createEntry',
           vesselId: 'journal',
         }),

@@ -106,9 +106,9 @@ The dropped entry is logged for diagnostics, but consumers receive only the surv
 
 ### Resize-only turns
 
-A chart resize is the one trigger that arrives with no user or vessel signal, so the chart state the LLM sees on such a turn is identical to the state before an action it already ran — and the engine never sees vessel contents, so it cannot tell a first run from a replay. On a turn whose every update reason is a `chart_resize`, an action aimed at an instance the request already carried is refused unless its definition declares `idempotent: true`. The refusal is recorded as `non_idempotent_on_resize`.
+A chart resize is the one trigger that arrives with no user or vessel signal, so the chart state the LLM sees on such a turn is identical to the state before an action it already ran — and the engine never sees vessel contents, so it cannot tell a first run from a replay. On a turn whose every update reason is a `chart_resize`, an action is refused unless its definition declares `idempotent: true`. The refusal is recorded as `non_idempotent_on_resize`.
 
-Two escapes stay open by design: an instance the same response introduces has no earlier turn to have replayed on, so its configuring action runs; and a resize batched together with a user intent or vessel mutation is an ordinary turn. The same predicate drives a prompt-side instruction, so the LLM is told to return an empty plan before the guard ever has to refuse one.
+One escape stays open by design: a resize batched together with a user intent or vessel mutation is an ordinary turn, and the guard never fires on it. A freshly declared instance id is not a second escape, because a vessel may back every instance of itself with one store, so an action replayed at a new id can still duplicate state an older id already holds. The same predicate drives a prompt-side instruction, so the LLM is told to return an empty plan before the guard ever has to refuse one.
 
 ### When the engine retries
 

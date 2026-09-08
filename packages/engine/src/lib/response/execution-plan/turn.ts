@@ -1,6 +1,5 @@
 import type {
   ChartRequest,
-  InstanceId,
   VesselAction,
   VesselId,
   VesselInstanceSnapshot,
@@ -11,9 +10,8 @@ import { isResizeOnlyBatch } from '../../update-reasons.js';
 /**
  * What triggered the turn an execution plan is being parsed for.
  *
- * A union rather than a flag pair: `preExisting` is only meaningful on a
- * resize-only turn, so the set is built on those turns alone and cannot be
- * read on any other.
+ * A union rather than a boolean so a later trigger class can carry the data
+ * only it needs without widening every other turn.
  */
 export type ExecutionTurn =
   | {
@@ -23,13 +21,6 @@ export type ExecutionTurn =
   | {
       /** Nothing but a chart resize triggered the turn. */
       readonly kind: 'resize_only';
-      /**
-       * Instances the request already carried. Read off the request, never
-       * off the healed layout: an instance the LLM introduces in the same
-       * response has no prior state, so the action that configures it is a
-       * first write rather than a replay.
-       */
-      readonly preExisting: ReadonlySet<InstanceId>;
     };
 
 /** An action the turn itself refuses, independent of whether it resolves. */
@@ -43,12 +34,7 @@ export function classifyExecutionTurn(request: ChartRequest): ExecutionTurn {
   if (!isResizeOnlyBatch(request.context.updateReasons)) {
     return { kind: 'intentful' };
   }
-  return {
-    kind: 'resize_only',
-    preExisting: new Set(
-      request.instances.map((instance) => instance.instanceId),
-    ),
-  };
+  return { kind: 'resize_only' };
 }
 
 /**
@@ -57,8 +43,10 @@ export function classifyExecutionTurn(request: ChartRequest): ExecutionTurn {
  * The Engine never sees Vessel contents, so on a turn triggered by nothing
  * but a resize it cannot tell a first run of an action apart from a re-run of
  * one an earlier turn already performed. Only actions their author declared
- * `idempotent` survive that ambiguity, since re-running them changes nothing;
- * everything else is refused against an instance that predates the response.
+ * `idempotent` survive that ambiguity, since re-running them changes nothing.
+ * A freshly declared instance id is no evidence of fresh state: a Vessel is
+ * free to back every instance with one store, so an action replayed at a new
+ * id can still write the state an older id already holds.
  */
 export function turnRefusesAction(
   turn: ExecutionTurn,
@@ -67,6 +55,5 @@ export function turnRefusesAction(
 ): TurnRefusal | undefined {
   if (turn.kind !== 'resize_only') return undefined;
   if (actionDef.idempotent) return undefined;
-  if (!turn.preExisting.has(instance.instanceId)) return undefined;
   return { kind: 'non_idempotent_on_resize', vesselId: instance.vesselId };
 }

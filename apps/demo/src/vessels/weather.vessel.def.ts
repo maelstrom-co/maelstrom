@@ -2,6 +2,7 @@ import { defineVessel } from '@maelstrom-co/protocol';
 
 const setLocationAction = {
   name: 'setLocation',
+  idempotent: true,
   description:
     'Try to load weather for a city or place without assuming the request succeeds',
   parameters: [

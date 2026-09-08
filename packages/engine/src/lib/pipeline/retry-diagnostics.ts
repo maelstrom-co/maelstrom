@@ -279,7 +279,7 @@ function describeSkippedAction(entry: SkippedAction): string | undefined {
     case 'non_idempotent_on_resize': {
       const action = quoteIdentifier(entry.action);
       const instance = quoteIdentifier(entry.instanceId);
-      return `Action ${action} on instance ${instance} was refused: this update was triggered by a chart resize alone, so an existing instance accepts only actions declared idempotent. Omit this specific (instance, action) pair from your next response.`;
+      return `Action ${action} on instance ${instance} was refused: this update was triggered by a chart resize alone, so only actions declared idempotent may run. Omit this specific (instance, action) pair from your next response.`;
     }
     case 'params_parse_failed':
       return `Action ${quoteIdentifier(entry.action)} on instance ${quoteIdentifier(entry.instanceId)} had unparseable params`;

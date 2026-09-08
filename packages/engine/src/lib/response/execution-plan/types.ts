@@ -112,11 +112,11 @@ export type SkippedAction =
       readonly vesselId: VesselId;
       readonly currentVariant: VariantName;
     }
-  // Action not declared `idempotent`, aimed at an already-existing instance
-  // on a turn whose only trigger was a chart resize. The Engine cannot see
-  // Vessel contents, so it cannot tell such an action apart from one it
-  // already ran on an earlier turn, and re-prompting cannot resolve the
-  // ambiguity — `deriveRetryHint` excludes this from `anySkipFixable`.
+  // Action not declared `idempotent` on a turn whose only trigger was a chart
+  // resize. The Engine cannot see Vessel contents, so it cannot tell such an
+  // action apart from one it already ran on an earlier turn, and re-prompting
+  // cannot resolve the ambiguity — `deriveRetryHint` excludes this from
+  // `anySkipFixable`.
   | {
       readonly reason: 'non_idempotent_on_resize';
       readonly instanceId: InstanceId;
