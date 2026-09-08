@@ -113,22 +113,18 @@ const vessels = [
 ];
 
 /**
- * The mutation each seed puts in the prior turn, and the chart state that
- * mutation leaves behind.
+ * The mutation each seed puts in the prior turn, and the Variant it ran from.
  *
- * `instance.variant` is the Variant the action was invoked from, `resultVariant`
- * the one the client holds once the action's `transitionsTo` has been applied.
- * A seed whose action transitions therefore also names a `restore` turn: the
- * measured turn can only offer a transitioning action if the instance is back
- * on the Variant that declares it, and a user asking to go back is the only
- * honest way to get there. Without that turn the scenario would either mount a
- * state the prior turn could not have produced, or measure a replay of an
- * action that no longer carries `transitionsTo`.
+ * `instance.variant` must be a Variant on which the seeded action carries no
+ * `transitionsTo`. The measured resize turn mounts the instance on that same
+ * Variant, so the conversation never needs a turn walking the instance back
+ * from somewhere else — the mutation stays the turn immediately before the
+ * resize. A seed whose only available Variant transitions on that action would
+ * bury the mutation behind a navigational turn instead, diluting the probe.
  */
 const SEED_SCENARIOS: Record<SeedId, SeedScenario> = {
   'tasks-add-task': {
     instance: { instanceId: 'tasks-main', vesselId: 'tasks', variant: 'list' },
-    resultVariant: 'list',
     seed: SEEDED_ACTION,
     priorIntent: 'add a task to buy milk',
     priorMessage: 'Added "Buy milk" to your task list.',
@@ -138,31 +134,24 @@ const SEED_SCENARIOS: Record<SeedId, SeedScenario> = {
     instance: {
       instanceId: 'journal-main',
       vesselId: 'journal',
-      variant: 'list',
+      variant: 'entry',
     },
-    resultVariant: 'entry',
     seed: {
       instanceId: 'journal-main',
       action: 'createEntry',
       params: { title: 'Morning pages' },
     },
-    priorIntent: 'start a journal entry called Morning pages',
+    priorIntent: 'start a new journal entry called Morning pages',
     priorMessage: 'Created "Morning pages" and opened it for writing.',
-    priorRationale: 'User asked to start a journal entry.',
-    restore: {
-      action: 'backToList',
-      intent: 'take me back to the journal list',
-      message: 'Back to your journal entries.',
-      rationale: 'User asked to leave the entry.',
-    },
+    priorRationale:
+      'User asked to start a new entry while an entry was already open.',
   },
   'calendar-add-event': {
     instance: {
       instanceId: 'calendar-main',
       vesselId: 'calendar',
-      variant: 'month',
+      variant: 'day',
     },
-    resultVariant: 'day',
     seed: {
       instanceId: 'calendar-main',
       action: 'addEvent',
@@ -170,13 +159,8 @@ const SEED_SCENARIOS: Record<SeedId, SeedScenario> = {
     },
     priorIntent: 'put a dentist appointment at 15:00 on today',
     priorMessage: 'Added "Dentist" at 15:00 to today\'s schedule.',
-    priorRationale: 'User asked to schedule an event.',
-    restore: {
-      action: 'showMonth',
-      intent: 'show me the month again',
-      message: 'Back to the month view.',
-      rationale: 'User asked for the month view.',
-    },
+    priorRationale:
+      'User asked to schedule an event while already viewing the day.',
   },
 };
 
@@ -209,7 +193,6 @@ const MOUNT_ORDER = vessels.filter(
 );
 
 const sourceChart = chartAt(scenario.instance.variant);
-const resultChart = chartAt(scenario.resultVariant);
 
 const PRIOR_CHART_DIMENSIONS = { columns: 12, rows: 8 };
 
@@ -274,54 +257,6 @@ function priorTurn(sessionId: string) {
         rationale: scenario.priorRationale,
         executionPlan: [scenario.seed],
         layout: sourceChart.layout,
-      },
-    },
-  };
-}
-
-/**
- * The turn that walks the seeded instance back to the Variant it started on,
- * recorded only for a seed whose action transitions. The request carries the
- * post-transition state the client held when the user asked, and the response
- * runs the idempotent, parameterless action that returns it.
- */
-function restoreTurn(sessionId: string, restore: RestoreTurn) {
-  return {
-    kind: 'turn' as const,
-    input: {
-      type: 'chart_request' as const,
-      sessionId,
-      id: 'req-restore',
-      timestamp: Date.now() - 45_000,
-      request: {
-        type: 'chart_request' as const,
-        context: {
-          updateReasons: [{ type: 'user_intent', intent: restore.intent }],
-          chartDimensions: PRIOR_CHART_DIMENSIONS,
-          layoutMode: 'tiling' as const,
-        },
-        instances: resultChart.instances,
-        vessels,
-        layout: resultChart.layout,
-      },
-    },
-    output: {
-      type: 'chart_response' as const,
-      sessionId,
-      id: 'req-restore',
-      response: {
-        type: 'maelstrom_response' as const,
-        requestId: 'req-restore',
-        userMessage: restore.message,
-        rationale: restore.rationale,
-        executionPlan: [
-          {
-            instanceId: scenario.instance.instanceId,
-            action: restore.action,
-            params: {},
-          },
-        ],
-        layout: resultChart.layout,
       },
     },
   };
@@ -457,7 +392,6 @@ function printConfig(): void {
       `seededAction=${scenario.seed.instanceId}.${scenario.seed.action}`,
       `mounted=${sourceChart.instances.length}`,
       `variant=${scenario.instance.variant}`,
-      `restored=${scenario.restore !== undefined}`,
       `priorMessage=${JSON.stringify(config.priorMessage)}`,
       `priorIntent=${JSON.stringify(config.priorIntent)}`,
       `resize=${PRIOR_CHART_DIMENSIONS.columns}x${PRIOR_CHART_DIMENSIONS.rows}->${config.resizeTo.columns}x${config.resizeTo.rows}`,
@@ -488,12 +422,6 @@ for (let trial = 0; trial < config.trials; trial += 1) {
   // Branded ids and schema-validated payloads are enforced at the wire
   // boundary; this harness constructs both by hand on purpose.
   await store.append(sessionId as never, priorTurn(sessionId) as never);
-  if (scenario.restore) {
-    await store.append(
-      sessionId as never,
-      restoreTurn(sessionId, scenario.restore) as never,
-    );
-  }
 
   const waypoints = interveningWaypoints(
     config.intervening,
@@ -591,21 +519,12 @@ interface Chart {
   };
 }
 
-interface RestoreTurn {
-  readonly action: string;
-  readonly intent: string;
-  readonly message: string;
-  readonly rationale: string;
-}
-
 interface SeedScenario {
   readonly instance: MountedInstance;
-  readonly resultVariant: string;
   readonly seed: SeededAction;
   readonly priorIntent: string;
   readonly priorMessage: string;
   readonly priorRationale: string;
-  readonly restore?: RestoreTurn;
 }
 
 interface HarnessConfig {
