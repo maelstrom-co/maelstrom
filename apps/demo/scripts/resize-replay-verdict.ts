@@ -47,22 +47,33 @@ export interface ReplayVerdict {
   readonly otherActions: readonly string[];
 }
 
+/** The action a trial's prior turn already ran, and the arguments it ran with. */
+export interface SeededAction {
+  readonly instanceId: string;
+  readonly action: string;
+  readonly params: Readonly<Record<string, unknown>>;
+}
+
 /**
- * The action the trial's seeded prior turn already ran. A replay of exactly
- * this is the defect the eval measures.
+ * The seed every scenario used before the harness could choose one. A replay
+ * of exactly this is the defect the eval measures, and it stays the default so
+ * an invocation that names no seed measures what earlier runs measured.
  */
-export const SEEDED_ACTION = {
+export const SEEDED_ACTION: SeededAction = {
   instanceId: 'tasks-main',
   action: 'addTask',
-  params: { title: 'Buy milk' } as Readonly<Record<string, unknown>>,
-} as const;
+  params: { title: 'Buy milk' },
+};
 
 /**
  * Whether the trial's response replayed the seeded action, on either side of
  * the guard.
  */
-export function isSeededReplay(observation: TrialObservation): boolean {
-  return scoreTrial(observation).replayed;
+export function isSeededReplay(
+  observation: TrialObservation,
+  seed: SeededAction = SEEDED_ACTION,
+): boolean {
+  return scoreTrial(observation, seed).replayed;
 }
 
 /**
@@ -72,15 +83,22 @@ export function isSeededReplay(observation: TrialObservation): boolean {
  * aimed at some other action, readable in the trial log without counting
  * toward the headline rate.
  */
-export function scoreTrial(observation: TrialObservation): ReplayVerdict {
-  const survived = observation.plan.some(isSeededPlanEntry);
-  const refused = observation.refused.some(isSeededRefusal);
+export function scoreTrial(
+  observation: TrialObservation,
+  seed: SeededAction = SEEDED_ACTION,
+): ReplayVerdict {
+  const survived = observation.plan.some((entry) =>
+    isSeededPlanEntry(entry, seed),
+  );
+  const refused = observation.refused.some((entry) =>
+    isSeededRefusal(entry, seed),
+  );
   const otherActions = [
     ...observation.plan
-      .filter((entry) => !isSeededPlanEntry(entry))
+      .filter((entry) => !isSeededPlanEntry(entry, seed))
       .map(renderPlannedAction),
     ...observation.refused
-      .filter((entry) => !isSeededRefusal(entry))
+      .filter((entry) => !isSeededRefusal(entry, seed))
       .map(renderRefusedAction),
   ];
   return { replayed: survived || refused, survived, refused, otherActions };
@@ -96,30 +114,28 @@ export function renderRefusedAction(entry: RefusedAction): string {
   return `${entry.instanceId ?? '?'}.${entry.action ?? '?'} refused:${entry.reason}`;
 }
 
-function isSeededPlanEntry(entry: PlannedAction): boolean {
+function isSeededPlanEntry(entry: PlannedAction, seed: SeededAction): boolean {
   return (
-    entry.instanceId === SEEDED_ACTION.instanceId &&
-    entry.action === SEEDED_ACTION.action &&
-    carriesSeededParams(entry.params)
+    entry.instanceId === seed.instanceId &&
+    entry.action === seed.action &&
+    carriesSeededParams(entry.params, seed)
   );
 }
 
 // The refusal record carries no params, so identity is all there is to match
 // on. That is enough: a mutation the model aimed at the seeded instance and
 // action is the replay whatever arguments it invented.
-function isSeededRefusal(entry: RefusedAction): boolean {
-  return (
-    entry.instanceId === SEEDED_ACTION.instanceId &&
-    entry.action === SEEDED_ACTION.action
-  );
+function isSeededRefusal(entry: RefusedAction, seed: SeededAction): boolean {
+  return entry.instanceId === seed.instanceId && entry.action === seed.action;
 }
 
 // Extra keys are tolerated: they change nothing about which prior effect the
 // action repeats.
 function carriesSeededParams(
   params: Readonly<Record<string, unknown>> | undefined,
+  seed: SeededAction,
 ): boolean {
-  return Object.entries(SEEDED_ACTION.params).every(
+  return Object.entries(seed.params).every(
     ([key, value]) => params?.[key] === value,
   );
 }

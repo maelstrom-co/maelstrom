@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 
 import {
   isSeededReplay,
+  type SeededAction,
   scoreTrial,
   type TrialObservation,
 } from './resize-replay-verdict';
@@ -12,6 +13,12 @@ const observation = (
   plan: overrides.plan ?? [],
   refused: overrides.refused ?? [],
 });
+
+const journalSeed: SeededAction = {
+  instanceId: 'journal-main',
+  action: 'createEntry',
+  params: { title: 'Morning pages' },
+};
 
 describe('isSeededReplay', () => {
   test('an empty response is not a hit', () => {
@@ -97,6 +104,56 @@ describe('isSeededReplay', () => {
     ).toBe(false);
   });
 
+  test('a supplied seed replaces the default identity', () => {
+    expect(
+      isSeededReplay(
+        observation({
+          plan: [
+            {
+              instanceId: 'journal-main',
+              action: 'createEntry',
+              params: { title: 'Morning pages' },
+            },
+          ],
+        }),
+        journalSeed,
+      ),
+    ).toBe(true);
+  });
+
+  test('a supplied seed does not match the default action', () => {
+    expect(
+      isSeededReplay(
+        observation({
+          plan: [
+            {
+              instanceId: 'tasks-main',
+              action: 'addTask',
+              params: { title: 'Buy milk' },
+            },
+          ],
+        }),
+        journalSeed,
+      ),
+    ).toBe(false);
+  });
+
+  test('the default seed still scores when no seed is supplied', () => {
+    expect(
+      isSeededReplay(
+        observation({
+          plan: [
+            {
+              instanceId: 'journal-main',
+              action: 'createEntry',
+              params: { title: 'Morning pages' },
+            },
+          ],
+        }),
+      ),
+    ).toBe(false);
+  });
+
   test('the seeded action carrying different params is not a hit', () => {
     expect(
       isSeededReplay(
@@ -143,6 +200,27 @@ describe('scoreTrial', () => {
       'calendar-1.showWeek({})',
       'tasks-main.showList refused:self_transition_noop',
     ]);
+  });
+
+  test('scores a supplied seed on both sides of the guard', () => {
+    const verdict = scoreTrial(
+      observation({
+        plan: [{ instanceId: 'journal-main', action: 'backToList' }],
+        refused: [
+          {
+            reason: 'non_idempotent_on_resize',
+            instanceId: 'journal-main',
+            action: 'createEntry',
+            vesselId: 'journal',
+          },
+        ],
+      }),
+      journalSeed,
+    );
+
+    expect(verdict.survived).toBe(false);
+    expect(verdict.refused).toBe(true);
+    expect(verdict.otherActions).toEqual(['journal-main.backToList({})']);
   });
 
   test('records a refused replay on the refused side', () => {
