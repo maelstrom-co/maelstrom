@@ -1190,12 +1190,12 @@ describe('buildRetryPrompt', () => {
     ],
     [
       {
-        reason: 'non_transition_on_resize' as const,
+        reason: 'non_idempotent_on_resize' as const,
         instanceId: InstanceId('tasks-main'),
         action: ActionName('addTask'),
         vesselId: VesselId('task-list'),
       },
-      'Action "addTask" on instance "tasks-main" was refused: this update was triggered by a chart resize alone, so an existing instance accepts only Variant transitions. Omit this specific (instance, action) pair from your next response.',
+      'Action "addTask" on instance "tasks-main" was refused: this update was triggered by a chart resize alone, so an existing instance accepts only actions declared idempotent. Omit this specific (instance, action) pair from your next response.',
     ],
   ] satisfies Array<
     [SkippedAction, string]

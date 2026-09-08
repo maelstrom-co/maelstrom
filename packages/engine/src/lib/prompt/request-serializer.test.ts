@@ -45,6 +45,44 @@ describe('buildVesselsSection', () => {
     expect(output).toContain('→ week');
   });
 
+  test('marks an idempotent action and leaves the rest unmarked', () => {
+    const output = buildVesselsSection(
+      makeGridRequest({
+        vessels: [
+          {
+            id: 'orders',
+            name: 'Orders',
+            description: 'Order management',
+            defaultVariant: 'list',
+            variants: {
+              list: {
+                props: {},
+                minSize: { width: 4, height: 4 },
+                actions: [
+                  {
+                    name: 'showDetail',
+                    description: 'Open the detail view',
+                    transitionsTo: 'detail',
+                    idempotent: true,
+                  },
+                  { name: 'archive', description: 'Archive the order' },
+                ],
+              },
+              detail: {
+                props: {},
+                minSize: { width: 6, height: 4 },
+                actions: [],
+              },
+            },
+          },
+        ],
+      }).vessels,
+    );
+
+    expect(output).toContain('showDetail → detail [idempotent]');
+    expect(output).not.toContain('archive [idempotent]');
+  });
+
   test('serializes action with parameters', () => {
     const request = makeGridRequest({
       vessels: [

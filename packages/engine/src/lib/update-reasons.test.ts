@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import type { ChartRequest, UpdateReason } from '@maelstrom-co/protocol';
 import { InstanceId } from '@maelstrom-co/protocol';
 import { buildUpdateTriggersSection } from './prompt/request-serializer.js';
-import { createExecutionPolicy } from './response/execution-plan/policy.js';
+import { classifyExecutionTurn } from './response/execution-plan/turn.js';
 import { isResizeOnlyBatch } from './update-reasons.js';
 
 const resize: UpdateReason = {
@@ -59,10 +59,11 @@ describe('isResizeOnlyBatch', () => {
   });
 });
 
-describe('resize-only agreement between prompt and execution policy', () => {
+describe('resize-only agreement between prompt and execution turn', () => {
   test('the prompt instruction appears exactly when the guard arms', () => {
     for (const reasons of batches) {
-      const armed = createExecutionPolicy(requestWith(reasons)).resizeOnly;
+      const armed =
+        classifyExecutionTurn(requestWith(reasons)).kind === 'resize_only';
       const instructed = buildUpdateTriggersSection(reasons).includes(
         'Return an empty executionPlan',
       );

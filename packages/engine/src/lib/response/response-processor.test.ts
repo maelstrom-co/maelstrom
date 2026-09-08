@@ -2802,8 +2802,8 @@ describe('processResponse', () => {
 
   // Chart resizes are the one trigger that arrives without any user or vessel
   // signal, so the serialized state the LLM sees is identical to the state
-  // before an action it already ran. The Engine refuses content mutations on
-  // such a turn rather than replaying them.
+  // before an action it already ran. The Engine refuses every action its
+  // author did not declare idempotent on such a turn rather than replaying it.
   describe('resize-only update reasons', () => {
     const journalVessel: AuthorVessel = {
       id: 'journal',
@@ -2826,6 +2826,7 @@ describe('processResponse', () => {
               name: 'showRead',
               description: 'Switch to reading',
               transitionsTo: 'read',
+              idempotent: true,
             },
           ],
         },
@@ -2914,7 +2915,7 @@ describe('processResponse', () => {
       ]);
       expect(result.value.diagnostics.skippedActions).toEqual([
         buildSkippedAction({
-          reason: 'non_transition_on_resize',
+          reason: 'non_idempotent_on_resize',
           instanceId: 'journal-existing',
           action: 'createEntry',
           vesselId: 'journal',
@@ -2923,7 +2924,7 @@ describe('processResponse', () => {
       expect(result.value.diagnostics.retryHint.recommend).toBe(false);
     });
 
-    test('keeps a Variant transition on an existing instance', () => {
+    test('keeps an idempotent Variant transition on an existing instance', () => {
       const llmOutput: TilingResponseAuthor = {
         userMessage: 'Switched the journal to reading',
         rationale: 'Narrower chart suits the read variant',

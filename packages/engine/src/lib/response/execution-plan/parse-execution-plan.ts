@@ -8,7 +8,6 @@ import { isErr } from '@maelstrom-co/protocol';
 import type { ActionParameterEnumSnapshot } from '../../action-parameter-enum.js';
 import type { Logger } from '../../logger.js';
 import { parseParams } from './parse-params.js';
-import type { ExecutionPolicy } from './policy.js';
 import {
   logResolveFailure,
   resolveAction,
@@ -22,6 +21,7 @@ import type {
   ValidationLookups,
 } from './state.js';
 import { createSimulationState } from './state.js';
+import type { ExecutionTurn } from './turn.js';
 import type { RawActionExecution, SkippedAction } from './types.js';
 import {
   hasInvalidActionParameterDefinitions,
@@ -32,14 +32,14 @@ import {
 function parseSingleAction(
   item: RawActionExecution,
   lookups: ValidationLookups,
-  policy: ExecutionPolicy,
+  turn: ExecutionTurn,
   simReader: SimulationState,
   simWriter: SimulationStateWriter,
   skippedActions: SkippedAction[],
   enumSnapshot: ActionParameterEnumSnapshot,
   logger: Logger,
 ): ActionExecution[] {
-  const resolution = resolveAction(item, lookups, policy, simReader);
+  const resolution = resolveAction(item, lookups, turn, simReader);
   if (isErr(resolution)) {
     logResolveFailure(item, resolution.error, logger);
     skippedActions.push(resolveFailureToSkipped(item, resolution.error));
@@ -136,7 +136,7 @@ export function parseExecutionPlan(
   vessels: readonly Vessel[],
   enumSnapshot: ActionParameterEnumSnapshot,
   logger: Logger,
-  policy: ExecutionPolicy,
+  turn: ExecutionTurn,
 ): ParsedExecutionPlan {
   const lookups: ValidationLookups = {
     instanceMap: new Map(instances.map((i) => [i.instanceId, i])),
@@ -155,7 +155,7 @@ export function parseExecutionPlan(
     parseSingleAction(
       item,
       lookups,
-      policy,
+      turn,
       simReader,
       simWriter,
       skippedActions,

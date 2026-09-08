@@ -18,7 +18,7 @@ import { UserSection } from './sections.js';
 const CHART_STATE_HEADING: readonly string[] = ['## Current Chart State', ''];
 
 const RESIZE_ONLY_INSTRUCTION: readonly string[] = [
-  "- This turn's only trigger is the resize. Return an empty executionPlan. A resize changes how much space Vessels get, never what they contain; the one exception is a variant transition (an action marked with →) that the new size calls for",
+  "- This turn's only trigger is the resize. Return an empty executionPlan. A resize changes how much space Vessels get, never what they contain; the one exception is an action marked [idempotent], which the new size may call for",
   '- Actions from your earlier turns have already run and their effects persist. The chart state never lists Vessel contents, so not seeing content there is not evidence an earlier action failed and is not a reason to repeat it',
 ];
 
@@ -142,6 +142,13 @@ function serializeAction(
 
   if (action.transitionsTo) {
     str += ` → ${action.transitionsTo}`;
+  }
+
+  // Named in the resize-only instruction: the model is told these are the
+  // only actions a resize-triggered turn may carry, so it stops re-emitting
+  // the rest instead of having them refused after the fact.
+  if (action.idempotent) {
+    str += ' [idempotent]';
   }
 
   if (action.description) {

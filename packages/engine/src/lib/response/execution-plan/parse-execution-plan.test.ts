@@ -18,13 +18,13 @@ import {
 import { buildActionParameterEnumSnapshot } from '../../action-parameter-enum.js';
 import { deriveRetryHint } from '../../validation/llm-output/retry-hint.js';
 import { parseExecutionPlan } from './parse-execution-plan.js';
-import { createExecutionPolicy } from './policy.js';
+import { classifyExecutionTurn } from './turn.js';
 import type { RawActionExecution } from './types.js';
 
 // Suites below this line are about action resolution, not update-reason
 // policy. The default request fixture carries a single `user_intent` reason,
 // so the resize guard stays inert for all of them.
-const userIntentPolicy = createExecutionPolicy(makeGridRequest());
+const userIntentTurn = classifyExecutionTurn(makeGridRequest());
 
 // Two-action plan whose validity depends on the writer mutating between
 // iterations: action #2's `expand` is only valid on variant `expanded`,
@@ -89,7 +89,7 @@ describe('parseExecutionPlan — sequential simulation hand-off', () => {
       [panelVessel],
       buildActionParameterEnumSnapshot([panelVessel]),
       silentLogger,
-      userIntentPolicy,
+      userIntentTurn,
     );
 
     // Both actions accepted: the second resolves against the variant the
@@ -118,7 +118,7 @@ describe('parseExecutionPlan — sequential simulation hand-off', () => {
       [panelVessel],
       buildActionParameterEnumSnapshot([panelVessel]),
       silentLogger,
-      userIntentPolicy,
+      userIntentTurn,
     );
 
     expect(result).toHaveLength(1);
@@ -210,7 +210,7 @@ describe('parseExecutionPlan — self-transition no-op classification', () => {
       [calendarVessel],
       buildActionParameterEnumSnapshot([calendarVessel]),
       silentLogger,
-      userIntentPolicy,
+      userIntentTurn,
     );
 
     expect(result).toHaveLength(0);
@@ -237,7 +237,7 @@ describe('parseExecutionPlan — self-transition no-op classification', () => {
       [calendarVessel],
       buildActionParameterEnumSnapshot([calendarVessel]),
       silentLogger,
-      userIntentPolicy,
+      userIntentTurn,
     );
 
     expect(result).toHaveLength(0);
@@ -317,7 +317,7 @@ describe('parseExecutionPlan — self-transition no-op classification', () => {
       [ambiguousVessel],
       buildActionParameterEnumSnapshot([ambiguousVessel]),
       silentLogger,
-      userIntentPolicy,
+      userIntentTurn,
     );
 
     expect(result).toHaveLength(0);
@@ -388,7 +388,7 @@ describe('parseExecutionPlan — self-transition no-op classification', () => {
       [customVessel],
       buildActionParameterEnumSnapshot([customVessel]),
       silentLogger,
-      userIntentPolicy,
+      userIntentTurn,
     );
 
     expect(result).toHaveLength(0);
@@ -543,7 +543,7 @@ describe('parseExecutionPlan — action parameter validation', () => {
       [vessel],
       buildActionParameterEnumSnapshot([vessel]),
       silentLogger,
-      userIntentPolicy,
+      userIntentTurn,
     );
 
   test('accepts params matching every supported type and enum', () => {
@@ -822,7 +822,7 @@ describe('parseExecutionPlan — action parameter validation', () => {
       [duplicateVessel],
       buildActionParameterEnumSnapshot([]),
       silentLogger,
-      userIntentPolicy,
+      userIntentTurn,
     );
 
     expect(result.plan).toEqual([]);
@@ -896,7 +896,7 @@ describe('parseExecutionPlan — parameter work budgets', () => {
       [vessel],
       enumSnapshot,
       silentLogger,
-      userIntentPolicy,
+      userIntentTurn,
     );
 
   test('accepts paramsJson at 16384 UTF-8 bytes and rejects 16385', () => {
@@ -1112,6 +1112,8 @@ describe('parseExecutionPlan — resize-only policy guard', () => {
   const compact = VariantName('compact');
   const addTask = ActionName('addTask');
   const goCompact = ActionName('goCompact');
+  const goPlain = ActionName('goPlain');
+  const addTaskAndCompact = ActionName('addTaskAndCompact');
   const goList = ActionName('goList');
   const existingInstanceId = InstanceId('task-list-1');
   const introducedInstanceId = InstanceId('task-list-2');
@@ -1138,6 +1140,20 @@ describe('parseExecutionPlan — resize-only policy guard', () => {
             name: goCompact,
             description: 'Switch to compact',
             transitionsTo: compact,
+            idempotent: true,
+          },
+          {
+            name: goPlain,
+            description: 'Switch to compact without declaring idempotence',
+            transitionsTo: compact,
+          },
+          {
+            name: addTaskAndCompact,
+            description: 'Append a task and switch to compact',
+            parameters: [
+              { name: 'title', type: 'string', description: 'Task title' },
+            ],
+            transitionsTo: compact,
           },
         ],
       },
@@ -1146,7 +1162,12 @@ describe('parseExecutionPlan — resize-only policy guard', () => {
         props: {},
         minSize: { width: 1, height: 1 },
         actions: [
-          { name: goList, description: 'Switch to full', transitionsTo: list },
+          {
+            name: goList,
+            description: 'Switch to full',
+            transitionsTo: list,
+            idempotent: true,
+          },
         ],
       },
     },
@@ -1198,7 +1219,7 @@ describe('parseExecutionPlan — resize-only policy guard', () => {
       [taskListVessel],
       buildActionParameterEnumSnapshot([taskListVessel]),
       silentLogger,
-      createExecutionPolicy(request),
+      classifyExecutionTurn(request),
     );
 
   const addBuyMilk = (instanceId: InstanceId): RawActionExecution => ({
@@ -1215,7 +1236,7 @@ describe('parseExecutionPlan — resize-only policy guard', () => {
     expect(plan).toEqual([]);
     expect(skippedActions).toEqual([
       {
-        reason: 'non_transition_on_resize',
+        reason: 'non_idempotent_on_resize',
         instanceId: existingInstanceId,
         action: addTask,
         vesselId: taskListVesselId,
@@ -1237,7 +1258,7 @@ describe('parseExecutionPlan — resize-only policy guard', () => {
     });
   });
 
-  test('a Variant transition survives a resize-only turn', () => {
+  test('an idempotent Variant transition survives a resize-only turn', () => {
     // Reshaping a Vessel is exactly what a resize should be able to do.
     const { plan, skippedActions } = parseWith(requestWith([resizeReason]), [
       { instanceId: existingInstanceId, action: goCompact },
@@ -1249,6 +1270,45 @@ describe('parseExecutionPlan — resize-only policy guard', () => {
       instanceId: existingInstanceId,
       action: goCompact,
     });
+  });
+
+  test('a Variant transition left unmarked is refused on a resize-only turn', () => {
+    // `idempotent` defaults to false: silence costs a reshape, never data.
+    const { plan, skippedActions } = parseWith(requestWith([resizeReason]), [
+      { instanceId: existingInstanceId, action: goPlain },
+    ]);
+
+    expect(plan).toEqual([]);
+    expect(skippedActions).toEqual([
+      {
+        reason: 'non_idempotent_on_resize',
+        instanceId: existingInstanceId,
+        action: goPlain,
+        vesselId: taskListVesselId,
+      },
+    ]);
+  });
+
+  test('a transition that also mutates content is refused on a resize-only turn', () => {
+    // The case `transitionsTo` alone could never catch: replaying this
+    // appends a second task on the way to the compact variant.
+    const { plan, skippedActions } = parseWith(requestWith([resizeReason]), [
+      {
+        instanceId: existingInstanceId,
+        action: addTaskAndCompact,
+        paramsJson: JSON.stringify({ title: 'Buy milk' }),
+      },
+    ]);
+
+    expect(plan).toEqual([]);
+    expect(skippedActions).toEqual([
+      {
+        reason: 'non_idempotent_on_resize',
+        instanceId: existingInstanceId,
+        action: addTaskAndCompact,
+        vesselId: taskListVesselId,
+      },
+    ]);
   });
 
   test('an instance introduced by this response is exempt', () => {

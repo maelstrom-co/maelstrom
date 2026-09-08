@@ -99,6 +99,7 @@ export type AuthorVesselAction = {
   readonly description: string;
   readonly parameters?: ReadonlyArray<unknown>;
   readonly transitionsTo?: string;
+  readonly idempotent?: boolean;
 };
 export type AuthorVesselVariant = {
   readonly description?: string;
@@ -124,6 +125,7 @@ export type AuthorVessel = {
 const brandAction = (action: AuthorVesselAction): VesselAction => ({
   name: ActionName(action.name),
   description: action.description,
+  idempotent: action.idempotent ?? false,
   // `parameters` is author-typed as `unknown[]`; the schema's element shape
   // (`ActionParameter`) is irrelevant to fixtures that never assert on it.
   ...(action.parameters !== undefined
@@ -538,7 +540,7 @@ export type AuthorSkippedAction =
       readonly currentVariant: string;
     }
   | {
-      readonly reason: 'non_transition_on_resize';
+      readonly reason: 'non_idempotent_on_resize';
       readonly instanceId: string;
       readonly action: string;
       readonly vesselId: string;
@@ -607,7 +609,7 @@ export function buildSkippedAction(author: AuthorSkippedAction): SkippedAction {
         vesselId: VesselId(author.vesselId),
         currentVariant: VariantName(author.currentVariant),
       };
-    case 'non_transition_on_resize':
+    case 'non_idempotent_on_resize':
       return {
         reason: author.reason,
         instanceId: InstanceId(author.instanceId),

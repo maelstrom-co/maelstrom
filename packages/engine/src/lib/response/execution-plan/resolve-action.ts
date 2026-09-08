@@ -12,8 +12,9 @@ import { err, ok } from '@maelstrom-co/protocol';
 
 import { assertNever } from '../../assert-never.js';
 import type { Logger } from '../../logger.js';
-import type { ExecutionPolicy } from './policy.js';
 import type { SimulationState, ValidationLookups } from './state.js';
+import type { ExecutionTurn, TurnRefusal } from './turn.js';
+import { turnRefusesAction } from './turn.js';
 import type { RawActionExecution, SkippedAction } from './types.js';
 
 export interface ResolvedAction {
@@ -44,10 +45,7 @@ export type ResolveFailure =
       readonly vesselId: VesselId;
       readonly currentVariant: VariantName;
     }
-  | {
-      readonly kind: 'non_transition_on_resize';
-      readonly vesselId: VesselId;
-    };
+  | TurnRefusal;
 
 // Compile-time witness: every `ResolveFailure.kind` must also be a
 // `SkippedAction['reason']`. A new kind without a matching arm fails this
@@ -63,7 +61,7 @@ export type _KindsCoverReasons = _AssertTrue<
 export function resolveAction(
   item: RawActionExecution,
   lookups: ValidationLookups,
-  policy: ExecutionPolicy,
+  turn: ExecutionTurn,
   sim: SimulationState,
 ): Result<ResolvedAction, ResolveFailure> {
   const instance = lookups.instanceMap.get(item.instanceId);
@@ -108,21 +106,9 @@ export function resolveAction(
     });
   }
 
-  // The Engine never sees Vessel contents, so on a turn triggered by nothing
-  // but a resize it cannot tell a first content mutation apart from one it
-  // already ran on an earlier turn, and re-running the action would duplicate
-  // its effect. Variant transitions stay allowed — reshaping a Vessel is the
-  // point of a resize — as do instances this same response introduced, whose
-  // configuring action has no earlier turn to have run on.
-  if (
-    policy.resizeOnly &&
-    actionDef.transitionsTo === undefined &&
-    policy.preExisting.has(item.instanceId)
-  ) {
-    return err({
-      kind: 'non_transition_on_resize',
-      vesselId: instance.vesselId,
-    });
+  const refusal = turnRefusesAction(turn, instance, actionDef);
+  if (refusal) {
+    return err(refusal);
   }
 
   return ok({ instance, vessel, currentVariant, variantDef, actionDef });
@@ -222,12 +208,12 @@ export function logResolveFailure(
         `Action "${item.action}" on instance "${item.instanceId}" is a no-op transition — vessel "${failure.vesselId}" is already in variant "${failure.currentVariant}", skipping`,
       );
       return;
-    case 'non_transition_on_resize':
+    case 'non_idempotent_on_resize':
       // Same severity tier as the other LLM-sourced skips; the message names
       // the resize trigger so on-call doesn't read it as a broken action
       // definition.
       logger.warn(
-        `Action "${item.action}" on instance "${item.instanceId}" of vessel "${failure.vesselId}" is not a Variant transition and this update was triggered by chart resize alone, skipping`,
+        `Action "${item.action}" on instance "${item.instanceId}" of vessel "${failure.vesselId}" is not declared idempotent and this update was triggered by chart resize alone, skipping`,
       );
       return;
     default:
@@ -273,10 +259,10 @@ export function resolveFailureToSkipped(
         vesselId: failure.vesselId,
         currentVariant: failure.currentVariant,
       };
-    case 'non_transition_on_resize':
+    case 'non_idempotent_on_resize':
       return {
         ...base,
-        reason: 'non_transition_on_resize',
+        reason: 'non_idempotent_on_resize',
         vesselId: failure.vesselId,
       };
     default:
