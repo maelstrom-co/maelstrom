@@ -1,5 +1,12 @@
 import type { ComputedTile, Rect, VesselInstance } from '@maelstrom-co/client';
 import { computeTilingLayout, parseTilingTree } from '@maelstrom-co/client';
+import type {
+  ChartDimensions,
+  GridLayout,
+  InstanceId,
+  TilingLayout,
+} from '@maelstrom-co/protocol';
+import { getVisibleInstanceIds } from '@maelstrom-co/protocol';
 import { useStore } from '@tanstack/react-store';
 import {
   type ComponentType,
@@ -413,7 +420,16 @@ export function createChart(
         const entry = entries[0];
         if (!entry) return;
         const { width, height } = entry.contentRect;
-        setContainerRect({ x: 0, y: 0, width, height });
+        // Exact comparison, not rounded: a sub-pixel resize (800.1→800.2)
+        // still updates containerRect and re-runs tiling, it just won't
+        // change sizeKey — which rounds — so it won't refresh the motion
+        // baseline. Trades a pixel of baseline staleness for skipping a
+        // state update on truly identical measurements.
+        setContainerRect((prev) =>
+          prev.width === width && prev.height === height
+            ? prev
+            : { x: 0, y: 0, width, height },
+        );
         const columns = Math.floor(width / config.cellSizePx);
         const rows = Math.floor(height / config.cellSizePx);
         orchestrator.chartManager.setDimensions({ columns, rows });
@@ -423,51 +439,36 @@ export function createChart(
       return () => observer.disconnect();
     }, [orchestrator, config.cellSizePx]);
 
-    // Tiling layout computed once per render — reused by both the
-    // layoutKey below and the tiling render branch.
+    // Tiling layout computed once per render — reused by the tiling render
+    // branch below and by the exit-tracking instance list. Deliberately not an
+    // input to deriveMotionKeys: keying on computed pixel rects is what made
+    // every ResizeObserver tick read as a layout change.
     const tilingComputed = useMemo<readonly ComputedTile[] | null>(() => {
       if (!layout || layout.type !== 'tiling') return null;
       const tree = parseTilingTree(layout.tree);
       return computeTilingLayout(tree, containerRect, config.tilingPaddingPx);
     }, [layout, containerRect, config.tilingPaddingPx]);
 
-    // The logical layout (layoutKey) and the container pixel size (sizeKey)
-    // are kept as separate keys: useChartMotion animates only on layoutKey
-    // changes and silently re-measures on size-only changes, while exit
-    // tracking must re-snapshot on both — so it receives the combined
-    // signature. Note tiling's layoutKey is built from computed pixel rects,
-    // so a container resize changes it there by construction. Grid track
-    // counts are folded in too: a cellSizePx change can alter columns/rows
-    // with the container's own pixel size unchanged, which remaps every grid
-    // position to a new pixel rect without touching layoutKey (grid units)
-    // or the width/height above — omitting them would leave the next FLIP
-    // animating from a stale pre-resize baseline.
-    const sizeKey = `${Math.round(containerRect.width)}x${Math.round(containerRect.height)}:${chartDimensions.columns}x${chartDimensions.rows}`;
+    const { layoutKey, sizeKey } = useMemo(
+      () =>
+        deriveMotionKeys({
+          layout,
+          containerRect,
+          chartDimensions,
+          tilingPaddingPx: config.tilingPaddingPx,
+          instances,
+        }),
+      [
+        layout,
+        containerRect,
+        chartDimensions,
+        config.tilingPaddingPx,
+        instances,
+      ],
+    );
 
-    const layoutKey = useMemo(() => {
-      if (!layout || layout.type === 'grid') {
-        const positions = layout?.positions ?? [];
-        const key = positions
-          .map(
-            (p) =>
-              `${p.instanceId}:${p.position.row}:${p.position.column}:${p.size.width}:${p.size.height}`,
-          )
-          .join('|');
-        return `grid:${key}`;
-      }
-      if (layout.type === 'tiling') {
-        const tiles = tilingComputed ?? [];
-        const key = tiles
-          .map(
-            (t) =>
-              `${t.instanceId}:${t.rect.x}:${t.rect.y}:${t.rect.width}:${t.rect.height}`,
-          )
-          .join('|');
-        return `tiling:${key}`;
-      }
-      return 'unknown';
-    }, [layout, tilingComputed]);
-
+    // Exit tracking must re-snapshot on either kind of change, so it receives
+    // the combined signature rather than one key.
     const layoutSignature = `${layoutKey}@${sizeKey}`;
 
     // Instances currently rendered, keyed by instanceId — feeds exit tracking
@@ -513,7 +514,9 @@ export function createChart(
       layoutSignature,
     );
 
-    useChartMotion(containerRef, layoutKey, sizeKey, config.motion);
+    // Shorthand properties, so a transposed assignment has to be written out
+    // as a mismatched key name (`{ layoutKey: sizeKey }`) to compile.
+    useChartMotion(containerRef, { layoutKey, sizeKey }, config.motion);
 
     // ── Guard: duplicate Chart ────────────────────────────────────────────────
 
@@ -712,4 +715,77 @@ export function createChart(
       </div>
     );
   });
+}
+
+// Every input that can move a rendered rect, named in one place. Dependency
+// arrays catch neither obligation this shape exists for: coverage — an input
+// that moves a rect but reaches neither key leaves the FLIP baseline stale —
+// and routing — a structural input belongs in layoutKey, which animates, and a
+// pixel-remapping one in sizeKey, which silently re-measures.
+interface ChartGeometryInputs {
+  readonly layout: GridLayout | TilingLayout | null;
+  readonly containerRect: Rect;
+  readonly chartDimensions: ChartDimensions;
+  readonly tilingPaddingPx: number;
+  readonly instances: ReadonlyMap<InstanceId, VesselInstance>;
+}
+
+// Destructured in the body rather than the parameter list on purpose:
+// `noUnusedLocals` is on and `noUnusedParameters` is not, so once an input is
+// destructured here, leaving it unused by both keys fails to compile — the
+// compiler doesn't catch a property added to ChartGeometryInputs and never
+// destructured.
+//
+// layoutKey stays structural in both modes — grid cell units, tiling tree
+// tokens. A pixel-derived layoutKey turns every ResizeObserver tick into a
+// layout change, and because FLIP measures through the in-flight transform,
+// each tick's scale then compounds the previous one's. Everything that remaps
+// rects to new pixels while leaving logical units and tree tokens alone —
+// container size, grid track counts, tiling padding — rides in sizeKey
+// instead, so a re-measure happens without an animation.
+//
+// Container dimensions are observed through Math.round while tile positions
+// reach the DOM unrounded, so a sub-pixel resize can move a tile without
+// moving sizeKey. That trades up to a pixel of baseline precision for far
+// fewer re-measures across a continuous resize or window drag.
+function deriveMotionKeys(inputs: ChartGeometryInputs): {
+  layoutKey: string;
+  sizeKey: string;
+} {
+  const { layout, containerRect, chartDimensions, tilingPaddingPx, instances } =
+    inputs;
+
+  // Which visible ids actually resolve to a mounted wrapper decides whether an
+  // instance is in the measured map at all, and `instances` is independent of
+  // the tree, so two responses can share a tree and differ here. It rides in
+  // sizeKey rather than layoutKey: a silent re-measure is the right response
+  // to a set the structural key cannot see, where animating would not be.
+  const resolvedInstanceIds = Array.from(getVisibleInstanceIds(layout))
+    .filter((id) => instances.has(id))
+    .sort();
+
+  return {
+    layoutKey: deriveLayoutKey(layout),
+    sizeKey: `${Math.round(containerRect.width)}x${Math.round(containerRect.height)}:${chartDimensions.columns}x${chartDimensions.rows}:${tilingPaddingPx}:${JSON.stringify(resolvedInstanceIds)}`,
+  };
+}
+
+// JSON.stringify rather than a separator join: an InstanceId is any non-empty
+// string, so `['V', 'ID:a', 'ID:b']` and `['V', 'ID:a|ID:b']` would serialize
+// alike under `join('|')` and a real layout change would read as a no-op —
+// no FLIP, and no exit ghost for anything the change dropped.
+function deriveLayoutKey(layout: GridLayout | TilingLayout | null): string {
+  if (!layout || layout.type === 'grid') {
+    const key = (layout?.positions ?? [])
+      .map(
+        (p) =>
+          `${p.instanceId}:${p.position.row}:${p.position.column}:${p.size.width}:${p.size.height}`,
+      )
+      .join('|');
+    return `grid:${key}`;
+  }
+  if (layout.type === 'tiling') {
+    return `tiling:${JSON.stringify(layout.tree)}`;
+  }
+  return 'unknown';
 }

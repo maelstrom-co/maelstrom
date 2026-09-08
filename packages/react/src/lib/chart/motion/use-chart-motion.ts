@@ -11,18 +11,19 @@ import { measureInstances } from './measure.js';
 import type { ResolvedChartMotionConfig } from './motion-config.js';
 import { motionSuppressed } from './motion-config.js';
 
-// `layoutKey` (logical layout: type + per-instance placement) and `sizeKey`
-// (container pixel WxH) are deliberately separate params: on a size-only
-// change the browser has already reflowed `1fr` tracks instantly, so the
-// rect map must be re-measured WITHOUT animating — FLIPping there
-// rubber-bands the whole grid against the instant reflow during window
-// drags. Only a layoutKey change animates.
+// The two keys are separate because they drive different responses.
+// `layoutKey` is the logical layout — type plus per-instance placement — and a
+// change to it animates. `sizeKey` is any input that moves rects without
+// changing the logical layout; a change to it re-measures WITHOUT animating,
+// because the browser has already reflowed instantly and FLIPping there
+// rubber-bands the whole chart against that reflow during window drags.
 export function useChartMotion(
   containerRef: RefObject<HTMLElement | null>,
-  layoutKey: string,
-  sizeKey: string,
+  keys: { layoutKey: string; sizeKey: string },
   motion: ResolvedChartMotionConfig,
 ): void {
+  const { layoutKey, sizeKey } = keys;
+
   const prevRectsRef = useRef<Map<string, MotionRect>>(new Map());
   const prevLayoutKeyRef = useRef<string | null>(null);
   // Tracks "has a non-empty board ever been measured", distinct from

@@ -13,6 +13,7 @@ import type {
   GridLayout,
   MaelstromResponse,
   TilingLayout,
+  TilingNode,
 } from '@maelstrom-co/protocol';
 import {
   InstanceId,
@@ -761,20 +762,7 @@ describe('m.Chart — motion', () => {
       const rect = this.hasAttribute('data-instance-id')
         ? gridCellRect(style.gridColumn, style.gridRow)
         : null;
-      const r = rect ?? { x: 0, y: 0, width: 0, height: 0 };
-      return {
-        x: r.x,
-        y: r.y,
-        width: r.width,
-        height: r.height,
-        top: r.y,
-        left: r.x,
-        right: r.x + r.width,
-        bottom: r.y + r.height,
-        toJSON() {
-          return {};
-        },
-      } as DOMRect;
+      return toDomRect(rect ?? { x: 0, y: 0, width: 0, height: 0 });
     } as never;
   });
 
@@ -802,6 +790,31 @@ describe('m.Chart — motion', () => {
     };
   }
 
+  function toDomRect(r: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }): DOMRect {
+    return {
+      x: r.x,
+      y: r.y,
+      width: r.width,
+      height: r.height,
+      top: r.y,
+      left: r.x,
+      right: r.x + r.width,
+      bottom: r.y + r.height,
+      toJSON() {
+        return {};
+      },
+    };
+  }
+
+  function px(value: string): number {
+    return Number.parseFloat(value) || 0;
+  }
+
   // Recursive children-walk instead of an attribute-selector querySelector,
   // which throws under this repo's bun+happy-dom combo.
   function findByInstanceId(root: Element, id: string): HTMLElement | null {
@@ -814,10 +827,13 @@ describe('m.Chart — motion', () => {
     return null;
   }
 
-  function registerLayout(ids: string[]): TilingLayout {
+  function registerLayout(
+    ids: string[],
+    tree: TilingNode[] = [],
+  ): TilingLayout {
     return {
       type: 'tiling',
-      tree: [],
+      tree,
       instances: ids.map((id) => ({
         instanceId: InstanceId(id),
         vesselId: VesselId('orders'),
@@ -861,6 +877,32 @@ describe('m.Chart — motion', () => {
         };
       },
     });
+  }
+
+  // The block-level rect stub above is grid-only, so every tiling wrapper
+  // measures as a zero rect under it and computeFlipDelta's zero-size guard
+  // discards the animation before it is ever recorded — a tiling FLIP
+  // assertion cannot fail under it. This override reads the absolute-position
+  // inline styles the tiling branch writes instead, and is installed per test
+  // rather than widened into the block stub.
+  function installTilingRectStub(): () => void {
+    const baseRect = window.Element.prototype.getBoundingClientRect;
+    window.Element.prototype.getBoundingClientRect = function (this: Element) {
+      const style = (this as HTMLElement).style;
+      return toDomRect(
+        this.hasAttribute('data-instance-id') && style.position === 'absolute'
+          ? {
+              x: px(style.left),
+              y: px(style.top),
+              width: px(style.width),
+              height: px(style.height),
+            }
+          : { x: 0, y: 0, width: 0, height: 0 },
+      );
+    } as typeof window.Element.prototype.getBoundingClientRect;
+    return () => {
+      window.Element.prototype.getBoundingClientRect = baseRect;
+    };
   }
 
   it('(a) layout change triggers FLIP animate calls on moved instance wrappers', async () => {
@@ -1104,6 +1146,191 @@ describe('m.Chart — motion', () => {
       expect(aCalls[0]!.keyframes[0]!.transform).not.toContain('scale(0.5');
     } finally {
       window.Element.prototype.getBoundingClientRect = baseRect;
+    }
+  });
+
+  it('a container resize alone animates nothing in tiling mode', async () => {
+    const restoreRect = installTilingRectStub();
+    try {
+      const entry = vessel(testVessel, () => <div>content</div>);
+      const m = createMaelstrom({ vessels: [entry] });
+      // The tree is unchanged across the resize sequence, so the container
+      // size is the only input that moves during it. The second entry drives
+      // the tree change the re-baseline assertion at the end measures from.
+      const connector = connectorSeq([
+        registerLayout(['a', 'b'], ['V', 'ID:a', 'ID:b']),
+        registerLayout(['a', 'b'], ['H', 'ID:a', 'ID:b']),
+      ]);
+
+      let processIntent: ((intent: string) => Promise<void>) | undefined;
+      function Reader() {
+        processIntent = m.useMaelstrom().processIntent;
+        return null;
+      }
+
+      await act(async () => {
+        render(
+          <m.Provider connector={connector}>
+            <m.Chart />
+            <Reader />
+          </m.Provider>,
+        );
+      });
+
+      await act(async () => {
+        triggerResize(800, 600);
+      });
+      await act(async () => {
+        await processIntent!('layout');
+      });
+
+      animateCalls = [];
+      await act(async () => {
+        triggerResize(1000, 600);
+      });
+      await act(async () => {
+        triggerResize(1200, 600);
+      });
+      await act(async () => {
+        triggerResize(1400, 600);
+      });
+
+      expect(animateCalls).toHaveLength(0);
+
+      // Zero animate calls alone is also what an empty board or a stub that
+      // stopped matching the wrapper would produce, so drive a real tree
+      // change and check what it FLIPs from. At 1400px wide, 'b' sits at
+      // x=700+padding/2 under the V split and at x=padding/2, y=300+padding/2
+      // under the H one, so a post-resize baseline gives translate(700px,
+      // -300px). A baseline stranded at the original 800px would put 'b' at
+      // x=400+padding/2 and yield translate(400px, ...) instead.
+      await act(async () => {
+        await processIntent!('layout2');
+      });
+
+      const bCalls = animateCalls.filter((c) => c.id === 'b');
+      expect(bCalls).toHaveLength(1);
+      const transform = String(bCalls[0]!.keyframes[0]!.transform);
+      expect(transform).toContain('translate(700px, -300px)');
+      expect(transform).not.toContain('translate(400px');
+    } finally {
+      restoreRect();
+    }
+  });
+
+  it('a tiling tree change still FLIPs the instances it moves', async () => {
+    const restoreRect = installTilingRectStub();
+    try {
+      const entry = vessel(testVessel, () => <div>content</div>);
+      const m = createMaelstrom({ vessels: [entry] });
+      const connector = connectorSeq([
+        registerLayout(['a', 'b'], ['V', 'ID:a', 'ID:b']),
+        registerLayout(['a', 'b'], ['H', 'ID:a', 'ID:b']),
+      ]);
+
+      let processIntent: ((intent: string) => Promise<void>) | undefined;
+      function Reader() {
+        processIntent = m.useMaelstrom().processIntent;
+        return null;
+      }
+
+      await act(async () => {
+        render(
+          <m.Provider connector={connector}>
+            <m.Chart />
+            <Reader />
+          </m.Provider>,
+        );
+      });
+
+      await act(async () => {
+        triggerResize(800, 600);
+      });
+      await act(async () => {
+        await processIntent!('layout1');
+      });
+
+      animateCalls = [];
+      await act(async () => {
+        await processIntent!('layout2');
+      });
+
+      const bCalls = animateCalls.filter((c) => c.id === 'b');
+      expect(bCalls.length).toBeGreaterThan(0);
+      const frame = bCalls[0]!.keyframes[0]!;
+      expect(frame.transformOrigin).toBe('top left');
+      expect(String(frame.transform)).toContain('translate');
+      expect(frame.opacity).toBeUndefined();
+    } finally {
+      restoreRect();
+    }
+  });
+
+  // The tiling analogue of the cellSizePx case above: padding insets every
+  // leaf by half its value, so a padding change moves every tile while the
+  // tree — and therefore layoutKey — is untouched. It reaches motion only
+  // through sizeKey, and only a re-measure, never an animation.
+  it('a tilingPaddingPx change re-baselines rects with no container resize', async () => {
+    const restoreRect = installTilingRectStub();
+    try {
+      const entry = vessel(testVessel, () => <div>content</div>);
+      const m = createMaelstrom({ vessels: [entry] });
+      const connector = connectorSeq([
+        registerLayout(['a', 'b'], ['V', 'ID:a', 'ID:b']),
+        registerLayout(['a', 'b'], ['H', 'ID:a', 'ID:b']),
+      ]);
+
+      let processIntent: ((intent: string) => Promise<void>) | undefined;
+      function Reader() {
+        processIntent = m.useMaelstrom().processIntent;
+        return null;
+      }
+
+      let rerender!: (ui: React.ReactElement) => void;
+      await act(async () => {
+        ({ rerender } = render(
+          <m.Provider connector={connector} tilingPaddingPx={8}>
+            <m.Chart />
+            <Reader />
+          </m.Provider>,
+        ));
+      });
+
+      await act(async () => {
+        triggerResize(800, 600);
+      });
+      // 800x600 @ padding 8: under the V split 'b' baselines at x=404, y=4.
+      await act(async () => {
+        await processIntent!('layout1');
+      });
+
+      // Same container pixels and same tree, but every tile shifts by the
+      // extra inset: 'b' moves to x=420, y=20.
+      animateCalls = [];
+      await act(async () => {
+        rerender(
+          <m.Provider connector={connector} tilingPaddingPx={40}>
+            <m.Chart />
+            <Reader />
+          </m.Provider>,
+        );
+      });
+      expect(animateCalls).toHaveLength(0);
+
+      await act(async () => {
+        await processIntent!('layout2');
+      });
+
+      const bCalls = animateCalls.filter((c) => c.id === 'b');
+      expect(bCalls).toHaveLength(1);
+      const transform = String(bCalls[0]!.keyframes[0]!.transform);
+      // Under the H split 'b' lands at x=20, y=320. A post-padding baseline
+      // (x=420, y=20) gives translate(400px, -300px); a baseline stranded at
+      // the padding-8 rects (x=404, y=4) would give translate(384px, -316px).
+      expect(transform).toContain('translate(400px, -300px)');
+      expect(transform).not.toContain('translate(384px');
+    } finally {
+      restoreRect();
     }
   });
 
