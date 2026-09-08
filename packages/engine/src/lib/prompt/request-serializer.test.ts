@@ -944,6 +944,82 @@ describe('buildUpdateTriggersSection', () => {
     const output = buildUpdateTriggersSection([]);
     expect(output).toContain('No specific trigger (system check)');
   });
+
+  test('appends the resize-only instruction after the resize line', () => {
+    const output = buildUpdateTriggersSection([
+      {
+        type: 'chart_resize',
+        previous: { columns: 8, rows: 6 },
+        current: { columns: 12, rows: 8 },
+      },
+    ]);
+    expect(output).toContain('Chart resized: 8×6 → 12×8');
+    expect(output).toContain('Return an empty executionPlan');
+    expect(output).toContain(
+      'not evidence an earlier action failed and is not a reason to repeat it',
+    );
+    expect(output.indexOf('Return an empty executionPlan')).toBeGreaterThan(
+      output.indexOf('Chart resized: 8×6 → 12×8'),
+    );
+  });
+
+  test('emits the resize-only instruction once for a batch of resizes', () => {
+    const output = buildUpdateTriggersSection([
+      {
+        type: 'chart_resize',
+        previous: { columns: 8, rows: 6 },
+        current: { columns: 10, rows: 6 },
+      },
+      {
+        type: 'chart_resize',
+        previous: { columns: 10, rows: 6 },
+        current: { columns: 12, rows: 8 },
+      },
+    ]);
+    expect(output).toContain('Chart resized: 8×6 → 10×6');
+    expect(output).toContain('Chart resized: 10×6 → 12×8');
+    expect(output.split('Return an empty executionPlan')).toHaveLength(2);
+  });
+
+  test('omits the resize-only instruction when a user intent is batched in', () => {
+    const output = buildUpdateTriggersSection([
+      {
+        type: 'chart_resize',
+        previous: { columns: 8, rows: 6 },
+        current: { columns: 12, rows: 8 },
+      },
+      { type: 'user_intent', intent: 'Add a task list' },
+    ]);
+    expect(output).toContain('Chart resized: 8×6 → 12×8');
+    expect(output).toContain('User said: "Add a task list"');
+    expect(output).not.toContain('Return an empty executionPlan');
+  });
+
+  test('omits the resize-only instruction when a vessel mutation is batched in', () => {
+    const output = buildUpdateTriggersSection([
+      {
+        type: 'chart_resize',
+        previous: { columns: 8, rows: 6 },
+        current: { columns: 12, rows: 8 },
+      },
+      {
+        type: 'vessel_mutation',
+        instanceId: InstanceId('calendar-main'),
+        changes: 'date range updated',
+      },
+    ]);
+    expect(output).toContain('Chart resized: 8×6 → 12×8');
+    expect(output).toContain(
+      'Vessel "calendar-main" was modified: date range updated',
+    );
+    expect(output).not.toContain('Return an empty executionPlan');
+  });
+
+  test('omits the resize-only instruction when there are no triggers', () => {
+    const output = buildUpdateTriggersSection([]);
+    expect(output).toContain('No specific trigger (system check)');
+    expect(output).not.toContain('Return an empty executionPlan');
+  });
 });
 
 // ---------------------------------------------------------------------------

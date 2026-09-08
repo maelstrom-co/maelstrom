@@ -10,11 +10,17 @@ import { getVisibleInstanceIds } from '@maelstrom-co/protocol';
 import type { ActionParameterEnumSnapshot } from '../action-parameter-enum.js';
 import { buildActionParameterEnumSnapshot } from '../action-parameter-enum.js';
 import type { Logger } from '../logger.js';
+import { isResizeOnlyBatch } from '../update-reasons.js';
 import { computeAvailableIslands, serializeIslands } from './islands.js';
 import type { PromptSection } from './sections.js';
 import { UserSection } from './sections.js';
 
 const CHART_STATE_HEADING: readonly string[] = ['## Current Chart State', ''];
+
+const RESIZE_ONLY_INSTRUCTION: readonly string[] = [
+  "- This turn's only trigger is the resize. Return an empty executionPlan. A resize changes how much space Vessels get, never what they contain; the one exception is a variant transition (an action marked with →) that the new size calls for",
+  '- Actions from your earlier turns have already run and their effects persist. The chart state never lists Vessel contents, so not seeing content there is not evidence an earlier action failed and is not a reason to repeat it',
+];
 
 export function buildDefaultUserSections(
   request: ChartRequest,
@@ -412,6 +418,12 @@ export function buildUpdateTriggersSection(
         );
         break;
     }
+  }
+
+  // Emitted here rather than from the static system prompt so the rule sits
+  // adjacent to the trigger it answers, as the last thing the model reads.
+  if (isResizeOnlyBatch(reasons)) {
+    lines.push(...RESIZE_ONLY_INSTRUCTION);
   }
 
   return lines.join('\n');

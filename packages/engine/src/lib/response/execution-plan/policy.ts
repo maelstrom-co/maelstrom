@@ -1,4 +1,5 @@
 import type { ChartRequest, InstanceId } from '@maelstrom-co/protocol';
+import { isResizeOnlyBatch } from '../../update-reasons.js';
 
 export interface ExecutionPolicy {
   readonly resizeOnly: boolean;
@@ -7,15 +8,10 @@ export interface ExecutionPolicy {
 
 // `preExisting` is read off the request, never off the healed layout: an
 // instance the LLM introduces in the same response has no prior state, so the
-// action that configures it must stay outside the resize guard. An empty
-// reason list is deliberately not `resizeOnly` — `every` alone would call it
-// one and guard a turn nothing triggered.
+// action that configures it must stay outside the resize guard.
 export function createExecutionPolicy(request: ChartRequest): ExecutionPolicy {
-  const reasons = request.context.updateReasons;
   return {
-    resizeOnly:
-      reasons.length > 0 &&
-      reasons.every((reason) => reason.type === 'chart_resize'),
+    resizeOnly: isResizeOnlyBatch(request.context.updateReasons),
     preExisting: new Set(
       request.instances.map((instance) => instance.instanceId),
     ),
