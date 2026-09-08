@@ -1,5 +1,5 @@
 /**
- * MAE-655 reproduction harness.
+ * Reproduction harness for content mutations emitted on resize-only turns.
  *
  * The defect is a model judgment, not a code path: on a `chart_resize`-only
  * turn the Engine sometimes re-emits an Action it already ran, duplicating its
@@ -11,18 +11,16 @@
  * history records a resize-triggered turn), then sends a final resize-only
  * request and records what the model proposed.
  *
- * `executionPlan.length` alone is not a defect signal once the Engine grows a
- * guard that drops a re-emitted action into `diagnostics.skippedActions`: a
+ * `executionPlan.length` alone is not a defect signal now that the Engine's
+ * guard drops a re-emitted action into `diagnostics.skippedActions`: a
  * guard-suppressed hit would read as 0 for the wrong reason. The Engine
- * strips `diagnostics` before it crosses the public `handle()` boundary
- * (packages/engine/src/lib/engine.ts:334, `const { diagnostics, ...response }
- * = retried.value`), so this harness injects a custom `Logger` and reads the
- * scalar `skippedActions` count off the "Response healed" log line
- * (packages/engine/src/lib/engine.ts:340-356) instead. Per trial this harness
- * records:
+ * strips `diagnostics` before `handle()` returns and logs a scalar summary on
+ * the "Response healed" line (packages/engine/src/lib/engine.ts), so this
+ * harness injects a custom `Logger` and reads the scalar `skippedActions`
+ * count off that log line instead. Per trial this harness records:
  *   - `plan`    — executionPlan.length (actions that survived to the client)
- *   - `skipped` — skippedActions count from the "Response healed" log (0 if
- *                 the line never fires, e.g. no guard yet)
+ *   - `skipped` — skippedActions count from the "Response healed" log (0 when
+ *                 the line never fires, which is also the healthy case)
  *   - `emitted` — plan + skipped, i.e. what the model actually proposed
  * The headline rate is `emitted > 0` over N. `plan > 0` and `skipped > 0` are
  * reported separately: together they distinguish "model emitted nothing"
@@ -30,14 +28,9 @@
  *
  * One LLM call per trial.
  *
- * Run (legacy positional form, preserved exactly):
+ * Run (named flags, required to reach the sweep knobs):
  *   OPENAI_API_KEY=sk-... bun --conditions=@maelstrom-co/source \
- *     run scripts/eval-mae655-resize-replay.ts [trials] [priorMessage] [priorIntent]
- *
- * Run (named flags — required to reach the new sweep knobs; any `--flag`
- * argument switches parsing into this mode and positional args are ignored):
- *   OPENAI_API_KEY=sk-... bun --conditions=@maelstrom-co/source \
- *     run scripts/eval-mae655-resize-replay.ts \
+ *     run scripts/eval-resize-replay.ts \
  *     --trials=30 --prior-message='Added "Buy milk" to your task list.' \
  *     --prior-intent='add a task to buy milk' --resize-to=7x11 --intervening=0
  *
@@ -45,29 +38,43 @@
  * and each provider carries its own default model that `ENGINE_MODEL`
  * overrides):
  *   GOOGLE_API_KEY=... bun --conditions=@maelstrom-co/source \
- *     run scripts/eval-mae655-resize-replay.ts --provider=gemini --trials=30
+ *     run scripts/eval-resize-replay.ts --provider=gemini --trials=30
  *
  * `--conditions=@maelstrom-co/source` is required: without it
  * `@maelstrom-co/engine` resolves to a `dist/` that does not exist in an
  * unbuilt worktree.
  *
- * SIGINT/SIGTERM print the partial summary over whatever trials completed
- * and exit; a full run's summary line is repeated at the end unchanged.
+ * SIGINT/SIGTERM print a PARTIAL summary over whatever trials completed and
+ * exit; an uninterrupted run prints the same summary format once at the end,
+ * labeled FINAL.
  *
- * Exits non-zero when any trial reproduces the defect (`emitted > 0`).
+ * Exits non-zero when any trial reproduces the defect (`emitted > 0`), when
+ * any trial errored, or when no trial completed.
  */
 import {
   createEngine,
   createInMemoryStore,
   type Logger,
 } from '@maelstrom-co/engine';
-import { defineVessel } from '@maelstrom-co/protocol';
 import type { AnyTextAdapter } from '@tanstack/ai';
 import { createGeminiChat, type GeminiTextModel } from '@tanstack/ai-gemini';
 import { createOpenaiChat, type OpenAIChatModel } from '@tanstack/ai-openai';
+import { calendarVessel } from '../src/vessels/calendar.vessel.def';
+import { journalVessel } from '../src/vessels/journal.vessel.def';
+import { mapVessel } from '../src/vessels/map.vessel.def';
+import { tasksVessel } from '../src/vessels/tasks.vessel.def';
+import { weatherVessel } from '../src/vessels/weather.vessel.def';
 
+/**
+ * The reported hit rates were measured on `gpt-4o-mini` (openai) and
+ * `gemini-3.1-flash-lite-preview` (gemini). These are deliberately weak
+ * models: stronger models rarely emit resize-only mutations, so they mask the
+ * defect and produce a green run that proves nothing. The demo's own
+ * shipping default is `gpt-5.6-luna` (see
+ * apps/demo/src/server/engine-model.ts); the mismatch is intentional.
+ */
 const DEFAULT_MODELS: { openai: OpenAIChatModel; gemini: GeminiTextModel } = {
-  openai: 'gpt-5.6-luna',
+  openai: 'gpt-4o-mini',
   gemini: 'gemini-3.1-flash-lite-preview',
 };
 
@@ -76,477 +83,7 @@ const config = parseArgs(process.argv.slice(2));
 const apiKey = requireApiKey(config.provider);
 
 const model: string =
-  process.env.ENGINE_MODEL?.trim() ?? DEFAULT_MODELS[config.provider];
-
-/**
- * Mirrors `apps/demo/src/vessels/tasks.vessel.ts`,
- * `apps/demo/src/vessels/calendar.vessel.ts`,
- * `apps/demo/src/vessels/weather.vessel.ts`,
- * `apps/demo/src/vessels/journal.vessel.ts`, and
- * `apps/demo/src/vessels/map.vessel.ts`. Redeclared rather than imported
- * because those modules pull in `@maelstrom-co/react` and `.tsx` skeletons,
- * neither of which belongs in a headless script. Only the fields the Engine
- * is shown matter here: id, description, variants, and the action
- * signatures. Keep in sync if any real Vessel's actions change.
- */
-const tasksVessel = defineVessel({
-  id: 'tasks',
-  name: 'Tasks',
-  description:
-    'Task list with checkboxes, subtasks, and progress tracking. Supports adding, removing, checking, and nesting tasks.',
-  defaultVariant: 'list',
-  variants: {
-    list: {
-      props: {},
-      minSize: { width: 3, height: 3 },
-      actions: [
-        {
-          name: 'addTask',
-          description: 'Add a new task to the list',
-          parameters: [
-            { name: 'title', type: 'string', description: 'Task title' },
-          ],
-        },
-        {
-          name: 'removeTask',
-          description: 'Remove a task by title',
-          parameters: [
-            {
-              name: 'title',
-              type: 'string',
-              description: 'Title of the task to remove',
-            },
-          ],
-        },
-        {
-          name: 'checkTask',
-          description: 'Mark a task as complete',
-          parameters: [
-            {
-              name: 'title',
-              type: 'string',
-              description: 'Title of the task to check',
-            },
-          ],
-        },
-        {
-          name: 'uncheckTask',
-          description: 'Mark a task as incomplete',
-          parameters: [
-            {
-              name: 'title',
-              type: 'string',
-              description: 'Title of the task to uncheck',
-            },
-          ],
-        },
-        {
-          name: 'addSubtask',
-          description: 'Add a subtask under an existing task',
-          parameters: [
-            {
-              name: 'taskTitle',
-              type: 'string',
-              description: 'Title of the parent task',
-            },
-            {
-              name: 'subtaskTitle',
-              type: 'string',
-              description: 'Title of the subtask to add',
-            },
-          ],
-        },
-      ],
-    },
-  },
-});
-
-const CALENDAR_EVENT_ACTIONS = [
-  {
-    name: 'addEvent',
-    description: "Add an event to today's schedule",
-    parameters: [
-      { name: 'title', type: 'string', description: 'Event title' },
-      {
-        name: 'time',
-        type: 'string',
-        description: 'Time like 9:00 or 14:30',
-      },
-    ],
-  },
-  {
-    name: 'removeEvent',
-    description: "Remove an event from today's schedule by title",
-    parameters: [
-      {
-        name: 'title',
-        type: 'string',
-        description: 'Title of the event to remove',
-      },
-    ],
-  },
-  {
-    name: 'moveEvent',
-    description: "Reschedule an event on today's schedule to a new time",
-    parameters: [
-      {
-        name: 'title',
-        type: 'string',
-        description: 'Title of the event to move',
-      },
-      {
-        name: 'time',
-        type: 'string',
-        description: 'New time like 9:00 or 14:30',
-      },
-    ],
-  },
-] as const;
-
-const calendarVessel = defineVessel({
-  id: 'calendar',
-  name: 'Calendar',
-  description:
-    'Calendar widget for viewing dates and scheduling. Supports month view, week view, and day view with hourly time blocks. Every view also supports addEvent, removeEvent, and moveEvent for today\'s schedule — use these whenever the user adds, cancels, or reschedules something for today. Today\'s day view starts with a 7:30 AM "Gym" and a 10:00 AM "Design review — Studio Vortex HQ". When the user asks about getting somewhere or being there by a time, pair with the map vessel\'s showRoute action, passing the event\'s location (e.g. "Studio Vortex HQ") as the destination.',
-  defaultVariant: 'month',
-  variants: {
-    month: {
-      props: {},
-      minSize: { width: 4, height: 4 },
-      actions: [
-        {
-          name: 'showWeek',
-          description: 'Switch to week view for event timeline',
-          transitionsTo: 'week',
-        },
-        {
-          name: 'showDay',
-          description: 'Switch to day view for hourly schedule',
-          transitionsTo: 'day',
-        },
-        ...CALENDAR_EVENT_ACTIONS.map((action) => ({
-          ...action,
-          transitionsTo: 'day' as const,
-        })),
-      ],
-    },
-    week: {
-      props: {},
-      minSize: { width: 6, height: 3 },
-      actions: [
-        {
-          name: 'showMonth',
-          description: 'Switch back to month view',
-          transitionsTo: 'month',
-        },
-        {
-          name: 'showDay',
-          description: 'Switch to day view',
-          transitionsTo: 'day',
-        },
-        ...CALENDAR_EVENT_ACTIONS,
-      ],
-    },
-    day: {
-      props: {},
-      minSize: { width: 4, height: 4 },
-      actions: [
-        {
-          name: 'showMonth',
-          description: 'Switch to month view',
-          transitionsTo: 'month',
-        },
-        {
-          name: 'showWeek',
-          description: 'Switch to week view',
-          transitionsTo: 'week',
-        },
-        ...CALENDAR_EVENT_ACTIONS,
-      ],
-    },
-  },
-});
-
-const WEATHER_SET_LOCATION_ACTION = {
-  name: 'setLocation',
-  description:
-    'Try to load weather for a city or place without assuming the request succeeds',
-  parameters: [
-    {
-      name: 'location',
-      type: 'string',
-      description: 'City or place to request weather for',
-    },
-  ],
-} as const;
-
-const weatherVessel = defineVessel({
-  id: 'weather',
-  name: 'Weather',
-  description:
-    'Weather widget showing current conditions or extended forecast. Can display current weather, hourly forecast, or weekly forecast.',
-  defaultVariant: 'current',
-  variants: {
-    current: {
-      props: {},
-      minSize: { width: 6, height: 4 },
-      actions: [
-        WEATHER_SET_LOCATION_ACTION,
-        {
-          name: 'showHourly',
-          description: 'Show hourly forecast for today',
-          transitionsTo: 'hourly',
-        },
-        {
-          name: 'showWeekly',
-          description: 'Show weekly forecast',
-          transitionsTo: 'weekly',
-        },
-      ],
-    },
-    hourly: {
-      props: {},
-      minSize: { width: 9, height: 4 },
-      actions: [
-        WEATHER_SET_LOCATION_ACTION,
-        {
-          name: 'showCurrent',
-          description: 'Show current conditions',
-          transitionsTo: 'current',
-        },
-        {
-          name: 'showWeekly',
-          description: 'Show weekly forecast',
-          transitionsTo: 'weekly',
-        },
-      ],
-    },
-    weekly: {
-      props: {},
-      minSize: { width: 8, height: 3 },
-      actions: [
-        WEATHER_SET_LOCATION_ACTION,
-        {
-          name: 'showCurrent',
-          description: 'Show current conditions',
-          transitionsTo: 'current',
-        },
-        {
-          name: 'showHourly',
-          description: 'Show hourly forecast',
-          transitionsTo: 'hourly',
-        },
-      ],
-    },
-  },
-});
-
-const journalVessel = defineVessel({
-  id: 'journal',
-  name: 'Journal',
-  description:
-    'Personal journal for writing entries. List view shows recent entries, entry view enables scribe mode where the AI can dictate content.',
-  defaultVariant: 'list',
-  variants: {
-    list: {
-      props: {},
-      minSize: { width: 3, height: 3 },
-      actions: [
-        {
-          name: 'createEntry',
-          description: 'Create a new journal entry and open it for writing',
-          parameters: [
-            {
-              name: 'title',
-              type: 'string',
-              description: 'Title of the entry',
-            },
-          ],
-          transitionsTo: 'entry',
-        },
-        {
-          name: 'openEntry',
-          description:
-            'Open an existing journal entry by title so it becomes visible in all entry-variant tiles. Matches case-insensitively; falls back to substring match if no exact title matches.',
-          parameters: [
-            {
-              name: 'title',
-              type: 'string',
-              description:
-                'Title of the entry to open. Matched case-insensitively, with substring fallback.',
-            },
-          ],
-          transitionsTo: 'entry',
-        },
-      ],
-    },
-    entry: {
-      props: {},
-      minSize: { width: 4, height: 4 },
-      actions: [
-        {
-          name: 'createEntry',
-          description: 'Create a new journal entry and open it for writing',
-          parameters: [
-            {
-              name: 'title',
-              type: 'string',
-              description: 'Title of the entry',
-            },
-          ],
-        },
-        {
-          name: 'openEntry',
-          description:
-            'Open an existing journal entry by title so it becomes visible in all entry-variant tiles. Matches case-insensitively; falls back to substring match if no exact title matches.',
-          parameters: [
-            {
-              name: 'title',
-              type: 'string',
-              description:
-                'Title of the entry to open. Matched case-insensitively, with substring fallback.',
-            },
-          ],
-        },
-        {
-          name: 'writeContent',
-          description:
-            'Append text to the current journal entry. Works like a scribe taking dictation.',
-          parameters: [
-            {
-              name: 'text',
-              type: 'string',
-              description: 'Text to append to the entry',
-            },
-          ],
-        },
-        {
-          name: 'backToList',
-          description: 'Return to the journal entries list',
-          transitionsTo: 'list',
-        },
-      ],
-    },
-  },
-});
-
-/**
- * Mirrors `DEMO_LOCATIONS` (apps/demo/src/lib/locations.ts), inlined as
- * plain names because the harness only needs the `enum` values
- * `withActionOptions` (apps/demo/src/lib/vessel-options.ts) attaches to
- * `showRoute.destination` and `focusLocation.name` in production.
- */
-const MAP_LOCATION_NAMES: string[] = [
-  'Home',
-  'Studio Vortex HQ',
-  'Mission High Fitness',
-  'Ritual Coffee',
-];
-
-const mapVessel = defineVessel({
-  id: 'map',
-  name: 'Map',
-  description:
-    'City map showing saved places and routes. Use this whenever the user asks about getting somewhere, travel time, or directions — including "I need to be at X by Y", "how do I get to X", "when should I leave", or any time an appointment\'s location matters for planning the trip there. Overview shows all locations; route shows directions and travel time to a destination; compact shows a single place card.',
-  defaultVariant: 'overview',
-  variants: {
-    overview: {
-      props: {},
-      minSize: { width: 4, height: 4 },
-      actions: [
-        {
-          name: 'showRoute',
-          description:
-            'Show driving directions and travel time to a destination',
-          parameters: [
-            {
-              name: 'destination',
-              type: 'string',
-              description: 'Name of the destination location',
-              enum: MAP_LOCATION_NAMES,
-            },
-          ],
-          transitionsTo: 'route',
-        },
-        {
-          name: 'focusLocation',
-          description: 'Show a single saved place as a compact card',
-          parameters: [
-            {
-              name: 'name',
-              type: 'string',
-              description: 'Name of the location to focus on',
-              enum: MAP_LOCATION_NAMES,
-            },
-          ],
-          transitionsTo: 'compact',
-        },
-      ],
-    },
-    route: {
-      props: {},
-      minSize: { width: 6, height: 4 },
-      actions: [
-        {
-          name: 'showOverview',
-          description: 'Show all saved locations',
-          transitionsTo: 'overview',
-        },
-        {
-          name: 'showRoute',
-          description:
-            'Show driving directions and travel time to a destination',
-          parameters: [
-            {
-              name: 'destination',
-              type: 'string',
-              description: 'Name of the destination location',
-              enum: MAP_LOCATION_NAMES,
-            },
-          ],
-        },
-        {
-          name: 'focusLocation',
-          description: 'Show a single saved place as a compact card',
-          parameters: [
-            {
-              name: 'name',
-              type: 'string',
-              description: 'Name of the location to focus on',
-              enum: MAP_LOCATION_NAMES,
-            },
-          ],
-          transitionsTo: 'compact',
-        },
-      ],
-    },
-    compact: {
-      props: {},
-      minSize: { width: 3, height: 3 },
-      actions: [
-        {
-          name: 'showOverview',
-          description: 'Show all saved locations',
-          transitionsTo: 'overview',
-        },
-        {
-          name: 'showRoute',
-          description:
-            'Show driving directions and travel time to a destination',
-          parameters: [
-            {
-              name: 'destination',
-              type: 'string',
-              description: 'Name of the destination location',
-              enum: MAP_LOCATION_NAMES,
-            },
-          ],
-          transitionsTo: 'route',
-        },
-      ],
-    },
-  },
-});
+  nonEmptyEnv('ENGINE_MODEL') ?? DEFAULT_MODELS[config.provider];
 
 /**
  * Mirrors `createPlaygroundEngine` (apps/demo/src/server/engine-config.ts).
@@ -616,10 +153,9 @@ function priorTurn(sessionId: string) {
 
 /**
  * A bare `chart_resize`-only turn: no paired user message, mirroring how
- * `extractUserIntent` (packages/engine/src/lib/history/history-manager.ts:297)
- * yields nothing for a resize-only `updateReasons`
- * (packages/engine/src/lib/history/history-manager.ts:355-359). Used to seed
- * a run of unpaired assistant turns ahead of the final resize request.
+ * `extractUserIntent` (packages/engine/src/lib/history/history-manager.ts)
+ * yields nothing when `updateReasons` carries only a resize. Used to seed a
+ * run of unpaired assistant turns ahead of the final resize request.
  */
 function interveningResizeTurn(
   sessionId: string,
@@ -722,6 +258,15 @@ function printSummary(final: boolean): void {
       `N=${config.trials} hits=${hits} rate=${rate}% ` +
       `completed=${completed} plan>0=${planHits} skipped>0=${skippedHits} errors=${errors}`,
   );
+  if (errors === completed && completed > 0) {
+    console.error(
+      `[${label}] every trial errored (${errors}/${completed}); this run measured nothing`,
+    );
+  } else if (errors > 0) {
+    console.error(
+      `[${label}] ${errors} trial(s) errored; the hit rate above excludes them`,
+    );
+  }
 }
 
 function printConfig(): void {
@@ -745,7 +290,7 @@ function onInterrupt(signal: string): void {
   interrupted = true;
   console.log(`\nreceived ${signal}, printing partial results`);
   printSummary(false);
-  process.exit(hits > 0 ? 1 : 0);
+  process.exit(runFailed() ? 1 : 0);
 }
 process.on('SIGINT', () => onInterrupt('SIGINT'));
 process.on('SIGTERM', () => onInterrupt('SIGTERM'));
@@ -828,7 +373,7 @@ for (let trial = 0; trial < config.trials; trial += 1) {
 
 printSummary(true);
 
-process.exit(hits > 0 ? 1 : 0);
+process.exit(runFailed() ? 1 : 0);
 
 interface ChartDims {
   readonly columns: number;
@@ -862,7 +407,7 @@ function interveningWaypoints(
       columns: start.columns + i + 1,
       rows: start.rows + i + 1,
     };
-    while (dimsEqual(candidate, final)) {
+    if (dimsEqual(candidate, final)) {
       candidate = { columns: candidate.columns + 1, rows: candidate.rows + 1 };
     }
     waypoints.push(candidate);
@@ -872,6 +417,10 @@ function interveningWaypoints(
 
 function dimsEqual(a: ChartDims, b: ChartDims): boolean {
   return a.columns === b.columns && a.rows === b.rows;
+}
+
+function runFailed(): boolean {
+  return hits > 0 || errors > 0 || completed === 0;
 }
 
 function parseProvider(value: string): Provider {
@@ -884,18 +433,22 @@ function parseProvider(value: string): Provider {
 
 function requireApiKey(provider: Provider): string {
   if (provider === 'gemini') {
-    const key =
-      process.env.GOOGLE_API_KEY?.trim() ?? process.env.GEMINI_API_KEY?.trim();
+    const key = nonEmptyEnv('GOOGLE_API_KEY') ?? nonEmptyEnv('GEMINI_API_KEY');
     if (key) return key;
     console.error(
       'GOOGLE_API_KEY (or GEMINI_API_KEY) required for --provider=gemini',
     );
     process.exit(1);
   }
-  const key = process.env.OPENAI_API_KEY?.trim();
+  const key = nonEmptyEnv('OPENAI_API_KEY');
   if (key) return key;
   console.error('OPENAI_API_KEY required');
   process.exit(1);
+}
+
+function nonEmptyEnv(name: string): string | undefined {
+  const value = process.env[name]?.trim();
+  return value ? value : undefined;
 }
 
 function createAdapter(): AnyTextAdapter {
@@ -915,14 +468,25 @@ function parseDims(spec: string, flagName: string): ChartDims {
   return { columns: Number(match[1]), rows: Number(match[2]) };
 }
 
-/**
- * Named flags (`--trials=`, `--prior-message=`, `--prior-intent=`,
- * `--resize-to=`, `--intervening=`) are the only way to reach the new sweep
- * knobs. Any `--flag` argument switches parsing into named mode and the
- * legacy positional args (`trials`, `priorMessage`, `priorIntent`) are
- * ignored in that mode. With zero `--flag` arguments, parsing falls back to
- * the original positional form for backwards compatibility.
- */
+function requirePositiveInt(raw: string, flagName: string): number {
+  return requireIntWithMin(raw, flagName, 1);
+}
+
+function requireNonNegativeInt(raw: string, flagName: string): number {
+  return requireIntWithMin(raw, flagName, 0);
+}
+
+function requireIntWithMin(raw: string, flagName: string, min: number): number {
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < min) {
+    console.error(
+      `invalid ${flagName} value ${JSON.stringify(raw)}, expected an integer >= ${min}`,
+    );
+    process.exit(1);
+  }
+  return value;
+}
+
 function parseArgs(argv: readonly string[]): HarnessConfig {
   const defaults: HarnessConfig = {
     provider: 'openai',
@@ -932,16 +496,6 @@ function parseArgs(argv: readonly string[]): HarnessConfig {
     resizeTo: { columns: 7, rows: 11 },
     intervening: 0,
   };
-
-  const hasFlags = argv.some((arg) => arg.startsWith('--'));
-  if (!hasFlags) {
-    return {
-      ...defaults,
-      trials: Number(argv[0] ?? defaults.trials),
-      priorMessage: argv[1] ?? defaults.priorMessage,
-      priorIntent: argv[2] ?? defaults.priorIntent,
-    };
-  }
 
   const flags = new Map<string, string>();
   for (const arg of argv) {
@@ -958,12 +512,19 @@ function parseArgs(argv: readonly string[]): HarnessConfig {
     provider: flags.has('provider')
       ? parseProvider(flags.get('provider') as string)
       : defaults.provider,
-    trials: Number(flags.get('trials') ?? defaults.trials),
+    trials: flags.has('trials')
+      ? requirePositiveInt(flags.get('trials') as string, '--trials')
+      : defaults.trials,
     priorMessage: flags.get('prior-message') ?? defaults.priorMessage,
     priorIntent: flags.get('prior-intent') ?? defaults.priorIntent,
     resizeTo: flags.has('resize-to')
       ? parseDims(flags.get('resize-to') as string, '--resize-to')
       : defaults.resizeTo,
-    intervening: Number(flags.get('intervening') ?? defaults.intervening),
+    intervening: flags.has('intervening')
+      ? requireNonNegativeInt(
+          flags.get('intervening') as string,
+          '--intervening',
+        )
+      : defaults.intervening,
   };
 }
