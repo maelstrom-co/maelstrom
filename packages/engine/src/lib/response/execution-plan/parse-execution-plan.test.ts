@@ -1112,6 +1112,7 @@ describe('parseExecutionPlan — resize-only policy guard', () => {
   const goPlain = ActionName('goPlain');
   const addTaskAndCompact = ActionName('addTaskAndCompact');
   const goList = ActionName('goList');
+  const openTask = ActionName('openTask');
   const existingInstanceId = InstanceId('task-list-1');
   const introducedInstanceId = InstanceId('task-list-2');
 
@@ -1151,6 +1152,19 @@ describe('parseExecutionPlan — resize-only policy guard', () => {
               { name: 'title', type: 'string', description: 'Task title' },
             ],
             transitionsTo: compact,
+          },
+          {
+            name: openTask,
+            description: 'Select a task by title, or clear the selection',
+            parameters: [
+              {
+                name: 'title',
+                type: 'string',
+                description: 'Task title',
+                required: false,
+              },
+            ],
+            idempotent: true,
           },
         ],
       },
@@ -1362,6 +1376,118 @@ describe('parseExecutionPlan — resize-only policy guard', () => {
 
     expect(skippedActions).toEqual([]);
     expect(plan).toHaveLength(1);
+  });
+
+  test('an idempotent action emitted with params is refused on a resize-only turn', () => {
+    // Idempotence promises f(x) then f(x), never f(x) then f(y). A resize
+    // asks for nothing, so "Buy milk" can only have come from an earlier
+    // turn: replay or unrequested overwrite, the Engine cannot tell which
+    // and neither is a reshape.
+    const { plan, skippedActions } = parseWith(requestWith([resizeReason]), [
+      {
+        instanceId: existingInstanceId,
+        action: openTask,
+        paramsJson: JSON.stringify({ title: 'Buy milk' }),
+      },
+    ]);
+
+    expect(plan).toEqual([]);
+    expect(skippedActions).toEqual([
+      {
+        reason: 'parameterized_on_resize',
+        instanceId: existingInstanceId,
+        action: openTask,
+        vesselId: taskListVesselId,
+      },
+    ]);
+  });
+
+  test('an idempotent action that merely accepts params survives when emitted without them', () => {
+    // Params are read as emitted, not as declared: with no value present
+    // there is nothing history could have supplied.
+    const { plan, skippedActions } = parseWith(requestWith([resizeReason]), [
+      { instanceId: existingInstanceId, action: openTask },
+    ]);
+
+    expect(skippedActions).toEqual([]);
+    expect(plan).toEqual([
+      { instanceId: existingInstanceId, action: openTask },
+    ]);
+  });
+
+  test('an empty params object counts as no params', () => {
+    // The model spells "no arguments" either way, and neither spelling
+    // carries a value an earlier turn could have supplied.
+    const { plan, skippedActions } = parseWith(requestWith([resizeReason]), [
+      { instanceId: existingInstanceId, action: openTask, paramsJson: '{}' },
+    ]);
+
+    expect(skippedActions).toEqual([]);
+    expect(plan).toEqual([
+      { instanceId: existingInstanceId, action: openTask, params: {} },
+    ]);
+  });
+
+  test('an unmarked action is refused on a resize-only turn with or without params', () => {
+    // The parameter rule narrows which idempotent actions run; it never
+    // widens the gate for an action nobody declared safe to repeat.
+    const withParams = parseWith(requestWith([resizeReason]), [
+      addBuyMilk(existingInstanceId),
+    ]);
+    const withoutParams = parseWith(requestWith([resizeReason]), [
+      { instanceId: existingInstanceId, action: goPlain },
+    ]);
+
+    expect(withParams.plan).toEqual([]);
+    expect(withoutParams.plan).toEqual([]);
+    expect(
+      [...withParams.skippedActions, ...withoutParams.skippedActions].map(
+        (skipped) => skipped.reason,
+      ),
+    ).toEqual(['non_idempotent_on_resize', 'non_idempotent_on_resize']);
+  });
+
+  test('a user intent admits a parameterized idempotent action', () => {
+    // The parameter rule is a property of the resize turn, not of the
+    // action: an intentful turn has a source for the value.
+    const { plan, skippedActions } = parseWith(requestWith([intentReason]), [
+      {
+        instanceId: existingInstanceId,
+        action: openTask,
+        paramsJson: JSON.stringify({ title: 'Buy milk' }),
+      },
+    ]);
+
+    expect(skippedActions).toEqual([]);
+    expect(plan).toEqual([
+      {
+        instanceId: existingInstanceId,
+        action: openTask,
+        params: { title: 'Buy milk' },
+      },
+    ]);
+  });
+
+  test('the parameterized refusal does not recommend a retry either', () => {
+    const { plan, skippedActions } = parseWith(requestWith([resizeReason]), [
+      {
+        instanceId: existingInstanceId,
+        action: openTask,
+        paramsJson: JSON.stringify({ title: 'Buy milk' }),
+      },
+    ]);
+
+    const hint = deriveRetryHint({
+      healedLayoutSize: 1,
+      requestInstanceCount: 1,
+      proposedActionCount: 1,
+      acceptedActionCount: plan.length,
+      skippedActions,
+      droppedLayoutCount: 0,
+      warningCount: 0,
+    });
+
+    expect(hint.recommend).toBe(false);
   });
 
   test('the refusal does not recommend a retry', () => {

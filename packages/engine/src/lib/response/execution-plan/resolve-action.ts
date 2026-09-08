@@ -106,7 +106,7 @@ export function resolveAction(
     });
   }
 
-  const refusal = turnRefusesAction(turn, instance, actionDef);
+  const refusal = turnRefusesAction(turn, item, instance, actionDef);
   if (refusal) {
     return err(refusal);
   }
@@ -216,6 +216,14 @@ export function logResolveFailure(
         `Action "${item.action}" on instance "${item.instanceId}" of vessel "${failure.vesselId}" is not declared idempotent and this update was triggered by chart resize alone, skipping`,
       );
       return;
+    case 'parameterized_on_resize':
+      // Names the parameters, not the flag: the action IS declared
+      // idempotent, so a message blaming the declaration would send on-call
+      // to edit a Vessel definition that is already correct.
+      logger.warn(
+        `Action "${item.action}" on instance "${item.instanceId}" of vessel "${failure.vesselId}" carries parameters and this update was triggered by chart resize alone, skipping`,
+      );
+      return;
     default:
       assertNever(failure, 'Unhandled ResolveFailure kind');
   }
@@ -263,6 +271,12 @@ export function resolveFailureToSkipped(
       return {
         ...base,
         reason: 'non_idempotent_on_resize',
+        vesselId: failure.vesselId,
+      };
+    case 'parameterized_on_resize':
+      return {
+        ...base,
+        reason: 'parameterized_on_resize',
         vesselId: failure.vesselId,
       };
     default:

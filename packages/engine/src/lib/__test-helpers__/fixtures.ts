@@ -544,6 +544,12 @@ export type AuthorSkippedAction =
       readonly instanceId: string;
       readonly action: string;
       readonly vesselId: string;
+    }
+  | {
+      readonly reason: 'parameterized_on_resize';
+      readonly instanceId: string;
+      readonly action: string;
+      readonly vesselId: string;
     };
 
 /** Brands a raw-string `SkippedAction` author shape into the typed union. */
@@ -610,6 +616,7 @@ export function buildSkippedAction(author: AuthorSkippedAction): SkippedAction {
         currentVariant: VariantName(author.currentVariant),
       };
     case 'non_idempotent_on_resize':
+    case 'parameterized_on_resize':
       return {
         reason: author.reason,
         instanceId: InstanceId(author.instanceId),

@@ -251,6 +251,7 @@ function isDiagnosableSkip(reason: SkippedAction['reason']): boolean {
       return false;
     case 'self_transition_noop':
     case 'non_idempotent_on_resize':
+    case 'parameterized_on_resize':
     case 'params_parse_failed':
     case 'params_validation_failed':
     case 'unknown_instance':
@@ -279,7 +280,12 @@ function describeSkippedAction(entry: SkippedAction): string | undefined {
     case 'non_idempotent_on_resize': {
       const action = quoteIdentifier(entry.action);
       const instance = quoteIdentifier(entry.instanceId);
-      return `Action ${action} on instance ${instance} was refused: this update was triggered by a chart resize alone, so only actions declared idempotent may run. Omit this specific (instance, action) pair from your next response.`;
+      return `Action ${action} on instance ${instance} was refused: this update was triggered by a chart resize alone, so only actions declared idempotent and called with no parameters may run. Omit this specific (instance, action) pair from your next response.`;
+    }
+    case 'parameterized_on_resize': {
+      const action = quoteIdentifier(entry.action);
+      const instance = quoteIdentifier(entry.instanceId);
+      return `Action ${action} on instance ${instance} was refused: it carries parameters and this update was triggered by a chart resize alone, so only actions called with no parameters may run. Omit this specific (instance, action) pair from your next response.`;
     }
     case 'params_parse_failed':
       return `Action ${quoteIdentifier(entry.action)} on instance ${quoteIdentifier(entry.instanceId)} had unparseable params`;

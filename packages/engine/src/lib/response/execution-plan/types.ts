@@ -122,6 +122,18 @@ export type SkippedAction =
       readonly instanceId: InstanceId;
       readonly action: ActionName;
       readonly vesselId: VesselId;
+    }
+  // Action declared `idempotent` but emitted with parameters on a turn whose
+  // only trigger was a chart resize. A resize supplies no intent, so a
+  // parameter value can only have come from the conversation history, which
+  // makes the emission a replay however the declaration reads. Re-prompting
+  // shows the LLM the same state, so `deriveRetryHint` excludes this from
+  // `anySkipFixable` alongside `non_idempotent_on_resize`.
+  | {
+      readonly reason: 'parameterized_on_resize';
+      readonly instanceId: InstanceId;
+      readonly action: ActionName;
+      readonly vesselId: VesselId;
     };
 
 /**
