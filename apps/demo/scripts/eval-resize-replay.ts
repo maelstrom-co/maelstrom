@@ -23,10 +23,10 @@
  * `diagnostics` at its boundary and reports each refusal on the "Response
  * healed" log line, so this harness injects a custom `Logger` and reads the
  * refusals off that line's `detail.skips`. Per trial it records:
- *   - `survived` — the seeded replay reached the client (guard let it past)
- *   - `refused`  — the seeded replay was refused (guard held)
- *   - `other`    — every action that is not the seeded replay, printed but
- *                  never counted toward the headline rate
+ *   - `survived`: the seeded replay reached the client (guard let it past)
+ *   - `refused`: the seeded replay was refused (guard held)
+ *   - `other`: every action that is not the seeded replay, printed but never
+ *     counted toward the headline rate
  * The headline rate is `survived || refused` over N. Reported apart, the two
  * distinguish "model emitted nothing" (prompt fix worked) from "model
  * emitted, guard dropped it" (guard worked).
