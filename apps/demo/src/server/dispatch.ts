@@ -16,7 +16,6 @@ import {
   EngineErrorMessage,
   encodeEnvelope,
   isErr,
-  type ServerEnvelope,
 } from '@maelstrom-co/protocol';
 import {
   classifyIncomingFrame,
@@ -122,36 +121,7 @@ export async function dispatchFrame(
   }
 
   const reply = await handleEnvelope(engine, raw);
-  logResizeDuplicationProbe(raw, reply);
   return reply
     ? { kind: 'reply', wire: encodeEnvelope(reply) }
     : { kind: 'none' };
-}
-
-/**
- * Re-decodes `raw` rather than threading `handleEnvelope`'s internal decode
- * out, since this is throwaway measurement code, not a permanent seam.
- */
-function logResizeDuplicationProbe(
-  raw: unknown,
-  reply: ServerEnvelope | null,
-): void {
-  const decoded = decodeClientEnvelope(raw);
-  if (isErr(decoded) || decoded.value.type !== 'chart_request') return;
-  if (!reply || reply.type !== 'engine.maelstrom.response') return;
-
-  const reasons = decoded.value.request.context.updateReasons;
-  const planLength = reply.response.executionPlan.length;
-  console.log(
-    `[demo dispatch] reasons=${reasons.map((reason) => reason.type).join(',')} executionPlan=${planLength}`,
-  );
-
-  const resizeOnly =
-    reasons.length > 0 &&
-    reasons.every((reason) => reason.type === 'chart_resize');
-  if (resizeOnly && planLength > 0) {
-    console.warn(
-      `[demo dispatch] HIT resize-only turn returned a non-empty executionPlan (n=${planLength})`,
-    );
-  }
 }
