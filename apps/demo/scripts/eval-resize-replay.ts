@@ -35,7 +35,8 @@
  *   - `refused`: the seeded replay was refused (guard held)
  *   - `other`: every action that is not the seeded replay, printed but never
  *     counted toward the headline rate
- * The headline rate is `survived || refused` over N. Reported apart, the two
+ * The headline rate is `survived || refused` over the trials that completed
+ * without erroring, and reads `n/a` when none did. Reported apart, the two
  * distinguish "model emitted nothing" (prompt fix worked) from "model
  * emitted, guard dropped it" (guard worked).
  *
@@ -84,7 +85,7 @@ import { journalVessel } from '../src/vessels/journal.vessel.def';
 import { mapVessel } from '../src/vessels/map.vessel.def';
 import { tasksVessel } from '../src/vessels/tasks.vessel.def';
 import { weatherVessel } from '../src/vessels/weather.vessel.def';
-import { TRIAL_MAX_RETRIES } from './resize-replay-run';
+import { formatHitRate, TRIAL_MAX_RETRIES } from './resize-replay-run';
 import type {
   RefusedAction,
   SeededAction,
@@ -364,11 +365,11 @@ let completed = 0;
 
 function printSummary(final: boolean): void {
   const label = final ? 'FINAL' : 'PARTIAL';
-  const rate = ((hits / Math.max(completed, 1)) * 100).toFixed(1);
+  const rate = formatHitRate({ hits, completed, errors });
   console.log(
     `\n[${label}] provider=${config.provider} model=${model} ` +
       `seed=${config.seed} mounted=${sourceChart.instances.length} ` +
-      `N=${config.trials} hits=${hits} rate=${rate}% ` +
+      `N=${config.trials} hits=${hits} rate=${rate} ` +
       `completed=${completed} survived=${survivedHits} refused=${refusedHits} ` +
       `other=${otherTrials} errors=${errors}`,
   );
