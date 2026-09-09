@@ -75,8 +75,24 @@
 import {
   createEngine,
   createInMemoryStore,
+  type HistoryEntry,
   type Logger,
 } from '@maelstrom-co/engine';
+import {
+  ActionName,
+  InstanceId,
+  MessageId,
+  SessionId,
+  TILING_LEAF_PREFIX,
+  type TilingLayout,
+  type TilingNode,
+  VariantName,
+  type Vessel,
+  type VesselDefinition,
+  VesselId,
+  type VesselInstanceSnapshot,
+  validateVessel,
+} from '@maelstrom-co/protocol';
 import type { AnyTextAdapter } from '@tanstack/ai';
 import { createGeminiChat, type GeminiTextModel } from '@tanstack/ai-gemini';
 import { createOpenaiChat, type OpenAIChatModel } from '@tanstack/ai-openai';
@@ -106,13 +122,29 @@ const DEFAULT_MODELS: { openai: OpenAIChatModel; gemini: GeminiTextModel } = {
   gemini: 'gemini-3.1-flash-lite-preview',
 };
 
-const vessels = [
+/**
+ * Branded through the same validation a Vessel passes on the client before it
+ * reaches the Engine, so this harness measures the roster the demo sends
+ * rather than the author-facing definitions behind it.
+ */
+const vessels: readonly Vessel[] = [
   tasksVessel,
   calendarVessel,
   weatherVessel,
   journalVessel,
   mapVessel,
-];
+].map(brandVessel);
+
+function brandVessel(definition: VesselDefinition): Vessel {
+  const result = validateVessel(definition);
+  if (result.valid) return result.vessel;
+  console.error(
+    `vessel ${definition.id} failed validation: ${result.issues
+      .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
+      .join('; ')}`,
+  );
+  process.exit(1);
+}
 
 /**
  * The mutation each seed puts in the prior turn, and the Variant it ran from.
@@ -126,7 +158,11 @@ const vessels = [
  */
 const SEED_SCENARIOS: Record<SeedId, SeedScenario> = {
   'tasks-add-task': {
-    instance: { instanceId: 'tasks-main', vesselId: 'tasks', variant: 'list' },
+    instance: {
+      instanceId: InstanceId('tasks-main'),
+      vesselId: VesselId('tasks'),
+      variant: VariantName('list'),
+    },
     seed: SEEDED_ACTION,
     priorIntent: 'add a task to buy milk',
     priorMessage: 'Added "Buy milk" to your task list.',
@@ -134,9 +170,9 @@ const SEED_SCENARIOS: Record<SeedId, SeedScenario> = {
   },
   'journal-create-entry': {
     instance: {
-      instanceId: 'journal-main',
-      vesselId: 'journal',
-      variant: 'entry',
+      instanceId: InstanceId('journal-main'),
+      vesselId: VesselId('journal'),
+      variant: VariantName('entry'),
     },
     seed: {
       instanceId: 'journal-main',
@@ -150,9 +186,9 @@ const SEED_SCENARIOS: Record<SeedId, SeedScenario> = {
   },
   'calendar-add-event': {
     instance: {
-      instanceId: 'calendar-main',
-      vesselId: 'calendar',
-      variant: 'day',
+      instanceId: InstanceId('calendar-main'),
+      vesselId: VesselId('calendar'),
+      variant: VariantName('day'),
     },
     seed: {
       instanceId: 'calendar-main',
@@ -199,26 +235,26 @@ const sourceChart = chartAt(scenario.instance.variant);
 const PRIOR_CHART_DIMENSIONS = { columns: 12, rows: 8 };
 
 /** Mounts the seeded instance on `variant`, plus `--mounted - 1` others. */
-function chartAt(variant: string): Chart {
-  const instances = [
+function chartAt(variant: VariantName): Chart {
+  const instances: readonly VesselInstanceSnapshot[] = [
     { ...scenario.instance, variant },
     ...MOUNT_ORDER.slice(0, config.mounted - 1).map((vessel) => ({
-      instanceId: `${vessel.id}-main`,
-      vesselId: vessel.id as string,
-      variant: vessel.defaultVariant as string,
+      instanceId: InstanceId(`${vessel.id}-main`),
+      vesselId: vessel.id,
+      variant: vessel.defaultVariant,
     })),
   ];
   const tree = subtree(
     instances.map((instance) => instance.instanceId),
     'V',
   );
-  return { instances, layout: { type: 'tiling' as const, tree, instances } };
+  return { instances, layout: { type: 'tiling', tree, instances } };
 }
 
 // Halving alternately down each axis keeps every tile a usable shape, which a
 // single split of five would not.
-function subtree(ids: readonly string[], axis: 'V' | 'H'): string[] {
-  if (ids.length <= 1) return [`ID:${ids[0]}`];
+function subtree(ids: readonly InstanceId[], axis: 'V' | 'H'): TilingNode[] {
+  if (ids.length <= 1) return [`${TILING_LEAF_PREFIX}${ids[0]}`];
   const half = Math.ceil(ids.length / 2);
   const inner = axis === 'V' ? 'H' : 'V';
   return [
@@ -228,20 +264,21 @@ function subtree(ids: readonly string[], axis: 'V' | 'H'): string[] {
   ];
 }
 
-function priorTurn(sessionId: string) {
+function priorTurn(sessionId: SessionId) {
+  const id = MessageId('req-prior');
   return {
-    kind: 'turn' as const,
+    kind: 'turn',
     input: {
-      type: 'chart_request' as const,
+      type: 'chart_request',
       sessionId,
-      id: 'req-prior',
+      id,
       timestamp: Date.now() - 60_000,
       request: {
-        type: 'chart_request' as const,
+        type: 'chart_request',
         context: {
           updateReasons: [{ type: 'user_intent', intent: config.priorIntent }],
           chartDimensions: PRIOR_CHART_DIMENSIONS,
-          layoutMode: 'tiling' as const,
+          layoutMode: 'tiling',
         },
         instances: sourceChart.instances,
         vessels,
@@ -249,19 +286,25 @@ function priorTurn(sessionId: string) {
       },
     },
     output: {
-      type: 'chart_response' as const,
+      type: 'chart_response',
       sessionId,
-      id: 'req-prior',
+      id,
       response: {
-        type: 'maelstrom_response' as const,
-        requestId: 'req-prior',
+        type: 'maelstrom_response',
+        requestId: id,
         userMessage: config.priorMessage,
         rationale: scenario.priorRationale,
-        executionPlan: [scenario.seed],
+        executionPlan: [
+          {
+            instanceId: InstanceId(scenario.seed.instanceId),
+            action: ActionName(scenario.seed.action),
+            params: { ...scenario.seed.params },
+          },
+        ],
         layout: sourceChart.layout,
       },
     },
-  };
+  } satisfies HistoryEntry;
 }
 
 /**
@@ -271,25 +314,25 @@ function priorTurn(sessionId: string) {
  * run of unpaired assistant turns ahead of the final resize request.
  */
 function interveningResizeTurn(
-  sessionId: string,
+  sessionId: SessionId,
   index: number,
   previous: ChartDims,
   current: ChartDims,
 ) {
-  const id = `req-resize-${index}`;
+  const id = MessageId(`req-resize-${index}`);
   return {
-    kind: 'turn' as const,
+    kind: 'turn',
     input: {
-      type: 'chart_request' as const,
+      type: 'chart_request',
       sessionId,
       id,
       timestamp: Date.now() - 30_000 + index,
       request: {
-        type: 'chart_request' as const,
+        type: 'chart_request',
         context: {
-          updateReasons: [{ type: 'chart_resize' as const, previous, current }],
+          updateReasons: [{ type: 'chart_resize', previous, current }],
           chartDimensions: current,
-          layoutMode: 'tiling' as const,
+          layoutMode: 'tiling',
         },
         instances: sourceChart.instances,
         vessels,
@@ -297,11 +340,11 @@ function interveningResizeTurn(
       },
     },
     output: {
-      type: 'chart_response' as const,
+      type: 'chart_response',
       sessionId,
       id,
       response: {
-        type: 'maelstrom_response' as const,
+        type: 'maelstrom_response',
         requestId: id,
         userMessage: 'Adjusted the layout for the new chart size.',
         rationale: 'Chart was resized; no content change needed.',
@@ -309,7 +352,7 @@ function interveningResizeTurn(
         layout: sourceChart.layout,
       },
     },
-  };
+  } satisfies HistoryEntry;
 }
 
 function resizeRequest(
@@ -417,13 +460,11 @@ process.on('SIGTERM', () => onInterrupt('SIGTERM'));
 printConfig();
 
 for (let trial = 0; trial < config.trials; trial += 1) {
-  const sessionId = `eval-${Date.now()}-${trial}`;
+  const sessionId = SessionId(`eval-${Date.now()}-${trial}`);
   const store = createInMemoryStore();
   const { logger, refusedActions } = createDiagnosticsLogger();
 
-  // Branded ids and schema-validated payloads are enforced at the wire
-  // boundary; this harness constructs both by hand on purpose.
-  await store.append(sessionId as never, priorTurn(sessionId) as never);
+  await store.append(sessionId, priorTurn(sessionId));
 
   const waypoints = interveningWaypoints(
     config.intervening,
@@ -434,8 +475,8 @@ for (let trial = 0; trial < config.trials; trial += 1) {
   for (let i = 0; i < config.intervening; i += 1) {
     const current = waypoints[i] as ChartDims;
     await store.append(
-      sessionId as never,
-      interveningResizeTurn(sessionId, i, lastDims, current) as never,
+      sessionId,
+      interveningResizeTurn(sessionId, i, lastDims, current),
     );
     lastDims = current;
   }
@@ -448,6 +489,8 @@ for (let trial = 0; trial < config.trials; trial += 1) {
     logger,
   });
 
+  // The measured request is the one payload the Engine validates for itself,
+  // so it stays hand-built and unbranded.
   const result = await engine.handle(
     resizeRequest(sessionId, lastDims, config.resizeTo) as never,
   );
@@ -506,23 +549,13 @@ type Provider = 'openai' | 'gemini';
 /** Which mutation the prior turn ran, and so which replay scores a hit. */
 type SeedId = 'tasks-add-task' | 'journal-create-entry' | 'calendar-add-event';
 
-interface MountedInstance {
-  readonly instanceId: string;
-  readonly vesselId: string;
-  readonly variant: string;
-}
-
 interface Chart {
-  readonly instances: readonly MountedInstance[];
-  readonly layout: {
-    readonly type: 'tiling';
-    readonly tree: readonly string[];
-    readonly instances: readonly MountedInstance[];
-  };
+  readonly instances: readonly VesselInstanceSnapshot[];
+  readonly layout: TilingLayout;
 }
 
 interface SeedScenario {
-  readonly instance: MountedInstance;
+  readonly instance: VesselInstanceSnapshot;
   readonly seed: SeededAction;
   readonly priorIntent: string;
   readonly priorMessage: string;
