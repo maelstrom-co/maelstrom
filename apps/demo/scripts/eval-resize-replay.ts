@@ -84,6 +84,7 @@ import { journalVessel } from '../src/vessels/journal.vessel.def';
 import { mapVessel } from '../src/vessels/map.vessel.def';
 import { tasksVessel } from '../src/vessels/tasks.vessel.def';
 import { weatherVessel } from '../src/vessels/weather.vessel.def';
+import { TRIAL_MAX_RETRIES } from './resize-replay-run';
 import type {
   RefusedAction,
   SeededAction,
@@ -440,7 +441,7 @@ for (let trial = 0; trial < config.trials; trial += 1) {
 
   const engine = createEngine({
     adapter: createAdapter(),
-    maxRetries: 2,
+    maxRetries: TRIAL_MAX_RETRIES,
     history: { store, maxEntries: 20 },
     prompt: { system: { rules: { append: SYSTEM_RULES } } },
     logger,
