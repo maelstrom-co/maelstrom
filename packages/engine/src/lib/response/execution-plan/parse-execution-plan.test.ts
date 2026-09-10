@@ -1,17 +1,30 @@
 import { describe, expect, test } from 'bun:test';
 import {
   ActionName,
+  type ChartRequest,
   InstanceId,
+  type UpdateReason,
   VariantName,
   type Vessel,
   type VesselAction,
   VesselId,
   type VesselInstanceSnapshot,
 } from '@maelstrom-co/protocol';
-import { makeVessel, silentLogger } from '../../__test-helpers__/fixtures.js';
+import {
+  makeGridRequest,
+  makeVessel,
+  silentLogger,
+} from '../../__test-helpers__/fixtures.js';
 import { buildActionParameterEnumSnapshot } from '../../action-parameter-enum.js';
+import { deriveRetryHint } from '../../validation/llm-output/retry-hint.js';
 import { parseExecutionPlan } from './parse-execution-plan.js';
+import { classifyExecutionTurn } from './turn.js';
 import type { RawActionExecution } from './types.js';
+
+// Suites below this line are about action resolution, not update-reason
+// policy. The default request fixture carries a single `user_intent` reason,
+// so the resize guard stays inert for all of them.
+const userIntentTurn = classifyExecutionTurn(makeGridRequest());
 
 // Two-action plan whose validity depends on the writer mutating between
 // iterations: action #2's `expand` is only valid on variant `expanded`,
@@ -70,13 +83,13 @@ describe('parseExecutionPlan — sequential simulation hand-off', () => {
       { instanceId, action: expandAction },
     ];
 
-    const { plan: result, skippedActions } = parseExecutionPlan(
-      plan,
-      [initialInstance],
-      [panelVessel],
-      buildActionParameterEnumSnapshot([panelVessel]),
-      silentLogger,
-    );
+    const { plan: result, skippedActions } = parseExecutionPlan(plan, {
+      instances: [initialInstance],
+      vessels: [panelVessel],
+      enumSnapshot: buildActionParameterEnumSnapshot([panelVessel]),
+      turn: userIntentTurn,
+      logger: silentLogger,
+    });
 
     // Both actions accepted: the second resolves against the variant the
     // first transitioned the instance into. If the simulation state didn't
@@ -98,13 +111,13 @@ describe('parseExecutionPlan — sequential simulation hand-off', () => {
       { instanceId, action: goExpanded },
     ];
 
-    const { plan: result, skippedActions } = parseExecutionPlan(
-      plan,
-      [initialInstance],
-      [panelVessel],
-      buildActionParameterEnumSnapshot([panelVessel]),
-      silentLogger,
-    );
+    const { plan: result, skippedActions } = parseExecutionPlan(plan, {
+      instances: [initialInstance],
+      vessels: [panelVessel],
+      enumSnapshot: buildActionParameterEnumSnapshot([panelVessel]),
+      turn: userIntentTurn,
+      logger: silentLogger,
+    });
 
     expect(result).toHaveLength(1);
     expect(result[0]).toEqual({ instanceId, action: goExpanded });
@@ -189,13 +202,13 @@ describe('parseExecutionPlan — self-transition no-op classification', () => {
       { instanceId: calendarInstanceId, action: showDay },
     ];
 
-    const { plan: result, skippedActions } = parseExecutionPlan(
-      plan,
-      [inDayVariant],
-      [calendarVessel],
-      buildActionParameterEnumSnapshot([calendarVessel]),
-      silentLogger,
-    );
+    const { plan: result, skippedActions } = parseExecutionPlan(plan, {
+      instances: [inDayVariant],
+      vessels: [calendarVessel],
+      enumSnapshot: buildActionParameterEnumSnapshot([calendarVessel]),
+      turn: userIntentTurn,
+      logger: silentLogger,
+    });
 
     expect(result).toHaveLength(0);
     expect(skippedActions).toHaveLength(1);
@@ -215,13 +228,13 @@ describe('parseExecutionPlan — self-transition no-op classification', () => {
       { instanceId: calendarInstanceId, action: ActionName('showQuarter') },
     ];
 
-    const { plan: result, skippedActions } = parseExecutionPlan(
-      plan,
-      [inDayVariant],
-      [calendarVessel],
-      buildActionParameterEnumSnapshot([calendarVessel]),
-      silentLogger,
-    );
+    const { plan: result, skippedActions } = parseExecutionPlan(plan, {
+      instances: [inDayVariant],
+      vessels: [calendarVessel],
+      enumSnapshot: buildActionParameterEnumSnapshot([calendarVessel]),
+      turn: userIntentTurn,
+      logger: silentLogger,
+    });
 
     expect(result).toHaveLength(0);
     expect(skippedActions).toHaveLength(1);
@@ -294,13 +307,13 @@ describe('parseExecutionPlan — self-transition no-op classification', () => {
       { instanceId: calendarInstanceId, action: showWeek },
     ];
 
-    const { plan: result, skippedActions } = parseExecutionPlan(
-      plan,
-      [inWeekVariant],
-      [ambiguousVessel],
-      buildActionParameterEnumSnapshot([ambiguousVessel]),
-      silentLogger,
-    );
+    const { plan: result, skippedActions } = parseExecutionPlan(plan, {
+      instances: [inWeekVariant],
+      vessels: [ambiguousVessel],
+      enumSnapshot: buildActionParameterEnumSnapshot([ambiguousVessel]),
+      turn: userIntentTurn,
+      logger: silentLogger,
+    });
 
     expect(result).toHaveLength(0);
     expect(skippedActions).toHaveLength(1);
@@ -364,13 +377,13 @@ describe('parseExecutionPlan — self-transition no-op classification', () => {
       { instanceId: calendarInstanceId, action: showWeek },
     ];
 
-    const { plan: result, skippedActions } = parseExecutionPlan(
-      plan,
-      [inDayVariant],
-      [customVessel],
-      buildActionParameterEnumSnapshot([customVessel]),
-      silentLogger,
-    );
+    const { plan: result, skippedActions } = parseExecutionPlan(plan, {
+      instances: [inDayVariant],
+      vessels: [customVessel],
+      enumSnapshot: buildActionParameterEnumSnapshot([customVessel]),
+      turn: userIntentTurn,
+      logger: silentLogger,
+    });
 
     expect(result).toHaveLength(0);
     expect(skippedActions).toHaveLength(1);
@@ -518,13 +531,13 @@ describe('parseExecutionPlan — action parameter validation', () => {
   };
 
   const parse = (...items: RawActionExecution[]) =>
-    parseExecutionPlan(
-      items,
-      [instance],
-      [vessel],
-      buildActionParameterEnumSnapshot([vessel]),
-      silentLogger,
-    );
+    parseExecutionPlan(items, {
+      instances: [instance],
+      vessels: [vessel],
+      enumSnapshot: buildActionParameterEnumSnapshot([vessel]),
+      turn: userIntentTurn,
+      logger: silentLogger,
+    });
 
   test('accepts params matching every supported type and enum', () => {
     const params = {
@@ -798,10 +811,13 @@ describe('parseExecutionPlan — action parameter validation', () => {
         },
         { instanceId, action: afterTransition },
       ],
-      [instance],
-      [duplicateVessel],
-      buildActionParameterEnumSnapshot([]),
-      silentLogger,
+      {
+        instances: [instance],
+        vessels: [duplicateVessel],
+        enumSnapshot: buildActionParameterEnumSnapshot([]),
+        turn: userIntentTurn,
+        logger: silentLogger,
+      },
     );
 
     expect(result.plan).toEqual([]);
@@ -871,10 +887,13 @@ describe('parseExecutionPlan — parameter work budgets', () => {
         },
         ...following,
       ],
-      [instance],
-      [vessel],
-      enumSnapshot,
-      silentLogger,
+      {
+        instances: [instance],
+        vessels: [vessel],
+        enumSnapshot,
+        turn: userIntentTurn,
+        logger: silentLogger,
+      },
     );
 
   test('accepts paramsJson at 16384 UTF-8 bytes and rejects 16385', () => {
@@ -1081,5 +1100,413 @@ describe('parseExecutionPlan — parameter work budgets', () => {
       'params_limits_exceeded',
       'action_not_valid',
     ]);
+  });
+});
+
+describe('parseExecutionPlan — resize-only policy guard', () => {
+  const taskListVesselId = VesselId('task-list');
+  const list = VariantName('list');
+  const compact = VariantName('compact');
+  const addTask = ActionName('addTask');
+  const goCompact = ActionName('goCompact');
+  const goPlain = ActionName('goPlain');
+  const addTaskAndCompact = ActionName('addTaskAndCompact');
+  const goList = ActionName('goList');
+  const openTask = ActionName('openTask');
+  const existingInstanceId = InstanceId('task-list-1');
+  const introducedInstanceId = InstanceId('task-list-2');
+
+  const taskListVessel = makeVessel({
+    id: taskListVesselId,
+    name: 'Task list',
+    description: 'Task list whose contents the Engine cannot observe',
+    defaultVariant: list,
+    variants: {
+      [list]: {
+        description: 'Full list',
+        props: {},
+        minSize: { width: 2, height: 2 },
+        actions: [
+          {
+            name: addTask,
+            description: 'Append a task',
+            parameters: [
+              { name: 'title', type: 'string', description: 'Task title' },
+            ],
+          },
+          {
+            name: goCompact,
+            description: 'Switch to compact',
+            transitionsTo: compact,
+            idempotent: true,
+          },
+          {
+            name: goPlain,
+            description: 'Switch to compact without declaring idempotence',
+            transitionsTo: compact,
+          },
+          {
+            name: addTaskAndCompact,
+            description: 'Append a task and switch to compact',
+            parameters: [
+              { name: 'title', type: 'string', description: 'Task title' },
+            ],
+            transitionsTo: compact,
+          },
+          {
+            name: openTask,
+            description: 'Select a task by title, or clear the selection',
+            parameters: [
+              {
+                name: 'title',
+                type: 'string',
+                description: 'Task title',
+                required: false,
+              },
+            ],
+            idempotent: true,
+          },
+        ],
+      },
+      [compact]: {
+        description: 'Compact list',
+        props: {},
+        minSize: { width: 1, height: 1 },
+        actions: [
+          {
+            name: goList,
+            description: 'Switch to full',
+            transitionsTo: list,
+            idempotent: true,
+          },
+        ],
+      },
+    },
+  });
+
+  const existingInstance: VesselInstanceSnapshot = {
+    instanceId: existingInstanceId,
+    vesselId: taskListVesselId,
+    variant: list,
+  };
+  const introducedInstance: VesselInstanceSnapshot = {
+    instanceId: introducedInstanceId,
+    vesselId: taskListVesselId,
+    variant: list,
+  };
+
+  const resizeReason: UpdateReason = {
+    type: 'chart_resize',
+    previous: { columns: 12, rows: 8 },
+    current: { columns: 6, rows: 8 },
+  };
+  const intentReason: UpdateReason = {
+    type: 'user_intent',
+    intent: 'Add "Buy milk" to my list',
+  };
+
+  const requestWith = (updateReasons: readonly UpdateReason[]): ChartRequest =>
+    makeGridRequest({
+      context: {
+        updateReasons,
+        chartDimensions: { columns: 12, rows: 8 },
+        layoutMode: 'grid',
+      },
+      instances: [existingInstance],
+      vessels: [taskListVessel],
+      layout: { type: 'grid', positions: [] },
+    });
+
+  const parseWith = (
+    request: ChartRequest,
+    plan: readonly RawActionExecution[],
+    planInstances: readonly VesselInstanceSnapshot[] = request.instances,
+  ) =>
+    parseExecutionPlan(plan, {
+      instances: planInstances,
+      vessels: [taskListVessel],
+      enumSnapshot: buildActionParameterEnumSnapshot([taskListVessel]),
+      turn: classifyExecutionTurn(request),
+      logger: silentLogger,
+    });
+
+  const addBuyMilk = (instanceId: InstanceId): RawActionExecution => ({
+    instanceId,
+    action: addTask,
+    paramsJson: JSON.stringify({ title: 'Buy milk' }),
+  });
+
+  test('refuses a non-transition action on a pre-existing instance when the only reason is a resize', () => {
+    const { plan, skippedActions } = parseWith(requestWith([resizeReason]), [
+      addBuyMilk(existingInstanceId),
+    ]);
+
+    expect(plan).toEqual([]);
+    expect(skippedActions).toEqual([
+      {
+        reason: 'non_idempotent_on_resize',
+        instanceId: existingInstanceId,
+        action: addTask,
+        vesselId: taskListVesselId,
+      },
+    ]);
+  });
+
+  test('the same action survives when the reason is a user intent', () => {
+    const { plan, skippedActions } = parseWith(requestWith([intentReason]), [
+      addBuyMilk(existingInstanceId),
+    ]);
+
+    expect(skippedActions).toEqual([]);
+    expect(plan).toHaveLength(1);
+    expect(plan[0]).toEqual({
+      instanceId: existingInstanceId,
+      action: addTask,
+      params: { title: 'Buy milk' },
+    });
+  });
+
+  test('an idempotent Variant transition survives a resize-only turn', () => {
+    // Reshaping a Vessel is exactly what a resize should be able to do.
+    const { plan, skippedActions } = parseWith(requestWith([resizeReason]), [
+      { instanceId: existingInstanceId, action: goCompact },
+    ]);
+
+    expect(skippedActions).toEqual([]);
+    expect(plan).toHaveLength(1);
+    expect(plan[0]).toEqual({
+      instanceId: existingInstanceId,
+      action: goCompact,
+    });
+  });
+
+  test('a Variant transition left unmarked is refused on a resize-only turn', () => {
+    // `idempotent` defaults to false: silence costs a reshape, never data.
+    const { plan, skippedActions } = parseWith(requestWith([resizeReason]), [
+      { instanceId: existingInstanceId, action: goPlain },
+    ]);
+
+    expect(plan).toEqual([]);
+    expect(skippedActions).toEqual([
+      {
+        reason: 'non_idempotent_on_resize',
+        instanceId: existingInstanceId,
+        action: goPlain,
+        vesselId: taskListVesselId,
+      },
+    ]);
+  });
+
+  test('a transition that also mutates content is refused on a resize-only turn', () => {
+    // The case `transitionsTo` alone could never catch: replaying this
+    // appends a second task on the way to the compact variant.
+    const { plan, skippedActions } = parseWith(requestWith([resizeReason]), [
+      {
+        instanceId: existingInstanceId,
+        action: addTaskAndCompact,
+        paramsJson: JSON.stringify({ title: 'Buy milk' }),
+      },
+    ]);
+
+    expect(plan).toEqual([]);
+    expect(skippedActions).toEqual([
+      {
+        reason: 'non_idempotent_on_resize',
+        instanceId: existingInstanceId,
+        action: addTaskAndCompact,
+        vesselId: taskListVesselId,
+      },
+    ]);
+  });
+
+  test('an instance introduced by this response is refused all the same', () => {
+    // A fresh instance id is no evidence of fresh state: a Vessel may back
+    // every instance of itself with one store, so replaying the append at a
+    // new id duplicates into the same contents the old id showed.
+    const { plan, skippedActions } = parseWith(
+      requestWith([resizeReason]),
+      [addBuyMilk(introducedInstanceId)],
+      [existingInstance, introducedInstance],
+    );
+
+    expect(plan).toEqual([]);
+    expect(skippedActions).toEqual([
+      {
+        reason: 'non_idempotent_on_resize',
+        instanceId: introducedInstanceId,
+        action: addTask,
+        vesselId: taskListVesselId,
+      },
+    ]);
+  });
+
+  test('an idempotent action on an introduced instance survives', () => {
+    // Declared idempotence is the whole gate; where the instance came from
+    // never enters into it.
+    const { plan, skippedActions } = parseWith(
+      requestWith([resizeReason]),
+      [{ instanceId: introducedInstanceId, action: goCompact }],
+      [existingInstance, introducedInstance],
+    );
+
+    expect(skippedActions).toEqual([]);
+    expect(plan).toHaveLength(1);
+    expect(plan[0]).toEqual({
+      instanceId: introducedInstanceId,
+      action: goCompact,
+    });
+  });
+
+  test('a batch mixing a resize with a user intent is not guarded', () => {
+    // The client coalesces reasons, so a resize arriving alongside an intent
+    // is a legitimate turn for content mutation.
+    const { plan, skippedActions } = parseWith(
+      requestWith([resizeReason, intentReason]),
+      [addBuyMilk(existingInstanceId)],
+    );
+
+    expect(skippedActions).toEqual([]);
+    expect(plan).toHaveLength(1);
+  });
+
+  test('an empty reason list is not treated as resize-only', () => {
+    const { plan, skippedActions } = parseWith(requestWith([]), [
+      addBuyMilk(existingInstanceId),
+    ]);
+
+    expect(skippedActions).toEqual([]);
+    expect(plan).toHaveLength(1);
+  });
+
+  test('an idempotent action emitted with params is refused on a resize-only turn', () => {
+    // Idempotence promises f(x) then f(x), never f(x) then f(y). A resize
+    // asks for nothing, so "Buy milk" can only have come from an earlier
+    // turn: replay or unrequested overwrite, the Engine cannot tell which
+    // and neither is a reshape.
+    const { plan, skippedActions } = parseWith(requestWith([resizeReason]), [
+      {
+        instanceId: existingInstanceId,
+        action: openTask,
+        paramsJson: JSON.stringify({ title: 'Buy milk' }),
+      },
+    ]);
+
+    expect(plan).toEqual([]);
+    expect(skippedActions).toEqual([
+      {
+        reason: 'parameterized_on_resize',
+        instanceId: existingInstanceId,
+        action: openTask,
+        vesselId: taskListVesselId,
+      },
+    ]);
+  });
+
+  test('an idempotent action that merely accepts params survives when emitted without them', () => {
+    // Params are read as emitted, not as declared: with no value present
+    // there is nothing history could have supplied.
+    const { plan, skippedActions } = parseWith(requestWith([resizeReason]), [
+      { instanceId: existingInstanceId, action: openTask },
+    ]);
+
+    expect(skippedActions).toEqual([]);
+    expect(plan).toEqual([
+      { instanceId: existingInstanceId, action: openTask },
+    ]);
+  });
+
+  test('an empty params object counts as no params', () => {
+    // The model spells "no arguments" either way, and neither spelling
+    // carries a value an earlier turn could have supplied.
+    const { plan, skippedActions } = parseWith(requestWith([resizeReason]), [
+      { instanceId: existingInstanceId, action: openTask, paramsJson: '{}' },
+    ]);
+
+    expect(skippedActions).toEqual([]);
+    expect(plan).toEqual([
+      { instanceId: existingInstanceId, action: openTask, params: {} },
+    ]);
+  });
+
+  test('an unmarked action is refused on a resize-only turn with or without params', () => {
+    // The parameter rule narrows which idempotent actions run; it never
+    // widens the gate for an action nobody declared safe to repeat.
+    const withParams = parseWith(requestWith([resizeReason]), [
+      addBuyMilk(existingInstanceId),
+    ]);
+    const withoutParams = parseWith(requestWith([resizeReason]), [
+      { instanceId: existingInstanceId, action: goPlain },
+    ]);
+
+    expect(withParams.plan).toEqual([]);
+    expect(withoutParams.plan).toEqual([]);
+    expect(
+      [...withParams.skippedActions, ...withoutParams.skippedActions].map(
+        (skipped) => skipped.reason,
+      ),
+    ).toEqual(['non_idempotent_on_resize', 'non_idempotent_on_resize']);
+  });
+
+  test('a user intent admits a parameterized idempotent action', () => {
+    // The parameter rule is a property of the resize turn, not of the
+    // action: an intentful turn has a source for the value.
+    const { plan, skippedActions } = parseWith(requestWith([intentReason]), [
+      {
+        instanceId: existingInstanceId,
+        action: openTask,
+        paramsJson: JSON.stringify({ title: 'Buy milk' }),
+      },
+    ]);
+
+    expect(skippedActions).toEqual([]);
+    expect(plan).toEqual([
+      {
+        instanceId: existingInstanceId,
+        action: openTask,
+        params: { title: 'Buy milk' },
+      },
+    ]);
+  });
+
+  test('the parameterized refusal does not recommend a retry either', () => {
+    const { plan, skippedActions } = parseWith(requestWith([resizeReason]), [
+      {
+        instanceId: existingInstanceId,
+        action: openTask,
+        paramsJson: JSON.stringify({ title: 'Buy milk' }),
+      },
+    ]);
+
+    const hint = deriveRetryHint({
+      healedLayoutSize: 1,
+      requestInstanceCount: 1,
+      proposedActionCount: 1,
+      acceptedActionCount: plan.length,
+      skippedActions,
+      droppedLayoutCount: 0,
+      warningCount: 0,
+    });
+
+    expect(hint.recommend).toBe(false);
+  });
+
+  test('the refusal does not recommend a retry', () => {
+    // A policy refusal is not re-promptable: the retry would show the LLM the
+    // same chart state and reach the same refusal at double the cost.
+    const { plan, skippedActions } = parseWith(requestWith([resizeReason]), [
+      addBuyMilk(existingInstanceId),
+    ]);
+
+    const hint = deriveRetryHint({
+      healedLayoutSize: 1,
+      requestInstanceCount: 1,
+      proposedActionCount: 1,
+      acceptedActionCount: plan.length,
+      skippedActions,
+      droppedLayoutCount: 0,
+      warningCount: 0,
+    });
+
+    expect(hint.recommend).toBe(false);
   });
 });

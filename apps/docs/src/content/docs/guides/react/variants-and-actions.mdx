@@ -89,12 +89,13 @@ export default function GreetingComponent({
 
 ## Define actions
 
-Actions live on each variant's `actions` array. A `VesselActionDefinition` has four fields:
+Actions live on each variant's `actions` array. A `VesselActionDefinition` has five fields:
 
 - **`name`**: the identifier the LLM emits and your runner keys off. Must be unique within a variant.
 - **`description`**: what the action does, in plain language. The LLM reads this to decide when to invoke it.
 - **`parameters`** *(optional)*: an array of `ActionParameter` describing typed inputs the LLM fills.
 - **`transitionsTo`** *(optional)*: the name of the variant this action moves the vessel into. Omit it for actions that mutate data without changing variant.
+- **`idempotent`** *(optional, defaults to `false`)*: whether running the action twice leaves the vessel where running it once would. The Engine may re-emit an action on a turn triggered by nothing but a chart resize, and it cannot see vessel contents to tell a first run from a repeat, so such a turn admits only actions marked `true` that the LLM invoked with no parameters. A parameter value there could only have come from earlier in the conversation, so `setLocation("Tokyo")` is refused on a resize even when marked. Mark pure navigation (`expand`, `showWeek`); leave anything that appends or accumulates unmarked.
 
 Give `card` an action that takes a parameter and an action that switches to `expanded`:
 

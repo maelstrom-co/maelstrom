@@ -202,6 +202,7 @@
     "@maelstrom-co/realtime-protocol": "workspace:*",
     "@maelstrom-co/realtime-vad": "workspace:*",
     "@tanstack/ai": "catalog:",
+    "@tanstack/ai-gemini": "catalog:",
     "@tanstack/ai-openai": "catalog:",
     "@tanstack/react-router": "catalog:",
     "@tanstack/react-start": "catalog:",

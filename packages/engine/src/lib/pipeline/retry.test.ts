@@ -1188,6 +1188,24 @@ describe('buildRetryPrompt', () => {
       },
       'Action "showWeek" on instance "cal-main" is already a no-op — instance "cal-main" is already in variant "week". Omit this specific (instance, action) pair from your next response. Other instances may still legitimately call "showWeek".',
     ],
+    [
+      {
+        reason: 'non_idempotent_on_resize' as const,
+        instanceId: InstanceId('tasks-main'),
+        action: ActionName('addTask'),
+        vesselId: VesselId('task-list'),
+      },
+      'Action "addTask" on instance "tasks-main" was refused: this update was triggered by a chart resize alone, so only actions declared idempotent and called with no parameters may run. Omit this specific (instance, action) pair from your next response.',
+    ],
+    [
+      {
+        reason: 'parameterized_on_resize' as const,
+        instanceId: InstanceId('weather-main'),
+        action: ActionName('setLocation'),
+        vesselId: VesselId('weather'),
+      },
+      'Action "setLocation" on instance "weather-main" was refused: it carries parameters and this update was triggered by a chart resize alone, so only actions called with no parameters may run. Omit this specific (instance, action) pair from your next response.',
+    ],
   ] satisfies Array<
     [SkippedAction, string]
   >)('formats SkippedAction %p', (skipped, expected) => {

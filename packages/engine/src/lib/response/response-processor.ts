@@ -35,7 +35,10 @@ import {
   layoutEntryCount,
 } from '../validation/llm-output/retry-hint.js';
 import type { SkippedAction } from './execution-plan/index.js';
-import { parseExecutionPlan } from './execution-plan/index.js';
+import {
+  classifyExecutionTurn,
+  parseExecutionPlan,
+} from './execution-plan/index.js';
 import { buildGridLayout, buildTilingLayout } from './layout/index.js';
 
 /**
@@ -134,10 +137,13 @@ export function processResponse({
       : request.instances;
   const { plan: executionPlan, skippedActions } = parseExecutionPlan(
     llmOutput.executionPlan,
-    planInstances,
-    request.vessels,
-    enumSnapshot,
-    logger,
+    {
+      instances: planInstances,
+      vessels: request.vessels,
+      enumSnapshot,
+      turn: classifyExecutionTurn(request),
+      logger,
+    },
   );
 
   const retryHint = deriveRetryHint({

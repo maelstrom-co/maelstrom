@@ -11,7 +11,12 @@
     "types": ["node"],
     "rootDir": "."
   },
-  "include": ["scripts/**/*.ts"],
+  "include": [
+    "scripts/**/*.ts",
+    "src/vessels/*.vessel.def.ts",
+    "src/lib/locations.ts",
+    "src/lib/vessel-options.ts"
+  ],
   "exclude": ["scripts/hosted-e2e-server.ts"],
   "references": [
     {

@@ -104,6 +104,14 @@ flowchart TD
 
 The dropped entry is logged for diagnostics, but consumers receive only the surviving layout.
 
+### Resize-only turns
+
+A chart resize is the one trigger that arrives with no user or vessel signal, so the chart state the LLM sees on such a turn is identical to the state before an action it already ran, and the engine never sees vessel contents, so it cannot tell a first run from a replay. On a turn whose every update reason is a `chart_resize`, an action runs only if its definition declares `idempotent: true` **and** the model emitted it with no parameters. Missing the flag is recorded as `non_idempotent_on_resize`; carrying parameters despite the flag is recorded as `parameterized_on_resize`.
+
+The parameter half is what the flag alone cannot cover. `idempotent` promises that running an action twice with the *same* parameters matches running it once; it says nothing about running it with different ones. A resize asks for nothing, so any parameter value the model emits can only have come from the conversation history: `showWeek()` is a reshape the new size may call for, while `setLocation("Tokyo")` is either a replay of an earlier turn or an overwrite nobody asked for, even on an action marked idempotent. Parameters count as the model emitted them, so an action free to take parameters but invoked with none still runs.
+
+One escape stays open by design: a resize batched together with a user intent or vessel mutation is an ordinary turn, and the guard never fires on it. A freshly declared instance id is not a second escape, because a vessel may back every instance of itself with one store, so an action replayed at a new id can still duplicate state an older id already holds. The same predicate drives a prompt-side instruction, so the LLM is told to return an empty plan before the guard ever has to refuse one.
+
 ### When the engine retries
 
 After healing, the engine recommends retry only when the user would otherwise see a no-op:
@@ -111,7 +119,7 @@ After healing, the engine recommends retry only when the user would otherwise se
 - **Empty-when-needed layout** — the request asked for instances but every position dropped (severity `unrecoverable`).
 - **All actions skipped for fixable reasons** — the proposed plan was non-empty but every action was rejected for a reason the LLM could plausibly fix on retry, e.g. `unknown_vessel`, `params_parse_failed`, `action_not_valid` (severity `medium`).
 
-A partial layout or partial action plan does **not** trigger retry — partial output beats waiting for a re-roll. Non-fixable skip reasons (`state_drift`, `self_transition_noop`) don't recommend retry on their own, but they don't suppress retry either: if any *other* skip in the same response is fixable and no actions survived, retry still fires. The retry budget is `EngineConfig.maxRetries` (default `1`).
+A partial layout or partial action plan does **not** trigger retry — partial output beats waiting for a re-roll. Non-fixable skip reasons (`state_drift`, `self_transition_noop`, `non_idempotent_on_resize`, `parameterized_on_resize`) don't recommend retry on their own, but they don't suppress retry either: if any *other* skip in the same response is fixable and no actions survived, retry still fires. The retry budget is `EngineConfig.maxRetries` (default `1`).
 
 ## Configuration shape
 

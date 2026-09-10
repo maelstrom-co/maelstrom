@@ -111,4 +111,55 @@ export type SkippedAction =
       readonly action: ActionName;
       readonly vesselId: VesselId;
       readonly currentVariant: VariantName;
+    }
+  // Action not declared `idempotent` on a turn whose only trigger was a chart
+  // resize. The Engine cannot see Vessel contents, so it cannot tell such an
+  // action apart from one it already ran on an earlier turn, and re-prompting
+  // cannot resolve the ambiguity — `deriveRetryHint` excludes this from
+  // `anySkipFixable`.
+  | {
+      readonly reason: 'non_idempotent_on_resize';
+      readonly instanceId: InstanceId;
+      readonly action: ActionName;
+      readonly vesselId: VesselId;
+    }
+  // Action declared `idempotent` but emitted with parameters on a turn whose
+  // only trigger was a chart resize. A resize supplies no intent, so a
+  // parameter value can only have come from the conversation history, which
+  // makes the emission a replay however the declaration reads. Re-prompting
+  // shows the LLM the same state, so `deriveRetryHint` excludes this from
+  // `anySkipFixable` alongside `non_idempotent_on_resize`.
+  | {
+      readonly reason: 'parameterized_on_resize';
+      readonly instanceId: InstanceId;
+      readonly action: ActionName;
+      readonly vesselId: VesselId;
     };
+
+/**
+ * The parts of a {@link SkippedAction} that name which action was refused.
+ *
+ * `instanceId`, `action` and `vesselId` are each absent from at least one arm
+ * of the union, so every field but `reason` is optional.
+ */
+export type SkippedActionIdentity = {
+  readonly reason: SkippedAction['reason'];
+  readonly instanceId?: InstanceId;
+  readonly action?: ActionName;
+  readonly vesselId?: VesselId;
+};
+
+/**
+ * Projects a {@link SkippedAction} down to the fields that identify it,
+ * dropping the per-reason evidence a diagnostic renderer needs.
+ */
+export function skippedActionIdentity(
+  entry: SkippedAction,
+): SkippedActionIdentity {
+  return {
+    reason: entry.reason,
+    ...('instanceId' in entry ? { instanceId: entry.instanceId } : {}),
+    ...('action' in entry ? { action: entry.action } : {}),
+    ...('vesselId' in entry ? { vesselId: entry.vesselId } : {}),
+  };
+}

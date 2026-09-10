@@ -10,11 +10,17 @@ import { getVisibleInstanceIds } from '@maelstrom-co/protocol';
 import type { ActionParameterEnumSnapshot } from '../action-parameter-enum.js';
 import { buildActionParameterEnumSnapshot } from '../action-parameter-enum.js';
 import type { Logger } from '../logger.js';
+import { isResizeOnlyBatch } from '../update-reasons.js';
 import { computeAvailableIslands, serializeIslands } from './islands.js';
 import type { PromptSection } from './sections.js';
 import { UserSection } from './sections.js';
 
 const CHART_STATE_HEADING: readonly string[] = ['## Current Chart State', ''];
+
+const RESIZE_ONLY_INSTRUCTION: readonly string[] = [
+  "- This turn's only trigger is the resize. Return an empty executionPlan. A resize changes how much space Vessels get, never what they contain; the one exception is an action marked [idempotent] called with no parameters, which the new size may call for. A parameter value could only come from earlier in this conversation, so an action carrying one is refused on this turn",
+  '- Actions from your earlier turns have already run and their effects persist. The chart state never lists Vessel contents, so not seeing content there is not evidence an earlier action failed and is not a reason to repeat it',
+];
 
 export function buildDefaultUserSections(
   request: ChartRequest,
@@ -136,6 +142,13 @@ function serializeAction(
 
   if (action.transitionsTo) {
     str += ` → ${action.transitionsTo}`;
+  }
+
+  // Named in the resize-only instruction: the model is told a resize-triggered
+  // turn may carry only these, and only without parameters, so it stops
+  // re-emitting the rest instead of having them refused after the fact.
+  if (action.idempotent) {
+    str += ' [idempotent]';
   }
 
   if (action.description) {
@@ -412,6 +425,12 @@ export function buildUpdateTriggersSection(
         );
         break;
     }
+  }
+
+  // Emitted here rather than from the static system prompt so the rule sits
+  // adjacent to the trigger it answers, as the last thing the model reads.
+  if (isResizeOnlyBatch(reasons)) {
+    lines.push(...RESIZE_ONLY_INSTRUCTION);
   }
 
   return lines.join('\n');

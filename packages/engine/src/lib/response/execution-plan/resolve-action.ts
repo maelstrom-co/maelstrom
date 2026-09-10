@@ -13,6 +13,8 @@ import { err, ok } from '@maelstrom-co/protocol';
 import { assertNever } from '../../assert-never.js';
 import type { Logger } from '../../logger.js';
 import type { SimulationState, ValidationLookups } from './state.js';
+import type { ExecutionTurn, TurnRefusal } from './turn.js';
+import { turnRefusesAction } from './turn.js';
 import type { RawActionExecution, SkippedAction } from './types.js';
 
 export interface ResolvedAction {
@@ -42,7 +44,8 @@ export type ResolveFailure =
       readonly kind: 'self_transition_noop';
       readonly vesselId: VesselId;
       readonly currentVariant: VariantName;
-    };
+    }
+  | TurnRefusal;
 
 // Compile-time witness: every `ResolveFailure.kind` must also be a
 // `SkippedAction['reason']`. A new kind without a matching arm fails this
@@ -58,6 +61,7 @@ export type _KindsCoverReasons = _AssertTrue<
 export function resolveAction(
   item: RawActionExecution,
   lookups: ValidationLookups,
+  turn: ExecutionTurn,
   sim: SimulationState,
 ): Result<ResolvedAction, ResolveFailure> {
   const instance = lookups.instanceMap.get(item.instanceId);
@@ -100,6 +104,11 @@ export function resolveAction(
       variant: currentVariant,
       validActions,
     });
+  }
+
+  const refusal = turnRefusesAction(turn, item, instance, actionDef);
+  if (refusal) {
+    return err(refusal);
   }
 
   return ok({ instance, vessel, currentVariant, variantDef, actionDef });
@@ -199,6 +208,22 @@ export function logResolveFailure(
         `Action "${item.action}" on instance "${item.instanceId}" is a no-op transition — vessel "${failure.vesselId}" is already in variant "${failure.currentVariant}", skipping`,
       );
       return;
+    case 'non_idempotent_on_resize':
+      // Same severity tier as the other LLM-sourced skips; the message names
+      // the resize trigger so on-call doesn't read it as a broken action
+      // definition.
+      logger.warn(
+        `Action "${item.action}" on instance "${item.instanceId}" of vessel "${failure.vesselId}" is not declared idempotent and this update was triggered by chart resize alone, skipping`,
+      );
+      return;
+    case 'parameterized_on_resize':
+      // Names the parameters, not the flag: the action IS declared
+      // idempotent, so a message blaming the declaration would send on-call
+      // to edit a Vessel definition that is already correct.
+      logger.warn(
+        `Action "${item.action}" on instance "${item.instanceId}" of vessel "${failure.vesselId}" carries parameters and this update was triggered by chart resize alone, skipping`,
+      );
+      return;
     default:
       assertNever(failure, 'Unhandled ResolveFailure kind');
   }
@@ -241,6 +266,18 @@ export function resolveFailureToSkipped(
         reason: 'self_transition_noop',
         vesselId: failure.vesselId,
         currentVariant: failure.currentVariant,
+      };
+    case 'non_idempotent_on_resize':
+      return {
+        ...base,
+        reason: 'non_idempotent_on_resize',
+        vesselId: failure.vesselId,
+      };
+    case 'parameterized_on_resize':
+      return {
+        ...base,
+        reason: 'parameterized_on_resize',
+        vesselId: failure.vesselId,
       };
     default:
       assertNever(failure, 'Unhandled ResolveFailure kind');

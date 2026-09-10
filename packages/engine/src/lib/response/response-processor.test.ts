@@ -2799,4 +2799,147 @@ describe('processResponse', () => {
       expect(result.value.diagnostics.retryHint.severity).toBe('unrecoverable');
     });
   });
+
+  // Chart resizes are the one trigger that arrives without any user or vessel
+  // signal, so the serialized state the LLM sees is identical to the state
+  // before an action it already ran. The Engine refuses every action its
+  // author did not declare idempotent on such a turn rather than replaying it.
+  describe('resize-only update reasons', () => {
+    const journalVessel: AuthorVessel = {
+      id: 'journal',
+      name: 'Journal',
+      description: 'Captures journal entries',
+      defaultVariant: 'compose',
+      variants: {
+        compose: {
+          props: {},
+          minSize: { width: 2, height: 2 },
+          actions: [
+            {
+              name: 'createEntry',
+              description: 'Create a new journal entry',
+              parameters: [
+                { name: 'title', type: 'string', description: 'Entry title' },
+              ],
+            },
+            {
+              name: 'showRead',
+              description: 'Switch to reading',
+              transitionsTo: 'read',
+              idempotent: true,
+            },
+          ],
+        },
+        read: {
+          props: {},
+          minSize: { width: 1, height: 1 },
+          actions: [],
+        },
+      },
+    };
+
+    const existingInstance: AuthorInstanceSnapshot = {
+      instanceId: 'journal-existing',
+      vesselId: 'journal',
+      variant: 'compose',
+    };
+
+    const resizeRequest = (): ChartRequest =>
+      makeTilingRequest({
+        context: {
+          updateReasons: [
+            {
+              type: 'chart_resize',
+              previous: { columns: 12, rows: 8 },
+              current: { columns: 6, rows: 8 },
+            },
+          ],
+          chartDimensions: { columns: 6, rows: 8 },
+          layoutMode: 'tiling',
+        },
+        instances: [existingInstance],
+        vessels: [journalVessel],
+        layout: {
+          type: 'tiling',
+          tree: ['journal-existing'],
+          instances: [existingInstance],
+        },
+      });
+
+    test('refuses the replay even when the response swaps in a new instance id', () => {
+      // Dropping the old instance and declaring a new one does not reset the
+      // Vessel: one store can back every instance of a Vessel, so the replayed
+      // entry lands in the same contents the retired id showed.
+      const llmOutput: TilingResponseAuthor = {
+        userMessage: 'Reflowed for the narrower chart',
+        rationale: 'Resize that retires the journal and declares a fresh one',
+        executionPlan: [
+          {
+            instanceId: 'journal-new',
+            action: 'createEntry',
+            paramsJson: '{"title":"Today"}',
+          },
+        ],
+        layout: {
+          tree: ['journal-new'],
+          instances: [
+            {
+              instanceId: 'journal-new',
+              vesselId: 'journal',
+              variant: 'compose',
+            },
+          ],
+        },
+      };
+
+      const result = processResponse({
+        llmOutput,
+        request: resizeRequest(),
+        messageId: MessageId('req-1'),
+        logger: silentLogger,
+      });
+      expect(isOk(result)).toBe(true);
+      if (!isOk(result)) return;
+
+      expect(result.value.executionPlan).toEqual([]);
+      expect(result.value.diagnostics.skippedActions).toEqual([
+        buildSkippedAction({
+          reason: 'non_idempotent_on_resize',
+          instanceId: 'journal-new',
+          action: 'createEntry',
+          vesselId: 'journal',
+        }),
+      ]);
+      expect(result.value.diagnostics.retryHint.recommend).toBe(false);
+    });
+
+    test('keeps an idempotent Variant transition on an existing instance', () => {
+      const llmOutput: TilingResponseAuthor = {
+        userMessage: 'Switched the journal to reading',
+        rationale: 'Narrower chart suits the read variant',
+        executionPlan: [{ instanceId: 'journal-existing', action: 'showRead' }],
+        layout: {
+          tree: ['journal-existing'],
+          instances: [existingInstance],
+        },
+      };
+
+      const result = processResponse({
+        llmOutput,
+        request: resizeRequest(),
+        messageId: MessageId('req-1'),
+        logger: silentLogger,
+      });
+      expect(isOk(result)).toBe(true);
+      if (!isOk(result)) return;
+
+      expect(result.value.diagnostics.skippedActions).toEqual([]);
+      expect(result.value.executionPlan).toEqual([
+        {
+          instanceId: InstanceId('journal-existing'),
+          action: ActionName('showRead'),
+        },
+      ]);
+    });
+  });
 });

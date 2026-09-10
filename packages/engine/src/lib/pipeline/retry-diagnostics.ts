@@ -250,6 +250,8 @@ function isDiagnosableSkip(reason: SkippedAction['reason']): boolean {
     case 'invalid_action_definition':
       return false;
     case 'self_transition_noop':
+    case 'non_idempotent_on_resize':
+    case 'parameterized_on_resize':
     case 'params_parse_failed':
     case 'params_validation_failed':
     case 'unknown_instance':
@@ -274,6 +276,16 @@ function describeSkippedAction(entry: SkippedAction): string | undefined {
       const action = quoteIdentifier(entry.action);
       const instance = quoteIdentifier(entry.instanceId);
       return `Action ${action} on instance ${instance} is already a no-op — instance ${instance} is already in variant ${quoteIdentifier(entry.currentVariant)}. Omit this specific (instance, action) pair from your next response. Other instances may still legitimately call ${action}.`;
+    }
+    case 'non_idempotent_on_resize': {
+      const action = quoteIdentifier(entry.action);
+      const instance = quoteIdentifier(entry.instanceId);
+      return `Action ${action} on instance ${instance} was refused: this update was triggered by a chart resize alone, so only actions declared idempotent and called with no parameters may run. Omit this specific (instance, action) pair from your next response.`;
+    }
+    case 'parameterized_on_resize': {
+      const action = quoteIdentifier(entry.action);
+      const instance = quoteIdentifier(entry.instanceId);
+      return `Action ${action} on instance ${instance} was refused: it carries parameters and this update was triggered by a chart resize alone, so only actions called with no parameters may run. Omit this specific (instance, action) pair from your next response.`;
     }
     case 'params_parse_failed':
       return `Action ${quoteIdentifier(entry.action)} on instance ${quoteIdentifier(entry.instanceId)} had unparseable params`;
