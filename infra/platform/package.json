@@ -30,7 +30,7 @@
     "@effect/platform-bun": "catalog:",
     "@effect/platform-node": "catalog:",
     "alchemy": "2.0.0-beta.73",
-    "drizzle-orm": "1.0.0-rc.5-ab785fc",
+    "drizzle-orm": "1.0.0-rc.5-169397b",
     "effect": "catalog:"
   },
   "devDependencies": {

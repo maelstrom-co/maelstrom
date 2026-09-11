@@ -17,7 +17,7 @@
     "@maelstrom-co/react": "workspace:*",
     "@radix-ui/react-scroll-area": "catalog:",
     "astro": "catalog:",
-    "drizzle-orm": "1.0.0-rc.5-ab785fc",
+    "drizzle-orm": "1.0.0-rc.5-169397b",
     "react": "catalog:",
     "react-dom": "catalog:"
   },
