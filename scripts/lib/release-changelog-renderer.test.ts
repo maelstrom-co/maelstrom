@@ -70,6 +70,74 @@ class AuthorRenderer extends ReleaseChangelogRenderer {
 }
 
 describe('release author attribution', () => {
+  it.each([
+    'bd29917d32a6bed291d28c20c0e5abee3a2a65e2',
+    '21e9f07ceaf98b3326eedf559a08c5c72d265914',
+    '135ced15cfaa7391a3cb6570620ba261f1a0221b',
+    'bd29917',
+  ])('corrects the known mixed identity on %s without requiring GitHub access', async (hash) => {
+    const renderer = new AuthorRenderer(
+      [
+        {
+          ...change(hash),
+          authors: [{ ...nacho, email: 'xppcoder@gmail.com' }],
+        },
+      ],
+      {},
+    );
+    expect((await renderer.authors()).split('\n')).toContain(
+      '- Nacho Vazquez @NachoVazquez',
+    );
+    expect(renderer.requests).toEqual([]);
+  });
+
+  it('preserves Javier’s co-author identity while correcting Nacho’s primary identity', async () => {
+    const javier = { name: 'Javier Cabrera', email: 'xppcoder@gmail.com' };
+    const renderer = new AuthorRenderer(
+      [
+        {
+          ...change('bd29917d32a6bed291d28c20c0e5abee3a2a65e2'),
+          authors: [{ ...nacho, email: javier.email }, javier],
+        },
+        { ...change('javier'), authors: [javier] },
+        { ...change('nacho'), authors: [nacho] },
+      ],
+      {
+        bd29917d32a6bed291d28c20c0e5abee3a2a65e2: {
+          ...nacho,
+          email: javier.email,
+          username: 'Jacarte',
+        },
+        javier: { ...javier, username: 'Jacarte' },
+        nacho: attributedCommit,
+      },
+    );
+    const lines = (await renderer.authors()).split('\n');
+    expect(lines).toContain('- Nacho Vazquez @NachoVazquez');
+    expect(lines).toContain('- Javier Cabrera @Jacarte');
+    expect(lines.filter((line) => line.startsWith('- Nacho'))).toHaveLength(1);
+  });
+
+  it('requires the exact commit and expected author identity for a correction', async () => {
+    for (const [hash, author] of [
+      ['unrelated', { ...nacho, email: 'xppcoder@gmail.com' }],
+      [
+        'bd29917d32a6bed291d28c20c0e5abee3a2a65e2',
+        { ...nacho, name: 'Someone else', email: 'xppcoder@gmail.com' },
+      ],
+      [
+        'bd29917d32a6bed291d28c20c0e5abee3a2a65e2',
+        { ...nacho, email: 'other@example.com' },
+      ],
+    ] as const) {
+      const renderer = new AuthorRenderer(
+        [{ ...change(hash), authors: [author] }],
+        {},
+      );
+      expect(await renderer.authors()).not.toContain('@NachoVazquez');
+    }
+  });
+
   it('uses the account linked to a matching commit instead of an email-search result', async () => {
     const renderer = new AuthorRenderer(
       [{ ...change('verified'), authors: [nacho] }],

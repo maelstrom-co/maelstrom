@@ -8,6 +8,7 @@ import DefaultChangelogRenderer, {
 import { createProjectGraphAsync } from 'nx/src/project-graph/project-graph';
 import { findMatchingProjects } from 'nx/src/utils/find-matching-projects';
 import { workspaceRoot } from 'nx/src/utils/workspace-root';
+import { findReleaseAuthorOverride } from './release-author-overrides.ts';
 
 type ChangedFilesForCommit = (commit: string) => readonly string[];
 type ReleaseProject = { name: string; root: string };
@@ -135,26 +136,33 @@ export default class ReleaseChangelogRenderer extends DefaultChangelogRenderer {
   protected override async renderAuthors(): Promise<string[]> {
     const authors = new Map<
       string,
-      Map<string, { name: string; hashes: Set<string> }>
+      Map<string, { name: string; hashes: Set<string>; usernames: Set<string> }>
     >();
     for (const change of [
       ...this.relevantChanges,
       ...this.additionalChangesForAuthorsSection,
     ]) {
       for (const author of change.authors ?? []) {
-        const name = this.formatName(author.name);
+        const correction = findReleaseAuthorOverride(change.shortHash, author);
+        const correctedAuthor = correction ?? author;
+        const name = this.formatName(correctedAuthor.name);
         if (!name || name.includes('[bot]')) continue;
         let identities = authors.get(name);
         if (!identities) {
           identities = new Map();
           authors.set(name, identities);
         }
-        let identity = identities.get(author.email);
+        let identity = identities.get(correctedAuthor.email);
         if (!identity) {
-          identity = { name: author.name, hashes: new Set() };
-          identities.set(author.email, identity);
+          identity = {
+            name: correctedAuthor.name,
+            hashes: new Set(),
+            usernames: new Set(),
+          };
+          identities.set(correctedAuthor.email, identity);
         }
-        if (change.shortHash) identity.hashes.add(change.shortHash);
+        if (correction) identity.usernames.add(correction.username);
+        else if (change.shortHash) identity.hashes.add(change.shortHash);
       }
     }
     if (authors.size === 0) return [];
@@ -167,6 +175,10 @@ export default class ReleaseChangelogRenderer extends DefaultChangelogRenderer {
       const usernames = new Set<string>();
       if (this.changelogRenderOptions.applyUsernameToAuthors) {
         for (const [email, identity] of identities) {
+          if (identity.usernames.size > 0) {
+            for (const username of identity.usernames) usernames.add(username);
+            continue;
+          }
           for (const hash of identity.hashes) {
             let pending = commits.get(hash);
             if (!pending) {
