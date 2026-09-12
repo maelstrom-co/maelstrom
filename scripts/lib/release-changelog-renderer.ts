@@ -1,6 +1,7 @@
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { promisify } from 'node:util';
 import DefaultChangelogRenderer, {
   type ChangelogChange,
 } from 'nx/release/changelog-renderer';
@@ -10,6 +11,8 @@ import { workspaceRoot } from 'nx/src/utils/workspace-root';
 
 type ChangedFilesForCommit = (commit: string) => readonly string[];
 type ReleaseProject = { name: string; root: string };
+type CommitAuthor = { name: string; email: string; username: string };
+const execFileAsync = promisify(execFile);
 
 export function scopeChangesToReleaseProjects(
   changes: readonly ChangelogChange[],
@@ -94,6 +97,97 @@ async function getReleaseProjects(): Promise<ReleaseProject[]> {
 
 /** Keeps workspace release notes within the same project boundary as Nx Release. */
 export default class ReleaseChangelogRenderer extends DefaultChangelogRenderer {
+  protected async getCommitAuthor(hash: string): Promise<CommitAuthor | null> {
+    const remote = this.remoteReleaseClient.getRemoteRepoData();
+    if (
+      !remote ||
+      this.remoteReleaseClient.remoteReleaseProviderName !== 'GitHub'
+    ) {
+      return null;
+    }
+    try {
+      const { stdout } = await execFileAsync(
+        'gh',
+        [
+          'api',
+          '--hostname',
+          remote.hostname,
+          `repos/${remote.slug}/commits/${encodeURIComponent(hash)}`,
+          '--jq',
+          '{name: .commit.author.name, email: .commit.author.email, username: .author.login}',
+        ],
+        { cwd: workspaceRoot, encoding: 'utf8', timeout: 10_000 },
+      );
+      const author = JSON.parse(stdout);
+      if (
+        typeof author?.name === 'string' &&
+        typeof author.email === 'string' &&
+        typeof author.username === 'string'
+      ) {
+        return author;
+      }
+    } catch {
+      // Missing credentials, unpushed commits, and API failures leave plain names.
+    }
+    return null;
+  }
+
+  protected override async renderAuthors(): Promise<string[]> {
+    const authors = new Map<
+      string,
+      Map<string, { name: string; hashes: Set<string> }>
+    >();
+    for (const change of [
+      ...this.relevantChanges,
+      ...this.additionalChangesForAuthorsSection,
+    ]) {
+      for (const author of change.authors ?? []) {
+        const name = this.formatName(author.name);
+        if (!name || name.includes('[bot]')) continue;
+        let identities = authors.get(name);
+        if (!identities) {
+          identities = new Map();
+          authors.set(name, identities);
+        }
+        let identity = identities.get(author.email);
+        if (!identity) {
+          identity = { name: author.name, hashes: new Set() };
+          identities.set(author.email, identity);
+        }
+        if (change.shortHash) identity.hashes.add(change.shortHash);
+      }
+    }
+    if (authors.size === 0) return [];
+
+    const commits = new Map<string, Promise<CommitAuthor | null>>();
+    const lines = ['', '### ❤️ Thank You', ''];
+    for (const [name, identities] of [...authors].sort(([a], [b]) =>
+      a.localeCompare(b),
+    )) {
+      const usernames = new Set<string>();
+      if (this.changelogRenderOptions.applyUsernameToAuthors) {
+        for (const [email, identity] of identities) {
+          for (const hash of identity.hashes) {
+            let pending = commits.get(hash);
+            if (!pending) {
+              pending = this.getCommitAuthor(hash);
+              commits.set(hash, pending);
+            }
+            const author = await pending;
+            // A commit's linked account belongs to its primary author, not its co-authors.
+            if (author?.name === identity.name && author.email === email) {
+              usernames.add(author.username);
+              break;
+            }
+          }
+        }
+      }
+      const username = usernames.size === 1 ? [...usernames][0] : undefined;
+      lines.push(`- ${name}${username ? ` @${username}` : ''}`);
+    }
+    return lines;
+  }
+
   override async render(): Promise<string> {
     this.changes = scopeChangesToReleaseProjects(
       this.changes,
