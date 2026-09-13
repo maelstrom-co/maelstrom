@@ -173,10 +173,12 @@ export default class ReleaseChangelogRenderer extends DefaultChangelogRenderer {
       a.localeCompare(b),
     )) {
       const usernames = new Set<string>();
+      let resolvedIdentities = 0;
       if (this.changelogRenderOptions.applyUsernameToAuthors) {
         for (const [email, identity] of identities) {
           if (identity.usernames.size > 0) {
             for (const username of identity.usernames) usernames.add(username);
+            resolvedIdentities++;
             continue;
           }
           for (const hash of identity.hashes) {
@@ -189,12 +191,16 @@ export default class ReleaseChangelogRenderer extends DefaultChangelogRenderer {
             // A commit's linked account belongs to its primary author, not its co-authors.
             if (author?.name === identity.name && author.email === email) {
               usernames.add(author.username);
+              resolvedIdentities++;
               break;
             }
           }
         }
       }
-      const username = usernames.size === 1 ? [...usernames][0] : undefined;
+      const username =
+        resolvedIdentities === identities.size && usernames.size === 1
+          ? [...usernames][0]
+          : undefined;
       lines.push(`- ${name}${username ? ` @${username}` : ''}`);
     }
     return lines;

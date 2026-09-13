@@ -220,6 +220,62 @@ describe('release author attribution', () => {
     );
     expect((await renderer.authors()).split('\n')).toContain('- Nacho Vazquez');
   });
+
+  it.each([
+    'missing',
+    undefined,
+    'verified',
+  ])('omits a shared-name handle when an identity has no matching account on %s', async (unresolvedHash) => {
+    const changes = [
+      { ...change('verified'), authors: [nacho] },
+      {
+        ...change(unresolvedHash),
+        authors: [{ ...nacho, email: 'other@example.com' }],
+      },
+    ];
+    for (const orderedChanges of [changes, [...changes].reverse()]) {
+      const renderer = new AuthorRenderer(orderedChanges, {
+        verified: attributedCommit,
+      });
+      expect((await renderer.authors()).split('\n')).toContain(
+        '- Nacho Vazquez',
+      );
+    }
+  });
+
+  it('shows one handle when every identity sharing a name resolves to that account', async () => {
+    const otherIdentity = { ...nacho, email: 'other@example.com' };
+    const renderer = new AuthorRenderer(
+      [
+        { ...change('first'), authors: [nacho] },
+        { ...change('second'), authors: [otherIdentity] },
+      ],
+      {
+        first: attributedCommit,
+        second: { ...otherIdentity, username: 'NachoVazquez' },
+      },
+    );
+    expect((await renderer.authors()).split('\n')).toContain(
+      '- Nacho Vazquez @NachoVazquez',
+    );
+  });
+
+  it('does not extend a known correction to an unresolved same-name identity', async () => {
+    const renderer = new AuthorRenderer(
+      [
+        {
+          ...change('bd29917d32a6bed291d28c20c0e5abee3a2a65e2'),
+          authors: [{ ...nacho, email: 'xppcoder@gmail.com' }],
+        },
+        {
+          ...change('missing'),
+          authors: [{ ...nacho, email: 'other@example.com' }],
+        },
+      ],
+      {},
+    );
+    expect((await renderer.authors()).split('\n')).toContain('- Nacho Vazquez');
+  });
 });
 
 describe('scopeChangesToReleaseProjects', () => {
