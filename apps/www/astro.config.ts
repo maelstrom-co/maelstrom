@@ -1,9 +1,11 @@
 import cloudflare from '@astrojs/cloudflare';
+import mdx from '@astrojs/mdx';
 import react from '@astrojs/react';
 import sitemap from '@astrojs/sitemap';
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig, fontProviders } from 'astro/config';
 import tsConfigPaths from 'vite-tsconfig-paths';
+import { productionUrl } from './src/lib/blog';
 
 // The Cloudflare adapter boots a workerd runtime that breaks `astro dev`, so we
 // drop it for the dev server only. Matching the exact command position (not a
@@ -28,7 +30,20 @@ export default defineConfig({
   // a class of invisible bug in a site that is entirely hand-authored .astro.
   compressHTML: true,
   adapter,
-  integrations: [react(), sitemap()],
+  integrations: [
+    react(),
+    mdx(),
+    sitemap({
+      serialize(item) {
+        const url = new URL(item.url);
+        if (url.pathname === '/blog' || url.pathname.startsWith('/blog/')) {
+          url.pathname = `${url.pathname.replace(/\/$/, '')}/`;
+          item.url = productionUrl(url.pathname);
+        }
+        return item;
+      },
+    }),
+  ],
   vite: {
     plugins: [tsConfigPaths({ root: '../..' }), tailwindcss()],
   },

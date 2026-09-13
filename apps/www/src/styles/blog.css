@@ -1,0 +1,25 @@
+.blog-page.container {
+  position: relative;
+  z-index: 2;
+  max-width: 52rem;
+  padding-top: 9rem;
+  padding-bottom: 5rem;
+  overflow-wrap: anywhere;
+}
+
+.blog-page h1 { font-size: clamp(2.25rem, 6vw, 4rem); line-height: 1.15; }
+.blog-page h2 { font-size: 1.75rem; }
+.blog-page h3 { font-size: 1.35rem; }
+.blog-page p, .blog-page h1, .blog-page h2, .blog-page h3 { margin-block: 1rem; }
+.blog-page a { text-decoration: underline; text-underline-offset: 0.2em; }
+.blog-page time { font-size: 0.875rem; }
+.blog-empty, .blog-list > li { padding-block: 2rem; }
+.blog-list { list-style: none; padding: 0; }
+.blog-list > li { border-bottom: 1px solid var(--line); }
+.blog-labels { display: flex; flex-wrap: wrap; gap: 1rem; list-style: none; padding: 0; }
+.blog-prose { margin-top: 3rem; line-height: 1.8; }
+.blog-prose :is(img, video, svg) { max-width: 100%; height: auto; }
+.blog-prose pre { overflow-x: auto; padding: 1rem; }
+.blog-prose :is(ul, ol) { padding-left: 1.5rem; }
+.blog-prose blockquote { border-left: 2px solid currentColor; padding-left: 1rem; }
+.blog-prose table { display: block; overflow-x: auto; }

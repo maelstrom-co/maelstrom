@@ -162,6 +162,7 @@
       "name": "@maelstrom-co/www",
       "version": "0.0.1",
       "dependencies": {
+        "@astrojs/mdx": "^7.0.5",
         "@astrojs/react": "catalog:",
         "@astrojs/sitemap": "catalog:",
         "@effect/sql-d1": "catalog:",

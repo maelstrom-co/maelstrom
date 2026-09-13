@@ -1,0 +1,32 @@
+---
+import { getCollection } from 'astro:content';
+import Layout from '../../layouts/Layout.astro';
+import { blogPath, productionUrl, sortPosts } from '../../lib/blog';
+import '../../styles/blog.css';
+
+const posts = sortPosts(await getCollection('blog'));
+---
+
+<Layout title="Blog — Maelstrom" description="Engineering notes and updates from Maelstrom." canonical={productionUrl(blogPath())}>
+  <main class="container blog-page">
+    <h1>Blog</h1>
+    <p>Engineering notes and updates from Maelstrom.</p>
+    {posts.length === 0 ? (
+      <p class="blog-empty">No posts yet. Check back for engineering notes and updates.</p>
+    ) : (
+      <ul class="blog-list">
+        {posts.map((post) => (
+          <li>
+            <article>
+              <time datetime={post.data.date.toISOString()}>{post.data.date.toISOString().slice(0, 10)}</time>
+              <h2><a href={blogPath(post.id)}>{post.data.title}</a></h2>
+              <p>{post.data.description}</p>
+              <p>{post.data.labels.join(' · ')}</p>
+              <p>By <a href={post.data.authorUrl}>{post.data.author}</a></p>
+            </article>
+          </li>
+        ))}
+      </ul>
+    )}
+  </main>
+</Layout>

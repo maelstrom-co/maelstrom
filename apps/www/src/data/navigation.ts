@@ -8,6 +8,7 @@ export const navLinks = [
   { label: 'Demo', href: '/#demo' },
   { label: 'Playground', href: PLAYGROUND_URL },
   { label: 'Docs', href: 'https://docs.maelstrom-ai.co' },
+  { label: 'Blog', href: '/blog/' },
 ] as const;
 
 export const socialLinks = [
