@@ -16,7 +16,10 @@ const fixtures = dirname(fileURLToPath(import.meta.url));
 const app = resolve(fixtures, '../../..');
 const repository = resolve(app, '../..');
 
-/** Copies only build inputs; fixtures, caches and output never enter the real app. */
+/**
+ * Copies production build inputs into a temporary app removed after the callback.
+ * Inject replaces only that copy's blog with fixtures; real content and caches stay isolated.
+ */
 export async function withBlogBuild<T>(
   run: (site: {
     root: string;
@@ -78,11 +81,11 @@ export async function withBlogBuild<T>(
         );
       },
       async inject() {
+        const content = join(root, 'src/content/blog');
+        await rm(content, { recursive: true, force: true });
+        await mkdir(content, { recursive: true });
         for (const slug of ['fixture-alpha', 'fixture-zeta', 'fixture-old']) {
-          await cp(
-            join(fixtures, `${slug}.mdx`),
-            join(root, 'src/content/blog', `${slug}.mdx`),
-          );
+          await cp(join(fixtures, `${slug}.mdx`), join(content, `${slug}.mdx`));
         }
       },
     });

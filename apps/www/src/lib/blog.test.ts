@@ -116,8 +116,46 @@ test('blog URLs always use the production origin and trailing slash', () => {
   );
 });
 
-test('actual collection builds empty and fixture output without publishing fixtures', async () => {
+test('actual collection builds production, isolated empty and fixture output', async () => {
+  await withBlogBuild(async ({ output, build }) => {
+    build();
+    const productionIndex = await outputText(output, 'blog/index.html');
+    expect(productionIndex).toContain('Hello Maelstrom');
+    expect(productionIndex).not.toContain('No posts yet.');
+    expect((await readdir(join(output, 'blog'))).sort()).toEqual([
+      'hello-maelstrom',
+      'index.html',
+    ]);
+    const productionArticle = await outputText(
+      output,
+      'blog/hello-maelstrom/index.html',
+    );
+    expect(productionArticle).toContain(
+      '<strong>boilerplate first entry</strong>',
+    );
+    expect(productionArticle).toContain('Lorem ipsum');
+    expect(productionArticle).toContain(
+      'rel="canonical" href="https://maelstrom-ai.co/blog/hello-maelstrom/"',
+    );
+    const productionSitemap = await outputText(output, 'sitemap-0.xml');
+    expect(productionSitemap).toContain(
+      '<loc>https://maelstrom-ai.co/blog/hello-maelstrom/</loc>',
+    );
+    for (const text of [
+      productionIndex,
+      productionArticle,
+      productionSitemap,
+    ]) {
+      expect(text).not.toContain('fixture-');
+      expect(text).not.toContain('Fictional');
+      expect(text).not.toContain('Example Author');
+      expect(text).not.toContain('/blog/pages');
+    }
+  });
   await withBlogBuild(async ({ root, output, build, inject }) => {
+    const content = join(root, 'src/content/blog');
+    await rm(content, { recursive: true });
+    await mkdir(content);
     build();
     const emptyIndex = await outputText(output, 'blog/index.html');
     expect(emptyIndex).toContain('No posts yet.');
@@ -199,7 +237,6 @@ test('actual collection builds empty and fixture output without publishing fixtu
       '<loc>https://maelstrom-ai.co/blog/fixture-alpha/</loc>',
     );
 
-    const content = join(root, 'src/content/blog');
     await mkdir(join(content, 'nested'));
     await writeFile(
       join(content, 'nested/invalid.mdx'),

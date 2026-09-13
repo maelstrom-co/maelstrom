@@ -4,6 +4,10 @@ Publish a post by adding one MDX file to `src/content/blog/<slug>.mdx`.
 The Blog navigation link opens `/blog/`; each article has the canonical URL
 `https://maelstrom-ai.co/blog/<slug>/`. An empty collection is supported.
 
+`hello-maelstrom.mdx` is the first published placeholder: a short layout sample
+with introductory and Lorem ipsum prose, attributed to Maelstrom. It is not a
+product announcement or engineering guide.
+
 ## File and metadata contract
 
 Use lowercase ASCII letters, digits and single hyphens in filenames, for example
@@ -77,7 +81,9 @@ NX_DAEMON=false bunx --no-install nx run '@maelstrom-co/www:e2e' --skip-nx-cache
 Schema and output tests live in `src/lib/blog.test.ts`. Fictitious MDX files live
 only in `e2e/fixtures/blog/`. The harness copies build inputs into an OS temporary
 directory, links dependencies without sharing app caches, and builds the actual
-Astro collection/routes/adapter there. It tests an untouched collection separately
-from injected fixtures and removes the temporary tree in `finally`; cleanup errors
-fail the test. Do not copy fixtures into `src/content/blog/` or deploy fixture output.
+Astro collection/routes/adapter there. It tests the production collection in one
+copy and an empty collection in a separate fresh copy. Fixture injection replaces
+only the temporary blog content. The harness removes each tree in `finally`;
+cleanup errors fail the test. Do not copy fixtures into `src/content/blog/` or
+deploy fixture output.
 Browser tests inspect both the actual development index and isolated built posts.

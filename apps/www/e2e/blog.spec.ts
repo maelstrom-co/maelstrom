@@ -2,7 +2,7 @@ import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import { outputText, withBlogBuild } from './fixtures/blog/build';
 
-test('main navigation opens the empty blog on desktop and mobile', async ({
+test('main navigation opens the first blog post on desktop and mobile', async ({
   page,
 }) => {
   for (const width of [1280, 375]) {
@@ -18,14 +18,30 @@ test('main navigation opens the empty blog on desktop and mobile', async ({
     await expect(
       page.getByRole('heading', { name: 'Blog', exact: true }),
     ).toBeVisible();
+    await page
+      .getByRole('link', { name: 'Hello Maelstrom', exact: true })
+      .click();
+    await expect(page).toHaveURL(/\/blog\/hello-maelstrom\/$/);
     await expect(
-      page.getByText('No posts yet.', { exact: false }),
+      page.getByRole('heading', { name: 'Hello Maelstrom', exact: true }),
     ).toBeVisible();
+    await expect(
+      page.getByText('boilerplate first entry', { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('link', { name: 'Maelstrom', exact: true }),
+    ).toHaveAttribute('href', 'https://maelstrom-ai.co');
+    await expect(page.locator('link[rel="canonical"]')).toHaveAttribute(
+      'href',
+      'https://maelstrom-ai.co/blog/hello-maelstrom/',
+    );
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= window.innerWidth,
       ),
     ).toBe(true);
+    await page.getByRole('link', { name: '← All posts' }).click();
+    await expect(page).toHaveURL(/\/blog\/$/);
   }
 });
 
