@@ -38,6 +38,12 @@
     "@maelstrom-co/realtime": "workspace:*",
     "@maelstrom-co/realtime-protocol": "workspace:*"
   },
+  "devDependencies": {
+    "@maelstrom-co/engine": "workspace:*",
+    "@tanstack/ai": "catalog:",
+    "@maelstrom-co/client": "workspace:*",
+    "@maelstrom-co/protocol": "workspace:*"
+  },
   "nx": {
     "targets": {
       "typecheck": {

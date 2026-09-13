@@ -1,3 +1,7 @@
+export {
+  OpenAILiveAdapter,
+  type OpenAILiveAdapterOptions,
+} from './live-adapter.js';
 export type {
   LiveTransportOptions,
   LiveTransportSnapshot,

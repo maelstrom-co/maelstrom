@@ -27,6 +27,7 @@ import type {
   RealtimeGreetingAdapter,
   RealtimeProviderAdapter,
   RealtimeToolSpec,
+  ToolResult,
   TurnMode,
   TurnModeEvent,
   UpdateUIToolResult,
@@ -116,6 +117,7 @@ function delay(ms: number): Promise<void> {
 
 /** A queued `update_ui` call awaiting retry once the in-flight request settles — latest-wins, so at most one exists at a time. */
 interface QueuedIntent {
+  readonly epoch: number;
   readonly callId: ToolCallId;
   readonly intent: string;
   readonly resolve: (ok: boolean) => void;
@@ -261,12 +263,17 @@ export class RealtimeSession implements VoiceSession {
 
   readonly #toolHandlers: Record<
     ToolName,
-    (callId: ToolCallId, argumentsJson: string) => Promise<boolean>
+    (
+      epoch: number,
+      callId: ToolCallId,
+      argumentsJson: string,
+    ) => Promise<boolean>
   > = {
-    update_ui: (callId, argumentsJson) =>
-      this.#handleUpdateUI(callId, argumentsJson),
-    get_ui_state: (callId) => this.#handleGetUIState(callId),
-    get_capabilities: (callId) => this.#handleGetCapabilities(callId),
+    update_ui: (epoch, callId, argumentsJson) =>
+      this.#handleUpdateUI(epoch, callId, argumentsJson),
+    get_ui_state: (epoch, callId) => this.#handleGetUIState(epoch, callId),
+    get_capabilities: (epoch, callId) =>
+      this.#handleGetCapabilities(epoch, callId),
   };
 
   constructor(options: RealtimeSessionOptions) {
@@ -454,6 +461,10 @@ export class RealtimeSession implements VoiceSession {
       await this.#adapter.connect({
         tools: [UPDATE_UI_TOOL, GET_UI_STATE_TOOL, GET_CAPABILITIES_TOOL],
         instructions: DEFAULT_INSTRUCTIONS,
+        getInitialGrounding: () =>
+          this.#clampGrounding(
+            this.#summarize(this.#instance.getStructuralSnapshot()),
+          ),
         prepareGreeting: this.#greetingState === 'preparing',
         ...(this.#conversationInstructions === undefined
           ? {}
@@ -831,6 +842,7 @@ export class RealtimeSession implements VoiceSession {
   async #handleToolCall(
     call: Extract<RealtimeAdapterEvent, { type: 'tool_call' }>,
   ): Promise<void> {
+    const epoch = this.#connectEpoch;
     this.#logger.debug('session: tool_call received', call);
     const startedAt = Date.now();
     this.#emit({
@@ -841,16 +853,28 @@ export class RealtimeSession implements VoiceSession {
       callId: call.callId,
       argumentsJson: call.argumentsJson,
     });
+    if (epoch !== this.#connectEpoch) return;
 
-    let ok: boolean;
-    if (isToolName(call.name)) {
-      ok = await this.#toolHandlers[call.name](call.callId, call.argumentsJson);
-    } else {
-      await this.#adapter.sendToolResult(call.callId, {
+    let ok = false;
+    try {
+      if (isToolName(call.name)) {
+        ok = await this.#toolHandlers[call.name](
+          epoch,
+          call.callId,
+          call.argumentsJson,
+        );
+      } else {
+        await this.#deliverToolResult(epoch, call.callId, {
+          ok: false,
+          summary: `Unknown tool "${call.name}".`,
+        });
+      }
+    } catch {
+      await this.#deliverToolResult(epoch, call.callId, {
         ok: false,
-        summary: `Unknown tool "${call.name}".`,
+        summary:
+          'The application result could not be confirmed. Do not retry automatically.',
       });
-      ok = false;
     }
 
     this.#emit({
@@ -865,6 +889,7 @@ export class RealtimeSession implements VoiceSession {
 
   /** Returns whether the update applied successfully (for the sidechannel result event). */
   async #handleUpdateUI(
+    epoch: number,
     callId: ToolCallId,
     argumentsJson: string,
   ): Promise<boolean> {
@@ -883,7 +908,7 @@ export class RealtimeSession implements VoiceSession {
       intent = value;
     } catch (error) {
       this.#logger.warn('update_ui: bad arguments', error);
-      await this.#sendUpdateUIResult(callId, {
+      await this.#sendUpdateUIResult(epoch, callId, {
         ok: false,
         summary: 'Could not understand that request.',
       });
@@ -897,16 +922,11 @@ export class RealtimeSession implements VoiceSession {
     try {
       // Domain-data boundary: only the plain intent string crosses here.
       outcome = (await this.#instance.submitIntent(intent)) ?? {};
-      this.#logger.debug('update_ui: submitIntent resolved, awaiting idle');
-      settled = await this.#settleAfterSubmit();
-      this.#logger.debug('update_ui: idle (render settled)', {
-        ms: Date.now() - renderStart,
-      });
     } catch (error) {
       // Fires on the routine barge-in path (queued) as well as genuine
       // pipeline failures — kept at debug level so the expected-busy case
       // doesn't spam always-on output.
-      this.#logger.debug('update_ui: submitIntent/waitForIdle rejected', error);
+      this.#logger.debug('update_ui: submitIntent rejected', error);
       // Barge-in: the instance throws while a prior intent is still in
       // flight. Never let that exception reach the adapter — queue this
       // call as the latest-wins pending intent and retry once the prior
@@ -923,8 +943,9 @@ export class RealtimeSession implements VoiceSession {
           'code' in error &&
           (error as { code?: unknown }).code === 'request_in_flight')
       ) {
+        if (epoch !== this.#connectEpoch) return false;
         return new Promise<boolean>((resolve) => {
-          this.#enqueueBargeIn({ callId, intent, resolve });
+          this.#enqueueBargeIn({ epoch, callId, intent, resolve });
         });
       }
       // Any other rejection is a genuine render/pipeline failure, not
@@ -938,12 +959,27 @@ export class RealtimeSession implements VoiceSession {
         label: 'update_ui.error',
         ms: Date.now() - renderStart,
       });
-      await this.#sendUpdateUIResult(callId, {
+      await this.#sendUpdateUIResult(epoch, callId, {
         ok: false,
         summary: APPLY_FAILED_SUMMARY,
       });
       return false;
     }
+
+    this.#logger.debug('update_ui: submitIntent resolved, awaiting idle');
+    try {
+      settled = await this.#settleAfterSubmit();
+    } catch {
+      await this.#sendUpdateUIResult(epoch, callId, {
+        ok: false,
+        summary:
+          'The application result could not be confirmed. Do not retry automatically.',
+      });
+      return false;
+    }
+    this.#logger.debug('update_ui: idle (render settled)', {
+      ms: Date.now() - renderStart,
+    });
 
     // A refusal returns to idle without throwing, so the post-settle snapshot
     // still describes the screen the intent failed to change — reporting it as
@@ -957,7 +993,7 @@ export class RealtimeSession implements VoiceSession {
         label: 'update_ui.error',
         ms: Date.now() - renderStart,
       });
-      await this.#sendUpdateUIResult(callId, {
+      await this.#sendUpdateUIResult(epoch, callId, {
         ok: false,
         summary: APPLY_FAILED_SUMMARY,
       });
@@ -975,19 +1011,33 @@ export class RealtimeSession implements VoiceSession {
     // speak-after-render: carry BOTH the structural summary (from the
     // POST-settle snapshot) and the engine's own reply, unmerged — each
     // transport decides which to voice.
-    const snapshot = this.#instance.getStructuralSnapshot();
     await this.#sendUpdateUIResult(
+      epoch,
       callId,
-      this.#buildUpdateResult(outcome.userMessage, snapshot),
+      this.#settledUpdateResult(outcome.userMessage),
     );
     return true;
   }
 
   #sendUpdateUIResult(
+    epoch: number,
     callId: ToolCallId,
     result: UpdateUIToolResult,
   ): Promise<void> {
-    return this.#adapter.sendToolResult(callId, result);
+    return this.#deliverToolResult(epoch, callId, result);
+  }
+
+  async #deliverToolResult(
+    epoch: number,
+    callId: ToolCallId,
+    result: ToolResult,
+  ): Promise<void> {
+    if (epoch !== this.#connectEpoch) return;
+    try {
+      await this.#adapter.sendToolResult(callId, result);
+    } catch {
+      this.#logger.warn('provider result delivery failed');
+    }
   }
 
   // A settled update carries both fields so each transport can choose: the
@@ -1007,6 +1057,22 @@ export class RealtimeSession implements VoiceSession {
     };
   }
 
+  #settledUpdateResult(userMessage: string | undefined): UpdateUIToolResult {
+    try {
+      return this.#buildUpdateResult(
+        userMessage,
+        this.#instance.getStructuralSnapshot(),
+      );
+    } catch {
+      const reply = typeof userMessage === 'string' ? userMessage.trim() : '';
+      return {
+        ok: true,
+        summary: 'The change completed, but its UI summary is unavailable.',
+        ...(reply ? { userMessage: reply } : {}),
+      };
+    }
+  }
+
   #settleAfterSubmit(): Promise<Result<void, Error>> {
     const instance = this.#instance;
     if (instance.waitForIdleResult) return instance.waitForIdleResult();
@@ -1023,7 +1089,7 @@ export class RealtimeSession implements VoiceSession {
     const superseded = this.#queuedIntent;
     this.#queuedIntent = entry;
     if (superseded) {
-      void this.#sendUpdateUIResult(superseded.callId, {
+      void this.#sendUpdateUIResult(superseded.epoch, superseded.callId, {
         ok: false,
         summary: SUPERSEDED_SUMMARY,
       }).then(() => {
@@ -1052,7 +1118,21 @@ export class RealtimeSession implements VoiceSession {
         // Deliberately the void wait: this settle belongs to the burst that
         // was already running when the barge-in queued, so a failure in it
         // answers the call that queued this one, never this one.
-        await this.#instance.waitForIdle();
+        try {
+          await this.#instance.waitForIdle();
+        } catch {
+          if (this.#queuedIntent === entry) {
+            this.#queuedIntent = undefined;
+            await this.#sendUpdateUIResult(entry.epoch, entry.callId, {
+              ok: false,
+              summary:
+                'Could not confirm that the application is ready. No queued request was submitted.',
+            });
+            entry.resolve(false);
+          }
+          attempt = 0;
+          continue;
+        }
         if (this.#queuedIntent !== entry) {
           attempt = 0;
           continue; // superseded while waiting — already answered, nothing to do
@@ -1060,16 +1140,18 @@ export class RealtimeSession implements VoiceSession {
 
         const renderStart = Date.now();
         let userMessage: string | undefined;
+        const epoch = entry.epoch;
+        this.#queuedIntent = undefined;
         try {
           ({ userMessage } =
             (await this.#instance.submitIntent(entry.intent)) ?? {});
         } catch (error) {
-          if (this.#queuedIntent !== entry) {
+          if (epoch !== this.#connectEpoch) {
+            entry.resolve(false);
             attempt = 0;
-            continue; // superseded mid-submit — already answered
+            continue;
           }
           if (!(error instanceof RequestInFlightError)) {
-            this.#queuedIntent = undefined;
             this.#emit({
               type: 'timing',
               sessionId: this.#sessionId,
@@ -1077,16 +1159,16 @@ export class RealtimeSession implements VoiceSession {
               label: 'update_ui.error',
               ms: Date.now() - renderStart,
             });
-            await this.#sendUpdateUIResult(entry.callId, {
+            await this.#sendUpdateUIResult(entry.epoch, entry.callId, {
               ok: false,
               summary: APPLY_FAILED_SUMMARY,
             });
             entry.resolve(false);
+            attempt = 0;
             continue;
           }
           if (attempt >= MAX_BARGE_IN_ATTEMPTS) {
-            this.#queuedIntent = undefined;
-            await this.#sendUpdateUIResult(entry.callId, {
+            await this.#sendUpdateUIResult(entry.epoch, entry.callId, {
               ok: false,
               summary: BUSY_SUMMARY,
             });
@@ -1094,16 +1176,33 @@ export class RealtimeSession implements VoiceSession {
             attempt = 0;
             continue;
           }
+          if (this.#queuedIntent) {
+            await this.#sendUpdateUIResult(entry.epoch, entry.callId, {
+              ok: false,
+              summary: SUPERSEDED_SUMMARY,
+            });
+            entry.resolve(false);
+            attempt = 0;
+            continue;
+          }
+          this.#queuedIntent = entry;
           await delay(BARGE_IN_RETRY_DELAY_MS);
           continue;
         }
 
-        if (this.#queuedIntent !== entry) {
+        let settled: Result<void, Error>;
+        try {
+          settled = await this.#settleAfterSubmit();
+        } catch {
+          await this.#sendUpdateUIResult(entry.epoch, entry.callId, {
+            ok: false,
+            summary:
+              'The application result could not be confirmed. Do not retry automatically.',
+          });
+          entry.resolve(false);
           attempt = 0;
-          continue; // superseded mid-submit — already answered; the change may still apply, but this call is done
+          continue;
         }
-        const settled = await this.#settleAfterSubmit();
-        this.#queuedIntent = undefined;
         if (!settled.ok) {
           this.#emit({
             type: 'timing',
@@ -1112,7 +1211,7 @@ export class RealtimeSession implements VoiceSession {
             label: 'update_ui.error',
             ms: Date.now() - renderStart,
           });
-          await this.#sendUpdateUIResult(entry.callId, {
+          await this.#sendUpdateUIResult(entry.epoch, entry.callId, {
             ok: false,
             summary: APPLY_FAILED_SUMMARY,
           });
@@ -1127,12 +1226,21 @@ export class RealtimeSession implements VoiceSession {
           label: 'update_ui.render',
           ms: Date.now() - renderStart,
         });
-        const snapshot = this.#instance.getStructuralSnapshot();
-        await this.#sendUpdateUIResult(
-          entry.callId,
-          this.#buildUpdateResult(userMessage, snapshot),
-        );
-        entry.resolve(true);
+        try {
+          await this.#sendUpdateUIResult(
+            entry.epoch,
+            entry.callId,
+            this.#settledUpdateResult(userMessage),
+          );
+          entry.resolve(true);
+        } catch {
+          await this.#sendUpdateUIResult(entry.epoch, entry.callId, {
+            ok: false,
+            summary:
+              'The application result could not be confirmed. Do not retry automatically.',
+          });
+          entry.resolve(false);
+        }
         attempt = 0;
       }
     } finally {
@@ -1140,17 +1248,20 @@ export class RealtimeSession implements VoiceSession {
     }
   }
 
-  async #handleGetUIState(callId: ToolCallId): Promise<boolean> {
+  async #handleGetUIState(epoch: number, callId: ToolCallId): Promise<boolean> {
     this.#logger.debug('get_ui_state: reading snapshot');
     const snapshot = this.#instance.getStructuralSnapshot();
-    await this.#adapter.sendToolResult(callId, snapshot);
+    await this.#deliverToolResult(epoch, callId, snapshot);
     return true;
   }
 
-  async #handleGetCapabilities(callId: ToolCallId): Promise<boolean> {
+  async #handleGetCapabilities(
+    epoch: number,
+    callId: ToolCallId,
+  ): Promise<boolean> {
     this.#logger.debug('get_capabilities: reading snapshot');
     const snapshot = this.#instance.getCapabilitySnapshot();
-    await this.#adapter.sendToolResult(callId, snapshot);
+    await this.#deliverToolResult(epoch, callId, snapshot);
     return true;
   }
 
@@ -1170,6 +1281,10 @@ export class RealtimeSession implements VoiceSession {
   }
 
   #emit(event: SidechannelEvent): void {
-    this.#onEvent(event);
+    try {
+      this.#onEvent(event);
+    } catch {
+      this.#logger.warn('sidechannel observer failed');
+    }
   }
 }

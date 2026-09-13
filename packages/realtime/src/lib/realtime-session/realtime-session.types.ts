@@ -68,9 +68,8 @@ export interface RealtimeInstance {
    * Such a refusal neither throws nor rejects and leaves the previous screen
    * in place, so this is the only signal that the intent changed nothing, and
    * `RealtimeSession` answers the `update_ui` tool call as a failure rather
-   * than describing a snapshot the intent never produced. Like
-   * {@link RealtimeInstance.waitForIdle} it must never reject: the barge-in
-   * retry loop awaits it outside any catch.
+   * than describing a snapshot the intent never produced. A rejection leaves
+   * the application outcome unconfirmed and must not trigger automatic replay.
    */
   waitForIdleResult?(): Promise<Result<void, Error>>;
   getStructuralSnapshot(): UIStructuralSnapshot;
