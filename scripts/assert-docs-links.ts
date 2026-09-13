@@ -17,33 +17,6 @@ import {
 
 const distRoot = resolve(import.meta.dir, '../apps/docs/dist');
 
-/**
- * Dead targets that already shipped when this check was written, so the gate
- * could be switched on without a config rewrite ahead of it.
- *
- * All of them are one TypeDoc behaviour, and none of them is fixable from the
- * authored pages. A package with more than one entry point gets a generated
- * index whose "Modules" list links to `<module>/readme/`, but no module readme
- * page is ever emitted, so every entry in that list is dead. Emptying this set
- * means changing TypeDoc's output strategy, which moves reference URLs across
- * the whole site.
- *
- * Nothing an author wrote belongs here. A hand-written link to a route that
- * does not exist is a typo with a one-line fix, so it fails instead.
- *
- * The list is exact, not a floor. An unlisted dead link fails, and so does a
- * listed one that starts resolving — so it can only shrink, and it cannot rot
- * the way a skip-if-missing list does.
- */
-const KNOWN_DEAD_TARGETS = new Set([
-  '/reference/realtime-protocol/packages/realtime-protocol/src/livekit/readme/',
-  '/reference/realtime-protocol/packages/realtime-protocol/src/livekit-wire/readme/',
-  '/reference/realtime-protocol/packages/realtime-protocol/src/openai/readme/',
-  '/reference/realtime-protocol/packages/realtime-protocol/src/readme/',
-  '/reference/realtime-vad/packages/realtime-vad/src/readme/',
-  '/reference/realtime-vad/packages/realtime-vad/src/vad-assets/readme/',
-]);
-
 type Problem = { file: string; message: string };
 
 function walk(directory: string): string[] {
@@ -84,7 +57,6 @@ for (const file of htmlFiles) {
 }
 
 const problems: Problem[] = [];
-const seenKnownDead = new Set<string>();
 
 function check(links: string[], fromPath: string, file: string): void {
   for (const href of links) {
@@ -92,10 +64,6 @@ function check(links: string[], fromPath: string, file: string): void {
     if (target === null) continue;
 
     if (!servable.has(target.path)) {
-      if (KNOWN_DEAD_TARGETS.has(target.path)) {
-        seenKnownDead.add(target.path);
-        continue;
-      }
       problems.push({
         file,
         message: `links to ${target.path}, which the build does not publish (href="${href}")`,
@@ -140,17 +108,6 @@ for (const file of files.filter((f) => f.endsWith('.txt'))) {
   );
 }
 
-// A known-dead target that now resolves is fixed, and leaving it listed would
-// let the next real break hide behind it.
-for (const target of KNOWN_DEAD_TARGETS) {
-  if (!seenKnownDead.has(target)) {
-    problems.push({
-      file: relative(process.cwd(), import.meta.path),
-      message: `KNOWN_DEAD_TARGETS lists ${target}, but nothing links to it any more. Delete the entry.`,
-    });
-  }
-}
-
 if (problems.length > 0) {
   for (const problem of problems) {
     console.error(`::error file=${problem.file}::${problem.message}`);
@@ -162,6 +119,5 @@ if (problems.length > 0) {
 }
 
 console.log(
-  `Checked ${htmlFiles.length} pages: every internal link resolves to a published route ` +
-    `(${KNOWN_DEAD_TARGETS.size} known-dead target(s) still listed).`,
+  `Checked ${htmlFiles.length} pages: every internal link resolves to a published route.`,
 );

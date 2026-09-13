@@ -169,13 +169,25 @@ export type ToolResult =
   | CapabilitySnapshot;
 
 /**
- * Provider-agnostic seam a realtime voice transport (OpenAI WebRTC, Google
- * Live API, …) implements. `RealtimeSession` drives every provider through
- * this interface only — it never branches on provider identity. Concrete
- * transports live in `./openai`; additional providers ship as sibling
- * subpaths.
+ * Provider-neutral transport lifecycle and observations, independently usable
+ * before a provider has a Maelstrom tool integration. Options belong to the
+ * implemented transport. RealtimeSession requires RealtimeProviderAdapter.
  */
-export interface RealtimeProviderAdapter {
+export interface RealtimeTransportAdapter<Options = AdapterConnectOptions> {
+  /** Optional continuous media and transcript evidence. */
+  readonly observations?: AdapterVoiceObservations;
+  /** Starts one explicit connection attempt from a user action. */
+  connect(opts: Options): Promise<void>;
+  /** Releases local participation and bounds provider finalization. */
+  disconnect(): Promise<void>;
+  /** Current media streams for metering. */
+  getAudioStreams(): AdapterAudioStreams;
+  /** Subscribes to lifecycle events. */
+  on(handler: (event: RealtimeAdapterEvent) => void): Unsubscribe;
+}
+
+/** A transport with the implemented Maelstrom tool and grounding integration. */
+export interface RealtimeProviderAdapter extends RealtimeTransportAdapter {
   /** Optional continuous observations, separate from the legacy exhaustive event union. */
   readonly observations?: AdapterVoiceObservations;
   /** Optional natural-opening request; it does not satisfy the fixed-text greeting contract. */

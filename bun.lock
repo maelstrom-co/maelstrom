@@ -347,6 +347,21 @@
         "@sinonjs/fake-timers": "catalog:",
       },
     },
+    "packages/realtime-openai-live": {
+      "name": "@maelstrom-co/realtime-openai-live",
+      "version": "0.1.0-alpha.3",
+      "dependencies": {
+        "@maelstrom-co/realtime": "workspace:*",
+        "@maelstrom-co/realtime-protocol": "workspace:*",
+      },
+    },
+    "packages/realtime-openai-live-server": {
+      "name": "@maelstrom-co/realtime-openai-live-server",
+      "version": "0.1.0-alpha.3",
+      "dependencies": {
+        "@maelstrom-co/realtime-protocol": "workspace:*",
+      },
+    },
     "packages/realtime-openai-server": {
       "name": "@maelstrom-co/realtime-openai-server",
       "version": "0.1.0-alpha.3",
@@ -1267,6 +1282,10 @@
     "@maelstrom-co/realtime-livekit-server": ["@maelstrom-co/realtime-livekit-server@workspace:packages/realtime-livekit-server"],
 
     "@maelstrom-co/realtime-openai": ["@maelstrom-co/realtime-openai@workspace:packages/realtime-openai"],
+
+    "@maelstrom-co/realtime-openai-live": ["@maelstrom-co/realtime-openai-live@workspace:packages/realtime-openai-live"],
+
+    "@maelstrom-co/realtime-openai-live-server": ["@maelstrom-co/realtime-openai-live-server@workspace:packages/realtime-openai-live-server"],
 
     "@maelstrom-co/realtime-openai-server": ["@maelstrom-co/realtime-openai-server@workspace:packages/realtime-openai-server"],
 

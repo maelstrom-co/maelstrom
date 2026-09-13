@@ -118,6 +118,7 @@ const BROWSER_PACKAGES = new Set([
   '@maelstrom-co/realtime',
   '@maelstrom-co/realtime-livekit',
   '@maelstrom-co/realtime-openai',
+  '@maelstrom-co/realtime-openai-live',
   '@maelstrom-co/realtime-vad',
 ]);
 

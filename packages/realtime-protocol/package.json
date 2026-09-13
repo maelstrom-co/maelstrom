@@ -29,6 +29,12 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
+    "./openai-live": {
+      "@maelstrom-co/source": "./src/openai-live.ts",
+      "types": "./dist/openai-live.d.ts",
+      "import": "./dist/openai-live.js",
+      "default": "./dist/openai-live.js"
+    },
     "./openai": {
       "@maelstrom-co/source": "./src/openai.ts",
       "types": "./dist/openai.d.ts",

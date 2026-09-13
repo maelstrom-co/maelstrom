@@ -18,6 +18,7 @@ export default defineConfig(() => ({
       entry: {
         index: 'src/index.ts',
         openai: 'src/openai.ts',
+        'openai-live': 'src/openai-live.ts',
         livekit: 'src/livekit.ts',
         'livekit-wire': 'src/livekit-wire.ts',
       },
