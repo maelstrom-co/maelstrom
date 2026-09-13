@@ -1,7 +1,9 @@
 import type {
   CapabilitySnapshot,
+  TimedTranscriptFragment,
   UIStructuralSnapshot,
   Unsubscribe,
+  VoiceMediaObservation,
   VoiceSessionState,
 } from '@maelstrom-co/client';
 import type { MessageId, ToolCallId } from '@maelstrom-co/protocol';
@@ -23,6 +25,12 @@ export interface RealtimeToolSpec<Name extends string = string> {
 export interface AdapterConnectOptions {
   readonly tools: readonly RealtimeToolSpec[];
   readonly instructions: string;
+  /**
+   * Conversation-only instructions for providers with a separate conversational
+   * frontend. `instructions` and `tools` configure their managed tool backend.
+   * Legacy adapters may ignore this field and keep their existing instruction path.
+   */
+  readonly conversationInstructions?: string;
   /**
    * Whether this connection may present the configured fixed greeting.
    * Defaults to `true` for direct adapter callers. RealtimeSession always sets
@@ -53,9 +61,9 @@ export interface TurnModeEvent {
 }
 
 /**
- * Events a `RealtimeProviderAdapter` emits toward `RealtimeSession`. This is
- * the full inbound surface — `RealtimeSession` never talks to a provider
- * through any other channel.
+ * Legacy events a `RealtimeProviderAdapter` emits toward `RealtimeSession`.
+ * Continuous media and timestamped fragments use the optional
+ * {@link AdapterVoiceObservations} channel, preserving exhaustive consumers.
  */
 export type RealtimeAdapterEvent =
   | {
@@ -168,6 +176,10 @@ export type ToolResult =
  * subpaths.
  */
 export interface RealtimeProviderAdapter {
+  /** Optional continuous observations, separate from the legacy exhaustive event union. */
+  readonly observations?: AdapterVoiceObservations;
+  /** Optional natural-opening request; it does not satisfy the fixed-text greeting contract. */
+  readonly generatedOpening?: AdapterGeneratedOpening;
   /**
    * Opens the provider connection. The adapter mints its own ephemeral
    * credential internally on connect — `RealtimeSession` never passes one
@@ -197,6 +209,37 @@ export interface RealtimeProviderAdapter {
    * value to binding/UI code only while retained `turnMode` is `manual`.
    */
   readonly turnControl?: AdapterTurnControl;
+}
+
+/** Continuous provider evidence. This channel never implies a legacy final turn. */
+export type AdapterVoiceObservation =
+  | {
+      /** Media observation discriminator. */
+      readonly type: 'media';
+      /** Only fields backed by current evidence; other fields retain their value. */
+      readonly media: Partial<VoiceMediaObservation>;
+    }
+  | {
+      /** Timed fragment discriminator. */
+      readonly type: 'fragment';
+      /** New or revised raw fragment on this connection's media timeline. */
+      readonly fragment: TimedTranscriptFragment;
+    };
+
+/** Optional adapter channel, subscribed before connection setup and released on teardown. */
+export interface AdapterVoiceObservations {
+  /** Observes current-generation provider evidence; adapters must fence stale transport callbacks. */
+  subscribe(handler: (event: AdapterVoiceObservation) => void): Unsubscribe;
+}
+
+/** Natural-opening capability for providers that generate their own wording. */
+export interface AdapterGeneratedOpening {
+  /**
+   * Requests a natural opening. Resolution proves only request acceptance, not
+   * speech delivery. Publish actual words only through observed transcripts.
+   * Rejection may follow a send, so callers must not automatically retry.
+   */
+  request(instructions: string): Promise<void>;
 }
 
 /** Verdict of a greeting speech attempt. */

@@ -27,6 +27,7 @@ import type {
   AdapterAudioStreams,
   AdapterConnectOptions,
   AdapterTurnControl,
+  AdapterVoiceObservation,
   GreetingSpeechResult,
   RealtimeAdapterEvent,
   RealtimeGreetingAdapter,
@@ -45,6 +46,463 @@ import type {
 function flushMicrotasks(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
+
+describe('additive continuous capabilities', () => {
+  it('preserves provider and disposer failures together after shutdown', async () => {
+    const { session, adapter } = makeHarness();
+    const cleanup = new Error('observation release failed');
+    const provider = new Error('provider disconnect failed');
+    Object.assign(adapter, {
+      observations: {
+        subscribe: () => () => {
+          throw cleanup;
+        },
+      },
+    });
+    await session.connect();
+    adapter.failNextDisconnect(provider);
+    const error = await session.disconnect().catch((error: unknown) => error);
+    expect((error as AggregateError).errors).toEqual([cleanup, provider]);
+    expect(session.state).toBe('idle');
+    expect(adapter.listenerCount).toBe(0);
+  });
+
+  it('finishes failed startup cleanup without replacing the original connection failure', async () => {
+    const { session, adapter } = makeHarness();
+    const cleanup = new Error('observation release failed');
+    Object.assign(adapter, {
+      observations: {
+        subscribe: () => () => {
+          throw cleanup;
+        },
+      },
+    });
+    adapter.failNextConnect();
+    const error = await session.connect().catch((error: unknown) => error);
+    expect(error).toBeInstanceOf(AggregateError);
+    expect((error as AggregateError).errors[0].message).toBe(
+      'adapter connect failed',
+    );
+    expect((error as AggregateError).errors[1]).toBe(cleanup);
+    expect(session.lastError).toBe(error);
+    expect(session.state).toBe('error');
+    expect(session.observations.getSnapshot().connection).toBe('error');
+    expect(adapter.listenerCount).toBe(0);
+    await session.disconnect();
+  });
+
+  it('releases a disposer returned after a reentrant disconnect and reports its failure through connect', async () => {
+    const { session, adapter } = makeHarness();
+    const cleanup = new Error('late observation release failed');
+    let disconnect: Promise<void> | undefined;
+    Object.assign(adapter, {
+      observations: {
+        subscribe: () => {
+          disconnect = session.disconnect();
+          return () => {
+            throw cleanup;
+          };
+        },
+      },
+    });
+    await expect(session.connect()).rejects.toBe(cleanup);
+    await disconnect;
+    expect(adapter.connectCalls).toBe(0);
+    expect(adapter.disconnectCalls).toBe(1);
+    expect(adapter.listenerCount).toBe(0);
+    expect(session.state).toBe('idle');
+  });
+
+  it('retains fatal provider and cleanup failures without throwing out of the event callback', async () => {
+    const { session, adapter, instance } = makeHarness();
+    const cleanup = new Error('observation release failed');
+    const provider = new RealtimeVoiceError(
+      'DATA_CHANNEL_ERROR',
+      'connection lost',
+    );
+    Object.assign(adapter, {
+      observations: {
+        subscribe: () => () => {
+          throw cleanup;
+        },
+      },
+    });
+    await session.connect();
+    expect(() => adapter.emitError(provider)).not.toThrow();
+    expect((session.lastError as AggregateError).errors).toEqual([
+      provider,
+      cleanup,
+    ]);
+    expect(adapter.disconnectCalls).toBe(1);
+    expect(adapter.listenerCount).toBe(0);
+    expect(instance.settledSubscriberCount).toBe(0);
+    expect(session.state).toBe('error');
+    await session.disconnect();
+  });
+
+  it('attempts every disposer and closes the provider before reporting cleanup failures', async () => {
+    const { session, adapter, instance } = makeHarness();
+    const failures = [
+      new Error('observations'),
+      new Error('legacy'),
+      new Error('settled'),
+    ];
+    const released: string[] = [];
+    const on = adapter.on;
+    adapter.on = (handler) => {
+      const release = on(handler);
+      return () => {
+        release();
+        released.push('legacy');
+        throw failures[1];
+      };
+    };
+    const onSettled = instance.onSettled;
+    instance.onSettled = (handler) => {
+      const release = onSettled(handler);
+      return () => {
+        release();
+        released.push('settled');
+        throw failures[2];
+      };
+    };
+    Object.assign(adapter, {
+      observations: {
+        subscribe: () => () => {
+          released.push('observations');
+          throw failures[0];
+        },
+      },
+    });
+    await session.connect();
+    const releaseGate = adapter.gateDisconnect();
+    const disconnect = session.disconnect();
+    const result = disconnect.catch((error: unknown) => error);
+    expect(session.disconnect()).toBe(disconnect);
+    releaseGate();
+    const error = await result;
+    expect(released).toEqual(['observations', 'legacy', 'settled']);
+    expect(adapter.disconnectCalls).toBe(1);
+    expect(adapter.listenerCount).toBe(0);
+    expect(instance.settledSubscriberCount).toBe(0);
+    expect(session.state).toBe('idle');
+    expect(session.observations.getSnapshot().connection).toBe('disconnected');
+    expect(error).toBeInstanceOf(AggregateError);
+    expect((error as AggregateError).errors).toEqual(failures);
+    await session.disconnect();
+    expect(released).toHaveLength(3);
+  });
+
+  it('keeps replacement subscriptions and transport alive when an older handshake succeeds late', async () => {
+    const { session, adapter, instance } = makeHarness();
+    const observers = new Set<(event: AdapterVoiceObservation) => void>();
+    Object.assign(adapter, {
+      observations: {
+        subscribe: (handler: (event: AdapterVoiceObservation) => void) => {
+          observers.add(handler);
+          return () => {
+            observers.delete(handler);
+          };
+        },
+      },
+    });
+    const releaseA = adapter.gateConnect();
+    const a = session.connect();
+    await session.disconnect();
+    const releaseB = adapter.gateConnect();
+    const b = session.connect();
+    releaseB();
+    await b;
+    expect(observers.size).toBe(1);
+    releaseA();
+    await a;
+    expect(adapter.disconnectCalls).toBe(1);
+    expect(adapter.listenerCount).toBe(1);
+    expect(instance.settledSubscriberCount).toBe(1);
+    expect(observers.size).toBe(1);
+    for (const observer of observers)
+      observer({ type: 'media', media: { microphone: 'active' } });
+    expect(session.observations.getSnapshot()).toMatchObject({
+      connection: 'connected',
+      generation: 2,
+      media: { microphone: 'active' },
+    });
+    await session.disconnect();
+    expect(observers.size).toBe(0);
+  });
+
+  it('tears down a late successful handshake when no replacement has started', async () => {
+    const { session, adapter } = makeHarness();
+    const release = adapter.gateConnect();
+    const connecting = session.connect();
+    await session.disconnect();
+    release();
+    await connecting;
+    expect(adapter.disconnectCalls).toBe(2);
+    expect(adapter.listenerCount).toBe(0);
+    expect(session.observations.getSnapshot().connection).toBe('disconnected');
+  });
+
+  it('isolates throwing observers while preserving shutdown, other observers, and provider rejection', async () => {
+    const { session, adapter } = makeHarness();
+    await session.connect();
+    const failure = new Error('provider teardown failed');
+    adapter.failNextDisconnect(failure);
+    const releaseGate = adapter.gateDisconnect();
+    const releaseThrowing = session.observations.subscribe(() => {
+      throw new Error('observer failed');
+    });
+    const seen: string[] = [];
+    const releaseHealthy = session.observations.subscribe(() =>
+      seen.push(session.observations.getSnapshot().connection),
+    );
+    const legacy: string[] = [];
+    session.on('state', (state) => legacy.push(state));
+    const disconnect = session.disconnect();
+    expect(session.disconnect()).toBe(disconnect);
+    expect(adapter.disconnectCalls).toBe(1);
+    expect(adapter.listenerCount).toBe(0);
+    expect(seen).toEqual(['disconnecting']);
+    releaseGate();
+    await expect(disconnect).rejects.toBe(failure);
+    expect(seen).toEqual(['disconnecting', 'disconnected']);
+    expect(legacy).toEqual(['idle']);
+    releaseThrowing();
+    releaseHealthy();
+    await session.connect();
+    expect(session.state).toBe('connected');
+    await session.disconnect();
+  });
+
+  it('does not emit legacy connected after an observer begins a pending disconnect', async () => {
+    const { session, adapter } = makeHarness();
+    const releaseGate = adapter.gateDisconnect();
+    let disconnect: Promise<void> | undefined;
+    const seen: string[] = [];
+    session.on('state', (state) => seen.push(`legacy:${state}`));
+    const release = session.observations.subscribe(() => {
+      const connection = session.observations.getSnapshot().connection;
+      seen.push(`observation:${connection}`);
+      if (connection === 'connected') disconnect = session.disconnect();
+    });
+    await session.connect();
+    expect(seen).toEqual([
+      'legacy:connecting',
+      'observation:connecting',
+      'observation:connected',
+      'observation:disconnecting',
+    ]);
+    releaseGate();
+    await disconnect;
+    expect(seen.slice(-2)).toEqual(['observation:disconnected', 'legacy:idle']);
+    release();
+  });
+
+  it('rejects invalid transcript bounds synchronously during session construction', () => {
+    const { adapter, instance } = makeHarness();
+    for (const transcript of [
+      { maxFragments: Number.MAX_SAFE_INTEGER + 1 },
+      { maxFragmentChars: 1.5 },
+      { maxFragments: 0 },
+      { groupGapMs: Infinity },
+      { groupGapMs: -1 },
+    ]) {
+      expect(
+        () =>
+          new RealtimeSession({
+            adapter,
+            instance,
+            sessionId: testSessionId,
+            transcript,
+          }),
+      ).toThrow(RangeError);
+    }
+    expect(adapter.connectCalls).toBe(0);
+  });
+
+  it('lets an observation subscriber stop startup before provider work starts', async () => {
+    const { session, adapter } = makeHarness();
+    let disconnect: Promise<void> | undefined;
+    const release = session.observations.subscribe(() => {
+      if (session.observations.getSnapshot().connection === 'connecting') {
+        disconnect = session.disconnect();
+      }
+    });
+    await session.connect();
+    await disconnect;
+    expect(adapter.connectCalls).toBe(0);
+    expect(session.observations.getSnapshot().connection).toBe('disconnected');
+    release();
+  });
+
+  it('releases continuous subscriptions on fatal provider loss and rejects their late evidence', async () => {
+    const adapter = makeMockAdapter();
+    let callback: ((event: AdapterVoiceObservation) => void) | undefined;
+    let released = 0;
+    Object.assign(adapter, {
+      observations: {
+        subscribe: (handler: (event: AdapterVoiceObservation) => void) => {
+          callback = handler;
+          return () => {
+            released += 1;
+          };
+        },
+      },
+    });
+    const session = new RealtimeSession({
+      adapter,
+      instance: makeMockInstance(emptySnapshot),
+      sessionId: testSessionId,
+    });
+    await session.connect();
+    callback?.({ type: 'media', media: { microphone: 'active' } });
+    adapter.emitError(
+      new RealtimeVoiceError('DATA_CHANNEL_ERROR', 'connection lost'),
+    );
+    const failed = session.observations.getSnapshot();
+    expect(failed).toMatchObject({
+      connection: 'error',
+      media: { microphone: 'unknown' },
+    });
+    expect(released).toBe(1);
+    callback?.({ type: 'media', media: { microphone: 'active' } });
+    expect(session.observations.getSnapshot()).toBe(failed);
+    await session.disconnect();
+  });
+
+  it('fences old subscriptions and never converts fragments or speaking state into legacy turns or audible evidence', async () => {
+    const adapter = makeMockAdapter();
+    const callbacks: Array<(event: AdapterVoiceObservation) => void> = [];
+    let releases = 0;
+    Object.assign(adapter, {
+      observations: {
+        subscribe: (callback: (event: AdapterVoiceObservation) => void) => {
+          callbacks.push(callback);
+          return () => {
+            releases += 1;
+          };
+        },
+      },
+    });
+    const session = new RealtimeSession({
+      adapter,
+      instance: makeMockInstance(emptySnapshot),
+      sessionId: testSessionId,
+    });
+    const legacy: unknown[] = [];
+    session.on('transcript', (entry) => legacy.push(entry));
+    await session.connect();
+    const event: AdapterVoiceObservation = {
+      type: 'fragment',
+      fragment: {
+        id: '1',
+        role: 'user',
+        speakerId: 'user',
+        text: '  raw',
+        startMs: 0,
+        endMs: 20,
+      },
+    };
+    callbacks[0](event);
+    expect(session.observations.getSnapshot().captions[0].text).toBe('  raw');
+    expect(legacy).toEqual([]);
+    expect(session.observations.getSnapshot().media.incomingAudio).toBe(
+      'unknown',
+    );
+    callbacks[0]({ type: 'media', media: { microphone: 'active' } });
+    await session.disconnect();
+    expect(releases).toBe(1);
+    const disconnected = session.observations.getSnapshot();
+    callbacks[0]({ type: 'media', media: { microphone: 'active' } });
+    expect(session.observations.getSnapshot()).toBe(disconnected);
+    await session.connect();
+    callbacks[0](event);
+    expect(session.observations.getSnapshot().fragments).toEqual([]);
+    callbacks[1](event);
+    expect(session.observations.getSnapshot().fragments).toHaveLength(1);
+    adapter.emitTranscript({ role: 'assistant', text: 'legacy', final: true });
+    expect(legacy).toEqual([
+      { role: 'assistant', text: 'legacy', final: true },
+    ]);
+    await session.disconnect();
+  });
+
+  it('separates conversation instructions and requests generated wording only once across reconnects without fabricated history', async () => {
+    const adapter = makeMockAdapter();
+    const requests: string[] = [];
+    Object.assign(adapter, {
+      generatedOpening: {
+        request: async (instructions: string) => {
+          requests.push(instructions);
+        },
+      },
+    });
+    const instance = makeMockInstance(emptySnapshot);
+    const session = new RealtimeSession({
+      adapter,
+      instance,
+      sessionId: testSessionId,
+      conversationInstructions: 'Be brief.',
+    });
+    const legacy: unknown[] = [];
+    session.on('transcript', (entry) => legacy.push(entry));
+    expect(
+      await session.requestGeneratedOpening('Introduce yourself naturally.'),
+    ).toBe(false);
+    await session.connect();
+    expect(adapter.connectOptions[0].conversationInstructions).toBe(
+      'Be brief.',
+    );
+    expect(adapter.connectOptions[0].instructions).toContain('update_ui');
+    expect(adapter.connectOptions[0].tools).toHaveLength(3);
+    expect(
+      await session.requestGeneratedOpening('Introduce yourself naturally.'),
+    ).toBe(true);
+    await session.disconnect();
+    await session.connect();
+    expect(
+      await session.requestGeneratedOpening('Introduce yourself naturally.'),
+    ).toBe(false);
+    expect(requests).toEqual(['Introduce yourself naturally.']);
+    expect(legacy).toEqual([]);
+    expect(session.observations.getSnapshot().fragments).toEqual([]);
+    expect(instance.acknowledged).toEqual([]);
+    await session.disconnect();
+  });
+
+  it('does not retry an ambiguous opening failure or treat a generated-opening adapter as a fixed-greeting adapter', async () => {
+    const adapter = makeMockAdapter();
+    let attempts = 0;
+    Object.assign(adapter, {
+      generatedOpening: {
+        request: async () => {
+          attempts += 1;
+          throw new Error('ambiguous send');
+        },
+      },
+    });
+    const session = new RealtimeSession({
+      adapter,
+      instance: makeMockInstance(emptySnapshot),
+      sessionId: testSessionId,
+    });
+    await session.connect();
+    await expect(session.requestGeneratedOpening('Hello')).rejects.toThrow(
+      'ambiguous send',
+    );
+    expect(await session.requestGeneratedOpening('Hello')).toBe(false);
+    expect(attempts).toBe(1);
+    await session.disconnect();
+    const fixed = new RealtimeSession({
+      adapter,
+      instance: makeMockInstance(emptySnapshot),
+      sessionId: testSessionId,
+      greeting: { text: 'Exact.', coordinator: new GreetingCoordinator() },
+    });
+    await expect(fixed.connect()).rejects.toThrow('RealtimeGreetingAdapter');
+    expect(await fixed.requestGeneratedOpening('Hello')).toBe(false);
+  });
+});
 
 // ============================================================================
 // Mock adapter

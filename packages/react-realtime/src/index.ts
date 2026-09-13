@@ -3,6 +3,7 @@ export { createLevelMeter } from './lib/level-meter.js';
 export type {
   CreateAdapterContext,
   MaelstromRealtimeOptions,
+  UseVoiceObservationsResult,
   UseVoiceResult,
 } from './lib/maelstrom-realtime.js';
 export { maelstromRealtime } from './lib/maelstrom-realtime.js';

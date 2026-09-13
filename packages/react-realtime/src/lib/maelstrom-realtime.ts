@@ -1,6 +1,7 @@
 import type {
   Orchestrator,
   TranscriptEntry,
+  VoiceObservationSnapshot,
   VoiceSessionState,
 } from '@maelstrom-co/client';
 import type { SessionId, SidechannelEvent } from '@maelstrom-co/protocol';
@@ -10,13 +11,20 @@ import type {
 } from '@maelstrom-co/react';
 import type {
   AdapterTurnControl,
+  ContinuousTranscriptOptions,
   GreetingState,
   RealtimeInstance,
   RealtimeProviderAdapter,
   SummarizeFn,
 } from '@maelstrom-co/realtime';
 import { RealtimeSession } from '@maelstrom-co/realtime';
-import { type ReactElement, useCallback, useEffect, useState } from 'react';
+import {
+  type ReactElement,
+  useCallback,
+  useEffect,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 
 import {
   type SharedRealtimeSessionEntry,
@@ -32,6 +40,10 @@ export interface CreateAdapterContext {
 
 /** Options for {@link maelstromRealtime}. */
 export interface MaelstromRealtimeOptions {
+  /** Conversation-only instructions for providers with a separate managed tool backend. */
+  readonly conversationInstructions?: string;
+  /** Bounds and grouping policy for the opt-in continuous transcript channel. */
+  readonly transcript?: ContinuousTranscriptOptions;
   /**
    * Builds one provider adapter for each shared session. The factory receives
    * the orchestrator session identifier and is not called per render or hook.
@@ -56,6 +68,14 @@ export interface MaelstromRealtimeOptions {
    * the engine already retained.
    */
   readonly greeting?: { readonly text: string };
+}
+
+/** Continuous observations and controls using the same provider lifetime as useVoice. */
+export interface UseVoiceObservationsResult {
+  /** Shared retained snapshot; timed fragments are never accumulated as legacy turns. */
+  readonly snapshot: VoiceObservationSnapshot;
+  /** Shared session for lifecycle controls and generated-opening requests. */
+  readonly session: RealtimeSession;
 }
 
 /**
@@ -134,6 +154,29 @@ export interface UseVoiceResult {
 
 function createBridge(orchestrator: Orchestrator): RealtimeInstance {
   return {
+    applicationWork: {
+      getSnapshot: () => ({
+        planning: orchestrator.requestCoordinator.isProcessing
+          ? 'active'
+          : 'inactive',
+        applying:
+          orchestrator.commandProcessor.store.state.status === 'error'
+            ? 'unknown'
+            : orchestrator.commandProcessor.store.state.status ===
+                  'processing' || orchestrator.commandProcessor.queueLength > 0
+              ? 'active'
+              : 'inactive',
+      }),
+      subscribe: (handler) => {
+        const request =
+          orchestrator.requestCoordinator.store.subscribe(handler);
+        const commands = orchestrator.commandProcessor.store.subscribe(handler);
+        return () => {
+          request.unsubscribe();
+          commands.unsubscribe();
+        };
+      },
+    },
     submitIntent: (intent) =>
       orchestrator
         .processIntent(intent)
@@ -163,12 +206,17 @@ function createBridge(orchestrator: Orchestrator): RealtimeInstance {
 
 type RealtimeExtension = MaelstromExtension<{
   useVoice: () => UseVoiceResult;
+  /** Reads continuous observations and retains the shared session without connecting the provider. */
+  useVoiceObservations: () => UseVoiceObservationsResult;
   VoiceOrb: (props: VoiceOrbProps) => ReactElement;
 }>;
 
 /**
  * Creates one React extension that adds a shared realtime session, `useVoice`,
- * and `VoiceOrb`. Provider adapters own turn detection and publish their mode
+ * `useVoiceObservations`, and `VoiceOrb`. Both hooks retain the same session
+ * per Orchestrator until the last consumer unmounts. Reading or subscribing
+ * through `useVoiceObservations` does not connect the provider.
+ * Provider adapters own turn detection and publish their mode
  * through `RealtimeSession`; this layer only reflects retained session state.
  *
  * Configure {@link MaelstromRealtimeOptions.greeting} when each voice session
@@ -207,6 +255,8 @@ export function maelstromRealtime(
         groundingDebounceMs: options.groundingDebounceMs,
         onEvent: options.onEvent,
         debug: options.debug,
+        conversationInstructions: options.conversationInstructions,
+        transcript: options.transcript,
         ...(options.greeting
           ? { greeting: { text: options.greeting.text, coordinator } }
           : {}),
@@ -215,6 +265,22 @@ export function maelstromRealtime(
   }
 
   return (context: MaelstromExtensionContext) => {
+    const useVoiceObservations = (): UseVoiceObservationsResult => {
+      const { orchestrator } = context.useMaelstromContext();
+      const entry = getOrCreateSession(orchestrator);
+      const { session } = entry;
+      const source = session.observations;
+      const snapshot = useSyncExternalStore(
+        source.subscribe,
+        source.getSnapshot,
+        source.getSnapshot,
+      );
+      useEffect(
+        () => sessions.retain(orchestrator, entry),
+        [orchestrator, entry],
+      );
+      return { snapshot, session };
+    };
     const useVoice = (): UseVoiceResult => {
       const { orchestrator } = context.useMaelstromContext();
       const entry = getOrCreateSession(orchestrator);
@@ -291,7 +357,11 @@ export function maelstromRealtime(
       };
     };
 
-    return { useVoice, VoiceOrb: createVoiceOrb(useVoice) };
+    return {
+      useVoice,
+      useVoiceObservations,
+      VoiceOrb: createVoiceOrb(useVoice),
+    };
   };
 }
 
