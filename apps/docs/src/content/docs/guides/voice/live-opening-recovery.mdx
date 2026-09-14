@@ -1,0 +1,118 @@
+---
+title: Add a Live opening and explicit reconnect
+description: How to request a natural Live introduction and preserve application evidence when voice ends.
+---
+
+Configure a natural introduction for an existing OpenAI Live integration. Keep
+the [Maelstrom session](/understanding/voice-architecture/) alive when voice ends
+so a later connection can recover application evidence.
+
+## Before you start
+
+Use [OpenAILiveAdapter](/reference/realtime-openai-live/classes/openailiveadapter/) with a working application-owned session exchange and
+managed Responses configuration. Install matching versions of
+`@maelstrom-co/realtime-openai-live`, `@maelstrom-co/realtime`, and
+`@maelstrom-co/react-realtime`. Your browser needs a secure context and microphone
+permission. Testing provider speech also requires access to the selected Live model.
+
+## Configure the introduction
+
+Pass `generatedOpening` to your existing React extension configuration. This
+factory accepts your application's existing adapter factory:
+
+```ts title="src/voice.ts"
+import {
+  maelstromRealtime,
+  type MaelstromRealtimeOptions,
+} from '@maelstrom-co/react-realtime';
+
+export function configureVoice(
+  createAdapter: MaelstromRealtimeOptions['createAdapter'],
+) {
+  return maelstromRealtime({
+    createAdapter,
+    generatedOpening: {
+      instructions:
+        'In English, introduce yourself as the UI assistant and ask how you can help.',
+    },
+  });
+}
+```
+
+Specify the language and keep the instructions short. The Live adapter limits the
+complete append, including its fixed opening instruction, to 500 UTF-8 bytes.
+The `contextTimeoutMs` adapter option bounds acknowledgment waits and defaults to
+30 seconds. An invalid or rejected request consumes the attempt too.
+
+The extension makes one automatic attempt per Orchestrator session. Its shared
+memory survives provider and hook recreation under that Orchestrator. Creating a
+new application session starts independent memory. Do not configure both
+`greeting` and `generatedOpening`; the constructor rejects that combination.
+OpenAI Realtime and LiveKit retain their fixed, verbatim `greeting` behavior.
+
+The Live adapter sends a native `session.instructions.append` after readiness.
+It keeps microphone input active while waiting, including silence. It does not
+use separate speech synthesis or wait for an opening-completed event.
+
+## End voice and reconnect deliberately
+
+Use the existing `useVoice().disconnect()` control to end voice. Connect again
+only from a user action with `useVoice().connect()`. A terminal Live loss exposes
+an error state; the library does not start a replacement paid session, select a
+different provider, or fork a recording automatically.
+
+End voice releases local participation before waiting for bounded provider
+finalization. It drops the unsubmitted latest-wins voice slot. Already-submitted
+Engine requests and Actions continue. Their application outcomes remain
+observable even if the provider cannot receive the result. Voice stop does not
+change the Engine socket's reconnect policy or cancel Engine work.
+
+Read `useVoice().session.memory.getSnapshot()` for bounded recovery evidence.
+Subscribe with `session.memory.subscribe()` to receive later changes, including
+application results that arrive after voice ends. Snapshots are detached copies;
+they are not a stable-identity React external-store snapshot.
+
+Memory retains the latest eight voice UI requests and eight observed speech
+fragments. Intent and result summaries retain at most 128 characters each;
+fragment excerpts retain at most 256. Older evidence can be omitted. A fragment
+is not a final turn, and a transcript is not proof that audio was heard.
+
+Reconnect supplies bounded reference data in startup `input`, separate from
+trusted behavior instructions. It samples structural context before connection
+setup, then refreshes it after readiness. Later application results use quiet
+appends. Neither an append acknowledgment nor a timeout proves that the model
+consumed the update. Original function calls and provider commands are never
+replayed. A `submitted` or `unknown` outcome does not authorize an automatic retry.
+
+## Retain memory outside React
+
+Create one [RealtimeSessionMemory](/reference/realtime/classes/realtimesessionmemory/) with the application session ID. Pass
+that same object through `RealtimeSessionOptions.memory` when replacing a
+provider or recreating `RealtimeSession`. A mismatched session ID throws before
+connecting. Without supplied memory, each new `RealtimeSession` owns fresh memory.
+
+For an explicit introduction request, call
+`session.requestGeneratedOpening(instructions)` after connecting. It shares the
+same one-attempt marker as the configured introduction. There is no force-reset
+control. A result of `true` confirms request acceptance, not audible delivery.
+A result of `false` means no opening was requested. Rejection may follow a send,
+so the attempt can have an unknown delivery outcome.
+Intended wording never becomes a caption or an Engine history entry.
+
+## Verify
+
+1. Connect once and observe the native opening command and its correlated acknowledgment.
+2. Interrupt the opening. Confirm captions contain only received transcript fragments, including overlapping speech.
+3. End voice during an Action. Confirm the Action can finish and its outcome remains observable.
+4. Reconnect explicitly. Confirm startup context contains observed evidence and the current UI, without another introduction or function replay.
+5. Repeat after unmounting and remounting voice consumers under the same Orchestrator. The introduction must remain suppressed.
+
+Local peer tests verify transport, lifecycle, and application ordering. They do
+not establish paid-provider acceptance, audible delivery, or device acoustics.
+Verify those with your provider account and target devices before relying on them.
+
+## Next steps
+
+- [Voice architecture](/understanding/voice-architecture/)
+- [OpenAI's Live conversation guide](https://developers.openai.com/api/docs/guides/live-conversations)
+- [OpenAI Realtime fixed greetings](/guides/voice/openai-realtime/)

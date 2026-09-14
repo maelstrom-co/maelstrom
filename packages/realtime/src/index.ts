@@ -50,5 +50,11 @@ export type {
   SubmitIntentResult,
   SummarizeFn,
 } from './lib/realtime-session/realtime-session.types.js';
+export type {
+  VoiceRecoveryFragment,
+  VoiceRecoveryOutcome,
+  VoiceRecoverySnapshot,
+} from './lib/realtime-session/realtime-session-memory.js';
+export { RealtimeSessionMemory } from './lib/realtime-session/realtime-session-memory.js';
 export type { RealtimeVoiceErrorCode } from './lib/realtime-voice-error.js';
 export { RealtimeVoiceError } from './lib/realtime-voice-error.js';

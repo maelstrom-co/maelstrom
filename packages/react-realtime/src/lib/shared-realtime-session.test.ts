@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+import { SessionId } from '@maelstrom-co/protocol';
 import { SharedRealtimeSessionRegistry } from './shared-realtime-session.js';
 
 const flush = async () =>
@@ -6,7 +7,7 @@ const flush = async () =>
 
 function setup() {
   const registry = new SharedRealtimeSessionRegistry();
-  const orchestrator = {} as never;
+  const orchestrator = { getConfig: () => ({ sessionId: 'session' }) } as never;
   let disconnects = 0;
   let reject = false;
   let factories = 0;
@@ -50,6 +51,35 @@ test('shares a live entry and release is idempotent', () => {
   release();
   release();
   other();
+});
+
+test('provider and session retirement retains generated introduction proof for one application identity', async () => {
+  const registry = new SharedRealtimeSessionRegistry();
+  const sessionId = SessionId('native');
+  const orchestrator = { getConfig: () => ({ sessionId }) } as never;
+  let attempts = 0;
+  const create = () =>
+    registry.getOrCreate(
+      orchestrator,
+      (_coordinator, memory) =>
+        ({
+          memory,
+          connect: async () => {
+            if (memory.claimIntroduction()) attempts++;
+          },
+          disconnect: async () => {},
+        }) as never,
+    );
+  const first = create();
+  await first.session.connect();
+  registry.retain(orchestrator, first)();
+  await flush();
+  const second = create();
+  expect(second.session).not.toBe(first.session);
+  await second.session.connect();
+  expect(attempts).toBe(1);
+  expect(second.session.memory.getSnapshot().introductionAttempted).toBe(true);
+  await second.session.disconnect();
 });
 
 test('queues one retirement for multiple final releases', async () => {
@@ -145,7 +175,7 @@ test('retains presented and suppressed terminal proof across recreation', async 
 
 test('evicts the zero-consumer entry before disconnect starts', async () => {
   const registry = new SharedRealtimeSessionRegistry();
-  const orchestrator = {} as never;
+  const orchestrator = { getConfig: () => ({ sessionId: 'session' }) } as never;
   let duringDisconnect: unknown;
   const factory = () =>
     ({
@@ -161,7 +191,7 @@ test('evicts the zero-consumer entry before disconnect starts', async () => {
 
 test('pending old disconnect rejection cannot affect its replacement', async () => {
   const registry = new SharedRealtimeSessionRegistry();
-  const orchestrator = {} as never;
+  const orchestrator = { getConfig: () => ({ sessionId: 'session' }) } as never;
   let rejectOld!: (error: Error) => void;
   let factories = 0;
   const entry = () =>
@@ -190,7 +220,7 @@ test('pending old disconnect rejection cannot affect its replacement', async () 
 
 test('pending old disconnect completion cannot affect its replacement', async () => {
   const registry = new SharedRealtimeSessionRegistry();
-  const orchestrator = {} as never;
+  const orchestrator = { getConfig: () => ({ sessionId: 'session' }) } as never;
   let resolveOld!: () => void;
   let factories = 0;
   const entry = () =>
@@ -218,8 +248,8 @@ test('pending old disconnect completion cannot affect its replacement', async ()
 
 test('different orchestrators retain independent entries and coordinators', () => {
   const registry = new SharedRealtimeSessionRegistry();
-  const a = {} as never;
-  const b = {} as never;
+  const a = { getConfig: () => ({ sessionId: 'a' }) } as never;
+  const b = { getConfig: () => ({ sessionId: 'b' }) } as never;
   let aCoordinator: unknown;
   let bCoordinator: unknown;
   const first = registry.getOrCreate(a, (coordinator) => {

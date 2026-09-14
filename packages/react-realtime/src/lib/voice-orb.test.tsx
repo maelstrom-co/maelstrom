@@ -86,6 +86,7 @@ class FakeRealtimeSession {
 }
 
 mock.module('@maelstrom-co/realtime', () => ({
+  RealtimeSessionMemory,
   RealtimeSession: FakeRealtimeSession,
   GreetingCoordinator: class FakeGreetingCoordinator {},
 }));
@@ -302,3 +303,5 @@ describe('VoiceOrb', () => {
     expect(session.connectCalls).toBe(1);
   });
 });
+
+import { RealtimeSessionMemory } from '@maelstrom-co/realtime';

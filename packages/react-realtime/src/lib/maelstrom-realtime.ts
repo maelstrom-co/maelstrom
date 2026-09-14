@@ -40,6 +40,8 @@ export interface CreateAdapterContext {
 
 /** Options for {@link maelstromRealtime}. */
 export interface MaelstromRealtimeOptions {
+  /** Optional natural introduction with an explicit language. One attempt per Maelstrom session, retained across remounts; cannot accompany greeting. */
+  readonly generatedOpening?: { readonly instructions: string };
   /** Conversation-only instructions for providers with a separate managed tool backend. */
   readonly conversationInstructions?: string;
   /** Bounds and grouping policy for the opt-in continuous transcript channel. */
@@ -245,12 +247,14 @@ export function maelstromRealtime(
   function getOrCreateSession(
     orchestrator: Orchestrator,
   ): SharedRealtimeSessionEntry {
-    return sessions.getOrCreate(orchestrator, (coordinator) => {
+    return sessions.getOrCreate(orchestrator, (coordinator, memory) => {
       const sessionId = orchestrator.getConfig().sessionId;
       return new RealtimeSession({
         adapter: options.createAdapter({ sessionId }),
         instance: createBridge(orchestrator),
         sessionId,
+        memory,
+        generatedOpening: options.generatedOpening,
         summarize: options.summarize,
         groundingDebounceMs: options.groundingDebounceMs,
         onEvent: options.onEvent,

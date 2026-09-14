@@ -7,6 +7,7 @@ import type {
   VoiceSessionState,
 } from '@maelstrom-co/client';
 import type { MessageId, ToolCallId } from '@maelstrom-co/protocol';
+import type { VoiceRecoverySnapshot } from './realtime-session-memory.js';
 
 /**
  * A single tool exposed to the realtime model, in provider-neutral form.
@@ -33,6 +34,8 @@ export interface AdapterConnectOptions {
   readonly conversationInstructions?: string;
   /** Concise observed UI data for adapters that seed grounding when ready; never behavioral instructions. */
   readonly getInitialGrounding?: () => string;
+  /** Lazy bounded application evidence for startup recovery; never provider commands or authoritative final turns. */
+  readonly getRecoveryContext?: () => VoiceRecoverySnapshot;
   /**
    * Whether this connection may present the configured fixed greeting.
    * Defaults to `true` for direct adapter callers. RealtimeSession always sets
@@ -194,6 +197,10 @@ export interface RealtimeProviderAdapter extends RealtimeTransportAdapter {
   readonly observations?: AdapterVoiceObservations;
   /** Optional natural-opening request; it does not satisfy the fixed-text greeting contract. */
   readonly generatedOpening?: AdapterGeneratedOpening;
+  /** Optional quiet recovery update for application outcomes that settle after reconnect. Never replays tools. */
+  readonly recovery?: {
+    readonly update: (snapshot: VoiceRecoverySnapshot) => void;
+  };
   /**
    * Opens the provider connection. The adapter mints its own ephemeral
    * credential internally on connect — `RealtimeSession` never passes one
@@ -248,6 +255,13 @@ export interface AdapterVoiceObservations {
 
 /** Natural-opening capability for providers that generate their own wording. */
 export interface AdapterGeneratedOpening {
+  /** Optional output readiness gate. Omission permits an immediate opening claim. */
+  readonly readiness?: {
+    /** Whether playback has been accepted for the current connection, not proof of audibility. */
+    getSnapshot(): boolean;
+    /** Observes readiness changes. The returned disposer releases the subscription. */
+    subscribe(handler: () => void): Unsubscribe;
+  };
   /**
    * Requests a natural opening. Resolution proves only request acceptance, not
    * speech delivery. Publish actual words only through observed transcripts.

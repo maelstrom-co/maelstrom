@@ -40,6 +40,10 @@ import type {
   SubmitIntentResult,
   SummarizeFn,
 } from './realtime-session.types.js';
+import {
+  RealtimeSessionMemory,
+  type VoiceRecoveryOutcome,
+} from './realtime-session-memory.js';
 import { VoiceObservationStore } from './voice-observation-store.js';
 
 // Single source of truth for tool names — the `tools` array passed to the
@@ -124,6 +128,8 @@ interface QueuedIntent {
 }
 
 interface ConnectionSubscriptions {
+  opening?: Unsubscribe;
+  recovery?: Unsubscribe;
   adapter?: Unsubscribe;
   observations?: Unsubscribe;
   settled?: Unsubscribe;
@@ -132,12 +138,14 @@ interface ConnectionSubscriptions {
 function releaseSubscriptions(
   subscriptions: ConnectionSubscriptions,
 ): unknown[] {
-  const { adapter, observations, settled } = subscriptions;
+  const { adapter, observations, settled, recovery, opening } = subscriptions;
+  subscriptions.opening = undefined;
+  subscriptions.recovery = undefined;
   subscriptions.adapter = undefined;
   subscriptions.observations = undefined;
   subscriptions.settled = undefined;
   const errors: unknown[] = [];
-  for (const release of [observations, adapter, settled]) {
+  for (const release of [opening, recovery, observations, adapter, settled]) {
     try {
       release?.();
     } catch (error) {
@@ -217,7 +225,9 @@ export class RealtimeSession implements VoiceSession {
   readonly #conversationInstructions: string | undefined;
   #subscriptions: ConnectionSubscriptions | undefined;
   #lastConnectEpoch = 0;
-  #openingAttempted = false;
+  /** Session-owned recovery evidence, retained independently of provider delivery. */
+  readonly memory: RealtimeSessionMemory;
+  readonly #generatedOpening: string | undefined;
   readonly #adapter: RealtimeProviderAdapter;
   readonly #instance: RealtimeInstance;
   readonly #sessionId: SessionId;
@@ -277,6 +287,13 @@ export class RealtimeSession implements VoiceSession {
   };
 
   constructor(options: RealtimeSessionOptions) {
+    if (options.memory && options.memory.sessionId !== options.sessionId)
+      throw new Error('Realtime memory belongs to another Maelstrom session');
+    if (options.greeting && options.generatedOpening)
+      throw new Error('Choose a fixed greeting or a generated opening');
+    this.memory =
+      options.memory ?? new RealtimeSessionMemory(options.sessionId);
+    this.#generatedOpening = options.generatedOpening?.instructions;
     this.#observations = new VoiceObservationStore(
       options.transcript,
       options.instance.applicationWork,
@@ -307,22 +324,26 @@ export class RealtimeSession implements VoiceSession {
   }
 
   /**
-   * Requests generated wording once per RealtimeSession, including reconnects.
-   * Returns false when unsupported, disconnected, already attempted, or a fixed
-   * greeting is configured. A rejection still consumes the attempt because a
-   * provider may already have received it. No intended text becomes a transcript
-   * or Engine history entry. Automatic introduction policy belongs to the caller.
+   * Requests generated wording once per session memory, including provider recreation.
+   * Returns true only after adapter acceptance, never as proof of audible delivery.
+   * Returns false when no opening was requested: unsupported, disconnected,
+   * already attempted, or a fixed greeting is configured. A rejection still
+   * consumes the attempt because the provider may already have received it.
+   * No intended text becomes a transcript
+   * or Engine history entry. Configured generatedOpening uses this same claim.
    */
   async requestGeneratedOpening(instructions: string): Promise<boolean> {
+    const epoch = this.#connectEpoch;
     const opening = this.#adapter.generatedOpening;
     if (
       !opening ||
+      (opening.readiness && !opening.readiness.getSnapshot()) ||
       this.#greeting ||
-      this.#openingAttempted ||
       this.#observations.getSnapshot().connection !== 'connected'
     )
       return false;
-    this.#openingAttempted = true;
+    if (!this.memory.claimIntroduction()) return false;
+    if (epoch !== this.#connectEpoch) return false;
     await opening.request(instructions);
     return true;
   }
@@ -404,6 +425,7 @@ export class RealtimeSession implements VoiceSession {
       return;
 
     const epoch = ++this.#connectEpoch;
+    const connectionId = crypto.randomUUID();
     this.#lastConnectEpoch = epoch;
     const subscriptions: ConnectionSubscriptions = {};
     this.#subscriptions = subscriptions;
@@ -451,7 +473,14 @@ export class RealtimeSession implements VoiceSession {
           const connection = this.#observations.getSnapshot().connection;
           if (connection !== 'connecting' && connection !== 'connected') return;
           if (event.type === 'media') this.#observations.media(event.media);
-          else this.#observations.fragment(event.fragment);
+          else {
+            this.#observations.fragment(event.fragment);
+            const retained = this.#observations
+              .getSnapshot()
+              .fragments.find((fragment) => fragment.id === event.fragment.id);
+            if (epoch === this.#connectEpoch && retained)
+              this.memory.observe(retained, connectionId);
+          }
         },
       );
       if (epoch !== this.#connectEpoch) {
@@ -461,6 +490,7 @@ export class RealtimeSession implements VoiceSession {
       await this.#adapter.connect({
         tools: [UPDATE_UI_TOOL, GET_UI_STATE_TOOL, GET_CAPABILITIES_TOOL],
         instructions: DEFAULT_INSTRUCTIONS,
+        getRecoveryContext: this.memory.getSnapshot,
         getInitialGrounding: () =>
           this.#clampGrounding(
             this.#summarize(this.#instance.getStructuralSnapshot()),
@@ -514,6 +544,33 @@ export class RealtimeSession implements VoiceSession {
       return;
     }
     this.#setState('connected');
+    if (epoch !== this.#connectEpoch) return;
+    this.#adapter.recovery?.update(this.memory.getSnapshot());
+    if (epoch !== this.#connectEpoch) {
+      if (this.#state === 'error' && this.#lastError) throw this.#lastError;
+      return;
+    }
+    subscriptions.recovery = this.memory.subscribe(() => {
+      if (epoch === this.#connectEpoch)
+        this.#adapter.recovery?.update(this.memory.getSnapshot());
+    });
+    if (this.#generatedOpening !== undefined) {
+      const instructions = this.#generatedOpening;
+      const request = () => {
+        if (epoch !== this.#connectEpoch) return;
+        void this.requestGeneratedOpening(instructions).catch(() => {
+          if (epoch === this.#connectEpoch)
+            this.#logger.warn('generated opening acceptance was not confirmed');
+        });
+      };
+      subscriptions.opening =
+        this.#adapter.generatedOpening?.readiness?.subscribe(request);
+      if (epoch !== this.#connectEpoch) {
+        throwConnectionFailures(releaseSubscriptions(subscriptions));
+        return;
+      }
+      request();
+    }
 
     if (
       this.#greeting &&
@@ -604,7 +661,14 @@ export class RealtimeSession implements VoiceSession {
     // We can't sendToolResult — the adapter is going away — but the local
     // promise still must settle, or any awaiter of it hangs forever; resolve
     // it `false` before clearing.
-    this.#queuedIntent?.resolve(false);
+    if (this.#queuedIntent) {
+      this.#recordOutcome(
+        this.#queuedIntent.callId,
+        'not_submitted',
+        'Voice ended before this queued request was submitted.',
+      );
+      this.#queuedIntent.resolve(false);
+    }
     this.#queuedIntent = undefined;
     return errors;
   }
@@ -870,6 +934,11 @@ export class RealtimeSession implements VoiceSession {
         });
       }
     } catch {
+      this.#recordOutcome(
+        call.callId,
+        'unknown',
+        'The application result could not be confirmed. Do not retry automatically.',
+      );
       await this.#deliverToolResult(epoch, call.callId, {
         ok: false,
         summary:
@@ -916,6 +985,11 @@ export class RealtimeSession implements VoiceSession {
     }
 
     this.#logger.debug('update_ui: submitting intent', intent);
+    this.memory.outcome({ id: callId, intent, status: 'submitted' });
+    if (epoch !== this.#connectEpoch) {
+      this.#recordOutcome(callId, 'not_submitted');
+      return false;
+    }
     const renderStart = Date.now();
     let outcome: SubmitIntentResult;
     let settled: Result<void, Error>;
@@ -943,15 +1017,21 @@ export class RealtimeSession implements VoiceSession {
           'code' in error &&
           (error as { code?: unknown }).code === 'request_in_flight')
       ) {
-        if (epoch !== this.#connectEpoch) return false;
+        if (epoch !== this.#connectEpoch) {
+          this.#recordOutcome(callId, 'not_submitted');
+          return false;
+        }
+        this.#recordOutcome(callId, 'queued');
+        if (epoch !== this.#connectEpoch) {
+          this.#recordOutcome(callId, 'not_submitted');
+          return false;
+        }
         return new Promise<boolean>((resolve) => {
           this.#enqueueBargeIn({ epoch, callId, intent, resolve });
         });
       }
-      // Any other rejection is a genuine render/pipeline failure, not
-      // busy-ness — mislabeling it as "try again" would be a non-recovery
-      // loop. Surface it distinctly, still without letting the exception
-      // reach the adapter.
+      // A transport rejection can follow Engine admission. It does not prove
+      // application failure and must not invite an automatic retry.
       this.#emit({
         type: 'timing',
         sessionId: this.#sessionId,
@@ -959,10 +1039,16 @@ export class RealtimeSession implements VoiceSession {
         label: 'update_ui.error',
         ms: Date.now() - renderStart,
       });
-      await this.#sendUpdateUIResult(epoch, callId, {
-        ok: false,
-        summary: APPLY_FAILED_SUMMARY,
-      });
+      await this.#sendUpdateUIResult(
+        epoch,
+        callId,
+        {
+          ok: false,
+          summary:
+            'The application result could not be confirmed. Do not retry automatically.',
+        },
+        'unknown',
+      );
       return false;
     }
 
@@ -970,11 +1056,16 @@ export class RealtimeSession implements VoiceSession {
     try {
       settled = await this.#settleAfterSubmit();
     } catch {
-      await this.#sendUpdateUIResult(epoch, callId, {
-        ok: false,
-        summary:
-          'The application result could not be confirmed. Do not retry automatically.',
-      });
+      await this.#sendUpdateUIResult(
+        epoch,
+        callId,
+        {
+          ok: false,
+          summary:
+            'The application result could not be confirmed. Do not retry automatically.',
+        },
+        'unknown',
+      );
       return false;
     }
     this.#logger.debug('update_ui: idle (render settled)', {
@@ -993,10 +1084,15 @@ export class RealtimeSession implements VoiceSession {
         label: 'update_ui.error',
         ms: Date.now() - renderStart,
       });
-      await this.#sendUpdateUIResult(epoch, callId, {
-        ok: false,
-        summary: APPLY_FAILED_SUMMARY,
-      });
+      await this.#sendUpdateUIResult(
+        epoch,
+        callId,
+        {
+          ok: false,
+          summary: APPLY_FAILED_SUMMARY,
+        },
+        'unknown',
+      );
       return false;
     }
 
@@ -1023,8 +1119,25 @@ export class RealtimeSession implements VoiceSession {
     epoch: number,
     callId: ToolCallId,
     result: UpdateUIToolResult,
+    status: VoiceRecoveryOutcome['status'] = result.ok ? 'completed' : 'failed',
   ): Promise<void> {
+    this.#recordOutcome(callId, status, result.userMessage ?? result.summary);
     return this.#deliverToolResult(epoch, callId, result);
+  }
+
+  #recordOutcome(
+    id: ToolCallId,
+    status: VoiceRecoveryOutcome['status'],
+    summary?: string,
+  ): void {
+    const prior = this.memory.find(id);
+    if (prior)
+      this.memory.outcome({
+        id,
+        intent: prior.intent,
+        status,
+        ...(summary === undefined ? {} : { summary }),
+      });
   }
 
   async #deliverToolResult(
@@ -1089,10 +1202,15 @@ export class RealtimeSession implements VoiceSession {
     const superseded = this.#queuedIntent;
     this.#queuedIntent = entry;
     if (superseded) {
-      void this.#sendUpdateUIResult(superseded.epoch, superseded.callId, {
-        ok: false,
-        summary: SUPERSEDED_SUMMARY,
-      }).then(() => {
+      void this.#sendUpdateUIResult(
+        superseded.epoch,
+        superseded.callId,
+        {
+          ok: false,
+          summary: SUPERSEDED_SUMMARY,
+        },
+        'not_submitted',
+      ).then(() => {
         superseded.resolve(false);
       });
     }
@@ -1123,11 +1241,16 @@ export class RealtimeSession implements VoiceSession {
         } catch {
           if (this.#queuedIntent === entry) {
             this.#queuedIntent = undefined;
-            await this.#sendUpdateUIResult(entry.epoch, entry.callId, {
-              ok: false,
-              summary:
-                'Could not confirm that the application is ready. No queued request was submitted.',
-            });
+            await this.#sendUpdateUIResult(
+              entry.epoch,
+              entry.callId,
+              {
+                ok: false,
+                summary:
+                  'Could not confirm that the application is ready. No queued request was submitted.',
+              },
+              'not_submitted',
+            );
             entry.resolve(false);
           }
           attempt = 0;
@@ -1142,16 +1265,35 @@ export class RealtimeSession implements VoiceSession {
         let userMessage: string | undefined;
         const epoch = entry.epoch;
         this.#queuedIntent = undefined;
+        this.#recordOutcome(entry.callId, 'submitted');
+        if (epoch !== this.#connectEpoch) {
+          this.#recordOutcome(entry.callId, 'not_submitted');
+          entry.resolve(false);
+          continue;
+        }
         try {
           ({ userMessage } =
             (await this.#instance.submitIntent(entry.intent)) ?? {});
         } catch (error) {
+          const notAdmitted =
+            error instanceof RequestInFlightError ||
+            (error !== null &&
+              typeof error === 'object' &&
+              'code' in error &&
+              error.code === 'request_in_flight');
           if (epoch !== this.#connectEpoch) {
+            this.#recordOutcome(
+              entry.callId,
+              notAdmitted ? 'not_submitted' : 'unknown',
+              notAdmitted
+                ? 'The application rejected this request as busy before admission.'
+                : 'The application result could not be confirmed. Do not retry automatically.',
+            );
             entry.resolve(false);
             attempt = 0;
             continue;
           }
-          if (!(error instanceof RequestInFlightError)) {
+          if (!notAdmitted) {
             this.#emit({
               type: 'timing',
               sessionId: this.#sessionId,
@@ -1159,33 +1301,49 @@ export class RealtimeSession implements VoiceSession {
               label: 'update_ui.error',
               ms: Date.now() - renderStart,
             });
-            await this.#sendUpdateUIResult(entry.epoch, entry.callId, {
-              ok: false,
-              summary: APPLY_FAILED_SUMMARY,
-            });
+            await this.#sendUpdateUIResult(
+              entry.epoch,
+              entry.callId,
+              {
+                ok: false,
+                summary: APPLY_FAILED_SUMMARY,
+              },
+              'unknown',
+            );
             entry.resolve(false);
             attempt = 0;
             continue;
           }
           if (attempt >= MAX_BARGE_IN_ATTEMPTS) {
-            await this.#sendUpdateUIResult(entry.epoch, entry.callId, {
-              ok: false,
-              summary: BUSY_SUMMARY,
-            });
+            await this.#sendUpdateUIResult(
+              entry.epoch,
+              entry.callId,
+              {
+                ok: false,
+                summary: BUSY_SUMMARY,
+              },
+              'not_submitted',
+            );
             entry.resolve(false);
             attempt = 0;
             continue;
           }
           if (this.#queuedIntent) {
-            await this.#sendUpdateUIResult(entry.epoch, entry.callId, {
-              ok: false,
-              summary: SUPERSEDED_SUMMARY,
-            });
+            await this.#sendUpdateUIResult(
+              entry.epoch,
+              entry.callId,
+              {
+                ok: false,
+                summary: SUPERSEDED_SUMMARY,
+              },
+              'not_submitted',
+            );
             entry.resolve(false);
             attempt = 0;
             continue;
           }
           this.#queuedIntent = entry;
+          this.#recordOutcome(entry.callId, 'queued');
           await delay(BARGE_IN_RETRY_DELAY_MS);
           continue;
         }
@@ -1194,11 +1352,16 @@ export class RealtimeSession implements VoiceSession {
         try {
           settled = await this.#settleAfterSubmit();
         } catch {
-          await this.#sendUpdateUIResult(entry.epoch, entry.callId, {
-            ok: false,
-            summary:
-              'The application result could not be confirmed. Do not retry automatically.',
-          });
+          await this.#sendUpdateUIResult(
+            entry.epoch,
+            entry.callId,
+            {
+              ok: false,
+              summary:
+                'The application result could not be confirmed. Do not retry automatically.',
+            },
+            'unknown',
+          );
           entry.resolve(false);
           attempt = 0;
           continue;
@@ -1211,10 +1374,15 @@ export class RealtimeSession implements VoiceSession {
             label: 'update_ui.error',
             ms: Date.now() - renderStart,
           });
-          await this.#sendUpdateUIResult(entry.epoch, entry.callId, {
-            ok: false,
-            summary: APPLY_FAILED_SUMMARY,
-          });
+          await this.#sendUpdateUIResult(
+            entry.epoch,
+            entry.callId,
+            {
+              ok: false,
+              summary: APPLY_FAILED_SUMMARY,
+            },
+            'unknown',
+          );
           entry.resolve(false);
           attempt = 0;
           continue;
