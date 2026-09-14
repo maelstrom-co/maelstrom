@@ -11,27 +11,24 @@ interface FadingCaption {
   readonly faded: boolean;
 }
 
-// Fades on a plain setTimeout keyed off the entry's finalization timestamp
-// rather than an rAF loop polling elapsed time — the transcript only changes
-// a handful of times per utterance, so there is nothing to sample every
-// frame for.
+// Continuous groups are reconstructed on unrelated fragment updates. Legacy
+// entries instead use their receipt object as identity because they have no ID.
 function useFadingCaption(
-  entry: TranscriptEntry | undefined,
+  entry: (TranscriptEntry & { readonly id?: string }) | undefined,
+  generation: number,
 ): FadingCaption | undefined {
-  const [finalizedAt, setFinalizedAt] = useState<number | null>(null);
   const [faded, setFaded] = useState(false);
+  const identity = entry?.id ?? entry;
+  const text = entry?.text;
+  const final = entry?.final;
+  const captionGeneration = entry?.id === undefined ? undefined : generation;
 
   useEffect(() => {
-    if (!entry) return;
     setFaded(false);
-    setFinalizedAt(entry.final ? Date.now() : null);
-  }, [entry]);
-
-  useEffect(() => {
-    if (finalizedAt === null) return;
+    if (!final) return;
     const timeoutId = setTimeout(() => setFaded(true), FADE_DELAY_MS);
     return () => clearTimeout(timeoutId);
-  }, [finalizedAt]);
+  }, [identity, text, final, captionGeneration]);
 
   if (!entry) return undefined;
   return { text: entry.text, faded };
@@ -48,8 +45,18 @@ function useFadingCaption(
  */
 export function Captions() {
   const { state, userTranscript, assistantTranscript } = m.useVoice();
-  const assistant = useFadingCaption(assistantTranscript);
-  const user = useFadingCaption(userTranscript);
+  const { snapshot } = m.useVoiceObservations();
+  const assistant = useFadingCaption(
+    snapshot.captions
+      .filter((caption) => caption.role === 'assistant')
+      .at(-1) ?? assistantTranscript,
+    snapshot.generation,
+  );
+  const user = useFadingCaption(
+    snapshot.captions.filter((caption) => caption.role === 'user').at(-1) ??
+      userTranscript,
+    snapshot.generation,
+  );
 
   const voiceLive = state !== 'idle' && state !== 'error';
   // Empty/whitespace entries still produce a FadingCaption object — do not
@@ -63,7 +70,7 @@ export function Captions() {
   return (
     <div
       data-testid="captions"
-      className="mx-auto mb-2 grid h-12 w-full max-w-4xl grid-cols-2 content-center gap-x-4 gap-y-1 overflow-hidden"
+      className="demo-captions mx-auto mb-2 grid h-12 w-full max-w-4xl grid-cols-2 content-center gap-x-4 gap-y-1 overflow-hidden"
     >
       {showAssistant && assistant ? (
         <p

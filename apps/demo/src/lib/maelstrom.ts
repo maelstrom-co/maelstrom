@@ -1,11 +1,9 @@
+import type { SessionId } from '@maelstrom-co/protocol';
 import { createMaelstrom } from '@maelstrom-co/react';
-import {
-  type CreateAdapterContext,
-  maelstromRealtime,
-} from '@maelstrom-co/react-realtime';
 import type { RealtimeProviderAdapter } from '@maelstrom-co/realtime';
 import { LiveKitAdapter } from '@maelstrom-co/realtime-livekit';
 import { OpenAIAdapter } from '@maelstrom-co/realtime-openai';
+import { OpenAILiveAdapter } from '@maelstrom-co/realtime-openai-live';
 import { calendarEntry } from '../vessels/calendar.vessel';
 import { journalEntry } from '../vessels/journal.vessel';
 import { mapEntry } from '../vessels/map.vessel';
@@ -18,18 +16,21 @@ import {
   DEMO_GREETING,
   DEMO_OPENAI_VOICE,
 } from './demo-greeting-tts';
-import {
-  isHosted,
-  usesBrowserKey,
-  usesBrowserOpenAIVoice,
-  usesOpenAIVoice,
-} from './hosted-mode';
+import { demoVoice } from './demo-voice';
+import { isHosted, usesBrowserKey } from './hosted-mode';
 import { HOSTED_VAD_MODEL } from './hosted-vad';
+import { createDemoLiveExchange } from './live-exchange';
 import { createBrowserMintToken, mintOpenAIToken } from './mint-token';
 import { orchestrationLegibility } from './orchestration-legibility';
 import { playgroundKeyStore } from './playground-key-store';
 import { DEFAULT_REALTIME_MODEL } from './realtime-model';
 import { getLivekitToken } from './voice/get-livekit-token';
+import {
+  type DemoVoiceProvider,
+  LIVE_BACKEND_MODEL,
+  LIVE_MODEL,
+  voiceProviderStore,
+} from './voice-provider';
 
 export { DEMO_GREETING, DEMO_OPENAI_VOICE };
 
@@ -54,42 +55,33 @@ const hostedMintToken = createBrowserMintToken(
 );
 
 let preparedBrowserOpenAIAdapter: OpenAIAdapter | undefined;
+let preparedProvider: DemoVoiceProvider | undefined;
 
-/** Unlocks the next browser-key OpenAI adapter inside the current user gesture. */
+/** Unlocks the next browser-key Realtime adapter inside the current user gesture. Live waits for playback acceptance after connecting. */
 export function prepareBrowserOpenAIVoice(): boolean {
-  if (!usesBrowserOpenAIVoice()) return false;
+  const provider = voiceProviderStore.state.provider;
+  if (!usesBrowserKey() || provider !== 'realtime') return false;
+  if (preparedProvider !== provider) preparedBrowserOpenAIAdapter = undefined;
+  preparedProvider = provider;
   preparedBrowserOpenAIAdapter ??= createOpenAIAdapter(hostedMintToken);
-  preparedBrowserOpenAIAdapter.activateAudio();
+  void Promise.resolve(preparedBrowserOpenAIAdapter.activateAudio()).catch(
+    () => {},
+  );
   return true;
 }
 
 export const m = createMaelstrom({
   vessels,
 })
-  .with(
-    maelstromRealtime({
-      createAdapter,
-      debug: isDebugRequested(),
-      greeting: { text: DEMO_GREETING },
-    }),
-  )
+  .with(demoVoice(createAdapter, DEMO_GREETING))
   .with(orchestrationLegibility);
 
-// Provider is chosen at build time by VITE_VOICE_PROVIDER: `livekit` selects the
-// cascaded LiveKit transport, anything else the speech-native
-// OpenAI transport. Runs once per session, so per-session server resources (the
-// token mint, the room name) are scoped by sessionId here.
-//
-// Hosted BYOK is OpenAI-only: the LiveKit path needs house-held server
-// credentials (LIVEKIT_API_KEY/secret) and a running agent worker that a
-// visitor's pasted OpenAI key can't reach, so the LiveKit branch is local-dev
-// only. In hosted mode the browser mints and synthesizes the greeting directly
-// with the visitor's key.
-function createAdapter({
-  sessionId,
-}: CreateAdapterContext): RealtimeProviderAdapter {
+function createAdapter(
+  provider: DemoVoiceProvider,
+  sessionId: SessionId,
+): RealtimeProviderAdapter {
   const browserKeyMode = usesBrowserKey();
-  if (!usesOpenAIVoice()) {
+  if (provider === 'livekit') {
     return new LiveKitAdapter({
       mintToken: (roomName) => getLivekitToken({ data: { roomName } }),
       roomName: `maelstrom-${sessionId}`,
@@ -107,14 +99,29 @@ function createAdapter({
       debug: isDebugRequested(),
     });
   }
-  if (browserKeyMode && preparedBrowserOpenAIAdapter) {
+  if (
+    browserKeyMode &&
+    preparedBrowserOpenAIAdapter &&
+    preparedProvider === provider
+  ) {
     const adapter = preparedBrowserOpenAIAdapter;
     preparedBrowserOpenAIAdapter = undefined;
     return adapter;
   }
+  if (provider === 'live') return createLiveAdapter();
   return createOpenAIAdapter(
     browserKeyMode ? hostedMintToken : () => mintOpenAIToken(sessionId),
   );
+}
+
+function createLiveAdapter(): OpenAILiveAdapter {
+  return new OpenAILiveAdapter({
+    model: LIVE_MODEL,
+    responses: { model: LIVE_BACKEND_MODEL },
+    exchange: createDemoLiveExchange(
+      usesBrowserKey() ? () => playgroundKeyStore.state.apiKey : undefined,
+    ),
+  });
 }
 
 function createOpenAIAdapter(

@@ -2,8 +2,12 @@
 
 import { act, cleanup, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { FakeRealtimeSession } from '../lib/__tests__/fake-realtime-session';
+import {
+  EMPTY_VOICE_OBSERVATIONS,
+  FakeRealtimeSession,
+} from '../lib/__tests__/fake-realtime-session';
 import { createMockConnector } from '../lib/__tests__/mock-connector';
+import { selectVoiceProvider } from '../lib/voice-provider';
 
 vi.mock('@maelstrom-co/realtime', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@maelstrom-co/realtime')>()),
@@ -34,6 +38,7 @@ function must<T>(value: T | null | undefined): T {
 }
 
 beforeEach(() => {
+  selectVoiceProvider('realtime');
   FakeRealtimeSession.instances = [];
 });
 
@@ -53,6 +58,106 @@ function renderCaptions() {
 }
 
 describe('Captions', () => {
+  it.each([
+    'user',
+    'assistant',
+  ] as const)('keeps the old %s receipt faded across reconnect until a fresh receipt arrives', async (role) => {
+    vi.useFakeTimers();
+    const { container, session } = renderCaptions();
+    await act(async () => {
+      session.emitState('connected');
+      session.emitTranscript({ role, text: 'Same words', final: true });
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(3500);
+    });
+    const faded = () =>
+      container
+        .querySelector(`[data-role="${role}"]`)
+        ?.getAttribute('data-faded');
+    expect(faded()).toBe('true');
+    await act(async () => {
+      session.emitState('idle');
+    });
+    await act(async () => {
+      session.emitObservations({
+        ...EMPTY_VOICE_OBSERVATIONS,
+        generation: 2,
+        connection: 'connected',
+      });
+      session.emitState('connected');
+    });
+    expect(faded()).toBe('true');
+    await act(async () => {
+      session.emitTranscript({ role, text: 'Same words', final: true });
+    });
+    expect(faded()).toBe('false');
+  });
+  it('keeps an unchanged finalized caption faded while another speaker changes, but revives revised text or identity', async () => {
+    vi.useFakeTimers();
+    const { container, session } = renderCaptions();
+    const assistant = {
+      id: 'assistant-1',
+      speakerId: 'assistant',
+      role: 'assistant' as const,
+      text: 'Finished',
+      final: true,
+      fragmentIds: ['a'],
+      startMs: 0,
+      endMs: 100,
+    };
+    const publish = (caption = assistant, generation = 1) =>
+      session.emitObservations({
+        ...EMPTY_VOICE_OBSERVATIONS,
+        generation,
+        connection: 'connected',
+        captions: [
+          { ...caption },
+          {
+            ...assistant,
+            id: 'user-1',
+            speakerId: 'user',
+            role: 'user',
+            text: 'A new question',
+            final: false,
+          },
+        ],
+      });
+    await act(async () => {
+      session.emitState('connected');
+      publish();
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(3500);
+    });
+    const faded = () =>
+      container
+        .querySelector('[data-role="assistant"]')
+        ?.getAttribute('data-faded');
+    expect(faded()).toBe('true');
+    await act(async () => {
+      publish();
+    });
+    expect(faded()).toBe('true');
+    await act(async () => {
+      publish({ ...assistant, text: 'Revised' });
+    });
+    expect(faded()).toBe('false');
+    await act(async () => {
+      vi.advanceTimersByTime(3500);
+    });
+    await act(async () => {
+      publish({ ...assistant, id: 'assistant-2', text: 'Revised' });
+    });
+    expect(faded()).toBe('false');
+    await act(async () => {
+      vi.advanceTimersByTime(3500);
+    });
+    await act(async () => {
+      publish({ ...assistant, id: 'assistant-2', text: 'Revised' }, 2);
+    });
+    expect(faded()).toBe('false');
+  });
   it('always reserves a fixed-height band so chart layout cannot shift with voice', () => {
     // Mount/unmount of an in-flow caption row shrinks <main> and fires engine
     // chart_resize. The band must stay mounted at a stable height even idle.

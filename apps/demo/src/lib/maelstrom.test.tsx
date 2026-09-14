@@ -3,7 +3,9 @@
 import type { Unsubscribe, VoiceSessionState } from '@maelstrom-co/client';
 import { cleanup, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { EMPTY_VOICE_OBSERVATIONS } from './__tests__/fake-realtime-session';
 import { createMockConnector } from './__tests__/mock-connector';
+import { selectVoiceProvider } from './voice-provider';
 
 // Fakes the module boundary maelstrom.ts wires against — RealtimeSession is
 // never real here, so this test observes only that the demo applies the
@@ -13,6 +15,10 @@ import { createMockConnector } from './__tests__/mock-connector';
 class FakeRealtimeSession {
   static instances: FakeRealtimeSession[] = [];
   state: VoiceSessionState = 'idle';
+  observations = {
+    getSnapshot: () => EMPTY_VOICE_OBSERVATIONS,
+    subscribe: () => () => {},
+  };
   constructor(readonly options: unknown) {
     FakeRealtimeSession.instances.push(this);
   }
@@ -71,7 +77,11 @@ describe('maelstrom.ts realtime wiring', () => {
     expect(orb.getAttribute('data-state')).toBe('idle');
   });
 
-  it('constructs the realtime session with the demo greeting', () => {
+  it.each([
+    'live',
+    'realtime',
+  ] as const)('configures the %s opening without mixing generated and fixed greetings', (provider) => {
+    selectVoiceProvider(provider);
     const connector = createMockConnector();
     render(
       <m.Provider connector={connector}>
@@ -81,8 +91,18 @@ describe('maelstrom.ts realtime wiring', () => {
 
     const session = FakeRealtimeSession.instances[0];
     expect(session).toBeDefined();
-    expect(session?.options).toMatchObject({
-      greeting: { text: DEMO_GREETING },
-    });
+    if (provider === 'live') {
+      expect(session?.options).toMatchObject({
+        generatedOpening: {
+          instructions: expect.stringContaining('Maelstrom'),
+        },
+      });
+      expect(session?.options).not.toHaveProperty('greeting');
+    } else {
+      expect(session?.options).toMatchObject({
+        greeting: { text: DEMO_GREETING },
+      });
+      expect(session?.options).not.toHaveProperty('generatedOpening');
+    }
   });
 });

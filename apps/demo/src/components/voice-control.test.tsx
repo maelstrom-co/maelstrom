@@ -15,6 +15,7 @@ import {
   within,
 } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { EMPTY_VOICE_OBSERVATIONS } from '../lib/__tests__/fake-realtime-session';
 
 // voice-control.tsx only touches `m.useVoice` and `m.VoiceOrb` — faking the
 // module boundary here isolates these tests from the real Provider/session
@@ -24,6 +25,7 @@ let voiceResult: UseVoiceResult;
 vi.doMock('../lib/maelstrom', () => ({
   m: {
     useVoice: () => voiceResult,
+    useVoiceObservations: () => ({ snapshot: EMPTY_VOICE_OBSERVATIONS }),
     VoiceOrb: () => <span data-testid="voice-orb" />,
   },
 }));

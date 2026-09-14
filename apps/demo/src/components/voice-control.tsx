@@ -1,4 +1,6 @@
 import type { VoiceSessionState } from '@maelstrom-co/client';
+import { RealtimeVoiceError } from '@maelstrom-co/realtime';
+import { OpenAILiveAdapter } from '@maelstrom-co/realtime-openai-live';
 import {
   type KeyboardEvent,
   type PointerEvent,
@@ -7,6 +9,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { liveErrorMessage } from '../lib/live-exchange';
 import { m } from '../lib/maelstrom';
 import { getVoiceErrorStatusLabel } from './voice-error-copy';
 
@@ -61,7 +64,13 @@ export function VoiceControl({ showOrb = true }: VoiceControlProps = {}) {
     turnMode,
     turnModeError,
     skipGreeting,
+    owner,
+    provider,
+    connect,
+    disconnect,
+    switching,
   } = m.useVoice();
+  const { snapshot } = m.useVoiceObservations();
   const isConnected = CONNECTED_STATES.has(state);
   const isPreparing =
     greetingState === 'preparing' && state !== 'idle' && state !== 'error';
@@ -80,6 +89,8 @@ export function VoiceControl({ showOrb = true }: VoiceControlProps = {}) {
   ) {
     statusLabel = 'Listening';
   }
+  if (provider === 'live')
+    statusLabel = `${snapshot.connection} · Mic ${snapshot.media.microphone}`;
   // Keep input handlers independent from the latest rendered session state.
   const pressActiveRef = useRef(false);
   const [pressActive, setPressActive] = useState(false);
@@ -140,6 +151,57 @@ export function VoiceControl({ showOrb = true }: VoiceControlProps = {}) {
       >
         <span className="min-w-0 truncate">{statusLabel}</span>
       </div>
+      <span className="text-xs text-ink-3">
+        UI:{' '}
+        {snapshot.applicationWork.planning === 'active'
+          ? 'planning'
+          : snapshot.applicationWork.applying === 'active'
+            ? 'applying'
+            : snapshot.applicationWork.applying === 'unknown'
+              ? 'outcome unknown'
+              : 'idle'}
+      </span>
+      {provider === 'live' && (
+        <>
+          <button
+            type="button"
+            className="status-pill min-h-11 rounded-full px-3 text-xs"
+            disabled={switching}
+            onClick={() => {
+              void (
+                state === 'idle' || state === 'error' ? connect() : disconnect()
+              ).catch(() => {});
+            }}
+          >
+            {state === 'idle' || state === 'error'
+              ? snapshot.generation === 0
+                ? 'Start voice'
+                : 'Reconnect'
+              : 'End voice'}
+          </button>
+          <button
+            type="button"
+            className="status-pill min-h-11 rounded-full px-3 text-xs"
+            disabled={!isConnected || switching}
+            onClick={() => {
+              if (owner.adapter instanceof OpenAILiveAdapter)
+                void owner.adapter.activateAudio().catch(() => {});
+            }}
+          >
+            Enable playback
+          </button>
+          {state === 'error' && (
+            <span
+              role="alert"
+              className="absolute bottom-full left-3 right-3 mx-auto max-w-md rounded-md border border-pink/30 bg-bg-1 px-3 py-2 text-xs text-pink"
+            >
+              {liveErrorMessage(
+                error instanceof RealtimeVoiceError ? error.cause : error,
+              )}
+            </span>
+          )}
+        </>
+      )}
       {isPreparing && (
         <button
           type="button"

@@ -32,7 +32,8 @@
     "src/**/*.tsx",
     "infra/workerEnv.ts",
     "vite.config.ts",
-    "vad-web-dev-plugin.ts"
+    "vad-web-dev-plugin.ts",
+    "local-live-dev-plugin.ts"
   ],
   "references": [
     {
@@ -43,6 +44,12 @@
     },
     {
       "path": "../../packages/realtime-openai-server/tsconfig.lib.json"
+    },
+    {
+      "path": "../../packages/realtime-openai-live-server/tsconfig.lib.json"
+    },
+    {
+      "path": "../../packages/realtime-openai-live/tsconfig.lib.json"
     },
     {
       "path": "../../packages/realtime-openai/tsconfig.lib.json"

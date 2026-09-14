@@ -10,9 +10,9 @@ import { getVoiceErrorMessage } from './voice-error-copy';
  * check server config, or just retry; disappears once state leaves `error`.
  */
 export function VoiceErrorNote() {
-  const { state, error } = m.useVoice();
+  const { state, error, provider } = m.useVoice();
 
-  if (state !== 'error') return null;
+  if (state !== 'error' || provider === 'live') return null;
 
   const code = error instanceof RealtimeVoiceError ? error.code : null;
 
