@@ -2,10 +2,10 @@ import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import { outputText, withBlogBuild } from './fixtures/blog/build';
 
-test('main navigation opens the first blog post on desktop and mobile', async ({
-  page,
-}) => {
-  for (const width of [1280, 375]) {
+for (const width of [1280, 375]) {
+  test(`main navigation opens the first blog post at ${width}px`, async ({
+    page,
+  }) => {
     await page.setViewportSize({ width, height: 800 });
     await page.goto('/');
     if (width === 375)
@@ -18,6 +18,23 @@ test('main navigation opens the first blog post on desktop and mobile', async ({
     await expect(
       page.getByRole('heading', { name: 'Blog', exact: true }),
     ).toBeVisible();
+    const stories = page.locator('.blog-list > li');
+    await expect(stories).toHaveCount(1);
+    const cover = stories.locator('img');
+    await expect(cover).toHaveAttribute('src', '/og.png');
+    await expect(cover).toHaveJSProperty('complete', true);
+    expect(
+      await cover.evaluate((image: HTMLImageElement) => image.naturalWidth),
+    ).toBeGreaterThan(0);
+    const board = await page.locator('.blog-list').boundingBox();
+    const feature = await stories.boundingBox();
+    expect(board).not.toBeNull();
+    expect(feature?.width).toBeCloseTo(board?.width ?? 0, 0);
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth,
+      ),
+    ).toBe(true);
     await page
       .getByRole('link', { name: 'Hello Maelstrom', exact: true })
       .click();
@@ -42,8 +59,8 @@ test('main navigation opens the first blog post on desktop and mobile', async ({
     ).toBe(true);
     await page.getByRole('link', { name: '← All posts' }).click();
     await expect(page).toHaveURL(/\/blog\/$/);
-  }
-});
+  });
+}
 
 test('both index slash forms retain production canonical metadata; unknown posts return 404', async ({
   page,
@@ -128,5 +145,26 @@ test('isolated built MDX renders post links and production metadata on either sl
       'Fictional Zeta',
       'Fictional Old',
     ]);
+    for (const width of [1280, 375]) {
+      await page.setViewportSize({ width, height: 800 });
+      const cards = page.locator('.blog-list > li');
+      const feature = await cards.nth(0).boundingBox();
+      const support = await cards.nth(1).boundingBox();
+      expect(feature).not.toBeNull();
+      expect(support).not.toBeNull();
+      if (feature && support) {
+        if (width === 1280) {
+          expect(feature.width).toBeGreaterThan(support.width);
+          expect(support.x).toBeGreaterThanOrEqual(feature.x + feature.width);
+        } else {
+          expect(support.y).toBeGreaterThanOrEqual(feature.y + feature.height);
+        }
+      }
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= window.innerWidth,
+        ),
+      ).toBe(true);
+    }
   });
 });

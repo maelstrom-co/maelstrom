@@ -8,21 +8,31 @@ const posts = sortPosts(await getCollection('blog'));
 ---
 
 <Layout title="Blog — Maelstrom" description="Engineering notes and updates from Maelstrom." canonical={productionUrl(blogPath())}>
-  <main class="container blog-page">
-    <h1>Blog</h1>
-    <p>Engineering notes and updates from Maelstrom.</p>
+  <main class="container blog-page blog-archive">
+    <header class="blog-archive-header">
+      <div>
+        <h1>Blog</h1>
+        <p>Engineering notes and updates from Maelstrom.</p>
+      </div>
+      <p class="blog-archive-count">{posts.length} {posts.length === 1 ? 'story' : 'stories'}</p>
+    </header>
     {posts.length === 0 ? (
       <p class="blog-empty">No posts yet. Check back for engineering notes and updates.</p>
     ) : (
       <ul class="blog-list">
-        {posts.map((post) => (
+        {posts.map((post, index) => (
           <li>
-            <article>
-              <time datetime={post.data.date.toISOString()}>{post.data.date.toISOString().slice(0, 10)}</time>
-              <h2><a href={blogPath(post.id)}>{post.data.title}</a></h2>
-              <p>{post.data.description}</p>
-              <p>{post.data.labels.join(' · ')}</p>
-              <p>By <a href={post.data.authorUrl}>{post.data.author}</a></p>
+            <article class="blog-card">
+              <img class="blog-card-cover" src={post.data.image} alt="" loading={index === 0 ? 'eager' : 'lazy'} />
+              <div class="blog-card-body">
+                <p class="blog-card-labels">{post.data.labels.join(' · ')}</p>
+                <h2><a href={blogPath(post.id)}>{post.data.title}</a></h2>
+                <p class="blog-card-description">{post.data.description}</p>
+                <div class="blog-card-meta">
+                  <time datetime={post.data.date.toISOString()}>{post.data.date.toISOString().slice(0, 10)}</time>
+                  <p>By <a href={post.data.authorUrl}>{post.data.author}</a></p>
+                </div>
+              </div>
             </article>
           </li>
         ))}
