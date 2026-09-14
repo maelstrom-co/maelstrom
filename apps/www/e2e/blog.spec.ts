@@ -3,66 +3,92 @@ import { expect, test } from '@playwright/test';
 import { outputText, withBlogBuild } from './fixtures/blog/build';
 
 for (const width of [1280, 375]) {
-  test(`archive card hit areas and keyboard links work at ${width}px`, async ({
-    page,
-  }) => {
-    test.setTimeout(60_000);
-    await page.setViewportSize({ width, height: 800 });
-    for (const area of [
-      '.blog-card-cover',
-      '.blog-card-description',
-      'padding',
-    ]) {
-      await page.goto('/blog/');
-      const card = page.locator('.blog-list > li').first();
-      const target = area === 'padding' ? card : card.locator(area);
-      await target.evaluate((element, padding) => {
-        const box = element.getBoundingClientRect();
-        window.scrollBy({
-          top: box.y + (padding ? 8 : box.height / 2) - window.innerHeight / 2,
-          behavior: 'instant',
+  for (const [index, name, slug] of [
+    [0, 'Hello Maelstrom', 'hello-maelstrom'],
+    [1, 'Another placeholder', 'another-placeholder'],
+  ] as const) {
+    test(`${slug} card hit areas and keyboard links work at ${width}px`, async ({
+      page,
+    }) => {
+      test.setTimeout(60_000);
+      await page.setViewportSize({ width, height: 800 });
+      for (const area of [
+        '.blog-card-cover',
+        '.blog-card-description',
+        'padding',
+      ]) {
+        await page.goto('/blog/');
+        const card = page.locator('.blog-list > li').nth(index);
+        const target = area === 'padding' ? card : card.locator(area);
+        await target.evaluate((element, padding) => {
+          const box = element.getBoundingClientRect();
+          window.scrollBy({
+            top:
+              box.y + (padding ? 8 : box.height / 2) - window.innerHeight / 2,
+            behavior: 'instant',
+          });
+        }, area === 'padding');
+        const box = await target.boundingBox();
+        if (!box) throw new Error(`Missing card ${area}`);
+        await page.mouse.click(
+          box.x + (area === 'padding' ? 8 : box.width / 2),
+          box.y + (area === 'padding' ? 8 : box.height / 2),
+        );
+        await page.waitForURL(`/blog/${slug}/`, {
+          waitUntil: 'domcontentloaded',
         });
-      }, area === 'padding');
-      const box = await target.boundingBox();
-      if (!box) throw new Error(`Missing card ${area}`);
-      await page.mouse.click(
-        box.x + (area === 'padding' ? 8 : box.width / 2),
-        box.y + (area === 'padding' ? 8 : box.height / 2),
+        await expect(page).toHaveURL(new RegExp(`/blog/${slug}/$`));
+        await expect(
+          page.getByRole('heading', { name, exact: true }),
+        ).toBeVisible();
+      }
+
+      await page.goto('/blog/');
+      const card = page.locator('.blog-list > li').nth(index);
+      const title = card.getByRole('link', {
+        name,
+        exact: true,
+      });
+      const author = card.getByRole('link', { name: 'Maelstrom', exact: true });
+      await expect(card.getByRole('link')).toHaveCount(2);
+      await expect(title).toHaveCSS('text-decoration-line', 'none');
+      await title.hover();
+      await expect(title).toHaveCSS('text-decoration-line', 'none');
+      await expect(title).toHaveCSS('cursor', 'pointer');
+      await title.focus();
+      await page.keyboard.press('Tab');
+      await expect(author).toBeFocused();
+      await page.keyboard.press('Shift+Tab');
+      await expect(title).toBeFocused();
+      await expect(title).toHaveCSS('text-decoration-line', 'none');
+      await expect(card).toHaveCSS('outline-style', 'solid');
+      await expect(card).toHaveCSS('outline-width', '2px');
+      await page.keyboard.press('Enter');
+      await page.waitForURL(`/blog/${slug}/`, {
+        waitUntil: 'domcontentloaded',
+      });
+      await expect(page).toHaveURL(new RegExp(`/blog/${slug}/$`));
+      await expect(
+        page.getByRole('heading', { name, exact: true }),
+      ).toBeVisible();
+      if (slug === 'another-placeholder') {
+        await expect(
+          page.getByText('boilerplate second entry', { exact: true }),
+        ).toBeVisible();
+      }
+
+      await page.goto('/blog/');
+      await expect(author).toHaveAttribute('href', 'https://maelstrom-ai.co');
+      await page.route('https://maelstrom-ai.co/', (route) =>
+        route.fulfill({
+          contentType: 'text/html',
+          body: '<h1>Author site</h1>',
+        }),
       );
-      await expect(page).toHaveURL(/\/blog\/hello-maelstrom\/$/);
-    }
-
-    await page.goto('/blog/');
-    const card = page.locator('.blog-list > li').first();
-    const title = card.getByRole('link', {
-      name: 'Hello Maelstrom',
-      exact: true,
+      await author.click();
+      await expect(page).toHaveURL('https://maelstrom-ai.co/');
     });
-    const author = card.getByRole('link', { name: 'Maelstrom', exact: true });
-    await expect(card.getByRole('link')).toHaveCount(2);
-    await expect(title).toHaveCSS('text-decoration-line', 'none');
-    await title.hover();
-    await expect(title).toHaveCSS('text-decoration-line', 'none');
-    await expect(title).toHaveCSS('cursor', 'pointer');
-    await title.focus();
-    await page.keyboard.press('Tab');
-    await expect(author).toBeFocused();
-    await page.keyboard.press('Shift+Tab');
-    await expect(title).toBeFocused();
-    await expect(title).toHaveCSS('text-decoration-line', 'none');
-    await expect(card).toHaveCSS('outline-style', 'solid');
-    await expect(card).toHaveCSS('outline-width', '2px');
-    await page.keyboard.press('Enter');
-    await expect(page).toHaveURL(/\/blog\/hello-maelstrom\/$/);
-
-    await page.goto('/blog/');
-    await expect(author).toHaveAttribute('href', 'https://maelstrom-ai.co');
-    await page.route('https://maelstrom-ai.co/', (route) =>
-      route.fulfill({ contentType: 'text/html', body: '<h1>Author site</h1>' }),
-    );
-    await author.click();
-    await expect(page).toHaveURL('https://maelstrom-ai.co/');
-  });
+  }
 
   test(`main navigation opens the first blog post at ${width}px`, async ({
     page,
@@ -80,17 +106,32 @@ for (const width of [1280, 375]) {
       page.getByRole('heading', { name: 'Blog', exact: true }),
     ).toBeVisible();
     const stories = page.locator('.blog-list > li');
-    await expect(stories).toHaveCount(1);
-    const cover = stories.locator('img');
-    await expect(cover).toHaveAttribute('src', '/og.png');
-    await expect(cover).toHaveJSProperty('complete', true);
-    expect(
-      await cover.evaluate((image: HTMLImageElement) => image.naturalWidth),
-    ).toBeGreaterThan(0);
+    await expect(stories).toHaveCount(2);
+    await expect(stories.getByRole('heading', { level: 2 })).toHaveText([
+      'Hello Maelstrom',
+      'Another placeholder',
+    ]);
+    for (const cover of await stories.locator('img').all()) {
+      await expect(cover).toHaveAttribute('src', '/og.png');
+      await expect(cover).toHaveJSProperty('complete', true);
+      expect(
+        await cover.evaluate((image: HTMLImageElement) => image.naturalWidth),
+      ).toBeGreaterThan(0);
+    }
     const board = await page.locator('.blog-list').boundingBox();
-    const feature = await stories.boundingBox();
+    const feature = await stories.nth(0).boundingBox();
+    const support = await stories.nth(1).boundingBox();
     expect(board).not.toBeNull();
-    expect(feature?.width).toBeCloseTo(board?.width ?? 0, 0);
+    if (!board || !feature || !support) throw new Error('Missing bento cards');
+    if (width === 1280) {
+      expect(feature.width).toBeGreaterThan(support.width);
+      expect(support.x).toBeGreaterThanOrEqual(feature.x + feature.width);
+      expect(support.y).toBeCloseTo(feature.y, 0);
+    } else {
+      expect(feature.width).toBeCloseTo(board.width, 0);
+      expect(support.width).toBeCloseTo(board.width, 0);
+      expect(support.y).toBeGreaterThanOrEqual(feature.y + feature.height);
+    }
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= window.innerWidth,

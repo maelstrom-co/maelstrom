@@ -121,8 +121,13 @@ test('actual collection builds production, isolated empty and fixture output', a
     build();
     const productionIndex = await outputText(output, 'blog/index.html');
     expect(productionIndex).toContain('Hello Maelstrom');
+    expect(productionIndex).toContain('Another placeholder');
+    expect(productionIndex.indexOf('Hello Maelstrom')).toBeLessThan(
+      productionIndex.indexOf('Another placeholder'),
+    );
     expect(productionIndex).not.toContain('No posts yet.');
     expect((await readdir(join(output, 'blog'))).sort()).toEqual([
+      'another-placeholder',
       'hello-maelstrom',
       'index.html',
     ]);
@@ -138,12 +143,27 @@ test('actual collection builds production, isolated empty and fixture output', a
       'rel="canonical" href="https://maelstrom-ai.co/blog/hello-maelstrom/"',
     );
     const productionSitemap = await outputText(output, 'sitemap-0.xml');
+    const supportingArticle = await outputText(
+      output,
+      'blog/another-placeholder/index.html',
+    );
+    expect(supportingArticle).toContain(
+      '<strong>boilerplate second entry</strong>',
+    );
+    expect(supportingArticle).toContain('Lorem ipsum');
+    expect(supportingArticle).toContain(
+      'rel="canonical" href="https://maelstrom-ai.co/blog/another-placeholder/"',
+    );
+    expect(productionSitemap).toContain(
+      '<loc>https://maelstrom-ai.co/blog/another-placeholder/</loc>',
+    );
     expect(productionSitemap).toContain(
       '<loc>https://maelstrom-ai.co/blog/hello-maelstrom/</loc>',
     );
     for (const text of [
       productionIndex,
       productionArticle,
+      supportingArticle,
       productionSitemap,
     ]) {
       expect(text).not.toContain('fixture-');
