@@ -35,7 +35,10 @@ Write Markdown here. MDX also supports JSX and expressions such as {6 * 7}.
 ```
 
 All shown metadata fields are required. Title, description and author must be
-nonempty after trimming. Use a valid `YYYY-MM-DD` date; dates display in UTC.
+nonempty after trimming. Use a quoted, valid `YYYY-MM-DD` string for the date;
+dates display in UTC. Unquoted YAML dates are unsupported because YAML can turn
+them into already-normalized Date objects before validation. Impossible dates
+and non-leap-year February 29 are rejected; `'2024-02-29'` is valid.
 Posts sort by date descending, then filename slug ascending for equal dates.
 Every entry is published, including future-dated entries: there is no draft or
 scheduling policy. Keep unfinished articles outside this collection.
@@ -81,8 +84,10 @@ NX_DAEMON=false bunx --no-install nx run '@maelstrom-co/www:e2e' --skip-nx-cache
 Schema and output tests live in `src/lib/blog.test.ts`. Fictitious MDX files live
 only in `e2e/fixtures/blog/`. The harness copies build inputs into an OS temporary
 directory, links dependencies without sharing app caches, and builds the actual
-Astro collection/routes/adapter there. It tests the production collection in one
-copy and an empty collection in a separate fresh copy. Fixture injection replaces
+Astro collection/routes/adapter there. Production smoke expectations come from
+source frontmatter, so adding a valid post does not require changing the tests.
+Populated-to-empty rebuilds retain the same temporary app and content cache;
+removing all posts also removes their output routes. Fixture injection replaces
 only the temporary blog content. The harness removes each tree in `finally`;
 cleanup errors fail the test. Do not copy fixtures into `src/content/blog/` or
 deploy fixture output.

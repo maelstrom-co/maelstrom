@@ -15,12 +15,12 @@ const publicImage = text.refine((value) => {
     return false;
   return value.split('/').every((part) => part !== '.' && part !== '..');
 }, 'Expected a safe root-relative public image path');
-const date = z.union([
-  z.date(),
-  z.iso.date().transform((value) => new Date(`${value}T00:00:00Z`)),
-]);
+const date = z.iso.date().transform((value) => new Date(`${value}T00:00:00Z`));
 
-/** Required metadata; labels become a nonempty list and date-only strings become UTC dates. */
+/**
+ * Required metadata with nonempty labels and strict YYYY-MM-DD strings converted to UTC.
+ * Date objects (including unquoted YAML dates) are rejected before any normalization.
+ */
 export const blogSchema = z.object({
   title: text,
   description: text,

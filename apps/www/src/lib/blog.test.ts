@@ -1,7 +1,20 @@
 import { describe, expect, test } from 'bun:test';
-import { mkdir, readdir, rm, writeFile } from 'node:fs/promises';
+import {
+  mkdir,
+  readdir,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises';
 import { join } from 'node:path';
-import { outputText, withBlogBuild } from '../../e2e/fixtures/blog/build';
+import { JSDOM } from 'jsdom';
+import {
+  addExtraPost,
+  outputText,
+  sourcePosts,
+  withBlogBuild,
+} from '../../e2e/fixtures/blog/build';
 import {
   blogPath,
   blogSchema,
@@ -40,6 +53,8 @@ describe('blog metadata', () => {
     { author: '\t' },
     { date: 'not a date' },
     { date: '2026-02-30' },
+    { date: '2025-02-29' },
+    { date: new Date('2026-01-02') },
     { date: null },
     { date: 0 },
     { labels: ', , ' },
@@ -116,62 +131,152 @@ test('blog URLs always use the production origin and trailing slash', () => {
   );
 });
 
-test('actual collection builds production, isolated empty and fixture output', async () => {
-  await withBlogBuild(async ({ output, build }) => {
+async function expectPublished(
+  output: string,
+  posts: Awaited<ReturnType<typeof sourcePosts>>,
+) {
+  const html = await outputText(output, 'blog/index.html');
+  const document = new JSDOM(html).window.document;
+  const cards = [...document.querySelectorAll('.blog-list > li')];
+  expect(cards).toHaveLength(posts.length);
+  expect((await readdir(join(output, 'blog'))).sort()).toEqual(
+    ['index.html', ...posts.map((post) => post.id)].sort(),
+  );
+  const sitemap = await outputText(output, 'sitemap-0.xml');
+  for (const [index, post] of posts.entries()) {
+    const card = cards[index];
+    expect(card?.querySelector('h2 a')?.textContent).toBe(post.data.title);
+    expect(card?.querySelector('h2 a')?.getAttribute('href')).toBe(
+      `/blog/${post.id}/`,
+    );
+    expect(card?.querySelector('img')?.getAttribute('src')).toBe(
+      post.data.image,
+    );
+    expect(card?.querySelector('time')?.getAttribute('datetime')).toBe(
+      post.data.date.toISOString(),
+    );
+    const article = new JSDOM(
+      await outputText(output, `blog/${post.id}/index.html`),
+    ).window.document;
+    expect(article.querySelector('h1')?.textContent).toBe(post.data.title);
+    expect(
+      article.querySelector('link[rel="canonical"]')?.getAttribute('href'),
+    ).toBe(`https://maelstrom-ai.co/blog/${post.id}/`);
+    expect(
+      article
+        .querySelector('meta[property="og:image"]')
+        ?.getAttribute('content'),
+    ).toBe(new URL(post.data.image, 'https://maelstrom-ai.co').href);
+    expect(article.querySelector('time')?.getAttribute('datetime')).toBe(
+      post.data.date.toISOString(),
+    );
+    expect(sitemap).toContain(
+      `<loc>https://maelstrom-ai.co/blog/${post.id}/</loc>`,
+    );
+  }
+}
+
+test('actual collection builds production, a distinct-image extra post, and cached empty output', async () => {
+  await withBlogBuild(async ({ root, output, build }) => {
+    const posts = await sourcePosts(root);
     build();
-    const productionIndex = await outputText(output, 'blog/index.html');
-    expect(productionIndex).toContain('Hello Maelstrom');
-    expect(productionIndex).toContain('Another placeholder');
-    expect(productionIndex.indexOf('Hello Maelstrom')).toBeLessThan(
-      productionIndex.indexOf('Another placeholder'),
-    );
-    expect(productionIndex).not.toContain('No posts yet.');
-    expect((await readdir(join(output, 'blog'))).sort()).toEqual([
-      'another-placeholder',
-      'hello-maelstrom',
-      'index.html',
-    ]);
-    const productionArticle = await outputText(
-      output,
-      'blog/hello-maelstrom/index.html',
-    );
-    expect(productionArticle).toContain(
-      '<strong>boilerplate first entry</strong>',
-    );
-    expect(productionArticle).toContain('Lorem ipsum');
-    expect(productionArticle).toContain(
-      'rel="canonical" href="https://maelstrom-ai.co/blog/hello-maelstrom/"',
-    );
-    const productionSitemap = await outputText(output, 'sitemap-0.xml');
-    const supportingArticle = await outputText(
-      output,
-      'blog/another-placeholder/index.html',
-    );
-    expect(supportingArticle).toContain(
-      '<strong>boilerplate second entry</strong>',
-    );
-    expect(supportingArticle).toContain('Lorem ipsum');
-    expect(supportingArticle).toContain(
-      'rel="canonical" href="https://maelstrom-ai.co/blog/another-placeholder/"',
-    );
-    expect(productionSitemap).toContain(
-      '<loc>https://maelstrom-ai.co/blog/another-placeholder/</loc>',
-    );
-    expect(productionSitemap).toContain(
-      '<loc>https://maelstrom-ai.co/blog/hello-maelstrom/</loc>',
-    );
-    for (const text of [
-      productionIndex,
-      productionArticle,
-      supportingArticle,
-      productionSitemap,
+    await expectPublished(output, posts);
+    for (const path of [
+      'blog/index.html',
+      'sitemap-0.xml',
+      ...posts.map((post) => `blog/${post.id}/index.html`),
     ]) {
+      const text = await outputText(output, path);
       expect(text).not.toContain('fixture-');
       expect(text).not.toContain('Fictional');
       expect(text).not.toContain('Example Author');
       expect(text).not.toContain('/blog/pages');
     }
+    await addExtraPost(root);
+    const extended = await sourcePosts(root);
+    expect(extended).toHaveLength(posts.length + 1);
+    build();
+    await expectPublished(output, extended);
+    expect(await outputText(output, 'fixture-extra.svg')).toContain('<svg');
+
+    const cache = join(root, 'node_modules/.astro');
+    const cacheBefore = await stat(cache);
+    expect(await readFile(join(cache, 'data-store.json'), 'utf8')).toContain(
+      'fixture-extra',
+    );
+    const content = join(root, 'src/content/blog');
+    await rm(content, { recursive: true });
+    await mkdir(content);
+    await writeFile(
+      join(content, 'README.md'),
+      'Nonmatching content must not prevent reconciliation.',
+    );
+    await mkdir(join(content, '.hidden'));
+    await writeFile(
+      join(content, '.hidden/ignored.mdx'),
+      'Not a visible glob match',
+    );
+    build();
+    expect((await stat(cache)).ino).toBe(cacheBefore.ino);
+    expect(await outputText(output, 'blog/index.html')).toContain(
+      'No posts yet.',
+    );
+    expect(await readdir(join(output, 'blog'))).toEqual(['index.html']);
+    const sitemap = await outputText(output, 'sitemap-0.xml');
+    for (const post of extended)
+      expect(sitemap).not.toContain(`/blog/${post.id}/`);
   });
+}, 300_000);
+
+test.each([
+  '2026-02-30',
+  '"2026-02-30"',
+  '"2025-02-29"',
+  '2024-02-29',
+])('real YAML rejects date %s through collection schema validation', async (date) => {
+  expect.assertions(2);
+  await withBlogBuild(async ({ root, build, inject }) => {
+    await inject();
+    const path = join(root, 'src/content/blog/fixture-alpha.mdx');
+    await writeFile(
+      path,
+      (await readFile(path, 'utf8')).replace(/^date:.*$/m, `date: ${date}`),
+    );
+    try {
+      build();
+    } catch (error) {
+      expect(String(error)).toContain('date');
+      expect(String(error)).toContain('does not match collection schema');
+    }
+  });
+}, 180_000);
+
+test('real YAML accepts a quoted leap day and preserves its chronological position', async () => {
+  await withBlogBuild(async ({ root, output, build, inject }) => {
+    await inject();
+    const path = join(root, 'src/content/blog/fixture-alpha.mdx');
+    await writeFile(
+      path,
+      (await readFile(path, 'utf8')).replace(
+        /^date:.*$/m,
+        'date: "2024-02-29"',
+      ),
+    );
+    const posts = await sourcePosts(root);
+    expect(posts.map((post) => post.id)).toEqual([
+      'fixture-zeta',
+      'fixture-old',
+      'fixture-alpha',
+    ]);
+    build();
+    await expectPublished(output, posts);
+    expect(await outputText(output, 'blog/fixture-alpha/index.html')).toContain(
+      '2024-02-29T00:00:00.000Z',
+    );
+  });
+}, 180_000);
+
+test('actual collection builds isolated empty and controlled fixture output', async () => {
   await withBlogBuild(async ({ root, output, build, inject }) => {
     const content = join(root, 'src/content/blog');
     await rm(content, { recursive: true });

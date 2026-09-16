@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import {
   cp,
   mkdir,
@@ -7,25 +7,84 @@ import {
   readFile,
   rm,
   symlink,
+  writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseFrontmatter } from 'astro/markdown';
+import { z } from 'astro/zod';
 
 const fixtures = dirname(fileURLToPath(import.meta.url));
 const app = resolve(fixtures, '../../..');
 const repository = resolve(app, '../..');
+const expectationSchema = z.object({
+  title: z.string().trim().min(1),
+  description: z.string().trim().min(1),
+  date: z.iso.date().transform((date) => new Date(`${date}T00:00:00Z`)),
+  image: z.string().trim().min(1),
+  author: z.string().trim().min(1),
+  authorUrl: z.string().trim().min(1),
+});
+
+/**
+ * Copies the extra-post fixture and its distinct local image into an existing temporary app.
+ * Overwrites those two fixture paths on repeated calls; unlike inject, retains all other posts.
+ */
+export async function addExtraPost(root: string): Promise<void> {
+  await cp(
+    join(fixtures, 'fixture-extra.mdx'),
+    join(root, 'src/content/blog/fixture-extra.mdx'),
+  );
+  await writeFile(
+    join(root, 'public/fixture-extra.svg'),
+    '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><rect width="40" height="20" fill="red"/></svg>',
+  );
+}
+
+/**
+ * Reads source frontmatter, not rendered output; malformed expectation fields throw.
+ * Returns all posts newest-first with ASCII slug tie-breaking, including an empty list.
+ * An explicit root reads a temporary app instead of the production source tree.
+ * Checks expectation fields independently; the actual build still validates the full blog schema.
+ */
+export async function sourcePosts(root = app) {
+  const content = join(root, 'src/content/blog');
+  const posts = await Promise.all(
+    (await readdir(content, { recursive: true }))
+      .filter((entry) => entry.endsWith('.mdx'))
+      .map(async (entry) => ({
+        id: entry.slice(0, -4),
+        data: expectationSchema.parse(
+          parseFrontmatter(await readFile(join(content, entry), 'utf8'))
+            .frontmatter,
+        ),
+      })),
+  );
+  return posts.sort(
+    (a, b) =>
+      b.data.date.getTime() - a.data.date.getTime() ||
+      (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+  );
+}
 
 /**
  * Copies production build inputs into a temporary app removed after the callback.
  * Inject replaces only that copy's blog with fixtures; real content and caches stay isolated.
+ * Repeated builds retain the temporary content cache, and failed builds throw captured output.
  */
 export async function withBlogBuild<T>(
   run: (site: {
+    /** Isolated app directory; callers may mutate only this copy's content. */
     root: string;
+    /** Client output directory, refreshed by Astro on each build. */
     output: string;
+    /** Builds with the same cache, optionally overriding the site origin; throws on failure. */
     build: (site?: string) => void;
+    /** Replaces temporary posts with the three controlled fixtures without deleting caches. */
     inject: () => Promise<void>;
+    /** Runs a foreground dev server on an ephemeral port; always stops it before returning. */
+    withDev: (run: (origin: string) => Promise<void>) => Promise<void>;
   }) => Promise<T>,
 ): Promise<T> {
   const temporary = await mkdtemp(join(tmpdir(), 'www-blog-'));
@@ -86,6 +145,66 @@ export async function withBlogBuild<T>(
         await mkdir(content, { recursive: true });
         for (const slug of ['fixture-alpha', 'fixture-zeta', 'fixture-old']) {
           await cp(join(fixtures, `${slug}.mdx`), join(content, `${slug}.mdx`));
+        }
+      },
+      async withDev(run) {
+        const server = spawn(
+          'node',
+          [
+            join(app, 'node_modules/astro/bin/astro.mjs'),
+            'dev',
+            '--host',
+            '127.0.0.1',
+            '--port',
+            '0',
+          ],
+          {
+            cwd: root,
+            env: {
+              ...process.env,
+              ASTRO_TELEMETRY_DISABLED: '1',
+              ASTRO_DEV_BACKGROUND: '0',
+            },
+            stdio: ['ignore', 'pipe', 'pipe'],
+          },
+        );
+        let logs = '';
+        const closed = new Promise<void>((resolve) =>
+          server.once('close', () => resolve()),
+        );
+        const ready = new Promise<string>((resolve, reject) => {
+          const capture = (chunk: Buffer) => {
+            logs += chunk.toString();
+            const origin = logs.match(/http:\/\/127\.0\.0\.1:\d+/)?.[0];
+            if (origin) resolve(origin);
+          };
+          server.stdout.on('data', capture);
+          server.stderr.on('data', capture);
+          server.once('error', reject);
+          server.once('close', () => reject(new Error(logs)));
+        });
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          const origin = await Promise.race([
+            ready,
+            new Promise<never>((_, reject) => {
+              timer = setTimeout(
+                () =>
+                  reject(new Error(`Dev server startup timed out: ${logs}`)),
+                60_000,
+              );
+            }),
+          ]);
+          await run(origin);
+        } finally {
+          clearTimeout(timer);
+          server.kill('SIGTERM');
+          const force = setTimeout(() => server.kill('SIGKILL'), 5_000);
+          try {
+            await closed;
+          } finally {
+            clearTimeout(force);
+          }
         }
       },
     });

@@ -1,12 +1,21 @@
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
-import { outputText, withBlogBuild } from './fixtures/blog/build';
+import {
+  addExtraPost,
+  outputText,
+  sourcePosts,
+  withBlogBuild,
+} from './fixtures/blog/build';
+
+const posts = await sourcePosts();
 
 for (const width of [1280, 375]) {
-  for (const [index, name, slug] of [
-    [0, 'Hello Maelstrom', 'hello-maelstrom'],
-    [1, 'Another placeholder', 'another-placeholder'],
-  ] as const) {
+  for (const [index, post] of posts.entries()) {
+    const {
+      id: slug,
+      data: { title: name, author: authorName, authorUrl },
+    } = post;
     test(`${slug} card hit areas and keyboard links work at ${width}px`, async ({
       page,
     }) => {
@@ -49,7 +58,7 @@ for (const width of [1280, 375]) {
         name,
         exact: true,
       });
-      const author = card.getByRole('link', { name: 'Maelstrom', exact: true });
+      const author = card.getByRole('link', { name: authorName, exact: true });
       await expect(card.getByRole('link')).toHaveCount(2);
       await expect(title).toHaveCSS('text-decoration-line', 'none');
       await title.hover();
@@ -71,22 +80,16 @@ for (const width of [1280, 375]) {
       await expect(
         page.getByRole('heading', { name, exact: true }),
       ).toBeVisible();
-      if (slug === 'another-placeholder') {
-        await expect(
-          page.getByText('boilerplate second entry', { exact: true }),
-        ).toBeVisible();
-      }
-
       await page.goto('/blog/');
-      await expect(author).toHaveAttribute('href', 'https://maelstrom-ai.co');
-      await page.route('https://maelstrom-ai.co/', (route) =>
+      await expect(author).toHaveAttribute('href', authorUrl);
+      await page.route(new URL(authorUrl).href, (route) =>
         route.fulfill({
           contentType: 'text/html',
           body: '<h1>Author site</h1>',
         }),
       );
       await author.click();
-      await expect(page).toHaveURL('https://maelstrom-ai.co/');
+      await expect(page).toHaveURL(new URL(authorUrl).href);
     });
   }
 
@@ -106,24 +109,38 @@ for (const width of [1280, 375]) {
       page.getByRole('heading', { name: 'Blog', exact: true }),
     ).toBeVisible();
     const stories = page.locator('.blog-list > li');
-    await expect(stories).toHaveCount(2);
-    await expect(stories.getByRole('heading', { level: 2 })).toHaveText([
-      'Hello Maelstrom',
-      'Another placeholder',
-    ]);
-    for (const cover of await stories.locator('img').all()) {
-      await expect(cover).toHaveAttribute('src', '/og.png');
+    await expect(stories).toHaveCount(posts.length);
+    await expect(stories.getByRole('heading', { level: 2 })).toHaveText(
+      posts.map((post) => post.data.title),
+    );
+    for (const [index, post] of posts.entries()) {
+      const cover = stories.nth(index).locator('img');
+      await cover.scrollIntoViewIfNeeded();
+      await expect(cover).toHaveAttribute('src', post.data.image);
+      await expect(stories.nth(index).locator('h2 a')).toHaveAttribute(
+        'href',
+        `/blog/${post.id}/`,
+      );
       await expect(cover).toHaveJSProperty('complete', true);
       expect(
         await cover.evaluate((image: HTMLImageElement) => image.naturalWidth),
       ).toBeGreaterThan(0);
     }
+    const first = posts[0];
+    if (!first) {
+      await expect(
+        page.getByText('No posts yet.', { exact: false }),
+      ).toBeVisible();
+      return;
+    }
     const board = await page.locator('.blog-list').boundingBox();
     const feature = await stories.nth(0).boundingBox();
     const support = await stories.nth(1).boundingBox();
     expect(board).not.toBeNull();
-    if (!board || !feature || !support) throw new Error('Missing bento cards');
-    if (width === 1280) {
+    if (!board || !feature) throw new Error('Missing bento cards');
+    if (!support) {
+      expect(feature.width).toBeCloseTo(board.width, 0);
+    } else if (width === 1280) {
       expect(feature.width).toBeGreaterThan(support.width);
       expect(support.x).toBeGreaterThanOrEqual(feature.x + feature.width);
       expect(support.y).toBeCloseTo(feature.y, 0);
@@ -138,21 +155,18 @@ for (const width of [1280, 375]) {
       ),
     ).toBe(true);
     await page
-      .getByRole('link', { name: 'Hello Maelstrom', exact: true })
+      .getByRole('link', { name: first.data.title, exact: true })
       .click();
-    await expect(page).toHaveURL(/\/blog\/hello-maelstrom\/$/);
+    await expect(page).toHaveURL(new RegExp(`/blog/${first.id}/$`));
     await expect(
-      page.getByRole('heading', { name: 'Hello Maelstrom', exact: true }),
+      page.getByRole('heading', { name: first.data.title, exact: true }),
     ).toBeVisible();
     await expect(
-      page.getByText('boilerplate first entry', { exact: true }),
-    ).toBeVisible();
-    await expect(
-      page.getByRole('link', { name: 'Maelstrom', exact: true }),
-    ).toHaveAttribute('href', 'https://maelstrom-ai.co');
+      page.getByRole('link', { name: first.data.author, exact: true }),
+    ).toHaveAttribute('href', first.data.authorUrl);
     await expect(page.locator('link[rel="canonical"]')).toHaveAttribute(
       'href',
-      'https://maelstrom-ai.co/blog/hello-maelstrom/',
+      `https://maelstrom-ai.co/blog/${first.id}/`,
     );
     expect(
       await page.evaluate(
@@ -179,7 +193,7 @@ test('both index slash forms retain production canonical metadata; unknown posts
     );
   }
   for (const path of [
-    '/blog/unknown-post/',
+    '/blog/fixture-missing-post/',
     '/blog/pages/',
     '/blog/fixture-alpha/',
   ]) {
@@ -235,6 +249,23 @@ test('isolated built MDX renders post links and production metadata on either sl
       await expect(page.getByRole('list', { name: 'Labels' })).toHaveText(
         'engineeringMDX',
       );
+      const labels = page.getByRole('list', { name: 'Labels' });
+      await expect(labels).toHaveCSS('list-style-type', 'none');
+      await expect(labels).toHaveCSS('display', 'flex');
+      await expect(labels).toHaveCSS('padding-left', '0px');
+      for (const [tag, marker, items] of [
+        ['ul', 'disc', ['First unordered item', 'Second unordered item']],
+        ['ol', 'decimal', ['First ordered item', 'Second ordered item']],
+      ] as const) {
+        const list = page.locator(`.blog-prose ${tag}`);
+        await expect(list).toHaveCSS('list-style-type', marker);
+        await expect(list.locator('li')).toHaveText([...items]);
+        for (const item of await list.locator('li').all()) {
+          await expect(item).toBeVisible();
+          await expect(item).toHaveCSS('display', 'list-item');
+          await expect(item).toHaveCSS('list-style-type', marker);
+        }
+      }
       expect(
         await page.evaluate(
           () => document.documentElement.scrollWidth <= window.innerWidth,
@@ -242,6 +273,11 @@ test('isolated built MDX renders post links and production metadata on either sl
       ).toBe(true);
     }
     await page.getByRole('link', { name: '← All posts' }).click();
+    await expect(page.locator('.blog-list')).toHaveCSS(
+      'list-style-type',
+      'none',
+    );
+    await expect(page.locator('.blog-list > li')).toHaveCount(3);
     await expect(page.getByRole('heading', { level: 2 })).toHaveText([
       'Fictional Alpha',
       'Fictional Zeta',
@@ -282,5 +318,105 @@ test('isolated built MDX renders post links and production metadata on either sl
         ),
       ).toBe(true);
     }
+  });
+});
+
+test('an extra source post adapts card count, order, routes, titles and image expectations', async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  await withBlogBuild(async ({ root, output, build }) => {
+    await addExtraPost(root);
+    const expected = await sourcePosts(root);
+    expect(expected).toHaveLength(posts.length + 1);
+    build();
+    const files = new Map([['/blog/', 'blog/index.html']]);
+    for (const post of expected) {
+      files.set(`/blog/${post.id}/`, `blog/${post.id}/index.html`);
+      if (post.data.image.startsWith('/'))
+        files.set(post.data.image, post.data.image.slice(1));
+    }
+    await page.route('https://preview.example/**', async (route) => {
+      const path = new URL(route.request().url()).pathname;
+      const file = files.get(path);
+      if (file) await route.fulfill({ path: join(output, file) });
+      else if (/^\/_astro\/[a-zA-Z0-9_.-]+$/.test(path))
+        await route.fulfill({ path: join(output, path.slice(1)) });
+      else await route.abort();
+    });
+    await page.goto('https://preview.example/blog/');
+    const cards = page.locator('.blog-list > li');
+    await expect(cards).toHaveCount(expected.length);
+    await expect(cards.locator('h2')).toHaveText(
+      expected.map((post) => post.data.title),
+    );
+    for (const [index, post] of expected.entries()) {
+      const card = cards.nth(index);
+      await expect(card.locator('h2 a')).toHaveAttribute(
+        'href',
+        `/blog/${post.id}/`,
+      );
+      const image = card.locator('img');
+      await image.scrollIntoViewIfNeeded();
+      await expect(image).toHaveAttribute('src', post.data.image);
+      await expect(image).toHaveJSProperty('complete', true);
+      expect(
+        await image.evaluate(
+          (element: HTMLImageElement) => element.naturalWidth,
+        ),
+      ).toBeGreaterThan(0);
+    }
+    await expect(
+      page.locator('img[src="/fixture-extra.svg"]'),
+    ).toHaveJSProperty('naturalWidth', 40);
+    for (const post of expected) {
+      await page.goto(`https://preview.example/blog/${post.id}/`);
+      await expect(page.locator('h1')).toHaveText(post.data.title);
+      await expect(page.locator('meta[property="og:image"]')).toHaveAttribute(
+        'content',
+        new URL(post.data.image, 'https://maelstrom-ai.co').href,
+      );
+    }
+  });
+});
+
+test('an initially empty glob watches additions, changes, deletion and recovery', async ({
+  request,
+}) => {
+  test.setTimeout(180_000);
+  await withBlogBuild(async ({ root, withDev }) => {
+    const content = join(root, 'src/content/blog');
+    await rm(content, { recursive: true });
+    await mkdir(content);
+    await writeFile(join(content, 'README.md'), 'Not a post');
+    await withDev(async (origin) => {
+      const index = async () => (await request.get(`${origin}/blog/`)).text();
+      await expect.poll(index).toContain('No posts yet.');
+      await addExtraPost(root);
+      await expect
+        .poll(index, { timeout: 30_000 })
+        .toContain('Fictional extra publication');
+      const path = join(content, 'fixture-extra.mdx');
+      const source = await readFile(path, 'utf8');
+      await writeFile(
+        path,
+        source.replace(
+          'Fictional extra publication',
+          'Fictional watched change',
+        ),
+      );
+      await expect
+        .poll(index, { timeout: 30_000 })
+        .toContain('Fictional watched change');
+      await rm(path);
+      await expect.poll(index, { timeout: 30_000 }).toContain('No posts yet.');
+      await writeFile(path, source);
+      await expect
+        .poll(index, { timeout: 30_000 })
+        .toContain('Fictional extra publication');
+      expect(
+        (await request.get(`${origin}/blog/fixture-extra/`)).status(),
+      ).toBe(200);
+    });
   });
 });
