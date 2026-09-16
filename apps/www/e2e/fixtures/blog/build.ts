@@ -1,11 +1,13 @@
 import { execFileSync, spawn } from 'node:child_process';
 import {
   cp,
+  glob,
   mkdir,
   mkdtemp,
   readdir,
   readFile,
   rm,
+  stat,
   symlink,
   writeFile,
 } from 'node:fs/promises';
@@ -50,16 +52,18 @@ export async function addExtraPost(root: string): Promise<void> {
  */
 export async function sourcePosts(root = app) {
   const content = join(root, 'src/content/blog');
+  const entries: string[] = [];
+  for await (const entry of glob('**/*.mdx', { cwd: content })) {
+    if ((await stat(join(content, entry))).isFile()) entries.push(entry);
+  }
   const posts = await Promise.all(
-    (await readdir(content, { recursive: true }))
-      .filter((entry) => entry.endsWith('.mdx'))
-      .map(async (entry) => ({
-        id: entry.slice(0, -4),
-        data: expectationSchema.parse(
-          parseFrontmatter(await readFile(join(content, entry), 'utf8'))
-            .frontmatter,
-        ),
-      })),
+    entries.map(async (entry) => ({
+      id: entry.slice(0, -4),
+      data: expectationSchema.parse(
+        parseFrontmatter(await readFile(join(content, entry), 'utf8'))
+          .frontmatter,
+      ),
+    })),
   );
   return posts.sort(
     (a, b) =>

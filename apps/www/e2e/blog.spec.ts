@@ -135,7 +135,8 @@ for (const width of [1280, 375]) {
     }
     const board = await page.locator('.blog-list').boundingBox();
     const feature = await stories.nth(0).boundingBox();
-    const support = await stories.nth(1).boundingBox();
+    const support =
+      posts.length > 1 ? await stories.nth(1).boundingBox() : null;
     expect(board).not.toBeNull();
     if (!board || !feature) throw new Error('Missing bento cards');
     if (!support) {
@@ -382,6 +383,7 @@ test('an extra source post adapts card count, order, routes, titles and image ex
 
 test('an initially empty glob watches additions, changes, deletion and recovery', async ({
   request,
+  page,
 }) => {
   test.setTimeout(180_000);
   await withBlogBuild(async ({ root, withDev }) => {
@@ -417,6 +419,18 @@ test('an initially empty glob watches additions, changes, deletion and recovery'
       expect(
         (await request.get(`${origin}/blog/fixture-extra/`)).status(),
       ).toBe(200);
+      for (const width of [1280, 375]) {
+        await page.setViewportSize({ width, height: 800 });
+        await page.goto(`${origin}/blog/`);
+        const stories = page.locator('.blog-list > li');
+        await expect(stories).toHaveCount(1);
+        const board = await page.locator('.blog-list').boundingBox();
+        const feature = await stories.first().boundingBox();
+        if (!board || !feature) throw new Error('Missing singleton card');
+        expect(feature.width).toBeCloseTo(board.width, 0);
+        await stories.locator('h2 a').click();
+        await expect(page).toHaveURL(`${origin}/blog/fixture-extra/`);
+      }
     });
   });
 });

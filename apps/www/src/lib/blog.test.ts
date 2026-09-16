@@ -1,13 +1,18 @@
 import { describe, expect, test } from 'bun:test';
+import { EventEmitter } from 'node:events';
 import {
   mkdir,
+  mkdtemp,
   readdir,
   readFile,
   rm,
   stat,
   writeFile,
 } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { glob, type Loader } from 'astro/loaders';
 import { JSDOM } from 'jsdom';
 import {
   addExtraPost,
@@ -22,6 +27,133 @@ import {
   productionUrl,
   sortPosts,
 } from './blog';
+import { blogLoader } from './blog-loader';
+
+test.each([
+  'empty-scan',
+  'unlink',
+  'change',
+  'invalid-correction',
+])('glob bootstrap retains in-flight %s and installs handlers once', async (scenario) => {
+  const root = await mkdtemp(join(tmpdir(), 'blog-loader-'));
+  try {
+    const path = join(root, 'post.mdx');
+    const watcher = Object.assign(new EventEmitter(), { add() {} });
+    const entries = new Map<string, { id: string; data: unknown }>();
+    const errors: string[] = [];
+    const entered = Promise.withResolvers<void>();
+    const resume = Promise.withResolvers<void>();
+    let paused = false;
+    let loads = 0;
+    let writes = 0;
+    const delegate = glob({ base: root, pattern: '*.mdx' });
+    const context = {
+      config: {
+        root: pathToFileURL(`${root}/`),
+        srcDir: pathToFileURL(`${root}/`),
+      },
+      collection: 'blog',
+      watcher,
+      logger: {
+        warn() {},
+        info() {},
+        error: (error: string) => errors.push(error),
+      },
+      store: {
+        keys: () => entries.keys(),
+        get: (id: string) => entries.get(id),
+        set: (entry: { id: string; data: unknown }) => {
+          writes++;
+          entries.set(entry.id, entry);
+        },
+        delete: (id: string) => entries.delete(id),
+        clear: () => entries.clear(),
+      },
+      generateDigest: (contents: string) => contents,
+      parseData: ({ data }: { data: { title: string } }) => {
+        if (data.title === 'invalid') throw new Error('invalid title');
+        return data;
+      },
+      entryTypes: new Map([
+        [
+          '.mdx',
+          {
+            async getEntryInfo({ contents }: { contents: string }) {
+              if (!paused && scenario !== 'empty-scan') {
+                paused = true;
+                entered.resolve();
+                await resume.promise;
+              }
+              return { body: '', data: { title: contents } };
+            },
+          },
+        ],
+      ]),
+    } as unknown as Parameters<Loader['load']>[0];
+    const loader = blogLoader(
+      {
+        name: delegate.name,
+        async load(context) {
+          loads++;
+          if (!paused && scenario === 'empty-scan') {
+            paused = true;
+            entered.resolve();
+            await resume.promise;
+          }
+          await delegate.load(context);
+        },
+      },
+      () => root,
+      async () => (await readdir(root)).includes('post.mdx'),
+    );
+    await loader.load(context);
+    await writeFile(
+      path,
+      scenario === 'invalid-correction' ? 'invalid' : 'first',
+    );
+    const loading = Promise.all(
+      watcher.listeners('add').map((listener) => listener(path)),
+    );
+    await entered.promise;
+    if (scenario === 'empty-scan' || scenario === 'unlink') {
+      await rm(path);
+      watcher.emit('unlink', path);
+    } else {
+      await writeFile(path, 'corrected');
+      watcher.emit('change', path);
+    }
+    resume.resolve();
+    await loading;
+    if (scenario === 'empty-scan' || scenario === 'unlink') {
+      expect(entries.size).toBe(0);
+      await writeFile(path, 'corrected');
+      await Promise.all(
+        watcher.listeners('add').map((listener) => listener(path)),
+      );
+    }
+    expect(entries.get('post')?.data).toEqual({ title: 'corrected' });
+    expect(errors.length).toBe(scenario === 'invalid-correction' ? 1 : 0);
+    expect(loads).toBe(
+      scenario === 'empty-scan' || scenario === 'invalid-correction' ? 2 : 1,
+    );
+    for (const event of ['add', 'change', 'unlink'])
+      expect(watcher.listenerCount(event)).toBe(1);
+    const before = writes;
+    await writeFile(path, 'ordinary change');
+    await Promise.all(
+      watcher.listeners('change').map((listener) => listener(path)),
+    );
+    expect(writes).toBe(before + 1);
+    expect(entries.get('post')?.data).toEqual({ title: 'ordinary change' });
+    await rm(path);
+    await Promise.all(
+      watcher.listeners('unlink').map((listener) => listener(path)),
+    );
+    expect(entries.size).toBe(0);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 const metadata = {
   title: 'Fixture title',
@@ -216,6 +348,9 @@ test('actual collection builds production, a distinct-image extra post, and cach
       join(content, '.hidden/ignored.mdx'),
       'Not a visible glob match',
     );
+    await writeFile(join(content, '.ignored.mdx'), 'Not a visible file');
+    await mkdir(join(content, 'directory.mdx'));
+    expect(await sourcePosts(root)).toEqual([]);
     build();
     expect((await stat(cache)).ino).toBe(cacheBefore.ino);
     expect(await outputText(output, 'blog/index.html')).toContain(

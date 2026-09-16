@@ -19,7 +19,7 @@ const date = z.iso.date().transform((value) => new Date(`${value}T00:00:00Z`));
 
 /**
  * Required metadata with nonempty labels and strict YYYY-MM-DD strings converted to UTC.
- * Date objects (including unquoted YAML dates) are rejected before any normalization.
+ * Date objects, including YAML-decoded dates, are rejected; only validated strings become UTC midnight.
  */
 export const blogSchema = z.object({
   title: text,
