@@ -20,6 +20,8 @@ const [protocolTypeDoc, protocolTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
 const [engineTypeDoc, engineTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
+const [engineJevTypeDoc, engineJevTypeDocSidebarGroup] =
+  createStarlightTypeDocPlugin();
 const [realtimeTypeDoc, realtimeTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
 const [realtimeProtocolTypeDoc, realtimeProtocolTypeDocSidebarGroup] =
@@ -202,6 +204,17 @@ export default defineConfig({
           tsconfig: '../../packages/engine/tsconfig.lib.json',
           output: 'reference/engine',
           sidebar: { label: '@maelstrom-co/engine', collapsed: true },
+          typeDoc: {
+            excludeInternal: true,
+            basePath: repoRoot,
+            sourceLinkTemplate,
+          },
+        }),
+        engineJevTypeDoc({
+          entryPoints: ['../../packages/engine-jev/src/index.ts'],
+          tsconfig: '../../packages/engine-jev/tsconfig.lib.json',
+          output: 'reference/engine-jev',
+          sidebar: { label: '@maelstrom-co/engine-jev', collapsed: true },
           typeDoc: {
             excludeInternal: true,
             basePath: repoRoot,
@@ -420,6 +433,7 @@ export default defineConfig({
             connectorsTypeDocSidebarGroup,
             protocolTypeDocSidebarGroup,
             engineTypeDocSidebarGroup,
+            engineJevTypeDocSidebarGroup,
             {
               label: 'Voice',
               items: [
