@@ -148,26 +148,35 @@ This design allows:
 
 ### 3. Maelstrom Engine (Decision Core)
 
-The engine is the "brain" of the system. It takes context as input and produces layout decisions as output.
+The engine finalizes layout and ordered actions from a provider-neutral planner.
+The conventional TanStack LLM remains the default. Experimental Jev uses the
+same server-side contract through `@maelstrom-co/engine-jev`.
 
 #### Input: ChartRequest
 
 ```
 {
+  type: "chart_request",
   context: {
     updateReasons: [
       { type: "user_intent", intent: "Show me my calendar for next week" }
     ],
-    chartDimensions: { cols: 12, rows: 8 },
-    sessionId: "...",
-    timestamp: 1234567890
+    chartDimensions: { columns: 12, rows: 8 },
+    layoutMode: "tiling"
   },
   instances: [
-    { instanceId: "calendar-1", vesselId: "calendar", variant: "month", position: {...}, size: {...} }
+    { instanceId: "calendar-1", vesselId: "calendar", variant: "month" }
   ],
-  vessels: [...]  // All registered Vessel definitions
+  vessels: [...],  // All registered Vessel definitions
+  layout: {
+    type: "tiling",
+    tree: ["ID:calendar-1"],
+    instances: [{ instanceId: "calendar-1", vesselId: "calendar", variant: "month" }]
+  }
 }
 ```
+
+The surrounding `ChartRequestMessage` carries `id`, `sessionId`, and `timestamp`.
 
 Update reasons can include types such as:
 
@@ -179,22 +188,30 @@ Update reasons can include types such as:
 
 ```
 {
-  rationale: "Switching calendar to week view to show next week",
+  type: "maelstrom_response",
+  requestId: "...",
   executionPlan: [
     { instanceId: "calendar-1", action: "showWeek" }
   ],
-  layoutDirective: [
-    { instanceId: "calendar-1", position: { x: 0, y: 0 }, size: { w: 6, h: 3 } }
-  ]
+  layout: {
+    type: "tiling",
+    tree: ["ID:calendar-1"],
+    instances: [{ instanceId: "calendar-1", vesselId: "calendar", variant: "month" }]
+  }
 }
 ```
+
+`userMessage` and `rationale` are optional presentation metadata. A text-free
+plan still applies atomically, layout before actions. Public history likewise
+permits an absent `assistantMessage`; consumers omit the assistant bubble.
 
 #### Design Properties
 
 The engine is designed with clear boundaries:
 
-- **Stateless**: No internal state between requests (context is passed in each time)
-- **Side-effect free**: Doesn't modify external systems, only returns decisions
+- **Client-owned chart state**: Every request supplies the current layout and instances.
+- **Optional accepted history**: The engine can persist finalized plans and injections; these do not prove action execution.
+- **No action execution**: The engine calls providers and stores history, but client action runners apply its decisions.
 - **Transport Agnostic**: Can be called via WebSocket, HTTP, or direct function call
 - **Testable**: Easy to unit test with mock inputs and fixed LLM responses
 
@@ -292,23 +309,68 @@ The React Chart observes its container. When the container's pixel size crosses 
 
 ---
 
-## LLM Integration
+## Planner integration
 
-### Provider Interface
+### One engine-owned operation
 
-The engine uses an abstract provider interface:
+`Planner` exposes `id`, `supportedLayoutModes`, and one `invoke` method.
+The engine validates input and captures one detached, deeply frozen request,
+enum, and history snapshot. Primary, repair, and fallback calls share that graph.
+The conventional LLM builds prompts; Jev builds typed questions. Provider keys,
+model options, questions, and raw traces remain inside server implementations.
 
-```
-LLMProvider
-  ├── generateResponse(context, prompt) → response
-  └── (implementation details hidden)
-```
+Canonical finalization checks complete layout coherence, new-instance resolution,
+parameter values, and ordered variant transitions. Adapter shorthand preserves
+`heal-and-ship`: recommended repair followed by the final renderable subset.
+Explicit routes require a visible finalization policy. `strict` rejects material
+repairs or dropped actions, but permits valid empty plans and absent prose.
+
+Only the engine schedules repair and one optional fallback. Repair receives
+the complete previous candidate and bounded public `FinalizationReport`.
+`createLlmPlanner` performs one logical `chat()` per invocation, without an
+internal semantic retry loop. Jev claims each stage fetch. Started claims are
+not refunded; hidden adapter HTTP retries remain one logical call.
+
+The operation shares its call budget and optional deadline across all routes.
+Caller cancellation, deadline expiry, and call exhaustion stop later stages
+and never trigger fallback. Finite deadlines must leave room below connector,
+proxy, and platform timeouts; local Jev uses 25 seconds under the connector's
+30-second default. Legacy shorthand still has no engine deadline by default.
+
+Only finalized acceptance reaches the client or accepted history. Errors remain
+distinct: semantic `PlanningDeferredError`, `PlanningBudgetExceededError`,
+recognized malformed `InvalidProviderResponseError`, `ProviderError`,
+`CancellationError`, and `TimeoutError`. No error applies a partial response.
 
 ### Supported Providers
 
 - **OpenAI**: GPT-4 and compatible models
 - **Anthropic**: Claude models
-- **Custom**: Implement the interface for any provider
+- **Custom**: Implement a TanStack text adapter or the public `Planner` contract.
+- **Jev**: Experimental tiling-only server planner, with strict finalization and zero repairs.
+
+Jev's two-action, two-new-instance-per-vessel, extraction, and arrangement
+limits belong to that implementation. They do not restrict other planners.
+The [Jev package reference](../packages/engine-jev/README.md) documents the
+historical evidence, including eight incorrect accepted fresh-case layouts.
+Typed choices and structural validity cannot establish semantic correctness.
+
+### History and deployment boundaries
+
+The LLM uses `history.conversation`; Jev uses accepted `history.structured`.
+`deriveLLMContext` still fully controls its projection and conversational
+`maxChars` cost. `planning.deriveContext` and `planning.maxChars` are independent.
+An empty custom projection costs zero in its dimension. Omitted caps are
+unbounded, while the newest entry stays retained even over a configured
+character budget. Text-free turns get a bounded LLM structural summary without
+inventing response prose. `transformEntry` precedes both projections.
+
+The local `dev-jev` demo profile uses server `TYPESAFE_API_KEY` and `JEV_MODEL`.
+Optional LLM fallback requires server `OPENAI_API_KEY`; log and wire redaction
+cover both secrets. Voice remains independently credentialed. Hosted BYOK stays
+OpenAI LLM-only with its visitor-key hello/rehello, caching, and teardown lifecycle.
+Rollback selects local/server LLM configuration without client or history migration.
+See the [planner guide](https://docs.maelstrom-ai.co/guides/engine/planner-backends/).
 
 ### Prompt Engineering
 
@@ -331,13 +393,16 @@ The initial prompt omits each variant's numeric `minSize`. In grid mode, the eng
 
 The LLM returns structured JSON with:
 
-- Rationale (for debugging/logging)
+- Optional presentation text on the finalized wire response; the conventional LLM still requests prose.
 - Execution plan (actions to invoke, must be valid for current variant)
 - Layout directive (where to place Vessels; in grid mode, size must meet the active variant's `minSize`)
 
 ---
 
 ## Error Handling
+
+The recovery examples below describe `heal-and-ship`. A strict route rejects
+material changes and uses its bounded repair/fallback policy instead.
 
 ### Hallucinated Coordinates
 
@@ -396,7 +461,7 @@ BROWSER   client ◀── realtime ◀── realtime-openai
              ▲                 ◀── realtime-livekit ──▶ realtime-vad
           react ◀── react-realtime
 
-SERVER    engine    realtime-openai-server    realtime-livekit-server
+SERVER    engine ◀── engine-jev    realtime-openai-server    realtime-livekit-server
 
 WORKER    realtime-livekit-agent
 ```
@@ -407,6 +472,7 @@ WORKER    realtime-livekit-agent
 - **realtime-protocol**: the realtime contract leaf — token-grant types, mint-failure taxonomy, wire topics. Depends on nothing but `protocol` and `zod`, so a minter can import it without pulling in a browser SDK
 - **client**: Framework-agnostic client, can be used anywhere
 - **engine**: Server-side only, has LLM provider dependencies
+- **engine-jev**: Server-only TypeSafe integration depending on engine and protocol. No engine, protocol, client, React, or browser realtime package depends on it.
 - **react** / **react-realtime**: React-specific bindings, optional
 - **realtime**: browser-side realtime voice core; talks to the provider directly with ephemeral tokens, feeds intents into the client
 - **realtime-vad**: provider-neutral browser voice-activity detector; `MediaStream` in, speech boundaries out

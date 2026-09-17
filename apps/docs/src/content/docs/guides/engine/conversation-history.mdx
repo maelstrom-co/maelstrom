@@ -31,7 +31,9 @@ hooks that control what is persisted and what planners see.
 | Single-instance server | Durable store | Persist turns and enforce truncation after writes. |
 | Multi-instance server | Durable store plus session affinity, distributed lock, or queue | Coordinate writes for the same `sessionId` across processes. |
 
-Set truncation before production traffic. Without `maxEntries` or `maxChars`, every retained turn can make later prompts longer and more expensive.
+Set retention limits before production traffic. Omitted `maxEntries`,
+conversational `maxChars`, and `planning.maxChars` each disable that cap.
+If all three are omitted, history grows without truncation.
 
 ## Steps
 
@@ -179,6 +181,10 @@ structural plan summary rather than a blank message. A summary that reaches
 its limit ends with `[summary truncated]`; it never presents a partial plan as
 complete.
 
+Conversational `maxChars` measures exactly the content returned by this hook.
+Returning `[]` costs zero characters and supplies no conversation for that
+entry. The engine does not add hidden structured-plan cost to this budget.
+
 ### Project accepted plans for custom planners
 
 `history.planning` supplies custom planners with accepted layout and action
@@ -201,6 +207,20 @@ the complete deterministic serialization of every structured entry, stopping
 measurement once an entry exceeds the configured limit. Both budgets preserve
 the newest entry when it alone exceeds its budget, so this is a retention
 target rather than a hard cap.
+
+The default structured projection carries identifiers, timestamp, update reasons,
+finalized layout, ordered actions, and optional text. These are **accepted plans**,
+not observations that the client ran actions successfully. Jev reads this view;
+the conventional LLM reads the conversation view. `planning.deriveContext`
+can independently return `[]` at zero planning cost. `transformEntry` runs
+before both projections, so redact stored data there when neither planner
+should receive it.
+
+Terminal deferrals and provider failures are not recorded. Dedup replays the
+finalized accepted response, including healed output or absent prose, without
+another planning operation. Public history omits turn `assistantMessage` when
+there is no assistant prose. Handle `undefined` before rendering an assistant
+bubble; see the [protocol migration](/reference/protocol/readme/#optional-text-migration).
 
 ### Seed assistant context without invoking the LLM
 
@@ -245,16 +265,15 @@ newest-entry-always-wins rule (see below).
 
 ## How truncation actually runs
 
-Worth knowing if you set either bound:
+When you configure retention:
 
 - **Newest-first.** Entries are evaluated newest to oldest; the engine
   keeps as many as fit and drops the rest.
-- **Hybrid.** When both `maxEntries` and `maxChars` are set, both are
-  enforced on every write. An entry is dropped as soon as either bound is
-  hit.
+- **Independent caps.** An older entry must fit `maxEntries`, `maxChars`, and
+  `planning.maxChars` when those limits are configured.
 - **Newest is sticky.** The most recent entry is retained even when it
-  exceeds `maxChars` on its own. Losing the user's latest turn is more
-  visibly broken than exceeding the cap.
+  exceeds either character budget on its own. The full accepted plan remains
+  intact. A retention target does not reject a completed turn after acceptance.
 - **Truncation runs on write.** `recordTurn` and the truncation step inside
   `addAssistantMessage` serialize through a per-session mutex. Reads
   (`getLLMContext`) are lock-free.

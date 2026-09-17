@@ -51,6 +51,7 @@ export type {
   HistoryConfig,
   HistoryManager,
   LLMContextMessage,
+  PlanningHistoryContext,
 } from './lib/history/history-manager.js';
 export { createHistoryManager } from './lib/history/history-manager.js';
 export type {
@@ -78,6 +79,7 @@ export type {
   PlanningHistoryEntry,
   PlanningInput,
   PlanningOperationContext,
+  PreviousPlannerCandidate,
 } from './lib/planning/contracts.js';
 export type { LlmPlannerOptions } from './lib/planning/llm-planner.js';
 export { createLlmPlanner } from './lib/planning/llm-planner.js';

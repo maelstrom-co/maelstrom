@@ -32,7 +32,7 @@ export interface PlanningInput {
   readonly request: ChartRequest;
   /** Provider-neutral structured and conversational history snapshots. */
   readonly history: {
-    /** Structured accepted plans. Reserved for planner implementations. */
+    /** Accepted plans and injections, not proof of client execution. */
     readonly structured: readonly PlanningHistoryEntry[];
     /** Existing role-tagged conversational projection for LLM planners. */
     readonly conversation: readonly LLMContextMessage[];
@@ -112,10 +112,18 @@ export type PlanningDeferralReason =
 
 /** Candidate or semantic deferral returned by a planner. */
 export type PlannerProposal =
-  | { readonly kind: 'candidate'; readonly candidate: PlannerCandidate }
   | {
+      /** Sends a complete proposal through engine-owned finalization. */
+      readonly kind: 'candidate';
+      /** Untrusted layout and ordered actions; preserve invalid items for feedback. */
+      readonly candidate: PlannerCandidate;
+    }
+  | {
+      /** Declines planning without manufacturing an empty successful response. */
       readonly kind: 'deferred';
+      /** Semantic reason used for terminal errors and fallback routing. */
       readonly reason: PlanningDeferralReason;
+      /** Non-secret scalar diagnostics; never include prompts or raw responses. */
       readonly detail?: Readonly<Record<string, string | number | boolean>>;
     };
 
@@ -170,11 +178,18 @@ export interface PlannerInvocation {
   readonly input: PlanningInput;
   /** Initial invocation or bounded repair feedback. */
   readonly phase:
-    | { readonly kind: 'initial' }
     | {
+        /** Starts this route, including when the engine enters fallback. */
+        readonly kind: 'initial';
+      }
+    | {
+        /** Requests another proposal using canonical finalizer feedback. */
         readonly kind: 'repair';
+        /** One-based repair number within this route. */
         readonly number: number;
+        /** Complete prior proposal, before any healing. */
         readonly previous: PreviousPlannerCandidate;
+        /** Bounded provider-neutral issues to address in the next proposal. */
         readonly report: FinalizationReport;
       };
   /** Cancellation, deadline, and logical-call accounting. */
@@ -195,13 +210,24 @@ export interface PlanningOperationContext {
 export interface PlanningCallBudget {
   /** Calls not yet claimed by started planner-visible provider work. */
   readonly remaining: number;
-  /** Claims one non-refundable logical provider invocation. */
+  /**
+   * Claims one logical provider invocation immediately before starting it.
+   * A failed claim forbids the call. Started calls are never refunded, even
+   * after failure or cancellation. Hidden adapter transport retries count as
+   * part of the same logical call, not additional claims.
+   */
   claim(call: {
     /** Planner starting provider work. */
     readonly plannerId: string;
     /** Planner-local stage name for diagnostics. */
     readonly stage: string;
-  }): Result<void, { readonly kind: 'budget_exhausted' }>;
+  }): Result<
+    void,
+    {
+      /** No provider work may start after this result. */
+      readonly kind: 'budget_exhausted';
+    }
+  >;
 }
 
 /** A planner invocation failure distinct from semantic deferral. */
@@ -224,9 +250,14 @@ export interface PlannerFailure {
 export interface Planner {
   /** Stable implementation identifier used in call-budget diagnostics. */
   readonly id: string;
-  /** Layout modes this implementation can plan without a provider call. */
+  /** Supported modes checked by the engine before any provider work. */
   readonly supportedLayoutModes: readonly LayoutMode[];
-  /** Executes exactly one planner invocation. */
+  /**
+   * Proposes a complete plan or defers. The engine owns repair and fallback.
+   * Claim each logical provider call and pass the operation signal to it.
+   * Deterministic work needs no claim. Initial and repair invocations receive
+   * the same deeply frozen input; only the phase changes.
+   */
   invoke(
     invocation: PlannerInvocation,
   ): Promise<Result<PlannerProposal, PlannerFailure>>;

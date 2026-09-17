@@ -2,7 +2,7 @@
 
 [![license](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](https://github.com/maelstrom-co/maelstrom/blob/main/LICENSE)
 
-Reference implementation of the Maelstrom orchestration engine. Given the current chart state, available vessels, and accumulated update reasons, it asks an LLM for a layout + execution plan and returns a structured response.
+Reference implementation of the Maelstrom orchestration engine. Given the current chart state, available vessels, and update reasons, it finalizes a planner's layout and ordered execution plan. The conventional LLM remains the default; explicit routes support other server-side planners.
 
 📚 **Full documentation:** <https://docs.maelstrom-ai.co/reference/engine/readme/>
 
@@ -77,7 +77,7 @@ interface Engine {
 
 ### Message variants
 
-**`chart_request`** — asks the engine to produce a layout + execution plan for the current chart state. Runs the full prompt → LLM → response-processor pipeline. If history is configured, the engine reads the session's prior turns + injections into the LLM call as prior messages (so the model reasons across turns), then records the completed turn after the response returns.
+**`chart_request`** — asks the engine to produce a layout and execution plan. The engine captures detached request, enum, and history snapshots, then runs the selected planner through finalization, bounded repair, and optional fallback. Only the accepted finalized response is recorded. Deferrals and failed proposals do not enter history.
 
 **`assistant_message`** — persists developer-supplied content into session history so subsequent LLM turns see it as prior context. Does not invoke the LLM. Returns an `assistant_message_result` envelope whose `outcome` is `'inserted'` (new write) or `'deduped'` (a prior entry with the same `MessageId` already existed; the write was a no-op). Callers who don't care about idempotency can ignore `outcome`; callers instrumenting replay-safe behavior can branch on it. If history is not configured, returns a `ValidationError`.
 
@@ -116,20 +116,90 @@ The engine's `handle()` accepts only fully-formed envelopes — there are no par
 
 ## Configuration
 
-```ts
-interface EngineConfig {
-  /** TanStack AI text adapter. Required. */
-  adapter: AnyTextAdapter;
-  /** Logger (defaults to consoleLogger). */
-  logger?: Logger;
-  /** Section-based prompt customization. */
-  prompt?: PromptOptions;
-  /** Opt-in conversation history (see below). */
-  history?: HistoryConfig;
-  /** Max retries when heal recommends another attempt (see Retry). Default: 1. Set to 0 to disable. */
-  maxRetries?: number;
-}
-```
+`EngineConfig` has two mutually exclusive forms:
+
+- **`AdapterEngineConfig`** accepts `adapter`, `prompt`, `modelOptions`,
+  `maxRetries`, `operationTimeoutMs`, `maxProviderCalls`, `history`, and `logger`.
+  It preserves `heal-and-ship`, defaults to one repair, derives a call budget of
+  `maxRetries + 1`, and disables the engine deadline by default. It has no fallback.
+- **`PlannerEngineConfig`** accepts `planner`, `history`, and `logger`.
+  `planner.primary` and optional `planner.fallback` each require an
+  `implementation`, `finalization`, and `maxRepairAttempts`.
+  `planner.operation` requires `timeoutMs` and `maxProviderCalls`.
+  Fallback also requires a non-empty `on` list.
+
+`maxRepairAttempts` and shorthand `maxRetries` are non-negative integers.
+Call budgets are positive integers. Timeouts are positive finite integer
+milliseconds, or `null` to disable. Explicit routes have no implicit policy or
+budget. LLM prompt and model options belong to `createLlmPlanner` on that form;
+root LLM-only options are rejected. Both configuration forms, or neither, fail
+synchronously at construction.
+
+The [planner guide](https://docs.maelstrom-ai.co/guides/engine/planner-backends/)
+contains four complete configurations: legacy adapter, strict LLM, strict Jev,
+and strict Jev with one bounded LLM fallback. Jev is experimental and lives in
+the separate server-only `@maelstrom-co/engine-jev` package.
+
+### Finalization, repair, and fallback
+
+The engine owns one invocation loop. It checks layout capability before provider
+work, invokes the primary with `phase.kind: 'initial'`, and finalizes every
+candidate. Finalization checks layout coherence, resolves new tiling instances,
+validates parameters against the fixed enums, and simulates actions in order.
+
+- **`heal-and-ship`** accepts exact output and permits the renderable healed
+  subset. Repair follows the existing recommendation predicate. When the route's
+  repair limit is reached, the final renderable result may ship.
+- **`strict`** accepts exact plans and rejects material layout changes or
+  dropped/invalid actions. It offers bounded repair, then configured fallback,
+  then `PlanningDeferredError` with reason `invalid_plan`. Valid empty layouts
+  and action lists are allowed. Missing presentation text is not material.
+
+A repair is another `Planner.invoke` call with the complete previous candidate,
+one-based repair number, and bounded `FinalizationReport`. `createLlmPlanner`
+owns no retry loop: each invocation makes one claimed TanStack `chat()` call.
+The engine can transition to one fallback route at `initial`, using the same
+frozen input and remaining operation budget. Eligible triggers are `deferred`,
+`invalid_plan`, `provider_error`, and `invalid_provider_response`. No nested
+fallback exists. The engine returns and records at most one finalized response.
+
+### Logical calls and deadlines
+
+Every planner must claim each logical provider invocation through
+`context.calls.claim` immediately before starting it. A failed claim forbids
+the call. One LLM `chat()` or Jev stage `fetch()` consumes one claim. Opaque
+adapter HTTP retries remain inside that logical call, so `maxProviderCalls`
+does not guarantee a physical network-request count. Started claims are never
+refunded after provider failure, malformed output, cancellation, or timeout.
+Deterministic work and finalization do not consume claims.
+
+Pass caller cancellation to `engine.handle(message, signal)`. Precedence is
+caller cancellation, operation deadline, logical call budget, route repair
+limit, then fallback eligibility. Cancellation, timeout, and budget exhaustion
+are terminal and never trigger fallback. A provider must honor the operation
+signal to stop its underlying network work.
+
+Keep finite engine deadlines below the shortest outer connector/proxy/platform
+timeout. The guide and local Jev demo use 25 seconds under the connector's
+30-second default, leaving error-delivery headroom. Equal deadlines race.
+Legacy shorthand remains deadline-free unless configured and can outlive the
+connector timeout.
+
+### Third-party planners
+
+Implement the public `Planner` interface: `id`, `supportedLayoutModes`, and
+`invoke(invocation): Promise<Result<PlannerProposal, PlannerFailure>>`.
+Read validated, detached, deeply frozen `PlanningInput.request`, role-tagged
+`history.conversation`, structured `history.structured`, and `actionEnums`.
+Every attempt receives the same input graph. Keep provider credentials and
+prompt construction in the implementation.
+
+Return a complete untrusted `PlannerCandidate` or a semantic `deferred` proposal.
+Keep invalid proposal items for engine feedback rather than silently dropping
+them. Return `PlannerFailure` for transport, recognized malformed responses,
+operation control failures, or local validation failures. Honor `context.signal`
+and `deadlineAt`, and claim provider work. Use the public repair report;
+the operation runner and canonical finalizer remain implementation helpers.
 
 ### History
 
@@ -148,7 +218,18 @@ interface HistoryConfig<TMeta = unknown> {
   /** Write-time hook: mutate or enrich each entry (including `metadata`) before persistence. */
   transformEntry?: (entry: HistoryEntry<TMeta>) => HistoryEntry<TMeta>;
   /** Read-time hook: project a stored entry to the LLM-context messages it contributes. */
-  deriveLLMContext?: (entry: HistoryEntry<TMeta>) => readonly LLMContextMessage[];
+  deriveLLMContext?: (
+    entry: HistoryEntry<TMeta>,
+    defaults: () => readonly LLMContextMessage[],
+  ) => readonly LLMContextMessage[];
+  /** Independent accepted-plan projection and character budget. */
+  planning?: {
+    maxChars?: number;
+    deriveContext?: (
+      entry: HistoryEntry<TMeta>,
+      defaults: () => readonly PlanningHistoryEntry[],
+    ) => readonly PlanningHistoryEntry[];
+  };
 }
 ```
 
@@ -169,7 +250,14 @@ const engine = createEngine({
 
 Production deployments supply a persistent, atomic backend (Redis, Postgres, SQLite, …). The reference engine refuses to silently fall back to an in-process store because a configured `history` block deserves an explicit choice — silently losing every session on process restart is the kind of bug you want a type error to flag, not a runtime surprise.
 
-Truncation is hybrid — both `maxEntries` and `maxChars` are enforced on write, newest-first. The most recent entry is always retained even if it alone exceeds the char budget (losing the user's latest turn would be more visibly broken than exceeding the cap).
+Truncation enforces every configured cap on write, newest-first. `maxChars`
+counts exactly the conversational projection's content lengths.
+`planning.maxChars` independently measures deterministic structured projection
+serialization, stopping measurement when the cap is exceeded. Neither cost is
+added to the other. An empty custom projection costs zero in its dimension.
+Omitting a cap disables that dimension; omitting all three means no truncation.
+The newest entry remains sticky even when it exceeds either character budget.
+The complete accepted plan remains intact rather than being cut to fit.
 
 **Oversized injections are rejected at the engine boundary.** When `maxChars` is configured, an `assistant_message` whose `content.length` exceeds `maxChars` returns `ValidationError('content')` instead of being persisted. This closes the loop on the "newest entry always wins" rule: without a boundary check, a single 10MB injection would silently dominate every subsequent LLM call. A turn-shaped entry that legitimately fills the cap is still allowed; the rule targets pathological inputs that can never coexist with the configured budget. If `maxChars` is omitted, no size validation runs.
 
@@ -206,7 +294,17 @@ const engine = createEngine({
 });
 ```
 
-When neither hook is supplied the engine uses its defaults: turns project to a user message (from user_intent reasons) + an assistant message (from the response's userMessage); injections project to a single assistant message.
+Without custom hooks, prose turns project to user intent and the response's
+`userMessage`; injections project to one assistant message. Text-free turns
+instead produce a bounded assistant-role structural summary. Truncated summaries
+end with `[summary truncated]`. A custom `deriveLLMContext` retains full control,
+including returning `[]` without hidden structural cost in `maxChars`.
+
+The independent structured projection includes identity, timestamp, update
+reasons, finalized layout, ordered actions, and optional text. These are accepted
+plans, not observed action execution. `transformEntry` runs before both
+projections. Public `SessionHistoryEntry` omits `assistantMessage` for text-free
+turns. Dedup replays the finalized accepted response, including omitted prose.
 
 Consecutive `assistant_message` injections produce consecutive `role: 'assistant'` messages in the LLM prompt. Modern chat APIs (Gemini, OpenAI, Anthropic) tolerate this; models that require strict user/assistant alternation will need an adapter-level shim.
 
@@ -214,7 +312,12 @@ Consecutive `assistant_message` injections produce consecutive `role: 'assistant
 
 ### Retry
 
-The retry layer reads heal's `retryHint.recommend` signal and re-prompts only when the response would otherwise leave the user staring at a no-op (empty rendered layout when instances were requested, or every proposed action skipped for a fixable reason). Default: `1` retry (initial attempt plus one retry — two total LLM calls in the worst case).
+For adapter shorthand and explicit `heal-and-ship`, the engine reads heal's
+`retryHint.recommend` signal and repairs only when the response would otherwise
+be a no-op (empty rendered layout when instances were requested, or every
+proposed action skipped for a fixable reason). Shorthand defaults to one repair:
+the initial call plus one repair call. Strict routes use material rejection
+instead of this recommendation predicate.
 
 The trigger is *exclusively* `retryHint.recommend === true` on a healed response. Errors short-circuit immediately:
 
@@ -224,7 +327,10 @@ The trigger is *exclusively* `retryHint.recommend === true` on a healed response
 | `Ok` with `retryHint.recommend === true` | retry with a structured prompt summarizing the prior diagnostics |
 | `ProviderError`, `CancellationError`, `TimeoutError`, `ParseError`, `HistoryError` | fatal — surfaced as-is (these are not heal-recoverable; the LLM adapter handles its own transient retries) |
 
-On retry, the user prompt is replaced with a structured feedback block followed by the verbatim original prompt. The system prompt is unchanged, so the LLM still has the full vessel/variant catalogue and chart bounds — diagnostics cite fields by name and trust the LLM to re-derive valid options from context. Tree-malformation drops collapse to a single advisory line (token-position fields would be useless to the LLM); `state_drift` skips are suppressed (the LLM cannot fix engine-state mismatch by re-prompting).
+On repair, the LLM planner converts the bounded public finalization report into
+feedback followed by the original user prompt. The system prompt is unchanged.
+Reports include stable issue codes and available action, parameter, tree-token,
+and schema-path locations; they do not include provider prompts or raw output.
 
 ```
 The previous response had issues. Please re-issue the response addressing:
@@ -278,7 +384,11 @@ Similarly, the bundled `createInMemoryStore` is a reference implementation only 
 
 ## Self-healing LLM output
 
-Maelstrom is built for realtime UX: every delay before the user sees something update is worse than serving partial results. The engine therefore favors **lenient recovery over strict rejection**. When the LLM produces output that can be partially salvaged, the engine drops the broken pieces, logs them as structured diagnostics, and returns the recovered response — instead of failing the whole turn.
+The adapter compatibility policy favors a renderable subset when output can
+be salvaged. The engine removes broken pieces and logs diagnostics. An explicit
+strict route uses the same canonical checks but rejects material repairs.
+Only the engine finalizer can remove proposal pieces; the route visibly chooses
+whether that healed result may ship.
 
 ### What gets healed
 
@@ -302,13 +412,16 @@ Action-level problems (`SkippedAction`, exposed via `parseExecutionPlan`) are fi
 
 ### What still fails the turn
 
-`Engine.handle()` returns `Err` only for genuinely unrecoverable conditions:
+The compatibility path still fails when:
 
 - The LLM produced no `userMessage` at all.
-- The configured `layoutMode` is unsupported (programmer error).
+- The request is malformed, including an unknown `layoutMode`.
 - A provider error / cancellation / history error occurred upstream (see `Errors` below).
 
-Everything else returns `Ok(EngineOutput)` with a possibly-degraded response. Consumers do not see the recovery path — they see either a usable response or a hard error.
+Explicit strict routes also fail with semantic deferral when the complete plan
+cannot be accepted after repair and fallback. Custom planners may omit prose;
+the conventional LLM retains its presentation validation. See the protocol
+README's [optional-text migration](https://docs.maelstrom-ai.co/reference/protocol/readme/#optional-text-migration).
 
 ### Engine-internal diagnostics
 
@@ -349,11 +462,18 @@ A response with a partial layout and a partial execution plan is **not** recomme
 
 `Engine.handle()` returns a `Result<EngineOutput, EngineError>`. The error union:
 
-- **`ProviderError`** — LLM adapter failure (rate limit, service unavailable, non-Error rejection).
-- **`ValidationError`** — malformed prompt customization, `assistant_message` without history configured, unsupported `layoutMode`, and similar caller-fixable conditions.
+- **`ProviderError`** — provider or transport failure, including opaque adapter exceptions. The engine does not classify errors by message text.
+- **`PlanningDeferredError`** — semantic uncertainty, unsupported capability, policy deferral, or strict `invalid_plan` after routing is exhausted.
+- **`PlanningBudgetExceededError`** — the shared logical call budget cannot fund another invocation. Never fallback-eligible.
+- **`InvalidProviderResponseError`** — a recognized malformed provider response, including a Jev schema failure. Canonical plan rejection is instead `invalid_plan`.
+- **`ValidationError`** — malformed prompt customization, `assistant_message` without history configured, and similar caller-fixable conditions.
+- **`RequestValidationError`** — malformed inbound envelope or chart request, with a structured failing path.
 - **`ParseError`** — LLM output failed structural validation (e.g. missing `userMessage`).
-- **`TimeoutError`** — configured LLM call timeout elapsed.
+- **`TimeoutError`** — the whole-operation deadline elapsed across stages, repairs, and fallback.
 - **`CancellationError`** — the `AbortSignal` fired before or during the call.
-- **`HistoryError`** — the configured `HistoryStore` failed during a record/persist operation. Distinct from `ProviderError` (LLM adapter) so callers can route LLM vs. store failures to different recovery paths. `operation` identifies which engine entry point surfaced the failure (`'record_turn' | 'add_assistant_message' | 'clear'`).
+- **`HistoryError`** — history-context loading, injection, or public history reads failed. `operation` identifies the failing path. A completed turn's history-write failure is advisory: the engine logs it and still returns the accepted response.
 
-All errors carry structured fields (`_tag`, `message`, and per-variant context) so routing and retry logic can branch without string-sniffing. (Layout-output problems no longer surface as a dedicated error tag — they heal into `diagnostics.droppedLayoutEntries` per the section above.)
+Errors carry structured fields (`_tag`, `message`, and per-variant context).
+The envelope handler preserves distinct error tags as correlated `engine.error`
+codes. Connectors reject them without applying a fake empty response. A terminal
+error dispatches neither layout nor actions.

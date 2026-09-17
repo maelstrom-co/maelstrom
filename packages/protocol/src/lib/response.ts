@@ -538,7 +538,7 @@ function collectVisibleTilingLeaves(
 // MaelstromResponse — the engine's output contract
 // ---------------------------------------------------------------------------
 
-/** Healed Chart decision whose layout is applied before its Action plan. */
+/** Finalized Chart decision whose layout is applied before its Action plan. */
 export interface MaelstromResponse {
   /** Wire discriminator for a Maelstrom Chart response. */
   readonly type: 'maelstrom_response';
@@ -550,7 +550,7 @@ export interface MaelstromResponse {
   readonly rationale?: string;
   /** Applied after layout; order is preserved only within each target Instance. */
   readonly executionPlan: readonly ActionExecution[];
-  /** Uses the same mode requested in the Chart context after successful healing. */
+  /** Uses the requested Chart mode after the engine accepts its finalization policy. */
   readonly layout: GridLayout | TilingLayout;
 }
 

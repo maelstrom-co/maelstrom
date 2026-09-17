@@ -27,7 +27,8 @@ import { SessionIdSchema } from './session.ts';
  *    the originating request's `user_intent` UpdateReasons. May be `''` when
  *    the turn carried no user-intent reasons (e.g. a layout-only update from
  *    a resize) — empty is a legal value with semantic meaning ("no user input
- *    on this turn"). `assistantMessage` is the assistant's reply.
+ *    on this turn"). `assistantMessage` is optional assistant prose; its absence
+ *    does not mean the planning turn failed.
  *  - `injection`: `content` is the injected assistant text verbatim.
  *
  * The exact derivation of `userIntent` is the engine's choice — the reference

@@ -194,6 +194,7 @@ export default defineConfig({
           output: 'reference/protocol',
           sidebar: { label: '@maelstrom-co/protocol', collapsed: true },
           typeDoc: {
+            readme: '../../packages/protocol/README.md',
             excludeInternal: true,
             basePath: repoRoot,
             sourceLinkTemplate,
@@ -205,6 +206,7 @@ export default defineConfig({
           output: 'reference/engine',
           sidebar: { label: '@maelstrom-co/engine', collapsed: true },
           typeDoc: {
+            readme: '../../packages/engine/README.md',
             excludeInternal: true,
             basePath: repoRoot,
             sourceLinkTemplate,
@@ -216,6 +218,7 @@ export default defineConfig({
           output: 'reference/engine-jev',
           sidebar: { label: '@maelstrom-co/engine-jev', collapsed: true },
           typeDoc: {
+            readme: '../../packages/engine-jev/README.md',
             excludeInternal: true,
             basePath: repoRoot,
             sourceLinkTemplate,
@@ -393,6 +396,7 @@ export default defineConfig({
               label: 'Engine',
               items: [
                 { slug: 'guides/engine/custom-llm-providers' },
+                { slug: 'guides/engine/planner-backends' },
                 { slug: 'guides/engine/system-prompt' },
                 { slug: 'guides/engine/conversation-history' },
               ],

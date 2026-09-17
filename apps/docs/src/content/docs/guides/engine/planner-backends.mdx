@@ -1,0 +1,266 @@
+---
+title: Configure a planner backend
+description: How to keep adapter compatibility, select strict planning, or try Jev with bounded fallback on a trusted local server.
+---
+
+Choose the server-side planning policy for your [Engine](/understanding/engine).
+Keep adapter shorthand for existing LLM behavior, or use explicit routes for
+strict finalization and one optional fallback.
+
+## Before you start
+
+- Install `@maelstrom-co/engine` and your adapter in the server application.
+  Follow the [beta installation guide](/getting-started/install-beta) for package access.
+- For the OpenAI examples, install `@tanstack/ai-openai` and set server `OPENAI_API_KEY`.
+- For Jev, also install `@maelstrom-co/engine-jev` and set server `TYPESAFE_API_KEY`
+  and `JEV_MODEL`. Jev is experimental and supports tiling only.
+- Keep these modules outside browser bundles. Never use `PUBLIC_` or `VITE_`
+  names for credentials, or send them in component props, URLs, or chart frames.
+
+The OpenAI examples use the demo's configured default, `gpt-5.6-luna`.
+The historical Jev study pinned `jev-1.13.0`; use a pinned model your TypeSafe
+account supports in `JEV_MODEL`. These identifiers do not prove current
+availability or account access. The examples were type-checked without provider calls.
+
+## Configure the server
+
+1. **Validate server settings and choose a logger.** These examples suppress
+   logging so provider exceptions cannot echo credentials. For operational logs,
+   replace this logger with one that redacts every primary and fallback secret.
+   Pass it to both `createEngine` and `createLlmPlanner`.
+
+   ```ts title="src/server/planner-settings.ts"
+   import type { Logger } from '@maelstrom-co/engine';
+
+   export function requiredEnv(name: string): string {
+     const value = process.env[name]?.trim();
+     if (!value) throw new Error(`Missing server setting: ${name}`);
+     return value;
+   }
+
+   export const logger: Logger = {
+     debug() {},
+     info() {},
+     warn() {},
+     error() {},
+   };
+   ```
+
+2. **Choose one configuration below** for `src/server/engine.ts`.
+   The in-memory stores are for local development and lose history on restart.
+   Use your own persistent store when that is unacceptable.
+
+### Keep legacy adapter behavior
+
+```ts title="src/server/engine.ts"
+import { createEngine, createInMemoryStore } from '@maelstrom-co/engine';
+import { createOpenaiChat } from '@tanstack/ai-openai';
+import { logger, requiredEnv } from './planner-settings.js';
+
+export const engine = createEngine({
+  adapter: createOpenaiChat('gpt-5.6-luna', requiredEnv('OPENAI_API_KEY')),
+  history: { store: createInMemoryStore() },
+  logger,
+});
+```
+
+This keeps `heal-and-ship`, `maxRetries: 1`, two logical calls, and no engine
+deadline. The engine retries only when healing recommends it. After the repair
+limit, it can return the final renderable subset. `maxRetries: 2` permits three
+logical calls. Set `maxRetries: 0` to disable repairs.
+
+Use root `operationTimeoutMs` to opt into a deadline and `maxProviderCalls` to
+override the call budget. Shorthand has no fallback configuration.
+
+### Require a strict LLM plan
+
+```ts title="src/server/engine.ts"
+import { createEngine, createInMemoryStore, createLlmPlanner } from '@maelstrom-co/engine';
+import { createOpenaiChat } from '@tanstack/ai-openai';
+import { logger, requiredEnv } from './planner-settings.js';
+
+export const engine = createEngine({
+  planner: {
+    primary: {
+      implementation: createLlmPlanner({
+        adapter: createOpenaiChat('gpt-5.6-luna', requiredEnv('OPENAI_API_KEY')),
+        logger,
+      }),
+      finalization: 'strict',
+      maxRepairAttempts: 1,
+    },
+    operation: { timeoutMs: 25_000, maxProviderCalls: 2 },
+  },
+  history: { store: createInMemoryStore() },
+  logger,
+});
+```
+
+Strict finalization rejects material layout repairs and dropped or invalid
+actions. It permits a valid empty layout or empty action list; it does not
+require visible content or prose. After bounded repair, an invalid plan defers.
+To permit partial results on an explicit LLM route, set its `finalization` to
+`'heal-and-ship'` instead.
+
+### Try strict Jev without fallback
+
+```ts title="src/server/engine.ts"
+import { createEngine, createInMemoryStore } from '@maelstrom-co/engine';
+import { createJevPlanner } from '@maelstrom-co/engine-jev';
+import { logger, requiredEnv } from './planner-settings.js';
+
+export const engine = createEngine({
+  planner: {
+    primary: {
+      implementation: createJevPlanner({
+        apiKey: requiredEnv('TYPESAFE_API_KEY'),
+        model: requiredEnv('JEV_MODEL'),
+      }),
+      finalization: 'strict',
+      maxRepairAttempts: 0,
+    },
+    operation: { timeoutMs: 25_000, maxProviderCalls: 3 },
+  },
+  history: { store: createInMemoryStore(), planning: { maxChars: 40_000 } },
+  logger,
+});
+```
+
+Jev returns layout and actions without `userMessage` or `rationale`. Its staged
+implementation uses up to three fetch calls. Keep zero repair attempts: this
+implementation defers a repair invocation rather than running a repair strategy.
+
+### Add one bounded server LLM fallback
+
+```ts title="src/server/engine.ts"
+import { createEngine, createInMemoryStore, createLlmPlanner } from '@maelstrom-co/engine';
+import { createJevPlanner } from '@maelstrom-co/engine-jev';
+import { createOpenaiChat } from '@tanstack/ai-openai';
+import { logger, requiredEnv } from './planner-settings.js';
+
+export const engine = createEngine({
+  planner: {
+    primary: {
+      implementation: createJevPlanner({
+        apiKey: requiredEnv('TYPESAFE_API_KEY'),
+        model: requiredEnv('JEV_MODEL'),
+      }),
+      finalization: 'strict',
+      maxRepairAttempts: 0,
+    },
+    fallback: {
+      implementation: createLlmPlanner({
+        adapter: createOpenaiChat('gpt-5.6-luna', requiredEnv('OPENAI_API_KEY')),
+        logger,
+      }),
+      finalization: 'strict',
+      maxRepairAttempts: 1,
+      on: ['deferred', 'invalid_plan'],
+    },
+    operation: { timeoutMs: 25_000, maxProviderCalls: 5 },
+  },
+  history: { store: createInMemoryStore(), planning: { maxChars: 40_000 } },
+  logger,
+});
+```
+
+Both keys must exist on the server. Fallback starts at `initial` with the same
+frozen input and the remaining budget. It can start only once, with no nested
+route. To opt into transport or malformed-response fallback, include
+`'provider_error'` or `'invalid_provider_response'` in `on`.
+
+## Set operation limits
+
+Every explicit route requires `finalization` and non-negative integer
+`maxRepairAttempts`. The operation requires positive integer `maxProviderCalls`
+and positive finite integer `timeoutMs`, or `null` to disable its deadline.
+Set `prompt` and `modelOptions` inside `createLlmPlanner`; root `maxRetries`
+belongs only to shorthand. Supplying both `adapter` and `planner`, or neither,
+throws synchronously.
+
+One logical call means one TanStack `chat()` invocation or one Jev stage
+`fetch()`. Opaque adapters can retry physical HTTP requests inside that single
+logical call. The budget is not a physical network-request limit. Started
+claims are never refunded, including after failure, malformed output, or abort.
+
+Pass an `AbortSignal` as the second argument to `engine.handle` for caller
+cancellation. Cancellation takes precedence over the whole-operation deadline,
+then call exhaustion, repair limits, and fallback eligibility. Cancellation,
+timeout, and exhausted calls stop further stages and never trigger fallback.
+Providers must honor the signal to stop their underlying network work.
+
+Keep the engine deadline below the shortest connector, proxy, or platform
+timeout. These examples use 25 seconds under the demo connector's 30-second
+default, leaving time to deliver a correlated error. Equal timeouts race.
+Legacy shorthand has no engine deadline and can outlive the connector timeout.
+
+## Handle terminal outcomes
+
+Branch on `EngineError._tag`, or the matching correlated `engine.error` code:
+
+| Outcome | Error tag / code | Recovery |
+| --- | --- | --- |
+| Semantic deferral or strict rejection | `PlanningDeferredError` | Clarify the request or configure semantic fallback. |
+| No remaining logical calls | `PlanningBudgetExceededError` | Review the operation budget; no automatic fallback runs. |
+| Recognized malformed provider response | `InvalidProviderResponseError` | Inspect provider compatibility or opt into this fallback trigger. |
+| Provider or transport failure | `ProviderError` | Handle the provider failure or opt into provider-error fallback. |
+| Caller abort | `CancellationError` | Stop this operation. |
+| Whole-operation deadline | `TimeoutError` | Review elapsed time and outer transport headroom. |
+
+A Jev success response that fails validation is malformed provider output.
+An opaque exception from TanStack `chat()` remains `ProviderError`; the engine
+does not classify error-message text. A syntactically available candidate that
+fails canonical finalization is `invalid_plan`, not malformed provider output.
+Local planner validation can also return `ValidationError`. No error response
+applies layout or actions, and failed turns do not enter accepted history.
+
+## Try the trusted local demo
+
+From the repository root, install dependencies with `bun install --frozen-lockfile`.
+Set `TYPESAFE_API_KEY` and a pinned `JEV_MODEL` in the root `.env`, then run:
+
+```sh
+bunx nx run @maelstrom-co/demo:dev-jev
+```
+
+The profile sets `MAELSTROM_PLANNER=jev` and non-secret
+`VITE_BROWSER_KEY_MODE=0`. The shared server engine starts sockets with hello
+complete. The browser shows neither the keyless preview nor the OpenAI key
+drawer. Missing Jev settings fail startup before the socket server binds.
+
+For fallback, set `MAELSTROM_PLANNER_FALLBACK=llm` and server `OPENAI_API_KEY`.
+The profile uses strict Jev with zero repairs, strict LLM with one repair,
+semantic fallback only, and a shared 25-second deadline. Its call budget is
+three without fallback or five with fallback. A browser key cannot supply it.
+Server logging and outbound error redaction cover both configured secrets.
+
+Voice requires its own existing provider credentials. Jev supplies none.
+See [local voice setup](/tutorials/run-voice-locally) for those requirements.
+Hosted mode stays OpenAI BYOK: `VITE_HOSTED=1` forces the visitor-key UI and
+hello/rehello lifecycle. Hosted engine caching and teardown remain visitor-keyed.
+Local planner settings do not enable hosted Jev; that needs a separate custody
+and deployment design.
+
+## Verify and roll back
+
+With provider access, submit a tiling request within the
+[Jev limits](/reference/engine-jev/readme/). A text-free success updates the Chart
+and clears the busy state without an assistant card. A terminal deferral leaves
+the Chart unchanged and surfaces `PlanningDeferredError`. Inspect accepted
+history through your store; it records the plan, not proof of action execution.
+Live provider behavior and model availability were not verified for these examples.
+
+To roll back the local demo, stop `dev-jev`, set `MAELSTROM_PLANNER=llm` and
+`MAELSTROM_PLANNER_FALLBACK=none`, and restart with `bunx nx dev demo`.
+Remove any manually persisted `VITE_BROWSER_KEY_MODE=0` override when returning
+to browser BYOK. With no server OpenAI key, the default profile asks for the
+visitor key. In another server, replace the explicit Jev configuration with
+adapter shorthand. Neither rollback requires a client or history migration;
+the local in-memory store still loses its contents on restart.
+
+## Next steps
+
+- [The Engine](/understanding/engine) — finalization and third-party planner contracts.
+- [Conversation history](/guides/engine/conversation-history) — independent projections and retention budgets.
+- [Protocol reference](/reference/protocol/readme/) — migrate optional response and history text.
+- [Jev reference](/reference/engine-jev/readme/) — capability limits and historical evidence.

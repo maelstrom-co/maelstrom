@@ -6,7 +6,11 @@ import { consoleLogger } from './logger.js';
 import type { Planner } from './planning/contracts.js';
 import type { PromptOptions } from './prompt/prompt-builder.js';
 
-/** Finalization behavior selected visibly by a planner route. */
+/**
+ * `heal-and-ship` permits a renderable subset after recommended repairs.
+ * `strict` rejects material layout changes or dropped actions, but accepts
+ * valid empty plans and omitted presentation text.
+ */
 export type FinalizationPolicy = 'heal-and-ship' | 'strict';
 
 /** Conditions that may start the single configured fallback route. */
@@ -22,13 +26,16 @@ export interface PlannerRoute {
   readonly implementation: Planner;
   /** Policy applied to healed candidates. */
   readonly finalization: FinalizationPolicy;
-  /** Maximum engine-owned repair invocations after the initial call. */
+  /** Non-negative integer repair limit after the initial call; zero disables repair. */
   readonly maxRepairAttempts: number;
 }
 
 /** The one optional fallback route. */
 export interface FallbackPlannerRoute extends PlannerRoute {
-  /** Non-empty reasons that permit the primary-to-fallback transition. */
+  /**
+   * Non-empty reasons that permit the single primary-to-fallback transition.
+   * Cancellation, deadline expiry, and exhausted calls never permit fallback.
+   */
   readonly on: readonly FallbackTrigger[];
 }
 
@@ -40,9 +47,9 @@ export interface ExplicitPlannerConfig {
   readonly fallback?: FallbackPlannerRoute;
   /** Whole-operation deadline and shared logical provider-call budget. */
   readonly operation: {
-    /** Positive millisecond deadline or null to disable it. */
+    /** Positive finite integer milliseconds for all routes and repairs, or null to disable. */
     readonly timeoutMs: number | null;
-    /** Positive number of logical planner-visible provider calls. */
+    /** Positive integer call count shared by all stages, repairs, and fallback. */
     readonly maxProviderCalls: number;
   };
 }

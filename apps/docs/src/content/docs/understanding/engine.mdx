@@ -3,7 +3,9 @@ title: The Engine
 description: The reference decision core, and the boundary that keeps it swappable.
 ---
 
-The Engine is Maelstrom's decision core. Given the current chart state and a user intent, it asks an LLM to produce a layout and an execution plan, then returns a structured response.
+The Engine is Maelstrom's decision core. It finalizes a planner's layout and
+ordered execution plan for the current chart state and intent. A conventional
+LLM remains the default; experimental Jev uses the same server-side boundary.
 
 `@maelstrom-co/engine` is a **reference implementation**, not a mandate. Production systems may keep this package if its concurrency, history, logging, and safety trade-offs match their needs, or replace it with another implementation behind the same `Engine.handle()` contract. It ships so you can run Maelstrom locally, build demos, and understand how the contract works. It is not production-grade — production deployments supply their own implementation behind the same boundary.
 
@@ -38,36 +40,39 @@ This signature is the contract. The implementation behind it can change without 
 ```mermaid
 flowchart TD
   Request["ChartRequest"]
-  Prompt["Build prompt"]
-  Adapter["Call LLM adapter"]
-  Parse["Parse structured JSON"]
-  Validate["Validate protocol schema"]
-  Heal["Heal recoverable<br/>layout/action issues"]
-  Retry{"Would the user<br/>see a no-op?"}
-  Return["Return EngineOutput"]
+  Snapshot["Validate and freeze input"]
+  Invoke["Invoke selected planner"]
+  Finalize["Canonical finalization"]
+  Policy{"Route policy"}
+  Fallback{"One eligible fallback?"}
+  Return["Record accepted plan and return"]
+  Error["Return distinct error"]
 
-  Request --> Prompt
-  Prompt --> Adapter
-  Adapter --> Parse
-  Parse --> Validate
-  Validate --> Heal
-  Heal --> Retry
-  Retry -->|"yes, within budget"| Prompt
-  Retry -->|"no"| Return
+  Request --> Snapshot --> Invoke --> Finalize --> Policy
+  Policy -->|"accepted"| Return
+  Policy -->|"bounded repair"| Invoke
+  Policy -->|"rejected"| Fallback
+  Invoke -->|"deferral or failure"| Fallback
+  Fallback -->|"yes, remaining budget"| Invoke
+  Fallback -->|"no"| Error
 ```
 
 ## What the reference implementation does
 
 For a `chart_request`, the engine runs:
 
-1. Build the prompt from your vessels, the current chart state, and any update reasons
-2. Call the configured LLM adapter
-3. Parse and validate the structured response
-4. Heal recoverable problems (drop overflowed positions, prune unreachable layouts)
-5. Retry once if the result would be empty
-6. Record the turn in history and return the response
+1. Validate and detach the request, enum values, and both history projections.
+2. Check the planner's layout capability before provider work.
+3. Invoke the planner and finalize its complete candidate.
+4. Apply the route's policy and request bounded repair when permitted.
+5. Start the optional fallback once for an eligible outcome, using remaining budgets.
+6. Record only the accepted finalized response and return it.
 
-Errors short-circuit the pipeline; recoverable problems become diagnostics that consumers don't see.
+All attempts share the same deeply frozen input. The engine alone owns repair
+and fallback. One conventional LLM invocation performs one TanStack `chat()`;
+Jev can perform up to three stage fetches. Every logical provider call claims
+the shared budget. Hidden adapter HTTP retries are not separate logical claims.
+Cancellation, deadline expiry, and budget exhaustion stop the operation.
 
 ## Validation and recovery
 
@@ -75,12 +80,21 @@ The engine validates inputs at three boundaries and the LLM's output at a fourth
 
 1. **Engine config** — `createEngine()` validates `EngineConfig` against a strict Zod schema and eagerly builds system prompts at startup. Misconfigured system prompt customizers throw synchronously, but user prompt customizer errors still surface on the first request as a `ValidationError`.
 2. **Engine messages** — every inbound `EngineMessage` envelope is parsed against the protocol Zod schema. Malformed payloads short-circuit before any LLM call with a `RequestValidationError` carrying the structured `path` of the failing field.
-3. **LLM structured output** — the JSON the model returns is parsed against the protocol schemas inside the adapter call. Schema-violating output surfaces as a `ProviderError`. The built-in LLM planner retains its existing non-empty `userMessage` requirement; custom planners can return a text-free accepted layout and action plan.
-4. **LLM output coherence** — even a parseable response can be incoherent: positions overflowing the chart, unknown vessel/variant references, duplicate instance IDs, malformed tiling trees. This layer doesn't fail; it heals.
+3. **Provider output** — recognized malformed responses map to `InvalidProviderResponseError`; opaque adapter exceptions remain `ProviderError`. The built-in LLM retains its non-empty `userMessage` requirement. Other planners can omit prose.
+4. **Candidate coherence** — the canonical finalizer checks layout bounds, tree/instance coherence, parameters, and action order. It resolves new tiling instances before validating actions and simulates variant transitions in sequence.
 
-### Heal, don't fail
+### Healing is an explicit policy
 
-For step 4, an empty UI is worse than a partial one. The heal layer drops invalid pieces and records each one with a structured reason — categorical labels such as `position_overflow`, `unknown_vessel`, `unknown_variant`, `size_below_minimum`, `duplicate_instance_id`, or `tree_missing_child`. Soft-failures like a missing `rationale` are recorded as warnings. Drop entries and warnings stay engine-internal: they feed the retry decision and engine logs, but the engine strips them at its boundary. Consumers receive only the surviving layout; rendering proceeds with whatever made it through.
+Adapter shorthand preserves `heal-and-ship`: a renderable subset can be useful
+even after the repair limit. The finalizer reports dropped entries with stable
+codes such as `position_overflow` or `unknown_vessel`. Diagnostics feed the
+engine's repair decision and logs, not the wire response.
+
+Explicit routes must choose a policy. `strict` rejects material layout repair
+or dropped/invalid actions, offers bounded repair, then eligible fallback.
+Without an accepted plan it returns semantic `invalid_plan` deferral. It still
+allows valid empty plans. Neither optional prose nor an empty action list makes
+a plan invalid. Structural validity does not prove that a plan matches intent.
 
 ### Example: Healed output
 
@@ -102,7 +116,8 @@ flowchart TD
   Weather --> User
 ```
 
-The dropped entry is logged for diagnostics, but consumers receive only the surviving layout.
+Under `heal-and-ship`, consumers receive only the surviving layout. A strict
+route rejects this partial result and enters repair or fallback instead.
 
 ### Resize-only turns
 
@@ -114,12 +129,33 @@ One escape stays open by design: a resize batched together with a user intent or
 
 ### When the engine retries
 
-After healing, the engine recommends retry only when the user would otherwise see a no-op:
+Under `heal-and-ship`, the engine recommends repair only when the user would otherwise see a no-op:
 
 - **Empty-when-needed layout** — the request asked for instances but every position dropped (severity `unrecoverable`).
 - **All actions skipped for fixable reasons** — the proposed plan was non-empty but every action was rejected for a reason the LLM could plausibly fix on retry, e.g. `unknown_vessel`, `params_parse_failed`, `action_not_valid` (severity `medium`).
 
 A partial layout or partial action plan does **not** trigger retry — partial output beats waiting for a re-roll. Non-fixable skip reasons (`state_drift`, `self_transition_noop`, `non_idempotent_on_resize`, `parameterized_on_resize`) don't recommend retry on their own, but they don't suppress retry either: if any *other* skip in the same response is fixable and no actions survived, retry still fires. The retry budget is `EngineConfig.maxRetries` (default `1`).
+
+For explicit routes, `maxRepairAttempts` replaces shorthand `maxRetries`.
+Strict routes request repair for any material rejection, not only a no-op.
+The planner receives `phase.kind: 'repair'`, the full previous candidate, and
+the public bounded `FinalizationReport`. Third-party planners use that same
+contract without importing internal validators. `Planner.invoke` returns a
+complete candidate, semantic deferral, or typed failure; it does not route fallback.
+
+### Presentation and accepted history
+
+A successful wire response needs a layout and ordered actions, not prose.
+Response `userMessage` and `rationale`, and turn history `assistantMessage`,
+are optional. The client applies layout before actions, including actions on
+instances introduced by the same response. Text-free success needs no empty
+card or invented message.
+
+Structured history records accepted plans, not proof of observed execution.
+The LLM conversation projection uses a bounded structural summary when prose
+is absent. Jev uses the independent structured projection. Separate retention
+budgets keep existing `deriveLLMContext` and `maxChars` semantics intact.
+See [conversation history](/guides/engine/conversation-history) for custom hooks.
 
 ## Configuration shape
 
@@ -136,6 +172,7 @@ const engine = createEngine({
 The pluggable surfaces are intentionally small:
 
 - **`adapter`** — the LLM provider, via TanStack AI. Swap Gemini, OpenAI, Anthropic, your own.
+- **`planner`** — explicit primary and optional fallback routes, with finalization, repairs, deadline, and logical-call budget.
 - **`history`** — opt-in conversation history with a store you supply (Redis, Postgres, SQLite). The reference engine ships an in-memory store for tests but never as a default.
 - **`prompt`** — replace, prepend, append, or transform individual prompt sections.
 - **`logger`** — any object with `debug` / `info` / `warn` / `error` works.
@@ -150,6 +187,8 @@ If your use case crosses any of these lines, plan to replace this engine with on
 
 ## Next steps
 
+- [Configure a planner backend](/guides/engine/planner-backends) — four configurations, deadlines, terminal errors, and local rollback.
+- [Jev reference](/reference/engine-jev/readme/) — implementation limits and historical evidence that rules out default promotion.
 - [Quick Start](/getting-started/quick-start) — run it end-to-end in a browser
 - [Architecture Overview](/understanding/architecture) — see where the engine fits in the wider system
 - [The Protocol](/understanding/protocol) — the envelopes and types the engine speaks

@@ -210,6 +210,44 @@ interface ActionExecution {
 
 `requestId` echoes the originating envelope `id` so callers can correlate without external bookkeeping. `executionPlan` lists action invocations to apply after the layout transition. `userMessage` is optional natural-language presentation for end users; `rationale` is optional diagnostic reasoning. Clients must handle either field being absent and must not invent placeholder prose.
 
+### Optional-text migration
+
+Response `userMessage` and `rationale`, and turn-shaped history
+`assistantMessage`, now have type `string | undefined`. This relaxes the wire
+contract but requires a TypeScript source migration for readers that assumed
+strings. Release protocol, engine, client, React, and reverse consumers together.
+
+```ts
+import type { MaelstromResponse, SessionHistoryEntry } from '@maelstrom-co/protocol';
+
+export function responseText(response: MaelstromResponse): string[] {
+  const lines: string[] = [];
+  if (response.userMessage !== undefined) lines.push(response.userMessage);
+  if (response.rationale !== undefined) lines.push(response.rationale);
+  return lines;
+}
+
+export function historyText(entry: SessionHistoryEntry): string[] {
+  if (entry.kind === 'injection') return [entry.content];
+  return entry.assistantMessage === undefined
+    ? [entry.userIntent]
+    : [entry.userIntent, entry.assistantMessage];
+}
+```
+
+Render only present text. A text-free accepted plan still applies layout before
+ordered actions, including actions targeting newly declared tiling instances.
+It clears processing state without an empty response card; public history can
+show the user turn without an assistant bubble. Do not insert fake “Done” text
+into the wire response. Realtime consumers can use their post-render structural
+summary when text is absent; that summary is separate from response prose.
+
+The canonical `MaelstromResponseSchema` is shared by HTTP response decoding
+and WebSocket envelope decoding. Both accept omitted prose and reject malformed
+layout/action shapes. The conventional LLM's `GridResponseSchema` and
+`TilingResponseSchema` still request text; those model-output schemas are not
+the finalized wire-response contract.
+
 ---
 
 ## Layouts
@@ -393,7 +431,12 @@ unwrap(success);  // T  — throws on err. Use sparingly at system boundaries.
 
 ## Wire-format schemas
 
-Every input payload has a Zod schema for wire-format validation. Smart constructors enforce invariants for programmatic construction; schemas are the equivalent guarantee for deserialised JSON. Use `safeParse` at any boundary that ingests bytes. Engine outputs are constructed in-process and don't ship with parsers — consumers receive them through the engine `handle()` Result, never off the wire.
+Input and finalized response payloads have Zod schemas for wire-format
+validation. Smart constructors enforce programmatic invariants; schemas validate
+deserialized JSON. Use `EngineMessageSchema` for engine input and
+`MaelstromResponseSchema` for a finalized response payload. Stream transports
+use `decodeClientEnvelope` and `decodeServerEnvelope`; history uses
+`SessionHistoryEntryArraySchema`.
 
 ```ts
 import { EngineMessageSchema } from '@maelstrom-co/protocol';
@@ -424,4 +467,10 @@ A handful of fields are deliberately carved out of the drift check (the inner `T
 
 ## Errors
 
-A protocol-level error catalogue is deferred to a follow-up cut. For now, `Result.error` from the engine surfaces as `EngineError` (defined in `@maelstrom-co/engine`).
+Direct calls return `EngineError` from `@maelstrom-co/engine`. Stream hosts
+map these tags to correlated `engine.error` codes, including
+`PlanningDeferredError`, `PlanningBudgetExceededError`,
+`InvalidProviderResponseError`, `ProviderError`, `CancellationError`, and
+`TimeoutError`. They represent failure, not a successful empty plan. See the
+[planner guide](https://docs.maelstrom-ai.co/guides/engine/planner-backends/#handle-terminal-outcomes)
+for operation policies and recovery choices.

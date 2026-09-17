@@ -39,7 +39,7 @@ export type JevFetch = typeof fetch;
  * intentionally not calibrated by this experimental package.
  */
 export interface JevConfidencePolicy {
-  /** Reject a consumed answer below this inclusive probability confidence. */
+  /** Defer when a consumed answer's confidence is below this inclusive minimum in [0, 1]. */
   readonly minimum?: number;
 }
 
@@ -49,7 +49,7 @@ export interface JevPlannerOptions {
   readonly apiKey: string;
   /** Pinned TypeSafe model identifier expected in every successful response. */
   readonly model: string;
-  /** TypeSafe System One endpoint. Defaults to the official v1 endpoint. */
+  /** Trusted server URL receiving the credential; defaults to https://api.typesafe.ai/v1/systemone. */
   readonly endpoint?: string;
   /** Injectable transport for deterministic tests. Defaults to global fetch. */
   readonly fetch?: JevFetch;
@@ -110,7 +110,13 @@ interface SelectedAction {
  * The planner performs direct server-side HTTP calls only. It never retries,
  * emits prose, or exposes provider failures and response bodies to callers.
  * Configure its engine route with strict finalization and zero repairs.
+ * Layout-only turns claim one call, parameterless actions at most two, and
+ * parameterized actions at most three. Resize-only turns preserve the tree
+ * without calls or actions. Limits of two actions and two new instances per
+ * vessel, finite parameter candidates, and fixed arrangements cause deferral.
  *
+ * @param options Server-owned credential, pinned model, and optional transport policy.
+ * @returns A tiling-only planner that omits userMessage and rationale.
  * @throws If an option is malformed. Credentials are never echoed in the error.
  */
 export function createJevPlanner(options: JevPlannerOptions): Planner {

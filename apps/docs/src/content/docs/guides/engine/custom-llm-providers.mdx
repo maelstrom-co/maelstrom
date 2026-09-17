@@ -12,6 +12,10 @@ text adapter. Swapping providers is a single field on `EngineConfig.adapter`
 — the prompt builder, response parser, heal layer, and retry policy are all
 provider-agnostic.
 
+Adapter shorthand keeps the existing `heal-and-ship` policy. For strict
+finalization, bounded engine-owned fallback, or experimental Jev, use
+[Configure a planner backend](/guides/engine/planner-backends).
+
 ## Before you start
 
 - An installed `@maelstrom-co/engine` package.
@@ -135,8 +139,8 @@ three axes:
 ### Per-request adapter override
 
 The adapter is set at `createEngine` time and is the same for every turn. If
-you need per-request routing (A/B test, role-based model selection, fallback
-on quota errors), stand up multiple engines:
+you need per-request routing (A/B test or role-based model selection), stand up
+multiple engines. For fallback within one operation, use an explicit planner route:
 
 ```ts title="src/server/route.ts"
 import { createEngine } from '@maelstrom-co/engine';
@@ -167,7 +171,8 @@ contract; the engine does not extend it.
 Use this when you need to call a model the TanStack AI catalogue does not
 cover yet (an internal endpoint, a fine-tuned deployment, a gateway), or
 when you want to wrap an existing adapter to add logging, request signing,
-or fallback chains.
+or provider-specific transport behavior. Keep semantic repairs and planner
+fallback in the engine's explicit route configuration.
 
 ## Verify
 

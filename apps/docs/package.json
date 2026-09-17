@@ -53,6 +53,7 @@
     "implicitDependencies": [
       "@maelstrom-co/protocol",
       "@maelstrom-co/engine",
+      "@maelstrom-co/engine-jev",
       "@maelstrom-co/client",
       "@maelstrom-co/connectors",
       "@maelstrom-co/react",

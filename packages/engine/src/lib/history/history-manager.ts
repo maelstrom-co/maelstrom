@@ -37,8 +37,8 @@ export interface PlanningHistoryContext {
 export interface HistoryConfig<TMeta = unknown> {
   /**
    * Hard cap on per-session entry count. Omit to disable the entry-count
-   * cap entirely — truncation then relies solely on `maxChars` (or becomes
-   * a no-op if that is also omitted).
+   * cap entirely. The conversational and planning character budgets still
+   * apply when configured; omitting all three caps disables truncation.
    */
   readonly maxEntries?: number;
   /**
@@ -63,8 +63,10 @@ export interface HistoryConfig<TMeta = unknown> {
    * once per entry during truncation cost estimation, so keep the projection
    * cheap and side-effect-free. When omitted, the engine uses its default
    * projection: turns produce a user message (from user_intent reasons) +
-   * an assistant message (from the response's userMessage); injections
-   * produce a single assistant message.
+   * an assistant message (from the response's userMessage, or a bounded
+   * structural summary for a text-free turn); injections produce a single
+   * assistant message. Returning an empty array has zero conversational
+   * retention cost and does not change the independent planning projection.
    *
    * The `defaults` callback returns the engine's default projection for the
    * same entry, enabling compose-with-default overrides without reimplementing
@@ -81,8 +83,10 @@ export interface HistoryConfig<TMeta = unknown> {
   /** Independent projection and retention policy for planner plan context. */
   readonly planning?: {
     /**
-     * Character budget for deterministic structured-plan serialization. Omit
-     * to disable this budget. The newest entry remains sticky when oversized.
+     * Positive integer character budget for deterministic structured-plan
+     * serialization, measured only until the budget is exceeded. Omit to
+     * disable this budget. An empty projection costs zero. The newest entry
+     * remains sticky when oversized; this does not truncate its accepted plan.
      */
     readonly maxChars?: number;
     /**
