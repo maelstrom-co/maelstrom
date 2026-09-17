@@ -72,6 +72,22 @@ intent; strict finalization cannot detect that semantic error.
 
 ## Historical evidence and promotion limits
 
+The [offline evaluation and promotion gate](https://github.com/maelstrom-co/maelstrom/blob/main/docs/planner-evaluation.md)
+separates deterministic integration checks from evidence for a deployment decision.
+From a repository checkout with frozen dependencies installed, run:
+
+```sh
+bunx nx run @maelstrom-co/engine-jev:evaluate-offline --skip-nx-cache
+```
+
+The target builds dependencies and exercises both real planners through
+`Engine.handle()` with scripted transports. It needs no provider credentials.
+It writes JSON and a concise summary to the terminal. Expected negative cases
+remain in the report; only regression mismatches produce exit code 1.
+For machine-readable stdout after the dependency build, run
+`bun packages/engine-jev/evaluation/cli.ts` from the repository root.
+The CLI accepts no arguments and has no live mode.
+
 The staged prototype, using `jev-1.13.0`, scored **66/66 model-backed development
 outcomes** and **39/48 fresh outcomes**. Fresh trials included **eight incorrect
 accepted layouts** and **one unnecessary deferral**. Actions and parameters

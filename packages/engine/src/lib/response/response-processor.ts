@@ -73,6 +73,8 @@ export interface ProcessResponseInput {
   readonly llmOutput: ProcessResponseOutput;
   /** Keeps legacy LLM prose validation unless a structured planner opts out. */
   readonly allowMissingPresentation?: boolean;
+  /** Strict routes validate actions against the layout state applied before execution. */
+  readonly usePostLayoutInstances?: boolean;
   readonly request: ChartRequest;
   /** Exact normalized enum values displayed for this Engine request. */
   readonly enumSnapshot: ActionParameterEnumSnapshot;
@@ -84,6 +86,7 @@ export interface ProcessResponseInput {
 export function processResponse({
   llmOutput,
   allowMissingPresentation = false,
+  usePostLayoutInstances = false,
   request,
   enumSnapshot,
   messageId,
@@ -133,21 +136,23 @@ export function processResponse({
       );
     }
   }
-  // Tiling allows the LLM to declare new instances in `layout.instances`
-  // alongside an action that configures them (per the system prompt:
-  // "To CREATE a new instance, add it to the instances array... add an
-  // action in executionPlan to configure it"). Without merging those
-  // healed declarations into the action resolver's instance map, every
-  // new-instance + configure-action pair gets skipped as unknown_instance
-  // and the retry loop wastes attempts on output the LLM has no reason
-  // to change. Existing instances keep their pre-request variant —
-  // mid-plan transitions are still simulated by `parseExecutionPlan`.
-  // Grid mode has no separate instance-declaration channel (positions
-  // reference existing instanceIds), so it stays as-is.
+  // Strict action validation follows the client's layout-first replacement.
+  // Tiling retains declared hidden instances; grid retains positioned instances.
+  // Heal-and-ship preserves the legacy request-first resolver.
+  const positionedIds =
+    healed.mode === 'grid'
+      ? new Set(healed.layout.positions.map((position) => position.instanceId))
+      : undefined;
   const planInstances: readonly VesselInstanceSnapshot[] =
     healed.mode === 'tiling'
-      ? mergeTilingInstances(request.instances, healed.layout.instances)
-      : request.instances;
+      ? usePostLayoutInstances
+        ? healed.layout.instances
+        : mergeTilingInstances(request.instances, healed.layout.instances)
+      : usePostLayoutInstances
+        ? request.instances.filter((instance) =>
+            positionedIds?.has(instance.instanceId),
+          )
+        : request.instances;
   const { plan: executionPlan, skippedActions } = parseExecutionPlan(
     llmOutput.executionPlan,
     {
@@ -185,10 +190,6 @@ export function processResponse({
   });
 }
 
-// Existing instances win on conflict — the LLM declaring a different
-// variant for an already-extant instance shouldn't silently overwrite
-// the simulator's starting state. Variant transitions go through the
-// executionPlan path so the simulator can validate them.
 function nonBlankPresentation(
   value: string | undefined,
   key: 'userMessage' | 'rationale',
@@ -196,6 +197,8 @@ function nonBlankPresentation(
   return value?.trim().length ? { [key]: value } : {};
 }
 
+// Legacy healing resolves existing identities from the request, even when the
+// layout removes them or declares another variant. Strict routes bypass this.
 function mergeTilingInstances(
   requestInstances: readonly VesselInstanceSnapshot[],
   healedInstances: readonly HealedTilingInstance[],

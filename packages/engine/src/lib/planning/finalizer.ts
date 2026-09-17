@@ -7,6 +7,7 @@ import {
 } from '@maelstrom-co/protocol';
 
 import type { ActionParameterEnumSnapshot } from '../action-parameter-enum.js';
+import type { FinalizationPolicy } from '../config.js';
 import type { EngineError } from '../errors.js';
 import type { Logger } from '../logger.js';
 import type { SkippedAction } from '../response/execution-plan/types.js';
@@ -56,6 +57,8 @@ export function finalizeCandidate(input: {
   readonly messageId: MessageId;
   /** Engine logger used by ordered action validation. */
   readonly logger: Logger;
+  /** Selects post-layout action state for strict routes and legacy resolution otherwise. */
+  readonly finalization: FinalizationPolicy;
 }): FinalizationResult {
   const { candidate, request, enumSnapshot, messageId, logger } = input;
   try {
@@ -64,6 +67,7 @@ export function finalizeCandidate(input: {
     const processed = processResponse({
       llmOutput: canonical.value,
       allowMissingPresentation: !candidate.requiresPresentation,
+      usePostLayoutInstances: input.finalization === 'strict',
       request,
       enumSnapshot,
       messageId,

@@ -268,6 +268,7 @@ async function runRoute(input: {
     }
     const finalized = finalizeCandidate({
       candidate: proposal.value.candidate,
+      finalization: route.finalization,
       request: snapshot.input.request,
       enumSnapshot: snapshot.enumSnapshot,
       messageId,

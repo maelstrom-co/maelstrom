@@ -79,13 +79,13 @@ export type PlanningHistoryEntry =
       readonly content: string;
     };
 
-/** One public action proposal with decoded JSON-object parameters. */
+/** One untrusted action proposal, finalized before it reaches a client. */
 export interface PlannerActionCandidate {
   /** Target instance identity. */
   readonly instanceId: unknown;
   /** Requested action identity. */
   readonly action: unknown;
-  /** Decoded JSON-object parameters, omitted for parameterless actions. */
+  /** Decoded JSON-object parameters or provider JSON text; omitted for parameterless actions. */
   readonly params?: unknown;
 }
 

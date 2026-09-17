@@ -39,6 +39,13 @@ export interface LlmPlannerOptions {
  *
  * Each invocation prepares its prompt before it claims exactly one logical
  * call and starts exactly one TanStack `chat()` operation.
+ * System prompts for both layout modes are built during construction. User-prompt
+ * customization runs during invocation; its failures use the Planner failure Result
+ * channel before any provider call is claimed.
+ *
+ * @throws If a system-section customizer function targets a non-default section
+ * or a system customizer callback throws. These synchronous construction errors
+ * occur before a Planner exists and do not pass through `invoke`'s Result channel.
  */
 export function createLlmPlanner(options: LlmPlannerOptions): Planner {
   const promptOptions = options.prompt ?? {};
@@ -148,25 +155,12 @@ function toCandidate(response: {
       instanceId: action.instanceId,
       action: action.action,
       ...(action.paramsJson !== undefined && {
-        params: decodeParams(action.paramsJson),
+        // Preserve provider JSON so finalization applies the legacy per-action
+        // byte, depth, and work limits without a candidate-wide normalization.
+        params: action.paramsJson,
       }),
     })),
   };
-}
-
-function decodeParams(paramsJson: string): unknown {
-  try {
-    const parsed: unknown = JSON.parse(paramsJson);
-    return isRecord(parsed) ? parsed : paramsJson;
-  } catch {
-    // The public candidate representation preserves malformed parameters as a
-    // raw value so finalization retains the legacy params_parse_failed reason.
-    return paramsJson;
-  }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function repairPrompt(original: string, invocation: PlannerInvocation): string {

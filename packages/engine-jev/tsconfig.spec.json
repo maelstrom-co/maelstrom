@@ -5,6 +5,11 @@
     "types": ["bun"],
     "rootDir": "."
   },
-  "include": ["src/**/*.test.ts", "src/**/*.spec.ts", "src/**/*.d.ts"],
+  "include": [
+    "src/**/*.test.ts",
+    "src/**/*.spec.ts",
+    "src/**/*.d.ts",
+    "evaluation/**/*.ts"
+  ],
   "references": [{ "path": "./tsconfig.lib.json" }]
 }

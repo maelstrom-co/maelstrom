@@ -50,12 +50,36 @@ import {
 
 /** The engine's public request and history seam. */
 export interface Engine {
-  /** Handles one validated engine message and returns a typed output or error. */
+  /**
+   * Validates a message, then runs its planning operation or records an assistant injection.
+   * Runtime validation, planning, and required history failures use the Result error channel.
+   *
+   * With history configured, a chart request replays a retained successful response
+   * for the same session and message ID, even if the new payload differs. Concurrent
+   * duplicates share one complete planning operation, including repairs and fallback.
+   * Coalescing is local to this Engine instance; other engines can run the same ID
+   * concurrently. Distinct IDs are not serialized. Without history, chart requests
+   * have neither replay nor in-flight deduplication.
+   *
+   * The caller that starts the shared operation owns its cancellation signal. Its
+   * cancellation ends the operation for waiting followers. A follower's cancellation ends only its
+   * own wait. Completed-response replay does not start a cancellable planner operation.
+   *
+   * Assistant injections require history; otherwise they return ValidationError.
+   * Injection persistence failures return HistoryError. Chart-response cache lookup
+   * and successful-turn persistence are advisory: failures are logged, and lookup
+   * failures are treated as cache misses. Required planning-history reads can return HistoryError.
+   */
   handle(
     message: EngineMessage,
     signal?: AbortSignal,
   ): Promise<Result<EngineOutput, EngineError>>;
-  /** Returns wire-projected history for one session. */
+  /**
+   * Returns retained entries as wire history, including text-free accepted turns.
+   * An unknown session returns an empty list when the configured store has no entries.
+   * Returns ValidationError when history is not configured, or HistoryError with
+   * operation `get_history` when the store read or wire projection fails.
+   */
   getHistory(
     sessionId: SessionId,
   ): Promise<Result<readonly SessionHistoryEntry[], EngineError>>;

@@ -52,6 +52,16 @@
   "nx": {
     "name": "@maelstrom-co/engine-jev",
     "targets": {
+      "evaluate-offline": {
+        "command": "bun evaluation/cli.ts",
+        "dependsOn": [
+          "^build"
+        ],
+        "cache": false,
+        "options": {
+          "cwd": "{projectRoot}"
+        }
+      },
       "typecheck": {
         "command": "tsc -p tsconfig.lib.json --noEmit && tsc -p tsconfig.spec.json --noEmit",
         "options": {
