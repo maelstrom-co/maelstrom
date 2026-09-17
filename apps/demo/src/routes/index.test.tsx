@@ -678,6 +678,19 @@ describe('voice greeting (hosted, with a key)', () => {
 });
 
 describe('header "API key" affordance', () => {
+  it('keeps the Jev profile interactive without a key drawer or keyless preview', async () => {
+    vi.stubEnv('VITE_HOSTED', '0');
+    vi.stubEnv('VITE_BROWSER_KEY_MODE', '0');
+    clearPlaygroundKey();
+    const { HomePage } = await import('../components/home-page');
+    render(<HomePage />);
+
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.queryByRole('button', { name: /api key/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /add key/i })).toBeNull();
+    expect(screen.getByRole('button', { name: /send/i })).toBeTruthy();
+  });
+
   it('is hidden when local mode has a server-owned key', async () => {
     vi.stubEnv('VITE_HOSTED', '0');
     vi.stubEnv('VITE_BROWSER_KEY_MODE', '0');

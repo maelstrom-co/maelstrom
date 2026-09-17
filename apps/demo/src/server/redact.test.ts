@@ -14,6 +14,19 @@ function nanoidWithEmbeddedMarker(offset: number): string {
 }
 
 describe('redactSecrets', () => {
+  it('scrubs overlapping provider secrets and escaped forms without leaving suffixes', () => {
+    const keys = [
+      'typesafe-secret',
+      'typesafe-secret-longer',
+      'second-"secret\\value',
+    ];
+    const wire = JSON.stringify({ error: keys.join(' ') });
+    const redacted = redactSecrets(wire, keys);
+    expect(JSON.parse(redacted)).toEqual({
+      error: '[redacted] [redacted] [redacted]',
+    });
+  });
+
   it('scrubs every occurrence of the exact api key wherever it appears in a JSON-encoded envelope', () => {
     const apiKey = 'sk-live-abc123def456';
     const wire = JSON.stringify({

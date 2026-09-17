@@ -1,17 +1,22 @@
 /// <reference types="bun" />
 /**
- * Text-only WebSocket engine server for local dev. It uses one shared engine
- * keyed by OPENAI_API_KEY when configured; otherwise each connection accepts
- * the browser's memory-only key through playground.hello and owns its engine.
+ * Local WebSocket server with a shared server-owned LLM or Jev planner.
+ * The default LLM profile accepts browser keys when no server key is configured.
  *
  * Speaks the same handleEnvelope/encodeEnvelope loop from @maelstrom-co/engine
  * and @maelstrom-co/protocol as the hosted transport (`src/worker/session-do.ts`),
  * via the shared dispatchFrame core in `./dispatch`.
  */
 import { HEARTBEAT_PONG_FRAME } from '@maelstrom-co/connectors';
-import type { Engine } from '@maelstrom-co/engine';
+import {
+  createEngine,
+  createInMemoryStore,
+  createLlmPlanner,
+  type Engine,
+} from '@maelstrom-co/engine';
+import { createJevPlanner } from '@maelstrom-co/engine-jev';
 import { dispatchFrame } from './dispatch';
-import { createPlaygroundEngine } from './engine-config';
+import { createPlaygroundEngine, SYSTEM_RULES } from './engine-config';
 import { createDemoOpenaiChat } from './engine-model';
 import { createRedactingLogger, redactSecrets } from './redact';
 
@@ -62,7 +67,10 @@ export interface SharedEngineResult {
  * Redacting anyway means a future construction-time failure that DOES carry
  * the key can't reach this log line or the `engine.error` reply it seeds.
  */
-export function buildSharedEngine(apiKey: string): SharedEngineResult {
+export function buildSharedEngine(
+  apiKey: string,
+  secrets: readonly string[] = [apiKey],
+): SharedEngineResult {
   try {
     // Same redacting logger as hosted: OpenAI 401s can echo the key into
     // provider errors, and the Engine logs those via logger.error before any
@@ -70,13 +78,13 @@ export function buildSharedEngine(apiKey: string): SharedEngineResult {
     return {
       engine: createPlaygroundEngine({
         adapter: createDemoOpenaiChat(apiKey),
-        logger: createRedactingLogger(apiKey),
+        logger: createRedactingLogger(secrets),
       }),
       initError: null,
     };
   } catch (err) {
     const rawMessage = err instanceof Error ? err.message : String(err);
-    const initError = redactSecrets(rawMessage, apiKey);
+    const initError = redactSecrets(rawMessage, secrets);
     console.warn(
       `[demo ws] engine unavailable: ${initError}\n` +
         '  Check the configured or browser-supplied OpenAI key. The socket ' +
@@ -86,12 +94,97 @@ export function buildSharedEngine(apiKey: string): SharedEngineResult {
   }
 }
 
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY?.trim() ?? '';
-const HAS_SERVER_API_KEY = OPENAI_API_KEY.length > 0;
-const { engine: sharedEngine, initError: sharedEngineInitError } =
-  HAS_SERVER_API_KEY
-    ? buildSharedEngine(OPENAI_API_KEY)
-    : { engine: null, initError: 'No server OpenAI key configured.' };
+/** Resolved local engine and credential custody for every new socket. */
+export interface LocalServerConfig extends SharedEngineResult {
+  /** Server-owned engines do not require a visitor handshake. */
+  readonly helloReceived: boolean;
+  /** All configured planning credentials, used only by server redaction. */
+  readonly secrets: readonly string[];
+}
+
+/** Builds the local profile before binding a port; invalid Jev settings fail startup. */
+export function buildLocalServer(
+  env: Readonly<Record<string, string | undefined>>,
+): LocalServerConfig {
+  const planner = env.MAELSTROM_PLANNER?.trim() || 'llm';
+  const fallback = env.MAELSTROM_PLANNER_FALLBACK?.trim() || 'none';
+  const openaiKey = env.OPENAI_API_KEY?.trim() ?? '';
+  const typesafeKey = env.TYPESAFE_API_KEY?.trim() ?? '';
+  const secrets = [openaiKey, typesafeKey].filter(Boolean);
+  if (planner !== 'llm' && planner !== 'jev') {
+    throw new Error('MAELSTROM_PLANNER must be llm or jev.');
+  }
+  if (fallback !== 'none' && fallback !== 'llm') {
+    throw new Error('MAELSTROM_PLANNER_FALLBACK must be none or llm.');
+  }
+  if (planner === 'llm') {
+    if (fallback !== 'none') {
+      throw new Error(
+        'MAELSTROM_PLANNER_FALLBACK requires MAELSTROM_PLANNER=jev.',
+      );
+    }
+    return {
+      ...(openaiKey
+        ? buildSharedEngine(openaiKey, secrets)
+        : { engine: null, initError: 'No server OpenAI key configured.' }),
+      helloReceived: Boolean(openaiKey),
+      secrets,
+    };
+  }
+  if (!typesafeKey) throw new Error('Local Jev requires TYPESAFE_API_KEY.');
+  const model = env.JEV_MODEL?.trim();
+  if (!model) throw new Error('Local Jev requires a pinned JEV_MODEL.');
+  if (fallback === 'llm' && !openaiKey) {
+    throw new Error('Local Jev LLM fallback requires server OPENAI_API_KEY.');
+  }
+  try {
+    return {
+      engine: createEngine({
+        planner: {
+          primary: {
+            implementation: createJevPlanner({ apiKey: typesafeKey, model }),
+            finalization: 'strict',
+            maxRepairAttempts: 0,
+          },
+          ...(fallback === 'llm'
+            ? {
+                fallback: {
+                  implementation: createLlmPlanner({
+                    adapter: createDemoOpenaiChat(openaiKey),
+                    prompt: { system: { rules: { append: SYSTEM_RULES } } },
+                    logger: createRedactingLogger(secrets),
+                  }),
+                  finalization: 'strict' as const,
+                  maxRepairAttempts: 1,
+                  on: ['deferred', 'invalid_plan'] as const,
+                },
+              }
+            : {}),
+          operation: {
+            timeoutMs: 25_000,
+            maxProviderCalls: fallback === 'llm' ? 5 : 3,
+          },
+        },
+        history: {
+          store: createInMemoryStore(),
+          maxEntries: 20,
+          planning: { maxChars: 40_000 },
+        },
+        logger: createRedactingLogger(secrets),
+      }),
+      initError: null,
+      helloReceived: true,
+      secrets,
+    };
+  } catch (error) {
+    throw new Error(
+      redactSecrets(
+        error instanceof Error ? error.message : String(error),
+        secrets,
+      ),
+    );
+  }
+}
 
 export interface SocketData {
   helloReceived: boolean;
@@ -105,6 +198,8 @@ export interface WebSocketHandlerDeps {
   readonly sharedEngineInitError: string | null;
   /** Defense in depth if a secret reaches an outbound reply. */
   readonly apiKey?: string;
+  /** Additional server-owned credentials, including the primary and fallback. */
+  readonly secrets?: readonly string[];
 }
 
 /**
@@ -116,7 +211,7 @@ export interface WebSocketHandlerDeps {
 export function createWebSocketHandlers(
   deps: WebSocketHandlerDeps,
 ): Bun.WebSocketHandler<SocketData> {
-  const { sharedEngine, sharedEngineInitError, apiKey } = deps;
+  const { sharedEngine, sharedEngineInitError, apiKey, secrets = [] } = deps;
 
   return {
     async message(ws, raw) {
@@ -138,7 +233,10 @@ export function createWebSocketHandlers(
           ws.send(HEARTBEAT_PONG_FRAME);
           return;
         case 'hello': {
-          const built = buildSharedEngine(result.frame.apiKey);
+          const built = buildSharedEngine(result.frame.apiKey, [
+            ...secrets,
+            result.frame.apiKey,
+          ]);
           ws.data.browserApiKey = result.frame.apiKey;
           ws.data.browserEngine = built.engine;
           ws.data.browserEngineInitError = built.initError;
@@ -157,7 +255,13 @@ export function createWebSocketHandlers(
           ws.close(result.code, truncateCloseReason(result.reason));
           return;
         case 'reply':
-          ws.send(redactSecrets(result.wire, browserApiKey ?? apiKey));
+          ws.send(
+            redactSecrets(result.wire, [
+              ...secrets,
+              ...(apiKey ? [apiKey] : []),
+              ...(browserApiKey ? [browserApiKey] : []),
+            ]),
+          );
           return;
         case 'none':
           return;
@@ -166,16 +270,13 @@ export function createWebSocketHandlers(
   };
 }
 
-const webSocketHandlers = createWebSocketHandlers({
-  sharedEngine,
-  sharedEngineInitError,
-  apiKey: OPENAI_API_KEY,
-});
-
-// Guarded so importing this module (e.g. from a test) builds the handlers
-// above without binding a real port — Bun.serve is the only part of this
-// file that needs the Bun runtime to actually be running as the entrypoint.
 if (import.meta.main) {
+  const config = buildLocalServer(process.env);
+  const webSocketHandlers = createWebSocketHandlers({
+    sharedEngine: config.engine,
+    sharedEngineInitError: config.initError,
+    secrets: config.secrets,
+  });
   const server = Bun.serve<SocketData>({
     port: PORT,
     fetch(req, srv) {
@@ -187,7 +288,7 @@ if (import.meta.main) {
       }
       if (pathname === '/ws') {
         return srv.upgrade(req, {
-          data: { helloReceived: HAS_SERVER_API_KEY },
+          data: { helloReceived: config.helloReceived },
         })
           ? undefined
           : new Response('WebSocket upgrade failed', { status: 400 });

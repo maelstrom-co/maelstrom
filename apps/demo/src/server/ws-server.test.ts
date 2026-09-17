@@ -23,11 +23,149 @@ vi.mock('@maelstrom-co/engine', async (importOriginal) => ({
 }));
 
 import {
+  buildLocalServer,
   buildSharedEngine,
   createWebSocketHandlers,
   type SocketData,
   truncateCloseReason,
 } from './ws-server';
+
+describe('trusted local planner startup', () => {
+  const jevEnv = {
+    MAELSTROM_PLANNER: 'jev',
+    TYPESAFE_API_KEY: 'typesafe-server-secret',
+    JEV_MODEL: 'jev-test-pinned',
+  };
+
+  afterEach(() => {
+    createEngineMock.mockReset();
+    vi.restoreAllMocks();
+  });
+
+  it('keeps browser hello when the default local LLM has no server key', () => {
+    expect(buildLocalServer({})).toMatchObject({
+      engine: null,
+      helloReceived: false,
+    });
+    expect(createEngineMock).not.toHaveBeenCalled();
+  });
+
+  it('preserves legacy LLM retries and disabled operation deadline by default', () => {
+    const engine = stubEngine();
+    createEngineMock.mockReturnValue(engine);
+    expect(
+      buildLocalServer({ OPENAI_API_KEY: 'server-openai-secret' }),
+    ).toMatchObject({
+      engine,
+      helloReceived: true,
+    });
+    const config = createEngineMock.mock.calls[0]?.[0];
+    expect(config.adapter).toBeDefined();
+    expect(config.maxRetries).toBe(2);
+    expect(config.planner).toBeUndefined();
+    expect(config.operationTimeoutMs).toBeUndefined();
+  });
+
+  it.each([
+    [{ MAELSTROM_PLANNER: 'other' }, 'MAELSTROM_PLANNER'],
+    [{ ...jevEnv, TYPESAFE_API_KEY: ' ' }, 'TYPESAFE_API_KEY'],
+    [{ ...jevEnv, JEV_MODEL: ' ' }, 'JEV_MODEL'],
+    [
+      { ...jevEnv, MAELSTROM_PLANNER_FALLBACK: 'other' },
+      'MAELSTROM_PLANNER_FALLBACK',
+    ],
+    [{ ...jevEnv, MAELSTROM_PLANNER_FALLBACK: 'llm' }, 'server OPENAI_API_KEY'],
+    [{ MAELSTROM_PLANNER_FALLBACK: 'llm' }, 'requires MAELSTROM_PLANNER=jev'],
+  ])('rejects invalid startup config before creating an engine: %j', (env, message) => {
+    expect(() => buildLocalServer(env)).toThrow(message);
+    expect(createEngineMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    false,
+    true,
+  ])('constructs one shared strict Jev engine, fallback=%s', (fallback) => {
+    const engine = stubEngine();
+    createEngineMock.mockReturnValue(engine);
+    const result = buildLocalServer({
+      ...jevEnv,
+      ...(fallback
+        ? {
+            MAELSTROM_PLANNER_FALLBACK: 'llm',
+            OPENAI_API_KEY: 'server-openai-secret',
+          }
+        : {}),
+    });
+    expect(result).toMatchObject({
+      engine,
+      helloReceived: true,
+      initError: null,
+    });
+    expect(createEngineMock).toHaveBeenCalledTimes(1);
+    const planner = createEngineMock.mock.calls[0]?.[0].planner;
+    expect(planner.primary).toMatchObject({
+      implementation: { id: 'typesafe-jev', supportedLayoutModes: ['tiling'] },
+      finalization: 'strict',
+      maxRepairAttempts: 0,
+    });
+    expect(planner.operation).toEqual({
+      timeoutMs: 25_000,
+      maxProviderCalls: fallback ? 5 : 3,
+    });
+    if (fallback) {
+      expect(planner.fallback).toMatchObject({
+        finalization: 'strict',
+        maxRepairAttempts: 1,
+        on: ['deferred', 'invalid_plan'],
+      });
+    } else {
+      expect(planner.fallback).toBeUndefined();
+    }
+  });
+
+  it('scrubs both credentials from synchronous Jev construction failures', () => {
+    createEngineMock.mockImplementation(() => {
+      throw new Error(
+        'rejected typesafe-server-secret and server-openai-secret',
+      );
+    });
+    expect(() =>
+      buildLocalServer({
+        ...jevEnv,
+        MAELSTROM_PLANNER_FALLBACK: 'llm',
+        OPENAI_API_KEY: 'server-openai-secret',
+      }),
+    ).toThrow('rejected [redacted] and [redacted]');
+  });
+
+  it('scrubs both configured secrets from the engine logger and outbound frames', async () => {
+    createEngineMock.mockReturnValue(stubEngine());
+    const config = buildLocalServer({
+      ...jevEnv,
+      OPENAI_API_KEY: 'server-openai-secret',
+    });
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const logger = createEngineMock.mock.calls[0]?.[0].logger;
+    logger.error('typesafe-server-secret', new Error('server-openai-secret'), {
+      nested: { value: 'typesafe-server-secret server-openai-secret' },
+    });
+    expect(JSON.stringify(spy.mock.calls)).not.toMatch(
+      /typesafe-server-secret|server-openai-secret/,
+    );
+
+    const handlers = createWebSocketHandlers({
+      sharedEngine: null,
+      sharedEngineInitError: 'typesafe-server-secret server-openai-secret',
+      secrets: config.secrets,
+    });
+    const ws = makeFakeWs(config.helloReceived);
+    await handlers.message(ws as never, chartRequest);
+    expect(ws.sent[0]).toContain('[redacted] [redacted]');
+    expect(ws.sent[0]).not.toMatch(
+      /typesafe-server-secret|server-openai-secret/,
+    );
+  });
+});
 
 /**
  * Minimal stand-in for Bun.ServerWebSocket<SocketData> — only what the

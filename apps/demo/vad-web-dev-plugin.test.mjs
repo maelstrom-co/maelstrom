@@ -9,7 +9,7 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import {
   createBuildPublicAssetsPlugin,
@@ -34,6 +34,32 @@ describe('resolveBrowserKeyMode', () => {
 
   test('uses server custody locally when an OpenAI key is configured', () => {
     expect(resolveBrowserKeyMode(false, 'sk-server-key')).toBe('0');
+  });
+
+  test('runs local Jev without a browser key but cannot bypass hosted custody', () => {
+    const profile = demoPackage.scripts['dev-jev'];
+    expect(profile).toContain('MAELSTROM_PLANNER=jev');
+    expect(profile).toContain('VITE_BROWSER_KEY_MODE=0');
+    expect(profile).toContain('bun run dev');
+    expect(demoPackage.nx.targets['dev-jev'].dependsOn).toContain('^build');
+    expect(resolveBrowserKeyMode(false, undefined, '0')).toBe('0');
+    expect(resolveBrowserKeyMode(true, undefined, '0')).toBe('1');
+  });
+
+  test.each([
+    false,
+    true,
+  ])('applies the Jev profile browser flag through Vite, hosted=%s', async (hosted) => {
+    vi.stubEnv('OPENAI_API_KEY', '');
+    vi.stubEnv('VITE_HOSTED', hosted ? '1' : '0');
+    vi.stubEnv('VITE_BROWSER_KEY_MODE', '0');
+    vi.stubEnv('MAELSTROM_PLANNER', 'jev');
+    try {
+      await createViteConfig({ command: 'serve', mode: 'development' });
+      expect(process.env.VITE_BROWSER_KEY_MODE).toBe(hosted ? '1' : '0');
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });
 

@@ -31,6 +31,7 @@ describe('usesBrowserKey', () => {
   it('is true for hosted deployments', () => {
     vi.stubEnv('VITE_HOSTED', '1');
     vi.stubEnv('VITE_BROWSER_KEY_MODE', '0');
+    vi.stubEnv('MAELSTROM_PLANNER', 'jev');
     expect(usesBrowserKey()).toBe(true);
   });
 
@@ -44,6 +45,14 @@ describe('usesBrowserKey', () => {
     vi.stubEnv('VITE_HOSTED', '0');
     vi.stubEnv('VITE_BROWSER_KEY_MODE', '0');
     expect(usesBrowserKey()).toBe(false);
+  });
+
+  it('uses server custody in the local Jev profile without a browser OpenAI voice key', () => {
+    vi.stubEnv('VITE_HOSTED', '0');
+    vi.stubEnv('VITE_BROWSER_KEY_MODE', '0');
+    vi.stubEnv('OPENAI_API_KEY', undefined);
+    expect(usesBrowserKey()).toBe(false);
+    expect(usesBrowserOpenAIVoice()).toBe(false);
   });
 });
 

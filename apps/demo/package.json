@@ -6,6 +6,7 @@
   "scripts": {
     "prepare:voice-assets": "bun ../../packages/realtime-vad/dist/bin/maelstrom-vad-assets.js public/vad-web",
     "dev": "concurrently --kill-others-on-fail --names ws,vite \"bun --env-file=../../.env run src/server/ws-server.ts\" \"bun run dev:client\"",
+    "dev-jev": "MAELSTROM_PLANNER=jev VITE_BROWSER_KEY_MODE=0 bun run dev",
     "dev-livekit": "concurrently --kill-others-on-fail --names ws,agent,vite \"bun --env-file=../../.env run src/server/ws-server.ts\" \"bun run dev-agent\" \"bun run dev:client:livekit\"",
     "dev:ws": "bun --env-file=../../.env run src/server/ws-server.ts",
     "dev:client": "bunx nx run @maelstrom-co/demo:serve",
@@ -142,6 +143,12 @@
           "prepare-voice-assets"
         ]
       },
+      "dev-jev": {
+        "dependsOn": [
+          "^build",
+          "prepare-voice-assets"
+        ]
+      },
       "typecheck": {
         "dependsOn": [
           "build",
@@ -190,6 +197,7 @@
     "@maelstrom-co/client": "workspace:*",
     "@maelstrom-co/connectors": "workspace:*",
     "@maelstrom-co/engine": "workspace:*",
+    "@maelstrom-co/engine-jev": "workspace:*",
     "@maelstrom-co/protocol": "workspace:*",
     "@maelstrom-co/react": "workspace:*",
     "@maelstrom-co/react-realtime": "workspace:*",

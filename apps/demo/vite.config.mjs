@@ -26,10 +26,13 @@ const workspaceRoot = resolve(rootDir, '../..');
  *
  * @param {boolean} hosted
  * @param {string | undefined} apiKey
+ * @param {string | undefined} override Non-secret local profile flag.
  * @returns {'0' | '1'}
  */
-export function resolveBrowserKeyMode(hosted, apiKey) {
-  return hosted || !apiKey?.trim() ? '1' : '0';
+export function resolveBrowserKeyMode(hosted, apiKey, override) {
+  if (hosted) return '1';
+  if (override === '0' || override === '1') return override;
+  return !apiKey?.trim() ? '1' : '0';
 }
 
 export default defineConfig(({ command, mode }) => {
@@ -56,6 +59,7 @@ export default defineConfig(({ command, mode }) => {
   process.env.VITE_BROWSER_KEY_MODE = resolveBrowserKeyMode(
     hosted,
     process.env.OPENAI_API_KEY,
+    process.env.VITE_BROWSER_KEY_MODE,
   );
 
   // A local LiveKit production build needs the generated `public/vad-web`

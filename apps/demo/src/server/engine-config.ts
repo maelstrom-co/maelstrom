@@ -22,10 +22,8 @@ import {
 
 type EngineConfig = Parameters<typeof createEngine>[0];
 
-// Appended to the engine's system prompt. Deliberately about space rather
-// than content: the orchestrator's failure mode is emitting a layout that
-// leaves the chart empty or crushes a vessel below its usable size.
-const SYSTEM_RULES = `
+/** Space constraints shared by the default LLM and local fallback prompts. */
+export const SYSTEM_RULES = `
 - Try to always keep at least one vessel visible on the chart
 - Give each vessel adequate space for its content`;
 

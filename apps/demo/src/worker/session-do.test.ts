@@ -7,7 +7,7 @@ import {
   encodeEnvelope,
   SessionId,
 } from '@maelstrom-co/protocol';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // DurableObject only exists as a virtual module inside a real Workers
 // runtime, not under plain vitest — mirrors worker/index.test.ts's mock of
@@ -171,6 +171,29 @@ describe('SessionDO', () => {
   // reach; it only guarantees every test starts from zero.
   beforeEach(() => {
     createEngineMock.mockClear();
+    vi.stubEnv('MAELSTROM_PLANNER', 'jev');
+    vi.stubEnv('TYPESAFE_API_KEY', 'server-typesafe-must-not-be-used');
+    vi.stubEnv('OPENAI_API_KEY', 'server-openai-must-not-be-used');
+  });
+
+  afterEach(() => vi.unstubAllEnvs());
+
+  it('requires visitor hello and builds an LLM engine from that key despite local Jev env', async () => {
+    createEngineMock.mockReturnValue(fakeEngine());
+    const ws = new FakeWs();
+    const does = new SessionDO(makeCtx([ws]) as never, {} as never);
+    await does.webSocketMessage(ws as never, CHART_REQUEST);
+    expect(createEngineMock).not.toHaveBeenCalled();
+    expect(ws.sent.at(-1)).toContain('No API key set');
+    await does.webSocketMessage(ws as never, HELLO);
+    await does.webSocketMessage(ws as never, CHART_REQUEST);
+    expect(createEngineMock).toHaveBeenCalledTimes(1);
+    expect(createEngineMock.mock.calls[0]?.[0]).toMatchObject({
+      adapter: { __testApiKey: A_KEY },
+      maxRetries: 2,
+    });
+    expect(createEngineMock.mock.calls[0]?.[0].planner).toBeUndefined();
+    expect(ws.sent.at(-1)).toContain('engine.maelstrom.response');
   });
 
   it('marks the connection helloed in the attachment without storing the key', async () => {

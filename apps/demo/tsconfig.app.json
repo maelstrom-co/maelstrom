@@ -36,6 +36,9 @@
   ],
   "references": [
     {
+      "path": "../../packages/engine-jev/tsconfig.lib.json"
+    },
+    {
       "path": "../../packages/realtime-vad/tsconfig.lib.json"
     },
     {
