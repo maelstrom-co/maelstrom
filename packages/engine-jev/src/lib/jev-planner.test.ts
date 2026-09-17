@@ -298,6 +298,119 @@ function responseOf(result: Awaited<ReturnType<typeof run>>['result']) {
 }
 
 describe('createJevPlanner', () => {
+  test('bounds unquoted candidate work while keeping the end of a supported request selectable', async () => {
+    const intent = Array.from(
+      { length: 32 },
+      (_, index) => `word${index}`,
+    ).join(' ');
+    const { result, seen } = await run(makeRequest(intent), [
+      defaults({ actionCount: '1' }),
+      () => ({ 'action/0': 'weather-main/setLocation' }),
+      (payload) => ({
+        'param/0/location':
+          Object.entries(payload.questions['param/0/location'].criteria).find(
+            ([, value]) => value === '"word31"',
+          )?.[0] ?? 'missing',
+      }),
+    ]);
+    expect(actionsOf(responseOf(result))[0].params).toEqual({
+      location: 'word31',
+    });
+    const criteria = seen[2].questions['param/0/location'].criteria;
+    expect(Object.keys(criteria).length).toBeLessThanOrEqual(255);
+    for (const [key, value] of Object.entries(criteria))
+      if (key.startsWith('v'))
+        expect(intent.includes(JSON.parse(value))).toBe(true);
+    const overflow = await run(makeRequest(`${intent} extra`), [
+      defaults({ actionCount: '1' }),
+      () => ({ 'action/0': 'weather-main/setLocation' }),
+    ]);
+    expect(overflow.result).toMatchObject({
+      ok: false,
+      error: { _tag: 'PlanningDeferredError', reason: 'policy' },
+    });
+    expect(overflow.seen).toHaveLength(2);
+    const quoted = await run(makeRequest(`${intent} extra "Montevideo"`), [
+      defaults({ actionCount: '1' }),
+      () => ({ 'action/0': 'weather-main/setLocation' }),
+      () => ({ 'param/0/location': 'v0' }),
+    ]);
+    expect(actionsOf(responseOf(quoted.result))[0].params).toEqual({
+      location: 'Montevideo',
+    });
+  });
+
+  test('defers impossible row counts without silently returning fewer rows', async () => {
+    const { result, seen } = await run(makeRequest('Show four rows.'), [
+      defaults({ arrangement: 'rows_4' }),
+    ]);
+    expect(result).toMatchObject({
+      ok: false,
+      error: { _tag: 'PlanningDeferredError', reason: 'policy' },
+    });
+    expect(seen).toHaveLength(1);
+  });
+  test.each([
+    'montevideo',
+    'San José de Mayo',
+  ])('offers an unquoted location from the request without inventing text: %s', async (location) => {
+    const { result, seen } = await run(
+      makeRequest(`change the change the location to ${location}`),
+      [
+        defaults({ actionCount: '1' }),
+        () => ({ 'action/0': 'weather-main/setLocation' }),
+        (payload) => ({
+          'param/0/location':
+            Object.entries(payload.questions['param/0/location'].criteria).find(
+              ([, value]) => value === JSON.stringify(location),
+            )?.[0] ?? 'missing',
+        }),
+      ],
+    );
+    expect(actionsOf(responseOf(result))).toEqual([
+      {
+        instanceId: 'weather-main',
+        action: 'setLocation',
+        params: { location },
+      },
+    ]);
+    expect(seen).toHaveLength(3);
+  });
+
+  test('offers two rows for all available vessels, reusing hidden instances and allocating only missing ones', async () => {
+    const base = makeRequest('show me all the available widgets in two rows');
+    const input = makeRequest('show me all the available widgets in two rows', {
+      vessels: [
+        ...base.vessels,
+        { ...base.vessels[0], id: 'journal', name: 'Journal' },
+      ],
+    });
+    const { result, seen } = await run(input, [
+      defaults({
+        arrangement: 'rows_2',
+        'presence/map-main': 'show',
+        'create/journal': '1',
+      }),
+    ]);
+    expect(Object.keys(seen[0].questions.arrangement.criteria)).toContain(
+      'rows_2',
+    );
+    expect(responseOf(result).layout).toMatchObject({
+      type: 'tiling',
+      tree: [
+        'H',
+        'V:1,1,1',
+        'ID:calendar-main',
+        'ID:weather-main',
+        'ID:tasks-main',
+        'V',
+        'ID:map-main',
+        'ID:journal-jev-1',
+      ],
+    });
+    expect(responseOf(result).executionPlan).toEqual([]);
+    expect(seen).toHaveLength(1);
+  });
   function boundaryEngine(
     transport: typeof fetch,
     options: {
@@ -877,12 +990,13 @@ describe('createJevPlanner', () => {
     expect(isErr(ambiguous.result)).toBe(true);
     expect(ambiguous.seen).toHaveLength(1);
 
-    const missing = await run(makeRequest('Set weather to Tokyo.'), [
+    const missing = await run(makeRequest('Set weather to !!!'), [
       defaults({ actionCount: '1' }),
       () => ({ 'action/0': 'weather-main/setLocation' }),
+      () => ({ 'param/0/location': 'missing' }),
     ]);
     expect(isErr(missing.result)).toBe(true);
-    expect(missing.seen).toHaveLength(2);
+    expect(missing.seen).toHaveLength(3);
 
     const unsupported = await run(makeRequest('Write three tasks.'), [
       defaults({ scope: 'unsupported' }),

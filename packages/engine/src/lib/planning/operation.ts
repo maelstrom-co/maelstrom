@@ -1,5 +1,5 @@
 import type { ChartRequest, MessageId, Result } from '@maelstrom-co/protocol';
-import { err, isErr, ok } from '@maelstrom-co/protocol';
+import { err, isErr, ok, sanitizeControlChars } from '@maelstrom-co/protocol';
 
 import {
   type ActionParameterEnumSnapshot,
@@ -303,6 +303,12 @@ async function runRoute(input: {
     if (isErr(proposal))
       return err(failureToRouteError(proposal.error, timeoutMs));
     if (proposal.value.kind === 'deferred') {
+      logger.warn('planning.deferred', {
+        messageId,
+        plannerId: route.implementation.id,
+        reason: proposal.value.reason,
+        detail: boundedDeferralDetail(proposal.value.detail),
+      });
       return err({
         trigger: 'deferred',
         error: planningDeferredError('planner deferred', proposal.value.reason),
@@ -391,6 +397,30 @@ async function runRoute(input: {
       ),
     });
   }
+}
+
+function boundedDeferralDetail(
+  detail: Readonly<Record<string, string | number | boolean>> | undefined,
+): Record<string, string | number | boolean> {
+  return Object.fromEntries(
+    Object.entries(detail ?? {})
+      .slice(0, 8)
+      .flatMap<[string, string | number | boolean]>(([key, value]) => {
+        if (typeof value === 'string')
+          return [
+            [
+              sanitizeControlChars(key).slice(0, 64),
+              sanitizeControlChars(value).slice(0, 160),
+            ],
+          ];
+        if (
+          typeof value === 'boolean' ||
+          (typeof value === 'number' && Number.isFinite(value))
+        )
+          return [[sanitizeControlChars(key).slice(0, 64), value]];
+        return [];
+      }),
+  );
 }
 
 async function invoke(

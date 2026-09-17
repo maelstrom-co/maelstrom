@@ -47,19 +47,29 @@ Semantic deferrals and strict-invalid candidates map to `PlanningDeferredError`
 after any configured fallback. Cancellation, timeout, and call-budget exhaustion
 are terminal and never start fallback.
 
+## Deferral diagnostics
+
+The engine logs `planning.deferred` with the request ID, planner ID, semantic reason,
+and bounded diagnostic detail. `scope: unsupported` means Jev declined the request
+during its layout decision. `limit: missing_candidates` identifies a parameter
+without selectable values. Other limit names identify candidate or layout bounds.
+Semantic deferrals leave the Chart unchanged unless a configured fallback succeeds.
+
 ## Capability limits
 
 These are implementation limits, not restrictions on other planners or the protocol:
 
 - Tiling only; no grid placement or generated content.
 - At most two actions per turn, and two new instances **per vessel** per turn.
-- Arrangements: preserve, equal row, equal column, or two-thirds focus.
+- Arrangements: preserve, equal row, equal column, two-thirds focus, or 2–12 balanced rows.
   Preserve keeps an existing tree when visibility is unchanged. New arrangements
   do not solve arbitrary nesting or spatial constraints.
 - Parameter sources: normalized declared/runtime enums, booleans, numeric
-  literals, and double-quoted source spans from the latest user intent.
-  Without a matching enum, `Set weather to "Tokyo"` supplies a string candidate;
-  unquoted `Tokyo` does not. Missing required candidates cause deferral.
+  literals, and quoted source strings from the latest user intent.
+  Without quoted strings or a matching enum, Jev can select verbatim spans of up to
+  eight words from requests of at most 32 words. Both `Set weather to "Tokyo"`
+  and `Set weather to Tokyo` supply a string candidate. Longer requests need
+  quoted values or enums. Missing required candidates cause deferral.
 - Choice questions support at most 255 options; parameter candidate sets at
   most 253 values. Oversized candidate sets or unsupported split arrangements
   cause policy deferral rather than partial output.

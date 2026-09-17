@@ -27,6 +27,8 @@ const MAX_ACTIONS = 2;
 const MAX_NEW_PER_VESSEL = 2;
 const MAX_CHOICE_OPTIONS = 255;
 const MAX_PARAMETER_VALUES = MAX_CHOICE_OPTIONS - 2;
+const MAX_UNQUOTED_WORDS = 32;
+const MAX_STRING_SPAN_WORDS = 8;
 const PROBABILITY_TOTAL_TOLERANCE = 0.02;
 
 /** The server-side fetch contract accepted for test transport injection. */
@@ -198,6 +200,7 @@ async function invoke(
     return ok({
       kind: 'deferred',
       reason: scope.value === 'ambiguous' ? 'uncertain' : 'policy',
+      detail: { stage: 'layout', scope: scope.value },
     });
 
   const actionCountAnswer = firstAnswers.take('actionCount');
@@ -389,6 +392,15 @@ function prepare(input: PlannerInvocation['input']): Prepared {
           'Keep the existing tree when visibility is unchanged. Otherwise use the chart orientation for an equal arrangement.',
         row: 'Equal columns ordered left to right.',
         column: 'Equal rows ordered top to bottom.',
+        ...Object.fromEntries(
+          Array.from({ length: MAX_SPLIT_CHILDREN - 1 }, (_, index) => {
+            const rows = index + 2;
+            return [
+              `rows_${rows}`,
+              `Arrange all visible instances across exactly ${rows} horizontal rows, balancing the number of instances per row.`,
+            ];
+          }),
+        ),
         focus:
           'Give the primary instance two thirds of the chart and place others in the remaining third.',
       },
@@ -428,7 +440,7 @@ function prepare(input: PlannerInvocation['input']): Prepared {
   }
   for (const vessel of request.vessels) {
     questions[`create/${vessel.id}`] = choice(
-      `How many additional ${vessel.name} instances does the latest request need? Existing hidden instances must be reused.`,
+      `How many additional ${vessel.name} instances does the latest request need? Existing hidden instances must be reused. Showing all available vessels means at least one instance of every registered vessel type, not every speculative slot.`,
       {
         '0': 'No additional instance.',
         '1': 'Create one additional instance using the first code-allocated slot.',
@@ -451,7 +463,7 @@ function prepare(input: PlannerInvocation['input']): Prepared {
           maximumNewInstancesPerVessel: MAX_NEW_PER_VESSEL,
           arrangements: questions.arrangement.criteria,
           parameterSources:
-            'Normalized declared enum values, booleans, numbers, and double-quoted source spans from the latest request.',
+            'Normalized declared enum values, booleans, numbers, quoted strings, or verbatim contiguous spans of up to eight words from an unquoted request of at most 32 words. No invented or generated values.',
         },
       },
       questions,
@@ -591,7 +603,13 @@ async function selectParameters(input: {
         return ok({
           kind: 'deferred',
           reason: 'policy',
-          detail: { limit: 'missing_candidates' },
+          detail: {
+            limit: 'missing_candidates',
+            stage: 'parameters',
+            instanceId: selected.candidate.instanceId,
+            action: selected.definition.name,
+            parameter: parameter.name,
+          },
         });
       values.set(key, candidates);
       questions[key] = choice(
@@ -700,7 +718,20 @@ function compileLayout(
   let tree: readonly TilingNode[];
   if (arrangement === 'preserve' && sameVisibility) tree = request.layout.tree;
   else if (leaves.length <= 1) tree = leaves;
-  else if (arrangement === 'focus')
+  else if (arrangement.startsWith('rows_')) {
+    const rowCount = Number(arrangement.slice('rows_'.length));
+    if (rowCount > leaves.length) throw new LimitError('row_count');
+    let offset = 0;
+    const rows = Array.from({ length: rowCount }, (_, index) => {
+      const count =
+        Math.floor(leaves.length / rowCount) +
+        (index < leaves.length % rowCount ? 1 : 0);
+      const row = split('V', leaves.slice(offset, offset + count));
+      offset += count;
+      return row;
+    });
+    tree = [`H:${rows.map(() => 1).join(',')}`, ...rows.flat()];
+  } else if (arrangement === 'focus')
     tree = [
       `${axis}:2,1`,
       leaves[0] as TilingNode,
@@ -753,8 +784,8 @@ function parameterValues(
         ),
       ),
     ];
-  if (parameter.type === 'string')
-    return [
+  if (parameter.type === 'string') {
+    const quoted = [
       ...new Set(
         Array.from(
           intent.matchAll(/"([^"\n]+)"|“([^”\n]+)”/g),
@@ -762,6 +793,25 @@ function parameterValues(
         ),
       ),
     ];
+    if (quoted.length > 0) return quoted;
+    const words: { start: number; end: number }[] = [];
+    for (const match of intent.matchAll(
+      /[\p{L}\p{N}][\p{L}\p{N}\p{M}]*(?:['’.-][\p{L}\p{N}\p{M}]+)*/gu,
+    )) {
+      if (words.length === MAX_UNQUOTED_WORDS)
+        throw new LimitError('unquoted_request_words');
+      words.push({ start: match.index, end: match.index + match[0].length });
+    }
+    const spans = new Set<string>();
+    for (let length = 1; length <= MAX_STRING_SPAN_WORDS; length++) {
+      for (let start = 0; start + length <= words.length; start++) {
+        spans.add(
+          intent.slice(words[start].start, words[start + length - 1].end),
+        );
+      }
+    }
+    return [...spans];
+  }
   return [];
 }
 

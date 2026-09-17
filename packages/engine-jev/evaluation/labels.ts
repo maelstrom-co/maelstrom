@@ -104,8 +104,8 @@ export function labelFor(id: string, backend: Backend): Label {
       label.calls = backend === 'jev' ? 2 : 1;
       break;
     case 'source-parameter':
+    case 'unquoted-source-parameter':
     case 'wrong-parameter':
-    case 'candidate-gap':
       label.actions = [
         {
           instanceId: 'weather-main',
@@ -115,7 +115,17 @@ export function labelFor(id: string, backend: Backend): Label {
       ];
       label.calls = backend === 'jev' ? 3 : 1;
       if (id === 'wrong-parameter') label.mistakes = ['parameters'];
-      if (id === 'candidate-gap' && backend === 'jev') {
+      break;
+    case 'candidate-gap':
+      label.actions = [
+        {
+          instanceId: 'weather-main',
+          action: 'setLocation',
+          params: { location: { latitude: -34.9, longitude: -56.2 } },
+        },
+      ];
+      label.calls = 1;
+      if (backend === 'jev') {
         defer('policy');
         label.calls = 2;
       }

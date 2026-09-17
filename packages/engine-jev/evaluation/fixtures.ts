@@ -371,10 +371,52 @@ export const fixtures: readonly Fixture[] = freeze([
     llm: output(base.layout, [{ instanceId: 'missing', action: 'delete' }]),
     jev: [stage({ scope: 'ambiguous' })],
   }),
-  fixture('candidate-gap', request('Set main weather to Tokyo.'), {
+  fixture('unquoted-source-parameter', request('Set main weather to Tokyo.'), {
     ...source,
-    jev: source.jev.slice(0, 2),
+    jev: [...source.jev.slice(0, 2), { 'param/0/location': 'v4' }],
   }),
+  fixture(
+    'candidate-gap',
+    request(
+      'Set main weather to coordinates latitude -34.9 and longitude -56.2.',
+      {
+        vessels: base.vessels.map((vessel) => ({
+          ...vessel,
+          variants: Object.fromEntries(
+            Object.entries(vessel.variants).map(([name, variant]) => [
+              name,
+              {
+                ...variant,
+                actions: variant.actions.map((action) =>
+                  action.name === 'setLocation'
+                    ? {
+                        ...action,
+                        parameters: [
+                          {
+                            name: 'location',
+                            type: 'object',
+                            description: 'Latitude and longitude coordinates',
+                          },
+                        ],
+                      }
+                    : action,
+                ),
+              },
+            ]),
+          ),
+        })),
+      },
+    ),
+    {
+      llm: output(base.layout, [
+        {
+          ...sourceAction,
+          params: { location: { latitude: -34.9, longitude: -56.2 } },
+        },
+      ]),
+      jev: source.jev.slice(0, 2),
+    },
+  ),
   fixture('strict-rejection', invalidWeight, {
     llm: output(invalidWeight.layout),
     jev: [stage()],

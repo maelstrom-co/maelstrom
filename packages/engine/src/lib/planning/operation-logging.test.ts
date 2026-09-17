@@ -47,6 +47,45 @@ const candidate = () =>
   ok({ kind: 'candidate' as const, candidate: buildGridResponse() });
 
 describe('planner operation telemetry', () => {
+  test('keeps policy diagnostics without misreporting a semantic deferral as an LLM failure', async () => {
+    const { logger, events } = capture();
+    const engine = createEngine({
+      logger,
+      planner: {
+        primary: route({
+          id: 'typesafe-jev',
+          supportedLayoutModes: ['grid'],
+          async invoke() {
+            return ok({
+              kind: 'deferred',
+              reason: 'policy',
+              detail: {
+                limit: 'missing_candidates',
+                stage: 'parameters',
+                parameter: 'location',
+              },
+            });
+          },
+        }),
+        operation: { timeoutMs: null, maxProviderCalls: 1 },
+      },
+    });
+    expect((await engine.handle(message())).ok).toBe(false);
+    expect(events).toContainEqual({
+      event: 'planning.deferred',
+      data: {
+        messageId: 'logging-request',
+        plannerId: 'typesafe-jev',
+        reason: 'policy',
+        detail: {
+          limit: 'missing_candidates',
+          stage: 'parameters',
+          parameter: 'location',
+        },
+      },
+    });
+    expect(events.some(({ event }) => event === 'LLM call failed')).toBe(false);
+  });
   test.each([
     false,
     true,

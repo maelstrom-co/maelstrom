@@ -280,6 +280,10 @@ function logEngineError(
     logger.info('Request cancelled', { messageId, reason: error.reason });
     return;
   }
+  if (error._tag === 'PlanningDeferredError') {
+    logger.warn('Planning deferred', { messageId, reason: error.reason });
+    return;
+  }
   logger.error('LLM call failed', error, { messageId, errorTag: error._tag });
 }
 
