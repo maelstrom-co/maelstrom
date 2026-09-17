@@ -523,7 +523,7 @@ export async function planWithJev(
       ...TilingLayoutSchema.parse({ tree, instances }),
     };
     const healed = healTilingLayout(
-      { layout, executionPlan: rawActions, userMessage: '', rationale: '' },
+      { layout, executionPlan: rawActions, rationale: '' },
       request,
     );
     if (
