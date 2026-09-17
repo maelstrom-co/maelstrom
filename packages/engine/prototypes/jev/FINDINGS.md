@@ -217,6 +217,12 @@ failures are layout judgments; action parameters were correct in the eight
 accepted plans whose layouts failed. This makes bounded action routing a
 promising scope for further evaluation.
 
+The [integration plan](../../../../docs/plans/jev-planner-integration.md)
+passed Apnea's review gate after three rounds. It preserves legacy LLM
+healing and retry behavior, makes strictness explicit, and limits the first
+Jev demo path to trusted local server configuration. See the
+[final review](../../../../docs/plans/jev-planner-integration-review.md).
+
 ## Verification record
 
 - Passed: prototype type-check, Biome checks, and all 44 offline cases, using

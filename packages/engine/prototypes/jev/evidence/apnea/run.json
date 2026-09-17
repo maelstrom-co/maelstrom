@@ -1,0 +1,12 @@
+{
+  "tool": "apnea",
+  "runId": "660b9938-c791-4b3c-afed-1caab2bd9020",
+  "delivery": "manual",
+  "rounds": 3,
+  "verdict": "APPROVED",
+  "stoppedAt": "phase_packaging",
+  "scope": "Planning and plan review only; implementation has not started.",
+  "plan": "docs/plans/jev-planner-integration.md",
+  "review": "docs/plans/jev-planner-integration-review.md",
+  "planSha256": "8471c11339b4351fb0e5276fe37639a64d46a6eb0a1dbb91194cbf209f99c6c7"
+}

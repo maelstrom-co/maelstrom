@@ -4,6 +4,8 @@ Run a throwaway planner that returns only `layout` and `executionPlan` for
 [Maelstrom Vessels](https://docs.maelstrom-ai.co/understanding/vessel-state-machine/).
 Read [the feasibility findings](FINDINGS.md) and [live results](LIVE-RESULTS.md)
 for the integration assessment.
+The [approved integration plan](../../../../docs/plans/jev-planner-integration.md)
+defines the proposed shared API and implementation phases.
 
 ## Before you start
 
@@ -110,6 +112,8 @@ They do not score a simulated model as if it were Jev.
 
 ## Next steps
 
+- [Approved interchangeable-planner plan](../../../../docs/plans/jev-planner-integration.md)
+- [Final Apnea review](../../../../docs/plans/jev-planner-integration-review.md)
 - [Feasibility findings and remaining work](FINDINGS.md)
 - [Live results and generalization failures](LIVE-RESULTS.md)
 - [Captured live development report](evidence/live-staged/report.html)

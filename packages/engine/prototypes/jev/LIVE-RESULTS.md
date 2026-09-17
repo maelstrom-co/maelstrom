@@ -125,6 +125,10 @@ It should retain the LLM default, test optional reply text across consumers,
 preserve atomic layout-before-actions processing, and specify acceptance
 criteria for model quality before changing deployment policy.
 
+The [approved plan](../../../../docs/plans/jev-planner-integration.md) specifies
+that interface and migration. Apnea's [final review](../../../../docs/plans/jev-planner-integration-review.md)
+confirms the retry, fallback, budget, and compatibility decisions.
+
 ## Inspect or reproduce the evidence
 
 - [Initial live report](evidence/live-initial/report.html)
