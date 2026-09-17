@@ -14,7 +14,30 @@ export async function buildReport(
   });
   if (!built.success) throw new Error('Could not build the report viewer.');
   const script = await built.outputs[0].text();
-  const data = JSON.stringify({ summary, records }).replaceAll('<', '\\u003c');
+  const catalogs: ReportRecord['input']['request']['vessels'][] = [];
+  const catalogKeys: string[] = [];
+  const compactRecords = records.map((record) => {
+    const key = JSON.stringify(record.input.request.vessels);
+    let catalogIndex = catalogKeys.indexOf(key);
+    if (catalogIndex < 0) {
+      catalogIndex = catalogs.length;
+      catalogs.push(record.input.request.vessels);
+      catalogKeys.push(key);
+    }
+    return {
+      ...record,
+      catalogIndex,
+      input: {
+        ...record.input,
+        request: { ...record.input.request, vessels: undefined },
+      },
+    };
+  });
+  const data = JSON.stringify({
+    summary,
+    catalogs,
+    records: compactRecords,
+  }).replaceAll('<', '\\u003c');
   await Bun.write(
     `${directory}/report.html`,
     `<!doctype html>

@@ -25,6 +25,7 @@ export const vessels: Vessel[] = [
 ].map((v) => VesselSchema.parse(v));
 
 interface Script {
+  forbidAction?: string;
   scope?: string;
   presence?: Record<string, string>;
   arrangement?: string;
@@ -464,12 +465,19 @@ export const scenarios: Scenario[] = [
   },
   {
     id: 'absent-target',
-    title: 'Reject actions on an uncreated instance',
+    title: 'Exclude actions on uncreated instances',
     group: 'compiler',
-    why: 'Cross-question consistency must be checked before any layout or action is applied.',
+    why: 'The action stage cannot select a target that the layout stage did not retain or create.',
     input: input('Show the weekly forecast.'),
-    script: { actions: ['weather-jev-1/showWeekly'] },
-    expected: { status: 'deferred', reason: 'action_target_absent' },
+    script: {
+      actions: ['weather-main/showWeekly'],
+      forbidAction: 'weather-jev-1/showWeekly',
+    },
+    expected: {
+      status: 'planned',
+      visible: baseVisible,
+      actions: [{ instanceId: 'weather-main', action: 'showWeekly' }],
+    },
   },
   {
     id: 'gap',
@@ -634,6 +642,292 @@ scenarios.push({
   expected: { status: 'planned', visible: baseVisible, actions: [] },
 });
 
+export const holdoutScenarios: Scenario[] = [
+  {
+    id: 'hold-preserve',
+    title: 'Leave the workspace untouched',
+    group: 'capability',
+    why: 'A differently worded no-op must preserve every instance.',
+    input: input('Everything looks right. Keep it this way.'),
+    script: {},
+    expected: {
+      status: 'planned',
+      visible: baseVisible,
+      retained: baseRetained,
+      actions: [],
+    },
+  },
+  {
+    id: 'hold-hide',
+    title: 'Hide one of two visible widgets',
+    group: 'capability',
+    why: 'A changed initial board must not reveal unrelated hidden instances.',
+    input: input('Take the forecast off screen and leave my calendar alone.', {
+      tree: ['V', 'ID:calendar-main', 'ID:weather-main'],
+    }),
+    script: { presence: { 'weather-main': 'hidden' } },
+    expected: {
+      status: 'planned',
+      visible: ['calendar-main'],
+      retained: baseRetained,
+      actions: [],
+    },
+  },
+  {
+    id: 'hold-show',
+    title: 'Bring back a hidden checklist',
+    group: 'capability',
+    why: 'Reuse applies when a different Vessel starts hidden.',
+    input: input('Bring back my task list beside the calendar.', {
+      tree: ['ID:calendar-main'],
+    }),
+    script: { presence: { 'tasks-main': 'visible' } },
+    expected: {
+      status: 'planned',
+      visible: ['calendar-main', 'tasks-main'],
+      retained: baseRetained,
+      actions: [],
+    },
+  },
+  {
+    id: 'hold-weather-variant',
+    title: 'Return from weekly to current weather',
+    group: 'capability',
+    why: 'Action selection must depend on the actual starting variant.',
+    input: input('Switch the weather widget back to current conditions.', {
+      variants: { weather: 'weekly' },
+    }),
+    script: { actions: ['weather-main/showCurrent'] },
+    expected: {
+      status: 'planned',
+      visible: baseVisible,
+      actions: [{ instanceId: 'weather-main', action: 'showCurrent' }],
+    },
+  },
+  {
+    id: 'hold-calendar-variant',
+    title: 'Switch the calendar to monthly',
+    group: 'capability',
+    why: 'Variant routing should transfer to another Vessel.',
+    input: input('Switch my calendar from the week view to the month view.', {
+      variants: { calendar: 'week' },
+    }),
+    script: { actions: ['calendar-main/showMonth'] },
+    expected: {
+      status: 'planned',
+      visible: baseVisible,
+      actions: [{ instanceId: 'calendar-main', action: 'showMonth' }],
+    },
+  },
+  {
+    id: 'hold-map-route',
+    title: 'Find the route to a named workplace',
+    group: 'capability',
+    why: 'A route request should select an existing enum option under another phrasing.',
+    input: input(
+      'I need driving directions to Studio Vortex HQ. Bring up the map.',
+    ),
+    script: {
+      presence: { 'map-main': 'visible' },
+      actions: ['map-main/showRoute'],
+      arguments: { 'param/0/destination': 'Studio Vortex HQ' },
+    },
+    expected: {
+      status: 'planned',
+      visible: [...baseVisible, 'map-main'],
+      actions: [
+        {
+          instanceId: 'map-main',
+          action: 'showRoute',
+          params: { destination: 'Studio Vortex HQ' },
+        },
+      ],
+    },
+  },
+  {
+    id: 'hold-two-writes',
+    title: 'Perform two distinct task writes',
+    group: 'capability',
+    why: 'Two calls to the same action must retain their distinct values and order.',
+    input: input('Add "Review budget" to my tasks, then add "Book taxi".'),
+    script: {
+      actions: ['tasks-main/addTask', 'tasks-main/addTask'],
+      arguments: {
+        'param/0/title': 'Review budget',
+        'param/1/title': 'Book taxi',
+      },
+    },
+    expected: {
+      status: 'planned',
+      visible: baseVisible,
+      actions: [
+        {
+          instanceId: 'tasks-main',
+          action: 'addTask',
+          params: { title: 'Review budget' },
+        },
+        {
+          instanceId: 'tasks-main',
+          action: 'addTask',
+          params: { title: 'Book taxi' },
+        },
+      ],
+    },
+  },
+  {
+    id: 'hold-event',
+    title: 'Pair an event title with its time',
+    group: 'capability',
+    why: 'Multiple string arguments must be selected by role rather than swapped.',
+    input: input('Add "Dentist" to today’s calendar at "15:00".'),
+    script: {
+      actions: ['calendar-main/addEvent'],
+      arguments: { 'param/0/title': 'Dentist', 'param/0/time': '15:00' },
+    },
+    expected: {
+      status: 'planned',
+      visible: baseVisible,
+      actions: [
+        {
+          instanceId: 'calendar-main',
+          action: 'addEvent',
+          params: { title: 'Dentist', time: '15:00' },
+        },
+      ],
+    },
+  },
+  {
+    id: 'hold-new-instance',
+    title: 'Add another weather view for Oslo',
+    group: 'capability',
+    why: 'New instance allocation should generalize beyond the development location.',
+    input: input(
+      'Keep my current board. Open one additional weather widget for "Oslo".',
+    ),
+    script: {
+      presence: { 'weather-jev-1': 'visible' },
+      actions: ['weather-jev-1/setLocation'],
+      arguments: { 'param/0/location': 'Oslo' },
+    },
+    expected: {
+      status: 'planned',
+      visible: [...baseVisible, 'weather-jev-1'],
+      actions: [
+        {
+          instanceId: 'weather-jev-1',
+          action: 'setLocation',
+          params: { location: 'Oslo' },
+        },
+      ],
+    },
+  },
+  {
+    id: 'hold-comparison',
+    title: 'Configure two named comparison subjects',
+    group: 'capability',
+    why: 'A comparison must configure both the reused instance and the new one.',
+    input: input(
+      'Show only two weather panels side by side. Set the existing one on the left to "Oslo" and create one on the right for "Rome".',
+    ),
+    script: {
+      presence: {
+        'calendar-main': 'hidden',
+        'tasks-main': 'hidden',
+        'weather-jev-1': 'visible',
+      },
+      arrangement: 'row',
+      primary: 'weather-main',
+      actions: ['weather-main/setLocation', 'weather-jev-1/setLocation'],
+      arguments: { 'param/0/location': 'Oslo', 'param/1/location': 'Rome' },
+    },
+    expected: {
+      status: 'planned',
+      visible: ['weather-main', 'weather-jev-1'],
+      tree: ['V:1,1', 'ID:weather-main', 'ID:weather-jev-1'],
+      actions: [
+        {
+          instanceId: 'weather-main',
+          action: 'setLocation',
+          params: { location: 'Oslo' },
+        },
+        {
+          instanceId: 'weather-jev-1',
+          action: 'setLocation',
+          params: { location: 'Rome' },
+        },
+      ],
+    },
+  },
+  {
+    id: 'hold-stack',
+    title: 'Rearrange two visible widgets on a tall Chart',
+    group: 'capability',
+    why: 'Rearranging visible instances must not create or reveal others.',
+    input: input(
+      'Keep exactly these visible widgets, but put them in equal rows from top to bottom.',
+      {
+        tree: ['V', 'ID:calendar-main', 'ID:tasks-main'],
+        columns: 10,
+        rows: 30,
+      },
+    ),
+    script: { arrangement: 'column' },
+    expected: {
+      status: 'planned',
+      visible: ['calendar-main', 'tasks-main'],
+      tree: ['H:1,1', 'ID:calendar-main', 'ID:tasks-main'],
+      actions: [],
+    },
+  },
+  {
+    id: 'hold-three-writes',
+    title: 'Refuse three requested writes',
+    group: 'boundary',
+    why: 'A different three-item list must not be truncated to the first two.',
+    input: input(
+      'Create three tasks: "Call Sam", "Pay rent", and "Water plants".',
+    ),
+    script: { scope: 'unsupported' },
+    expected: { status: 'deferred' },
+  },
+  {
+    id: 'hold-unknown-vessel',
+    title: 'Refuse an unavailable trading widget',
+    group: 'boundary',
+    why: 'A supported action vocabulary must not substitute an unrelated Vessel.',
+    input: input('Open a stock trading widget and place a buy order.'),
+    script: { scope: 'unsupported' },
+    expected: { status: 'deferred' },
+  },
+  {
+    id: 'hold-generated-content',
+    title: 'Refuse new generated journal content',
+    group: 'boundary',
+    why: 'Removing the chat reply does not create a text-generation primitive for action parameters.',
+    input: input('Write an original bedtime story about a fox in my journal.'),
+    script: { scope: 'unsupported' },
+    expected: { status: 'deferred' },
+  },
+  {
+    id: 'hold-unquoted',
+    title: 'Report missing candidates for a new title',
+    group: 'boundary',
+    why: 'The prototype must expose its extraction limit rather than invent a title.',
+    input: input('Add a task to remember the passport.'),
+    script: { actions: ['tasks-main/addTask'] },
+    expected: { status: 'deferred' },
+  },
+  {
+    id: 'hold-ambiguous',
+    title: 'Refuse an unresolved destructive reference',
+    group: 'boundary',
+    why: 'An unspecified target must not be chosen from unrelated instances.',
+    input: input('Delete the one I was thinking of.'),
+    script: { scope: 'ambiguous' },
+    expected: { status: 'deferred' },
+  },
+];
+
 export function fixtureJudge(scenario: Scenario): Judge {
   return async (evaluation) => {
     const selections: Record<string, string> = {};
@@ -642,12 +936,39 @@ export function fixtureJudge(scenario: Scenario): Judge {
       selections.scope = scenario.script.scope ?? 'supported';
       selections.arrangement = scenario.script.arrangement ?? 'preserve';
       selections.primary = scenario.script.primary ?? 'none';
-      for (const c of prepared.candidates)
+      selections.actionCount = String(scenario.script.actions?.length ?? 0);
+      for (const c of prepared.candidates.filter((c) => !c.fresh)) {
+        const requested = scenario.script.presence?.[c.instanceId];
         selections[`presence/${c.instanceId}`] =
-          scenario.script.presence?.[c.instanceId] ??
-          (c.fresh ? 'absent' : c.wasVisible ? 'visible' : 'hidden');
-      selections['action/0'] = scenario.script.actions?.[0] ?? 'none';
-      selections['action/1'] = scenario.script.actions?.[1] ?? 'none';
+          requested === 'visible'
+            ? 'show'
+            : requested === 'hidden'
+              ? 'hide'
+              : requested === 'absent'
+                ? 'delete'
+                : 'unchanged';
+      }
+      for (const vessel of scenario.input.request.vessels) {
+        selections[`create/${vessel.id}`] = String(
+          prepared.candidates.filter(
+            (c) =>
+              c.fresh &&
+              c.vesselId === vessel.id &&
+              scenario.script.presence?.[c.instanceId] === 'visible',
+          ).length,
+        );
+      }
+    } else if (Object.hasOwn(evaluation.questions, 'action/0')) {
+      if (
+        scenario.script.forbidAction &&
+        Object.values(evaluation.questions).some((q) =>
+          Object.hasOwn(q.criteria, scenario.script.forbidAction ?? ''),
+        )
+      )
+        throw new Error('Action choices include an uncreated instance');
+      for (const key of Object.keys(evaluation.questions))
+        selections[key] =
+          scenario.script.actions?.[Number(key.split('/')[1])] ?? 'none';
     } else {
       for (const [key, question] of Object.entries(evaluation.questions)) {
         const intended = scenario.script.arguments?.[key];
@@ -701,12 +1022,15 @@ export function score(
         .sort(),
       [...expected.visible].sort(),
     );
-  if (expected.retained)
-    compare(
-      'Retained instances',
-      outcome.plan.layout.instances.map((i) => i.instanceId).sort(),
-      [...expected.retained].sort(),
-    );
+  const originalIds = scenario.input.request.instances.map((i) => i.instanceId);
+  const retained = expected.retained ?? [
+    ...new Set([...originalIds, ...(expected.visible ?? [])]),
+  ];
+  compare(
+    'Retained instances',
+    outcome.plan.layout.instances.map((i) => i.instanceId).sort(),
+    [...retained].sort(),
+  );
   if (expected.tree) compare('Tree', outcome.plan.layout.tree, expected.tree);
   if (expected.actions)
     compare('Ordered actions', outcome.plan.executionPlan, expected.actions);

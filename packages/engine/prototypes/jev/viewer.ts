@@ -19,7 +19,8 @@ interface Data {
     deferred: number;
     p50Ms: number | null;
   };
-  records: ReportRecord[];
+  catalogs?: ReportRecord['input']['request']['vessels'][];
+  records: (ReportRecord & { catalogIndex?: number })[];
 }
 const element = (id: string): HTMLElement => {
   const found = document.getElementById(id);
@@ -27,6 +28,14 @@ const element = (id: string): HTMLElement => {
   return found;
 };
 const data: Data = JSON.parse(element('data').textContent ?? '{}');
+for (const record of data.records) {
+  const vessels =
+    record.catalogIndex === undefined
+      ? record.input.request.vessels
+      : data.catalogs?.[record.catalogIndex];
+  if (!vessels) throw new Error('Report catalog is missing');
+  record.input.request = { ...record.input.request, vessels };
+}
 let current = data.records[0];
 let layout: TilingLayout;
 let actions: unknown[] = [];
@@ -109,7 +118,10 @@ function select(record: ReportRecord) {
   for (const button of element('cases').querySelectorAll('button'))
     button.setAttribute(
       'aria-pressed',
-      String(button.dataset.id === record.id),
+      String(
+        button.dataset.id === record.id &&
+          button.dataset.repeat === String(record.repeat),
+      ),
     );
   before();
 }
@@ -193,7 +205,8 @@ function list(group: string) {
     const button = document.createElement('button');
     button.type = 'button';
     button.dataset.id = record.id;
-    button.textContent = `${record.failures.length ? 'FAIL' : 'PASS'} · ${record.title}`;
+    button.dataset.repeat = String(record.repeat);
+    button.textContent = `${record.failures.length ? 'FAIL' : 'PASS'} · ${record.title} · trial ${record.repeat}`;
     button.addEventListener('click', () => select(record));
     nav.append(button);
   }
@@ -206,7 +219,7 @@ for (const [label, value] of Object.entries({
   'Failed expectations': data.summary.failedExpectations,
   'Plans compiled': data.summary.planned,
   'Requests deferred': data.summary.deferred,
-  'Live p50':
+  'Model-backed p50':
     data.summary.p50Ms === null
       ? 'Not measured'
       : `${Math.round(data.summary.p50Ms)} ms`,

@@ -1,7 +1,13 @@
 import { mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
-import { fixtureJudge, scenarios, score, vessels } from './cases.ts';
+import {
+  fixtureJudge,
+  holdoutScenarios,
+  scenarios,
+  score,
+  vessels,
+} from './cases.ts';
 import { type Outcome, planWithJev, prepare } from './planner.ts';
 import { buildReport } from './report.ts';
 import { liveJudge } from './typesafe.ts';
@@ -17,13 +23,14 @@ const { values } = parseArgs({
     repeats: { type: 'string', default: '1' },
     'min-confidence': { type: 'string', default: '0' },
     out: { type: 'string' },
+    suite: { type: 'string', default: 'development' },
     help: { type: 'boolean', default: false },
   },
 });
 
 if (values.help) {
   console.log(
-    'Jev prototype: --offline | --live [--model jev-latest] [--case ID] [--repeats 1] [--min-confidence 0] [--out DIRECTORY] [--verify]\nDefault: offline. Live runs require TYPESAFE_API_KEY. --verify exits nonzero on any failed expectation.',
+    'Jev prototype: --offline | --live [--suite development|holdout] [--model jev-latest] [--case ID] [--repeats 1] [--min-confidence 0] [--out DIRECTORY] [--verify]\nDefault: offline. Live runs require TYPESAFE_API_KEY. --verify exits nonzero on any failed expectation.',
   );
   process.exit(0);
 }
@@ -40,7 +47,11 @@ if (
   minimumConfidence > 1
 )
   throw new Error('--min-confidence must be between 0 and 1.');
-const selected = scenarios.filter(
+if (!['development', 'holdout'].includes(values.suite))
+  throw new Error('--suite must be development or holdout.');
+const selected = (
+  values.suite === 'holdout' ? holdoutScenarios : scenarios
+).filter(
   (s) =>
     (!values.case || s.id === values.case) && (!live || s.group !== 'compiler'),
 );
@@ -55,6 +66,8 @@ const destination = resolve(
 await mkdir(destination, { recursive: true });
 
 const metadata = {
+  suite: values.suite,
+  plannerRevision: 'staged-deltas-v3',
   mode: live ? 'live' : 'scripted-offline',
   model: live ? values.model : 'scripted-not-jev',
   createdAt: new Date().toISOString(),
@@ -65,7 +78,9 @@ const metadata = {
       : 'blocked_missing_key'
     : 'not_run',
   interpretation: live
-    ? 'Synthetic development cases; not a held-out benchmark.'
+    ? values.suite === 'holdout'
+      ? 'Fresh synthetic prompt/state probes frozen before their first live run. Not production traffic.'
+      : 'Synthetic development cases; not a held-out benchmark.'
     : 'Hand-authored judgments verify the compiler only. No Jev inference, accuracy, latency, or cost was measured.',
 };
 if (live && !process.env.TYPESAFE_API_KEY) {
@@ -179,7 +194,9 @@ const questionBudgets = selected.map((s) => {
 });
 const measured = records
   .flatMap((r) =>
-    r.elapsedMs === null || r.result.status === 'error' ? [] : [r.elapsedMs],
+    r.elapsedMs === null || r.result.status === 'error' || r.requests === 0
+      ? []
+      : [r.elapsedMs],
   )
   .sort((a, b) => a - b);
 const percentile = (p: number) =>
@@ -196,6 +213,8 @@ const summary = {
   errors: records.filter((r) => r.result.status === 'error').length,
   p50Ms: percentile(0.5),
   p95Ms: percentile(0.95),
+  latencyPopulation:
+    'Completed model-backed trials; deterministic resize trials excluded.',
   tokens: live
     ? records
         .flatMap((r) => r.traces)

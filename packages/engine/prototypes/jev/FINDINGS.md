@@ -1,20 +1,27 @@
 # Jev integration feasibility
 
-**A Jev-backed structured planner is feasible at the code-contract level. Model quality and performance remain unverified.** Removing the user reply
+**Jev is feasible as an experimental, replaceable planner. The live results do not justify making it the default.** Removing the user reply
 removes the text-generation requirement from the planner's output. It does
 not turn Jev into a direct replacement for a TanStack AI text adapter.
 
 This experiment answers a narrower question: can typed judgments produce
 Maelstrom layouts and ordered actions using the existing Vessel catalog and
-validators? The [captured report](evidence/report.html) demonstrates that path.
+validators? The [live results](LIVE-RESULTS.md) demonstrate that path and its current limits.
 The [run guide](README.md) explains how to repeat it against Jev.
 
 ## What was established
 
-The offline suite contains 28 hand-authored judgment scenarios. All passed:
-19 produce plans and nine defer. These numbers measure the compiler and its
-boundary handling, not Jev accuracy. No TypeSafe key was available. The live
-command was attempted and stopped with `blocked_missing_key` before any call.
+The current offline suites pass 28 development and 16 additional cases. They
+measure the compiler, not Jev accuracy.
+
+Live evaluation used `jev-1.13.0`. The initial design passed 45 of 66
+model-backed development trials. Two revisions raised that to 66 of 66.
+Six deterministic resize trials are excluded from those model totals.
+
+The frozen additional prompt/state set passed 39 of 48 trials. It accepted
+eight incorrect layouts and deferred one valid request. This generalization
+gap is the main reason to keep the LLM default. See the [recorded live study](LIVE-RESULTS.md)
+for latency, usage, individual failures, and preserved raw responses.
 
 The planner returns exactly:
 
@@ -48,21 +55,23 @@ transitions. It does not run action callbacks or prove their effects.
 
 ## Where the work moves
 
-The experiment uses two bounded stages:
+The final experiment uses three bounded stages:
 
-1. Jev selects instance presence, arrangement, a primary instance, and up to
-   two ordered actions. Code checks whether the selected sequence is valid.
-2. If those actions need parameters, Jev selects candidate values in a second
-   request. Code copies the values and constructs the final plan.
+1. Jev selects visibility changes, new-instance counts, an arrangement, and an
+   action count. Code preserves unchanged instances and allocates new IDs.
+2. When actions are needed, Jev selects them from the retained and created
+   instances. Code checks the ordered sequence and simulates variants.
+3. When parameters are needed, Jev selects their candidate values. Code copies
+   those values and constructs the final plan.
 
-Independent questions within each stage share one request. Stage two depends
-on the selected actions and their simulated variants. This avoids asking for
-every possible action's arguments speculatively.
+Independent questions within a stage share one request. Later stages receive
+earlier decisions as explicit state. This removed the competing hypothetical
+instance targets that caused failures in the first designs.
 
-The five-Vessel fixture produces 20 first-stage questions. Its largest Choice
-has 67 options. The serialized first-stage payload is about 51 KB, before
-adding the model field. These are measured payload sizes, not token estimates.
-Actual token usage and latency require a live run.
+Layout-only requests use one call. Parameterless actions use two calls.
+Parameterized actions use three calls. The final development sweep measured
+647 ms model-backed p50 and 1,142 ms p95 across plans and deferrals. These are
+end-to-end times from this machine, not provider-only inference times.
 
 Code owns instance IDs, action ordering validation, enum validation, tree
 construction, and the decision to defer. Jev supplies semantic selections.
@@ -130,10 +139,10 @@ experiment follows that contract. The narrow-Chart cases prove valid tree
 construction, not content readability. Actual responsive UI quality needs
 rendered Vessel evaluation.
 
-The `scope` question asks whether the complete request fits the supported
-operations. It can be wrong. In particular, only live cases can establish
-whether Jev reliably rejects a request requiring more than two actions
-instead of selecting only the first two.
+The `scope` and action-count questions can be wrong. The first live design
+proposed only two actions for one three-write request. The final design rejected every
+over-limit request in both recorded sets, but this is not a guarantee for
+unseen language or longer plans.
 
 ## What production integration would change
 
@@ -166,6 +175,10 @@ that handle it. History should project previous intent, layout, and actions
 when there is no reply. Chat display and speech consumers need corresponding
 coverage. The experiment does not change that published contract.
 
+The realtime seam already makes `SubmitIntentResult.userMessage` optional and
+falls back to a settled UI summary. Reuse that behavior and test it through
+the relaxed engine/wire contract; a new narration subsystem is not needed.
+
 Continue applying the layout before executing actions. The new-instance case
 depends on that ordering. A deferred result must not apply half a plan.
 
@@ -176,34 +189,37 @@ latency, model identifiers, and usage. It compares observable behavior with
 independently authored expectations. It never sends fixture answers or scoring
 rules to Jev.
 
-The current cases are development cases, not held-out evidence. After the
-first live run, use a separate set of actual requests to measure:
+The additional cases were frozen before their first live run. They were
+authored during this experiment and are not representative production traffic.
+Use a separate set of actual requests to measure:
 
 - Correct layouts and action parameters on supported requests.
 - Incorrect plans accepted, including partial handling of compound requests.
 - Useful coverage and deferral rate on representative traffic.
-- End-to-end p50 and p95 latency, including both stages and any fallback.
+- End-to-end p50 and p95 latency, including every stage and any fallback.
 - Total provider cost using verified account pricing.
 - Stability across repeated runs and catalog changes.
 
 Compare the same cases with the current engine before claiming a benefit.
-No baseline comparison, model-quality result, latency improvement, or cost
-saving was established in this checkout.
+No comparison with the existing LLM, latency improvement over it, or dollar
+saving was established. The recorded live runs establish Jev behavior and
+token usage on these synthetic cases only.
 
 ## Recommendation
 
-Proceed to a live evaluation of the bounded planner. The most promising
-initial scope is selecting existing instances, arranging them, changing
-variants, and invoking actions with enum or extractable arguments.
+Plan an opt-in Jev implementation behind a provider-neutral planning interface.
+Keep the current LLM path as the default. Both implementations should emit the
+same validated layout/action contract and support text-free responses.
 
-Keep unsupported or uncertain requests as explicit deferrals while measuring
-coverage. Removing the chat reply makes this design more plausible, but the
-remaining investment is a plan compiler and candidate pipeline, not a model
-configuration change.
+Make promotion conditional on a representative evaluation set, incorrect-plan
+rate, fallback coverage, and end-to-end cost and latency. The fresh-case
+failures are layout judgments; action parameters were correct in the eight
+accepted plans whose layouts failed. This makes bounded action routing a
+promising scope for further evaluation.
 
 ## Verification record
 
-- Passed: prototype type-check, Biome checks, and all 28 offline cases, using
+- Passed: prototype type-check, Biome checks, and all 44 offline cases, using
   `--skip-nx-cache` for the Nx targets.
 - Passed: engine type-check, Biome checks, build, and 683 existing tests.
 - Passed: root type-check, Biome checks, and both root test suites.
@@ -215,8 +231,9 @@ configuration change.
 - Passed: local documentation links and terminal Markdown rendering.
 - Passed: the two experiment pages under Vale 3.18.0, with no warnings.
   The repository documentation gate passed with existing warnings elsewhere.
-- Untested: live Jev responses, quality, latency, pricing, and comparison with
-  the current engine. The live command recorded the missing API key.
+- Measured: live Jev responses, quality on synthetic cases, latency, and usage.
+  The fresh-case suite failed nine expectations; those failures are retained.
+- Untested: account pricing, production traffic, and comparison with the current LLM.
 - Not applicable: docs-site build and sidebar registration. These are local
   experiment documents, not published site pages.
 
@@ -226,8 +243,11 @@ The authored viewer, report generator, planner, and evaluator remain checked.
 ## Evidence and sources
 
 - [Captured compiler report](evidence/report.html)
+- [Live results](LIVE-RESULTS.md)
+- [Final live development report](evidence/live-staged/report.html)
+- [Frozen fresh-case report](evidence/live-holdout/report.html)
 - [Captured summary and parameter audit](evidence/offline-summary.json)
-- [Recorded live blocker](evidence/live-status.json)
+- [Initial missing-key record, superseded by the live runs](evidence/live-status.json)
 - [Existing response processor](../../src/lib/response/response-processor.ts)
 - [Existing action validator](../../src/lib/response/execution-plan/parse-execution-plan.ts)
 - [Default history projection](../../src/lib/history/history-manager.ts)

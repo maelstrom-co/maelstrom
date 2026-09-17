@@ -2,7 +2,8 @@
 
 Run a throwaway planner that returns only `layout` and `executionPlan` for
 [Maelstrom Vessels](https://docs.maelstrom-ai.co/understanding/vessel-state-machine/).
-Read [the feasibility findings](FINDINGS.md) for the integration assessment.
+Read [the feasibility findings](FINDINGS.md) and [live results](LIVE-RESULTS.md)
+for the integration assessment.
 
 ## Before you start
 
@@ -49,15 +50,24 @@ Then run the language-understanding cases three times:
 bun --conditions=@maelstrom-co/source packages/engine/prototypes/jev/run.ts --live --repeats 3 --verify
 ```
 
-The live suite excludes four deliberate compiler fault injections. It includes
+The live suite excludes four compiler-only checks. It includes
 two deterministic resize cases, which make no API request. Each other case
-makes at most two API requests. Each request has a 30-second timeout and no
+makes at most three API requests. Each request has a 30-second timeout and no
 automatic retry. Authentication, overload, and response-contract failures stop
 the sweep instead of counting as model mistakes.
 
 The default model is `jev-latest`. Pass `--model` to select a model available
 to your account. The report records the model returned by the API for each call.
 Use that identifier for subsequent comparisons when the provider supports it.
+
+Run the frozen set of additional prompt and state cases with:
+
+```sh
+bun --conditions=@maelstrom-co/source packages/engine/prototypes/jev/run.ts --live --model jev-1.13.0 --suite holdout --repeats 3 --verify
+```
+
+These are synthetic probes. Their recorded failures are evidence, not an
+invitation to change expectations until the suite passes.
 
 Pass `--min-confidence 0.5` to explore deferral behavior. The default is zero
 so this experiment does not impose an uncalibrated confidence cutoff.
@@ -94,13 +104,16 @@ Run the configured checks without the Nx cache:
 bunx nx run-many -t typecheck,test,check --projects=jev-prototype --skip-nx-cache
 ```
 
-The `test` target runs the offline evaluation cases. They assert observable
+The `test` target runs both offline suites, totaling 44 cases. They assert observable
 layout, identity retention, ordered actions, exact arguments, and deferrals.
 They do not score a simulated model as if it were Jev.
 
 ## Next steps
 
 - [Feasibility findings and remaining work](FINDINGS.md)
+- [Live results and generalization failures](LIVE-RESULTS.md)
+- [Captured live development report](evidence/live-staged/report.html)
+- [Captured fresh-case report](evidence/live-holdout/report.html)
 - [Captured offline report](evidence/report.html)
 - [TypeSafe evaluation API](https://docs.typesafe.ai/api.md)
 - [TypeSafe function-calling cookbook](https://docs.typesafe.ai/cookbooks/function_calling.md)

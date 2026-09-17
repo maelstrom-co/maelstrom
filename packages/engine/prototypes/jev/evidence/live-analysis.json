@@ -1,0 +1,978 @@
+[
+  {
+    "directory": "tmp/jev-prototype/live-initial",
+    "metadata": {
+      "createdAt": "2026-09-17T02:57:41.854Z",
+      "model": "jev-latest",
+      "suite": "development",
+      "plannerRevision": null,
+      "tokens": {
+        "input": 1185523,
+        "output": 184498
+      }
+    },
+    "analysis": {
+      "totalTrials": 72,
+      "completedTrials": 72,
+      "modelBackedTrials": 66,
+      "deterministicTrials": 6,
+      "correctModelBackedTrials": 45,
+      "acceptedPlans": 46,
+      "incorrectAcceptedPlans": 15,
+      "expectedPlans": 51,
+      "correctAcceptedPlans": 31,
+      "unnecessaryDeferrals": 6,
+      "expectedDeferrals": 15,
+      "correctDeferrals": 14,
+      "apiCalls": 87,
+      "errors": 0,
+      "modelBackedP50Ms": 433.59045900000274,
+      "modelBackedP95Ms": 787.1393749999988,
+      "acceptedPlanP50Ms": 571.0240840000001,
+      "acceptedPlanP95Ms": 787.1393749999988,
+      "returnedModels": ["jev-1.13.0"],
+      "byStage": {
+        "select": {
+          "calls": 66,
+          "p50Ms": 391.6682499999988,
+          "p95Ms": 569.856209,
+          "inputTokens": 1073226,
+          "outputTokens": 183362
+        },
+        "actions": {
+          "calls": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "inputTokens": 0,
+          "outputTokens": 0
+        },
+        "arguments": {
+          "calls": 21,
+          "p50Ms": 310.7783329999984,
+          "p95Ms": 419.51087499999994,
+          "inputTokens": 112297,
+          "outputTokens": 1136
+        }
+      },
+      "byCase": {
+        "preserve": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "show-hidden": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "hide": {
+          "trials": 3,
+          "passed": 0,
+          "failures": [
+            "Visible instances: expected [\"calendar-main\",\"tasks-main\"], received [\"calendar-main\",\"map-main\",\"tasks-main\"]",
+            "Visible instances: expected [\"calendar-main\",\"tasks-main\"], received [\"calendar-main\",\"journal-main\",\"map-main\",\"tasks-main\"]",
+            "Visible instances: expected [\"calendar-main\",\"tasks-main\"], received [\"calendar-main\",\"map-main\",\"tasks-main\"]"
+          ]
+        },
+        "delete": {
+          "trials": 3,
+          "passed": 2,
+          "failures": ["Expected planned, received deferred"]
+        },
+        "focus": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "column": {
+          "trials": 3,
+          "passed": 0,
+          "failures": [
+            "Visible instances: expected [\"calendar-main\",\"tasks-main\",\"weather-main\"], received [\"calendar-main\",\"journal-main\",\"map-main\",\"tasks-main\",\"weather-main\"]",
+            "Tree: expected [\"H:1,1,1\",\"ID:calendar-main\",\"ID:weather-main\",\"ID:tasks-main\"], received [\"H:1,1,1,1,1\",\"ID:calendar-main\",\"ID:weather-main\",\"ID:tasks-main\",\"ID:map-main\",\"ID:journal-main\"]",
+            "Visible instances: expected [\"calendar-main\",\"tasks-main\",\"weather-main\"], received [\"calendar-main\",\"journal-jev-1\",\"journal-main\",\"map-jev-1\",\"map-main\",\"tasks-main\",\"weather-main\"]",
+            "Tree: expected [\"H:1,1,1\",\"ID:calendar-main\",\"ID:weather-main\",\"ID:tasks-main\"], received [\"H:1,1,1,1,1,1,1\",\"ID:calendar-main\",\"ID:weather-main\",\"ID:tasks-main\",\"ID:map-main\",\"ID:journal-main\",\"ID:map-jev-1\",\"ID:journal-jev-1\"]",
+            "Visible instances: expected [\"calendar-main\",\"tasks-main\",\"weather-main\"], received [\"calendar-main\",\"journal-main\",\"map-main\",\"tasks-main\",\"weather-main\"]",
+            "Tree: expected [\"H:1,1,1\",\"ID:calendar-main\",\"ID:weather-main\",\"ID:tasks-main\"], received [\"H:1,1,1,1,1\",\"ID:calendar-main\",\"ID:weather-main\",\"ID:tasks-main\",\"ID:map-main\",\"ID:journal-main\"]"
+          ]
+        },
+        "variant": {
+          "trials": 3,
+          "passed": 2,
+          "failures": ["Expected planned, received deferred"]
+        },
+        "enum-route": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "quoted-location": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "two-actions": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "transition-sequence": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "create-configure": {
+          "trials": 3,
+          "passed": 0,
+          "failures": [
+            "Visible instances: expected [\"calendar-main\",\"tasks-main\",\"weather-jev-1\",\"weather-main\"], received [\"calendar-main\",\"tasks-main\",\"weather-jev-1\",\"weather-jev-2\",\"weather-main\"]",
+            "Ordered actions: expected [{\"instanceId\":\"weather-jev-1\",\"action\":\"setLocation\",\"params\":{\"location\":\"Paris\"}}], received [{\"instanceId\":\"weather-jev-2\",\"action\":\"setLocation\",\"params\":{\"location\":\"Paris\"}},{\"instanceId\":\"weather-jev-2\",\"action\":\"setLocation\",\"params\":{\"location\":\"Paris\"}}]",
+            "Expected planned, received deferred",
+            "Visible instances: expected [\"calendar-main\",\"tasks-main\",\"weather-jev-1\",\"weather-main\"], received [\"calendar-main\",\"tasks-main\",\"weather-jev-1\",\"weather-jev-2\",\"weather-main\"]",
+            "Ordered actions: expected [{\"instanceId\":\"weather-jev-1\",\"action\":\"setLocation\",\"params\":{\"location\":\"Paris\"}}], received [{\"instanceId\":\"weather-jev-1\",\"action\":\"setLocation\",\"params\":{\"location\":\"Paris\"}},{\"instanceId\":\"weather-jev-2\",\"action\":\"setLocation\",\"params\":{\"location\":\"Paris\"}}]"
+          ]
+        },
+        "compare": {
+          "trials": 3,
+          "passed": 0,
+          "failures": [
+            "Visible instances: expected [\"weather-jev-1\",\"weather-main\"], received [\"weather-jev-1\",\"weather-jev-2\",\"weather-main\"]",
+            "Tree: expected [\"V:1,1\",\"ID:weather-main\",\"ID:weather-jev-1\"], received [\"V:1,1,1\",\"ID:weather-main\",\"ID:weather-jev-1\",\"ID:weather-jev-2\"]",
+            "Ordered actions: expected [{\"instanceId\":\"weather-main\",\"action\":\"setLocation\",\"params\":{\"location\":\"Tokyo\"}},{\"instanceId\":\"weather-jev-1\",\"action\":\"setLocation\",\"params\":{\"location\":\"Paris\"}}], received [{\"instanceId\":\"weather-main\",\"action\":\"setLocation\",\"params\":{\"location\":\"Tokyo\"}},{\"instanceId\":\"weather-jev-2\",\"action\":\"setLocation\",\"params\":{\"location\":\"Paris\"}}]",
+            "Visible instances: expected [\"weather-jev-1\",\"weather-main\"], received [\"weather-jev-1\",\"weather-jev-2\",\"weather-main\"]",
+            "Tree: expected [\"V:1,1\",\"ID:weather-main\",\"ID:weather-jev-1\"], received [\"V:1,1,1\",\"ID:weather-main\",\"ID:weather-jev-1\",\"ID:weather-jev-2\"]",
+            "Ordered actions: expected [{\"instanceId\":\"weather-main\",\"action\":\"setLocation\",\"params\":{\"location\":\"Tokyo\"}},{\"instanceId\":\"weather-jev-1\",\"action\":\"setLocation\",\"params\":{\"location\":\"Paris\"}}], received [{\"instanceId\":\"weather-main\",\"action\":\"setLocation\",\"params\":{\"location\":\"Tokyo\"}},{\"instanceId\":\"weather-jev-2\",\"action\":\"setLocation\",\"params\":{\"location\":\"Paris\"}}]",
+            "Visible instances: expected [\"weather-jev-1\",\"weather-main\"], received [\"weather-jev-1\",\"weather-jev-2\",\"weather-main\"]",
+            "Tree: expected [\"V:1,1\",\"ID:weather-main\",\"ID:weather-jev-1\"], received [\"V:1,1,1\",\"ID:weather-main\",\"ID:weather-jev-1\",\"ID:weather-jev-2\"]",
+            "Ordered actions: expected [{\"instanceId\":\"weather-main\",\"action\":\"setLocation\",\"params\":{\"location\":\"Tokyo\"}},{\"instanceId\":\"weather-jev-1\",\"action\":\"setLocation\",\"params\":{\"location\":\"Paris\"}}], received [{\"instanceId\":\"weather-main\",\"action\":\"setLocation\",\"params\":{\"location\":\"Tokyo\"}},{\"instanceId\":\"weather-jev-2\",\"action\":\"setLocation\",\"params\":{\"location\":\"Paris\"}}]"
+          ]
+        },
+        "task": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "unquoted-location": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "missing-enum": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "generate-content": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "too-many-actions": {
+          "trials": 3,
+          "passed": 2,
+          "failures": ["Expected deferred, received planned"]
+        },
+        "ambiguous": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "small-chart": {
+          "trials": 3,
+          "passed": 0,
+          "failures": [
+            "Visible instances: expected [\"calendar-main\",\"tasks-main\",\"weather-main\"], received [\"calendar-main\",\"map-main\",\"tasks-main\",\"weather-main\"]",
+            "Visible instances: expected [\"calendar-main\",\"tasks-main\",\"weather-main\"], received [\"calendar-main\",\"map-main\",\"tasks-main\",\"weather-main\"]",
+            "Visible instances: expected [\"calendar-main\",\"tasks-main\",\"weather-main\"], received [\"calendar-main\",\"map-main\",\"tasks-main\",\"weather-main\"]"
+          ]
+        },
+        "resize": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "followup": {
+          "trials": 3,
+          "passed": 0,
+          "failures": [
+            "Expected planned, received deferred",
+            "Expected planned, received deferred",
+            "Expected planned, received deferred"
+          ]
+        },
+        "runtime-enum": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "tiny-resize": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        }
+      },
+      "postHocConfidenceSweep": [
+        {
+          "threshold": 0,
+          "accepted": 46,
+          "incorrect": 15,
+          "correct": 31,
+          "expectedPlans": 51
+        },
+        {
+          "threshold": 0.3,
+          "accepted": 37,
+          "incorrect": 7,
+          "correct": 30,
+          "expectedPlans": 51
+        },
+        {
+          "threshold": 0.4,
+          "accepted": 21,
+          "incorrect": 0,
+          "correct": 21,
+          "expectedPlans": 51
+        },
+        {
+          "threshold": 0.5,
+          "accepted": 11,
+          "incorrect": 0,
+          "correct": 11,
+          "expectedPlans": 51
+        },
+        {
+          "threshold": 0.6,
+          "accepted": 6,
+          "incorrect": 0,
+          "correct": 6,
+          "expectedPlans": 51
+        },
+        {
+          "threshold": 0.7,
+          "accepted": 3,
+          "incorrect": 0,
+          "correct": 3,
+          "expectedPlans": 51
+        },
+        {
+          "threshold": 0.8,
+          "accepted": 0,
+          "incorrect": 0,
+          "correct": 0,
+          "expectedPlans": 51
+        },
+        {
+          "threshold": 0.9,
+          "accepted": 0,
+          "incorrect": 0,
+          "correct": 0,
+          "expectedPlans": 51
+        }
+      ],
+      "confidenceSweepCaveat": "Retrospective routing over captured outcomes, not a fresh run or calibrated policy. Falling back would add LLM latency and cost, neither measured here."
+    }
+  },
+  {
+    "directory": "tmp/jev-prototype/live-refined",
+    "metadata": {
+      "createdAt": "2026-09-17T03:01:52.138Z",
+      "model": "jev-1.13.0",
+      "suite": "development",
+      "plannerRevision": null,
+      "tokens": {
+        "input": 1269301,
+        "output": 175981
+      }
+    },
+    "analysis": {
+      "totalTrials": 72,
+      "completedTrials": 72,
+      "modelBackedTrials": 66,
+      "deterministicTrials": 6,
+      "correctModelBackedTrials": 52,
+      "acceptedPlans": 37,
+      "incorrectAcceptedPlans": 0,
+      "expectedPlans": 51,
+      "correctAcceptedPlans": 37,
+      "unnecessaryDeferrals": 14,
+      "expectedDeferrals": 15,
+      "correctDeferrals": 15,
+      "apiCalls": 83,
+      "errors": 0,
+      "modelBackedP50Ms": 418.6712499999994,
+      "modelBackedP95Ms": 878.0383750000001,
+      "acceptedPlanP50Ms": 428.86912499999994,
+      "acceptedPlanP95Ms": 1037.0177920000024,
+      "returnedModels": ["jev-1.13.0"],
+      "byStage": {
+        "select": {
+          "calls": 66,
+          "p50Ms": 397.4133750000001,
+          "p95Ms": 513.4492090000003,
+          "inputTokens": 1179486,
+          "outputTokens": 175254
+        },
+        "actions": {
+          "calls": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "inputTokens": 0,
+          "outputTokens": 0
+        },
+        "arguments": {
+          "calls": 17,
+          "p50Ms": 341.5038339999992,
+          "p95Ms": 559.119834000001,
+          "inputTokens": 89815,
+          "outputTokens": 727
+        }
+      },
+      "byCase": {
+        "preserve": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "show-hidden": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "hide": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "delete": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "focus": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "column": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "variant": {
+          "trials": 3,
+          "passed": 0,
+          "failures": [
+            "Expected planned, received deferred",
+            "Expected planned, received deferred",
+            "Expected planned, received deferred"
+          ]
+        },
+        "enum-route": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "quoted-location": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "two-actions": {
+          "trials": 3,
+          "passed": 2,
+          "failures": ["Expected planned, received deferred"]
+        },
+        "transition-sequence": {
+          "trials": 3,
+          "passed": 2,
+          "failures": ["Expected planned, received deferred"]
+        },
+        "create-configure": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "compare": {
+          "trials": 3,
+          "passed": 0,
+          "failures": [
+            "Expected planned, received deferred",
+            "Expected planned, received deferred",
+            "Expected planned, received deferred"
+          ]
+        },
+        "task": {
+          "trials": 3,
+          "passed": 1,
+          "failures": [
+            "Expected planned, received deferred",
+            "Expected planned, received deferred"
+          ]
+        },
+        "unquoted-location": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "missing-enum": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "generate-content": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "too-many-actions": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "ambiguous": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "small-chart": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "resize": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "followup": {
+          "trials": 3,
+          "passed": 0,
+          "failures": [
+            "Expected planned, received deferred",
+            "Expected planned, received deferred",
+            "Expected planned, received deferred"
+          ]
+        },
+        "runtime-enum": {
+          "trials": 3,
+          "passed": 2,
+          "failures": ["Expected planned, received deferred"]
+        },
+        "tiny-resize": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        }
+      },
+      "postHocConfidenceSweep": [
+        {
+          "threshold": 0,
+          "accepted": 37,
+          "incorrect": 0,
+          "correct": 37,
+          "expectedPlans": 51
+        },
+        {
+          "threshold": 0.3,
+          "accepted": 37,
+          "incorrect": 0,
+          "correct": 37,
+          "expectedPlans": 51
+        },
+        {
+          "threshold": 0.4,
+          "accepted": 28,
+          "incorrect": 0,
+          "correct": 28,
+          "expectedPlans": 51
+        },
+        {
+          "threshold": 0.5,
+          "accepted": 22,
+          "incorrect": 0,
+          "correct": 22,
+          "expectedPlans": 51
+        },
+        {
+          "threshold": 0.6,
+          "accepted": 13,
+          "incorrect": 0,
+          "correct": 13,
+          "expectedPlans": 51
+        },
+        {
+          "threshold": 0.7,
+          "accepted": 12,
+          "incorrect": 0,
+          "correct": 12,
+          "expectedPlans": 51
+        },
+        {
+          "threshold": 0.8,
+          "accepted": 8,
+          "incorrect": 0,
+          "correct": 8,
+          "expectedPlans": 51
+        },
+        {
+          "threshold": 0.9,
+          "accepted": 1,
+          "incorrect": 0,
+          "correct": 1,
+          "expectedPlans": 51
+        }
+      ],
+      "confidenceSweepCaveat": "Retrospective routing over captured outcomes, not a fresh run or calibrated policy. Falling back would add LLM latency and cost, neither measured here."
+    }
+  },
+  {
+    "directory": "tmp/jev-prototype/live-staged",
+    "metadata": {
+      "createdAt": "2026-09-17T03:07:47.423Z",
+      "model": "jev-1.13.0",
+      "suite": "development",
+      "plannerRevision": "staged-deltas-v3",
+      "tokens": {
+        "input": 947688,
+        "output": 63533
+      }
+    },
+    "analysis": {
+      "totalTrials": 72,
+      "completedTrials": 72,
+      "modelBackedTrials": 66,
+      "deterministicTrials": 6,
+      "correctModelBackedTrials": 66,
+      "acceptedPlans": 51,
+      "incorrectAcceptedPlans": 0,
+      "expectedPlans": 51,
+      "correctAcceptedPlans": 51,
+      "unnecessaryDeferrals": 0,
+      "expectedDeferrals": 15,
+      "correctDeferrals": 15,
+      "apiCalls": 120,
+      "errors": 0,
+      "modelBackedP50Ms": 647.4932919999992,
+      "modelBackedP95Ms": 1141.5183749999997,
+      "acceptedPlanP50Ms": 674.801916999997,
+      "acceptedPlanP95Ms": 1151.0392499999998,
+      "returnedModels": ["jev-1.13.0"],
+      "byStage": {
+        "select": {
+          "calls": 66,
+          "p50Ms": 335.2062500000029,
+          "p95Ms": 526.6168749999997,
+          "inputTokens": 596772,
+          "outputTokens": 49562
+        },
+        "actions": {
+          "calls": 33,
+          "p50Ms": 326.0234580000015,
+          "p95Ms": 474.299791999998,
+          "inputTokens": 239313,
+          "outputTokens": 12966
+        },
+        "arguments": {
+          "calls": 21,
+          "p50Ms": 323.33183400000416,
+          "p95Ms": 392.4778330000008,
+          "inputTokens": 111603,
+          "outputTokens": 1005
+        }
+      },
+      "byCase": {
+        "preserve": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "show-hidden": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "hide": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "delete": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "focus": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "column": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "variant": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "enum-route": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "quoted-location": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "two-actions": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "transition-sequence": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "create-configure": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "compare": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "task": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "unquoted-location": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "missing-enum": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "generate-content": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "too-many-actions": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "ambiguous": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "small-chart": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "resize": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "followup": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "runtime-enum": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "tiny-resize": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        }
+      },
+      "postHocConfidenceSweep": [
+        {
+          "threshold": 0,
+          "accepted": 51,
+          "incorrect": 0,
+          "correct": 51,
+          "expectedPlans": 51
+        },
+        {
+          "threshold": 0.3,
+          "accepted": 50,
+          "incorrect": 0,
+          "correct": 50,
+          "expectedPlans": 51
+        },
+        {
+          "threshold": 0.4,
+          "accepted": 38,
+          "incorrect": 0,
+          "correct": 38,
+          "expectedPlans": 51
+        },
+        {
+          "threshold": 0.5,
+          "accepted": 29,
+          "incorrect": 0,
+          "correct": 29,
+          "expectedPlans": 51
+        },
+        {
+          "threshold": 0.6,
+          "accepted": 16,
+          "incorrect": 0,
+          "correct": 16,
+          "expectedPlans": 51
+        },
+        {
+          "threshold": 0.7,
+          "accepted": 15,
+          "incorrect": 0,
+          "correct": 15,
+          "expectedPlans": 51
+        },
+        {
+          "threshold": 0.8,
+          "accepted": 10,
+          "incorrect": 0,
+          "correct": 10,
+          "expectedPlans": 51
+        },
+        {
+          "threshold": 0.9,
+          "accepted": 0,
+          "incorrect": 0,
+          "correct": 0,
+          "expectedPlans": 51
+        }
+      ],
+      "confidenceSweepCaveat": "Retrospective routing over captured outcomes, not a fresh run or calibrated policy. Falling back would add LLM latency and cost, neither measured here."
+    }
+  },
+  {
+    "directory": "tmp/jev-prototype/live-holdout",
+    "metadata": {
+      "createdAt": "2026-09-17T03:08:45.161Z",
+      "model": "jev-1.13.0",
+      "suite": "holdout",
+      "plannerRevision": "staged-deltas-v3",
+      "tokens": {
+        "input": 675268,
+        "output": 46029
+      }
+    },
+    "analysis": {
+      "totalTrials": 48,
+      "completedTrials": 48,
+      "modelBackedTrials": 48,
+      "deterministicTrials": 0,
+      "correctModelBackedTrials": 39,
+      "acceptedPlans": 32,
+      "incorrectAcceptedPlans": 8,
+      "expectedPlans": 33,
+      "correctAcceptedPlans": 24,
+      "unnecessaryDeferrals": 1,
+      "expectedDeferrals": 15,
+      "correctDeferrals": 15,
+      "apiCalls": 85,
+      "errors": 0,
+      "modelBackedP50Ms": 604.453042000001,
+      "modelBackedP95Ms": 1256.3800419999998,
+      "acceptedPlanP50Ms": 679.718291000001,
+      "acceptedPlanP95Ms": 1626.0457079999996,
+      "returnedModels": ["jev-1.13.0"],
+      "byStage": {
+        "select": {
+          "calls": 48,
+          "p50Ms": 346.7231670000001,
+          "p95Ms": 469.0326249999998,
+          "inputTokens": 433311,
+          "outputTokens": 36063
+        },
+        "actions": {
+          "calls": 23,
+          "p50Ms": 342.5928750000003,
+          "p95Ms": 409.4141660000023,
+          "inputTokens": 166349,
+          "outputTokens": 8992
+        },
+        "arguments": {
+          "calls": 14,
+          "p50Ms": 356.0924589999995,
+          "p95Ms": 1482.1445000000022,
+          "inputTokens": 75608,
+          "outputTokens": 974
+        }
+      },
+      "byCase": {
+        "hold-preserve": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "hold-hide": {
+          "trials": 3,
+          "passed": 0,
+          "failures": [
+            "Visible instances: expected [\"calendar-main\"], received [\"calendar-main\",\"weather-main\"]",
+            "Visible instances: expected [\"calendar-main\"], received [\"calendar-main\",\"weather-main\"]",
+            "Visible instances: expected [\"calendar-main\"], received [\"calendar-main\",\"weather-main\"]"
+          ]
+        },
+        "hold-show": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "hold-weather-variant": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "hold-calendar-variant": {
+          "trials": 3,
+          "passed": 1,
+          "failures": [
+            "Visible instances: expected [\"calendar-main\",\"tasks-main\",\"weather-main\"], received [\"calendar-jev-1\",\"calendar-main\",\"tasks-main\",\"weather-main\"]",
+            "Visible instances: expected [\"calendar-main\",\"tasks-main\",\"weather-main\"], received [\"calendar-jev-1\",\"calendar-main\",\"tasks-main\",\"weather-main\"]"
+          ]
+        },
+        "hold-map-route": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "hold-two-writes": {
+          "trials": 3,
+          "passed": 2,
+          "failures": ["Expected planned, received deferred"]
+        },
+        "hold-event": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "hold-new-instance": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "hold-comparison": {
+          "trials": 3,
+          "passed": 0,
+          "failures": [
+            "Visible instances: expected [\"weather-jev-1\",\"weather-main\"], received [\"calendar-main\",\"weather-jev-1\",\"weather-main\"]",
+            "Tree: expected [\"V:1,1\",\"ID:weather-main\",\"ID:weather-jev-1\"], received [\"V:1,1,1\",\"ID:weather-main\",\"ID:calendar-main\",\"ID:weather-jev-1\"]",
+            "Visible instances: expected [\"weather-jev-1\",\"weather-main\"], received [\"calendar-main\",\"weather-jev-1\",\"weather-main\"]",
+            "Tree: expected [\"V:1,1\",\"ID:weather-main\",\"ID:weather-jev-1\"], received [\"V:1,1,1\",\"ID:weather-main\",\"ID:calendar-main\",\"ID:weather-jev-1\"]",
+            "Visible instances: expected [\"weather-jev-1\",\"weather-main\"], received [\"calendar-main\",\"weather-jev-1\",\"weather-main\"]",
+            "Tree: expected [\"V:1,1\",\"ID:weather-main\",\"ID:weather-jev-1\"], received [\"V:1,1,1\",\"ID:weather-main\",\"ID:calendar-main\",\"ID:weather-jev-1\"]"
+          ]
+        },
+        "hold-stack": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "hold-three-writes": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "hold-unknown-vessel": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "hold-generated-content": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "hold-unquoted": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        },
+        "hold-ambiguous": {
+          "trials": 3,
+          "passed": 3,
+          "failures": []
+        }
+      },
+      "postHocConfidenceSweep": [
+        {
+          "threshold": 0,
+          "accepted": 32,
+          "incorrect": 8,
+          "correct": 24,
+          "expectedPlans": 33
+        },
+        {
+          "threshold": 0.3,
+          "accepted": 28,
+          "incorrect": 5,
+          "correct": 23,
+          "expectedPlans": 33
+        },
+        {
+          "threshold": 0.4,
+          "accepted": 19,
+          "incorrect": 3,
+          "correct": 16,
+          "expectedPlans": 33
+        },
+        {
+          "threshold": 0.5,
+          "accepted": 14,
+          "incorrect": 1,
+          "correct": 13,
+          "expectedPlans": 33
+        },
+        {
+          "threshold": 0.6,
+          "accepted": 9,
+          "incorrect": 0,
+          "correct": 9,
+          "expectedPlans": 33
+        },
+        {
+          "threshold": 0.7,
+          "accepted": 5,
+          "incorrect": 0,
+          "correct": 5,
+          "expectedPlans": 33
+        },
+        {
+          "threshold": 0.8,
+          "accepted": 0,
+          "incorrect": 0,
+          "correct": 0,
+          "expectedPlans": 33
+        },
+        {
+          "threshold": 0.9,
+          "accepted": 0,
+          "incorrect": 0,
+          "correct": 0,
+          "expectedPlans": 33
+        }
+      ],
+      "confidenceSweepCaveat": "Retrospective routing over captured outcomes, not a fresh run or calibrated policy. Falling back would add LLM latency and cost, neither measured here."
+    }
+  }
+]

@@ -61,6 +61,8 @@ export interface PlanningInput {
 interface Candidate extends VesselInstanceSnapshot {
   fresh: boolean;
   wasVisible: boolean;
+  additionalOrdinal: number;
+  ordinalForVessel: number;
 }
 
 interface ActionOption {
@@ -72,6 +74,7 @@ export interface Prepared {
   input: PlanningInput;
   candidates: Candidate[];
   actions: Record<string, ActionOption>;
+  actionCriteria: Record<string, string>;
   evaluation: Evaluation;
 }
 
@@ -88,6 +91,11 @@ export function prepare(input: PlanningInput): Prepared {
     ...instance,
     fresh: false,
     wasVisible: visible.has(instance.instanceId),
+    additionalOrdinal: 0,
+    ordinalForVessel:
+      request.instances
+        .filter((i) => i.vesselId === instance.vesselId)
+        .findIndex((i) => i.instanceId === instance.instanceId) + 1,
   }));
   for (const vessel of request.vessels) {
     let sequence = 1;
@@ -104,6 +112,11 @@ export function prepare(input: PlanningInput): Prepared {
         variant: vessel.defaultVariant,
         fresh: true,
         wasVisible: false,
+        additionalOrdinal: slot + 1,
+        ordinalForVessel:
+          request.instances.filter((i) => i.vesselId === vessel.id).length +
+          slot +
+          1,
       });
     }
   }
@@ -121,7 +134,7 @@ export function prepare(input: PlanningInput): Prepared {
         actions[key] = { instanceId: candidate.instanceId, name: action.name };
         const description = `${variant}: ${action.description}${action.transitionsTo ? `; changes variant to ${action.transitionsTo}` : ''}.`;
         actionCriteria[key] =
-          `${actionCriteria[key] ?? `Instance ${candidate.instanceId} (${vessel.name}). `} ${description}`;
+          `${actionCriteria[key] ?? `Instance ${candidate.instanceId} (${vessel.name}), ${candidate.fresh ? `additional instance #${candidate.additionalOrdinal}, overall ${vessel.name} instance #${candidate.ordinalForVessel}` : `existing ${vessel.name} instance #${candidate.ordinalForVessel}`}. `} ${description}`;
       }
     }
   }
@@ -163,30 +176,46 @@ export function prepare(input: PlanningInput): Prepared {
         ),
       },
     ),
-  };
-  for (const candidate of candidates) {
-    questions[`presence/${candidate.instanceId}`] = choice(
-      `What should happen to instance ${candidate.instanceId} (Vessel ${candidate.vesselId}, ${candidate.fresh ? 'not created yet' : candidate.wasVisible ? 'currently visible' : 'currently hidden'}) after this request? Keep unrelated existing instances. Reuse existing instances before creating new ones; use new slots in numeric order. For comparisons, allocate distinct instances for distinct subjects.`,
+    actionCount: choice(
+      'How many Vessel action invocations does the latest user request require in total? Creating empty instance metadata, showing, hiding, deleting, and arranging instances are layout operations and count as ZERO actions. Setting the subject or content of an instance requires a configuration action, including on newly created instances. Displaying two named subjects on two instances needs TWO configuration calls, even if both use the same action name. Changing a variant counts as one action. Count repeated writes with different values separately. Do not count completed history actions. Count only the latest request.',
       {
-        visible: 'Keep or create this instance and show it.',
-        hidden:
-          'Keep this existing instance but do not show it. Hiding does not delete state.',
-        absent: candidate.fresh
-          ? 'Do not create this unused slot.'
-          : 'Delete this instance only when explicitly requested.',
+        '0': 'No action calls: only a layout change or no change.',
+        '1': 'Exactly one action call is needed.',
+        '2': 'Exactly two action calls are needed.',
+        overflow:
+          'Three or more action calls are needed. The complete request exceeds this planner.',
+      },
+    ),
+  };
+  for (const candidate of candidates.filter((c) => !c.fresh)) {
+    questions[`presence/${candidate.instanceId}`] = choice(
+      `Does the latest request require changing instance ${candidate.instanceId} (${candidate.vesselId}), which is currently ${candidate.wasVisible ? 'VISIBLE' : 'HIDDEN'}? Prefer unchanged for every unrelated instance. "Keep the rest" preserves current visibility, including hidden instances. Rearranging visible widgets never reveals hidden widgets. "Show only X" hides unrelated visible widgets without deleting them.`,
+      {
+        unchanged: `No visibility or lifecycle change. Remains ${candidate.wasVisible ? 'visible' : 'hidden'} with its state retained.`,
+        show: 'The request specifically needs this existing instance visible, including as an action target.',
+        hide: 'The request specifically hides this instance, or shows only other instances. Retain its state.',
+        delete: 'The request explicitly deletes this instance and its state.',
       },
     );
   }
-  for (let step = 0; step < MAX_ACTIONS; step++) {
-    questions[`action/${step}`] = choice(
-      `What is action ${step + 1} in the ordered sequence required by the latest request? Consider the requested sequence directly; answers to other questions are unavailable. Use none if there is no action at this position. Do not repeat completed history actions. Layout-only operations do not need actions. Start each new instance in its default variant. Variant changes require actions; later actions must be valid after earlier transitions.`,
-      actionCriteria,
+  for (const vessel of request.vessels) {
+    const existing = request.instances.filter((i) => i.vesselId === vessel.id);
+    questions[`create/${vessel.id}`] = choice(
+      `How many ADDITIONAL ${vessel.name} instances must be created for the latest request? There are already ${existing.length} retained instances of this Vessel: ${existing.map((i) => i.instanceId).join(', ') || 'none'}. Hidden instances already exist and should be reused. Count only additional instances beyond these existing ones. A second widget when one exists means ONE additional instance. A layout-only rearrangement creates NONE.`,
+      {
+        '0': 'No additional instance. Existing instances suffice, or this Vessel is not requested.',
+        '1': 'Create exactly one additional instance, using the first new slot.',
+        '2': 'Create exactly two additional instances, using both new slots.',
+        overflow:
+          'More than two additional instances are needed; defer the complete request.',
+      },
     );
   }
   return {
     input: { ...input, request },
     candidates,
     actions,
+    actionCriteria,
     evaluation: {
       state: {
         request,
@@ -195,6 +224,8 @@ export function prepare(input: PlanningInput): Prepared {
         capabilities: {
           maximumActions: MAX_ACTIONS,
           maximumNewInstancesPerVessel: MAX_NEW_PER_VESSEL,
+          instanceOperations:
+            'Show, hide, delete, or create instances through the layout. Preserve all other instances and their visibility. These operations do not need Vessel actions.',
           arrangements: questions.arrangement.criteria,
           parameterSources:
             'Declared enums, booleans, numeric literals, and double-quoted strings from the latest intent. No generated text or invented values.',
@@ -287,22 +318,73 @@ export async function planWithJev(
     const first = await ask('select', prepared.evaluation);
     const scope = use(first, 'scope');
     if (scope !== 'supported') throw new Deferred(scope);
+    const actionCount = use(first, 'actionCount');
+    if (actionCount === 'overflow') throw new Deferred('too_many_actions');
+    const newCounts = new Map(
+      request.vessels.map((vessel) => {
+        const count = use(first, `create/${vessel.id}`);
+        if (count === 'overflow') throw new Deferred('too_many_instances');
+        return [vessel.id, Number(count)];
+      }),
+    );
     const kept: Candidate[] = [];
     const visible: Candidate[] = [];
     for (const candidate of prepared.candidates) {
+      if (candidate.fresh) {
+        if (
+          candidate.additionalOrdinal <=
+          (newCounts.get(candidate.vesselId) ?? 0)
+        ) {
+          kept.push(candidate);
+          visible.push(candidate);
+        }
+        continue;
+      }
       const presence = use(first, `presence/${candidate.instanceId}`);
-      if (presence === 'absent') continue;
-      if (candidate.fresh && presence === 'hidden')
-        throw new Deferred('new_hidden_instance');
+      if (presence === 'delete') continue;
       kept.push(candidate);
-      if (presence === 'visible') visible.push(candidate);
+      if (
+        presence === 'show' ||
+        (presence === 'unchanged' && candidate.wasVisible)
+      )
+        visible.push(candidate);
     }
 
     const simulated = new Map(kept.map((c) => [c.instanceId, c.variant]));
+    const actionQuestions: Record<string, Question> = {};
+    const allowedActions = Object.fromEntries(
+      Object.entries(prepared.actionCriteria).filter(
+        ([key]) =>
+          key === 'none' ||
+          kept.some(
+            (candidate) =>
+              candidate.instanceId === prepared.actions[key]?.instanceId,
+          ),
+      ),
+    );
+    for (let step = 0; step < Number(actionCount); step++) {
+      actionQuestions[`action/${step}`] = choice(
+        `The latest request requires ${actionCount} action call(s). Select action ${step + 1} in the requested order, using only the instances in pendingInstances. New instances have already been allocated by code; never allocate another. Prefer an existing instance unless the request targets an additional instance. Each requested change appears once. Consider the complete latest intent; do not repeat history. If a sequence changes a variant, subsequent actions must be valid after that transition. none means this action cannot be determined.`,
+        allowedActions,
+      );
+    }
+    const actionReply =
+      Number(actionCount) > 0
+        ? await ask('actions', {
+            state: {
+              request,
+              history: input.history ?? [],
+              pendingInstances: kept,
+              actionCount: Number(actionCount),
+            },
+            questions: actionQuestions,
+          })
+        : undefined;
     const selected: { candidate: Candidate; definition: VesselAction }[] = [];
     let stopped = false;
-    for (let step = 0; step < MAX_ACTIONS; step++) {
-      const key = use(first, `action/${step}`);
+    for (let step = 0; step < Number(actionCount); step++) {
+      if (!actionReply) throw new Error('Missing action selection');
+      const key = use(actionReply, `action/${step}`);
       if (key === 'none') {
         stopped = true;
         continue;
@@ -321,6 +403,8 @@ export async function planWithJev(
       if (definition.transitionsTo)
         simulated.set(candidate.instanceId, definition.transitionsTo);
     }
+    if (selected.length !== Number(actionCount))
+      throw new Deferred('action_count_mismatch');
 
     const intent = request.context.updateReasons
       .flatMap((r) => (r.type === 'user_intent' ? [r.intent] : []))

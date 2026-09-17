@@ -1,18 +1,21 @@
 {
+  "suite": "development",
+  "plannerRevision": "staged-deltas-v3",
   "mode": "scripted-offline",
   "model": "scripted-not-jev",
-  "createdAt": "2026-09-17T02:45:51.460Z",
+  "createdAt": "2026-09-17T04:09:35.571Z",
   "minimumConfidence": 0,
   "liveStatus": "not_run",
   "interpretation": "Hand-authored judgments verify the compiler only. No Jev inference, accuracy, latency, or cost was measured.",
   "plannedTrials": 28,
   "completedTrials": 28,
   "failedExpectations": 0,
-  "planned": 19,
-  "deferred": 9,
+  "planned": 20,
+  "deferred": 8,
   "errors": 0,
   "p50Ms": null,
   "p95Ms": null,
+  "latencyPopulation": "Completed model-backed trials; deterministic resize trials excluded.",
   "tokens": null,
   "costUsd": null,
   "parameterAudit": {
@@ -332,171 +335,171 @@
   "questionBudgets": [
     {
       "id": "preserve",
-      "questions": 20,
-      "maximumOptions": 67,
-      "bytes": 51403
+      "questions": 14,
+      "maximumOptions": 16,
+      "bytes": 25950
     },
     {
       "id": "show-hidden",
-      "questions": 20,
-      "maximumOptions": 67,
-      "bytes": 51411
+      "questions": 14,
+      "maximumOptions": 16,
+      "bytes": 25958
     },
     {
       "id": "hide",
-      "questions": 20,
-      "maximumOptions": 67,
-      "bytes": 51402
+      "questions": 14,
+      "maximumOptions": 16,
+      "bytes": 25949
     },
     {
       "id": "delete",
-      "questions": 20,
-      "maximumOptions": 67,
-      "bytes": 51413
+      "questions": 14,
+      "maximumOptions": 16,
+      "bytes": 25960
     },
     {
       "id": "focus",
-      "questions": 20,
-      "maximumOptions": 67,
-      "bytes": 51450
+      "questions": 14,
+      "maximumOptions": 16,
+      "bytes": 25997
     },
     {
       "id": "column",
-      "questions": 20,
-      "maximumOptions": 67,
-      "bytes": 51421
+      "questions": 14,
+      "maximumOptions": 16,
+      "bytes": 25968
     },
     {
       "id": "variant",
-      "questions": 20,
-      "maximumOptions": 67,
-      "bytes": 51417
+      "questions": 14,
+      "maximumOptions": 16,
+      "bytes": 25964
     },
     {
       "id": "enum-route",
-      "questions": 20,
-      "maximumOptions": 67,
-      "bytes": 51417
+      "questions": 14,
+      "maximumOptions": 16,
+      "bytes": 25964
     },
     {
       "id": "quoted-location",
-      "questions": 20,
-      "maximumOptions": 67,
-      "bytes": 51408
+      "questions": 14,
+      "maximumOptions": 16,
+      "bytes": 25955
     },
     {
       "id": "two-actions",
-      "questions": 20,
-      "maximumOptions": 67,
-      "bytes": 51432
+      "questions": 14,
+      "maximumOptions": 16,
+      "bytes": 25979
     },
     {
       "id": "transition-sequence",
-      "questions": 20,
-      "maximumOptions": 67,
-      "bytes": 51428
+      "questions": 14,
+      "maximumOptions": 16,
+      "bytes": 25975
     },
     {
       "id": "create-configure",
-      "questions": 20,
-      "maximumOptions": 67,
-      "bytes": 51434
+      "questions": 14,
+      "maximumOptions": 16,
+      "bytes": 25981
     },
     {
       "id": "compare",
-      "questions": 20,
-      "maximumOptions": 67,
-      "bytes": 51508
+      "questions": 14,
+      "maximumOptions": 16,
+      "bytes": 26055
     },
     {
       "id": "task",
-      "questions": 20,
-      "maximumOptions": 67,
-      "bytes": 51401
+      "questions": 14,
+      "maximumOptions": 16,
+      "bytes": 25948
     },
     {
       "id": "unquoted-location",
-      "questions": 20,
-      "maximumOptions": 67,
-      "bytes": 51395
+      "questions": 14,
+      "maximumOptions": 16,
+      "bytes": 25942
     },
     {
       "id": "missing-enum",
-      "questions": 20,
-      "maximumOptions": 67,
-      "bytes": 51398
+      "questions": 14,
+      "maximumOptions": 16,
+      "bytes": 25945
     },
     {
       "id": "generate-content",
-      "questions": 20,
-      "maximumOptions": 67,
-      "bytes": 51415
+      "questions": 14,
+      "maximumOptions": 16,
+      "bytes": 25962
     },
     {
       "id": "too-many-actions",
-      "questions": 20,
-      "maximumOptions": 67,
-      "bytes": 51412
+      "questions": 14,
+      "maximumOptions": 16,
+      "bytes": 25959
     },
     {
       "id": "ambiguous",
-      "questions": 20,
-      "maximumOptions": 67,
-      "bytes": 51386
+      "questions": 14,
+      "maximumOptions": 16,
+      "bytes": 25933
     },
     {
       "id": "small-chart",
-      "questions": 20,
-      "maximumOptions": 67,
-      "bytes": 51415
+      "questions": 14,
+      "maximumOptions": 16,
+      "bytes": 25962
     },
     {
       "id": "bad-order",
-      "questions": 20,
-      "maximumOptions": 67,
-      "bytes": 51412
+      "questions": 14,
+      "maximumOptions": 16,
+      "bytes": 25959
     },
     {
       "id": "absent-target",
-      "questions": 20,
-      "maximumOptions": 67,
-      "bytes": 51395
+      "questions": 14,
+      "maximumOptions": 16,
+      "bytes": 25942
     },
     {
       "id": "gap",
-      "questions": 20,
-      "maximumOptions": 67,
-      "bytes": 51395
+      "questions": 14,
+      "maximumOptions": 16,
+      "bytes": 25942
     },
     {
       "id": "uncertain",
-      "questions": 20,
-      "maximumOptions": 67,
-      "bytes": 51395
+      "questions": 14,
+      "maximumOptions": 16,
+      "bytes": 25942
     },
     {
       "id": "resize",
-      "questions": 20,
-      "maximumOptions": 67,
-      "bytes": 51982
+      "questions": 14,
+      "maximumOptions": 16,
+      "bytes": 26529
     },
     {
       "id": "followup",
-      "questions": 20,
-      "maximumOptions": 67,
-      "bytes": 51953
+      "questions": 14,
+      "maximumOptions": 16,
+      "bytes": 26500
     },
     {
       "id": "runtime-enum",
-      "questions": 20,
-      "maximumOptions": 67,
-      "bytes": 51536
+      "questions": 14,
+      "maximumOptions": 16,
+      "bytes": 26083
     },
     {
       "id": "tiny-resize",
-      "questions": 20,
-      "maximumOptions": 67,
-      "bytes": 51426
+      "questions": 14,
+      "maximumOptions": 16,
+      "bytes": 25973
     }
   ]
 }
