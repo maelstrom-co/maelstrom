@@ -1,0 +1,8 @@
+{
+  "mode": "live",
+  "model": "jev-latest",
+  "createdAt": "2026-09-17T02:29:04.155Z",
+  "minimumConfidence": 0,
+  "liveStatus": "blocked_missing_key",
+  "interpretation": "Synthetic development cases; not a held-out benchmark."
+}

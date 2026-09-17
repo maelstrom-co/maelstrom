@@ -1,0 +1,502 @@
+{
+  "mode": "scripted-offline",
+  "model": "scripted-not-jev",
+  "createdAt": "2026-09-17T02:45:51.460Z",
+  "minimumConfidence": 0,
+  "liveStatus": "not_run",
+  "interpretation": "Hand-authored judgments verify the compiler only. No Jev inference, accuracy, latency, or cost was measured.",
+  "plannedTrials": 28,
+  "completedTrials": 28,
+  "failedExpectations": 0,
+  "planned": 19,
+  "deferred": 9,
+  "errors": 0,
+  "p50Ms": null,
+  "p95Ms": null,
+  "tokens": null,
+  "costUsd": null,
+  "parameterAudit": {
+    "catalogSource": "Base demo definitions. VesselOptionSync supplies additional runtime enums for existing task, event, and journal titles.",
+    "totalVariantParameterOccurrences": 34,
+    "enumConstrainedOccurrences": 5,
+    "openOccurrences": 29,
+    "details": [
+      {
+        "vessel": "calendar",
+        "variant": "month",
+        "action": "addEvent",
+        "parameter": "title",
+        "type": "string",
+        "enumValues": 0,
+        "required": true
+      },
+      {
+        "vessel": "calendar",
+        "variant": "month",
+        "action": "addEvent",
+        "parameter": "time",
+        "type": "string",
+        "enumValues": 0,
+        "required": true
+      },
+      {
+        "vessel": "calendar",
+        "variant": "month",
+        "action": "removeEvent",
+        "parameter": "title",
+        "type": "string",
+        "enumValues": 0,
+        "required": true
+      },
+      {
+        "vessel": "calendar",
+        "variant": "month",
+        "action": "moveEvent",
+        "parameter": "title",
+        "type": "string",
+        "enumValues": 0,
+        "required": true
+      },
+      {
+        "vessel": "calendar",
+        "variant": "month",
+        "action": "moveEvent",
+        "parameter": "time",
+        "type": "string",
+        "enumValues": 0,
+        "required": true
+      },
+      {
+        "vessel": "calendar",
+        "variant": "week",
+        "action": "addEvent",
+        "parameter": "title",
+        "type": "string",
+        "enumValues": 0,
+        "required": true
+      },
+      {
+        "vessel": "calendar",
+        "variant": "week",
+        "action": "addEvent",
+        "parameter": "time",
+        "type": "string",
+        "enumValues": 0,
+        "required": true
+      },
+      {
+        "vessel": "calendar",
+        "variant": "week",
+        "action": "removeEvent",
+        "parameter": "title",
+        "type": "string",
+        "enumValues": 0,
+        "required": true
+      },
+      {
+        "vessel": "calendar",
+        "variant": "week",
+        "action": "moveEvent",
+        "parameter": "title",
+        "type": "string",
+        "enumValues": 0,
+        "required": true
+      },
+      {
+        "vessel": "calendar",
+        "variant": "week",
+        "action": "moveEvent",
+        "parameter": "time",
+        "type": "string",
+        "enumValues": 0,
+        "required": true
+      },
+      {
+        "vessel": "calendar",
+        "variant": "day",
+        "action": "addEvent",
+        "parameter": "title",
+        "type": "string",
+        "enumValues": 0,
+        "required": true
+      },
+      {
+        "vessel": "calendar",
+        "variant": "day",
+        "action": "addEvent",
+        "parameter": "time",
+        "type": "string",
+        "enumValues": 0,
+        "required": true
+      },
+      {
+        "vessel": "calendar",
+        "variant": "day",
+        "action": "removeEvent",
+        "parameter": "title",
+        "type": "string",
+        "enumValues": 0,
+        "required": true
+      },
+      {
+        "vessel": "calendar",
+        "variant": "day",
+        "action": "moveEvent",
+        "parameter": "title",
+        "type": "string",
+        "enumValues": 0,
+        "required": true
+      },
+      {
+        "vessel": "calendar",
+        "variant": "day",
+        "action": "moveEvent",
+        "parameter": "time",
+        "type": "string",
+        "enumValues": 0,
+        "required": true
+      },
+      {
+        "vessel": "weather",
+        "variant": "current",
+        "action": "setLocation",
+        "parameter": "location",
+        "type": "string",
+        "enumValues": 0,
+        "required": true
+      },
+      {
+        "vessel": "weather",
+        "variant": "hourly",
+        "action": "setLocation",
+        "parameter": "location",
+        "type": "string",
+        "enumValues": 0,
+        "required": true
+      },
+      {
+        "vessel": "weather",
+        "variant": "weekly",
+        "action": "setLocation",
+        "parameter": "location",
+        "type": "string",
+        "enumValues": 0,
+        "required": true
+      },
+      {
+        "vessel": "tasks",
+        "variant": "list",
+        "action": "addTask",
+        "parameter": "title",
+        "type": "string",
+        "enumValues": 0,
+        "required": true
+      },
+      {
+        "vessel": "tasks",
+        "variant": "list",
+        "action": "removeTask",
+        "parameter": "title",
+        "type": "string",
+        "enumValues": 0,
+        "required": true
+      },
+      {
+        "vessel": "tasks",
+        "variant": "list",
+        "action": "checkTask",
+        "parameter": "title",
+        "type": "string",
+        "enumValues": 0,
+        "required": true
+      },
+      {
+        "vessel": "tasks",
+        "variant": "list",
+        "action": "uncheckTask",
+        "parameter": "title",
+        "type": "string",
+        "enumValues": 0,
+        "required": true
+      },
+      {
+        "vessel": "tasks",
+        "variant": "list",
+        "action": "addSubtask",
+        "parameter": "taskTitle",
+        "type": "string",
+        "enumValues": 0,
+        "required": true
+      },
+      {
+        "vessel": "tasks",
+        "variant": "list",
+        "action": "addSubtask",
+        "parameter": "subtaskTitle",
+        "type": "string",
+        "enumValues": 0,
+        "required": true
+      },
+      {
+        "vessel": "map",
+        "variant": "overview",
+        "action": "showRoute",
+        "parameter": "destination",
+        "type": "string",
+        "enumValues": 4,
+        "required": true
+      },
+      {
+        "vessel": "map",
+        "variant": "overview",
+        "action": "focusLocation",
+        "parameter": "name",
+        "type": "string",
+        "enumValues": 4,
+        "required": true
+      },
+      {
+        "vessel": "map",
+        "variant": "route",
+        "action": "showRoute",
+        "parameter": "destination",
+        "type": "string",
+        "enumValues": 4,
+        "required": true
+      },
+      {
+        "vessel": "map",
+        "variant": "route",
+        "action": "focusLocation",
+        "parameter": "name",
+        "type": "string",
+        "enumValues": 4,
+        "required": true
+      },
+      {
+        "vessel": "map",
+        "variant": "compact",
+        "action": "showRoute",
+        "parameter": "destination",
+        "type": "string",
+        "enumValues": 4,
+        "required": true
+      },
+      {
+        "vessel": "journal",
+        "variant": "list",
+        "action": "createEntry",
+        "parameter": "title",
+        "type": "string",
+        "enumValues": 0,
+        "required": true
+      },
+      {
+        "vessel": "journal",
+        "variant": "list",
+        "action": "openEntry",
+        "parameter": "title",
+        "type": "string",
+        "enumValues": 0,
+        "required": true
+      },
+      {
+        "vessel": "journal",
+        "variant": "entry",
+        "action": "createEntry",
+        "parameter": "title",
+        "type": "string",
+        "enumValues": 0,
+        "required": true
+      },
+      {
+        "vessel": "journal",
+        "variant": "entry",
+        "action": "openEntry",
+        "parameter": "title",
+        "type": "string",
+        "enumValues": 0,
+        "required": true
+      },
+      {
+        "vessel": "journal",
+        "variant": "entry",
+        "action": "writeContent",
+        "parameter": "text",
+        "type": "string",
+        "enumValues": 0,
+        "required": true
+      }
+    ]
+  },
+  "questionBudgets": [
+    {
+      "id": "preserve",
+      "questions": 20,
+      "maximumOptions": 67,
+      "bytes": 51403
+    },
+    {
+      "id": "show-hidden",
+      "questions": 20,
+      "maximumOptions": 67,
+      "bytes": 51411
+    },
+    {
+      "id": "hide",
+      "questions": 20,
+      "maximumOptions": 67,
+      "bytes": 51402
+    },
+    {
+      "id": "delete",
+      "questions": 20,
+      "maximumOptions": 67,
+      "bytes": 51413
+    },
+    {
+      "id": "focus",
+      "questions": 20,
+      "maximumOptions": 67,
+      "bytes": 51450
+    },
+    {
+      "id": "column",
+      "questions": 20,
+      "maximumOptions": 67,
+      "bytes": 51421
+    },
+    {
+      "id": "variant",
+      "questions": 20,
+      "maximumOptions": 67,
+      "bytes": 51417
+    },
+    {
+      "id": "enum-route",
+      "questions": 20,
+      "maximumOptions": 67,
+      "bytes": 51417
+    },
+    {
+      "id": "quoted-location",
+      "questions": 20,
+      "maximumOptions": 67,
+      "bytes": 51408
+    },
+    {
+      "id": "two-actions",
+      "questions": 20,
+      "maximumOptions": 67,
+      "bytes": 51432
+    },
+    {
+      "id": "transition-sequence",
+      "questions": 20,
+      "maximumOptions": 67,
+      "bytes": 51428
+    },
+    {
+      "id": "create-configure",
+      "questions": 20,
+      "maximumOptions": 67,
+      "bytes": 51434
+    },
+    {
+      "id": "compare",
+      "questions": 20,
+      "maximumOptions": 67,
+      "bytes": 51508
+    },
+    {
+      "id": "task",
+      "questions": 20,
+      "maximumOptions": 67,
+      "bytes": 51401
+    },
+    {
+      "id": "unquoted-location",
+      "questions": 20,
+      "maximumOptions": 67,
+      "bytes": 51395
+    },
+    {
+      "id": "missing-enum",
+      "questions": 20,
+      "maximumOptions": 67,
+      "bytes": 51398
+    },
+    {
+      "id": "generate-content",
+      "questions": 20,
+      "maximumOptions": 67,
+      "bytes": 51415
+    },
+    {
+      "id": "too-many-actions",
+      "questions": 20,
+      "maximumOptions": 67,
+      "bytes": 51412
+    },
+    {
+      "id": "ambiguous",
+      "questions": 20,
+      "maximumOptions": 67,
+      "bytes": 51386
+    },
+    {
+      "id": "small-chart",
+      "questions": 20,
+      "maximumOptions": 67,
+      "bytes": 51415
+    },
+    {
+      "id": "bad-order",
+      "questions": 20,
+      "maximumOptions": 67,
+      "bytes": 51412
+    },
+    {
+      "id": "absent-target",
+      "questions": 20,
+      "maximumOptions": 67,
+      "bytes": 51395
+    },
+    {
+      "id": "gap",
+      "questions": 20,
+      "maximumOptions": 67,
+      "bytes": 51395
+    },
+    {
+      "id": "uncertain",
+      "questions": 20,
+      "maximumOptions": 67,
+      "bytes": 51395
+    },
+    {
+      "id": "resize",
+      "questions": 20,
+      "maximumOptions": 67,
+      "bytes": 51982
+    },
+    {
+      "id": "followup",
+      "questions": 20,
+      "maximumOptions": 67,
+      "bytes": 51953
+    },
+    {
+      "id": "runtime-enum",
+      "questions": 20,
+      "maximumOptions": 67,
+      "bytes": 51536
+    },
+    {
+      "id": "tiny-resize",
+      "questions": 20,
+      "maximumOptions": 67,
+      "bytes": 51426
+    }
+  ]
+}

@@ -10,6 +10,7 @@
     "includes": [
       "**",
       "!**/routeTree.gen.ts",
+      "!**/prototypes/**/evidence/*.html",
       "!**/dist",
       "!**/*.css",
       "!**/drizzle/migrations"

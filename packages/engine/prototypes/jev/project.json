@@ -1,0 +1,27 @@
+{
+  "name": "jev-prototype",
+  "projectType": "application",
+  "tags": ["prototype"],
+  "targets": {
+    "typecheck": {
+      "command": "tsc -p packages/engine/prototypes/jev/tsconfig.prototype.json",
+      "dependsOn": []
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "commands": [
+          {
+            "command": "bun --conditions=@maelstrom-co/source packages/engine/prototypes/jev/run.ts --offline --verify",
+            "forwardAllArgs": false
+          }
+        ]
+      },
+      "dependsOn": []
+    },
+    "evaluate": {
+      "command": "bun --conditions=@maelstrom-co/source packages/engine/prototypes/jev/run.ts",
+      "cache": false
+    }
+  }
+}
