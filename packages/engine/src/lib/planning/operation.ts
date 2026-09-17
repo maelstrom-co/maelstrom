@@ -20,7 +20,10 @@ import {
   timeoutError,
   validationError,
 } from '../errors.js';
-import type { LLMContextMessage } from '../history/history-manager.js';
+import type {
+  LLMContextMessage,
+  PlanningHistoryContext,
+} from '../history/history-manager.js';
 import type { Logger } from '../logger.js';
 import type { InternalResponse } from '../response/response-processor.js';
 import { logAtSeverity } from '../severity-router.js';
@@ -89,12 +92,23 @@ export function withPlanningConversation(
   snapshot: PlanningSnapshot,
   conversation: readonly LLMContextMessage[],
 ): PlanningSnapshot {
+  return withPlanningHistory(snapshot, {
+    structured: snapshot.input.history.structured,
+    conversation,
+  });
+}
+
+/**
+ * Adds coherent frozen planner views captured from one retained-history read.
+ * The stored accepted plan is cloned, never shortened to manufacture prose.
+ */
+export function withPlanningHistory(
+  snapshot: PlanningSnapshot,
+  history: PlanningHistoryContext,
+): PlanningSnapshot {
   const input = Object.freeze({
     ...snapshot.input,
-    history: Object.freeze({
-      ...snapshot.input.history,
-      conversation: freezeJson(cloneJsonLike(conversation)),
-    }),
+    history: freezeJson(cloneJsonLike(history)),
   });
   return Object.freeze({ ...snapshot, input });
 }

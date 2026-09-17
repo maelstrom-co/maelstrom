@@ -195,8 +195,8 @@ The payload returned inside `ChartResponseOutput`.
 interface MaelstromResponse {
   type: 'maelstrom_response';
   requestId: MessageId;
-  userMessage: string;
-  rationale: string;
+  userMessage?: string;
+  rationale?: string;
   executionPlan: readonly ActionExecution[];
   layout: GridLayout | TilingLayout;
 }
@@ -208,7 +208,7 @@ interface ActionExecution {
 }
 ```
 
-`requestId` echoes the originating envelope `id` so callers can correlate without external bookkeeping. `executionPlan` lists action invocations to apply (in order) before the layout transition. `userMessage` is the natural-language summary the LLM produced for end users; `rationale` is the LLM's internal reasoning, useful for logging and debugging.
+`requestId` echoes the originating envelope `id` so callers can correlate without external bookkeeping. `executionPlan` lists action invocations to apply after the layout transition. `userMessage` is optional natural-language presentation for end users; `rationale` is optional diagnostic reasoning. Clients must handle either field being absent and must not invent placeholder prose.
 
 ---
 

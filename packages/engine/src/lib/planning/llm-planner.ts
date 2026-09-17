@@ -140,6 +140,7 @@ function toCandidate(response: {
   }[];
 }): PlannerCandidate {
   return {
+    requiresPresentation: true,
     userMessage: response.userMessage,
     rationale: response.rationale,
     layout: response.layout,

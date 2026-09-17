@@ -5,7 +5,7 @@ import type { EngineConfig } from '../config.js';
 import type { LLMContextMessage } from '../history/history-manager.js';
 import type { HistoryEntry, HistoryStore } from '../history/history-store.js';
 import type { Logger } from '../logger.js';
-import type { Planner } from '../planning/contracts.js';
+import type { Planner, PlanningHistoryEntry } from '../planning/contracts.js';
 
 const functionSchema = <T>() =>
   z.custom<T>((value) => typeof value === 'function', {
@@ -70,6 +70,19 @@ const historySchema = z
           defaults: () => readonly LLMContextMessage[],
         ) => readonly LLMContextMessage[]
       >().optional(),
+    planning: z
+      .object({
+        maxChars: z.number().int().positive().optional(),
+        deriveContext:
+          functionSchema<
+            (
+              entry: HistoryEntry,
+              defaults: () => readonly PlanningHistoryEntry[],
+            ) => readonly PlanningHistoryEntry[]
+          >().optional(),
+      })
+      .strict()
+      .optional(),
     store: historyStoreSchema,
   })
   .strict();

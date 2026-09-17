@@ -1,13 +1,15 @@
 import { z } from 'zod';
 
+import type { Mutable } from './_drift-guards.ts';
 import { ActionName } from './action-name.ts';
 import { InstanceId } from './instance.ts';
+import { MessageIdSchema } from './message.ts';
 import {
   MAX_ACTION_PARAMS_JSON_UTF8_BYTES,
   MAX_SPLIT_CHILDREN,
   MAX_SPLIT_WEIGHT,
 } from './model-output-limits.ts';
-import type { TilingNode } from './response.ts';
+import type { MaelstromResponse, TilingNode } from './response.ts';
 import {
   isTilingLeafTokenString,
   isTilingSplitTokenString,
@@ -197,3 +199,93 @@ export const TilingLayoutSchema = z.object({
       'All instances that should exist after this response. Include both existing instances (to keep) and new instances (to create). Instances not in this list will be deleted. IMPORTANT: When creating a new instance that needs configuration, you must ALSO add an action in executionPlan to configure it.',
     ),
 });
+
+/**
+ * Canonical decoded Action schema used after provider `paramsJson` parsing.
+ * Parameter keys stay arbitrary strings, including JSON-reserved names.
+ */
+const DecodedActionParamsSchema = z
+  .custom<Record<string, unknown>>(
+    (value) =>
+      value !== null &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      Object.keys(value).every((key) => {
+        const descriptor = Object.getOwnPropertyDescriptor(value, key);
+        return descriptor !== undefined && 'value' in descriptor;
+      }),
+    { message: 'params must be an object' },
+  )
+  .transform((params) => {
+    const copy: Record<string, unknown> = Object.create(null);
+    for (const key of Object.keys(params)) {
+      const descriptor = Object.getOwnPropertyDescriptor(params, key);
+      if (descriptor !== undefined && 'value' in descriptor) {
+        Object.defineProperty(copy, key, {
+          value: descriptor.value,
+          enumerable: true,
+          writable: true,
+          configurable: true,
+        });
+      }
+    }
+    return copy;
+  });
+
+/**
+ * Parses one canonical response action after JSON parameters have been decoded.
+ *
+ * Unlike {@link ActionExecutionSchema}, this schema accepts a parameter object
+ * rather than provider-authored `paramsJson`. It preserves arbitrary own JSON
+ * keys, including names such as `__proto__`, in a null-prototype record.
+ */
+export const DecodedActionExecutionSchema = z.object({
+  instanceId: InstanceIdSchema,
+  action: z.string().min(1, 'action is required').transform(ActionName),
+  params: DecodedActionParamsSchema.optional(),
+});
+
+const DecodedGridLayoutSchema = GridLayoutSchema.extend({
+  type: z.literal('grid'),
+});
+const DecodedTilingLayoutSchema = TilingLayoutSchema.extend({
+  type: z.literal('tiling'),
+});
+const DecodedMaelstromLayoutSchema = z.discriminatedUnion('type', [
+  DecodedGridLayoutSchema,
+  DecodedTilingLayoutSchema,
+]);
+
+const PresentationTextSchema = z
+  .string()
+  .optional()
+  .transform((value) => (value?.trim().length ? value : undefined));
+
+/**
+ * Canonical wire schema for an accepted Maelstrom plan. Presentation fields
+ * are optional and blank strings normalize to absence without changing
+ * nonblank text.
+ */
+export const MaelstromResponseSchema = z
+  .object({
+    type: z.literal('maelstrom_response'),
+    requestId: MessageIdSchema,
+    userMessage: PresentationTextSchema,
+    rationale: PresentationTextSchema,
+    executionPlan: z.array(DecodedActionExecutionSchema),
+    layout: DecodedMaelstromLayoutSchema,
+  })
+  .transform(({ userMessage, rationale, ...response }) => ({
+    ...response,
+    ...(userMessage !== undefined && { userMessage }),
+    ...(rationale !== undefined && { rationale }),
+  }));
+
+type _InferredMaelstromResponse = z.output<typeof MaelstromResponseSchema>;
+const _mrFwd: _InferredMaelstromResponse extends Mutable<MaelstromResponse>
+  ? true
+  : false = true;
+const _mrBwd: Mutable<MaelstromResponse> extends _InferredMaelstromResponse
+  ? true
+  : false = true;
+void [_mrFwd, _mrBwd];

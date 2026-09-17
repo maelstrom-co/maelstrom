@@ -14,6 +14,7 @@
  * request rather than at build time.
  */
 import {
+  type AdapterEngineConfig,
   createEngine,
   createInMemoryStore,
   type Engine,
@@ -33,7 +34,7 @@ const HISTORY_MAX_ENTRIES = 20;
 
 export interface PlaygroundEngineOptions {
   /** Provider binding — the one genuinely per-transport choice. */
-  readonly adapter: EngineConfig['adapter'];
+  readonly adapter: AdapterEngineConfig['adapter'];
   /**
    * Both transports MUST pass a redacting logger. The default `consoleLogger`
    * writes provider SDK errors verbatim, including OpenAI's 401 echo of the

@@ -291,6 +291,50 @@ describe('validateEngineConfig', () => {
     });
   });
 
+  describe('history.planning', () => {
+    test('accepts an independent structured retention configuration', () => {
+      expect(() =>
+        validateEngineConfig({
+          adapter: dummyAdapter,
+          history: {
+            store: {
+              append: async () => ({ inserted: true }),
+              get: async () => [],
+              replace: async () => {},
+              clear: async () => {},
+              getResponseById: async () => ({ kind: 'miss' as const }),
+            },
+            planning: { maxChars: 100, deriveContext: () => [] },
+          },
+        }),
+      ).not.toThrow();
+    });
+
+    test.each([
+      0,
+      -1,
+      1.5,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+    ])('rejects invalid planning.maxChars (%p)', (maxChars) => {
+      expect(() =>
+        validateEngineConfig({
+          adapter: dummyAdapter,
+          history: {
+            store: {
+              append: async () => ({ inserted: true }),
+              get: async () => [],
+              replace: async () => {},
+              clear: async () => {},
+              getResponseById: async () => ({ kind: 'miss' as const }),
+            },
+            planning: { maxChars },
+          },
+        }),
+      ).toThrow(/planning\.maxChars/);
+    });
+  });
+
   describe('maxRetries', () => {
     test('accepts a positive integer', () => {
       expect(() =>

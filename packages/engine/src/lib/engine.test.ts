@@ -483,7 +483,7 @@ describe('engine.handle — chart_request', () => {
     );
 
     const failureLog = logged.find(
-      (l) => l.message === 'Failed to load history context',
+      (l) => l.message === 'Failed to load planning history context',
     );
     expect(failureLog).toBeDefined();
     expect(failureLog?.data).toMatchObject({ sessionId, messageId });
@@ -1967,6 +1967,40 @@ describe('engine.getHistory', () => {
     // toSessionHistoryEntry's projection joins all user_intent reasons.
     expect(second.userIntent).toBe('Show me my calendar');
     expect(second.assistantMessage).toBe(gridLLMResponse.userMessage);
+  });
+
+  test('omits blank transformed assistant prose from public history', async () => {
+    mockChat.mockResolvedValue(gridLLMResponse);
+    const sessionId = SessionId('blank-public-history');
+    const engine = createEngine({
+      adapter: dummyAdapter,
+      logger: silentLogger,
+      history: {
+        store: createInMemoryStore(),
+        transformEntry: (entry) =>
+          entry.kind === 'turn'
+            ? {
+                ...entry,
+                output: {
+                  ...entry.output,
+                  response: {
+                    ...entry.output.response,
+                    userMessage: ' \t\n ',
+                  },
+                },
+              }
+            : entry,
+      },
+    });
+
+    await engine.handle(
+      toChartRequestMessage(makeGridRequest(), sessionId, MessageId('blank')),
+    );
+    const history = await engine.getHistory(sessionId);
+
+    expect(isOk(history)).toBe(true);
+    if (!isOk(history)) return;
+    expect(history.value[0]).not.toHaveProperty('assistantMessage');
   });
 
   test('isolates entries per sessionId — does not leak across sessions', async () => {

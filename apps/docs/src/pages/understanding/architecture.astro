@@ -57,10 +57,10 @@ import ArchitectureDiagram from '../../components/architecture/ArchitectureDiagr
     <a href="/understanding/engine/"><code>@maelstrom-co/engine</code></a> holds
     no layout state — the client owns that — and keeps prior turns only when you
     configure a history store. It assembles a prompt, calls an LLM, and returns a
-    <code>MaelstromResponse</code> with four parts: a <code>userMessage</code>
-    (the conversational reply), a <code>rationale</code> (its private reasoning),
-    an <code>executionPlan</code> (the actions to run), and a new
-    <code>layout</code> (where everything goes).
+    <code>MaelstromResponse</code> with an <code>executionPlan</code> (the
+    actions to run), a new <code>layout</code> (where everything goes), and
+    optional <code>userMessage</code> and <code>rationale</code> prose. A plan
+    can therefore change the UI without requiring a conversational reply.
   </p>
 
   <h3>The client applies it</h3>

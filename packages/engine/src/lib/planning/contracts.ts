@@ -1,4 +1,14 @@
-import type { ChartRequest, LayoutMode, Result } from '@maelstrom-co/protocol';
+import type {
+  ActionExecution,
+  ChartRequest,
+  GridLayout,
+  LayoutMode,
+  MessageId,
+  Result,
+  SessionId,
+  TilingLayout,
+  UpdateReason,
+} from '@maelstrom-co/protocol';
 
 import type { LLMContextMessage } from '../history/history-manager.js';
 
@@ -31,11 +41,43 @@ export interface PlanningInput {
   readonly actionEnums: readonly NormalizedActionEnumEntry[];
 }
 
-/** Minimal accepted-plan history shape available to future planners. */
-export interface PlanningHistoryEntry {
-  /** Finalized request that produced the accepted plan. */
-  readonly request: ChartRequest;
-}
+/**
+ * Accepted planning context retained for a future planner. These entries record
+ * accepted plans, not evidence that a client executed them.
+ */
+export type PlanningHistoryEntry =
+  | {
+      /** A finalized chart_request and the plan accepted for it. */
+      readonly kind: 'turn';
+      /** Correlation id from the accepted request. */
+      readonly id: MessageId;
+      /** Session that owns this accepted plan. */
+      readonly sessionId: SessionId;
+      /** Client-supplied request timestamp. */
+      readonly timestamp: number;
+      /** Reasons that caused the accepted planning operation. */
+      readonly updateReasons: readonly UpdateReason[];
+      /** Finalized layout selected by the engine. */
+      readonly layout: GridLayout | TilingLayout;
+      /** Finalized ordered actions selected by the engine. */
+      readonly executionPlan: readonly ActionExecution[];
+      /** Optional user-facing prose supplied with the accepted plan. */
+      readonly userMessage?: string;
+      /** Optional diagnostic prose supplied with the accepted plan. */
+      readonly rationale?: string;
+    }
+  | {
+      /** A developer-supplied assistant injection. */
+      readonly kind: 'injection';
+      /** Correlation id for the injection. */
+      readonly id: MessageId;
+      /** Session that owns the injection. */
+      readonly sessionId: SessionId;
+      /** Client-supplied injection timestamp. */
+      readonly timestamp: number;
+      /** Assistant content supplied by the developer. */
+      readonly content: string;
+    };
 
 /** One public action proposal with decoded JSON-object parameters. */
 export interface PlannerActionCandidate {
@@ -53,10 +95,12 @@ export interface PlannerCandidate {
   readonly layout: unknown;
   /** Ordered actions using {@link PlannerActionCandidate}. */
   readonly executionPlan: readonly PlannerActionCandidate[];
-  /** User-facing text required for the Phase 1 wire response. */
-  readonly userMessage: unknown;
-  /** Diagnostic rationale required for the Phase 1 wire response. */
-  readonly rationale: unknown;
+  /** Optional user-facing text for presentation. */
+  readonly userMessage?: unknown;
+  /** Optional diagnostic rationale. */
+  readonly rationale?: unknown;
+  /** True when a conventional LLM response must retain legacy prose validation. */
+  readonly requiresPresentation?: boolean;
 }
 
 /** Why a planner chose not to produce a candidate. */

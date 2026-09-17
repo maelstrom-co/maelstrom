@@ -6,7 +6,7 @@ import type {
   SessionId,
   UpdateReason,
 } from '@maelstrom-co/protocol';
-
+import type { PlanningHistoryEntry } from '../planning/contracts.js';
 import type { AsyncMutex } from './async-mutex.js';
 import { createAsyncMutex } from './async-mutex.js';
 import type {
@@ -23,6 +23,14 @@ import { truncate } from './truncation.js';
 export interface LLMContextMessage {
   readonly role: 'user' | 'assistant';
   readonly content: string;
+}
+
+/** Frozen planner views derived from the same retained history entry set. */
+export interface PlanningHistoryContext {
+  /** Accepted structured plans and injections for planner implementations. */
+  readonly structured: readonly PlanningHistoryEntry[];
+  /** Existing role-tagged context for the conventional LLM planner. */
+  readonly conversation: readonly LLMContextMessage[];
 }
 
 /** Persistence, retention, and prompt-projection policy for Engine history. */
@@ -70,6 +78,23 @@ export interface HistoryConfig<TMeta = unknown> {
     entry: HistoryEntry<TMeta>,
     defaults: () => readonly LLMContextMessage[],
   ) => readonly LLMContextMessage[];
+  /** Independent projection and retention policy for planner plan context. */
+  readonly planning?: {
+    /**
+     * Character budget for deterministic structured-plan serialization. Omit
+     * to disable this budget. The newest entry remains sticky when oversized.
+     */
+    readonly maxChars?: number;
+    /**
+     * Projects one retained entry into accepted planning context. It is
+     * independent from `deriveLLMContext`; use `defaults` to extend the
+     * engine projection without rebuilding finalized layout and action data.
+     */
+    readonly deriveContext?: (
+      entry: HistoryEntry<TMeta>,
+      defaults: () => readonly PlanningHistoryEntry[],
+    ) => readonly PlanningHistoryEntry[];
+  };
   /**
    * Backing store. Required — the engine never silently defaults to an
    * in-process store. Local dev and tests should pass `createInMemoryStore()`
@@ -124,6 +149,8 @@ export interface HistoryManager<TMeta = unknown> {
   ): Promise<{ readonly inserted: boolean }>;
   getHistory(sessionId: SessionId): Promise<readonly HistoryEntry<TMeta>[]>;
   getLLMContext(sessionId: SessionId): Promise<readonly LLMContextMessage[]>;
+  /** Returns frozen conversational and structured views from one retained read. */
+  getPlanningContext(sessionId: SessionId): Promise<PlanningHistoryContext>;
   clear(sessionId: SessionId): Promise<void>;
   /**
    * Point-lookup of a previously recorded `turn`'s response. Pure passthrough
@@ -161,6 +188,13 @@ export function createHistoryManager<TMeta = unknown>(
   ) => readonly LLMContextMessage[] = customDerive
     ? (entry) => customDerive(entry, () => defaultDeriveLLMContext(entry))
     : defaultDeriveLLMContext;
+  const customPlanningDerive = config.planning?.deriveContext;
+  const projectPlanningEntry: (
+    entry: HistoryEntry<TMeta>,
+  ) => readonly PlanningHistoryEntry[] = customPlanningDerive
+    ? (entry) =>
+        customPlanningDerive(entry, () => defaultDerivePlanningContext(entry))
+    : defaultDerivePlanningContext;
   // TODO(multi-instance): per-session mutex is process-local.
   // Failure mode: two instances racing on the same session can interleave
   // the read-truncate-replace sequence inside `recordTurn`. The
@@ -192,6 +226,12 @@ export function createHistoryManager<TMeta = unknown>(
     for (const m of projectEntry(entry)) total += m.content.length;
     return total;
   };
+  const planningMaxChars = config.planning?.maxChars;
+  const estimatePlanningEntryChars = (entry: HistoryEntry<TMeta>): number =>
+    stableSerializedLength(
+      projectPlanningEntry(entry),
+      planningMaxChars ?? Number.POSITIVE_INFINITY,
+    );
 
   // Sort by envelope timestamp so the observable order reflects when each
   // message was produced rather than when the store happened to see it.
@@ -210,7 +250,6 @@ export function createHistoryManager<TMeta = unknown>(
   // limits simply don't fire. Both omitted = truncation becomes a no-op.
   const maxEntries = config.maxEntries ?? Number.POSITIVE_INFINITY;
   const maxChars = config.maxChars ?? Number.POSITIVE_INFINITY;
-
   const applyTruncation = async (sessionId: SessionId): Promise<void> => {
     const raw = await store.get(sessionId);
     const ordered = byTimestamp(raw);
@@ -218,6 +257,11 @@ export function createHistoryManager<TMeta = unknown>(
       maxEntries,
       maxChars,
       estimate: estimateEntryChars,
+      ...(planningMaxChars !== undefined && {
+        additionalBudgets: [
+          { maxChars: planningMaxChars, estimate: estimatePlanningEntryChars },
+        ],
+      }),
     });
     if (trimmed.length !== ordered.length) {
       await store.replace(sessionId, trimmed);
@@ -268,6 +312,16 @@ export function createHistoryManager<TMeta = unknown>(
     async getLLMContext(sessionId) {
       const entries = byTimestamp(await store.get(sessionId));
       return entries.flatMap((entry) => [...projectEntry(entry)]);
+    },
+
+    async getPlanningContext(sessionId) {
+      const entries = byTimestamp(await store.get(sessionId));
+      return freezePlanningContext({
+        structured: entries.flatMap((entry) => [
+          ...projectPlanningEntry(entry),
+        ]),
+        conversation: entries.flatMap((entry) => [...projectEntry(entry)]),
+      });
     },
 
     async clear(sessionId) {
@@ -358,9 +412,252 @@ const defaultDeriveLLMContext = <TMeta>(
   if (userContent.length > 0) {
     messages.push({ role: 'user', content: userContent });
   }
+  const userMessage = entry.output.response.userMessage;
   messages.push({
     role: 'assistant',
-    content: entry.output.response.userMessage,
+    content: userMessage?.trim().length
+      ? userMessage
+      : `[Accepted structural plan]\n${boundedStructuralSummary(entry)}`,
   });
   return messages;
 };
+
+const defaultDerivePlanningContext = <TMeta>(
+  entry: HistoryEntry<TMeta>,
+): PlanningHistoryEntry[] => {
+  if (entry.kind === 'injection') {
+    return [
+      {
+        kind: 'injection',
+        id: entry.input.id,
+        sessionId: entry.input.sessionId,
+        timestamp: entry.input.timestamp,
+        content: entry.input.content,
+      },
+    ];
+  }
+  const response = entry.output.response;
+  return [
+    {
+      kind: 'turn',
+      id: entry.input.id,
+      sessionId: entry.input.sessionId,
+      timestamp: entry.input.timestamp,
+      updateReasons: entry.input.request.context.updateReasons,
+      layout: response.layout,
+      executionPlan: response.executionPlan,
+      ...nonBlankField(response.userMessage, 'userMessage'),
+      ...nonBlankField(response.rationale, 'rationale'),
+    },
+  ];
+};
+
+const STRUCTURAL_SUMMARY_MAX_CHARS = 2_000;
+const TRUNCATED_SUMMARY_MARKER = '\n[summary truncated]';
+
+function nonBlankField<T extends 'userMessage' | 'rationale'>(
+  value: string | undefined,
+  key: T,
+): { readonly [K in T]?: string } {
+  const field: { readonly [K in T]?: string } = {};
+  if (value?.trim().length) {
+    Object.defineProperty(field, key, {
+      value,
+      enumerable: true,
+    });
+  }
+  return field;
+}
+
+function boundedStructuralSummary(
+  entry: Extract<HistoryEntry, { kind: 'turn' }>,
+): string {
+  return stableSerialize(
+    {
+      layout: entry.output.response.layout,
+      executionPlan: entry.output.response.executionPlan,
+    },
+    STRUCTURAL_SUMMARY_MAX_CHARS,
+  ).text;
+}
+
+/**
+ * Measures the deterministic planning projection without materializing an
+ * unbounded string. Values larger than the configured budget saturate at one
+ * character over it, which makes every older entry fail the same budget while
+ * retaining the newest oversized entry through truncate's sticky exception.
+ */
+function stableSerializedLength(value: unknown, maxChars: number): number {
+  if (!Number.isFinite(maxChars)) return 0;
+  let length = 0;
+  const stringLength = (text: string): void => {
+    length += 2;
+    for (let index = 0; index < text.length && length <= maxChars; index++) {
+      const code = text.charCodeAt(index);
+      if (code === 34 || code === 92 || [8, 9, 10, 12, 13].includes(code))
+        length += 2;
+      else if (code < 32) length += 6;
+      else if (code >= 0xd800 && code <= 0xdbff) {
+        const next = text.charCodeAt(index + 1);
+        if (next >= 0xdc00 && next <= 0xdfff) {
+          length += 2;
+          index++;
+        } else length += 6;
+      } else length += code >= 0xdc00 && code <= 0xdfff ? 6 : 1;
+    }
+  };
+  type Frame =
+    | {
+        kind: 'container';
+        value: object;
+        entries: Iterator<[string | undefined, unknown]>;
+        first: boolean;
+      }
+    | { kind: 'value'; value: unknown };
+  const pending: Frame[] = [{ kind: 'value', value }];
+  const ancestors = new Set<object>();
+  function* entries(current: object): Generator<[string | undefined, unknown]> {
+    if (Array.isArray(current)) {
+      for (const child of current) yield [undefined, child];
+    } else {
+      for (const key of Object.keys(current))
+        yield [key, (current as Record<string, unknown>)[key]];
+    }
+  }
+  try {
+    while (pending.length > 0 && length <= maxChars) {
+      const frame = pending.pop();
+      if (frame === undefined) break;
+      if (frame.kind === 'container') {
+        const next = frame.entries.next();
+        if (next.done) {
+          ancestors.delete(frame.value);
+          continue;
+        }
+        if (!frame.first) length++;
+        frame.first = false;
+        const [key, child] = next.value;
+        if (key !== undefined) {
+          stringLength(key);
+          length++;
+        }
+        pending.push(frame, { kind: 'value', value: child });
+        continue;
+      }
+      const current = frame.value;
+      if (typeof current === 'string') stringLength(current);
+      else if (current === null || typeof current !== 'object')
+        length += (JSON.stringify(current) ?? 'null').length;
+      else {
+        if (ancestors.has(current)) return maxChars + 1;
+        ancestors.add(current);
+        length += 2;
+        pending.push({
+          kind: 'container',
+          value: current,
+          entries: entries(current),
+          first: true,
+        });
+      }
+    }
+  } catch {
+    return maxChars + 1;
+  }
+  return Math.min(length, maxChars + 1);
+}
+
+function stableSerialize(
+  value: unknown,
+  maxChars: number,
+): { readonly text: string; readonly length: number } {
+  let output = '';
+  let truncated = false;
+  const append = (part: string): boolean => {
+    const remaining = maxChars - output.length;
+    if (part.length > remaining) {
+      const contentLimit = Math.max(
+        0,
+        maxChars - TRUNCATED_SUMMARY_MARKER.length,
+      );
+      output = `${output}${part.slice(0, Math.max(0, remaining))}`.slice(
+        0,
+        contentLimit,
+      );
+      truncated = true;
+      return false;
+    }
+    output += part;
+    return true;
+  };
+  const seen = new Set<object>();
+  const visit = (current: unknown, depth: number): boolean => {
+    if (depth > 32) return append('"[depth exceeded]"');
+    if (current === null || typeof current !== 'object') {
+      try {
+        return append(JSON.stringify(current) ?? 'null');
+      } catch {
+        return append('"[unserializable]"');
+      }
+    }
+    if (seen.has(current)) return append('"[cycle]"');
+    seen.add(current);
+    try {
+      if (Array.isArray(current)) {
+        if (!append('[')) return false;
+        for (let index = 0; index < current.length; index += 1) {
+          if (index > 0 && !append(',')) return false;
+          if (!visit(current[index], depth + 1)) return false;
+        }
+        return append(']');
+      }
+      if (!append('{')) return false;
+      const record = current as Record<string, unknown>;
+      for (const [index, key] of Object.keys(record).sort().entries()) {
+        if (index > 0 && !append(',')) return false;
+        if (!append(JSON.stringify(key))) return false;
+        if (!append(':')) return false;
+        if (!visit(record[key], depth + 1)) return false;
+      }
+      return append('}');
+    } catch {
+      return append('"[unserializable]"');
+    } finally {
+      seen.delete(current);
+    }
+  };
+  visit(value, 0);
+  const text = truncated ? `${output}${TRUNCATED_SUMMARY_MARKER}` : output;
+  return {
+    text,
+    length: truncated ? maxChars + 1 : output.length,
+  };
+}
+
+function freezePlanningContext(
+  context: PlanningHistoryContext,
+): PlanningHistoryContext {
+  return freezeValue(cloneValue(context));
+}
+
+function cloneValue<T>(value: T): T {
+  if (value === null || typeof value !== 'object') return value;
+  if (Array.isArray(value)) return value.map(cloneValue) as T;
+  const copy: Record<string, unknown> = Object.create(null);
+  for (const [key, child] of Object.entries(value))
+    copy[key] = cloneValue(child);
+  return copy as T;
+}
+
+function freezeValue<T>(value: T): T {
+  if (value === null || typeof value !== 'object') return value;
+  const pending: object[] = [value as object];
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (current === undefined || Object.isFrozen(current)) continue;
+    for (const child of Object.values(current)) {
+      if (child !== null && typeof child === 'object') pending.push(child);
+    }
+    Object.freeze(current);
+  }
+  return value;
+}

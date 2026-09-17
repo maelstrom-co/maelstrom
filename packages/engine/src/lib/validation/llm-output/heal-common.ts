@@ -1,8 +1,4 @@
-import type {
-  GridResponse,
-  InstanceId,
-  TilingResponse,
-} from '@maelstrom-co/protocol';
+import type { InstanceId } from '@maelstrom-co/protocol';
 
 import type { DroppedLayoutEntry, LayoutWarning } from './healed-layout.js';
 
@@ -13,10 +9,10 @@ import type { DroppedLayoutEntry, LayoutWarning } from './healed-layout.js';
  * placeholder text) lands in one place.
  */
 export function pushMissingRationaleWarningIfEmpty(
-  response: GridResponse | TilingResponse,
+  response: { readonly rationale?: string },
   warnings: LayoutWarning[],
 ): void {
-  if (response.rationale.trim() === '') {
+  if (!response.rationale?.trim()) {
     warnings.push({ kind: 'missing_rationale' });
   }
 }

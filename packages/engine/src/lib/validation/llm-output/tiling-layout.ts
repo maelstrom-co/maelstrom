@@ -43,7 +43,9 @@ import { pruneAst } from './tiling-layout/prune-ast.js';
  * - missing rationale → warning, response accepted as-is.
  */
 export function healTilingLayout(
-  response: TilingResponse,
+  response: Omit<TilingResponse, 'userMessage' | 'rationale'> & {
+    readonly rationale?: string;
+  },
   request: ChartRequest,
 ): HealedTilingLayout {
   const droppedEntries: DroppedLayoutEntry[] = [];

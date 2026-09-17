@@ -32,7 +32,9 @@ export const toSessionHistoryEntry = (
         userIntent: extractUserIntent(
           entry.input.request.context.updateReasons,
         ),
-        assistantMessage: entry.output.response.userMessage,
+        ...(entry.output.response.userMessage?.trim().length && {
+          assistantMessage: entry.output.response.userMessage,
+        }),
       };
     default:
       // Compile-time exhaustiveness: a future HistoryEntry variant lands in

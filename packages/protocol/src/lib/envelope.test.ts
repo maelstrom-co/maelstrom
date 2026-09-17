@@ -167,6 +167,49 @@ describe('ClientEnvelope round-trip', () => {
 // Server envelope round-trips
 // ---------------------------------------------------------------------------
 
+describe('canonical text-free response decoding', () => {
+  test('accepts omitted presentation, normalizes blanks, and preserves reserved parameter keys', () => {
+    const response = validMaelstromResponse();
+    const decoded = decodeServerEnvelope({
+      type: 'engine.maelstrom.response',
+      requestId: 'req-1',
+      response: {
+        ...response,
+        userMessage: '   ',
+        rationale: '',
+        executionPlan: [
+          {
+            ...response.executionPlan[0],
+            params: JSON.parse(
+              '{"__proto__":"kept","constructor":"also kept"}',
+            ),
+          },
+        ],
+      },
+    });
+    expect(decoded.ok).toBe(true);
+    if (!decoded.ok || decoded.value.type !== 'engine.maelstrom.response') {
+      throw new Error('expected text-free response');
+    }
+    expect(decoded.value.response).not.toHaveProperty('userMessage');
+    expect(decoded.value.response).not.toHaveProperty('rationale');
+    const params = decoded.value.response.executionPlan[0]?.params;
+    expect(Object.hasOwn(params ?? {}, '__proto__')).toBe(true);
+    expect(params?.['__proto__']).toBe('kept');
+    expect(params?.['constructor']).toBe('also kept');
+  });
+
+  test('rejects malformed plans even when presentation is omitted', () => {
+    const response = validMaelstromResponse();
+    const decoded = decodeServerEnvelope({
+      type: 'engine.maelstrom.response',
+      requestId: 'req-1',
+      response: { ...response, executionPlan: [{ action: 'open' }] },
+    });
+    expect(isErr(decoded)).toBe(true);
+  });
+});
+
 describe('ServerEnvelope round-trip', () => {
   test.each([
     'inserted',

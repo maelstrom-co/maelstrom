@@ -59,8 +59,20 @@ export type InternalResponse = MaelstromResponse & {
   readonly diagnostics: EngineDiagnostics;
 };
 
+export type ProcessResponseOutput = Omit<
+  LLMOutput,
+  'userMessage' | 'rationale'
+> & {
+  /** Optional presentation text from any planner. */
+  readonly userMessage?: string;
+  /** Optional diagnostics from any planner. */
+  readonly rationale?: string;
+};
+
 export interface ProcessResponseInput {
-  readonly llmOutput: LLMOutput;
+  readonly llmOutput: ProcessResponseOutput;
+  /** Keeps legacy LLM prose validation unless a structured planner opts out. */
+  readonly allowMissingPresentation?: boolean;
   readonly request: ChartRequest;
   /** Exact normalized enum values displayed for this Engine request. */
   readonly enumSnapshot: ActionParameterEnumSnapshot;
@@ -71,12 +83,13 @@ export interface ProcessResponseInput {
 /** Processes one LLM attempt against its Engine request's fixed enum snapshot. */
 export function processResponse({
   llmOutput,
+  allowMissingPresentation = false,
   request,
   enumSnapshot,
   messageId,
   logger,
 }: ProcessResponseInput): Result<InternalResponse, EngineError> {
-  if (!llmOutput.userMessage?.trim()) {
+  if (!allowMissingPresentation && !llmOutput.userMessage?.trim()) {
     return err(parseError('LLM response missing userMessage', 'userMessage'));
   }
 
@@ -159,8 +172,8 @@ export function processResponse({
   return ok({
     type: 'maelstrom_response',
     requestId: messageId,
-    userMessage: llmOutput.userMessage,
-    rationale: llmOutput.rationale,
+    ...nonBlankPresentation(llmOutput.userMessage, 'userMessage'),
+    ...nonBlankPresentation(llmOutput.rationale, 'rationale'),
     executionPlan,
     layout,
     diagnostics: {
@@ -176,6 +189,13 @@ export function processResponse({
 // variant for an already-extant instance shouldn't silently overwrite
 // the simulator's starting state. Variant transitions go through the
 // executionPlan path so the simulator can validate them.
+function nonBlankPresentation(
+  value: string | undefined,
+  key: 'userMessage' | 'rationale',
+): Partial<Pick<MaelstromResponse, typeof key>> {
+  return value?.trim().length ? { [key]: value } : {};
+}
+
 function mergeTilingInstances(
   requestInstances: readonly VesselInstanceSnapshot[],
   healedInstances: readonly HealedTilingInstance[],

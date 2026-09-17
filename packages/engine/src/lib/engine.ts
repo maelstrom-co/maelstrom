@@ -19,7 +19,7 @@ import { historyError, validationError } from './errors.js';
 import type { HistoryManager } from './history/history-manager.js';
 import { createHistoryManager } from './history/history-manager.js';
 import type { HistoryEntry } from './history/history-store.js';
-import { loadHistoryContext } from './history/load-history-context.js';
+import { loadPlanningHistoryContext } from './history/load-history-context.js';
 import { toSessionHistoryEntry } from './history/wire-projection.js';
 import type { Logger } from './logger.js';
 import { createLlmPlanner } from './planning/llm-planner.js';
@@ -27,7 +27,7 @@ import type { PlanningSnapshot } from './planning/operation.js';
 import {
   createPlanningSnapshot,
   executePlanningOperation,
-  withPlanningConversation,
+  withPlanningHistory,
 } from './planning/operation.js';
 import type {
   SkippedAction,
@@ -125,14 +125,14 @@ export function createEngine(config: EngineConfig): Engine {
       });
       return err(failure);
     }
-    const historyContext = await loadHistoryContext(
+    const historyContext = await loadPlanningHistoryContext(
       history,
       message.sessionId,
       message.id,
       logger,
     );
     if (isErr(historyContext)) return historyContext;
-    snapshot = withPlanningConversation(snapshot, historyContext.value);
+    snapshot = withPlanningHistory(snapshot, historyContext.value);
 
     const planned = await executePlanningOperation({
       planner: plannerConfig,

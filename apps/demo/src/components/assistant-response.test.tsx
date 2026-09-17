@@ -39,6 +39,18 @@ describe('AssistantResponse', () => {
     );
   });
 
+  it('renders no assistant card after a text-free accepted plan settles', () => {
+    render(
+      <AssistantResponse
+        isProcessing={false}
+        message={undefined}
+        voiceActive={false}
+      />,
+    );
+
+    expect(screen.queryByLabelText('Maelstrom response')).toBeNull();
+  });
+
   it('moves by keyboard and resets without making response text a drag target', () => {
     const { container } = render(
       <AssistantResponse

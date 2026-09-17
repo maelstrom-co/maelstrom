@@ -8,12 +8,13 @@ import {
 
 import type { ActionParameterEnumSnapshot } from '../action-parameter-enum.js';
 import type { EngineError } from '../errors.js';
-import { parseError } from '../errors.js';
 import type { Logger } from '../logger.js';
-import type { LLMOutput } from '../pipeline/call-llm.js';
 import type { SkippedAction } from '../response/execution-plan/types.js';
-import type { InternalResponse } from '../response/response-processor.js';
-import { processResponse } from '../response/response-processor.js';
+import type { ProcessResponseOutput } from '../response/response-processor.js';
+import {
+  type InternalResponse,
+  processResponse,
+} from '../response/response-processor.js';
 import type {
   DroppedLayoutEntry,
   LayoutWarning,
@@ -62,15 +63,17 @@ export function finalizeCandidate(input: {
     if (!canonical.ok) return unusable(canonical.issues, canonical.error);
     const processed = processResponse({
       llmOutput: canonical.value,
+      allowMissingPresentation: !candidate.requiresPresentation,
       request,
       enumSnapshot,
       messageId,
       logger,
     });
     if (isErr(processed)) {
-      return unusable([
-        issue('candidate', 'response_rejected', processed.error.message),
-      ]);
+      return unusable(
+        [issue('candidate', 'response_rejected', processed.error.message)],
+        processed.error,
+      );
     }
     const diagnostics = processed.value.diagnostics;
     const issues = [
@@ -117,7 +120,7 @@ function parseCandidate(
 ):
   | {
       readonly ok: true;
-      readonly value: LLMOutput;
+      readonly value: ProcessResponseOutput;
     }
   | {
       readonly ok: false;
@@ -137,29 +140,15 @@ function parseCandidate(
       { path: ['executionPlan'] },
     );
   if (
-    typeof candidate.userMessage !== 'string' ||
-    !candidate.userMessage.trim()
+    (candidate.userMessage !== undefined &&
+      typeof candidate.userMessage !== 'string') ||
+    (candidate.rationale !== undefined &&
+      typeof candidate.rationale !== 'string')
   ) {
-    return {
-      ok: false,
-      issues: [
-        issue(
-          'text',
-          'missing_user_message',
-          'proposal is missing userMessage',
-        ),
-      ],
-      error: parseError('LLM response missing userMessage', 'userMessage'),
-    };
-  }
-  if (typeof candidate.rationale !== 'string') {
-    return {
-      ok: false,
-      issues: [
-        issue('text', 'missing_rationale', 'proposal is missing rationale'),
-      ],
-      error: parseError('LLM response missing rationale', 'rationale'),
-    };
+    return invalidCandidate(
+      'proposal presentation fields must be strings when supplied',
+      'invalid_presentation',
+    );
   }
   if ('type' in candidate.layout && candidate.layout.type !== mode) {
     return invalidCandidate(
@@ -191,13 +180,11 @@ function parseCandidate(
   const executionPlan = actions.map((action) =>
     action.ok ? action.value : undefined,
   );
-  const raw = {
-    userMessage: candidate.userMessage,
-    rationale: candidate.rationale,
-    executionPlan,
-    layout: candidate.layout,
-  };
-  const schema = mode === 'grid' ? GridResponseSchema : TilingResponseSchema;
+  const raw = { executionPlan, layout: candidate.layout };
+  const schema =
+    mode === 'grid'
+      ? GridResponseSchema.omit({ userMessage: true, rationale: true })
+      : TilingResponseSchema.omit({ userMessage: true, rationale: true });
   const parsed = schema.safeParse(raw);
   if (!parsed.success) {
     return {
@@ -216,7 +203,23 @@ function parseCandidate(
       ),
     };
   }
-  return { ok: true, value: parsed.data as LLMOutput };
+  return {
+    ok: true,
+    value: {
+      ...parsed.data,
+      ...presentation(candidate.userMessage, 'userMessage'),
+      ...presentation(candidate.rationale, 'rationale'),
+    } as ProcessResponseOutput,
+  };
+}
+
+function presentation(
+  value: unknown,
+  key: 'userMessage' | 'rationale',
+): Partial<Record<'userMessage' | 'rationale', string>> {
+  return typeof value === 'string' && value.trim().length > 0
+    ? { [key]: value }
+    : {};
 }
 
 function encodeAction(candidate: PlannerActionCandidate):

@@ -13,8 +13,8 @@ Configuring `history` flips the engine into stateful mode: prior turns and
 developer-supplied assistant messages are fed into each new prompt, and
 completed turns are persisted on the way out.
 
-This page covers wiring a store, tuning truncation, and using the two hooks
-that let you enrich what is persisted and what the LLM sees.
+This page covers wiring a store, tuning truncation, and using the projection
+hooks that control what is persisted and what planners see.
 
 ## Before you start
 
@@ -173,7 +173,34 @@ history: {
 For reference, the default projection (`defaults()`, also what runs when
 the hook is omitted) is: a `turn` projects to a user message (from
 `user_intent` reasons) plus an assistant message (from the response's
-`userMessage`); an `injection` projects to a single assistant message.
+`userMessage`); an `injection` projects to a single assistant message. When
+a turn has no prose, the default assistant message is a bounded label and
+structural plan summary rather than a blank message. A summary that reaches
+its limit ends with `[summary truncated]`; it never presents a partial plan as
+complete.
+
+### Project accepted plans for custom planners
+
+`history.planning` supplies custom planners with accepted layout and action
+history. Its `deriveContext` hook receives each retained entry and a
+`defaults` callback, like `deriveLLMContext`. The resulting structured view
+and the LLM conversation view come from the same retained entry set.
+
+```ts
+history: {
+  store,
+  planning: {
+    maxChars: 40_000,
+    deriveContext: (_entry, defaults) => defaults(),
+  },
+}
+```
+
+`planning.maxChars` is independent from conversational `maxChars`. It charges
+the complete deterministic serialization of every structured entry, stopping
+measurement once an entry exceeds the configured limit. Both budgets preserve
+the newest entry when it alone exceeds its budget, so this is a retention
+target rather than a hard cap.
 
 ### Seed assistant context without invoking the LLM
 

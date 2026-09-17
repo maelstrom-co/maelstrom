@@ -36,6 +36,84 @@ afterEach(() => {
   globalThis.fetch = originalFetch;
 });
 
+describe('HttpConnector.process', () => {
+  test('accepts a text-free canonical response and preserves JSON-reserved parameter keys', async () => {
+    installFetch(
+      async () =>
+        new Response(
+          JSON.stringify({
+            type: 'maelstrom_response',
+            requestId: 'text-free',
+            executionPlan: [
+              {
+                instanceId: 'calendar-main',
+                action: 'configure',
+                params: JSON.parse('{"__proto__":"kept"}'),
+              },
+            ],
+            layout: { type: 'grid', positions: [] },
+          }),
+        ),
+    );
+    const connector = new HttpConnector({ baseUrl: 'https://api.example.com' });
+    const response = await connector.process({
+      type: 'chart_request',
+      id: MessageId('text-free'),
+      sessionId: SessionId('s-1'),
+      timestamp: 1,
+      request: {
+        type: 'chart_request',
+        context: {
+          updateReasons: [],
+          chartDimensions: { columns: 1, rows: 1 },
+          layoutMode: 'grid',
+        },
+        instances: [],
+        vessels: [],
+        layout: { type: 'grid', positions: [] },
+      },
+    });
+    expect(response.userMessage).toBeUndefined();
+    expect(response.executionPlan[0]?.params).toEqual(
+      JSON.parse('{"__proto__":"kept"}'),
+    );
+  });
+
+  test('rejects a malformed response plan at the HTTP boundary', async () => {
+    installFetch(
+      async () =>
+        new Response(
+          JSON.stringify({
+            type: 'maelstrom_response',
+            requestId: 'bad',
+            executionPlan: [{ action: 'missing-instance' }],
+            layout: { type: 'grid', positions: [] },
+          }),
+        ),
+    );
+    const connector = new HttpConnector({ baseUrl: 'https://api.example.com' });
+    await expect(
+      connector.process({
+        type: 'chart_request',
+        id: MessageId('bad'),
+        sessionId: SessionId('s-1'),
+        timestamp: 1,
+        request: {
+          type: 'chart_request',
+          context: {
+            updateReasons: [],
+            chartDimensions: { columns: 1, rows: 1 },
+            layoutMode: 'grid',
+          },
+          instances: [],
+          vessels: [],
+          layout: { type: 'grid', positions: [] },
+        },
+      }),
+    ).rejects.toThrow(/malformed payload/);
+  });
+});
+
 describe('HttpConnector.getHistory', () => {
   test('POSTs /history with { sessionId } and returns the parsed entries', async () => {
     const expected: SessionHistoryEntry[] = [

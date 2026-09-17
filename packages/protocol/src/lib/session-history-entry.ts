@@ -47,7 +47,8 @@ export type SessionHistoryEntry =
       readonly sessionId: SessionId;
       readonly timestamp: number;
       readonly userIntent: string;
-      readonly assistantMessage: string;
+      /** Optional assistant prose; omitted for accepted text-free plans. */
+      readonly assistantMessage?: string;
     }
   | {
       readonly kind: 'injection';
@@ -74,12 +75,20 @@ const baseShape = {
     .refine(Number.isFinite, { message: 'timestamp must be a finite number' }),
 };
 
-const TurnEntrySchema = z.object({
-  ...baseShape,
-  kind: z.literal('turn'),
-  userIntent: z.string(),
-  assistantMessage: z.string(),
-});
+const TurnEntrySchema = z
+  .object({
+    ...baseShape,
+    kind: z.literal('turn'),
+    userIntent: z.string(),
+    assistantMessage: z
+      .string()
+      .optional()
+      .transform((value) => (value?.trim().length ? value : undefined)),
+  })
+  .transform(({ assistantMessage, ...entry }) => ({
+    ...entry,
+    ...(assistantMessage !== undefined && { assistantMessage }),
+  }));
 
 const InjectionEntrySchema = z.object({
   ...baseShape,
@@ -91,10 +100,9 @@ const InjectionEntrySchema = z.object({
  * Wire-format Zod parser for {@link SessionHistoryEntry}. Dispatches on
  * `kind` and validates the per-variant payload.
  *
- * Empty `userIntent` / `assistantMessage` / `content` are *allowed* — they
- * are legal values with semantic meaning (an injection of `''` is rejected
- * upstream by `AssistantInjectionMessageSchema`, but a `turn` recorded with
- * no user-intent reasons legitimately has `userIntent: ''`).
+ * Empty `userIntent` and `content` are allowed where their enclosing
+ * contracts permit them. Missing or blank `assistantMessage` normalizes to
+ * absence, so clients do not render a blank assistant bubble.
  */
 export const SessionHistoryEntrySchema = z.discriminatedUnion('kind', [
   TurnEntrySchema,

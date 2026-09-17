@@ -27,7 +27,9 @@ import type {
  * - missing rationale → warning, response accepted as-is.
  */
 export function healGridLayout(
-  response: GridResponse,
+  response: Omit<GridResponse, 'userMessage' | 'rationale'> & {
+    readonly rationale?: string;
+  },
   request: ChartRequest,
 ): HealedGridLayout {
   const droppedEntries: DroppedLayoutEntry[] = [];

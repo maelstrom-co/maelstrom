@@ -6,8 +6,10 @@ import type {
   MaelstromResponse,
 } from '@maelstrom-co/protocol';
 import {
+  ActionName,
   AssistantInjectionMessage,
   ChartRequestMessage,
+  InstanceId,
   MessageId,
   SessionId,
 } from '@maelstrom-co/protocol';
@@ -561,6 +563,169 @@ describe('HistoryManager.addAssistantMessage', () => {
   });
 });
 
+describe('HistoryManager structured planning context', () => {
+  test('retains accepted text-free plans independently from a custom empty LLM projection', async () => {
+    const mgr = createHistoryManager({
+      store: createInMemoryStore(),
+      maxEntries: 10,
+      maxChars: 1,
+      deriveLLMContext: () => [],
+      planning: { maxChars: 1 },
+    });
+    const s = SessionId('planning');
+    await mgr.recordTurn(
+      buildInput(s, MessageId('first'), 'first'),
+      buildOutput(s, MessageId('first'), ''),
+    );
+    // The newest entry is sticky even though deterministic structured
+    // serialization exceeds planning.maxChars.
+    expect((await mgr.getHistory(s)).map((entry) => entry.input.id)).toEqual([
+      MessageId('first'),
+    ]);
+    await mgr.recordTurn(
+      buildInput(s, MessageId('second'), 'second'),
+      buildOutput(s, MessageId('second'), ''),
+    );
+    expect((await mgr.getHistory(s)).map((entry) => entry.input.id)).toEqual([
+      MessageId('second'),
+    ]);
+    const context = await mgr.getPlanningContext(s);
+    expect(context.conversation).toEqual([]);
+    expect(context.structured).toMatchObject([
+      {
+        kind: 'turn',
+        id: 'second',
+        layout: { type: 'grid' },
+        executionPlan: [],
+      },
+    ]);
+    expect(Object.isFrozen(context.structured)).toBe(true);
+  });
+
+  test.each([
+    0, 29,
+  ])('charges complete planning entries at nesting depth %s instead of a summary prefix', async (depth) => {
+    const mgr = createHistoryManager({
+      store: createInMemoryStore(),
+      maxEntries: 10,
+      maxChars: 1,
+      deriveLLMContext: () => [],
+      planning: { maxChars: 40_000 },
+    });
+    const s = SessionId('planning-complete-cost');
+    let nested: unknown = 'r'.repeat(15_000);
+    for (let index = 0; index < depth; index++) nested = { child: nested };
+    const oversized = (id: ReturnType<typeof MessageId>) => ({
+      ...buildOutput(s, id, ''),
+      response: {
+        ...buildOutput(s, id, '').response,
+        executionPlan: Array.from({ length: 3 }, () => ({
+          instanceId: InstanceId('calendar-main'),
+          action: ActionName('configure'),
+          params: { payload: nested },
+        })),
+      },
+    });
+
+    await mgr.recordTurn(
+      buildInput(s, MessageId('first'), 'first'),
+      oversized(MessageId('first')),
+    );
+    // The newest oversized plan is retained intact as the documented sticky
+    // exception. A second one must evict it: a bounded preview alone cannot
+    // make two 45k plans appear to fit a 40k structured-history budget.
+    await mgr.recordTurn(
+      buildInput(s, MessageId('second'), 'second'),
+      oversized(MessageId('second')),
+    );
+
+    const context = await mgr.getPlanningContext(s);
+    expect(context.conversation).toEqual([]);
+    expect(context.structured).toHaveLength(1);
+    expect(context.structured[0]).toMatchObject({
+      kind: 'turn',
+      id: 'second',
+      executionPlan: oversized(MessageId('second')).response.executionPlan,
+    });
+  });
+
+  test('omits blank prose from structured and conversational projections', async () => {
+    const mgr = createHistoryManager({
+      store: createInMemoryStore(),
+      maxEntries: 10,
+      maxChars: 10_000,
+    });
+    const s = SessionId('planning-blank-prose');
+    const output = buildOutput(s, MessageId('blank'), ' \t\n ');
+    await mgr.recordTurn(buildInput(s, MessageId('blank'), 'show'), {
+      ...output,
+      response: { ...output.response, rationale: '  ' },
+    });
+
+    const context = await mgr.getPlanningContext(s);
+    expect(context.structured[0]).not.toHaveProperty('userMessage');
+    expect(context.structured[0]).not.toHaveProperty('rationale');
+    expect(context.conversation[1]).toMatchObject({
+      role: 'assistant',
+      content: expect.stringContaining('[Accepted structural plan]'),
+    });
+  });
+
+  test.each([
+    'plain',
+    'quote"\\\n\u0000',
+    'astral 🌀',
+    'unpaired \ud800',
+  ])('measures JSON escaping exactly at the planning retention boundary: %s', async (content) => {
+    const s = SessionId('planning-escaping');
+    const projection = [
+      {
+        kind: 'injection' as const,
+        id: MessageId('projected'),
+        sessionId: s,
+        timestamp: 1,
+        content,
+      },
+    ];
+    const entryCost = JSON.stringify(projection).length;
+    for (const adjustment of [0, -1]) {
+      const mgr = createHistoryManager({
+        store: createInMemoryStore(),
+        deriveLLMContext: () => [],
+        planning: {
+          maxChars: entryCost * 2 + adjustment,
+          deriveContext: () => projection,
+        },
+      });
+      for (const id of ['first', 'second'])
+        await mgr.recordTurn(
+          buildInput(s, MessageId(id), id),
+          buildOutput(s, MessageId(id), ''),
+        );
+      expect(await mgr.getHistory(s)).toHaveLength(adjustment === 0 ? 2 : 1);
+    }
+  });
+
+  test('leaves structured retention unbounded when its cap is omitted', async () => {
+    const mgr = createHistoryManager({
+      store: createInMemoryStore(),
+      maxEntries: 10,
+      maxChars: 1,
+      deriveLLMContext: () => [],
+    });
+    const s = SessionId('planning-unbounded');
+    await mgr.recordTurn(
+      buildInput(s, MessageId('first'), 'first'),
+      buildOutput(s, MessageId('first'), ''),
+    );
+    await mgr.recordTurn(
+      buildInput(s, MessageId('second'), 'second'),
+      buildOutput(s, MessageId('second'), ''),
+    );
+    expect((await mgr.getPlanningContext(s)).structured).toHaveLength(2);
+  });
+});
+
 describe('HistoryManager.getHistory', () => {
   test('returns full entries in insertion order', async () => {
     const store = createInMemoryStore();
@@ -675,10 +840,7 @@ describe('HistoryManager.getLLMContext', () => {
     expect(await mgr.getLLMContext(SessionId('fresh'))).toEqual([]);
   });
 
-  test('emits an assistant message even when response.userMessage is empty', async () => {
-    // Pin current behavior: the default projection does not filter empty
-    // userMessage. If the prompt builder ever needs that filter, it should
-    // own it explicitly rather than relying on this projection to elide.
+  test('emits a labeled structural summary when response.userMessage is absent', async () => {
     const mgr = createHistoryManager({
       store: createInMemoryStore(),
       maxEntries: 10,
@@ -692,7 +854,10 @@ describe('HistoryManager.getLLMContext', () => {
     const ctx = await mgr.getLLMContext(s);
     expect(ctx).toEqual([
       { role: 'user', content: 'hi' },
-      { role: 'assistant', content: '' },
+      expect.objectContaining({
+        role: 'assistant',
+        content: expect.stringContaining('[Accepted structural plan]'),
+      }),
     ]);
   });
 
@@ -779,7 +944,7 @@ describe('HistoryManager.getLLMContext', () => {
             role: 'assistant',
             content:
               entry.kind === 'turn'
-                ? entry.output.response.userMessage
+                ? (entry.output.response.userMessage ?? '')
                 : entry.input.content,
           },
         ];

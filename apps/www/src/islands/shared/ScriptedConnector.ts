@@ -94,8 +94,8 @@ export class ScriptedConnector implements EngineConnector {
     return {
       type: 'maelstrom_response',
       requestId: message.id,
-      userMessage: step.userMessage,
-      rationale: step.rationale,
+      ...nonBlankPresentation(step.userMessage, 'userMessage'),
+      ...nonBlankPresentation(step.rationale, 'rationale'),
       executionPlan: step.executionPlan,
       layout: step.layout,
     };
@@ -116,4 +116,11 @@ export class ScriptedConnector implements EngineConnector {
   reset(): void {
     this.requestCount = 0;
   }
+}
+
+function nonBlankPresentation(
+  value: string,
+  key: 'userMessage' | 'rationale',
+): Partial<Pick<MaelstromResponse, typeof key>> {
+  return value.trim().length > 0 ? { [key]: value } : {};
 }

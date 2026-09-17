@@ -347,6 +347,31 @@ describe('WebSocketConnector wire contract', () => {
     await connector.disconnect();
   });
 
+  test('accepts a text-free canonical response without inventing presentation text', async () => {
+    const connector = new WebSocketConnector({ url: 'ws://test' });
+    const ws = await connectAndOpen(connector);
+    const envelope = buildEnvelope(MessageId('text-free'));
+    const pending = connector.process(envelope);
+
+    ws.onmessage?.({
+      data: JSON.stringify({
+        type: 'engine.maelstrom.response',
+        requestId: envelope.id,
+        response: {
+          type: 'maelstrom_response',
+          requestId: envelope.id,
+          executionPlan: [],
+          layout: { type: 'grid', positions: [] },
+        },
+      }),
+    });
+
+    const response = await pending;
+    expect(response.userMessage).toBeUndefined();
+    expect(response.rationale).toBeUndefined();
+    await connector.disconnect();
+  });
+
   test('rejects process() when an engine.error frame correlates by requestId', async () => {
     const connector = new WebSocketConnector({ url: 'ws://test' });
     const ws = await connectAndOpen(connector);

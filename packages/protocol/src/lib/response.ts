@@ -544,10 +544,10 @@ export interface MaelstromResponse {
   readonly type: 'maelstrom_response';
   /** Echoes the input message ID and matches the enclosing output correlation ID. */
   readonly requestId: MessageId;
-  /** Assistant text intended for display and optional speech output. */
-  readonly userMessage: string;
-  /** Engine rationale intended for diagnostics rather than user display. */
-  readonly rationale: string;
+  /** Optional assistant text for display and speech; absent when the plan needs no prose. */
+  readonly userMessage?: string;
+  /** Optional diagnostic rationale; absent when the planner did not supply one. */
+  readonly rationale?: string;
   /** Applied after layout; order is preserved only within each target Instance. */
   readonly executionPlan: readonly ActionExecution[];
   /** Uses the same mode requested in the Chart context after successful healing. */

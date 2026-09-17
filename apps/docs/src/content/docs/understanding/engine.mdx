@@ -75,7 +75,7 @@ The engine validates inputs at three boundaries and the LLM's output at a fourth
 
 1. **Engine config** — `createEngine()` validates `EngineConfig` against a strict Zod schema and eagerly builds system prompts at startup. Misconfigured system prompt customizers throw synchronously, but user prompt customizer errors still surface on the first request as a `ValidationError`.
 2. **Engine messages** — every inbound `EngineMessage` envelope is parsed against the protocol Zod schema. Malformed payloads short-circuit before any LLM call with a `RequestValidationError` carrying the structured `path` of the failing field.
-3. **LLM structured output** — the JSON the model returns is parsed against the protocol schemas inside the adapter call. Schema-violating output surfaces as a `ProviderError`; a structurally valid response missing required content (such as an empty `userMessage`) surfaces as a `ParseError`.
+3. **LLM structured output** — the JSON the model returns is parsed against the protocol schemas inside the adapter call. Schema-violating output surfaces as a `ProviderError`. The built-in LLM planner retains its existing non-empty `userMessage` requirement; custom planners can return a text-free accepted layout and action plan.
 4. **LLM output coherence** — even a parseable response can be incoherent: positions overflowing the chart, unknown vessel/variant references, duplicate instance IDs, malformed tiling trees. This layer doesn't fail; it heals.
 
 ### Heal, don't fail

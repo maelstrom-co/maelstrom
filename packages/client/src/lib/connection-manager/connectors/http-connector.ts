@@ -4,7 +4,10 @@ import type {
   SessionHistoryEntry,
   SessionId,
 } from '@maelstrom-co/protocol';
-import { SessionHistoryEntryArraySchema } from '@maelstrom-co/protocol';
+import {
+  MaelstromResponseSchema,
+  SessionHistoryEntryArraySchema,
+} from '@maelstrom-co/protocol';
 import type { Unsubscribe } from '../../types.js';
 import type {
   AssistantMessage,
@@ -96,7 +99,14 @@ export class HttpConnector implements EngineConnector {
    * Sends a chart_request envelope to the API endpoint.
    */
   async process(message: ChartRequestMessage): Promise<MaelstromResponse> {
-    return this.#postJson<MaelstromResponse>('/process', message);
+    const raw = await this.#postJson<unknown>('/process', message);
+    const parsed = MaelstromResponseSchema.safeParse(raw);
+    if (!parsed.success) {
+      throw new Error(
+        `HttpConnector.process: /process returned a malformed payload (${parsed.error.issues[0]?.message ?? 'schema mismatch'})`,
+      );
+    }
+    return parsed.data;
   }
 
   async addAssistantMessage(message: AssistantMessage): Promise<void> {
