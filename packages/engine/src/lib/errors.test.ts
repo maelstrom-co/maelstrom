@@ -4,7 +4,10 @@ import type { EngineError } from './errors.js';
 import {
   cancellationError,
   historyError,
+  invalidProviderResponseError,
   parseError,
+  planningBudgetExceededError,
+  planningDeferredError,
   providerError,
   requestValidationError,
   timeoutError,
@@ -353,6 +356,9 @@ describe('EngineError pattern matching', () => {
     const errors: EngineError[] = [
       parseError('a', ''),
       providerError('b', undefined),
+      planningDeferredError('deferred', 'invalid_plan'),
+      planningBudgetExceededError(),
+      invalidProviderResponseError('malformed'),
       validationError('c'),
       requestValidationError([]),
       timeoutError('d', 1000),
@@ -366,6 +372,12 @@ describe('EngineError pattern matching', () => {
           return 'parse';
         case 'ProviderError':
           return 'provider';
+        case 'PlanningDeferredError':
+          return 'deferred';
+        case 'PlanningBudgetExceededError':
+          return 'budget';
+        case 'InvalidProviderResponseError':
+          return 'invalidProviderResponse';
         case 'ValidationError':
           return 'validation';
         case 'RequestValidationError':
@@ -386,6 +398,9 @@ describe('EngineError pattern matching', () => {
     expect(tags).toEqual([
       'parse',
       'provider',
+      'deferred',
+      'budget',
+      'invalidProviderResponse',
       'validation',
       'requestValidation',
       'timeout',

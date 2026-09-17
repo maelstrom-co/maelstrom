@@ -27,6 +27,40 @@ export interface ProviderError {
   readonly stack?: string;
 }
 
+/** Raised when a planner semantically defers after its route is exhausted. */
+export interface PlanningDeferredError {
+  /** Discriminates this planner deferral. */
+  readonly _tag: 'PlanningDeferredError';
+  /** Safe description of the terminal deferral. */
+  readonly message: string;
+  /** Stable planner-provided reason. */
+  readonly reason: string;
+  /** Construction stack when available. */
+  readonly stack?: string;
+}
+
+/** Raised when the shared logical provider-call budget is exhausted. */
+export interface PlanningBudgetExceededError {
+  /** Discriminates this exhausted operation budget. */
+  readonly _tag: 'PlanningBudgetExceededError';
+  /** Safe description of the exhausted budget. */
+  readonly message: string;
+  /** Construction stack when available. */
+  readonly stack?: string;
+}
+
+/** Raised for a provider response recognized as structurally malformed. */
+export interface InvalidProviderResponseError {
+  /** Discriminates a malformed provider response. */
+  readonly _tag: 'InvalidProviderResponseError';
+  /** Safe description of the response validation failure. */
+  readonly message: string;
+  /** Original response validation failure when available. */
+  readonly cause?: unknown;
+  /** Construction stack when available. */
+  readonly stack?: string;
+}
+
 /**
  * Raised for generic engine-input validation failures (e.g. a misconfigured
  * user-prompt customizer that throws inside `buildUserPrompt`). LLM-output
@@ -161,6 +195,9 @@ export interface RequestValidationError {
 export type EngineError =
   | ParseError
   | ProviderError
+  | PlanningDeferredError
+  | PlanningBudgetExceededError
+  | InvalidProviderResponseError
   | ValidationError
   | RequestValidationError
   | TimeoutError
@@ -186,6 +223,37 @@ export const providerError = (
   _tag: 'ProviderError',
   message,
   cause,
+  stack: captureStack(message),
+});
+
+/** Creates a final semantic planner deferral. */
+export const planningDeferredError = (
+  message: string,
+  reason: string,
+): PlanningDeferredError => ({
+  _tag: 'PlanningDeferredError',
+  message,
+  reason,
+  stack: captureStack(message),
+});
+
+/** Creates a logical provider-call budget exhaustion failure. */
+export const planningBudgetExceededError = (
+  message = 'planning call budget exhausted',
+): PlanningBudgetExceededError => ({
+  _tag: 'PlanningBudgetExceededError',
+  message,
+  stack: captureStack(message),
+});
+
+/** Creates a recognized malformed provider response failure. */
+export const invalidProviderResponseError = (
+  message: string,
+  cause?: unknown,
+): InvalidProviderResponseError => ({
+  _tag: 'InvalidProviderResponseError',
+  message,
+  ...(cause !== undefined && { cause }),
   stack: captureStack(message),
 });
 

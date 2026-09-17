@@ -9,11 +9,15 @@ import {
   ok,
   type TilingResponseSchema,
 } from '@maelstrom-co/protocol';
-import { chat } from '@tanstack/ai';
-
-import type { EngineConfig } from '../config.js';
+import type { AnyTextAdapter } from '@tanstack/ai';
+import { chat, StandardSchemaValidationError } from '@tanstack/ai';
+import { z } from 'zod';
 import type { EngineError } from '../errors.js';
-import { cancellationError, providerError } from '../errors.js';
+import {
+  cancellationError,
+  invalidProviderResponseError,
+  providerError,
+} from '../errors.js';
 import type { LLMContextMessage } from '../history/history-manager.js';
 
 // ---------------------------------------------------------------------------
@@ -27,24 +31,22 @@ export type LLMOutput = GridResponse | TilingResponse;
 // ---------------------------------------------------------------------------
 
 export async function callLLM(
-  adapter: EngineConfig['adapter'],
+  adapter: AnyTextAdapter,
   systemPrompt: string,
   userPrompt: string,
   outputSchema: typeof GridResponseSchema | typeof TilingResponseSchema,
   historyMessages: readonly LLMContextMessage[],
   signal?: AbortSignal,
-  modelOptions?: EngineConfig['modelOptions'],
+  modelOptions?: Record<string, unknown>,
 ): Promise<Result<LLMOutput, EngineError>> {
   const controller = new AbortController();
-  const effectiveSignal = signal
-    ? AbortSignal.any([signal, controller.signal])
-    : controller.signal;
-
-  if (effectiveSignal.aborted) {
+  if (signal?.aborted) {
     return err(
-      cancellationError('Request was already cancelled', signal?.reason),
+      cancellationError('Request was already cancelled', signal.reason),
     );
   }
+  const abort = () => controller.abort(signal?.reason);
+  signal?.addEventListener('abort', abort, { once: true });
 
   try {
     const output = await chat({
@@ -86,11 +88,44 @@ export async function callLLM(
       );
     }
 
+    const validationError = findStructuredOutputValidationError(error);
+    if (validationError !== undefined) {
+      return err(
+        invalidProviderResponseError(
+          'provider response failed output validation',
+          validationError,
+        ),
+      );
+    }
+
     return err(
       providerError(
         error instanceof Error ? error.message : String(error),
         error,
       ),
     );
+  } finally {
+    signal?.removeEventListener('abort', abort);
   }
+}
+
+function findStructuredOutputValidationError(
+  error: unknown,
+): unknown | undefined {
+  if (
+    error instanceof StandardSchemaValidationError ||
+    error instanceof z.ZodError
+  ) {
+    return error;
+  }
+  if (error instanceof Error && 'cause' in error) {
+    const cause = error.cause;
+    if (
+      cause instanceof StandardSchemaValidationError ||
+      cause instanceof z.ZodError
+    ) {
+      return cause;
+    }
+  }
+  return undefined;
 }

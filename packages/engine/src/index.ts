@@ -1,7 +1,19 @@
 // Engine
 
 // Config
-export type { EngineConfig } from './lib/config.js';
+export type {
+  AdapterEngineConfig,
+  EngineConfig,
+  ExplicitPlannerConfig,
+  FallbackPlannerRoute,
+  FallbackTrigger,
+  FinalizationPolicy,
+  PlannerEngineConfig,
+  PlannerRoute,
+  ResolvedAdapterEngineConfig,
+  ResolvedEngineConfig,
+  ResolvedPlannerEngineConfig,
+} from './lib/config.js';
 export { resolveConfig } from './lib/config.js';
 export type { Engine } from './lib/engine.js';
 export { createEngine } from './lib/engine.js';
@@ -13,7 +25,10 @@ export type {
   CancellationError,
   EngineError,
   HistoryError,
+  InvalidProviderResponseError,
   ParseError,
+  PlanningBudgetExceededError,
+  PlanningDeferredError,
   ProviderError,
   RequestValidationError,
   TimeoutError,
@@ -22,7 +37,10 @@ export type {
 export {
   cancellationError,
   historyError,
+  invalidProviderResponseError,
   parseError,
+  planningBudgetExceededError,
+  planningDeferredError,
   providerError,
   requestValidationError,
   timeoutError,
@@ -43,6 +61,26 @@ export { createInMemoryStore } from './lib/history/in-memory-store.js';
 // Logger
 export type { Logger } from './lib/logger.js';
 export { consoleLogger } from './lib/logger.js';
+// Planning
+export type {
+  FinalizationIssue,
+  FinalizationIssueLocation,
+  FinalizationReport,
+  NormalizedActionEnumEntry,
+  Planner,
+  PlannerActionCandidate,
+  PlannerCandidate,
+  PlannerFailure,
+  PlannerInvocation,
+  PlannerProposal,
+  PlanningCallBudget,
+  PlanningDeferralReason,
+  PlanningHistoryEntry,
+  PlanningInput,
+  PlanningOperationContext,
+} from './lib/planning/contracts.js';
+export type { LlmPlannerOptions } from './lib/planning/llm-planner.js';
+export { createLlmPlanner } from './lib/planning/llm-planner.js';
 // Prompt builder
 export type {
   PromptOptions,

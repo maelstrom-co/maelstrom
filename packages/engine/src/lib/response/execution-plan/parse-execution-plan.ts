@@ -180,9 +180,27 @@ export function parseExecutionPlan(
   // Sequential: simWriter mutates between iterations, so each action validates
   // against the variant left by the previous one. Reordering would break the
   // validation contract.
-  const resultPlan = plan.flatMap((item) =>
-    parseSingleAction(item, context, run),
-  );
+  const resultPlan: ActionExecution[] = [];
+  for (let index = 0; index < plan.length; index += 1) {
+    const item = plan[index];
+    if (item === undefined) continue;
+    const skippedBefore = run.skippedActions.length;
+    resultPlan.push(...parseSingleAction(item, context, run));
+    for (
+      let skipped = skippedBefore;
+      skipped < run.skippedActions.length;
+      skipped += 1
+    ) {
+      const entry = run.skippedActions[skipped];
+      if (entry !== undefined) {
+        Object.defineProperty(entry, 'index', {
+          configurable: false,
+          enumerable: false,
+          value: index,
+        });
+      }
+    }
+  }
 
   return { plan: resultPlan, skippedActions: run.skippedActions };
 }

@@ -7,6 +7,22 @@ import {
 import { createInMemoryStore } from '../history/in-memory-store.js';
 import { validateEngineConfig } from './engine-config.js';
 
+const fakePlanner = {
+  id: 'fake',
+  supportedLayoutModes: ['grid'],
+  async invoke() {
+    throw new Error('not called during configuration validation');
+  },
+};
+const explicitPlannerConfig = {
+  primary: {
+    implementation: fakePlanner,
+    finalization: 'strict' as const,
+    maxRepairAttempts: 0,
+  },
+  operation: { timeoutMs: null, maxProviderCalls: 1 },
+};
+
 describe('validateEngineConfig', () => {
   test('accepts minimal valid config (adapter only)', () => {
     const result = validateEngineConfig({ adapter: dummyAdapter });
@@ -30,8 +46,23 @@ describe('validateEngineConfig', () => {
     expect(result.prompt?.vars?.assistantName).toBe('Custom');
   });
 
-  test('throws when adapter is missing', () => {
-    expect(() => validateEngineConfig({})).toThrow(/adapter/);
+  test('throws when neither configuration arm is present', () => {
+    expect(() => validateEngineConfig({})).toThrow(/adapter|planner/);
+  });
+
+  test('rejects mixing adapter shorthand with an explicit planner route', () => {
+    expect(() =>
+      validateEngineConfig({
+        adapter: dummyAdapter,
+        planner: explicitPlannerConfig,
+      }),
+    ).toThrow(/unrecognized|adapter|planner/i);
+  });
+
+  test('accepts an explicit planner route without LLM-only options', () => {
+    expect(() =>
+      validateEngineConfig({ planner: explicitPlannerConfig }),
+    ).not.toThrow();
   });
 
   test('throws when adapter is not an object', () => {

@@ -40,7 +40,10 @@ export type ParamsLimitKind =
  * union closed and the per-arm field set stable — callers exhaust it via
  * `switch (s.reason)` and read the structured fields directly.
  */
-export type SkippedAction =
+export type SkippedAction = {
+  /** Zero-based source position in the proposed execution plan. */
+  readonly index?: number;
+} & (
   | {
       readonly reason: 'unknown_instance';
       readonly instanceId: InstanceId;
@@ -134,7 +137,8 @@ export type SkippedAction =
       readonly instanceId: InstanceId;
       readonly action: ActionName;
       readonly vesselId: VesselId;
-    };
+    }
+);
 
 /**
  * The parts of a {@link SkippedAction} that name which action was refused.
