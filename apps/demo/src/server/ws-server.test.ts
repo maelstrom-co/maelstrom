@@ -22,6 +22,7 @@ vi.mock('@maelstrom-co/engine', async (importOriginal) => ({
   createEngine: createEngineMock,
 }));
 
+import { ENGINE_MODEL } from './engine-model';
 import {
   buildLocalServer,
   buildSharedEngine,
@@ -43,11 +44,18 @@ describe('trusted local planner startup', () => {
   });
 
   it('keeps browser hello when the default local LLM has no server key', () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
     expect(buildLocalServer({})).toMatchObject({
       engine: null,
       helloReceived: false,
     });
     expect(createEngineMock).not.toHaveBeenCalled();
+    expect(info).toHaveBeenCalledWith('[engine] local_planner.ready', {
+      planner: 'llm',
+      model: ENGINE_MODEL,
+      fallback: 'none',
+      status: 'awaiting_browser_key',
+    });
   });
 
   it('preserves legacy LLM retries and disabled operation deadline by default', () => {
@@ -85,6 +93,7 @@ describe('trusted local planner startup', () => {
     false,
     true,
   ])('constructs one shared strict Jev engine, fallback=%s', (fallback) => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
     const engine = stubEngine();
     createEngineMock.mockReturnValue(engine);
     const result = buildLocalServer({
@@ -102,6 +111,19 @@ describe('trusted local planner startup', () => {
       initError: null,
     });
     expect(createEngineMock).toHaveBeenCalledTimes(1);
+    expect(info).toHaveBeenCalledWith('[engine] local_planner.ready', {
+      planner: 'jev',
+      model: 'jev-test-pinned',
+      fallback: fallback ? 'llm' : 'none',
+      status: 'ready',
+      ...(fallback ? { fallbackModel: ENGINE_MODEL } : {}),
+    });
+    expect(JSON.stringify(info.mock.calls)).not.toContain(
+      'typesafe-server-secret',
+    );
+    expect(JSON.stringify(info.mock.calls)).not.toContain(
+      'server-openai-secret',
+    );
     const planner = createEngineMock.mock.calls[0]?.[0].planner;
     expect(planner.primary).toMatchObject({
       implementation: { id: 'typesafe-jev', supportedLayoutModes: ['tiling'] },

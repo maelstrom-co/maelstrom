@@ -17,7 +17,7 @@ import {
 import { createJevPlanner } from '@maelstrom-co/engine-jev';
 import { dispatchFrame } from './dispatch';
 import { createPlaygroundEngine, SYSTEM_RULES } from './engine-config';
-import { createDemoOpenaiChat } from './engine-model';
+import { createDemoOpenaiChat, ENGINE_MODEL } from './engine-model';
 import { createRedactingLogger, redactSecrets } from './redact';
 
 const PORT = Number(process.env.WS_PORT ?? 3001);
@@ -123,13 +123,24 @@ export function buildLocalServer(
         'MAELSTROM_PLANNER_FALLBACK requires MAELSTROM_PLANNER=jev.',
       );
     }
-    return {
+    const config: LocalServerConfig = {
       ...(openaiKey
         ? buildSharedEngine(openaiKey, secrets)
         : { engine: null, initError: 'No server OpenAI key configured.' }),
       helloReceived: Boolean(openaiKey),
       secrets,
     };
+    createRedactingLogger(secrets).info('local_planner.ready', {
+      planner: 'llm',
+      model: ENGINE_MODEL,
+      fallback: 'none',
+      status: openaiKey
+        ? config.engine
+          ? 'ready'
+          : 'unavailable'
+        : 'awaiting_browser_key',
+    });
+    return config;
   }
   if (!typesafeKey) throw new Error('Local Jev requires TYPESAFE_API_KEY.');
   const model = env.JEV_MODEL?.trim();
@@ -138,7 +149,7 @@ export function buildLocalServer(
     throw new Error('Local Jev LLM fallback requires server OPENAI_API_KEY.');
   }
   try {
-    return {
+    const config: LocalServerConfig = {
       engine: createEngine({
         planner: {
           primary: {
@@ -176,6 +187,14 @@ export function buildLocalServer(
       helloReceived: true,
       secrets,
     };
+    createRedactingLogger(secrets).info('local_planner.ready', {
+      planner: 'jev',
+      model,
+      fallback,
+      ...(fallback === 'llm' && { fallbackModel: ENGINE_MODEL }),
+      status: 'ready',
+    });
+    return config;
   } catch (error) {
     throw new Error(
       redactSecrets(

@@ -127,6 +127,9 @@ export async function executePlanningOperation(input: {
   readonly signal?: AbortSignal;
 }): Promise<Result<InternalResponse, EngineError>> {
   const { planner, snapshot, messageId, logger } = input;
+  const startedAt = Date.now();
+  let activePlanner = planner.primary.implementation.id;
+  let fallbackUsed = false;
   const timeoutMs = planner.operation.timeoutMs;
   const deadlineAt = timeoutMs === null ? undefined : Date.now() + timeoutMs;
   const deadline = new AbortController();
@@ -143,7 +146,18 @@ export async function executePlanningOperation(input: {
   const context: PlannerInvocation['context'] = {
     signal,
     ...(deadlineAt !== undefined && { deadlineAt }),
-    calls: createPlanningCallBudget(planner.operation.maxProviderCalls),
+    calls: createPlanningCallBudget(
+      planner.operation.maxProviderCalls,
+      (call, remaining) =>
+        logger.info('planning.provider_call', {
+          messageId,
+          plannerId: activePlanner,
+          stage: call.stage,
+          fallbackUsed,
+          callNumber: planner.operation.maxProviderCalls - remaining,
+          remainingProviderCalls: remaining,
+        }),
+    ),
   };
   const terminal = (): EngineError | undefined => {
     if (input.signal?.aborted) {
@@ -162,7 +176,12 @@ export async function executePlanningOperation(input: {
     }
     return undefined;
   };
-  try {
+  logger.info('planning.started', {
+    messageId,
+    plannerId: activePlanner,
+    fallbackPlannerId: planner.fallback?.implementation.id ?? null,
+  });
+  const run = async (): Promise<Result<InternalResponse, EngineError>> => {
     const early = terminal();
     if (early !== undefined) return err(early);
     const primary = await runRoute({
@@ -182,6 +201,14 @@ export async function executePlanningOperation(input: {
       if (context.calls.remaining === 0) {
         return err(planningBudgetExceededError());
       }
+      logger.warn('planning.fallback', {
+        messageId,
+        fromPlannerId: activePlanner,
+        toPlannerId: planner.fallback.implementation.id,
+        reason: primary.error.trigger,
+      });
+      activePlanner = planner.fallback.implementation.id;
+      fallbackUsed = true;
       const fallback = await runRoute({
         route: planner.fallback,
         snapshot,
@@ -197,8 +224,23 @@ export async function executePlanningOperation(input: {
       return fallback.ok ? fallback : err(fallback.error.error);
     }
     return err(primary.error.error);
+  };
+  let result: Result<InternalResponse, EngineError> | undefined;
+  try {
+    result = await run();
+    return result;
   } finally {
     if (timer !== undefined) clearTimeout(timer);
+    logger.info('planning.completed', {
+      messageId,
+      plannerId: activePlanner,
+      fallbackUsed,
+      outcome: result?.ok ? 'success' : 'error',
+      ...(result?.ok === false && { errorTag: result.error._tag }),
+      providerCalls:
+        planner.operation.maxProviderCalls - context.calls.remaining,
+      durationMs: Date.now() - startedAt,
+    });
   }
 }
 
