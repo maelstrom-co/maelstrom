@@ -97,7 +97,7 @@
     "unplugin-dts": "^1.0.3",
     "verdaccio": "^6.0.5",
     "vite": "^8.0.13",
-    "vite-tsconfig-paths": "^5.1.4",
+    "vite-tsconfig-paths": "^6.1.1",
     "vitest": "4.1.9"
   },
   "workspaces": [
