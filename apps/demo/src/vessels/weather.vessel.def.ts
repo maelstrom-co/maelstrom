@@ -18,7 +18,7 @@ export const weatherVessel = defineVessel({
   id: 'weather',
   name: 'Weather',
   description:
-    'Weather widget showing current conditions or extended forecast. Can display current weather, hourly forecast, or weekly forecast.',
+    'Weather widget showing current conditions, hourly forecast, or weekly forecast for the currently selected location. Uses a built-in default location when first shown. Showing weather alone does not require setLocation; use setLocation only when the user requests a specific city or place.',
   defaultVariant: 'current',
   variants: {
     current: {

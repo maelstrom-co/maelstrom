@@ -253,6 +253,29 @@ function fixture(
 
 // Transport scripts are intentionally independent of the scoring labels.
 export const fixtures: readonly Fixture[] = freeze([
+  fixture(
+    'show-default-weather',
+    request('show me the weather', {
+      instances: [instances[1]],
+      layout: layout(['ID:tasks-main'], [instances[1]]),
+    }),
+    {
+      llm: output(
+        layout(
+          ['V', 'ID:tasks-main', 'ID:weather-jev-1'],
+          [
+            instances[1],
+            {
+              instanceId: 'weather-jev-1',
+              vesselId: 'weather',
+              variant: 'current',
+            },
+          ],
+        ),
+      ),
+      jev: [stage({ 'create/weather': '1' })],
+    },
+  ),
   fixture('preserve', base, preserve),
   fixture(
     'show-hidden',

@@ -46,6 +46,20 @@ export function labelFor(id: string, backend: Backend): Label {
     label.reason = reason;
   };
   switch (id) {
+    case 'show-default-weather':
+      label.layout = {
+        type: 'tiling',
+        tree: ['V', 'ID:tasks-main', 'ID:weather-jev-1'],
+        instances: [
+          { instanceId: 'tasks-main', vesselId: 'tasks', variant: 'list' },
+          {
+            instanceId: 'weather-jev-1',
+            vesselId: 'weather',
+            variant: 'current',
+          },
+        ],
+      };
+      break;
     case 'preserve':
       break;
     case 'show-hidden':

@@ -418,12 +418,13 @@ function prepare(input: PlannerInvocation['input']): Prepared {
       },
     ),
     actionCount: choice(
-      'How many vessel action invocations does the latest request require? Layout visibility, creation, hiding, deletion, and arrangement are zero actions. Count each state or content change separately. Do not count history actions.',
+      'Count only content edits and named-variant changes explicitly requested in the latest user intent. Adding, showing, hiding, deleting, positioning, or resizing widgets uses the layout, not a vessel action. Rendering a widget with its existing or default content requires zero actions. Do not count prior history actions or invent an initialization action.',
       {
-        '0': 'No action invocation.',
-        '1': 'Exactly one action invocation.',
-        '2': 'Exactly two action invocations.',
-        overflow: 'Three or more actions are required.',
+        '0': 'Only display or arrange widgets using their existing/default content. Examples: show me the weather; add a calendar; hide tasks; put every widget in two rows. No data edit or named-variant change is requested.',
+        '1': 'One explicit data edit or named-variant change. Examples: set weather location to Montevideo; check one task; switch weather to the hourly forecast. Merely showing a widget is not an action.',
+        '2': 'Two explicit data edits or named-variant changes. Count the edits, not the number of displayed widgets.',
+        overflow:
+          'Three or more explicit data edits or named-variant changes are requested.',
       },
     ),
   };
@@ -440,12 +441,12 @@ function prepare(input: PlannerInvocation['input']): Prepared {
   }
   for (const vessel of request.vessels) {
     questions[`create/${vessel.id}`] = choice(
-      `How many additional ${vessel.name} instances does the latest request need? Existing hidden instances must be reused. Showing all available vessels means at least one instance of every registered vessel type, not every speculative slot.`,
+      `How many new instances of ${vessel.name} does the latest user intent specifically require? Choose zero if ${vessel.name} is not requested, or if an existing visible or hidden instance can satisfy the request. All available widgets means one of each vessel type, reusing existing instances. Row and column counts describe arrangement, not copies: two rows does not mean two instances of each widget. Speculative slots are options, not requested additions.`,
       {
-        '0': 'No additional instance.',
-        '1': 'Create one additional instance using the first code-allocated slot.',
-        '2': 'Create two additional instances using the code-allocated slots.',
-        overflow: 'More than two additional instances are required.',
+        '0': `No new ${vessel.name}: it was not requested, or an existing instance already satisfies the request.`,
+        '1': `One new ${vessel.name} is needed and no existing instance satisfies it. This is the default count when this type is requested without an explicit number of copies, including all widgets in multiple rows.`,
+        '2': `The user explicitly asks for two additional copies of ${vessel.name}. A row/column count or all available widgets is not such a request.`,
+        overflow: `The request explicitly requires more than two additional ${vessel.name} instances.`,
       },
     );
   }
