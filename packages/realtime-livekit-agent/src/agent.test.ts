@@ -1,5 +1,6 @@
 import { describe, expect, mock, test } from 'bun:test';
 import type { JobContext } from '@livekit/agents';
+import type { SpeechTurnEndHandler, SpeechTurnResult } from './agent.js';
 
 // Stub the LiveKit SDK + native plugins so importing the agent module never
 // touches real bindings. Only the enum/sentinel shapes the helpers read matter.
@@ -878,7 +879,7 @@ function createRecognitionHarness(
     emit: (text) => finals.push(text),
     fallback: false,
   });
-  let endTurn: (() => Promise<void>) | null = null;
+  let endTurn: SpeechTurnEndHandler | null = null;
   const run = runSpeechRecognition({
     // biome-ignore lint/suspicious/noExplicitAny: structural test double for AudioStream
     audioStream: (opts.audioStream ?? audio.stream) as any,
@@ -928,9 +929,9 @@ function createRecognitionHarness(
   return {
     audio,
     aggregator,
-    endTurn: () => {
+    endTurn: (result?: (value: SpeechTurnResult) => void) => {
       if (!endTurn) throw new Error('turn handler is not installed');
-      return endTurn();
+      return endTurn(result);
     },
     finals,
     order,
@@ -947,6 +948,240 @@ function createRecognitionHarness(
 const finalEvent = (text: string) => ({
   type: 'final_transcript',
   alternatives: [{ text }],
+});
+
+describe('correlated FIFO outcomes', () => {
+  function controls(
+    endTurn: Parameters<typeof createTurnControlHandler>[0]['endTurn'],
+    budget = 5000,
+  ) {
+    const packets: unknown[] = [];
+    const diagnostic = mock();
+    const publish = mock(async (packet: unknown) => {
+      packets.push(packet);
+    });
+    const handler = createTurnControlHandler({
+      boundIdentity: 'user',
+      endTurn,
+      cancelTts: () => {},
+      onCancelTtsError: diagnostic,
+      onMalformed: diagnostic,
+      onTurnEndError: diagnostic,
+      correlation: { drainTimeoutMs: budget, publish },
+    });
+    const send = (packet: unknown, identity = 'user') =>
+      handler(
+        new TextEncoder().encode(JSON.stringify(packet)),
+        { identity },
+        undefined,
+        TURN_TOPIC,
+      );
+    return { packets, diagnostic, publish, send };
+  }
+
+  test('nonce replacement drains old input before acknowledging the new connection', async () => {
+    const h = createRecognitionHarness();
+    const c = controls(h.endTurn);
+    h.streams[0].emit(finalEvent('pre-negotiation speech'));
+    c.send({ type: 'turn_capability', version: 1, nonce: 'old' });
+    await nextEventLoopTurn();
+    expect(c.packets).toHaveLength(0);
+    h.streams[0].finish();
+    await waitFor(() => c.packets.length === 1);
+    h.streams[1].emit(finalEvent('hello maelstrom'));
+    c.send({ type: 'turn_capability', version: 1, nonce: 'new' });
+    c.send({ type: 'turn_end', version: 1, nonce: 'new', turnId: 1 });
+    expect(c.packets).toHaveLength(1);
+    h.streams[1].finish();
+    await waitFor(() => c.packets.length === 2);
+    c.send({ type: 'turn_capability', version: 1, nonce: 'old' });
+    c.send({ type: 'turn_end', version: 1, nonce: 'old', turnId: 1 });
+    c.send({ type: 'turn_end', version: 1, nonce: 'new', turnId: 1 });
+    h.streams[2].finish();
+    await waitFor(() => c.packets.length === 3);
+    expect(c.packets[2]).toEqual({
+      type: 'turn_result',
+      version: 1,
+      nonce: 'new',
+      turnId: 1,
+      outcome: 'empty',
+      text: '',
+    });
+    h.audio.end();
+    h.streams[3].finish();
+    await h.run;
+  });
+  test('a live-push recovery cannot turn a partial trigger into successful text', async () => {
+    const h = createRecognitionHarness({
+      streamOptions: (id) =>
+        id === 1 ? { pushFrameError: new Error('push failed') } : {},
+    });
+    h.streams[0].emit(finalEvent('hello'));
+    await waitFor(() => h.receivedFinals.length === 1);
+    h.audio.push('recovery');
+    await waitFor(() => h.streams.length === 2);
+    h.streams[1].emit(finalEvent('maelstrom'));
+    const result = mock();
+    const boundary = h.endTurn(result);
+    h.streams[1].finish();
+    await boundary;
+    expect(result).toHaveBeenCalledWith({ outcome: 'error', text: '' });
+    expect(h.finals).toEqual(['hello maelstrom']);
+    h.audio.end();
+    h.streams[2].finish();
+    await h.run;
+  });
+
+  test('disposal makes both active and queued correlation outcomes non-success', async () => {
+    const h = createRecognitionHarness();
+    const first = mock();
+    const second = mock();
+    const one = h.endTurn(first);
+    const two = h.endTurn(second);
+    h.audio.end();
+    await nextEventLoopTurn();
+    h.streams[0].emit(finalEvent('hello maelstrom'));
+    h.streams[0].finish();
+    await Promise.allSettled([one, two, h.run]);
+    expect(first).toHaveBeenCalledWith({ outcome: 'error', text: '' });
+    expect(second).toHaveBeenCalledWith({ outcome: 'error', text: '' });
+    expect(h.streams).toHaveLength(1);
+  });
+
+  test('a cancelled correlated boundary drains normally but emits only an error', async () => {
+    const h = createRecognitionHarness();
+    const c = controls(h.endTurn);
+    c.send({ type: 'turn_capability', version: 1, nonce: 'first' });
+    h.streams[0].finish();
+    await waitFor(() => c.packets.length === 1);
+    c.send({
+      type: 'turn_end',
+      version: 1,
+      nonce: 'first',
+      turnId: 1,
+      cancelled: true,
+    });
+    h.streams[1].emit(finalEvent('hello maelstrom'));
+    h.streams[1].finish();
+    await waitFor(() => c.packets.length === 2);
+    expect(c.packets[1]).toEqual({
+      type: 'turn_result',
+      version: 1,
+      nonce: 'first',
+      turnId: 1,
+      outcome: 'error',
+      text: '',
+    });
+    h.audio.end();
+    h.streams[2].finish();
+    await h.run;
+  });
+
+  test('missing result times out once and late success cannot republish', async () => {
+    let deliver: ((value: SpeechTurnResult) => void) | undefined;
+    const c = controls((result) => {
+      if (!result) return undefined;
+      deliver = result;
+      return new Promise<void>(() => {});
+    }, 1);
+    c.send({ type: 'turn_capability', version: 1, nonce: 'first' });
+    c.send({ type: 'turn_end', version: 1, nonce: 'first', turnId: 1 });
+    await waitFor(() => c.packets.length === 2);
+    expect(c.packets[1]).toEqual({
+      type: 'turn_result',
+      version: 1,
+      nonce: 'first',
+      turnId: 1,
+      outcome: 'error',
+      text: '',
+    });
+    deliver?.({ outcome: 'success', text: 'hello maelstrom' });
+    await nextEventLoopTurn();
+    expect(c.packets).toHaveLength(2);
+  });
+
+  test('negotiates, rejects foreign controls, and deduplicates before endTurn', async () => {
+    const endTurn = mock(async (result?: (value: SpeechTurnResult) => void) => {
+      result?.({ outcome: 'empty', text: '' });
+    });
+    const { send, packets } = controls(endTurn);
+    const capability = { type: 'turn_capability', version: 1, nonce: 'first' };
+    const boundary = { ...capability, type: 'turn_end', turnId: 1 };
+    send(capability, 'stranger');
+    send(boundary);
+    expect(endTurn).not.toHaveBeenCalled();
+    send(capability);
+    await nextEventLoopTurn();
+    endTurn.mockClear();
+    send(boundary);
+    send(boundary);
+    await nextEventLoopTurn();
+    expect(endTurn).toHaveBeenCalledTimes(1);
+    expect(packets).toEqual([
+      { ...capability, type: 'turn_capability_ack', drainTimeoutMs: 5000 },
+      { ...boundary, type: 'turn_result', outcome: 'empty', text: '' },
+    ]);
+  });
+
+  test('no-handler gives non-success and publication rejection is observed once', async () => {
+    const c = controls(() => undefined);
+    c.publish.mockImplementation(async (packet: unknown) => {
+      c.packets.push(packet);
+      throw new Error('publish failed');
+    });
+    c.send({ type: 'turn_capability', version: 1, nonce: 'first' });
+    c.send({ type: 'turn_end', version: 1, nonce: 'first', turnId: 1 });
+    await nextEventLoopTurn();
+    expect(c.packets).toContainEqual({
+      type: 'turn_result',
+      version: 1,
+      nonce: 'first',
+      turnId: 1,
+      outcome: 'error',
+      text: '',
+    });
+    expect(c.diagnostic).toHaveBeenCalledTimes(2);
+  });
+
+  test('settles empty then successful trigger on their own boundaries', async () => {
+    const h = createRecognitionHarness();
+    const first = mock();
+    const second = mock();
+    const one = h.endTurn(first);
+    const two = h.endTurn(second);
+    h.streams[0].finish();
+    await one;
+    expect(first).toHaveBeenCalledWith({ outcome: 'empty', text: '' });
+    expect(second).not.toHaveBeenCalled();
+    h.streams[1].emit(finalEvent('hello maelstrom'));
+    h.streams[1].finish();
+    await two;
+    expect(second).toHaveBeenCalledWith({
+      outcome: 'success',
+      text: 'hello maelstrom',
+    });
+    h.audio.end();
+    h.streams[2].finish();
+    await h.run;
+  });
+
+  test('failed drain and released successor never expose trigger-shaped partials', async () => {
+    const h = createRecognitionHarness();
+    const first = mock();
+    const second = mock();
+    h.streams[0].emit(finalEvent('hello maelstrom'));
+    await waitFor(() => h.receivedFinals.length === 1);
+    const one = h.endTurn(first);
+    const two = h.endTurn(second);
+    h.streams[0].fail(new Error('provider failed'));
+    await Promise.allSettled([one, two]);
+    expect(first).toHaveBeenCalledWith({ outcome: 'error', text: '' });
+    expect(second).toHaveBeenCalledWith({ outcome: 'error', text: '' });
+    expect(h.finals).toEqual(['hello maelstrom']);
+    h.audio.end();
+    h.streams[1].finish();
+    await h.run;
+  });
 });
 
 describe('runSpeechRecognition per-turn lifecycle', () => {

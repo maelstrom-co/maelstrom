@@ -1,6 +1,18 @@
-import { beforeEach, describe, expect, mock, spyOn, test } from 'bun:test';
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  spyOn,
+  test,
+} from 'bun:test';
 import type { RealtimeAdapterEvent } from '@maelstrom-co/realtime';
-import { RealtimeVoiceError } from '@maelstrom-co/realtime';
+import {
+  GreetingCoordinator,
+  RealtimeSession,
+  RealtimeVoiceError,
+} from '@maelstrom-co/realtime';
 import type { UnixSeconds } from '@maelstrom-co/realtime-protocol';
 import type { LiveKitTokenGrant } from '@maelstrom-co/realtime-protocol/livekit';
 import type { LocalAudioPreRoll } from '@maelstrom-co/realtime-vad';
@@ -150,6 +162,7 @@ let roomConstructCount = 0;
 const lifecycleOrder: string[] = [];
 
 mock.module('livekit-client', () => ({
+  ParticipantKind: { AGENT: 4 },
   createLocalAudioTrack: mockCreateLocalAudioTrack,
   Room: class {
     constructor() {
@@ -168,6 +181,7 @@ mock.module('livekit-client', () => ({
     Disconnected: 'disconnected',
     TrackSubscribed: 'trackSubscribed',
     DataReceived: 'dataReceived',
+    ParticipantDisconnected: 'participantDisconnected',
   },
   Track: { Kind: { Audio: 'audio' }, Source: { Microphone: 'microphone' } },
   setLogLevel: mock(() => {}),
@@ -192,6 +206,375 @@ const {
   TTS_READY_TOPIC,
 } = await import('@maelstrom-co/realtime-protocol/livekit');
 const { MessageId } = await import('@maelstrom-co/protocol');
+const { SessionId } = await import('@maelstrom-co/protocol');
+
+describe('real-session LiveKit trigger admission', () => {
+  afterEach(() => {
+    mockPublishData.mockImplementation(async () => {});
+    mockSetMicrophoneEnabled.mockImplementation(async (enabled: boolean) => {
+      mockPublishedMicTrack.enabled = enabled;
+    });
+  });
+  beforeEach(() => {
+    currentRoom = makeMockRoom();
+    mockCreateLocalAudioTrack.mockClear();
+    mockPublishData.mockClear();
+    mockPublishData.mockImplementation(async () => {});
+    mockSendText.mockClear();
+    mockSetMicrophoneEnabled.mockImplementation(async (enabled: boolean) => {
+      mockPublishedMicTrack.enabled = enabled;
+    });
+    capturedVadOptions.length = 0;
+    mockBridgeStartAutomaticTurn.mockClear();
+    mockCreateLocalAudioPreRoll.mockImplementation(async () => {
+      throw new Error('AudioWorklet unavailable');
+    });
+  });
+  const worker = { identity: 'worker', sid: 'worker-1', kind: 4 };
+  const packet = (value: unknown, participant = worker) =>
+    currentRoom._emit(
+      'dataReceived',
+      new TextEncoder().encode(JSON.stringify(value)),
+      participant,
+      undefined,
+      'trigger-turn',
+    );
+  const terminal = (boundary: Record<string, unknown>, text: string) =>
+    packet({ ...boundary, type: 'turn_result', outcome: 'success', text });
+  async function setup(
+    onActivate?: () => Promise<void>,
+    drainTimeoutMs = 5000,
+    acknowledge = true,
+    vad: LiveKitAdapterOptions['vad'] = false,
+  ) {
+    const { adapter, events } = makeAdapter(undefined, { vad });
+    const intents: string[] = [];
+    const session = new RealtimeSession({
+      adapter,
+      sessionId: SessionId('livekit-trigger'),
+      greeting: { text: 'Welcome', coordinator: new GreetingCoordinator() },
+      activation: {
+        mode: 'trigger',
+        phrase: 'hello maelstrom',
+        inactivityMs: 1000,
+        onActivate,
+      },
+      instance: {
+        submitIntent: async (text) => {
+          intents.push(text);
+          return { userMessage: 'Done' };
+        },
+        waitForIdle: async () => {},
+        getStructuralSnapshot: () => ({
+          instances: [],
+          layout: null,
+          layoutMode: 'grid',
+          chartDimensions: { rows: 8, columns: 12 },
+        }),
+        getCapabilitySnapshot: () => {
+          throw new Error('not used');
+        },
+        onSettled: () => () => {},
+        addAssistantMessageAcknowledged: async () => 'inserted',
+        observeEngineConnection: (cb) => {
+          cb(true);
+          return () => {};
+        },
+      },
+    });
+    const connected = session.connect();
+    connected.catch(() => {});
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const call = mockPublishData.mock.calls.at(-1) as unknown as [Uint8Array];
+    expect(call).toBeDefined();
+    const request = JSON.parse(new TextDecoder().decode(call[0]));
+    expect(request.type).toBe('turn_capability');
+    expect(mockCreateLocalAudioTrack).not.toHaveBeenCalled();
+    packet(
+      { ...request, type: 'turn_capability_ack', drainTimeoutMs },
+      { ...worker, kind: 0 },
+    );
+    packet({
+      ...request,
+      type: 'turn_capability_ack',
+      nonce: 'wrong',
+      drainTimeoutMs,
+    });
+    expect(mockCreateLocalAudioTrack).not.toHaveBeenCalled();
+    if (acknowledge)
+      packet({ ...request, type: 'turn_capability_ack', drainTimeoutMs });
+    await connected;
+    const end = async () => {
+      await adapter.turnControl?.startTurn();
+      await adapter.turnControl?.endTurn();
+      const args = mockPublishData.mock.calls.at(-1) as unknown as [Uint8Array];
+      return JSON.parse(new TextDecoder().decode(args[0]));
+    };
+    return { adapter, session, intents, events, end };
+  }
+
+  test('holds a later final behind the trigger and hook without legacy captions or TTS', async () => {
+    const hook = deferred<void>();
+    const h = await setup(() => hook.promise);
+    const first = await h.end();
+    const second = await h.end();
+    terminal(second, 'weather');
+    currentRoom._emit('transcriptionReceived', [
+      { final: true, text: 'legacy leak' },
+    ]);
+    expect(h.intents).toEqual([]);
+    terminal(first, 'hello maelstrom');
+    expect(h.session.activationState).toBe('activating');
+    expect(h.events.filter((e) => e.type === 'transcript')).toEqual([]);
+    hook.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(h.intents).toEqual(['weather']);
+    expect(mockSendText).toHaveBeenCalledTimes(1);
+    await h.session.disconnect();
+  });
+
+  test('empty and failed terminals advance source order; spoofed and duplicate results do not act', async () => {
+    const h = await setup();
+    const empty = await h.end();
+    const failed = await h.end();
+    const wake = await h.end();
+    terminal(wake, 'hello maelstrom');
+    expect(h.session.activationState).toBe('waiting');
+    packet({ ...empty, type: 'turn_result', outcome: 'empty', text: '' });
+    packet({ ...failed, type: 'turn_result', outcome: 'error', text: '' });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(h.session.activationState).toBe('active');
+    expect(h.intents).toEqual([]);
+    const request = await h.end();
+    const result = {
+      ...request,
+      type: 'turn_result',
+      outcome: 'success',
+      text: 'weather',
+    };
+    packet(result, { ...worker, sid: 'replacement' });
+    packet({ ...result, nonce: 'retired' });
+    expect(h.intents).toEqual([]);
+    packet(result);
+    packet(result);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(h.intents).toEqual(['weather']);
+    await h.session.disconnect();
+    packet(result);
+    expect(h.intents).toEqual(['weather']);
+  });
+
+  for (const outcome of ['resolve', 'reject', 'timeout'] as const) {
+    test(`continuing post-trigger speech survives hook ${outcome} without premature interruption`, async () => {
+      const hook = deferred<void>();
+      const h = await setup(() =>
+        outcome === 'reject' ? Promise.reject(new Error('hook')) : hook.promise,
+      );
+      const wake = await h.end();
+      await h.adapter.turnControl?.startTurn();
+      terminal(wake, 'hello maelstrom');
+      expect(h.session.activationState).toBe('activating');
+      expect(mockSendText).not.toHaveBeenCalled();
+      if (outcome === 'resolve') hook.resolve();
+      await new Promise((resolve) =>
+        setTimeout(resolve, outcome === 'timeout' ? 2050 : 10),
+      );
+      expect(h.session.activationState).toBe('active');
+      await h.adapter.turnControl?.endTurn();
+      const args = mockPublishData.mock.calls.at(-1) as unknown as [Uint8Array];
+      const end = JSON.parse(new TextDecoder().decode(args[0]));
+      terminal(end, 'weather');
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(h.intents).toEqual(['weather']);
+      await h.session.disconnect();
+    });
+  }
+
+  test('disconnect drops held text and a late hook cannot replay it', async () => {
+    const hook = deferred<void>();
+    const h = await setup(() => hook.promise);
+    const wake = await h.end();
+    const request = await h.end();
+    terminal(wake, 'hello maelstrom');
+    terminal(request, 'weather');
+    await h.session.disconnect();
+    hook.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(h.intents).toEqual([]);
+    expect(mockSendText).not.toHaveBeenCalled();
+  });
+
+  test('playback owns inactivity until its trusted ID drains; expiry never cancels', async () => {
+    const h = await setup();
+    const wake = await h.end();
+    terminal(wake, 'hello maelstrom');
+    const request = await h.end();
+    terminal(request, 'weather');
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const id = lastUtteranceId();
+    currentRoom._emit(
+      'dataReceived',
+      encodeTtsWithId('tts_done', id + 1),
+      worker,
+      undefined,
+      TTS_TOPIC,
+    );
+    currentRoom._emit(
+      'dataReceived',
+      encodeTtsWithId('tts_done', id),
+      { ...worker, sid: 'other' },
+      undefined,
+      TTS_TOPIC,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    expect(h.session.activationState).toBe('active');
+    currentRoom._emit(
+      'dataReceived',
+      encodeTtsWithId('tts_done', id),
+      worker,
+      undefined,
+      TTS_TOPIC,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    expect(h.session.activationState).toBe('waiting');
+    const controls = mockPublishData.mock.calls.map(
+      (args) =>
+        JSON.parse(
+          new TextDecoder().decode((args as unknown as [Uint8Array])[0]),
+        ).type,
+    );
+    expect(controls).not.toContain('tts_cancel');
+    terminal(wake, 'hello maelstrom');
+    expect(h.session.activationState).toBe('waiting');
+    const extended = await h.end();
+    terminal(extended, 'hello maelstrom show weather');
+    expect(h.session.activationState).toBe('waiting');
+    expect(h.intents).toEqual(['weather']);
+    await h.session.disconnect();
+  });
+
+  test('admitted active speech retains barge-in cancellation', async () => {
+    const h = await setup();
+    const wake = await h.end();
+    terminal(wake, 'hello maelstrom');
+    const request = await h.end();
+    terminal(request, 'weather');
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    await h.adapter.turnControl?.startTurn();
+    const args = mockPublishData.mock.calls.at(-1) as unknown as [Uint8Array];
+    expect(JSON.parse(new TextDecoder().decode(args[0])).type).toBe(
+      'tts_cancel',
+    );
+    await h.session.disconnect();
+  });
+
+  test('missing correlated result settles without late wake or legacy fallback', async () => {
+    const h = await setup(undefined, 1);
+    const wake = await h.end();
+    await new Promise((resolve) => setTimeout(resolve, 5100));
+    terminal(wake, 'hello maelstrom');
+    expect(h.session.activationState).toBe('waiting');
+    expect(h.intents).toEqual([]);
+    await h.session.disconnect();
+  }, 10000);
+
+  test('an old worker fails setup before capture rather than using legacy transcripts', async () => {
+    await expect(setup(undefined, 5000, false)).rejects.toMatchObject({
+      code: 'ACTIVATION_ADAPTER_UNSUPPORTED',
+    });
+    expect(mockCreateLocalAudioTrack).not.toHaveBeenCalled();
+  }, 10000);
+
+  test('losing the pinned worker closes the connection rather than trusting a replacement', async () => {
+    const h = await setup();
+    currentRoom._emit('participantDisconnected', worker);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(h.session.state).toBe('error');
+    expect(h.adapter.turnControl).toBeUndefined();
+    await h.session.disconnect();
+  });
+
+  for (const outcome of ['reject', 'timeout'] as const) {
+    test(`completed held input releases only after hook ${outcome}`, async () => {
+      const hook = deferred<void>();
+      const h = await setup(() =>
+        hook.promise.then(() => {
+          throw new Error('hook');
+        }),
+      );
+      const wake = await h.end();
+      const request = await h.end();
+      terminal(request, 'weather');
+      terminal(wake, 'hello maelstrom');
+      expect(h.intents).toEqual([]);
+      if (outcome === 'reject') hook.resolve();
+      await new Promise((resolve) =>
+        setTimeout(resolve, outcome === 'timeout' ? 2050 : 10),
+      );
+      expect(h.intents).toEqual(['weather']);
+      await h.session.disconnect();
+    });
+  }
+
+  test('automatic misfires settle their ordinal and preserve transported pre-roll overlap exclusion', async () => {
+    mockCreateLocalAudioPreRoll.mockImplementation(async () => mockBridge);
+    const h = await setup(undefined, 5000, true, { preRollMs: 250 });
+    const vad = capturedVadOptions.at(-1) as {
+      onSpeechStart: () => Promise<void>;
+      onSpeechEnd: () => Promise<void>;
+      onVADMisfire: () => Promise<void>;
+    };
+    const last = () => {
+      const args = mockPublishData.mock.calls.at(-1) as unknown as [Uint8Array];
+      return JSON.parse(new TextDecoder().decode(args[0]));
+    };
+    await vad.onSpeechStart();
+    await vad.onVADMisfire();
+    expect(last()).toMatchObject({
+      type: 'turn_end',
+      turnId: 1,
+      cancelled: true,
+    });
+    terminal(last(), 'hello maelstrom');
+    expect(h.session.activationState).toBe('waiting');
+    await new Promise((resolve) => setTimeout(resolve, 260));
+    await vad.onSpeechStart();
+    await vad.onSpeechEnd();
+    terminal(last(), 'hello maelstrom');
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(h.session.activationState).toBe('active');
+    await vad.onSpeechStart();
+    await vad.onSpeechEnd();
+    terminal(last(), 'overlapping request');
+    expect(h.intents).toEqual([]);
+    expect(mockBridgeStartAutomaticTurn).toHaveBeenCalledWith(250);
+    await h.session.disconnect();
+  });
+
+  test('VAD setup failure still permits a manual trigger and separate request', async () => {
+    const h = await setup(undefined, 5000, true, true);
+    expect(h.adapter.turnControl).toBeDefined();
+    terminal(await h.end(), 'hello maelstrom');
+    terminal(await h.end(), 'weather');
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(h.intents).toEqual(['weather']);
+    await h.session.disconnect();
+  });
+
+  test('a failed manual start and cancellation publication fail the session closed', async () => {
+    const h = await setup();
+    mockSetMicrophoneEnabled.mockImplementation(async (enabled: boolean) => {
+      if (enabled) throw new Error('capture failed');
+    });
+    mockPublishData.mockImplementation(async () => {
+      throw new Error('publication failed');
+    });
+    await h.adapter.turnControl?.startTurn();
+    expect(h.session.state).toBe('error');
+    expect(h.intents).toEqual([]);
+    await h.session.disconnect();
+  });
+});
 
 // The utterance id the client stamped on the most recent speak text stream — the
 // worker echoes this on its TTS status packets, so tests read it back to forge a

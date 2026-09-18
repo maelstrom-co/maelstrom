@@ -45,12 +45,14 @@ export interface LiveKitAdapterOptions {
   /**
    * How long (ms) to wait in `thinking` after `endTurn` before assuming the
    * turn was empty and collapsing back to `connected`. Defaults to 10000; set
-   * `0` to disable it.
+   * `0` to disable it. Ignored in trigger mode, which uses explicit correlated
+   * terminals and the negotiated worker drain budget plus 5000 ms delivery.
    */
   readonly thinkingFallbackMs?: number;
   /**
    * How long `speakAssistantText` waits for the worker's `tts_ready` packet
    * before suppressing the greeting (default 10000ms). Test-only tightening.
+   * Trigger mode never presents a greeting and does not use this wait.
    */
   readonly greetingReadyWaitMs?: number;
 }

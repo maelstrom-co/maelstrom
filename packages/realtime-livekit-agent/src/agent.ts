@@ -34,8 +34,11 @@ import {
   TrackSource,
 } from '@livekit/rtc-node';
 import {
+  parseTriggerTurnPacket,
   SPEAK_TOPIC,
   SPEAK_UTTERANCE_ID_ATTR,
+  TRIGGER_TURN_TOPIC,
+  type TriggerTurnResult,
   TTS_READY_TOPIC,
   TTS_TOPIC,
   type TtsDoneMessage,
@@ -43,6 +46,7 @@ import {
   type TtsReadyMessage,
   type TtsStartedMessage,
   TURN_TOPIC,
+  type TurnCapabilityAck,
   USER_PARTICIPANT_IDENTITY,
 } from '@maelstrom-co/realtime-protocol/livekit-wire';
 
@@ -284,7 +288,7 @@ export async function maelstromVoiceJob(ctx: JobContext): Promise<void> {
   // so a turn_end packet always routes to the currently-active track. The old
   // per-track registration leaked a listener per invocation and ended stale
   // streams once more than one track existed.
-  let flushActiveTurn: (() => Promise<void>) | null = null;
+  let flushActiveTurn: SpeechTurnEndHandler | null = null;
   // Assigned once the TTS source exists (below); a barge-in `tts_cancel` routes
   // here to abort the in-flight synthesis.
   let cancelActiveTts: (() => void) | null = null;
@@ -292,7 +296,15 @@ export async function maelstromVoiceJob(ctx: JobContext): Promise<void> {
     RoomEvent.DataReceived,
     createTurnControlHandler({
       boundIdentity: user.identity,
-      endTurn: () => flushActiveTurn?.() ?? Promise.resolve(),
+      endTurn: (result) => flushActiveTurn?.(result),
+      correlation: {
+        drainTimeoutMs,
+        publish: (packet) =>
+          localParticipant.publishData(
+            new TextEncoder().encode(JSON.stringify(packet)),
+            { reliable: true, topic: TRIGGER_TURN_TOPIC },
+          ),
+      },
       cancelTts: () => cancelActiveTts?.(),
       onCancelTtsError: (error) => {
         logWorkerDiagnostic('warn', 'tts-cancellation-failed', error);
@@ -471,7 +483,7 @@ export async function maelstromVoiceJob(ctx: JobContext): Promise<void> {
     });
 
     try {
-      let trackEndHandler: (() => Promise<void>) | null = null;
+      let trackEndHandler: SpeechTurnEndHandler | null = null;
       await runSpeechRecognition({
         audioStream,
         createSpeechStream: () => deepgramSTT.stream(),
@@ -808,10 +820,29 @@ type TurnControlParticipant = { identity: string } | undefined;
  * normalized into exactly one internal callback. A callback synchronous throw or
  * returned-promise rejection is immediately observed and contained. Production
  * passes the caught value only to the privacy-safe diagnostic projector.
+ *
+ * Version-one controls negotiate a connection nonce before accepting positive
+ * source ordinals. Duplicate/retired identities never advance the FIFO. Each
+ * accepted boundary publishes one logical outcome, with at most the configured
+ * drain budget for its result and five seconds for publication. Missing handlers,
+ * cancelled turns and missing results are errors, never salvaged transcripts.
+ * A new nonce drains any installed previous input before ACK; a failed drain
+ * does not ACK. Support ACK alone does not imply a microphone handler exists.
+ * Legacy callers without correlation fields retain their existing path.
  */
 export function createTurnControlHandler(deps: {
   boundIdentity: string;
-  endTurn: () => Promise<void>;
+  /** Installs the result observer on the FIFO boundary; absent handler returns undefined. */
+  endTurn: (
+    result?: (value: SpeechTurnResult) => void,
+  ) => Promise<void> | undefined;
+  /** Optional version-one support; normal legacy controls do not negotiate. */
+  correlation?: {
+    /** Validated provider drain budget, independent of handler availability. */
+    drainTimeoutMs: number;
+    /** Reliable terminal/ACK handoff; failure is diagnostic, never a legacy retry. */
+    publish: (packet: TurnCapabilityAck | TriggerTurnResult) => Promise<void>;
+  };
   cancelTts: () => void | Promise<void>;
   onCancelTtsError: (error: unknown) => void | Promise<void>;
   onMalformed: () => void | Promise<void>;
@@ -822,6 +853,10 @@ export function createTurnControlHandler(deps: {
   kind: unknown,
   topic: string | undefined,
 ) => void {
+  let nonce: string | undefined;
+  let lastTurnId = 0;
+  let negotiation: Promise<void> | undefined;
+  const retiredNonces = new Set<string>();
   /** Emits one malformed-control diagnostic without joining control ownership. */
   const reportMalformed = (): void => {
     try {
@@ -849,8 +884,29 @@ export function createTurnControlHandler(deps: {
       // fire-and-forget listener or create an unhandled rejection.
     }
   };
+  const publish = (packet: TurnCapabilityAck | TriggerTurnResult): void => {
+    const correlation = deps.correlation;
+    if (!correlation) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(
+        () => reject(new Error('Turn publication timeout')),
+        5000,
+      );
+    });
+    void Promise.race([
+      Promise.resolve().then(() => correlation.publish(packet)),
+      deadline,
+    ])
+      .catch(reportTurnEndError)
+      .finally(() => clearTimeout(timer));
+  };
   return (payload, participant, _kind, topic) => {
     if (topic !== TURN_TOPIC || participant?.identity !== deps.boundIdentity) {
+      return;
+    }
+    if (payload.byteLength > 262_144) {
+      reportMalformed();
       return;
     }
 
@@ -867,12 +923,98 @@ export function createTurnControlHandler(deps: {
     }
 
     const type = (message as { type?: unknown }).type;
+    const correlated =
+      type === 'turn_capability' ||
+      (type === 'turn_end' &&
+        ('version' in message ||
+          'nonce' in message ||
+          'turnId' in message ||
+          'cancelled' in message));
+    if (correlated) {
+      const packet = parseTriggerTurnPacket(payload);
+      const correlation = deps.correlation;
+      if (!packet || !correlation) {
+        reportMalformed();
+        return;
+      }
+      if (packet.type === 'turn_capability') {
+        if (retiredNonces.has(packet.nonce)) return;
+        if (nonce !== packet.nonce) {
+          if (retiredNonces.size >= 128) return;
+          if (nonce) retiredNonces.add(nonce);
+          nonce = packet.nonce;
+          lastTurnId = 0;
+          try {
+            negotiation = deps.endTurn();
+          } catch (error) {
+            negotiation = Promise.reject(error);
+          }
+          negotiation?.catch(reportTurnEndError);
+        }
+        const acknowledge = () => {
+          if (nonce !== packet.nonce) return;
+          negotiation = undefined;
+          publish({
+            ...packet,
+            type: 'turn_capability_ack',
+            drainTimeoutMs: correlation.drainTimeoutMs,
+          });
+        };
+        if (negotiation) void negotiation.then(acknowledge, () => {});
+        else acknowledge();
+        return;
+      }
+      if (
+        packet.type !== 'turn_end' ||
+        packet.nonce !== nonce ||
+        negotiation ||
+        packet.turnId <= lastTurnId
+      )
+        return;
+      lastTurnId = packet.turnId;
+      let settled = false;
+      const finish = (value: SpeechTurnResult): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        const outcome = packet.cancelled
+          ? { outcome: 'error' as const, text: '' }
+          : value;
+        publish({
+          type: 'turn_result',
+          version: 1,
+          nonce: packet.nonce,
+          turnId: packet.turnId,
+          ...outcome,
+        });
+      };
+      const timer = setTimeout(
+        () => finish({ outcome: 'error', text: '' }),
+        Math.ceil(correlation.drainTimeoutMs),
+      );
+      try {
+        const boundary = deps.endTurn(finish);
+        if (!boundary) finish({ outcome: 'error', text: '' });
+        else
+          void boundary.then(
+            () => finish({ outcome: 'error', text: '' }),
+            (error) => {
+              finish({ outcome: 'error', text: '' });
+              reportTurnEndError(error);
+            },
+          );
+      } catch (error) {
+        finish({ outcome: 'error', text: '' });
+        reportTurnEndError(error);
+      }
+      return;
+    }
     if (type === 'turn_start') {
       reportMalformed();
     } else if (type === 'turn_end') {
       try {
         const boundary = deps.endTurn();
-        boundary.catch(reportTurnEndError).catch(() => {});
+        boundary?.catch(reportTurnEndError).catch(() => {});
       } catch (error) {
         reportTurnEndError(error);
       }
@@ -1041,12 +1183,22 @@ export function createTurnAggregator(
   };
 }
 
+/** Final result of one FIFO boundary; errors exclude all salvaged partial text. */
+export type SpeechTurnResult = Pick<TriggerTurnResult, 'outcome' | 'text'>;
+
+/** Optional observer is bound synchronously before the FIFO begins draining. */
+export type SpeechTurnEndHandler = (
+  result?: (value: SpeechTurnResult) => void,
+) => Promise<void>;
+
 type SpeechTurn = {
   stream: stt.SpeechStream;
   consumeTask: Promise<void>;
   acceptsFinals: boolean;
   inputEnded: boolean;
   closed: boolean;
+  text: string;
+  tainted: boolean;
 };
 
 type SpeechRecognitionOptions = {
@@ -1061,7 +1213,7 @@ type SpeechRecognitionOptions = {
   pendingAudioMsLimit: number;
   createDrainDeadline?: (timeoutMs: number) => DrainDeadline;
   /** Installs synchronously; `null` removal is fire-and-observe and once-only. */
-  setEndTurnHandler: (handler: (() => Promise<void>) | null) => void;
+  setEndTurnHandler: (handler: SpeechTurnEndHandler | null) => void;
 };
 
 const MAX_PENDING_SUCCESSOR_SEGMENTS = 4;
@@ -1083,6 +1235,8 @@ export class SpeechTurnQueueOverflowError extends WorkerDiagnosticError {
 }
 
 type Boundary = {
+  /** Observer belonging to this boundary, never a later successor. */
+  result?: (value: SpeechTurnResult) => void;
   /** Rejection-observed completion exposed to the boundary caller. */
   promise: Promise<void>;
   /** Resolves the boundary's completion promise. */
@@ -1103,7 +1257,7 @@ type SuccessorSegment = {
 };
 
 /** Creates one immediately rejection-observed, settle-once turn boundary. */
-function createBoundary(): Boundary {
+function createBoundary(result?: (value: SpeechTurnResult) => void): Boundary {
   let resolvePromise!: () => void;
   let rejectPromise!: (error: unknown) => void;
   const promise = new Promise<void>((resolve, reject) => {
@@ -1112,6 +1266,7 @@ function createBoundary(): Boundary {
   });
   promise.catch(() => {});
   return {
+    result,
     promise,
     settled: false,
     resolve: resolvePromise,
@@ -1280,14 +1435,19 @@ class SpeechTurnCoordinator {
     this.#pendingFramesTotal++;
   }
 
-  endTurn(): Promise<void> {
-    if (this.#terminalError) return this.#rejectedBoundary(this.#terminalError);
-    if (this.#queueFailure) return this.#rejectedBoundary(this.#queueFailure);
-    if (this.#disposed) return Promise.resolve();
+  endTurn(result?: (value: SpeechTurnResult) => void): Promise<void> {
+    if (this.#terminalError)
+      return this.#rejectedBoundary(this.#terminalError, result);
+    if (this.#queueFailure)
+      return this.#rejectedBoundary(this.#queueFailure, result);
+    if (this.#disposed)
+      return result
+        ? this.#rejectedBoundary(new Error('Speech turn disposed'), result)
+        : Promise.resolve();
 
     if (this.#current) {
       const turn = this.#current;
-      const boundary = createBoundary();
+      const boundary = createBoundary(result);
       this.#current = null;
       this.#activeBoundary = boundary;
       const rotationTask = this.#rotateQueued(turn, boundary);
@@ -1301,24 +1461,27 @@ class SpeechTurnCoordinator {
       return boundary.promise;
     }
 
-    if (!this.#rotationTask) return Promise.resolve();
+    if (!this.#rotationTask)
+      return result
+        ? this.#rejectedBoundary(new Error('Speech turn unavailable'), result)
+        : Promise.resolve();
 
     const segment = this.#openSegment();
     if (!segment) {
       return this.#queueFailure
-        ? this.#rejectedBoundary(this.#queueFailure)
+        ? this.#rejectedBoundary(this.#queueFailure, result)
         : Promise.resolve();
     }
     if (segment.boundary) {
       const next = this.#appendSegment();
       if (!next) {
         return this.#queueFailure
-          ? this.#rejectedBoundary(this.#queueFailure)
+          ? this.#rejectedBoundary(this.#queueFailure, result)
           : Promise.resolve();
       }
-      return this.#markBoundary(next);
+      return this.#markBoundary(next, result);
     }
-    return this.#markBoundary(segment);
+    return this.#markBoundary(segment, result);
   }
 
   async dispose(): Promise<void> {
@@ -1338,6 +1501,8 @@ class SpeechTurnCoordinator {
       acceptsFinals: true,
       inputEnded: false,
       closed: false,
+      text: '',
+      tainted: false,
     };
     turn.consumeTask = this.#consume(turn);
     turn.consumeTask.catch(() => {});
@@ -1349,7 +1514,16 @@ class SpeechTurnCoordinator {
       const final = event.type === stt.SpeechEventType.FINAL_TRANSCRIPT;
       if (!final) continue;
       const text = event.alternatives?.[0]?.text?.trim();
-      if (turn.acceptsFinals && text) this.#onFinalTranscript(text);
+      if (turn.acceptsFinals && text) {
+        if (!turn.tainted) {
+          turn.text = turn.text ? `${turn.text} ${text}` : text;
+          if (new TextEncoder().encode(turn.text).byteLength > 250_000) {
+            turn.tainted = true;
+            turn.text = '';
+          }
+        }
+        this.#onFinalTranscript(text);
+      }
     }
   }
 
@@ -1395,7 +1569,7 @@ class SpeechTurnCoordinator {
         segment.frames.length = 0;
       }
       this.#current = successor;
-      this.#settleBoundary(activeBoundary, failure);
+      this.#settleBoundary(activeBoundary, failure, activeTurn);
       if (!segment?.boundary) return;
 
       activeTurn = successor;
@@ -1466,8 +1640,11 @@ class SpeechTurnCoordinator {
     return segment;
   }
 
-  #markBoundary(segment: SuccessorSegment): Promise<void> {
-    const boundary = createBoundary();
+  #markBoundary(
+    segment: SuccessorSegment,
+    result?: (value: SpeechTurnResult) => void,
+  ): Promise<void> {
+    const boundary = createBoundary(result);
     segment.boundary = boundary;
     return boundary.promise;
   }
@@ -1553,6 +1730,7 @@ class SpeechTurnCoordinator {
       return;
     }
     this.#current = replacement;
+    replacement.tainted = true;
   }
 
   /** Performs idempotent terminal cleanup after bounded construction recovery. */
@@ -1584,16 +1762,32 @@ class SpeechTurnCoordinator {
     this.#pendingFramesTotal = 0;
   }
 
-  #settleBoundary(boundary: Boundary, error?: unknown): void {
+  #settleBoundary(
+    boundary: Boundary,
+    error?: unknown,
+    turn?: SpeechTurn,
+  ): void {
     if (boundary.settled) return;
     boundary.settled = true;
     if (this.#activeBoundary === boundary) this.#activeBoundary = null;
+    const result: SpeechTurnResult =
+      error !== undefined || this.#disposed || !turn || turn.tainted
+        ? { outcome: 'error', text: '' }
+        : { outcome: turn.text ? 'success' : 'empty', text: turn.text };
+    try {
+      Promise.resolve(boundary.result?.(result)).catch(() => {});
+    } catch {
+      // Observation cannot hold or advance FIFO ownership.
+    }
     if (error === undefined) boundary.resolve();
     else boundary.reject(error);
   }
 
-  #rejectedBoundary(error: unknown): Promise<void> {
-    const boundary = createBoundary();
+  #rejectedBoundary(
+    error: unknown,
+    result?: (value: SpeechTurnResult) => void,
+  ): Promise<void> {
+    const boundary = createBoundary(result);
     this.#settleBoundary(boundary, error);
     return boundary.promise;
   }
@@ -1636,8 +1830,8 @@ class SpeechTurnCoordinator {
  * Frames yielded while a provider drains are retained in bounded FIFO successor
  * segments. Their audio cap is supplied once from the validated drain timeout;
  * unlike that derived cap, segment and frame-count limits remain fixed. Every
- * `turn_end` remains a distinct marker because the protocol has
- * no turn identity: each marker settles only after its own segment is replayed,
+ * accepted `turn_end` remains a distinct marker; protocol deduplication belongs
+ * to the room listener. Each marker settles after its own segment is replayed,
  * ended, drained, and closed. Queue overflow or invalid frame timing metadata
  * fails the track generation closed, removes its turn handler, releases queued
  * successors, and discards all later frames as no-ops until teardown. In
@@ -1657,6 +1851,11 @@ class SpeechTurnCoordinator {
  * fire-and-observe: a throw, rejection, or pending promise cannot replace the
  * track outcome or delay coordinator disposal. Initial handler installation
  * remains synchronous and is not part of that best-effort cleanup contract.
+ * An optional result observer belongs to the FIFO boundary before draining
+ * starts. It receives successful whole text or an explicit empty/error terminal;
+ * unlike legacy aggregation, failed or recovered streams never salvage text
+ * into a successful correlated result. Disposal and released successors also
+ * report errors. Observers cannot block rotation and are called at most once.
  */
 export async function runSpeechRecognition(
   opts: SpeechRecognitionOptions,
@@ -1681,7 +1880,7 @@ export async function runSpeechRecognition(
     opts.createDrainDeadline ?? createDrainDeadline,
     removeEndTurnHandler,
   );
-  const endTurn = () => coordinator.endTurn();
+  const endTurn: SpeechTurnEndHandler = (result) => coordinator.endTurn(result);
   opts.setEndTurnHandler(endTurn);
   endTurnHandlerInstalled = true;
   const iterator = opts.audioStream[Symbol.asyncIterator]();
