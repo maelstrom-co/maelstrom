@@ -42,7 +42,8 @@ export interface OpenAIAdapterOptions {
    * Omitted (the default): transcription is enabled with the built-in model.
    * An object: transcription is enabled with `model` (or the built-in default
    * when `model` is omitted). `false`: transcription is disabled and no
-   * transcription config is sent in `session.update`.
+   * transcription config is sent in `session.update`. Trigger activation always
+   * requires transcription; connecting with `false` rejects before mint/capture.
    */
   readonly transcription?: false | { readonly model?: string };
   /**
@@ -53,20 +54,25 @@ export interface OpenAIAdapterOptions {
    * acceptance is playback-scoped: the first accepted local boundary stops
    * greeting playback, then flushes one bounded pre-roll. Skip and normal
    * completion discard the retained tail. Setup and worklet-command failure
-   * fall back to the non-interruptible gate.
+   * fall back to the non-interruptible gate. Trigger activation skips greeting
+   * preparation and presentation, including this optional local runtime.
    */
   readonly greetingInterruption?: false | true | BrowserVadOptions;
   /**
    * OpenAI server-VAD tuning and barge-in policy.
    *
    * The threshold defaults to `0.5` and must be a finite number in `[0, 1]`.
-   * Barge-in defaults to `immediate`, which preserves OpenAI-managed response
+   * In normal mode, barge-in defaults to `immediate`, preserving OpenAI-managed response
    * creation and interruption. `transcript-confirmed` disables both provider
    * flags so the adapter can interrupt on the first non-whitespace provisional
    * transcription delta and create a response only after the same committed
    * item has a non-whitespace completed transcript. Delta arrival latency is
    * nondeterministic, and non-whitespace transcription does not prove that the
    * sound came from a human speaker.
+   * Trigger mode keeps both provider flags false for the entire connection and
+   * explicitly interrupts only admitted active input: source-proven speech start
+   * for `immediate`, or a useful delta for `transcript-confirmed`. Waiting/held
+   * input never interrupts; every trigger-mode response uses admitted references.
    *
    * This configures OpenAI's provider-side VAD only. LiveKit owns browser VAD,
    * microphone gating, and turn boundaries through `LiveKitAdapter`'s separate
@@ -80,9 +86,10 @@ export interface OpenAIAdapterOptions {
     /** Finite OpenAI server-VAD activation threshold in `[0, 1]` (default `0.5`). */
     readonly threshold?: number;
     /**
-     * `immediate` (default) derives `create_response: true` and
+     * In normal mode, `immediate` (default) derives `create_response: true` and
      * `interrupt_response: true`. `transcript-confirmed` derives both as false
-     * and requires input transcription.
+     * and requires input transcription. Trigger mode keeps both flags false
+     * and implements the selected interruption policy only for admitted input.
      */
     readonly bargeInMode?: 'immediate' | 'transcript-confirmed';
   };

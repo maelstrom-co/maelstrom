@@ -6,11 +6,14 @@ import type {
 import { MessageId, SessionId, ToolCallId } from '@maelstrom-co/protocol';
 import type {
   AdapterConnectOptions,
+  AdapterVoiceActivation,
   RealtimeInstance,
   RealtimeProviderAdapter,
+  VoiceActivationConfig,
 } from '@maelstrom-co/realtime';
 import {
   GreetingCoordinator,
+  isRealtimeTriggerAdapter,
   RealtimeSession,
   RealtimeVoiceError,
 } from '@maelstrom-co/realtime';
@@ -371,6 +374,650 @@ function sentFrames(channel: FakeDataChannel): Array<Record<string, unknown>> {
     (frame) => JSON.parse(frame) as Record<string, unknown>,
   );
 }
+
+const waitingActivation: AdapterVoiceActivation = {
+  version: 1,
+  reportInput: () => {},
+  admission: () => ({ status: 'pending' }),
+  onChange: () => () => {},
+  finishInput: () => {},
+  beginActivity: () => () => {},
+};
+
+describe('OpenAI trigger bootstrap', () => {
+  it('advertises the fully wired version-one activation contract', () => {
+    expect(
+      isRealtimeTriggerAdapter(
+        new OpenAIAdapter({ mintToken: async () => fakeToken }),
+      ),
+    ).toBe(true);
+  });
+  it('rejects mismatched acknowledged flags without ever restoring publication', async () => {
+    const adapter = new OpenAIAdapter({ mintToken: async () => fakeToken });
+    const connecting = adapter.connect({
+      ...connectOpts,
+      activation: waitingActivation,
+    });
+    void connecting.catch(() => {});
+    const channel = await latestDataChannel();
+    channel.triggerOpen();
+    const update = sentFrames(channel)[0] as {
+      session: {
+        audio: { input: { turn_detection: { create_response: boolean } } };
+      };
+    };
+    update.session.audio.input.turn_detection.create_response = true;
+    channel.receive({ type: 'session.updated', session: update.session });
+    await expect(connecting).rejects.toMatchObject({
+      code: 'ACTIVATION_ELIGIBILITY_FAILED',
+    });
+    expect(FakeMediaStream.instances[0]?.tracks[0]?.enabledMutations).toEqual([
+      false,
+    ]);
+    expect(FakeMediaStream.instances[0]?.tracks[0]?.stopped).toBe(true);
+  });
+
+  it('bounds missing configuration acknowledgement and ignores a stale late acknowledgement', async () => {
+    const clock = FakeTimers.install();
+    const adapter = new OpenAIAdapter({ mintToken: async () => fakeToken });
+    try {
+      const connecting = adapter.connect({
+        ...connectOpts,
+        activation: waitingActivation,
+      });
+      void connecting.catch(() => {});
+      const channel = await latestDataChannel();
+      channel.triggerOpen();
+      clock.tick(10000);
+      await expect(connecting).rejects.toMatchObject({
+        code: 'ACTIVATION_ELIGIBILITY_FAILED',
+      });
+      const update = sentFrames(channel)[0];
+      channel.receive({ type: 'session.updated', session: update?.session });
+      expect(FakeMediaStream.instances[0]?.tracks[0]?.enabled).toBe(false);
+      expect(clock.countTimers()).toBe(0);
+    } finally {
+      await adapter.disconnect();
+      clock.uninstall();
+    }
+  });
+
+  it('does not acquire or consume a greeting presentation on a trigger bridge connection', async () => {
+    let synthesized = false;
+    const adapter = new OpenAIAdapter({
+      mintToken: async () => fakeToken,
+      synthesizeGreeting: async () => {
+        synthesized = true;
+        throw new Error('must not synthesize');
+      },
+    });
+    const connecting = adapter.connect({
+      ...connectOpts,
+      activation: waitingActivation,
+    });
+    try {
+      const channel = await latestDataChannel();
+      channel.triggerOpen();
+      channel.receive({
+        type: 'session.updated',
+        session: sentFrames(channel)[0]?.session,
+      });
+      await connecting;
+      expect(
+        await adapter.speakAssistantText({
+          id: MessageId('trigger-greeting'),
+          text: 'hello',
+          signal: new AbortController().signal,
+        }),
+      ).toBe('not_started');
+      expect(synthesized).toBe(false);
+      expect(
+        sentFrames(channel).filter((event) => event.type === 'response.create'),
+      ).toEqual([]);
+    } finally {
+      await adapter.disconnect();
+    }
+  });
+
+  it('keeps the first published track disabled until matching configuration acknowledgement', async () => {
+    const adapter = new OpenAIAdapter({ mintToken: async () => fakeToken });
+    let settled = false;
+    const connecting = adapter
+      .connect({ ...connectOpts, activation: waitingActivation })
+      .then(() => {
+        settled = true;
+      });
+    try {
+      const channel = await latestDataChannel();
+      expect(FakeMediaStream.instances[0]?.tracks[0]?.enabled).toBe(false);
+      channel.triggerOpen();
+      await Promise.resolve();
+      expect(settled).toBe(false);
+      const update = sentFrames(channel)[0] as {
+        session: {
+          audio: { input: { turn_detection: Record<string, unknown> } };
+        };
+      };
+      expect(update.session.audio.input.turn_detection.create_response).toBe(
+        false,
+      );
+      expect(update.session.audio.input.turn_detection.interrupt_response).toBe(
+        false,
+      );
+      channel.receive({ type: 'session.updated', session: update.session });
+      await connecting;
+      expect(FakeMediaStream.instances[0]?.tracks[0]?.enabled).toBe(true);
+    } finally {
+      await adapter.disconnect();
+      await connecting.catch(() => {});
+    }
+  });
+
+  it('rejects trigger configuration with disabled transcription before minting or capture', async () => {
+    let minted = false;
+    const adapter = new OpenAIAdapter({
+      transcription: false,
+      mintToken: async () => {
+        minted = true;
+        return fakeToken;
+      },
+    });
+    await expect(
+      adapter.connect({ ...connectOpts, activation: waitingActivation }),
+    ).rejects.toMatchObject({ code: 'ACTIVATION_CONFIG_INVALID' });
+    expect(minted).toBe(false);
+    expect(FakeMediaStream.instances).toHaveLength(0);
+  });
+});
+
+async function triggerSession(
+  options: {
+    onActivate?: () => Promise<void>;
+    bargeInMode?: 'immediate' | 'transcript-confirmed';
+  } = {},
+) {
+  const adapter = new OpenAIAdapter({
+    mintToken: async () => fakeToken,
+    serverVad: { bargeInMode: options.bargeInMode ?? 'immediate' },
+  });
+  const activation: VoiceActivationConfig = {
+    mode: 'trigger',
+    phrase: 'hello maelstrom',
+    inactivityMs: 1000,
+    onActivate: options.onActivate,
+  };
+  const session = new RealtimeSession({
+    adapter,
+    instance: makeInertInstance(),
+    sessionId: SessionId('trigger-integration'),
+    activation,
+  });
+  const events: unknown[] = [];
+  adapter.on((event) => events.push(event));
+  const connecting = session.connect();
+  void connecting.catch(() => {});
+  const channel = await latestDataChannel();
+  channel.triggerOpen();
+  const update = sentFrames(channel).find(
+    (event) => event.type === 'session.update',
+  );
+  channel.receive({ type: 'session.updated', session: update?.session });
+  await connecting;
+  const grounding = sentFrames(channel).find(
+    (event) => event.type === 'conversation.item.create',
+  ) as { item: { id: string } } | undefined;
+  if (grounding)
+    channel.receive({
+      type: 'conversation.item.created',
+      previous_item_id: null,
+      item: grounding.item,
+    });
+  const source = (
+    id: string,
+    previous: string | null,
+    start: number,
+    end: number,
+  ) => {
+    channel.receive({
+      type: 'input_audio_buffer.speech_started',
+      item_id: id,
+      audio_start_ms: start,
+    });
+    channel.receive({
+      type: 'input_audio_buffer.speech_stopped',
+      item_id: id,
+      audio_end_ms: end,
+    });
+    channel.receive({
+      type: 'input_audio_buffer.committed',
+      item_id: id,
+      previous_item_id: previous,
+    });
+    channel.receive({
+      type: 'conversation.item.created',
+      previous_item_id: previous,
+      item: { id, type: 'message', role: 'user', status: 'completed' },
+    });
+  };
+  const final = (id: string, transcript: string) =>
+    channel.receive({
+      type: 'conversation.item.input_audio_transcription.completed',
+      item_id: id,
+      transcript,
+    });
+  const responses = () =>
+    sentFrames(channel).filter((event) => event.type === 'response.create');
+  return {
+    adapter,
+    session,
+    channel,
+    events,
+    source,
+    final,
+    responses,
+    root: grounding?.item.id ?? null,
+  };
+}
+
+describe('OpenAI trigger end-to-end admission', () => {
+  it('holds a real read-only tool follow-up until tool output and grounding acknowledgements arrive', async () => {
+    const h = await triggerSession();
+    try {
+      h.source('trigger', h.root, 0, 100);
+      h.final('trigger', 'hello maelstrom');
+      h.source('request', 'trigger', 200, 300);
+      h.final('request', 'what is on screen');
+      const first = h.responses()[0]?.response as { metadata: unknown };
+      h.channel.receive({
+        type: 'response.created',
+        response: { id: 'tool-response', metadata: first.metadata },
+      });
+      const call = {
+        id: 'call-item',
+        type: 'function_call',
+        call_id: 'call',
+        name: 'get_ui_state',
+        status: 'completed',
+        arguments: '{}',
+      };
+      h.channel.receive({
+        type: 'response.output_item.added',
+        response_id: 'tool-response',
+        output_index: 0,
+        item: call,
+      });
+      h.channel.receive({
+        type: 'response.function_call_arguments.done',
+        response_id: 'tool-response',
+        item_id: 'call-item',
+        call_id: 'call',
+        name: 'get_ui_state',
+        arguments: '{}',
+      });
+      await flushMicrotasks();
+      h.adapter.injectGrounding('current UI');
+      h.channel.receive({
+        type: 'response.done',
+        response: { id: 'tool-response', status: 'completed', output: [call] },
+      });
+      const creations = sentFrames(h.channel).filter(
+        (frame) => frame.type === 'conversation.item.create',
+      ) as { item: { id: string; type: string; role?: string } }[];
+      const output = creations.find(
+        (frame) => frame.item.type === 'function_call_output',
+      );
+      const grounding = [...creations]
+        .reverse()
+        .find((frame) => frame.item.role === 'system');
+      expect(output).toBeDefined();
+      expect(grounding).toBeDefined();
+      if (!output || !grounding)
+        throw new Error('missing owned item creations');
+      h.channel.receive({
+        type: 'conversation.item.created',
+        previous_item_id: 'call-item',
+        item: output?.item,
+      });
+      expect(h.responses()).toHaveLength(1);
+      h.channel.receive({
+        type: 'conversation.item.created',
+        previous_item_id: output?.item.id,
+        item: grounding?.item,
+      });
+      await flushMicrotasks();
+      expect(h.responses()).toHaveLength(2);
+      const followUp = h.responses()[1]?.response as {
+        conversation: string;
+        input: { id: string }[];
+        metadata: unknown;
+      };
+      expect(followUp.conversation).toBe('auto');
+      expect(followUp.input.map((ref) => ref.id)).toEqual([
+        grounding?.item.id,
+        'request',
+        'call-item',
+        output?.item.id,
+      ]);
+      expect(followUp.metadata).toBeDefined();
+    } finally {
+      await h.session.disconnect();
+    }
+  });
+
+  it('keeps output busy after generation and expires only after its own buffer terminal without cancelling', async () => {
+    const clock = FakeTimers.install();
+    const h = await triggerSession();
+    try {
+      h.source('trigger', h.root, 0, 100);
+      h.final('trigger', 'hello maelstrom');
+      h.source('request', 'trigger', 200, 300);
+      h.final('request', 'weather');
+      const first = h.responses()[0]?.response as { metadata: unknown };
+      h.channel.receive({
+        type: 'response.created',
+        response: { id: 'audio', metadata: first.metadata },
+      });
+      h.channel.receive({
+        type: 'response.done',
+        response: {
+          id: 'audio',
+          status: 'completed',
+          output: [
+            {
+              id: 'answer',
+              type: 'message',
+              role: 'assistant',
+              status: 'completed',
+              content: [{ type: 'audio' }],
+            },
+          ],
+        },
+      });
+      clock.tick(20000);
+      expect(h.session.activationState).toBe('active');
+      h.channel.receive({
+        type: 'output_audio_buffer.stopped',
+        response_id: 'unrelated',
+      });
+      clock.tick(2000);
+      expect(h.session.activationState).toBe('active');
+      h.channel.receive({
+        type: 'output_audio_buffer.started',
+        response_id: 'audio',
+      });
+      h.channel.receive({
+        type: 'output_audio_buffer.stopped',
+        response_id: 'audio',
+      });
+      clock.tick(999);
+      expect(h.session.activationState).toBe('active');
+      clock.tick(1);
+      expect(h.session.activationState).toBe('waiting');
+      expect(
+        sentFrames(h.channel).filter((frame) =>
+          ['response.cancel', 'output_audio_buffer.clear'].includes(
+            frame.type as string,
+          ),
+        ),
+      ).toEqual([]);
+    } finally {
+      await h.session.disconnect();
+      clock.uninstall();
+    }
+  });
+
+  it('does not time out boundary-proven continuing speech before its commit', async () => {
+    const clock = FakeTimers.install();
+    const h = await triggerSession();
+    try {
+      h.source('trigger', h.root, 0, 100);
+      h.final('trigger', 'hello maelstrom');
+      h.channel.receive({
+        type: 'input_audio_buffer.speech_started',
+        item_id: 'long',
+        audio_start_ms: 200,
+      });
+      clock.tick(30000);
+      expect(h.session.activationState).toBe('active');
+      expect(h.responses()).toEqual([]);
+      h.source('long', 'trigger', 200, 31000);
+      h.final('long', 'weather');
+      expect(h.responses()).toHaveLength(1);
+    } finally {
+      await h.session.disconnect();
+      clock.uninstall();
+    }
+  });
+
+  it.each([
+    'reject',
+    'timeout',
+  ] as const)('releases held input only after a %s activation hook finishes', async (outcome) => {
+    const clock = FakeTimers.install();
+    const h = await triggerSession({
+      onActivate: () =>
+        outcome === 'reject'
+          ? Promise.reject(new Error('private hook error'))
+          : new Promise<void>(() => {}),
+    });
+    try {
+      h.source('trigger', h.root, 0, 100);
+      h.final('trigger', 'hello maelstrom');
+      h.source('request', 'trigger', 200, 300);
+      h.final('request', 'weather');
+      expect(h.responses()).toEqual([]);
+      await clock.tickAsync(outcome === 'timeout' ? 2000 : 0);
+      expect(h.responses()).toHaveLength(1);
+      expect(h.session.activationState).toBe('active');
+    } finally {
+      await h.session.disconnect();
+      clock.uninstall();
+    }
+  });
+
+  it('fences a disconnected held request and old channel events from a replacement connection', async () => {
+    let release = () => {};
+    const h = await triggerSession({
+      onActivate: () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    });
+    h.source('trigger', h.root, 0, 100);
+    h.final('trigger', 'hello maelstrom');
+    h.source('held', 'trigger', 200, 300);
+    h.final('held', 'weather');
+    await h.session.disconnect();
+    const connecting = h.session.connect();
+    const replacement = await latestDataChannel(h.channel);
+    replacement.triggerOpen();
+    replacement.receive({
+      type: 'session.updated',
+      session: sentFrames(replacement)[0]?.session,
+    });
+    await connecting;
+    try {
+      release();
+      h.channel.receive({
+        type: 'response.created',
+        response: { id: 'stale', metadata: {} },
+      });
+      await flushMicrotasks();
+      expect(h.session.activationState).toBe('waiting');
+      expect(
+        sentFrames(replacement).filter(
+          (frame) => frame.type === 'response.create',
+        ),
+      ).toEqual([]);
+    } finally {
+      await h.session.disconnect();
+    }
+  });
+
+  it('retains admitted dialogue across inactivity and another wake in the same session', async () => {
+    const clock = FakeTimers.install();
+    const h = await triggerSession();
+    try {
+      h.source('trigger-one', h.root, 0, 100);
+      h.final('trigger-one', 'hello maelstrom');
+      h.source('request-one', 'trigger-one', 200, 300);
+      h.final('request-one', 'weather');
+      const first = h.responses()[0]?.response as { metadata: unknown };
+      h.channel.receive({
+        type: 'response.created',
+        response: { id: 'response-one', metadata: first.metadata },
+      });
+      const item = {
+        id: 'assistant-one',
+        type: 'message',
+        role: 'assistant',
+        status: 'completed',
+        content: [{ type: 'text', text: 'sunny' }],
+      };
+      h.channel.receive({
+        type: 'response.output_item.added',
+        response_id: 'response-one',
+        output_index: 0,
+        item,
+      });
+      h.channel.receive({
+        type: 'conversation.item.created',
+        previous_item_id: 'request-one',
+        item,
+      });
+      h.channel.receive({
+        type: 'response.done',
+        response: { id: 'response-one', status: 'completed', output: [item] },
+      });
+      clock.tick(1000);
+      expect(h.session.activationState).toBe('waiting');
+      h.source('trigger-two', 'assistant-one', 400, 500);
+      h.final('trigger-two', 'hello maelstrom');
+      h.source('request-two', 'trigger-two', 600, 700);
+      h.final('request-two', 'and tomorrow');
+      expect(h.responses()).toHaveLength(2);
+      const second = h.responses()[1]?.response as { input: { id: string }[] };
+      expect(second.input.map((ref) => ref.id)).toEqual([
+        ...(h.root ? [h.root] : []),
+        'request-one',
+        'assistant-one',
+        'request-two',
+      ]);
+      expect(FakeRTCPeerConnection.instances).toHaveLength(1);
+      expect(
+        sentFrames(h.channel).filter(
+          (event) => event.type === 'session.update',
+        ),
+      ).toHaveLength(1);
+    } finally {
+      await h.session.disconnect();
+      clock.uninstall();
+    }
+  });
+
+  it('holds an out-of-order post-trigger final privately through the activation hook', async () => {
+    let release = () => {};
+    const hook = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const h = await triggerSession({ onActivate: () => hook });
+    try {
+      h.source('trigger', h.root, 0, 100);
+      h.source('request', 'trigger', 200, 300);
+      h.final('request', 'show weather');
+      h.final('trigger', 'hello maelstrom');
+      expect(h.session.activationState).toBe('activating');
+      expect(h.responses()).toEqual([]);
+      expect(
+        h.events.filter(
+          (event) => (event as { type: string }).type === 'transcript',
+        ),
+      ).toEqual([]);
+      release();
+      await flushMicrotasks();
+      expect(h.session.activationState).toBe('active');
+      expect(h.responses()).toHaveLength(1);
+      const response = h.responses()[0]?.response as {
+        conversation: string;
+        input: { id: string }[];
+        metadata: unknown;
+      };
+      expect(response.conversation).toBe('auto');
+      expect(response.input.map((item) => item.id)).toEqual(
+        h.root ? [h.root, 'request'] : ['request'],
+      );
+      expect(response.metadata).toBeDefined();
+    } finally {
+      await h.session.disconnect();
+    }
+  });
+
+  it('does not wake on same-turn trigger plus command and ignores unowned tools', async () => {
+    const h = await triggerSession();
+    try {
+      h.source('waiting', h.root, 0, 100);
+      h.final('waiting', 'hello maelstrom show weather');
+      h.channel.receive({
+        type: 'response.function_call_arguments.done',
+        response_id: 'unknown',
+        item_id: 'call-item',
+        call_id: 'call',
+        name: 'update_ui',
+        arguments: '{}',
+      });
+      expect(h.session.activationState).toBe('waiting');
+      expect(h.responses()).toEqual([]);
+      expect(
+        h.events.filter((event) =>
+          ['transcript', 'tool_call'].includes(
+            (event as { type: string }).type,
+          ),
+        ),
+      ).toEqual([]);
+    } finally {
+      await h.session.disconnect();
+    }
+  });
+
+  it.each([
+    'immediate',
+    'transcript-confirmed',
+  ] as const)('preserves %s active barge-in before the new speech turn is committed', async (bargeInMode) => {
+    const h = await triggerSession({ bargeInMode });
+    try {
+      h.source('trigger', h.root, 0, 100);
+      h.final('trigger', 'hello maelstrom');
+      h.source('request', 'trigger', 200, 300);
+      h.final('request', 'weather');
+      const response = h.responses()[0]?.response as { metadata: unknown };
+      h.channel.receive({
+        type: 'response.created',
+        response: { id: 'owned', metadata: response.metadata },
+      });
+      h.channel.receive({
+        type: 'output_audio_buffer.started',
+        response_id: 'owned',
+      });
+      h.channel.receive({
+        type: 'input_audio_buffer.speech_started',
+        item_id: 'interrupt',
+        audio_start_ms: 400,
+      });
+      if (bargeInMode === 'transcript-confirmed')
+        h.channel.receive({
+          type: 'conversation.item.input_audio_transcription.delta',
+          item_id: 'interrupt',
+          delta: 'stop',
+        });
+      expect(sentFrames(h.channel)).toContainEqual({
+        type: 'response.cancel',
+        response_id: 'owned',
+      });
+    } finally {
+      await h.session.disconnect();
+    }
+  });
+});
 
 afterEach(() => {
   restoreGlobal('RTCPeerConnection', originalRTCPeerConnection);

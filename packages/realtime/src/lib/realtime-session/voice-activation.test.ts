@@ -33,6 +33,107 @@ function setup(config: VoiceActivationConfig = trigger) {
 }
 
 describe('voice activation', () => {
+  it('does not finalize a later numbered input across an earlier unnumbered continuing source', () => {
+    const { controller, policy } = setup();
+    try {
+      policy.reportInput(turn(1));
+      policy.reportInput({ id: 'earlier', start: 20, outcome: 'pending' });
+      policy.reportInput({
+        id: 'later',
+        ordinal: 2,
+        start: 30,
+        end: 40,
+        outcome: 'success',
+        text: 'later request',
+      });
+      expect(policy.admission('later').status).toBe('held');
+      expect(controller.permits({ inputId: 'later', epoch: 1 })).toBe(false);
+    } finally {
+      controller.disconnect();
+    }
+  });
+  it('admits boundary-proven continuing speech without inventing an ordinal or timing out its duration', () => {
+    const clock = FakeTimers.install();
+    const { controller, policy, errors } = setup();
+    try {
+      policy.reportInput(turn(1));
+      policy.reportInput({ id: 'continuing', start: 20, outcome: 'pending' });
+      const admission = policy.admission('continuing');
+      expect(admission.status).toBe('admitted');
+      if (admission.status !== 'admitted') throw new Error('not admitted');
+      expect(controller.permits(admission.ancestry)).toBe(false);
+      clock.tick(30000);
+      expect(errors).toEqual([]);
+      expect(controller.state).toBe('active');
+      policy.reportInput({
+        id: 'continuing',
+        start: 20,
+        end: 40,
+        outcome: 'success',
+        text: 'weather',
+      });
+      expect(controller.permits(admission.ancestry)).toBe(false);
+      policy.reportInput({
+        id: 'continuing',
+        ordinal: 2,
+        start: 20,
+        end: 40,
+        outcome: 'success',
+        text: 'weather',
+      });
+      expect(controller.permits(admission.ancestry)).toBe(true);
+    } finally {
+      controller.disconnect();
+      clock.uninstall();
+    }
+  });
+
+  it('keeps unnumbered speech held before Active and behind an earlier continuing source', async () => {
+    let activate = () => {};
+    const { controller, policy } = setup({
+      ...trigger,
+      onActivate: () =>
+        new Promise<void>((resolve) => {
+          activate = resolve;
+        }),
+    });
+    try {
+      policy.reportInput(turn(1));
+      policy.reportInput({ id: 'early', start: 5, outcome: 'pending' });
+      policy.reportInput({ id: 'first', start: 20, outcome: 'pending' });
+      policy.reportInput({ id: 'later', start: 30, outcome: 'pending' });
+      expect(policy.admission('early').status).toBe('excluded');
+      expect(policy.admission('first').status).toBe('held');
+      activate();
+      await Promise.resolve();
+      expect(policy.admission('first').status).toBe('admitted');
+      expect(policy.admission('later').status).toBe('held');
+    } finally {
+      controller.disconnect();
+    }
+  });
+
+  it('bounds missing ordinal reconciliation after boundary-proven speech ends', () => {
+    const clock = FakeTimers.install();
+    const { controller, policy, errors } = setup();
+    try {
+      policy.reportInput(turn(1));
+      policy.reportInput({ id: 'ongoing', start: 20, outcome: 'pending' });
+      clock.tick(30000);
+      expect(errors).toEqual([]);
+      policy.reportInput({
+        id: 'ongoing',
+        start: 20,
+        end: 30,
+        outcome: 'pending',
+      });
+      clock.tick(10000);
+      expect(errors).toHaveLength(1);
+    } finally {
+      controller.disconnect();
+      clock.uninstall();
+    }
+  });
   it('clears the unknown-source deadline once continuing speech is reconciled', async () => {
     const clock = FakeTimers.install();
     try {

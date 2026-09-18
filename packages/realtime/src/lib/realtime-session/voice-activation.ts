@@ -267,22 +267,11 @@ export class VoiceActivationController {
       this.#fail();
       return;
     }
-    if (
-      source.outcome === 'pending' &&
-      source.end === undefined &&
-      source.ordinal !== undefined &&
-      source.start !== undefined
-    ) {
+    if (this.#continuing(source)) {
       clearTimeout(record.timer);
       record.timer = undefined;
     }
-    if (
-      !record.timer &&
-      (source.outcome !== 'pending' ||
-        source.end !== undefined ||
-        source.ordinal === undefined ||
-        source.start === undefined)
-    ) {
+    if (!record.timer && !this.#continuing(source)) {
       const generation = this.#generation;
       record.timer = setTimeout(() => {
         if (generation === this.#generation) this.#fail();
@@ -290,6 +279,12 @@ export class VoiceActivationController {
     }
     this.#workStarted();
     this.#reconcile();
+    for (const pending of this.#inputs.values()) {
+      if (this.#continuing(pending.input)) {
+        clearTimeout(pending.timer);
+        pending.timer = undefined;
+      }
+    }
     this.#notify();
     this.#reconsiderIdle();
   }
@@ -304,6 +299,7 @@ export class VoiceActivationController {
       if (this.#state !== 'waiting') this.#classify(record);
       if (
         input.outcome === 'pending' ||
+        this.#earlierUnnumbered(record) ||
         (input.outcome === 'success' && input.end === undefined)
       )
         break;
@@ -350,7 +346,7 @@ export class VoiceActivationController {
 
   #classify(record: InputRecord): void {
     const input = record.input;
-    if (input.ordinal === undefined || input.start === undefined) return;
+    if (input.start === undefined) return;
     if (
       input.start < this.#boundary ||
       input.outcome === 'empty' ||
@@ -359,13 +355,49 @@ export class VoiceActivationController {
       record.admission = { status: 'excluded' };
       return;
     }
+    const blocked =
+      input.ordinal === undefined
+        ? !this.#continuing(input) ||
+          [...this.#inputs.values()].some(
+            (other) =>
+              other !== record &&
+              !other.processed &&
+              other.admission.status !== 'excluded' &&
+              (other.input.start === undefined ||
+                other.input.start <= (input.start as number)),
+          )
+        : input.ordinal > this.#nextOrdinal;
     record.admission =
-      this.#state === 'activating' || input.ordinal > this.#nextOrdinal
+      this.#state === 'activating' || blocked || this.#earlierUnnumbered(record)
         ? { status: 'held' }
         : {
             status: 'admitted',
             ancestry: { inputId: input.id, epoch: this.#epoch },
           };
+  }
+
+  #continuing(input: VoiceActivationInput): boolean {
+    return (
+      input.outcome === 'pending' &&
+      input.end === undefined &&
+      input.start !== undefined &&
+      (input.ordinal !== undefined ||
+        (this.#state !== 'waiting' && input.start >= this.#boundary))
+    );
+  }
+
+  #earlierUnnumbered(record: InputRecord): boolean {
+    const start = record.input.start;
+    return [...this.#inputs.values()].some(
+      (other) =>
+        other !== record &&
+        !other.processed &&
+        other.input.ordinal === undefined &&
+        other.admission.status !== 'excluded' &&
+        (other.input.start === undefined ||
+          start === undefined ||
+          other.input.start <= start),
+    );
   }
 
   #releaseHeld(): void {

@@ -269,7 +269,7 @@ export interface VoiceActivationInput {
   readonly start?: number;
   /** Source end coordinate; required for successful terminal matching. Equal adjacent endpoints do not overlap. */
   readonly end?: number;
-  /** Adapter-validated reconciliation/drain-plus-delivery budget, default 10,000 ms. Positive integer at most 2,147,483,647; starts when evidence is unresolved or speech has ended, never extends a running deadline. Not a playback timeout. */
+  /** Adapter-validated reconciliation/drain-plus-delivery budget, default 10,000 ms. Positive integer at most 2,147,483,647; starts when evidence is unresolved or speech has ended, never extends a running deadline. Proven continuing speech (including a post-trigger start whose ordinal is not available yet) has no speech-duration deadline. Not a playback timeout. */
   readonly reconciliationTimeoutMs?: number;
   /** Whole-turn terminal outcome. A pending input can update to exactly one terminal; failed/empty input cannot activate. */
   readonly outcome: 'pending' | 'success' | 'empty' | 'error';
@@ -277,7 +277,7 @@ export interface VoiceActivationInput {
   readonly text?: string;
 }
 
-/** Admission is not response readiness: admitted continuing speech must still await a successful terminal and provider reference validation. */
+/** Admission is not response readiness: boundary-proven continuing speech may be admitted for active interruption before its source ordinal is available. Response readiness and application events still require a successfully finalized, source-order-reconciled input and provider reference validation. */
 export type VoiceInputAdmission =
   | {
       /** Pending reconciliation or a hook; no captions, tools, responses, or interruption. */
@@ -304,7 +304,7 @@ export interface AdapterVoiceActivation {
   readonly version: 1;
   /** Report start/order/whole terminal evidence. Reconcile source order before assigning ordinals; unknown evidence fails closed. Duplicate terminal reports are no-ops. */
   reportInput(input: VoiceActivationInput): void;
-  /** Read current admission. An unknown, consumed, overlapping or closed-epoch input is never admitted. */
+  /** Read current admission. An unknown, consumed, overlapping or closed-epoch input is never admitted. A proven post-boundary continuing source can permit interruption after Active without a speculative ordinal; it does not authorize final release or application events. */
   admission(inputId: string): VoiceInputAdmission;
   /** Subscribe to admission changes; callbacks may query/release eligible inputs in source order using the existing scheduler. No replay is supplied. */
   onChange(handler: () => void): Unsubscribe;
