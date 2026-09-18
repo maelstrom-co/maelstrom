@@ -174,6 +174,10 @@ Calling `connect()` mints a fresh credential and begins microphone capture. Once
 
 ## Configure server VAD
 
+The following describes normal activation. [Trigger mode](#opt-in-trigger-activation)
+keeps automatic response creation disabled and applies the configured interruption
+policy explicitly only to admitted active speech.
+
 `OpenAIAdapter` uses OpenAI's server voice activity detection (VAD). Configure its activation threshold and choose whether provider speech detection or input transcription confirms an interruption:
 
 ```ts title="src/voice/openai-adapter.ts"
@@ -311,6 +315,136 @@ The alert copy is fixed on purpose. Before you add telemetry, decide what it may
 ```
 
 It trades away the error surface built above: it discards `connect()` and `disconnect()` rejections rather than reporting them. Keep the hand-written toggle wherever a failed connection or a failed cleanup has to reach the user. `size` is a diameter in pixels, defaulting to `64`; keep it at `24` or above so the control stays a usable touch target.
+
+## Opt-in trigger activation
+
+Normal voice remains the default, including its configured greeting. To listen
+for a phrase before accepting voice commands, set `activation` on the extension:
+
+```ts
+maelstromRealtime({
+  createAdapter: createOpenAIAdapter,
+  activation: {
+    mode: 'trigger',
+    phrase: 'hello maelstrom',
+    inactivityMs: 10_000,
+    includeChatActivity: false,
+  },
+});
+```
+
+The demo starts in Normal mode. Open **Voice settings**, choose **Trigger phrase**,
+then apply before starting voice. The preset is `hello maelstrom`; it is not a
+mandatory phrase. `useVoice()` exposes the shared `activationConfig`,
+`activationState`, and `configureActivation(config)`. Configuration is allowed
+only while idle or errored and not disconnecting. Live edits throw without
+changing settings; the demo disables them with “Stop voice to change settings.”
+Settings survive consumer remounts under the same Provider, and the demo carries
+accepted settings through its credential remount. A fresh Provider otherwise
+uses the extension's initial configuration.
+
+A phrase must contain normalized words and be at most **200 Unicode code points**.
+`inactivityMs` must be an integer from **1,000 to 600,000**, default **10,000**;
+invalid values throw rather than clamp. Matching compares the entire successful
+final transcription's normalized word sequence, never a substring or interim
+transcript. Case and whitespace are ignored; punctuation, including commas and
+hyphens, separates words. Internal straight/curly apostrophes normalize to `'`,
+and accents remain significant. `Hello, Maelstrom!` and `hello-maelstrom` match;
+`hellomaelstrom`, a repeated phrase, and `hello maelstrom, show weather` do not.
+`can't` equals `can’t`, but not `cant`.
+
+**Say the phrase alone, then a separate request.** The trigger produces no
+greeting, action, response, or application caption/history entry. A distinct
+request proven to follow it in source order is held privately until activation
+finishes—even when its final transcription arrives first. You need not wait for
+the Active indicator before speaking that separate request. Earlier, overlapping,
+or unproven speech cannot become a command. Disconnect discards held input; it
+is not replayed on reconnect. Holding and source reconciliation are bounded;
+missing evidence fails closed instead of guessing from arrival order.
+
+Optional `onActivate` and `onDeactivate` hooks receive `{ signal, reason }`.
+Each may delay its transition for at most **2 seconds**. Throwing, rejection,
+or timeout logs a fixed warning category and lets the transition proceed;
+return values cannot veto it. Timeout, disconnect, and superseding work abort
+the signal and fence stale continuations. Hooks must cooperate with abortion:
+the library cannot undo arbitrary host side effects. New work during deactivation
+aborts that attempt and retains active admission.
+
+The idle countdown starts only after user speech, final transcription, held work,
+tools, Engine/render work, follow-ups, and assistant playback signals finish.
+New work restarts the full interval after completion. Expiry **never cancels,
+clears, mutes, or disconnects output**; ordinary admitted active user barge-in is
+unchanged. OpenAI output-buffer completion, not `response.done` alone, is the
+best available playback signal. It is not proof of audibility. Missing playback
+completion keeps voice active; Stop voice remains available.
+
+Render actual `state` first: `idle` is Voice off and `error` is Voice error even
+if retained `activationState` says `waiting`. While connected, show Waiting for
+trigger, Activating, Active, or Returning to waiting. Trigger mode suppresses
+connection and wake greetings without recording Skip or consuming normal-mode
+greeting proof.
+
+<Aside type="caution" title="Waiting still uses your microphone and provider STT">
+  Speech can reach OpenAI and incur usage while waiting. Waiting is an application
+  admission policy, not hardware mute or a provider-data erasure guarantee.
+  Provider conversation storage can contain excluded speech; that speech is
+  excluded from application history and explicit model response input, not
+  promised deleted. Keep consent and the AI-generated-voice disclosure visible.
+</Aside>
+
+### Count typed chat through completion
+
+Chat participation is off by default. When `includeChatActivity: true`, bracket
+**every** typed submission path, including credential-resumed submissions:
+
+```tsx
+function Composer() {
+  const voice = m.useVoice();
+  const { processIntent } = m.useMaelstrom();
+
+  async function submit(text: string) {
+    const finish = voice.beginChatActivity();
+    try {
+      await processIntent(text);
+    } finally {
+      await finish();
+    }
+  }
+  // Wire submit to your existing form; keep its existing error presentation.
+}
+```
+
+Completion waits the existing render-settle boundary and releases its token even
+on settlement failure. Tokens are independent and idempotently completable;
+one request cannot finish another. A token begun while waiting never wakes voice,
+but survives a subsequent activation in that connection. Disconnect invalidates
+old completions. In normal mode, with participation off, or while voice is
+stopped, the token is a no-op. This does not change generic `useMaelstrom` or
+make a swallowed request error into a success signal.
+
+### OpenAI eligibility and retained dialogue
+
+Trigger mode requires transcription and the shipped trigger-capable adapter.
+Initial microphone publication waits for a matching session configuration ACK
+under a **10-second** deadline. This confirms configuration, not a global audio
+or event drain. Automatic responses stay disabled throughout the connection.
+Every response and tool follow-up uses explicit, ordered `item_reference` inputs
+with admitted user audio, acknowledged grounding, and owned assistant/function
+items. Admitted dialogue survives waiting and later wakes in the **same session**;
+there is no per-wake remint or conversation reset.
+
+Missing source ownership, item/response ACKs, or truncation/reference readiness
+has a bounded eligibility deadline (normally **10 seconds**). Invalid or missing
+references fail explicitly; no attempt retries with unfiltered history or an
+empty-history workaround. Unsafe continuation can tear down the connection.
+Show the error, stop, and offer a deliberate reconnect after investigating; do
+not silently switch to normal mode. The unresolved ledger is bounded to 128
+records and 256 KiB of terminal text, not a new response queue or dialogue trim.
+
+OpenAI has no manual hold-to-talk fallback. LiveKit offers that independent turn
+mode. Actual provider reference compatibility, truncation behavior, STT quality,
+and audible playback require developer-run checks with both providers; mock tests
+are not that evidence. Contributors should use `docs/trigger-word-manual-checklist.md`.
 
 ## Verify
 

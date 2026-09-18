@@ -14,6 +14,8 @@ import type {
   RealtimeInstance,
   RealtimeProviderAdapter,
   SummarizeFn,
+  VoiceActivationConfig,
+  VoiceActivationState,
 } from '@maelstrom-co/realtime';
 import { RealtimeSession } from '@maelstrom-co/realtime';
 import { type ReactElement, useCallback, useEffect, useState } from 'react';
@@ -48,12 +50,21 @@ export interface MaelstromRealtimeOptions {
   /** Enables verbose tracing in the underlying session. */
   readonly debug?: boolean;
   /**
+   * Initial shared voice policy; omission means normal mode, independent of turn detection.
+   * Trigger phrases require nonempty normalized words and at most 200 Unicode code points.
+   * Inactivity defaults to 10,000 ms (integer 1,000–600,000), after the full turn and
+   * playback signals finish; chat participation defaults off. Waiting still captures
+   * audio for provider STT and may incur usage. Hooks are fail-open after 2 seconds.
+   * Use `configureActivation` for stopped-only edits; trigger mode suppresses greetings.
+   */
+  readonly activation?: VoiceActivationConfig;
+  /**
    * Optional fixed assistant greeting for each voice session.
    *
-   * When set, `text` is spoken verbatim once per voice session. The shared
+   * In normal activation mode, `text` is spoken verbatim once per voice session. The shared
    * {@link GreetingCoordinator} acknowledges the line in Engine history before
    * speech starts, so reconnects and remounts do not double-speak a greeting
-   * the engine already retained.
+   * the engine already retained. Trigger mode suppresses it without consuming proof.
    */
   readonly greeting?: { readonly text: string };
 }
@@ -70,6 +81,30 @@ export interface MaelstromRealtimeOptions {
  * token minting, inspect the connection, or offer a reconnect.
  */
 export interface UseVoiceResult {
+  /** Shared retained policy, not connection state. Render idle/error before waiting. */
+  readonly activationState: VoiceActivationState;
+  /** Validated shared settings; preserved across consumer retirement under the same Provider. */
+  readonly activationConfig: VoiceActivationConfig;
+  /**
+   * Replace shared settings only while idle/error and not disconnecting. Throws on
+   * live edits or invalid phrase/duration without changing settings. Normal is the
+   * default; trigger matching consumes an exact finalized word sequence, never a
+   * substring: `Hello, Maelstrom!` matches `hello maelstrom`, an added command does not.
+   */
+  readonly configureActivation: (config: VoiceActivationConfig) => void;
+  /**
+   * Begin an independent typed-request token; call and await its idempotent completion
+   * in `finally` after submitting. Completion awaits render settlement. Normal mode,
+   * chat participation off, or stopped voice is a no-op. Waiting chat never wakes
+   * voice; tokens survive wake within their connection, not disconnect/reconnect.
+   *
+   * @example
+   * ```ts
+   * const finish = voice.beginChatActivity();
+   * try { await processIntent(text); } finally { await finish(); }
+   * ```
+   */
+  readonly beginChatActivity: () => () => Promise<void>;
   /** Lifecycle state of the shared session, updated for every consumer. */
   readonly state: VoiceSessionState;
   /**
@@ -127,7 +162,8 @@ export interface UseVoiceResult {
   readonly disconnect: () => Promise<void>;
   /**
    * Synchronously skip the shared configured greeting. This is idempotent,
-   * shared by every hook consumer, and never disconnects voice.
+   * shared by every hook consumer, and never disconnects voice. Trigger mode is
+   * a no-op and does not consume normal greeting proof.
    */
   readonly skipGreeting: () => void;
 }
@@ -197,7 +233,7 @@ export function maelstromRealtime(
   function getOrCreateSession(
     orchestrator: Orchestrator,
   ): SharedRealtimeSessionEntry {
-    return sessions.getOrCreate(orchestrator, (coordinator) => {
+    return sessions.getOrCreate(orchestrator, (coordinator, activation) => {
       const sessionId = orchestrator.getConfig().sessionId;
       return new RealtimeSession({
         adapter: options.createAdapter({ sessionId }),
@@ -207,6 +243,7 @@ export function maelstromRealtime(
         groundingDebounceMs: options.groundingDebounceMs,
         onEvent: options.onEvent,
         debug: options.debug,
+        activation: activation ?? options.activation,
         ...(options.greeting
           ? { greeting: { text: options.greeting.text, coordinator } }
           : {}),
@@ -224,6 +261,10 @@ export function maelstromRealtime(
         session.greetingState,
       );
       const [error, setError] = useState<unknown>(session.lastError);
+      const [activation, setActivation] = useState(() => ({
+        state: session.activationState,
+        config: session.activationConfig,
+      }));
       const [userTranscript, setUserTranscript] = useState<TranscriptEntry>();
       const [assistantTranscript, setAssistantTranscript] =
         useState<TranscriptEntry>();
@@ -245,6 +286,17 @@ export function maelstromRealtime(
       useEffect(() => {
         const unsubscribe = session.on('greeting_state', setGreetingState);
         setGreetingState(session.greetingState);
+        return unsubscribe;
+      }, [session]);
+
+      useEffect(() => {
+        const reflect = () =>
+          setActivation({
+            state: session.activationState,
+            config: session.activationConfig,
+          });
+        const unsubscribe = session.on('activation_state', reflect);
+        reflect();
         return unsubscribe;
       }, [session]);
 
@@ -274,10 +326,22 @@ export function maelstromRealtime(
       const connect = useCallback(() => session.connect(), [session]);
       const disconnect = useCallback(() => session.disconnect(), [session]);
       const skipGreeting = useCallback(() => session.skipGreeting(), [session]);
+      const configureActivation = useCallback(
+        (config: VoiceActivationConfig) => session.configureActivation(config),
+        [session],
+      );
+      const beginChatActivity = useCallback(
+        () => session.beginChatActivity(),
+        [session],
+      );
 
       return {
         state,
         greetingState,
+        activationState: activation.state,
+        activationConfig: activation.config,
+        configureActivation,
+        beginChatActivity,
         error,
         userTranscript,
         assistantTranscript,

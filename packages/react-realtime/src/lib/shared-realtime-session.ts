@@ -2,9 +2,12 @@ import type { Orchestrator } from '@maelstrom-co/client';
 import {
   GreetingCoordinator,
   type RealtimeSession,
+  type VoiceActivationConfig,
 } from '@maelstrom-co/realtime';
 
+/** Shared session identity; only committed consumers retain its transport lifetime. */
 export interface SharedRealtimeSessionEntry {
+  /** Session shared by every voice consumer for one Orchestrator. */
   readonly session: RealtimeSession;
 }
 
@@ -18,10 +21,15 @@ interface Entry extends SharedRealtimeSessionEntry {
 export class SharedRealtimeSessionRegistry {
   readonly #entries = new WeakMap<Orchestrator, Entry>();
   readonly #coordinators = new WeakMap<Orchestrator, GreetingCoordinator>();
+  readonly #activation = new WeakMap<Orchestrator, VoiceActivationConfig>();
 
+  /** Reuse a live session or recreate it with the last retired settings and greeting proof. */
   getOrCreate(
     orchestrator: Orchestrator,
-    factory: (coordinator: GreetingCoordinator) => RealtimeSession,
+    factory: (
+      coordinator: GreetingCoordinator,
+      activation?: VoiceActivationConfig,
+    ) => RealtimeSession,
   ): SharedRealtimeSessionEntry {
     let entry = this.#entries.get(orchestrator);
     if (!entry) {
@@ -29,7 +37,7 @@ export class SharedRealtimeSessionRegistry {
         this.#coordinators.get(orchestrator) ?? new GreetingCoordinator();
       this.#coordinators.set(orchestrator, coordinator);
       entry = {
-        session: factory(coordinator),
+        session: factory(coordinator, this.#activation.get(orchestrator)),
         consumers: 0,
         phase: 'live',
         retirementQueued: false,
@@ -62,8 +70,10 @@ export class SharedRealtimeSessionRegistry {
       entry.retirementQueued = false;
       if (entry.phase !== 'live' || entry.consumers > 0) return;
       entry.phase = 'retired';
-      if (this.#entries.get(orchestrator) === entry)
+      if (this.#entries.get(orchestrator) === entry) {
+        this.#activation.set(orchestrator, entry.session.activationConfig);
         this.#entries.delete(orchestrator);
+      }
       void entry.session.disconnect().catch(() => {});
     });
   }

@@ -48,6 +48,7 @@ function makeTurnControl(onEnd?: () => void): AdapterTurnControl & {
   return turnControl;
 }
 
+/** Normal-mode hook fixture; activation controls are no-ops in these turn/greeting tests. */
 function makeVoiceResult(
   state: VoiceSessionState,
   turnControl: AdapterTurnControl | undefined,
@@ -58,6 +59,10 @@ function makeVoiceResult(
 ): UseVoiceResult {
   return {
     state,
+    activationState: 'disabled',
+    activationConfig: { mode: 'normal' },
+    configureActivation: () => {},
+    beginChatActivity: () => async () => {},
     error: undefined,
     userTranscript: undefined,
     assistantTranscript: undefined,
