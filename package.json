@@ -67,7 +67,7 @@
     "@nx/react": "23.1.1",
     "@nx/vite": "23.1.1",
     "@nx/vitest": "23.1.1",
-    "@nx/web": "23.1.1",
+    "@nx/web": "23.2.1",
     "@nx/workspace": "23.1.1",
     "@playwright/test": "^1.36.0",
     "@sinonjs/fake-timers": "15.1.1",
