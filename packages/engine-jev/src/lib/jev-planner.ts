@@ -661,7 +661,17 @@ async function selectParameters(input: {
       const answer = answers.take(key);
       if (isErr(answer)) return answer;
       if (answer.value === 'missing')
-        return ok({ kind: 'deferred', reason: 'uncertain' });
+        return ok({
+          kind: 'deferred',
+          reason: 'uncertain',
+          detail: {
+            stage: 'parameters',
+            choice: 'missing',
+            instanceId: selected.candidate.instanceId,
+            action: selected.definition.name,
+            parameter: parameter.name,
+          },
+        });
       if (answer.value !== 'omit') {
         const value = values.get(key)?.[Number(answer.value.slice(1))];
         if (value === undefined)

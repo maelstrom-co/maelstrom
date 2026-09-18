@@ -258,6 +258,7 @@ async function run(
   options: {
     readonly maxProviderCalls?: number;
     readonly store?: ReturnType<typeof createInMemoryStore>;
+    readonly logger?: Logger;
   } = {},
 ) {
   const seen: Payload[] = [];
@@ -278,7 +279,7 @@ async function run(
       },
     },
     ...(options.store ? { history: { store: options.store } } : {}),
-    logger,
+    logger: options.logger ?? logger,
   });
   const result = await engine.handle(
     ChartRequestMessage({
@@ -990,13 +991,37 @@ describe('createJevPlanner', () => {
     expect(isErr(ambiguous.result)).toBe(true);
     expect(ambiguous.seen).toHaveLength(1);
 
-    const missing = await run(makeRequest('Set weather to !!!'), [
-      defaults({ actionCount: '1' }),
-      () => ({ 'action/0': 'weather-main/setLocation' }),
-      () => ({ 'param/0/location': 'missing' }),
-    ]);
+    const deferrals: Record<string, unknown>[] = [];
+    const missing = await run(
+      makeRequest('Set weather to !!!'),
+      [
+        defaults({ actionCount: '1' }),
+        () => ({ 'action/0': 'weather-main/setLocation' }),
+        () => ({ 'param/0/location': 'missing' }),
+      ],
+      {
+        logger: {
+          ...logger,
+          warn(event, data) {
+            if (event === 'planning.deferred' && data) deferrals.push(data);
+          },
+        },
+      },
+    );
     expect(isErr(missing.result)).toBe(true);
     expect(missing.seen).toHaveLength(3);
+    expect(deferrals).toContainEqual(
+      expect.objectContaining({
+        reason: 'uncertain',
+        detail: {
+          stage: 'parameters',
+          choice: 'missing',
+          instanceId: 'weather-main',
+          action: 'setLocation',
+          parameter: 'location',
+        },
+      }),
+    );
 
     const unsupported = await run(makeRequest('Write three tasks.'), [
       defaults({ scope: 'unsupported' }),
