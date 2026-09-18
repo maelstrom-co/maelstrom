@@ -21,7 +21,13 @@ export type RealtimeVoiceErrorCode =
   | 'CONNECT_SUPERSEDED'
   // Fatal config error: `greeting` was configured but the adapter does not
   // implement the optional RealtimeGreetingAdapter capability.
-  | 'GREETING_ADAPTER_UNSUPPORTED';
+  | 'GREETING_ADAPTER_UNSUPPORTED'
+  /** Trigger configuration is invalid; setup has not acquired a microphone. */
+  | 'ACTIVATION_CONFIG_INVALID'
+  /** Adapter or remote endpoint cannot safely implement trigger admission. */
+  | 'ACTIVATION_ADAPTER_UNSUPPORTED'
+  /** Source ownership, bounded reconciliation or provider references cannot be maintained safely. */
+  | 'ACTIVATION_ELIGIBILITY_FAILED';
 
 /**
  * A realtime voice failure with a typed cause.

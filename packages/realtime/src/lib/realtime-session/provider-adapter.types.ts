@@ -21,6 +21,8 @@ export interface RealtimeToolSpec<Name extends string = string> {
 
 /** Options a `RealtimeSession` hands an adapter on `connect`. */
 export interface AdapterConnectOptions {
+  /** Present only for trigger mode. Install all admission gates before capture/publication; negotiate runtime support or reject setup. */
+  readonly activation?: AdapterVoiceActivation;
   readonly tools: readonly RealtimeToolSpec[];
   readonly instructions: string;
   /**
@@ -63,12 +65,16 @@ export type RealtimeAdapterEvent =
       readonly callId: ToolCallId;
       readonly name: string;
       readonly argumentsJson: string;
+      /** Required in trigger mode; belongs to a response/turn descended from admitted input, never an unsolicited response. */
+      readonly ancestry?: VoiceInputAncestry;
     }
   | {
       readonly type: 'transcript';
       readonly role: 'user' | 'assistant';
       readonly text: string;
       readonly final: boolean;
+      /** Required in trigger mode for user input or an admitted assistant response. */
+      readonly ancestry?: VoiceInputAncestry;
     }
   | { readonly type: 'speech_started' }
   | { readonly type: 'state'; readonly state: VoiceSessionState }
@@ -242,5 +248,83 @@ export function isRealtimeGreetingAdapter(
     typeof (adapter as RealtimeGreetingAdapter).activateAudio === 'function' &&
     typeof (adapter as RealtimeGreetingAdapter).speakAssistantText ===
       'function'
+  );
+}
+
+/** Connection-local input identity and core-issued wake epoch. Adapters must prove response/tool ancestry before forwarding it. */
+export interface VoiceInputAncestry {
+  /** Stable provider-owned input ID; never reused within a connection. */
+  readonly inputId: string;
+  /** Epoch returned by admission; stale epochs cannot act or settle newer work. */
+  readonly epoch: number;
+}
+
+/** A reconciled source turn, not a transcript-arrival timestamp. */
+export interface VoiceActivationInput {
+  /** Stable identity captured at input start, shared by all updates and terminals. */
+  readonly id: string;
+  /** Contiguous 1-based source ordinal, assigned only after predecessor reconciliation. Omit while unknown; never assign from final arrival order. */
+  readonly ordinal?: number;
+  /** Nonnegative source start coordinate in a single connection-local domain (audio time or turn ordinal). Omit while unresolved. */
+  readonly start?: number;
+  /** Source end coordinate; required for successful terminal matching. Equal adjacent endpoints do not overlap. */
+  readonly end?: number;
+  /** Adapter-validated reconciliation/drain-plus-delivery budget, default 10,000 ms. Positive integer at most 2,147,483,647; starts when evidence is unresolved or speech has ended, never extends a running deadline. Not a playback timeout. */
+  readonly reconciliationTimeoutMs?: number;
+  /** Whole-turn terminal outcome. A pending input can update to exactly one terminal; failed/empty input cannot activate. */
+  readonly outcome: 'pending' | 'success' | 'empty' | 'error';
+  /** Private whole-final text for success only; never forward it as an application transcript before admission. */
+  readonly text?: string;
+}
+
+/** Admission is not response readiness: admitted continuing speech must still await a successful terminal and provider reference validation. */
+export type VoiceInputAdmission =
+  | {
+      /** Pending reconciliation or a hook; no captions, tools, responses, or interruption. */
+      readonly status: 'pending' | 'held' | 'excluded';
+    }
+  | {
+      /** Gates are open for this source input only. */
+      readonly status: 'admitted';
+      /** Proof for forwarded events and keyed activity. */
+      readonly ancestry: VoiceInputAncestry;
+    };
+
+/**
+ * Version-one connection-scoped core policy. All methods become inert on
+ * disconnect; never reuse it for a replacement connection. The core bounds
+ * unresolved records to 128 and private terminal text to 256 KiB UTF-8;
+ * eligibility failure tears down the connection rather than dispatching a
+ * truncated subset. Adapters must additionally retain their existing transport
+ * limits and enforce provider reference/response ownership. Core admission does
+ * not prove reference validity, provider event ordering, or remote audibility.
+ */
+export interface AdapterVoiceActivation {
+  /** Contract version; does not replace runtime capability negotiation. */
+  readonly version: 1;
+  /** Report start/order/whole terminal evidence. Reconcile source order before assigning ordinals; unknown evidence fails closed. Duplicate terminal reports are no-ops. */
+  reportInput(input: VoiceActivationInput): void;
+  /** Read current admission. An unknown, consumed, overlapping or closed-epoch input is never admitted. */
+  admission(inputId: string): VoiceInputAdmission;
+  /** Subscribe to admission changes; callbacks may query/release eligible inputs in source order using the existing scheduler. No replay is supplied. */
+  onChange(handler: () => void): Unsubscribe;
+  /** Release a successfully finalized admitted input after synchronously transferring ownership to response/queue activity. Continuing inputs cannot be released. */
+  finishInput(inputId: string): void;
+  /** Begin uniquely keyed response, tool-follow-up or playback work from admitted ancestry. Duplicate starts share an idempotent completion; stale/unknown ancestry is a no-op. Never reuse keys within a connection. */
+  beginActivity(key: string, ancestry: VoiceInputAncestry): () => void;
+}
+
+/** Optional additive capability. Implementations must gate every response, follow-up, caption, tool and interruption, suppress greetings, and preserve admitted active barge-in. */
+export interface RealtimeTriggerAdapter extends RealtimeProviderAdapter {
+  /** Explicit opt-in to the version-one source-order and activity contract. */
+  readonly voiceActivationVersion: 1;
+}
+
+/** Detects version-one opt-in only; connect must still fail closed if the remote provider cannot implement the contract. */
+export function isRealtimeTriggerAdapter(
+  adapter: RealtimeProviderAdapter,
+): adapter is RealtimeTriggerAdapter {
+  return (
+    'voiceActivationVersion' in adapter && adapter.voiceActivationVersion === 1
   );
 }

@@ -30,14 +30,20 @@ import type {
   TurnModeEvent,
   UpdateUIToolResult,
 } from './provider-adapter.types.js';
-import { isRealtimeGreetingAdapter } from './provider-adapter.types.js';
+import {
+  isRealtimeGreetingAdapter,
+  isRealtimeTriggerAdapter,
+} from './provider-adapter.types.js';
 import type {
   GreetingState,
   RealtimeInstance,
   RealtimeSessionOptions,
   SubmitIntentResult,
   SummarizeFn,
+  VoiceActivationConfig,
+  VoiceActivationState,
 } from './realtime-session.types.js';
+import { VoiceActivationController } from './voice-activation.js';
 
 // Single source of truth for tool names — the `tools` array passed to the
 // adapter and the dispatch table below are both keyed off this union, so a
@@ -114,6 +120,7 @@ function delay(ms: number): Promise<void> {
 
 /** A queued `update_ui` call awaiting retry once the in-flight request settles — latest-wins, so at most one exists at a time. */
 interface QueuedIntent {
+  readonly epoch: number;
   readonly callId: ToolCallId;
   readonly intent: string;
   readonly resolve: (ok: boolean) => void;
@@ -193,6 +200,11 @@ export class RealtimeSession implements VoiceSession {
   #greetingAdapter: RealtimeGreetingAdapter | undefined;
   #greetingController: AbortController | undefined;
   #greetingState: GreetingState;
+  #activation: VoiceActivationController;
+  readonly #activationHandlers = new Set<
+    (state: VoiceActivationState) => void
+  >();
+  readonly #toolCalls = new Set<string>();
 
   #state: VoiceSessionState = 'idle';
   #turnMode: TurnMode = 'automatic';
@@ -222,10 +234,14 @@ export class RealtimeSession implements VoiceSession {
 
   readonly #toolHandlers: Record<
     ToolName,
-    (callId: ToolCallId, argumentsJson: string) => Promise<boolean>
+    (
+      callId: ToolCallId,
+      argumentsJson: string,
+      epoch: number,
+    ) => Promise<boolean>
   > = {
-    update_ui: (callId, argumentsJson) =>
-      this.#handleUpdateUI(callId, argumentsJson),
+    update_ui: (callId, argumentsJson, epoch) =>
+      this.#handleUpdateUI(callId, argumentsJson, epoch),
     get_ui_state: (callId) => this.#handleGetUIState(callId),
     get_capabilities: (callId) => this.#handleGetCapabilities(callId),
   };
@@ -237,6 +253,9 @@ export class RealtimeSession implements VoiceSession {
     this.#summarize = options.summarize ?? defaultSummarize;
     this.#onEvent = options.onEvent ?? (() => {});
     this.#logger = new Logger(options.debug ?? false, 'RealtimeSession');
+    this.#activation = this.#createActivation(
+      options.activation ?? { mode: 'normal' },
+    );
     this.#greeting = options.greeting;
     this.#greetingState = this.#initialGreetingState();
     this.#pushGrounding = groundedDebounce((snapshot: UIStructuralSnapshot) => {
@@ -248,6 +267,66 @@ export class RealtimeSession implements VoiceSession {
 
   get state(): VoiceSessionState {
     return this.#state;
+  }
+
+  /** Retained admission state. Waiting does not mean microphone mute; disconnected trigger sessions also retain waiting. */
+  get activationState(): VoiceActivationState {
+    return this.#activation.state;
+  }
+
+  /** Validated immutable configuration; normal is the default, independent of automatic/manual turns. */
+  get activationConfig(): VoiceActivationConfig {
+    return this.#activation.config;
+  }
+
+  /** Replace activation policy only while idle/error. Invalid settings throw before any provider/microphone setup; live edits throw without mutation. */
+  configureActivation(config: VoiceActivationConfig): void {
+    if (
+      (this.#state !== 'idle' && this.#state !== 'error') ||
+      this.#disconnectInFlight
+    )
+      throw new Error('Stop voice to change settings.');
+    const next = this.#createActivation(config);
+    this.#activation.disconnect();
+    this.#activation = next;
+    for (const handler of this.#activationHandlers) handler(next.state);
+  }
+
+  /** Begin optional chat participation without waking voice. Complete idempotently in finally; completion awaits render settlement. Disconnect fences it, while wake changes do not. Normal/disabled participation is a no-op. */
+  beginChatActivity(): () => Promise<void> {
+    const config = this.#activation.config;
+    if (
+      config.mode !== 'trigger' ||
+      !config.includeChatActivity ||
+      this.#state === 'idle' ||
+      this.#state === 'error'
+    )
+      return async () => {};
+    const epoch = this.#connectEpoch;
+    const finish = this.#activation.beginChatActivity();
+    let completion: Promise<void> | undefined;
+    return () => {
+      completion ??= (async () => {
+        if (epoch !== this.#connectEpoch) return;
+        try {
+          await this.#settleAfterSubmit();
+        } finally {
+          finish();
+        }
+      })();
+      return completion;
+    };
+  }
+
+  #createActivation(config: VoiceActivationConfig): VoiceActivationController {
+    return new VoiceActivationController(
+      config,
+      (state) => {
+        for (const handler of this.#activationHandlers) handler(state);
+      },
+      (error) => this.#handleAdapterEvent({ type: 'error', error }),
+      (category) => this.#logger.warn(category),
+    );
   }
 
   /**
@@ -324,8 +403,18 @@ export class RealtimeSession implements VoiceSession {
     const epoch = ++this.#connectEpoch;
     this.#lastError = undefined;
     let greetingController: AbortController | undefined;
+    const triggerMode = this.#activation.config.mode === 'trigger';
+    if (triggerMode && !isRealtimeTriggerAdapter(this.#adapter)) {
+      this.#lastError = new RealtimeVoiceError(
+        'ACTIVATION_ADAPTER_UNSUPPORTED',
+        'Adapter does not support trigger activation',
+      );
+      this.#setState('error');
+      throw this.#lastError;
+    }
+    const activation = triggerMode ? this.#activation.connect() : undefined;
 
-    if (this.#greeting) {
+    if (this.#greeting && !triggerMode) {
       if (!isRealtimeGreetingAdapter(this.#adapter)) {
         this.#lastError = new RealtimeVoiceError(
           'GREETING_ADAPTER_UNSUPPORTED',
@@ -356,12 +445,13 @@ export class RealtimeSession implements VoiceSession {
       // unlock begins synchronously after re-entrant notifications are fenced.
       this.#greetingAdapter?.activateAudio();
       this.#unsubscribeAdapter = this.#adapter.on((event) => {
-        this.#handleAdapterEvent(event);
+        if (epoch === this.#connectEpoch) this.#handleAdapterEvent(event);
       });
       await this.#adapter.connect({
         tools: [UPDATE_UI_TOOL, GET_UI_STATE_TOOL, GET_CAPABILITIES_TOOL],
         instructions: DEFAULT_INSTRUCTIONS,
-        prepareGreeting: this.#greetingState === 'preparing',
+        prepareGreeting: !triggerMode && this.#greetingState === 'preparing',
+        ...(activation ? { activation } : {}),
       });
     } catch (error) {
       // A disconnect() that raced this attempt already reset state/cleanup —
@@ -409,8 +499,10 @@ export class RealtimeSession implements VoiceSession {
    * disconnecting voice or changing turn mode. The coordinator proof wins
    * before local work is aborted, so stale async continuations cannot replay
    * or replace the retained `skipped` state.
+   * A trigger-mode session makes this a no-op and does not consume normal greeting proof.
    */
   skipGreeting(): void {
+    if (this.#activation.config.mode === 'trigger') return;
     if (!this.#greeting) return;
     if (!this.#greeting.coordinator.skip(this.#sessionId)) return;
     this.#greetingController?.abort();
@@ -466,6 +558,9 @@ export class RealtimeSession implements VoiceSession {
   }
 
   #cleanupConnection(): void {
+    this.#activation.disconnect();
+    this.#toolCalls.clear();
+    this.#greetingAdapter = undefined;
     this.#unsubscribeAdapter?.();
     this.#unsubscribeSettled?.();
     this.#unsubscribeAdapter = undefined;
@@ -569,6 +664,11 @@ export class RealtimeSession implements VoiceSession {
   on(event: 'state', handler: (s: VoiceSessionState) => void): Unsubscribe;
   on(event: 'transcript', handler: (t: TranscriptEntry) => void): Unsubscribe;
   on(event: 'turn_mode', handler: (event: TurnModeEvent) => void): Unsubscribe;
+  /** Subscribe to retained activation changes (no initial replay); read activationState for the current value. */
+  on(
+    event: 'activation_state',
+    handler: (state: VoiceActivationState) => void,
+  ): Unsubscribe;
   /**
    * Subscribes to retained fixed-greeting lifecycle changes. The handler runs
    * after each change, not immediately on subscription; read
@@ -581,13 +681,26 @@ export class RealtimeSession implements VoiceSession {
     handler: (state: GreetingState) => void,
   ): Unsubscribe;
   on(
-    event: 'state' | 'transcript' | 'turn_mode' | 'greeting_state',
+    event:
+      | 'state'
+      | 'transcript'
+      | 'turn_mode'
+      | 'greeting_state'
+      | 'activation_state',
     handler:
       | ((s: VoiceSessionState) => void)
       | ((t: TranscriptEntry) => void)
       | ((event: TurnModeEvent) => void)
+      | ((state: VoiceActivationState) => void)
       | ((state: GreetingState) => void),
   ): Unsubscribe {
+    if (event === 'activation_state') {
+      const h = handler as (state: VoiceActivationState) => void;
+      this.#activationHandlers.add(h);
+      return () => {
+        this.#activationHandlers.delete(h);
+      };
+    }
     if (event === 'transcript') {
       const h = handler as (t: TranscriptEntry) => void;
       this.#transcriptHandlers.add(h);
@@ -652,9 +765,10 @@ export class RealtimeSession implements VoiceSession {
   #handleAdapterEvent(event: RealtimeAdapterEvent): void {
     switch (event.type) {
       case 'tool_call':
-        // Fire-and-forget: each branch owns its own error handling and
-        // always resolves, so there is nothing to await here.
-        void this.#handleToolCall(event);
+        if (!this.#activation.permits(event.ancestry)) return;
+        void this.#handleToolCall(event).catch(() =>
+          this.#logger.warn('voice tool dispatch failed'),
+        );
         break;
       case 'state':
         this.#setState(event.state);
@@ -682,6 +796,7 @@ export class RealtimeSession implements VoiceSession {
         }
         break;
       case 'transcript': {
+        if (!this.#activation.permits(event.ancestry)) return;
         const entry: TranscriptEntry = {
           role: event.role,
           text: event.text,
@@ -711,42 +826,65 @@ export class RealtimeSession implements VoiceSession {
   async #handleToolCall(
     call: Extract<RealtimeAdapterEvent, { type: 'tool_call' }>,
   ): Promise<void> {
-    this.#logger.debug('session: tool_call received', call);
-    const startedAt = Date.now();
-    this.#emit({
-      type: 'tool_call',
-      sessionId: this.#sessionId,
-      at: startedAt,
-      name: call.name,
-      callId: call.callId,
-      argumentsJson: call.argumentsJson,
-    });
-
-    let ok: boolean;
-    if (isToolName(call.name)) {
-      ok = await this.#toolHandlers[call.name](call.callId, call.argumentsJson);
-    } else {
-      await this.#adapter.sendToolResult(call.callId, {
-        ok: false,
-        summary: `Unknown tool "${call.name}".`,
+    const epoch = this.#connectEpoch;
+    const activation = this.#activation;
+    if (
+      activation.config.mode === 'trigger' &&
+      this.#toolCalls.has(call.callId)
+    )
+      return;
+    if (activation.config.mode === 'trigger') this.#toolCalls.add(call.callId);
+    const finish = call.ancestry
+      ? activation.beginActivity(Symbol(call.callId), call.ancestry)
+      : () => {};
+    try {
+      this.#logger.debug('session: tool_call received', call);
+      const startedAt = Date.now();
+      this.#emit({
+        type: 'tool_call',
+        sessionId: this.#sessionId,
+        at: startedAt,
+        name: call.name,
+        callId: call.callId,
+        argumentsJson: call.argumentsJson,
       });
-      ok = false;
-    }
+      if (epoch !== this.#connectEpoch) return;
 
-    this.#emit({
-      type: 'tool_result',
-      sessionId: this.#sessionId,
-      at: Date.now(),
-      callId: call.callId,
-      ok,
-      latencyMs: Date.now() - startedAt,
-    });
+      let ok: boolean;
+      if (isToolName(call.name)) {
+        ok = await this.#toolHandlers[call.name](
+          call.callId,
+          call.argumentsJson,
+          epoch,
+        );
+      } else {
+        await this.#adapter.sendToolResult(call.callId, {
+          ok: false,
+          summary: `Unknown tool "${call.name}".`,
+        });
+        ok = false;
+      }
+
+      if (activation.config.mode === 'trigger' && epoch !== this.#connectEpoch)
+        return;
+      this.#emit({
+        type: 'tool_result',
+        sessionId: this.#sessionId,
+        at: Date.now(),
+        callId: call.callId,
+        ok,
+        latencyMs: Date.now() - startedAt,
+      });
+    } finally {
+      finish();
+    }
   }
 
   /** Returns whether the update applied successfully (for the sidechannel result event). */
   async #handleUpdateUI(
     callId: ToolCallId,
     argumentsJson: string,
+    epoch: number,
   ): Promise<boolean> {
     this.#logger.debug('update_ui: parsing arguments', argumentsJson);
     let intent: string;
@@ -763,10 +901,14 @@ export class RealtimeSession implements VoiceSession {
       intent = value;
     } catch (error) {
       this.#logger.warn('update_ui: bad arguments', error);
-      await this.#sendUpdateUIResult(callId, {
-        ok: false,
-        summary: 'Could not understand that request.',
-      });
+      await this.#sendUpdateUIResult(
+        callId,
+        {
+          ok: false,
+          summary: 'Could not understand that request.',
+        },
+        epoch,
+      );
       return false;
     }
 
@@ -777,12 +919,14 @@ export class RealtimeSession implements VoiceSession {
     try {
       // Domain-data boundary: only the plain intent string crosses here.
       outcome = (await this.#instance.submitIntent(intent)) ?? {};
+      if (epoch !== this.#connectEpoch) return false;
       this.#logger.debug('update_ui: submitIntent resolved, awaiting idle');
       settled = await this.#settleAfterSubmit();
       this.#logger.debug('update_ui: idle (render settled)', {
         ms: Date.now() - renderStart,
       });
     } catch (error) {
+      if (epoch !== this.#connectEpoch) return false;
       // Fires on the routine barge-in path (queued) as well as genuine
       // pipeline failures — kept at debug level so the expected-busy case
       // doesn't spam always-on output.
@@ -804,7 +948,7 @@ export class RealtimeSession implements VoiceSession {
           (error as { code?: unknown }).code === 'request_in_flight')
       ) {
         return new Promise<boolean>((resolve) => {
-          this.#enqueueBargeIn({ callId, intent, resolve });
+          this.#enqueueBargeIn({ callId, intent, resolve, epoch });
         });
       }
       // Any other rejection is a genuine render/pipeline failure, not
@@ -818,16 +962,21 @@ export class RealtimeSession implements VoiceSession {
         label: 'update_ui.error',
         ms: Date.now() - renderStart,
       });
-      await this.#sendUpdateUIResult(callId, {
-        ok: false,
-        summary: APPLY_FAILED_SUMMARY,
-      });
+      await this.#sendUpdateUIResult(
+        callId,
+        {
+          ok: false,
+          summary: APPLY_FAILED_SUMMARY,
+        },
+        epoch,
+      );
       return false;
     }
 
     // A refusal returns to idle without throwing, so the post-settle snapshot
     // still describes the screen the intent failed to change — reporting it as
     // a success would confirm a render that never happened.
+    if (epoch !== this.#connectEpoch) return false;
     if (!settled.ok) {
       this.#logger.debug('update_ui: settle reported a refusal', settled.error);
       this.#emit({
@@ -837,10 +986,14 @@ export class RealtimeSession implements VoiceSession {
         label: 'update_ui.error',
         ms: Date.now() - renderStart,
       });
-      await this.#sendUpdateUIResult(callId, {
-        ok: false,
-        summary: APPLY_FAILED_SUMMARY,
-      });
+      await this.#sendUpdateUIResult(
+        callId,
+        {
+          ok: false,
+          summary: APPLY_FAILED_SUMMARY,
+        },
+        epoch,
+      );
       return false;
     }
 
@@ -859,6 +1012,7 @@ export class RealtimeSession implements VoiceSession {
     await this.#sendUpdateUIResult(
       callId,
       this.#buildUpdateResult(outcome.userMessage, snapshot),
+      epoch,
     );
     return true;
   }
@@ -866,7 +1020,9 @@ export class RealtimeSession implements VoiceSession {
   #sendUpdateUIResult(
     callId: ToolCallId,
     result: UpdateUIToolResult,
+    epoch: number,
   ): Promise<void> {
+    if (epoch !== this.#connectEpoch) return Promise.resolve();
     return this.#adapter.sendToolResult(callId, result);
   }
 
@@ -903,10 +1059,14 @@ export class RealtimeSession implements VoiceSession {
     const superseded = this.#queuedIntent;
     this.#queuedIntent = entry;
     if (superseded) {
-      void this.#sendUpdateUIResult(superseded.callId, {
-        ok: false,
-        summary: SUPERSEDED_SUMMARY,
-      }).then(() => {
+      void this.#sendUpdateUIResult(
+        superseded.callId,
+        {
+          ok: false,
+          summary: SUPERSEDED_SUMMARY,
+        },
+        superseded.epoch,
+      ).then(() => {
         superseded.resolve(false);
       });
     }
@@ -957,19 +1117,27 @@ export class RealtimeSession implements VoiceSession {
               label: 'update_ui.error',
               ms: Date.now() - renderStart,
             });
-            await this.#sendUpdateUIResult(entry.callId, {
-              ok: false,
-              summary: APPLY_FAILED_SUMMARY,
-            });
+            await this.#sendUpdateUIResult(
+              entry.callId,
+              {
+                ok: false,
+                summary: APPLY_FAILED_SUMMARY,
+              },
+              entry.epoch,
+            );
             entry.resolve(false);
             continue;
           }
           if (attempt >= MAX_BARGE_IN_ATTEMPTS) {
             this.#queuedIntent = undefined;
-            await this.#sendUpdateUIResult(entry.callId, {
-              ok: false,
-              summary: BUSY_SUMMARY,
-            });
+            await this.#sendUpdateUIResult(
+              entry.callId,
+              {
+                ok: false,
+                summary: BUSY_SUMMARY,
+              },
+              entry.epoch,
+            );
             entry.resolve(false);
             attempt = 0;
             continue;
@@ -983,6 +1151,8 @@ export class RealtimeSession implements VoiceSession {
           continue; // superseded mid-submit — already answered; the change may still apply, but this call is done
         }
         const settled = await this.#settleAfterSubmit();
+        if (entry.epoch !== this.#connectEpoch || this.#queuedIntent !== entry)
+          continue;
         this.#queuedIntent = undefined;
         if (!settled.ok) {
           this.#emit({
@@ -992,10 +1162,14 @@ export class RealtimeSession implements VoiceSession {
             label: 'update_ui.error',
             ms: Date.now() - renderStart,
           });
-          await this.#sendUpdateUIResult(entry.callId, {
-            ok: false,
-            summary: APPLY_FAILED_SUMMARY,
-          });
+          await this.#sendUpdateUIResult(
+            entry.callId,
+            {
+              ok: false,
+              summary: APPLY_FAILED_SUMMARY,
+            },
+            entry.epoch,
+          );
           entry.resolve(false);
           attempt = 0;
           continue;
@@ -1011,6 +1185,7 @@ export class RealtimeSession implements VoiceSession {
         await this.#sendUpdateUIResult(
           entry.callId,
           this.#buildUpdateResult(userMessage, snapshot),
+          entry.epoch,
         );
         entry.resolve(true);
         attempt = 0;

@@ -26,17 +26,25 @@ export type {
   AdapterAudioStreams,
   AdapterConnectOptions,
   AdapterTurnControl,
+  AdapterVoiceActivation,
   GreetingSpeechResult,
   RealtimeAdapterEvent,
   RealtimeGreetingAdapter,
   RealtimeProviderAdapter,
   RealtimeToolSpec,
+  RealtimeTriggerAdapter,
   ToolResult,
   TurnMode,
   TurnModeEvent,
   UpdateUIToolResult,
+  VoiceActivationInput,
+  VoiceInputAdmission,
+  VoiceInputAncestry,
 } from './lib/realtime-session/provider-adapter.types.js';
-export { isRealtimeGreetingAdapter } from './lib/realtime-session/provider-adapter.types.js';
+export {
+  isRealtimeGreetingAdapter,
+  isRealtimeTriggerAdapter,
+} from './lib/realtime-session/provider-adapter.types.js';
 export { RealtimeSession } from './lib/realtime-session/realtime-session.js';
 export type {
   GreetingState,
@@ -44,6 +52,9 @@ export type {
   RealtimeSessionOptions,
   SubmitIntentResult,
   SummarizeFn,
+  VoiceActivationConfig,
+  VoiceActivationHook,
+  VoiceActivationState,
 } from './lib/realtime-session/realtime-session.types.js';
 export type { RealtimeVoiceErrorCode } from './lib/realtime-voice-error.js';
 export { RealtimeVoiceError } from './lib/realtime-voice-error.js';
