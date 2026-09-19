@@ -8,6 +8,7 @@ listing, because both already exist and both stay current on their own:
 - To **build** with voice, follow the [LiveKit cascade guide](https://docs.maelstrom-ai.co/guides/voice/livekit-cascade/) or the [OpenAI Realtime guide](https://docs.maelstrom-ai.co/guides/voice/openai-realtime/).
 - To **understand how voice behaves**, read [the voice boundary](https://docs.maelstrom-ai.co/understanding/voice-architecture/) and [turn detection in the browser](https://docs.maelstrom-ai.co/understanding/browser-vad-and-barge-in/).
 - For **exact shapes**, read the generated [API reference](https://docs.maelstrom-ai.co/reference/realtime/readme/).
+- For the **GPT-Live stack**, read [GPT-Live architecture and stack overview](./gpt-live-architecture.md): continuous observations, managed tools, opening and recovery, and demo ownership.
 
 What is left here is the reasoning a contributor needs before changing any of
 it. Every section answers "why is it like this, and what breaks if you undo it".
@@ -168,6 +169,12 @@ creates a loop.
 
 ## Where the keys live
 
+The minting pattern below describes retained provider integrations. GPT-Live
+adds an injected SDP exchange rather than a Realtime credential mint. The demo's
+application-owned BYOK path also sends the visitor key to the hosted
+Engine. See [Live credential custody](./gpt-live-architecture.md#credential-custody-belongs-to-the-host)
+for those boundaries and the authenticated local Live mode.
+
 Provider credentials stay in the server-side process that needs them. The OpenAI
 key exists only in its minter and authorises the upstream request. LiveKit's key
 and secret exist in both the token endpoint that signs room tokens and the agent
@@ -208,10 +215,11 @@ code that grows around a placeholder will make the real shape harder to choose.
 Settling that seam is a joint design decision, not a unilateral change.
 
 The sidechannel is emitter-only. Every tool round-trip is mirrored onto a
-callback, but nothing in this repository consumes it. The schema is additive-only
-because a metering or telemetry consumer would ride on it, and its timestamps are
-client-clock and skew-prone by contract — any receiver correlating across clients
-must stamp its own receipt time.
+callback. The demo consumes a metadata-only projection for its debug timeline;
+see [demo diagnostics](./gpt-live-architecture.md#demo-ownership-and-diagnostics).
+The schema is additive-only, and its timestamps are client-clock and skew-prone
+by contract. Any receiver correlating across clients must stamp its own receipt
+time.
 
 ## Why the greeting is recorded before it is spoken
 
