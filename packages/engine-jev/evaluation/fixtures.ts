@@ -188,7 +188,6 @@ const enumAction = {
   action: 'complete',
   params: { title: 'Buy milk' },
 };
-const weekly = { instanceId: 'weather-main', action: 'showWeekly' };
 const source: Script = {
   llm: output(base.layout, [sourceAction]),
   jev: [
@@ -198,8 +197,17 @@ const source: Script = {
   ],
 };
 const weeklyScript: Script = {
-  llm: output(base.layout, [weekly]),
-  jev: [stage({ actionCount: '1' }), { 'action/0': 'weather-main/showWeekly' }],
+  llm: output(
+    layout(
+      ['V', 'ID:weather-main', 'ID:tasks-main'],
+      instances.map((instance) =>
+        instance.instanceId === 'weather-main'
+          ? { ...instance, variant: 'weekly' }
+          : instance,
+      ),
+    ),
+  ),
+  jev: [stage({ 'view/weather-main': 'show/weekly' })],
 };
 const seedId = MessageId('retained-turn');
 const sessionId = SessionId('offline');
@@ -239,6 +247,16 @@ const grid = request('Preserve the grid.', {
   },
 });
 const invalidWeight = request('Preserve this tree.', {
+  context: {
+    ...base.context,
+    updateReasons: [
+      {
+        type: 'chart_resize',
+        previous: { columns: 30, rows: 18 },
+        current: { columns: 30, rows: 18 },
+      },
+    ],
+  },
   layout: layout(['V:0,2', 'ID:weather-main', 'ID:tasks-main']),
 });
 
@@ -314,17 +332,18 @@ export const fixtures: readonly Fixture[] = freeze([
       ],
     },
   ),
-  fixture('ordered-transitions', request('Show weekly then current weather.'), {
+  fixture('ordered-actions', request('Set weather to "Tokyo", then "Paris".'), {
     llm: output(base.layout, [
-      weekly,
-      { instanceId: 'weather-main', action: 'showCurrent' },
+      sourceAction,
+      { ...sourceAction, params: { location: 'Paris' } },
     ]),
     jev: [
       stage({ actionCount: '2' }),
       {
-        'action/0': 'weather-main/showWeekly',
-        'action/1': 'weather-main/showCurrent',
+        'action/0': 'weather-main/setLocation',
+        'action/1': 'weather-main/setLocation',
       },
+      { 'param/0/location': 'v0', 'param/1/location': 'v1' },
     ],
   }),
   fixture(
@@ -367,11 +386,14 @@ export const fixtures: readonly Fixture[] = freeze([
     llm: output(hidden),
     jev: [stage({ 'presence/weather-main': 'hide' })],
   }),
-  fixture(
-    'wrong-action',
-    request('Keep the current forecast unchanged.'),
-    weeklyScript,
-  ),
+  fixture('wrong-action', request('Keep the current forecast unchanged.'), {
+    llm: output(base.layout, [enumAction]),
+    jev: [
+      stage(),
+      { 'action/0': 'tasks-main/complete' },
+      { 'param/0/title': 'v0' },
+    ],
+  }),
   fixture(
     'wrong-parameter',
     request('Set main weather to "Tokyo", not "Paris".'),
@@ -471,16 +493,32 @@ export const fixtures: readonly Fixture[] = freeze([
   ),
   fixture(
     'policy-limit',
-    request('Set main weather to "Tokyo", then "Paris", then "Rome".'),
+    request(
+      'Set main weather to "Tokyo", then "Paris", then "Rome", then "Madrid", then "Sydney".',
+    ),
     {
       llm: output(
         base.layout,
-        ['Tokyo', 'Paris', 'Rome'].map((location) => ({
+        ['Tokyo', 'Paris', 'Rome', 'Madrid', 'Sydney'].map((location) => ({
           ...sourceAction,
           params: { location },
         })),
       ),
-      jev: [stage({ actionCount: 'overflow' })],
+      jev: [
+        stage(),
+        Object.fromEntries(
+          Array.from({ length: 5 }, (_, index) => [
+            `action/${index}`,
+            'weather-main/setLocation',
+          ]),
+        ),
+        Object.fromEntries(
+          Array.from({ length: 4 }, (_, index) => [
+            `param/${index}/location`,
+            `v${index}`,
+          ]),
+        ),
+      ],
     },
   ),
   fixture('provider-failure', base, { ...preserve, fault: 'provider' }),

@@ -26,14 +26,26 @@ all configured fallback secrets from their loggers and outward errors.
 
 ## Calls and results
 
-The stages select layout/lifecycle changes, actions on retained or newly
-allocated instances, then parameter candidates. Code owns instance allocation,
-tree construction, candidate copying, and ordered variant simulation.
+The first phase selects visibility and desired variants for individual instances.
+New instances use an exclusive set per Vessel type: none, one view, or an explicit pair.
+Code derives the visible count
+and generates layout candidates for that selected set. The next phase chooses
+among layouts that fit the declared minimum sizes and Chart dimensions.
 
-Layout-only requests use one logical fetch call. Parameterless actions use at
-most two; parameterized actions use at most three. Each stage claims the shared
-engine budget before fetching, with no refund after a call starts. There is no
-internal retry loop. The engine controls finalization and optional fallback.
+The layout carries the selected variants, as required by the client rendering contract.
+Action selection starts from those post-layout variants and chooses one legal content action
+at a time, or `done`. Each selected action's parameters are resolved before the next
+action choice. Later choices see complete earlier operations and their parameters.
+There is no separate action-count prediction.
+View-only transitions are represented by the layout, not redundant action calls.
+An action that would leave the selected variant is not offered. Content actions must
+be declared in the post-layout variant. Hidden retained instances can receive content edits.
+
+Selection uses one call, layout at most one, up to four actions plus `done` at most
+five, and parameter selection at most four. Budget eleven logical calls for a full
+turn, or thirteen for the local demo with LLM fallback and one repair. Simple display-only
+turns usually use three calls. Each request claims the shared engine budget before
+fetching, with no refund after a call starts. There is no internal retry loop.
 
 Resize-only requests preserve the current tiling tree and return no actions,
 without provider work. Grid requests defer without provider work. Successful
@@ -51,7 +63,7 @@ are terminal and never start fallback.
 
 The engine logs `planning.deferred` with the request ID, planner ID, semantic reason,
 and bounded diagnostic detail. `scope: unsupported` means Jev declined the request
-during its layout decision. `limit: missing_candidates` identifies a parameter
+during view selection. `limit: missing_candidates` identifies a parameter
 without selectable values. Other limit names identify candidate or layout bounds.
 Semantic deferrals leave the Chart unchanged unless a configured fallback succeeds.
 
@@ -60,7 +72,7 @@ Semantic deferrals leave the Chart unchanged unless a configured fallback succee
 These are implementation limits, not restrictions on other planners or the protocol:
 
 - Tiling only; no grid placement or generated content.
-- At most two actions per turn, and two new instances **per vessel** per turn.
+- At most four actions per turn, and two new instances **per vessel** per turn.
 - Arrangements: preserve, equal row, equal column, two-thirds focus, or 2–12 balanced rows.
   Preserve keeps an existing tree when visibility is unchanged. New arrangements
   do not solve arbitrary nesting or spatial constraints.
@@ -76,9 +88,11 @@ These are implementation limits, not restrictions on other planners or the proto
 - The optional confidence gate and inconsistent cross-stage choices can defer.
   Repair invocations defer because this implementation has no repair strategy.
 
-Tiling does not enforce vessel `minSize`. Structural validity does not establish
-readability or semantic correctness. A valid empty plan can still misinterpret
-intent; strict finalization cannot detect that semantic error.
+Intent planning filters layouts using each visible variant's declared `minSize`,
+in their selected variants. No feasible candidate produces a policy deferral, not a partial layout.
+Resize-only turns still preserve their tree without reconciliation or provider calls.
+These checks do not establish content readability or semantic correctness. A valid
+empty plan can still misinterpret intent; strict finalization cannot detect that error.
 
 ## Historical evidence and promotion limits
 

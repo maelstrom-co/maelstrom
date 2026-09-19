@@ -132,7 +132,7 @@ describe('trusted local planner startup', () => {
     });
     expect(planner.operation).toEqual({
       timeoutMs: 25_000,
-      maxProviderCalls: fallback ? 5 : 3,
+      maxProviderCalls: fallback ? 13 : 11,
     });
     if (fallback) {
       expect(planner.fallback).toMatchObject({

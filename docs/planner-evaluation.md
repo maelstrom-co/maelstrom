@@ -34,7 +34,7 @@ The synthetic cases cover:
 
 - Tiling, grid support differences, and deterministic resize.
 - Preservation, hidden reuse, hiding versus deletion, and arrangement.
-- New-instance actions, ordered variant transitions, enum values, and exact
+- New-instance actions, selected variants, ordered content edits, enum values, and exact
   quoted source parameters.
 - Text-free Jev responses and follow-up history.
 - Strict rejection, ambiguity, missing candidates, and implementation limits.

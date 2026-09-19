@@ -153,7 +153,9 @@ describe('offline public planner evaluation', () => {
       if (row.caseId === 'strict-rejection')
         expect(row.reason).toBe('invalid_plan');
       if (row.caseId === 'strict-fallback' || row.caseId === 'fallback') {
-        expect(row.logicalCalls).toBe(2);
+        expect(row.logicalCalls).toBe(
+          row.caseId === 'strict-fallback' && row.backend === 'jev' ? 1 : 2,
+        );
         expect(row.fallbackCalls).toBe(1);
       }
       if (row.terminal === 'PlanningBudgetExceededError')

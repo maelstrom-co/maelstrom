@@ -173,7 +173,7 @@ export function buildLocalServer(
             : {}),
           operation: {
             timeoutMs: 25_000,
-            maxProviderCalls: fallback === 'llm' ? 5 : 3,
+            maxProviderCalls: fallback === 'llm' ? 13 : 11,
           },
         },
         history: {

@@ -119,7 +119,7 @@ export const engine = createEngine({
       finalization: 'strict',
       maxRepairAttempts: 0,
     },
-    operation: { timeoutMs: 25_000, maxProviderCalls: 3 },
+    operation: { timeoutMs: 25_000, maxProviderCalls: 11 },
   },
   history: { store: createInMemoryStore(), planning: { maxChars: 40_000 } },
   logger,
@@ -127,8 +127,10 @@ export const engine = createEngine({
 ```
 
 Jev returns layout and actions without `userMessage` or `rationale`. Its staged
-implementation uses up to three fetch calls. Keep zero repair attempts: this
-implementation defers a repair invocation rather than running a repair strategy.
+implementation uses up to eleven fetch calls across dependent phases. It selects
+views, chooses a feasible layout, and binds each content action before selecting
+the next one. Keep zero repair attempts: this implementation defers a repair
+invocation rather than running a repair strategy.
 
 ### Add one bounded server LLM fallback
 
@@ -157,7 +159,7 @@ export const engine = createEngine({
       maxRepairAttempts: 1,
       on: ['deferred', 'invalid_plan'],
     },
-    operation: { timeoutMs: 25_000, maxProviderCalls: 5 },
+    operation: { timeoutMs: 25_000, maxProviderCalls: 13 },
   },
   history: { store: createInMemoryStore(), planning: { maxChars: 40_000 } },
   logger,
@@ -231,7 +233,7 @@ drawer. Missing Jev settings fail startup before the socket server binds.
 For fallback, set `MAELSTROM_PLANNER_FALLBACK=llm` and server `OPENAI_API_KEY`.
 The profile uses strict Jev with zero repairs, strict LLM with one repair,
 semantic fallback only, and a shared 25-second deadline. Its call budget is
-three without fallback or five with fallback. A browser key cannot supply it.
+eleven without fallback or thirteen with fallback. A browser key cannot supply it.
 Server logging and outbound error redaction cover both configured secrets.
 
 Voice requires its own existing provider credentials. Jev supplies none.

@@ -349,7 +349,7 @@ recognized malformed `InvalidProviderResponseError`, `ProviderError`,
 - **Custom**: Implement a TanStack text adapter or the public `Planner` contract.
 - **Jev**: Experimental tiling-only server planner, with strict finalization and zero repairs.
 
-Jev's two-action, two-new-instance-per-vessel, extraction, and arrangement
+Jev's four-action, two-new-instance-per-vessel, extraction, and arrangement
 limits belong to that implementation. They do not restrict other planners.
 The [Jev package reference](../packages/engine-jev/README.md) documents the
 historical evidence, including eight incorrect accepted fresh-case layouts.

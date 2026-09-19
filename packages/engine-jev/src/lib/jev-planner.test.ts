@@ -16,7 +16,11 @@ import {
   SessionId,
   VariantName,
 } from '@maelstrom-co/protocol';
-
+import {
+  actionChoices,
+  layoutChoice,
+  selectionChoices,
+} from '../../evaluation/scripted-choices.js';
 import { createJevPlanner } from './jev-planner.js';
 
 const logger: Logger = {
@@ -179,6 +183,8 @@ function makeRequest(intent: string, overrides: Record<string, unknown> = {}) {
 }
 
 function reply(payload: Payload, selections: Readonly<Record<string, string>>) {
+  if ('scope' in payload.questions)
+    selections = selectionChoices(payload, selections);
   return {
     model,
     answers: Object.fromEntries(
@@ -208,13 +214,19 @@ function fetchScript(
   stages: readonly StageSelections[],
   seen: Payload[] = [],
 ): typeof fetch {
-  let index = 0;
   return asFetch(async (_input, init) => {
     const payload = JSON.parse(String(init?.body)) as Payload;
     seen.push(payload);
-    const select = stages[index++];
-    if (select === undefined) throw new Error('unexpected Jev stage');
-    return new Response(JSON.stringify(reply(payload, select(payload))), {
+    const ids = Object.keys(payload.questions);
+    const selections =
+      'scope' in payload.questions
+        ? (stages[0]?.(payload) ?? {})
+        : 'layout' in payload.questions
+          ? layoutChoice(payload, stages[0]?.(payload) ?? {})
+          : ids[0]?.startsWith('action/')
+            ? actionChoices(payload, stages[1]?.(payload) ?? {})
+            : (stages[2]?.(payload) ?? {});
+    return new Response(JSON.stringify(reply(payload, selections)), {
       status: 200,
       headers: { 'content-type': 'application/json' },
     });
@@ -275,7 +287,7 @@ async function run(
       },
       operation: {
         timeoutMs: null,
-        maxProviderCalls: options.maxProviderCalls ?? 3,
+        maxProviderCalls: options.maxProviderCalls ?? 11,
       },
     },
     ...(options.store ? { history: { store: options.store } } : {}),
@@ -317,7 +329,8 @@ describe('createJevPlanner', () => {
     expect(actionsOf(responseOf(result))[0].params).toEqual({
       location: 'word31',
     });
-    const criteria = seen[2].questions['param/0/location'].criteria;
+    const criteria = seen.find((p) => 'param/0/location' in p.questions)!
+      .questions['param/0/location'].criteria;
     expect(Object.keys(criteria).length).toBeLessThanOrEqual(255);
     for (const [key, value] of Object.entries(criteria))
       if (key.startsWith('v'))
@@ -330,7 +343,7 @@ describe('createJevPlanner', () => {
       ok: false,
       error: { _tag: 'PlanningDeferredError', reason: 'policy' },
     });
-    expect(overflow.seen).toHaveLength(2);
+    expect(overflow.seen).toHaveLength(3);
     const quoted = await run(makeRequest(`${intent} extra "Montevideo"`), [
       defaults({ actionCount: '1' }),
       () => ({ 'action/0': 'weather-main/setLocation' }),
@@ -349,7 +362,7 @@ describe('createJevPlanner', () => {
       ok: false,
       error: { _tag: 'PlanningDeferredError', reason: 'policy' },
     });
-    expect(seen).toHaveLength(1);
+    expect(seen).toHaveLength(2);
   });
   test.each([
     'montevideo',
@@ -375,7 +388,7 @@ describe('createJevPlanner', () => {
         params: { location },
       },
     ]);
-    expect(seen).toHaveLength(3);
+    expect(seen).toHaveLength(5);
   });
 
   test('offers two rows for all available vessels, reusing hidden instances and allocating only missing ones', async () => {
@@ -393,9 +406,7 @@ describe('createJevPlanner', () => {
         'create/journal': '1',
       }),
     ]);
-    expect(Object.keys(seen[0].questions.arrangement.criteria)).toContain(
-      'rows_2',
-    );
+    expect(Object.keys(seen[1].questions.layout.criteria)).toContain('rows_2');
     expect(responseOf(result).layout).toMatchObject({
       type: 'tiling',
       tree: [
@@ -410,7 +421,7 @@ describe('createJevPlanner', () => {
       ],
     });
     expect(responseOf(result).executionPlan).toEqual([]);
-    expect(seen).toHaveLength(1);
+    expect(seen).toHaveLength(3);
   });
   function boundaryEngine(
     transport: typeof fetch,
@@ -418,6 +429,7 @@ describe('createJevPlanner', () => {
       confidence?: number;
       timeoutMs?: number;
       fallback?: boolean;
+      budget?: number;
     } = {},
   ) {
     let fallbackCalls = 0;
@@ -475,7 +487,7 @@ describe('createJevPlanner', () => {
           : {}),
         operation: {
           timeoutMs: options.timeoutMs ?? null,
-          maxProviderCalls: options.fallback ? 2 : 3,
+          maxProviderCalls: options.budget ?? (options.fallback ? 2 : 11),
         },
       },
       logger,
@@ -534,7 +546,7 @@ describe('createJevPlanner', () => {
       });
     const { engine, fallbackCalls } = boundaryEngine(
       fetchScript([defaults({ arrangement: 'row' })]),
-      { fallback: true },
+      { fallback: true, budget: 3 },
     );
     expect(
       (
@@ -549,8 +561,27 @@ describe('createJevPlanner', () => {
     expect(fallbackCalls()).toBe(1);
   });
 
-  test('defers oversized primary choices before sending an invalid provider request', async () => {
-    const outcome = await run(manyInstances(253), [defaults()]);
+  test('defers oversized variant choices before sending an invalid provider request', async () => {
+    const base = manyInstances(1);
+    const vessel = base.vessels[0];
+    const outcome = await run(
+      makeRequest('Choose a view', {
+        instances: base.instances,
+        layout: base.layout,
+        vessels: [
+          {
+            ...vessel,
+            variants: Object.fromEntries(
+              Array.from({ length: 255 }, (_, i) => [
+                i === 0 ? 'month' : `view-${i}`,
+                Object.values(vessel.variants)[0],
+              ]),
+            ),
+          },
+        ],
+      }),
+      [defaults()],
+    );
     expect(outcome.seen).toHaveLength(0);
     expect(outcome.result.ok).toBe(false);
     if (!outcome.result.ok)
@@ -587,24 +618,28 @@ describe('createJevPlanner', () => {
     expect(fallbackCalls()).toBe(1);
   });
 
-  test('ignores low confidence in unused primary selection', async () => {
+  test('does not consume view confidences after scope already declares the request unsupported', async () => {
     const transport = asFetch(async (_input, init) => {
       const payload = JSON.parse(String(init?.body)) as Payload;
-      const result = reply(payload, defaults()(payload));
-      result.answers.primary.confidence = 0;
+      const result = reply(
+        payload,
+        defaults({ scope: 'unsupported' })(payload),
+      );
+      result.answers['view/calendar-main'].confidence = 0;
       return Response.json(result);
     });
     const { engine } = boundaryEngine(transport, { confidence: 0.5 });
     expect(
-      (
-        await engine.handle(
-          ChartRequestMessage({
-            sessionId: SessionId('unused'),
-            request: makeRequest('Preserve layout.'),
-          }),
-        )
-      ).ok,
-    ).toBe(true);
+      await engine.handle(
+        ChartRequestMessage({
+          sessionId: SessionId('unused'),
+          request: makeRequest('Preserve layout.'),
+        }),
+      ),
+    ).toMatchObject({
+      ok: false,
+      error: { _tag: 'PlanningDeferredError', reason: 'policy' },
+    });
   });
 
   test('aborts an active fetch at the finite operation deadline and never starts another stage', async () => {
@@ -673,9 +708,11 @@ describe('createJevPlanner', () => {
       },
     ]);
     expect(conversions).toBe(1);
-    expect(outcome.seen[2].questions['param/0/title'].criteria.v0).toBe(
-      '{"id":1,"label":"saved"}',
-    );
+    expect(
+      outcome.seen.find((p) => 'param/0/title' in p.questions)!.questions[
+        'param/0/title'
+      ].criteria.v0,
+    ).toBe('{"id":1,"label":"saved"}');
   });
 
   test.each([
@@ -804,7 +841,7 @@ describe('createJevPlanner', () => {
         ).toEqual(visible.map((id) => `ID:${id}`));
         expect(response.layout.instances).toHaveLength(retained);
       }
-      expect(seen).toHaveLength(1);
+      expect(seen).toHaveLength(3);
     }
   });
 
@@ -849,8 +886,8 @@ describe('createJevPlanner', () => {
         params: { location: 'Paris' },
       },
     ]);
-    expect(seen).toHaveLength(3);
-    const actionState = seen[1]?.state.pendingInstances as {
+    expect(seen).toHaveLength(7);
+    const actionState = seen[2]?.state.instances as {
       instanceId: string;
     }[];
     expect(actionState.map((instance) => instance.instanceId)).toContain(
@@ -860,11 +897,13 @@ describe('createJevPlanner', () => {
       'weather-jev-2',
     );
     expect(
-      Object.keys(seen[1]?.questions['action/0']?.criteria ?? {}),
-    ).not.toContain('weather-jev-2/setLocation');
+      (seen[2]?.state.availableActions as { instanceId: string }[]).map(
+        (action) => action.instanceId,
+      ),
+    ).not.toContain('weather-jev-2');
   });
 
-  test('uses normalized runtime enum values and keeps ordered variant transitions', async () => {
+  test('uses normalized runtime enum values and renders selected variants in the layout', async () => {
     const enumCase = await run(makeRequest('Mark Buy milk complete.'), [
       defaults({ actionCount: '1' }),
       () => ({ 'action/0': 'tasks-main/checkTask' }),
@@ -884,7 +923,9 @@ describe('createJevPlanner', () => {
     ]);
     expect(
       Object.values(
-        enumCase.seen[2]?.questions['param/0/title']?.criteria ?? {},
+        enumCase.seen.find((p) => 'param/0/title' in p.questions)?.questions[
+          'param/0/title'
+        ]?.criteria ?? {},
       ),
     ).toContain('"Buy milk"');
 
@@ -907,21 +948,16 @@ describe('createJevPlanner', () => {
       },
     ]);
 
-    const transitionCase = await run(
-      makeRequest('Show weekly then current weather.'),
-      [
-        defaults({ actionCount: '2' }),
-        () => ({
-          'action/0': 'weather-main/showWeekly',
-          'action/1': 'weather-main/showCurrent',
-        }),
-      ],
-    );
-    expect(actionsOf(responseOf(transitionCase.result))).toEqual([
-      { instanceId: 'weather-main', action: 'showWeekly' },
-      { instanceId: 'weather-main', action: 'showCurrent' },
+    const transitionCase = await run(makeRequest('Show weekly weather.'), [
+      defaults({ 'view/weather-main': 'show/weekly' }),
     ]);
-    expect(transitionCase.seen).toHaveLength(2);
+    expect(actionsOf(responseOf(transitionCase.result))).toEqual([]);
+    expect(responseOf(transitionCase.result).layout).toMatchObject({
+      instances: expect.arrayContaining([
+        { instanceId: 'weather-main', vesselId: 'weather', variant: 'weekly' },
+      ]),
+    });
+    expect(transitionCase.seen).toHaveLength(3);
   });
 
   test('supplies accepted structured history to a follow-up without treating it as execution proof', async () => {
@@ -932,15 +968,15 @@ describe('createJevPlanner', () => {
     responseOf(first.result);
     const second = await run(
       makeRequest('Now show weekly weather.'),
-      [
-        defaults({ actionCount: '1' }),
-        () => ({ 'action/0': 'weather-main/showWeekly' }),
-      ],
+      [defaults({ 'view/weather-main': 'show/weekly' })],
       { store },
     );
-    expect(actionsOf(responseOf(second.result))).toEqual([
-      { instanceId: 'weather-main', action: 'showWeekly' },
-    ]);
+    expect(actionsOf(responseOf(second.result))).toEqual([]);
+    expect(responseOf(second.result).layout).toMatchObject({
+      instances: expect.arrayContaining([
+        { instanceId: 'weather-main', vesselId: 'weather', variant: 'weekly' },
+      ]),
+    });
     const history = second.seen[0]?.state.history as { kind: string }[];
     expect(history).toHaveLength(1);
     expect(history[0]?.kind).toBe('turn');
@@ -1009,7 +1045,7 @@ describe('createJevPlanner', () => {
       },
     );
     expect(isErr(missing.result)).toBe(true);
-    expect(missing.seen).toHaveLength(3);
+    expect(missing.seen).toHaveLength(4);
     expect(deferrals).toContainEqual(
       expect.objectContaining({
         reason: 'uncertain',
@@ -1059,7 +1095,7 @@ describe('createJevPlanner', () => {
       ],
     );
     expect(isErr(extractionLimit.result)).toBe(true);
-    expect(extractionLimit.seen).toHaveLength(2);
+    expect(extractionLimit.seen).toHaveLength(3);
   });
 
   test('rejects malformed metadata and distributions before a plan reaches finalization', async () => {

@@ -38,7 +38,7 @@ export function labelFor(id: string, backend: Backend): Label {
     planRequired: true,
     terminal: 'accepted',
     mistakes: [],
-    calls: 1,
+    calls: backend === 'jev' ? 3 : 1,
     fallbackCalls: 0,
   };
   const defer = (reason: string) => {
@@ -108,14 +108,22 @@ export function labelFor(id: string, backend: Backend): Label {
           params: { location: 'Paris' },
         },
       ];
-      label.calls = backend === 'jev' ? 3 : 1;
+      label.calls = backend === 'jev' ? 5 : 1;
       break;
-    case 'ordered-transitions':
+    case 'ordered-actions':
       label.actions = [
-        { instanceId: 'weather-main', action: 'showWeekly' },
-        { instanceId: 'weather-main', action: 'showCurrent' },
+        {
+          instanceId: 'weather-main',
+          action: 'setLocation',
+          params: { location: 'Tokyo' },
+        },
+        {
+          instanceId: 'weather-main',
+          action: 'setLocation',
+          params: { location: 'Paris' },
+        },
       ];
-      label.calls = backend === 'jev' ? 2 : 1;
+      label.calls = backend === 'jev' ? 7 : 1;
       break;
     case 'source-parameter':
     case 'unquoted-source-parameter':
@@ -127,7 +135,7 @@ export function labelFor(id: string, backend: Backend): Label {
           params: { location: 'Tokyo' },
         },
       ];
-      label.calls = backend === 'jev' ? 3 : 1;
+      label.calls = backend === 'jev' ? 5 : 1;
       if (id === 'wrong-parameter') label.mistakes = ['parameters'];
       break;
     case 'candidate-gap':
@@ -138,10 +146,8 @@ export function labelFor(id: string, backend: Backend): Label {
           params: { location: { latitude: -34.9, longitude: -56.2 } },
         },
       ];
-      label.calls = 1;
       if (backend === 'jev') {
         defer('policy');
-        label.calls = 2;
       }
       break;
     case 'enum-parameter':
@@ -152,12 +158,18 @@ export function labelFor(id: string, backend: Backend): Label {
           params: { title: 'Buy milk' },
         },
       ];
-      label.calls = backend === 'jev' ? 3 : 1;
+      label.calls = backend === 'jev' ? 5 : 1;
       break;
     case 'history-follow-up':
     case 'stage-budget':
-      label.actions = [{ instanceId: 'weather-main', action: 'showWeekly' }];
-      label.calls = backend === 'jev' ? 2 : 1;
+      label.layout = {
+        ...original,
+        instances: retained.map((instance) =>
+          instance.instanceId === 'weather-main'
+            ? { ...instance, variant: 'weekly' }
+            : instance,
+        ),
+      };
       if (id === 'stage-budget' && backend === 'jev') {
         label.terminal = 'PlanningBudgetExceededError';
         label.calls = 1;
@@ -191,46 +203,56 @@ export function labelFor(id: string, backend: Backend): Label {
       label.mistakes = ['layout'];
       break;
     case 'policy-limit':
-      label.actions = ['Tokyo', 'Paris', 'Rome'].map((location) => ({
-        instanceId: 'weather-main',
-        action: 'setLocation',
-        params: { location },
-      }));
+      label.actions = ['Tokyo', 'Paris', 'Rome', 'Madrid', 'Sydney'].map(
+        (location) => ({
+          instanceId: 'weather-main',
+          action: 'setLocation',
+          params: { location },
+        }),
+      );
       if (backend === 'jev') defer('policy');
+      label.calls = backend === 'jev' ? 11 : 1;
       break;
     case 'wrong-action':
       label.mistakes = ['actions'];
-      label.calls = backend === 'jev' ? 2 : 1;
+      label.calls = backend === 'jev' ? 5 : 1;
       break;
     case 'unnecessary-deferral':
+      label.calls = 1;
       if (backend === 'jev') defer('uncertain');
       break;
     case 'ambiguity':
+      label.calls = 1;
       label.planRequired = false;
       defer(backend === 'jev' ? 'uncertain' : 'invalid_plan');
       break;
     case 'strict-rejection':
+      label.calls = backend === 'jev' ? 0 : 1;
       label.planRequired = false;
       defer('invalid_plan');
       break;
     case 'provider-failure':
+      label.calls = 1;
       label.planRequired = false;
       label.terminal = 'ProviderError';
       break;
     case 'malformed-response':
+      label.calls = 1;
       label.planRequired = false;
       label.terminal = 'InvalidProviderResponseError';
       break;
     case 'cancel':
+      label.calls = 1;
       label.planRequired = false;
       label.terminal = 'CancellationError';
       break;
     case 'fallback':
     case 'strict-fallback':
-      label.calls = 2;
+      label.calls = id === 'strict-fallback' && backend === 'jev' ? 1 : 2;
       label.fallbackCalls = 1;
       break;
     case 'fallback-budget':
+      label.calls = 1;
       label.terminal = 'PlanningBudgetExceededError';
       break;
     default:

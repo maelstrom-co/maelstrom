@@ -23,15 +23,19 @@ import {
   type Script,
 } from './fixtures.js';
 import { type Label, labelFor } from './labels.js';
+import {
+  actionChoices,
+  layoutChoice,
+  type ScriptPayload,
+  selectionChoices,
+} from './scripted-choices.js';
 
 const logger: Logger = { debug() {}, info() {}, warn() {}, error() {} };
 export const models = {
   llm: 'offline-llm-script-v1',
   jev: 'offline-jev-script-v1',
 } as const;
-type Payload = {
-  questions: Record<string, { criteria: Record<string, string> }>;
-};
+type Payload = ScriptPayload;
 type Adapter = Parameters<typeof createLlmPlanner>[0]['adapter'];
 type Audit = {
   backend: Backend;
@@ -181,13 +185,18 @@ async function observe(
     return monitor(createLlmPlanner({ adapter, logger }), fallback);
   }
   function jev(script: Script): Planner {
-    let index = 0;
     const transport = (async (_url: unknown, init?: RequestInit) => {
       const payload = JSON.parse(String(init?.body)) as Payload;
       transportStart(script, payload, init?.signal);
       if (script.fault === 'malformed') return Response.json({});
-      const selections = script.jev[index++];
-      if (!selections) throw new Error('unexpected scripted Jev call');
+      const selections =
+        'scope' in payload.questions
+          ? selectionChoices(payload, script.jev[0] ?? {})
+          : 'layout' in payload.questions
+            ? layoutChoice(payload, script.jev[0] ?? {})
+            : Object.keys(payload.questions)[0]?.startsWith('action/')
+              ? actionChoices(payload, script.jev[1] ?? {})
+              : (script.jev[2] ?? {});
       const answers = Object.fromEntries(
         Object.entries(payload.questions).map(([id, question]) => {
           const choice = selections[id];
@@ -251,7 +260,7 @@ async function observe(
             },
           }
         : {}),
-      operation: { timeoutMs: null, maxProviderCalls: fixture.maxCalls ?? 3 },
+      operation: { timeoutMs: null, maxProviderCalls: fixture.maxCalls ?? 11 },
     },
     history: { store },
     logger,

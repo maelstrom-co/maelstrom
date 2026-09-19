@@ -161,7 +161,7 @@ describe('local Jev over the demo WebSocket path', () => {
     invoke.mockImplementation(async ({ context }) => {
       expect(context.deadlineAt).toBeGreaterThan(Date.now());
       expect(context.deadlineAt).toBeLessThanOrEqual(Date.now() + 25_000);
-      expect(context.calls.remaining).toBe(3);
+      expect(context.calls.remaining).toBe(11);
       return ok({
         kind: 'candidate',
         candidate: {
