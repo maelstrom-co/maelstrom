@@ -135,6 +135,106 @@ async function run(input: ReturnType<typeof request>, script: Script = {}) {
 }
 
 describe('dependent Jev planning phases', () => {
+  test.each([
+    false,
+    true,
+  ])('fits all five views with unequal bands when equal templates fail (transpose=%s)', async (transpose) => {
+    const dimensions = transpose
+      ? { columns: 7, rows: 16 }
+      : { columns: 16, rows: 7 };
+    const sizes = [
+      ['calendar', 4, 4],
+      ['tasks', 3, 3],
+      ['weather', 6, 4],
+      ['journal', 3, 3],
+      ['map', 4, 4],
+    ] as const;
+    const vessels = sizes.map(([id, width, height]) => ({
+      id,
+      name: id,
+      description: id,
+      defaultVariant: 'default',
+      variants: {
+        default: {
+          props: {},
+          minSize: transpose
+            ? { width: height, height: width }
+            : { width, height },
+          actions: [],
+        },
+      },
+    }));
+    const instances = vessels.slice(0, 2).map((vessel) => ({
+      instanceId: `${vessel.id}-main`,
+      vesselId: vessel.id,
+      variant: 'default',
+    }));
+    const base = request('Show all available widgets');
+    const input = request('Show all available widgets', {
+      vessels,
+      instances,
+      context: { ...base.context, chartDimensions: dimensions },
+      layout: {
+        type: 'tiling',
+        tree: ['V', 'ID:calendar-main', 'ID:tasks-main'],
+        instances,
+      },
+    });
+    const script = {
+      views: {
+        'weather-jev-1': 'show/default',
+        'journal-jev-1': 'show/default',
+        'map-jev-1': 'show/default',
+      },
+      layout: transpose ? 'fit_rows' : 'fit_columns',
+    };
+    const outcome = await run(input, script);
+    expect(outcome.result.ok).toBe(true);
+    if (outcome.result.ok && outcome.result.value.type === 'chart_response') {
+      const response = outcome.result.value.response;
+      expect(response.executionPlan).toEqual([]);
+      expect(response.layout).toMatchObject({
+        type: 'tiling',
+        instances: expect.arrayContaining([
+          ...instances,
+          {
+            instanceId: 'weather-jev-1',
+            vesselId: 'weather',
+            variant: 'default',
+          },
+          {
+            instanceId: 'journal-jev-1',
+            vesselId: 'journal',
+            variant: 'default',
+          },
+          { instanceId: 'map-jev-1', vesselId: 'map', variant: 'default' },
+        ]),
+      });
+      if (response.layout.type === 'tiling')
+        expect(
+          response.layout.tree.filter(
+            (node) => typeof node === 'string' && node.startsWith('ID:'),
+          ),
+        ).toHaveLength(5);
+    }
+    const tooSmall = await run(
+      {
+        ...input,
+        context: {
+          ...input.context,
+          chartDimensions: transpose
+            ? { columns: 6, rows: 16 }
+            : { columns: 16, rows: 6 },
+        },
+      },
+      script,
+    );
+    expect(tooSmall.result).toMatchObject({
+      ok: false,
+      error: { _tag: 'PlanningDeferredError', reason: 'policy' },
+    });
+    expect(tooSmall.history).toEqual({ ok: true, value: [] });
+  });
   test('asks whether work remains even when the selected view has no content actions', async () => {
     const outcome = await run(request('Show weekly weather for Tokyo'), {
       views: {

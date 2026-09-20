@@ -221,7 +221,13 @@ export async function planPhases(
   }));
   const layouts = layoutChoices(request, targetViews);
   if (!layouts.length)
-    return defer('policy', { stage: 'layout', limit: 'no_feasible_layout' });
+    return defer('policy', {
+      stage: 'layout',
+      limit: 'no_feasible_layout',
+      visibleInstances: visible.length,
+      columns: request.context.chartDimensions.columns,
+      rows: request.context.chartDimensions.rows,
+    });
   let layout = layouts[0];
   if (visible.length > 0) {
     const reply = await decide('layout', {

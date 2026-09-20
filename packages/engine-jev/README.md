@@ -74,6 +74,9 @@ These are implementation limits, not restrictions on other planners or the proto
 - Tiling only; no grid placement or generated content.
 - At most four actions per turn, and two new instances **per vessel** per turn.
 - Arrangements: preserve, equal row, equal column, two-thirds focus, or 2–12 balanced rows.
+  Size-aware row and column packing also provides unequal splits when equal-size
+  templates cannot fit all selected views. Packing tries a bounded set of orders;
+  it is not an exhaustive layout solver.
   Preserve keeps an existing tree when visibility is unchanged. New arrangements
   do not solve arbitrary nesting or spatial constraints.
 - Parameter sources: normalized declared/runtime enums, booleans, numeric

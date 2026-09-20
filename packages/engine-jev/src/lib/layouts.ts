@@ -8,6 +8,7 @@ import {
   tilingLeafToken,
   type VesselInstanceSnapshot,
 } from '@maelstrom-co/protocol';
+import { packingChoices } from './packing.js';
 
 export interface LayoutChoice {
   readonly id: string;
@@ -164,6 +165,24 @@ export function layoutChoices(
           `Give ${instance.instanceId} two thirds of the Chart ${axis === 'V' ? 'on the left' : 'at the top'}, with the other instances in the remaining third.`,
           split(axis, [leaves[index], rest], [2, 1]),
         );
+    }
+  }
+  for (const axis of ['H', 'V'] as const) {
+    for (const packed of packingChoices(request, sorted, axis)) {
+      if (!layoutFits(request, packed.tree, visible)) continue;
+      if (
+        !candidates.some(
+          (candidate) =>
+            candidate.tree.length === packed.tree.length &&
+            candidate.tree.every((node, index) => node === packed.tree[index]),
+        )
+      ) {
+        candidates.push({
+          id: axis === 'H' ? 'fit_rows' : 'fit_columns',
+          ...packed,
+        });
+      }
+      break;
     }
   }
   return candidates;
