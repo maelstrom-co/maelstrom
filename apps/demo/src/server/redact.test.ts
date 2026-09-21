@@ -14,6 +14,23 @@ function nanoidWithEmbeddedMarker(offset: number): string {
 }
 
 describe('redactSecrets', () => {
+  it('scrubs every secret when given several, including overlapping ones', () => {
+    const openaiKey = 'sk-live-abc123def456';
+    const typesafeKey = 'ts-key-with-"quote"';
+    const prefix = 'ts-key';
+    const wire = JSON.stringify({
+      error: `openai ${openaiKey}, typesafe ${typesafeKey}, prefix ${prefix}`,
+    });
+
+    const result = redactSecrets(wire, [prefix, openaiKey, typesafeKey]);
+
+    expect(result).not.toContain(openaiKey);
+    expect(result).not.toContain(JSON.stringify(typesafeKey).slice(1, -1));
+    expect(result).not.toContain('"quote');
+    expect(result).not.toContain(prefix);
+    expect(result.match(/\[redacted\]/g)).toHaveLength(3);
+  });
+
   it('scrubs every occurrence of the exact api key wherever it appears in a JSON-encoded envelope', () => {
     const apiKey = 'sk-live-abc123def456';
     const wire = JSON.stringify({
