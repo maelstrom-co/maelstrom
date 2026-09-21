@@ -4,7 +4,6 @@ import type {
   EngineMessage,
   EngineOutput,
   LayoutMode,
-  MessageId,
   Result,
   SessionHistoryEntry,
   SessionId,
@@ -29,9 +28,9 @@ import { createHistoryManager } from './history/history-manager.js';
 import type { HistoryEntry } from './history/history-store.js';
 import { loadHistoryContext } from './history/load-history-context.js';
 import { toSessionHistoryEntry } from './history/wire-projection.js';
-import type { Logger } from './logger.js';
-import { callLLM } from './pipeline/call-llm.js';
+import { callLLM, logLLMCallError } from './pipeline/call-llm.js';
 import { callWithRetry } from './pipeline/retry.js';
+import { processCandidate } from './planner/validate-candidate.js';
 import {
   buildSystemPrompt,
   buildUserPromptWithSnapshot,
@@ -41,7 +40,6 @@ import type {
   SkippedActionIdentity,
 } from './response/execution-plan/index.js';
 import { skippedActionIdentity } from './response/execution-plan/index.js';
-import { processResponse } from './response/response-processor.js';
 import { logAtSeverity } from './severity-router.js';
 import { validateEngineConfig } from './validation/engine-config.js';
 import {
@@ -278,45 +276,17 @@ export function createEngine(config: EngineConfig): Engine {
         modelOptions,
       );
       if (isErr(llmResult)) {
-        logEngineError(logger, message.id, llmResult.error);
+        logLLMCallError(logger, message.id, llmResult.error);
         return llmResult;
       }
       logger.debug('LLM response received', { messageId: message.id });
-      // `processResponse` calls heal helpers and `assertNever` defaults that
-      // throw on engine-internal contract violations (broken pruner invariant,
-      // unknown discriminator arm). Without this catch those throws become
-      // unhandled rejections at the engine boundary, breaking the documented
-      // `Promise<Result<...>>` contract. Catch synchronously, log with the
-      // structured-error slot, and return an Err so callWithRetry can surface
-      // it through the same path as any other fatal `EngineError`.
-      try {
-        const processed = processResponse({
-          llmOutput: llmResult.value,
-          request,
-          enumSnapshot,
-          messageId: message.id,
-          logger,
-        });
-        if (isErr(processed)) {
-          logger.error('Failed to process LLM response', processed.error, {
-            messageId: message.id,
-          });
-        }
-        return processed;
-      } catch (error) {
-        logger.error(
-          'Engine invariant violation while processing LLM response',
-          error,
-          { messageId: message.id },
-        );
-        return err(
-          validationError(
-            error instanceof Error ? error.message : String(error),
-            'response',
-            error,
-          ),
-        );
-      }
+      return processCandidate({
+        llmOutput: llmResult.value,
+        request,
+        enumSnapshot,
+        messageId: message.id,
+        logger,
+      });
     };
 
     const retried = await callWithRetry({
@@ -485,21 +455,6 @@ export function createEngine(config: EngineConfig): Engine {
       }
     },
   };
-}
-
-function logEngineError(
-  logger: Logger,
-  messageId: MessageId,
-  error: EngineError,
-): void {
-  if (error._tag === 'CancellationError') {
-    logger.info('Request cancelled', { messageId, reason: error.reason });
-    return;
-  }
-  // 3-arg form: structured EngineError into the dedicated error slot so
-  // _tag, stack, and per-variant context (cause / raw / timeoutMs) reach
-  // structured loggers; correlation fields stay in the data slot.
-  logger.error('LLM call failed', error, { messageId, errorTag: error._tag });
 }
 
 /**

@@ -43,6 +43,30 @@ export { createInMemoryStore } from './lib/history/in-memory-store.js';
 // Logger
 export type { Logger } from './lib/logger.js';
 export { consoleLogger } from './lib/logger.js';
+// Planner stages
+export type {
+  LlmPlannerInput,
+  LlmPlannerOptions,
+} from './lib/planner/llm-planner.js';
+export { llmPlanner } from './lib/planner/llm-planner.js';
+export { pipeline } from './lib/planner/pipeline.js';
+export type {
+  Deferred,
+  Planner,
+  PlannerCandidate,
+  PlanningInput,
+  Retryable,
+  RetryFeedback,
+  Stage,
+  StageContext,
+  StageError,
+  ValidateCandidate,
+  ValidatedCandidate,
+} from './lib/planner/stage.js';
+export { deferred, isDeferred } from './lib/planner/stage.js';
+export { withFallback } from './lib/planner/with-fallback.js';
+export type { WithRetryOptions } from './lib/planner/with-retry.js';
+export { withRetry } from './lib/planner/with-retry.js';
 // Prompt builder
 export type {
   PromptOptions,
@@ -65,3 +89,12 @@ export type {
   UserSectionOverrides,
 } from './lib/prompt/sections.js';
 export { SystemSection, UserSection } from './lib/prompt/sections.js';
+// Response diagnostics
+export type { SkippedAction } from './lib/response/execution-plan/index.js';
+export type { EngineDiagnostics } from './lib/response/response-processor.js';
+export type {
+  DroppedLayoutEntry,
+  LayoutWarning,
+  RetryHint,
+  RetrySeverity,
+} from './lib/validation/llm-output/healed-layout.js';

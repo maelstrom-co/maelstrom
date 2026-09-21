@@ -1,5 +1,6 @@
 import type {
   GridResponse,
+  MessageId,
   Result,
   TilingResponse,
 } from '@maelstrom-co/protocol';
@@ -15,6 +16,7 @@ import type { EngineConfig } from '../config.js';
 import type { EngineError } from '../errors.js';
 import { cancellationError, providerError } from '../errors.js';
 import type { LLMContextMessage } from '../history/history-manager.js';
+import type { Logger } from '../logger.js';
 
 // ---------------------------------------------------------------------------
 // LLM output type
@@ -93,4 +95,19 @@ export async function callLLM(
       ),
     );
   }
+}
+
+export function logLLMCallError(
+  logger: Logger,
+  messageId: MessageId,
+  error: EngineError,
+): void {
+  if (error._tag === 'CancellationError') {
+    logger.info('Request cancelled', { messageId, reason: error.reason });
+    return;
+  }
+  // 3-arg form: structured EngineError into the dedicated error slot so
+  // _tag, stack, and per-variant context (cause / raw / timeoutMs) reach
+  // structured loggers; correlation fields stay in the data slot.
+  logger.error('LLM call failed', error, { messageId, errorTag: error._tag });
 }

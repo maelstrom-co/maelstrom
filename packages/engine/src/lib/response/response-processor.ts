@@ -42,12 +42,19 @@ import {
 import { buildGridLayout, buildTilingLayout } from './layout/index.js';
 
 /**
- * Stripped from the response before it crosses the engine boundary.
+ * What healing changed in a candidate and whether another attempt is worth
+ * it. Planner stages see it through `StageContext.validate` and
+ * `RetryFeedback`; it is stripped from the response before it crosses the
+ * Engine boundary.
  */
 export interface EngineDiagnostics {
+  /** Proposed actions the Engine refused to plan, with the reason for each. */
   readonly skippedActions: readonly SkippedAction[];
+  /** Layout entries healing removed, with the reason for each. */
   readonly droppedLayoutEntries: readonly DroppedLayoutEntry[];
+  /** Repairs healing applied without removing anything from the layout. */
   readonly warnings: readonly LayoutWarning[];
+  /** Severity of the healed result and whether a retry is recommended. */
   readonly retryHint: RetryHint;
 }
 
