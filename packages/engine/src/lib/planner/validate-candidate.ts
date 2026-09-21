@@ -4,7 +4,12 @@ import type {
   Result,
   Vessel,
 } from '@maelstrom-co/protocol';
-import { err, isErr } from '@maelstrom-co/protocol';
+import {
+  err,
+  GridResponseSchema,
+  isErr,
+  TilingResponseSchema,
+} from '@maelstrom-co/protocol';
 
 import type { ActionParameterEnumSnapshot } from '../action-parameter-enum.js';
 import type { EngineError } from '../errors.js';
@@ -78,7 +83,23 @@ export function validatorEnumSnapshot(
 function processCandidate(
   input: ProcessResponseInput,
 ): Result<FullValidatedCandidate, EngineError> {
-  const { messageId, logger } = input;
+  const { messageId, logger, request, llmOutput } = input;
+  const mode = request.context.layoutMode;
+  const schema = mode === 'grid' ? GridResponseSchema : TilingResponseSchema;
+  const shape = schema.safeParse(llmOutput);
+  if (!shape.success) {
+    const failure = validationError(
+      `planner candidate does not match the ${mode} response schema: ${shape.error.message}`,
+      'planner',
+      shape.error,
+    );
+    logger.error(
+      'Planner candidate does not match the response schema',
+      failure,
+      { messageId, layoutMode: mode },
+    );
+    return err(failure);
+  }
   try {
     const processed = processResponse(input);
     if (isErr(processed)) {
