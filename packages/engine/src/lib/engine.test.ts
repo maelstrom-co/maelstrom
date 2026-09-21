@@ -1518,11 +1518,62 @@ describe('engine.handle with a configured planner', () => {
       _tag: 'CancellationError',
       reason: 'user left',
     });
-    expect(entries.map((entry) => [entry.level, entry.msg])).toContainEqual([
-      'info',
-      'Request cancelled',
-    ]);
+    expect(entries.find((entry) => entry.msg === 'Request cancelled')).toEqual({
+      level: 'info',
+      msg: 'Request cancelled',
+      ctx: {
+        messageId: DEFAULT_MESSAGE_ID,
+        reason: 'user left',
+        thrown: expect.objectContaining({ message: 'socket closed' }),
+      },
+    });
     expect(entries.filter((entry) => entry.level === 'error')).toEqual([]);
+  });
+
+  test('an AbortError thrown while the request signal is live is a planner failure, not a cancellation', async () => {
+    const abort = new DOMException('stage timed out', 'AbortError');
+    const planner: Planner = async () => {
+      throw abort;
+    };
+    const { logger, entries } = spyLogger();
+    const engine = createEngine({ planner, logger });
+
+    const result = await engine.handle(
+      toChartRequestMessage(makeGridRequest()),
+      new AbortController().signal,
+    );
+
+    expect(isErr(result)).toBe(true);
+    if (!isErr(result)) return;
+    expect(result.error).toMatchObject({
+      _tag: 'ValidationError',
+      field: 'planner',
+      message: 'stage timed out',
+    });
+    expect(entries.map((entry) => entry.msg)).not.toContain(
+      'Request cancelled',
+    );
+    expect(entries.filter((entry) => entry.level === 'error')).toEqual([
+      {
+        level: 'error',
+        msg: 'Planner threw',
+        error: abort,
+        ctx: { messageId: DEFAULT_MESSAGE_ID },
+      },
+    ]);
+  });
+
+  test('an AbortError thrown without a request signal is a planner failure', async () => {
+    const planner: Planner = async () => {
+      throw new DOMException('Aborted', 'AbortError');
+    };
+    const engine = createEngine({ planner, logger: silentLogger });
+
+    const result = await engine.handle(
+      toChartRequestMessage(makeGridRequest()),
+    );
+
+    expect(isErr(result) && result.error._tag).toBe('ValidationError');
   });
 
   test('validates against the request the client sent, not a stage-edited copy', async () => {
