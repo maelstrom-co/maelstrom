@@ -8,11 +8,22 @@ export interface LiveKitAdapterOptions {
    * `mintToken`) so this browser package stays free of any server-framework
    * coupling. The app owns how the grant is fetched. Wrap `mintLiveKitToken`
    * from `@maelstrom-co/realtime-livekit-server`.
+   * Normal mode calls this with one argument. Trigger mode adds `{ trigger: true }`;
+   * forward that opt-in and return the trusted grant's trigger binding. A legacy
+   * callback that omits the binding fails before negotiation or microphone capture
+   * in trigger mode, while remaining supported in normal mode.
    */
-  readonly mintToken: (roomName: string) => Promise<LiveKitTokenGrant>;
+  readonly mintToken: (
+    roomName: string,
+    context?: {
+      /** Requests a fresh named-worker bootstrap rather than normal automatic dispatch. */
+      readonly trigger: true;
+    },
+  ) => Promise<LiveKitTokenGrant>;
   /**
-   * Room the browser joins and the worker is dispatched to. Use a stable
-   * per-session name so a reconnect rejoins the same room.
+   * Normal-mode room, or trigger-mode request namespace. Trigger grants select a
+   * fresh effective room through the signed token on each explicit connect;
+   * SDK-managed reconnects retain that room and its worker binding.
    */
   readonly roomName: string;
   /**

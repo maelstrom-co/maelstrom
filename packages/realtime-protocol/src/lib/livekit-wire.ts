@@ -1,17 +1,23 @@
 // Wire constants shared by the browser adapter and the agent worker. Zero
-// imports on purpose: the worker reaches these through
+// external imports on purpose: the worker reaches these through
 // `@maelstrom-co/realtime-protocol/livekit-wire`, which must never pull in
 // browser or server dependencies — not even zod. This is the single source of
 // truth both sides read so the topic strings can never drift.
+
+export {
+  isLiveKitTriggerBinding,
+  type LiveKitTriggerBinding,
+  parseLiveKitTriggerBinding,
+  TRIGGER_AGENT_NAME,
+} from './livekit-trigger.ts';
 
 /** Text-stream topic the client uses to send TTS requests to the worker. */
 export const SPEAK_TOPIC = 'speak';
 
 /**
- * Identity the browser client connects to the room with, and the identity the
- * worker waits for on join and filters incoming tracks against. A room-wide
- * constant (not per-session) because the spike supports exactly one human
- * participant per room.
+ * Default browser identity for normal sessions. The normal worker waits for it
+ * and filters incoming tracks against it. Trigger workers instead use the
+ * authorized browser identity from server-generated dispatch metadata.
  */
 export const USER_PARTICIPANT_IDENTITY = 'user';
 

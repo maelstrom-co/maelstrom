@@ -19,9 +19,11 @@ run paid provider calls automatically or put credentials/transcripts in reports.
 - OpenAI local entry point: `bun --cwd apps/demo run dev` from the repository
   root with existing development credentials. No new key should be committed.
 - LiveKit local entry point: `bun --cwd apps/demo run dev-livekit` with the
-  updated worker, LiveKit, Deepgram, and Cartesia configured privately. Confirm
-  the worker joins as a server-designated agent participant. Do not deploy for
-  this check.
+  normal worker, LiveKit, Deepgram, and Cartesia configured privately. Start
+  `bun --cwd apps/demo run dev-trigger-agent` separately for the named trigger
+  worker (health port 8082). Both are required to test both modes; the normal
+  startup is unchanged. Confirm a trigger room dispatches only the named worker
+  and its AGENT identity matches the trusted bootstrap response. Do not deploy.
 - Observe adapter events locally using a debugger or approved redacted test
   harness. Retain event types, ordering, counts, and diagnostic categories only;
   never save raw credentials, audio, complete payloads, or real-user text. Some
@@ -133,6 +135,16 @@ run paid provider calls automatically or put credentials/transcripts in reports.
 
 ## LiveKit-specific runtime contract
 
+- Race the legitimate worker with a foreign AGENT sending the correct nonce in
+  the **first ACK**, plus audio, results and TTS-ready/status packets. None may
+  authorize capture, play audio, wake, or settle the legitimate session. Then
+  confirm legitimate admission; a same-identity replacement with a new SID must
+  remain untrusted. Missing bootstrap binding must fail before microphone capture.
+- Confirm each explicit new connect uses a fresh server-selected room/identity,
+  while SDK-managed reconnect keeps the existing binding. Replay an old ACK or
+  result after reconnect; it must not establish new trust. Verify the named worker
+  rejects malformed/expired/wrong-room metadata and foreign browser controls,
+  text streams and audio. Record these as Not tested until exercised locally.
 - Verify correlated-turn negotiation succeeds only with the updated agent
   participant. An old/absent worker times out within five seconds before capture.
   Wrong-participant/wrong-nonce data cannot wake or settle playback; losing the

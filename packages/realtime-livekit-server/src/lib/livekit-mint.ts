@@ -1,11 +1,18 @@
+import { randomUUID } from 'node:crypto';
 import { err, ok, type Result } from '@maelstrom-co/protocol';
 import type { MintFailure, UnixSeconds } from '@maelstrom-co/realtime-protocol';
 import {
   type LiveKitTokenGrant,
   LiveKitTokenGrantSchema,
+  type LiveKitTriggerBinding,
+  TRIGGER_AGENT_NAME,
   USER_PARTICIPANT_IDENTITY,
 } from '@maelstrom-co/realtime-protocol/livekit';
-import { AccessToken } from 'livekit-server-sdk';
+import {
+  AccessToken,
+  RoomAgentDispatch,
+  RoomConfiguration,
+} from 'livekit-server-sdk';
 import { z } from 'zod';
 
 /**
@@ -15,10 +22,12 @@ import { z } from 'zod';
  * responsibilities.
  */
 export interface LiveKitTokenRequest {
-  /** Caller-provided room scope; validation trims surrounding whitespace before token scoping. */
+  /** Normal room scope (trimmed), or request namespace when trigger mode selects a fresh room. */
   readonly roomName: string;
   /** Participant identity, defaulting to `"user"` when omitted. */
   readonly identity?: string;
+  /** Opts into a fresh room and named trigger worker. Omission preserves normal automatic dispatch. */
+  readonly trigger?: boolean;
 }
 
 /** Wire schema for {@link LiveKitTokenRequest}. */
@@ -28,6 +37,7 @@ export const LiveKitTokenRequestSchema = z.object({
   // diverge into a token scoped to a different room string.
   roomName: z.string().trim().min(1),
   identity: z.string().min(1).optional(),
+  trigger: z.boolean().optional(),
 });
 
 /** Outcome of a {@link mintLiveKitToken} call. */
@@ -56,6 +66,15 @@ const DEFAULT_TTL = '15m';
  * invokes `mintToken`; the adapter does not schedule its own proactive renewal.
  * Expiry does not impose a maximum room duration or adapter cleanup. Production
  * hosts must enforce session-duration and cleanup policy independently.
+ *
+ * With `trigger: true`, `roomName` is a request namespace, not the joined room:
+ * each mint generates a fresh effective room and random expected worker identity.
+ * The signed token configures only the named trigger worker on room creation,
+ * and `grant.trigger` returns the same binding and authorized browser identity.
+ * Caller-supplied worker identities or dispatch metadata are ignored. This path
+ * requires a separately running `runTriggerVoiceAgent` worker. Normal requests
+ * retain their exact room and unnamed automatic dispatch; existing rooms are not
+ * redispatched by token configuration. Managed reconnects do not mint a new room.
  *
  * This mint operation is an **unauthenticated bootstrap**. Production transport
  * code must authenticate and authorize callers, enforce a trusted room and
@@ -188,8 +207,20 @@ export async function mintLiveKitToken(
   }
 
   try {
+    const identity = request.data.identity ?? USER_PARTICIPANT_IDENTITY;
+    const expiresAt = (Math.floor(Date.now() / 1000) +
+      ttlSeconds) as UnixSeconds;
+    const trigger: LiveKitTriggerBinding | undefined = request.data.trigger
+      ? {
+          version: 1,
+          roomName: `maelstrom-trigger-${randomUUID()}`,
+          browserIdentity: identity,
+          workerIdentity: `maelstrom-worker-${randomUUID()}`,
+          expiresAt,
+        }
+      : undefined;
     const at = new AccessToken(apiKey, apiSecret, {
-      identity: request.data.identity ?? USER_PARTICIPANT_IDENTITY,
+      identity,
       // Numeric seconds, not the raw env string: livekit-server-sdk only
       // appends a unit for a number-typed ttl — a string goes verbatim to
       // jose's parser, which requires a unit and throws on a bare integer
@@ -198,14 +229,22 @@ export async function mintLiveKitToken(
     });
     at.addGrant({
       roomJoin: true,
-      room: request.data.roomName,
+      room: trigger?.roomName ?? request.data.roomName,
       canPublish: true,
       canSubscribe: true,
     });
+    if (trigger) {
+      at.roomConfig = new RoomConfiguration({
+        agents: [
+          new RoomAgentDispatch({
+            agentName: TRIGGER_AGENT_NAME,
+            metadata: JSON.stringify(trigger),
+          }),
+        ],
+      });
+    }
 
     const token = await at.toJwt();
-    const expiresAt = (Math.floor(Date.now() / 1000) +
-      ttlSeconds) as UnixSeconds;
 
     // Validate the built grant against the contract the browser adapter
     // expects — most commonly a right-shaped-but-wrong-scheme LIVEKIT_URL
@@ -214,7 +253,12 @@ export async function mintLiveKitToken(
     // failing opaquely there. Log the concrete zod issues: the parse can fail
     // on any of token/url/expiresAt, so a fixed scheme-assumption message would
     // misdirect an operator whenever some other field is at fault.
-    const grant = LiveKitTokenGrantSchema.safeParse({ token, url, expiresAt });
+    const grant = LiveKitTokenGrantSchema.safeParse({
+      token,
+      url,
+      expiresAt,
+      ...(trigger ? { trigger } : {}),
+    });
     if (!grant.success) {
       console.error(
         `LiveKit token grant failed validation: ${JSON.stringify(grant.error.issues)}`,

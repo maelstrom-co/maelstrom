@@ -1,5 +1,5 @@
 import { describe, expect, mock, test } from 'bun:test';
-import type { JobContext } from '@livekit/agents';
+import type { JobContext, JobRequest } from '@livekit/agents';
 import type { SpeechTurnEndHandler, SpeechTurnResult } from './agent.js';
 
 // Stub the LiveKit SDK + native plugins so importing the agent module never
@@ -37,11 +37,15 @@ class SttStub {
 }
 
 const mockCreateAudioTrack = mock(() => ({}));
-const runApp = mock(() => {});
+const runApp = mock((_options: unknown) => {});
 mock.module('@livekit/agents', () => ({
   cli: { runApp },
   defineAgent: mock((opts: unknown) => opts),
-  ServerOptions: Stub,
+  ServerOptions: class {
+    constructor(options: unknown) {
+      Object.assign(this, options);
+    }
+  },
   stt: { SpeechEventType: { FINAL_TRANSCRIPT: 'final_transcript' } },
   tts: { SynthesizeStream: { END_OF_STREAM } },
 }));
@@ -55,6 +59,7 @@ mock.module('@livekit/rtc-node', () => ({
     DataReceived: 'dataReceived',
     TrackSubscribed: 'trackSubscribed',
     ParticipantConnected: 'participantConnected',
+    ParticipantDisconnected: 'participantDisconnected',
   },
   TrackKind: { KIND_AUDIO: 'audio' },
   TrackPublishOptions: Stub,
@@ -66,6 +71,8 @@ const {
   resolveSttDrainTimeoutMs,
   derivePendingAudioMsLimit,
   runVoiceAgent,
+  runTriggerVoiceAgent,
+  acceptTriggerVoiceJob,
   waitForParticipantOrTimeout,
   pumpTtsStream,
   runSpeechRecognition,
@@ -83,7 +90,127 @@ const {
 const { SPEAK_UTTERANCE_ID_ATTR, SPEAK_TOPIC, TTS_READY_TOPIC, TURN_TOPIC } =
   await import('@maelstrom-co/realtime-protocol/livekit-wire');
 
+describe('named trigger dispatch', () => {
+  test('trigger audio accepts only the pinned browser identity and SID', async () => {
+    const processTrack = mock(async () => {});
+    const handler = createSubscribedMicrophoneTrackHandler({
+      expectedIdentity: 'browser',
+      expectedSid: 'original',
+      processTrack,
+      onIgnoredTrack: () => {},
+      onProcessingError: () => {},
+    });
+    const track = { kind: 'audio' } as unknown as Parameters<typeof handler>[0];
+    handler(track, { identity: 'other', sid: 'original' });
+    handler(track, { identity: 'browser', sid: 'replacement' });
+    await Promise.resolve();
+    expect(processTrack).not.toHaveBeenCalled();
+    handler(track, { identity: 'browser', sid: 'original' });
+    await Promise.resolve();
+    expect(processTrack).toHaveBeenCalledTimes(1);
+  });
+  const binding = {
+    version: 1,
+    roomName: 'fresh-room',
+    workerIdentity: 'trusted-worker',
+    browserIdentity: 'browser',
+    expiresAt: Math.floor(Date.now() / 1000) + 900,
+  };
+  for (const [agentName, roomName, metadata] of [
+    ['maelstrom-trigger-v1', 'fresh-room', ''],
+    ['maelstrom-trigger-v1', 'fresh-room', '{'],
+    ['maelstrom-trigger-v1', 'fresh-room', '{}'],
+    [
+      'maelstrom-trigger-v1',
+      'fresh-room',
+      JSON.stringify({ ...binding, expiresAt: 1 }),
+    ],
+    ['other', 'fresh-room', JSON.stringify(binding)],
+    ['maelstrom-trigger-v1', 'other-room', JSON.stringify(binding)],
+  ]) {
+    test(`rejects invalid dispatch ${agentName}/${roomName}/${metadata}`, async () => {
+      const accept = mock(async () => {});
+      const reject = mock(async () => {});
+      await acceptTriggerVoiceJob({
+        agentName,
+        room: { name: roomName },
+        job: { metadata },
+        accept,
+        reject,
+      } as unknown as JobRequest);
+      expect(reject).toHaveBeenCalledTimes(1);
+      expect(accept).not.toHaveBeenCalled();
+    });
+  }
+  test('accepts the identity from valid server metadata without publishing it as participant metadata', async () => {
+    const accept = mock(async (..._args: unknown[]) => {});
+    const reject = mock(async () => {});
+    await acceptTriggerVoiceJob({
+      agentName: 'maelstrom-trigger-v1',
+      room: { name: binding.roomName },
+      job: { metadata: JSON.stringify(binding) },
+      accept,
+      reject,
+    } as unknown as JobRequest);
+    expect(accept).toHaveBeenCalledWith(
+      'maelstrom-trigger-v1',
+      binding.workerIdentity,
+    );
+    expect(reject).not.toHaveBeenCalled();
+  });
+  test('keeps normal registration unnamed and trigger registration explicit', () => {
+    const previous = { ...process.env };
+    process.env.LIVEKIT_URL = 'ws://localhost:7880';
+    process.env.LIVEKIT_API_KEY = 'devkey';
+    process.env.LIVEKIT_API_SECRET = 'secret';
+    try {
+      runVoiceAgent();
+      expect(runApp.mock.calls.at(-1)?.[0]).not.toHaveProperty('agentName');
+      runTriggerVoiceAgent();
+      expect(runApp.mock.calls.at(-1)?.[0]).toMatchObject({
+        agentName: 'maelstrom-trigger-v1',
+        requestFunc: acceptTriggerVoiceJob,
+      });
+    } finally {
+      for (const key of [
+        'LIVEKIT_URL',
+        'LIVEKIT_API_KEY',
+        'LIVEKIT_API_SECRET',
+      ]) {
+        if (previous[key] === undefined) delete process.env[key];
+        else process.env[key] = previous[key];
+      }
+    }
+  });
+});
+
 describe('privacy-safe worker diagnostics', () => {
+  test('trigger controls reject a replacement browser SID', () => {
+    const endTurn = mock(async () => {});
+    const handler = createTurnControlHandler({
+      boundIdentity: 'browser',
+      boundSid: 'original',
+      endTurn,
+      cancelTts: () => {},
+      onCancelTtsError: () => {},
+      onMalformed: () => {},
+      onTurnEndError: () => {},
+    });
+    handler(
+      new TextEncoder().encode('{"type":"turn_end"}'),
+      { identity: 'browser', sid: 'replacement' },
+      undefined,
+      TURN_TOPIC,
+    );
+    expect(endTurn).not.toHaveBeenCalled();
+    handler(
+      new TextEncoder().encode('{"type":"turn_end"}'),
+      { identity: 'browser', sid: 'original' },
+      undefined,
+      TURN_TOPIC,
+    );
+    expect(endTurn).toHaveBeenCalledTimes(1);
+  });
   test('keeps only fixed reason and own boolean or finite-number metadata', () => {
     const sensitive = Object.assign(new Error('message-sentinel'), {
       apiKey: 'api-key-sentinel',
@@ -2838,7 +2965,11 @@ describe('createSpeakHandler', () => {
 
 describe('maelstromVoiceJob greeting readiness', () => {
   function makeJobContext(opts: {
-    user: { identity: string; trackPublications: Map<string, unknown> } | null;
+    user: {
+      identity: string;
+      sid?: string;
+      trackPublications: Map<string, unknown>;
+    } | null;
     publishDataImpl?: (
       data: Uint8Array,
       options: { reliable?: boolean; topic?: string },
@@ -2852,9 +2983,14 @@ describe('maelstromVoiceJob greeting readiness', () => {
     const publishTrack = mock(async () => {
       order.push('publishTrack');
     });
-    const registerTextStreamHandler = mock((topic: string) => {
-      order.push(`register:${topic}`);
-    });
+    const registerTextStreamHandler = mock(
+      (
+        topic: string,
+        _handler: (reader: unknown, participant: { identity: string }) => void,
+      ) => {
+        order.push(`register:${topic}`);
+      },
+    );
     const publishData = mock(
       async (
         data: Uint8Array,
@@ -2896,12 +3032,118 @@ describe('maelstromVoiceJob greeting readiness', () => {
       registerTextStreamHandler,
       publishData,
       shutdown,
+      roomHandlers,
       emitParticipantConnected(participant: { identity: string }) {
         for (const handler of roomHandlers.participantConnected ?? []) {
           handler(participant);
         }
       },
     };
+  }
+
+  function triggerJob() {
+    const user = {
+      identity: 'authorized-browser',
+      sid: 'browser-sid',
+      trackPublications: new Map(),
+    };
+    const binding = {
+      version: 1,
+      roomName: 'fresh-room',
+      workerIdentity: 'chosen-worker',
+      browserIdentity: user.identity,
+      expiresAt: Math.floor(Date.now() / 1000) + 900,
+    };
+    const h = makeJobContext({ user });
+    Object.assign(h.ctx, {
+      job: {
+        agentName: 'maelstrom-trigger-v1',
+        metadata: JSON.stringify(binding),
+        room: { name: binding.roomName },
+      },
+      info: {
+        acceptArguments: {
+          name: 'maelstrom-trigger-v1',
+          identity: binding.workerIdentity,
+        },
+      },
+    });
+    const remoteParticipants = new Map([[user.identity, user]]);
+    Object.assign(h.ctx.room, { name: binding.roomName, remoteParticipants });
+    Object.assign(h.ctx.room.localParticipant ?? {}, {
+      identity: binding.workerIdentity,
+    });
+    return { ...h, user, binding, remoteParticipants };
+  }
+
+  test('trigger job binds the authorized browser and ignores foreign controls and text streams', async () => {
+    const h = triggerJob();
+    await maelstromVoiceJob(h.ctx);
+    expect(h.ctx.waitForParticipant).toHaveBeenCalledWith(h.user.identity);
+    const speakHandler = h.registerTextStreamHandler.mock.calls[0]?.[1];
+    const readAll = mock(async () => 'foreign speech');
+    speakHandler?.({ readAll }, { identity: 'foreign' });
+    expect(readAll).not.toHaveBeenCalled();
+    h.remoteParticipants.set(h.user.identity, {
+      ...h.user,
+      sid: 'replacement',
+    });
+    speakHandler?.({ readAll }, { identity: h.user.identity });
+    expect(readAll).not.toHaveBeenCalled();
+    h.remoteParticipants.set(h.user.identity, h.user);
+    speakHandler?.({ readAll }, { identity: h.user.identity });
+    expect(readAll).toHaveBeenCalledTimes(1);
+    const before = h.publishData.mock.calls.length;
+    const payload = new TextEncoder().encode(
+      '{"type":"turn_capability","version":1,"nonce":"nonce"}',
+    );
+    for (const participant of [
+      { ...h.user, sid: 'replacement' },
+      { ...h.user, identity: 'foreign' },
+    ]) {
+      h.roomHandlers.dataReceived?.[0]?.(
+        payload,
+        participant,
+        undefined,
+        TURN_TOPIC,
+      );
+    }
+    await Promise.resolve();
+    expect(h.publishData.mock.calls.length).toBe(before);
+    h.roomHandlers.dataReceived?.[0]?.(payload, h.user, undefined, TURN_TOPIC);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(h.publishData.mock.calls.length).toBeGreaterThan(before);
+    h.roomHandlers.participantDisconnected?.[0]?.(h.user);
+    expect(h.shutdown).toHaveBeenCalledWith('trigger browser disconnected');
+  });
+
+  for (const failure of [
+    'metadata',
+    'expired',
+    'room',
+    'accepted-identity',
+    'local-identity',
+    'name',
+    'missing-name',
+  ] as const) {
+    test(`trigger job fails closed on invalid ${failure}`, async () => {
+      const h = triggerJob();
+      if (failure === 'metadata') h.ctx.job.metadata = '';
+      if (failure === 'expired')
+        h.ctx.job.metadata = JSON.stringify({ ...h.binding, expiresAt: 1 });
+      if (failure === 'room')
+        Object.assign(h.ctx.job.room ?? {}, { name: 'wrong' });
+      if (failure === 'accepted-identity')
+        h.ctx.info.acceptArguments.identity = 'wrong';
+      if (failure === 'local-identity')
+        Object.assign(h.ctx.room.localParticipant ?? {}, { identity: 'wrong' });
+      if (failure === 'name') h.ctx.job.agentName = 'wrong';
+      if (failure === 'missing-name') h.ctx.job.agentName = '';
+      await maelstromVoiceJob(h.ctx);
+      expect(h.shutdown).toHaveBeenCalledTimes(1);
+      expect(h.publishTrack).not.toHaveBeenCalled();
+      expect(h.ctx.waitForParticipant).not.toHaveBeenCalled();
+    });
   }
 
   test('publishes tts_ready once after publishTrack and SPEAK_TOPIC registration', async () => {

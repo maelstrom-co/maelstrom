@@ -20,6 +20,7 @@ import type {
   TurnEndMessage,
 } from '@maelstrom-co/realtime-protocol/livekit';
 import {
+  isLiveKitTriggerBinding,
   parseTriggerTurnPacket,
   SPEAK_TOPIC,
   SPEAK_UTTERANCE_ID_ATTR,
@@ -208,6 +209,7 @@ export class LiveKitAdapter
   #activation: AdapterVoiceActivation | undefined;
   #triggerTurns: TriggerTurns | undefined;
   #worker: { identity: string; sid: string } | undefined;
+  #expectedWorkerIdentity: string | undefined;
   #capability:
     | {
         nonce: string;
@@ -384,8 +386,9 @@ export class LiveKitAdapter
    * detection: capture still requests the same processing preferences and the
    * publication remains gated. Capture, clone, mute, publication, or pause
    * failures are fatal and release all acquired local tracks.
-   * Trigger mode first negotiates version-one correlation with a server-designated
-   * agent, retrying one connection nonce for at most five seconds. Missing or
+   * Trigger mode requires a valid worker binding from the trusted mint response,
+   * then negotiates version-one correlation with that expected AGENT identity,
+   * retrying one connection nonce for at most five seconds. Missing or
    * invalid ACKs reject before microphone capture; normal mode does not negotiate.
    * The accepted worker identity and SID remain pinned until disconnect.
    *
@@ -419,8 +422,25 @@ export class LiveKitAdapter
       let token: string;
       let url: string;
       try {
-        ({ token, url } = await this.#mintToken(this.#roomName));
+        const grant = await (_opts.activation
+          ? this.#mintToken(this.#roomName, { trigger: true })
+          : this.#mintToken(this.#roomName));
+        attempt.assertCurrent();
+        ({ token, url } = grant);
+        if (_opts.activation) {
+          if (
+            !isLiveKitTriggerBinding(grant.trigger) ||
+            grant.trigger.expiresAt <= Math.floor(Date.now() / 1000)
+          ) {
+            throw new RealtimeVoiceError(
+              'ACTIVATION_ADAPTER_UNSUPPORTED',
+              'The token endpoint did not provide a valid trigger worker binding',
+            );
+          }
+          this.#expectedWorkerIdentity = grant.trigger.workerIdentity;
+        }
       } catch (error) {
+        if (error instanceof RealtimeVoiceError) throw error;
         throw new RealtimeVoiceError(
           'TOKEN_MINT_FAILED',
           'Failed to mint a LiveKit token',
@@ -869,6 +889,7 @@ export class LiveKitAdapter
   #trustedWorker(participant?: RemoteParticipant): boolean {
     return (
       participant?.kind === ParticipantKind.AGENT &&
+      participant.identity === this.#expectedWorkerIdentity &&
       participant.sid === this.#worker?.sid &&
       participant.identity === this.#worker?.identity
     );
@@ -995,7 +1016,11 @@ export class LiveKitAdapter
       if (this.#room !== room) return;
       if (track.kind !== Track.Kind.Audio) return;
       if (this.#activation && !this.#trustedWorker(participant)) {
-        if (!this.#worker && participant.kind === ParticipantKind.AGENT) {
+        if (
+          !this.#worker &&
+          participant.kind === ParticipantKind.AGENT &&
+          participant.identity === this.#expectedWorkerIdentity
+        ) {
           this.#pendingAudio = { track, participant };
         }
         return;
@@ -1023,11 +1048,18 @@ export class LiveKitAdapter
       // teardown / reconnect), matching the Disconnected handler's guard.
       if (this.#room !== room) return;
       if (topic === TRIGGER_TURN_TOPIC && this.#activation) {
-        if (!participant || participant.kind !== ParticipantKind.AGENT) return;
+        if (
+          !participant ||
+          participant.kind !== ParticipantKind.AGENT ||
+          participant.identity !== this.#expectedWorkerIdentity ||
+          !participant.sid
+        )
+          return;
         const packet = parseTriggerTurnPacket(payload);
         if (!packet) return;
         if (
           packet.type === 'turn_capability_ack' &&
+          !this.#worker &&
           this.#capability?.nonce === packet.nonce
         ) {
           this.#worker = {
@@ -2108,6 +2140,7 @@ export class LiveKitAdapter
     this.#capability = undefined;
     this.#triggerTurns?.close();
     this.#triggerTurns = undefined;
+    this.#expectedWorkerIdentity = undefined;
     this.#activation = undefined;
     this.#worker = undefined;
     this.#pendingAudio = undefined;

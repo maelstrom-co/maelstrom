@@ -170,6 +170,31 @@ creates a loop.
 
 ## Where the keys live
 
+### Trigger-worker trust
+
+Normal LiveKit sessions retain the unnamed automatically dispatched worker.
+Trigger sessions instead use an additional `maelstrom-trigger-v1` registration.
+The token minter generates a fresh room and random worker identity for each
+explicit bootstrap, includes their binding and authorized browser identity in
+the signed token's named room dispatch, and returns that binding over the trusted
+mint transport. SDK-managed reconnects retain the room and binding. Token-based
+dispatch applies on room creation, not to existing rooms; the fresh room avoids
+requiring a dispatch-management service.
+
+The browser checks AGENT kind and expected identity before trusting the first
+ACK, then pins SID for results and media. A nonce provides freshness, not worker
+authorization. The named worker validates metadata/expiry, room and its accepted
+identity before serving, then binds controls and audio to the authorized browser
+identity and SID. Replacement participants require a new bootstrap, not implicit
+rebinding. This protects against a foreign agent racing the intended worker,
+not a compromise of the trusted minter or worker signing credentials.
+
+Run the extra worker explicitly (`dev-trigger-agent` in the demo); existing
+normal startup is unchanged. Both runners retain server-only credentials, and
+no deployment or live-provider validation is implied by local tests.
+
+### Credential custody
+
 Provider credentials stay in the server-side process that needs them. The OpenAI
 key exists only in its minter and authorises the upstream request. LiveKit's key
 and secret exist in both the token endpoint that signs room tokens and the agent

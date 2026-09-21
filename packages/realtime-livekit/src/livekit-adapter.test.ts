@@ -246,8 +246,28 @@ describe('real-session LiveKit trigger admission', () => {
     drainTimeoutMs = 5000,
     acknowledge = true,
     vad: LiveKitAdapterOptions['vad'] = false,
+    withBinding = true,
   ) {
-    const { adapter, events } = makeAdapter(undefined, { vad });
+    const mint = mock(
+      async (_roomName: string, _context?: { trigger: true }) => {
+        worker.identity = `worker-${crypto.randomUUID()}`;
+        return {
+          ...DEFAULT_GRANT,
+          ...(withBinding
+            ? {
+                trigger: {
+                  version: 1 as const,
+                  roomName: `room-${crypto.randomUUID()}`,
+                  browserIdentity: 'user',
+                  workerIdentity: worker.identity,
+                  expiresAt: DEFAULT_GRANT.expiresAt,
+                },
+              }
+            : {}),
+        };
+      },
+    );
+    const { adapter, events } = makeAdapter(mint, { vad });
     const intents: string[] = [];
     const session = new RealtimeSession({
       adapter,
@@ -285,11 +305,26 @@ describe('real-session LiveKit trigger admission', () => {
     const connected = session.connect();
     connected.catch(() => {});
     await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(mint).toHaveBeenCalledWith('room-1', { trigger: true });
+    if (!withBinding) {
+      await connected;
+      throw new Error('missing binding unexpectedly connected');
+    }
     const call = mockPublishData.mock.calls.at(-1) as unknown as [Uint8Array];
     expect(call).toBeDefined();
     const request = JSON.parse(new TextDecoder().decode(call[0]));
     expect(request.type).toBe('turn_capability');
     expect(mockCreateLocalAudioTrack).not.toHaveBeenCalled();
+    const foreignAudio = {
+      kind: 'audio',
+      attach: mock(() => {}),
+      mediaStream: { id: 'foreign-audio' },
+    };
+    currentRoom._emit('trackSubscribed', foreignAudio, undefined, {
+      ...worker,
+      identity: 'foreign-agent',
+      sid: 'foreign-sid',
+    });
     packet(
       { ...request, type: 'turn_capability_ack', drainTimeoutMs },
       { ...worker, kind: 0 },
@@ -301,16 +336,24 @@ describe('real-session LiveKit trigger admission', () => {
       drainTimeoutMs,
     });
     expect(mockCreateLocalAudioTrack).not.toHaveBeenCalled();
+    packet(
+      { ...request, type: 'turn_capability_ack', drainTimeoutMs },
+      { ...worker, identity: 'foreign-agent', sid: 'foreign-sid' },
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(mockCreateLocalAudioTrack).not.toHaveBeenCalled();
     if (acknowledge)
       packet({ ...request, type: 'turn_capability_ack', drainTimeoutMs });
     await connected;
+    expect(foreignAudio.attach).not.toHaveBeenCalled();
     const end = async () => {
       await adapter.turnControl?.startTurn();
       await adapter.turnControl?.endTurn();
       const args = mockPublishData.mock.calls.at(-1) as unknown as [Uint8Array];
       return JSON.parse(new TextDecoder().decode(args[0]));
     };
-    return { adapter, session, intents, events, end };
+    return { adapter, session, intents, events, end, mint };
   }
 
   test('holds a later final behind the trigger and hook without legacy captions or TTS', async () => {
@@ -491,6 +534,81 @@ describe('real-session LiveKit trigger admission', () => {
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(h.session.state).toBe('error');
     expect(h.adapter.turnControl).toBeUndefined();
+    await h.session.disconnect();
+  });
+
+  test('legacy mint callbacks fail closed before negotiation and capture in trigger mode', async () => {
+    await expect(
+      setup(undefined, 5000, true, false, false),
+    ).rejects.toMatchObject({ code: 'ACTIVATION_ADAPTER_UNSUPPORTED' });
+    expect(mockPublishData).not.toHaveBeenCalled();
+    expect(mockCreateLocalAudioTrack).not.toHaveBeenCalled();
+  });
+
+  test('explicit reconnect remints while managed reconnect never replaces the pinned binding', async () => {
+    const h = await setup();
+    const previousWorker = { ...worker };
+    currentRoom._emit('reconnecting');
+    currentRoom._emit('reconnected');
+    expect(h.mint).toHaveBeenCalledTimes(1);
+    await h.session.disconnect();
+    currentRoom = makeMockRoom();
+    mockCreateLocalAudioTrack.mockClear();
+    mockPublishData.mockClear();
+    const connected = h.session.connect();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(h.mint).toHaveBeenCalledTimes(2);
+    expect(worker.identity).not.toBe(previousWorker.identity);
+    const call = mockPublishData.mock.calls.at(-1) as unknown as [Uint8Array];
+    const request = JSON.parse(new TextDecoder().decode(call[0]));
+    packet(
+      { ...request, type: 'turn_capability_ack', drainTimeoutMs: 5000 },
+      previousWorker,
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(mockCreateLocalAudioTrack).not.toHaveBeenCalled();
+    packet({ ...request, type: 'turn_capability_ack', drainTimeoutMs: 5000 });
+    await connected;
+    expect(mockCreateLocalAudioTrack).toHaveBeenCalledTimes(1);
+    await h.session.disconnect();
+  });
+
+  test('same-identity replacement cannot replace the pinned SID or supply results/audio', async () => {
+    const h = await setup();
+    const turn = await h.end();
+    const replacement = { ...worker, sid: 'replacement' };
+    packet(
+      {
+        type: 'turn_capability_ack',
+        version: 1,
+        nonce: turn.nonce,
+        drainTimeoutMs: 5000,
+      },
+      replacement,
+    );
+    packet(
+      {
+        ...turn,
+        type: 'turn_result',
+        outcome: 'success',
+        text: 'hello maelstrom',
+      },
+      replacement,
+    );
+    const track = {
+      kind: 'audio',
+      mediaStream: { id: 'replacement-audio' },
+      attach: mock(() => {}),
+    };
+    currentRoom._emit('trackSubscribed', track, undefined, replacement);
+    currentRoom._emit('participantDisconnected', replacement);
+    expect(track.attach).not.toHaveBeenCalled();
+    expect(h.session.activationState).toBe('waiting');
+    terminal(turn, 'hello maelstrom');
+    expect(h.session.activationState).toBe('active');
+    currentRoom._emit('trackSubscribed', track, undefined, worker);
+    expect(track.attach).toHaveBeenCalledTimes(1);
     await h.session.disconnect();
   });
 

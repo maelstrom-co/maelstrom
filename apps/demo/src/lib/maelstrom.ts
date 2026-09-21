@@ -91,7 +91,10 @@ function createAdapter({
   const browserKeyMode = usesBrowserKey();
   if (!usesOpenAIVoice()) {
     return new LiveKitAdapter({
-      mintToken: (roomName) => getLivekitToken({ data: { roomName } }),
+      mintToken: (roomName, context) =>
+        getLivekitToken({
+          data: { roomName, ...(context?.trigger ? { trigger: true } : {}) },
+        }),
       roomName: `maelstrom-${sessionId}`,
       vad: {
         assetBaseUrl: '/vad-web/',

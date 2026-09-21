@@ -84,6 +84,7 @@ export async function POST(request: Request): Promise<Response> {
   const result = await mintLiveKitToken({
     roomName: authenticated.roomName,
     identity: authenticated.identity,
+    ...(request.headers.get('X-Voice-Mode') === 'trigger' ? { trigger: true } : {}),
   });
   if (!isOk(result)) {
     return Response.json(
@@ -104,7 +105,7 @@ The minter issues only the grants this browser role uses: `roomJoin` for the ser
 
 The server process requires `LIVEKIT_URL`, `LIVEKIT_API_KEY`, and `LIVEKIT_API_SECRET`. `LIVEKIT_TOKEN_TTL` is optional and defaults to `15m`; supported values are a positive integer number of seconds or one `<int><unit>` value using `s`, `m`, `h`, or `d`. Unsupported or unsafe values fail closed as `invalid-config`.
 
-These token and reconnect statements are scoped to the repository's locked `livekit-client` and `livekit-server-sdk` 2.13.1 releases. Re-check the provider's [token generation guide](https://docs.livekit.io/home/server/generating-tokens/) before changing either dependency.
+Trigger dispatch uses the public `RoomConfiguration` and `RoomAgentDispatch` exports in the installed `livekit-server-sdk` 2.17.0. Re-check the provider's [token generation guide](https://docs.livekit.io/home/server/generating-tokens/) before changing the SDK.
 
 <Aside type="danger" title="Repository demo route is development-only">
   The repository demo mint route is development-only. Its implementation at
@@ -125,11 +126,14 @@ import {
   LiveKitTokenGrantSchema,
 } from '@maelstrom-co/realtime-protocol/livekit';
 
-export async function fetchAuthenticatedLiveKitToken(): Promise<LiveKitTokenGrant> {
+export async function fetchAuthenticatedLiveKitToken(context?: { trigger: true }): Promise<LiveKitTokenGrant> {
   const response = await fetch('/api/livekit-token', {
     method: 'POST',
     credentials: 'same-origin',
-    headers: { 'X-CSRF-Token': getCsrfToken() },
+    headers: {
+      'X-CSRF-Token': getCsrfToken(),
+      'X-Voice-Mode': context?.trigger ? 'trigger' : 'normal',
+    },
   });
 
   if (!response.ok) {
@@ -184,7 +188,7 @@ Keep environment values grouped by the process that reads them:
 
 Keep all provider credentials in worker-only or server-only configuration. `MAELSTROM_STT_DRAIN_TIMEOUT_MS` bounds how long the Deepgram stream may take to drain after the worker closes its input, so a stalled stream cannot block the next turn. It must be finite, positive, and no greater than `60000`; any other value fails worker startup rather than changing turn behavior later.
 
-The worker commands and APIs above are scoped to `@livekit/agents`, `@livekit/agents-plugin-deepgram`, and `@livekit/agents-plugin-cartesia` 1.4.8. Follow LiveKit's [voice AI quickstart](https://docs.livekit.io/agents/start/voice-ai/) when upgrading the worker packages, then re-run this guide's compile-checked fixture.
+The trigger runner uses `@livekit/agents` 1.6.2 and `@livekit/rtc-node` 0.13.33. Follow LiveKit's [voice AI quickstart](https://docs.livekit.io/agents/start/voice-ai/) when upgrading the worker packages, then re-run this guide's compile-checked fixture.
 
 ## Connect the adapter
 
@@ -230,7 +234,7 @@ phrase, configure the voice extension, not the VAD detector:
 maelstromRealtime({
   createAdapter: ({ sessionId }) => new LiveKitAdapter({
     roomName: `maelstrom-${sessionId}`,
-    mintToken: () => fetchAuthenticatedLiveKitToken(),
+    mintToken: (_roomName, context) => fetchAuthenticatedLiveKitToken(context),
   }),
   activation: {
     mode: 'trigger',
@@ -241,9 +245,35 @@ maelstromRealtime({
 });
 ```
 
-Run the **updated worker** with correlated-turn support and a LiveKit
-server-designated **agent participant**. The adapter pins that participant and
-negotiates support before microphone capture, under a **5-second** deadline.
+Trigger mode also requires a **separate named worker**. Keep `runVoiceAgent()`
+for normal automatic dispatch; start `runTriggerVoiceAgent()` in a second
+process for the `maelstrom-trigger-v1` registration. It uses the same server-only
+credentials and health port **8082**, distinct from the normal runner's default
+8081. In the demo, run `bun --cwd apps/demo run dev-trigger-agent` in a second
+terminal alongside `bun --cwd apps/demo run dev-livekit`. Neither existing
+startup command starts the new worker automatically.
+
+The adapter passes `{ trigger: true }` as the optional second mint callback
+argument. Forward this opt-in to your authenticated endpoint, as above. The
+minter generates a fresh effective room and random worker identity, signs named
+dispatch metadata into the room-creation token, and returns the matching
+`grant.trigger` binding. Never accept expected-worker identities or dispatch
+metadata from the browser. The requested `roomName` remains a request namespace
+in trigger mode; the signed token selects the effective room. Each explicit
+connect gets a new room, while SDK-managed reconnects retain the existing room
+and binding. Token dispatch does not create another job for an existing room.
+
+LiveKit's configured room dispatch list replaces the default unnamed dispatch
+for a fresh room ([dispatch documentation](https://docs.livekit.io/agents/server/agent-dispatch/)).
+Thus normal and trigger workers coexist without both processing a trigger room.
+The worker rejects malformed, expired or wrong-room metadata before serving it,
+joins with the server-selected identity, and pins the authorized browser SID.
+
+Before accepting even the first capability ACK, the browser requires both
+LiveKit's **AGENT** kind and the **identity from the trusted grant**, then pins
+the SID for controls, results and audio. A matching nonce alone is not identity
+proof. Missing binding fails before negotiation or microphone capture. Valid
+binding proceeds to negotiation under a **5-second** deadline.
 An old, absent, or incompatible worker fails closed; legacy uncorrelated
 transcripts never become a fallback trigger path. Normal mode keeps the legacy
 path. Capability support does not prove that a transcription handler is ready:

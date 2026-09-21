@@ -15,6 +15,7 @@ import {
   cli,
   defineAgent,
   type JobContext,
+  type JobRequest,
   ServerOptions,
   stt,
   tts,
@@ -34,9 +35,11 @@ import {
   TrackSource,
 } from '@livekit/rtc-node';
 import {
+  parseLiveKitTriggerBinding,
   parseTriggerTurnPacket,
   SPEAK_TOPIC,
   SPEAK_UTTERANCE_ID_ATTR,
+  TRIGGER_AGENT_NAME,
   TRIGGER_TURN_TOPIC,
   type TriggerTurnResult,
   TTS_READY_TOPIC,
@@ -241,17 +244,46 @@ const PARTICIPANT_JOIN_TIMEOUT_MS = 60_000;
 /**
  * LiveKit job entry for the Maelstrom voice worker. Exported so tests can run
  * the real job against a mocked {@link JobContext}.
+ * Named trigger jobs require unexpired metadata matching the dispatch room and
+ * accepted/local worker identity; invalid binding shuts down without provider
+ * setup. The authorized browser identity and first joined SID fence controls,
+ * text streams and media. Browser loss shuts down rather than rebinding.
+ * Unnamed normal jobs retain the legacy `user` identity and lifecycle.
  */
 export async function maelstromVoiceJob(ctx: JobContext): Promise<void> {
+  const named =
+    Boolean(ctx.job?.agentName) ||
+    ctx.info?.acceptArguments.name === TRIGGER_AGENT_NAME;
+  const binding = named
+    ? parseLiveKitTriggerBinding(ctx.job.metadata)
+    : undefined;
+  if (
+    named &&
+    (!binding ||
+      ctx.job.agentName !== TRIGGER_AGENT_NAME ||
+      ctx.job.room?.name !== binding.roomName ||
+      ctx.info.acceptArguments.identity !== binding.workerIdentity)
+  ) {
+    ctx.shutdown('invalid trigger dispatch');
+    return;
+  }
   // Connect the agent to the room first — waitForParticipant requires a
   // connected room, and the agent must be joined to publish transcriptions.
   await ctx.connect();
+  if (
+    binding &&
+    (ctx.room.name !== binding.roomName ||
+      ctx.room.localParticipant?.identity !== binding.workerIdentity)
+  ) {
+    ctx.shutdown('invalid trigger participant');
+    return;
+  }
 
   // Wait for the user participant to join, but never hang forever: if nobody
   // connects before the deadline, release the job instead of holding the slot.
   const userParticipant = await waitForParticipantOrTimeout(
     ctx,
-    USER_PARTICIPANT_IDENTITY,
+    binding?.browserIdentity ?? USER_PARTICIPANT_IDENTITY,
     PARTICIPANT_JOIN_TIMEOUT_MS,
   );
   if (!userParticipant) {
@@ -263,6 +295,20 @@ export async function maelstromVoiceJob(ctx: JobContext): Promise<void> {
   // (which lose flow narrowing across the function boundary) use it without an
   // assertion — same pattern as localParticipant.
   const user = userParticipant;
+  const userSid = user.sid;
+  if (binding && (user.identity !== binding.browserIdentity || !userSid)) {
+    ctx.shutdown('invalid trigger browser');
+    return;
+  }
+  let triggerClosed = false;
+  if (binding) {
+    ctx.room.on(RoomEvent.ParticipantDisconnected, (participant) => {
+      if (participant.identity !== user.identity || participant.sid !== userSid)
+        return;
+      triggerClosed = true;
+      ctx.shutdown('trigger browser disconnected');
+    });
+  }
 
   const deepgramSTT = new STT({
     apiKey: process.env.DEEPGRAM_API_KEY,
@@ -296,7 +342,9 @@ export async function maelstromVoiceJob(ctx: JobContext): Promise<void> {
     RoomEvent.DataReceived,
     createTurnControlHandler({
       boundIdentity: user.identity,
-      endTurn: (result) => flushActiveTurn?.(result),
+      boundSid: binding ? userSid : undefined,
+      endTurn: (result) =>
+        triggerClosed ? undefined : flushActiveTurn?.(result),
       correlation: {
         drainTimeoutMs,
         publish: (packet) =>
@@ -401,29 +449,37 @@ export async function maelstromVoiceJob(ctx: JobContext): Promise<void> {
   cancelActiveTts = () => cancelInFlightTts(activeTtsStream, ttsSource);
 
   // Client sends `userMessage ?? summary` over the `speak` text stream.
-  room.registerTextStreamHandler(
-    SPEAK_TOPIC,
-    createSpeakHandler({
-      speak,
-      onSpeakError: async (caught, utteranceId) => {
-        logWorkerDiagnostic('error', 'tts-synthesis-failed', caught);
-        // Signal the client so its UI can indicate speak-back failed rather
-        // than waiting indefinitely for audio that will never arrive.
-        try {
-          const error: TtsErrorMessage = {
-            type: 'tts_error',
-            utteranceId,
-          };
-          await localParticipant.publishData(
-            new TextEncoder().encode(JSON.stringify(error)),
-            { reliable: true, topic: TTS_TOPIC },
-          );
-        } catch (error) {
-          logWorkerDiagnostic('error', 'tts-status-publication-failed', error);
-        }
-      },
-    }),
-  );
+  const handleSpeak = createSpeakHandler({
+    speak: (text, utteranceId) =>
+      triggerClosed ? Promise.resolve() : speak(text, utteranceId),
+    onSpeakError: async (caught, utteranceId) => {
+      logWorkerDiagnostic('error', 'tts-synthesis-failed', caught);
+      // Signal the client so its UI can indicate speak-back failed rather
+      // than waiting indefinitely for audio that will never arrive.
+      try {
+        const error: TtsErrorMessage = {
+          type: 'tts_error',
+          utteranceId,
+        };
+        await localParticipant.publishData(
+          new TextEncoder().encode(JSON.stringify(error)),
+          { reliable: true, topic: TTS_TOPIC },
+        );
+      } catch (error) {
+        logWorkerDiagnostic('error', 'tts-status-publication-failed', error);
+      }
+    },
+  });
+  room.registerTextStreamHandler(SPEAK_TOPIC, (reader, participant) => {
+    if (
+      binding &&
+      (triggerClosed ||
+        participant.identity !== user.identity ||
+        room.remoteParticipants.get(participant.identity)?.sid !== userSid)
+    )
+      return;
+    handleSpeak(reader);
+  });
 
   // Greeting gate: LiveKit drops a SPEAK_TOPIC text stream sent before this
   // handler (and the TTS track above) exist. Announce readiness after both and
@@ -442,6 +498,7 @@ export async function maelstromVoiceJob(ctx: JobContext): Promise<void> {
   };
   room.on(RoomEvent.ParticipantConnected, (participant) => {
     if (participant.identity !== user.identity) return;
+    if (binding && (triggerClosed || participant.sid !== userSid)) return;
     void publishTtsReady();
   });
   await publishTtsReady();
@@ -508,7 +565,9 @@ export async function maelstromVoiceJob(ctx: JobContext): Promise<void> {
 
   const handleMicrophoneTrack = createSubscribedMicrophoneTrackHandler({
     expectedIdentity: user.identity,
-    processTrack: processAudioTrack,
+    expectedSid: binding ? userSid : undefined,
+    processTrack: (track) =>
+      triggerClosed ? Promise.resolve() : processAudioTrack(track),
     onIgnoredTrack: () => {
       logWorkerDiagnostic('warn', 'overlapping-microphone-track');
     },
@@ -588,6 +647,45 @@ export function runVoiceAgent() {
       // package's `engines` allows 20.0. On those releases it is undefined, so
       // the worker starts with no agent module path and fails far from here.
       agent: fileURLToPath(import.meta.url),
+      wsURL,
+      apiKey,
+      apiSecret,
+    }),
+  );
+}
+
+/** Rejects malformed, expired or wrong-room named jobs; accepts only the server-selected participant identity. */
+export async function acceptTriggerVoiceJob(
+  request: Pick<JobRequest, 'agentName' | 'job' | 'room' | 'accept' | 'reject'>,
+): Promise<void> {
+  const binding = parseLiveKitTriggerBinding(request.job.metadata);
+  if (
+    request.agentName !== TRIGGER_AGENT_NAME ||
+    !binding ||
+    request.room?.name !== binding.roomName
+  ) {
+    await request.reject();
+    return;
+  }
+  await request.accept(TRIGGER_AGENT_NAME, binding.workerIdentity);
+}
+
+/**
+ * Starts the opt-in named trigger worker, separately from the unnamed normal worker.
+ * Uses the same server-only credentials and startup validation as runVoiceAgent,
+ * with health port 8082 so both runners can coexist on one host;
+ * invalid dispatch metadata rejects before joining or opening provider streams.
+ * Calling this function starts a worker; importing the package does not.
+ */
+export function runTriggerVoiceAgent(): void {
+  const { wsURL, apiKey, apiSecret } = resolveLiveKitCredentials();
+  derivePendingAudioMsLimit(resolveSttDrainTimeoutMs());
+  cli.runApp(
+    new ServerOptions({
+      agent: fileURLToPath(import.meta.url),
+      agentName: TRIGGER_AGENT_NAME,
+      port: 8082,
+      requestFunc: acceptTriggerVoiceJob,
       wsURL,
       apiKey,
       apiSecret,
@@ -800,7 +898,7 @@ function parseUtteranceId(raw: string | undefined): number | undefined {
   return Number.isFinite(id) ? id : undefined;
 }
 
-type TurnControlParticipant = { identity: string } | undefined;
+type TurnControlParticipant = { identity: string; sid?: string } | undefined;
 
 /**
  * Creates the room-scoped control listener for push-to-talk boundaries and TTS
@@ -832,6 +930,8 @@ type TurnControlParticipant = { identity: string } | undefined;
  */
 export function createTurnControlHandler(deps: {
   boundIdentity: string;
+  /** Trigger-mode SID fence; omitted for legacy identity-only controls. */
+  boundSid?: string;
   /** Installs the result observer on the FIFO boundary; absent handler returns undefined. */
   endTurn: (
     result?: (value: SpeechTurnResult) => void,
@@ -902,7 +1002,11 @@ export function createTurnControlHandler(deps: {
       .finally(() => clearTimeout(timer));
   };
   return (payload, participant, _kind, topic) => {
-    if (topic !== TURN_TOPIC || participant?.identity !== deps.boundIdentity) {
+    if (
+      topic !== TURN_TOPIC ||
+      participant?.identity !== deps.boundIdentity ||
+      (deps.boundSid !== undefined && participant?.sid !== deps.boundSid)
+    ) {
       return;
     }
     if (payload.byteLength > 262_144) {
@@ -1046,14 +1150,21 @@ export function createTurnControlHandler(deps: {
  */
 export function createSubscribedMicrophoneTrackHandler(deps: {
   expectedIdentity: string;
+  /** Trigger-mode SID fence; omitted for legacy identity-only audio. */
+  expectedSid?: string;
   processTrack: (track: RemoteTrack) => Promise<void>;
   onIgnoredTrack: () => void;
   onProcessingError: (error: unknown) => void | Promise<void>;
-}): (track: RemoteTrack, participant: { identity: string }) => void {
+}): (
+  track: RemoteTrack,
+  participant: { identity: string; sid?: string },
+) => void {
   let active = false;
   return (track, participant) => {
     if (
       participant.identity !== deps.expectedIdentity ||
+      (deps.expectedSid !== undefined &&
+        participant.sid !== deps.expectedSid) ||
       track.kind !== TrackKind.KIND_AUDIO
     ) {
       return;
