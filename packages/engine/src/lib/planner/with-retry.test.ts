@@ -351,6 +351,17 @@ describe('withRetry', () => {
       expect(rec.contexts[2]?.signal).toBe(controller.signal);
     });
 
+    test('without a signal every attempt sees none', async () => {
+      const rec = recordingStage([overflow, clean]);
+
+      await withRetry(rec.stage, { max: 3 })(makePlanningInput(), rec.ctx);
+
+      expect(rec.contexts.map((ctx) => ctx.signal)).toEqual([
+        undefined,
+        undefined,
+      ]);
+    });
+
     test('an abort after an attempt still runs the next attempt, whose Err ends the loop', async () => {
       const controller = new AbortController();
       let secondCallSawAborted = false;
@@ -468,6 +479,18 @@ describe('withRetry', () => {
       expect(isOk(result) && result.value).toBe(rec.candidates[0]);
       expect(rec.inputs).toHaveLength(1);
       expect(rec.inputs[0]?.retry).toBeUndefined();
+    });
+
+    test('max=0 with recommend=false is the same as not retrying', async () => {
+      const rec = recordingStage([clean]);
+
+      const result = await withRetry(rec.stage, { max: 0 })(
+        makePlanningInput(),
+        rec.ctx,
+      );
+
+      expect(isOk(result) && result.value).toBe(rec.candidates[0]);
+      expect(rec.inputs).toHaveLength(1);
     });
 
     test('max=0 does not emit "Retries exhausted": nothing was retried', async () => {

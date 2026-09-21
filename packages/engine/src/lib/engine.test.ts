@@ -5,10 +5,12 @@ import {
   ActionName,
   AssistantInjectionMessage,
   ChartRequestMessage,
+  err,
   InstanceId,
   isErr,
   isOk,
   MessageId,
+  ok,
   SessionId,
 } from '@maelstrom-co/protocol';
 import {
@@ -21,10 +23,23 @@ import {
   makeTilingRequest,
   silentLogger,
 } from './__test-helpers__/fixtures.js';
+import { spyLogger } from './__test-helpers__/stage-context.js';
 import type { EngineConfig } from './config.js';
 import { createEngine } from './engine.js';
+import { providerError } from './errors.js';
 import type { HistoryEntry, HistoryStore } from './history/history-store.js';
 import { createInMemoryStore } from './history/in-memory-store.js';
+import { llmPlanner } from './planner/llm-planner.js';
+import { pipeline } from './planner/pipeline.js';
+import type {
+  Planner,
+  PlannerCandidate,
+  PlanningInput,
+  Retryable,
+  StageContext,
+} from './planner/stage.js';
+import { deferred } from './planner/stage.js';
+import { withFallback } from './planner/with-fallback.js';
 
 // ---------------------------------------------------------------------------
 // Mock TanStack AI chat()
@@ -55,32 +70,38 @@ afterEach(() => {
 describe('createEngine', () => {
   test.each([
     {
-      name: 'missing adapter',
+      name: 'missing planner',
       config: {} as EngineConfig,
-      pattern: /adapter/,
+      pattern: /planner/,
     },
     {
-      name: 'adapter missing required methods',
-      config: {
-        adapter: { kind: 'text', name: 'x', model: 'm' },
-      } as unknown as EngineConfig,
-      pattern: /adapter\.(chatStream|structuredOutput)/,
+      name: 'planner is not a function',
+      config: { planner: { adapter: dummyAdapter } } as unknown as EngineConfig,
+      pattern: /planner \[custom\]: expected function/,
     },
     {
-      name: 'unrecognized root key (typo)',
+      name: 'adapter passed to the engine instead of llmPlanner',
       config: {
+        planner: llmPlanner({ adapter: dummyAdapter }),
         adapter: dummyAdapter,
-        prompts: {},
       } as unknown as EngineConfig,
-      pattern: /unrecognized|prompts/i,
+      pattern: /unrecognized|adapter/i,
     },
     {
-      name: 'invalid nested prompt field',
+      name: 'removed maxRetries key',
       config: {
-        adapter: dummyAdapter,
-        prompt: { vars: { assistantName: 42 } },
+        planner: llmPlanner({ adapter: dummyAdapter }),
+        maxRetries: 1,
       } as unknown as EngineConfig,
-      pattern: /prompt\.vars\.assistantName/,
+      pattern: /unrecognized|maxRetries/i,
+    },
+    {
+      name: 'invalid retry budget',
+      config: {
+        planner: llmPlanner({ adapter: dummyAdapter }),
+        retry: { max: -1 },
+      } as unknown as EngineConfig,
+      pattern: /retry/,
     },
   ])('throws synchronously when config is invalid ($name)', ({
     config,
@@ -102,47 +123,11 @@ describe('createEngine', () => {
   });
 
   test('returns an Engine for a valid minimal config', () => {
-    const engine = createEngine({ adapter: dummyAdapter });
+    const engine = createEngine({
+      planner: llmPlanner({ adapter: dummyAdapter }),
+    });
     expect(engine).toBeDefined();
     expect(typeof engine.handle).toBe('function');
-  });
-
-  test.each([
-    {
-      name: 'function customizer on unknown key',
-      system: { unknownKey: () => 'oops' },
-      pattern: /is not a default section/,
-    },
-    {
-      name: 'function customizer that throws',
-      system: {
-        rules: () => {
-          throw new Error('boom');
-        },
-      },
-      pattern: /customizer for "rules" threw: boom/,
-    },
-  ])('throws synchronously when a system prompt customizer is misconfigured ($name)', ({
-    system,
-    pattern,
-  }) => {
-    let caught: unknown;
-    try {
-      createEngine({
-        adapter: dummyAdapter,
-        logger: silentLogger,
-        prompt: { system },
-      });
-    } catch (e) {
-      caught = e;
-    }
-    expect(caught).toBeInstanceOf(Error);
-    const error = caught as Error;
-    // Same `Invalid EngineConfig:` shape as Zod-config failures so consumers
-    // can match a single prefix to detect any factory-time misconfig.
-    expect(error.message).toMatch(/^Invalid EngineConfig: prompt\.system:/);
-    expect(error.message).toMatch(pattern);
-    expect(error.cause).toBeInstanceOf(Error);
   });
 });
 
@@ -154,19 +139,21 @@ describe('createEngine — system prompt memoization', () => {
   test('derives system prompts once per createEngine and routes by layout mode', async () => {
     let customizerCalls = 0;
     const engine = createEngine({
-      adapter: dummyAdapter,
-      logger: silentLogger,
-      prompt: {
-        system: {
-          rules: (defaults) => {
-            customizerCalls++;
-            return `${defaults}\n\nSENTINEL_RULES`;
+      planner: llmPlanner({
+        adapter: dummyAdapter,
+        prompt: {
+          system: {
+            rules: (defaults) => {
+              customizerCalls++;
+              return `${defaults}\n\nSENTINEL_RULES`;
+            },
           },
         },
-      },
+      }),
+      logger: silentLogger,
     });
 
-    // One customizer call per mode at factory time (grid + tiling).
+    // One customizer call per mode at planner construction (grid + tiling).
     expect(customizerCalls).toBe(2);
 
     const tilingLLMResponse = brandTilingResponse({
@@ -221,15 +208,17 @@ describe('createEngine — system prompt memoization', () => {
 
   test('user-customizer errors still surface as Result err per request', async () => {
     const engine = createEngine({
-      adapter: dummyAdapter,
-      logger: silentLogger,
-      prompt: {
-        user: {
-          vessels: () => {
-            throw new Error('user boom');
+      planner: llmPlanner({
+        adapter: dummyAdapter,
+        prompt: {
+          user: {
+            vessels: () => {
+              throw new Error('user boom');
+            },
           },
         },
-      },
+      }),
+      logger: silentLogger,
     });
 
     const result = await engine.handle(
@@ -269,7 +258,7 @@ describe('engine.handle — chart_request', () => {
     mockChat.mockResolvedValueOnce(gridLLMResponse);
 
     const engine = createEngine({
-      adapter: dummyAdapter,
+      planner: llmPlanner({ adapter: dummyAdapter }),
       logger: silentLogger,
     });
     const request = makeGridRequest();
@@ -292,7 +281,7 @@ describe('engine.handle — chart_request', () => {
     mockChat.mockResolvedValueOnce(gridLLMResponse);
 
     const engine = createEngine({
-      adapter: dummyAdapter,
+      planner: llmPlanner({ adapter: dummyAdapter }),
       logger: silentLogger,
     });
     await engine.handle(toChartRequestMessage(makeGridRequest()));
@@ -310,7 +299,7 @@ describe('engine.handle — chart_request', () => {
     mockChat.mockRejectedValueOnce(new Error('LLM service unavailable'));
 
     const engine = createEngine({
-      adapter: dummyAdapter,
+      planner: llmPlanner({ adapter: dummyAdapter }),
       logger: silentLogger,
     });
     const result = await engine.handle(
@@ -327,7 +316,7 @@ describe('engine.handle — chart_request', () => {
     mockChat.mockRejectedValueOnce('rate limited');
 
     const engine = createEngine({
-      adapter: dummyAdapter,
+      planner: llmPlanner({ adapter: dummyAdapter }),
       logger: silentLogger,
     });
     const result = await engine.handle(
@@ -344,7 +333,7 @@ describe('engine.handle — chart_request', () => {
     mockChat.mockResolvedValueOnce(gridLLMResponse);
 
     const engine = createEngine({
-      adapter: dummyAdapter,
+      planner: llmPlanner({ adapter: dummyAdapter }),
       logger: silentLogger,
     });
     await engine.handle(toChartRequestMessage(makeGridRequest()));
@@ -355,7 +344,7 @@ describe('engine.handle — chart_request', () => {
 
   test('returns CancellationError when the signal is already aborted', async () => {
     const engine = createEngine({
-      adapter: dummyAdapter,
+      planner: llmPlanner({ adapter: dummyAdapter }),
       logger: silentLogger,
     });
 
@@ -381,7 +370,7 @@ describe('engine.handle — chart_request', () => {
     });
 
     const engine = createEngine({
-      adapter: dummyAdapter,
+      planner: llmPlanner({ adapter: dummyAdapter }),
       logger: silentLogger,
     });
     const result = await engine.handle(
@@ -402,7 +391,7 @@ describe('engine.handle — chart_request', () => {
       },
     };
     const engine = createEngine({
-      adapter: dummyAdapter,
+      planner: llmPlanner({ adapter: dummyAdapter }),
       logger: silentLogger,
       history: { maxEntries: 10, maxChars: 1_000, store: throwingStore },
     });
@@ -432,7 +421,7 @@ describe('engine.handle — chart_request', () => {
       },
     };
     const engine = createEngine({
-      adapter: dummyAdapter,
+      planner: llmPlanner({ adapter: dummyAdapter }),
       logger: silentLogger,
       history: { maxEntries: 10, maxChars: 1_000, store: throwingStore },
     });
@@ -473,7 +462,7 @@ describe('engine.handle — chart_request', () => {
     const sessionId = SessionId('failing-session');
     const messageId = MessageId('failing-msg');
     const engine = createEngine({
-      adapter: dummyAdapter,
+      planner: llmPlanner({ adapter: dummyAdapter }),
       logger: captureLogger,
       history: { maxEntries: 10, maxChars: 1_000, store: throwingStore },
     });
@@ -503,7 +492,7 @@ describe('engine.handle — chart_request', () => {
       },
     };
     const engine = createEngine({
-      adapter: dummyAdapter,
+      planner: llmPlanner({ adapter: dummyAdapter }),
       logger: silentLogger,
       history: { maxEntries: 10, maxChars: 1_000, store: recordThrows },
     });
@@ -525,7 +514,9 @@ describe('engine.handle — chart_request', () => {
 
   test('uses consoleLogger when no logger is provided', async () => {
     mockChat.mockResolvedValueOnce(gridLLMResponse);
-    const engine = createEngine({ adapter: dummyAdapter });
+    const engine = createEngine({
+      planner: llmPlanner({ adapter: dummyAdapter }),
+    });
     const result = await engine.handle(
       toChartRequestMessage(makeGridRequest()),
     );
@@ -536,9 +527,11 @@ describe('engine.handle — chart_request', () => {
     mockChat.mockResolvedValueOnce(gridLLMResponse);
 
     const engine = createEngine({
-      adapter: dummyAdapter,
+      planner: llmPlanner({
+        adapter: dummyAdapter,
+        prompt: { system: { identity: 'You are a custom assistant.' } },
+      }),
       logger: silentLogger,
-      prompt: { system: { identity: 'You are a custom assistant.' } },
     });
     const result = await engine.handle(
       toChartRequestMessage(makeGridRequest()),
@@ -564,7 +557,7 @@ describe('engine.handle — chart_request', () => {
     mockChat.mockResolvedValueOnce(responseWithActions);
 
     const engine = createEngine({
-      adapter: dummyAdapter,
+      planner: llmPlanner({ adapter: dummyAdapter }),
       logger: silentLogger,
     });
     const result = await engine.handle(
@@ -639,7 +632,10 @@ describe('engine.handle — chart_request', () => {
         ],
       }),
     );
-    const engine = createEngine({ adapter: dummyAdapter, logger });
+    const engine = createEngine({
+      planner: llmPlanner({ adapter: dummyAdapter }),
+      logger,
+    });
 
     const result = await engine.handle(
       toChartRequestMessage(makeGridRequest()),
@@ -726,7 +722,7 @@ describe('engine.handle — chart_request', () => {
     });
 
     const engine = createEngine({
-      adapter: dummyAdapter,
+      planner: llmPlanner({ adapter: dummyAdapter }),
       logger: silentLogger,
     });
     const tilingId = MessageId('req-tiling');
@@ -784,7 +780,7 @@ describe('engine.handle — chart_request', () => {
     // Two-instance request so the partial-heal layout still has one
     // surviving position → recommend=false at severity 'medium'.
     const engine = createEngine({
-      adapter: dummyAdapter,
+      planner: llmPlanner({ adapter: dummyAdapter }),
       logger: spyLogger,
     });
     const request = makeGridRequest({
@@ -833,7 +829,10 @@ describe('engine.handle — chart_request', () => {
         logEntries.push({ msg, ctx }),
     };
 
-    const engine = createEngine({ adapter: dummyAdapter, logger: spyLogger });
+    const engine = createEngine({
+      planner: llmPlanner({ adapter: dummyAdapter }),
+      logger: spyLogger,
+    });
     await engine.handle(
       toChartRequestMessage(
         makeGridRequest({
@@ -900,7 +899,7 @@ describe('engine.handle — chart_request', () => {
     };
 
     const engine = createEngine({
-      adapter: dummyAdapter,
+      planner: llmPlanner({ adapter: dummyAdapter }),
       logger: spyLogger,
     });
     await engine.handle(toChartRequestMessage(makeGridRequest()));
@@ -952,7 +951,10 @@ describe('engine.handle — chart_request', () => {
         logEntries.push({ level: 'error', msg, ctx }),
     };
 
-    const engine = createEngine({ adapter: dummyAdapter, logger: spyLogger });
+    const engine = createEngine({
+      planner: llmPlanner({ adapter: dummyAdapter }),
+      logger: spyLogger,
+    });
     const request = makeGridRequest({
       instances: [
         {
@@ -1011,9 +1013,9 @@ describe('engine.handle — retry on retryHint.recommend', () => {
     mockChat.mockResolvedValueOnce(gridLLMResponse);
 
     const engine = createEngine({
-      adapter: dummyAdapter,
+      planner: llmPlanner({ adapter: dummyAdapter }),
       logger: silentLogger,
-      maxRetries: 3,
+      retry: { max: 3 },
     });
     const result = await engine.handle(
       toChartRequestMessage(makeGridRequest()),
@@ -1036,7 +1038,7 @@ describe('engine.handle — retry on retryHint.recommend', () => {
     // Heal guarantees every Ok is renderable; the last partial flows through
     // rather than becoming a synthetic error. A degraded UI beats a blocked
     // turn under the realtime-UX principle. Spy logger pins the integration
-    // path that wires `config.logger` into `callWithRetry` end-to-end — a
+    // path that wires `config.logger` into `withRetry` end-to-end — a
     // future refactor passing `silentLogger` instead would fail here.
     mockChat.mockResolvedValue(layoutEmptyingResponse);
 
@@ -1052,9 +1054,9 @@ describe('engine.handle — retry on retryHint.recommend', () => {
     };
 
     const engine = createEngine({
-      adapter: dummyAdapter,
+      planner: llmPlanner({ adapter: dummyAdapter }),
       logger: spyLogger,
-      maxRetries: 2,
+      retry: { max: 2 },
     });
     const result = await engine.handle(
       toChartRequestMessage(makeGridRequest()),
@@ -1100,9 +1102,9 @@ describe('engine.handle — retry on retryHint.recommend', () => {
     mockChat.mockResolvedValueOnce(gridLLMResponse);
 
     const engine = createEngine({
-      adapter: dummyAdapter,
+      planner: llmPlanner({ adapter: dummyAdapter }),
       logger: silentLogger,
-      maxRetries: 3,
+      retry: { max: 3 },
     });
     const result = await engine.handle(
       toChartRequestMessage(makeGridRequest()),
@@ -1117,11 +1119,11 @@ describe('engine.handle — retry on retryHint.recommend', () => {
     expect(lastUserMessage).not.toContain('exceeds chart bounds');
   });
 
-  test('default maxRetries is 1 (2 total attempts before shipping partial)', async () => {
+  test('default retry is { max: 1 } (2 total attempts before shipping partial)', async () => {
     mockChat.mockResolvedValue(layoutEmptyingResponse);
 
     const engine = createEngine({
-      adapter: dummyAdapter,
+      planner: llmPlanner({ adapter: dummyAdapter }),
       logger: silentLogger,
     });
     const result = await engine.handle(
@@ -1132,13 +1134,13 @@ describe('engine.handle — retry on retryHint.recommend', () => {
     expect(mockChat).toHaveBeenCalledTimes(2);
   });
 
-  test('maxRetries=0 disables retry — ships the first response unconditionally', async () => {
+  test('retry { max: 0 } disables retry — ships the first response unconditionally', async () => {
     mockChat.mockResolvedValueOnce(layoutEmptyingResponse);
 
     const engine = createEngine({
-      adapter: dummyAdapter,
+      planner: llmPlanner({ adapter: dummyAdapter }),
       logger: silentLogger,
-      maxRetries: 0,
+      retry: { max: 0 },
     });
     const result = await engine.handle(
       toChartRequestMessage(makeGridRequest()),
@@ -1158,9 +1160,9 @@ describe('engine.handle — retry on retryHint.recommend', () => {
     });
 
     const engine = createEngine({
-      adapter: dummyAdapter,
+      planner: llmPlanner({ adapter: dummyAdapter }),
       logger: silentLogger,
-      maxRetries: 3,
+      retry: { max: 3 },
     });
     const result = await engine.handle(
       toChartRequestMessage(makeGridRequest()),
@@ -1172,7 +1174,7 @@ describe('engine.handle — retry on retryHint.recommend', () => {
 
   test('processResponse Err (empty userMessage) short-circuits — no retry, surfaces ParseError', async () => {
     // Pins the fatal short-circuit on the processResponse Err path: an empty
-    // userMessage produces a ParseError that callWithRetry surfaces
+    // userMessage produces a ParseError that withRetry surfaces
     // immediately rather than burning retries. A regression that mapped
     // processResponse Errs into Ok-with-recommend would silently retry on
     // user-visible parse failures.
@@ -1182,9 +1184,9 @@ describe('engine.handle — retry on retryHint.recommend', () => {
     });
 
     const engine = createEngine({
-      adapter: dummyAdapter,
+      planner: llmPlanner({ adapter: dummyAdapter }),
       logger: silentLogger,
-      maxRetries: 3,
+      retry: { max: 3 },
     });
     const result = await engine.handle(
       toChartRequestMessage(makeGridRequest()),
@@ -1194,6 +1196,386 @@ describe('engine.handle — retry on retryHint.recommend', () => {
     if (!isErr(result)) return;
     expect(result.error._tag).toBe('ParseError');
     expect(mockChat).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Planner seam
+// ---------------------------------------------------------------------------
+
+describe('engine.handle with a configured planner', () => {
+  const layoutEmptying = () =>
+    buildGridResponse({
+      layout: {
+        positions: [
+          {
+            instanceId: 'calendar-main',
+            position: { row: 0, column: 0 },
+            size: { width: 15, height: 4 },
+          },
+        ],
+      },
+    });
+
+  const resizeOnlyRequest = () =>
+    makeGridRequest({
+      context: {
+        updateReasons: [
+          {
+            type: 'chart_resize',
+            previous: { columns: 12, rows: 8 },
+            current: { columns: 8, rows: 8 },
+          },
+        ],
+        chartDimensions: { columns: 8, rows: 8 },
+        layoutMode: 'grid',
+      },
+    });
+
+  test('runs a custom stage end to end with the request, history and context', async () => {
+    const inputs: PlanningInput[] = [];
+    const contexts: StageContext[] = [];
+    const planner: Planner = async (input, ctx) => {
+      inputs.push(input);
+      contexts.push(ctx);
+      return ok(buildGridResponse({ userMessage: 'from a custom stage' }));
+    };
+    const { logger } = spyLogger();
+    const engine = createEngine({ planner, logger });
+    const request = makeGridRequest();
+
+    const result = await engine.handle(toChartRequestMessage(request));
+
+    expect(isOk(result)).toBe(true);
+    if (!isOk(result) || result.value.type !== 'chart_response') return;
+    expect(result.value.response.userMessage).toBe('from a custom stage');
+    expect(result.value.response.requestId).toBe(DEFAULT_MESSAGE_ID);
+    expect(result.value.response).not.toHaveProperty('diagnostics');
+    expect(mockChat).not.toHaveBeenCalled();
+    expect(inputs).toHaveLength(1);
+    expect(inputs[0]).toEqual({
+      messageId: DEFAULT_MESSAGE_ID,
+      sessionId: DEFAULT_SESSION_ID,
+      request,
+      history: [],
+    });
+    expect(contexts[0]?.origin).toBe(inputs[0]);
+    expect(contexts[0]?.logger).toBe(logger);
+  });
+
+  test('composes stages with pipeline and feeds prior history to the first', async () => {
+    const store = createInMemoryStore();
+    let seenHistory: PlanningInput['history'] | undefined;
+    const planner = pipeline(
+      async (input: PlanningInput) => {
+        seenHistory = input.history;
+        return ok({ greeting: `turn ${input.history.length / 2 + 1}` });
+      },
+      async (selection: { greeting: string }) =>
+        ok(buildGridResponse({ userMessage: selection.greeting })),
+    );
+    const engine = createEngine({
+      planner,
+      logger: silentLogger,
+      history: { maxEntries: 10, maxChars: 10_000, store },
+    });
+
+    await engine.handle(
+      toChartRequestMessage(
+        makeGridRequest(),
+        DEFAULT_SESSION_ID,
+        MessageId('a'),
+      ),
+    );
+    const second = await engine.handle(
+      toChartRequestMessage(
+        makeGridRequest(),
+        DEFAULT_SESSION_ID,
+        MessageId('b'),
+      ),
+    );
+
+    expect(isOk(second)).toBe(true);
+    if (!isOk(second) || second.value.type !== 'chart_response') return;
+    expect(second.value.response.userMessage).toBe('turn 2');
+    expect(seenHistory?.length).toBe(2);
+  });
+
+  test('retry: false runs the planner once even when a retry is recommended', async () => {
+    let calls = 0;
+    const planner: Planner = async () => {
+      calls += 1;
+      return ok(layoutEmptying());
+    };
+    const { logger, entries } = spyLogger();
+    const engine = createEngine({ planner, logger, retry: false });
+
+    const result = await engine.handle(
+      toChartRequestMessage(makeGridRequest()),
+    );
+
+    expect(isOk(result)).toBe(true);
+    expect(calls).toBe(1);
+    expect(entries.map((entry) => entry.msg)).not.toContain(
+      'Retries exhausted',
+    );
+    expect(
+      entries.find((entry) => entry.msg === 'Response healed')?.ctx,
+    ).toMatchObject({ retryRecommend: true });
+  });
+
+  test('retry: { max: 2 } re-runs the planner twice with feedback about the latest attempt', async () => {
+    const inputs: Retryable<PlanningInput>[] = [];
+    const planner: Planner = async (input) => {
+      inputs.push(input);
+      return ok(layoutEmptying());
+    };
+    const engine = createEngine({
+      planner,
+      logger: silentLogger,
+      retry: { max: 2 },
+    });
+
+    const result = await engine.handle(
+      toChartRequestMessage(makeGridRequest()),
+    );
+
+    expect(isOk(result)).toBe(true);
+    expect(inputs.map((input) => input.retry?.attempt)).toEqual([
+      undefined,
+      1,
+      2,
+    ]);
+    expect(inputs[2]?.retry?.diagnostics.retryHint).toEqual({
+      severity: 'unrecoverable',
+      recommend: true,
+    });
+  });
+
+  test('a Deferred nothing recovered is Err(ValidationError) on field "planner"', async () => {
+    const planner: Planner = async () => err(deferred('no Vessel matched'));
+    const { logger, entries } = spyLogger();
+    const engine = createEngine({ planner, logger });
+
+    const result = await engine.handle(
+      toChartRequestMessage(makeGridRequest()),
+    );
+
+    expect(isErr(result)).toBe(true);
+    if (!isErr(result)) return;
+    expect(result.error).toMatchObject({
+      _tag: 'ValidationError',
+      field: 'planner',
+      message: 'planner deferred: no Vessel matched',
+    });
+    expect(entries).toContainEqual({
+      level: 'warn',
+      msg: 'Planner deferred with no fallback',
+      ctx: { messageId: DEFAULT_MESSAGE_ID, reason: 'no Vessel matched' },
+    });
+  });
+
+  test('withFallback recovers a Deferred through llmPlanner', async () => {
+    mockChat.mockResolvedValueOnce(gridLLMResponse);
+    const engine = createEngine({
+      planner: withFallback(
+        async () => err(deferred('not confident')),
+        llmPlanner({ adapter: dummyAdapter }),
+      ),
+      logger: silentLogger,
+    });
+
+    const result = await engine.handle(
+      toChartRequestMessage(makeGridRequest()),
+    );
+
+    expect(isOk(result)).toBe(true);
+    if (!isOk(result) || result.value.type !== 'chart_response') return;
+    expect(result.value.response.userMessage).toBe('Here is your calendar!');
+    expect(mockChat).toHaveBeenCalledTimes(1);
+  });
+
+  test('an EngineError from a stage passes through unchanged', async () => {
+    const failure = providerError('upstream down', new Error('503'));
+    const engine = createEngine({
+      planner: async () => err(failure),
+      logger: silentLogger,
+    });
+
+    const result = await engine.handle(
+      toChartRequestMessage(makeGridRequest()),
+    );
+
+    expect(isErr(result) && result.error).toBe(failure);
+  });
+
+  test.each([
+    [
+      'throws synchronously',
+      (() => {
+        throw new Error('stage bug');
+      }) as unknown as Planner,
+    ],
+    [
+      'rejects',
+      (async () => {
+        throw new Error('stage bug');
+      }) as Planner,
+    ],
+  ])('a stage that %s is Err(ValidationError), never a rejection', async (_case, planner) => {
+    const { logger, entries } = spyLogger();
+    const engine = createEngine({ planner, logger });
+
+    const result = await engine.handle(
+      toChartRequestMessage(makeGridRequest()),
+    );
+
+    expect(isErr(result)).toBe(true);
+    if (!isErr(result)) return;
+    expect(result.error).toMatchObject({
+      _tag: 'ValidationError',
+      field: 'planner',
+      message: 'stage bug',
+    });
+    expect(entries.filter((entry) => entry.level === 'error')).toEqual([
+      {
+        level: 'error',
+        msg: 'Planner threw',
+        error: expect.any(Error),
+        ctx: { messageId: DEFAULT_MESSAGE_ID },
+      },
+    ]);
+  });
+
+  test.each([
+    ['null', null],
+    ['a string', 'not a candidate'],
+    ['an empty object', {}],
+  ])('a candidate that is %s is an Err, never a rejection', async (_case, candidate) => {
+    for (const retry of [false, { max: 1 }] as const) {
+      const engine = createEngine({
+        planner: async () => ok(candidate as unknown as PlannerCandidate),
+        logger: silentLogger,
+        retry,
+      });
+
+      const result = await engine.handle(
+        toChartRequestMessage(makeGridRequest()),
+      );
+
+      expect(isErr(result)).toBe(true);
+    }
+  });
+
+  test('a result that is not a Result is an Err, never a rejection', async () => {
+    const engine = createEngine({
+      planner: (async () => undefined) as unknown as Planner,
+      logger: silentLogger,
+    });
+
+    const result = await engine.handle(
+      toChartRequestMessage(makeGridRequest()),
+    );
+
+    expect(isErr(result) && result.error._tag).toBe('ValidationError');
+  });
+
+  test('passes the request signal to the stage', async () => {
+    const controller = new AbortController();
+    let seen: AbortSignal | undefined;
+    const planner: Planner = async (_input, ctx) => {
+      seen = ctx.signal;
+      return ok(buildGridResponse());
+    };
+    const engine = createEngine({ planner, logger: silentLogger });
+
+    await engine.handle(
+      toChartRequestMessage(makeGridRequest()),
+      controller.signal,
+    );
+
+    expect(seen).toBe(controller.signal);
+  });
+
+  test('a stage that throws after the signal aborted is Err(CancellationError)', async () => {
+    const controller = new AbortController();
+    const planner: Planner = async (_input, ctx) => {
+      controller.abort('user left');
+      if (ctx.signal?.aborted) throw new Error('socket closed');
+      return ok(buildGridResponse());
+    };
+    const { logger, entries } = spyLogger();
+    const engine = createEngine({ planner, logger });
+
+    const result = await engine.handle(
+      toChartRequestMessage(makeGridRequest()),
+      controller.signal,
+    );
+
+    expect(isErr(result)).toBe(true);
+    if (!isErr(result)) return;
+    expect(result.error).toMatchObject({
+      _tag: 'CancellationError',
+      reason: 'user left',
+    });
+    expect(entries.map((entry) => [entry.level, entry.msg])).toContainEqual([
+      'info',
+      'Request cancelled',
+    ]);
+    expect(entries.filter((entry) => entry.level === 'error')).toEqual([]);
+  });
+
+  test('validates against the request the client sent, not a stage-edited copy', async () => {
+    // A stage that rewrites a resize-only turn into an intentful one must not
+    // unlock content mutations: the refusal reads the original update reasons.
+    const planner = pipeline(
+      async (input: PlanningInput) =>
+        ok({
+          ...input,
+          request: {
+            ...input.request,
+            context: {
+              ...input.request.context,
+              updateReasons: [
+                { type: 'user_intent' as const, intent: 'show the week' },
+              ],
+            },
+          },
+        }),
+      async (edited: PlanningInput) =>
+        ok(
+          buildGridResponse({
+            userMessage: `planned for ${edited.request.context.updateReasons[0]?.type}`,
+            executionPlan: [
+              { instanceId: 'calendar-main', action: 'showWeek' },
+            ],
+          }),
+        ),
+    );
+    const { logger, entries } = spyLogger();
+    const engine = createEngine({ planner, logger, retry: false });
+
+    const result = await engine.handle(
+      toChartRequestMessage(resizeOnlyRequest()),
+    );
+
+    expect(isOk(result)).toBe(true);
+    if (!isOk(result) || result.value.type !== 'chart_response') return;
+    expect(result.value.response.userMessage).toBe('planned for user_intent');
+    expect(result.value.response.executionPlan).toEqual([]);
+    expect(
+      entries.find((entry) => entry.msg === 'Response healed')?.ctx,
+    ).toMatchObject({
+      detail: {
+        skips: [
+          {
+            reason: 'non_idempotent_on_resize',
+            instanceId: 'calendar-main',
+            action: 'showWeek',
+          },
+        ],
+      },
+    });
   });
 });
 
@@ -1265,9 +1647,9 @@ describe('engine.handle — request enum snapshot', () => {
     );
 
     const engine = createEngine({
-      adapter: dummyAdapter,
+      planner: llmPlanner({ adapter: dummyAdapter }),
       logger: silentLogger,
-      maxRetries: 1,
+      retry: { max: 1 },
     });
     const result = await engine.handle(toChartRequestMessage(request));
 
@@ -1332,16 +1714,18 @@ describe('engine.handle — request enum snapshot', () => {
     };
 
     const engine = createEngine({
-      adapter: dummyAdapter,
-      logger: silentLogger,
-      prompt: {
-        user: {
-          vessels: (defaults) => {
-            promptCustomizerCalls++;
-            return defaults;
+      planner: llmPlanner({
+        adapter: dummyAdapter,
+        prompt: {
+          user: {
+            vessels: (defaults) => {
+              promptCustomizerCalls++;
+              return defaults;
+            },
           },
         },
-      },
+      }),
+      logger: silentLogger,
     });
     const result = await engine.handle(toChartRequestMessage(request));
 
@@ -1361,7 +1745,7 @@ describe('engine.handle — assistant_message', () => {
   test('returns outcome=inserted and persists the injection when history is configured', async () => {
     const store = createInMemoryStore();
     const engine = createEngine({
-      adapter: dummyAdapter,
+      planner: llmPlanner({ adapter: dummyAdapter }),
       logger: silentLogger,
       history: { maxEntries: 10, maxChars: 1_000, store },
     });
@@ -1390,7 +1774,7 @@ describe('engine.handle — assistant_message', () => {
   test('reports outcome=deduped on a duplicate id', async () => {
     const store = createInMemoryStore();
     const engine = createEngine({
-      adapter: dummyAdapter,
+      planner: llmPlanner({ adapter: dummyAdapter }),
       logger: silentLogger,
       history: { maxEntries: 10, maxChars: 1_000, store },
     });
@@ -1415,7 +1799,7 @@ describe('engine.handle — assistant_message', () => {
 
   test('returns a ValidationError when history is not configured', async () => {
     const engine = createEngine({
-      adapter: dummyAdapter,
+      planner: llmPlanner({ adapter: dummyAdapter }),
       logger: silentLogger,
     });
     const result = await engine.handle(
@@ -1435,7 +1819,7 @@ describe('engine.handle — assistant_message', () => {
   test('rejects an injection whose content exceeds the configured maxChars', async () => {
     const store = createInMemoryStore();
     const engine = createEngine({
-      adapter: dummyAdapter,
+      planner: llmPlanner({ adapter: dummyAdapter }),
       logger: silentLogger,
       history: { maxEntries: 10, maxChars: 100, store },
     });
@@ -1460,7 +1844,7 @@ describe('engine.handle — assistant_message', () => {
   test('accepts an injection at exactly maxChars (boundary)', async () => {
     const store = createInMemoryStore();
     const engine = createEngine({
-      adapter: dummyAdapter,
+      planner: llmPlanner({ adapter: dummyAdapter }),
       logger: silentLogger,
       history: { maxEntries: 10, maxChars: 100, store },
     });
@@ -1477,7 +1861,7 @@ describe('engine.handle — assistant_message', () => {
   test('accepts arbitrarily large injections when maxChars is not configured', async () => {
     const store = createInMemoryStore();
     const engine = createEngine({
-      adapter: dummyAdapter,
+      planner: llmPlanner({ adapter: dummyAdapter }),
       logger: silentLogger,
       history: { maxEntries: 10, store },
     });
@@ -1502,7 +1886,7 @@ describe('engine.handle — history integration', () => {
 
     const store = createInMemoryStore();
     const engine = createEngine({
-      adapter: dummyAdapter,
+      planner: llmPlanner({ adapter: dummyAdapter }),
       logger: silentLogger,
       history: { maxEntries: 10, maxChars: 1_000, store },
     });
@@ -1531,7 +1915,7 @@ describe('engine.handle — history integration', () => {
     };
     void spyStore; // not wired into the engine
     const engine = createEngine({
-      adapter: dummyAdapter,
+      planner: llmPlanner({ adapter: dummyAdapter }),
       logger: silentLogger,
     });
     const result = await engine.handle(
@@ -1558,7 +1942,7 @@ describe('engine.handle — history integration', () => {
       replace,
     };
     const engine = createEngine({
-      adapter: dummyAdapter,
+      planner: llmPlanner({ adapter: dummyAdapter }),
       logger: silentLogger,
       history: { maxEntries: 10, maxChars: 1_000, store: wrappedStore },
     });
@@ -1575,7 +1959,7 @@ describe('engine.handle — history integration', () => {
 
     const store = createInMemoryStore();
     const engine = createEngine({
-      adapter: dummyAdapter,
+      planner: llmPlanner({ adapter: dummyAdapter }),
       logger: silentLogger,
       history: { maxEntries: 10, maxChars: 1_000, store },
     });
@@ -1592,7 +1976,7 @@ describe('engine.handle — history integration', () => {
 
     const store = createInMemoryStore();
     const engine = createEngine({
-      adapter: dummyAdapter,
+      planner: llmPlanner({ adapter: dummyAdapter }),
       logger: silentLogger,
       history: { maxEntries: 10, maxChars: 1_000, store },
     });
@@ -1625,7 +2009,7 @@ describe('engine.handle — history integration', () => {
       },
     };
     const engine = createEngine({
-      adapter: dummyAdapter,
+      planner: llmPlanner({ adapter: dummyAdapter }),
       logger: silentLogger,
       history: { maxEntries: 10, maxChars: 1_000, store: throwingStore },
     });
@@ -1647,7 +2031,7 @@ describe('engine.handle — history integration', () => {
       },
     };
     const engine = createEngine({
-      adapter: dummyAdapter,
+      planner: llmPlanner({ adapter: dummyAdapter }),
       logger: silentLogger,
       history: { maxEntries: 10, maxChars: 1_000, store: throwingStore },
     });
@@ -1680,7 +2064,7 @@ describe('engine.handle — history integration', () => {
 
     const store = createInMemoryStore();
     const engine = createEngine({
-      adapter: dummyAdapter,
+      planner: llmPlanner({ adapter: dummyAdapter }),
       logger: silentLogger,
       history: { maxEntries: 10, maxChars: 10_000, store },
     });
@@ -1732,7 +2116,7 @@ describe('engine.handle — history integration', () => {
 
     const store = createInMemoryStore();
     const engine = createEngine({
-      adapter: dummyAdapter,
+      planner: llmPlanner({ adapter: dummyAdapter }),
       logger: silentLogger,
       history: { maxEntries: 10, maxChars: 10_000, store },
     });
@@ -1764,7 +2148,7 @@ describe('engine.handle — history integration', () => {
     mockChat.mockResolvedValueOnce(gridLLMResponse);
 
     const engine = createEngine({
-      adapter: dummyAdapter,
+      planner: llmPlanner({ adapter: dummyAdapter }),
       logger: silentLogger,
     });
     await engine.handle(toChartRequestMessage(makeGridRequest()));
@@ -1783,7 +2167,7 @@ describe('engine.handle — history integration', () => {
 describe('engine.handle — wire-format validation', () => {
   test('rejects malformed envelope before LLM call', async () => {
     const engine = createEngine({
-      adapter: dummyAdapter,
+      planner: llmPlanner({ adapter: dummyAdapter }),
       logger: silentLogger,
     });
 
@@ -1810,7 +2194,7 @@ describe('engine.handle — wire-format validation', () => {
 
   test('rejects malformed inner payload before LLM call', async () => {
     const engine = createEngine({
-      adapter: dummyAdapter,
+      planner: llmPlanner({ adapter: dummyAdapter }),
       logger: silentLogger,
     });
 
@@ -1844,7 +2228,7 @@ describe('engine.handle — wire-format validation', () => {
       getResponseById: mock(() => Promise.resolve({ kind: 'miss' as const })),
     } satisfies HistoryStore;
     const engine = createEngine({
-      adapter: dummyAdapter,
+      planner: llmPlanner({ adapter: dummyAdapter }),
       logger: silentLogger,
       history: { store, maxEntries: 10, maxChars: 1000 },
     });
@@ -1874,7 +2258,7 @@ describe('engine.handle — wire-format validation', () => {
     mockChat.mockResolvedValueOnce(gridLLMResponse);
 
     const engine = createEngine({
-      adapter: dummyAdapter,
+      planner: llmPlanner({ adapter: dummyAdapter }),
       logger: silentLogger,
     });
 
@@ -1893,7 +2277,7 @@ describe('engine.handle — wire-format validation', () => {
 describe('engine.getHistory', () => {
   test('returns a ValidationError when history is not configured', async () => {
     const engine = createEngine({
-      adapter: dummyAdapter,
+      planner: llmPlanner({ adapter: dummyAdapter }),
       logger: silentLogger,
     });
     const result = await engine.getHistory(SessionId('s-unknown'));
@@ -1906,7 +2290,7 @@ describe('engine.getHistory', () => {
   test('returns an empty array for a session with no recorded entries', async () => {
     const store = createInMemoryStore();
     const engine = createEngine({
-      adapter: dummyAdapter,
+      planner: llmPlanner({ adapter: dummyAdapter }),
       logger: silentLogger,
       history: { maxEntries: 10, maxChars: 1_000, store },
     });
@@ -1920,7 +2304,7 @@ describe('engine.getHistory', () => {
     mockChat.mockResolvedValue(gridLLMResponse);
     const store = createInMemoryStore();
     const engine = createEngine({
-      adapter: dummyAdapter,
+      planner: llmPlanner({ adapter: dummyAdapter }),
       logger: silentLogger,
       history: { maxEntries: 10, maxChars: 10_000, store },
     });
@@ -1972,7 +2356,7 @@ describe('engine.getHistory', () => {
   test('isolates entries per sessionId — does not leak across sessions', async () => {
     const store = createInMemoryStore();
     const engine = createEngine({
-      adapter: dummyAdapter,
+      planner: llmPlanner({ adapter: dummyAdapter }),
       logger: silentLogger,
       history: { maxEntries: 10, maxChars: 1_000, store },
     });
@@ -1994,7 +2378,7 @@ describe('engine.getHistory', () => {
     mockChat.mockResolvedValue(gridLLMResponse);
     const store = createInMemoryStore();
     const engine = createEngine({
-      adapter: dummyAdapter,
+      planner: llmPlanner({ adapter: dummyAdapter }),
       logger: silentLogger,
       history: { maxEntries: 10, maxChars: 10_000, store },
     });
@@ -2031,7 +2415,7 @@ describe('engine.getHistory', () => {
     mockChat.mockResolvedValue(gridLLMResponse);
     const store = createInMemoryStore();
     const engine = createEngine({
-      adapter: dummyAdapter,
+      planner: llmPlanner({ adapter: dummyAdapter }),
       logger: silentLogger,
       history: { maxEntries: 10, maxChars: 10_000, store },
     });
@@ -2084,7 +2468,7 @@ describe('engine.getHistory', () => {
         ]),
     };
     const engine = createEngine({
-      adapter: dummyAdapter,
+      planner: llmPlanner({ adapter: dummyAdapter }),
       logger: silentLogger,
       history: { maxEntries: 10, maxChars: 1_000, store: malformed },
     });
@@ -2105,7 +2489,7 @@ describe('engine.getHistory', () => {
       },
     };
     const engine = createEngine({
-      adapter: dummyAdapter,
+      planner: llmPlanner({ adapter: dummyAdapter }),
       logger: silentLogger,
       history: { maxEntries: 10, maxChars: 1_000, store: failing },
     });

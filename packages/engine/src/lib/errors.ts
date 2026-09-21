@@ -32,11 +32,12 @@ export interface ProviderError {
  * user-prompt customizer that throws inside `buildUserPrompt`). LLM-output
  * layout problems no longer surface here — they heal into
  * `EngineDiagnostics.droppedLayoutEntries` instead. System-prompt customizer
- * misconfiguration does not surface here either; it throws synchronously at
- * `createEngine` time.
+ * misconfiguration does not surface here either; it throws synchronously
+ * when `llmPlanner` is constructed.
  *
  * `field` optionally identifies the offending input path as a free-form
- * symbolic name (e.g. `'prompt'`, `'history'`) — not a structured Zod path.
+ * symbolic name (e.g. `'prompt'`, `'history'`, or `'planner'` for a planner
+ * that deferred with no fallback or threw) — not a structured Zod path.
  * For wire-format validation failures with structured access paths, see
  * {@link RequestValidationError} and its `path` field.
  *

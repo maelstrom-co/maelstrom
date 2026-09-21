@@ -22,6 +22,7 @@ import { createEngine } from './engine.js';
 import type { HistoryStore } from './history/history-store.js';
 import { createInMemoryStore } from './history/in-memory-store.js';
 import type { Logger } from './logger.js';
+import { llmPlanner } from './planner/llm-planner.js';
 
 // ---------------------------------------------------------------------------
 // Mock TanStack AI chat()
@@ -66,7 +67,7 @@ const setupIdempotencyEngine = (
 ) => {
   const store = overrides.store ?? createInMemoryStore();
   const engine = createEngine({
-    adapter: dummyAdapter,
+    planner: llmPlanner({ adapter: dummyAdapter }),
     logger: overrides.logger ?? silentLogger,
     history: {
       maxEntries: overrides.maxEntries ?? IDEMPOTENCY_HISTORY.maxEntries,
@@ -294,7 +295,7 @@ describe('engine.handle — chart_request idempotency', () => {
     // Explicitly bypassing setupIdempotencyEngine — this test pins the
     // no-history path, which the helper cannot express by construction.
     const engine = createEngine({
-      adapter: dummyAdapter,
+      planner: llmPlanner({ adapter: dummyAdapter }),
       logger: silentLogger,
     });
     const request = makeGridRequest();

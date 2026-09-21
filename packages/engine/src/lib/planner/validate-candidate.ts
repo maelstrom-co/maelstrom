@@ -1,4 +1,9 @@
-import type { ChartRequest, MessageId, Result } from '@maelstrom-co/protocol';
+import type {
+  ChartRequest,
+  MessageId,
+  Result,
+  Vessel,
+} from '@maelstrom-co/protocol';
 import { err, isErr } from '@maelstrom-co/protocol';
 
 import type { ActionParameterEnumSnapshot } from '../action-parameter-enum.js';
@@ -36,13 +41,38 @@ export function createCandidateValidator(
     PlannerCandidate,
     Result<ValidatedCandidate, EngineError>
   >();
-  return (candidate) => {
+  const validate: ValidateCandidate = (candidate) => {
+    // A misbehaving stage can hand over a primitive, which a WeakMap cannot
+    // key; processing it still yields an Err instead of a throw.
+    if (typeof candidate !== 'object' || candidate === null) {
+      return processCandidate({ ...input, llmOutput: candidate });
+    }
     const cached = cache.get(candidate);
     if (cached !== undefined) return cached;
     const result = processCandidate({ ...input, llmOutput: candidate });
     cache.set(candidate, result);
     return result;
   };
+  validatorSnapshots.set(validate, {
+    vessels: input.request.vessels,
+    enumSnapshot: input.enumSnapshot,
+  });
+  return validate;
+}
+
+/**
+ * The enum snapshot `validate` checks actions against, when `vessels` is the
+ * catalog it was built from. A prompt built from this snapshot shows exactly
+ * the enum literals validation accepts, even for values whose serialization
+ * is not stable across calls. Returns `undefined` for any other catalog, or
+ * a validator this module did not create.
+ */
+export function validatorEnumSnapshot(
+  validate: ValidateCandidate,
+  vessels: readonly Vessel[],
+): ActionParameterEnumSnapshot | undefined {
+  const entry = validatorSnapshots.get(validate);
+  return entry?.vessels === vessels ? entry.enumSnapshot : undefined;
 }
 
 /**
@@ -78,3 +108,11 @@ export function processCandidate(
     );
   }
 }
+
+const validatorSnapshots = new WeakMap<
+  ValidateCandidate,
+  {
+    readonly vessels: readonly Vessel[];
+    readonly enumSnapshot: ActionParameterEnumSnapshot;
+  }
+>();

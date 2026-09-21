@@ -24,7 +24,6 @@ import {
 } from '../__test-helpers__/stage-context.js';
 import { createEngine } from '../engine.js';
 import type { LLMContextMessage } from '../history/history-manager.js';
-import { buildRetryPrompt } from '../pipeline/retry-prompt.js';
 import type { PromptOptions } from '../prompt/prompt-builder.js';
 import {
   buildSystemPrompt,
@@ -32,8 +31,8 @@ import {
 } from '../prompt/prompt-builder.js';
 import type { LlmPlannerOptions } from './llm-planner.js';
 import { llmPlanner } from './llm-planner.js';
-import type { PlannerCandidate, PlanningInput } from './stage.js';
-import { withRetry } from './with-retry.js';
+import { buildRetryPrompt } from './retry-prompt.js';
+import type { PlanningInput } from './stage.js';
 
 const mockChat = mock<(...args: unknown[]) => Promise<unknown>>();
 
@@ -81,98 +80,93 @@ const overflowingResponse = buildGridResponse({
 });
 
 describe('llmPlanner', () => {
-  describe('matches the Engine LLM path', () => {
+  describe('as the Engine planner', () => {
     test.each([
       ['grid', makeGridRequest()],
       ['tiling', makeTilingRequest()],
     ] as Array<
       [string, ChartRequest]
-    >)('%s: sends the same chat() arguments as createEngine', async (_, request) => {
+    >)('%s: createEngine sends one chat() call built from the request', async (_, request) => {
       const prompt: PromptOptions = {
         vars: { assistantName: 'Aria' },
         user: { chartState: { append: 'Keep it tidy.' } },
       };
       const modelOptions = { max_output_tokens: 1234 };
-      const response =
-        request.context.layoutMode === 'grid'
+      const mode = request.context.layoutMode;
+      mockChat.mockResolvedValue(
+        mode === 'grid'
           ? buildGridResponse()
           : {
               userMessage: 'ok',
               rationale: 'r',
               executionPlan: [],
               layout: request.layout,
-            };
-      mockChat.mockResolvedValue(response);
+            },
+      );
 
       const engine = createEngine({
-        adapter: dummyAdapter,
-        prompt,
-        modelOptions,
+        planner: llmPlanner({ adapter: dummyAdapter, prompt, modelOptions }),
         logger: silentLogger,
       });
-      await engine.handle(
+      const result = await engine.handle(
         ChartRequestMessage({
           sessionId: SessionId('session-1'),
           id: MessageId('req-1'),
           request,
         }),
       );
-      const engineCalls = comparableChatCalls();
-      mockChat.mockClear();
 
-      const planner = llmPlanner({
-        adapter: dummyAdapter,
-        prompt,
-        modelOptions,
-      });
-      const input = makePlanningInput(request);
-      const result = await planner(input, makeStageContext({ origin: input }));
-
-      expect(isOk(result) && result.value).toEqual(
-        response as PlannerCandidate,
-      );
-      expect(comparableChatCalls()).toEqual(engineCalls);
-      expect(engineCalls).toHaveLength(1);
-      expect(engineCalls[0]?.outputSchema).toBe(
-        request.context.layoutMode === 'grid'
-          ? GridResponseSchema
-          : TilingResponseSchema,
-      );
+      expect(isOk(result)).toBe(true);
+      expect(comparableChatCalls()).toEqual([
+        {
+          adapter: dummyAdapter,
+          messages: [
+            { role: 'user', content: buildUserPrompt(request, prompt) },
+          ],
+          systemPrompts: [buildSystemPrompt(mode, prompt)],
+          outputSchema:
+            mode === 'grid' ? GridResponseSchema : TilingResponseSchema,
+          stream: false,
+          modelOptions,
+        },
+      ]);
     });
 
-    test('a retry under withRetry sends the same chat() arguments as the Engine retry', async () => {
+    test('an Engine retry resends the system prompt with the retry prompt built from the first diagnostics', async () => {
       const request = makeGridRequest();
       mockChat
         .mockResolvedValueOnce(overflowingResponse)
         .mockResolvedValueOnce(buildGridResponse());
+      const input = makePlanningInput(request);
+      const expected = makeStageContext({ origin: input }).validate(
+        overflowingResponse,
+      );
+      if (!isOk(expected)) throw new Error('fixture must validate');
 
       const engine = createEngine({
-        adapter: dummyAdapter,
+        planner: llmPlanner({ adapter: dummyAdapter }),
         logger: silentLogger,
-        maxRetries: 1,
       });
-      await engine.handle(
+      const result = await engine.handle(
         ChartRequestMessage({
-          sessionId: SessionId('session-1'),
-          id: MessageId('req-1'),
+          sessionId: input.sessionId,
+          id: input.messageId,
           request,
         }),
       );
-      const engineCalls = comparableChatCalls();
-      mockChat.mockReset();
-      mockChat
-        .mockResolvedValueOnce(overflowingResponse)
-        .mockResolvedValueOnce(buildGridResponse());
-
-      const planner = withRetry(llmPlanner({ adapter: dummyAdapter }), {
-        max: 1,
-      });
-      const input = makePlanningInput(request);
-      const result = await planner(input, makeStageContext({ origin: input }));
 
       expect(isOk(result)).toBe(true);
-      expect(engineCalls).toHaveLength(2);
-      expect(comparableChatCalls()).toEqual(engineCalls);
+      expect(mockChat).toHaveBeenCalledTimes(2);
+      expect(chatCall(1).systemPrompts).toEqual(chatCall(0).systemPrompts);
+      expect(chatCall(1).messages).toEqual([
+        {
+          role: 'user',
+          content: buildRetryPrompt(
+            buildUserPrompt(request),
+            expected.value.diagnostics,
+          ),
+        },
+      ]);
     });
   });
 

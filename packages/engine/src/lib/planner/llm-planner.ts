@@ -13,24 +13,26 @@ import {
 } from '@maelstrom-co/protocol';
 import type { AnyTextAdapter } from '@tanstack/ai';
 
+import type { ActionParameterEnumSnapshot } from '../action-parameter-enum.js';
 import { buildActionParameterEnumSnapshot } from '../action-parameter-enum.js';
 import type { EngineError } from '../errors.js';
 import { validationError } from '../errors.js';
 import type { Logger } from '../logger.js';
 import { callLLM, logLLMCallError } from '../pipeline/call-llm.js';
-import { buildRetryPrompt } from '../pipeline/retry-prompt.js';
 import type { PromptOptions } from '../prompt/prompt-builder.js';
 import {
   buildSystemPrompt,
   buildUserPromptWithSnapshot,
 } from '../prompt/prompt-builder.js';
 import { validateLlmPlannerOptions } from '../validation/engine-config.js';
+import { buildRetryPrompt } from './retry-prompt.js';
 import type {
   PlannerCandidate,
   PlanningInput,
   Retryable,
   Stage,
 } from './stage.js';
+import { validatorEnumSnapshot } from './validate-candidate.js';
 
 /** Configuration for {@link llmPlanner}. */
 export interface LlmPlannerOptions {
@@ -72,6 +74,10 @@ export type LlmPlannerInput = Retryable<
  * unchanged. The original prompt is reused rather than rebuilt, so prompt
  * customizers and serializer warnings run once per request.
  *
+ * When the input's Vessel catalog is the one `ctx.validate` checks against,
+ * the prompt reuses that validator's Action parameter enum snapshot, so the
+ * enum literals the model sees are exactly those validation accepts.
+ *
  * Returns `Err(ValidationError)` on field `'prompt'` when the user prompt
  * cannot be built, and the `callLLM` errors (`ProviderError`,
  * `CancellationError`) when the call fails; each is logged. The candidate is
@@ -111,7 +117,7 @@ export function llmPlanner(
 
   const originalPrompts = new WeakMap<ChartRequest, OriginalPrompt>();
 
-  return async (input, { signal, logger }) => {
+  return async (input, { signal, logger, validate }) => {
     const { request, messageId, hints } = input;
     const mode = request.context.layoutMode;
 
@@ -128,6 +134,7 @@ export function llmPlanner(
         request,
         hints,
         prompt,
+        validatorEnumSnapshot(validate, request.vessels),
         messageId,
         logger,
       );
@@ -165,13 +172,14 @@ function buildOriginalPrompt(
   request: ChartRequest,
   hints: readonly string[] | undefined,
   prompt: PromptOptions,
+  enumSnapshot: ActionParameterEnumSnapshot | undefined,
   messageId: MessageId,
   logger: Logger,
 ): Result<string, EngineError> {
   try {
     const userPrompt = buildUserPromptWithSnapshot(
       request,
-      buildActionParameterEnumSnapshot(request.vessels),
+      enumSnapshot ?? buildActionParameterEnumSnapshot(request.vessels),
       prompt,
       logger,
     );
