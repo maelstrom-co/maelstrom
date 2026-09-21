@@ -1,6 +1,7 @@
 import type { ChartRequest } from '@maelstrom-co/protocol';
 import { MessageId, SessionId } from '@maelstrom-co/protocol';
 
+import type { ActionParameterEnumSnapshot } from '../action-parameter-enum.js';
 import { buildActionParameterEnumSnapshot } from '../action-parameter-enum.js';
 import type { Logger } from '../logger.js';
 import type {
@@ -42,8 +43,10 @@ export function makePlanningInput(
 }
 
 /**
- * Builds a context whose `validate` runs the real Engine validator against
- * `origin.request`, unless a `validate` override is supplied.
+ * Builds a context the way the Engine does: `validate` runs the real Engine
+ * validator against `origin.request` and `enumSnapshot` is the snapshot it
+ * checks against. Either can be overridden; pass `enumSnapshot: undefined`
+ * for a context without one.
  */
 export function makeStageContext(
   overrides: {
@@ -51,10 +54,15 @@ export function makeStageContext(
     readonly logger?: Logger;
     readonly signal?: AbortSignal;
     readonly validate?: ValidateCandidate;
+    readonly enumSnapshot?: ActionParameterEnumSnapshot;
   } = {},
 ): StageContext {
   const origin = overrides.origin ?? makePlanningInput();
   const logger = overrides.logger ?? silentLogger;
+  const enumSnapshot =
+    'enumSnapshot' in overrides
+      ? overrides.enumSnapshot
+      : buildActionParameterEnumSnapshot(origin.request.vessels);
   return {
     origin,
     logger,
@@ -63,9 +71,12 @@ export function makeStageContext(
       overrides.validate ??
       createCandidateValidator({
         request: origin.request,
-        enumSnapshot: buildActionParameterEnumSnapshot(origin.request.vessels),
+        enumSnapshot:
+          enumSnapshot ??
+          buildActionParameterEnumSnapshot(origin.request.vessels),
         messageId: origin.messageId,
         logger,
       }),
+    enumSnapshot,
   };
 }

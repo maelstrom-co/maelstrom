@@ -3,8 +3,10 @@ import type {
   MessageId,
   Result,
   SessionId,
+  Vessel,
 } from '@maelstrom-co/protocol';
 
+import type { ActionParameterEnumSnapshot } from '../action-parameter-enum.js';
 import type { EngineError, ValidationError } from '../errors.js';
 import { validationError } from '../errors.js';
 import type { LLMContextMessage } from '../history/history-manager.js';
@@ -78,6 +80,16 @@ export interface StageContext {
   readonly origin: PlanningInput;
   /** Heals and validates a candidate against the request in {@link StageContext.origin}. */
   readonly validate: ValidateCandidate;
+  /**
+   * The Action parameter enum values {@link StageContext.validate} checks
+   * actions against, captured once from the Vessel catalog in
+   * {@link StageContext.origin}. A stage that renders enum values for that
+   * same catalog (for example into a prompt) should read them from here, so
+   * it shows exactly the literals validation accepts even for values whose
+   * serialization is not stable across calls. The Engine always sets it;
+   * combinators that derive a context must forward it unchanged.
+   */
+  readonly enumSnapshot?: ActionParameterEnumSnapshot;
 }
 
 /**
@@ -127,6 +139,18 @@ export type Retryable<In> = In & {
   /** Feedback about the previous attempt; absent on the first attempt. */
   readonly retry?: RetryFeedback;
 };
+
+/**
+ * The context's enum snapshot when `vessels` is the catalog it was captured
+ * from; `undefined` for any other catalog, including an equal copy, or a
+ * context without a snapshot.
+ */
+export function enumSnapshotFor(
+  ctx: StageContext,
+  vessels: readonly Vessel[],
+): ActionParameterEnumSnapshot | undefined {
+  return ctx.origin.request.vessels === vessels ? ctx.enumSnapshot : undefined;
+}
 
 /**
  * Creates a {@link Deferred}.

@@ -28,7 +28,7 @@ import { callLLM, logLLMCallError } from './call-llm.js';
 import type { PlannerCandidate } from './candidate.js';
 import { buildRetryPrompt } from './retry-prompt.js';
 import type { PlanningInput, Retryable, Stage } from './stage.js';
-import { validatorEnumSnapshot } from './validate-candidate.js';
+import { enumSnapshotFor } from './stage.js';
 
 /** Configuration for {@link llmPlanner}. */
 export interface LlmPlannerOptions {
@@ -70,9 +70,9 @@ export type LlmPlannerInput = Retryable<
  * unchanged. The original prompt is reused rather than rebuilt, so prompt
  * customizers and serializer warnings run once per request.
  *
- * When the input's Vessel catalog is the one `ctx.validate` checks against,
- * the prompt reuses that validator's Action parameter enum snapshot, so the
- * enum literals the model sees are exactly those validation accepts.
+ * When the input's Vessel catalog is the one in `ctx.origin`, the prompt
+ * reuses `ctx.enumSnapshot`, so the enum literals the model sees are exactly
+ * those validation accepts. Any other catalog gets a fresh snapshot.
  *
  * Returns `Err(ValidationError)` on field `'prompt'` when the user prompt
  * cannot be built, and the `callLLM` errors (`ProviderError`,
@@ -113,7 +113,8 @@ export function llmPlanner(
 
   const originalPrompts = new WeakMap<ChartRequest, OriginalPrompt>();
 
-  return async (input, { signal, logger, validate }) => {
+  return async (input, ctx) => {
+    const { signal, logger } = ctx;
     const { request, messageId, hints } = input;
     const mode = request.context.layoutMode;
 
@@ -130,7 +131,7 @@ export function llmPlanner(
         request,
         hints,
         prompt,
-        validatorEnumSnapshot(validate, request.vessels),
+        enumSnapshotFor(ctx, request.vessels),
         messageId,
         logger,
       );
