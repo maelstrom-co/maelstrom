@@ -64,10 +64,10 @@ export type LlmPlannerInput = Retryable<
 >;
 
 /**
- * A planner that asks one LLM for the whole candidate, exactly as the Engine
- * has always done: the system prompt for the request's layout mode, the user
- * prompt serialized from the request, prior history, and the layout mode's
- * structured output schema, in one `chat()` call.
+ * A planner that asks one LLM for the whole candidate in a single `chat()`
+ * call: the system prompt for the request's layout mode, the user prompt
+ * serialized from the request (plus any `hints`), prior history, and the
+ * layout mode's structured output schema.
  *
  * On a retry from {@link withRetry} the user prompt becomes the original
  * prompt preceded by the previous attempt's diagnostics; the system prompt is
