@@ -5,6 +5,7 @@ import type {
   ActionName,
   ActionParameter,
   InstanceId,
+  TilingNode,
   VariantName,
   VesselId,
 } from '@maelstrom-co/protocol';
@@ -69,5 +70,14 @@ export interface JevActionPlan {
   readonly actions: readonly PlannedAction[];
   /** Values to ask the user for; their actions are not in {@link actions}. */
   readonly asks: readonly ParameterAsk[];
+  readonly answers: readonly AnswerRecord[];
+}
+
+export interface JevLayoutPlan {
+  readonly plan: JevActionPlan;
+  /** The chosen layout option, or `empty` when nothing is visible. */
+  readonly layoutId: string;
+  /** Sized for each instance's variant after the planned actions ran. */
+  readonly tree: readonly TilingNode[];
   readonly answers: readonly AnswerRecord[];
 }
