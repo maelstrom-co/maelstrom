@@ -25,10 +25,11 @@ export interface EngineConfig {
   /**
    * Retry policy the Engine wraps around {@link EngineConfig.planner} with
    * `withRetry`. `{ max }` re-runs the planner up to `max` times while
-   * healing recommends a retry (`max` is a non-negative integer; `0` keeps
-   * validation but never re-runs). `false` runs the planner exactly once,
-   * for planners that retry their own steps. Default `{ max: 1 }`. See the
-   * README's Retry section for the full policy.
+   * healing recommends a retry (`max` is a non-negative integer). `false`
+   * (or `{ max: 0 }`) runs the planner once; the Engine still heals and
+   * validates the candidate. Use `false` for planners that retry their own
+   * steps. Default `{ max: 1 }`. See the README's Retry section for the full
+   * policy.
    */
   readonly retry?: WithRetryOptions | false;
 }

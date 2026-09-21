@@ -92,8 +92,10 @@ export interface Engine {
    * missing `userMessage`, a planner that deferred with no fallback or
    * threw).
    * Layout problems heal into diagnostics rather than surfacing here — see
-   * {@link EngineDiagnostics} (engine-internal, stripped before crossing
-   * the boundary).
+   * {@link EngineDiagnostics} (planner stages see only a summary:
+   * `retryHint`, `counts` and rendered `feedback`; detailed records stay
+   * internal and are stripped before the response crosses the Engine
+   * boundary).
    *
    * `signal` cancels mid-flight: it reaches every planner stage as
    * `StageContext.signal`. With `llmPlanner`, a pre-aborted signal
