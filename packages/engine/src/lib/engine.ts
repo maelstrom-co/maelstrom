@@ -463,22 +463,24 @@ async function runPlanner(
 
 /**
  * Maps a stage that broke the never-reject contract to an `EngineError`. A
- * throw under an aborted signal, or an `AbortError`, is a cancellation, as
- * it is for the LLM call; anything else is a planner bug.
+ * throw under an aborted request signal is a cancellation; anything else,
+ * including an `AbortError` from a stage's own timeout or controller, is a
+ * planner failure.
  */
 function plannerThrowError(
   error: unknown,
   messageId: MessageId,
   { signal, logger }: { signal?: AbortSignal; logger: Logger },
 ): EngineError {
-  if (
-    signal?.aborted ||
-    (error instanceof DOMException && error.name === 'AbortError')
-  ) {
-    logger.info('Request cancelled', { messageId, reason: signal?.reason });
+  if (signal?.aborted) {
+    logger.info('Request cancelled', {
+      messageId,
+      reason: signal.reason,
+      thrown: error,
+    });
     return cancellationError(
-      `Request cancelled: ${signal?.reason ?? 'unknown reason'}`,
-      signal?.reason,
+      `Request cancelled: ${signal.reason ?? 'unknown reason'}`,
+      signal.reason,
     );
   }
   logger.error('Planner threw', error, { messageId });
