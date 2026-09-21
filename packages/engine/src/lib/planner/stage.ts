@@ -55,6 +55,10 @@ export type StageError = Deferred | EngineError;
  * nothing extra when the same candidate reaches the Engine. A failure that
  * healing cannot absorb (for example a missing `userMessage`) is an `Err`;
  * nothing throws.
+ *
+ * Because results are cached by object identity, a candidate must not change
+ * once it is validated: a stage that produces a different plan returns a new
+ * object. {@link PlannerCandidate} is deeply readonly to enforce this.
  */
 export type ValidateCandidate = (
   candidate: PlannerCandidate,
@@ -109,7 +113,7 @@ export type Planner = Stage<PlanningInput, PlannerCandidate>;
 export interface RetryFeedback {
   /** Retry number: 1 for the first retry. */
   readonly attempt: number;
-  /** The candidate the previous attempt produced. */
+  /** The candidate the previous attempt produced. Build a new candidate rather than editing it. */
   readonly previous: PlannerCandidate;
   /** Heal diagnostics for {@link previous}, which recommended the retry. */
   readonly diagnostics: EngineDiagnostics;

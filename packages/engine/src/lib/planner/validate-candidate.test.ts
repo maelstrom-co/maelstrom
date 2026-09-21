@@ -120,6 +120,16 @@ describe('createCandidateValidator', () => {
     expect(entries.length).toBe(logsAfterTwoCalls * 2);
   });
 
+  test('a candidate cannot be edited in place once produced', () => {
+    const mutate = (candidate: PlannerCandidate) => {
+      // @ts-expect-error: candidates are deeply readonly
+      candidate.userMessage = 'edited';
+      // @ts-expect-error: candidates are deeply readonly
+      candidate.executionPlan.push(candidate.executionPlan[0]!);
+    };
+    expect(mutate).toBeFunction();
+  });
+
   test('a candidate without userMessage is an Err, logged once', () => {
     const { logger, entries } = spyLogger();
     const validate = validatorFor(logger);
