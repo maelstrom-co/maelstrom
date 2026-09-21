@@ -1,0 +1,220 @@
+import { describe, expect, test } from 'bun:test';
+
+import type { MaelstromResponse } from '@maelstrom-co/protocol';
+
+import { type Scenario, scenarios } from './scenarios.js';
+import { scoreActions, scoreResponse, scoreSelection } from './score.js';
+
+function scenario(id: string): Scenario {
+  const found = scenarios.find((candidate) => candidate.id === id);
+  if (!found) throw new Error(`no scenario ${id}`);
+  return found;
+}
+
+function response(
+  from: Scenario,
+  options: {
+    readonly tree?: readonly (string | null)[];
+    readonly extra?: readonly {
+      instanceId: string;
+      vesselId: string;
+      variant: string;
+    }[];
+    readonly variants?: Readonly<Record<string, string>>;
+    readonly actions?: readonly {
+      instanceId: string;
+      action: string;
+      params?: Record<string, unknown>;
+    }[];
+  } = {},
+): MaelstromResponse {
+  const tree =
+    from.request.layout.type === 'tiling' ? from.request.layout.tree : [];
+  return {
+    type: 'maelstrom_response',
+    requestId: 'r',
+    userMessage: 'ok',
+    rationale: 'r',
+    executionPlan: options.actions ?? [],
+    layout: {
+      type: 'tiling',
+      tree: options.tree ?? tree,
+      instances: [
+        ...from.request.instances.map((instance) => ({
+          ...instance,
+          variant: options.variants?.[instance.instanceId] ?? instance.variant,
+        })),
+        ...(options.extra ?? []),
+      ],
+    },
+  } as unknown as MaelstromResponse;
+}
+
+describe('scoreResponse', () => {
+  test('passes a response that matches the expectation', () => {
+    const quoted = scenario('quoted-location');
+    expect(
+      scoreResponse(
+        quoted,
+        response(quoted, {
+          actions: [
+            {
+              instanceId: 'weather-main',
+              action: 'setLocation',
+              params: { location: 'Tokyo' },
+            },
+          ],
+        }),
+      ),
+    ).toEqual({ pass: true, failures: [] });
+  });
+
+  test('fails a wrong visible set', () => {
+    const hide = scenario('hide');
+    const score = scoreResponse(hide, response(hide));
+    expect(score.pass).toBe(false);
+    expect(score.failures[0]).toContain('Visible instances');
+  });
+
+  test('fails actions in the wrong order', () => {
+    const twoActions = scenario('two-actions');
+    const score = scoreResponse(
+      twoActions,
+      response(twoActions, {
+        actions: [
+          { instanceId: 'weather-main', action: 'showHourly' },
+          {
+            instanceId: 'weather-main',
+            action: 'setLocation',
+            params: { location: 'Tokyo' },
+          },
+        ],
+      }),
+    );
+    expect(score.pass).toBe(false);
+    expect(score.failures[0]).toContain('Ordered actions');
+  });
+
+  test('fails a wrong parameter value', () => {
+    const quoted = scenario('quoted-location');
+    const score = scoreResponse(
+      quoted,
+      response(quoted, {
+        actions: [
+          {
+            instanceId: 'weather-main',
+            action: 'setLocation',
+            params: { location: 'Kyoto' },
+          },
+        ],
+      }),
+    );
+    expect(score.pass).toBe(false);
+  });
+
+  test('ignores parameters an expectation leaves unscored', () => {
+    const unquoted = scenario('hold-unquoted');
+    expect(
+      scoreResponse(
+        unquoted,
+        response(unquoted, {
+          actions: [
+            {
+              instanceId: 'tasks-main',
+              action: 'addTask',
+              params: { title: 'passport' },
+            },
+          ],
+        }),
+      ).pass,
+    ).toBe(true);
+  });
+
+  test('fails a variant changed without an action', () => {
+    const variant = scenario('variant');
+    const score = scoreResponse(
+      variant,
+      response(variant, {
+        variants: { 'weather-main': 'weekly' },
+        actions: [{ instanceId: 'weather-main', action: 'showWeekly' }],
+      }),
+    );
+    expect(score.pass).toBe(false);
+    expect(score.failures.join()).toContain('without an action');
+  });
+
+  test('matches a baseline’s own new-instance ids by Vessel and order', () => {
+    const create = scenario('create-configure');
+    const score = scoreResponse(
+      create,
+      response(create, {
+        tree: [
+          'V:1,1,1,1',
+          'ID:calendar-main',
+          'ID:weather-main',
+          'ID:tasks-main',
+          'ID:weather-2',
+        ],
+        extra: [
+          { instanceId: 'weather-2', vesselId: 'weather', variant: 'current' },
+        ],
+        actions: [
+          {
+            instanceId: 'weather-2',
+            action: 'setLocation',
+            params: { location: 'Paris' },
+          },
+        ],
+      }),
+    );
+    expect(score).toEqual({ pass: true, failures: [] });
+  });
+});
+
+describe('stage scores', () => {
+  test('selection compares visible and retained sets', () => {
+    const hide = scenario('hide');
+    const selection = {
+      input: { request: hide.request },
+      answers: [],
+      instances: hide.request.instances.map((instance) => ({
+        ...instance,
+        fresh: false,
+        visible: ['calendar-main', 'tasks-main'].includes(instance.instanceId),
+        decision: 'keep',
+      })),
+    } as never;
+    expect(scoreSelection(hide, selection)?.pass).toBe(true);
+  });
+
+  test('actions count a pending slot the expectation has a value for, and asks', () => {
+    const capital = scenario('se-capital');
+    const pending = {
+      actions: [
+        {
+          instanceId: 'weather-main',
+          action: 'setLocation',
+          params: {},
+          pending: [{ name: 'location', type: 'string', description: 'x' }],
+        },
+      ],
+      asks: [],
+    } as never;
+    expect(scoreActions(capital, pending)?.pass).toBe(true);
+    const addTask = scenario('ns-add-task');
+    const asked = {
+      actions: [],
+      asks: [
+        {
+          instanceId: 'tasks-main',
+          action: 'addTask',
+          parameter: { name: 'title', type: 'string', description: 'x' },
+        },
+      ],
+    } as never;
+    expect(scoreActions(addTask, asked)?.pass).toBe(true);
+    expect(
+      scoreActions(addTask, { actions: [], asks: [] } as never)?.pass,
+    ).toBe(false);
+  });
+});

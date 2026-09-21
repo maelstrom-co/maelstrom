@@ -251,6 +251,9 @@
         "@tanstack/ai": "catalog:",
         "zod": "catalog:",
       },
+      "devDependencies": {
+        "@tanstack/ai-openai": "catalog:",
+      },
     },
     "packages/protocol": {
       "name": "@maelstrom-co/protocol",

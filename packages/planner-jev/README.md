@@ -88,3 +88,34 @@ Every deferral logs `jev.defer` at info with `{ stage, reason, question }`, and 
 - `jev.call` (debug): stage, model, question ids, latency, outcome and token usage of every TypeSafe call.
 - `jev.answer` (debug): stage, question, choice and confidence of every answer read.
 - `jev.action_dropped` (info): an action dropped for a `not_stated` parameter.
+
+## Evaluating
+
+`eval/` holds a live runner that compares this planner with the LLM baseline on the same scenarios: the 40 tiling scenarios of the Jev prototype (24 development, 16 holdout) plus parameter cases that separate `stated_elsewhere` from `not_stated`. Both arms run through `createEngine` with history off and `retry: false`; the baseline is the same once-retried `llmPlanner` the POC falls back to, so the only difference between the arms is the Jev pipeline. Scores use the shipped (validated and healed) response.
+
+```sh
+OPENAI_API_KEY=... TYPESAFE_API_KEY=... JEV_MODEL=jev-1.13.0 \
+  bunx nx run @maelstrom-co/planner-jev:eval -- --suite all --arm both --repeats 3
+```
+
+| Flag | Default | Meaning |
+| --- | --- | --- |
+| `--suite` | `all` | `development`, `holdout` or `all`. |
+| `--arm` | `both` | `baseline`, `jev` or `both`. |
+| `--repeats` | `3` | Runs per scenario and arm. |
+| `--case` | every case | A scenario id; repeat the flag for several. |
+| `--model` | the demo's default | OpenAI model for the baseline, `llmComplete` and the fallback. |
+| `--out` | `tmp/planner-jev-eval/<timestamp>` | Output directory (`tmp` is gitignored). |
+
+Without `OPENAI_API_KEY`, `TYPESAFE_API_KEY` or `JEV_MODEL` the runner writes `status.json` naming the missing variables and exits with code 2. Live runs are not part of `nx test`; the offline tests use a scripted TypeSafe transport and a mocked `chat()`.
+
+### Reading the report
+
+`report.md` puts the arms side by side for each suite (`records.json` has every turn, `summary.json` the numbers):
+
+- **Overall pass**: shipped responses with the expected visible and retained instances, the expected ordered actions and parameters, and no existing instance whose variant changed without an action. New instances match by Vessel and order, so the baseline's own ids score fairly. Scenarios where the POC is expected to defer are left out of both arms and reported as **Expected deferrals at the right stage** for the POC.
+- **Selection / Actions / Layout accuracy** (POC only): each stage's own output against the expectation. Selection compares the visible and retained sets, actions compare the ordered actions, bound parameters and asks (a `stated_elsewhere` slot counts when the expectation has a value for it), layout compares the tree's leaves with the visible set; the tree itself is recorded, not scored.
+- **Fallback rate** (POC only): turns that re-planned with the fallback, by deferring stage, with `provider_*` failures counted separately.
+- **llmComplete fill rate**: filled `stated_elsewhere` slots over all such slots; a `param_unfilled` deferral counts all of its turn's slots as unfilled.
+- **Latency**: p50 and p95 of the whole turn, each stage and each Jev call.
+- **Tokens**: Jev usage from its replies. LLM tokens are reported as unavailable: `@tanstack/ai`'s non-streaming structured `chat()` does not surface usage to the planner.
