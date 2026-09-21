@@ -1,18 +1,19 @@
 import type {
   ChartRequest,
-  GridResponse,
-  MaelstromResponse,
   MessageId,
   Result,
   SessionId,
-  TilingResponse,
 } from '@maelstrom-co/protocol';
 
 import type { EngineError, ValidationError } from '../errors.js';
 import { validationError } from '../errors.js';
 import type { LLMContextMessage } from '../history/history-manager.js';
 import type { Logger } from '../logger.js';
-import type { EngineDiagnostics } from '../response/response-processor.js';
+import type {
+  EngineDiagnostics,
+  PlannerCandidate,
+  ValidatedCandidate,
+} from './candidate.js';
 
 /**
  * What the Engine hands the first stage of a {@link Planner} for one
@@ -33,13 +34,6 @@ export interface PlanningInput {
 }
 
 /**
- * The raw plan a {@link Planner} produces: the structured output shape for the
- * request's layout mode, before the Engine heals and validates it. A grid
- * request expects a `GridResponse`; a tiling request a `TilingResponse`.
- */
-export type PlannerCandidate = GridResponse | TilingResponse;
-
-/**
  * A stage abstaining from the request. Deferral is a value in the error
  * channel, never a thrown exception, and is distinct from every
  * {@link EngineError} so that {@link withFallback} can recover from it alone.
@@ -53,16 +47,6 @@ export interface Deferred {
 
 /** Failure channel of a {@link Stage}: abstain, or fail with an Engine error. */
 export type StageError = Deferred | EngineError;
-
-/**
- * Candidate after the Engine healed and validated it against the original
- * request: the response that would ship, plus the diagnostics describing what
- * healing changed. The diagnostics never cross the Engine boundary.
- */
-export type ValidatedCandidate = MaelstromResponse & {
-  /** What healing dropped, skipped or repaired, and whether a retry is recommended. */
-  readonly diagnostics: EngineDiagnostics;
-};
 
 /**
  * Heals and validates a candidate against the original request, the same way

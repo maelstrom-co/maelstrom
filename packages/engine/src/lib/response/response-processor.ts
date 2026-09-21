@@ -3,7 +3,6 @@ import type {
   GridLayout,
   GridPosition,
   GridResponse,
-  MaelstromResponse,
   MessageId,
   Result,
   TilingInstance,
@@ -18,14 +17,16 @@ import type { ActionParameterEnumSnapshot } from '../action-parameter-enum.js';
 import type { EngineError } from '../errors.js';
 import { parseError, validationError } from '../errors.js';
 import type { Logger } from '../logger.js';
-import type { LLMOutput } from '../planner/call-llm.js';
+import type {
+  DiagnosticRecords,
+  FullDiagnostics,
+  FullValidatedCandidate,
+  PlannerCandidate,
+} from '../planner/candidate.js';
 import { renderRetryDiagnostics } from '../planner/retry-diagnostics.js';
 import type {
-  DroppedLayoutEntry,
   HealedLayout,
   HealedTilingInstance,
-  LayoutWarning,
-  RetryHint,
 } from '../validation/llm-output/healed-layout.js';
 import {
   healGridLayout,
@@ -35,54 +36,14 @@ import {
   deriveRetryHint,
   layoutEntryCount,
 } from '../validation/llm-output/retry-hint.js';
-import type { SkippedAction } from './execution-plan/index.js';
 import {
   classifyExecutionTurn,
   parseExecutionPlan,
 } from './execution-plan/index.js';
 import { buildGridLayout, buildTilingLayout } from './layout/index.js';
 
-/**
- * A summary of what healing changed in a candidate and whether another
- * attempt is worth it. Planner stages see it through `StageContext.validate`
- * and `RetryFeedback`; it is stripped from the response before it crosses the
- * Engine boundary. The detailed per-entry records stay inside the Engine.
- */
-export interface EngineDiagnostics {
-  /** Severity of the healed result and whether the Engine recommends a retry. */
-  readonly retryHint: RetryHint;
-  /** How many entries of each kind healing produced. */
-  readonly counts: {
-    /** Proposed actions the Engine refused to plan. */
-    readonly skippedActions: number;
-    /** Layout entries healing removed. */
-    readonly droppedLayoutEntries: number;
-    /** Repairs healing applied without removing anything from the layout. */
-    readonly warnings: number;
-  };
-  /**
-   * Sanitized, length-limited description of what healing changed, written
-   * for a model and ready to paste into a retry prompt. Empty when there is
-   * nothing a planner can act on.
-   */
-  readonly feedback: string;
-}
-
-/** {@link EngineDiagnostics} plus the detailed records the Engine logs. */
-export interface FullDiagnostics extends EngineDiagnostics {
-  readonly skippedActions: readonly SkippedAction[];
-  readonly droppedLayoutEntries: readonly DroppedLayoutEntry[];
-  readonly warnings: readonly LayoutWarning[];
-}
-
-export type DiagnosticRecords = Omit<FullDiagnostics, 'counts' | 'feedback'>;
-
-export type InternalResponse = MaelstromResponse & {
-  readonly diagnostics: FullDiagnostics;
-};
-
 export interface ProcessResponseInput {
-  readonly llmOutput: LLMOutput;
+  readonly llmOutput: PlannerCandidate;
   readonly request: ChartRequest;
   /** Exact normalized enum values displayed for this Engine request. */
   readonly enumSnapshot: ActionParameterEnumSnapshot;
@@ -97,7 +58,7 @@ export function processResponse({
   enumSnapshot,
   messageId,
   logger,
-}: ProcessResponseInput): Result<InternalResponse, EngineError> {
+}: ProcessResponseInput): Result<FullValidatedCandidate, EngineError> {
   if (!llmOutput.userMessage?.trim()) {
     return err(parseError('LLM response missing userMessage', 'userMessage'));
   }

@@ -10,12 +10,10 @@ import type { ActionParameterEnumSnapshot } from '../action-parameter-enum.js';
 import type { EngineError } from '../errors.js';
 import { validationError } from '../errors.js';
 import type { Logger } from '../logger.js';
-import type {
-  InternalResponse,
-  ProcessResponseInput,
-} from '../response/response-processor.js';
+import type { ProcessResponseInput } from '../response/response-processor.js';
 import { processResponse } from '../response/response-processor.js';
-import type { PlannerCandidate, ValidateCandidate } from './stage.js';
+import type { FullValidatedCandidate, PlannerCandidate } from './candidate.js';
+import type { ValidateCandidate } from './stage.js';
 
 export interface CandidateValidatorInput {
   readonly request: ChartRequest;
@@ -27,7 +25,7 @@ export interface CandidateValidatorInput {
 /** A {@link ValidateCandidate} whose results keep the full diagnostics. */
 export type CandidateValidator = (
   candidate: PlannerCandidate,
-) => Result<InternalResponse, EngineError>;
+) => Result<FullValidatedCandidate, EngineError>;
 
 /**
  * Builds the request-scoped {@link ValidateCandidate}. Each candidate object
@@ -40,7 +38,7 @@ export function createCandidateValidator(
 ): CandidateValidator {
   const cache = new WeakMap<
     PlannerCandidate,
-    Result<InternalResponse, EngineError>
+    Result<FullValidatedCandidate, EngineError>
   >();
   const validate: CandidateValidator = (candidate) => {
     // A misbehaving stage can hand over a primitive, which a WeakMap cannot
@@ -79,7 +77,7 @@ export function validatorEnumSnapshot(
 // caller's Promise<Result> never rejects.
 function processCandidate(
   input: ProcessResponseInput,
-): Result<InternalResponse, EngineError> {
+): Result<FullValidatedCandidate, EngineError> {
   const { messageId, logger } = input;
   try {
     const processed = processResponse(input);

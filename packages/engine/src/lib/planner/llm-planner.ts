@@ -25,13 +25,9 @@ import {
 } from '../prompt/prompt-builder.js';
 import { validateLlmPlannerOptions } from '../validation/engine-config.js';
 import { callLLM, logLLMCallError } from './call-llm.js';
+import type { PlannerCandidate } from './candidate.js';
 import { buildRetryPrompt } from './retry-prompt.js';
-import type {
-  PlannerCandidate,
-  PlanningInput,
-  Retryable,
-  Stage,
-} from './stage.js';
+import type { PlanningInput, Retryable, Stage } from './stage.js';
 import { validatorEnumSnapshot } from './validate-candidate.js';
 
 /** Configuration for {@link llmPlanner}. */

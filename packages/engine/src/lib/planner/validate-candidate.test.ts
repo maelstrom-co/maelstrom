@@ -11,7 +11,7 @@ import {
 } from '../__test-helpers__/stage-context.js';
 import { buildActionParameterEnumSnapshot } from '../action-parameter-enum.js';
 import type { Logger } from '../logger.js';
-import type { PlannerCandidate } from './stage.js';
+import type { PlannerCandidate } from './candidate.js';
 import { createCandidateValidator } from './validate-candidate.js';
 
 function validatorFor(logger: Logger) {

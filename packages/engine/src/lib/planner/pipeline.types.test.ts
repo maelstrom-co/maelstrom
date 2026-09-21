@@ -2,13 +2,9 @@ import { expect, test } from 'bun:test';
 import { ok } from '@maelstrom-co/protocol';
 
 import { buildGridResponse } from '../__test-helpers__/fixtures.js';
+import type { PlannerCandidate } from './candidate.js';
 import { pipeline } from './pipeline.js';
-import type {
-  Planner,
-  PlannerCandidate,
-  PlanningInput,
-  Stage,
-} from './stage.js';
+import type { Planner, PlanningInput, Stage } from './stage.js';
 
 interface Selection {
   readonly vesselIds: readonly string[];

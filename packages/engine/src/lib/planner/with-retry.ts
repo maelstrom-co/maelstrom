@@ -1,12 +1,8 @@
 import { isErr } from '@maelstrom-co/protocol';
 
 import { logAtSeverity } from '../severity-router.js';
-import type {
-  PlannerCandidate,
-  Retryable,
-  RetryFeedback,
-  Stage,
-} from './stage.js';
+import type { PlannerCandidate } from './candidate.js';
+import type { Retryable, RetryFeedback, Stage } from './stage.js';
 
 /** Retry budget for {@link withRetry}. */
 export interface WithRetryOptions {
