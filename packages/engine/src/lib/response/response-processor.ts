@@ -63,8 +63,9 @@ export function processResponse({
     return err(parseError('LLM response missing userMessage', 'userMessage'));
   }
 
-  // `layoutMode` is the upstream discriminator: the schema that produced
-  // `llmOutput` matches `request.context.layoutMode`, so these casts are
+  // `layoutMode` is the upstream discriminator: the candidate validator
+  // checks `llmOutput` against the response schema for
+  // `request.context.layoutMode` before calling this, so these casts are
   // type-safe narrowings. The narrowing lives here at the dispatch site
   // (rather than in a helper) so the discriminator → branch correspondence
   // is locally legible; each cast is paired with the case that justifies it.

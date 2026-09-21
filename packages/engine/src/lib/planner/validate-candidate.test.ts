@@ -146,16 +146,58 @@ describe('createCandidateValidator', () => {
     ]);
   });
 
+  test.each([
+    [
+      'a tiling-shaped candidate for a grid request',
+      {
+        userMessage: 'hi',
+        rationale: 'r',
+        executionPlan: [],
+        layout: { tree: ['calendar-main'], instances: [] },
+      },
+    ],
+    [
+      'a candidate without an executionPlan',
+      {
+        userMessage: 'hi',
+        rationale: 'r',
+        layout: { positions: [] },
+      },
+    ],
+  ])('%s is Err(ValidationError) on field "planner" naming the schema', (_case, candidate) => {
+    const { logger, entries } = spyLogger();
+    const validate = validatorFor(logger);
+
+    const result = validate(invalid<PlannerCandidate>(candidate));
+
+    expect(isErr(result)).toBe(true);
+    if (!isErr(result)) return;
+    expect(result.error).toMatchObject({
+      _tag: 'ValidationError',
+      field: 'planner',
+      message: expect.stringContaining('grid response schema'),
+    });
+    expect(entries.map((e) => e.msg)).toEqual([
+      'Planner candidate does not match the response schema',
+    ]);
+  });
+
   test('a throw while processing becomes Err(ValidationError) on field "response"', () => {
     const { logger, entries } = spyLogger();
     const validate = validatorFor(logger);
 
+    // Passes the schema check, then throws when healing reads it again.
+    let rationaleReads = 0;
     const result = validate(
       invalid<PlannerCandidate>({
         userMessage: 'hi',
-        rationale: 'r',
         executionPlan: [],
-        layout: {},
+        layout: { positions: [] },
+        get rationale() {
+          rationaleReads += 1;
+          if (rationaleReads > 1) throw new Error('invariant broken');
+          return 'r';
+        },
       }),
     );
 
