@@ -8,10 +8,6 @@ import {
   VesselId,
 } from '@maelstrom-co/protocol';
 import type { SkippedAction } from '../response/execution-plan/index.js';
-import type {
-  DiagnosticRecords,
-  InternalResponse,
-} from '../response/response-processor.js';
 import { buildDiagnostics } from '../response/response-processor.js';
 import type {
   DroppedLayoutEntry,
@@ -20,6 +16,7 @@ import type {
 } from '../validation/llm-output/healed-layout.js';
 import { deriveRetryHint } from '../validation/llm-output/retry-hint.js';
 
+import type { DiagnosticRecords, FullValidatedCandidate } from './candidate.js';
 import { buildRetryPrompt } from './retry-prompt.js';
 
 // ---------------------------------------------------------------------------
@@ -35,7 +32,7 @@ interface DiagnosticsInput {
 
 const cleanHint: RetryHint = { severity: 'none', recommend: false };
 
-const response = (input: DiagnosticsInput = {}): InternalResponse => ({
+const response = (input: DiagnosticsInput = {}): FullValidatedCandidate => ({
   type: 'maelstrom_response',
   requestId: MessageId('req-1'),
   userMessage: 'ok',
@@ -54,7 +51,7 @@ const recommendingResponse = (
   input: Omit<DiagnosticsInput, 'retryHint'> & {
     severity?: 'medium' | 'unrecoverable';
   } = {},
-): InternalResponse => {
+): FullValidatedCandidate => {
   const severity = input.severity ?? 'unrecoverable';
   const hint: RetryHint =
     severity === 'unrecoverable'

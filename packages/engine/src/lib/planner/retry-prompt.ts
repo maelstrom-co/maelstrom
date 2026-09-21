@@ -1,4 +1,4 @@
-import type { EngineDiagnostics } from '../response/response-processor.js';
+import type { EngineDiagnostics } from './candidate.js';
 
 /**
  * The system prompt is unchanged on retry, so the LLM still has the full

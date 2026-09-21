@@ -23,6 +23,7 @@ import type { HistoryEntry } from './history/history-store.js';
 import { loadHistoryContext } from './history/load-history-context.js';
 import { toSessionHistoryEntry } from './history/wire-projection.js';
 import type { Logger } from './logger.js';
+import type { FullValidatedCandidate } from './planner/candidate.js';
 import type { Planner, PlanningInput, StageContext } from './planner/stage.js';
 import { isDeferred, unhandledDeferralError } from './planner/stage.js';
 import type { CandidateValidator } from './planner/validate-candidate.js';
@@ -33,7 +34,6 @@ import type {
   SkippedActionIdentity,
 } from './response/execution-plan/index.js';
 import { skippedActionIdentity } from './response/execution-plan/index.js';
-import type { InternalResponse } from './response/response-processor.js';
 import { logAtSeverity } from './severity-router.js';
 import { validateEngineConfig } from './validation/engine-config.js';
 import {
@@ -435,7 +435,7 @@ async function runPlanner(
   input: PlanningInput,
   ctx: StageContext,
   validate: CandidateValidator,
-): Promise<Result<InternalResponse, EngineError>> {
+): Promise<Result<FullValidatedCandidate, EngineError>> {
   try {
     const planned = await planner(input, ctx);
     if (isErr(planned)) {

@@ -27,23 +27,23 @@ import {
 } from '../errors.js';
 import type { Logger } from '../logger.js';
 import type { SkippedAction } from '../response/execution-plan/index.js';
-import type {
-  DiagnosticRecords,
-  EngineDiagnostics,
-} from '../response/response-processor.js';
 import { buildDiagnostics } from '../response/response-processor.js';
 import type {
   DroppedLayoutEntry,
   RetryHint,
 } from '../validation/llm-output/healed-layout.js';
 import type {
+  DiagnosticRecords,
+  EngineDiagnostics,
   PlannerCandidate,
+  ValidatedCandidate,
+} from './candidate.js';
+import type {
   PlanningInput,
   Retryable,
   Stage,
   StageContext,
   StageError,
-  ValidatedCandidate,
 } from './stage.js';
 import { withRetry } from './with-retry.js';
 

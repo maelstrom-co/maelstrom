@@ -8,13 +8,9 @@ import {
   spyLogger,
 } from '../__test-helpers__/stage-context.js';
 import { cancellationError, providerError } from '../errors.js';
+import type { PlannerCandidate } from './candidate.js';
 import { pipeline } from './pipeline.js';
-import type {
-  PlannerCandidate,
-  PlanningInput,
-  Stage,
-  StageContext,
-} from './stage.js';
+import type { PlanningInput, Stage, StageContext } from './stage.js';
 import { deferred } from './stage.js';
 
 const candidate = buildGridResponse();

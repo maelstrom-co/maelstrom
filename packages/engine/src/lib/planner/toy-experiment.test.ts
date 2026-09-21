@@ -11,14 +11,9 @@ import {
   makeStageContext,
   spyLogger,
 } from '../__test-helpers__/stage-context.js';
+import type { PlannerCandidate } from './candidate.js';
 import { pipeline } from './pipeline.js';
-import type {
-  Planner,
-  PlannerCandidate,
-  PlanningInput,
-  Retryable,
-  Stage,
-} from './stage.js';
+import type { Planner, PlanningInput, Retryable, Stage } from './stage.js';
 import { deferred } from './stage.js';
 import { withFallback } from './with-fallback.js';
 import { withRetry } from './with-retry.js';

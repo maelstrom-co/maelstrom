@@ -29,11 +29,11 @@ import { createEngine } from './engine.js';
 import { providerError } from './errors.js';
 import type { HistoryEntry, HistoryStore } from './history/history-store.js';
 import { createInMemoryStore } from './history/in-memory-store.js';
+import type { PlannerCandidate } from './planner/candidate.js';
 import { llmPlanner } from './planner/llm-planner.js';
 import { pipeline } from './planner/pipeline.js';
 import type {
   Planner,
-  PlannerCandidate,
   PlanningInput,
   Retryable,
   StageContext,
