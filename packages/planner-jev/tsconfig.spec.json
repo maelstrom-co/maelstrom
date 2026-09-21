@@ -9,7 +9,8 @@
     "src/**/*.test.ts",
     "src/**/*.spec.ts",
     "src/**/*.d.ts",
-    "src/**/__test-helpers__/**/*.ts"
+    "src/**/__test-helpers__/**/*.ts",
+    "eval/**/*.ts"
   ],
   "references": [{ "path": "./tsconfig.lib.json" }]
 }
