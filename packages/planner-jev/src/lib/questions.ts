@@ -1,10 +1,16 @@
-import type { Deferred, StageContext } from '@maelstrom-co/engine';
-import { ok, type Result } from '@maelstrom-co/protocol';
+import type {
+  Deferred,
+  LLMContextMessage,
+  StageContext,
+} from '@maelstrom-co/engine';
+import { type ChartRequest, ok, type Result } from '@maelstrom-co/protocol';
 
 import { deferAt, type StageName } from './defer.js';
 
 /** TypeSafe rejects a choice question with more options than this. */
 export const MAX_CHOICES = 255;
+
+const HISTORY_MESSAGES = 6;
 
 /** One multiple-choice question: the option keys are the criteria's keys. */
 export interface Question {
@@ -79,4 +85,18 @@ export function readAnswer(
   if (policy.minimum !== undefined && answer.confidence < policy.minimum)
     return deferAt(ctx, stage, 'low_confidence', id);
   return ok(answer);
+}
+
+/** The user's words in this request, one line per `user_intent` reason. */
+export function intentText(request: ChartRequest): string {
+  return request.context.updateReasons
+    .flatMap((reason) => (reason.type === 'user_intent' ? [reason.intent] : []))
+    .join('\n');
+}
+
+/** The last few history messages, enough to resolve a follow-up. */
+export function recentHistory(
+  history: readonly LLMContextMessage[],
+): readonly LLMContextMessage[] {
+  return history.slice(-HISTORY_MESSAGES);
 }
