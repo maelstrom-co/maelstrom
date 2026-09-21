@@ -5,6 +5,7 @@ import type { EngineConfig } from '../config.js';
 import type { LLMContextMessage } from '../history/history-manager.js';
 import type { HistoryEntry, HistoryStore } from '../history/history-store.js';
 import type { Logger } from '../logger.js';
+import type { LlmPlannerOptions } from '../planner/llm-planner.js';
 
 // `T` is compile-time shape only — runtime only verifies that `v` is callable.
 // Method signature/arity drift surfaces via the type-level guards below
@@ -105,6 +106,14 @@ const engineConfigSchema = z
   })
   .strict();
 
+const llmPlannerOptionsSchema = z
+  .object({
+    adapter: adapterSchema,
+    prompt: promptOptionsSchema.optional(),
+    modelOptions: z.record(z.string(), z.unknown()).optional(),
+  })
+  .strict();
+
 // Compile-time drift guard. Each check is a named const so a failure points
 // to the specific invariant that drifted. Whole-type reverse checks
 // (EngineConfig extends inferred) are omitted where the inferred shape can't
@@ -146,7 +155,26 @@ const _promptFwd: NonNullable<
 > extends NonNullable<EngineConfig['prompt']>
   ? true
   : false = true;
+type _InferredLlmPlannerOptions = z.infer<typeof llmPlannerOptionsSchema>;
+const _plannerKeysSubsetInferred: keyof LlmPlannerOptions extends keyof _InferredLlmPlannerOptions
+  ? true
+  : false = true;
+const _inferredKeysSubsetPlanner: keyof _InferredLlmPlannerOptions extends keyof LlmPlannerOptions
+  ? true
+  : false = true;
+const _plannerAdapterFwd: _InferredLlmPlannerOptions['adapter'] extends _AdapterContract
+  ? true
+  : false = true;
+const _plannerPromptFwd: NonNullable<
+  _InferredLlmPlannerOptions['prompt']
+> extends NonNullable<LlmPlannerOptions['prompt']>
+  ? true
+  : false = true;
 void [
+  _plannerKeysSubsetInferred,
+  _inferredKeysSubsetPlanner,
+  _plannerAdapterFwd,
+  _plannerPromptFwd,
   _configKeysSubsetInferred,
   _inferredKeysSubsetConfig,
   _adapterFwd,
@@ -172,6 +200,22 @@ export function validateEngineConfig(config: unknown): EngineConfig {
   // history.store identity intact across the validation boundary.
   // See `_AdapterContract` — phantom `~types` field requires this cast.
   return config as EngineConfig;
+}
+
+/**
+ * Validates `llmPlanner` options with the same adapter and prompt rules as
+ * `validateEngineConfig`, returning the caller's instance so adapter identity
+ * survives (see `validateEngineConfig`).
+ */
+export function validateLlmPlannerOptions(options: unknown): LlmPlannerOptions {
+  const result = llmPlannerOptionsSchema.safeParse(options);
+  if (!result.success) {
+    throw new Error(
+      `Invalid LlmPlannerOptions: ${formatIssues(result.error)}`,
+      { cause: result.error },
+    );
+  }
+  return options as LlmPlannerOptions;
 }
 
 function formatIssues(error: z.ZodError): string {

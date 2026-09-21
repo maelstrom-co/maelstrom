@@ -166,6 +166,11 @@ export interface HealedTilingLayout {
 
 export type HealedLayout = HealedGridLayout | HealedTilingLayout;
 
+/**
+ * How badly healing degraded a response, from `'none'` (nothing changed) to
+ * `'unrecoverable'` (the layout came out empty although the request had
+ * instances). Drives the level of heal and retry log lines.
+ */
 export type RetrySeverity = 'none' | 'low' | 'medium' | 'unrecoverable';
 
 /**
