@@ -1467,6 +1467,54 @@ describe('engine.handle with a configured planner', () => {
     }
   });
 
+  test('an EngineError from a stage is logged once by the Engine', async () => {
+    const failure = providerError('upstream down', new Error('503'));
+    const { logger, entries } = spyLogger();
+    const engine = createEngine({ planner: async () => err(failure), logger });
+
+    await engine.handle(toChartRequestMessage(makeGridRequest()));
+
+    expect(entries).toEqual([
+      expect.objectContaining({ msg: 'Processing chart_request' }),
+      {
+        level: 'warn',
+        msg: 'Planner failed',
+        ctx: { messageId: DEFAULT_MESSAGE_ID, errorTag: 'ProviderError' },
+      },
+    ]);
+  });
+
+  test.each([
+    ['a raw candidate', async () => buildGridResponse()],
+    ['err() of a plain Error', async () => err(new Error('x'))],
+    ['err() of a string', async () => err('timeout')],
+  ])('a stage that resolves %s instead of a Result<PlannerCandidate, StageError> is Err(ValidationError) on field "planner"', async (_case, stage) => {
+    const { logger, entries } = spyLogger();
+    const engine = createEngine({
+      planner: stage as unknown as Planner,
+      logger,
+    });
+
+    const result = await engine.handle(
+      toChartRequestMessage(makeGridRequest()),
+    );
+
+    expect(isErr(result)).toBe(true);
+    if (!isErr(result)) return;
+    expect(result.error).toMatchObject({
+      _tag: 'ValidationError',
+      field: 'planner',
+      message:
+        'planner returned a value that is not a Result<PlannerCandidate, StageError>',
+    });
+    expect(entries.filter((entry) => entry.level === 'error')).toEqual([
+      expect.objectContaining({
+        msg: 'Planner returned a value that is not a Result',
+        ctx: { messageId: DEFAULT_MESSAGE_ID },
+      }),
+    ]);
+  });
+
   test('a result that is not a Result is an Err, never a rejection', async () => {
     const engine = createEngine({
       planner: (async () => undefined) as unknown as Planner,
