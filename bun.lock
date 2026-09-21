@@ -60,6 +60,7 @@
         "@maelstrom-co/client": "workspace:*",
         "@maelstrom-co/connectors": "workspace:*",
         "@maelstrom-co/engine": "workspace:*",
+        "@maelstrom-co/planner-jev": "workspace:*",
         "@maelstrom-co/protocol": "workspace:*",
         "@maelstrom-co/react": "workspace:*",
         "@maelstrom-co/react-realtime": "workspace:*",
@@ -217,8 +218,8 @@
       "name": "@maelstrom-co/client",
       "version": "0.1.0-alpha.4",
       "dependencies": {
-        "@maelstrom-co/connectors": "0.1.0-alpha.3",
-        "@maelstrom-co/protocol": "0.1.0-alpha.3",
+        "@maelstrom-co/connectors": "0.1.0-alpha.4",
+        "@maelstrom-co/protocol": "0.1.0-alpha.4",
         "@tanstack/store": "catalog:",
       },
       "devDependencies": {
@@ -229,7 +230,7 @@
       "name": "@maelstrom-co/connectors",
       "version": "0.1.0-alpha.4",
       "dependencies": {
-        "@maelstrom-co/protocol": "0.1.0-alpha.3",
+        "@maelstrom-co/protocol": "0.1.0-alpha.4",
       },
     },
     "packages/engine": {
@@ -263,8 +264,8 @@
       "name": "@maelstrom-co/react",
       "version": "0.1.0-alpha.4",
       "dependencies": {
-        "@maelstrom-co/client": "0.1.0-alpha.3",
-        "@maelstrom-co/protocol": "0.1.0-alpha.3",
+        "@maelstrom-co/client": "0.1.0-alpha.4",
+        "@maelstrom-co/protocol": "0.1.0-alpha.4",
         "@tanstack/react-store": "catalog:",
       },
       "devDependencies": {
@@ -281,10 +282,10 @@
       "name": "@maelstrom-co/react-realtime",
       "version": "0.1.0-alpha.4",
       "dependencies": {
-        "@maelstrom-co/client": "0.1.0-alpha.3",
-        "@maelstrom-co/protocol": "0.1.0-alpha.3",
-        "@maelstrom-co/react": "0.1.0-alpha.3",
-        "@maelstrom-co/realtime": "0.1.0-alpha.3",
+        "@maelstrom-co/client": "0.1.0-alpha.4",
+        "@maelstrom-co/protocol": "0.1.0-alpha.4",
+        "@maelstrom-co/react": "0.1.0-alpha.4",
+        "@maelstrom-co/realtime": "0.1.0-alpha.4",
       },
       "devDependencies": {
         "@testing-library/react": "catalog:",
@@ -299,8 +300,8 @@
       "name": "@maelstrom-co/realtime",
       "version": "0.1.0-alpha.4",
       "dependencies": {
-        "@maelstrom-co/client": "0.1.0-alpha.3",
-        "@maelstrom-co/protocol": "0.1.0-alpha.3",
+        "@maelstrom-co/client": "0.1.0-alpha.4",
+        "@maelstrom-co/protocol": "0.1.0-alpha.4",
       },
       "devDependencies": {
         "@sinonjs/fake-timers": "catalog:",
@@ -310,11 +311,11 @@
       "name": "@maelstrom-co/realtime-livekit",
       "version": "0.1.0-alpha.4",
       "dependencies": {
-        "@maelstrom-co/client": "0.1.0-alpha.3",
-        "@maelstrom-co/protocol": "0.1.0-alpha.3",
-        "@maelstrom-co/realtime": "0.1.0-alpha.3",
-        "@maelstrom-co/realtime-protocol": "0.1.0-alpha.3",
-        "@maelstrom-co/realtime-vad": "0.1.0-alpha.3",
+        "@maelstrom-co/client": "0.1.0-alpha.4",
+        "@maelstrom-co/protocol": "0.1.0-alpha.4",
+        "@maelstrom-co/realtime": "0.1.0-alpha.4",
+        "@maelstrom-co/realtime-protocol": "0.1.0-alpha.4",
+        "@maelstrom-co/realtime-vad": "0.1.0-alpha.4",
         "zod": "catalog:",
       },
       "devDependencies": {
@@ -333,15 +334,15 @@
         "@livekit/agents-plugin-cartesia": "^1.4.8",
         "@livekit/agents-plugin-deepgram": "^1.4.8",
         "@livekit/rtc-node": "^0.13.29",
-        "@maelstrom-co/realtime-protocol": "0.1.0-alpha.3",
+        "@maelstrom-co/realtime-protocol": "0.1.0-alpha.4",
       },
     },
     "packages/realtime-livekit-server": {
       "name": "@maelstrom-co/realtime-livekit-server",
       "version": "0.1.0-alpha.4",
       "dependencies": {
-        "@maelstrom-co/protocol": "0.1.0-alpha.3",
-        "@maelstrom-co/realtime-protocol": "0.1.0-alpha.3",
+        "@maelstrom-co/protocol": "0.1.0-alpha.4",
+        "@maelstrom-co/realtime-protocol": "0.1.0-alpha.4",
         "livekit-server-sdk": "^2.13.1",
         "zod": "catalog:",
       },
@@ -350,11 +351,11 @@
       "name": "@maelstrom-co/realtime-openai",
       "version": "0.1.0-alpha.4",
       "dependencies": {
-        "@maelstrom-co/client": "0.1.0-alpha.3",
-        "@maelstrom-co/protocol": "0.1.0-alpha.3",
-        "@maelstrom-co/realtime": "0.1.0-alpha.3",
-        "@maelstrom-co/realtime-protocol": "0.1.0-alpha.3",
-        "@maelstrom-co/realtime-vad": "0.1.0-alpha.3",
+        "@maelstrom-co/client": "0.1.0-alpha.4",
+        "@maelstrom-co/protocol": "0.1.0-alpha.4",
+        "@maelstrom-co/realtime": "0.1.0-alpha.4",
+        "@maelstrom-co/realtime-protocol": "0.1.0-alpha.4",
+        "@maelstrom-co/realtime-vad": "0.1.0-alpha.4",
       },
       "devDependencies": {
         "@sinonjs/fake-timers": "catalog:",
@@ -385,8 +386,8 @@
       "name": "@maelstrom-co/realtime-openai-server",
       "version": "0.1.0-alpha.4",
       "dependencies": {
-        "@maelstrom-co/protocol": "0.1.0-alpha.3",
-        "@maelstrom-co/realtime-protocol": "0.1.0-alpha.3",
+        "@maelstrom-co/protocol": "0.1.0-alpha.4",
+        "@maelstrom-co/realtime-protocol": "0.1.0-alpha.4",
         "zod": "catalog:",
       },
     },
@@ -394,7 +395,7 @@
       "name": "@maelstrom-co/realtime-protocol",
       "version": "0.1.0-alpha.4",
       "dependencies": {
-        "@maelstrom-co/protocol": "0.1.0-alpha.3",
+        "@maelstrom-co/protocol": "0.1.0-alpha.4",
         "zod": "catalog:",
       },
     },

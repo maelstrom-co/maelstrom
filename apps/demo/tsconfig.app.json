@@ -79,6 +79,9 @@
       "path": "../../packages/engine/tsconfig.lib.json"
     },
     {
+      "path": "../../packages/planner-jev/tsconfig.lib.json"
+    },
+    {
       "path": "../../packages/connectors/tsconfig.lib.json"
     },
     {

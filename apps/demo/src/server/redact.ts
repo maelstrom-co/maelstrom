@@ -10,28 +10,35 @@ const OPENAI_KEY_PATTERN = /sk-[A-Za-z0-9_-]{32,}/g;
 
 /**
  * Scrubs API keys out of an outbound wire string before it leaves the
- * server. Callers pass an already-JSON-serialized wire string, so a key
- * containing a character JSON escapes (`"`, `\`, a newline, ...) appears in
- * that string in its escaped form, not raw — an exact-match pass against the
- * raw key alone would find zero occurrences and ship it verbatim. Passes, in
- * order: the raw key (exact match), the key's JSON-escaped form (only when
- * it differs from the raw key), then a generic OpenAI-key-shaped pattern
- * pass that catches a *different*, full-length key leaking into a message
- * (e.g. a stale pre-rotation key baked into a cached client or SDK error).
- * Between the raw and escaped passes, the key is removed wherever it
- * appears, including inside a JSON-encoded error payload, regardless of
- * length. The pattern's minimum run length is deliberately long enough that
- * it can never match a protocol id (nanoid, 21 chars) — see
+ * server. Accepts one secret or every secret the server holds (the OpenAI
+ * key and the TypeSafe key, for example). Callers pass an
+ * already-JSON-serialized wire string, so a key containing a character JSON
+ * escapes (`"`, `\`, a newline, ...) appears in that string in its escaped
+ * form, not raw, so an exact-match pass against the raw key alone would find
+ * zero occurrences and ship it verbatim. Passes, in order: the raw and
+ * JSON-escaped forms of every key, longest first, then a generic
+ * OpenAI-key-shaped pattern pass that catches a *different*, full-length key
+ * leaking into a message (e.g. a stale pre-rotation key baked into a cached
+ * client or SDK error). Between the raw and escaped passes, a key is removed
+ * wherever it appears, including inside a JSON-encoded error payload,
+ * regardless of length. The pattern's minimum run length is deliberately
+ * long enough that it can never match a protocol id (nanoid, 21 chars); see
  * OPENAI_KEY_PATTERN.
  */
-export function redactSecrets(wire: string, apiKey?: string): string {
+export function redactSecrets(
+  wire: string,
+  secrets?: string | readonly string[],
+): string {
+  const keys = typeof secrets === 'string' ? [secrets] : (secrets ?? []);
+  // Longest first, so a key that contains another key is removed whole
+  // instead of leaving its remainder behind.
+  const forms = keys
+    .filter((key) => key.length > 0)
+    .flatMap((key) => [key, JSON.stringify(key).slice(1, -1)])
+    .sort((a, b) => b.length - a.length);
   let result = wire;
-  if (apiKey) {
-    result = result.split(apiKey).join('[redacted]');
-    const escaped = JSON.stringify(apiKey).slice(1, -1);
-    if (escaped !== apiKey) {
-      result = result.split(escaped).join('[redacted]');
-    }
+  for (const form of new Set(forms)) {
+    result = result.split(form).join('[redacted]');
   }
   return result.replace(OPENAI_KEY_PATTERN, '[redacted]');
 }
@@ -48,7 +55,10 @@ export function redact(err: unknown, apiKey: string): Error {
   return new Error(redactSecrets(message, apiKey));
 }
 
-function redactUnknown(value: unknown, apiKey: string): unknown {
+function redactUnknown(
+  value: unknown,
+  apiKey: string | readonly string[],
+): unknown {
   if (typeof value === 'string') return redactSecrets(value, apiKey);
   if (value instanceof Error) {
     const clone = new Error(redactSecrets(value.message, apiKey));
@@ -66,7 +76,7 @@ function redactUnknown(value: unknown, apiKey: string): unknown {
 
 function redactData(
   data: Record<string, unknown> | undefined,
-  apiKey: string,
+  apiKey: string | readonly string[],
 ): Record<string, unknown> | undefined {
   if (!data) return data;
   return Object.fromEntries(
@@ -78,14 +88,16 @@ function redactData(
 }
 
 /**
- * A Logger that scrubs the session's apiKey (and any sk-*-shaped string) out
+ * A Logger that scrubs the given secrets (and any sk-*-shaped string) out
  * of every argument before delegating to consoleLogger. createEngine's
  * default logger is consoleLogger, which writes provider SDK errors —
  * including OpenAI's own 401 key echo — straight to stdout; the Alchemy Worker
  * declaration retains those logs. Every hosted-mode engine must be built with
  * one of these instead of the default.
  */
-export function createRedactingLogger(apiKey: string): Logger {
+export function createRedactingLogger(
+  apiKey: string | readonly string[],
+): Logger {
   return {
     debug: (message, data) =>
       consoleLogger.debug(
