@@ -1,4 +1,9 @@
-import type { MessageId, Result } from '@maelstrom-co/protocol';
+import type {
+  GridResponse,
+  MessageId,
+  Result,
+  TilingResponse,
+} from '@maelstrom-co/protocol';
 import {
   err,
   type GridResponseSchema,
@@ -52,7 +57,7 @@ export async function callLLM(
     // do run during parse, so the value IS branded. Cast to align the type
     // with the runtime contract. The branding-at-parse contract is asserted
     // by the `schema branding` suite in `packages/protocol/src/lib/request.test.ts`.
-    return ok(output as PlannerCandidate);
+    return ok(output as GridResponse | TilingResponse);
   } catch (error) {
     // Canonical AbortError — unambiguous cancellation
     if (error instanceof DOMException && error.name === 'AbortError') {

@@ -15,8 +15,14 @@ import type {
  * The raw plan a planner produces: the structured output shape for the
  * request's layout mode, before the Engine heals and validates it. A grid
  * request expects a `GridResponse`; a tiling request a `TilingResponse`.
+ *
+ * A candidate is immutable. Validation results are cached per candidate
+ * object, so a stage that wants a different plan must return a new object
+ * rather than edit one it received or already validated.
  */
-export type PlannerCandidate = GridResponse | TilingResponse;
+export type PlannerCandidate =
+  | DeepReadonly<GridResponse>
+  | DeepReadonly<TilingResponse>;
 
 /**
  * A summary of what healing changed in a candidate and whether another
@@ -67,3 +73,16 @@ export type DiagnosticRecords = Omit<FullDiagnostics, 'counts' | 'feedback'>;
 export type FullValidatedCandidate = ValidatedCandidate & {
   readonly diagnostics: FullDiagnostics;
 };
+
+type DeepReadonly<T> = T extends
+  | string
+  | number
+  | boolean
+  | bigint
+  | symbol
+  | null
+  | undefined
+  ? T
+  : T extends readonly (infer U)[]
+    ? readonly DeepReadonly<U>[]
+    : { readonly [K in keyof T]: DeepReadonly<T[K]> };
