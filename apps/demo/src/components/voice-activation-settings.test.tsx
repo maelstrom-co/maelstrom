@@ -13,6 +13,38 @@ const { VoiceControl } = await import('./voice-control');
 afterEach(cleanup);
 
 describe('voice activation settings', () => {
+  it.each([
+    { mode: 'normal' },
+    {
+      mode: 'trigger',
+      phrase: 'hello maelstrom',
+      inactivityMs: 10000,
+      includeChatActivity: false,
+    },
+  ] satisfies VoiceActivationConfig[])('closes and restores focus after applying unchanged $mode settings', (config) => {
+    const configure = vi.fn();
+    const onConfigured = vi.fn();
+    const ui = render(
+      <VoiceActivationSettings
+        state="idle"
+        config={config}
+        configure={configure}
+        onConfigured={onConfigured}
+      />,
+    );
+    const summary = ui.getByText('Voice settings');
+    const disclosure = summary.closest('details')!;
+    fireEvent.click(summary);
+    expect(disclosure.open).toBe(true);
+    const save = ui.getByRole('button', { name: 'Apply settings' });
+    save.focus();
+    fireEvent.submit(save.closest('form')!);
+    expect(configure).toHaveBeenCalledExactlyOnceWith(config);
+    expect(onConfigured).toHaveBeenCalledExactlyOnceWith(config);
+    expect(disclosure.open).toBe(false);
+    expect(document.activeElement).toBe(summary);
+  });
+
   it('starts normal with chat off and keyboard-labelled opt-in fields', () => {
     const configure = vi.fn();
     const ui = render(
@@ -63,11 +95,13 @@ describe('voice activation settings', () => {
       if (next.mode === 'trigger' && next.phrase === '!!!')
         throw new Error('private diagnostic');
     });
+    const onConfigured = vi.fn();
     const ui = render(
       <VoiceActivationSettings
         state="error"
         config={config}
         configure={configure}
+        onConfigured={onConfigured}
       />,
     );
     fireEvent.click(ui.getByText('Voice settings'));
@@ -80,14 +114,22 @@ describe('voice activation settings', () => {
     );
     expect(ui.getByRole('alert').textContent).toContain('200');
     expect(ui.queryByText('private diagnostic')).toBeNull();
+    expect(ui.getByText('Voice settings').closest('details')!.open).toBe(true);
+    expect(onConfigured).not.toHaveBeenCalled();
     fireEvent.change(ui.getByLabelText('Trigger phrase'), {
       target: { value: 'hello again' },
     });
-    fireEvent.click(ui.getByRole('button', { name: 'Apply settings' }));
-    fireEvent.submit(
-      ui.getByRole('button', { name: 'Apply settings' }).closest('form')!,
-    );
+    const save = ui.getByRole('button', { name: 'Apply settings' });
+    fireEvent.click(save);
+    fireEvent.submit(save.closest('form')!);
     expect(ui.queryByRole('alert')).toBeNull();
+    expect(onConfigured).toHaveBeenCalledWith({
+      mode: 'trigger',
+      phrase: 'hello again',
+      inactivityMs: 10000,
+      includeChatActivity: false,
+    });
+    expect(ui.getByText('Voice settings').closest('details')!.open).toBe(false);
   });
 
   it.each([
@@ -116,6 +158,7 @@ describe('voice activation settings', () => {
       ui.getByRole('button', { name: 'Apply settings' }).closest('form')!,
     );
     expect(configure).not.toHaveBeenCalled();
+    expect(ui.getByText('Voice settings').closest('details')!.open).toBe(true);
   });
 
   it.each([

@@ -1,6 +1,6 @@
 import type { VoiceSessionState } from '@maelstrom-co/client';
 import type { VoiceActivationConfig } from '@maelstrom-co/realtime';
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 
 /** Stopped-only editor of the session's policy; drafts never alter running voice. */
 interface VoiceActivationSettingsProps {
@@ -19,6 +19,8 @@ interface VoiceActivationSettingsProps {
  * resize the Chart. Normal is default; the opt-in preset is `hello maelstrom`,
  * 10 seconds after full-turn completion, and chat participation off. Validation
  * belongs to the session; stopped lifecycle is checked again at submission.
+ * Successful application closes the panel and focuses its trigger; rejected
+ * drafts leave the panel open for correction.
  */
 export function VoiceActivationSettings({
   state,
@@ -27,6 +29,8 @@ export function VoiceActivationSettings({
   onConfigured,
 }: VoiceActivationSettingsProps) {
   const id = useId();
+  const disclosure = useRef<HTMLDetailsElement>(null);
+  const summary = useRef<HTMLElement>(null);
   const [mode, setMode] = useState(config.mode);
   const [phrase, setPhrase] = useState('hello maelstrom');
   const [seconds, setSeconds] = useState('10');
@@ -44,8 +48,11 @@ export function VoiceActivationSettings({
   }, [config]);
 
   return (
-    <details className="relative shrink-0 text-xs text-ink-2">
-      <summary className="status-pill cursor-pointer rounded-full px-3 py-2 focus-visible:outline-2 focus-visible:outline-accent">
+    <details ref={disclosure} className="relative shrink-0 text-xs text-ink-2">
+      <summary
+        ref={summary}
+        className="status-pill cursor-pointer rounded-full px-3 py-2 focus-visible:outline-2 focus-visible:outline-accent"
+      >
         Voice settings
       </summary>
       <div className="absolute bottom-full right-0 z-50 mb-2 w-80 max-w-[90vw] max-h-[70vh] overflow-auto rounded-xl border border-line bg-bg-1 p-4 shadow-xl">
@@ -77,6 +84,8 @@ export function VoiceActivationSettings({
               configure(next);
               setInvalid(false);
               onConfigured?.(next);
+              if (disclosure.current) disclosure.current.open = false;
+              summary.current?.focus();
             } catch {
               setInvalid(true);
             }
