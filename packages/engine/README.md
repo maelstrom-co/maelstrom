@@ -263,9 +263,9 @@ Original request:
 
 If every attempt produces `recommend === true`, the **last** attempt's response ships as-is — heal guarantees it is renderable, so the user sees a degraded UI rather than a blocked turn. The `Retries exhausted` log line is severity-routed via `logAtSeverity` (`info` for `low`/`none`, `warn` for `medium`, `error` for `unrecoverable`) and carries the final `retrySeverity` and diagnostic counts.
 
-> **State drift visibility.** `state_drift` skipped actions are dropped from the response's execution plan and logged at error level by the simulator (`Vessel state drift: …, dropping action`), but they are NOT surfaced through the `Result` channel — `diagnostics` is engine-internal and stripped before the response crosses the engine boundary. Operators see drift in logs; programmatic callers do not. If you need branch-on-drift behaviour from outside the engine, route through your logger / alerting pipeline.
+> **State drift visibility.** `state_drift` skipped actions are dropped from the response's execution plan and logged at error level by the simulator (`Vessel state drift: …, dropping action`), but they are NOT surfaced through the `Result` channel — detailed diagnostics stay internal; planner stages receive only `retryHint` (plus per-kind `counts`) and sanitized `feedback` text, so drift is visible in logs and feedback prose, not as data. Operators see drift in logs; programmatic callers cannot branch on it. If you need branch-on-drift behaviour from outside the engine, route through your logger / alerting pipeline.
 
-`retry.max` is a non-negative integer. Set to `{ max: 0 }` to disable retries entirely while keeping the layer wired (the `recommend` predicate still evaluates and the diagnostic summary still emits via the `Response healed` log line) — useful for deterministic test harnesses, replay scenarios, and consumers that own their own retry policy.
+`retry.max` is a non-negative integer. `retry: false` (or `{ max: 0 }`) runs the planner once; the Engine still heals and validates the candidate and emits the `Response healed` log line either way. Use `retry: false` for deterministic test harnesses, replay scenarios, and planners that own their own retry policy.
 
 ---
 
