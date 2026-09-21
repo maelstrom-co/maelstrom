@@ -111,7 +111,10 @@ export type Stage<In, Out> = (
  * between stages belong to whoever composes them with {@link pipeline}.
  *
  * One planner serves every session and concurrent request of an Engine, so
- * it must keep no per-request state outside its own call.
+ * any state it keeps across calls must be keyed by the request (or session)
+ * and safe under concurrent calls. State from one request must never affect
+ * another; a per-request cache belongs in a `WeakMap` keyed by
+ * `input.request`, for example.
  */
 export type Planner = Stage<PlanningInput, PlannerCandidate>;
 

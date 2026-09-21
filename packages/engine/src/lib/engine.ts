@@ -431,8 +431,9 @@ export function createEngine(config: EngineConfig): Engine {
  * Runs the planner and validates its candidate against the original request
  * without letting either reject. Stage errors pass through unlogged: the
  * stage that produced one owns its logging, as the validator does for its
- * own failures. A candidate is validated at most once per request, so this
- * reuses the result `withRetry` already computed.
+ * own failures. Validation is cached per candidate, so a candidate a stage
+ * already validated through `ctx.validate` (for example inside `withRetry`)
+ * is not healed twice.
  */
 async function runPlanner(
   planner: Planner,

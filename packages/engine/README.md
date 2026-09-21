@@ -129,19 +129,24 @@ interface EngineConfig {
 }
 ```
 
-`planner` is a `Stage<PlanningInput, PlannerCandidate>` — most consumers reach for `llmPlanner`, which reproduces the engine's original single-LLM-call behavior:
+`planner` is a `Stage<PlanningInput, PlannerCandidate>` — most consumers reach for `llmPlanner`, which makes a single structured-output LLM call per attempt:
 
 ```ts
+interface LlmPlannerOptions {
+  /** TanStack AI text adapter. Required. */
+  adapter: AnyTextAdapter;
+  /** Section-based prompt customization. */
+  prompt?: PromptOptions;
+  /** Provider-specific options forwarded verbatim to every `chat()` call. */
+  modelOptions?: Record<string, unknown>;
+}
+```
+
+```ts
+import { geminiText } from '@tanstack/ai-gemini';
 import { llmPlanner } from '@maelstrom-co/engine';
 
-const planner = llmPlanner({
-  /** TanStack AI text adapter. Required. */
-  adapter: AnyTextAdapter,
-  /** Section-based prompt customization. */
-  prompt: PromptOptions,
-  /** Provider-specific options forwarded verbatim to every `chat()` call. */
-  modelOptions: Record<string, unknown>,
-});
+const planner = llmPlanner({ adapter: geminiText('gemini-2.0-flash') });
 ```
 
 See [Planners and stages](#planners-and-stages) below for composing more than one LLM call, or non-LLM steps, into a planner.
@@ -270,7 +275,7 @@ If every attempt produces `recommend === true`, the **last** attempt's response 
 
 - **`pipeline(...stages)`** chains stages so each one's output feeds the next, typed end to end (up to nine stages). The first `Err` — a `Deferred` or an `EngineError` — stops the chain.
 - **`withFallback(primary, fallback)`** runs `fallback` only when `primary` returns a `Deferred` (a stage abstaining from the request via `deferred(reason)`, checked with `isDeferred`). A real `EngineError` from `primary` is never masked.
-- **`withRetry(stage, { max })`** is the same combinator the Engine applies by default around `EngineConfig.planner`; compose it explicitly inside a pipeline when only one stage of a larger plan should retry.
+- **`withRetry(stage, { max })`** is the same combinator the Engine applies by default around `EngineConfig.planner`. It wraps a stage that produces a `PlannerCandidate` (typically the last stage of a pipeline) and retries it when healing recommends a retry. When you place it yourself, set `retry: false` on the Engine so the retries do not multiply.
 
 A `Deferred` that reaches the top of the configured planner with nothing to recover it becomes `Err(ValidationError)` on field `'planner'` — the Engine cannot ship a response without a candidate.
 
