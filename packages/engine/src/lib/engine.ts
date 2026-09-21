@@ -23,8 +23,16 @@ import type { HistoryEntry } from './history/history-store.js';
 import { loadHistoryContext } from './history/load-history-context.js';
 import { toSessionHistoryEntry } from './history/wire-projection.js';
 import type { Logger } from './logger.js';
-import type { FullValidatedCandidate } from './planner/candidate.js';
-import type { Planner, PlanningInput, StageContext } from './planner/stage.js';
+import type {
+  FullValidatedCandidate,
+  PlannerCandidate,
+} from './planner/candidate.js';
+import type {
+  Planner,
+  PlanningInput,
+  StageContext,
+  StageError,
+} from './planner/stage.js';
 import { isDeferred, unhandledDeferralError } from './planner/stage.js';
 import type { CandidateValidator } from './planner/validate-candidate.js';
 import { createCandidateValidator } from './planner/validate-candidate.js';
@@ -432,9 +440,10 @@ export function createEngine(config: EngineConfig): Engine {
 
 /**
  * Runs the planner and validates its candidate against the original request
- * without letting either reject. Stage errors pass through unlogged: the
- * stage that produced one owns its logging, as the validator does for its
- * own failures. Validation is cached per candidate, so a candidate a stage
+ * without letting either reject. A stage error passes through unchanged
+ * after one `Planner failed` line, so a custom stage that does not log its
+ * own failures still leaves a trace; a value that is not a `Result` becomes
+ * `Err(ValidationError)` on field `'planner'`. Validation is cached per candidate, so a candidate a stage
  * already validated through `ctx.validate` (for example inside `withRetry`)
  * is not healed twice.
  */
@@ -445,10 +454,25 @@ async function runPlanner(
   validate: CandidateValidator,
 ): Promise<Result<FullValidatedCandidate, EngineError>> {
   try {
-    const planned = await planner(input, ctx);
+    const planned: unknown = await planner(input, ctx);
+    if (!isStageResult(planned)) {
+      const failure = validationError(
+        'planner returned a value that is not a Result<PlannerCandidate, StageError>',
+        'planner',
+      );
+      ctx.logger.error(
+        'Planner returned a value that is not a Result',
+        failure,
+        { messageId: input.messageId },
+      );
+      return err(failure);
+    }
     if (isErr(planned)) {
       const { error } = planned;
-      if (!isDeferred(error)) return err(error);
+      if (!isDeferred(error)) {
+        logPlannerFailure(ctx.logger, input.messageId, error);
+        return err(error);
+      }
       ctx.logger.warn('Planner deferred and nothing recovered the deferral', {
         messageId: input.messageId,
         reason: error.reason,
@@ -459,6 +483,40 @@ async function runPlanner(
   } catch (error) {
     return err(plannerThrowError(error, input.messageId, ctx));
   }
+}
+
+// A JS stage, or one with a forgotten return, can resolve anything; checking
+// here keeps a broken contract from surfacing as an unrelated TypeError or
+// escaping handle() as an error value without a _tag.
+function isStageResult(
+  value: unknown,
+): value is Result<PlannerCandidate, StageError> {
+  if (typeof value !== 'object' || value === null) return false;
+  if (!('ok' in value) || typeof value.ok !== 'boolean') return false;
+  if (value.ok) return 'value' in value;
+  if (!('error' in value)) return false;
+  const { error } = value;
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    '_tag' in error &&
+    typeof error._tag === 'string'
+  );
+}
+
+// Custom stages may not log their own failures; one line per request keeps
+// them from failing silently. Cancellation is expected traffic, not a fault.
+function logPlannerFailure(
+  logger: Logger,
+  messageId: MessageId,
+  error: EngineError,
+): void {
+  const ctx = { messageId, errorTag: error._tag };
+  if (error._tag === 'CancellationError') {
+    logger.debug('Planner failed', ctx);
+    return;
+  }
+  logger.warn('Planner failed', ctx);
 }
 
 /**
