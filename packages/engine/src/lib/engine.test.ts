@@ -1370,7 +1370,7 @@ describe('engine.handle with a configured planner', () => {
     });
     expect(entries).toContainEqual({
       level: 'warn',
-      msg: 'Planner deferred with no fallback',
+      msg: 'Planner deferred and nothing recovered the deferral',
       ctx: { messageId: DEFAULT_MESSAGE_ID, reason: 'no Vessel matched' },
     });
   });

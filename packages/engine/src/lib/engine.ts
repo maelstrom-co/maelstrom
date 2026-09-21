@@ -90,8 +90,10 @@ export interface Engine {
    *   `Ok(assistant_message_result)` with `outcome: 'inserted' | 'deduped'`.
    *
    * `Err` is reserved for genuinely unrecoverable conditions (provider
-   * fault, cancellation, prompt-build failure, history error, missing
-   * `userMessage`, a planner that deferred with no fallback or threw).
+   * fault, cancellation, prompt-build failure, invalid Action parameter
+   * definitions in the Vessel catalog (field `'vessels'`), history error,
+   * missing `userMessage`, a planner that deferred with no fallback or
+   * threw).
    * Layout problems heal into diagnostics rather than surfacing here — see
    * {@link EngineDiagnostics} (engine-internal, stripped before crossing
    * the boundary).
@@ -216,18 +218,18 @@ export function createEngine(config: EngineConfig): Engine {
     });
 
     // Snapshot construction rejects ambiguous or over-limit Action parameter
-    // definitions. Surface that as an Err before the planner runs instead of
-    // breaking the Promise<Result> contract.
+    // definitions in the Vessel catalog. Surface that as an Err before the
+    // planner runs instead of breaking the Promise<Result> contract.
     let enumSnapshot: ActionParameterEnumSnapshot;
     try {
       enumSnapshot = buildActionParameterEnumSnapshot(request.vessels);
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
-      logger.error('Failed to build user prompt', error, {
+      logger.error('Failed to build Action parameter enum snapshot', error, {
         messageId: message.id,
       });
-      return err(validationError(errorMessage, 'prompt', error));
+      return err(validationError(errorMessage, 'vessels', error));
     }
 
     // Prior conversation is what lets the planner reason across turns.
@@ -445,7 +447,7 @@ async function runPlanner(
     if (isErr(planned)) {
       const { error } = planned;
       if (!isDeferred(error)) return err(error);
-      ctx.logger.warn('Planner deferred with no fallback', {
+      ctx.logger.warn('Planner deferred and nothing recovered the deferral', {
         messageId: input.messageId,
         reason: error.reason,
       });

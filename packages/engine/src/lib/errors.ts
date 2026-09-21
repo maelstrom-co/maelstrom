@@ -36,8 +36,10 @@ export interface ProviderError {
  * when `llmPlanner` is constructed.
  *
  * `field` optionally identifies the offending input path as a free-form
- * symbolic name (e.g. `'prompt'`, `'history'`, or `'planner'` for a planner
- * that deferred with no fallback or threw) — not a structured Zod path.
+ * symbolic name (e.g. `'prompt'`, `'history'`, `'vessels'` for Action
+ * parameter definitions the Engine cannot snapshot, or `'planner'` for a
+ * planner that deferred with no fallback or threw) — not a structured Zod
+ * path.
  * For wire-format validation failures with structured access paths, see
  * {@link RequestValidationError} and its `path` field.
  *
