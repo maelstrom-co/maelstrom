@@ -23,13 +23,9 @@ import type { HistoryEntry } from './history/history-store.js';
 import { loadHistoryContext } from './history/load-history-context.js';
 import { toSessionHistoryEntry } from './history/wire-projection.js';
 import type { Logger } from './logger.js';
-import type {
-  Planner,
-  PlanningInput,
-  StageContext,
-  ValidatedCandidate,
-} from './planner/stage.js';
+import type { Planner, PlanningInput, StageContext } from './planner/stage.js';
 import { isDeferred, unhandledDeferralError } from './planner/stage.js';
+import type { CandidateValidator } from './planner/validate-candidate.js';
 import { createCandidateValidator } from './planner/validate-candidate.js';
 import { withRetry } from './planner/with-retry.js';
 import type {
@@ -37,6 +33,7 @@ import type {
   SkippedActionIdentity,
 } from './response/execution-plan/index.js';
 import { skippedActionIdentity } from './response/execution-plan/index.js';
+import type { InternalResponse } from './response/response-processor.js';
 import { logAtSeverity } from './severity-router.js';
 import { validateEngineConfig } from './validation/engine-config.js';
 import {
@@ -255,19 +252,15 @@ export function createEngine(config: EngineConfig): Engine {
       request,
       history: historyContext.value,
     };
-    const ctx: StageContext = {
-      signal,
+    const validate = createCandidateValidator({
+      request,
+      enumSnapshot,
+      messageId: message.id,
       logger,
-      origin: input,
-      validate: createCandidateValidator({
-        request,
-        enumSnapshot,
-        messageId: message.id,
-        logger,
-      }),
-    };
+    });
+    const ctx: StageContext = { signal, logger, origin: input, validate };
 
-    const planned = await runPlanner(planner, input, ctx);
+    const planned = await runPlanner(planner, input, ctx, validate);
     if (isErr(planned)) {
       return planned;
     }
@@ -441,7 +434,8 @@ async function runPlanner(
   planner: Planner,
   input: PlanningInput,
   ctx: StageContext,
-): Promise<Result<ValidatedCandidate, EngineError>> {
+  validate: CandidateValidator,
+): Promise<Result<InternalResponse, EngineError>> {
   try {
     const planned = await planner(input, ctx);
     if (isErr(planned)) {
@@ -453,7 +447,7 @@ async function runPlanner(
       });
       return err(unhandledDeferralError(error));
     }
-    return ctx.validate(planned.value);
+    return validate(planned.value);
   } catch (error) {
     return err(plannerThrowError(error, input.messageId, ctx));
   }

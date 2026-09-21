@@ -15,11 +15,7 @@ import type {
   ProcessResponseInput,
 } from '../response/response-processor.js';
 import { processResponse } from '../response/response-processor.js';
-import type {
-  PlannerCandidate,
-  ValidateCandidate,
-  ValidatedCandidate,
-} from './stage.js';
+import type { PlannerCandidate, ValidateCandidate } from './stage.js';
 
 export interface CandidateValidatorInput {
   readonly request: ChartRequest;
@@ -27,6 +23,11 @@ export interface CandidateValidatorInput {
   readonly messageId: MessageId;
   readonly logger: Logger;
 }
+
+/** A {@link ValidateCandidate} whose results keep the full diagnostics. */
+export type CandidateValidator = (
+  candidate: PlannerCandidate,
+) => Result<InternalResponse, EngineError>;
 
 /**
  * Builds the request-scoped {@link ValidateCandidate}. Each candidate object
@@ -36,12 +37,12 @@ export interface CandidateValidatorInput {
  */
 export function createCandidateValidator(
   input: CandidateValidatorInput,
-): ValidateCandidate {
+): CandidateValidator {
   const cache = new WeakMap<
     PlannerCandidate,
-    Result<ValidatedCandidate, EngineError>
+    Result<InternalResponse, EngineError>
   >();
-  const validate: ValidateCandidate = (candidate) => {
+  const validate: CandidateValidator = (candidate) => {
     // A misbehaving stage can hand over a primitive, which a WeakMap cannot
     // key; processing it still yields an Err instead of a throw.
     const cacheable = typeof candidate === 'object' && candidate !== null;

@@ -19,6 +19,7 @@ import type { EngineError } from '../errors.js';
 import { parseError, validationError } from '../errors.js';
 import type { Logger } from '../logger.js';
 import type { LLMOutput } from '../planner/call-llm.js';
+import { renderRetryDiagnostics } from '../planner/retry-diagnostics.js';
 import type {
   DroppedLayoutEntry,
   HealedLayout,
@@ -42,28 +43,42 @@ import {
 import { buildGridLayout, buildTilingLayout } from './layout/index.js';
 
 /**
- * What healing changed in a candidate and whether another attempt is worth
- * it. Planner stages see it through `StageContext.validate` and
- * `RetryFeedback`; it is stripped from the response before it crosses the
- * Engine boundary.
+ * A summary of what healing changed in a candidate and whether another
+ * attempt is worth it. Planner stages see it through `StageContext.validate`
+ * and `RetryFeedback`; it is stripped from the response before it crosses the
+ * Engine boundary. The detailed per-entry records stay inside the Engine.
  */
 export interface EngineDiagnostics {
-  /** Proposed actions the Engine refused to plan, with the reason for each. */
-  readonly skippedActions: readonly SkippedAction[];
-  /** Layout entries healing removed, with the reason for each. */
-  readonly droppedLayoutEntries: readonly DroppedLayoutEntry[];
-  /** Repairs healing applied without removing anything from the layout. */
-  readonly warnings: readonly LayoutWarning[];
-  /** Severity of the healed result and whether a retry is recommended. */
+  /** Severity of the healed result and whether the Engine recommends a retry. */
   readonly retryHint: RetryHint;
+  /** How many entries of each kind healing produced. */
+  readonly counts: {
+    /** Proposed actions the Engine refused to plan. */
+    readonly skippedActions: number;
+    /** Layout entries healing removed. */
+    readonly droppedLayoutEntries: number;
+    /** Repairs healing applied without removing anything from the layout. */
+    readonly warnings: number;
+  };
+  /**
+   * Sanitized, length-limited description of what healing changed, written
+   * for a model and ready to paste into a retry prompt. Empty when there is
+   * nothing a planner can act on.
+   */
+  readonly feedback: string;
 }
 
-/**
- * `diagnostics` is stripped at the engine boundary; the public response is
- * just `MaelstromResponse`.
- */
+/** {@link EngineDiagnostics} plus the detailed records the Engine logs. */
+export interface FullDiagnostics extends EngineDiagnostics {
+  readonly skippedActions: readonly SkippedAction[];
+  readonly droppedLayoutEntries: readonly DroppedLayoutEntry[];
+  readonly warnings: readonly LayoutWarning[];
+}
+
+export type DiagnosticRecords = Omit<FullDiagnostics, 'counts' | 'feedback'>;
+
 export type InternalResponse = MaelstromResponse & {
-  readonly diagnostics: EngineDiagnostics;
+  readonly diagnostics: FullDiagnostics;
 };
 
 export interface ProcessResponseInput {
@@ -170,13 +185,31 @@ export function processResponse({
     rationale: llmOutput.rationale,
     executionPlan,
     layout,
-    diagnostics: {
+    diagnostics: buildDiagnostics({
       skippedActions,
       droppedLayoutEntries: healed.droppedEntries,
       warnings: healed.warnings,
       retryHint,
-    },
+    }),
   });
+}
+
+/** Derives the stage-facing summary (counts and rendered feedback) once. */
+export function buildDiagnostics(records: DiagnosticRecords): FullDiagnostics {
+  const { skippedActions, droppedLayoutEntries, warnings } = records;
+  return {
+    ...records,
+    counts: {
+      skippedActions: skippedActions.length,
+      droppedLayoutEntries: droppedLayoutEntries.length,
+      warnings: warnings.length,
+    },
+    feedback: renderRetryDiagnostics(
+      droppedLayoutEntries,
+      skippedActions,
+      warnings,
+    ),
+  };
 }
 
 // Existing instances win on conflict — the LLM declaring a different

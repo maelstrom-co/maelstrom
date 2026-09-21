@@ -90,11 +90,8 @@ export type {
 } from './lib/prompt/sections.js';
 export { SystemSection, UserSection } from './lib/prompt/sections.js';
 // Response diagnostics
-export type { SkippedAction } from './lib/response/execution-plan/index.js';
 export type { EngineDiagnostics } from './lib/response/response-processor.js';
 export type {
-  DroppedLayoutEntry,
-  LayoutWarning,
   RetryHint,
   RetrySeverity,
 } from './lib/validation/llm-output/healed-layout.js';

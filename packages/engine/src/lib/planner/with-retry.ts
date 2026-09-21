@@ -75,9 +75,9 @@ export function withRetry<In>(
           logAtSeverity(ctx.logger, retryHint.severity, 'Retries exhausted', {
             attempts: attempt + 1,
             retrySeverity: retryHint.severity,
-            droppedLayoutCount: diagnostics.droppedLayoutEntries.length,
-            skippedActionCount: diagnostics.skippedActions.length,
-            warningCount: diagnostics.warnings.length,
+            droppedLayoutCount: diagnostics.counts.droppedLayoutEntries,
+            skippedActionCount: diagnostics.counts.skippedActions,
+            warningCount: diagnostics.counts.warnings,
           });
         }
         return result;
@@ -97,9 +97,9 @@ export function withRetry<In>(
           attempt: attempt + 1,
           maxRetries,
           retrySeverity: retryHint.severity,
-          droppedLayoutCount: diagnostics.droppedLayoutEntries.length,
-          skippedActionCount: diagnostics.skippedActions.length,
-          warningCount: diagnostics.warnings.length,
+          droppedLayoutCount: diagnostics.counts.droppedLayoutEntries,
+          skippedActionCount: diagnostics.counts.skippedActions,
+          warningCount: diagnostics.counts.warnings,
         },
       );
     }

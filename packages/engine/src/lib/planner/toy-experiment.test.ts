@@ -54,9 +54,7 @@ const shortlistNamedVessels: Stage<
     return err(deferred('the intent names no Vessel on the chart'));
   }
   const overflowed =
-    input.retry?.diagnostics.droppedLayoutEntries.some(
-      (drop) => drop.reason === 'position_overflow',
-    ) ?? false;
+    (input.retry?.diagnostics.counts.droppedLayoutEntries ?? 0) > 0;
   return ok({
     instanceIds: instances.map((instance) => instance.instanceId),
     width: overflowed
@@ -140,7 +138,7 @@ describe('toy two-layer experiment', () => {
     const report = ctx.validate(result.value);
     expect(isOk(report)).toBe(true);
     if (!isOk(report)) return;
-    expect(report.value.diagnostics.droppedLayoutEntries).toEqual([]);
+    expect(report.value.diagnostics.counts.droppedLayoutEntries).toBe(0);
     expect(report.value.diagnostics.retryHint.recommend).toBe(false);
     expect(report.value.userMessage).toBe('Showing Calendar.');
     expect(entries.map((e) => e.msg)).toEqual([

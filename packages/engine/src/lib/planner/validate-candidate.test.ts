@@ -62,6 +62,43 @@ describe('createCandidateValidator', () => {
     });
   });
 
+  test('summarizes healing as counts and model-facing feedback', () => {
+    const validate = validatorFor(spyLogger().logger);
+
+    const result = validate(
+      buildGridResponse({
+        layout: {
+          positions: [
+            {
+              instanceId: 'calendar-main',
+              position: { row: 0, column: 10 },
+              size: { width: 6, height: 4 },
+            },
+          ],
+        },
+      }),
+    );
+
+    expect(isOk(result)).toBe(true);
+    if (!isOk(result)) return;
+    const { counts, feedback } = result.value.diagnostics;
+    expect(counts).toEqual({
+      skippedActions: 0,
+      droppedLayoutEntries: 1,
+      warnings: 0,
+    });
+    expect(feedback).toContain('Layout drops:');
+    expect(feedback).toContain('exceeds chart bounds');
+  });
+
+  test('a clean candidate has empty feedback', () => {
+    const validate = validatorFor(spyLogger().logger);
+
+    const result = validate(buildGridResponse());
+
+    expect(isOk(result) && result.value.diagnostics.feedback).toBe('');
+  });
+
   test('processes each candidate object once and returns the cached result', () => {
     const { logger, entries } = spyLogger();
     const validate = validatorFor(logger);
