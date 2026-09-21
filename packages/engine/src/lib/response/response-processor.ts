@@ -18,7 +18,7 @@ import type { ActionParameterEnumSnapshot } from '../action-parameter-enum.js';
 import type { EngineError } from '../errors.js';
 import { parseError, validationError } from '../errors.js';
 import type { Logger } from '../logger.js';
-import type { LLMOutput } from '../pipeline/call-llm.js';
+import type { LLMOutput } from '../planner/call-llm.js';
 import type {
   DroppedLayoutEntry,
   HealedLayout,

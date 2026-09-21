@@ -44,13 +44,11 @@ export function createCandidateValidator(
   const validate: ValidateCandidate = (candidate) => {
     // A misbehaving stage can hand over a primitive, which a WeakMap cannot
     // key; processing it still yields an Err instead of a throw.
-    if (typeof candidate !== 'object' || candidate === null) {
-      return processCandidate({ ...input, llmOutput: candidate });
-    }
-    const cached = cache.get(candidate);
+    const cacheable = typeof candidate === 'object' && candidate !== null;
+    const cached = cacheable ? cache.get(candidate) : undefined;
     if (cached !== undefined) return cached;
     const result = processCandidate({ ...input, llmOutput: candidate });
-    cache.set(candidate, result);
+    if (cacheable) cache.set(candidate, result);
     return result;
   };
   validatorSnapshots.set(validate, {
@@ -75,13 +73,10 @@ export function validatorEnumSnapshot(
   return entry?.vessels === vessels ? entry.enumSnapshot : undefined;
 }
 
-/**
- * Runs `processResponse` without letting it reject the caller's
- * `Promise<Result>`: heal helpers and exhaustiveness guards throw on
- * Engine-internal invariant violations, and those become
- * `Err(ValidationError)` on field `'response'`.
- */
-export function processCandidate(
+// Heal helpers and exhaustiveness guards throw on Engine-internal invariant
+// violations; those become Err(ValidationError) on field 'response' so the
+// caller's Promise<Result> never rejects.
+function processCandidate(
   input: ProcessResponseInput,
 ): Result<InternalResponse, EngineError> {
   const { messageId, logger } = input;

@@ -18,15 +18,7 @@ import { cancellationError, providerError } from '../errors.js';
 import type { LLMContextMessage } from '../history/history-manager.js';
 import type { Logger } from '../logger.js';
 
-// ---------------------------------------------------------------------------
-// LLM output type
-// ---------------------------------------------------------------------------
-
 export type LLMOutput = GridResponse | TilingResponse;
-
-// ---------------------------------------------------------------------------
-// LLM call — self-contained so process() stays linear
-// ---------------------------------------------------------------------------
 
 export async function callLLM(
   adapter: AnyTextAdapter,

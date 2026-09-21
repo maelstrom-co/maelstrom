@@ -18,13 +18,13 @@ import { buildActionParameterEnumSnapshot } from '../action-parameter-enum.js';
 import type { EngineError } from '../errors.js';
 import { validationError } from '../errors.js';
 import type { Logger } from '../logger.js';
-import { callLLM, logLLMCallError } from '../pipeline/call-llm.js';
 import type { PromptOptions } from '../prompt/prompt-builder.js';
 import {
   buildSystemPrompt,
   buildUserPromptWithSnapshot,
 } from '../prompt/prompt-builder.js';
 import { validateLlmPlannerOptions } from '../validation/engine-config.js';
+import { callLLM, logLLMCallError } from './call-llm.js';
 import { buildRetryPrompt } from './retry-prompt.js';
 import type {
   PlannerCandidate,
