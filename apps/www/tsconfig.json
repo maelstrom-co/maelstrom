@@ -6,6 +6,7 @@
     "types": ["@astrojs/cloudflare/types.d.ts"]
   },
   "include": [
+    ".astro/types.d.ts",
     "src/**/*.ts",
     "src/**/*.tsx",
     "src/**/*.astro",
