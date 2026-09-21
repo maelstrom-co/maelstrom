@@ -1,5 +1,10 @@
 // Engine
 
+// Action parameter enums
+export type {
+  ActionParameterEnumSnapshot,
+  NormalizedActionParameterEnumValue,
+} from './lib/action-parameter-enum.js';
 // Config
 export type { EngineConfig } from './lib/config.js';
 export { resolveConfig } from './lib/config.js';

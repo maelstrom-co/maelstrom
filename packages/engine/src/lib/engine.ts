@@ -260,7 +260,13 @@ export function createEngine(config: EngineConfig): Engine {
       messageId: message.id,
       logger,
     });
-    const ctx: StageContext = { signal, logger, origin: input, validate };
+    const ctx: StageContext = {
+      signal,
+      logger,
+      origin: input,
+      validate,
+      enumSnapshot,
+    };
 
     const planned = await runPlanner(planner, input, ctx, validate);
     if (isErr(planned)) {

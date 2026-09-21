@@ -233,6 +233,24 @@ describe('llmPlanner', () => {
     expect(customizerCalls).toBe(1);
   });
 
+  test('a narrowed Vessel catalog renders enum literals from that catalog', async () => {
+    mockChat.mockResolvedValue(buildGridResponse());
+    const base = makeGridRequest();
+    const request = withShowWeekParameter(base, ['day', 'week', 'month']);
+    const origin = makePlanningInput(request);
+    const narrowed: ChartRequest = withShowWeekParameter(request, ['week']);
+
+    const result = await llmPlanner({ adapter: dummyAdapter })(
+      { ...origin, request: narrowed },
+      makeStageContext({ origin }),
+    );
+
+    expect(isOk(result)).toBe(true);
+    const prompt = chatCall(0).messages.at(-1)?.content ?? '';
+    expect(prompt).toContain('view: "week"');
+    expect(prompt).not.toContain('"month"');
+  });
+
   describe('hints', () => {
     test('are appended to the user prompt as their own section', async () => {
       mockChat.mockResolvedValue(buildGridResponse());
@@ -433,3 +451,45 @@ describe('llmPlanner', () => {
     });
   });
 });
+
+function withShowWeekParameter(
+  request: ChartRequest,
+  values: readonly string[],
+): ChartRequest {
+  const [calendar, ...rest] = request.vessels;
+  if (calendar === undefined) throw new Error('fixture needs a Vessel');
+  const variant = calendar.variants[calendar.defaultVariant];
+  const [showWeek, ...actions] = variant?.actions ?? [];
+  if (variant === undefined || showWeek === undefined) {
+    throw new Error('fixture needs an Action');
+  }
+  return {
+    ...request,
+    vessels: [
+      {
+        ...calendar,
+        variants: {
+          ...calendar.variants,
+          [calendar.defaultVariant]: {
+            ...variant,
+            actions: [
+              {
+                ...showWeek,
+                parameters: [
+                  {
+                    name: 'view',
+                    type: 'string',
+                    description: 'Which view to show',
+                    enum: [...values],
+                  },
+                ],
+              },
+              ...actions,
+            ],
+          },
+        },
+      },
+      ...rest,
+    ],
+  };
+}

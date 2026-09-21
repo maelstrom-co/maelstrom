@@ -4,6 +4,7 @@ import {
   sanitizeControlChars,
 } from '@maelstrom-co/protocol';
 
+/** One Action parameter enum value, normalized once for a request. */
 export interface NormalizedActionParameterEnumValue {
   /** Sanitized JSON literal displayed verbatim in the Engine prompt. */
   readonly serialized: string;
@@ -11,7 +12,10 @@ export interface NormalizedActionParameterEnumValue {
   readonly value: unknown;
 }
 
-/** Immutable, request-scoped enum candidates keyed by parameter definition. */
+/**
+ * Immutable, request-scoped enum candidates keyed by parameter definition
+ * object. Read it from `StageContext.enumSnapshot`.
+ */
 export interface ActionParameterEnumSnapshot {
   /**
    * Returns the normalized candidates captured for this exact parameter
