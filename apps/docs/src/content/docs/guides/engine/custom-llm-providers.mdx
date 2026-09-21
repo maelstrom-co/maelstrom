@@ -8,7 +8,7 @@ import { Aside, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
 Provider choice changes the three things users feel first: structured-output quality, latency, and cost. Stronger models usually need less healing, faster models reduce turn time, and cheaper models matter when your Vessel catalogue makes prompts large.
 
 The reference engine talks to the model through a [TanStack AI](https://tanstack.com/ai)
-text adapter. Swapping providers is a single field on `EngineConfig.adapter`
+text adapter. Swapping providers is a single field on `llmPlanner({ adapter })`
 — the prompt builder, response parser, heal layer, and retry policy are all
 provider-agnostic.
 
@@ -65,37 +65,38 @@ provider-agnostic.
       </TabItem>
     </Tabs>
 
-3.  **Pass the adapter to `createEngine`.** The adapter factory takes a model
-    id; the engine carries the adapter through every `chart_request`.
+3.  **Pass the adapter to `llmPlanner`, and the planner to `createEngine`.**
+    The adapter factory takes a model id; the engine carries the planner
+    through every `chart_request`.
 
     <Tabs syncKey="llm-provider">
       <TabItem label="Gemini">
         ```ts title="src/server/engine.ts"
-        import { createEngine } from '@maelstrom-co/engine';
+        import { createEngine, llmPlanner } from '@maelstrom-co/engine';
         import { geminiText } from '@tanstack/ai-gemini';
 
         export const engine = createEngine({
-          adapter: geminiText('gemini-2.0-flash'),
+          planner: llmPlanner({ adapter: geminiText('gemini-2.0-flash') }),
         });
         ```
       </TabItem>
       <TabItem label="OpenAI">
         ```ts title="src/server/engine.ts"
-        import { createEngine } from '@maelstrom-co/engine';
+        import { createEngine, llmPlanner } from '@maelstrom-co/engine';
         import { openaiText } from '@tanstack/ai-openai';
 
         export const engine = createEngine({
-          adapter: openaiText('gpt-4o'),
+          planner: llmPlanner({ adapter: openaiText('gpt-4o') }),
         });
         ```
       </TabItem>
       <TabItem label="Anthropic">
         ```ts title="src/server/engine.ts"
-        import { createEngine } from '@maelstrom-co/engine';
+        import { createEngine, llmPlanner } from '@maelstrom-co/engine';
         import { anthropicText } from '@tanstack/ai-anthropic';
 
         export const engine = createEngine({
-          adapter: anthropicText('claude-sonnet-4-5'),
+          planner: llmPlanner({ adapter: anthropicText('claude-sonnet-4-5') }),
         });
         ```
       </TabItem>
@@ -115,7 +116,7 @@ three axes:
   the protocol schema. Its heal layer is a coherence pass that drops invalid
   layout or Action entries from an otherwise valid response. Stronger models
   need that recovery less often, which trims retries and latency. The bundled
-  retry policy (default `maxRetries: 1`) papers over most slips but is not free.
+  retry policy (default `retry: { max: 1 }`) papers over most slips but is not free.
 - **Latency.** The LLM call is the dominant cost of a turn. "Flash" / "mini"
   tier models trade some accuracy for first-token latency; the heal layer can
   recover from some invalid entries, but it cannot guarantee a useful response.
@@ -134,17 +135,21 @@ three axes:
 
 ### Per-request adapter override
 
-The adapter is set at `createEngine` time and is the same for every turn. If
+The adapter is set at `llmPlanner` time and is the same for every turn. If
 you need per-request routing (A/B test, role-based model selection, fallback
 on quota errors), stand up multiple engines:
 
 ```ts title="src/server/route.ts"
-import { createEngine } from '@maelstrom-co/engine';
+import { createEngine, llmPlanner } from '@maelstrom-co/engine';
 import { geminiText } from '@tanstack/ai-gemini';
 import { openaiText } from '@tanstack/ai-openai';
 
-const flashEngine = createEngine({ adapter: geminiText('<flash-model-id>') });
-const proEngine   = createEngine({ adapter: openaiText('<pro-model-id>') });
+const flashEngine = createEngine({
+  planner: llmPlanner({ adapter: geminiText('<flash-model-id>') }),
+});
+const proEngine = createEngine({
+  planner: llmPlanner({ adapter: openaiText('<pro-model-id>') }),
+});
 
 function pickEngine(userTier: 'free' | 'pro') {
   return userTier === 'pro' ? proEngine : flashEngine;
@@ -157,7 +162,7 @@ unless your `deriveLLMContext` projection accounts for the mix.
 
 ### Roll your own adapter
 
-`EngineConfig.adapter` is typed as `AnyTextAdapter` from `@tanstack/ai`. Any
+`LlmPlannerOptions.adapter` is typed as `AnyTextAdapter` from `@tanstack/ai`. Any
 object satisfying that contract — including your own — is accepted.
 
 Implementing a custom adapter is out of scope for this guide. See the

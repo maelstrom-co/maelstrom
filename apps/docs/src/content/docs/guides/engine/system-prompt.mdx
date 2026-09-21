@@ -64,21 +64,23 @@ section keys (anything outside the table above), only `string` and
 ## Steps
 
 <Steps>
-1.  **Pass a `prompt` block to `createEngine`.** Customizations are keyed by
+1.  **Pass a `prompt` block to `llmPlanner`.** Customizations are keyed by
     half (`system` / `user`) and then by section name.
 
     ```ts title="src/server/engine.ts"
-    import { createEngine } from '@maelstrom-co/engine';
+    import { createEngine, llmPlanner } from '@maelstrom-co/engine';
     import { geminiText } from '@tanstack/ai-gemini';
 
     export const engine = createEngine({
-      adapter: geminiText('<your-model-id>'),
-      prompt: {
-        vars: { assistantName: 'Aria' },
-        system: {
-          rules: { append: 'Always reply in the same language the user wrote.' },
+      planner: llmPlanner({
+        adapter: geminiText('<your-model-id>'),
+        prompt: {
+          vars: { assistantName: 'Aria' },
+          system: {
+            rules: { append: 'Always reply in the same language the user wrote.' },
+          },
         },
-      },
+      }),
     });
     ```
 
@@ -120,19 +122,21 @@ A healthcare scheduling app might keep the default layout and action rules, but 
 
 ```ts
 export const engine = createEngine({
-  adapter: geminiText('<your-model-id>'),
-  prompt: {
-    vars: { assistantName: 'Aria' },
-    system: {
-      identity: { append: 'You help clinic staff arrange scheduling tools.' },
-      rules: { append: 'Never speculate about diagnoses or treatment.' },
-    },
-    user: {
-      updateTriggers: {
-        append: 'Prefer the calendar and patient-search vessels for appointment requests.',
+  planner: llmPlanner({
+    adapter: geminiText('<your-model-id>'),
+    prompt: {
+      vars: { assistantName: 'Aria' },
+      system: {
+        identity: { append: 'You help clinic staff arrange scheduling tools.' },
+        rules: { append: 'Never speculate about diagnoses or treatment.' },
+      },
+      user: {
+        updateTriggers: {
+          append: 'Prefer the calendar and patient-search vessels for appointment requests.',
+        },
       },
     },
-  },
+  }),
 });
 ```
 
@@ -191,11 +195,11 @@ prompt: {
 
 This is the part that catches people out:
 
-- **System prompt is built once.** `createEngine` precomputes the full
-  system prompt at startup — one string per `LayoutMode` — and the engine
+- **System prompt is built once.** `llmPlanner` precomputes the full
+  system prompt at construction — one string per `LayoutMode` — and the stage
   indexes by `request.context.layoutMode` per turn. Any `system` customizer,
-  in any form (string, `{ prepend, append }`, or function), is resolved at
-  `createEngine` time. The result is frozen.
+  in any form (string, `{ prepend, append }`, or function), is resolved when
+  `llmPlanner(...)` is called. The result is frozen.
 - **User prompt is built per request.** The user half depends on the current
   vessels, chart state, and update reasons, so it cannot be precomputed.
   Any `user` customizer is invoked on every `chart_request`.
@@ -204,17 +208,19 @@ To see the difference, use the function form on both sides:
 
 ```ts
 const engine = createEngine({
-  adapter: /* ... */,
-  prompt: {
-    system: {
-      // Called once during createEngine; the timestamp is frozen for this engine instance's lifetime.
-      rules: (defaults) => `${defaults}\n\nEngine booted: ${new Date().toISOString()}`,
+  planner: llmPlanner({
+    adapter: /* ... */,
+    prompt: {
+      system: {
+        // Called once during llmPlanner(...); the timestamp is frozen for this planner's lifetime.
+        rules: (defaults) => `${defaults}\n\nEngine booted: ${new Date().toISOString()}`,
+      },
+      user: {
+        // Called per chart_request; the timestamp is fresh each turn.
+        updateTriggers: (defaults) => `${defaults}\n\nNow: ${new Date().toISOString()}`,
+      },
     },
-    user: {
-      // Called per chart_request; the timestamp is fresh each turn.
-      updateTriggers: (defaults) => `${defaults}\n\nNow: ${new Date().toISOString()}`,
-    },
-  },
+  }),
 });
 ```
 
@@ -225,7 +231,7 @@ Two practical consequences:
     per-request behavior, the customization belongs in `user`, not `system`.
 2.  A misconfigured `system` customizer (function targeting a new key, or
     a function that throws) surfaces as a synchronous throw from
-    `createEngine` — `new Error('Invalid EngineConfig: prompt.system: …')`.
+    `llmPlanner(...)` — `new Error('Invalid LlmPlannerOptions: prompt.system: …')`.
     A misconfigured `user` customizer first surfaces on the first
     `chart_request` as `ValidationError` with `field: 'prompt'`.
 

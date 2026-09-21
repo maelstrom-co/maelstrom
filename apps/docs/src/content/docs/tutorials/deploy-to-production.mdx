@@ -43,12 +43,14 @@ This tutorial turns a development setup into a production-shaped deployment chec
    Keep provider configuration in server environment variables. Pick the adapter and model intentionally; stronger structured-output models can reduce healing and retries, while lower-latency models can improve responsiveness.
 
    ```ts title="src/server/engine.ts"
-   import { createEngine } from '@maelstrom-co/engine';
+   import { createEngine, llmPlanner } from '@maelstrom-co/engine';
    import { geminiText } from '@tanstack/ai-gemini';
 
    export const engine = createEngine({
-     adapter: geminiText(process.env.MAELSTROM_MODEL ?? 'gemini-2.0-flash'),
-     maxRetries: 1,
+     planner: llmPlanner({
+       adapter: geminiText(process.env.MAELSTROM_MODEL ?? 'gemini-2.0-flash'),
+     }),
+     retry: { max: 1 },
    });
    ```
 
