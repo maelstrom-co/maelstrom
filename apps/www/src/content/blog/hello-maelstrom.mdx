@@ -1,31 +1,80 @@
 ---
-title: Hello Maelstrom
-description: A placeholder first post to preview the Maelstrom blog layout.
-date: '2026-09-13'
-image: /og.png
-labels: 'introduction, placeholder'
+title: 'Maelstrom: The Interface framework for the age of AI'
+description: >
+  Maelstrom is a library that lets AI arrange existing UI components around user intent in the so-called intent-driven paradigm. Now in private beta.
+date: '2026-09-21'
+image: /first_blog_ai_image.png
+labels: 'introduction, maelstrom, AI, mission'
 author: Maelstrom
 authorUrl: https://maelstrom-ai.co
 keywords: [Maelstrom, blog, placeholder]
 ---
 
-## A place to begin
+## The Interface framework for the age of AI
 
-Hello, Maelstrom. This is a **boilerplate first entry**, not a product announcement
-or an engineering guide. It gives the blog a little content while the first
-substantive article takes shape.
+> “When I was a kid, the future was different.”
+— Frank Walker, Tomorrowland (2015)
 
-## A little placeholder prose
+Across several projects, we kept running into the same frustration: models were getting better at understanding complex requests, but using them still meant typing into a box and reading paragraphs of text. The technology is improving, but the experience often isn't.
 
-Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor
-incididunt ut labore et dolore magna aliqua.
+Text itself wasn’t the problem. As developers, we love terminals. But even there, visual feedback matters, whether it’s a red error message or a terminal interface with buttons and charts. Some things are simply easier to understand visually. **So why did our AI features so often rely on text alone?**
 
-This page is a sample of the reading layout:
+We already knew how to make complex information usable through charts, forms, maps, and controls. Yet we were asking people to read explanations of things the application could show them directly. The model understood the request, but users still had to turn its answer into action: find the right view, apply the filters, open another panel, and arrange the information they needed.
 
-- Headings break the post into sections.
-- Paragraphs show the spacing and line length.
-- Lists make a few short points easier to scan.
+That gap was the spark behind Maelstrom. We wanted applications to respond not just with answers, but with interfaces people could use to act on them. We spent almost a year shaping the idea before we began building in earnest.
 
-## Until the next post
+Consider a developer investigating an incident:
 
-For now, this introduction is just a placeholder. Thanks for stopping by.
+> “Put the errors from last week next to our deployments.”
+
+Suppose the application already has an error view and a deployment timeline, with filters available to the model. The application could place those views side by side and set both to the requested period. The developer would get a workspace for investigating the incident—not instructions for assembling one.
+
+We call this **an intent-driven application paradigm: the user describes what they need, and the application assembles an interface to help them do it.**
+
+## Why not let the model generate the interface?
+
+Letting the model generate an interface offers another possibility. Instead of describing a chart or a form, it can produce something visual. That freedom can be useful when exploring an idea without an established interface.
+
+However, we were starting with existing applications, shaped by domain expertise and institutional knowledge that models did not fully possess, and that sometimes lived only in the people within an organization. Without that context, a model could invent behavior or generate interfaces poorly suited to the task, especially in complex domains where interactions depend on intricate business logic and validation rules. Generating and refining those interfaces could also add latency. Beyond those risks, handing these decisions to a model could take control away from the designers, engineers, and product teams who had carefully shaped the experience. We wanted to build on their knowledge and preserve their control, rather than ask a model to reconstruct the experience from scratch.
+
+Generating an interface does not have to mean inventing it from scratch. A2UI, for example, provides a protocol for describing interfaces that clients render using a catalog of developer-designed components. That work overlaps with our interests: we see more possibilities than a choice between text-only assistants and models inventing arbitrary interfaces. Our focus is on building on existing components while preserving the domain knowledge, business logic, and design decisions that shape how they work together.
+
+Our focus became a more specific question: **how can AI coordinate an existing workspace, its component arrangements, states, and actions, without taking over the design of the components themselves?**
+
+## Maelstrom
+
+Maelstrom is a library that lets AI build an interface using components defined by developers, rather than inventing the interface from scratch.
+
+These components are called Vessels. For each one, developers specify:
+- Purpose: What the component does, so the model can decide when to use it.
+- States: The states the component supports and that the model can select.
+- Size requirements: How much space the component needs and how it can be resized.
+- Available actions: The operations the application explicitly allows the model to invoke.
+
+The model uses these definitions to choose and arrange components, resize them, change their states, and invoke available actions. The application’s code determines how those changes and actions are carried out.
+
+Notice the boundary here. Creators still implement the components and determine what their operations do. Maelstrom gives the model a way to coordinate those capabilities around the user’s intent. It does not replace the product’s design or business logic.
+
+This is the gap we want to explore: situations where the components already exist, but the useful combination depends on what someone is trying to do. Choosing what to display is part of it. We're focusing on coordinating the space those components occupy and the operations available within them.
+
+This also explains the name. We imagine the components as Vessels in a sea of possibilities. Each has a purpose and a deliberate construction, but they can form different arrangements. For us, Maelstrom evokes a Nordic guidance storm: the force bringing those Vessels together around the user’s intent. The makers build the pieces; AI helps coordinate them, rather than owning the experience.
+
+## Join our private beta
+
+We are inviting teams into Maelstrom’s private beta to test the library against real product requirements. Please share bugs, rough edges, and missing capabilities.
+
+Dense developer tools, analytics applications, and React-based products with poor feature discoverability seem like the most promising places to start. In those environments, we want to test whether dynamically arranging existing capabilities around a user's intent can meaningfully reduce the effort required to reach them.
+
+We suggest starting with one workflow. Identify a situation where users know what they want but spend too much effort getting there. Turn a handful of the relevant components into Vessels, describe their states and actions, and observe what happens.
+
+Does bringing the components together actually help?
+What happens when the model moves something the user was still working with?
+Can developers understand an unexpected transition?
+How should users correct a misheard request, and which actions need confirmation?
+
+Declaring available capabilities doesn't mean the model will always choose the right ones. These questions matter more to us than whether the interface looks impressive in a demo.
+
+Some workflows will be better with predictable controls and a fixed arrangement. We want to understand that boundary, not assume every screen needs orchestration.
+
+Request access to the private beta and bring a workflow to explore. [Come and explore with us](https://maelstrom-ai.co/#waitlist).
+

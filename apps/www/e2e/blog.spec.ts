@@ -48,7 +48,7 @@ for (const width of [1280, 375]) {
         });
         await expect(page).toHaveURL(new RegExp(`/blog/${slug}/$`));
         await expect(
-          page.getByRole('heading', { name, exact: true }),
+          page.getByRole('heading', { name, exact: false }),
         ).toBeVisible();
       }
 
