@@ -6,6 +6,7 @@ import type { LLMContextMessage } from '../history/history-manager.js';
 import type { HistoryEntry, HistoryStore } from '../history/history-store.js';
 import type { Logger } from '../logger.js';
 import type { LlmPlannerOptions } from '../planner/llm-planner.js';
+import type { Planner } from '../planner/stage.js';
 
 // `T` is compile-time shape only — runtime only verifies that `v` is callable.
 // Method signature/arity drift surfaces via the type-level guards below
@@ -95,14 +96,17 @@ const historySchema = z
   })
   .strict();
 
+const retrySchema = z.union([
+  z.literal(false),
+  z.object({ max: z.number().int().nonnegative() }).strict(),
+]);
+
 const engineConfigSchema = z
   .object({
-    adapter: adapterSchema,
+    planner: functionSchema<Planner>(),
     logger: loggerSchema.optional(),
-    prompt: promptOptionsSchema.optional(),
     history: historySchema.optional(),
-    maxRetries: z.number().int().nonnegative().optional(),
-    modelOptions: z.record(z.string(), z.unknown()).optional(),
+    retry: retrySchema.optional(),
   })
   .strict();
 
@@ -123,6 +127,7 @@ const llmPlannerOptionsSchema = z
 // per-field forward checks + adapter bidirectional against the required-key
 // contract cover add/remove drift and the common value-type drifts.
 type _InferredEngineConfig = z.infer<typeof engineConfigSchema>;
+type _InferredLlmPlannerOptions = z.infer<typeof llmPlannerOptionsSchema>;
 
 // Bidirectional check on the adapter is against `Pick<...>` because
 // `AnyTextAdapter`'s phantom `~types` field has no runtime shape and can't
@@ -139,47 +144,48 @@ const _configKeysSubsetInferred: keyof EngineConfig extends keyof _InferredEngin
 const _inferredKeysSubsetConfig: keyof _InferredEngineConfig extends keyof EngineConfig
   ? true
   : false = true;
-const _adapterFwd: _InferredEngineConfig['adapter'] extends _AdapterContract
-  ? true
-  : false = true;
-const _adapterBwd: _AdapterContract extends _InferredEngineConfig['adapter']
-  ? true
-  : false = true;
 const _loggerFwd: NonNullable<
   _InferredEngineConfig['logger']
 > extends NonNullable<EngineConfig['logger']>
   ? true
   : false = true;
-const _promptFwd: NonNullable<
-  _InferredEngineConfig['prompt']
-> extends NonNullable<EngineConfig['prompt']>
+const _retryFwd: NonNullable<
+  _InferredEngineConfig['retry']
+> extends NonNullable<EngineConfig['retry']>
   ? true
   : false = true;
-type _InferredLlmPlannerOptions = z.infer<typeof llmPlannerOptionsSchema>;
+const _retryBwd: NonNullable<EngineConfig['retry']> extends NonNullable<
+  _InferredEngineConfig['retry']
+>
+  ? true
+  : false = true;
 const _plannerKeysSubsetInferred: keyof LlmPlannerOptions extends keyof _InferredLlmPlannerOptions
   ? true
   : false = true;
 const _inferredKeysSubsetPlanner: keyof _InferredLlmPlannerOptions extends keyof LlmPlannerOptions
   ? true
   : false = true;
-const _plannerAdapterFwd: _InferredLlmPlannerOptions['adapter'] extends _AdapterContract
+const _adapterFwd: _InferredLlmPlannerOptions['adapter'] extends _AdapterContract
   ? true
   : false = true;
-const _plannerPromptFwd: NonNullable<
+const _adapterBwd: _AdapterContract extends _InferredLlmPlannerOptions['adapter']
+  ? true
+  : false = true;
+const _promptFwd: NonNullable<
   _InferredLlmPlannerOptions['prompt']
 > extends NonNullable<LlmPlannerOptions['prompt']>
   ? true
   : false = true;
 void [
-  _plannerKeysSubsetInferred,
-  _inferredKeysSubsetPlanner,
-  _plannerAdapterFwd,
-  _plannerPromptFwd,
   _configKeysSubsetInferred,
   _inferredKeysSubsetConfig,
+  _loggerFwd,
+  _retryFwd,
+  _retryBwd,
+  _plannerKeysSubsetInferred,
+  _inferredKeysSubsetPlanner,
   _adapterFwd,
   _adapterBwd,
-  _loggerFwd,
   _promptFwd,
 ];
 
@@ -192,20 +198,19 @@ export function validateEngineConfig(config: unknown): EngineConfig {
   }
   // Return the caller's original instance, not `result.data`. Zod's
   // `.object().loose()` rebuilds objects by copying own-enumerable keys,
-  // which strips prototype methods from class-based providers — e.g. the
-  // Gemini adapter's `chatStream` calls `this.mapCommonOptionsToGemini`,
-  // and that helper lives on the prototype. The schema is validate-only
-  // (no transforms or defaults — defaults are applied in `resolveConfig`),
-  // so discarding `result.data` is safe and keeps adapter, logger, and
-  // history.store identity intact across the validation boundary.
-  // See `_AdapterContract` — phantom `~types` field requires this cast.
+  // which strips prototype methods from class-based loggers and history
+  // stores. The schema is validate-only (no transforms or defaults —
+  // defaults are applied in `resolveConfig`), so discarding `result.data`
+  // is safe and keeps planner, logger, and history.store identity intact
+  // across the validation boundary.
   return config as EngineConfig;
 }
 
 /**
- * Validates `llmPlanner` options with the same adapter and prompt rules as
- * `validateEngineConfig`, returning the caller's instance so adapter identity
- * survives (see `validateEngineConfig`).
+ * Validates `llmPlanner` options, returning the caller's instance rather
+ * than Zod's rebuilt copy. Class-based providers keep helpers on the
+ * prototype (the Gemini adapter's `chatStream` calls
+ * `this.mapCommonOptionsToGemini`), and the copy would strip them.
  */
 export function validateLlmPlannerOptions(options: unknown): LlmPlannerOptions {
   const result = llmPlannerOptionsSchema.safeParse(options);
@@ -215,6 +220,7 @@ export function validateLlmPlannerOptions(options: unknown): LlmPlannerOptions {
       { cause: result.error },
     );
   }
+  // See `_AdapterContract` — phantom `~types` field requires this cast.
   return options as LlmPlannerOptions;
 }
 

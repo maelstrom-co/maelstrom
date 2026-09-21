@@ -10,9 +10,9 @@ import {
   ok,
   type TilingResponseSchema,
 } from '@maelstrom-co/protocol';
+import type { AnyTextAdapter } from '@tanstack/ai';
 import { chat } from '@tanstack/ai';
 
-import type { EngineConfig } from '../config.js';
 import type { EngineError } from '../errors.js';
 import { cancellationError, providerError } from '../errors.js';
 import type { LLMContextMessage } from '../history/history-manager.js';
@@ -29,13 +29,13 @@ export type LLMOutput = GridResponse | TilingResponse;
 // ---------------------------------------------------------------------------
 
 export async function callLLM(
-  adapter: EngineConfig['adapter'],
+  adapter: AnyTextAdapter,
   systemPrompt: string,
   userPrompt: string,
   outputSchema: typeof GridResponseSchema | typeof TilingResponseSchema,
   historyMessages: readonly LLMContextMessage[],
   signal?: AbortSignal,
-  modelOptions?: EngineConfig['modelOptions'],
+  modelOptions?: Record<string, unknown>,
 ): Promise<Result<LLMOutput, EngineError>> {
   const controller = new AbortController();
   const effectiveSignal = signal

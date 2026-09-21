@@ -94,8 +94,8 @@ export function buildPrompt(
  * Build the system-prompt half for a given layout mode and config-time options.
  *
  * Pure: depends only on its arguments, so the result can be cached per
- * `(mode, options)` tuple. {@link createEngine} precomputes one string per
- * `LayoutMode` at factory time and indexes by `request.context.layoutMode` per
+ * `(mode, options)` tuple. `llmPlanner` precomputes one string per
+ * `LayoutMode` at construction and indexes by `request.context.layoutMode` per
  * request — derive once, not per-turn.
  *
  * @throws {Error} If a `system` customizer is invalid (function targeting a
