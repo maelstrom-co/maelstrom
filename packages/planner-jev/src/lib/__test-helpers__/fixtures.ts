@@ -1,15 +1,19 @@
-import type {
-  Logger,
-  PlannerCandidate,
-  PlanningInput,
-  StageContext,
-  ValidateCandidate,
+import {
+  isDeferred,
+  type Logger,
+  type PlannerCandidate,
+  type PlanningInput,
+  type StageContext,
+  type StageError,
+  type ValidateCandidate,
 } from '@maelstrom-co/engine';
 import {
   type ChartRequest,
   ChartRequestSchema,
+  isErr,
   MessageId,
   ok,
+  type Result,
   SessionId,
   type TilingNode,
   type UpdateReason,
@@ -415,4 +419,25 @@ export function makeContext(
     signal: overrides.signal,
     validate: overrides.validate ?? acceptAll,
   };
+}
+
+/** The deferral reason of a stage result, or `undefined` when it did not defer. */
+export function deferralOf(
+  result: Result<unknown, StageError>,
+): string | undefined {
+  return isErr(result) && isDeferred(result.error)
+    ? result.error.reason
+    : undefined;
+}
+
+/** The error tag of a failed stage result. */
+export function errorTagOf(
+  result: Result<unknown, StageError>,
+): string | undefined {
+  return isErr(result) ? result.error._tag : undefined;
+}
+
+/** Drops brands so tests can compare against plain literals. */
+export function plain(value: unknown): unknown {
+  return JSON.parse(JSON.stringify(value));
 }

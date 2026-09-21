@@ -1,3 +1,5 @@
+import { createTypeSafeClient, type JevCall } from '../typesafe-client.js';
+
 /** The request body the TypeSafe client sends. */
 export interface Payload {
   readonly model: string;
@@ -111,4 +113,21 @@ export function optionContaining(
   );
   if (!found) throw new Error(`no option of ${id} mentions ${text}`);
   return found[0];
+}
+
+/** A TypeSafe client answering from `script`, with every payload and call recorded. */
+export function scriptedAsk(
+  script: Script,
+  options: { timeoutMs?: number } = {},
+) {
+  const { fetch, calls } = scriptedFetch(script);
+  const reported: JevCall[] = [];
+  const ask = createTypeSafeClient({
+    apiKey: 'typesafe-test-key',
+    model: TEST_MODEL,
+    fetch,
+    timeoutMs: options.timeoutMs ?? 1000,
+    onCall: (call) => reported.push(call),
+  });
+  return { ask, calls, reported };
 }
