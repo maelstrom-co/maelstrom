@@ -125,10 +125,10 @@ unregisterRunner(instanceId: InstanceId): void;
 
 ```ts
 /**
- * @throws If `config` fails Zod validation, or if a system-prompt
- *   customizer is misconfigured.
+ * @throws If `options` is invalid, or if a system-prompt customizer is
+ *   misconfigured.
  */
-export function createEngine(config: EngineConfig): Engine;
+export function llmPlanner(options: LlmPlannerOptions): Stage<LlmPlannerInput, PlannerCandidate>;
 ```
 
 ## Bad and good examples

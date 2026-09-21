@@ -17,9 +17,10 @@ import {
   createEngine,
   createInMemoryStore,
   type Engine,
+  llmPlanner,
 } from '@maelstrom-co/engine';
 
-type EngineConfig = Parameters<typeof createEngine>[0];
+type LlmPlannerOptions = Parameters<typeof llmPlanner>[0];
 
 // Appended to the engine's system prompt. Deliberately about space rather
 // than content: the orchestrator's failure mode is emitting a layout that
@@ -33,7 +34,7 @@ const HISTORY_MAX_ENTRIES = 20;
 
 export interface PlaygroundEngineOptions {
   /** Provider binding — the one genuinely per-transport choice. */
-  readonly adapter: EngineConfig['adapter'];
+  readonly adapter: LlmPlannerOptions['adapter'];
   /**
    * Both transports MUST pass a redacting logger. The default `consoleLogger`
    * writes provider SDK errors verbatim, including OpenAI's 401 echo of the
@@ -41,8 +42,8 @@ export interface PlaygroundEngineOptions {
    * Worker's `observability.logs.persist`; local mode still holds a
    * long-lived `OPENAI_API_KEY` that must not land in terminal or CI logs.
    */
-  readonly logger?: EngineConfig['logger'];
-  readonly modelOptions?: EngineConfig['modelOptions'];
+  readonly logger?: Parameters<typeof createEngine>[0]['logger'];
+  readonly modelOptions?: LlmPlannerOptions['modelOptions'];
 }
 
 /**
@@ -54,16 +55,18 @@ export function createPlaygroundEngine(
   options: PlaygroundEngineOptions,
 ): Engine {
   return createEngine({
-    adapter: options.adapter,
-    maxRetries: MAX_RETRIES,
+    planner: llmPlanner({
+      adapter: options.adapter,
+      prompt: { system: { rules: { append: SYSTEM_RULES } } },
+      ...(options.modelOptions === undefined
+        ? {}
+        : { modelOptions: options.modelOptions }),
+    }),
+    retry: { max: MAX_RETRIES },
     history: {
       store: createInMemoryStore(),
       maxEntries: HISTORY_MAX_ENTRIES,
     },
-    prompt: { system: { rules: { append: SYSTEM_RULES } } },
     ...(options.logger === undefined ? {} : { logger: options.logger }),
-    ...(options.modelOptions === undefined
-      ? {}
-      : { modelOptions: options.modelOptions }),
   });
 }

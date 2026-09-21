@@ -42,13 +42,13 @@ Set truncation before production traffic. Without `maxEntries` or `maxChars`, ev
     accidentally ship with an in-memory store in production.
 
     ```ts title="src/server/engine.ts"
-    import { createEngine, createInMemoryStore } from '@maelstrom-co/engine';
+    import { createEngine, createInMemoryStore, llmPlanner } from '@maelstrom-co/engine';
     import { geminiText } from '@tanstack/ai-gemini';
 
     const store = createInMemoryStore();
 
     export const engine = createEngine({
-      adapter: geminiText('<your-model-id>'),
+      planner: llmPlanner({ adapter: geminiText('<your-model-id>') }),
       history: {
         store,
       },
@@ -116,12 +116,12 @@ This is the cleanest way to ride tenant ids, experiment arms, token counts,
 or audit fields along every entry without forking the entry shape.
 
 ```ts title="src/server/engine.ts"
-import { createEngine, createInMemoryStore } from '@maelstrom-co/engine';
+import { createEngine, createInMemoryStore, llmPlanner } from '@maelstrom-co/engine';
 
 const tenantId = 'acme-corp';
 
 export const engine = createEngine({
-  adapter: /* ... */,
+  planner: llmPlanner({ adapter: /* ... */ }),
   history: {
     store: createInMemoryStore(),
     maxEntries: 50,
