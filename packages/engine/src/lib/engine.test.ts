@@ -1352,6 +1352,39 @@ describe('engine.handle with a configured planner', () => {
     });
   });
 
+  test.each([
+    ['the default retry', undefined],
+    ['retry: false', false as const],
+  ])('with %s the shipped candidate is healed once', async (_case, retry) => {
+    const shipped = buildGridResponse({
+      executionPlan: [
+        { instanceId: 'calendar-main', action: 'showWeek' },
+        { instanceId: 'calendar-main', action: 'showMonth', paramsJson: '{' },
+      ],
+    });
+    const candidates = [layoutEmptying(), shipped];
+    let calls = 0;
+    const planner: Planner = async () => ok(candidates[calls++]!);
+    const { logger, entries } = spyLogger();
+    const engine = createEngine({
+      planner: retry === false ? async () => ok(shipped) : planner,
+      logger,
+      ...(retry === undefined ? {} : { retry }),
+    });
+
+    const result = await engine.handle(
+      toChartRequestMessage(makeGridRequest()),
+    );
+
+    expect(isOk(result)).toBe(true);
+    if (retry === undefined) expect(calls).toBe(2);
+    expect(
+      entries.filter((entry) =>
+        entry.msg.startsWith('Failed to parse paramsJson'),
+      ),
+    ).toHaveLength(1);
+  });
+
   test('a Deferred nothing recovered is Err(ValidationError) on field "planner"', async () => {
     const planner: Planner = async () => err(deferred('no Vessel matched'));
     const { logger, entries } = spyLogger();

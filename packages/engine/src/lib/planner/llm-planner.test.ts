@@ -285,6 +285,74 @@ describe('llmPlanner', () => {
       );
     });
 
+    test('a retry with different hints rebuilds the original prompt with the new hints', async () => {
+      mockChat.mockResolvedValue(buildGridResponse());
+      const request = makeGridRequest();
+      const input = makePlanningInput(request);
+      const ctx = makeStageContext({ origin: input });
+      const validated = ctx.validate(overflowingResponse);
+      if (!isOk(validated)) throw new Error('fixture must validate');
+      const { diagnostics } = validated.value;
+      const planner = llmPlanner({ adapter: dummyAdapter });
+
+      await planner({ ...input, hints: ['A'] }, ctx);
+      await planner(
+        {
+          ...input,
+          hints: ['B'],
+          retry: { attempt: 1, previous: overflowingResponse, diagnostics },
+        },
+        ctx,
+      );
+
+      expect(chatCall(1).messages.at(-1)?.content).toBe(
+        buildRetryPrompt(
+          `${buildUserPrompt(request)}\n\n## Planner Hints\n\n- B`,
+          diagnostics,
+        ),
+      );
+    });
+
+    test('a retry with the same hints array reuses the original prompt', async () => {
+      mockChat.mockResolvedValue(buildGridResponse());
+      const request = makeGridRequest();
+      const hints = ['A'];
+      const input = { ...makePlanningInput(request), hints };
+      const ctx = makeStageContext({ origin: input });
+      const validated = ctx.validate(overflowingResponse);
+      if (!isOk(validated)) throw new Error('fixture must validate');
+      const { diagnostics } = validated.value;
+      let customizerCalls = 0;
+      const planner = llmPlanner({
+        adapter: dummyAdapter,
+        prompt: {
+          user: {
+            vessels: (defaults) => {
+              customizerCalls += 1;
+              return defaults;
+            },
+          },
+        },
+      });
+
+      await planner(input, ctx);
+      await planner(
+        {
+          ...input,
+          retry: { attempt: 1, previous: overflowingResponse, diagnostics },
+        },
+        ctx,
+      );
+
+      expect(customizerCalls).toBe(1);
+      expect(chatCall(1).messages.at(-1)?.content).toBe(
+        buildRetryPrompt(
+          `${buildUserPrompt(request)}\n\n## Planner Hints\n\n- A`,
+          diagnostics,
+        ),
+      );
+    });
+
     test('carry into the retry prompt as part of the original request', async () => {
       mockChat.mockResolvedValue(buildGridResponse());
       const request = makeGridRequest();
