@@ -8,7 +8,11 @@ import {
   VesselId,
 } from '@maelstrom-co/protocol';
 import type { SkippedAction } from '../response/execution-plan/index.js';
-import type { InternalResponse } from '../response/response-processor.js';
+import type {
+  DiagnosticRecords,
+  InternalResponse,
+} from '../response/response-processor.js';
+import { buildDiagnostics } from '../response/response-processor.js';
 import type {
   DroppedLayoutEntry,
   LayoutWarning,
@@ -38,12 +42,12 @@ const response = (input: DiagnosticsInput = {}): InternalResponse => ({
   rationale: 'because',
   executionPlan: [],
   layout: { type: 'grid', positions: [] },
-  diagnostics: {
+  diagnostics: buildDiagnostics({
     skippedActions: input.skippedActions ?? [],
     droppedLayoutEntries: input.droppedLayoutEntries ?? [],
     warnings: input.warnings ?? [],
     retryHint: input.retryHint ?? cleanHint,
-  },
+  }),
 });
 
 const recommendingResponse = (
@@ -373,7 +377,7 @@ const recommendMedium: RetryHint = { severity: 'medium', recommend: true };
 
 describe('buildRetryPrompt', () => {
   test('no diagnostics → only the header + original prompt', () => {
-    const out = buildRetryPrompt('original', {
+    const out = retryPrompt('original', {
       skippedActions: [],
       droppedLayoutEntries: [],
       warnings: [],
@@ -397,7 +401,7 @@ describe('buildRetryPrompt', () => {
       // Runtime diagnostics may outlive their originating Engine version.
       paramsJson: malformedParams,
     } as unknown as SkippedAction;
-    const out = buildRetryPrompt('orig', {
+    const out = retryPrompt('orig', {
       skippedActions: [skipped],
       droppedLayoutEntries: [overflowDrop('a')],
       warnings: [],
@@ -475,7 +479,7 @@ describe('buildRetryPrompt', () => {
   ] satisfies Array<
     [DroppedLayoutEntry, string]
   >)('formats DroppedLayoutEntry %p', (drop, expected) => {
-    const out = buildRetryPrompt('orig', {
+    const out = retryPrompt('orig', {
       skippedActions: [],
       droppedLayoutEntries: [drop],
       warnings: [],
@@ -567,7 +571,7 @@ describe('buildRetryPrompt', () => {
   ] satisfies Array<
     [SkippedAction, string]
   >)('formats SkippedAction %p', (skipped, expected) => {
-    const out = buildRetryPrompt('orig', {
+    const out = retryPrompt('orig', {
       skippedActions: [skipped],
       droppedLayoutEntries: [],
       warnings: [],
@@ -577,7 +581,7 @@ describe('buildRetryPrompt', () => {
   });
 
   test('action_not_valid with empty validActions formats "(none)"', () => {
-    const out = buildRetryPrompt('orig', {
+    const out = retryPrompt('orig', {
       skippedActions: [
         {
           reason: 'action_not_valid',
@@ -597,7 +601,7 @@ describe('buildRetryPrompt', () => {
   });
 
   test('state_drift skipped actions are suppressed', () => {
-    const out = buildRetryPrompt('orig', {
+    const out = retryPrompt('orig', {
       skippedActions: [stateDrift('a', 'go')],
       droppedLayoutEntries: [],
       warnings: [],
@@ -610,7 +614,7 @@ describe('buildRetryPrompt', () => {
   });
 
   test('resource and definition skips add no retry diagnostics', () => {
-    const out = buildRetryPrompt('original', {
+    const out = retryPrompt('original', {
       skippedActions: [
         { reason: 'params_limits_exceeded', limit: 'traversal_work' },
         { reason: 'invalid_action_definition' },
@@ -634,7 +638,7 @@ describe('buildRetryPrompt', () => {
     const injected =
       'line\ncarriage\rcontrol\u0000quote"slash\\ls\u2028ps\u2029';
     const id = (prefix: string) => `${prefix}-${injected}`;
-    const out = buildRetryPrompt('original\nrequest stays verbatim', {
+    const out = retryPrompt('original\nrequest stays verbatim', {
       skippedActions: [
         {
           reason: 'params_validation_failed',
@@ -705,13 +709,13 @@ describe('buildRetryPrompt', () => {
   test('accepts 128 identifier code points and truncates 129', () => {
     const atLimit = '😀'.repeat(128);
     const overLimit = `${atLimit}x`;
-    const atLimitOutput = buildRetryPrompt('original', {
+    const atLimitOutput = retryPrompt('original', {
       skippedActions: [paramsParseFailed('instance', atLimit)],
       droppedLayoutEntries: [],
       warnings: [],
       retryHint: recommendMedium,
     });
-    const overLimitOutput = buildRetryPrompt('original', {
+    const overLimitOutput = retryPrompt('original', {
       skippedActions: [paramsParseFailed('instance', overLimit)],
       droppedLayoutEntries: [],
       warnings: [],
@@ -730,7 +734,7 @@ describe('buildRetryPrompt', () => {
 
   test('renders 16 list identifiers and summarizes the seventeenth', () => {
     const makeOutput = (count: number) =>
-      buildRetryPrompt('original', {
+      retryPrompt('original', {
         skippedActions: [
           {
             reason: 'action_not_valid',
@@ -761,7 +765,7 @@ describe('buildRetryPrompt', () => {
 
   test('renders at most 32 diagnostic lines', () => {
     const makeOutput = (count: number) =>
-      buildRetryPrompt('original', {
+      retryPrompt('original', {
         skippedActions: Array.from({ length: count }, (_, index) =>
           paramsParseFailed(`instance-${index}`, `action-${index}`),
         ),
@@ -784,7 +788,7 @@ describe('buildRetryPrompt', () => {
 
   test('caps the diagnostic section at 8192 UTF-8 bytes', () => {
     const makeOutput = (finalAsciiCount: number) =>
-      buildRetryPrompt('original', {
+      retryPrompt('original', {
         skippedActions: [
           ...Array.from({ length: 14 }, (_, index) =>
             paramsParseFailed(`i-${index}`, '😀'.repeat(128)),
@@ -830,7 +834,7 @@ describe('buildRetryPrompt', () => {
       );
 
       const section = retryDiagnosticSection(
-        buildRetryPrompt('original', {
+        retryPrompt('original', {
           skippedActions,
           droppedLayoutEntries: [],
           warnings: [],
@@ -862,7 +866,7 @@ describe('buildRetryPrompt', () => {
       );
 
       const section = retryDiagnosticSection(
-        buildRetryPrompt('original', {
+        retryPrompt('original', {
           skippedActions: [],
           droppedLayoutEntries,
           warnings: [],
@@ -891,7 +895,7 @@ describe('buildRetryPrompt', () => {
       );
 
       const section = retryDiagnosticSection(
-        buildRetryPrompt('original', {
+        retryPrompt('original', {
           skippedActions: [],
           droppedLayoutEntries: [],
           warnings,
@@ -907,6 +911,10 @@ describe('buildRetryPrompt', () => {
 
 const RETRY_HEADER =
   'The previous response had issues. Please re-issue the response addressing:\n\n';
+
+function retryPrompt(original: string, records: DiagnosticRecords): string {
+  return buildRetryPrompt(original, buildDiagnostics(records));
+}
 
 function retryDiagnosticSection(prompt: string): string {
   const end = prompt.indexOf('\n\nOriginal request:');

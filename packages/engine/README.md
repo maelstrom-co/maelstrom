@@ -355,10 +355,11 @@ Everything else returns `Ok(EngineOutput)`. The response may omit invalid layout
 
 ### Engine-internal diagnostics
 
-Internally the response carries a `diagnostics` block describing exactly what was healed, what was skipped, and how degraded the result is. This is stripped from the public response before it crosses the engine boundary; it powers retry-layer decisioning and observability. Layout drops and action skips are independent — neither short-circuits the other, and a single response can carry both. The engine emits a single `'Response healed'` log when any drop or warning fires, severity-routed via `logAtSeverity` (`info` for `low`/`none`, `warn` for `medium`, `error` for `unrecoverable`) so blank-UI responses cross default `warn`-threshold paging filters.
+Internally the response carries a `diagnostics` block describing exactly what was healed, what was skipped, and how degraded the result is. This is stripped from the public response before it crosses the engine boundary; it powers retry-layer decisioning and observability. Planner stages see only the public `EngineDiagnostics` summary (`retryHint`, per-kind `counts`, and sanitized `feedback` text); the per-entry records below stay internal. Layout drops and action skips are independent — neither short-circuits the other, and a single response can carry both. The engine emits a single `'Response healed'` log when any drop or warning fires, severity-routed via `logAtSeverity` (`info` for `low`/`none`, `warn` for `medium`, `error` for `unrecoverable`) so blank-UI responses cross default `warn`-threshold paging filters.
 
 ```ts
-interface EngineDiagnostics {
+// Engine-internal records; not exported.
+interface HealRecords {
   /** Per-action drops with structured detail (params parse failure, unknown instance, …). */
   readonly skippedActions: readonly SkippedAction[];
   /** Per-layout-entry drops (overflow, orphan, tree pruning …). */

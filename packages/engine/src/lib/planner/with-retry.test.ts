@@ -27,7 +27,11 @@ import {
 } from '../errors.js';
 import type { Logger } from '../logger.js';
 import type { SkippedAction } from '../response/execution-plan/index.js';
-import type { EngineDiagnostics } from '../response/response-processor.js';
+import type {
+  DiagnosticRecords,
+  EngineDiagnostics,
+} from '../response/response-processor.js';
+import { buildDiagnostics } from '../response/response-processor.js';
 import type {
   DroppedLayoutEntry,
   RetryHint,
@@ -51,16 +55,17 @@ import { withRetry } from './with-retry.js';
 const cleanHint: RetryHint = { severity: 'none', recommend: false };
 
 const diagnostics = (
-  input: Partial<EngineDiagnostics> = {},
-): EngineDiagnostics => ({
-  skippedActions: input.skippedActions ?? [],
-  droppedLayoutEntries: input.droppedLayoutEntries ?? [],
-  warnings: input.warnings ?? [],
-  retryHint: input.retryHint ?? cleanHint,
-});
+  input: Partial<DiagnosticRecords> = {},
+): EngineDiagnostics =>
+  buildDiagnostics({
+    skippedActions: input.skippedActions ?? [],
+    droppedLayoutEntries: input.droppedLayoutEntries ?? [],
+    warnings: input.warnings ?? [],
+    retryHint: input.retryHint ?? cleanHint,
+  });
 
 const recommending = (
-  input: Omit<Partial<EngineDiagnostics>, 'retryHint'> & {
+  input: Omit<Partial<DiagnosticRecords>, 'retryHint'> & {
     severity?: 'medium' | 'unrecoverable';
   } = {},
 ): EngineDiagnostics => {
