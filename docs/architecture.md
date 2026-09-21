@@ -396,7 +396,7 @@ BROWSER   client ◀── realtime ◀── realtime-openai
              ▲                 ◀── realtime-livekit ──▶ realtime-vad
           react ◀── react-realtime
 
-SERVER    engine    realtime-openai-server    realtime-livekit-server
+SERVER    engine ◀── planner-jev    realtime-openai-server    realtime-livekit-server
 
 WORKER    realtime-livekit-agent
 ```
@@ -407,6 +407,7 @@ WORKER    realtime-livekit-agent
 - **realtime-protocol**: the realtime contract leaf — token-grant types, mint-failure taxonomy, wire topics. Depends on nothing but `protocol` and `zod`, so a minter can import it without pulling in a browser SDK
 - **client**: Framework-agnostic client, can be used anywhere
 - **engine**: Server-side only, has LLM provider dependencies
+- **planner-jev**: experimental server-only planner that composes Jev (TypeSafe) stages on the engine's planner seam. Depends on `engine` and `protocol`; the engine never depends on it
 - **react** / **react-realtime**: React-specific bindings, optional
 - **realtime**: browser-side realtime voice core; talks to the provider directly with ephemeral tokens, feeds intents into the client
 - **realtime-vad**: provider-neutral browser voice-activity detector; `MediaStream` in, speech boundaries out
