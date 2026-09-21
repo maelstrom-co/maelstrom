@@ -482,7 +482,11 @@ export class OpenAIAdapter
    * Sends a tool result. Trigger connections require an owned dispatched call
    * and await its exact item-created acknowledgement before queuing a follow-up;
    * missing/mismatched acknowledgement rejects and reports a fatal eligibility
-   * error after at most ten seconds. Normal connections retain send-only
+   * error after at most ten seconds. Unknown or undispatched calls reject with
+   * an eligibility failure, unlike LiveKit trigger mode's unknown-call no-op.
+   * Repeated results for a dispatched call reuse its first result operation while
+   * the trigger connection and call remain live; LiveKit consumes the call and
+   * treats subsequent results as no-ops. Normal connections retain send-only
    * completion and report transport errors through adapter events.
    */
   async sendToolResult(callId: ToolCallId, output: ToolResult): Promise<void> {

@@ -56,7 +56,7 @@ function voiceErrorCopy(error: unknown): string {
     case 'GREETING_ADAPTER_UNSUPPORTED':
       return 'This voice session cannot play the greeting. Reconnect with a greeting-capable adapter.';
     case 'ACTIVATION_CONFIG_INVALID':
-      return 'Stop voice and correct the trigger phrase or inactivity duration before reconnecting.';
+      return 'Stop voice, check the trigger phrase and inactivity duration, and enable input transcription before reconnecting.';
     case 'ACTIVATION_ADAPTER_UNSUPPORTED':
       return 'This voice setup does not support trigger activation. Check the adapter and worker compatibility before reconnecting.';
     case 'ACTIVATION_ELIGIBILITY_FAILED':

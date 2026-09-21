@@ -431,12 +431,19 @@ or event drain. Automatic responses stay disabled throughout the connection.
 Every response and tool follow-up uses explicit, ordered `item_reference` inputs
 with admitted user audio, acknowledged grounding, and owned assistant/function
 items. Admitted dialogue survives waiting and later wakes in the **same session**;
-there is no per-wake remint or conversation reset.
+there is no per-wake remint, conversation reset, or local history-trimming
+algorithm. Provider-confirmed deletion of completed history removes those
+references and any dependent invalidated call/output groups from later inputs.
+Provider-confirmed truncation retains only the acknowledged item state. These
+history changes are not wake resets; remaining admitted dialogue is preserved.
 
 Missing source ownership, item/response ACKs, or truncation/reference readiness
-has a bounded eligibility deadline (normally **10 seconds**). Invalid or missing
-references fail explicitly; no attempt retries with unfiltered history or an
-empty-history workaround. Unsafe continuation can tear down the connection.
+has a bounded eligibility deadline (normally **10 seconds**). Missing required or
+current references, deletion of an in-flight snapshot reference, provider reference
+rejection, and attempts to resurrect deleted output fail explicitly. Acknowledged
+deletion of completed history is not itself such a failure. No attempt retries
+with unfiltered history or an empty-history workaround. Unsafe continuation can
+tear down the connection.
 Show the error, stop, and offer a deliberate reconnect after investigating; do
 not silently switch to normal mode. The unresolved ledger is bounded to 128
 records and 256 KiB of terminal text, not a new response queue or dialogue trim.

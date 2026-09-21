@@ -455,9 +455,15 @@ deadline); that ACK is not a transport drain. Automatic responses remain disable
 in trigger mode. Every response/follow-up carries explicit ordered live
 `item_reference` inputs for admitted user audio, acknowledged grounding, and
 owned assistant/function items. Admitted history survives wakes in the same
-session. Missing ownership/ACK/reference/truncation evidence fails explicitly
-under bounded eligibility deadlines, never via unfiltered input, history reset,
-or silent trimming. Unresolved holding is limited to 128 records and 256 KiB
+session, except for provider-confirmed deletion or truncation. Acknowledged deletion
+of completed history removes its references and dependent invalidated call/output
+groups from later inputs; truncation retains the provider-confirmed item state.
+Neither is a per-wake reset or a new local history-trimming algorithm, and remaining
+admitted dialogue is preserved. Missing ownership/ACK/truncation evidence or
+required/current references fails explicitly under bounded eligibility deadlines.
+Unsafe in-flight snapshot deletion, provider reference rejection, and resurrection
+of deleted output also fail closed, never via unfiltered input or a history reset.
+Unresolved holding is limited to 128 records and 256 KiB
 terminal text; established admitted dialogue is not a new bounded request queue.
 
 LiveKit negotiates correlated turns with an updated, server-designated agent

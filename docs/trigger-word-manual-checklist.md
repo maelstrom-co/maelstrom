@@ -117,10 +117,17 @@ run paid provider calls automatically or put credentials/transcripts in reports.
   speech must not contaminate the next explicit response input.
 - Interrupt assistant audio and inspect provider-confirmed truncation. Subsequent
   references use the retained state and do not reintroduce unheard local text.
-  Test pending ACK, deleted/missing reference, provider reference rejection, and
-  incomplete/failed response. Expect explicit bounded eligibility errors, no
-  default-history retry or silent dialogue reset. Record actual provider behavior,
-  not just a mock event sequence.
+- Confirm deletion of completed historical items with provider acknowledgements.
+  Later explicit inputs omit those references and any dependent invalidated
+  call/output groups while preserving the remaining admitted dialogue. This alone
+  must not cause an eligibility error or a per-wake reset; no local history-trimming
+  algorithm should run.
+- Separately test missing required/current references, deletion of an in-flight
+  snapshot reference, provider reference rejection, and late output metadata that
+  attempts to resurrect a deleted item. Also test unresolved ACKs and
+  incomplete/failed responses. Expect explicit eligibility errors within the
+  applicable bounds, no default-history retry or silent dialogue reset. Record
+  actual provider behavior, not just a mock event sequence.
 - Distinguish `response.done` from correlated output-buffer completion. A response
   ending generation while audio continues must keep playback activity owned.
 
