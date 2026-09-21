@@ -124,6 +124,7 @@ interface QueuedIntent {
   readonly callId: ToolCallId;
   readonly intent: string;
   readonly resolve: (ok: boolean) => void;
+  readonly reject: (error: unknown) => void;
 }
 
 function defaultSummarize(snapshot: UIStructuralSnapshot): string {
@@ -947,8 +948,8 @@ export class RealtimeSession implements VoiceSession {
           'code' in error &&
           (error as { code?: unknown }).code === 'request_in_flight')
       ) {
-        return new Promise<boolean>((resolve) => {
-          this.#enqueueBargeIn({ callId, intent, resolve, epoch });
+        return new Promise<boolean>((resolve, reject) => {
+          this.#enqueueBargeIn({ callId, intent, resolve, reject, epoch });
         });
       }
       // Any other rejection is a genuine render/pipeline failure, not
@@ -1017,7 +1018,7 @@ export class RealtimeSession implements VoiceSession {
     return true;
   }
 
-  #sendUpdateUIResult(
+  async #sendUpdateUIResult(
     callId: ToolCallId,
     result: UpdateUIToolResult,
     epoch: number,
@@ -1066,9 +1067,7 @@ export class RealtimeSession implements VoiceSession {
           summary: SUPERSEDED_SUMMARY,
         },
         superseded.epoch,
-      ).then(() => {
-        superseded.resolve(false);
-      });
+      ).then(() => superseded.resolve(false), superseded.reject);
     }
     if (!this.#bargeInLoopRunning) {
       this.#bargeInLoopRunning = true;
@@ -1088,28 +1087,77 @@ export class RealtimeSession implements VoiceSession {
       let attempt = 0;
       while (this.#queuedIntent) {
         const entry = this.#queuedIntent;
-        attempt += 1;
-        // Deliberately the void wait: this settle belongs to the burst that
-        // was already running when the barge-in queued, so a failure in it
-        // answers the call that queued this one, never this one.
-        await this.#instance.waitForIdle();
-        if (this.#queuedIntent !== entry) {
-          attempt = 0;
-          continue; // superseded while waiting — already answered, nothing to do
-        }
-
-        const renderStart = Date.now();
-        let userMessage: string | undefined;
         try {
-          ({ userMessage } =
-            (await this.#instance.submitIntent(entry.intent)) ?? {});
-        } catch (error) {
+          attempt += 1;
+          // Deliberately the void wait: this settle belongs to the burst that
+          // was already running when the barge-in queued, so a failure in it
+          // answers the call that queued this one, never this one.
+          await this.#instance.waitForIdle();
           if (this.#queuedIntent !== entry) {
             attempt = 0;
-            continue; // superseded mid-submit — already answered
+            continue; // superseded while waiting — already answered, nothing to do
           }
-          if (!(error instanceof RequestInFlightError)) {
-            this.#queuedIntent = undefined;
+
+          const renderStart = Date.now();
+          let userMessage: string | undefined;
+          try {
+            ({ userMessage } =
+              (await this.#instance.submitIntent(entry.intent)) ?? {});
+          } catch (error) {
+            if (this.#queuedIntent !== entry) {
+              attempt = 0;
+              continue; // superseded mid-submit — already answered
+            }
+            if (!(error instanceof RequestInFlightError)) {
+              this.#queuedIntent = undefined;
+              this.#emit({
+                type: 'timing',
+                sessionId: this.#sessionId,
+                at: Date.now(),
+                label: 'update_ui.error',
+                ms: Date.now() - renderStart,
+              });
+              await this.#sendUpdateUIResult(
+                entry.callId,
+                {
+                  ok: false,
+                  summary: APPLY_FAILED_SUMMARY,
+                },
+                entry.epoch,
+              );
+              entry.resolve(false);
+              continue;
+            }
+            if (attempt >= MAX_BARGE_IN_ATTEMPTS) {
+              this.#queuedIntent = undefined;
+              await this.#sendUpdateUIResult(
+                entry.callId,
+                {
+                  ok: false,
+                  summary: BUSY_SUMMARY,
+                },
+                entry.epoch,
+              );
+              entry.resolve(false);
+              attempt = 0;
+              continue;
+            }
+            await delay(BARGE_IN_RETRY_DELAY_MS);
+            continue;
+          }
+
+          if (this.#queuedIntent !== entry) {
+            attempt = 0;
+            continue; // superseded mid-submit — already answered; the change may still apply, but this call is done
+          }
+          const settled = await this.#settleAfterSubmit();
+          if (
+            entry.epoch !== this.#connectEpoch ||
+            this.#queuedIntent !== entry
+          )
+            continue;
+          this.#queuedIntent = undefined;
+          if (!settled.ok) {
             this.#emit({
               type: 'timing',
               sessionId: this.#sessionId,
@@ -1126,69 +1174,29 @@ export class RealtimeSession implements VoiceSession {
               entry.epoch,
             );
             entry.resolve(false);
-            continue;
-          }
-          if (attempt >= MAX_BARGE_IN_ATTEMPTS) {
-            this.#queuedIntent = undefined;
-            await this.#sendUpdateUIResult(
-              entry.callId,
-              {
-                ok: false,
-                summary: BUSY_SUMMARY,
-              },
-              entry.epoch,
-            );
-            entry.resolve(false);
             attempt = 0;
             continue;
           }
-          await delay(BARGE_IN_RETRY_DELAY_MS);
-          continue;
-        }
-
-        if (this.#queuedIntent !== entry) {
-          attempt = 0;
-          continue; // superseded mid-submit — already answered; the change may still apply, but this call is done
-        }
-        const settled = await this.#settleAfterSubmit();
-        if (entry.epoch !== this.#connectEpoch || this.#queuedIntent !== entry)
-          continue;
-        this.#queuedIntent = undefined;
-        if (!settled.ok) {
           this.#emit({
             type: 'timing',
             sessionId: this.#sessionId,
             at: Date.now(),
-            label: 'update_ui.error',
+            label: 'update_ui.render',
             ms: Date.now() - renderStart,
           });
+          const snapshot = this.#instance.getStructuralSnapshot();
           await this.#sendUpdateUIResult(
             entry.callId,
-            {
-              ok: false,
-              summary: APPLY_FAILED_SUMMARY,
-            },
+            this.#buildUpdateResult(userMessage, snapshot),
             entry.epoch,
           );
-          entry.resolve(false);
+          entry.resolve(true);
           attempt = 0;
-          continue;
+        } catch (error) {
+          if (this.#queuedIntent === entry) this.#queuedIntent = undefined;
+          entry.reject(error);
+          attempt = 0;
         }
-        this.#emit({
-          type: 'timing',
-          sessionId: this.#sessionId,
-          at: Date.now(),
-          label: 'update_ui.render',
-          ms: Date.now() - renderStart,
-        });
-        const snapshot = this.#instance.getStructuralSnapshot();
-        await this.#sendUpdateUIResult(
-          entry.callId,
-          this.#buildUpdateResult(userMessage, snapshot),
-          entry.epoch,
-        );
-        entry.resolve(true);
-        attempt = 0;
       }
     } finally {
       this.#bargeInLoopRunning = false;

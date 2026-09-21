@@ -3,6 +3,7 @@ import type {
   CapabilitySnapshot,
   UIStructuralSnapshot,
 } from '@maelstrom-co/client';
+import { RequestInFlightError } from '@maelstrom-co/client';
 import { MessageId, SessionId, ToolCallId } from '@maelstrom-co/protocol';
 import type {
   AdapterConnectOptions,
@@ -534,6 +535,7 @@ async function triggerSession(
   options: {
     onActivate?: () => Promise<void>;
     bargeInMode?: 'immediate' | 'transcript-confirmed';
+    instance?: RealtimeInstance;
   } = {},
 ) {
   const adapter = new OpenAIAdapter({
@@ -548,7 +550,7 @@ async function triggerSession(
   };
   const session = new RealtimeSession({
     adapter,
-    instance: makeInertInstance(),
+    instance: options.instance ?? makeInertInstance(),
     sessionId: SessionId('trigger-integration'),
     activation,
   });
@@ -620,6 +622,117 @@ async function triggerSession(
 }
 
 describe('OpenAI trigger end-to-end admission', () => {
+  it.each([
+    'disconnect',
+    'timeout',
+  ] as const)('settles a queued result awaiting ACK on %s and reconnects', async (failure) => {
+    const clock = FakeTimers.install();
+    let busy = true;
+    let release = () => {};
+    const submitted: string[] = [];
+    const h = await triggerSession({
+      instance: {
+        ...makeInertInstance(),
+        submitIntent: async (intent) => {
+          if (busy) throw new RequestInFlightError();
+          submitted.push(intent);
+          return {};
+        },
+        waitForIdle: () =>
+          new Promise<void>((resolve) => {
+            release = resolve;
+          }),
+      },
+    });
+    try {
+      h.source('trigger', h.root, 0, 100);
+      h.final('trigger', 'hello maelstrom');
+      h.source('request', 'trigger', 200, 300);
+      h.final('request', 'show weather');
+      const first = h.responses()[0]?.response as { metadata: unknown };
+      h.channel.receive({
+        type: 'response.created',
+        response: { id: 'queued-response', metadata: first.metadata },
+      });
+      const call = {
+        id: 'queued-item',
+        type: 'function_call',
+        call_id: 'queued-call',
+        name: 'update_ui',
+        status: 'completed',
+        arguments: '{"intent":"weather"}',
+      };
+      h.channel.receive({
+        type: 'response.output_item.added',
+        response_id: 'queued-response',
+        output_index: 0,
+        item: call,
+      });
+      h.channel.receive({
+        type: 'response.function_call_arguments.done',
+        response_id: 'queued-response',
+        item_id: call.id,
+        call_id: call.call_id,
+        name: call.name,
+        arguments: call.arguments,
+      });
+      h.channel.receive({
+        type: 'response.done',
+        response: {
+          id: 'queued-response',
+          status: 'completed',
+          output: [call],
+        },
+      });
+      await clock.tickAsync(0);
+      expect(submitted).toEqual([]);
+      busy = false;
+      release();
+      await clock.tickAsync(0);
+      expect(submitted).toEqual(['weather']);
+      release();
+      await clock.tickAsync(0);
+      const output = sentFrames(h.channel).find(
+        (frame) =>
+          (frame.item as { type?: string } | undefined)?.type ===
+          'function_call_output',
+      ) as { item: { id: string } } | undefined;
+      expect(output).toBeDefined();
+      expect(h.responses()).toHaveLength(1);
+      if (failure === 'disconnect') await h.session.disconnect();
+      else {
+        await clock.tickAsync(10000);
+        expect(h.session.state).toBe('error');
+      }
+      await clock.tickAsync(0);
+      const connecting = h.session.connect();
+      const replacement = await latestDataChannel(h.channel);
+      replacement.triggerOpen();
+      replacement.receive({
+        type: 'session.updated',
+        session: sentFrames(replacement)[0]?.session,
+      });
+      await connecting;
+      h.channel.receive({
+        type: 'conversation.item.created',
+        previous_item_id: call.id,
+        item: output?.item,
+      });
+      await clock.tickAsync(0);
+      expect(h.session.state).toBe('connected');
+      expect(h.session.activationState).toBe('waiting');
+      expect(h.responses()).toHaveLength(1);
+      expect(
+        sentFrames(replacement).filter(
+          (frame) => frame.type === 'response.create',
+        ),
+      ).toEqual([]);
+    } finally {
+      await h.session.disconnect();
+      clock.uninstall();
+    }
+  });
+
   it('holds a real read-only tool follow-up until tool output and grounding acknowledgements arrive', async () => {
     const h = await triggerSession();
     try {

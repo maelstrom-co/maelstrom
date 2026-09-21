@@ -571,6 +571,77 @@ describe('trigger session integration', () => {
     }
   });
 
+  for (const supersede of [false, true]) {
+    it(`releases queued completion after ${supersede ? 'superseded' : 'rendered'} result rejection`, async () => {
+      const clock = FakeTimers.install();
+      const adapter = Object.assign(makeMockAdapter(), {
+        voiceActivationVersion: 1 as const,
+      });
+      const instance = makeMockInstance(emptySnapshot);
+      const events: SidechannelEvent[] = [];
+      const session = new RealtimeSession({
+        adapter,
+        instance,
+        sessionId: testSessionId,
+        activation,
+        onEvent: (event) => events.push(event),
+      });
+      const send = adapter.sendToolResult;
+      adapter.sendToolResult = async (id, result) => {
+        if (id === 'queued') throw new Error('owned result ACK failed');
+        await send(id, result);
+      };
+      try {
+        await session.connect();
+        const policy = adapter.connectOptions[0]?.activation;
+        if (!policy) throw new Error('missing policy');
+        policy.reportInput(input(1, 'hello maelstrom'));
+        policy.reportInput(input(2, 'weather'));
+        const admitted = policy.admission('2');
+        if (admitted.status !== 'admitted') throw new Error('not admitted');
+        await instance.submitIntent('typed');
+        const emit = (id: string) =>
+          adapter.emit({
+            type: 'tool_call',
+            callId: ToolCallId(id),
+            name: 'update_ui',
+            argumentsJson: JSON.stringify({ intent: id }),
+            ancestry: admitted.ancestry,
+          });
+        emit('queued');
+        await clock.tickAsync(0);
+        if (supersede) {
+          emit('replacement');
+          await clock.tickAsync(0);
+        }
+        policy.finishInput('2');
+        instance.settle();
+        await clock.tickAsync(0);
+        if (supersede) {
+          instance.settle();
+          await clock.tickAsync(0);
+        }
+        expect(instance.submitted).toEqual([
+          'typed',
+          supersede ? 'replacement' : 'queued',
+        ]);
+        instance.settle();
+        await clock.tickAsync(9999);
+        expect(session.activationState).toBe('active');
+        await clock.tickAsync(1);
+        expect(session.activationState).toBe('waiting');
+        expect(
+          events
+            .filter((event) => event.type === 'tool_result')
+            .map((event) => event.callId),
+        ).toEqual(supersede ? [ToolCallId('replacement')] : []);
+      } finally {
+        await session.disconnect();
+        clock.uninstall();
+      }
+    });
+  }
+
   it('rejects live settings without mutation and waits render for idempotent chat completion', async () => {
     const clock = FakeTimers.install();
     const adapter = Object.assign(makeMockAdapter(), {

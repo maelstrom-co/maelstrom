@@ -15,7 +15,12 @@ export interface LiveKitTriggerBinding {
   readonly expiresAt: number;
 }
 
-/** Validates bounded bootstrap fields without dependencies; admission must additionally check expiry. */
+/**
+ * Checks version 1, nonblank room and identity strings of at most 512 UTF-16
+ * code units each, and a positive safe-integer Unix-seconds expiry.
+ * Unlike {@link parseLiveKitTriggerBinding}, this does not check whether the
+ * deadline has passed; admission must additionally check expiry.
+ */
 export function isLiveKitTriggerBinding(
   value: unknown,
 ): value is LiveKitTriggerBinding {
@@ -43,7 +48,15 @@ export function isLiveKitTriggerBinding(
   );
 }
 
-/** Parses bounded dispatch metadata; malformed or expired metadata never falls back to normal mode. */
+/**
+ * Parses dispatch metadata of at most 4096 UTF-16 code units and validates it
+ * with {@link isLiveKitTriggerBinding}. Returns `undefined` for oversized,
+ * malformed, invalid, or expired metadata; never falls back to normal mode.
+ *
+ * @param metadata - JSON-encoded bootstrap binding.
+ * @param nowSeconds - Unix-seconds clock, defaulting to `Math.floor(Date.now() / 1000)`.
+ * The expiry must be strictly greater than this value.
+ */
 export function parseLiveKitTriggerBinding(
   metadata: string,
   nowSeconds = Math.floor(Date.now() / 1000),
