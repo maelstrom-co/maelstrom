@@ -360,8 +360,26 @@ describe('jevActions', () => {
       v0: '"Buy milk"',
       v1: '"Send invoice"',
       stated_elsewhere:
-        'The request states a value but none of the options match it exactly.',
+        'The request refers to the value indirectly (a landmark, event, "the capital of X", a relative description) or states it in a form none of the options match exactly.',
       not_stated: 'The request does not give a value.',
     });
+  });
+
+  test('the parameter question tells Jev to reject a descriptive span as a literal value', async () => {
+    const { calls } = await run('weather for the capital of Japan', {
+      actions: [
+        {
+          pick: 'weather-main/setLocation',
+          params: { location: 'stated_elsewhere' },
+        },
+      ],
+    });
+    const params = calls.find((call) => 'param/0/location' in call.questions);
+    expect(params?.questions['param/0/location']?.instructions).toContain(
+      'never a phrase that describes, names indirectly or points to the value',
+    );
+    expect(
+      params?.questions['param/0/location']?.criteria.stated_elsewhere,
+    ).toContain('refers to the value indirectly');
   });
 });
