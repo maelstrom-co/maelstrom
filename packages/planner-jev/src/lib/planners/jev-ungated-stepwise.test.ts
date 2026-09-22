@@ -24,6 +24,7 @@ import {
 import { conversation } from '../__test-helpers__/actions-fixtures.js';
 import { makeRequest, plain, spyLogger } from '../__test-helpers__/fixtures.js';
 import { dummyAdapter, mockChat } from '../__test-helpers__/mock-chat.js';
+import { fallbackCandidate } from '../__test-helpers__/poc-fixtures.js';
 import {
   type Script,
   scriptedFetch,
@@ -37,22 +38,6 @@ import { selectUngated } from '../stages-experimental/select-ungated.js';
 import type { LayoutStage } from '../stages-experimental/types.js';
 
 afterEach(() => mockChat.mockReset());
-
-function fallbackCandidate(request: ChartRequest): PlannerCandidate {
-  return {
-    userMessage: 'from the fallback',
-    rationale: 'fallback',
-    executionPlan: [],
-    layout: {
-      tree: ['V:1,1,1', 'ID:calendar-main', 'ID:weather-main', 'ID:tasks-main'],
-      instances: request.instances.map(({ instanceId, vesselId, variant }) => ({
-        instanceId,
-        vesselId,
-        variant,
-      })),
-    },
-  } as unknown as PlannerCandidate;
-}
 
 async function run(request: ChartRequest, script: Script) {
   const { fetch } = scriptedFetch(script);

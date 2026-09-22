@@ -28,6 +28,7 @@ import {
   spyLogger,
 } from './__test-helpers__/fixtures.js';
 import { dummyAdapter, mockChat } from './__test-helpers__/mock-chat.js';
+import { fallbackCandidate } from './__test-helpers__/poc-fixtures.js';
 import {
   type Script,
   scriptedFetch,
@@ -37,38 +38,9 @@ import { jevPlanner } from './jev-planner.js';
 
 afterEach(() => mockChat.mockReset());
 
-const DEFAULT_TREE = [
-  'V:1,1,1',
-  'ID:calendar-main',
-  'ID:weather-main',
-  'ID:tasks-main',
-];
-
-function declared(request: ChartRequest) {
-  return request.instances.map(({ instanceId, vesselId, variant }) => ({
-    instanceId,
-    vesselId,
-    variant,
-  }));
-}
-
-/** A valid candidate for `request`, marked so tests can tell it shipped. */
-function fallbackCandidate(
-  request: ChartRequest,
-  tree: readonly string[] = DEFAULT_TREE,
-  userMessage = 'from the fallback',
-): PlannerCandidate {
-  return {
-    userMessage,
-    rationale: 'fallback',
-    executionPlan: [],
-    layout: { tree, instances: declared(request) },
-  } as unknown as PlannerCandidate;
-}
-
 /** Healing drops the orphan leaf and empties the layout: an unrecoverable retry. */
 function retryTriggering(request: ChartRequest, userMessage: string) {
-  return fallbackCandidate(request, ['ID:ghost'], userMessage);
+  return fallbackCandidate(request, { tree: ['ID:ghost'], userMessage });
 }
 
 function scriptedFallback(
@@ -362,7 +334,7 @@ describe('jevPlanner through createEngine', () => {
     const fallback = scriptedFallback((request, call) =>
       call === 1
         ? retryTriggering(request, 'first')
-        : fallbackCandidate(request, DEFAULT_TREE, 'second'),
+        : fallbackCandidate(request, { userMessage: 'second' }),
     );
     const { result } = await run(
       makeRequest('hide the tasks'),
