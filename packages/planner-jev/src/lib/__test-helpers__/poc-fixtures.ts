@@ -28,7 +28,7 @@ import {
 import { dummyAdapter, mockChat } from './mock-chat.js';
 import { type Payload, scriptedFetch, TEST_MODEL } from './scripted-fetch.js';
 
-/** One request the frozen POC and every rebuilt planner are pinned on. */
+/** One request the frozen POC and the stage-library planners are pinned on. */
 export interface PocCase {
   readonly name: string;
   readonly request: ChartRequest;
@@ -142,6 +142,29 @@ export const POC_CASES: readonly PocCase[] = [
   },
 ];
 
+/** A valid candidate for `request`, marked so tests can tell it shipped. */
+export function fallbackCandidate(
+  request: ChartRequest,
+  {
+    tree = ['V:1,1,1', 'ID:calendar-main', 'ID:weather-main', 'ID:tasks-main'],
+    userMessage = 'from the fallback',
+  }: { readonly tree?: readonly string[]; readonly userMessage?: string } = {},
+): PlannerCandidate {
+  return {
+    userMessage,
+    rationale: 'fallback',
+    executionPlan: [],
+    layout: {
+      tree,
+      instances: request.instances.map(({ instanceId, vesselId, variant }) => ({
+        instanceId,
+        vesselId,
+        variant,
+      })),
+    },
+  } as unknown as PlannerCandidate;
+}
+
 /**
  * Plans `fixture` through `createEngine` with `retry: false`, answering Jev
  * from its script and the completion call from its mocked reply.
@@ -197,20 +220,4 @@ export async function runPocCase(
     fallbackCalls,
     response: plain(result.value.response),
   };
-}
-
-function fallbackCandidate(request: ChartRequest): PlannerCandidate {
-  return {
-    userMessage: 'from the fallback',
-    rationale: 'fallback',
-    executionPlan: [],
-    layout: {
-      tree: ['V:1,1,1', 'ID:calendar-main', 'ID:weather-main', 'ID:tasks-main'],
-      instances: request.instances.map(({ instanceId, vesselId, variant }) => ({
-        instanceId,
-        vesselId,
-        variant,
-      })),
-    },
-  } as unknown as PlannerCandidate;
 }
