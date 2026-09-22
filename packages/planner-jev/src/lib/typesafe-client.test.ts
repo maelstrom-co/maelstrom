@@ -229,10 +229,12 @@ describe('createTypeSafeClient', () => {
     await loud.ask('jevSelect', evaluation, ctx(loud.logger));
     const reply = loud.entries.find((entry) => entry.msg === 'jev.reply');
     expect(reply?.level).toBe('debug');
-    expect(reply?.data).toMatchObject({
-      stage: 'jevSelect',
-      questions: evaluation.questions,
-      reply: { model: TEST_MODEL },
+    expect(reply?.data?.stage).toBe('jevSelect');
+    expect(JSON.parse(String(reply?.data?.questions))).toEqual(
+      JSON.parse(JSON.stringify(evaluation.questions)),
+    );
+    expect(JSON.parse(String(reply?.data?.reply))).toMatchObject({
+      model: TEST_MODEL,
     });
     expect(JSON.stringify(reply?.data)).not.toContain(KEY);
   });
