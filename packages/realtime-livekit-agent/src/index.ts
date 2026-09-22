@@ -4,5 +4,6 @@
 export {
   default,
   defineMaelstromVoiceAgent,
+  runTriggerVoiceAgent,
   runVoiceAgent,
 } from './agent.ts';

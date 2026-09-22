@@ -7,7 +7,7 @@ import { Aside, CardGrid, LinkCard } from "@astrojs/starlight/components";
 import OwnershipDiagram from "../../../../components/ownership/OwnershipDiagram.astro";
 import { LIVEKIT_CASCADE_OWNERSHIP } from "../../../../components/ownership/livekit-cascade";
 
-The LiveKit cascade adds browser-detected voice without adding another planning model. A worker transcribes speech with Deepgram and synthesizes settled results with Cartesia, while the browser sends each final transcript through `RealtimeSession` as an ordinary `update_ui` intent. If automatic detection is disabled or safely degrades, the adapter exposes manual turn controls instead.
+The LiveKit cascade adds browser-detected voice without adding another planning model. A worker transcribes speech with Deepgram and synthesizes settled results with Cartesia, while the browser sends admitted final transcripts through `RealtimeSession` as ordinary `update_ui` intents. Normal mode admits every successful turn; opt-in trigger mode first waits for a standalone phrase. If automatic detection is disabled or safely degrades, the adapter exposes manual turn controls instead.
 
 You mint a room grant on your server, run a model-free worker, connect the browser adapter, then harden the route before it ships.
 
@@ -84,6 +84,7 @@ export async function POST(request: Request): Promise<Response> {
   const result = await mintLiveKitToken({
     roomName: authenticated.roomName,
     identity: authenticated.identity,
+    ...(request.headers.get('X-Voice-Mode') === 'trigger' ? { trigger: true } : {}),
   });
   if (!isOk(result)) {
     return Response.json(
@@ -104,7 +105,7 @@ The minter issues only the grants this browser role uses: `roomJoin` for the ser
 
 The server process requires `LIVEKIT_URL`, `LIVEKIT_API_KEY`, and `LIVEKIT_API_SECRET`. `LIVEKIT_TOKEN_TTL` is optional and defaults to `15m`; supported values are a positive integer number of seconds or one `<int><unit>` value using `s`, `m`, `h`, or `d`. Unsupported or unsafe values fail closed as `invalid-config`.
 
-These token and reconnect statements are scoped to the repository's locked `livekit-client` and `livekit-server-sdk` 2.13.1 releases. Re-check the provider's [token generation guide](https://docs.livekit.io/home/server/generating-tokens/) before changing either dependency.
+Trigger dispatch uses the public `RoomConfiguration` and `RoomAgentDispatch` exports in the installed `livekit-server-sdk` 2.17.0. Re-check the provider's [token generation guide](https://docs.livekit.io/home/server/generating-tokens/) before changing the SDK.
 
 <Aside type="danger" title="Repository demo route is development-only">
   The repository demo mint route is development-only. Its implementation at
@@ -125,11 +126,14 @@ import {
   LiveKitTokenGrantSchema,
 } from '@maelstrom-co/realtime-protocol/livekit';
 
-export async function fetchAuthenticatedLiveKitToken(): Promise<LiveKitTokenGrant> {
+export async function fetchAuthenticatedLiveKitToken(context?: { trigger: true }): Promise<LiveKitTokenGrant> {
   const response = await fetch('/api/livekit-token', {
     method: 'POST',
     credentials: 'same-origin',
-    headers: { 'X-CSRF-Token': getCsrfToken() },
+    headers: {
+      'X-CSRF-Token': getCsrfToken(),
+      'X-Voice-Mode': context?.trigger ? 'trigger' : 'normal',
+    },
   });
 
   if (!response.ok) {
@@ -184,7 +188,7 @@ Keep environment values grouped by the process that reads them:
 
 Keep all provider credentials in worker-only or server-only configuration. `MAELSTROM_STT_DRAIN_TIMEOUT_MS` bounds how long the Deepgram stream may take to drain after the worker closes its input, so a stalled stream cannot block the next turn. It must be finite, positive, and no greater than `60000`; any other value fails worker startup rather than changing turn behavior later.
 
-The worker commands and APIs above are scoped to `@livekit/agents`, `@livekit/agents-plugin-deepgram`, and `@livekit/agents-plugin-cartesia` 1.4.8. Follow LiveKit's [voice AI quickstart](https://docs.livekit.io/agents/start/voice-ai/) when upgrading the worker packages, then re-run this guide's compile-checked fixture.
+The trigger runner uses `@livekit/agents` 1.6.2 and `@livekit/rtc-node` 0.13.33. Follow LiveKit's [voice AI quickstart](https://docs.livekit.io/agents/start/voice-ai/) when upgrading the worker packages, then re-run this guide's compile-checked fixture.
 
 ## Connect the adapter
 
@@ -220,6 +224,126 @@ With `debug: true`, the adapter logs only the three requested values and the ori
 This implementation requests microphone access during connection, before the first turn. The local clone remains enabled for detection while the published track stays muted and upstream-paused outside an admitted turn. The browser retains microphone access until `disconnect()` leaves the room and stops the adapter's media resources. Starting a turn changes the existing gated track; it does not reacquire permission. Passing `vad: false` changes only turn detection and keeps the same capture preferences and privacy gate. Turn boundaries are found in the browser, not by LiveKit or the worker — see [Configure browser VAD](#configure-browser-vad) next.
 
 Token expiry is checked for each initial or fresh room connection, including an explicit `connect()` after `disconnect()`. It does not impact LiveKit SDK-managed reconnects for an already connected participant because LiveKit pushes refreshed tokens to connected clients, and the SDK uses the refreshed token for managed reconnects. Expiry alone does not disconnect an active participant or end the room. Each fresh `connect()` invokes `mintToken`; the adapter does not read `expiresAt` or schedule proactive renewal. Expiry does not impose a maximum room duration or schedule adapter cleanup, so production hosts must enforce their own maximum session duration, call `disconnect()` on policy termination, and clean up abandoned rooms and participants separately.
+
+## Opt-in trigger activation
+
+Normal mode and existing greetings remain the default. For a standalone wake
+phrase, configure the voice extension, not the VAD detector:
+
+```ts
+maelstromRealtime({
+  createAdapter: ({ sessionId }) => new LiveKitAdapter({
+    roomName: `maelstrom-${sessionId}`,
+    mintToken: (_roomName, context) => fetchAuthenticatedLiveKitToken(context),
+  }),
+  activation: {
+    mode: 'trigger',
+    phrase: 'hello maelstrom',
+    inactivityMs: 10_000,
+    includeChatActivity: false,
+  },
+});
+```
+
+Trigger mode also requires a **separate named worker**. Keep `runVoiceAgent()`
+for normal automatic dispatch; start `runTriggerVoiceAgent()` in a second
+process for the `maelstrom-trigger-v1` registration. It uses the same server-only
+credentials and health port **8082**, distinct from the normal runner's default
+8081. In the demo, run `bun --cwd apps/demo run dev-trigger-agent` in a second
+terminal alongside `bun --cwd apps/demo run dev-livekit`. Neither existing
+startup command starts the new worker automatically.
+
+The adapter passes `{ trigger: true }` as the optional second mint callback
+argument. Forward this opt-in to your authenticated endpoint, as above. The
+minter generates a fresh effective room and random worker identity, signs named
+dispatch metadata into the room-creation token, and returns the matching
+`grant.trigger` binding. Never accept expected-worker identities or dispatch
+metadata from the browser. The requested `roomName` remains a request namespace
+in trigger mode; the signed token selects the effective room. Each explicit
+connect gets a new room, while SDK-managed reconnects retain the existing room
+and binding. Token dispatch does not create another job for an existing room.
+
+LiveKit's configured room dispatch list replaces the default unnamed dispatch
+for a fresh room ([dispatch documentation](https://docs.livekit.io/agents/server/agent-dispatch/)).
+Thus normal and trigger workers coexist without both processing a trigger room.
+The worker rejects malformed, expired or wrong-room metadata before serving it,
+joins with the server-selected identity, and pins the authorized browser SID.
+
+Before accepting even the first capability ACK, the browser requires both
+LiveKit's **AGENT** kind and the **identity from the trusted grant**, then pins
+the SID for controls, results and audio. A matching nonce alone is not identity
+proof. Missing binding fails before negotiation or microphone capture. Valid
+binding proceeds to negotiation under a **5-second** deadline.
+An old, absent, or incompatible worker fails closed; legacy uncorrelated
+transcripts never become a fallback trigger path. Normal mode keeps the legacy
+path. Capability support does not prove that a transcription handler is ready:
+no-handler, empty, cancelled, failed-drain, and released-successor turns produce
+explicit non-success outcomes. Partial text after a failed drain cannot wake voice.
+
+In the demo, open **Voice settings**, opt into **Trigger phrase**, and apply while
+voice is stopped. All settings are disabled while starting or running; the API
+`useVoice().configureActivation(config)` throws on live edits. The hook reflects
+the shared `activationConfig` and `activationState`, not a second policy machine.
+Render idle/error before waiting, since disconnected trigger sessions retain the
+waiting policy. Use the session lifecycle to keep Stop voice available.
+
+The phrase requires nonempty normalized words and at most **200 Unicode code
+points**. Inactivity is an integer **1,000–600,000 ms**, default **10,000 ms**;
+invalid settings throw. Only a whole successful final matches. Case and
+whitespace are ignored; punctuation, including comma/hyphen, separates words.
+Accents are preserved; internal curly apostrophes normalize to straight ones.
+`Hello, Maelstrom!` and `hello-maelstrom` match the demo preset;
+`hellomaelstrom`, repeated phrases, and `hello maelstrom, show weather` do not.
+`can’t` matches `can't`, not `cant`.
+
+Say the phrase alone, then a **separate** request. The consumed trigger produces
+no greeting, command, caption, or application history. Distinct later speech is
+held privately through activation, even when its result arrives before the
+trigger result. Source ordinals and transported audio boundaries, not final
+arrival time, determine eligibility. Earlier/overlapping speech stays excluded;
+pre-roll can make a close-following turn overlap conservatively. Disconnect
+discards held input without replay. A missing result fails after the negotiated
+worker drain budget plus **5 seconds** of delivery allowance; late results cannot
+revive it. Existing FIFO/audio limits and source-reconciliation bounds remain.
+
+`onActivate` and `onDeactivate` receive `{ signal, reason }` and may delay for at
+most **2 seconds** each. They cannot veto: throw, rejection, or timeout logs a
+fixed category and proceeds. The signal aborts on timeout/disconnect/superseding
+work; stale settlements cannot change policy, but arbitrary hook side effects
+cannot be undone. You may speak the separate request while activation is pending;
+it cannot execute or interrupt before Active. New work during deactivation aborts
+that transition and retains admission.
+
+The idle timer starts after the **full turn**: speech, STT, held input, Engine,
+render settlement, result handoff, and owned playback signals. New work cancels
+the countdown; final completion starts a fresh interval, with no added grace.
+Expiry does not cancel TTS, mute output, or disconnect. Ordinary admitted active
+speech still uses configured barge-in. `tts_done` follows worker source-queue
+drain, **not guaranteed browser audibility**. Missing playback completion retains
+Active instead of inventing a timeout; explicitly stop voice to end the session.
+
+Automatic/manual turn detection is separate from activation. If VAD safely
+degrades or `vad: false` is configured, hold to talk for the phrase, release,
+then hold for the separate request. Existing pre-roll and stream drains remain;
+no continuous-STT engine or second planner is introduced.
+
+<Aside type="caution" title="Waiting is not microphone mute">
+  Capture stays active while connected. Waiting accepted turns can reach LiveKit
+  and Deepgram STT and incur usage; waiting is not provider data erasure.
+  Excluded speech does not reach application captions/history or Engine intents.
+  Keep microphone consent, cost disclosure, and AI-generated-voice disclosure.
+</Aside>
+
+Typed chat is off by default. If enabled, use `beginChatActivity()` around each
+request in `try/finally` and **await completion** to cover rendering. Overlapping
+tokens are independent, waiting chat never wakes voice, and tokens survive a wake
+only within their original connection. Normal mode, disabled participation, and
+stopped voice are no-ops. See the [chat token example](/guides/voice/openai-realtime/#count-typed-chat-through-completion),
+which uses the same provider-neutral API for both providers.
+
+Before making acoustic or provider-delivery claims, run both-provider developer
+checks in `docs/trigger-word-manual-checklist.md`. Automated mocks cannot certify
+remote audibility, real STT errors, or source ordering on a live connection.
 
 ## Configure browser VAD
 

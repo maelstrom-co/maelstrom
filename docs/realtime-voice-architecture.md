@@ -129,8 +129,10 @@ provide them.
 
 ## Why grounding is rewritten, never edited
 
-The OpenAI adapter keeps exactly one grounding message in the conversation, at a
-stable id. On each update it deletes that item and inserts a replacement.
+The OpenAI adapter keeps one current grounding message in the conversation.
+Normal mode reuses its stable id. Trigger mode uses an owned id per replacement,
+waits for responses referencing the old item before deletion, and waits for the
+replacement acknowledgement before dependent responses may reference it.
 
 Updating it in place would be the obvious optimisation, and it would quietly
 remove the property the design depends on. Recreating the item moves it to the
@@ -167,6 +169,31 @@ will keep doing so. A wrong answer here does not degrade the experience, it
 creates a loop.
 
 ## Where the keys live
+
+### Trigger-worker trust
+
+Normal LiveKit sessions retain the unnamed automatically dispatched worker.
+Trigger sessions instead use an additional `maelstrom-trigger-v1` registration.
+The token minter generates a fresh room and random worker identity for each
+explicit bootstrap, includes their binding and authorized browser identity in
+the signed token's named room dispatch, and returns that binding over the trusted
+mint transport. SDK-managed reconnects retain the room and binding. Token-based
+dispatch applies on room creation, not to existing rooms; the fresh room avoids
+requiring a dispatch-management service.
+
+The browser checks AGENT kind and expected identity before trusting the first
+ACK, then pins SID for results and media. A nonce provides freshness, not worker
+authorization. The named worker validates metadata/expiry, room and its accepted
+identity before serving, then binds controls and audio to the authorized browser
+identity and SID. Replacement participants require a new bootstrap, not implicit
+rebinding. This protects against a foreign agent racing the intended worker,
+not a compromise of the trusted minter or worker signing credentials.
+
+Run the extra worker explicitly (`dev-trigger-agent` in the demo); existing
+normal startup is unchanged. Both runners retain server-only credentials, and
+no deployment or live-provider validation is implied by local tests.
+
+### Credential custody
 
 Provider credentials stay in the server-side process that needs them. The OpenAI
 key exists only in its minter and authorises the upstream request. LiveKit's key
@@ -215,7 +242,9 @@ must stamp its own receipt time.
 
 ## Why the greeting is recorded before it is spoken
 
-The demo greets once when voice connects. Ordering is fixed:
+In normal mode the demo greets once when voice connects. Trigger mode suppresses
+connection and wake greetings without recording Skip or consuming normal greeting
+proof. Normal-mode ordering is fixed:
 
 **Engine ack → provider handoff → provider playout start + caption.**
 
@@ -392,6 +421,91 @@ Verify before you trust. Run these steps in order.
    send begins, reconnecting must not repeat the greeting. A new session greets
    once. This signal narrows subtitle lead time but does not prove browser
    audible-render timing.
+
+## Why activation is an admission policy, not microphone mute
+
+Trigger mode keeps provider STT available while waiting, so the microphone stays
+captured and speech may reach OpenAI or LiveKit/Deepgram and incur usage. It is
+neither hardware mute nor provider-data erasure. Excluded speech does not enter
+application captions/history, tools, or Engine requests. OpenAI can still retain
+excluded STT items in its provider conversation; explicit response inputs exclude
+them rather than promising deletion.
+
+One provider-neutral controller owns exact finalized-word matching, transitions,
+bounded hooks, source-order admission, and independent activity tokens. Adapters
+own source identities and enforce admission before responses, tools, or
+interruptions. React only reflects the shared session and forwards controls;
+generic client and React text behavior are unchanged.
+
+Normal is the default. Trigger settings require nonempty normalized words,
+maximum 200 Unicode code points, and integer inactivity from 1,000 to 600,000 ms
+(default 10,000). Chat participation defaults off. Configure only while idle/error
+and not disconnecting; live edits throw without mutation. The demo exposes a
+stopped-only editor with the `hello maelstrom` preset in an out-of-flow panel to
+avoid changing Chart dimensions. Accepted settings survive credential remount;
+live work never does. Lifecycle idle/error precedes retained waiting labels.
+
+Matching lowercases words, splits on whitespace/punctuation including hyphens,
+retains accents and internal apostrophes, and normalizes curly apostrophes.
+`Hello, Maelstrom!` matches the preset; the same turn with an added command does
+not. A consumed trigger produces no greeting. A separate proven post-trigger
+request is held privately through activation, including final-before-trigger-final
+delivery. Earlier/overlapping or unproven speech cannot be promoted from arrival
+time. Disconnect drops held input rather than replaying it.
+
+Both hooks fail open after at most two seconds, warning by fixed category on
+failure. AbortSignal and epoch fencing stop stale transitions, not arbitrary
+host side effects. Held speech cannot interrupt before Active. New work during
+deactivation aborts that attempt; it is activity, not a hook veto.
+
+The inactivity ledger includes speech, pending STT/order reconciliation, held
+input, provider responses, Engine/tools/render settlement, follow-ups, playback,
+and enabled chat tokens. Only an empty ledger starts the full countdown. Expiry
+never cancels, clears, mutes, or disconnects output, unlike legitimate admitted
+active-user barge-in. OpenAI output-buffer terminals and correlated LiveKit
+source-drain terminals are the best available playback signals, not proof of
+remote audibility; missing completion holds Active without an invented timeout.
+
+Chat hosts call `beginChatActivity()` before submitting and await its completion
+in `finally`; completion waits render settlement even when submission fails.
+Tokens are independent, idempotent, and connection-fenced. Waiting chat never
+wakes voice, but an in-flight token survives a wake in that connection. A stale
+completion after reconnect cannot release newer work. Normal/off/stopped cases
+are no-ops; no generic chat lifecycle has been replaced.
+
+### Provider-specific evidence without a second scheduler
+
+OpenAI bootstrap holds publication until a matching configuration ACK (10-second
+deadline); that ACK is not a transport drain. Automatic responses remain disabled
+in trigger mode. Every response/follow-up carries explicit ordered live
+`item_reference` inputs for admitted user audio, acknowledged grounding, and
+owned assistant/function items. Admitted history survives wakes in the same
+session, except for provider-confirmed deletion or truncation. Acknowledged deletion
+of completed history removes its references and dependent invalidated call/output
+groups from later inputs; truncation retains the provider-confirmed item state.
+Neither is a per-wake reset or a new local history-trimming algorithm, and remaining
+admitted dialogue is preserved. Missing ownership/ACK/truncation evidence or
+required/current references fails explicitly under bounded eligibility deadlines.
+Unsafe in-flight snapshot deletion, provider reference rejection, and resurrection
+of deleted output also fail closed, never via unfiltered input or a history reset.
+Unresolved holding is limited to 128 records and 256 KiB
+terminal text; established admitted dialogue is not a new bounded request queue.
+
+LiveKit negotiates correlated turns with an updated, server-designated agent
+participant within five seconds before capture. Old workers fail closed only
+for trigger mode. Nonces and source ordinals bind outcomes to existing FIFO
+boundaries. Failed-drain partials, no-handler, cancelled, empty, or released turns
+cannot wake; late/untrusted data cannot settle newer work. The result deadline
+uses the worker drain budget plus five seconds. Existing pre-roll, accepted
+automatic/manual turns, stream limits, and scheduling remain; no new STT runtime
+or worker planning role is introduced. Manual fallback can delimit a phrase and
+then a separate request. OpenAI has no manual turn-control fallback.
+
+These are implementation invariants, not live-provider certification. Run the
+[trigger-word manual checklist](./trigger-word-manual-checklist.md) for actual
+references, tools, truncation, source ordering, hook races, and listening results
+before claiming acceptance. Developer-run provider checks remain pending until
+recorded after notification; automated mocks and builds do not replace them.
 
 ## Package-private OpenAI ownership seams
 

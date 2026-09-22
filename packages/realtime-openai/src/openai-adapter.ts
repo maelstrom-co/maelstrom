@@ -4,6 +4,7 @@ import type { MessageId, ToolCallId } from '@maelstrom-co/protocol';
 import type {
   AdapterAudioStreams,
   AdapterConnectOptions,
+  AdapterVoiceActivation,
   GreetingSpeechResult,
   RealtimeAdapterEvent,
   RealtimeGreetingAdapter,
@@ -37,6 +38,10 @@ import {
 } from './parse-openai-event.js';
 import { WebRtcPlayoutDiagnostics } from './playout-diagnostics.js';
 import { ResponseArbiter } from './response-arbiter.js';
+import {
+  TriggerInputLedger,
+  TriggerResponseLedger,
+} from './trigger-admission.js';
 import {
   createUnexpectedEventTracker,
   type UnexpectedEventTracker,
@@ -177,6 +182,20 @@ function toOpenAITool(spec: RealtimeToolSpec): unknown {
 export class OpenAIAdapter
   implements RealtimeProviderAdapter, RealtimeGreetingAdapter
 {
+  /** Version-one source admission and activity contract; runtime provider configuration and reference acknowledgements still fail closed. */
+  readonly voiceActivationVersion = 1 as const;
+  #activation: AdapterVoiceActivation | undefined;
+  #triggerInputs: TriggerInputLedger | undefined;
+  #triggerResponses: TriggerResponseLedger | undefined;
+  #triggerUnsubscribe: Unsubscribe | undefined;
+  #triggerReady = false;
+  readonly #bootstrapTracks = new Set<MediaStreamTrack>();
+  readonly #triggerSpeech = new Map<
+    string,
+    { started: boolean; useful: boolean; interrupted: boolean; target?: string }
+  >();
+  #triggerCurrentResponse: string | undefined;
+  #triggerPlaybackResponse: string | undefined;
   readonly #mintToken: () => Promise<OpenAITokenGrant>;
   readonly #logger: Logger;
   readonly #transcription: false | { readonly model?: string } | undefined;
@@ -283,13 +302,26 @@ export class OpenAIAdapter
    *
    * Duplicate connections are rejected. Token, microphone, and SDP failures
    * reject after this attempt's resources are released. Unlike LiveKit, OpenAI
-   * owns turn detection and has no local VAD clone or publication gate.
+   * owns turn detection. Trigger bridge callers require input transcription;
+   * their original microphone tracks stay disabled until a matching provider
+   * configuration acknowledgement, bounded to ten seconds. This is a setup
+   * gate, not a provider event/audio-drain barrier.
+   * Trigger mode keeps automatic provider responses disabled for the entire
+   * connection and retains admitted dialogue across wakes with explicit inputs.
+   * Waiting capture still reaches provider transcription; it is not hardware
+   * mute or provider-data erasure. Expiry never cancels or clears output.
    */
   async connect(opts: AdapterConnectOptions): Promise<void> {
     if (this.#pc || this.#connecting) {
       throw new RealtimeVoiceError(
         'ALREADY_CONNECTED',
         'OpenAI realtime adapter is already connected',
+      );
+    }
+    if (opts.activation && this.#transcription === false) {
+      throw new RealtimeVoiceError(
+        'ACTIVATION_CONFIG_INVALID',
+        'OpenAI trigger activation requires input transcription',
       );
     }
     this.#connecting = true;
@@ -329,6 +361,14 @@ export class OpenAIAdapter
 
       micStream = await this.#acquireMicrophone();
       attempt.assertCurrent();
+      if (opts.activation) {
+        for (const track of micStream.getAudioTracks()) {
+          if (track.enabled) {
+            track.enabled = false;
+            this.#bootstrapTracks.add(track);
+          }
+        }
+      }
       this.#logger.debug('connect timing', {
         step: 'getUserMedia',
         ms: Date.now() - connectStart,
@@ -342,7 +382,7 @@ export class OpenAIAdapter
         });
       }
       preparedMicrophone =
-        opts.prepareGreeting === false
+        opts.activation || opts.prepareGreeting === false
           ? undefined
           : await this.#greetingPresentation.prepareMicrophone(micStream);
       attempt.assertCurrent();
@@ -361,7 +401,9 @@ export class OpenAIAdapter
 
       // Past the post-getUserMedia check — this attempt is still current, so
       // publishing to the shared fields is safe.
+      this.#activation = opts.activation;
       this.#startConnectionGeneration();
+      if (opts.activation) this.#installTrigger(opts.activation);
       if (preparedMicrophone && publicationSender) {
         this.#greetingPresentation.attachMicrophone(
           preparedMicrophone,
@@ -436,7 +478,20 @@ export class OpenAIAdapter
     return { mic: this.#micStream, playback: this.#playbackStream };
   }
 
+  /**
+   * Sends a tool result. Trigger connections require an owned dispatched call
+   * and await its exact item-created acknowledgement before queuing a follow-up;
+   * missing/mismatched acknowledgement rejects and reports a fatal eligibility
+   * error after at most ten seconds. Unknown or undispatched calls reject with
+   * an eligibility failure, unlike LiveKit trigger mode's unknown-call no-op.
+   * Repeated results for a dispatched call reuse its first result operation while
+   * the trigger connection and call remain live; LiveKit consumes the call and
+   * treats subsequent results as no-ops. Normal connections retain send-only
+   * completion and report transport errors through adapter events.
+   */
   async sendToolResult(callId: ToolCallId, output: ToolResult): Promise<void> {
+    if (this.#triggerResponses)
+      return this.#triggerResponses.toolResult(callId, output);
     this.#logger.debug('→ sendToolResult', { callId, output });
     if (!this.#dc || this.#dc.readyState !== 'open') {
       this.#emit({
@@ -464,6 +519,12 @@ export class OpenAIAdapter
     }
   }
 
+  /**
+   * Replaces latest grounding, dropping pushes before transport readiness.
+   * Trigger mode defers replacement deletion while an in-flight response uses
+   * the old reference and defers dependent responses until the latest creation
+   * is acknowledged. Normal mode retains immediate delete/recreate semantics.
+   */
   injectGrounding(text: string): void {
     // Droppable, unlike sendToolResult above: grounding is latest-wins
     // sidechannel context, so a push landing on a closed channel (e.g.
@@ -472,6 +533,11 @@ export class OpenAIAdapter
     // conversation and must surface as an error.
     if (!this.#dc || this.#dc.readyState !== 'open') {
       this.#logger.debug('injectGrounding: data channel not open, dropping');
+      return;
+    }
+    if (this.#triggerResponses) {
+      if (!this.#triggerReady) return;
+      this.#triggerResponses.ground(text);
       return;
     }
     try {
@@ -512,19 +578,21 @@ export class OpenAIAdapter
     this.#greetingPresentation.activate();
   }
 
-  /** Delegates provider handoff and local presentation to its package-private owner. */
+  /** Presents the configured local greeting in normal mode. Trigger connections return `not_started` without synthesis, playback, or consuming normal greeting proof. */
   speakAssistantText(args: {
     readonly id: MessageId;
     readonly text: string;
     readonly signal: AbortSignal;
     readonly onPlaybackStart?: () => void;
   }): Promise<GreetingSpeechResult> {
+    if (this.#activation) return Promise.resolve('not_started');
     return this.#greetingPresentation.speak(args);
   }
 
   #wireConnectionEvents(connection: RTCPeerConnection): void {
     const audio = new Audio();
     audio.autoplay = true;
+    if (this.#activation) audio.muted = true;
     this.#audioEl = audio;
     connection.ontrack = (event) => {
       // Ignore events from a superseded/abandoned connection — only the
@@ -617,14 +685,66 @@ export class OpenAIAdapter
     const channel = connection.createDataChannel('oai-events');
     const generation = this.#connectionGeneration;
     this.#dc = channel;
+    let configuration: ((raw: unknown) => boolean) | undefined;
     channel.onmessage = (event: MessageEvent) => {
       if (channel !== this.#dc || generation !== this.#connectionGeneration)
         return;
+      if (configuration?.(event.data)) return;
       this.#handleDataChannelMessage(event.data as unknown, generation);
     };
     return new Promise<RTCDataChannel>((resolve, reject) => {
       let settled = false;
       let opened = false;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const fail = (error: RealtimeVoiceError) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        reject(error);
+      };
+      if (opts.activation)
+        configuration = (raw) => {
+          if (settled) return false;
+          let event: unknown;
+          try {
+            event = typeof raw === 'string' ? JSON.parse(raw) : raw;
+          } catch {
+            fail(
+              new RealtimeVoiceError(
+                'ACTIVATION_ELIGIBILITY_FAILED',
+                'Invalid OpenAI configuration acknowledgement',
+              ),
+            );
+            return true;
+          }
+          if (!isRecord(event)) return true;
+          if (event.type === 'error' || event.type === 'response.created') {
+            fail(
+              new RealtimeVoiceError(
+                'ACTIVATION_ELIGIBILITY_FAILED',
+                'OpenAI trigger bootstrap was not accepted',
+              ),
+            );
+          } else if (event.type === 'session.updated' && opened) {
+            if (!this.#validTriggerConfiguration(event.session)) {
+              fail(
+                new RealtimeVoiceError(
+                  'ACTIVATION_ELIGIBILITY_FAILED',
+                  'OpenAI trigger configuration acknowledgement did not match',
+                ),
+              );
+            } else {
+              settled = true;
+              clearTimeout(timer);
+              this.#triggerReady = true;
+              for (const track of this.#bootstrapTracks)
+                if (!track.enabled) track.enabled = true;
+              this.#bootstrapTracks.clear();
+              resolve(channel);
+            }
+          }
+          return true;
+        };
       channel.onopen = () => {
         if (settled) return;
         if (channel !== this.#dc || connection !== this.#pc) {
@@ -652,11 +772,25 @@ export class OpenAIAdapter
         };
         this.#logger.debug('→ session.update', sessionUpdate);
         try {
-          channel.send(JSON.stringify(sessionUpdate));
           opened = true;
-          settled = true;
-          resolve(channel);
+          if (opts.activation)
+            timer = setTimeout(
+              () =>
+                fail(
+                  new RealtimeVoiceError(
+                    'ACTIVATION_ELIGIBILITY_FAILED',
+                    'OpenAI trigger configuration acknowledgement timed out',
+                  ),
+                ),
+              10000,
+            );
+          channel.send(JSON.stringify(sessionUpdate));
+          if (!opts.activation) {
+            settled = true;
+            resolve(channel);
+          }
         } catch (cause) {
+          clearTimeout(timer);
           settled = true;
           reject(
             new RealtimeVoiceError(
@@ -673,6 +807,7 @@ export class OpenAIAdapter
           'OpenAI realtime data channel error',
         );
         if (!settled) {
+          clearTimeout(timer);
           settled = true;
           reject(error);
           return;
@@ -683,6 +818,7 @@ export class OpenAIAdapter
       };
       channel.onclose = () => {
         if (settled) return;
+        clearTimeout(timer);
         settled = true;
         reject(
           new RealtimeVoiceError(
@@ -778,7 +914,9 @@ export class OpenAIAdapter
    * provider-owned input controls are always present; disabling transcription
    * removes only the optional transcription model. Immediate barge-in delegates
    * response creation and interruption to OpenAI. Transcript-confirmed mode
-   * disables both provider actions for adapter-controlled handling.
+   * disables both provider actions for adapter-controlled handling. Trigger
+   * connections also disable both flags regardless of configured barge-in;
+   * admitted input drives explicit interruption instead.
    */
   #audioConfig(): Record<string, unknown> {
     const input = {
@@ -788,8 +926,9 @@ export class OpenAIAdapter
         threshold: this.#serverVadThreshold,
         prefix_padding_ms: 300,
         silence_duration_ms: 500,
-        create_response: this.#bargeInMode === 'immediate',
-        interrupt_response: this.#bargeInMode === 'immediate',
+        create_response: !this.#activation && this.#bargeInMode === 'immediate',
+        interrupt_response:
+          !this.#activation && this.#bargeInMode === 'immediate',
       },
       ...(this.#transcription === false
         ? {}
@@ -857,6 +996,18 @@ export class OpenAIAdapter
     // Invalidate any connect() still mid-handshake so it abandons its own
     // attempt instead of clobbering shared state when its awaits resume.
     this.#connectGuard.supersede();
+    this.#triggerUnsubscribe?.();
+    this.#triggerUnsubscribe = undefined;
+    this.#triggerInputs?.close();
+    this.#triggerInputs = undefined;
+    this.#triggerResponses?.close();
+    this.#triggerResponses = undefined;
+    this.#activation = undefined;
+    this.#triggerReady = false;
+    this.#bootstrapTracks.clear();
+    this.#triggerSpeech.clear();
+    this.#triggerCurrentResponse = undefined;
+    this.#triggerPlaybackResponse = undefined;
     this.#clearIceGraceTimer();
     // Abort greeting work and release owner-generated publication resources.
     // Fresh lifecycle state for a later reconnect; player context is retained.
@@ -892,6 +1043,10 @@ export class OpenAIAdapter
       return;
     }
     const type = isRecord(parsed) ? asString(parsed.type) : undefined;
+    if (this.#activation) {
+      if (isRecord(parsed)) this.#handleTriggerMessage(parsed);
+      return;
+    }
     const isInputTranscriptDelta =
       type === 'conversation.item.input_audio_transcription.delta';
     const previousActivity = this.#voiceActivity;
@@ -1052,11 +1207,19 @@ export class OpenAIAdapter
 
   #newArbiter(): ResponseArbiter {
     return new ResponseArbiter({
+      ...(this.#activation
+        ? {
+            responseInput: (inputId: string | undefined) =>
+              this.#triggerResponses?.input(inputId),
+          }
+        : {}),
       send: (command) => {
         if (!this.#dc || this.#dc.readyState !== 'open') {
           throw new Error('OpenAI realtime data channel not open');
         }
-        this.#dc.send(JSON.stringify(command));
+        if (this.#triggerResponses)
+          this.#triggerResponses.send(command as Record<string, unknown>);
+        else this.#dc.send(JSON.stringify(command));
       },
       error: (error) => this.#emit({ type: 'error', error }),
       debug: (category) => this.#logger.debug('response arbiter', { category }),
@@ -1087,5 +1250,192 @@ export class OpenAIAdapter
 
   #requestToolFollowUp(): void {
     this.#arbiter?.requestToolFollowUp();
+  }
+
+  #validTriggerConfiguration(value: unknown): boolean {
+    if (this.#transcription === false) return false;
+    if (
+      !isRecord(value) ||
+      !isRecord(value.audio) ||
+      !isRecord(value.audio.input)
+    )
+      return false;
+    const input = value.audio.input;
+    return (
+      isRecord(input.turn_detection) &&
+      input.turn_detection.type === 'server_vad' &&
+      input.turn_detection.create_response === false &&
+      input.turn_detection.interrupt_response === false &&
+      isRecord(input.transcription) &&
+      input.transcription.model ===
+        (this.#transcription?.model ?? DEFAULT_TRANSCRIPTION_MODEL)
+    );
+  }
+
+  #installTrigger(activation: AdapterVoiceActivation): void {
+    const generation = this.#connectionGeneration;
+    const current = () =>
+      generation === this.#connectionGeneration &&
+      this.#activation === activation;
+    const responses = new TriggerResponseLedger(activation, {
+      send: (command) => {
+        if (!current() || this.#dc?.readyState !== 'open')
+          throw new Error('OpenAI trigger channel unavailable');
+        this.#dc.send(JSON.stringify(command));
+      },
+      error: (error) => {
+        if (current()) this.#emit({ type: 'error', error });
+      },
+      changed: () => {
+        if (current()) {
+          this.#triggerInputs?.referencesChanged();
+          this.#arbiter?.referencesChanged();
+        }
+      },
+      followUp: (inputId) => {
+        if (current()) this.#arbiter?.requestToolFollowUp(inputId);
+      },
+    });
+    this.#triggerResponses = responses;
+    this.#triggerInputs = new TriggerInputLedger(activation, {
+      release: (input) => {
+        if (!current()) return false;
+        responses.admit(input);
+        this.#interruptAdmitted();
+        this.#emit({
+          type: 'transcript',
+          role: 'user',
+          text: input.text,
+          final: true,
+          ancestry: input.ancestry,
+        });
+        if (!current()) return false;
+        this.#arbiter?.committed(input.id);
+        this.#arbiter?.completed(input.id, true);
+        return true;
+      },
+      error: (error) => {
+        if (current()) this.#emit({ type: 'error', error });
+      },
+    });
+    this.#triggerUnsubscribe = activation.onChange(() => {
+      if (current()) this.#interruptAdmitted();
+    });
+  }
+
+  #interruptAdmitted(): void {
+    for (const [id, speech] of this.#triggerSpeech) {
+      if (
+        speech.interrupted ||
+        !(this.#bargeInMode === 'immediate' ? speech.started : speech.useful)
+      )
+        continue;
+      if (this.#activation?.admission(id).status !== 'admitted') continue;
+      speech.interrupted = true;
+      const target =
+        this.#triggerCurrentResponse ?? this.#triggerPlaybackResponse;
+      if (speech.target && speech.target === target)
+        this.#arbiter?.usefulDelta(id);
+      this.#emit({ type: 'speech_started' });
+    }
+  }
+
+  #handleTriggerMessage(event: Record<string, unknown>): void {
+    if (!this.#triggerReady) return;
+    const generation = this.#connectionGeneration;
+    const type = asString(event.type);
+    if (type === 'session.updated') {
+      if (!this.#validTriggerConfiguration(event.session))
+        this.#emit({
+          type: 'error',
+          error: new RealtimeVoiceError(
+            'ACTIVATION_ELIGIBILITY_FAILED',
+            'OpenAI trigger configuration changed unexpectedly',
+          ),
+        });
+      return;
+    }
+    const itemId = asString(event.item_id);
+    if (
+      itemId &&
+      (type === 'input_audio_buffer.speech_started' ||
+        type === 'conversation.item.input_audio_transcription.delta')
+    ) {
+      let speech = this.#triggerSpeech.get(itemId);
+      if (!speech) {
+        speech = {
+          started: false,
+          useful: false,
+          interrupted: false,
+          target: this.#triggerCurrentResponse ?? this.#triggerPlaybackResponse,
+        };
+        this.#triggerSpeech.set(itemId, speech);
+      }
+      speech.started ||= type === 'input_audio_buffer.speech_started';
+      speech.useful ||=
+        typeof event.delta === 'string' && event.delta.trim().length > 0;
+    }
+    const accepted = this.#triggerResponses?.observe(event);
+    if (generation !== this.#connectionGeneration) return;
+    if (type === 'response.created' && !accepted) {
+      this.#emit({
+        type: 'error',
+        error: new RealtimeVoiceError(
+          'ACTIVATION_ELIGIBILITY_FAILED',
+          'OpenAI emitted an unowned response',
+        ),
+      });
+      return;
+    }
+    this.#triggerInputs?.observe(event);
+    if (generation !== this.#connectionGeneration) return;
+    this.#interruptAdmitted();
+    if (accepted) {
+      const responseId = this.#responseId(event) ?? asString(event.response_id);
+      if (type === 'response.created') {
+        if (this.#triggerResponses?.isGenerating(responseId))
+          this.#triggerCurrentResponse = responseId;
+        this.#arbiter?.responseCreated(responseId);
+      } else if (type === 'response.done') {
+        if (this.#triggerCurrentResponse === responseId)
+          this.#triggerCurrentResponse = undefined;
+        this.#arbiter?.responseDone(
+          responseId,
+          this.#completedResponseHasExplicitlyEmptyOutput(event),
+        );
+      } else if (type === 'output_audio_buffer.started') {
+        this.#triggerPlaybackResponse = responseId;
+        if (this.#audioEl) this.#audioEl.muted = false;
+        this.#arbiter?.outputStarted();
+      } else if (
+        type === 'output_audio_buffer.stopped' ||
+        type === 'output_audio_buffer.cleared'
+      ) {
+        if (this.#triggerPlaybackResponse === responseId)
+          this.#triggerPlaybackResponse = undefined;
+        if (type === 'output_audio_buffer.stopped')
+          this.#arbiter?.outputStopped();
+        else this.#arbiter?.outputCleared();
+      }
+    }
+    const parsed = parseOpenAIServerEvent(event);
+    if (parsed?.type === 'tool_call') {
+      const ancestry = this.#triggerResponses?.toolAncestry(event);
+      if (ancestry) this.#emit({ ...parsed, ancestry });
+    } else if (parsed?.type === 'transcript' && parsed.role === 'assistant') {
+      const ancestry = this.#triggerResponses?.ancestry(event);
+      if (ancestry) this.#emit({ ...parsed, ancestry });
+    }
+    if (
+      type &&
+      (accepted ||
+        (itemId && this.#activation?.admission(itemId).status === 'admitted'))
+    ) {
+      const state = deriveVoiceActivity(this.#voiceActivity, type);
+      if (state && state !== this.#voiceActivity) {
+        this.#voiceActivity = state;
+        this.#emit({ type: 'state', state });
+      }
+    }
   }
 }

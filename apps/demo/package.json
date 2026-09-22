@@ -11,6 +11,7 @@
     "dev:client": "bunx nx run @maelstrom-co/demo:serve",
     "dev:client:livekit": "bunx nx run @maelstrom-co/demo:serve -- --mode livekit",
     "dev-agent": "node --conditions=@maelstrom-co/source --env-file-if-exists=../../.env voice-worker.ts start",
+    "dev-trigger-agent": "node --conditions=@maelstrom-co/source --env-file-if-exists=../../.env trigger-voice-worker.ts start",
     "build": "vite build",
     "build-livekit": "bunx nx run @maelstrom-co/demo:build-livekit",
     "start": "node .output/server/index.mjs",

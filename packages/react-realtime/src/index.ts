@@ -1,3 +1,8 @@
+export type {
+  VoiceActivationConfig,
+  VoiceActivationHook,
+  VoiceActivationState,
+} from '@maelstrom-co/realtime';
 export type { LevelMeter } from './lib/level-meter.js';
 export { createLevelMeter } from './lib/level-meter.js';
 export type {

@@ -46,11 +46,29 @@ function flushMicrotasks(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+describe('trigger activation capability', () => {
+  it('rejects an unsupported adapter before provider setup', async () => {
+    const adapter = makeMockAdapter();
+    const session = new RealtimeSession({
+      adapter,
+      instance: makeMockInstance(emptySnapshot),
+      sessionId: SessionId('trigger-test'),
+      activation: { mode: 'trigger', phrase: 'hello maelstrom' },
+    });
+    await expect(session.connect()).rejects.toMatchObject({
+      code: 'ACTIVATION_ADAPTER_UNSUPPORTED',
+    });
+    expect(adapter.connectCalls).toBe(0);
+    expect(session.activationState).toBe('waiting');
+  });
+});
+
 // ============================================================================
 // Mock adapter
 // ============================================================================
 
 interface MockAdapter extends RealtimeProviderAdapter {
+  emit(event: RealtimeAdapterEvent): void;
   readonly toolResults: Array<{ callId: string; output: unknown }>;
   readonly groundingCalls: string[];
   readonly connectCalls: number;
@@ -103,6 +121,9 @@ function makeMockAdapter(): MockAdapter {
   const lastAudioStreams: AdapterAudioStreams = {};
 
   return {
+    emit: (event) => {
+      for (const handler of handlers) handler(event);
+    },
     toolResults,
     groundingCalls,
     connectOptions,
@@ -397,6 +418,300 @@ const emptySnapshot: UIStructuralSnapshot = {
   layoutMode: 'grid',
   chartDimensions: { rows: 8, columns: 12 },
 };
+
+describe('trigger session integration', () => {
+  const activation = { mode: 'trigger', phrase: 'hello maelstrom' } as const;
+  const input = (ordinal: number, text: string) => ({
+    id: String(ordinal),
+    ordinal,
+    start: ordinal * 10,
+    end: ordinal * 10 + 5,
+    outcome: 'success' as const,
+    text,
+  });
+
+  it('suppresses greetings without consuming shared normal greeting proof', async () => {
+    const adapter = Object.assign(makeGreetingAdapter(), {
+      voiceActivationVersion: 1 as const,
+    });
+    const instance = makeMockInstance(emptySnapshot);
+    const coordinator = new GreetingCoordinator();
+    const session = new RealtimeSession({
+      adapter,
+      instance,
+      sessionId: testSessionId,
+      activation,
+      greeting: { text: 'Welcome', coordinator },
+    });
+    await session.connect();
+    expect(adapter.connectOptions[0]?.prepareGreeting).toBe(false);
+    expect(adapter.speakCalls).toHaveLength(0);
+    session.skipGreeting();
+    expect(coordinator.getSnapshot(testSessionId).lifecycle).toBe('pending');
+    expect(instance.acknowledged).toHaveLength(0);
+    await session.disconnect();
+    session.configureActivation({ mode: 'normal' });
+    await session.connect();
+    await flushMicrotasks();
+    expect(adapter.speakCalls).toHaveLength(1);
+    expect(instance.acknowledged).toHaveLength(1);
+    await session.disconnect();
+  });
+
+  it('gates tools, read-only pulls and captions before Active and rejects missing/stale ancestry', async () => {
+    let release!: () => void;
+    const adapter = Object.assign(makeMockAdapter(), {
+      voiceActivationVersion: 1 as const,
+    });
+    const instance = makeMockInstance(emptySnapshot);
+    const events: SidechannelEvent[] = [];
+    const session = new RealtimeSession({
+      adapter,
+      instance,
+      sessionId: testSessionId,
+      activation: {
+        ...activation,
+        onActivate: () =>
+          new Promise<void>((resolve) => {
+            release = resolve;
+          }),
+      },
+      onEvent: (event) => events.push(event),
+    });
+    await session.connect();
+    const policy = adapter.connectOptions[0]?.activation;
+    if (!policy) throw new Error('missing activation policy');
+    policy.reportInput(input(2, 'weather'));
+    policy.reportInput(input(1, 'hello maelstrom'));
+    for (const name of ['update_ui', 'get_ui_state', 'get_capabilities']) {
+      adapter.emit({
+        type: 'tool_call',
+        callId: ToolCallId(name),
+        name,
+        argumentsJson: '{"intent":"weather"}',
+        ancestry: { inputId: '2', epoch: 1 },
+      });
+    }
+    adapter.emitTranscript({ role: 'user', text: 'secret', final: true });
+    expect(events).toHaveLength(0);
+    expect(instance.submitted).toHaveLength(0);
+    expect(adapter.toolResults).toHaveLength(0);
+    release();
+    await flushMicrotasks();
+    const admitted = policy.admission('2');
+    if (admitted.status !== 'admitted') throw new Error('not admitted');
+    adapter.emit({
+      type: 'tool_call',
+      callId: ToolCallId('stale'),
+      name: 'get_ui_state',
+      argumentsJson: '{}',
+      ancestry: { ...admitted.ancestry, epoch: 0 },
+    });
+    adapter.emitToolCall({
+      callId: 'unknown',
+      name: 'get_ui_state',
+      argumentsJson: '{}',
+    });
+    adapter.emit({
+      type: 'tool_call',
+      callId: ToolCallId('valid'),
+      name: 'update_ui',
+      argumentsJson: '{"intent":"weather"}',
+      ancestry: admitted.ancestry,
+    });
+    await flushMicrotasks();
+    expect(instance.submitted).toEqual(['weather']);
+    instance.settle();
+    await flushMicrotasks();
+    expect(adapter.toolResults.map((result) => result.callId)).toEqual([
+      'valid',
+    ]);
+    await session.disconnect();
+  });
+
+  it('counts engine/render and tool-result handoff independently from provider completion', async () => {
+    const clock = FakeTimers.install();
+    const adapter = Object.assign(makeMockAdapter(), {
+      voiceActivationVersion: 1 as const,
+    });
+    const instance = makeMockInstance(emptySnapshot);
+    const session = new RealtimeSession({
+      adapter,
+      instance,
+      sessionId: testSessionId,
+      activation,
+    });
+    try {
+      await session.connect();
+      const policy = adapter.connectOptions[0]?.activation;
+      if (!policy) throw new Error('missing policy');
+      policy.reportInput(input(1, 'hello maelstrom'));
+      policy.reportInput(input(2, 'weather'));
+      const admitted = policy.admission('2');
+      if (admitted.status !== 'admitted') throw new Error('not admitted');
+      adapter.emit({
+        type: 'tool_call',
+        callId: ToolCallId('work'),
+        name: 'update_ui',
+        argumentsJson: '{"intent":"weather"}',
+        ancestry: admitted.ancestry,
+      });
+      policy.finishInput('2');
+      await clock.tickAsync(20000);
+      expect(session.activationState).toBe('active');
+      instance.settle();
+      await clock.tickAsync(9999);
+      expect(session.activationState).toBe('active');
+      await clock.tickAsync(1);
+      expect(session.activationState).toBe('waiting');
+      expect(adapter.disconnectCalls).toBe(0);
+    } finally {
+      await session.disconnect();
+      clock.uninstall();
+    }
+  });
+
+  for (const supersede of [false, true]) {
+    it(`releases queued completion after ${supersede ? 'superseded' : 'rendered'} result rejection`, async () => {
+      const clock = FakeTimers.install();
+      const adapter = Object.assign(makeMockAdapter(), {
+        voiceActivationVersion: 1 as const,
+      });
+      const instance = makeMockInstance(emptySnapshot);
+      const events: SidechannelEvent[] = [];
+      const session = new RealtimeSession({
+        adapter,
+        instance,
+        sessionId: testSessionId,
+        activation,
+        onEvent: (event) => events.push(event),
+      });
+      const send = adapter.sendToolResult;
+      adapter.sendToolResult = async (id, result) => {
+        if (id === 'queued') throw new Error('owned result ACK failed');
+        await send(id, result);
+      };
+      try {
+        await session.connect();
+        const policy = adapter.connectOptions[0]?.activation;
+        if (!policy) throw new Error('missing policy');
+        policy.reportInput(input(1, 'hello maelstrom'));
+        policy.reportInput(input(2, 'weather'));
+        const admitted = policy.admission('2');
+        if (admitted.status !== 'admitted') throw new Error('not admitted');
+        await instance.submitIntent('typed');
+        const emit = (id: string) =>
+          adapter.emit({
+            type: 'tool_call',
+            callId: ToolCallId(id),
+            name: 'update_ui',
+            argumentsJson: JSON.stringify({ intent: id }),
+            ancestry: admitted.ancestry,
+          });
+        emit('queued');
+        await clock.tickAsync(0);
+        if (supersede) {
+          emit('replacement');
+          await clock.tickAsync(0);
+        }
+        policy.finishInput('2');
+        instance.settle();
+        await clock.tickAsync(0);
+        if (supersede) {
+          instance.settle();
+          await clock.tickAsync(0);
+        }
+        expect(instance.submitted).toEqual([
+          'typed',
+          supersede ? 'replacement' : 'queued',
+        ]);
+        instance.settle();
+        await clock.tickAsync(9999);
+        expect(session.activationState).toBe('active');
+        await clock.tickAsync(1);
+        expect(session.activationState).toBe('waiting');
+        expect(
+          events
+            .filter((event) => event.type === 'tool_result')
+            .map((event) => event.callId),
+        ).toEqual(supersede ? [ToolCallId('replacement')] : []);
+      } finally {
+        await session.disconnect();
+        clock.uninstall();
+      }
+    });
+  }
+
+  it('rejects live settings without mutation and waits render for idempotent chat completion', async () => {
+    const clock = FakeTimers.install();
+    const adapter = Object.assign(makeMockAdapter(), {
+      voiceActivationVersion: 1 as const,
+    });
+    const instance = makeMockInstance(emptySnapshot);
+    const session = new RealtimeSession({
+      adapter,
+      instance,
+      sessionId: testSessionId,
+      activation: { ...activation, includeChatActivity: true },
+    });
+    try {
+      await session.connect();
+      expect(() => session.configureActivation({ mode: 'normal' })).toThrow(
+        'Stop voice',
+      );
+      const finish = session.beginChatActivity();
+      adapter.connectOptions[0]?.activation?.reportInput(
+        input(1, 'hello maelstrom'),
+      );
+      const completion = finish();
+      expect(finish()).toBe(completion);
+      await clock.tickAsync(20000);
+      expect(session.activationState).toBe('active');
+      instance.settle();
+      await completion;
+      await clock.tickAsync(10000);
+      expect(session.activationState).toBe('waiting');
+    } finally {
+      await session.disconnect();
+      clock.uninstall();
+    }
+  });
+
+  it('drops old tool results after disconnect even if a replacement connection reuses the call ID', async () => {
+    const adapter = Object.assign(makeMockAdapter(), {
+      voiceActivationVersion: 1 as const,
+    });
+    const instance = makeMockInstance(emptySnapshot);
+    const session = new RealtimeSession({
+      adapter,
+      instance,
+      sessionId: testSessionId,
+      activation,
+    });
+    await session.connect();
+    const policy = adapter.connectOptions[0]?.activation;
+    if (!policy) throw new Error('missing policy');
+    policy.reportInput(input(1, 'hello maelstrom'));
+    policy.reportInput(input(2, 'weather'));
+    const admitted = policy.admission('2');
+    if (admitted.status !== 'admitted') throw new Error('not admitted');
+    adapter.emit({
+      type: 'tool_call',
+      callId: ToolCallId('same'),
+      name: 'update_ui',
+      argumentsJson: '{"intent":"weather"}',
+      ancestry: admitted.ancestry,
+    });
+    await flushMicrotasks();
+    await session.disconnect();
+    await session.connect();
+    instance.settle();
+    await flushMicrotasks();
+    expect(adapter.toolResults).toHaveLength(0);
+    expect(session.activationState).toBe('waiting');
+    await session.disconnect();
+  });
+});
 
 const populatedSnapshot: UIStructuralSnapshot = {
   instances: [

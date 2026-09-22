@@ -1,6 +1,170 @@
 import { expect, test } from 'bun:test';
 import { ResponseArbiter } from './response-arbiter.js';
 
+test('defers trigger requests without dropping them or using default history', () => {
+  const commands: object[] = [];
+  const requests: (string | undefined)[] = [];
+  let ready = false;
+  const arbiter = new ResponseArbiter({
+    send: (command) => commands.push(command),
+    error: () => {},
+    debug: () => {},
+    responseInput: (inputId) => {
+      requests.push(inputId);
+      return ready ? ['grounding', 'admitted-user'] : undefined;
+    },
+  });
+  arbiter.completed('admitted-user', true);
+  arbiter.committed('admitted-user');
+  expect(commands).toEqual([]);
+  ready = true;
+  arbiter.referencesChanged();
+  expect(commands).toEqual([
+    {
+      type: 'response.create',
+      response: {
+        conversation: 'auto',
+        input: [
+          { type: 'item_reference', id: 'grounding' },
+          { type: 'item_reference', id: 'admitted-user' },
+        ],
+      },
+    },
+  ]);
+  expect(requests).toEqual(['admitted-user', 'admitted-user']);
+  arbiter.referencesChanged();
+  expect(commands).toHaveLength(1);
+});
+
+test('gates coalesced tool follow-ups and queued turns through the same snapshot seam', () => {
+  const commands: object[] = [];
+  const sources: (string | undefined)[] = [];
+  let references: readonly string[] | undefined;
+  const arbiter = new ResponseArbiter({
+    send: (command) => commands.push(command),
+    error: () => {},
+    debug: () => {},
+    responseInput: (inputId) => {
+      sources.push(inputId);
+      return references;
+    },
+  });
+  arbiter.requestToolFollowUp('first');
+  arbiter.requestToolFollowUp('second');
+  arbiter.committed('third');
+  arbiter.completed('third', true);
+  expect(commands).toEqual([]);
+  references = ['user', 'call', 'acknowledged-output'];
+  arbiter.referencesChanged();
+  arbiter.responseCreated('follow-up');
+  references = undefined;
+  arbiter.responseDone('follow-up', false);
+  expect(commands).toHaveLength(1);
+  references = ['user', 'call', 'acknowledged-output', 'assistant', 'third'];
+  arbiter.referencesChanged();
+  expect(commands).toHaveLength(2);
+  expect(sources.at(-1)).toBe('third');
+  expect(sources).toContain('second');
+  expect(commands[0]).toEqual({
+    type: 'response.create',
+    response: {
+      conversation: 'auto',
+      input: ['user', 'call', 'acknowledged-output'].map((id) => ({
+        type: 'item_reference',
+        id,
+      })),
+    },
+  });
+});
+
+test('trigger dispatch rejects an empty reference snapshot instead of clearing history', () => {
+  const commands: object[] = [];
+  const errors: unknown[] = [];
+  const arbiter = new ResponseArbiter({
+    send: (command) => commands.push(command),
+    error: (error) => errors.push(error),
+    debug: () => {},
+    responseInput: () => [],
+  });
+  arbiter.requestToolFollowUp('user');
+  arbiter.referencesChanged();
+  expect(commands).toEqual([]);
+  expect(errors).toHaveLength(1);
+  expect(errors[0]).toMatchObject({ code: 'ACTIVATION_ELIGIBILITY_FAILED' });
+});
+
+test('trigger arbiter refuses unsolicited response creation and completion', () => {
+  const commands: object[] = [];
+  let ready = false;
+  const arbiter = new ResponseArbiter({
+    send: (command) => commands.push(command),
+    error: () => {},
+    debug: () => {},
+    responseInput: () => (ready ? ['user'] : undefined),
+  });
+  arbiter.responseCreated('unsolicited');
+  arbiter.usefulDelta('speech');
+  expect(commands).toEqual([]);
+  arbiter.committed('user');
+  arbiter.completed('user', true);
+  ready = true;
+  arbiter.referencesChanged();
+  arbiter.responseDone('unsolicited', false);
+  arbiter.committed('next');
+  arbiter.completed('next', true);
+  expect(commands).toHaveLength(1);
+  arbiter.responseCreated('owned');
+  arbiter.responseDone('owned', false);
+  expect(commands).toHaveLength(2);
+});
+
+test('trigger snapshots are copied at dispatch and closed queues cannot resume', () => {
+  const commands: object[] = [];
+  const ids = ['user'];
+  let ready = true;
+  const arbiter = new ResponseArbiter({
+    send: (command) => commands.push(command),
+    error: () => {},
+    debug: () => {},
+    responseInput: () => (ready ? ids : undefined),
+  });
+  arbiter.requestToolFollowUp('user');
+  ids.push('later');
+  expect(commands[0]).toEqual({
+    type: 'response.create',
+    response: {
+      conversation: 'auto',
+      input: [{ type: 'item_reference', id: 'user' }],
+    },
+  });
+  arbiter.responseCreated('owned');
+  ready = false;
+  arbiter.requestToolFollowUp('later');
+  arbiter.responseDone('owned', false);
+  arbiter.close();
+  ready = true;
+  arbiter.referencesChanged();
+  expect(commands).toHaveLength(1);
+});
+
+test('a throwing reference gate fails once without default-input retry', () => {
+  const errors: unknown[] = [];
+  const commands: object[] = [];
+  const arbiter = new ResponseArbiter({
+    send: (command) => commands.push(command),
+    error: (error) => errors.push(error),
+    debug: () => {},
+    responseInput: () => {
+      throw new Error('unavailable');
+    },
+  });
+  arbiter.requestToolFollowUp('user');
+  arbiter.referencesChanged();
+  arbiter.requestToolFollowUp('other');
+  expect(errors).toHaveLength(1);
+  expect(commands).toEqual([]);
+});
+
 function harness(options: { readonly throwOn?: string } = {}) {
   const commands: object[] = [];
   const errors: unknown[] = [];

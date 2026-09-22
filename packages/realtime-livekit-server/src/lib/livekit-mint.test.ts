@@ -14,23 +14,38 @@ import { isErr, isOk } from '@maelstrom-co/protocol';
 let lastIdentity: string | undefined;
 let lastTtl: string | number | undefined;
 let lastGrant: Record<string, unknown> | undefined;
+const sdk = await import('livekit-server-sdk');
+const RealAccessToken = sdk.AccessToken;
+const RealTokenVerifier = sdk.TokenVerifier;
+let lastRoomConfig: InstanceType<typeof sdk.RoomConfiguration> | undefined;
+let signRealToken = false;
 
 mock.module('livekit-server-sdk', () => ({
+  RoomConfiguration: sdk.RoomConfiguration,
+  RoomAgentDispatch: sdk.RoomAgentDispatch,
   AccessToken: class {
     #identity: string | undefined;
+    #token: InstanceType<typeof sdk.AccessToken>;
     constructor(
       _key: string,
       _secret: string,
       opts?: { identity?: string; ttl?: string | number },
     ) {
+      this.#token = new RealAccessToken(_key, _secret, opts);
       this.#identity = opts?.identity;
       lastIdentity = opts?.identity;
       lastTtl = opts?.ttl;
     }
     addGrant(grant: Record<string, unknown>) {
       lastGrant = grant;
+      this.#token.addGrant(grant);
+    }
+    set roomConfig(value: InstanceType<typeof sdk.RoomConfiguration>) {
+      lastRoomConfig = value;
+      this.#token.roomConfig = value;
     }
     async toJwt() {
+      if (signRealToken) return this.#token.toJwt();
       return `jwt-for-${this.#identity}`;
     }
   },
@@ -61,6 +76,8 @@ describe('mintLiveKitToken', () => {
     lastIdentity = undefined;
     lastTtl = undefined;
     lastGrant = undefined;
+    lastRoomConfig = undefined;
+    signRealToken = false;
     process.env.LIVEKIT_API_KEY = 'devkey';
     process.env.LIVEKIT_API_SECRET = 'secret';
     process.env.LIVEKIT_URL = 'ws://localhost:7880';
@@ -85,6 +102,63 @@ describe('mintLiveKitToken', () => {
     // Default 15m TTL → expiry ~900s out.
     expect(result.value.expiresAt).toBeGreaterThan(nowSeconds);
     expect(result.value.expiresAt).toBeLessThanOrEqual(nowSeconds + 900 + 2);
+  });
+
+  test('creates a fresh trigger room rather than reusing the requested namespace', async () => {
+    await mintLiveKitToken({ roomName: 'maelstrom-abc', trigger: true });
+    const firstRoom = lastGrant?.room;
+    expect(firstRoom).not.toBe('maelstrom-abc');
+    await mintLiveKitToken({ roomName: 'maelstrom-abc', trigger: true });
+    expect(lastGrant?.room).not.toBe(firstRoom);
+  });
+
+  test('signs matching explicit dispatch and ignores caller-chosen worker bindings', async () => {
+    signRealToken = true;
+    const result = await mintLiveKitToken({
+      roomName: 'namespace',
+      identity: 'browser',
+      trigger: true,
+      workerIdentity: 'attacker',
+      expectedWorkerIdentity: 'attacker',
+      metadata: 'attacker',
+    });
+    expect(isOk(result)).toBe(true);
+    if (!isOk(result)) return;
+    const binding = result.value.trigger;
+    expect(binding?.workerIdentity).toMatch(/^maelstrom-worker-/);
+    expect(binding?.browserIdentity).toBe('browser');
+    expect(binding?.expiresAt).toBe(result.value.expiresAt);
+    const claims = await new RealTokenVerifier('devkey', 'secret').verify(
+      result.value.token,
+    );
+    expect(claims.video?.room).toBe(binding?.roomName);
+    expect(claims.roomConfig?.agents).toHaveLength(1);
+    expect(claims.roomConfig?.agents[0]?.agentName).toBe(
+      'maelstrom-trigger-v1',
+    );
+    expect(JSON.parse(claims.roomConfig?.agents[0]?.metadata ?? '{}')).toEqual(
+      binding,
+    );
+    const again = await mintLiveKitToken({
+      roomName: 'namespace',
+      trigger: true,
+    });
+    if (!isOk(again)) throw new Error('second mint failed');
+    expect(again.value.trigger?.workerIdentity).not.toBe(
+      binding?.workerIdentity,
+    );
+  });
+
+  test('normal grants omit trigger metadata and explicit dispatch', async () => {
+    const result = await mintLiveKitToken({ roomName: 'normal' });
+    expect(isOk(result)).toBe(true);
+    if (!isOk(result)) return;
+    expect(Object.keys(result.value).sort()).toEqual([
+      'expiresAt',
+      'token',
+      'url',
+    ]);
+    expect(lastRoomConfig).toBeUndefined();
   });
 
   test('scopes the grant to the requested room and defaults identity to "user"', async () => {

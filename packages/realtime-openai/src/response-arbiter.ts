@@ -2,6 +2,13 @@ import { RealtimeVoiceError } from '@maelstrom-co/realtime';
 
 type OutputActivity = 'not-started' | 'active' | 'stopped' | 'cleared';
 type CompletedTranscript = 'unseen' | 'useful' | 'empty';
+interface Sink {
+  send(command: object): void;
+  error(error: unknown): void;
+  debug(category: string): void;
+  /** Trigger-only readiness gate. Undefined defers the existing queue; a nonempty ordered snapshot replaces default input. Must not reenter the arbiter. */
+  responseInput?(inputId: string | undefined): readonly string[] | undefined;
+}
 interface Entry {
   committed: boolean;
   completed: CompletedTranscript;
@@ -28,6 +35,7 @@ const entry = (): Entry => ({
 export class ResponseArbiter {
   #inFlight: { responseId?: string } | undefined;
   #toolPending = false;
+  #toolInputId: string | undefined;
   #fatal = false;
   #blockDepth = 0;
   #drainDeferred = false;
@@ -38,23 +46,16 @@ export class ResponseArbiter {
   #activeResponseId: string | undefined;
   #output: OutputActivity = 'not-started';
 
-  readonly #sink: {
-    send(command: object): void;
-    error(error: unknown): void;
-    debug(category: string): void;
-  };
+  readonly #sink: Sink;
 
-  constructor(sink: {
-    send(command: object): void;
-    error(error: unknown): void;
-    debug(category: string): void;
-  }) {
+  constructor(sink: Sink) {
     this.#sink = sink;
   }
 
   close(): void {
     this.#inFlight = undefined;
     this.#toolPending = false;
+    this.#toolInputId = undefined;
     this.#fatal = true;
     this.#queue.length = 0;
     this.#settled.clear();
@@ -63,14 +64,15 @@ export class ResponseArbiter {
     this.#activeResponseId = undefined;
     this.#output = 'not-started';
   }
-  requestToolFollowUp(): void {
+  requestToolFollowUp(inputId?: string): void {
     if (this.#fatal) return;
-    if (this.#inFlight || this.#blocked()) {
-      this.#toolPending = true;
-      if (!this.#inFlight) this.#drainDeferred = true;
-      return;
-    }
-    this.#create();
+    this.#toolPending = true;
+    this.#toolInputId = inputId;
+    this.#drain();
+  }
+  /** Retry deferred reference readiness without adding, reordering, or discarding requests. Inert after close or fatal dispatch failure. */
+  referencesChanged(): void {
+    this.#drain();
   }
   committed(itemId: string | undefined): void {
     const e = this.#get(itemId);
@@ -98,6 +100,10 @@ export class ResponseArbiter {
       this.#sink.debug('created-unmatched');
       return;
     }
+    if (!this.#inFlight && this.#sink.responseInput) {
+      this.#sink.debug('created-unsolicited');
+      return;
+    }
     if (!this.#inFlight) this.#inFlight = { responseId };
     else if (!this.#inFlight.responseId) this.#inFlight = { responseId };
     else {
@@ -116,6 +122,7 @@ export class ResponseArbiter {
       !responseId ||
       !this.#inFlight ||
       this.#settled.has(responseId) ||
+      (this.#sink.responseInput && !this.#inFlight.responseId) ||
       (this.#inFlight.responseId && this.#inFlight.responseId !== responseId)
     )
       return;
@@ -159,28 +166,48 @@ export class ResponseArbiter {
     if (!e.committed || e.completed !== 'useful' || e.queued || this.#fatal)
       return;
     e.queued = true;
-    if (!this.#inFlight && !this.#toolPending && !this.#blocked()) {
-      e.sent = true;
-      this.#create();
-    } else {
-      this.#queue.push(id);
-      if (!this.#inFlight) this.#drainDeferred = true;
-    }
+    this.#queue.push(id);
+    this.#drain();
   }
-  #create(): void {
+  #create(inputId: string | undefined, consume: () => void): void {
     if (this.#fatal) return;
-    this.#inFlight = {};
     try {
-      this.#sink.send({ type: 'response.create' });
+      const ids = this.#sink.responseInput?.(inputId);
+      if (this.#sink.responseInput && ids === undefined) {
+        this.#drainDeferred = true;
+        return;
+      }
+      if (ids && (!ids.length || ids.some((id) => !id.trim()))) {
+        throw new RealtimeVoiceError(
+          'ACTIVATION_ELIGIBILITY_FAILED',
+          'OpenAI response requires nonempty eligible input references',
+        );
+      }
+      const command = {
+        type: 'response.create',
+        ...(ids
+          ? {
+              response: {
+                conversation: 'auto',
+                input: ids.map((id) => ({ type: 'item_reference', id })),
+              },
+            }
+          : {}),
+      };
+      this.#inFlight = {};
+      consume();
+      this.#sink.send(command);
     } catch (cause) {
       this.#inFlight = undefined;
       this.#fatal = true;
       this.#sink.error(
-        new RealtimeVoiceError(
-          'DATA_CHANNEL_ERROR',
-          'Failed to send OpenAI realtime response.create',
-          cause,
-        ),
+        cause instanceof RealtimeVoiceError
+          ? cause
+          : new RealtimeVoiceError(
+              'DATA_CHANNEL_ERROR',
+              'Failed to send OpenAI realtime response.create',
+              cause,
+            ),
       );
     }
   }
@@ -192,16 +219,20 @@ export class ResponseArbiter {
     }
     this.#drainDeferred = false;
     if (this.#toolPending) {
-      this.#toolPending = false;
-      this.#create();
+      this.#create(this.#toolInputId, () => {
+        this.#toolPending = false;
+        this.#toolInputId = undefined;
+      });
       return;
     }
-    const id = this.#queue.shift();
+    const id = this.#queue[0];
     if (!id) return;
     const e = this.#ledger.get(id);
     if (!e || e.sent) return;
-    e.sent = true;
-    this.#create();
+    this.#create(id, () => {
+      this.#queue.shift();
+      e.sent = true;
+    });
   }
   #blocked(): boolean {
     return (

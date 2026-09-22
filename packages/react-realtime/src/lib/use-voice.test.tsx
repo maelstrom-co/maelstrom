@@ -14,6 +14,8 @@ import type {
   RealtimeInstance,
   RealtimeProviderAdapter,
   TurnModeEvent,
+  VoiceActivationConfig,
+  VoiceActivationState,
 } from '@maelstrom-co/realtime';
 import { act, cleanup, render } from '@testing-library/react';
 import { type ReactNode, StrictMode } from 'react';
@@ -60,11 +62,19 @@ class FakeRealtimeSession {
   turnModeError: unknown;
   turnControl: AdapterTurnControl | undefined;
   greetingState: GreetingState;
+  activationConfig: VoiceActivationConfig;
+  activationState: VoiceActivationState;
+  readonly activationHandlers = new Set<
+    (state: VoiceActivationState) => void
+  >();
+  readonly finishChat = mock(async () => {});
+  readonly beginChatActivity = mock(() => this.finishChat);
   connectCalls = 0;
   disconnectCalls = 0;
   readonly options: {
     instance: RealtimeInstance;
     greeting?: { text: string; coordinator: unknown };
+    activation?: VoiceActivationConfig;
   };
   readonly #stateHandlers = new Set<(state: VoiceSessionState) => void>();
   readonly #transcriptHandlers = new Set<(entry: TranscriptEntry) => void>();
@@ -76,8 +86,12 @@ class FakeRealtimeSession {
   constructor(options: {
     instance: RealtimeInstance;
     greeting?: { text: string; coordinator: unknown };
+    activation?: VoiceActivationConfig;
   }) {
     this.options = options;
+    this.activationConfig = options.activation ?? { mode: 'normal' };
+    this.activationState =
+      this.activationConfig.mode === 'normal' ? 'disabled' : 'waiting';
     const coordinator = options.greeting?.coordinator as
       | FakeGreetingCoordinator
       | undefined;
@@ -98,6 +112,20 @@ class FakeRealtimeSession {
     this.emitState('connected');
   }
 
+  configureActivation(config: VoiceActivationConfig): void {
+    if (this.state !== 'idle' && this.state !== 'error')
+      throw new Error('Stop voice to change settings.');
+    if (config.mode === 'trigger' && !config.phrase.trim())
+      throw new Error('Invalid phrase');
+    this.activationConfig = config;
+    this.emitActivation(config.mode === 'normal' ? 'disabled' : 'waiting');
+  }
+
+  emitActivation(state: VoiceActivationState): void {
+    this.activationState = state;
+    for (const handler of this.activationHandlers) handler(state);
+  }
+
   skipGreeting(): void {
     const coordinator = this.options.greeting?.coordinator as
       | FakeGreetingCoordinator
@@ -113,19 +141,26 @@ class FakeRealtimeSession {
   }
 
   on(
-    event: 'state' | 'transcript' | 'turn_mode' | 'greeting_state',
+    event:
+      | 'state'
+      | 'transcript'
+      | 'turn_mode'
+      | 'greeting_state'
+      | 'activation_state',
     handler: ((state: VoiceSessionState) => void) &
       ((entry: TranscriptEntry) => void) &
       ((event: TurnModeEvent) => void),
   ): () => void {
     const handlers =
-      event === 'state'
-        ? this.#stateHandlers
-        : event === 'transcript'
-          ? this.#transcriptHandlers
-          : event === 'turn_mode'
-            ? this.#turnModeHandlers
-            : this.#greetingStateHandlers;
+      event === 'activation_state'
+        ? this.activationHandlers
+        : event === 'state'
+          ? this.#stateHandlers
+          : event === 'transcript'
+            ? this.#transcriptHandlers
+            : event === 'turn_mode'
+              ? this.#turnModeHandlers
+              : this.#greetingStateHandlers;
     handlers.add(handler as never);
     return () => handlers.delete(handler as never);
   }
@@ -233,19 +268,26 @@ function setup(
         ) => RealtimeProviderAdapter;
         onEvent?: (event: unknown) => void;
         greeting?: MaelstromRealtimeOptions['greeting'];
+        activation?: VoiceActivationConfig;
       },
   onEvent?: (event: unknown) => void,
 ) {
   const defaultAdapter = () => makeFakeAdapter();
   const opts =
     createAdapter === undefined
-      ? { createAdapter: defaultAdapter, onEvent, greeting: undefined }
+      ? {
+          createAdapter: defaultAdapter,
+          onEvent,
+          greeting: undefined,
+          activation: undefined,
+        }
       : typeof createAdapter === 'function'
-        ? { createAdapter, onEvent, greeting: undefined }
+        ? { createAdapter, onEvent, greeting: undefined, activation: undefined }
         : {
             createAdapter: createAdapter.createAdapter ?? defaultAdapter,
             onEvent: createAdapter.onEvent ?? onEvent,
             greeting: createAdapter.greeting,
+            activation: createAdapter.activation,
           };
   const entry = vessel(testVessel, () => null);
   const m = createMaelstrom({ vessels: [entry] }).with(
@@ -253,6 +295,7 @@ function setup(
       createAdapter: opts.createAdapter,
       onEvent: opts.onEvent as never,
       greeting: opts.greeting,
+      activation: opts.activation,
     }),
   );
   return { m, connector: createMockConnector() };
@@ -271,6 +314,80 @@ afterEach(() => {
 });
 
 describe('maelstromRealtime() useVoice lifecycle', () => {
+  it('reflects shared activation, delegates settings and chat, and retains config after retirement', async () => {
+    const initial: VoiceActivationConfig = {
+      mode: 'trigger',
+      phrase: 'hello maelstrom',
+    };
+    const { m, connector } = setup({ activation: initial });
+    const voices: UseVoiceResult[] = [];
+    function Consumer({ index }: { index: number }) {
+      voices[index] = m.useVoice();
+      return null;
+    }
+    const tree = (second = true) => (
+      <m.Provider connector={connector}>
+        <Consumer index={0} />
+        {second && <Consumer index={1} />}
+      </m.Provider>
+    );
+    const { rerender } = render(tree());
+    const session = must(FakeRealtimeSession.instances[0]);
+    expect(must(voices[0]).activationConfig).toEqual(initial);
+    expect(session.activationHandlers.size).toBe(2);
+    await act(async () => session.emitActivation('active'));
+    expect(voices.map((voice) => voice.activationState)).toEqual([
+      'active',
+      'active',
+    ]);
+    const configured: VoiceActivationConfig = {
+      ...initial,
+      phrase: 'hello again',
+      includeChatActivity: true,
+    };
+    await act(async () => must(voices[0]).configureActivation(configured));
+    expect(must(voices[1]).activationConfig).toEqual(configured);
+    const finish = must(voices[1]).beginChatActivity();
+    expect(finish).toBe(session.finishChat);
+    await finish();
+    expect(session.beginChatActivity).toHaveBeenCalledTimes(1);
+    expect(() =>
+      must(voices[0]).configureActivation({ mode: 'trigger', phrase: '' }),
+    ).toThrow('Invalid phrase');
+    expect(must(voices[0]).activationConfig).toEqual(configured);
+    await act(async () => must(voices[0]).connect());
+    expect(() =>
+      must(voices[0]).configureActivation({ mode: 'normal' }),
+    ).toThrow('Stop voice');
+    rerender(tree(false));
+    expect(session.activationHandlers.size).toBe(1);
+    rerender(<m.Provider connector={connector}>{null}</m.Provider>);
+    await act(async () => Promise.resolve());
+    expect(session.activationHandlers.size).toBe(0);
+    rerender(tree(false));
+    expect(must(voices[0]).activationConfig).toEqual(configured);
+    expect(must(voices[0]).activationState).toBe('waiting');
+    await act(async () => session.emitActivation('active'));
+    expect(must(voices[0]).activationState).toBe('waiting');
+  });
+
+  it('defaults to normal activation without changing normal hook results', () => {
+    const { m, connector } = setup();
+    let voice: UseVoiceResult | undefined;
+    function Consumer() {
+      voice = m.useVoice();
+      return null;
+    }
+    render(
+      <m.Provider connector={connector}>
+        <Consumer />
+      </m.Provider>,
+    );
+    expect(must(voice).activationConfig).toEqual({ mode: 'normal' });
+    expect(must(voice).activationState).toBe('disabled');
+    expect(must(voice).state).toBe('idle');
+    expect(must(voice).turnMode).toBe('automatic');
+  });
   it('shares one session between consumers under one Provider', async () => {
     const { m, connector } = setup();
     function Consumer() {

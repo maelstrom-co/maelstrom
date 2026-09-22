@@ -6,11 +6,13 @@ import type {
   AdapterAudioStreams,
   AdapterConnectOptions,
   AdapterTurnControl,
+  AdapterVoiceActivation,
   GreetingSpeechResult,
   RealtimeAdapterEvent,
   RealtimeGreetingAdapter,
   RealtimeProviderAdapter,
   ToolResult,
+  VoiceInputAncestry,
 } from '@maelstrom-co/realtime';
 import { ConnectRaceGuard, RealtimeVoiceError } from '@maelstrom-co/realtime';
 import type {
@@ -18,8 +20,11 @@ import type {
   TurnEndMessage,
 } from '@maelstrom-co/realtime-protocol/livekit';
 import {
+  isLiveKitTriggerBinding,
+  parseTriggerTurnPacket,
   SPEAK_TOPIC,
   SPEAK_UTTERANCE_ID_ATTR,
+  TRIGGER_TURN_TOPIC,
   TTS_READY_TOPIC,
   TTS_TOPIC,
   TURN_TOPIC,
@@ -33,11 +38,13 @@ import {
 } from '@maelstrom-co/realtime-vad';
 import type {
   LocalAudioTrack,
+  RemoteParticipant,
   RemoteTrack,
   TranscriptionSegment,
 } from 'livekit-client';
 import {
   createLocalAudioTrack,
+  ParticipantKind,
   Room,
   RoomEvent,
   setLogLevel,
@@ -45,6 +52,7 @@ import {
 } from 'livekit-client';
 
 import type { LiveKitAdapterOptions } from './livekit-adapter.types.js';
+import { TriggerTurns } from './trigger-turns.js';
 
 /** Microphone resources acquired and owned by one asynchronous connect attempt. */
 interface ConnectMicrophoneResources {
@@ -156,6 +164,13 @@ function booleanAudioSetting(
  * synthesized intent still reaches the Maelstrom Engine, which remains the
  * planning LLM.
  *
+ * Trigger mode negotiates a nonce-bound worker before capture. Accepted waiting
+ * turns still reach provider STT and incur usage, but only admitted correlated
+ * successful finals become captions/intents. The trigger has no greeting.
+ * Separate post-trigger input stays private through activation hooks. Normal
+ * mode retains legacy transcripts and worker compatibility. Worker source drain
+ * is the best playback completion signal, not proof of remote audibility.
+ *
  * Browser VAD is automatic by default. Idle microphone audio remains local;
  * the upstream publication opens only for an accepted turn and is paused again
  * before that turn ends. `vad: false` selects intentional manual control
@@ -189,6 +204,27 @@ function booleanAudioSetting(
 export class LiveKitAdapter
   implements RealtimeProviderAdapter, RealtimeGreetingAdapter
 {
+  /** Version-one admission is enforced after nonce-bound worker negotiation. */
+  readonly voiceActivationVersion = 1 as const;
+  #activation: AdapterVoiceActivation | undefined;
+  #triggerTurns: TriggerTurns | undefined;
+  #worker: { identity: string; sid: string } | undefined;
+  #expectedWorkerIdentity: string | undefined;
+  #capability:
+    | {
+        nonce: string;
+        accept: (budget: number) => void;
+        cancel: () => void;
+      }
+    | undefined;
+  #pendingAudio:
+    | { track: RemoteTrack; participant: RemoteParticipant }
+    | undefined;
+  readonly #triggerCalls = new Map<
+    ToolCallId,
+    { ancestry: VoiceInputAncestry; done: () => void }
+  >();
+  readonly #ttsActivities = new Map<number, () => void>();
   readonly #mintToken: LiveKitAdapterOptions['mintToken'];
   readonly #roomName: string;
   readonly #logger: Logger;
@@ -350,12 +386,18 @@ export class LiveKitAdapter
    * detection: capture still requests the same processing preferences and the
    * publication remains gated. Capture, clone, mute, publication, or pause
    * failures are fatal and release all acquired local tracks.
+   * Trigger mode requires a valid worker binding from the trusted mint response,
+   * then negotiates version-one correlation with that expected AGENT identity,
+   * retrying one connection nonce for at most five seconds. Missing or
+   * invalid ACKs reject before microphone capture; normal mode does not negotiate.
+   * The accepted worker identity and SID remain pinned until disconnect.
    *
    * Phase-1 degeneracy: `opts.tools` and `opts.instructions` are intentionally
    * ignored. There is no LLM in the worker to configure — this adapter always
-   * synthesizes a single `update_ui` tool call per transcript regardless of
-   * the declared tool set. When a worker-side LLM lands, `tools`/`instructions`
-   * become its session config (declared tools + system prompt), matching how
+   * synthesizes a single `update_ui` tool call per admitted final (every final
+   * in normal mode) regardless of the declared tool set. When a worker-side LLM
+   * lands, `tools`/`instructions` become its session config (declared tools +
+   * system prompt), matching how
    * {@link RealtimeProviderAdapter}'s speech-native implementations consume
    * them today.
    */
@@ -367,6 +409,7 @@ export class LiveKitAdapter
       );
     }
     this.#connecting = true;
+    this.#activation = _opts.activation;
     this.#connectionGeneration += 1;
     const generation = this.#connectionGeneration;
     this.#emit({ type: 'state', state: 'connecting' });
@@ -379,8 +422,25 @@ export class LiveKitAdapter
       let token: string;
       let url: string;
       try {
-        ({ token, url } = await this.#mintToken(this.#roomName));
+        const grant = await (_opts.activation
+          ? this.#mintToken(this.#roomName, { trigger: true })
+          : this.#mintToken(this.#roomName));
+        attempt.assertCurrent();
+        ({ token, url } = grant);
+        if (_opts.activation) {
+          if (
+            !isLiveKitTriggerBinding(grant.trigger) ||
+            grant.trigger.expiresAt <= Math.floor(Date.now() / 1000)
+          ) {
+            throw new RealtimeVoiceError(
+              'ACTIVATION_ADAPTER_UNSUPPORTED',
+              'The token endpoint did not provide a valid trigger worker binding',
+            );
+          }
+          this.#expectedWorkerIdentity = grant.trigger.workerIdentity;
+        }
       } catch (error) {
+        if (error instanceof RealtimeVoiceError) throw error;
         throw new RealtimeVoiceError(
           'TOKEN_MINT_FAILED',
           'Failed to mint a LiveKit token',
@@ -396,6 +456,27 @@ export class LiveKitAdapter
       attempt.assertCurrent();
       await room.connect(url, token);
       attempt.assertCurrent();
+      if (_opts.activation) {
+        const nonce = crypto.randomUUID();
+        const budget = await this.#negotiateTrigger(room, nonce);
+        attempt.assertCurrent();
+        this.#triggerTurns = new TriggerTurns(
+          nonce,
+          budget,
+          _opts.activation,
+          () => this.#interruptTriggerPlayback(),
+          (text, ancestry) => this.#releaseTrigger(text, ancestry),
+          () => {
+            if (
+              this.#lastState === 'thinking' &&
+              this.#triggerCalls.size === 0 &&
+              this.#ttsActivities.size === 0
+            ) {
+              this.#emit({ type: 'state', state: 'connected' });
+            }
+          },
+        );
+      }
       // Capture locally so the raw microphone can be disabled before its first
       // publication. The enabled clone remains browser-local for metering, VAD,
       // and pre-roll while the publication starts muted and upstream-paused.
@@ -573,8 +654,15 @@ export class LiveKitAdapter
    * If a prior barge-in muted the persistent remote sink, this new
    * assistant-turn handoff is the only normal path that unmutes it. TTS
    * completion/error signals do not unmute playback because they may be stale.
+   * In trigger mode only an owned admitted call can hand off speech. Its processing
+   * activity transfers to a distinct utterance token before completion; only that
+   * utterance's trusted terminal or failed handoff releases it. Unknown calls are
+   * no-ops and missing playback terminals never synthesize an inactivity timeout.
    */
   async sendToolResult(callId: ToolCallId, output: ToolResult): Promise<void> {
+    const triggerCall = this.#triggerCalls.get(callId);
+    if (this.#activation && !triggerCall) return;
+    this.#triggerCalls.delete(callId);
     const speakText =
       'ok' in output
         ? (output.userMessage ?? output.summary ?? JSON.stringify(output))
@@ -585,6 +673,7 @@ export class LiveKitAdapter
     });
     const room = this.#room;
     if (!room) {
+      triggerCall?.done();
       // Non-fatal: the update_ui this reads back already applied, and nothing
       // downstream waits on the spoken confirmation. A missing room here means
       // an intentional teardown raced this in-flight result; genuine connection
@@ -606,18 +695,30 @@ export class LiveKitAdapter
     // back to this specific utterance and stale status dropped.
     this.#utteranceSeq += 1;
     const utteranceId = this.#utteranceSeq;
+    if (triggerCall && this.#activation) {
+      this.#ttsActivities.set(
+        utteranceId,
+        this.#activation.beginActivity(
+          `tts-${utteranceId}`,
+          triggerCall.ancestry,
+        ),
+      );
+      triggerCall.done();
+    }
     this.#currentUtteranceId = utteranceId;
     // The worker owns one persistent audio track, so its next per-turn start
     // is this handoff rather than a new TrackSubscribed event.
     // This is deliberately distinct from stale tts_done/tts_error signals.
     this.#unmutePlaybackForNextTtsTurn();
     this.#emit({ type: 'state', state: 'speaking' });
+    if (triggerCall && this.#room !== room) return;
     try {
       await room.localParticipant.sendText(speakText, {
         topic: SPEAK_TOPIC,
         attributes: { [SPEAK_UTTERANCE_ID_ATTR]: String(utteranceId) },
       });
     } catch (error) {
+      if (triggerCall && this.#room !== room) return;
       // Non-fatal: a plain Error (RealtimeSession only logs these), never a
       // RealtimeVoiceError — the read-back already rendered, so only the spoken
       // confirmation is lost. Collapse the transient `speaking` so the UI does
@@ -628,6 +729,8 @@ export class LiveKitAdapter
           cause: error,
         }),
       });
+      this.#ttsActivities.get(utteranceId)?.();
+      this.#ttsActivities.delete(utteranceId);
       if (this.#currentUtteranceId === utteranceId) {
         this.#currentUtteranceId = undefined;
         this.#collapseSpeaking();
@@ -681,6 +784,7 @@ export class LiveKitAdapter
    * hand-off. Engine `id` is not wired — LiveKit has no provider conversation.
    * Once `sendText()` starts, delivery is ambiguous and therefore terminal to
    * preserve at-most-once speech across reconnects.
+   * Trigger connections always return `not_started` without publishing a greeting.
    */
   async speakAssistantText(args: {
     readonly id: MessageId;
@@ -689,6 +793,7 @@ export class LiveKitAdapter
     readonly onPlaybackStart?: () => void;
   }): Promise<GreetingSpeechResult> {
     void args.id;
+    if (this.#activation) return 'not_started';
     if (!this.#room) return 'not_started';
     if (!this.#greetGestureUnlocked) return 'not_started';
     if (args.signal.aborted) return 'not_started';
@@ -781,6 +886,103 @@ export class LiveKitAdapter
     return room;
   }
 
+  #trustedWorker(participant?: RemoteParticipant): boolean {
+    return (
+      participant?.kind === ParticipantKind.AGENT &&
+      participant.identity === this.#expectedWorkerIdentity &&
+      participant.sid === this.#worker?.sid &&
+      participant.identity === this.#worker?.identity
+    );
+  }
+
+  #negotiateTrigger(room: Room, nonce: string): Promise<number> {
+    return new Promise((resolve, reject) => {
+      const finish = (budget?: number) => {
+        clearTimeout(deadline);
+        clearInterval(retry);
+        if (this.#capability?.nonce !== nonce) return;
+        this.#capability = undefined;
+        if (budget === undefined)
+          reject(
+            new RealtimeVoiceError(
+              'ACTIVATION_ADAPTER_UNSUPPORTED',
+              'The voice worker did not confirm correlated turns',
+            ),
+          );
+        else resolve(budget);
+      };
+      const send = () => {
+        if (this.#room !== room) return;
+        const packet = { type: 'turn_capability', version: 1, nonce };
+        void room.localParticipant
+          .publishData(new TextEncoder().encode(JSON.stringify(packet)), {
+            reliable: true,
+            topic: TURN_TOPIC,
+          })
+          .catch(() => {});
+      };
+      const deadline = setTimeout(() => finish(), 5000);
+      const retry = setInterval(send, 250);
+      this.#capability = { nonce, accept: finish, cancel: () => finish() };
+      send();
+    });
+  }
+
+  #releaseTrigger(text: string, ancestry: VoiceInputAncestry): void {
+    const activation = this.#activation;
+    if (!activation) return;
+    const callId = this.#nextCallId();
+    this.#triggerCalls.set(callId, {
+      ancestry,
+      done: activation.beginActivity(`call-${callId}`, ancestry),
+    });
+    this.#emit({
+      type: 'transcript',
+      role: 'user',
+      text,
+      final: true,
+      ancestry,
+    });
+    if (this.#activation !== activation) return;
+    this.#emit({
+      type: 'tool_call',
+      callId,
+      name: 'update_ui',
+      argumentsJson: JSON.stringify({ intent: text }),
+      ancestry,
+    });
+  }
+
+  #interruptTriggerPlayback(): void {
+    const room = this.#room;
+    if (!room || this.#currentUtteranceId === undefined) return;
+    if (this.#lastState === 'speaking') this.#mutePlaybackForBargeIn();
+    this.#currentUtteranceId = undefined;
+    void room.localParticipant
+      .publishData(
+        new TextEncoder().encode(JSON.stringify({ type: 'tts_cancel' })),
+        { reliable: true, topic: TURN_TOPIC },
+      )
+      .catch(() => {});
+  }
+
+  async #publishCancelledTrigger(room: Room): Promise<void> {
+    const packet = this.#triggerTurns?.end(true);
+    if (!packet) return;
+    try {
+      await room.localParticipant.publishData(
+        new TextEncoder().encode(JSON.stringify(packet)),
+        { reliable: true, topic: TURN_TOPIC },
+      );
+    } catch (cause) {
+      throw new RealtimeVoiceError(
+        'DATA_CHANNEL_ERROR',
+        'Failed to close cancelled voice input',
+        cause,
+      );
+    }
+  }
+
   #wireRoomEvents(room: Room): void {
     room.on(RoomEvent.Disconnected, () => {
       if (this.#room !== room) return;
@@ -806,17 +1008,78 @@ export class LiveKitAdapter
       });
     });
     room.on(RoomEvent.TranscriptionReceived, (segments) => {
+      if (this.#room !== room || this.#activation) return;
       this.#handleTranscription(segments);
     });
     // Publishing the worker's TTS track ≠ hearing it — attach it to a sink.
-    room.on(RoomEvent.TrackSubscribed, (track) => {
+    room.on(RoomEvent.TrackSubscribed, (track, _publication, participant) => {
+      if (this.#room !== room) return;
       if (track.kind !== Track.Kind.Audio) return;
+      if (this.#activation && !this.#trustedWorker(participant)) {
+        if (
+          !this.#worker &&
+          participant.kind === ParticipantKind.AGENT &&
+          participant.identity === this.#expectedWorkerIdentity
+        ) {
+          this.#pendingAudio = { track, participant };
+        }
+        return;
+      }
       this.#attachAudioTrack(track);
     });
-    room.on(RoomEvent.DataReceived, (payload, _participant, _kind, topic) => {
+    room.on(RoomEvent.ParticipantDisconnected, (participant) => {
+      if (
+        this.#room === room &&
+        this.#activation &&
+        this.#trustedWorker(participant)
+      ) {
+        void this.#failTransport(
+          this.#connectionGeneration,
+          room,
+          new RealtimeVoiceError(
+            'ACTIVATION_ELIGIBILITY_FAILED',
+            'The correlated voice worker disconnected',
+          ),
+        );
+      }
+    });
+    room.on(RoomEvent.DataReceived, (payload, participant, _kind, topic) => {
       // Drop events from a room this adapter no longer owns (stale after
       // teardown / reconnect), matching the Disconnected handler's guard.
       if (this.#room !== room) return;
+      if (topic === TRIGGER_TURN_TOPIC && this.#activation) {
+        if (
+          !participant ||
+          participant.kind !== ParticipantKind.AGENT ||
+          participant.identity !== this.#expectedWorkerIdentity ||
+          !participant.sid
+        )
+          return;
+        const packet = parseTriggerTurnPacket(payload);
+        if (!packet) return;
+        if (
+          packet.type === 'turn_capability_ack' &&
+          !this.#worker &&
+          this.#capability?.nonce === packet.nonce
+        ) {
+          this.#worker = {
+            identity: participant.identity,
+            sid: participant.sid,
+          };
+          this.#capability.accept(Math.ceil(packet.drainTimeoutMs) + 5000);
+          const audio = this.#pendingAudio;
+          this.#pendingAudio = undefined;
+          if (audio && this.#trustedWorker(audio.participant))
+            this.#attachAudioTrack(audio.track);
+        } else if (
+          packet.type === 'turn_result' &&
+          this.#trustedWorker(participant)
+        ) {
+          this.#triggerTurns?.terminal(packet);
+        }
+        return;
+      }
+      if (this.#activation && !this.#trustedWorker(participant)) return;
       if (topic === TTS_READY_TOPIC) {
         this.#handleTtsReady();
         return;
@@ -872,6 +1135,16 @@ export class LiveKitAdapter
       return;
     }
     const isTerminal = type === 'tts_done' || type === 'tts_error';
+    if (this.#activation) {
+      if (
+        !isTerminal ||
+        typeof utteranceId !== 'number' ||
+        !this.#ttsActivities.has(utteranceId)
+      )
+        return;
+      this.#ttsActivities.get(utteranceId)?.();
+      this.#ttsActivities.delete(utteranceId);
+    }
     // Drop status for an utterance the client has already barged past: a
     // cancelled utterance's late `tts_done` must be a full no-op — not clear the
     // empty-turn fallback, not move state — or the UI wedges in `thinking`. Only
@@ -1051,8 +1324,11 @@ export class LiveKitAdapter
    * Starting over an outstanding assistant utterance first invalidates and
    * cancels it. Playback is muted only when that utterance is already speaking;
    * a pending response in `thinking` has no active audio to mute. Cancellation
-   * publication is reliable but best-effort: failure warns once without blocking
-   * the new turn, and invalidation still fences late status for the old utterance.
+   * publication is reliable but best-effort: legacy failure warns once without
+   * blocking the new turn, and invalidation still fences late status for the old
+   * utterance.
+   * Trigger mode applies interruption only through source admission; waiting and
+   * hook-held speech still opens STT transport without cancelling or muting TTS.
    */
   async #startTransportTurn(
     generation: number,
@@ -1067,10 +1343,15 @@ export class LiveKitAdapter
     }
 
     this.#clearThinkingFallback();
-    const shouldMutePlayback = this.#lastState === 'speaking';
+    const previouslyMuted = this.#playbackMutedForBargeIn;
+    this.#triggerTurns?.start(preRollMs);
+    if (!this.#isCurrentRoom(generation, room)) return;
+    const shouldMutePlayback =
+      !this.#activation && this.#lastState === 'speaking';
     const isBargeIn =
       shouldMutePlayback ||
-      (this.#lastState === 'thinking' &&
+      (!this.#activation &&
+        this.#lastState === 'thinking' &&
         this.#currentUtteranceId !== undefined);
     if (isBargeIn && this.#bargeInInProgress) return;
     if (isBargeIn) {
@@ -1135,7 +1416,17 @@ export class LiveKitAdapter
           );
         }
       }
-      if (shouldMutePlayback) this.#unmutePlaybackAfterFailedBargeIn();
+      if (
+        shouldMutePlayback ||
+        (!previouslyMuted && this.#playbackMutedForBargeIn)
+      )
+        this.#unmutePlaybackAfterFailedBargeIn();
+      try {
+        await this.#publishCancelledTrigger(room);
+      } catch (cause) {
+        turnStartError = cause;
+      }
+      if (!this.#isCurrentRoom(generation, room)) return;
       this.#bargeInInProgress = false;
       if (mode === 'automatic') throw turnStartError;
       const fatalError =
@@ -1226,7 +1517,10 @@ export class LiveKitAdapter
     }
     if (!this.#isCurrentRoom(generation, room)) return;
 
-    const turnEnd: TurnEndMessage = { type: 'turn_end' };
+    const turnEnd: TurnEndMessage | undefined = this.#triggerTurns
+      ? this.#triggerTurns.end(tailError !== undefined)
+      : { type: 'turn_end' };
+    if (!turnEnd) return;
     try {
       await room.localParticipant.publishData(
         new TextEncoder().encode(JSON.stringify(turnEnd)),
@@ -1280,6 +1574,10 @@ export class LiveKitAdapter
    * idle, then the marked failure retires VAD and degrades to manual mode. A
    * missing publication or rejected pause cannot prove upstream silence and is
    * therefore fatal rather than a manual fallback.
+   * In trigger mode cancellation also sends a correlated, cancelled boundary to
+   * rotate provider input and settle its source ordinal. Its text cannot activate
+   * even if the worker later reports a successful final. Normal mode keeps the
+   * legacy no-marker behavior described above.
    */
   async #cancelTransportTurn(generation: number): Promise<void> {
     const room = this.#roomForGeneration(generation);
@@ -1316,6 +1614,8 @@ export class LiveKitAdapter
 
     this.#clearThinkingFallback();
     this.#bargeInInProgress = false;
+    await this.#publishCancelledTrigger(room);
+    if (!this.#isCurrentRoom(generation, room)) return;
     this.#emit({ type: 'state', state: 'connected' });
     if (drainError !== undefined) {
       throw Object.assign(
@@ -1798,6 +2098,7 @@ export class LiveKitAdapter
   // that already advanced state isn't stomped, and any real worker activity
   // cancels it via #clearThinkingFallback.
   #startThinkingFallback(): void {
+    if (this.#activation) return;
     this.#clearThinkingFallback();
     if (this.#thinkingFallbackMs <= 0) return;
     this.#thinkingFallbackTimer = setTimeout(() => {
@@ -1835,6 +2136,18 @@ export class LiveKitAdapter
   }
 
   #teardown(): Promise<void> {
+    this.#capability?.cancel();
+    this.#capability = undefined;
+    this.#triggerTurns?.close();
+    this.#triggerTurns = undefined;
+    this.#expectedWorkerIdentity = undefined;
+    this.#activation = undefined;
+    this.#worker = undefined;
+    this.#pendingAudio = undefined;
+    for (const call of this.#triggerCalls.values()) call.done();
+    this.#triggerCalls.clear();
+    for (const done of this.#ttsActivities.values()) done();
+    this.#ttsActivities.clear();
     // Invalidate any connect() still mid-handshake so it abandons its own room
     // instead of clobbering shared state when its awaits resume.
     this.#connectGuard.supersede();

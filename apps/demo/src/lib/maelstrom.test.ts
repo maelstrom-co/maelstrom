@@ -2,6 +2,7 @@ import type {
   CreateAdapterContext,
   MaelstromRealtimeOptions,
 } from '@maelstrom-co/react-realtime';
+import type { LiveKitAdapterOptions } from '@maelstrom-co/realtime-livekit';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { makeValidWavBytes } from './__tests__/wav-fixtures';
 import {
@@ -20,6 +21,7 @@ const state = vi.hoisted(() => ({
   liveKitAdapterOptions: [] as unknown[],
   openAIAdapterOptions: [] as unknown[],
   openAIAdapterInstances: [] as Array<{ activateAudioCalls: number }>,
+  mintLiveKit: vi.fn(async (_input: unknown) => undefined),
 }));
 
 vi.mock('@maelstrom-co/react', async (importOriginal) => ({
@@ -78,7 +80,7 @@ vi.mock('./orchestration-legibility', () => ({
   orchestrationLegibility: state.orchestrationExtension,
 }));
 vi.mock('./voice/get-livekit-token', () => ({
-  getLivekitToken: () => Promise.resolve(),
+  getLivekitToken: state.mintLiveKit,
 }));
 
 // Static import of maelstrom under a stable specifier (existing pattern).
@@ -118,9 +120,22 @@ afterEach(() => {
   state.liveKitAdapterOptions.length = 0;
   state.openAIAdapterOptions.length = 0;
   state.openAIAdapterInstances.length = 0;
+  state.mintLiveKit.mockClear();
 });
 
 describe('demo voice provider wiring', () => {
+  it('forwards trigger opt-in while preserving the exact normal mint request', async () => {
+    createAdapter('livekit');
+    const options = state.liveKitAdapterOptions[0] as LiveKitAdapterOptions;
+    await options.mintToken('normal-room');
+    expect(state.mintLiveKit).toHaveBeenLastCalledWith({
+      data: { roomName: 'normal-room' },
+    });
+    await options.mintToken('namespace', { trigger: true });
+    expect(state.mintLiveKit).toHaveBeenLastCalledWith({
+      data: { roomName: 'namespace', trigger: true },
+    });
+  });
   it('preserves unrelated package exports without constructing browser adapters', async () => {
     const [react, reactRealtime, openAI, liveKit] = await Promise.all([
       import('@maelstrom-co/react'),

@@ -50,11 +50,14 @@ interface VoiceControlProps {
  * recovery guidance based only on diagnostic presence; the diagnostic itself
  * is never rendered or serialized. A configured greeting shows preparation
  * status until it settles, while idle, error, and active-turn labels keep
- * precedence over the preparation label.
+ * precedence over the preparation label. Trigger policy labels apply only to a
+ * connected lifecycle, suppress greeting controls, and do not change turn mode.
  */
 export function VoiceControl({ showOrb = true }: VoiceControlProps = {}) {
   const {
     greetingState,
+    activationState,
+    activationConfig,
     state,
     error,
     turnControl,
@@ -64,10 +67,19 @@ export function VoiceControl({ showOrb = true }: VoiceControlProps = {}) {
   } = m.useVoice();
   const isConnected = CONNECTED_STATES.has(state);
   const isPreparing =
-    greetingState === 'preparing' && state !== 'idle' && state !== 'error';
+    activationConfig?.mode !== 'trigger' &&
+    greetingState === 'preparing' &&
+    state !== 'idle' &&
+    state !== 'error';
   let statusLabel = STATE_LABEL[state];
   if (state === 'error') {
     statusLabel = getVoiceErrorStatusLabel(error);
+  } else if (isConnected && activationConfig?.mode === 'trigger') {
+    if (activationState === 'waiting') statusLabel = 'Waiting for trigger';
+    else if (activationState === 'activating') statusLabel = 'Activating…';
+    else if (activationState === 'deactivating')
+      statusLabel = 'Returning to waiting…';
+    else if (state === 'connected') statusLabel = 'Voice active';
   } else if (
     isPreparing &&
     state !== 'connecting' &&

@@ -1,8 +1,18 @@
 import { WireEngineError } from '@maelstrom-co/client';
 import { SessionId } from '@maelstrom-co/protocol';
-import { RealtimeVoiceError } from '@maelstrom-co/realtime';
+import {
+  RealtimeVoiceError,
+  type VoiceActivationConfig,
+} from '@maelstrom-co/realtime';
 import { useStore } from '@tanstack/react-store';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { createDemoConnector } from '../lib/connector';
 import { isDebugRequested } from '../lib/debug-mode';
 import { DEFAULT_LAYOUT, NARROW_LAYOUT } from '../lib/default-layout';
@@ -27,6 +37,7 @@ import { FIRST_RUN_EXAMPLES, FirstRunHint } from './first-run-hint';
 import { KeyDrawer } from './key-drawer';
 import { KeylessDemo } from './keyless-demo';
 import { VesselOptionSync } from './vessel-option-sync';
+import { VoiceActivationSettings } from './voice-activation-settings';
 import { VoiceControl } from './voice-control';
 import { VoiceErrorNote } from './voice-error-note';
 
@@ -43,6 +54,7 @@ function isInvalidKeyError(error: Error): boolean {
   return /\b401\b|invalid api key|incorrect api key/i.test(error.message);
 }
 
+/** Demo shell; credential remounts retain drafts and accepted voice settings, not live work. */
 export function HomePage() {
   const hosted = isHosted();
   const browserKeyMode = usesBrowserKey();
@@ -79,6 +91,7 @@ export function HomePage() {
   const [intent, setIntent] = useState('');
   const [resumeIntent, setResumeIntent] = useState(false);
   const [autoStartVoice, setAutoStartVoice] = useState(false);
+  const [activation, setActivation] = useState<VoiceActivationConfig>();
   // True only while the drawer is up because a Send/mic press was actually
   // blocked on a missing key — as opposed to the header "API key" button or
   // a mint-error reopen, neither of which should auto-submit whatever text
@@ -146,6 +159,8 @@ export function HomePage() {
         >
           <VesselOptionSync />
           <DemoApp
+            initialActivation={activation}
+            onActivationChange={setActivation}
             onRequireKey={() => setDrawerOpen(true)}
             onBlockedSubmit={() => {
               setBlockedSubmit(true);
@@ -213,6 +228,10 @@ export function HomePage() {
 }
 
 interface DemoAppProps {
+  /** Last accepted settings across a credential remount; absent uses extension defaults. */
+  readonly initialActivation?: VoiceActivationConfig;
+  /** Remember accepted settings without changing the connection lifecycle. */
+  readonly onActivationChange: (config: VoiceActivationConfig) => void;
   readonly onRequireKey: () => void;
   readonly onBlockedSubmit: () => void;
   readonly onMintError: (message: string) => void;
@@ -224,7 +243,10 @@ interface DemoAppProps {
   readonly onAutoStartVoiceHandled: () => void;
 }
 
+/** Restores stopped voice settings before effects can resume credentials or start voice. */
 function DemoApp({
+  initialActivation,
+  onActivationChange,
   onRequireKey,
   onBlockedSubmit,
   onMintError,
@@ -240,7 +262,18 @@ function DemoApp({
     state: voiceState,
     error: voiceError,
     connect: connectVoice,
+    configureActivation,
   } = m.useVoice();
+  const initialActivationRef = useRef(initialActivation);
+  const configuredSessionRef = useRef<typeof configureActivation | undefined>(
+    undefined,
+  );
+  useLayoutEffect(() => {
+    if (configuredSessionRef.current === configureActivation) return;
+    configuredSessionRef.current = configureActivation;
+    if (initialActivationRef.current)
+      configureActivation(initialActivationRef.current);
+  }, [configureActivation]);
   const thinking = isProcessing || voiceState === 'thinking';
   const browserKeyMode = usesBrowserKey();
   const browserOpenAIVoice = usesBrowserOpenAIVoice();
@@ -300,6 +333,7 @@ function DemoApp({
 
       {/* Compact voice and intent dock */}
       <IntentInput
+        onActivationChange={onActivationChange}
         onBlockedSubmit={onBlockedSubmit}
         onMintError={onMintError}
         intent={intent}
@@ -349,6 +383,8 @@ function StatusIndicator() {
 }
 
 interface IntentInputProps {
+  /** Retain only successfully applied settings above the credential-keyed Provider. */
+  readonly onActivationChange: (config: VoiceActivationConfig) => void;
   readonly onBlockedSubmit: () => void;
   readonly onMintError: (message: string) => void;
   readonly intent: string;
@@ -357,7 +393,9 @@ interface IntentInputProps {
   readonly onResumeIntentHandled: () => void;
 }
 
+/** Brackets both typed submission paths through the session-owned render-settle token. */
 function IntentInput({
+  onActivationChange,
   onBlockedSubmit,
   onMintError,
   intent,
@@ -372,7 +410,12 @@ function IntentInput({
     lastResponse,
     connectionStatus,
   } = m.useMaelstrom();
-  const { state: voiceState } = m.useVoice();
+  const {
+    state: voiceState,
+    activationConfig,
+    configureActivation,
+    beginChatActivity,
+  } = m.useVoice();
   const browserKeyMode = usesBrowserKey();
   const apiKey = useStore(playgroundKeyStore, (state) => state.apiKey);
   const needsKey = browserKeyMode && !apiKey;
@@ -396,7 +439,7 @@ function IntentInput({
     // processIntent() never rejects (errors surface via lastError instead —
     // see useMaelstrom's contract), but a floating promise still needs a
     // .catch() as a backstop against that contract changing silently.
-    void processIntent(intent)
+    void submitWithVoiceActivity(intent)
       .then(() => onIntentChange(''))
       .catch(() => undefined);
     // Deps deliberately narrowed to [resumeIntent, connectionStatus]: intent
@@ -426,6 +469,16 @@ function IntentInput({
     onMintError('Invalid API key.');
   }, [browserKeyMode, lastError, onMintError, onIntentChange]);
 
+  /** Each invocation owns its completion; even a failed request waits for render settlement. */
+  async function submitWithVoiceActivity(text: string): Promise<void> {
+    const finish = beginChatActivity();
+    try {
+      await processIntent(text);
+    } finally {
+      await finish();
+    }
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!intent.trim() || isProcessing) return;
@@ -435,7 +488,7 @@ function IntentInput({
       return;
     }
 
-    await processIntent(intent);
+    await submitWithVoiceActivity(intent);
     onIntentChange('');
   };
 
@@ -466,6 +519,12 @@ function IntentInput({
       <Captions />
       <div className="mx-auto mb-2 flex max-w-4xl items-center justify-between gap-3">
         <VoiceControl showOrb={false} />
+        <VoiceActivationSettings
+          state={voiceState}
+          config={activationConfig}
+          configure={configureActivation}
+          onConfigured={onActivationChange}
+        />
         <span
           className="shrink-0 text-xs text-ink-3"
           data-testid="ai-voice-disclosure"

@@ -137,6 +137,8 @@ export type GreetingState =
 
 /** Options for constructing a {@link RealtimeSession}. */
 export interface RealtimeSessionOptions {
+  /** Optional voice activation policy; omission preserves normal voice and greetings. */
+  readonly activation?: VoiceActivationConfig;
   readonly adapter: RealtimeProviderAdapter;
   readonly instance: RealtimeInstance;
   /**
@@ -161,3 +163,48 @@ export interface RealtimeSessionOptions {
     readonly coordinator: GreetingCoordinator;
   };
 }
+
+/**
+ * Voice admission policy, independent of automatic/manual turn detection.
+ * Trigger mode consumes the matching utterance without a greeting. Distinct
+ * source-ordered requests after it are held privately through the activation
+ * hook and admitted afterwards, including finals delivered before the trigger
+ * final. Waiting still captures provider STT and may incur usage; it is neither
+ * hardware mute nor a provider-data erasure guarantee. Change policy only while
+ * stopped. Invalid phrase/duration settings throw rather than being clamped.
+ */
+export type VoiceActivationConfig =
+  | {
+      /** Preserve existing voice behavior, including configured greetings. */
+      readonly mode: 'normal';
+    }
+  | {
+      /** Keep provider STT running while excluding non-admitted speech from application work. */
+      readonly mode: 'trigger';
+      /** Whole finalized utterance, 1–200 Unicode code points with nonempty normalized words. Case and separating punctuation are ignored; accents and internal apostrophes are preserved. */
+      readonly phrase: string;
+      /** Full-turn idle interval in integer milliseconds, 1,000–600,000; defaults to 10,000. Never cancels playback. */
+      readonly inactivityMs?: number;
+      /** Count connection-lived chat tokens through render completion; defaults to false. Chat cannot activate voice. */
+      readonly includeChatActivity?: boolean;
+      /** Runs before admission opens; fails open on throw, rejection or a 2-second timeout. Return values cannot veto activation. */
+      readonly onActivate?: VoiceActivationHook;
+      /** Runs after full-turn inactivity; new work aborts this attempt and retains active admission. Otherwise fails open after 2 seconds. */
+      readonly onDeactivate?: VoiceActivationHook;
+    };
+
+/** Retained activation policy; disconnected trigger sessions remain waiting, so present connection state first. */
+export type VoiceActivationState =
+  | 'disabled'
+  | 'waiting'
+  | 'activating'
+  | 'active'
+  | 'deactivating';
+
+/** Bounded notification hook. Abortion fences core transitions but cannot undo arbitrary host side effects. Failures log a fixed category only. */
+export type VoiceActivationHook = (context: {
+  /** Aborted on timeout, disconnect, or superseding activity/epoch. */
+  readonly signal: AbortSignal;
+  /** Trigger match opens admission; full-turn inactivity closes it. */
+  readonly reason: 'trigger' | 'inactivity';
+}) => unknown;

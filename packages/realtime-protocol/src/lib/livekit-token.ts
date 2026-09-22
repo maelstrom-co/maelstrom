@@ -1,4 +1,8 @@
 import { z } from 'zod';
+import {
+  isLiveKitTriggerBinding,
+  type LiveKitTriggerBinding,
+} from './livekit-trigger.ts';
 
 import type { TokenGrant } from './token-grant.ts';
 import type { UnixSeconds } from './unix-seconds.ts';
@@ -33,6 +37,8 @@ export interface LiveKitTokenGrant extends TokenGrant {
    * cleanup policy independently of this timestamp.
    */
   readonly expiresAt: UnixSeconds;
+  /** Required in trigger mode; omitted for legacy normal grants. Supplied only by the trusted mint endpoint. */
+  readonly trigger?: LiveKitTriggerBinding;
 }
 
 /** Wire schema for {@link LiveKitTokenGrant}. */
@@ -43,4 +49,5 @@ export const LiveKitTokenGrantSchema = z.object({
   // mistyped scheme surface as an opaque connect failure.
   url: z.url({ protocol: /^wss?$/ }),
   expiresAt: UnixSecondsSchema,
+  trigger: z.custom<LiveKitTriggerBinding>(isLiveKitTriggerBinding).optional(),
 });
