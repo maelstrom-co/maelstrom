@@ -63,21 +63,80 @@ export function conversation(script: Conversation): Script {
       return answer(layout === undefined ? {} : { layout });
     }
     const [first] = ids;
-    if (first?.startsWith('action/')) {
-      const step = Number(first.split('/')[1]);
+    if (ids.length === 1 && first?.startsWith('action/')) {
+      const step = Number(first.slice('action/'.length).split('@')[0]);
       const pick = script.actions?.[step]?.pick ?? 'done';
       return answer({ [first]: actionKey(payload, first, pick) });
     }
     const choices: Record<string, string> = {};
-    for (const id of ids) {
-      const [, step, name] = id.split('/');
-      const value = script.actions?.[Number(step)]?.params?.[name];
-      if (value === undefined) throw new Error(`no scripted answer for ${id}`);
-      choices[id] =
-        typeof value === 'string' ? value : valueKey(payload, id, value.value);
-    }
+    for (const id of ids) choices[id] = batchedChoice(script, payload, id);
     return answer(choices);
   };
+}
+
+/**
+ * Answers one question of a batched call: every `action/<n>@<state>`
+ * question picks action `n` where offered (`done` elsewhere), every
+ * `<instanceId>/<slot>` question picks that instance's `slot`-th action,
+ * and parameter questions of actions off the scripted path answer
+ * `not_stated`.
+ */
+function batchedChoice(
+  script: Conversation,
+  payload: Payload,
+  id: string,
+): string {
+  const picks = script.actions ?? [];
+  if (id.startsWith('action/')) {
+    const step = Number(id.slice('action/'.length).split('@')[0]);
+    const pick = picks[step]?.pick ?? 'done';
+    try {
+      return actionKey(payload, id, pick);
+    } catch {
+      return 'done';
+    }
+  }
+  const parts = id.split('/');
+  if (parts[0] === 'param' && parts.length === 3) {
+    const value = picks[Number(parts[1])]?.params?.[parts[2] as string];
+    if (value === undefined) throw new Error(`no scripted answer for ${id}`);
+    return typeof value === 'string'
+      ? value
+      : valueKey(payload, id, value.value);
+  }
+  if (parts[0] === 'param') {
+    const [, instanceId, slot, target, name] = parts as string[];
+    const action = target?.split(':').pop()?.split('@')[0];
+    const pick = slotPicks(picks, instanceId as string)[Number(slot) - 1];
+    const value =
+      pick?.pick === `${instanceId}/${action}`
+        ? pick.params?.[name as string]
+        : 'not_stated';
+    if (value === undefined) throw new Error(`no scripted answer for ${id}`);
+    return typeof value === 'string'
+      ? value
+      : valueKey(payload, id, value.value);
+  }
+  const [instanceId, slot] = parts as [string, string];
+  const pick = slotPicks(picks, instanceId)[Number(slot) - 1];
+  if (pick === undefined || slot === '3') return 'none';
+  const action = pick.pick.split('/')[1] as string;
+  if (slot === '1') return action;
+  const criteria = payload.questions[`${instanceId}/1`]?.criteria ?? {};
+  const first = slotPicks(picks, instanceId)[0]?.pick.split('/')[1] ?? '';
+  const view =
+    /Switches it to its (\S+) view\./.exec(criteria[first] ?? '')?.[1] ??
+    /currently in its (\S+) view/.exec(
+      payload.questions[`${instanceId}/1`]?.instructions ?? '',
+    )?.[1];
+  return `${view}:${action}`;
+}
+
+function slotPicks(
+  picks: readonly ScriptedAction[],
+  instanceId: string,
+): readonly ScriptedAction[] {
+  return picks.filter((pick) => pick.pick.startsWith(`${instanceId}/`));
 }
 
 /** The option key of `instanceId/action` in an action question. */
