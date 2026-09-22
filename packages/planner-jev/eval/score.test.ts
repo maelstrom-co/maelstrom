@@ -225,7 +225,11 @@ describe('stage scores', () => {
 });
 
 describe('arrangement rules', () => {
-  const base = scenario('preserve');
+  const preserve = scenario('preserve');
+  const base: Scenario = {
+    ...preserve,
+    expected: { ...preserve.expected, arrangement: undefined },
+  };
   const arranged = (rules: Expectation['arrangement']): Scenario => ({
     ...base,
     expected: { ...base.expected, arrangement: rules },
@@ -239,6 +243,7 @@ describe('arrangement rules', () => {
 
   test('a rule-less scenario scores as before, without an arrangement score', () => {
     const score = scoreResponse(base, response(base));
+    expect(score.arrangement).toBe(undefined);
     expect(score).toEqual({ pass: true, failures: [] });
   });
 
