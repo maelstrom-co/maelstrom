@@ -53,8 +53,8 @@ export interface TypeSafeClientOptions {
   /** Called once per call, for instrumentation. */
   readonly onCall?: (call: JevCall) => void;
   /**
-   * Logs every parsed reply at debug as `jev.reply`, with the questions it
-   * answers, both as JSON strings, before validation. Questions and replies can echo user text, so
+   * Logs every parsed reply at debug as `jev.reply`, with the state and
+   * questions it answers, all as JSON strings, before validation. Questions and replies can echo user text, so
    * keep it off outside local debugging. Defaults to `false`.
    */
   readonly logReplies?: boolean;
@@ -166,6 +166,7 @@ export function createTypeSafeClient(options: TypeSafeClientOptions): Ask {
       // Console loggers cut nested objects short; JSON keeps every answer.
       ctx.logger.debug('jev.reply', {
         stage,
+        state: JSON.stringify(evaluation.state),
         questions: JSON.stringify(evaluation.questions),
         reply: JSON.stringify(raw),
       });

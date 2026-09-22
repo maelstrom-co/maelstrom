@@ -230,6 +230,9 @@ describe('createTypeSafeClient', () => {
     const reply = loud.entries.find((entry) => entry.msg === 'jev.reply');
     expect(reply?.level).toBe('debug');
     expect(reply?.data?.stage).toBe('jevSelect');
+    expect(JSON.parse(String(reply?.data?.state))).toEqual(
+      JSON.parse(JSON.stringify(evaluation.state)),
+    );
     expect(JSON.parse(String(reply?.data?.questions))).toEqual(
       JSON.parse(JSON.stringify(evaluation.questions)),
     );
