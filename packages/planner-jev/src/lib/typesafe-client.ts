@@ -29,6 +29,12 @@ export type CallOutcome =
   | 'provider_http'
   | 'provider_invalid_reply';
 
+/** One validated answer as {@link JevCall} reports it. */
+export interface CallAnswer extends Answer {
+  /** Probability per option, when the reply carries them. */
+  readonly probabilities?: Readonly<Record<string, number>>;
+}
+
 /** What the client reports about each call to {@link TypeSafeClientOptions.onCall}. */
 export interface JevCall {
   readonly stage: StageName;
@@ -36,6 +42,8 @@ export interface JevCall {
   readonly latencyMs: number;
   readonly usage?: Usage;
   readonly outcome: CallOutcome;
+  /** Every answer of a reply that passed validation, whether or not the stage later defers. */
+  readonly answers?: Readonly<Record<string, CallAnswer>>;
 }
 
 /** Connection settings for TypeSafe's System One endpoint. */
@@ -74,7 +82,11 @@ export function createTypeSafeClient(options: TypeSafeClientOptions): Ask {
   return async (stage, evaluation, ctx) => {
     const questionIds = Object.keys(evaluation.questions);
     const started = performance.now();
-    const report = (outcome: CallOutcome, usage?: Usage) => {
+    const report = (
+      outcome: CallOutcome,
+      usage?: Usage,
+      answers?: Readonly<Record<string, CallAnswer>>,
+    ) => {
       const latencyMs = performance.now() - started;
       ctx.logger.debug('jev.call', {
         stage,
@@ -93,6 +105,7 @@ export function createTypeSafeClient(options: TypeSafeClientOptions): Ask {
         latencyMs,
         outcome,
         ...(usage && { usage }),
+        ...(answers && { answers }),
       });
     };
     const cancelled = () => {
@@ -170,12 +183,12 @@ export function createTypeSafeClient(options: TypeSafeClientOptions): Ask {
         questions: JSON.stringify(evaluation.questions),
         reply: JSON.stringify(raw),
       });
-    const reply = validateReply(raw, evaluation, config.model);
-    if (reply === undefined)
+    const parsed = parseReply(raw, evaluation, config.model);
+    if (parsed === undefined)
       return failed('provider_invalid_reply', 'reply failed validation');
     if (ctx.signal?.aborted) return cancelled();
-    report('ok', reply.usage);
-    return ok(reply);
+    report('ok', parsed.usage, parsed.answers);
+    return ok(withoutProbabilities(parsed));
   };
 }
 
@@ -190,6 +203,17 @@ export function validateReply(
   evaluation: Evaluation,
   model: string,
 ): Reply | undefined {
+  const parsed = parseReply(raw, evaluation, model);
+  return parsed && withoutProbabilities(parsed);
+}
+
+function parseReply(
+  raw: unknown,
+  evaluation: Evaluation,
+  model: string,
+):
+  | { readonly answers: Record<string, CallAnswer>; readonly usage: Usage }
+  | undefined {
   if (
     !isRecord(raw) ||
     raw.model !== model ||
@@ -201,7 +225,7 @@ export function validateReply(
     return undefined;
   if (!sameKeys(raw.answers, Object.keys(evaluation.questions)))
     return undefined;
-  const answers: Record<string, Answer> = Object.create(null);
+  const answers: Record<string, CallAnswer> = Object.create(null);
   for (const [id, question] of Object.entries(evaluation.questions)) {
     const answer = raw.answers[id];
     if (
@@ -220,9 +244,11 @@ export function validateReply(
       return undefined;
     let total = 0;
     let maximum = -1;
+    const probabilities: Record<string, number> = Object.create(null);
     for (const option of options) {
       const value = answer.probabilities[option];
       if (!isProbability(value)) return undefined;
+      probabilities[option] = value;
       total += value;
       maximum = Math.max(maximum, value);
     }
@@ -231,7 +257,11 @@ export function validateReply(
       answer.probabilities[answer.choice] !== maximum
     )
       return undefined;
-    answers[id] = { choice: answer.choice, confidence: answer.confidence };
+    answers[id] = {
+      choice: answer.choice,
+      confidence: answer.confidence,
+      probabilities,
+    };
   }
   return {
     answers,
@@ -240,6 +270,13 @@ export function validateReply(
       outputTokens: raw.usage.output_tokens,
     },
   };
+}
+
+function withoutProbabilities(reply: Reply): Reply {
+  const answers: Record<string, Answer> = Object.create(null);
+  for (const [id, { choice, confidence }] of Object.entries(reply.answers))
+    answers[id] = { choice, confidence };
+  return { answers, usage: reply.usage };
 }
 
 async function readBody(
