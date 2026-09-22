@@ -197,7 +197,7 @@ describe('llmComplete', () => {
     );
   });
 
-  test('declares pre-transition variants and a code-built rationale', async () => {
+  test('declares post-transition variants and a code-built rationale', async () => {
     mockChat.mockResolvedValue({ userMessage: 'Opened it.' });
     const tree = [
       'V:2,1',
@@ -219,7 +219,7 @@ describe('llmComplete', () => {
       { instanceId: 'calendar-main', vesselId: 'calendar', variant: 'month' },
       { instanceId: 'weather-main', vesselId: 'weather', variant: 'current' },
       { instanceId: 'map-main', vesselId: 'map', variant: 'overview' },
-      { instanceId: 'journal-main', vesselId: 'journal', variant: 'list' },
+      { instanceId: 'journal-main', vesselId: 'journal', variant: 'entry' },
     ] as never);
     expect(candidate.rationale).toContain('Planned by Jev.');
     expect(candidate.rationale).toContain('openEntry on journal-main');
