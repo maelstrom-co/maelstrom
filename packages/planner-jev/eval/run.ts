@@ -8,12 +8,14 @@ import {
   type Stage,
 } from '@maelstrom-co/engine';
 import {
+  type ActionExecution,
   ChartRequestMessage,
   isOk,
   type MaelstromResponse,
   MessageId,
   SessionId,
   type TilingNode,
+  type VesselInstanceSnapshot,
 } from '@maelstrom-co/protocol';
 import type { AnyTextAdapter } from '@tanstack/ai';
 
@@ -23,8 +25,19 @@ import type {
   Selection2,
 } from '../src/lib/stages-experimental/types.js';
 import type { AnswerRecord, JevActionPlan } from '../src/lib/types.js';
-import type { JevCall } from '../src/lib/typesafe-client.js';
+import {
+  type Ask,
+  createTypeSafeClient,
+  type JevCall,
+} from '../src/lib/typesafe-client.js';
 import { type Arm, type ArmKind, demoLlmPlanner } from './arms.js';
+import {
+  GRADER_VERSION,
+  type GraderCall,
+  type GraderGrade,
+  type GraderRecord,
+  gradeResponse,
+} from './grader.js';
 import {
   createRecorder,
   type StageRecord,
@@ -47,6 +60,7 @@ import {
   scoreSelection,
 } from './score.js';
 import { type LlmCall, type LlmRole, withUsage } from './usage-adapter.js';
+import { VERBALIZER_VERSION } from './verbalize-tree.js';
 
 /** One Jev answer from a validated reply, flattened for the records. */
 export interface RecordedAnswer {
@@ -110,6 +124,16 @@ export interface RunRecord {
   /** `stated_elsewhere` slots the actions stage left for the LLM, and how many it filled. */
   readonly fill?: { readonly slots: number; readonly filled: number };
   readonly tree?: readonly unknown[];
+  /** The shipped execution plan; absent from records written before the grader. */
+  readonly executionPlan?: readonly ActionExecution[];
+  /** Every retained instance the shipped layout declares; absent from records written before the grader. */
+  readonly instances?: readonly VesselInstanceSnapshot[];
+  /**
+   * The grader's verdict on the shipped response (`--grader`, planned
+   * scenarios only), with its own TypeSafe calls, which are never counted
+   * in `jevCalls`.
+   */
+  readonly grader?: GraderRecord;
 }
 
 export interface EvalOptions {
@@ -130,6 +154,11 @@ export interface EvalOptions {
   readonly onRecord?: (record: RunRecord) => void;
   /** Output directory; each Jev turn's stage records are written under `<out>/stages/<arm>/`. */
   readonly out?: string;
+  /**
+   * Grade every planned shipped response with the TypeSafe grader, after
+   * the turn's latency is measured, through its own client.
+   */
+  readonly grader?: boolean;
   /** Stages every Jev arm replays from a recorded run instead of running live. */
   readonly replay?: {
     readonly source: ReplaySource;
@@ -160,23 +189,93 @@ export async function runEval(options: EvalOptions): Promise<RunRecord[]> {
       options.arms.filter((arm) => arm.kind !== 'baseline'),
     );
   }
+  const grader = options.grader ? graderClient(options) : undefined;
   const records: RunRecord[] = [];
   for (const scenario of options.scenarios)
     for (let repeat = 1; repeat <= options.repeats; repeat++)
       for (const arm of options.arms) {
-        const record = await runTurn(options, arm, scenario, repeat);
+        const turn = await runTurn(options, arm, scenario, repeat);
+        const record =
+          grader && turn.response
+            ? { ...turn.record, grader: await grader(scenario, turn.response) }
+            : turn.record;
         records.push(record);
         options.onRecord?.(record);
       }
   return records;
 }
 
+/**
+ * Grades one shipped response: `grader/not_tiling` for a non-tiling
+ * layout, or `grader/exception` for any exception `ask` or the grading
+ * itself raises. The grader is secondary and must never abort a run or
+ * change a turn's primary result.
+ */
+export async function grade(
+  ask: Ask,
+  scenario: Scenario,
+  response: MaelstromResponse,
+  logger: Logger,
+): Promise<GraderGrade> {
+  const { layout } = response;
+  if (layout.type !== 'tiling')
+    return {
+      graderVersion: GRADER_VERSION,
+      verbalizerVersion: VERBALIZER_VERSION,
+      failure: 'grader/not_tiling',
+    };
+  try {
+    return await gradeResponse(
+      ask,
+      {
+        request: scenario.request,
+        response: {
+          userMessage: response.userMessage,
+          executionPlan: response.executionPlan,
+          tree: layout.tree,
+          instances: layout.instances,
+        },
+      },
+      { logger },
+    );
+  } catch {
+    return {
+      graderVersion: GRADER_VERSION,
+      verbalizerVersion: VERBALIZER_VERSION,
+      failure: 'grader/exception',
+    };
+  }
+}
+
+type Grader = (
+  scenario: Scenario,
+  response: MaelstromResponse,
+) => Promise<GraderRecord>;
+
+/** Grades on a client of its own, so its calls never reach an arm's recorder. */
+function graderClient(options: EvalOptions): Grader {
+  let calls: GraderCall[] = [];
+  const ask: Ask = createTypeSafeClient({
+    ...options.typesafe,
+    onCall: ({ latencyMs, usage, outcome }) =>
+      calls.push({ latencyMs, outcome, ...(usage && { usage }) }),
+  });
+  return async (scenario, response) => {
+    calls = [];
+    return {
+      ...(await grade(ask, scenario, response, options.logger ?? silent)),
+      calls,
+    };
+  };
+}
+
+/** A turn's record, and the planned response to grade when it shipped one. */
 async function runTurn(
   options: EvalOptions,
   arm: Arm,
   scenario: Scenario,
   repeat: number,
-): Promise<RunRecord> {
+): Promise<{ record: RunRecord; response?: MaelstromResponse }> {
   const jev = arm.kind !== 'baseline';
   const llmCalls: LlmCall[] = [];
   const adapter = (role: LlmRole) =>
@@ -223,7 +322,11 @@ async function runTurn(
       repeat,
       stages: recorder.stages,
     });
-  return record;
+  return {
+    record,
+    ...(turn.response &&
+      scenario.expected.status === 'planned' && { response: turn.response }),
+  };
 }
 
 function jevFields(
@@ -400,6 +503,10 @@ function base(
       userMessage: turn.response.userMessage,
       tree:
         turn.response.layout.type === 'tiling' ? turn.response.layout.tree : [],
+      executionPlan: turn.response.executionPlan,
+      ...(turn.response.layout.type === 'tiling' && {
+        instances: turn.response.layout.instances,
+      }),
     }),
     ...(turn.error && { error: turn.error }),
   };

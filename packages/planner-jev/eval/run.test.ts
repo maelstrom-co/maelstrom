@@ -2,8 +2,9 @@ import { afterEach, expect, test } from 'bun:test';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
+import type { Logger } from '@maelstrom-co/engine';
 import { pipeline, withFallback, withRetry } from '@maelstrom-co/engine';
+import type { MaelstromResponse } from '@maelstrom-co/protocol';
 import { isErr, ok } from '@maelstrom-co/protocol';
 import type { AnyTextAdapter } from '@tanstack/ai';
 
@@ -24,11 +25,21 @@ import { completeWithLayout } from '../src/lib/stages-experimental/complete.js';
 import { menuLayout } from '../src/lib/stages-experimental/layout-menu.js';
 import { selectUngated } from '../src/lib/stages-experimental/select-ungated.js';
 import type { LayoutStage } from '../src/lib/stages-experimental/types.js';
+import type { Ask } from '../src/lib/typesafe-client.js';
 import { type Arm, jevDeps, resolveArms } from './arms.js';
+import { GRADER_VERSION } from './grader.js';
 import { loadReplay, replayedStages } from './replay.js';
 import { writeReport } from './report.js';
-import { runEval } from './run.js';
+import { grade, runEval } from './run.js';
 import { selectScenarios } from './scenarios.js';
+import { VERBALIZER_VERSION } from './verbalize-tree.js';
+
+const silentLogger: Logger = {
+  debug() {},
+  info() {},
+  warn() {},
+  error() {},
+};
 
 const realFetch = globalThis.fetch;
 const dirs: string[] = [];
@@ -417,3 +428,103 @@ const handOffArm: Arm = {
     );
   },
 };
+
+const gradedTokyo: Script = (payload, call) =>
+  'request_satisfied' in payload.questions
+    ? {
+        choices: {},
+        scores: { request_satisfied: 4, arrangement_match: 3 },
+      }
+    : tokyo(payload, call);
+
+test('grades every planned shipped response after the turn, its calls kept apart from the arm', async () => {
+  mockProvider();
+  const records = await run(gradedTokyo, ['quoted-location', 'ambiguous'], {
+    grader: true,
+  });
+  const [baseline, jev, baselineDeferral, jevDeferral] = records;
+  for (const record of [baseline, jev]) {
+    expect(record?.grader?.dimensions).toEqual({
+      request_satisfied: { score: 1, samples: [4] },
+      arrangement_match: { score: 0.75, samples: [3] },
+    });
+    expect(record?.grader?.calls).toMatchObject([
+      { outcome: 'ok', usage: { inputTokens: 11, outputTokens: 2 } },
+    ]);
+  }
+  expect(jev?.jevCalls?.some((call) => call.stage === 'grader')).toBe(false);
+  expect(jev?.answers?.some((answer) => answer.stage === 'grader')).toBe(false);
+  expect(baseline?.executionPlan as unknown).toEqual([
+    {
+      instanceId: 'weather-main',
+      action: 'setLocation',
+      params: { location: 'Tokyo' },
+    },
+  ]);
+  expect(
+    baseline?.instances?.map((instance) => String(instance.instanceId)),
+  ).toEqual([
+    'calendar-main',
+    'weather-main',
+    'tasks-main',
+    'map-main',
+    'journal-main',
+  ]);
+  // Expected-deferral scenarios are left out of every planned metric.
+  expect(baselineDeferral?.grader).toBe(undefined);
+  expect(jevDeferral?.grader).toBe(undefined);
+});
+
+test('a grader failure is recorded without touching the turn', async () => {
+  mockProvider();
+  const [baseline, jev] = await run(
+    (payload, call) =>
+      'request_satisfied' in payload.questions
+        ? { status: 500 }
+        : tokyo(payload, call),
+    ['quoted-location'],
+    { grader: true },
+  );
+  for (const record of [baseline, jev]) {
+    expect(record?.error).toBe(undefined);
+    expect(record?.score?.pass).toBe(true);
+    expect(record?.grader?.failure).toBe('grader/provider_http');
+    expect(record?.grader?.calls).toMatchObject([{ outcome: 'provider_http' }]);
+  }
+  expect(jev?.fallbackCalls).toBe(0);
+  expect(jev?.deferral).toBe(undefined);
+});
+
+test('grade catches an exception ask raises and records grader/exception, never throwing', async () => {
+  const [scenario] = selectScenarios('development', ['quoted-location']);
+  if (!scenario) throw new Error('fixture scenario is missing');
+  const throwingAsk: Ask = () => {
+    throw new Error('boom');
+  };
+  const response = {
+    type: 'maelstrom_response',
+    requestId: 'r',
+    userMessage: 'Done.',
+    rationale: '',
+    executionPlan: [],
+    layout: {
+      type: 'tiling',
+      tree: [],
+      instances: scenario.request.instances,
+    },
+  } as unknown as MaelstromResponse;
+  await expect(
+    grade(throwingAsk, scenario, response, silentLogger),
+  ).resolves.toEqual({
+    graderVersion: GRADER_VERSION,
+    verbalizerVersion: VERBALIZER_VERSION,
+    failure: 'grader/exception',
+  });
+});
+
+test('does not grade without the grader option', async () => {
+  mockProvider();
+  const [baseline, jev] = await run(gradedTokyo, ['quoted-location']);
+  expect(baseline?.grader).toBe(undefined);
+  expect(jev?.grader).toBe(undefined);
+});
