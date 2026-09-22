@@ -13,14 +13,15 @@ import {
   type MaelstromResponse,
   MessageId,
   SessionId,
+  type TilingNode,
 } from '@maelstrom-co/protocol';
 import type { AnyTextAdapter } from '@tanstack/ai';
 
 import type { StageName } from '../src/lib/defer.js';
+import type { LayoutSource } from '../src/lib/stages-experimental/types.js';
 import type {
   AnswerRecord,
   JevActionPlan,
-  JevLayoutPlan,
   JevSelection,
 } from '../src/lib/types.js';
 import type { JevCall } from '../src/lib/typesafe-client.js';
@@ -207,7 +208,7 @@ function jevFields(
     )?.output as T | undefined;
   const selection = outputOf<JevSelection>('jevSelect');
   const actions = outputOf<JevActionPlan>('jevActions');
-  const layout = outputOf<JevLayoutPlan>('jevLayout');
+  const layout = outputOf<LayoutOutput>('jevLayout');
   const deferredRecord = recorder.stages.find(
     (record) => record.outcome === 'deferred',
   );
@@ -237,7 +238,9 @@ function jevFields(
     stageScores: {
       ...(selection && { selection: scoreSelection(scenario, selection) }),
       ...(actions && { actions: scoreActions(scenario, actions) }),
-      ...(layout && { layout: scoreLayout(scenario, layout) }),
+      ...(layout?.tree && {
+        layout: scoreLayout(scenario, { tree: layout.tree }),
+      }),
     },
     stages: recorder.stages.map(
       ({ input: _input, output: _output, ...rest }) => rest,
@@ -258,6 +261,7 @@ function jevFields(
       }),
       ...(layout && {
         jevLayout: {
+          ...(layout.source && { source: layout.source }),
           layoutId: layout.layoutId,
           tree: layout.tree,
           answers: layout.answers,
@@ -271,6 +275,18 @@ function jevFields(
     }),
     ...(fill && { fill }),
   };
+}
+
+/**
+ * What a layout stage returns: the POC's plan, or a stage-library decision
+ * that carries its `source` and leaves `tree` undefined to hand the layout
+ * to the completion call.
+ */
+interface LayoutOutput {
+  readonly source?: LayoutSource;
+  readonly layoutId?: string;
+  readonly tree?: readonly TilingNode[];
+  readonly answers: readonly AnswerRecord[];
 }
 
 function flattenAnswers(call: JevCall): RecordedAnswer[] {
