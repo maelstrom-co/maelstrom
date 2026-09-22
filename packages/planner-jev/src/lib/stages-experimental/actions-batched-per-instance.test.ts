@@ -14,8 +14,15 @@ import {
   type Payload,
   type Script,
   scriptedAsk,
+  scriptedFetch,
+  TEST_MODEL,
 } from '../__test-helpers__/scripted-fetch.js';
-import { perInstanceBatchedActions } from './actions-batched-per-instance.js';
+import { createTypeSafeClient } from '../typesafe-client.js';
+import {
+  type PerInstanceBatchedActionsOptions,
+  perInstanceBatchedActions,
+} from './actions-batched-per-instance.js';
+import { MAX_CONCURRENT_CALLS } from './fan-out.js';
 import type { GateAnswer, Selection2 } from './types.js';
 
 const CALENDAR_ONLY = {
@@ -32,13 +39,24 @@ function selectionOf(
   return keepAll(makeRequest(intent), [], decisions);
 }
 
-async function run(selection: Selection2, script: Script) {
+async function run(
+  selection: Selection2,
+  script: Script,
+  options: PerInstanceBatchedActionsOptions = {},
+) {
   const { ask, calls } = scriptedAsk(script);
-  const result = await perInstanceBatchedActions(ask)(
+  const result = await perInstanceBatchedActions(ask, options)(
     selection,
     makeContext(selection.input),
   );
   return { result, calls };
+}
+
+/** A budget small enough to split these fixtures over several calls. */
+const SPLIT_BYTES = 2000;
+
+function requestBytes(payload: Payload): number {
+  return new TextEncoder().encode(JSON.stringify(payload)).length;
 }
 
 function planned(result: Awaited<ReturnType<typeof run>>['result']) {
@@ -262,6 +280,83 @@ describe('perInstanceBatchedActions', () => {
       'showWeek',
       'setLocation',
     ]);
+  });
+
+  test('splits the questions across calls at the byte budget and merges the answers', async () => {
+    const selection = selectionOf('week view, then add standup', CALENDAR_ONLY);
+    const choices = {
+      'calendar-main/1': 'showWeek',
+      'calendar-main/2': 'week:addEvent',
+      'param/calendar-main/1/addEvent/title': 'v0',
+      'param/calendar-main/2/week:addEvent/title': 'v4',
+      'param/calendar-main/2/week:addEvent/time': 'stated_elsewhere',
+      'param/calendar-main/2/day:addEvent/title': 'v1',
+    };
+    const whole = await run(selection, answering(choices));
+    const split = await run(selection, answering(choices), {
+      maxRequestBytes: SPLIT_BYTES,
+    });
+    expect(whole.calls).toHaveLength(1);
+    expect(split.calls.length).toBeGreaterThan(1);
+    for (const call of split.calls) {
+      expect(requestBytes(call)).toBeLessThanOrEqual(SPLIT_BYTES);
+      expect(call.state).toEqual(whole.calls[0]?.state as never);
+    }
+    expect(
+      split.calls.flatMap((call) => Object.keys(call.questions)).sort(),
+    ).toEqual(Object.keys(whole.calls[0]?.questions ?? {}).sort());
+    expect(planned(split.result)).toEqual(planned(whole.result));
+  });
+
+  test('defers batch_cap when the state and one question alone are over the budget', async () => {
+    const { result, calls } = await run(
+      selectionOf('week view, then add standup', CALENDAR_ONLY),
+      answering({}),
+      { maxRequestBytes: 300 },
+    );
+    expect(calls).toEqual([]);
+    expect(deferralOf(result)).toBe('jevActions/batch_cap');
+  });
+
+  test('defers when one chunk fails', async () => {
+    const { result } = await run(
+      selectionOf('week view, then add standup', CALENDAR_ONLY),
+      (payload, call) =>
+        Object.hasOwn(payload.questions, 'calendar-main/3')
+          ? { status: 500 }
+          : answering({})(payload, call),
+      { maxRequestBytes: SPLIT_BYTES },
+    );
+    expect(deferralOf(result)).toBe('jevActions/provider_http');
+  });
+
+  test('keeps at most the concurrency cap of calls in flight', async () => {
+    const selection = selectionOf('week view, then add standup');
+    const { fetch, calls } = scriptedFetch(answering({}));
+    let active = 0;
+    let peak = 0;
+    const traced = (async (url: string, init: RequestInit) => {
+      active += 1;
+      peak = Math.max(peak, active);
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        return await fetch(url, init);
+      } finally {
+        active -= 1;
+      }
+    }) as unknown as typeof fetch;
+    const ask = createTypeSafeClient({
+      apiKey: 'typesafe-test-key',
+      model: TEST_MODEL,
+      fetch: traced,
+      timeoutMs: 5000,
+    });
+    const result = await perInstanceBatchedActions(ask, {
+      maxRequestBytes: SPLIT_BYTES,
+    })(selection, makeContext(selection.input));
+    expect(calls.length).toBeGreaterThan(MAX_CONCURRENT_CALLS);
+    expect(peak).toBe(MAX_CONCURRENT_CALLS);
+    expect(planned(result)).toEqual({ actions: [], asks: [] });
   });
 
   test('makes no call on a resize-only turn or when the gate says no actions are needed', async () => {
