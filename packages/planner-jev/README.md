@@ -48,6 +48,7 @@ Run the Engine with `retry: false`. The Jev pipeline is never re-run whole: `llm
 | `TYPESAFE_API_KEY` | TypeSafe key. Required for `jev`; server-side only and redacted from logs. |
 | `JEV_MODEL` | Pinned Jev model, for example `jev-1.13.0`. Required for `jev`; `jev-latest` drifts. |
 | `OPENAI_API_KEY` | Server OpenAI key for `llmComplete` and the fallback. Required for `jev`. |
+| `JEV_LOG_REPLIES` | `1` logs every raw Jev reply as `jev.reply`. Off by default; local debugging only. |
 
 ## Limits
 
@@ -87,6 +88,7 @@ Every deferral logs `jev.defer` at info with `{ stage, reason, question }`, and 
 
 - `jev.call` (debug): stage, model, question ids, latency, outcome and token usage of every TypeSafe call.
 - `jev.answer` (debug): stage, question, choice and confidence of every answer read.
+- `jev.reply` (debug, opt-in via `logReplies` / `JEV_LOG_REPLIES=1`): the questions sent and the raw reply, before validation, so an invalid reply is visible too.
 - `jev.action_dropped` (info): an action dropped for a `not_stated` parameter.
 
 ## Evaluating

@@ -46,7 +46,10 @@ const payload: Payload = JSON.parse(
   JSON.stringify({ model: TEST_MODEL, ...evaluation }),
 );
 
-function setup(script: Script, options: { timeoutMs?: number } = {}) {
+function setup(
+  script: Script,
+  options: { timeoutMs?: number; logReplies?: boolean } = {},
+) {
   const { fetch, calls } = scriptedFetch(script);
   const recorded: JevCall[] = [];
   const ask = createTypeSafeClient({
@@ -55,6 +58,9 @@ function setup(script: Script, options: { timeoutMs?: number } = {}) {
     fetch,
     timeoutMs: options.timeoutMs ?? 1000,
     onCall: (call) => recorded.push(call),
+    ...(options.logReplies !== undefined && {
+      logReplies: options.logReplies,
+    }),
   });
   const spy = spyLogger();
   return { ask, calls, recorded, ...spy };
@@ -207,6 +213,28 @@ describe('createTypeSafeClient', () => {
       outputTokens: 2,
     });
     expect(typeof call?.data?.latencyMs).toBe('number');
+  });
+
+  test('logs the raw reply only when logReplies is on', async () => {
+    const script: Script = () => ({
+      choices: { 'view/weather-main': 'hide' },
+    });
+    const quiet = setup(script);
+    await quiet.ask('jevSelect', evaluation, ctx(quiet.logger));
+    expect(quiet.entries.some((entry) => entry.msg === 'jev.reply')).toBe(
+      false,
+    );
+
+    const loud = setup(script, { logReplies: true });
+    await loud.ask('jevSelect', evaluation, ctx(loud.logger));
+    const reply = loud.entries.find((entry) => entry.msg === 'jev.reply');
+    expect(reply?.level).toBe('debug');
+    expect(reply?.data).toMatchObject({
+      stage: 'jevSelect',
+      questions: evaluation.questions,
+      reply: { model: TEST_MODEL },
+    });
+    expect(JSON.stringify(reply?.data)).not.toContain(KEY);
   });
 
   test('a timeout becomes a provider_timeout deferral', async () => {

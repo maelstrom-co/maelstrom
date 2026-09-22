@@ -52,6 +52,12 @@ export interface TypeSafeClientOptions {
   readonly timeoutMs?: number;
   /** Called once per call, for instrumentation. */
   readonly onCall?: (call: JevCall) => void;
+  /**
+   * Logs every parsed reply at debug as `jev.reply`, with the questions it
+   * answers, before validation. Questions and replies can echo user text, so
+   * keep it off outside local debugging. Defaults to `false`.
+   */
+  readonly logReplies?: boolean;
 }
 
 /** Asks Jev one evaluation on behalf of `stage`. */
@@ -156,6 +162,12 @@ export function createTypeSafeClient(options: TypeSafeClientOptions): Ask {
     } catch {
       return failed('provider_invalid_reply', 'response unreadable');
     }
+    if (config.logReplies)
+      ctx.logger.debug('jev.reply', {
+        stage,
+        questions: evaluation.questions,
+        reply: raw,
+      });
     const reply = validateReply(raw, evaluation, config.model);
     if (reply === undefined)
       return failed('provider_invalid_reply', 'reply failed validation');
@@ -276,6 +288,11 @@ function validateOptions(options: TypeSafeClientOptions) {
     throw new Error('Invalid TypeSafe option: timeoutMs must be positive');
   if (options.onCall !== undefined && typeof options.onCall !== 'function')
     throw new Error('Invalid TypeSafe option: onCall must be a function');
+  if (
+    options.logReplies !== undefined &&
+    typeof options.logReplies !== 'boolean'
+  )
+    throw new Error('Invalid TypeSafe option: logReplies must be a boolean');
   return {
     apiKey: options.apiKey,
     model: options.model,
@@ -283,6 +300,7 @@ function validateOptions(options: TypeSafeClientOptions) {
     fetch: options.fetch ?? fetch,
     timeoutMs,
     onCall: options.onCall,
+    logReplies: options.logReplies ?? false,
   };
 }
 

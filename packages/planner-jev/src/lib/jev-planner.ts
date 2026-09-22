@@ -35,6 +35,11 @@ export interface TypeSafeOptions {
   readonly timeoutMs?: number;
   /** Transport. Defaults to the global `fetch`. */
   readonly fetch?: typeof fetch;
+  /**
+   * Logs every raw Jev reply at debug as `jev.reply`. For local debugging
+   * only. Defaults to `false`.
+   */
+  readonly logReplies?: boolean;
 }
 
 /** Configuration for {@link jevPlanner}. */
