@@ -264,7 +264,7 @@ describe('jevPlanner through createEngine', () => {
     ).toBe('llmComplete/param_unfilled');
   });
 
-  test('a transition to a larger variant keeps the pre-transition variant and the action', async () => {
+  test('a transition to a larger variant ships the post-transition variant and the action', async () => {
     mockChat.mockResolvedValue({ userMessage: 'Opened Monday.' });
     const request = makeRequest('open the journal entry "Monday"');
     const { result, calls, fallback } = await run(
@@ -289,7 +289,7 @@ describe('jevPlanner through createEngine', () => {
     expect(
       response.layout.instances.find((i) => i.instanceId === 'journal-main')
         ?.variant,
-    ).toBe('list');
+    ).toBe('entry');
     expect(response.executionPlan).toEqual([
       {
         instanceId: 'journal-main',

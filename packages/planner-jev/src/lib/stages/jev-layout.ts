@@ -18,9 +18,7 @@ const STAGE = 'jevLayout';
 /**
  * Lets Jev pick a tiling tree for the visible instances among candidates
  * that fit the Chart, sizing each instance for the variant the planned
- * actions leave it in. Only the sizing uses that variant: the candidate
- * still declares each instance in its current variant and the transition
- * action flips it after the layout is applied.
+ * actions leave it in.
  */
 export function jevLayout(
   ask: Ask,

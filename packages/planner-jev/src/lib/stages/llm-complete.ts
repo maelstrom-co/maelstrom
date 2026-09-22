@@ -13,6 +13,7 @@ import { type AnyTextAdapter, chat } from '@tanstack/ai';
 import { z } from 'zod';
 
 import { deferAt } from '../defer.js';
+import { finalVariants } from '../final-variants.js';
 import { intentText, recentHistory } from '../questions.js';
 import type {
   JevLayoutPlan,
@@ -47,7 +48,10 @@ export interface Slot {
 /**
  * Turns the Jev decisions into a candidate: one small LLM call writes the
  * `userMessage` and fills `stated_elsewhere` parameters, code builds the
- * layout, execution plan and rationale. The candidate then goes through
+ * layout, execution plan and rationale. The layout declares each existing
+ * instance in the variant the planned actions leave it in: clients apply a
+ * transition from the layout, not from an Engine-issued action. The
+ * candidate then goes through
  * `ctx.validate`; a validation error or a recommended retry defers, so a
  * flawed Jev plan falls back instead of shipping healed. Provider failures
  * and cancellation are real errors: the fallback uses the same provider.
@@ -89,6 +93,16 @@ export function llmComplete(
       filled.set(slot, value);
     }
 
+    const retained = plan.selection.instances.filter(
+      (instance) => instance.decision !== 'delete',
+    );
+    const variants = finalVariants(
+      retained,
+      plan.actions,
+      input.request.vessels,
+    );
+    if (isErr(variants)) return deferAt(ctx, STAGE, 'simulation_failed');
+
     const candidate: PlannerCandidate = {
       userMessage: completion.value.userMessage,
       rationale: rationale(layoutPlan),
@@ -107,13 +121,15 @@ export function llmComplete(
       }),
       layout: {
         tree: layoutPlan.tree,
-        instances: plan.selection.instances
-          .filter((instance) => instance.decision !== 'delete')
-          .map(({ instanceId, vesselId, variant }) => ({
-            instanceId,
-            vesselId,
-            variant,
-          })),
+        // New instances seed the Engine's action simulation from this
+        // declaration, so they keep the variant they are created in.
+        instances: retained.map(({ instanceId, vesselId, variant, fresh }) => ({
+          instanceId,
+          vesselId,
+          variant: fresh
+            ? variant
+            : (variants.value.get(instanceId) ?? variant),
+        })),
       },
     };
 
