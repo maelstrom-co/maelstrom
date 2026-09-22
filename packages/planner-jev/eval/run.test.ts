@@ -3,6 +3,8 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { pipeline, withFallback, withRetry } from '@maelstrom-co/engine';
+import { isErr, ok } from '@maelstrom-co/protocol';
 import type { AnyTextAdapter } from '@tanstack/ai';
 
 import { conversation } from '../src/lib/__test-helpers__/actions-fixtures.js';
@@ -16,7 +18,13 @@ import {
   scriptedFetch,
   TEST_MODEL,
 } from '../src/lib/__test-helpers__/scripted-fetch.js';
-import { resolveArms } from './arms.js';
+import { FALLBACK_RETRIES } from '../src/lib/jev-planner.js';
+import { stepwiseActions } from '../src/lib/stages-experimental/actions-stepwise.js';
+import { completeWithLayout } from '../src/lib/stages-experimental/complete.js';
+import { menuLayout } from '../src/lib/stages-experimental/layout-menu.js';
+import { selectUngated } from '../src/lib/stages-experimental/select-ungated.js';
+import type { LayoutStage } from '../src/lib/stages-experimental/types.js';
+import { type Arm, jevDeps, resolveArms } from './arms.js';
 import { loadReplay, replayedStages } from './replay.js';
 import { writeReport } from './report.js';
 import { runEval } from './run.js';
@@ -223,7 +231,13 @@ test('runs jev-ungated-stepwise like the POC today: same stages, scores and call
   expect(stepwise?.kind).toBe('jev');
   expect(stepwise?.score).toEqual(poc?.score);
   expect(stepwise?.stageScores).toEqual(poc?.stageScores);
-  expect(stepwise?.stageOutputs).toEqual(poc?.stageOutputs);
+  expect(stepwise?.stageOutputs).toEqual({
+    ...poc?.stageOutputs,
+    jevLayout: {
+      source: 'jev',
+      ...(poc?.stageOutputs?.jevLayout as object),
+    },
+  });
   expect(stepwise?.answers).toEqual(poc?.answers);
   expect(stepwise?.minConfidence).toBe(poc?.minConfidence);
   expect(stepwise?.llmCalls?.map((call) => call.role)).toEqual(['complete']);
@@ -269,3 +283,45 @@ test('replays jev-poc stages into jev-ungated-stepwise', async () => {
   ]);
   expect(stepwise?.jevCalls?.map((call) => call.stage)).toEqual(['jevLayout']);
 });
+
+test('a layout stage that hands the tree to the LLM is scored on the shipped response only', async () => {
+  mockProvider();
+  const [record] = await run(tokyo, ['quoted-location'], {
+    arms: [handOffArm],
+  });
+  expect(record?.error).toBe(undefined);
+  expect(record?.fallbackCalls).toBe(0);
+  expect(record?.llmCalls?.map((call) => call.role)).toEqual(['complete']);
+  expect(record?.stageScores?.layout).toBe(undefined);
+  expect(record?.stageScores?.selection?.pass).toBe(true);
+  expect(record?.score?.pass).toBe(true);
+  expect(record?.stageOutputs?.jevLayout).toMatchObject({
+    source: 'llm',
+    tree: undefined,
+  });
+});
+
+/** The stage-library pipeline, its layout stage dropping the tree so the completion call writes it. */
+const handOffArm: Arm = {
+  name: 'jev-hand-off',
+  kind: 'jev',
+  build: (deps) => {
+    const jev = jevDeps(deps);
+    const menu = menuLayout(jev.ask);
+    const handOff: LayoutStage = async (plan, ctx) => {
+      const result = await menu(plan, ctx);
+      if (isErr(result)) return result;
+      const { tree: _tree, layoutId: _layoutId, ...rest } = result.value;
+      return ok({ ...rest, source: 'llm' });
+    };
+    return withFallback(
+      pipeline(
+        deps.instrument('jevSelect', selectUngated(jev.ask)),
+        deps.instrument('jevActions', stepwiseActions(jev.ask)),
+        deps.instrument('jevLayout', handOff),
+        deps.instrument('llmComplete', completeWithLayout(jev.llm)),
+      ),
+      withRetry(jev.fallback, { max: FALLBACK_RETRIES }),
+    );
+  },
+};
