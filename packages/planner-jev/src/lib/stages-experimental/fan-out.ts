@@ -11,11 +11,11 @@ import type { Ask } from '../typesafe-client.js';
 
 /**
  * The serialized request size one TypeSafe call is packed up to, in bytes.
- * TypeSafe rejects a larger body with `max_tokens_exceeded`, which the
- * client reports as `provider_http`. A live run put every accepted request
- * at or below 126 KB and every rejected one at 151 KB or above, so this
- * budget sits inside the accepted range rather than just under the rejected
- * one.
+ * Past some size TypeSafe rejects the body with `max_tokens_exceeded`,
+ * which the client reports as `provider_http`. A live run put every
+ * accepted request at or below 126 KB and every rejected one at 151 KB or
+ * above, so this budget stays inside the range that was accepted rather
+ * than just under the one that was not.
  */
 export const MAX_REQUEST_BYTES = 96 * 1024;
 
