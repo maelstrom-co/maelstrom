@@ -255,33 +255,62 @@ test('runs jev-ungated-stepwise like the POC today: same stages, scores and call
   expect(stageFile.stages[2].output.source).toBe('jev');
 });
 
-test('replays jev-poc stages into jev-ungated-stepwise', async () => {
+test('replays a jev-poc selection into jev-ungated-stepwise', async () => {
   mockProvider();
   const out = await outDir();
   await run(tokyo, ['quoted-location'], { out });
 
-  const layoutOnly: Script = (payload) => {
-    if (!('layout' in payload.questions))
-      throw new Error('select and actions must be replayed');
-    return { choices: { layout: 'preserve' } };
-  };
-  const [stepwise] = await run(layoutOnly, ['quoted-location'], {
-    arms: resolveArms(['jev-ungated-stepwise']),
-    replay: {
-      source: await loadReplay(out, 'jev-poc'),
-      stages: replayedStages('actions'),
+  const [stepwise] = await run(
+    ((payload, call) => {
+      if ('scope' in payload.questions)
+        throw new Error('select must be replayed');
+      return tokyo(payload, call);
+    }) satisfies Script,
+    ['quoted-location'],
+    {
+      arms: resolveArms(['jev-ungated-stepwise']),
+      replay: {
+        source: await loadReplay(out, 'jev-poc'),
+        stages: replayedStages('select'),
+      },
     },
-  });
+  );
   expect(stepwise?.score?.pass).toBe(true);
   expect(
     stepwise?.stages?.map((stage) => [stage.stage, stage.replayed ?? false]),
   ).toEqual([
     ['jevSelect', true],
-    ['jevActions', true],
+    ['jevActions', false],
     ['jevLayout', false],
     ['llmComplete', false],
   ]);
-  expect(stepwise?.jevCalls?.map((call) => call.stage)).toEqual(['jevLayout']);
+});
+
+test('refuses to replay jev-poc action plans into stage-library arms before any call', async () => {
+  mockProvider();
+  const out = await outDir();
+  await run(tokyo, ['quoted-location'], { out });
+  mockChat.mockClear();
+
+  const noCalls: Script = () => {
+    throw new Error('no Jev call may run');
+  };
+  const source = await loadReplay(out, 'jev-poc');
+  await expect(
+    run(noCalls, ['quoted-location'], {
+      arms: resolveArms(['jev-ungated-stepwise']),
+      replay: { source, stages: replayedStages('actions') },
+    }),
+  ).rejects.toThrow(
+    '- jev-ungated-stepwise: jevActions has no minConfidence (1 turns: quoted-location #1)',
+  );
+  await expect(
+    run(noCalls, ['quoted-location'], {
+      arms: resolveArms(['jev-gated-batched']),
+      replay: { source, stages: replayedStages('select') },
+    }),
+  ).rejects.toThrow('- jev-gated-batched: jevSelect has no complete gates');
+  expect(mockChat).not.toHaveBeenCalled();
 });
 
 test('refuses a replay missing a selected case before any provider call', async () => {

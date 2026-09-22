@@ -79,6 +79,64 @@ export function verifyReplay(
 }
 
 /**
+ * What an arm's stages read from a replayed stage's output. `poc` reads
+ * only the POC's fields. `ungated` also reads `minConfidence` on the action
+ * plan, and would act on gates it never asked for, so a recording with
+ * gates is refused. `gated` reads every gate on the selection and the
+ * action plan.
+ */
+export type ReplayShape = 'poc' | 'ungated' | 'gated';
+
+/** An arm as {@link verifyReplayShape} sees it. */
+export interface ReplayingArm {
+  readonly name: string;
+  /** Defaults to `poc`. */
+  readonly replayShape?: ReplayShape;
+}
+
+/**
+ * Checks, before anything runs, that every replayed stage output of every
+ * turn has the fields each arm reads from it.
+ *
+ * @throws {Error} Naming `source.dir`, and per arm and problem the turns it affects.
+ */
+export function verifyReplayShape(
+  source: ReplaySource,
+  scenarios: readonly Scenario[],
+  repeats: number,
+  stages: readonly StageName[],
+  arms: readonly ReplayingArm[],
+): void {
+  const problems = new Map<string, string[]>();
+  for (const arm of arms) {
+    const shape = arm.replayShape ?? 'poc';
+    if (shape === 'poc') continue;
+    for (const scenario of scenarios)
+      for (let repeat = 1; repeat <= repeats; repeat++) {
+        const turn = source.turn(scenario.id, repeat);
+        for (const record of turn.stages ?? []) {
+          if (!stages.includes(record.stage) || record.outcome !== 'ok')
+            continue;
+          for (const problem of shapeProblems(shape, record)) {
+            const key = `${arm.name}: ${record.stage} ${problem}`;
+            problems.set(key, [...(problems.get(key) ?? []), turn.key]);
+          }
+        }
+      }
+  }
+  if (problems.size > 0)
+    throw new Error(
+      [
+        `replay: the recording in ${source.dir} lacks what these arms read:`,
+        ...[...problems].map(
+          ([problem, turns]) =>
+            `- ${problem} (${turns.length} turns: ${turns.slice(0, 3).join(', ')}${turns.length > 3 ? ', ...' : ''})`,
+        ),
+      ].join('\n'),
+    );
+}
+
+/**
  * A stage that returns what stage `name` returned in the recorded turn: its
  * output, or the same deferral. Throws when the turn recorded no such stage
  * or the stage failed there, since there is nothing faithful to replay.
@@ -165,6 +223,35 @@ function mismatches(
   if (!sameJson(scenario.history ?? [], recorded.history))
     reasons.push('history differs');
   return reasons;
+}
+
+const GATES = ['needsActions', 'generatedContent', 'spatial'] as const;
+
+function shapeProblems(shape: ReplayShape, record: StageRecord): string[] {
+  const output = (record.output ?? {}) as {
+    readonly gates?: Readonly<Record<string, unknown>>;
+    readonly minConfidence?: unknown;
+  };
+  const problems: string[] = [];
+  if (record.stage === 'jevActions' && typeof output.minConfidence !== 'number')
+    problems.push('has no minConfidence');
+  if (record.stage !== 'jevSelect' && record.stage !== 'jevActions')
+    return problems;
+  if (shape === 'ungated' && output.gates !== undefined)
+    problems.push('carries gates this ungated arm would act on');
+  if (shape === 'gated' && !GATES.every((gate) => isGate(output.gates?.[gate])))
+    problems.push('has no complete gates');
+  return problems;
+}
+
+function isGate(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) return false;
+  const gate = value as Record<string, unknown>;
+  return (
+    (gate.answer === 'yes' || gate.answer === 'no') &&
+    typeof gate.probability === 'number' &&
+    typeof gate.confidence === 'number'
+  );
 }
 
 function sameJson(live: unknown, recorded: unknown): boolean {

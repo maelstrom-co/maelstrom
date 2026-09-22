@@ -31,7 +31,7 @@ const { values } = parseArgs({
     verbose: { type: 'boolean', default: false },
     'replay-from': { type: 'string' },
     'replay-through': { type: 'string' },
-    'replay-arm': { type: 'string', default: 'jev-poc' },
+    'replay-arm': { type: 'string' },
   },
 });
 
@@ -48,8 +48,14 @@ const replayThrough =
   values['replay-through'] === undefined
     ? undefined
     : oneOf(values['replay-through'], REPLAY_THROUGH, 'replay-through');
-if ((replayFrom === undefined) !== (replayThrough === undefined))
-  fail('--replay-from and --replay-through go together');
+const replayArm = values['replay-arm'];
+if (
+  (replayFrom === undefined) !== (replayThrough === undefined) ||
+  (replayFrom === undefined) !== (replayArm === undefined)
+)
+  fail(
+    '--replay-from, --replay-through and --replay-arm go together: name the recorded arm to replay',
+  );
 if (replayFrom !== undefined && arms.every((arm) => arm.kind === 'baseline'))
   fail('--replay-from needs at least one Jev arm');
 const repeats = Number(values.repeats);
@@ -93,9 +99,13 @@ let replay:
       readonly meta: { from: string; through: string; arm: string };
     }
   | undefined;
-if (replayFrom !== undefined && replayThrough !== undefined) {
+if (
+  replayFrom !== undefined &&
+  replayThrough !== undefined &&
+  replayArm !== undefined
+) {
   const from = resolve(replayFrom);
-  const arm = values['replay-arm'];
+  const arm = replayArm;
   try {
     replay = {
       source: await loadReplay(from, arm),
