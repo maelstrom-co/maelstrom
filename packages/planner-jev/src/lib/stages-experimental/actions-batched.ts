@@ -69,7 +69,7 @@ export function batchedActions(
       (instance) => instance.decision !== 'delete',
     );
     if (isResizeOnly(request) || selection.gates?.needsActions?.answer === 'no')
-      return ok(planOf(selection, [], [], []));
+      return ok(actionPlanOf(selection, [], [], []));
 
     const initial: Variants = new Map(
       retained.map((instance) => [instance.instanceId, instance.variant]),
@@ -145,7 +145,7 @@ export function batchedActions(
     );
     if (isErr(simulated)) return deferAt(ctx, STAGE, 'simulation_failed');
     return ok(
-      planOf(selection, bound.value.actions, bound.value.asks, answers),
+      actionPlanOf(selection, bound.value.actions, bound.value.asks, answers),
     );
   };
 }
@@ -321,7 +321,8 @@ async function bindChosen(
   return ok({ actions, asks });
 }
 
-function planOf(
+/** An action plan over `answers`, forwarding the selection's gates. */
+export function actionPlanOf(
   selection: Selection2,
   actions: readonly PlannedAction[],
   asks: readonly ParameterAsk[],
