@@ -30,9 +30,13 @@ import type {
 } from '../types.js';
 import type { Ask } from '../typesafe-client.js';
 import { actionPlanOf } from './action-plan.js';
+import { askInChunks, type FanOutOptions } from './fan-out.js';
 import type { ActionsStage, Selection2 } from './types.js';
 
 const STAGE = 'jevActions';
+
+/** Overrides for the call the stage splits its questions over. */
+export type PerInstanceBatchedActionsOptions = FanOutOptions;
 
 /**
  * Plans each instance's actions in one call: numbered slots per instance,
@@ -44,10 +48,16 @@ const STAGE = 'jevActions';
  * naming an action defers `action_limit` rather than shipping the first two
  * actions as if that were the whole request, and the call record keeps every
  * third-slot answer for measurement. Actions keep their order within an
- * instance, not across instances. A resize-only request, or a `needsActions`
- * gate answering no, plans no actions and makes no call.
+ * instance, not across instances. The questions are split over as few
+ * concurrent calls as the byte budget of {@link askInChunks} allows, since
+ * one call over all of them can exceed what TypeSafe accepts. A resize-only
+ * request, or a `needsActions` gate answering no, plans no actions and makes
+ * no call.
  */
-export function perInstanceBatchedActions(ask: Ask): ActionsStage {
+export function perInstanceBatchedActions(
+  ask: Ask,
+  options: PerInstanceBatchedActionsOptions = {},
+): ActionsStage {
   return async (selection, ctx) => {
     const { request } = selection.input;
     const retained = selection.instances.filter(
@@ -73,7 +83,8 @@ export function perInstanceBatchedActions(ask: Ask): ActionsStage {
       {},
       ...plans.map((plan) => plan.questions),
     );
-    const reply = await ask(
+    const reply = await askInChunks(
+      ask,
       STAGE,
       {
         state: {
@@ -89,6 +100,7 @@ export function perInstanceBatchedActions(ask: Ask): ActionsStage {
         questions,
       },
       ctx,
+      options,
     );
     if (isErr(reply)) return reply;
 
