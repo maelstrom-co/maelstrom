@@ -60,7 +60,7 @@ export function jevSelect(
     const resizeOnly = isResizeOnly(request);
     const questions: Record<string, Question> = {
       scope: choice(
-        'Can the complete latest intent be satisfied using these vessels, their views and their registered actions? Showing, hiding, arranging or configuring widgets is supported. A chart resize with no other request is supported. Do not partially satisfy an unsupported compound request.',
+        'Can the complete latest intent be satisfied using these vessels, their views and their registered actions? Showing, hiding, removing, replacing, arranging or configuring widgets is supported. A chart resize with no other request is supported. Do not partially satisfy an unsupported compound request.',
         {
           supported: 'The complete request is clear and supported.',
           unsupported:
@@ -72,13 +72,13 @@ export function jevSelect(
     for (const instance of request.instances) {
       const visible = visibleIds.has(instance.instanceId);
       questions[`view/${instance.instanceId}`] = choice(
-        `Decide what happens to ${instance.instanceId}, currently ${visible ? 'visible' : 'hidden'} in its ${instance.variant} view. Leave unrelated instances as they are: keep a visible one, leave a hidden one hidden.${resizeOnly ? ' The chart was only resized: keep it.' : ''} View changes and content edits are planned later through actions, so keep an instance whose view or content should change.`,
+        `Decide what happens to ${instance.instanceId}, currently ${visible ? 'visible' : 'hidden'} in its ${instance.variant} view. When the latest intent describes the whole screen, for example "show me X and Y side by side", "just X" or "only X", hide every visible instance it does not name or need. When it adds to or edits the screen, for example "also show X", "add X" or "set the weather to Warsaw", leave unrelated instances as they are: keep a visible one, leave a hidden one hidden.${resizeOnly ? ' The chart was only resized: keep it.' : ''} View changes and content edits are planned later through actions, so keep an instance whose view or content should change.`,
         {
           keep: visible
-            ? 'Keep it visible (its view or content may still change through actions).'
+            ? 'Keep it visible: the request names or needs it, or only adds to or edits the screen. Its view or content may still change through actions.'
             : 'Show it: the instance and its state become visible again.',
           hide: visible
-            ? 'Retain the instance and its state but hide it.'
+            ? 'Hide it, retaining its state: the request hides or removes it, or describes a screen without it.'
             : 'Leave it hidden, retaining its state.',
           delete: 'Explicitly delete this instance and its state.',
         },
