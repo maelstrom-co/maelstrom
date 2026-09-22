@@ -124,12 +124,17 @@ export function buildLocalEngine(
       'MAELSTROM_PLANNER=jev requires a server OPENAI_API_KEY for the reply and the fallback.',
     );
 
+  const logReplies = env.JEV_LOG_REPLIES?.trim() === '1';
   let engine: Engine;
   try {
     engine = createJevPlaygroundEngine({
       adapter: createDemoOpenaiChat(openaiKey),
       logger,
-      typesafe: { apiKey: typesafeKey, model },
+      typesafe: {
+        apiKey: typesafeKey,
+        model,
+        logReplies,
+      },
     });
   } catch (error) {
     throw new Error(
@@ -143,6 +148,7 @@ export function buildLocalEngine(
     planner: 'jev',
     jevModel: model,
     llmModel: ENGINE_MODEL,
+    logReplies,
     status: 'ready',
   });
   return {
