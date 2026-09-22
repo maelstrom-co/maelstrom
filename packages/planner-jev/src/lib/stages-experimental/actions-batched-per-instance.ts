@@ -29,7 +29,7 @@ import type {
   SelectedInstance,
 } from '../types.js';
 import type { Ask } from '../typesafe-client.js';
-import { actionPlanOf } from './actions-batched.js';
+import { actionPlanOf } from './action-plan.js';
 import type { ActionsStage, Selection2 } from './types.js';
 
 const STAGE = 'jevActions';

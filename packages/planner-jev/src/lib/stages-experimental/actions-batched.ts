@@ -37,7 +37,8 @@ import type {
   SelectedInstance,
 } from '../types.js';
 import type { Ask } from '../typesafe-client.js';
-import type { ActionPlan2, ActionsStage, Selection2 } from './types.js';
+import { actionPlanOf } from './action-plan.js';
+import type { ActionsStage, Selection2 } from './types.js';
 
 const STAGE = 'jevActions';
 
@@ -319,23 +320,6 @@ async function bindChosen(
       );
   });
   return ok({ actions, asks });
-}
-
-/** An action plan over `answers`, forwarding the selection's gates. */
-export function actionPlanOf(
-  selection: Selection2,
-  actions: readonly PlannedAction[],
-  asks: readonly ParameterAsk[],
-  answers: readonly AnswerRecord[],
-): ActionPlan2 {
-  return {
-    selection,
-    actions,
-    asks,
-    answers,
-    minConfidence: Math.min(1, ...answers.map((answer) => answer.confidence)),
-    ...(selection.gates !== undefined && { gates: selection.gates }),
-  };
 }
 
 function afterAction(variants: Variants, option: StateOption): Variants {
