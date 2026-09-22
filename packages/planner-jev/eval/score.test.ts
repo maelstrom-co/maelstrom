@@ -135,7 +135,7 @@ describe('scoreResponse', () => {
     ).toBe(true);
   });
 
-  test('fails a variant changed without an action', () => {
+  test('passes a variant the shipped execution plan transitions to', () => {
     const variant = scenario('variant');
     const score = scoreResponse(
       variant,
@@ -144,8 +144,33 @@ describe('scoreResponse', () => {
         actions: [{ instanceId: 'weather-main', action: 'showWeekly' }],
       }),
     );
+    expect(score).toEqual({ pass: true, failures: [] });
+  });
+
+  test('fails a variant no shipped action transitions to', () => {
+    const variant = scenario('variant');
+    const score = scoreResponse(
+      variant,
+      response(variant, { variants: { 'weather-main': 'weekly' } }),
+    );
     expect(score.pass).toBe(false);
-    expect(score.failures.join()).toContain('without an action');
+    expect(score.failures.join()).toContain(
+      'Variant of weather-main is weekly, but the execution plan leaves it current',
+    );
+  });
+
+  test('fails an execution plan the engine rule cannot simulate', () => {
+    const variant = scenario('variant');
+    const score = scoreResponse(
+      variant,
+      response(variant, {
+        actions: [{ instanceId: 'weather-main', action: 'showCurrent' }],
+      }),
+    );
+    expect(score.pass).toBe(false);
+    expect(score.failures.join()).toContain(
+      'Execution plan does not simulate: showCurrent on weather-main (action_not_valid)',
+    );
   });
 
   test('matches a baseline’s own new-instance ids by Vessel and order', () => {
