@@ -96,7 +96,7 @@ Every deferral logs `jev.defer` at info with `{ stage, reason, question }`, and 
 
 - `jev.call` (debug): stage, model, question ids, latency, outcome and token usage of every TypeSafe call.
 - `jev.answer` (debug): stage, question, choice and confidence of every answer read.
-- `jev.reply` (debug, opt-in via `logReplies` / `JEV_LOG_REPLIES=1`): the questions sent and the raw reply, before validation, so an invalid reply is visible too.
+- `jev.reply` (debug, opt-in via `logReplies` / `JEV_LOG_REPLIES=1`): the state and questions sent (the user's words included) and the raw reply, as JSON, before validation, so an invalid reply is visible too.
 - `jev.action_dropped` (info): an action dropped for a `not_stated` parameter.
 
 ## Evaluating
