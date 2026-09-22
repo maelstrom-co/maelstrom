@@ -46,6 +46,13 @@ describe('scenarios', () => {
     );
     expect(arranged.length).toBeGreaterThanOrEqual(10);
     expect(controls.length).toBeGreaterThanOrEqual(6);
+    const holdout = selectScenarios('holdout');
+    expect(
+      holdout.filter((scenario) => scenario.id.startsWith('hold-arr-')),
+    ).toHaveLength(4);
+    expect(
+      holdout.filter((scenario) => scenario.id.startsWith('hold-ctl-')),
+    ).toHaveLength(3);
     for (const id of ['swap', 'big-right', 'top-and-pair', 'bottom-strip'])
       expect(
         development.find((scenario) => scenario.id === id)?.expected.status,
