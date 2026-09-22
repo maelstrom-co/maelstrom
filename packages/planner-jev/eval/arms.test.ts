@@ -90,7 +90,7 @@ describe('arm registry', () => {
       'planner',
       ...Object.keys(arms)
         .slice(1)
-        .map(() => 'complete'),
+        .map((): LlmRole => 'complete'),
     ]);
   });
 });
