@@ -217,7 +217,7 @@ async function bindParameters(
       ...(enumerated.length > 0 && { enum: enumerated }),
     });
     questions[id] = choice(
-      `For action ${step + 1}, ${chosen.definition.name} on ${chosen.instance.instanceId}, choose the value of ${parameter.name} (${parameter.type}): ${parameter.description}. Pick an option only when it is exactly the value the request gives.`,
+      `For action ${step + 1}, ${chosen.definition.name} on ${chosen.instance.instanceId}, choose the value of ${parameter.name} (${parameter.type}): ${parameter.description}. Pick an option only when it is itself the value, for example a city name, never a phrase that describes, names indirectly or points to the value.`,
       {
         ...Object.fromEntries(
           candidates.map((value, index) => [
@@ -226,7 +226,7 @@ async function bindParameters(
           ]),
         ),
         stated_elsewhere:
-          'The request states a value but none of the options match it exactly.',
+          'The request refers to the value indirectly (a landmark, event, "the capital of X", a relative description) or states it in a form none of the options match exactly.',
         not_stated: 'The request does not give a value.',
         ...(parameter.required === false && {
           omit: 'This optional parameter was not requested.',
