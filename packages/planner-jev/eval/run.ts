@@ -17,7 +17,7 @@ import {
 } from '@maelstrom-co/protocol';
 import type { AnyTextAdapter } from '@tanstack/ai';
 
-import type { StageName } from '../src/lib/defer.js';
+import type { JevCaller, StageName } from '../src/lib/defer.js';
 import type {
   LayoutSource,
   Selection2,
@@ -50,7 +50,7 @@ import { type LlmCall, type LlmRole, withUsage } from './usage-adapter.js';
 
 /** One Jev answer from a validated reply, flattened for the records. */
 export interface RecordedAnswer {
-  readonly stage: StageName;
+  readonly stage: JevCaller;
   readonly question: string;
   readonly choice: string;
   /** The chosen option's probability. */
