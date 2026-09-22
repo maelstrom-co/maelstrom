@@ -212,3 +212,60 @@ test('replays recorded upstream stages and runs the rest live', async () => {
   ]);
   expect(jev?.jevCalls?.map((call) => call.stage)).toEqual(['jevLayout']);
 });
+
+test('runs jev-poc-rebuilt like the POC: same stages, scores and calls', async () => {
+  mockProvider();
+  const out = await outDir();
+  const [poc, rebuilt] = await run(tokyo, ['quoted-location'], {
+    arms: resolveArms(['jev-poc', 'jev-poc-rebuilt']),
+    out,
+  });
+  expect(rebuilt?.kind).toBe('jev');
+  expect(rebuilt?.score).toEqual(poc?.score);
+  expect(rebuilt?.stageScores).toEqual(poc?.stageScores);
+  expect(rebuilt?.stageOutputs).toEqual(poc?.stageOutputs);
+  expect(rebuilt?.answers).toEqual(poc?.answers);
+  expect(rebuilt?.minConfidence).toBe(poc?.minConfidence);
+  expect(rebuilt?.llmCalls?.map((call) => call.role)).toEqual(['complete']);
+  expect(rebuilt?.stages?.map((stage) => stage.stage)).toEqual(
+    poc?.stages?.map((stage) => stage.stage),
+  );
+  expect(rebuilt?.userMessage).toBe(poc?.userMessage);
+  expect(rebuilt?.tree).toEqual(poc?.tree);
+  const stageFile = JSON.parse(
+    await readFile(
+      join(out, 'stages', 'jev-poc-rebuilt', 'quoted-location-1.json'),
+      'utf8',
+    ),
+  );
+  expect(stageFile.stages[2].output.source).toBe('jev');
+});
+
+test('replays jev-poc stages into jev-poc-rebuilt', async () => {
+  mockProvider();
+  const out = await outDir();
+  await run(tokyo, ['quoted-location'], { out });
+
+  const layoutOnly: Script = (payload) => {
+    if (!('layout' in payload.questions))
+      throw new Error('select and actions must be replayed');
+    return { choices: { layout: 'preserve' } };
+  };
+  const [rebuilt] = await run(layoutOnly, ['quoted-location'], {
+    arms: resolveArms(['jev-poc-rebuilt']),
+    replay: {
+      source: await loadReplay(out, 'jev-poc'),
+      stages: replayedStages('actions'),
+    },
+  });
+  expect(rebuilt?.score?.pass).toBe(true);
+  expect(
+    rebuilt?.stages?.map((stage) => [stage.stage, stage.replayed ?? false]),
+  ).toEqual([
+    ['jevSelect', true],
+    ['jevActions', true],
+    ['jevLayout', false],
+    ['llmComplete', false],
+  ]);
+  expect(rebuilt?.jevCalls?.map((call) => call.stage)).toEqual(['jevLayout']);
+});

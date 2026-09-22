@@ -14,6 +14,8 @@ import {
   FALLBACK_RETRIES,
   type Instrument,
 } from '../src/lib/jev-planner.js';
+import { buildJevPocRebuiltPlanner } from '../src/lib/planners/jev-poc-rebuilt.js';
+import { createJevDeps, type JevDeps } from '../src/lib/stages-next/deps.js';
 import type { TypeSafeClientOptions } from '../src/lib/typesafe-client.js';
 import type { LlmRole } from './usage-adapter.js';
 
@@ -66,6 +68,11 @@ export const arms: Readonly<Record<string, Arm>> = {
         deps.instrument,
       ),
   },
+  'jev-poc-rebuilt': {
+    name: 'jev-poc-rebuilt',
+    kind: 'jev',
+    build: (deps) => buildJevPocRebuiltPlanner(jevDeps(deps), deps.instrument),
+  },
 };
 
 /** Arms run when `--arm` is not given. */
@@ -97,6 +104,15 @@ export function demoLlmPlanner(adapter: AnyTextAdapter) {
   return llmPlanner({
     adapter,
     prompt: { system: { rules: { append: SYSTEM_RULES } } },
+  });
+}
+
+/** The stage library's dependencies for one turn, with the completion call on the `complete` role. */
+export function jevDeps(deps: ArmDeps): JevDeps {
+  return createJevDeps({
+    typesafe: deps.typesafe,
+    adapter: deps.adapter('complete'),
+    fallback: deps.fallback,
   });
 }
 
