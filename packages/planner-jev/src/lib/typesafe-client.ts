@@ -6,12 +6,13 @@ import type {
 import { cancellationError } from '@maelstrom-co/engine';
 import { err, ok, type Result } from '@maelstrom-co/protocol';
 
-import { deferAt, type StageName } from './defer.js';
+import { deferAt, type JevCaller } from './defer.js';
 import {
   type Answer,
   type Evaluation,
   overOptionCap,
   type Reply,
+  type ScoreQuestion,
   type Usage,
 } from './questions.js';
 
@@ -31,13 +32,14 @@ export type CallOutcome =
 
 /** One validated answer as {@link JevCall} reports it. */
 export interface CallAnswer extends Answer {
-  /** Probability per option. */
+  /** Probability per option: `yes` and `no` for a noul, level number strings for a score. */
   readonly probabilities?: Readonly<Record<string, number>>;
 }
 
 /** What the client reports about each call to {@link TypeSafeClientOptions.onCall}. */
 export interface JevCall {
-  readonly stage: StageName;
+  /** Who asked: a stage, or `grader` for the eval's grader. */
+  readonly stage: JevCaller;
   readonly questionIds: readonly string[];
   readonly latencyMs: number;
   readonly usage?: Usage;
@@ -68,9 +70,9 @@ export interface TypeSafeClientOptions {
   readonly logReplies?: boolean;
 }
 
-/** Asks Jev one evaluation on behalf of `stage`. */
+/** Asks Jev one evaluation on behalf of `stage`, a stage or the eval's grader. */
 export type Ask = (
-  stage: StageName,
+  stage: JevCaller,
   evaluation: Evaluation,
   ctx: StageContext,
 ) => Promise<Result<Reply, Deferred | CancellationError>>;
@@ -197,8 +199,11 @@ export function createTypeSafeClient(options: TypeSafeClientOptions): Ask {
  * asked question ids, each choice is one of its question's options, the
  * probabilities cover exactly those options and sum to 1 within 0.02, the
  * chosen option has the highest probability, each noul answer is a
- * probability, and usage is integral. A noul answer is read as a `yes` or
- * `no` choice (see {@link Answer}).
+ * probability, each score answer echoes its question's levels in order in
+ * its legend with probabilities over exactly those levels summing to 1
+ * within 0.02 and a score between 0 and the top level, and usage is
+ * integral. A noul answer is read as a `yes` or `no` choice and a score
+ * answer keeps its score and per-level probabilities (see {@link Answer}).
  */
 export function validateReply(
   raw: unknown,
@@ -240,6 +245,12 @@ function parseReply(
       answers[id] = noulAnswer(answer.noul);
       continue;
     }
+    if (question.type === 'score') {
+      const parsed = scoreAnswer(answer, question);
+      if (parsed === undefined) return undefined;
+      answers[id] = parsed;
+      continue;
+    }
     if (
       !isRecord(answer) ||
       answer.type !== 'choice' ||
@@ -264,10 +275,7 @@ function parseReply(
       total += value;
       maximum = Math.max(maximum, value);
     }
-    if (
-      Math.abs(total - 1) > 0.02 ||
-      answer.probabilities[answer.choice] !== maximum
-    )
+    if (!sumsToOne(total) || answer.probabilities[answer.choice] !== maximum)
       return undefined;
     answers[id] = {
       choice: answer.choice,
@@ -293,16 +301,71 @@ function noulAnswer(probability: number): CallAnswer {
   };
 }
 
+function scoreAnswer(
+  answer: unknown,
+  question: ScoreQuestion,
+): CallAnswer | undefined {
+  const levelKeys = question.criteria.map((_, level) => String(level));
+  if (
+    !isRecord(answer) ||
+    answer.type !== 'score' ||
+    typeof answer.score !== 'number' ||
+    !Number.isFinite(answer.score) ||
+    answer.score < 0 ||
+    answer.score > question.criteria.length - 1 ||
+    !isProbability(answer.confidence) ||
+    !isRecord(answer.legend) ||
+    !isRecord(answer.probabilities) ||
+    !sameKeys(answer.legend, levelKeys) ||
+    !sameKeys(answer.probabilities, levelKeys)
+  )
+    return undefined;
+  let total = 0;
+  let top = levelKeys[0];
+  const probabilities: Record<string, number> = Object.create(null);
+  for (const [level, key] of levelKeys.entries()) {
+    const value = answer.probabilities[key];
+    if (
+      answer.legend[key] !== question.criteria[level] ||
+      !isProbability(value)
+    )
+      return undefined;
+    probabilities[key] = value;
+    total += value;
+    if (value > probabilities[top]) top = key;
+  }
+  if (!sumsToOne(total)) return undefined;
+  return {
+    choice: top,
+    confidence: answer.confidence,
+    score: answer.score,
+    probabilities,
+  };
+}
+
+function sumsToOne(total: number): boolean {
+  return Math.abs(total - 1) <= 0.02;
+}
+
 function withoutProbabilities(reply: Reply): Reply {
   const answers: Record<string, Answer> = Object.create(null);
-  for (const [id, { choice, confidence, probability }] of Object.entries(
-    reply.answers,
-  ))
-    answers[id] =
-      probability === undefined
-        ? { choice, confidence }
-        : { choice, confidence, probability };
+  for (const [id, answer] of Object.entries(reply.answers))
+    answers[id] = replyAnswer(answer);
   return { answers, usage: reply.usage };
+}
+
+function replyAnswer({
+  choice,
+  confidence,
+  probability,
+  score,
+  probabilities,
+}: Answer): Answer {
+  if (score !== undefined && probabilities !== undefined)
+    return { choice, confidence, score, probabilities };
+  return probability === undefined
+    ? { choice, confidence }
+    : { choice, confidence, probability };
 }
 
 async function readBody(

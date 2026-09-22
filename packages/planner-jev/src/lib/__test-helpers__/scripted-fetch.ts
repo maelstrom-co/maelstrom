@@ -7,9 +7,12 @@ export interface Payload {
   readonly questions: Record<
     string,
     {
-      readonly type: 'choice' | 'noul';
+      readonly type: 'choice' | 'noul' | 'score';
       readonly instructions: string;
-      /** Absent on a noul question. */
+      /**
+       * Absent on a noul question. On a score question it is the JSON array
+       * of ordered levels, whose keys read as `"0"`, `"1"` and so on.
+       */
       readonly criteria: Record<string, string>;
     }
   >;
@@ -17,14 +20,16 @@ export interface Payload {
 
 /**
  * What one scripted call returns: choices by question id (unlisted
- * questions take their first option) and noul probabilities by question id
- * (unlisted nouls answer 0), or a failure mode.
+ * questions take their first option), noul probabilities by question id
+ * (unlisted nouls answer 0) and score levels by question id (unlisted
+ * scores answer level 0), or a failure mode.
  */
 export type Step =
   | {
       readonly choices: Readonly<Record<string, string>>;
       readonly confidence?: number;
       readonly nouls?: Readonly<Record<string, number>>;
+      readonly scores?: Readonly<Record<string, number>>;
     }
   | { readonly status: number }
   | { readonly body: string }
@@ -71,6 +76,7 @@ export function scriptedFetch(
           step.confidence ?? 1,
           model,
           step.nouls,
+          step.scores,
         ),
       ),
       { status: 200, headers: { 'content-type': 'application/json' } },
@@ -80,8 +86,9 @@ export function scriptedFetch(
 }
 
 /**
- * A valid TypeSafe reply choosing `choices` (first option where unlisted)
- * and answering each noul from `nouls` (0 where unlisted).
+ * A valid TypeSafe reply choosing `choices` (first option where unlisted),
+ * answering each noul from `nouls` (0 where unlisted) and putting all of
+ * each score's probability on its level from `scores` (0 where unlisted).
  */
 export function buildReply(
   payload: Payload,
@@ -89,6 +96,7 @@ export function buildReply(
   confidence = 1,
   model = TEST_MODEL,
   nouls: Readonly<Record<string, number>> = {},
+  scores: Readonly<Record<string, number>> = {},
 ) {
   return {
     model,
@@ -96,6 +104,29 @@ export function buildReply(
       Object.entries(payload.questions).map(([id, question]) => {
         if (question.type === 'noul')
           return [id, { type: 'noul', noul: nouls[id] ?? 0 }];
+        if (question.type === 'score') {
+          const levels = Object.values(question.criteria);
+          const level = scores[id] ?? 0;
+          if (!Number.isInteger(level) || level < 0 || level >= levels.length)
+            throw new Error(`scripted level ${level} is not a level of ${id}`);
+          return [
+            id,
+            {
+              type: 'score',
+              score: level,
+              confidence,
+              legend: Object.fromEntries(
+                levels.map((text, index) => [String(index), text]),
+              ),
+              probabilities: Object.fromEntries(
+                levels.map((_, index) => [
+                  String(index),
+                  index === level ? 1 : 0,
+                ]),
+              ),
+            },
+          ];
+        }
         const options = Object.keys(question.criteria);
         const chosen = choices[id] ?? options[0];
         if (!options.includes(chosen))

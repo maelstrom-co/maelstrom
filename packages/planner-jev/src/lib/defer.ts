@@ -13,6 +13,9 @@ export const STAGE_NAMES = [
 /** A stage of the Jev composition, used as the prefix of every deferral reason. */
 export type StageName = (typeof STAGE_NAMES)[number];
 
+/** Who asks Jev: a stage of the composition, or the eval's grader, which is not a stage. */
+export type JevCaller = StageName | 'grader';
+
 /**
  * Defers from `stage` with reason `<stage>/<code>` and logs
  * `{ stage, reason, question }` at info, so the fallback log and the eval
@@ -20,7 +23,7 @@ export type StageName = (typeof STAGE_NAMES)[number];
  */
 export function deferAt(
   ctx: StageContext,
-  stage: StageName,
+  stage: JevCaller,
   code: string,
   question?: string,
 ): Result<never, Deferred> {
