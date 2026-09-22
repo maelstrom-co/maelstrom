@@ -35,7 +35,7 @@ import { createJevDeps, type JevDeps } from '../stages-experimental/deps.js';
 import { menuLayout } from '../stages-experimental/layout-menu.js';
 import { selectUngated } from '../stages-experimental/select-ungated.js';
 import type { LayoutStage } from '../stages-experimental/types.js';
-import { buildJevPocRebuiltPlanner } from './jev-poc-rebuilt.js';
+import { buildJevUngatedStepwisePlanner } from './jev-ungated-stepwise.js';
 
 afterEach(() => mockChat.mockReset());
 
@@ -58,7 +58,8 @@ function fallbackCandidate(request: ChartRequest): PlannerCandidate {
 async function run(
   request: ChartRequest,
   script: Script,
-  build: (deps: JevDeps) => Planner = (deps) => buildJevPocRebuiltPlanner(deps),
+  build: (deps: JevDeps) => Planner = (deps) =>
+    buildJevUngatedStepwisePlanner(deps),
 ) {
   const { fetch, calls } = scriptedFetch(script);
   const fallbackInputs: Retryable<PlanningInput>[] = [];
@@ -87,7 +88,7 @@ async function run(
   });
   const result = await engine.handle(
     ChartRequestMessage({
-      sessionId: SessionId('jev-poc-rebuilt'),
+      sessionId: SessionId('jev-ungated-stepwise'),
       id: MessageId('turn-1'),
       request,
     }),
@@ -129,7 +130,7 @@ function handOffPlanner(deps: JevDeps): Planner {
   );
 }
 
-describe('buildJevPocRebuiltPlanner through createEngine', () => {
+describe('buildJevUngatedStepwisePlanner through createEngine', () => {
   test('a hide request ships the selection with the mocked message', async () => {
     mockChat.mockResolvedValue({ userMessage: 'Tasks are hidden.' });
     const { response, fallbackInputs, calls } = await run(

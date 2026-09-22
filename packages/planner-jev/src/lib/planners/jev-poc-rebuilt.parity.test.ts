@@ -9,7 +9,7 @@ import {
 } from '../__test-helpers__/poc-fixtures.js';
 import { jevPlanner } from '../jev-planner.js';
 import { createJevDeps } from '../stages-experimental/deps.js';
-import { buildJevPocRebuiltPlanner } from './jev-poc-rebuilt.js';
+import { buildJevUngatedStepwisePlanner } from './jev-ungated-stepwise.js';
 
 const pinned = (await Bun.file(
   join(import.meta.dir, '../__test-helpers__/poc-evaluations.json'),
@@ -17,12 +17,12 @@ const pinned = (await Bun.file(
 
 afterEach(() => mockChat.mockReset());
 
-describe('jev-poc-rebuilt parity with jev-poc', () => {
+describe('jev-ungated-stepwise parity with jev-poc', () => {
   for (const fixture of POC_CASES)
     test(`${fixture.name}: same evaluations, completion call and candidate`, async () => {
       const poc = await runPocCase(fixture, (options) => jevPlanner(options));
       const rebuilt = await runPocCase(fixture, (options) =>
-        buildJevPocRebuiltPlanner(createJevDeps(options)),
+        buildJevUngatedStepwisePlanner(createJevDeps(options)),
       );
       expect(rebuilt).toEqual(poc);
       expect(rebuilt).toEqual(pinned[fixture.name] as PocRun);
