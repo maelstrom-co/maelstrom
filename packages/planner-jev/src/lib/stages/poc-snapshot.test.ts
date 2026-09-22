@@ -8,6 +8,8 @@ import {
   runPocCase,
 } from '../__test-helpers__/poc-fixtures.js';
 import { jevPlanner } from '../jev-planner.js';
+import { buildJevUngatedStepwisePlanner } from '../planners/jev-ungated-stepwise.js';
+import { createJevDeps } from '../stages-experimental/deps.js';
 
 const SNAPSHOT = join(
   import.meta.dir,
@@ -24,13 +26,27 @@ const updated: Record<string, PocRun> = {};
 afterEach(() => mockChat.mockReset());
 
 describe('frozen POC snapshot', () => {
-  for (const fixture of POC_CASES)
-    test(`${fixture.name} sends the pinned evaluations and ships the pinned candidate`, async () => {
-      const run = await runPocCase(fixture, (options) => jevPlanner(options));
-      updated[fixture.name] = run;
-      if (UPDATE) return;
-      expect(run).toEqual(pinned[fixture.name] as PocRun);
-    });
+  describe('jev-poc', () => {
+    for (const fixture of POC_CASES)
+      test(`${fixture.name} sends the pinned evaluations and ships the pinned candidate`, async () => {
+        const run = await runPocCase(fixture, (options) => jevPlanner(options));
+        updated[fixture.name] = run;
+        if (UPDATE) return;
+        expect(run).toEqual(pinned[fixture.name] as PocRun);
+      });
+  });
+
+  // Holds only while the stage library still matches the POC.
+  describe('jev-ungated-stepwise matches the POC today', () => {
+    for (const fixture of POC_CASES)
+      test(`${fixture.name} sends the POC's pinned evaluations and ships its pinned candidate`, async () => {
+        const run = await runPocCase(fixture, (options) =>
+          buildJevUngatedStepwisePlanner(createJevDeps(options)),
+        );
+        if (UPDATE) return;
+        expect(run).toEqual(pinned[fixture.name] as PocRun);
+      });
+  });
 
   test('pins every fixture and nothing else', async () => {
     if (UPDATE)
