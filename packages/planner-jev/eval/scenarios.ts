@@ -8,6 +8,7 @@ import {
 
 import type { StageName } from '../src/lib/defer.js';
 import { demoVessels } from './fixtures/demo-vessels.js';
+import type { ArrangementRule } from './predicates.js';
 
 export type Suite = 'development' | 'holdout';
 
@@ -30,8 +31,10 @@ export interface Expectation {
   readonly deferStage?: StageName;
   readonly visible?: readonly string[];
   readonly retained?: readonly string[];
-  /** Recorded in the report, not scored. */
+  /** Recorded in the report, not scored; {@link arrangement} is. */
   readonly tree?: readonly (string | null)[];
+  /** Rules the shipped tree must satisfy, whichever arm or fallback wrote it. */
+  readonly arrangement?: readonly ArrangementRule[];
   readonly actions?: readonly ExpectedAction[];
   /** Values the POC should ask the user for, its actions dropped. */
   readonly asks?: readonly ExpectedAsk[];
@@ -45,6 +48,13 @@ export interface Scenario {
   /** Prior conversation handed to the planner. */
   readonly history?: readonly LLMContextMessage[];
   readonly expected: Expectation;
+  /**
+   * Whether the request asks for an arrangement (`true`) or is a control
+   * that should leave the arrangement alone (`false`), for counting a
+   * spatial gate's false positives and negatives. Untagged scenarios are
+   * not counted.
+   */
+  readonly spatial?: boolean;
 }
 
 interface InputOptions {
