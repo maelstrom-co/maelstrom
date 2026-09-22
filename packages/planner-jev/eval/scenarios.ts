@@ -97,6 +97,34 @@ const development: Scenario[] = [
     },
   ),
   planned(
+    'replace-side-by-side',
+    'Naming the whole screen hides the rest',
+    'Show me the weather in Warsaw and the calendar in week view side by side.',
+    {
+      visible: ['calendar-main', 'weather-main'],
+      retained: BASE_RETAINED,
+      actions: [
+        setLocation('weather-main', 'Warsaw'),
+        { instanceId: 'calendar-main', action: 'showWeek' },
+      ],
+    },
+  ),
+  planned(
+    'additive-show',
+    'Adding a widget keeps the rest',
+    'Also show the map.',
+    {
+      visible: [...BASE_VISIBLE, 'map-main'],
+      retained: BASE_RETAINED,
+      actions: [],
+    },
+  ),
+  planned('remove', 'Remove hides the named widget', 'Remove the tasks.', {
+    visible: ['calendar-main', 'weather-main'],
+    retained: BASE_RETAINED,
+    actions: [],
+  }),
+  planned(
     'delete',
     'Delete an instance explicitly',
     'Delete the weather widget and its instance.',
