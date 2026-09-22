@@ -13,11 +13,19 @@ export const MAX_CHOICES = 255;
 const HISTORY_MESSAGES = 6;
 
 /** One multiple-choice question: the option keys are the criteria's keys. */
-export interface Question {
+export interface ChoiceQuestion {
   readonly type: 'choice';
   readonly instructions: string;
   readonly criteria: Readonly<Record<string, string>>;
 }
+
+/** One yes/no question; the reply is the probability of yes. */
+export interface NoulQuestion {
+  readonly type: 'noul';
+  readonly instructions: string;
+}
+
+export type Question = ChoiceQuestion | NoulQuestion;
 
 /** One TypeSafe request: shared state plus the questions to answer about it. */
 export interface Evaluation {
@@ -25,10 +33,16 @@ export interface Evaluation {
   readonly questions: Readonly<Record<string, Question>>;
 }
 
-/** Jev's pick for one question. */
+/**
+ * Jev's pick for one question. A noul answer picks `yes` when its
+ * probability of yes is at least one half, and its confidence is how far
+ * that probability is from one half, scaled to [0, 1].
+ */
 export interface Answer {
   readonly choice: string;
   readonly confidence: number;
+  /** The probability of yes; noul answers only. */
+  readonly probability?: number;
 }
 
 /** Token usage TypeSafe reports for one call. */
@@ -52,14 +66,20 @@ export interface ConfidencePolicy {
 export function choice(
   instructions: string,
   criteria: Readonly<Record<string, string>>,
-): Question {
+): ChoiceQuestion {
   return { type: 'choice', instructions, criteria };
+}
+
+export function noul(instructions: string): NoulQuestion {
+  return { type: 'noul', instructions };
 }
 
 /** The id of the first question over {@link MAX_CHOICES} options, if any. */
 export function overOptionCap(evaluation: Evaluation): string | undefined {
   return Object.entries(evaluation.questions).find(
-    ([, question]) => Object.keys(question.criteria).length > MAX_CHOICES,
+    ([, question]) =>
+      question.type === 'choice' &&
+      Object.keys(question.criteria).length > MAX_CHOICES,
   )?.[0];
 }
 
