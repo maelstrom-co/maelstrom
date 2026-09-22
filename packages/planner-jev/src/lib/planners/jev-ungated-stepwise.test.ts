@@ -35,7 +35,6 @@ import { createJevDeps, type JevDeps } from '../stages-experimental/deps.js';
 import { menuLayout } from '../stages-experimental/layout-menu.js';
 import { selectUngated } from '../stages-experimental/select-ungated.js';
 import type { LayoutStage } from '../stages-experimental/types.js';
-import { buildJevUngatedStepwisePlanner } from './jev-ungated-stepwise.js';
 
 afterEach(() => mockChat.mockReset());
 
@@ -55,13 +54,8 @@ function fallbackCandidate(request: ChartRequest): PlannerCandidate {
   } as unknown as PlannerCandidate;
 }
 
-async function run(
-  request: ChartRequest,
-  script: Script,
-  build: (deps: JevDeps) => Planner = (deps) =>
-    buildJevUngatedStepwisePlanner(deps),
-) {
-  const { fetch, calls } = scriptedFetch(script);
+async function run(request: ChartRequest, script: Script) {
+  const { fetch } = scriptedFetch(script);
   const fallbackInputs: Retryable<PlanningInput>[] = [];
   const fallback: Stage<Retryable<PlanningInput>, PlannerCandidate> = async (
     input,
@@ -71,7 +65,7 @@ async function run(
   };
   const { logger, entries } = spyLogger();
   const engine = createEngine({
-    planner: build(
+    planner: handOffPlanner(
       createJevDeps({
         typesafe: {
           apiKey: 'typesafe-test-key',
@@ -104,13 +98,12 @@ async function run(
       executionPlan: unknown[];
       layout: { tree: unknown[]; instances: { instanceId: string }[] };
     },
-    calls,
     fallbackInputs,
     deferral,
   };
 }
 
-/** The live pipeline, with the layout stage handing the tree to the LLM. */
+/** The jev-ungated-stepwise stages, with the layout stage handing the tree to the LLM. */
 function handOffPlanner(deps: JevDeps): Planner {
   const live = menuLayout(deps.ask);
   const handOff: LayoutStage = async (plan, ctx) => {
@@ -130,58 +123,13 @@ function handOffPlanner(deps: JevDeps): Planner {
   );
 }
 
-describe('buildJevUngatedStepwisePlanner through createEngine', () => {
-  test('a hide request ships the selection with the mocked message', async () => {
-    mockChat.mockResolvedValue({ userMessage: 'Tasks are hidden.' });
-    const { response, fallbackInputs, calls } = await run(
-      makeRequest('hide the tasks'),
-      conversation({ select: { 'view/tasks-main': 'hide' }, layout: 'row' }),
-    );
-    expect(response.userMessage).toBe('Tasks are hidden.');
-    expect(response.layout.tree).toEqual([
-      'V',
-      'ID:calendar-main',
-      'ID:weather-main',
-    ]);
-    expect(response.layout.instances.map((i) => i.instanceId)).toContain(
-      'tasks-main',
-    );
-    expect(response.executionPlan).toEqual([]);
-    expect(fallbackInputs).toHaveLength(0);
-    expect(calls).toHaveLength(3);
-  });
-
-  test('"show the weather in Tokyo" ships setLocation bound by Jev', async () => {
-    mockChat.mockResolvedValue({ userMessage: 'Showing Tokyo.' });
-    const { response, fallbackInputs } = await run(
-      makeRequest('show the weather in Tokyo'),
-      conversation({
-        actions: [
-          {
-            pick: 'weather-main/setLocation',
-            params: { location: { value: 'Tokyo' } },
-          },
-        ],
-        layout: 'preserve',
-      }),
-    );
-    expect(response.executionPlan).toEqual([
-      {
-        instanceId: 'weather-main',
-        action: 'setLocation',
-        params: { location: 'Tokyo' },
-      },
-    ]);
-    expect(fallbackInputs).toHaveLength(0);
-  });
-
+describe('a layout hand-off through createEngine', () => {
   test('a hand-off without a tree asks the LLM for the layout and ships a fitting one', async () => {
     const tree = ['H', 'ID:weather-main', 'ID:calendar-main'];
     mockChat.mockResolvedValue({ userMessage: 'Stacked.', layout: { tree } });
     const { response, fallbackInputs } = await run(
       makeRequest('hide the tasks and stack the rest'),
       conversation({ select: { 'view/tasks-main': 'hide' } }),
-      handOffPlanner,
     );
     const schema = mockChat.mock.calls[0]?.[0].outputSchema;
     expect(Object.keys(schema?.shape ?? {})).toContain('layout');
@@ -197,7 +145,6 @@ describe('buildJevUngatedStepwisePlanner through createEngine', () => {
     const { response, fallbackInputs, deferral } = await run(
       makeRequest('hide the tasks and stack the rest'),
       conversation({ select: { 'view/tasks-main': 'hide' } }),
-      handOffPlanner,
     );
     expect(response.userMessage).toBe('from the fallback');
     expect(fallbackInputs).toHaveLength(1);

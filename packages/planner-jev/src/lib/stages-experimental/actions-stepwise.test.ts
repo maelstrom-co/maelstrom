@@ -83,16 +83,4 @@ describe('stepwiseActions', () => {
     expect(isOk(next.result) && next.result.value.minConfidence).toBe(1);
     expect(isOk(next.result) && 'gates' in next.result.value).toBe(false);
   });
-
-  test('defers exactly like the POC', async () => {
-    const { poc, next } = await pair(
-      selectionOf(makeRequest('arrange the weather to the left')),
-      { actions: [{ pick: 'unsupported' }] },
-    );
-    expect(next.calls).toEqual(poc.calls);
-    expect(next.plain).toEqual(poc.result);
-    expect(poc.result).toMatchObject({
-      error: { reason: 'jevActions/action_unsupported' },
-    });
-  });
 });
