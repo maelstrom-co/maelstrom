@@ -21,11 +21,7 @@ import {
 import { deferAt } from '../defer.js';
 import { finalVariants } from '../final-variants.js';
 import { intentText, recentHistory } from '../questions.js';
-import type {
-  JevLayoutPlan,
-  ParameterAsk,
-  PlannedAction,
-} from '../types.js';
+import type { JevLayoutPlan, ParameterAsk, PlannedAction } from '../types.js';
 
 const STAGE = 'llmComplete';
 
