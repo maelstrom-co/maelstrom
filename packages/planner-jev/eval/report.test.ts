@@ -276,6 +276,73 @@ describe('summarize', () => {
   });
 });
 
+describe('gate errors', () => {
+  const gate = (question: string, choice: 'yes' | 'no') => ({
+    stage: 'jevSelect' as const,
+    question,
+    choice,
+    confidence: 0.5,
+  });
+  const records: RunRecord[] = [
+    record({
+      scenarioId: 'edit',
+      expectsActions: true,
+      spatial: false,
+      answers: [gate('gate/needsActions', 'no'), gate('gate/spatial', 'yes')],
+    }),
+    record({
+      scenarioId: 'swap',
+      expectsActions: false,
+      spatial: true,
+      arrangementRules: true,
+      stages: [{ stage: 'jevLayout', ms: 5, outcome: 'ok' }],
+      answers: [gate('gate/needsActions', 'no'), gate('gate/spatial', 'yes')],
+    }),
+    record({
+      scenarioId: 'big-right',
+      expectsActions: false,
+      spatial: true,
+      arrangementRules: true,
+      stages: [{ stage: 'jevActions', ms: 5, outcome: 'deferred' }],
+      answers: [gate('gate/needsActions', 'yes'), gate('gate/spatial', 'no')],
+    }),
+    record({ scenarioId: 'untagged' }),
+  ];
+  const [summary] = summarize(records);
+
+  test('counts false positives and negatives against the scenario tags', () => {
+    expect(summary?.gates).toEqual({
+      needsActions: {
+        falsePositives: { count: 1, total: 2 },
+        falseNegatives: { count: 1, total: 1 },
+      },
+      spatial: {
+        falsePositives: { count: 1, total: 1 },
+        falseNegatives: { count: 1, total: 2 },
+      },
+    });
+    expect(summary?.arrangementReachedLayout).toEqual({ count: 1, total: 2 });
+  });
+
+  test('renders the gate rows and Jev calls per turn', () => {
+    const markdown = renderMarkdown(summarize(records), {});
+    expect(markdown).toContain(
+      '| needsActions gate false positives / negatives | 1/2 (50.0%) / 1/1 (100.0%) |',
+    );
+    expect(markdown).toContain(
+      '| Spatial gate false positives / negatives | 1/1 (100.0%) / 1/2 (50.0%) |',
+    );
+    expect(markdown).toContain(
+      '| Arrangement turns reaching jevLayout | 1/2 (50.0%) |',
+    );
+    expect(markdown).toContain('| Jev calls per turn | 0.00 |');
+  });
+
+  test('has no gate errors without gate answers', () => {
+    expect(summarize([record({})])[0]?.gates).toBe(undefined);
+  });
+});
+
 describe('renderPaired', () => {
   test('lists every scenario where arms disagree on pass, with failures', () => {
     const paired = renderPaired([
