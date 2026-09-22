@@ -9,7 +9,7 @@ import { FALLBACK_RETRIES, type Instrument } from '../jev-planner.js';
 import { stepwiseActions } from '../stages-next/actions-stepwise.js';
 import { completeWithLayout } from '../stages-next/complete.js';
 import type { JevDeps } from '../stages-next/deps.js';
-import { l0Layout } from '../stages-next/layout-l0.js';
+import { menuLayout } from '../stages-next/layout-menu.js';
 import { selectV1 } from '../stages-next/select-v1.js';
 
 /**
@@ -25,7 +25,7 @@ export function buildJevPocRebuiltPlanner(
     pipeline(
       instrument('jevSelect', selectV1(deps.ask)),
       instrument('jevActions', stepwiseActions(deps.ask)),
-      instrument('jevLayout', l0Layout(deps.ask)),
+      instrument('jevLayout', menuLayout(deps.ask)),
       instrument('llmComplete', completeWithLayout(deps.llm)),
     ),
     withRetry(deps.fallback, { max: FALLBACK_RETRIES }),
