@@ -317,6 +317,23 @@ describe('arrangement rules', () => {
     expect(score.pass).toBe(true);
   });
 
+  test('a non-tiling response fails the rules it could not be checked against', () => {
+    const rules = arranged([{ kind: 'unchangedTree' }]);
+    const grid = {
+      ...response(rules),
+      layout: { type: 'grid', positions: [], instances: [] },
+    } as unknown as MaelstromResponse;
+    expect(scoreResponse(rules, grid)).toEqual({
+      pass: false,
+      failures: ['Response layout is not tiling'],
+      arrangement: { pass: false, failures: ['Response layout is not tiling'] },
+    });
+    expect(scoreResponse(base, grid)).toEqual({
+      pass: false,
+      failures: ['Response layout is not tiling'],
+    });
+  });
+
   test('the layout stage is scored on its tree too', () => {
     const rules = arranged([{ kind: 'unchangedTree' }]);
     const plan = (tree: readonly string[]) =>

@@ -71,6 +71,8 @@ export interface RunRecord {
   readonly error?: { readonly tag: string; readonly message: string };
   /** The scenario expects the POC to defer; excluded from every arm's overall pass rate. */
   readonly expectedDeferral: boolean;
+  /** The scenario declares arrangement rules. */
+  readonly arrangementRules: boolean;
   /** The scenario's spatial tag, when it has one. */
   readonly spatial?: boolean;
   /** Overall score of the shipped response (planned scenarios only). */
@@ -371,6 +373,7 @@ function base(
     repeat,
     turnMs: turn.ms,
     expectedDeferral: scenario.expected.status === 'deferred',
+    arrangementRules: scenario.expected.arrangement !== undefined,
     ...(scenario.spatial !== undefined && { spatial: scenario.spatial }),
     ...(turn.response && {
       userMessage: turn.response.userMessage,
