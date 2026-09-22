@@ -1,7 +1,16 @@
 import type { AnyTextAdapter, StreamChunk, TokenUsage } from '@tanstack/ai';
 
+/** Every LLM role, in report order. */
+export const LLM_ROLES = [
+  'planner',
+  'fallback',
+  'complete',
+  'layout',
+  'grader',
+] as const;
+
 /** What an LLM call did for the turn. */
-export type LlmRole = 'planner' | 'fallback' | 'complete' | 'layout' | 'grader';
+export type LlmRole = (typeof LLM_ROLES)[number];
 
 export interface LlmUsage {
   readonly inputTokens: number;

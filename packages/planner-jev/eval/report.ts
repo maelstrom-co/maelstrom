@@ -1,13 +1,11 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import { STAGE_NAMES } from '../src/lib/defer.js';
 import type { ArmKind } from './arms.js';
 import type { RunRecord } from './run.js';
 import type { Suite } from './scenarios.js';
-import type { LlmCall } from './usage-adapter.js';
-
-const STAGES = ['jevSelect', 'jevActions', 'jevLayout', 'llmComplete'] as const;
-const ROLES = ['planner', 'fallback', 'complete', 'layout', 'grader'] as const;
+import { LLM_ROLES, type LlmCall } from './usage-adapter.js';
 
 export interface Ratio {
   readonly count: number;
@@ -24,6 +22,8 @@ export interface TokenTotals {
   readonly calls: number;
   readonly input: number;
   readonly output: number;
+  /** Calls that reported no usage, counted as zero tokens in `input` and `output`. */
+  readonly withoutUsage: number;
 }
 
 export interface ArmSummary {
@@ -184,7 +184,7 @@ export function renderMarkdown(
       s.replayed.length > 0 ? s.replayed.join(', ') : 'none',
     );
     row('Turn latency p50 / p95 (ms)', (s) => spread(s.latency.turn));
-    for (const stage of STAGES)
+    for (const stage of STAGE_NAMES)
       row(`${stage} latency p50 / p95 (ms)`, (s) => {
         const live = s.latency.stages?.[stage];
         if (live && live.samples > 0) return spread(live);
@@ -193,7 +193,7 @@ export function renderMarkdown(
     row('Jev call latency p50 / p95 (ms)', (s) =>
       s.latency.jevCall ? spread(s.latency.jevCall) : 'n/a',
     );
-    const roles = ROLES.filter((role) =>
+    const roles = LLM_ROLES.filter((role) =>
       rows.some((s) => s.tokens.llm.byRole[role] !== undefined),
     );
     for (const role of roles)
@@ -211,7 +211,14 @@ export function renderMarkdown(
     row('LLM calls / input / output tokens', (s) => totals(s.tokens.llm));
     for (const role of roles)
       row(`LLM ${role} calls / input / output tokens`, (s) =>
-        totals(s.tokens.llm.byRole[role] ?? { calls: 0, input: 0, output: 0 }),
+        totals(
+          s.tokens.llm.byRole[role] ?? {
+            calls: 0,
+            input: 0,
+            output: 0,
+            withoutUsage: 0,
+          },
+        ),
       );
   }
   return `${lines.join('\n')}\n`;
@@ -312,7 +319,7 @@ function summarizeArm(
   };
   const llm = {
     llmCall: Object.fromEntries(
-      ROLES.flatMap((role) => {
+      LLM_ROLES.flatMap((role) => {
         const calls = llmCalls.filter((call) => call.role === role);
         return calls.length > 0
           ? [[role, spreadOf(calls.map((call) => call.latencyMs))]]
@@ -375,7 +382,7 @@ function summarizeArm(
   const expected = records.filter((record) => record.expectedDeferral);
   const calls = records.flatMap((record) => record.jevCalls ?? []);
   const stageMs: Record<string, Percentiles> = {};
-  for (const stage of STAGES)
+  for (const stage of STAGE_NAMES)
     stageMs[stage] = spreadOf(
       records.flatMap((record) =>
         (record.stages ?? [])
@@ -383,14 +390,7 @@ function summarizeArm(
           .map((entry) => entry.ms),
       ),
     );
-  const jevInput = calls.reduce(
-    (sum, call) => sum + (call.usage?.inputTokens ?? 0),
-    0,
-  );
-  const jevOutput = calls.reduce(
-    (sum, call) => sum + (call.usage?.outputTokens ?? 0),
-    0,
-  );
+  const jev = sum(calls);
   return {
     ...common,
     decisive: { pass: passed(decisive), wins, losses, paired },
@@ -428,12 +428,10 @@ function summarizeArm(
     },
     tokens: {
       jev: {
-        calls: calls.length,
-        input: jevInput,
-        output: jevOutput,
+        ...jev,
         perTurn: {
-          input: jevInput / records.length,
-          output: jevOutput / records.length,
+          input: jev.input / records.length,
+          output: jev.output / records.length,
         },
       },
       llm: llm.tokens,
@@ -445,16 +443,24 @@ function llmTotals(
   calls: readonly LlmCall[],
 ): TokenTotals & { readonly byRole: Readonly<Record<string, TokenTotals>> } {
   const byRole: Record<string, TokenTotals> = {};
-  for (const role of ROLES) {
+  for (const role of LLM_ROLES) {
     const subset = calls.filter((call) => call.role === role);
     if (subset.length > 0) byRole[role] = sum(subset);
   }
   return { ...sum(calls), byRole };
 }
 
-function sum(calls: readonly LlmCall[]): TokenTotals {
+function sum(
+  calls: readonly {
+    readonly usage?: {
+      readonly inputTokens: number;
+      readonly outputTokens: number;
+    };
+  }[],
+): TokenTotals {
   return {
     calls: calls.length,
+    withoutUsage: calls.filter((call) => call.usage === undefined).length,
     input: calls.reduce(
       (total, call) => total + (call.usage?.inputTokens ?? 0),
       0,
@@ -491,5 +497,7 @@ function spread(value: Percentiles): string {
 }
 
 function totals(value: TokenTotals): string {
-  return `${value.calls} / ${value.input} / ${value.output}`;
+  const missing =
+    value.withoutUsage > 0 ? ` (${value.withoutUsage} without usage)` : '';
+  return `${value.calls} / ${value.input} / ${value.output}${missing}`;
 }
