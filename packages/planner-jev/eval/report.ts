@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import type { Arm, RunRecord } from './run.js';
+import type { RunRecord } from './run.js';
 import type { Suite } from './scenarios.js';
 
 const STAGES = ['jevSelect', 'jevActions', 'jevLayout', 'llmComplete'] as const;
@@ -18,7 +18,7 @@ export interface Percentiles {
 }
 
 export interface ArmSummary {
-  readonly arm: Arm;
+  readonly arm: string;
   readonly suite: Suite | 'all';
   readonly runs: number;
   /** Shipped responses that pass, over planned scenarios (expected deferrals excluded). */
@@ -161,7 +161,7 @@ export async function writeReport(
 }
 
 function summarizeArm(
-  arm: Arm,
+  arm: string,
   suite: Suite | 'all',
   records: readonly RunRecord[],
 ): ArmSummary {
@@ -174,7 +174,7 @@ function summarizeArm(
     turn: spreadOf(records.map((record) => record.turnMs)),
   };
   const errors = records.filter((record) => record.error !== undefined).length;
-  if (arm === 'baseline')
+  if (records[0]?.kind === 'baseline')
     return {
       arm,
       suite,

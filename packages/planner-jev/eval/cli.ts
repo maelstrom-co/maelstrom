@@ -3,9 +3,9 @@ import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 
 import { createOpenaiChat, type OpenAIChatModel } from '@tanstack/ai-openai';
-
+import { DEFAULT_ARMS, resolveArms } from './arms.js';
 import { writeReport } from './report.js';
-import { type Arm, runEval } from './run.js';
+import { runEval } from './run.js';
 import { type Suite, selectScenarios } from './scenarios.js';
 
 // The demo's default engine model (apps/demo/src/server/engine-model.ts).
@@ -15,7 +15,7 @@ const WORKSPACE_ROOT = resolve(import.meta.dir, '../../..');
 const { values } = parseArgs({
   options: {
     suite: { type: 'string', default: 'all' },
-    arm: { type: 'string', default: 'both' },
+    arm: { type: 'string', multiple: true },
     repeats: { type: 'string', default: '3' },
     case: { type: 'string', multiple: true },
     model: { type: 'string', default: DEFAULT_MODEL },
@@ -24,8 +24,13 @@ const { values } = parseArgs({
 });
 
 const suite = oneOf(values.suite, ['development', 'holdout', 'all'], 'suite');
-const armOption = oneOf(values.arm, ['baseline', 'jev', 'both'], 'arm');
-const arms: Arm[] = armOption === 'both' ? ['baseline', 'jev'] : [armOption];
+const arms = (() => {
+  try {
+    return resolveArms(values.arm ?? DEFAULT_ARMS);
+  } catch (error) {
+    return fail(`--arm: ${error instanceof Error ? error.message : error}`);
+  }
+})();
 const repeats = Number(values.repeats);
 if (!Number.isInteger(repeats) || repeats < 1)
   fail('--repeats must be a positive integer');
@@ -63,7 +68,7 @@ if (scenarios.length === 0) fail('no scenario matches --suite and --case');
 
 const model = values.model;
 console.log(
-  `planner-jev eval: ${scenarios.length} scenarios x ${repeats} repeats x ${arms.join(', ')} (LLM ${model}, Jev ${env.JEV_MODEL})`,
+  `planner-jev eval: ${scenarios.length} scenarios x ${repeats} repeats x ${arms.map((arm) => arm.name).join(', ')} (LLM ${model}, Jev ${env.JEV_MODEL})`,
 );
 const records = await runEval({
   scenarios,
@@ -88,7 +93,7 @@ const records = await runEval({
 });
 await writeReport(out, records, {
   suite,
-  arms: arms.join(', '),
+  arms: arms.map((arm) => arm.name).join(', '),
   repeats,
   scenarios: scenarios.length,
   llmModel: model,
