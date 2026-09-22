@@ -4,7 +4,14 @@ import type { AnyTextAdapter } from '@tanstack/ai';
 
 import { dummyAdapter } from '../src/lib/__test-helpers__/mock-chat.js';
 import { TEST_MODEL } from '../src/lib/__test-helpers__/scripted-fetch.js';
-import { type ArmDeps, arms, DEFAULT_ARMS, resolveArms } from './arms.js';
+import {
+  type Arm,
+  type ArmDeps,
+  armRegistry,
+  arms,
+  DEFAULT_ARMS,
+  resolveArms,
+} from './arms.js';
 import type { LlmRole } from './usage-adapter.js';
 
 describe('arm registry', () => {
@@ -16,6 +23,27 @@ describe('arm registry', () => {
       kind: 'jev',
     });
     expect(DEFAULT_ARMS).toEqual(['baseline', 'jev-poc']);
+  });
+
+  test('holds every actions-stage variant, each under its own name', () => {
+    expect(Object.keys(arms)).toEqual([
+      'baseline',
+      'jev-poc',
+      'jev-ungated-stepwise',
+      'jev-ungated-batched',
+      'jev-ungated-batched-per-instance',
+      'jev-gated-stepwise',
+      'jev-gated-batched',
+      'jev-gated-batched-per-instance',
+    ]);
+    for (const [name, arm] of Object.entries(arms)) expect(arm.name).toBe(name);
+  });
+
+  test('refuses two arms with one name', () => {
+    const arm = arms.baseline as Arm;
+    expect(() => armRegistry([arm, { ...arm }])).toThrow(
+      'arm baseline is registered twice',
+    );
   });
 
   test('resolves exact names in the order given', () => {
@@ -38,7 +66,7 @@ describe('arm registry', () => {
 
   test('rejects an unknown name, listing the known ones', () => {
     expect(() => resolveArms(['baseline', 'jev2'])).toThrow(
-      'unknown arm jev2; known arms: baseline, jev-poc (alias jev), jev-ungated-stepwise',
+      'unknown arm jev2; known arms: baseline, jev-poc (alias jev), jev-ungated-stepwise, jev-ungated-batched, jev-ungated-batched-per-instance, jev-gated-stepwise, jev-gated-batched, jev-gated-batched-per-instance',
     );
     expect(() => resolveArms([])).toThrow('at least one arm');
   });
@@ -56,9 +84,13 @@ describe('arm registry', () => {
       },
       instrument: (_name, stage) => stage,
     };
-    expect(typeof arms.baseline?.build(deps)).toBe('function');
-    expect(typeof arms['jev-poc']?.build(deps)).toBe('function');
-    expect(typeof arms['jev-ungated-stepwise']?.build(deps)).toBe('function');
-    expect(roles).toEqual(['planner', 'complete', 'complete']);
+    for (const arm of Object.values(arms))
+      expect(typeof arm.build(deps)).toBe('function');
+    expect(roles).toEqual([
+      'planner',
+      ...Object.keys(arms)
+        .slice(1)
+        .map(() => 'complete'),
+    ]);
   });
 });

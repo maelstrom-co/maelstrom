@@ -14,6 +14,11 @@ import {
   FALLBACK_RETRIES,
   type Instrument,
 } from '../src/lib/jev-planner.js';
+import { buildJevGatedBatchedPlanner } from '../src/lib/planners/jev-gated-batched.js';
+import { buildJevGatedBatchedPerInstancePlanner } from '../src/lib/planners/jev-gated-batched-per-instance.js';
+import { buildJevGatedStepwisePlanner } from '../src/lib/planners/jev-gated-stepwise.js';
+import { buildJevUngatedBatchedPlanner } from '../src/lib/planners/jev-ungated-batched.js';
+import { buildJevUngatedBatchedPerInstancePlanner } from '../src/lib/planners/jev-ungated-batched-per-instance.js';
 import { buildJevUngatedStepwisePlanner } from '../src/lib/planners/jev-ungated-stepwise.js';
 import {
   createJevDeps,
@@ -48,9 +53,8 @@ export const SYSTEM_RULES = `
 - Try to always keep at least one vessel visible on the chart
 - Give each vessel adequate space for its content`;
 
-/** Every arm the runner knows, by name. */
-export const arms: Readonly<Record<string, Arm>> = {
-  baseline: {
+const ARMS: readonly Arm[] = [
+  {
     name: 'baseline',
     kind: 'baseline',
     build: (deps) =>
@@ -58,7 +62,7 @@ export const arms: Readonly<Record<string, Arm>> = {
         max: FALLBACK_RETRIES,
       }),
   },
-  'jev-poc': {
+  {
     name: 'jev-poc',
     kind: 'jev-poc',
     build: (deps) =>
@@ -71,13 +75,39 @@ export const arms: Readonly<Record<string, Arm>> = {
         deps.instrument,
       ),
   },
-  'jev-ungated-stepwise': {
-    name: 'jev-ungated-stepwise',
-    kind: 'jev',
-    build: (deps) =>
-      buildJevUngatedStepwisePlanner(jevDeps(deps), deps.instrument),
-  },
-};
+  stageLibraryArm('jev-ungated-stepwise', buildJevUngatedStepwisePlanner),
+  stageLibraryArm('jev-ungated-batched', buildJevUngatedBatchedPlanner),
+  stageLibraryArm(
+    'jev-ungated-batched-per-instance',
+    buildJevUngatedBatchedPerInstancePlanner,
+  ),
+  stageLibraryArm('jev-gated-stepwise', buildJevGatedStepwisePlanner),
+  stageLibraryArm('jev-gated-batched', buildJevGatedBatchedPlanner),
+  stageLibraryArm(
+    'jev-gated-batched-per-instance',
+    buildJevGatedBatchedPerInstancePlanner,
+  ),
+];
+
+/** Every arm the runner knows, by name. */
+export const arms: Readonly<Record<string, Arm>> = armRegistry(ARMS);
+
+/**
+ * Indexes `list` by name.
+ *
+ * @throws {Error} When two arms share a name.
+ */
+export function armRegistry(
+  list: readonly Arm[],
+): Readonly<Record<string, Arm>> {
+  const registry: Record<string, Arm> = {};
+  for (const arm of list) {
+    if (Object.hasOwn(registry, arm.name))
+      throw new Error(`arm ${arm.name} is registered twice`);
+    registry[arm.name] = arm;
+  }
+  return registry;
+}
 
 /** Arms run when `--arm` is not given. */
 export const DEFAULT_ARMS: readonly string[] = ['baseline', 'jev-poc'];
@@ -118,6 +148,17 @@ export function jevDeps(deps: ArmDeps): JevDeps {
     adapter: deps.adapter('complete'),
     fallback: deps.fallback,
   });
+}
+
+function stageLibraryArm(
+  name: string,
+  build: (deps: JevDeps, instrument: Instrument) => Planner,
+): Arm {
+  return {
+    name,
+    kind: 'jev',
+    build: (deps) => build(jevDeps(deps), deps.instrument),
+  };
 }
 
 function known(): string {
