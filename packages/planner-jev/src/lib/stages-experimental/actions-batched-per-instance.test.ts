@@ -132,7 +132,6 @@ describe('perInstanceBatchedActions', () => {
       answering({
         'calendar-main/1': 'showWeek',
         'calendar-main/2': 'week:addEvent',
-        'calendar-main/3': 'week:showMonth',
         'param/calendar-main/1/addEvent/title': 'v0',
         'param/calendar-main/2/week:addEvent/title': 'v4',
         'param/calendar-main/2/week:addEvent/time': 'stated_elsewhere',
@@ -166,13 +165,12 @@ describe('perInstanceBatchedActions', () => {
     expect(deferralOf(result)).toBe('jevActions/premise_mismatch');
   });
 
-  test('never plans the third slot', async () => {
+  test('plans two actions and never consumes a third slot answering none', async () => {
     const { result } = await run(
-      selectionOf('week, month, week', CALENDAR_ONLY),
+      selectionOf('week, then month', CALENDAR_ONLY),
       answering({
         'calendar-main/1': 'showWeek',
         'calendar-main/2': 'week:showMonth',
-        'calendar-main/3': 'month:showWeek',
       }),
     );
     expect(planned(result).actions.map((a) => a.action)).toEqual([
@@ -182,6 +180,18 @@ describe('perInstanceBatchedActions', () => {
     expect(
       isOk(result) && result.value.answers.map((answer) => answer.question),
     ).toEqual(['calendar-main/1', 'calendar-main/2']);
+  });
+
+  test('defers the action limit when a third slot names an action', async () => {
+    const { result } = await run(
+      selectionOf('week, month, week', CALENDAR_ONLY),
+      answering({
+        'calendar-main/1': 'showWeek',
+        'calendar-main/2': 'week:showMonth',
+        'calendar-main/3': 'month:showWeek',
+      }),
+    );
+    expect(deferralOf(result)).toBe('jevActions/action_limit');
   });
 
   test('ignores slot 2 when slot 1 is none and defers unsupported', async () => {

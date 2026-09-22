@@ -40,10 +40,12 @@ const STAGE = 'jevActions';
  * and the parameters of every action any slot could pick asked alongside.
  * Code walks each instance's slots and keeps a second answer only when its
  * premise matches the first answer; a mismatch defers
- * `premise_mismatch`. A third slot is asked for measurement and never
- * planned. Actions keep their order within an instance, not across
- * instances. A resize-only request, or a `needsActions` gate answering no,
- * plans no actions and makes no call.
+ * `premise_mismatch`. A third slot is asked and never planned: an answer
+ * naming an action defers `action_limit` rather than shipping the first two
+ * actions as if that were the whole request, and the call record keeps every
+ * third-slot answer for measurement. Actions keep their order within an
+ * instance, not across instances. A resize-only request, or a `needsActions`
+ * gate answering no, plans no actions and makes no call.
  */
 export function perInstanceBatchedActions(ask: Ask): ActionsStage {
   return async (selection, ctx) => {
@@ -121,6 +123,11 @@ export function perInstanceBatchedActions(ask: Ask): ActionsStage {
       if (secondTarget.variant !== after(firstTarget))
         return deferAt(ctx, STAGE, 'premise_mismatch', slotId(instance, 2));
       walked.push({ instance, target: secondTarget });
+
+      const third = readAnswer(reply.value, slotId(instance, 3), STAGE, ctx);
+      if (isErr(third)) return third;
+      if (third.value.choice !== 'none' && third.value.choice !== 'unsupported')
+        return deferAt(ctx, STAGE, 'action_limit', slotId(instance, 3));
     }
     if (walked.length > MAX_ACTIONS) return deferAt(ctx, STAGE, 'action_limit');
 
