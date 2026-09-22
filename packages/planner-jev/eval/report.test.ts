@@ -11,6 +11,7 @@ function record(overrides: Partial<RunRecord>): RunRecord {
     scenarioId: 's',
     suite: 'development',
     arm: 'jev',
+    kind: 'jev-poc',
     repeat: 1,
     turnMs: 100,
     expectedDeferral: false,
@@ -81,8 +82,8 @@ describe('summarize', () => {
       ],
       stages: [{ stage: 'jevSelect', ms: 45, outcome: 'ok' }],
     }),
-    record({ arm: 'baseline', score: pass }),
-    record({ arm: 'baseline', expectedDeferral: true }),
+    record({ arm: 'baseline', kind: 'baseline', score: pass }),
+    record({ arm: 'baseline', kind: 'baseline', expectedDeferral: true }),
   ];
   const summaries = summarize(records);
   const jev = summaries.find((s) => s.arm === 'jev' && s.suite === 'all');
