@@ -10,15 +10,20 @@ import {
 } from '@maelstrom-co/engine';
 import { err, isErr, ok, type Result } from '@maelstrom-co/protocol';
 import { type AnyTextAdapter, chat } from '@tanstack/ai';
-import { z } from 'zod';
+import type { z } from 'zod';
 
+import {
+  type Completion,
+  outputSchema,
+  parseFill,
+  type Slot,
+} from '../completion-schema.js';
 import { deferAt } from '../defer.js';
 import { finalVariants } from '../final-variants.js';
 import { intentText, recentHistory } from '../questions.js';
 import type {
   JevLayoutPlan,
   ParameterAsk,
-  PendingParameter,
   PlannedAction,
 } from '../types.js';
 
@@ -36,13 +41,6 @@ export interface LlmCompleteOptions {
   readonly adapter: AnyTextAdapter;
   /** Provider options forwarded to `chat()`. */
   readonly modelOptions?: Record<string, unknown>;
-}
-
-/** A `stated_elsewhere` parameter the LLM fills, keyed `p<i>` in the output schema. */
-export interface Slot {
-  readonly key: string;
-  readonly action: PlannedAction;
-  readonly parameter: PendingParameter;
 }
 
 /**
@@ -141,39 +139,6 @@ export function llmComplete(
   };
 }
 
-/**
- * `{ userMessage }`, plus `params` with one nullable key per pending slot
- * typed from its parameter. Object parameters travel as JSON strings.
- */
-export function outputSchema(slots: readonly Slot[]): z.ZodType<Completion> {
-  const userMessage = z
-    .string()
-    .describe(
-      'The reply to the user, displayed in the chat and spoken aloud. Short and friendly.',
-    );
-  if (slots.length === 0) return z.object({ userMessage });
-  return z.object({
-    userMessage,
-    params: z.object(
-      Object.fromEntries(
-        slots.map((slot) => [
-          slot.key,
-          valueSchema(slot.parameter)
-            .nullable()
-            .describe(
-              `${slot.parameter.name} for ${slot.action.action} on ${slot.action.instanceId}: ${slot.parameter.description}`,
-            ),
-        ]),
-      ),
-    ),
-  });
-}
-
-type Completion = {
-  readonly userMessage: string;
-  readonly params?: Readonly<Record<string, unknown>>;
-};
-
 async function complete(
   options: LlmCompleteOptions,
   prompt: string,
@@ -226,42 +191,6 @@ async function complete(
     return err(failure);
   } finally {
     signal?.removeEventListener('abort', abort);
-  }
-}
-
-function valueSchema(parameter: PendingParameter): z.ZodType {
-  const values = parameter.enum ?? [];
-  if (values.length > 0) {
-    const literals = values.map((value) =>
-      z.literal(value as string | number | boolean),
-    );
-    return literals.length === 1
-      ? literals[0]
-      : z.union(literals as unknown as [z.ZodType, z.ZodType, ...z.ZodType[]]);
-  }
-  switch (parameter.type) {
-    case 'string':
-      return z.string();
-    case 'number':
-      return z.number();
-    case 'boolean':
-      return z.boolean();
-    case 'object':
-      return z.string().describe('A JSON object, as a string');
-  }
-}
-
-function parseFill(parameter: PendingParameter, raw: unknown): unknown {
-  if (raw === null || raw === undefined) return undefined;
-  if (parameter.type !== 'object') return raw;
-  if (typeof raw !== 'string') return undefined;
-  try {
-    const value: unknown = JSON.parse(raw);
-    return typeof value === 'object' && value !== null && !Array.isArray(value)
-      ? value
-      : undefined;
-  } catch {
-    return undefined;
   }
 }
 
