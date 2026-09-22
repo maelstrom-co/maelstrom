@@ -9,7 +9,7 @@ import type {
   SelectionDecision,
 } from '../types.js';
 import { makeInput } from './fixtures.js';
-import type { Payload, Script, Step } from './scripted-fetch.js';
+import type { Payload, Script } from './scripted-fetch.js';
 
 /** How a scripted conversation answers one parameter question. */
 export type ParamAnswer =
@@ -32,6 +32,8 @@ export interface Conversation {
   /** The layout option id, or a function picking it from the payload. */
   readonly layout?: string | ((payload: Payload) => string);
   readonly confidence?: number;
+  /** Noul probabilities for the selection call's gate questions, by question id. */
+  readonly gates?: Readonly<Record<string, number>>;
 }
 
 /**
@@ -43,14 +45,16 @@ export function conversation(script: Conversation): Script {
   return (payload) => {
     const ids = Object.keys(payload.questions);
     const confidence = script.confidence;
-    const answer = (choices: Record<string, string>): Step =>
+    const answer = (choices: Record<string, string>) =>
       confidence === undefined ? { choices } : { choices, confidence };
-    if (ids.includes('scope'))
-      return answer({
+    if (ids.includes('scope')) {
+      const step = answer({
         'view/map-main': 'hide',
         'view/journal-main': 'hide',
         ...script.select,
       });
+      return script.gates ? { ...step, nouls: script.gates } : step;
+    }
     if (ids.includes('layout')) {
       const layout =
         typeof script.layout === 'function'
