@@ -138,6 +138,57 @@ describe('llmComplete', () => {
     expect(chatPrompt()).toContain('## Values to fill');
   });
 
+  test('the prompt tells the model to resolve indirect references and states the parameter description', async () => {
+    mockChat.mockResolvedValue({ userMessage: 'ok', params: { p0: 'Paris' } });
+    await run(
+      completionPlan(
+        makeRequest(
+          'set the weather to the city where the Eiffel Tower stands',
+        ),
+        { actions: [planned('weather-main/setLocation', {}, [LOCATION])] },
+      ),
+    );
+    expect(chatPrompt()).toContain(
+      'resolve a landmark, event, or other indirect reference',
+    );
+    expect(chatPrompt()).toContain(LOCATION.description);
+  });
+
+  test('a resolved value for an indirectly stated parameter ships in the action params', async () => {
+    mockChat.mockResolvedValue({ userMessage: 'ok', params: { p0: 'Paris' } });
+    const { result } = await run(
+      completionPlan(
+        makeRequest(
+          'set the weather to the city where the Eiffel Tower stands',
+        ),
+        { actions: [planned('weather-main/setLocation', {}, [LOCATION])] },
+      ),
+    );
+    expect(candidateOf(result).executionPlan).toEqual([
+      {
+        instanceId: 'weather-main',
+        action: 'setLocation',
+        paramsJson: '{"location":"Paris"}',
+      },
+    ]);
+  });
+
+  test('a verbatim value still passes through unchanged', async () => {
+    mockChat.mockResolvedValue({ userMessage: 'ok', params: { p0: 'Tokyo' } });
+    const { result } = await run(
+      completionPlan(makeRequest('Set the weather location to "Tokyo".'), {
+        actions: [planned('weather-main/setLocation', {}, [LOCATION])],
+      }),
+    );
+    expect(candidateOf(result).executionPlan).toEqual([
+      {
+        instanceId: 'weather-main',
+        action: 'setLocation',
+        paramsJson: '{"location":"Tokyo"}',
+      },
+    ]);
+  });
+
   test.each([
     ['null', null],
     ['an unparsable object', 'not json'],

@@ -28,7 +28,7 @@ const SYSTEM_PROMPT = `You write the reply of a dashboard assistant after its pl
 - Describe only what was decided, in one or two short, friendly sentences that read well aloud.
 - Do not promise anything the decisions do not include, and never claim that an action listed under "Ask the user" ran.
 - When there are values to ask for, ask the user for them in the same reply.
-- For each value to fill, copy the value the request states, in the parameter's type. Use null when the request does not state one.`;
+- For each value to fill, give the concrete value the parameter needs, in its type: resolve a landmark, event, or other indirect reference to what it names. Use null only when the request gives no value at all.`;
 
 /** Configuration for {@link llmComplete}. */
 export interface LlmCompleteOptions {
@@ -285,11 +285,8 @@ function buildPrompt(
     lines.push(
       '',
       '## Values to fill',
-      'Copy the value the request states; null if it does not state one.',
-      ...slots.map(
-        (slot) =>
-          `- ${slot.key}: ${slot.parameter.name} (${slot.parameter.type}) for ${slot.action.action} on ${slot.action.instanceId}: ${slot.parameter.description}`,
-      ),
+      'Give the value each parameter needs, in its type: resolve a landmark, event, or other indirect reference to what it names. Null only when the request gives no value at all.',
+      ...slots.map((slot) => `- ${slot.key}: ${describeSlot(slot)}`),
     );
   if (plan.asks.length > 0)
     lines.push(
@@ -342,6 +339,15 @@ function describeAction(action: PlannedAction): string {
 
 function describeAsk(ask: ParameterAsk): string {
   return `- ${ask.parameter.name} for ${ask.action} on ${ask.instanceId}: ${ask.parameter.description}`;
+}
+
+function describeSlot(slot: Slot): string {
+  const { parameter, action } = slot;
+  const enumSuffix =
+    parameter.enum && parameter.enum.length > 0
+      ? ` (one of: ${parameter.enum.join(', ')})`
+      : '';
+  return `${parameter.name} (${parameter.type}) for ${action.action} on ${action.instanceId}: ${parameter.description}${enumSuffix}`;
 }
 
 function rationale(layoutPlan: JevLayoutPlan): string {
