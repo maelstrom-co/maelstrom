@@ -7,7 +7,7 @@ import { actionPlan } from '../__test-helpers__/layout-fixtures.js';
 import type { Script } from '../__test-helpers__/scripted-fetch.js';
 import { runPair } from '../__test-helpers__/stage-pair.js';
 import { jevLayout } from '../stages/jev-layout.js';
-import { l0Layout } from './layout-l0.js';
+import { menuLayout } from './layout-menu.js';
 import type { ActionPlan2 } from './types.js';
 
 function planOf(
@@ -18,10 +18,10 @@ function planOf(
 }
 
 function pair(plan: ActionPlan2, script: Script) {
-  return runPair(jevLayout, l0Layout, plan, plan.selection.input, script);
+  return runPair(jevLayout, menuLayout, plan, plan.selection.input, script);
 }
 
-describe('l0Layout', () => {
+describe('menuLayout', () => {
   test('sends the POC layout call and wraps its choice as a Jev decision', async () => {
     const plan = planOf(makeRequest('open the Monday entry'), [
       'journal-main/openEntry',

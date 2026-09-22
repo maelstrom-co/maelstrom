@@ -32,7 +32,7 @@ import {
 import { stepwiseActions } from '../stages-next/actions-stepwise.js';
 import { completeWithLayout } from '../stages-next/complete.js';
 import { createJevDeps, type JevDeps } from '../stages-next/deps.js';
-import { l0Layout } from '../stages-next/layout-l0.js';
+import { menuLayout } from '../stages-next/layout-menu.js';
 import { selectV1 } from '../stages-next/select-v1.js';
 import type { LayoutStage } from '../stages-next/types.js';
 import { buildJevPocRebuiltPlanner } from './jev-poc-rebuilt.js';
@@ -111,7 +111,7 @@ async function run(
 
 /** The live pipeline, with the layout stage handing the tree to the LLM. */
 function handOffPlanner(deps: JevDeps): Planner {
-  const live = l0Layout(deps.ask);
+  const live = menuLayout(deps.ask);
   const handOff: LayoutStage = async (plan, ctx) => {
     const result = await live(plan, ctx);
     if (isErr(result)) return result;
