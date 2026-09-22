@@ -17,6 +17,7 @@ import {
 } from '../src/lib/__test-helpers__/scripted-fetch.js';
 import {
   ARRANGEMENT_MATCH_LEVELS,
+  GRADER_VERSION,
   type GradeInput,
   gradeResponse,
   REQUEST_SATISFIED_LEVELS,
@@ -105,6 +106,50 @@ test('states the intent, both layouts in words, the plan and the message', async
     },
   ]);
   expect(state.userMessage).toBe('The map is now on the left of the calendar.');
+});
+
+test('states that the shipped layout is unchanged when its tree is identical to the incoming one', async () => {
+  if (swap.request.layout.type !== 'tiling')
+    throw new Error('fixture scenario swap is not tiling');
+  const { ask, calls } = scriptedAsk(() => ({ choices: {} }));
+  await gradeResponse(
+    ask,
+    {
+      ...swapped,
+      response: {
+        ...swapped.response,
+        userMessage: 'The calendar and map are already arranged as requested.',
+        tree: [...swap.request.layout.tree],
+      },
+    },
+    ctx,
+  );
+  const state = calls[0]?.state as Record<string, unknown>;
+  expect(state.layoutUnchanged).toBe(true);
+});
+
+test('states that the shipped layout changed when its tree differs from the incoming one', async () => {
+  const { ask, calls } = scriptedAsk(() => ({ choices: {} }));
+  await gradeResponse(ask, swapped, ctx);
+  const state = calls[0]?.state as Record<string, unknown>;
+  expect(state.layoutUnchanged).toBe(false);
+});
+
+test('scores an unchanged layout at the lowest arrangement level when a change was stated', () => {
+  expect(ARRANGEMENT_MATCH_LEVELS[0]).toContain('unchanged');
+  expect(ARRANGEMENT_MATCH_LEVELS[4]).toContain(
+    'with none stated, the previous arrangement is preserved or a sensible default is used',
+  );
+});
+
+test('records the grader version that produced a grade', async () => {
+  const { ask } = scriptedAsk(() => ({
+    choices: {},
+    scores: { request_satisfied: 4, arrangement_match: 4 },
+  }));
+  const grade = await gradeResponse(ask, swapped, ctx);
+  expect(GRADER_VERSION).toBe(2);
+  expect(grade.graderVersion).toBe(2);
 });
 
 test('describes the after layout with the variants the response declares', async () => {

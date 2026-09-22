@@ -18,7 +18,7 @@ import type { Ask, JevCall } from '../src/lib/typesafe-client.js';
 import { VERBALIZER_VERSION, verbalizeTree } from './verbalize-tree.js';
 
 /** Bumped whenever the grader's questions, levels or state change, so a stored grade records which wording produced it. */
-export const GRADER_VERSION = 1;
+export const GRADER_VERSION = 2;
 
 /** The dimensions the grader rates each shipped response on. */
 export const GRADER_DIMENSIONS = [
@@ -40,7 +40,7 @@ export const REQUEST_SATISFIED_LEVELS = [
 
 /** Levels of `arrangement_match`, lowest first. */
 export const ARRANGEMENT_MATCH_LEVELS = [
-  'Layout contradicts the stated arrangement: the big widget is on the wrong side or the order is reversed.',
+  'Layout contradicts the stated arrangement: the big widget is on the wrong side or the order is reversed, or the layout was left unchanged although before did not already have the stated arrangement.',
   'Layout misses most of the stated arrangement, for example the widgets sit side by side but not in the stated order; with none stated, the previous arrangement was reshuffled for no reason.',
   'Layout follows the main placement of the stated arrangement but gets a stated size or position clearly wrong, for example the map is on the right but no bigger than the calendar.',
   'Layout follows the stated arrangement with a small deviation, for example the strip is along the bottom but thicker than asked; with none stated, the previous arrangement is kept with minor size changes.',
@@ -152,11 +152,11 @@ const LEVELS: Readonly<Record<GraderDimension, readonly string[]>> = {
 
 const QUESTIONS: Readonly<Record<GraderDimension, Question>> = {
   request_satisfied: score(
-    'Rate how fully the response did what the user asked in intent. before and after describe the layout before and after the response, executionPlan lists the actions it ran, and userMessage is what it told the user. Judge what actually changed, not how the message reads.',
+    'Rate how fully the response did what the user asked in intent. before and after describe the layout before and after the response, layoutUnchanged is true when after is exactly before, executionPlan lists the actions it ran, and userMessage is what it told the user. userMessage is a claim, not evidence: judge what actually changed in after and executionPlan, not how the message reads. A requested rearrangement did not happen when layoutUnchanged is true, unless before already had it.',
     REQUEST_SATISFIED_LEVELS,
   ),
   arrangement_match: score(
-    'Rate how well the layout in after matches the arrangement the user stated in intent: which widget sits where, their order and their relative sizes. When intent states no arrangement, compare after with before instead. Judge the layout descriptions, not the message.',
+    'Rate how well the layout in after matches the arrangement the user stated in intent: which widget sits where, their order and their relative sizes. When intent states an arrangement, judge after only against that arrangement; keeping the previous layout earns no credit by itself. layoutUnchanged is true when after is exactly before: when it is true and before does not already have the stated arrangement, the score is the lowest level. Only when intent states no arrangement, compare after with before instead, where preserving before is best. userMessage is a claim, not evidence: judge the layout descriptions, not the message.',
     ARRANGEMENT_MATCH_LEVELS,
   ),
 };
@@ -212,6 +212,9 @@ function graderState({ request, response }: GradeInput) {
       request: { ...request, instances: response.instances },
       tree: response.tree,
     }),
+    layoutUnchanged:
+      request.layout.type === 'tiling' &&
+      sameTree(request.layout.tree, response.tree),
     executionPlan: response.executionPlan.map((step) => ({
       instanceId: step.instanceId,
       action: step.action,
@@ -219,6 +222,16 @@ function graderState({ request, response }: GradeInput) {
     })),
     userMessage: response.userMessage,
   };
+}
+
+function sameTree(
+  before: readonly TilingNode[],
+  after: readonly TilingNode[],
+): boolean {
+  return (
+    before.length === after.length &&
+    before.every((token, index) => token === after[index])
+  );
 }
 
 function topTwoGap(probabilities: Readonly<Record<string, number>>): number {
