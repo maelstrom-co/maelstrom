@@ -1,12 +1,16 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 
-import { isOk } from '@maelstrom-co/protocol';
+import type { PlannerCandidate, ValidateCandidate } from '@maelstrom-co/engine';
+import { err, isOk, MessageId, ok } from '@maelstrom-co/protocol';
 
 import {
+  acceptAll,
   deferralOf,
+  errorTagOf,
   makeContext,
   makeRequest,
   plain,
+  spyLogger,
 } from '../__test-helpers__/fixtures.js';
 import {
   completionPlan,
@@ -48,10 +52,13 @@ function handOff(layoutPlan: JevLayoutPlan): LayoutDecision {
   return rest;
 }
 
-async function run(decision: LayoutDecision) {
+async function run(
+  decision: LayoutDecision,
+  overrides: { validate?: ValidateCandidate; signal?: AbortSignal } = {},
+) {
   return completeWithLayout({ adapter: dummyAdapter })(
     decision,
-    makeContext(decision.plan.selection.input),
+    makeContext(decision.plan.selection.input, overrides),
   );
 }
 
@@ -134,5 +141,81 @@ describe('completeWithLayout', () => {
     });
     const result = await run(handOff(hidden()));
     expect(deferralOf(result)).toBe('llmComplete/invalid_layout');
+  });
+
+  test('an action the simulated variant does not offer defers simulation_failed', async () => {
+    mockChat.mockResolvedValue({ userMessage: 'ok' });
+    const result = await run(
+      decisionOf(
+        completionPlan(makeRequest('x'), {
+          actions: [planned('weather-main/openEntry')],
+        }),
+      ),
+    );
+    expect(deferralOf(result)).toBe('llmComplete/simulation_failed');
+  });
+
+  test('a validation error defers invalid_candidate', async () => {
+    mockChat.mockResolvedValue({ userMessage: 'ok' });
+    const result = await run(decisionOf(completionPlan(makeRequest('x'))), {
+      validate: () =>
+        err({ _tag: 'ParseError', message: 'empty userMessage', raw: '' }),
+    });
+    expect(deferralOf(result)).toBe('llmComplete/invalid_candidate');
+  });
+
+  test('a recommended retry defers retry_recommended', async () => {
+    mockChat.mockResolvedValue({ userMessage: 'ok' });
+    const recommending: ValidateCandidate = (candidate: PlannerCandidate) => {
+      const report = acceptAll(candidate);
+      if (!isOk(report)) return report;
+      return ok({
+        ...report.value,
+        requestId: MessageId('req-1'),
+        diagnostics: {
+          ...report.value.diagnostics,
+          retryHint: { severity: 'medium', recommend: true },
+        },
+      });
+    };
+    const result = await run(decisionOf(completionPlan(makeRequest('x'))), {
+      validate: recommending,
+    });
+    expect(deferralOf(result)).toBe('llmComplete/retry_recommended');
+  });
+
+  test('a provider failure is a ProviderError, not a deferral', async () => {
+    mockChat.mockRejectedValue(new Error('rate limited'));
+    const result = await run(decisionOf(completionPlan(makeRequest('x'))));
+    expect(errorTagOf(result)).toBe('ProviderError');
+  });
+
+  test('an abort is a CancellationError, not a deferral', async () => {
+    const controller = new AbortController();
+    mockChat.mockImplementation(async (options) => {
+      controller.abort('user left');
+      expect(options.abortController.signal.aborted).toBe(true);
+      throw new DOMException('aborted', 'AbortError');
+    });
+    const result = await run(decisionOf(completionPlan(makeRequest('x'))), {
+      signal: controller.signal,
+    });
+    expect(errorTagOf(result)).toBe('CancellationError');
+  });
+
+  test('a null fill defers param_unfilled, naming the parameter', async () => {
+    mockChat.mockResolvedValue({ userMessage: 'ok', params: { p0: null } });
+    const layoutPlan = completionPlan(makeRequest('x'), {
+      actions: [planned('weather-main/setLocation', {}, [LOCATION])],
+    });
+    const { logger, entries } = spyLogger();
+    const result = await completeWithLayout({ adapter: dummyAdapter })(
+      decisionOf(layoutPlan),
+      makeContext(layoutPlan.plan.selection.input, { logger }),
+    );
+    expect(deferralOf(result)).toBe('llmComplete/param_unfilled');
+    expect(entries.find((e) => e.msg === 'jev.defer')?.data?.question).toBe(
+      'weather-main/setLocation/location',
+    );
   });
 });
