@@ -19,7 +19,12 @@ import { z } from 'zod';
 
 import type { TypeSafeClientOptions } from '../typesafe-client.js';
 import { type Conversation, conversation } from './actions-fixtures.js';
-import { makeRequest, makeResizeRequest, plain } from './fixtures.js';
+import {
+  makeRequest,
+  makeResizeRequest,
+  plain,
+  silentLogger,
+} from './fixtures.js';
 import { dummyAdapter, mockChat } from './mock-chat.js';
 import { type Payload, scriptedFetch, TEST_MODEL } from './scripted-fetch.js';
 
@@ -167,6 +172,7 @@ export async function runPocCase(
       fallback,
     }),
     retry: false,
+    logger: silentLogger,
   });
   const result = await engine.handle(
     ChartRequestMessage({
