@@ -31,7 +31,7 @@ export type CallOutcome =
 
 /** One validated answer as {@link JevCall} reports it. */
 export interface CallAnswer extends Answer {
-  /** Probability per option, when the reply carries them. */
+  /** Probability per option. */
   readonly probabilities?: Readonly<Record<string, number>>;
 }
 

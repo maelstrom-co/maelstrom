@@ -39,7 +39,7 @@ export interface ArmSummary {
    */
   readonly arrangement: Ratio;
   readonly errors: number;
-  /** Scenarios tagged spatial and non-spatial controls, the denominators of a spatial gate's error rates. */
+  /** Turns tagged spatial and non-spatial controls, the denominators of a spatial gate's error rates. */
   readonly spatial: { readonly spatial: number; readonly controls: number };
   /**
    * Jev arms only: planned turns no stage deferred, their pass rate, and
@@ -58,7 +58,11 @@ export interface ArmSummary {
     readonly actions: Ratio;
     readonly layout: Ratio;
   };
-  /** Jev arms only: runs that fell back, by full `<stage>/<code>` reason and by stage. */
+  /**
+   * Jev arms only: runs that fell back, by full `<stage>/<code>` reason and
+   * by stage. `byStage` leaves out `provider_*` deferrals, which are counted
+   * in `providerByStage`.
+   */
   readonly fallbacks?: {
     readonly total: Ratio;
     readonly byReason: Readonly<Record<string, number>>;

@@ -52,8 +52,8 @@ type HandOffCompletion = Completion & {
  * parameters, code builds the execution plan, layout and rationale, and
  * `ctx.validate` gates the result. A decision without a tree hands the
  * layout to the same call: its output gains `layout.tree`, which must place
- * exactly the visible instances at their minimum sizes or the stage defers
- * with `invalid_layout`.
+ * exactly the visible instances, each at least at its minimum size, or the
+ * stage defers with `invalid_layout`.
  */
 export function completeWithLayout(llm: CompletionLlm): CompleteStage {
   return async (decision, ctx) => {
