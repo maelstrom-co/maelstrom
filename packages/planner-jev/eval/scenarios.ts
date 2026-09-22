@@ -715,15 +715,17 @@ const development: Scenario[] = [
 ];
 
 const holdout: Scenario[] = [
-  planned(
-    'hold-preserve',
-    'Leave the workspace untouched',
-    'Everything looks right. Keep it this way.',
-    {
-      visible: BASE_VISIBLE,
-      retained: BASE_RETAINED,
-      actions: [],
-    },
+  control(
+    planned(
+      'hold-preserve',
+      'Leave the workspace untouched',
+      'Everything looks right. Keep it this way.',
+      unchanged({
+        visible: BASE_VISIBLE,
+        retained: BASE_RETAINED,
+        actions: [],
+      }),
+    ),
   ),
   planned(
     'hold-hide',
@@ -811,29 +813,44 @@ const holdout: Scenario[] = [
       actions: [setLocation('weather-jev-1', 'Oslo')],
     },
   ),
-  planned(
-    'hold-comparison',
-    'Configure two named comparison subjects',
-    'Show only two weather panels side by side. Set the existing one on the left to "Oslo" and create one on the right for "Rome".',
-    {
-      visible: ['weather-main', 'weather-jev-1'],
-      tree: ['V', 'ID:weather-main', 'ID:weather-jev-1'],
-      actions: [
-        setLocation('weather-main', 'Oslo'),
-        setLocation('weather-jev-1', 'Rome'),
-      ],
-    },
+  spatial(
+    planned(
+      'hold-comparison',
+      'Configure two named comparison subjects',
+      'Show only two weather panels side by side. Set the existing one on the left to "Oslo" and create one on the right for "Rome".',
+      {
+        visible: ['weather-main', 'weather-jev-1'],
+        tree: ['V', 'ID:weather-main', 'ID:weather-jev-1'],
+        actions: [
+          setLocation('weather-main', 'Oslo'),
+          setLocation('weather-jev-1', 'Rome'),
+        ],
+        arrangement: [
+          { kind: 'leftOf', a: 'weather-main', b: 'weather-jev-1' },
+        ],
+      },
+    ),
   ),
-  planned(
-    'hold-stack',
-    'Rearrange two visible widgets on a tall Chart',
-    'Keep exactly these visible widgets, but put them in equal rows from top to bottom.',
-    {
-      visible: ['calendar-main', 'tasks-main'],
-      tree: ['H', 'ID:calendar-main', 'ID:tasks-main'],
-      actions: [],
-    },
-    { tree: ['V', 'ID:calendar-main', 'ID:tasks-main'], columns: 10, rows: 30 },
+  spatial(
+    planned(
+      'hold-stack',
+      'Rearrange two visible widgets on a tall Chart',
+      'Keep exactly these visible widgets, but put them in equal rows from top to bottom.',
+      {
+        visible: ['calendar-main', 'tasks-main'],
+        tree: ['H', 'ID:calendar-main', 'ID:tasks-main'],
+        actions: [],
+        arrangement: [
+          { kind: 'stacked', ids: ['calendar-main', 'tasks-main'] },
+          ...equalAreas('calendar-main', ['tasks-main']),
+        ],
+      },
+      {
+        tree: ['V', 'ID:calendar-main', 'ID:tasks-main'],
+        columns: 10,
+        rows: 30,
+      },
+    ),
   ),
   planned(
     'hold-three-writes',
@@ -874,6 +891,121 @@ const holdout: Scenario[] = [
     'Delete the one I was thinking of.',
     'jevSelect',
   ),
+  ...[
+    planned(
+      'hold-arr-swap',
+      'Trade places between two widgets',
+      'Swap the weather and the tasks.',
+      {
+        visible: BASE_VISIBLE,
+        actions: [],
+        tree: [
+          'V:1,1,1',
+          'ID:calendar-main',
+          'ID:tasks-main',
+          'ID:weather-main',
+        ],
+        arrangement: [
+          {
+            kind: 'order',
+            ids: ['calendar-main', 'tasks-main', 'weather-main'],
+            axis: 'x',
+          },
+        ],
+      },
+    ),
+    planned(
+      'hold-arr-sidebar',
+      'A narrow sidebar beside a stacked pair',
+      'Put the tasks in a narrow column on the left, with the calendar above the weather on the right.',
+      {
+        visible: BASE_VISIBLE,
+        actions: [],
+        tree: [
+          'V:1,2',
+          'ID:tasks-main',
+          'H',
+          'ID:calendar-main',
+          'ID:weather-main',
+        ],
+        arrangement: [
+          { kind: 'leftOf', a: 'tasks-main', b: 'calendar-main' },
+          { kind: 'leftOf', a: 'tasks-main', b: 'weather-main' },
+          { kind: 'spansFullHeight', id: 'tasks-main' },
+          { kind: 'above', a: 'calendar-main', b: 'weather-main' },
+        ],
+      },
+    ),
+    planned(
+      'hold-arr-banner',
+      'A banner across the top',
+      'Show the map as a wide banner across the top, with the other widgets underneath.',
+      {
+        visible: [...BASE_VISIBLE, 'map-main'],
+        actions: [],
+        tree: [
+          'H:1,2',
+          'ID:map-main',
+          'V:1,1,1',
+          'ID:calendar-main',
+          'ID:weather-main',
+          'ID:tasks-main',
+        ],
+        arrangement: [
+          { kind: 'spansFullWidth', id: 'map-main' },
+          { kind: 'above', a: 'map-main', b: 'calendar-main' },
+          { kind: 'above', a: 'map-main', b: 'weather-main' },
+          { kind: 'above', a: 'map-main', b: 'tasks-main' },
+        ],
+      },
+    ),
+    planned(
+      'hold-arr-focus',
+      'One widget takes most of the board',
+      'Make the calendar the main focus, taking up most of the screen.',
+      {
+        visible: BASE_VISIBLE,
+        actions: [],
+        tree: [
+          'V:2,1',
+          'ID:calendar-main',
+          'H',
+          'ID:weather-main',
+          'ID:tasks-main',
+        ],
+        arrangement: [{ kind: 'dominant', id: 'calendar-main', minShare: 0.5 }],
+      },
+    ),
+  ].map(spatial),
+  ...[
+    planned(
+      'hold-ctl-task',
+      'Add a task without touching the layout',
+      'Put "Renew passport" on my task list.',
+      unchanged({
+        visible: BASE_VISIBLE,
+        actions: [addTask('Renew passport')],
+      }),
+    ),
+    planned(
+      'hold-ctl-weekly',
+      'Change the forecast view without touching the layout',
+      'Switch the forecast to the weekly view.',
+      unchanged({
+        visible: BASE_VISIBLE,
+        actions: [{ instanceId: 'weather-main', action: 'showWeekly' }],
+      }),
+    ),
+    planned(
+      'hold-ctl-location',
+      'Change the forecast city without touching the layout',
+      'Change the forecast city to "Madrid".',
+      unchanged({
+        visible: BASE_VISIBLE,
+        actions: [setLocation('weather-main', 'Madrid')],
+      }),
+    ),
+  ].map(control),
 ];
 
 const parameterCases: Scenario[] = [
