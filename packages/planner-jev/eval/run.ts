@@ -18,12 +18,11 @@ import {
 import type { AnyTextAdapter } from '@tanstack/ai';
 
 import type { StageName } from '../src/lib/defer.js';
-import type { LayoutSource } from '../src/lib/stages-experimental/types.js';
 import type {
-  AnswerRecord,
-  JevActionPlan,
-  JevSelection,
-} from '../src/lib/types.js';
+  LayoutSource,
+  Selection2,
+} from '../src/lib/stages-experimental/types.js';
+import type { AnswerRecord, JevActionPlan } from '../src/lib/types.js';
 import type { JevCall } from '../src/lib/typesafe-client.js';
 import { type Arm, type ArmKind, demoLlmPlanner } from './arms.js';
 import {
@@ -54,7 +53,7 @@ export interface RecordedAnswer {
   readonly stage: StageName;
   readonly question: string;
   readonly choice: string;
-  /** The chosen option's probability, when the reply carries probabilities. */
+  /** The chosen option's probability. */
   readonly probability?: number;
   readonly confidence: number;
 }
@@ -76,6 +75,8 @@ export interface RunRecord {
   readonly arrangementRules: boolean;
   /** The scenario's spatial tag, when it has one. */
   readonly spatial?: boolean;
+  /** Whether the scenario expects any action, when it states its actions. */
+  readonly expectsActions?: boolean;
   /** Overall score of the shipped response (planned scenarios only). */
   readonly score?: ArrangedScore;
   /** Jev arms only: whether it deferred at the expected stage (expected-deferral scenarios). */
@@ -234,7 +235,7 @@ function jevFields(
     recorder.stages.find(
       (record) => record.stage === stage && record.outcome === 'ok',
     )?.output as T | undefined;
-  const selection = outputOf<JevSelection>('jevSelect');
+  const selection = outputOf<Selection2>('jevSelect');
   const actions = outputOf<JevActionPlan>('jevActions');
   const layout = outputOf<LayoutOutput>('jevLayout');
   const deferredRecord = recorder.stages.find(
@@ -278,6 +279,7 @@ function jevFields(
         jevSelect: {
           instances: selection.instances,
           answers: selection.answers,
+          ...(selection.gates && { gates: selection.gates }),
         },
       }),
       ...(actions && {
@@ -391,6 +393,9 @@ function base(
     expectedDeferral: scenario.expected.status === 'deferred',
     arrangementRules: scenario.expected.arrangement !== undefined,
     ...(scenario.spatial !== undefined && { spatial: scenario.spatial }),
+    ...(scenario.expected.actions !== undefined && {
+      expectsActions: scenario.expected.actions.length > 0,
+    }),
     ...(turn.response && {
       userMessage: turn.response.userMessage,
       tree:

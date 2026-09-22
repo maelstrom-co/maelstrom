@@ -168,6 +168,49 @@ test('runs two named arms offline and writes a complete report', async () => {
   expect(saved[1].stages[0].input).toBe(undefined);
 });
 
+test('records the gate answers of a gated arm and whether the scenario expects actions', async () => {
+  mockProvider();
+  const [gated] = await run(
+    conversation({
+      actions: [
+        {
+          pick: 'weather-main/setLocation',
+          params: { location: { value: 'Tokyo' } },
+        },
+      ],
+      layout: 'preserve',
+      gates: {
+        'gate/needsActions': 0.8,
+        'gate/generatedContent': 0.05,
+        'gate/spatial': 0.3,
+      },
+    }),
+    ['quoted-location'],
+    { arms: resolveArms(['jev-gated-batched']) },
+  );
+  expect(gated?.score?.pass).toBe(true);
+  expect(gated?.expectsActions).toBe(true);
+  expect(
+    (gated?.stageOutputs?.jevSelect as { gates?: unknown } | undefined)?.gates,
+  ).toMatchObject({
+    needsActions: { answer: 'yes', probability: 0.8 },
+    spatial: { answer: 'no', probability: 0.3 },
+  });
+  expect(gated?.answers).toContainEqual({
+    stage: 'jevSelect',
+    question: 'gate/spatial',
+    choice: 'no',
+    probability: 0.7,
+    confidence: 0.4,
+  });
+  expect(gated?.jevCalls?.map((call) => call.stage)).toEqual([
+    'jevSelect',
+    'jevActions',
+    'jevActions',
+    'jevLayout',
+  ]);
+});
+
 test('records every answer and confidence on a turn a stage deferred', async () => {
   mockProvider();
   const records = await run(

@@ -26,6 +26,14 @@ export interface TokenTotals {
   readonly withoutUsage: number;
 }
 
+/** How often a yes/no gate answered wrongly. */
+export interface GateErrors {
+  /** Yes where the answer should be no, over turns whose answer should be no. */
+  readonly falsePositives: Ratio;
+  /** No where the answer should be yes, over turns whose answer should be yes. */
+  readonly falseNegatives: Ratio;
+}
+
 export interface ArmSummary {
   readonly arm: string;
   readonly kind: ArmKind;
@@ -41,6 +49,17 @@ export interface ArmSummary {
   readonly errors: number;
   /** Turns tagged spatial and non-spatial controls, the denominators of a spatial gate's error rates. */
   readonly spatial: { readonly spatial: number; readonly controls: number };
+  /**
+   * Gate errors over the turns whose live select call answered the gate:
+   * `needsActions` against whether the scenario expects actions, `spatial`
+   * against its spatial tag. Absent when no turn answered a gate.
+   */
+  readonly gates?: {
+    readonly needsActions: GateErrors;
+    readonly spatial: GateErrors;
+  };
+  /** Turns that ran or replayed a `jevLayout` stage, over planned turns whose scenario declares arrangement rules. */
+  readonly arrangementReachedLayout?: Ratio;
   /**
    * Jev arms only: planned turns no stage deferred, their pass rate, and
    * wins and losses against the baseline on the same scenario and repeat.
@@ -179,10 +198,16 @@ export function renderMarkdown(
         s.fallbacks ? String(s.fallbacks.byReason[reason] ?? 0) : 'n/a',
       );
     row('llmComplete fill rate', (s) => (s.fill ? ratio(s.fill) : 'n/a'));
-    row(
-      'Spatial gate false positives / negatives',
-      (s) =>
-        `n/a (${s.spatial.spatial} spatial, ${s.spatial.controls} controls)`,
+    row('needsActions gate false positives / negatives', (s) =>
+      s.gates ? gateErrors(s.gates.needsActions) : 'n/a',
+    );
+    row('Spatial gate false positives / negatives', (s) =>
+      s.gates
+        ? gateErrors(s.gates.spatial)
+        : `n/a (${s.spatial.spatial} spatial, ${s.spatial.controls} controls)`,
+    );
+    row('Arrangement turns reaching jevLayout', (s) =>
+      s.arrangementReachedLayout ? ratio(s.arrangementReachedLayout) : 'n/a',
     );
     row('Replayed stages', (s) =>
       s.replayed.length > 0 ? s.replayed.join(', ') : 'none',
@@ -206,6 +231,9 @@ export function renderMarkdown(
       );
     row('Jev calls / input / output tokens', (s) =>
       s.tokens.jev ? totals(s.tokens.jev) : 'n/a',
+    );
+    row('Jev calls per turn', (s) =>
+      s.tokens.jev ? (s.tokens.jev.calls / s.runs).toFixed(2) : 'n/a',
     );
     row('Jev tokens per turn (input / output)', (s) =>
       s.tokens.jev
@@ -395,8 +423,16 @@ function summarizeArm(
       ),
     );
   const jev = sum(calls);
+  const gates = gateSummary(records);
   return {
     ...common,
+    ...(gates && { gates }),
+    arrangementReachedLayout: {
+      count: ruled.filter((record) =>
+        (record.stages ?? []).some((entry) => entry.stage === 'jevLayout'),
+      ).length,
+      total: ruled.length,
+    },
     decisive: { pass: passed(decisive), wins, losses, paired },
     expectedDeferrals: {
       count: expected.filter((record) => record.deferredAsExpected).length,
@@ -441,6 +477,49 @@ function summarizeArm(
       llm: llm.tokens,
     },
   };
+}
+
+function gateSummary(
+  records: readonly RunRecord[],
+): ArmSummary['gates'] | undefined {
+  const answered = (question: string) =>
+    records.flatMap((record) => {
+      const answer = record.answers?.find(
+        (entry) => entry.stage === 'jevSelect' && entry.question === question,
+      );
+      return answer ? [{ record, yes: answer.choice === 'yes' }] : [];
+    });
+  const needsActions = answered('gate/needsActions');
+  const spatial = answered('gate/spatial');
+  if (needsActions.length === 0 && spatial.length === 0) return undefined;
+  return {
+    needsActions: errorsOf(needsActions, (record) => record.expectsActions),
+    spatial: errorsOf(spatial, (record) => record.spatial),
+  };
+}
+
+function errorsOf(
+  answers: readonly { readonly record: RunRecord; readonly yes: boolean }[],
+  truth: (record: RunRecord) => boolean | undefined,
+): GateErrors {
+  const where = (expected: boolean) =>
+    answers.filter(({ record }) => truth(record) === expected);
+  const negatives = where(false);
+  const positives = where(true);
+  return {
+    falsePositives: {
+      count: negatives.filter((answer) => answer.yes).length,
+      total: negatives.length,
+    },
+    falseNegatives: {
+      count: positives.filter((answer) => !answer.yes).length,
+      total: positives.length,
+    },
+  };
+}
+
+function gateErrors({ falsePositives, falseNegatives }: GateErrors): string {
+  return `${ratio(falsePositives)} / ${ratio(falseNegatives)}`;
 }
 
 function llmTotals(
