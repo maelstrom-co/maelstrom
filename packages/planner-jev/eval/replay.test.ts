@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -16,8 +16,10 @@ import {
   loadReplay,
   replayedStages,
   replayStage,
+  verifyReplay,
   writeStageFile,
 } from './replay.js';
+import { type Scenario, selectScenarios } from './scenarios.js';
 
 const input = makeInput(makeRequest('hide the weather'));
 const ctx = makeContext(input);
@@ -121,6 +123,27 @@ describe('replay files', () => {
     );
   });
 
+  test('a directory that cannot be read is surfaced, not taken for an empty run', async () => {
+    const out = await mkdtemp(join(tmpdir(), 'planner-jev-replay-'));
+    dirs.push(out);
+    await mkdir(join(out, 'stages'), { recursive: true });
+    await writeFile(join(out, 'stages', 'jev-poc'), 'not a directory');
+    await expect(loadReplay(out, 'jev-poc')).rejects.toThrow(
+      `replay: cannot read ${join(out, 'stages', 'jev-poc')}`,
+    );
+  });
+
+  test('a stage file that is not JSON is named', async () => {
+    const out = await mkdtemp(join(tmpdir(), 'planner-jev-replay-'));
+    dirs.push(out);
+    const dir = join(out, 'stages', 'jev-poc');
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, 'swap-1.json'), '{ truncated');
+    await expect(loadReplay(out, 'jev-poc')).rejects.toThrow(
+      `replay: cannot read ${join(dir, 'swap-1.json')}`,
+    );
+  });
+
   test('--replay-through names every stage up to and including it', () => {
     expect(replayedStages('select')).toEqual(['jevSelect']);
     expect(replayedStages('actions')).toEqual(['jevSelect', 'jevActions']);
@@ -129,5 +152,64 @@ describe('replay files', () => {
       'jevActions',
       'jevLayout',
     ]);
+  });
+});
+
+describe('verifyReplay', () => {
+  const [swap] = selectScenarios('development', ['swap']) as [Scenario];
+
+  async function recordedRun(repeats: readonly number[]) {
+    const out = await mkdtemp(join(tmpdir(), 'planner-jev-replay-'));
+    dirs.push(out);
+    for (const repeat of repeats)
+      await writeStageFile(out, {
+        arm: 'jev-poc',
+        scenarioId: swap.id,
+        repeat,
+        stages: [
+          {
+            stage: 'jevSelect',
+            ms: 5,
+            outcome: 'ok',
+            input: {
+              messageId: `swap-jev-poc-${repeat}`,
+              sessionId: 'eval-jev-poc',
+              request: swap.request,
+              history: swap.history ?? [],
+            },
+            output: { picked: 'select' },
+          },
+        ],
+      });
+    return loadReplay(out, 'jev-poc');
+  }
+
+  test('passes a recording of the same scenarios, whichever arm recorded it', async () => {
+    const source = await recordedRun([1, 2]);
+    expect(() => verifyReplay(source, [swap], 2)).not.toThrow();
+  });
+
+  test('names the replay dir and every turn whose request or history changed', async () => {
+    const source = await recordedRun([1]);
+    const edited: Scenario = {
+      ...swap,
+      request: { ...swap.request, instances: [] },
+      history: [{ role: 'user', content: 'earlier' }],
+    };
+    expect(() => verifyReplay(source, [edited], 1)).toThrow(source.dir);
+    expect(() => verifyReplay(source, [edited], 1)).toThrow(
+      'swap #1: request differs',
+    );
+    expect(() => verifyReplay(source, [edited], 1)).toThrow(
+      'swap #1: history differs',
+    );
+  });
+
+  test('refuses a recording that lacks a selected scenario or repeat', async () => {
+    const source = await recordedRun([1]);
+    const [ambiguous] = selectScenarios('development', ['ambiguous']);
+    expect(() =>
+      verifyReplay(source, [swap, ambiguous as Scenario], 2),
+    ).toThrow(/swap #2: no recorded turn[\s\S]*ambiguous #1: no recorded turn/);
   });
 });

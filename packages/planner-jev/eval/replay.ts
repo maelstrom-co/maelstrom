@@ -6,15 +6,21 @@ import { err, ok } from '@maelstrom-co/protocol';
 
 import type { StageName } from '../src/lib/defer.js';
 import type { StageRecord } from './instrument.js';
+import type { Scenario } from './scenarios.js';
 
 /** How far `--replay-through` freezes the pipeline. */
 export type ReplayThrough = 'select' | 'actions' | 'layout';
 
-export const REPLAY_THROUGH: readonly ReplayThrough[] = [
-  'select',
-  'actions',
-  'layout',
-];
+const LAST_REPLAYED: Readonly<Record<ReplayThrough, StageName>> = {
+  select: 'jevSelect',
+  actions: 'jevActions',
+  layout: 'jevLayout',
+};
+
+/** Every `--replay-through` value, in pipeline order. */
+export const REPLAY_THROUGH = Object.keys(
+  LAST_REPLAYED,
+) as readonly ReplayThrough[];
 
 /** What one Jev turn recorded, as written under `<out>/stages/<arm>/`. */
 export interface StageFile {
@@ -32,15 +38,44 @@ export interface TurnCache {
 }
 
 export interface ReplaySource {
+  /** The directory the recorded turns were loaded from. */
   readonly dir: string;
   turn(scenarioId: string, repeat: number): TurnCache;
 }
 
-const ORDER: readonly StageName[] = ['jevSelect', 'jevActions', 'jevLayout'];
-
 /** The stages `--replay-through <through>` replays, in pipeline order. */
 export function replayedStages(through: ReplayThrough): readonly StageName[] {
-  return ORDER.slice(0, REPLAY_THROUGH.indexOf(through) + 1);
+  const order = Object.values(LAST_REPLAYED);
+  return order.slice(0, order.indexOf(LAST_REPLAYED[through]) + 1);
+}
+
+/**
+ * Checks, before anything runs, that `source` recorded every scenario and
+ * repeat to be replayed, from the same request and history. The first
+ * stage's recorded input is compared with the scenario; its `messageId` and
+ * `sessionId` are ignored, since they name the arm that recorded it.
+ *
+ * @throws {Error} Naming `source.dir` and every mismatched turn with its reason.
+ */
+export function verifyReplay(
+  source: ReplaySource,
+  scenarios: readonly Scenario[],
+  repeats: number,
+): void {
+  const problems: string[] = [];
+  for (const scenario of scenarios)
+    for (let repeat = 1; repeat <= repeats; repeat++) {
+      const turn = source.turn(scenario.id, repeat);
+      const reasons = mismatches(scenario, turn.stages);
+      problems.push(...reasons.map((reason) => `- ${turn.key}: ${reason}`));
+    }
+  if (problems.length > 0)
+    throw new Error(
+      [
+        `replay: the recording in ${source.dir} does not match the scenarios to run:`,
+        ...problems,
+      ].join('\n'),
+    );
 }
 
 /**
@@ -86,16 +121,21 @@ export async function loadReplay(
   let names: string[];
   try {
     names = (await readdir(dir)).filter((name) => name.endsWith('.json'));
-  } catch {
+  } catch (error) {
+    if (!isNotFound(error)) throw unreadable(dir, error);
     names = [];
   }
   if (names.length === 0)
     throw new Error(`replay: no recorded stages in ${dir}`);
   const turns = new Map<string, readonly StageRecord[]>();
   for (const name of names) {
-    const file = JSON.parse(
-      await readFile(join(dir, name), 'utf8'),
-    ) as StageFile;
+    const path = join(dir, name);
+    let file: StageFile;
+    try {
+      file = JSON.parse(await readFile(path, 'utf8')) as StageFile;
+    } catch (error) {
+      throw unreadable(path, error);
+    }
     turns.set(turnKey(file.scenarioId, file.repeat), file.stages);
   }
   return {
@@ -106,6 +146,43 @@ export async function loadReplay(
       return stages === undefined ? { key } : { key, stages };
     },
   };
+}
+
+function mismatches(
+  scenario: Scenario,
+  stages: readonly StageRecord[] | undefined,
+): string[] {
+  if (stages === undefined || stages.length === 0) return ['no recorded turn'];
+  const first = stages.find((record) => record.stage === 'jevSelect');
+  if (first === undefined) return ['no recorded jevSelect'];
+  const recorded = (first.input ?? {}) as {
+    readonly request?: unknown;
+    readonly history?: unknown;
+  };
+  const reasons: string[] = [];
+  if (!sameJson(scenario.request, recorded.request))
+    reasons.push('request differs');
+  if (!sameJson(scenario.history ?? [], recorded.history))
+    reasons.push('history differs');
+  return reasons;
+}
+
+function sameJson(live: unknown, recorded: unknown): boolean {
+  return Bun.deepEquals(JSON.parse(JSON.stringify(live)), recorded);
+}
+
+function isNotFound(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    error.code === 'ENOENT'
+  );
+}
+
+function unreadable(path: string, cause: unknown): Error {
+  const reason = cause instanceof Error ? cause.message : String(cause);
+  return new Error(`replay: cannot read ${path}: ${reason}`, { cause });
 }
 
 function turnKey(scenarioId: string, repeat: number): string {

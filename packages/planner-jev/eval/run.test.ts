@@ -284,6 +284,26 @@ test('replays jev-poc stages into jev-ungated-stepwise', async () => {
   expect(stepwise?.jevCalls?.map((call) => call.stage)).toEqual(['jevLayout']);
 });
 
+test('refuses a replay missing a selected case before any provider call', async () => {
+  mockProvider();
+  const out = await outDir();
+  await run(tokyo, ['quoted-location'], { out });
+  mockChat.mockClear();
+
+  const noCalls: Script = () => {
+    throw new Error('no Jev call may run');
+  };
+  await expect(
+    run(noCalls, ['quoted-location', 'ambiguous'], {
+      replay: {
+        source: await loadReplay(out, 'jev-poc'),
+        stages: replayedStages('actions'),
+      },
+    }),
+  ).rejects.toThrow('ambiguous #1: no recorded turn');
+  expect(mockChat).not.toHaveBeenCalled();
+});
+
 test('a layout stage that hands the tree to the LLM is scored on the shipped response only', async () => {
   mockProvider();
   const [record] = await run(tokyo, ['quoted-location'], {

@@ -31,7 +31,12 @@ import {
   type StageRecord,
   type StageReplacements,
 } from './instrument.js';
-import { type ReplaySource, replayStage, writeStageFile } from './replay.js';
+import {
+  type ReplaySource,
+  replayStage,
+  verifyReplay,
+  writeStageFile,
+} from './replay.js';
 import type { Scenario, Suite } from './scenarios.js';
 import {
   type ArrangedScore,
@@ -129,8 +134,13 @@ const silent: Logger = { debug() {}, info() {}, warn() {}, error() {} };
  * shipped response. Every arm plans through `createEngine` with history off
  * and `retry: false`: the baseline is the same once-retried LLM planner the
  * Jev arms fall back to, so the arms differ only in their pipelines.
+ *
+ * @throws {Error} Before any turn runs, when `options.replay` did not record
+ *   every scenario and repeat from the same request and history.
  */
 export async function runEval(options: EvalOptions): Promise<RunRecord[]> {
+  if (options.replay)
+    verifyReplay(options.replay.source, options.scenarios, options.repeats);
   const records: RunRecord[] = [];
   for (const scenario of options.scenarios)
     for (let repeat = 1; repeat <= options.repeats; repeat++)
