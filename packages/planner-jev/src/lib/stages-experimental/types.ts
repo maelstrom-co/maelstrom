@@ -24,6 +24,11 @@ export interface SelectionGates {
 /** A selection, optionally carrying the select stage's gate answers. */
 export type Selection2 = JevSelection & { readonly gates?: SelectionGates };
 
+/** A selection from a select stage that always asks every gate. */
+export type GatedSelection = Selection2 & {
+  readonly gates: Required<SelectionGates>;
+};
+
 /** An action plan with its lowest answer confidence, forwarding its input's gates. */
 export type ActionPlan2 = JevActionPlan & {
   readonly selection: Selection2;
