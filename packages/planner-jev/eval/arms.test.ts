@@ -37,6 +37,20 @@ describe('arm registry', () => {
       'jev-gated-batched-per-instance',
     ]);
     for (const [name, arm] of Object.entries(arms)) expect(arm.name).toBe(name);
+    expect(
+      Object.fromEntries(
+        Object.values(arms).map((arm) => [arm.name, arm.replayShape ?? 'poc']),
+      ),
+    ).toEqual({
+      baseline: 'poc',
+      'jev-poc': 'poc',
+      'jev-ungated-stepwise': 'ungated',
+      'jev-ungated-batched': 'ungated',
+      'jev-ungated-batched-per-instance': 'ungated',
+      'jev-gated-stepwise': 'gated',
+      'jev-gated-batched': 'gated',
+      'jev-gated-batched-per-instance': 'gated',
+    });
   });
 
   test('refuses two arms with one name', () => {

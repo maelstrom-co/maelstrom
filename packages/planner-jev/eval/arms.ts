@@ -25,6 +25,7 @@ import {
   type JevDeps,
 } from '../src/lib/stages-experimental/deps.js';
 import type { TypeSafeClientOptions } from '../src/lib/typesafe-client.js';
+import type { ReplayShape } from './replay.js';
 import type { LlmRole } from './usage-adapter.js';
 
 /** `baseline` is the LLM planner, `jev-poc` the frozen POC, `jev` any later Jev planner. */
@@ -46,6 +47,8 @@ export interface Arm {
   readonly name: string;
   readonly kind: ArmKind;
   readonly build: (deps: ArmDeps) => Planner;
+  /** What the arm reads from replayed stage outputs; `poc` when absent. */
+  readonly replayShape?: ReplayShape;
 }
 
 /** The demo's system rules (apps/demo/src/server/engine-config.ts), so every arm prompts the LLM like the demo. */
@@ -75,16 +78,26 @@ const ARMS: readonly Arm[] = [
         deps.instrument,
       ),
   },
-  stageLibraryArm('jev-ungated-stepwise', buildJevUngatedStepwisePlanner),
-  stageLibraryArm('jev-ungated-batched', buildJevUngatedBatchedPlanner),
+  stageLibraryArm(
+    'jev-ungated-stepwise',
+    'ungated',
+    buildJevUngatedStepwisePlanner,
+  ),
+  stageLibraryArm(
+    'jev-ungated-batched',
+    'ungated',
+    buildJevUngatedBatchedPlanner,
+  ),
   stageLibraryArm(
     'jev-ungated-batched-per-instance',
+    'ungated',
     buildJevUngatedBatchedPerInstancePlanner,
   ),
-  stageLibraryArm('jev-gated-stepwise', buildJevGatedStepwisePlanner),
-  stageLibraryArm('jev-gated-batched', buildJevGatedBatchedPlanner),
+  stageLibraryArm('jev-gated-stepwise', 'gated', buildJevGatedStepwisePlanner),
+  stageLibraryArm('jev-gated-batched', 'gated', buildJevGatedBatchedPlanner),
   stageLibraryArm(
     'jev-gated-batched-per-instance',
+    'gated',
     buildJevGatedBatchedPerInstancePlanner,
   ),
 ];
@@ -152,11 +165,13 @@ export function jevDeps(deps: ArmDeps): JevDeps {
 
 function stageLibraryArm(
   name: string,
+  replayShape: ReplayShape,
   build: (deps: JevDeps, instrument: Instrument) => Planner,
 ): Arm {
   return {
     name,
     kind: 'jev',
+    replayShape,
     build: (deps) => build(jevDeps(deps), deps.instrument),
   };
 }

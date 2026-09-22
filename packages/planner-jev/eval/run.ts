@@ -35,6 +35,7 @@ import {
   type ReplaySource,
   replayStage,
   verifyReplay,
+  verifyReplayShape,
   writeStageFile,
 } from './replay.js';
 import type { Scenario, Suite } from './scenarios.js';
@@ -144,11 +145,20 @@ const silent: Logger = { debug() {}, info() {}, warn() {}, error() {} };
  * Jev arms fall back to, so the arms differ only in their pipelines.
  *
  * @throws {Error} Before any turn runs, when `options.replay` did not record
- *   every scenario and repeat from the same request and history.
+ *   every scenario and repeat from the same request and history, or lacks
+ *   fields an arm reads from a replayed stage.
  */
 export async function runEval(options: EvalOptions): Promise<RunRecord[]> {
-  if (options.replay)
+  if (options.replay) {
     verifyReplay(options.replay.source, options.scenarios, options.repeats);
+    verifyReplayShape(
+      options.replay.source,
+      options.scenarios,
+      options.repeats,
+      options.replay.stages,
+      options.arms.filter((arm) => arm.kind !== 'baseline'),
+    );
+  }
   const records: RunRecord[] = [];
   for (const scenario of options.scenarios)
     for (let repeat = 1; repeat <= options.repeats; repeat++)
