@@ -14,7 +14,7 @@ import {
   FALLBACK_RETRIES,
   type Instrument,
 } from '../src/lib/jev-planner.js';
-import { buildJevPocRebuiltPlanner } from '../src/lib/planners/jev-poc-rebuilt.js';
+import { buildJevUngatedStepwisePlanner } from '../src/lib/planners/jev-ungated-stepwise.js';
 import {
   createJevDeps,
   type JevDeps,
@@ -71,10 +71,11 @@ export const arms: Readonly<Record<string, Arm>> = {
         deps.instrument,
       ),
   },
-  'jev-poc-rebuilt': {
-    name: 'jev-poc-rebuilt',
+  'jev-ungated-stepwise': {
+    name: 'jev-ungated-stepwise',
     kind: 'jev',
-    build: (deps) => buildJevPocRebuiltPlanner(jevDeps(deps), deps.instrument),
+    build: (deps) =>
+      buildJevUngatedStepwisePlanner(jevDeps(deps), deps.instrument),
   },
 };
 

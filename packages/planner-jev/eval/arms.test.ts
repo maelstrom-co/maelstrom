@@ -11,8 +11,8 @@ describe('arm registry', () => {
   test('holds the baseline and the frozen POC by name', () => {
     expect(arms.baseline).toMatchObject({ name: 'baseline', kind: 'baseline' });
     expect(arms['jev-poc']).toMatchObject({ name: 'jev-poc', kind: 'jev-poc' });
-    expect(arms['jev-poc-rebuilt']).toMatchObject({
-      name: 'jev-poc-rebuilt',
+    expect(arms['jev-ungated-stepwise']).toMatchObject({
+      name: 'jev-ungated-stepwise',
       kind: 'jev',
     });
     expect(DEFAULT_ARMS).toEqual(['baseline', 'jev-poc']);
@@ -38,7 +38,7 @@ describe('arm registry', () => {
 
   test('rejects an unknown name, listing the known ones', () => {
     expect(() => resolveArms(['baseline', 'jev2'])).toThrow(
-      'unknown arm jev2; known arms: baseline, jev-poc (alias jev), jev-poc-rebuilt',
+      'unknown arm jev2; known arms: baseline, jev-poc (alias jev), jev-ungated-stepwise',
     );
     expect(() => resolveArms([])).toThrow('at least one arm');
   });
@@ -58,7 +58,7 @@ describe('arm registry', () => {
     };
     expect(typeof arms.baseline?.build(deps)).toBe('function');
     expect(typeof arms['jev-poc']?.build(deps)).toBe('function');
-    expect(typeof arms['jev-poc-rebuilt']?.build(deps)).toBe('function');
+    expect(typeof arms['jev-ungated-stepwise']?.build(deps)).toBe('function');
     expect(roles).toEqual(['planner', 'complete', 'complete']);
   });
 });

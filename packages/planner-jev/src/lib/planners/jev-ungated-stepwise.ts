@@ -13,11 +13,11 @@ import { menuLayout } from '../stages-experimental/layout-menu.js';
 import { selectUngated } from '../stages-experimental/select-ungated.js';
 
 /**
- * The POC composition rebuilt from the stage library: the same Jev calls,
- * the same completion call and the same fallback as `jevPlanner`. Stages
- * keep the POC's names, so `instrument` records and replays them alike.
+ * The plain stage-library planner: ungated select, stepwise actions, the
+ * menu layout and the completion call, with the LLM fallback. Stages keep
+ * the POC's names, so `instrument` records and replays them alike.
  */
-export function buildJevPocRebuiltPlanner(
+export function buildJevUngatedStepwisePlanner(
   deps: JevDeps,
   instrument: Instrument = (_name, stage) => stage,
 ): Planner {
