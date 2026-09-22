@@ -8,7 +8,7 @@ import {
   runPocCase,
 } from '../__test-helpers__/poc-fixtures.js';
 import { jevPlanner } from '../jev-planner.js';
-import { createJevDeps } from '../stages-next/deps.js';
+import { createJevDeps } from '../stages-experimental/deps.js';
 import { buildJevPocRebuiltPlanner } from './jev-poc-rebuilt.js';
 
 const pinned = (await Bun.file(

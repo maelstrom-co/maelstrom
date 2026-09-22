@@ -15,7 +15,10 @@ import {
   type Instrument,
 } from '../src/lib/jev-planner.js';
 import { buildJevPocRebuiltPlanner } from '../src/lib/planners/jev-poc-rebuilt.js';
-import { createJevDeps, type JevDeps } from '../src/lib/stages-next/deps.js';
+import {
+  createJevDeps,
+  type JevDeps,
+} from '../src/lib/stages-experimental/deps.js';
 import type { TypeSafeClientOptions } from '../src/lib/typesafe-client.js';
 import type { LlmRole } from './usage-adapter.js';
 

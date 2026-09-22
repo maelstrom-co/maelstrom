@@ -6,11 +6,11 @@ import {
 } from '@maelstrom-co/engine';
 
 import { FALLBACK_RETRIES, type Instrument } from '../jev-planner.js';
-import { stepwiseActions } from '../stages-next/actions-stepwise.js';
-import { completeWithLayout } from '../stages-next/complete.js';
-import type { JevDeps } from '../stages-next/deps.js';
-import { menuLayout } from '../stages-next/layout-menu.js';
-import { selectV1 } from '../stages-next/select-v1.js';
+import { stepwiseActions } from '../stages-experimental/actions-stepwise.js';
+import { completeWithLayout } from '../stages-experimental/complete.js';
+import type { JevDeps } from '../stages-experimental/deps.js';
+import { menuLayout } from '../stages-experimental/layout-menu.js';
+import { selectV1 } from '../stages-experimental/select-v1.js';
 
 /**
  * The POC composition rebuilt from the stage library: the same Jev calls,
