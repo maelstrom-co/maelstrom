@@ -6,6 +6,7 @@
   "scripts": {
     "prepare:voice-assets": "bun ../../packages/realtime-vad/dist/bin/maelstrom-vad-assets.js public/vad-web",
     "dev": "concurrently --kill-others-on-fail --names ws,vite \"bun --env-file=../../.env run src/server/ws-server.ts\" \"bun run dev:client\"",
+    "dev-jev": "MAELSTROM_PLANNER=jev VITE_BROWSER_KEY_MODE=0 bun run dev",
     "dev-livekit": "concurrently --kill-others-on-fail --names ws,agent,vite \"bun --env-file=../../.env run src/server/ws-server.ts\" \"bun run dev-agent\" \"bun run dev:client:livekit\"",
     "dev:ws": "bun --env-file=../../.env run src/server/ws-server.ts",
     "dev:client": "bunx nx run @maelstrom-co/demo:serve",
@@ -129,6 +130,13 @@
         ]
       },
       "dev": {
+        "...": true,
+        "dependsOn": [
+          "...",
+          "prepare-voice-assets"
+        ]
+      },
+      "dev-jev": {
         "...": true,
         "dependsOn": [
           "...",

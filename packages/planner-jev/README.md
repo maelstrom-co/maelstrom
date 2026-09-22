@@ -42,6 +42,14 @@ Run the Engine with `retry: false`. The Jev pipeline is never re-run whole: `llm
 
 ## Environment (demo)
 
+Set the variables below in the root `.env`, then run from the repo root:
+
+```sh
+npx nx dev-jev @maelstrom-co/demo
+```
+
+`dev-jev` is the demo's `dev` target with `MAELSTROM_PLANNER=jev` and server-key mode (`VITE_BROWSER_KEY_MODE=0`). Add `JEV_LOG_REPLIES=1` to see raw Jev replies.
+
 | Variable | Meaning |
 | --- | --- |
 | `MAELSTROM_PLANNER` | `llm` (default) or `jev`. Anything else fails startup. |
