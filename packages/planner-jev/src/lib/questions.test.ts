@@ -11,6 +11,7 @@ import {
 import {
   choice,
   MAX_CHOICES,
+  noul,
   overOptionCap,
   type Reply,
   readAnswer,
@@ -48,6 +49,21 @@ describe('overOptionCap', () => {
         },
       }),
     ).toBe('b');
+  });
+});
+
+describe('noul', () => {
+  test('builds a yes/no question without criteria', () => {
+    expect(noul('Does it ask for actions?')).toEqual({
+      type: 'noul',
+      instructions: 'Does it ask for actions?',
+    });
+  });
+
+  test('is never over the option cap', () => {
+    expect(
+      overOptionCap({ state: {}, questions: { gate: noul('Is it?') } }),
+    ).toBe(undefined);
   });
 });
 

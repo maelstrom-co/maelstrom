@@ -16,7 +16,7 @@ import {
   scriptedFetch,
   TEST_MODEL,
 } from './__test-helpers__/scripted-fetch.js';
-import { choice, type Evaluation, MAX_CHOICES } from './questions.js';
+import { choice, type Evaluation, MAX_CHOICES, noul } from './questions.js';
 import {
   type CallOutcome,
   createTypeSafeClient,
@@ -184,6 +184,90 @@ describe('validateReply', () => {
     expect(validateReply(mutate(valid()), evaluation, TEST_MODEL)).toBe(
       undefined,
     );
+  });
+});
+
+describe('validateReply with noul questions', () => {
+  const gated: Evaluation = {
+    state: { intent: 'set the weather to Warsaw' },
+    questions: {
+      scope: choice('Is it supported?', {
+        supported: 'yes',
+        unsupported: 'no',
+      }),
+      needsActions: noul('Does it need actions?'),
+    },
+  };
+  const gatedPayload: Payload = JSON.parse(
+    JSON.stringify({ model: TEST_MODEL, ...gated }),
+  );
+  const reply = (probability: number) =>
+    buildReply(gatedPayload, {}, 0.9, TEST_MODEL, {
+      needsActions: probability,
+    });
+
+  test('reads a noul answer as a yes/no choice carrying its probability', () => {
+    expect(validateReply(reply(0.75), gated, TEST_MODEL)?.answers).toEqual({
+      scope: { choice: 'supported', confidence: 0.9 },
+      needsActions: { choice: 'yes', confidence: 0.5, probability: 0.75 },
+    });
+    expect(
+      validateReply(reply(0.1), gated, TEST_MODEL)?.answers.needsActions,
+    ).toEqual({ choice: 'no', confidence: 0.8, probability: 0.1 });
+    expect(
+      validateReply(reply(0.5), gated, TEST_MODEL)?.answers.needsActions,
+    ).toEqual({ choice: 'yes', confidence: 0, probability: 0.5 });
+  });
+
+  test.each([
+    ['a noul outside [0, 1]', { type: 'noul', noul: 1.2 }],
+    ['a missing noul value', { type: 'noul' }],
+    [
+      'a choice answer to a noul question',
+      {
+        type: 'choice',
+        choice: 'yes',
+        confidence: 1,
+        probabilities: { yes: 1 },
+      },
+    ],
+  ])('rejects %s', (_name, answer) => {
+    const raw = reply(0.8);
+    expect(
+      validateReply(
+        { ...raw, answers: { ...raw.answers, needsActions: answer } },
+        gated,
+        TEST_MODEL,
+      ),
+    ).toBe(undefined);
+  });
+
+  test('rejects a noul answer to a choice question', () => {
+    const raw = reply(0.8);
+    expect(
+      validateReply(
+        {
+          ...raw,
+          answers: { ...raw.answers, scope: { type: 'noul', noul: 0.9 } },
+        },
+        gated,
+        TEST_MODEL,
+      ),
+    ).toBe(undefined);
+  });
+
+  test('onCall reports a noul answer with yes and no probabilities', async () => {
+    const { ask, recorded, logger } = setup(() => ({
+      choices: {},
+      nouls: { needsActions: 0.25 },
+    }));
+    await ask('jevSelect', gated, ctx(logger));
+    expect(recorded[0]?.answers?.needsActions).toEqual({
+      choice: 'no',
+      confidence: 0.5,
+      probability: 0.25,
+      probabilities: { yes: 0.25, no: 0.75 },
+    });
   });
 });
 

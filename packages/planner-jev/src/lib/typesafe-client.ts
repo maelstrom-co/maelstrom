@@ -196,7 +196,9 @@ export function createTypeSafeClient(options: TypeSafeClientOptions): Ask {
  * Strict reply check: the model is echoed, the answers cover exactly the
  * asked question ids, each choice is one of its question's options, the
  * probabilities cover exactly those options and sum to 1 within 0.02, the
- * chosen option has the highest probability, and usage is integral.
+ * chosen option has the highest probability, each noul answer is a
+ * probability, and usage is integral. A noul answer is read as a `yes` or
+ * `no` choice (see {@link Answer}).
  */
 export function validateReply(
   raw: unknown,
@@ -228,6 +230,16 @@ function parseReply(
   const answers: Record<string, CallAnswer> = Object.create(null);
   for (const [id, question] of Object.entries(evaluation.questions)) {
     const answer = raw.answers[id];
+    if (question.type === 'noul') {
+      if (
+        !isRecord(answer) ||
+        answer.type !== 'noul' ||
+        !isProbability(answer.noul)
+      )
+        return undefined;
+      answers[id] = noulAnswer(answer.noul);
+      continue;
+    }
     if (
       !isRecord(answer) ||
       answer.type !== 'choice' ||
@@ -272,10 +284,24 @@ function parseReply(
   };
 }
 
+function noulAnswer(probability: number): CallAnswer {
+  return {
+    choice: probability >= 0.5 ? 'yes' : 'no',
+    confidence: Math.abs(2 * probability - 1),
+    probability,
+    probabilities: { yes: probability, no: 1 - probability },
+  };
+}
+
 function withoutProbabilities(reply: Reply): Reply {
   const answers: Record<string, Answer> = Object.create(null);
-  for (const [id, { choice, confidence }] of Object.entries(reply.answers))
-    answers[id] = { choice, confidence };
+  for (const [id, { choice, confidence, probability }] of Object.entries(
+    reply.answers,
+  ))
+    answers[id] =
+      probability === undefined
+        ? { choice, confidence }
+        : { choice, confidence, probability };
   return { answers, usage: reply.usage };
 }
 
