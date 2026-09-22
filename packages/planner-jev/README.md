@@ -40,6 +40,31 @@ const engine = createEngine({
 
 Run the Engine with `retry: false`. The Jev pipeline is never re-run whole: `llmComplete` validates its own candidate and defers instead. Retry lives on the fallback only, and the planner wraps `fallback` in `withRetry(fallback, { max: 1 })` itself, so pass it unwrapped.
 
+## Stage library (experimental)
+
+`src/lib/stages-experimental/` holds candidate stages measured against the frozen POC, and `src/lib/planners/` composes them into named planners with `pipeline(...)`, each wrapped in the same fallback. None is exported yet; the eval runs them as arms. Every stage keeps the POC's stage names (`jevSelect`, `jevActions`, `jevLayout`, `llmComplete`), so deferral reasons, the report and replay treat them alike.
+
+| Stage | Replaces | What it does |
+| --- | --- | --- |
+| `selectUngated` | `jevSelect` | The POC's selection, unchanged. |
+| `selectWithGates` | `jevSelect` | The POC's selection plus three yes/no (`noul`) questions in the same call: `needsActions` (the intent asks for a view change or a content edit, not only showing, hiding, removing or arranging), `generatedContent` (the intent asks for content that must be invented or fetched) and `spatial` (the intent states where something goes or how large it is). A gate answers yes at a probability of 0.5 or more; every probability is kept on the selection's `gates`. A generated-content yes defers `jevSelect/scope_unsupported`. `spatial` is recorded for later layout stages. |
+| `stepwiseActions` | `jevActions` | The POC's actions, one call per step plus one per parameterised action. |
+| `batchedActions` | `jevActions` | State-keyed batching, two calls. The first asks, for every variant state the request can reach by transitions, which action comes next at each depth up to the action limit (`action/0`, then `action/<depth>@<state>`, the state named by the instances whose view changed, `same` when none did). Questions are keyed by state, not by the actions that led there, so two orders reaching the same views share a question. Code walks the answers from the current views. Past `MAX_BATCH_QUESTIONS` (48) whole depths are left out and asked one call per step. The second call binds every chosen action's parameters at once, with the same parameter questions as the stepwise stage. |
+| `perInstanceBatchedActions` | `jevActions` | Per-instance batching, one call: for each instance, slot 1 (its first action, `none` or `unsupported`), slot 2 (its second action, each option labelled with the view slot 1 leaves it in, for example `week:addEvent`) and slot 3 (asked for measurement only, never planned), plus the parameters of every action any slot could pick. Code takes slot 2 only when its label matches the view slot 1's answer leads to; any other label defers `jevActions/premise_mismatch`. Parameter answers off the walked path are discarded. |
+| `menuLayout` | `jevLayout` | The POC's choice over precomputed layouts. |
+| `completeWithLayout` | `llmComplete` | The POC's completion call; when a layout stage hands the layout off, the LLM also writes the tree. |
+
+Both batched stages skip their call when a gated selection's `needsActions` answers no, and plan no actions on a resize-only turn. Both check the planned actions against the simulated views and defer `jevActions/simulation_failed` when a dropped action leaves a later one invalid.
+
+The per-instance stage trades against the state-keyed one:
+
+- One call instead of two, at the cost of a larger question set: every candidate action's parameters are asked speculatively.
+- Actions keep their order within an instance, but nothing orders actions across instances; instances are planned independently, so this is accepted.
+- Slot 2 is answered without seeing slot 1's answer, since questions in one call are answered independently. The premise labels let code pick the matching branch and defer the rest, so a mismatch costs a fallback, not a wrong plan.
+- At most two actions per instance are planned. A third requested action on one instance is not planned; slot 3's answers measure how often that happens.
+
+The named planners cross the two select stages with the three actions stages, all with `menuLayout` and `completeWithLayout`: `jev-ungated-stepwise`, `jev-ungated-batched`, `jev-ungated-batched-per-instance`, `jev-gated-stepwise`, `jev-gated-batched` and `jev-gated-batched-per-instance`.
+
 ## Environment (demo)
 
 Set the variables below in the root `.env`, then run from the repo root:
@@ -83,6 +108,8 @@ Every deferral logs `jev.defer` at info with `{ stage, reason, question }`, and 
 | `llmComplete/param_unfilled` | The LLM returned `null` or an unparsable value for a `stated_elsewhere` parameter. |
 | `llmComplete/invalid_candidate` | Validation rejected the assembled candidate. |
 | `llmComplete/retry_recommended` | Validation recommended a retry for the assembled candidate. |
+| `jevActions/batch_cap` | Stage library only: not even the first batched question fits the question cap. |
+| `jevActions/premise_mismatch` | Stage library only: a per-instance second action assumes a view the first action does not lead to. |
 | `<stage>/option_cap` | A question had more than 255 options. |
 | `<stage>/provider_timeout` | A TypeSafe call took longer than its timeout (5 s by default). |
 | `<stage>/provider_network` | A TypeSafe call failed to connect. |
@@ -111,7 +138,7 @@ OPENAI_API_KEY=... TYPESAFE_API_KEY=... JEV_MODEL=jev-1.13.0 \
 | Flag | Default | Meaning |
 | --- | --- | --- |
 | `--suite` | `all` | `development`, `holdout` or `all`. |
-| `--arm` | `baseline`, `jev-poc` | A named arm from `eval/arms.ts`; repeat the flag for several. Columns follow the order given, and a repeated name runs once. `jev` is an alias of `jev-poc`. `jev-ungated-stepwise` composes the stage library in `src/lib/stages-experimental/`: ungated select, stepwise actions, the menu layout and the completion call. |
+| `--arm` | `baseline`, `jev-poc` | A named arm from `eval/arms.ts`; repeat the flag for several. Columns follow the order given, and a repeated name runs once. `jev` is an alias of `jev-poc`. The stage-library arms (`jev-ungated-stepwise` and the other planners listed under Stage library) compose `src/lib/stages-experimental/`. |
 | `--repeats` | `3` | Runs per scenario and arm. |
 | `--case` | every case | A scenario id; repeat the flag for several. |
 | `--model` | the demo's default | OpenAI model for the baseline, `llmComplete` and the fallback. |
@@ -135,7 +162,9 @@ Each Jev turn writes its stages' inputs and outputs to `<out>/stages/<arm>/<scen
 - **Selection / Actions / Layout accuracy** (Jev arms): each stage's own output against the expectation. Selection compares the visible and retained sets, actions compare the ordered actions, bound parameters and asks (a `stated_elsewhere` slot counts when the expectation has a value for it), layout compares the tree's leaves with the visible set and checks the arrangement rules.
 - **Fallbacks** (Jev arms): the fallback rate, then one row per `<stage>/<code>` deferral reason.
 - **llmComplete fill rate**: filled `stated_elsewhere` slots over all such slots; a `param_unfilled` deferral counts all of its turn's slots as unfilled.
-- **Spatial gate**: filled once a Jev arm has a spatial gate; until then the row shows how many turns are tagged spatial and how many are non-spatial controls.
+- **Gates**: for arms whose select stage asks gates, false positives and negatives over the turns whose live select call answered them: `needsActions` against whether the scenario expects any action, `spatial` against its spatial tag. Without gate answers the spatial row shows how many turns are tagged spatial and how many are non-spatial controls.
+- **Arrangement turns reaching jevLayout**: planned turns with arrangement rules whose layout stage ran or was replayed, rather than an earlier stage deferring.
+- **Jev calls per turn**: TypeSafe calls over all turns of the arm.
 - **Latency**: p50 and p95 of the whole turn, each live stage (replayed stages show `replayed`), each Jev call and each LLM call by role.
 - **Tokens**: Jev usage from its replies, in total and per turn, and OpenAI usage per role (`planner`, `fallback`, `complete`), recorded by wrapping the text adapter.
 
