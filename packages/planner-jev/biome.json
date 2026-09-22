@@ -1,6 +1,9 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.4.10/schema.json",
   "extends": "//",
+  "files": {
+    "includes": ["**", "!**/__test-helpers__/poc-evaluations"]
+  },
   "linter": {
     "rules": {
       "style": {
