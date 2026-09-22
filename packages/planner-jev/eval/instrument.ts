@@ -48,7 +48,6 @@ export function createRecorder(
     <In, Out>(name: StageName, live: Stage<In, Out>): Stage<In, Out> =>
     async (input, ctx) => {
       const replacement = replacements[name];
-      // A replacement replays what this same stage returned in a recorded run.
       const stage = (replacement ?? live) as Stage<In, Out>;
       const replayed = replacement !== undefined && { replayed: true };
       const started = performance.now();

@@ -31,7 +31,7 @@ export interface Expectation {
   readonly deferStage?: StageName;
   readonly visible?: readonly string[];
   readonly retained?: readonly string[];
-  /** Recorded in the report, not scored; {@link arrangement} is. */
+  /** A reference tree the arrangement rules accept; not scored. */
   readonly tree?: readonly (string | null)[];
   /** Rules the shipped tree must satisfy, whichever arm or fallback wrote it. */
   readonly arrangement?: readonly ArrangementRule[];
@@ -1178,7 +1178,7 @@ function equalAreas(
   }));
 }
 
-/** No visible instance gets more than twice the area of `reference`, nor less than half. */
+/** No instance in `others` gets more than twice the area of `reference`, nor less than half. */
 function balanced(
   reference: string,
   others: readonly string[],

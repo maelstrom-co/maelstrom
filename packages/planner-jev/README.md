@@ -135,8 +135,8 @@ Each Jev turn writes its stages' inputs and outputs to `<out>/stages/<arm>/<scen
 - **Selection / Actions / Layout accuracy** (Jev arms): each stage's own output against the expectation. Selection compares the visible and retained sets, actions compare the ordered actions, bound parameters and asks (a `stated_elsewhere` slot counts when the expectation has a value for it), layout compares the tree's leaves with the visible set and checks the arrangement rules.
 - **Fallbacks** (Jev arms): the fallback rate, then one row per `<stage>/<code>` deferral reason.
 - **llmComplete fill rate**: filled `stated_elsewhere` slots over all such slots; a `param_unfilled` deferral counts all of its turn's slots as unfilled.
-- **Spatial gate**: filled once a Jev arm has a spatial gate; until then the row shows how many scenarios are tagged spatial and how many are non-spatial controls.
+- **Spatial gate**: filled once a Jev arm has a spatial gate; until then the row shows how many turns are tagged spatial and how many are non-spatial controls.
 - **Latency**: p50 and p95 of the whole turn, each live stage (replayed stages show `replayed`), each Jev call and each LLM call by role.
 - **Tokens**: Jev usage from its replies, in total and per turn, and OpenAI usage per role (`planner`, `fallback`, `complete`), recorded by wrapping the text adapter.
 
-`records.json` also carries every Jev answer with its confidence (deferred stages included) and the lowest confidence among the answers the completed stages consumed. It is recorded, not enforced.
+`records.json` also carries every answer of the turn's live Jev calls with its confidence (deferred stages included; replayed stages make no calls) and the lowest confidence among the answers the completed stages consumed, replayed stages included. It is recorded, not enforced.

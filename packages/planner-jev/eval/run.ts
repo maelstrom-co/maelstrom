@@ -93,9 +93,15 @@ export interface RunRecord {
   readonly stages?: readonly Omit<StageRecord, 'input' | 'output'>[];
   readonly stageOutputs?: Readonly<Record<string, unknown>>;
   readonly jevCalls?: readonly JevCall[];
-  /** Every answer of every validated Jev reply, deferred stages included. */
+  /**
+   * Every answer of every validated live Jev reply, deferred stages
+   * included. Replayed stages make no calls, so their answers are absent.
+   */
   readonly answers?: readonly RecordedAnswer[];
-  /** Lowest confidence among the answers the completed stages consumed; recorded, not enforced. */
+  /**
+   * Lowest confidence among the answers the completed stages consumed,
+   * replayed stages included; recorded, not enforced.
+   */
   readonly minConfidence?: number;
   /** Every LLM call of the turn, by role. */
   readonly llmCalls?: readonly LlmCall[];
