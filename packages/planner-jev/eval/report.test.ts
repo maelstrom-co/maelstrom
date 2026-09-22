@@ -20,6 +20,7 @@ function record(overrides: Partial<RunRecord>): RunRecord {
     repeat: 1,
     turnMs: 100,
     expectedDeferral: false,
+    arrangementRules: false,
     ...overrides,
   };
 }
@@ -108,10 +109,12 @@ describe('summarize', () => {
     }),
     record({
       scenarioId: 'f',
+      arrangementRules: true,
       score: { ...pass, arrangement: pass },
     }),
     record({
       scenarioId: 'g',
+      arrangementRules: true,
       score: { ...fail, arrangement: fail },
       spatial: true,
     }),
@@ -128,7 +131,11 @@ describe('summarize', () => {
         { role: 'planner', latencyMs: 1000 },
       ],
     }),
-    baseline({ scenarioId: 'f', score: { ...fail, arrangement: fail } }),
+    baseline({
+      scenarioId: 'f',
+      arrangementRules: true,
+      score: { ...fail, arrangement: fail },
+    }),
     baseline({ scenarioId: 'd', expectedDeferral: true }),
   ];
   const summaries = summarize(records);
@@ -175,6 +182,29 @@ describe('summarize', () => {
     expect(jev?.arrangement).toEqual({ count: 1, total: 2 });
     expect(base?.arrangement).toEqual({ count: 0, total: 1 });
     expect(jev?.spatial).toEqual({ spatial: 1, controls: 0 });
+  });
+
+  test('counts every planned turn on a ruled scenario, an unscored one as a failure', () => {
+    const [ruled] = summarize([
+      record({
+        scenarioId: 'p',
+        arrangementRules: true,
+        score: { ...pass, arrangement: pass },
+      }),
+      record({
+        scenarioId: 'q',
+        arrangementRules: true,
+        error: { tag: 'ProviderError', message: 'down' },
+      }),
+      record({ scenarioId: 'r', arrangementRules: true, score: fail }),
+      record({ scenarioId: 's', score: pass }),
+      record({
+        scenarioId: 't',
+        arrangementRules: true,
+        expectedDeferral: true,
+      }),
+    ]);
+    expect(ruled?.arrangement).toEqual({ count: 1, total: 3 });
   });
 
   test('reports LLM calls and tokens by role for every arm', () => {

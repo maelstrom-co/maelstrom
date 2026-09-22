@@ -33,7 +33,10 @@ export interface ArmSummary {
   readonly runs: number;
   /** Shipped responses that pass, over planned scenarios (expected deferrals excluded). */
   readonly overall: Ratio;
-  /** Arrangement rules passed, over planned scenarios that declare rules. */
+  /**
+   * Arrangement rules passed, over planned turns whose scenario declares
+   * rules; an errored or unscored turn counts as a failure.
+   */
   readonly arrangement: Ratio;
   readonly errors: number;
   /** Scenarios tagged spatial and non-spatial controls, the denominators of a spatial gate's error rates. */
@@ -279,9 +282,7 @@ function summarizeArm(
     count: subset.filter((record) => record.score?.pass === true).length,
     total: subset.length,
   });
-  const arranged = planned.flatMap((record) =>
-    record.score?.arrangement ? [record.score.arrangement] : [],
-  );
+  const ruled = planned.filter((record) => record.arrangementRules);
   const llmCalls = records.flatMap((record) => record.llmCalls ?? []);
   const common = {
     arm,
@@ -290,8 +291,9 @@ function summarizeArm(
     runs: records.length,
     overall: passed(planned),
     arrangement: {
-      count: arranged.filter((score) => score.pass).length,
-      total: arranged.length,
+      count: ruled.filter((record) => record.score?.arrangement?.pass === true)
+        .length,
+      total: ruled.length,
     },
     errors: records.filter((record) => record.error !== undefined).length,
     spatial: {

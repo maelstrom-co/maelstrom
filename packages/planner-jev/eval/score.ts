@@ -36,9 +36,15 @@ export function scoreResponse(
   response: MaelstromResponse,
 ): ArrangedScore {
   const { expected, request } = scenario;
+  if (response.layout.type !== 'tiling') {
+    const failures = ['Response layout is not tiling'];
+    return {
+      pass: false,
+      failures,
+      ...(expected.arrangement && { arrangement: { pass: false, failures } }),
+    };
+  }
   const failures: string[] = [];
-  if (response.layout.type !== 'tiling')
-    return { pass: false, failures: ['Response layout is not tiling'] };
   const rename = matchNewIds(scenario, response.layout);
   const ids = (values: Iterable<string>) =>
     [...values].map((id) => rename.get(id) ?? id).sort();
