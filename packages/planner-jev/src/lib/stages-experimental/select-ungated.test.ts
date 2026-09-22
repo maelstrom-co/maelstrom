@@ -6,14 +6,14 @@ import { conversation } from '../__test-helpers__/actions-fixtures.js';
 import { makeInput, makeRequest } from '../__test-helpers__/fixtures.js';
 import { runPair } from '../__test-helpers__/stage-pair.js';
 import { jevSelect } from '../stages/jev-select.js';
-import { selectV1 } from './select-v1.js';
+import { selectUngated } from './select-ungated.js';
 
-describe('selectV1', () => {
+describe('selectUngated', () => {
   test('sends the POC selection call and returns its selection without gates', async () => {
     const input = makeInput(makeRequest('add a second weather widget'));
     const { poc, next } = await runPair(
       jevSelect,
-      selectV1,
+      selectUngated,
       input,
       input,
       conversation({
@@ -30,7 +30,7 @@ describe('selectV1', () => {
     const input = makeInput(makeRequest('hide the tasks'));
     const { poc, next } = await runPair(
       jevSelect,
-      selectV1,
+      selectUngated,
       input,
       input,
       conversation({ select: { scope: 'ambiguous' } }),
