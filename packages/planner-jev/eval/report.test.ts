@@ -174,6 +174,7 @@ describe('summarize', () => {
       calls: 2,
       input: 15,
       output: 2,
+      withoutUsage: 0,
       perTurn: { input: 15 / 7, output: 2 / 7 },
     });
   });
@@ -212,10 +213,13 @@ describe('summarize', () => {
       calls: 1,
       input: 900,
       output: 40,
-      byRole: { complete: { calls: 1, input: 900, output: 40 } },
+      withoutUsage: 0,
+      byRole: {
+        complete: { calls: 1, input: 900, output: 40, withoutUsage: 0 },
+      },
     });
     expect(base?.tokens.llm.byRole).toEqual({
-      planner: { calls: 2, input: 3000, output: 500 },
+      planner: { calls: 2, input: 3000, output: 500, withoutUsage: 1 },
     });
     expect(base?.latency.llmCall.planner).toEqual({
       p50: 1000,
@@ -258,10 +262,10 @@ describe('summarize', () => {
       '| jevActions latency p50 / p95 (ms) | replayed | n/a |',
     );
     expect(markdown).toContain(
-      '| LLM calls / input / output tokens | 1 / 900 / 40 | 2 / 3000 / 500 |',
+      '| LLM calls / input / output tokens | 1 / 900 / 40 | 2 / 3000 / 500 (1 without usage) |',
     );
     expect(markdown).toContain(
-      '| LLM planner calls / input / output tokens | 0 / 0 / 0 | 2 / 3000 / 500 |',
+      '| LLM planner calls / input / output tokens | 0 / 0 / 0 | 2 / 3000 / 500 (1 without usage) |',
     );
     expect(markdown).toContain(
       '| Jev tokens per turn (input / output) | 2.1 / 0.3 | n/a |',

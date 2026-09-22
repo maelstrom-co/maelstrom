@@ -220,7 +220,7 @@ async function complete(
 function buildPrompt(
   decision: LayoutDecision,
   slots: readonly Slot[],
-  handOff: readonly VesselInstanceSnapshot[] | undefined,
+  handOffInstances: readonly VesselInstanceSnapshot[] | undefined,
 ): string {
   const { plan } = decision;
   const { request } = plan.selection.input;
@@ -234,7 +234,9 @@ function buildPrompt(
     '## Decided',
     ...decisions(
       decision,
-      handOff ? 'you write it, see Layout to write' : layoutLabel(decision),
+      handOffInstances
+        ? 'you write it, see Layout to write'
+        : layoutLabel(decision),
     ),
   ];
   if (slots.length > 0)
@@ -251,7 +253,8 @@ function buildPrompt(
       'Ask the user for these values; do not claim these actions ran.',
       ...plan.asks.map(describeAsk),
     );
-  if (handOff) lines.push('', ...layoutSection(decision, handOff));
+  if (handOffInstances)
+    lines.push('', ...layoutSection(decision, handOffInstances));
   return lines.join('\n');
 }
 
