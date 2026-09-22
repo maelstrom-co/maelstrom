@@ -2,8 +2,16 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 
+import { consoleLogger } from '@maelstrom-co/engine';
 import { createOpenaiChat, type OpenAIChatModel } from '@tanstack/ai-openai';
+
 import { DEFAULT_ARMS, resolveArms } from './arms.js';
+import {
+  loadReplay,
+  REPLAY_THROUGH,
+  type ReplaySource,
+  replayedStages,
+} from './replay.js';
 import { writeReport } from './report.js';
 import { runEval } from './run.js';
 import { type Suite, selectScenarios } from './scenarios.js';
@@ -20,6 +28,10 @@ const { values } = parseArgs({
     case: { type: 'string', multiple: true },
     model: { type: 'string', default: DEFAULT_MODEL },
     out: { type: 'string' },
+    verbose: { type: 'boolean', default: false },
+    'replay-from': { type: 'string' },
+    'replay-through': { type: 'string' },
+    'replay-arm': { type: 'string', default: 'jev-poc' },
   },
 });
 
@@ -31,6 +43,15 @@ const arms = (() => {
     return fail(`--arm: ${error instanceof Error ? error.message : error}`);
   }
 })();
+const replayFrom = values['replay-from'];
+const replayThrough =
+  values['replay-through'] === undefined
+    ? undefined
+    : oneOf(values['replay-through'], REPLAY_THROUGH, 'replay-through');
+if ((replayFrom === undefined) !== (replayThrough === undefined))
+  fail('--replay-from and --replay-through go together');
+if (replayFrom !== undefined && arms.every((arm) => arm.kind === 'baseline'))
+  fail('--replay-from needs at least one Jev arm');
 const repeats = Number(values.repeats);
 if (!Number.isInteger(repeats) || repeats < 1)
   fail('--repeats must be a positive integer');
@@ -66,6 +87,25 @@ if (missing.length > 0) {
 const scenarios = selectScenarios(suite as Suite | 'all', values.case ?? []);
 if (scenarios.length === 0) fail('no scenario matches --suite and --case');
 
+let replay:
+  | {
+      readonly source: ReplaySource;
+      readonly meta: { from: string; through: string; arm: string };
+    }
+  | undefined;
+if (replayFrom !== undefined && replayThrough !== undefined) {
+  const from = resolve(replayFrom);
+  const arm = values['replay-arm'];
+  try {
+    replay = {
+      source: await loadReplay(from, arm),
+      meta: { from, through: replayThrough, arm },
+    };
+  } catch (error) {
+    fail(error instanceof Error ? error.message : String(error));
+  }
+}
+
 const model = values.model;
 console.log(
   `planner-jev eval: ${scenarios.length} scenarios x ${repeats} repeats x ${arms.map((arm) => arm.name).join(', ')} (LLM ${model}, Jev ${env.JEV_MODEL})`,
@@ -76,11 +116,20 @@ const records = await runEval({
   repeats,
   adapter: createOpenaiChat(model as OpenAIChatModel, env.OPENAI_API_KEY),
   typesafe: { apiKey: env.TYPESAFE_API_KEY, model: env.JEV_MODEL },
+  out,
+  ...(values.verbose && { logger: consoleLogger }),
+  ...(replay &&
+    replayThrough && {
+      replay: {
+        source: replay.source,
+        stages: replayedStages(replayThrough),
+      },
+    }),
   onRecord: (record) =>
     console.log(
-      `${record.arm.padEnd(8)} ${record.scenarioId} #${record.repeat} ${Math.round(record.turnMs)} ms ${
+      `${record.arm.padEnd(10)} ${record.scenarioId} #${record.repeat} ${Math.round(record.turnMs)} ms ${
         record.error
-          ? `error ${record.error.tag}`
+          ? `error ${record.error.tag}: ${record.error.message}`
           : record.expectedDeferral
             ? record.deferredAsExpected
               ? 'deferred as expected'
@@ -99,6 +148,7 @@ await writeReport(out, records, {
   llmModel: model,
   jevModel: env.JEV_MODEL,
   date: new Date().toISOString(),
+  ...(replay && { replay: replay.meta }),
 });
 console.log(`Report written to ${out}/report.md`);
 
