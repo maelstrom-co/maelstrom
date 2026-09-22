@@ -101,7 +101,7 @@ Every deferral logs `jev.defer` at info with `{ stage, reason, question }`, and 
 
 ## Evaluating
 
-`eval/` holds a live runner that compares this planner with the LLM baseline on the same scenarios: the 40 tiling scenarios of the Jev prototype (24 development, 16 holdout), keep-versus-replace cases, plus parameter cases that separate `stated_elsewhere` from `not_stated`. Both arms run through `createEngine` with history off and `retry: false`; the baseline is the same once-retried `llmPlanner` the POC falls back to, so the only difference between the arms is the Jev pipeline. Scores use the shipped (validated and healed) response.
+`eval/` holds a live runner that compares this planner with the LLM baseline on the same scenarios: the 40 tiling scenarios of the Jev prototype (24 development, 16 holdout), keep-versus-replace cases, arrangement cases that assert deferral because the layout menu cannot express them (swap, big instance on the right, mixed row-and-split, edge strip), plus parameter cases that separate `stated_elsewhere` from `not_stated`. Both arms run through `createEngine` with history off and `retry: false`; the baseline is the same once-retried `llmPlanner` the POC falls back to, so the only difference between the arms is the Jev pipeline. Scores use the shipped (validated and healed) response.
 
 ```sh
 OPENAI_API_KEY=... TYPESAFE_API_KEY=... JEV_MODEL=jev-1.13.0 \
