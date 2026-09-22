@@ -87,6 +87,18 @@ export function readAnswer(
   return ok(answer);
 }
 
+/**
+ * Whether the request carries only `chart_resize` reasons. A request with no
+ * reasons at all is not resize-only.
+ */
+export function isResizeOnly(request: ChartRequest): boolean {
+  const reasons = request.context.updateReasons;
+  return (
+    reasons.length > 0 &&
+    reasons.every((reason) => reason.type === 'chart_resize')
+  );
+}
+
 /** The user's words in this request, one line per `user_intent` reason. */
 export function intentText(request: ChartRequest): string {
   return request.context.updateReasons

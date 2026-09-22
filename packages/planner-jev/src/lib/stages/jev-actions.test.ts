@@ -16,6 +16,7 @@ import {
   deferralOf,
   makeContext,
   makeRequest,
+  makeResizeRequest,
   plain,
   type RequestOptions,
   spyLogger,
@@ -25,7 +26,7 @@ import type { SelectedInstance } from '../types.js';
 import { jevActions, MAX_ACTIONS } from './jev-actions.js';
 
 async function run(
-  intent: string,
+  intent: Parameters<typeof makeRequest>[0],
   script: Conversation,
   options: RequestOptions & {
     readonly created?: readonly SelectedInstance[];
@@ -72,6 +73,15 @@ describe('jevActions', () => {
     const { result, calls } = await run('hide the tasks', {});
     expect(planOf(result)).toEqual({ actions: [], asks: [] });
     expect(calls).toHaveLength(1);
+  });
+
+  test('a resize-only turn plans no actions without asking Jev', async () => {
+    const { result, calls } = await run(
+      makeResizeRequest(12, 20).context.updateReasons,
+      {},
+    );
+    expect(planOf(result)).toEqual({ actions: [], asks: [] });
+    expect(calls).toHaveLength(0);
   });
 
   test('keeps the order of several actions and binds their parameters', async () => {
