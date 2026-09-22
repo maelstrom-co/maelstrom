@@ -20,6 +20,7 @@ import {
   type ConfidencePolicy,
   choice,
   intentText,
+  isResizeOnly,
   type Question,
   readAnswer,
   recentHistory,
@@ -58,7 +59,8 @@ type StepResult = Result<
  * in (transitions included). After a step picks an action with parameters,
  * one more call binds them: a candidate value, `omit` for an optional one,
  * `stated_elsewhere` (the LLM fills it) or `not_stated` (the action is
- * dropped and the user is asked for the value).
+ * dropped and the user is asked for the value). A resize-only request plans
+ * no actions and makes no call.
  */
 export function jevActions(
   ask: Ask,
@@ -72,6 +74,9 @@ export function jevActions(
     const actions: PlannedAction[] = [];
     const asks: ParameterAsk[] = [];
     const answers: AnswerRecord[] = [];
+    // The Engine refuses content mutations on resize-only turns, and asking
+    // Jev anyway invites an `unsupported` answer that forces the fallback.
+    if (isResizeOnly(request)) return ok({ selection, actions, asks, answers });
 
     for (let step = 0; ; step++) {
       const simulated = finalVariants(retained, actions, request.vessels);

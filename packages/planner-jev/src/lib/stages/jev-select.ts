@@ -12,6 +12,7 @@ import { deferAt } from '../defer.js';
 import {
   type ConfidencePolicy,
   choice,
+  isResizeOnly,
   type Question,
   readAnswer,
   recentHistory,
@@ -56,9 +57,7 @@ export function jevSelect(
       newIds.set(vessel.id, ids);
     }
 
-    const resizeOnly = request.context.updateReasons.every(
-      (reason) => reason.type === 'chart_resize',
-    );
+    const resizeOnly = isResizeOnly(request);
     const questions: Record<string, Question> = {
       scope: choice(
         'Can the complete latest intent be satisfied using these vessels, their views and their registered actions? Showing, hiding, arranging or configuring widgets is supported. A chart resize with no other request is supported. Do not partially satisfy an unsupported compound request.',

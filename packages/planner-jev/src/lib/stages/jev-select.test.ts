@@ -199,4 +199,23 @@ describe('jevSelect', () => {
     ).toEqual(['calendar-main', 'weather-main', 'tasks-main']);
     expect(result.value.instances.some((i) => i.fresh)).toBe(false);
   });
+
+  test('only a resize-only turn gets the resize hint', async () => {
+    const resize = await run(makeResizeRequest(12, 20), () => ({
+      choices: HIDDEN_BY_DEFAULT,
+    }));
+    const empty = await run(makeRequest([]), () => ({
+      choices: HIDDEN_BY_DEFAULT,
+    }));
+    const hint = 'The chart was only resized';
+    expect(
+      resize.calls[0]?.questions['view/calendar-main']?.instructions,
+    ).toContain(hint);
+    expect(
+      empty.calls[0]?.questions['view/calendar-main']?.instructions,
+    ).not.toContain(hint);
+    expect(empty.calls[0]?.questions['new/tasks']?.instructions).not.toContain(
+      hint,
+    );
+  });
 });
