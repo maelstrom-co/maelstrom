@@ -33,7 +33,7 @@ import { stepwiseActions } from '../stages-experimental/actions-stepwise.js';
 import { completeWithLayout } from '../stages-experimental/complete.js';
 import { createJevDeps, type JevDeps } from '../stages-experimental/deps.js';
 import { menuLayout } from '../stages-experimental/layout-menu.js';
-import { selectV1 } from '../stages-experimental/select-v1.js';
+import { selectUngated } from '../stages-experimental/select-ungated.js';
 import type { LayoutStage } from '../stages-experimental/types.js';
 import { buildJevPocRebuiltPlanner } from './jev-poc-rebuilt.js';
 
@@ -120,7 +120,7 @@ function handOffPlanner(deps: JevDeps): Planner {
   };
   return withFallback(
     pipeline(
-      selectV1(deps.ask),
+      selectUngated(deps.ask),
       stepwiseActions(deps.ask),
       handOff,
       completeWithLayout(deps.llm),

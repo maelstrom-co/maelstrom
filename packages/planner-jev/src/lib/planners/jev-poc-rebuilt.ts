@@ -10,7 +10,7 @@ import { stepwiseActions } from '../stages-experimental/actions-stepwise.js';
 import { completeWithLayout } from '../stages-experimental/complete.js';
 import type { JevDeps } from '../stages-experimental/deps.js';
 import { menuLayout } from '../stages-experimental/layout-menu.js';
-import { selectV1 } from '../stages-experimental/select-v1.js';
+import { selectUngated } from '../stages-experimental/select-ungated.js';
 
 /**
  * The POC composition rebuilt from the stage library: the same Jev calls,
@@ -23,7 +23,7 @@ export function buildJevPocRebuiltPlanner(
 ): Planner {
   return withFallback(
     pipeline(
-      instrument('jevSelect', selectV1(deps.ask)),
+      instrument('jevSelect', selectUngated(deps.ask)),
       instrument('jevActions', stepwiseActions(deps.ask)),
       instrument('jevLayout', menuLayout(deps.ask)),
       instrument('llmComplete', completeWithLayout(deps.llm)),
