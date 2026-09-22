@@ -29,12 +29,12 @@ import {
   scriptedFetch,
   TEST_MODEL,
 } from '../__test-helpers__/scripted-fetch.js';
-import { stepwiseActions } from '../stages-next/actions-stepwise.js';
-import { completeWithLayout } from '../stages-next/complete.js';
-import { createJevDeps, type JevDeps } from '../stages-next/deps.js';
-import { menuLayout } from '../stages-next/layout-menu.js';
-import { selectV1 } from '../stages-next/select-v1.js';
-import type { LayoutStage } from '../stages-next/types.js';
+import { stepwiseActions } from '../stages-experimental/actions-stepwise.js';
+import { completeWithLayout } from '../stages-experimental/complete.js';
+import { createJevDeps, type JevDeps } from '../stages-experimental/deps.js';
+import { menuLayout } from '../stages-experimental/layout-menu.js';
+import { selectV1 } from '../stages-experimental/select-v1.js';
+import type { LayoutStage } from '../stages-experimental/types.js';
 import { buildJevPocRebuiltPlanner } from './jev-poc-rebuilt.js';
 
 afterEach(() => mockChat.mockReset());

@@ -111,7 +111,7 @@ OPENAI_API_KEY=... TYPESAFE_API_KEY=... JEV_MODEL=jev-1.13.0 \
 | Flag | Default | Meaning |
 | --- | --- | --- |
 | `--suite` | `all` | `development`, `holdout` or `all`. |
-| `--arm` | `baseline`, `jev-poc` | A named arm from `eval/arms.ts`; repeat the flag for several. Columns follow the order given, and a repeated name runs once. `jev` is an alias of `jev-poc`. `jev-poc-rebuilt` is the same composition built from the stage library in `src/lib/stages-next/`. |
+| `--arm` | `baseline`, `jev-poc` | A named arm from `eval/arms.ts`; repeat the flag for several. Columns follow the order given, and a repeated name runs once. `jev` is an alias of `jev-poc`. `jev-poc-rebuilt` is the same composition built from the stage library in `src/lib/stages-experimental/`. |
 | `--repeats` | `3` | Runs per scenario and arm. |
 | `--case` | every case | A scenario id; repeat the flag for several. |
 | `--model` | the demo's default | OpenAI model for the baseline, `llmComplete` and the fallback. |
