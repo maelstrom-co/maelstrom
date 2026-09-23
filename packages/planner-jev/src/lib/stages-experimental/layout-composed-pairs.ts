@@ -1,5 +1,6 @@
 import type { Stage, StageContext } from '@maelstrom-co/engine';
 import {
+  type ChartRequest,
   type InstanceId,
   isErr,
   ok,
@@ -32,8 +33,13 @@ import {
   type RecordedSize,
 } from './layout-composed.js';
 import {
+  type Arrangement,
   arrangementTree,
+  arrangementTreeAtMinimum,
+  equalArrangementTree,
+  type MinimumFraction,
   NOT_STATED,
+  type PartSizing,
   PROBABILITY_FLOOR,
   rankArrangements,
 } from './layout-composed-pairs-tree.js';
@@ -46,6 +52,54 @@ export const MAX_PAIRS_INSTANCES = 6;
 
 /** Why a composed-pairs layout was handed to the completion stage. */
 export type PairsHandOff = 'nothing_fits' | 'too_many_instances';
+
+/** How a composed-pairs tree was resized when none of the top candidates fit as sized. */
+export type PairsSizeFallback = 'raised_to_minimum' | 'equal_weights';
+
+/**
+ * Which questions {@link layoutComposedPairsWithOptions} asks and how it
+ * turns the answers into a tree. Every option left out keeps the
+ * {@link layoutComposedPairs} behaviour.
+ */
+export interface ComposedPairsOptions {
+  /** The `layoutId` a written tree is returned with. */
+  readonly layoutId: string;
+  /**
+   * Ask the top-level direction question: `scored` adds its log probability
+   * to each tree (see {@link layoutComposedPairsWithDirection});
+   * `redirects_not_stated` also sends not stated pair answers along the
+   * direction's most likely option when that option is side by side or
+   * stacked, keeping each pair's order in the current tree.
+   */
+  readonly direction?: 'scored' | 'redirects_not_stated';
+  /**
+   * When none of the top trees fits, retry each in rank order keeping its
+   * structure: first with every share below its Instance's minimum size
+   * raised to it, then with equal weights; hand off only when neither fits.
+   */
+  readonly sizeFallback?: boolean;
+  /** Add whole-board phrases, such as "stack them all" or "in a row", to the side options of every pair question. */
+  readonly wholeBoardExamples?: boolean;
+  /**
+   * Ask per Instance a second size question about its share of the row or
+   * column the request groups it with, and split inside each part by those
+   * answers. Parts along the top axis keep their whole-Chart shares.
+   */
+  readonly sizeWithinPart?: boolean;
+  /** A part's weight along the top axis: the sum (default) or the largest of its members' shares. */
+  readonly partWeight?: 'sum' | 'max';
+  /**
+   * The share each size level stands for: `even` (default) is 0, 0.25,
+   * 0.5, 0.75 and 1; `bigger` is {@link BIGGER_SIZE_STEPS}, where larger is
+   * twice an equal share and most is three times.
+   */
+  readonly sizeSteps?: 'even' | 'bigger';
+  /** Send only the request and each Instance's id and widget, without the current arrangement or variants. */
+  readonly leanState?: boolean;
+}
+
+/** The share per size level for {@link ComposedPairsOptions.sizeSteps} `bigger`, smallest level first. */
+export const BIGGER_SIZE_STEPS: readonly number[] = [0, 0.25, 0.5, 1, 1.5];
 
 /** Jev's recorded answer about one pair of visible Instances. */
 export interface RecordedPair {
@@ -72,12 +126,19 @@ export interface ComposedPairsRecord {
   readonly pairs?: readonly RecordedPair[];
   /** Absent when no call was made. */
   readonly sizes?: Readonly<Record<string, RecordedSize>>;
+  /** Answers to the size question within each Instance's row or column; present only when that question was asked. */
+  readonly groupSizes?: Readonly<Record<string, RecordedSize>>;
   /** Jev's answer about the top-level split; present only when {@link layoutComposedPairsWithDirection} made a call. */
   readonly direction?: RecordedChoice;
   /** The top-scored trees, best first, each checked with `layoutFits`. */
   readonly candidates: readonly PairsCandidate[];
-  /** Index into {@link candidates} of the returned tree. */
+  /** Index into {@link candidates} of the returned tree, as sized; absent when a size fallback wrote it. */
   readonly chosen?: number;
+  /** The size fallback that wrote the returned tree, and the index into {@link candidates} of the structure it kept. */
+  readonly fallback?: {
+    readonly kind: PairsSizeFallback;
+    readonly candidate: number;
+  };
   readonly handOff?: PairsHandOff;
   /** The best tree's score minus the second best's; absent when no call was made. */
   readonly margin?: number;
@@ -111,7 +172,7 @@ export type ComposedPairsDecision = LayoutDecision & {
 export function layoutComposedPairs(
   ask: Ask,
 ): Stage<GatedActionPlan, ComposedPairsDecision> {
-  return composedPairs(ask, false);
+  return composedPairs(ask, { layoutId: 'composed-pairs' });
 }
 
 /**
@@ -125,7 +186,22 @@ export function layoutComposedPairs(
 export function layoutComposedPairsWithDirection(
   ask: Ask,
 ): Stage<GatedActionPlan, ComposedPairsDecision> {
-  return composedPairs(ask, true);
+  return composedPairs(ask, {
+    layoutId: 'composed-pairs-with-direction',
+    direction: 'scored',
+  });
+}
+
+/**
+ * {@link layoutComposedPairs} with the questions and tree building that
+ * `options` selects (see {@link ComposedPairsOptions}), for comparing
+ * fixes one at a time and together. Returns `layoutId: options.layoutId`.
+ */
+export function layoutComposedPairsWithOptions(
+  ask: Ask,
+  options: ComposedPairsOptions,
+): Stage<GatedActionPlan, ComposedPairsDecision> {
+  return composedPairs(ask, options);
 }
 
 const STAGE = 'jevLayout';
@@ -139,11 +215,16 @@ const DIRECTION_QUESTION = 'direction';
 
 function composedPairs(
   ask: Ask,
-  withDirection: boolean,
+  options: ComposedPairsOptions,
 ): Stage<GatedActionPlan, ComposedPairsDecision> {
-  const layoutId = withDirection
-    ? 'composed-pairs-with-direction'
-    : 'composed-pairs';
+  const { layoutId } = options;
+  const withDirection = options.direction !== undefined;
+  const steps =
+    options.sizeSteps === 'bigger'
+      ? BIGGER_SIZE_STEPS
+      : Array.from({ length: SIZE_LEVEL_COUNT }, (_, level) =>
+          levelSize(level, SIZE_LEVEL_COUNT),
+        );
   return async (plan, ctx) => {
     const { request } = plan.selection.input;
     const retained = plan.selection.instances.filter(
@@ -213,26 +294,34 @@ function composedPairs(
     const reply = await ask(
       STAGE,
       {
-        state: {
-          request: intentText(request),
-          currentArrangement: describeLayout(currentTree),
-          instances: visible.map((instance) => ({
-            id: instance.instanceId,
-            widget: instance.vesselId,
-            variant: instance.variant,
-          })),
-        },
+        state: options.leanState
+          ? {
+              request: intentText(request),
+              instances: visible.map((instance) => ({
+                id: instance.instanceId,
+                widget: instance.vesselId,
+              })),
+            }
+          : {
+              request: intentText(request),
+              currentArrangement: describeLayout(currentTree),
+              instances: visible.map((instance) => ({
+                id: instance.instanceId,
+                widget: instance.vesselId,
+                variant: instance.variant,
+              })),
+            },
         questions: {
-          ...questions(visible, pairs),
+          ...questions(visible, pairs, options),
           ...(withDirection && { [DIRECTION_QUESTION]: directionQuestion() }),
         },
       },
       ctx,
     );
     if (isErr(reply)) return reply;
-    const read = readAll(reply.value, ids, pairs, ctx);
+    const read = readAll(reply.value, ids, pairs, ctx, steps, options);
     if (isErr(read)) return read;
-    const { pairAnswers, sizes, records } = read.value;
+    const { pairAnswers, sizes, groupSizes, records } = read.value;
     let direction: RecordedChoice | undefined;
     if (withDirection) {
       const answer = readAnswer(reply.value, DIRECTION_QUESTION, STAGE, ctx);
@@ -250,29 +339,53 @@ function composedPairs(
       })),
       currentTree,
       direction?.probabilities,
+      { redirectNotStated: options.direction === 'redirects_not_stated' },
     );
-    const shares = sizeShares(ids.map((id) => sizes[id]?.size ?? 0));
-    const shareById = Object.fromEntries(
-      ids.map((id, index) => [id, shares[index] ?? 0]),
-    );
-    const candidates = ranked
-      .slice(0, CANDIDATES)
-      .map(({ arrangement, score }) => {
-        const tree = arrangementTree(arrangement, shareById);
-        return { tree, score, fits: layoutFits(request, tree, visible) };
-      });
+    const shareById = sharesById(ids, sizes);
+    const sizing: PartSizing = {
+      ...(options.partWeight && { partWeight: options.partWeight }),
+      ...(groupSizes && { innerShareById: sharesById(ids, groupSizes) }),
+    };
+    const top = ranked.slice(0, CANDIDATES);
+    const candidates = top.map(({ arrangement, score }) => {
+      const tree = arrangementTree(arrangement, shareById, sizing);
+      return { tree, score, fits: layoutFits(request, tree, visible) };
+    });
     const margin = (ranked[0]?.score ?? 0) - (ranked[1]?.score ?? 0);
     const called = {
       ...record,
       called: true,
       pairs: pairAnswers,
       sizes,
+      ...(groupSizes && { groupSizes }),
       ...(direction && { direction }),
       candidates,
       margin,
     };
     const chosen = candidates.findIndex((candidate) => candidate.fits);
     const tree = candidates[chosen]?.tree;
+    if (tree === undefined && options.sizeFallback) {
+      const resized = sizeFallback(
+        top.map(({ arrangement }) => arrangement),
+        (arrangement) =>
+          arrangementTreeAtMinimum(
+            arrangement,
+            shareById,
+            minimumFractions(request, visible),
+            sizing,
+          ),
+        (candidate) => layoutFits(request, candidate, visible),
+      );
+      if (resized)
+        return ok({
+          plan,
+          source: 'jev',
+          layoutId,
+          tree: resized.tree,
+          answers: records,
+          pairwise: { ...called, fallback: resized.fallback },
+        });
+    }
     if (tree === undefined)
       return ok({
         plan,
@@ -291,12 +404,72 @@ function composedPairs(
   };
 }
 
+function sharesById(
+  ids: readonly InstanceId[],
+  sizes: Readonly<Record<string, RecordedSize>>,
+): Record<string, number> {
+  const shares = sizeShares(ids.map((id) => sizes[id]?.size ?? 0));
+  return Object.fromEntries(ids.map((id, index) => [id, shares[index] ?? 0]));
+}
+
+function sizeFallback(
+  arrangements: readonly Arrangement[],
+  atMinimum: (arrangement: Arrangement) => readonly TilingNode[] | undefined,
+  fits: (tree: readonly TilingNode[]) => boolean,
+):
+  | {
+      readonly tree: readonly TilingNode[];
+      readonly fallback: NonNullable<ComposedPairsRecord['fallback']>;
+    }
+  | undefined {
+  for (const [candidate, arrangement] of arrangements.entries()) {
+    const raised = atMinimum(arrangement);
+    if (raised && fits(raised))
+      return {
+        tree: raised,
+        fallback: { kind: 'raised_to_minimum', candidate },
+      };
+    const equal = equalArrangementTree(arrangement);
+    if (fits(equal))
+      return { tree: equal, fallback: { kind: 'equal_weights', candidate } };
+  }
+  return undefined;
+}
+
+function minimumFractions(
+  request: ChartRequest,
+  visible: readonly VesselInstanceSnapshot[],
+): Record<string, MinimumFraction> {
+  const { columns, rows } = request.context.chartDimensions;
+  return Object.fromEntries(
+    visible.map(({ instanceId, vesselId, variant }) => {
+      const minimum = request.vessels.find((vessel) => vessel.id === vesselId)
+        ?.variants[variant]?.minSize;
+      return [
+        instanceId,
+        {
+          width: (minimum?.width ?? 0) / columns,
+          height: (minimum?.height ?? 0) / rows,
+        },
+      ];
+    }),
+  );
+}
+
 const SIZE_LEVELS = [
   "as small as it can be: the `request` asks to shrink it to the minimum, signals: 'tiny', 'minimize it', 'as small as possible', 'just a sliver'",
   "smaller than an equal share: signals: 'narrow', 'smaller', 'a thin column', 'a sidebar', 'a third', the rest when another widget gets 'two thirds' or 'most of the board'",
   "an equal share: the `request` gives it no size, or asks for equal sizes, signals: 'equal', 'same size', 'evenly', 'split evenly'",
   "larger than an equal share: signals: 'bigger', 'wider', 'taller', 'larger', 'half the board' when there are three or more widgets",
   "most of the chart: signals: 'two thirds', 'most of the board', 'the main widget', 'make it big', 'give it the most room'",
+];
+
+const GROUP_SIZE_LEVELS = [
+  "as small as it can be within its row or column: signals: 'tiny', 'minimize it', 'as small as possible', 'just a sliver'",
+  "smaller than the others in its row or column: signals: 'narrow', 'smaller', 'shorter', 'a thin strip', 'a third of the column', the rest when another widget in the row or column gets 'two thirds' or 'most of it'",
+  "an equal share of its row or column: the `request` gives it no size there, or asks for equal sizes, or puts it in no row or column with other widgets, signals: 'equal', 'same size', 'evenly'",
+  "larger than the others in its row or column: signals: 'bigger', 'taller', 'wider', 'half the column', 'half the height', 'half of the row' when the row or column has three or more widgets",
+  "most of its row or column: signals: 'two thirds of the column', 'most of the row', 'give it most of the height'",
 ];
 
 interface NamedInstance {
@@ -320,9 +493,14 @@ function sizeQuestionId(id: InstanceId): string {
   return `size/${id}`;
 }
 
+function groupSizeQuestionId(id: InstanceId): string {
+  return `size_in_group/${id}`;
+}
+
 function questions(
   visible: readonly VesselInstanceSnapshot[],
   pairs: readonly (readonly [InstanceId, InstanceId])[],
+  options: ComposedPairsOptions,
 ): Record<string, Question> {
   const named = new Map(
     visible.map(({ instanceId, vesselId }) => [
@@ -336,7 +514,11 @@ function questions(
     ...Object.fromEntries(
       pairs.map(([first, second]) => [
         pairQuestionId(first, second),
-        pairQuestion(nameOf(first), nameOf(second)),
+        pairQuestion(
+          nameOf(first),
+          nameOf(second),
+          options.wholeBoardExamples ?? false,
+        ),
       ]),
     ),
     ...Object.fromEntries(
@@ -348,12 +530,37 @@ function questions(
         ),
       ]),
     ),
+    ...(options.sizeWithinPart &&
+      Object.fromEntries(
+        visible.map(({ instanceId, vesselId }) => [
+          groupSizeQuestionId(instanceId),
+          score(
+            `The \`request\` may put ${instanceId} (the ${vesselId} widget) in a row or a column together with other widgets. How much of that row or column does the \`request\` give ${instanceId}, compared with the widgets it shares it with? Answer from the \`request\` alone.`,
+            GROUP_SIZE_LEVELS,
+          ),
+        ]),
+      )),
   };
 }
 
-function pairQuestion(a: NamedInstance, b: NamedInstance): ChoiceQuestion {
+const STACK_PHRASES = [
+  'stack them all',
+  'in one column',
+  'in a column',
+  'one on top of the other',
+];
+
+const ROW_PHRASES = ['in a row', 'all side by side'];
+
+function pairQuestion(
+  a: NamedInstance,
+  b: NamedInstance,
+  wholeBoardExamples: boolean,
+): ChoiceQuestion {
   const one = `${a.id} (the ${a.widget} widget)`;
   const other = `${b.id} (the ${b.widget} widget)`;
+  const stack = wholeBoardExamples ? STACK_PHRASES : [];
+  const row = wholeBoardExamples ? ROW_PHRASES : [];
   return choice(
     `Where does the \`request\` put ${one} relative to ${other}? Choose a side only when the \`request\` states it or directly implies it for these two widgets.`,
     {
@@ -365,6 +572,7 @@ function pairQuestion(a: NamedInstance, b: NamedInstance): ChoiceQuestion {
           `${a.widget} before ${b.widget} in the row`,
           `${a.widget} next to ${b.widget} on the left`,
           `${a.widget} on the left, ${b.widget} on the right`,
+          ...row,
         ],
       },
       right_of: {
@@ -375,6 +583,7 @@ function pairQuestion(a: NamedInstance, b: NamedInstance): ChoiceQuestion {
           `${a.widget} after ${b.widget} in the row`,
           `${a.widget} next to ${b.widget} on the right`,
           `${b.widget} on the left, ${a.widget} on the right`,
+          ...row,
         ],
       },
       above: {
@@ -386,6 +595,7 @@ function pairQuestion(a: NamedInstance, b: NamedInstance): ChoiceQuestion {
           `${a.widget} over ${b.widget}`,
           `${a.widget} stacked on ${b.widget}`,
           `${a.widget} at the top, ${b.widget} at the bottom`,
+          ...stack,
         ],
       },
       below: {
@@ -397,6 +607,7 @@ function pairQuestion(a: NamedInstance, b: NamedInstance): ChoiceQuestion {
           `${b.widget} on top of ${a.widget}`,
           `${b.widget} stacked on ${a.widget}`,
           `${b.widget} at the top, ${a.widget} at the bottom`,
+          ...stack,
         ],
       },
       [NOT_STATED]: {
@@ -460,6 +671,8 @@ function readAll(
   ids: readonly InstanceId[],
   pairs: readonly (readonly [InstanceId, InstanceId])[],
   ctx: StageContext,
+  steps: readonly number[],
+  options: ComposedPairsOptions,
 ) {
   const records: AnswerRecord[] = [];
   const pairAnswers: RecordedPair[] = [];
@@ -471,23 +684,36 @@ function readAll(
     pairAnswers.push({ first, second, answer: recordedChoice(answer.value) });
   }
   const sizes: Record<string, RecordedSize> = {};
-  for (const id of ids) {
-    const question = sizeQuestionId(id);
-    const answer = readAnswer(reply, question, STAGE, ctx);
-    if (isErr(answer)) return answer;
-    if (!isScoreAnswer(answer.value))
-      return deferAt(ctx, STAGE, 'answer_missing', question);
-    records.push(answerRecord(question, answer.value));
-    const { choice: level, confidence, probabilities } = answer.value;
-    sizes[id] = {
-      level,
-      score: answer.value.score,
-      confidence,
-      probabilities,
-      size: levelSize(Number(level), SIZE_LEVEL_COUNT),
-    };
-  }
-  return ok({ pairAnswers, sizes, records });
+  const groupSizes: Record<string, RecordedSize> = {};
+  const sizeQuestions = [
+    { target: sizes, questionOf: sizeQuestionId },
+    ...(options.sizeWithinPart
+      ? [{ target: groupSizes, questionOf: groupSizeQuestionId }]
+      : []),
+  ];
+  for (const { target, questionOf } of sizeQuestions)
+    for (const id of ids) {
+      const question = questionOf(id);
+      const answer = readAnswer(reply, question, STAGE, ctx);
+      if (isErr(answer)) return answer;
+      if (!isScoreAnswer(answer.value))
+        return deferAt(ctx, STAGE, 'answer_missing', question);
+      records.push(answerRecord(question, answer.value));
+      const { choice: level, confidence, probabilities } = answer.value;
+      target[id] = {
+        level,
+        score: answer.value.score,
+        confidence,
+        probabilities,
+        size: steps[Number(level)] ?? 0,
+      };
+    }
+  return ok({
+    pairAnswers,
+    sizes,
+    ...(options.sizeWithinPart && { groupSizes }),
+    records,
+  });
 }
 
 function answerRecord(question: string, answer: Answer): AnswerRecord {

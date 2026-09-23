@@ -3,7 +3,10 @@ import type {
   ComposedHandOff,
   ComposedRoute,
 } from '../src/lib/stages-experimental/layout-composed.js';
-import type { PairsHandOff } from '../src/lib/stages-experimental/layout-composed-pairs.js';
+import type {
+  PairsHandOff,
+  PairsSizeFallback,
+} from '../src/lib/stages-experimental/layout-composed-pairs.js';
 import { COMPOSED_QUESTIONS } from './composed-attribution.js';
 import type { LayoutTurnDetail } from './layout.js';
 import { type Ratio, ratio } from './report.js';
@@ -144,6 +147,8 @@ export interface ComposedPairsVariantSummary {
   readonly handOffs: Readonly<Record<PairsHandOff, number>>;
   /** How often the first, second or third candidate was the returned tree. */
   readonly chosenRank: readonly number[];
+  /** Turns whose returned tree a size fallback wrote, by fallback. */
+  readonly sizeFallbacks: Readonly<Record<PairsSizeFallback, number>>;
   /** Called turns whose pairs could be compared with the reference tree. */
   readonly compared: number;
   /** Wrong pair answers, not stated read as the current tree's relation, over compared pairs. */
@@ -177,6 +182,7 @@ export function summarizeComposedPairs(
   };
   const handOffs = { nothing_fits: 0, too_many_instances: 0 };
   const chosenRank = [0, 0, 0];
+  const sizeFallbacks = { raised_to_minimum: 0, equal_weights: 0 };
   let compared = 0;
   const wrongAnswers = { count: 0, total: 0 };
   const notStated = { count: 0, total: 0 };
@@ -193,6 +199,7 @@ export function summarizeComposedPairs(
     if (record.handOff) handOffs[record.handOff] += 1;
     if (record.chosen !== undefined && record.chosen < 3)
       chosenRank[record.chosen] += 1;
+    if (record.fallback) sizeFallbacks[record.fallback.kind] += 1;
     if (record.margin !== undefined) margins.push(record.margin);
     const check = detail.pairCheck;
     if (check === undefined || 'unavailable' in check) continue;
@@ -219,6 +226,7 @@ export function summarizeComposedPairs(
     routes,
     handOffs,
     chosenRank,
+    sizeFallbacks,
     compared,
     wrongAnswers,
     notStated,
@@ -266,6 +274,11 @@ export function renderComposedPairsSection(
     String(s.handOffs.too_many_instances),
   );
   row('Chosen candidate rank 1 / 2 / 3', (s) => s.chosenRank.join(' / '));
+  row(
+    'Size fallback: raised to minimum / equal weights',
+    (s) =>
+      `${s.sizeFallbacks.raised_to_minimum} / ${s.sizeFallbacks.equal_weights}`,
+  );
   row('Calls compared with the reference tree', (s) => String(s.compared));
   row('Wrong pair answers (not stated read as the current relation)', (s) =>
     ratio(s.wrongAnswers),

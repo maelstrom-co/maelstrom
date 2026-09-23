@@ -17,6 +17,7 @@ import {
   type ComposedPairsRecord,
   layoutComposedPairs,
   layoutComposedPairsWithDirection,
+  layoutComposedPairsWithOptions,
 } from '../src/lib/stages-experimental/layout-composed-pairs.js';
 import { layoutPreset } from '../src/lib/stages-experimental/layout-preset.js';
 import { layoutPresetOrLlm } from '../src/lib/stages-experimental/layout-preset-or-llm.js';
@@ -86,8 +87,10 @@ type LayoutVariant = (ask: Ask) => Stage<GatedActionPlan, LayoutOutput>;
 
 /**
  * Layout stage variants by descriptive name, each built as the matching
- * arm in `eval/arms.ts` builds it; `composed-pairs` and
- * `composed-pairs-with-direction` have no planner arm.
+ * arm in `eval/arms.ts` builds it; the `composed-pairs` variants have no
+ * planner arm. Each `composed-pairs-` fix changes one thing from
+ * `composed-pairs` (the redirect builds on `composed-pairs-with-direction`),
+ * see `ComposedPairsOptions`.
  */
 export const LAYOUT_VARIANTS: Readonly<Record<string, LayoutVariant>> = {
   preset: (ask) => layoutPreset(ask, { describe: 'placements' }),
@@ -97,6 +100,41 @@ export const LAYOUT_VARIANTS: Readonly<Record<string, LayoutVariant>> = {
   'composed-pairs': (ask) => layoutComposedPairs(ask),
   'composed-pairs-with-direction': (ask) =>
     layoutComposedPairsWithDirection(ask),
+  'composed-pairs-direction-redirects-not-stated': (ask) =>
+    layoutComposedPairsWithOptions(ask, {
+      layoutId: 'composed-pairs-direction-redirects-not-stated',
+      direction: 'redirects_not_stated',
+    }),
+  'composed-pairs-size-fallback': (ask) =>
+    layoutComposedPairsWithOptions(ask, {
+      layoutId: 'composed-pairs-size-fallback',
+      sizeFallback: true,
+    }),
+  'composed-pairs-whole-board-examples': (ask) =>
+    layoutComposedPairsWithOptions(ask, {
+      layoutId: 'composed-pairs-whole-board-examples',
+      wholeBoardExamples: true,
+    }),
+  'composed-pairs-size-within-part': (ask) =>
+    layoutComposedPairsWithOptions(ask, {
+      layoutId: 'composed-pairs-size-within-part',
+      sizeWithinPart: true,
+    }),
+  'composed-pairs-part-size-max': (ask) =>
+    layoutComposedPairsWithOptions(ask, {
+      layoutId: 'composed-pairs-part-size-max',
+      partWeight: 'max',
+    }),
+  'composed-pairs-bigger-size-steps': (ask) =>
+    layoutComposedPairsWithOptions(ask, {
+      layoutId: 'composed-pairs-bigger-size-steps',
+      sizeSteps: 'bigger',
+    }),
+  'composed-pairs-lean-state': (ask) =>
+    layoutComposedPairsWithOptions(ask, {
+      layoutId: 'composed-pairs-lean-state',
+      leanState: true,
+    }),
   'composed-2-size-levels': (ask) => layoutComposed(ask, { sizeLevels: 2 }),
   'composed-score-sized': (ask) => layoutComposedScoreSized(ask),
   'composed-2-size-levels-score-sized': (ask) =>
