@@ -277,25 +277,21 @@ export function arrangementTreeAtMinimum(
     if (minimum === undefined) return 0;
     return axis === 'V' ? minimum.width : minimum.height;
   };
-  const raisedTop = raiseToMinimum(
-    top,
-    arrangement.parts.map((members) =>
-      Math.max(0, ...members.map((id) => along(arrangement.axis, id))),
-    ),
+  const topMinimum = arrangement.parts.map((members) =>
+    Math.max(0, ...members.map((id) => along(arrangement.axis, id))),
   );
-  const raisedInner = arrangement.parts.map((members, index) =>
-    raiseToMinimum(
+  const topWeights = weightsAtMinimum(top, topMinimum);
+  if (topWeights === undefined) return undefined;
+  const innerWeights: (readonly number[])[] = [];
+  for (const [index, members] of arrangement.parts.entries()) {
+    const weights = weightsAtMinimum(
       innerShares[index] ?? [],
       members.map((id) => along(inner(arrangement.axis), id)),
-    ),
-  );
-  if (raisedTop === undefined) return undefined;
-  const fitted: (readonly number[])[] = [];
-  for (const shares of raisedInner) {
-    if (shares === undefined) return undefined;
-    fitted.push(shares);
+    );
+    if (weights === undefined) return undefined;
+    innerWeights.push(weights);
   }
-  return treeOfShares(arrangement, raisedTop, fitted);
+  return treeOfWeights(arrangement, topWeights, innerWeights);
 }
 
 /** The tiling tree of `arrangement` with every split's children weighted equally. */
@@ -406,15 +402,68 @@ function treeOfShares(
   top: readonly number[],
   innerShares: readonly (readonly number[])[],
 ): readonly TilingNode[] {
+  return treeOfWeights(
+    arrangement,
+    weightsOf(top),
+    innerShares.map((shares) => weightsOf(shares)),
+  );
+}
+
+function treeOfWeights(
+  arrangement: Arrangement,
+  top: readonly number[],
+  innerWeights: readonly (readonly number[])[],
+): readonly TilingNode[] {
   const partTrees = arrangement.parts.map((members, index) =>
     splitTree(
       inner(arrangement.axis),
       members.map((id) => [tilingLeafToken(id)]),
-      weightsOf(innerShares[index] ?? []),
+      innerWeights[index] ?? [],
     ),
   );
-  return splitTree(arrangement.axis, partTrees, weightsOf(top));
+  return splitTree(arrangement.axis, partTrees, top);
 }
+
+/** The largest weight total {@link weightsAtMinimum} tries. */
+const MAX_MINIMUM_WEIGHT_TOTAL = 48;
+
+/**
+ * Small integer weights for `shares` raised to `minimum` (see
+ * {@link raiseToMinimum}) that keep every child at or above its minimum
+ * fraction after rounding, the closest to the raised shares among the
+ * smallest totals tried. `undefined` when the minimums cannot fit or no
+ * total up to {@link MAX_MINIMUM_WEIGHT_TOTAL} keeps them.
+ */
+function weightsAtMinimum(
+  shares: readonly number[],
+  minimum: readonly number[],
+): readonly number[] | undefined {
+  if (shares.length < 2) return shares;
+  const raised = raiseToMinimum(shares, minimum);
+  if (raised === undefined) return undefined;
+  let best: { weights: number[]; error: number } | undefined;
+  for (let scale = 1; scale <= MAX_MINIMUM_WEIGHT_TOTAL; scale += 1) {
+    const weights = raised.map((share) =>
+      Math.max(1, Math.round(share * scale)),
+    );
+    const sum = weights.reduce((acc, weight) => acc + weight, 0);
+    const keepsMinimum = weights.every(
+      (weight, index) => weight / sum + 1e-9 >= (minimum[index] ?? 0),
+    );
+    if (!keepsMinimum) continue;
+    const error = Math.max(
+      ...weights.map((weight, index) =>
+        Math.abs(weight / sum - (raised[index] ?? 0)),
+      ),
+    );
+    if (error <= MINIMUM_WEIGHT_TOLERANCE) return weights;
+    if (best === undefined || error < best.error) best = { weights, error };
+  }
+  return best?.weights;
+}
+
+/** Largest error per share {@link weightsAtMinimum} accepts before trying a larger total. */
+const MINIMUM_WEIGHT_TOLERANCE = 0.025;
 
 /** The axis the direction answer's most likely option names, `undefined` when that is not stated. */
 function statedAxis(direction: OptionProbabilities): 'H' | 'V' | undefined {
