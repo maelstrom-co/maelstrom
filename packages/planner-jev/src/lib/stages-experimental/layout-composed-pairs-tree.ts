@@ -26,6 +26,12 @@ export type PairRelation = (typeof PAIR_RELATIONS)[number];
 /** The pair answer meaning the request places neither Instance relative to the other. */
 export const NOT_STATED = 'not_stated';
 
+/** The options of the top-level direction answer, by the split axis each stands for. */
+export const TOP_DIRECTIONS = { side_by_side: 'V', stacked: 'H' } as const;
+
+/** One {@link TOP_DIRECTIONS} option. */
+export type TopDirection = keyof typeof TOP_DIRECTIONS;
+
 /** The most parts the top-level split of an enumerated arrangement has. */
 export const MAX_TOP_PARTS = 4;
 
@@ -132,18 +138,35 @@ export function treeRelation(
 }
 
 /**
+ * The axis of the top split of `tree`, `undefined` when it is empty, a
+ * single leaf, or does not start with a split.
+ */
+export function treeDirection(
+  tree: readonly TilingNode[],
+): 'H' | 'V' | undefined {
+  return parseTilingSplitToken(tree[0] ?? null)?.axis;
+}
+
+/**
  * Scores every arrangement of `ids` against the pair answers, highest
  * first; ties keep enumeration order. An arrangement scores the sum over
  * answered pairs of the log probability of the relation it implies,
  * floored at {@link PROBABILITY_FLOOR}. {@link NOT_STATED} votes for
  * `currentTree`: its probability is added to the relation the pair has in
  * the current tree, and ignored for a pair the current tree does not hold.
+ *
+ * With `direction`, a distribution over {@link TOP_DIRECTIONS} and
+ * {@link NOT_STATED}, each arrangement also scores the log probability of
+ * its top-level axis, weighted as one pair, with not stated voting for the
+ * current tree's top split the same way.
  */
 export function rankArrangements(
   ids: readonly InstanceId[],
   pairs: readonly PairAnswer[],
   currentTree: readonly TilingNode[],
+  direction?: OptionProbabilities,
 ): readonly ScoredArrangement[] {
+  const directionScore = direction && directionTable(direction, currentTree);
   const tables = pairs.map((pair) => {
     const current = treeRelation(currentTree, pair.first, pair.second);
     const notStated = pair.probabilities[NOT_STATED] ?? 0;
@@ -169,7 +192,7 @@ export function rankArrangements(
           pair.second,
         );
         return relation === undefined ? sum : sum + logProbability[relation];
-      }, 0),
+      }, directionScore?.[arrangement.axis] ?? 0),
     }))
     .map((scored, order) => ({ scored, order }))
     .sort((a, b) => b.scored.score - a.scored.score || a.order - b.order)
@@ -202,6 +225,21 @@ export function arrangementTree(
       ),
     ),
   );
+}
+
+function directionTable(
+  direction: OptionProbabilities,
+  currentTree: readonly TilingNode[],
+): Record<'H' | 'V', number> {
+  const current = treeDirection(currentTree);
+  const notStated = direction[NOT_STATED] ?? 0;
+  const logOf = (option: TopDirection) => {
+    const axis = TOP_DIRECTIONS[option];
+    const probability =
+      (direction[option] ?? 0) + (axis === current ? notStated : 0);
+    return Math.log(Math.max(probability, PROBABILITY_FLOOR));
+  };
+  return { V: logOf('side_by_side'), H: logOf('stacked') };
 }
 
 function relationAlong(

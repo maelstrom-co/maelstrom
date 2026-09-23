@@ -58,7 +58,7 @@ export interface RecordedPair {
 /** One of the top-scored trees, and whether it fit the Chart and every minimum size. */
 export interface PairsCandidate {
   readonly tree: readonly TilingNode[];
-  /** Sum over the pairs of the log probability of the relation the tree implies. */
+  /** Sum over the pairs, and the top-level direction when asked, of the log probability the tree implies. */
   readonly score: number;
   readonly fits: boolean;
 }
@@ -72,6 +72,8 @@ export interface ComposedPairsRecord {
   readonly pairs?: readonly RecordedPair[];
   /** Absent when no call was made. */
   readonly sizes?: Readonly<Record<string, RecordedSize>>;
+  /** Jev's answer about the top-level split; present only when {@link layoutComposedPairsWithDirection} made a call. */
+  readonly direction?: RecordedChoice;
   /** The top-scored trees, best first, each checked with `layoutFits`. */
   readonly candidates: readonly PairsCandidate[];
   /** Index into {@link candidates} of the returned tree. */
@@ -109,6 +111,39 @@ export type ComposedPairsDecision = LayoutDecision & {
 export function layoutComposedPairs(
   ask: Ask,
 ): Stage<GatedActionPlan, ComposedPairsDecision> {
+  return composedPairs(ask, false);
+}
+
+/**
+ * {@link layoutComposedPairs} with one more question in the same call:
+ * whether the request splits the whole Chart side by side or stacked, or
+ * does not say. The answer is a soft score only: each tree also scores
+ * the log probability of its top-level direction, weighted as one pair,
+ * with "not stated" voting for the current tree's top split. No tree is
+ * ruled out by it. Returns `layoutId: 'composed-pairs-with-direction'`.
+ */
+export function layoutComposedPairsWithDirection(
+  ask: Ask,
+): Stage<GatedActionPlan, ComposedPairsDecision> {
+  return composedPairs(ask, true);
+}
+
+const STAGE = 'jevLayout';
+
+/** How many of the top-scored trees are checked for fit. */
+const CANDIDATES = 3;
+
+const SIZE_LEVEL_COUNT = 5;
+
+const DIRECTION_QUESTION = 'direction';
+
+function composedPairs(
+  ask: Ask,
+  withDirection: boolean,
+): Stage<GatedActionPlan, ComposedPairsDecision> {
+  const layoutId = withDirection
+    ? 'composed-pairs-with-direction'
+    : 'composed-pairs';
   return async (plan, ctx) => {
     const { request } = plan.selection.input;
     const retained = plan.selection.instances.filter(
@@ -156,9 +191,7 @@ export function layoutComposedPairs(
       return ok({
         plan,
         answers: [],
-        ...(fits
-          ? { source: 'jev', layoutId: LAYOUT_ID, tree }
-          : { source: 'llm' }),
+        ...(fits ? { source: 'jev', layoutId, tree } : { source: 'llm' }),
         pairwise: {
           ...record,
           candidates: [],
@@ -189,7 +222,10 @@ export function layoutComposedPairs(
             variant: instance.variant,
           })),
         },
-        questions: questions(visible, pairs),
+        questions: {
+          ...questions(visible, pairs),
+          ...(withDirection && { [DIRECTION_QUESTION]: directionQuestion() }),
+        },
       },
       ctx,
     );
@@ -197,6 +233,13 @@ export function layoutComposedPairs(
     const read = readAll(reply.value, ids, pairs, ctx);
     if (isErr(read)) return read;
     const { pairAnswers, sizes, records } = read.value;
+    let direction: RecordedChoice | undefined;
+    if (withDirection) {
+      const answer = readAnswer(reply.value, DIRECTION_QUESTION, STAGE, ctx);
+      if (isErr(answer)) return answer;
+      records.push(answerRecord(DIRECTION_QUESTION, answer.value));
+      direction = recordedChoice(answer.value);
+    }
 
     const ranked = rankArrangements(
       ids,
@@ -206,6 +249,7 @@ export function layoutComposedPairs(
         probabilities: answer.probabilities,
       })),
       currentTree,
+      direction?.probabilities,
     );
     const shares = sizeShares(ids.map((id) => sizes[id]?.size ?? 0));
     const shareById = Object.fromEntries(
@@ -223,6 +267,7 @@ export function layoutComposedPairs(
       called: true,
       pairs: pairAnswers,
       sizes,
+      ...(direction && { direction }),
       candidates,
       margin,
     };
@@ -238,22 +283,13 @@ export function layoutComposedPairs(
     return ok({
       plan,
       source: 'jev',
-      layoutId: LAYOUT_ID,
+      layoutId,
       tree,
       answers: records,
       pairwise: { ...called, chosen },
     });
   };
 }
-
-const STAGE = 'jevLayout';
-
-const LAYOUT_ID = 'composed-pairs';
-
-/** How many of the top-scored trees are checked for fit. */
-const CANDIDATES = 3;
-
-const SIZE_LEVEL_COUNT = 5;
 
 const SIZE_LEVELS = [
   "as small as it can be: the `request` asks to shrink it to the minimum, signals: 'tiny', 'minimize it', 'as small as possible', 'just a sliver'",
@@ -371,6 +407,48 @@ function pairQuestion(a: NamedInstance, b: NamedInstance): ChoiceQuestion {
           `add a map`,
           'show my week',
           'a request about other widgets only',
+        ],
+      },
+    },
+  );
+}
+
+function directionQuestion(): ChoiceQuestion {
+  return choice(
+    'How does the `request` split the whole chart: are all the widgets, or groups of them, side by side from left to right, or stacked from top to bottom? Choose one only when the `request` states it or directly implies it for the chart as a whole.',
+    {
+      side_by_side: {
+        what: 'The `request` puts the widgets, or groups of widgets, side by side across the chart, from left to right',
+        not_for: 'a `request` that stacks the widgets from top to bottom',
+        examples: [
+          'put them all side by side',
+          'in a row',
+          'line them up left to right',
+          'next to each other',
+          'the calendar on the left, the rest on the right',
+        ],
+      },
+      stacked: {
+        what: 'The `request` stacks the widgets, or groups of widgets, from top to bottom of the chart',
+        not_for:
+          'a `request` that puts the widgets side by side from left to right',
+        examples: [
+          'stack them all',
+          'in one column',
+          'one on top of the other',
+          'top to bottom',
+          'the calendar at the top, the rest below',
+        ],
+      },
+      [NOT_STATED]: {
+        what: 'The `request` says nothing about how the whole chart is split',
+        not_for:
+          'a `request` that puts the widgets side by side or stacks them',
+        examples: [
+          'make the calendar bigger',
+          'add a map',
+          'show my week',
+          'a request about one widget only',
         ],
       },
     },

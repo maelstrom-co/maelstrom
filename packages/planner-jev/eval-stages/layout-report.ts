@@ -154,6 +154,9 @@ export interface ComposedPairsVariantSummary {
   readonly referenceInCandidates: Ratio;
   /** Median over called turns of the best tree's score minus the second best's. */
   readonly medianMargin: number | undefined;
+  /** Wrong top-level direction answers, not stated read as the current top split, over compared calls that asked it. */
+  readonly wrongDirection: Ratio;
+  readonly directionNotStated: Ratio;
 }
 
 /** Summarises `variant`'s composed-pairs records; `undefined` when none recorded one. */
@@ -180,6 +183,8 @@ export function summarizeComposedPairs(
   const wrongInTree = { count: 0, total: 0 };
   const referenceInCandidates = { count: 0, total: 0 };
   const margins: number[] = [];
+  const wrongDirection = { count: 0, total: 0 };
+  const directionNotStated = { count: 0, total: 0 };
   for (const detail of own) {
     const record = detail.pairwise;
     if (record === undefined) continue;
@@ -202,6 +207,12 @@ export function summarizeComposedPairs(
     }
     referenceInCandidates.total += 1;
     if (check.referenceInCandidates) referenceInCandidates.count += 1;
+    if (check.direction) {
+      wrongDirection.total += 1;
+      if (check.direction.wrong) wrongDirection.count += 1;
+      directionNotStated.total += 1;
+      if (check.direction.notStated) directionNotStated.count += 1;
+    }
   }
   return {
     variant,
@@ -214,6 +225,8 @@ export function summarizeComposedPairs(
     wrongInTree,
     referenceInCandidates,
     medianMargin: percentile(margins, 50),
+    wrongDirection,
+    directionNotStated,
   };
 }
 
@@ -265,9 +278,15 @@ export function renderComposedPairsSection(
   row('Median score margin, best over second best (log)', (s) =>
     s.medianMargin === undefined ? 'n/a' : s.medianMargin.toFixed(2),
   );
+  const asked = (r: Ratio) => (r.total === 0 ? 'n/a' : ratio(r));
+  row(
+    'Wrong direction answers (not stated read as the current top split)',
+    (s) => asked(s.wrongDirection),
+  );
+  row('Direction answers not stated', (s) => asked(s.directionNotStated));
   return [
     '## Composed pairs layout',
-    "Pairs are compared with the scenario's reference tree (the stated one, or the current tree when the scenario expects it unchanged), over the answered pairs it relates. A not stated answer counts as the relation the pair has in the current tree, and as wrong for a pair the current tree does not hold. The reference tree is one tree the rules accept, so a wrong relation on a passing turn can be a valid alternative.",
+    "Pairs are compared with the scenario's reference tree (the stated one, or the current tree when the scenario expects it unchanged), over the answered pairs it relates. A not stated answer counts as the relation the pair has in the current tree, and as wrong for a pair the current tree does not hold. The direction answer, where asked, is compared with the reference tree's top split in the same way. The reference tree is one tree the rules accept, so a wrong relation on a passing turn can be a valid alternative.",
     rows.join('\n'),
   ].join('\n\n');
 }
