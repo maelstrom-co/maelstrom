@@ -30,6 +30,23 @@ const FIVE_IN_A_ROW = [
   'ID:journal-main',
 ];
 
+const TWO_IN_A_ROW = ['V:1,1', 'ID:calendar-main', 'ID:weather-main'];
+
+const THREE_IN_A_ROW = [
+  'V:1,1,1',
+  'ID:calendar-main',
+  'ID:weather-main',
+  'ID:tasks-main',
+];
+
+const FOUR_IN_A_ROW = [
+  'V:1,1,1,1',
+  'ID:calendar-main',
+  'ID:weather-main',
+  'ID:tasks-main',
+  'ID:map-main',
+];
+
 const WORKED_EXAMPLE_INTENT =
   'Put the calendar and tasks in a narrow column on the left. On the right, stack the map, weather and journal, and give the journal half the height.';
 
@@ -169,19 +186,16 @@ describe('layoutComposed', () => {
       [
         'side_by_side_2',
         'side_by_side_3',
-        'side_by_side_4',
         'stacked_2',
         'stacked_3',
-        'stacked_4',
-        'more_than_4_parts',
-        'split_inside_nested_part',
+        'none_of_these',
       ],
     );
     expect(
       Object.keys(
         composition.answers?.placements['calendar-main']?.probabilities ?? {},
       ),
-    ).toEqual(['part_1', 'part_2', 'part_3', 'part_4']);
+    ).toEqual(['part_1', 'part_2', 'part_3']);
   });
 
   test('asks 3n + 1 questions: shape, then part, position and size per Instance', async () => {
@@ -203,13 +217,13 @@ describe('layoutComposed', () => {
     expect(Object.keys(questions.shape?.criteria ?? {})).toEqual([
       'side_by_side_2',
       'side_by_side_3',
-      'side_by_side_4',
       'stacked_2',
       'stacked_3',
-      'stacked_4',
-      'more_than_4_parts',
-      'split_inside_nested_part',
+      'none_of_these',
     ]);
+    expect(
+      Object.keys(questions['placement/calendar-main']?.criteria ?? {}),
+    ).toEqual(['part_1', 'part_2', 'part_3']);
     expect(
       Object.keys(questions['position/calendar-main']?.criteria ?? {}),
     ).toEqual(['first', 'second', 'third']);
@@ -357,27 +371,100 @@ describe('layoutComposed', () => {
     expect(value.composition.candidates.map((c) => c.fits)).toEqual([false]);
   });
 
-  for (const shape of ['more_than_4_parts', 'split_inside_nested_part'])
-    test(`hands off when the shape answer is ${shape}`, async () => {
-      const plan = gatedPlan(makeRequest('a complicated arrangement'), 'yes');
-      const { result } = await run(plan, {
-        ...STACKED_THREE,
-        choices: { ...STACKED_THREE.choices, shape },
-      });
-      const value = decisionOf<{
-        source: string;
-        tree?: unknown;
-        answers: readonly unknown[];
-        composition: { handOff: string; candidates: readonly unknown[] };
-      }>(result);
-      expect(value.source).toBe('llm');
-      expect(value.tree).toBeUndefined();
-      expect(value.answers).toHaveLength(10);
-      expect(value.composition).toMatchObject({
-        handOff: shape,
-        candidates: [],
-      });
+  test('hands off when the shape answer is none_of_these', async () => {
+    const plan = gatedPlan(makeRequest('a complicated arrangement'), 'yes');
+    const { result } = await run(plan, {
+      ...STACKED_THREE,
+      choices: { ...STACKED_THREE.choices, shape: 'none_of_these' },
     });
+    const value = decisionOf<{
+      source: string;
+      tree?: unknown;
+      answers: readonly unknown[];
+      composition: { handOff: string; candidates: readonly unknown[] };
+    }>(result);
+    expect(value.source).toBe('llm');
+    expect(value.tree).toBeUndefined();
+    expect(value.answers).toHaveLength(10);
+    expect(value.composition).toMatchObject({
+      handOff: 'none_of_these',
+      candidates: [],
+    });
+  });
+
+  describe('capping shape and placement options at the visible Instance count', () => {
+    const cases: readonly {
+      readonly tree: readonly string[];
+      readonly n: number;
+      readonly shapeKeys: readonly string[];
+      readonly placementKeys: readonly string[];
+    }[] = [
+      {
+        tree: TWO_IN_A_ROW,
+        n: 2,
+        shapeKeys: ['side_by_side_2', 'stacked_2', 'none_of_these'],
+        placementKeys: ['part_1', 'part_2'],
+      },
+      {
+        tree: THREE_IN_A_ROW,
+        n: 3,
+        shapeKeys: [
+          'side_by_side_2',
+          'side_by_side_3',
+          'stacked_2',
+          'stacked_3',
+          'none_of_these',
+        ],
+        placementKeys: ['part_1', 'part_2', 'part_3'],
+      },
+      {
+        tree: FOUR_IN_A_ROW,
+        n: 4,
+        shapeKeys: [
+          'side_by_side_2',
+          'side_by_side_3',
+          'side_by_side_4',
+          'stacked_2',
+          'stacked_3',
+          'stacked_4',
+          'none_of_these',
+        ],
+        placementKeys: ['part_1', 'part_2', 'part_3', 'part_4'],
+      },
+      {
+        tree: FIVE_IN_A_ROW,
+        n: 5,
+        shapeKeys: [
+          'side_by_side_2',
+          'side_by_side_3',
+          'side_by_side_4',
+          'stacked_2',
+          'stacked_3',
+          'stacked_4',
+          'none_of_these',
+        ],
+        placementKeys: ['part_1', 'part_2', 'part_3', 'part_4'],
+      },
+    ];
+
+    for (const { tree, n, shapeKeys, placementKeys } of cases)
+      test(`n = ${n} offers shapes up to ${Math.min(n, 4)} parts`, async () => {
+        const plan = gatedPlan(makeRequest('stack them', { tree }), 'yes');
+        const firstId = tree.find((entry) => entry.startsWith('ID:'));
+        const instanceId = firstId?.slice('ID:'.length) ?? '';
+        const { calls } = await run(plan, {
+          choices: { shape: shapeKeys[0] ?? '' },
+          scores: {},
+        });
+        const questions = calls[0]?.questions ?? {};
+        expect(Object.keys(questions.shape?.criteria ?? {})).toEqual([
+          ...shapeKeys,
+        ]);
+        expect(
+          Object.keys(questions[`placement/${instanceId}`]?.criteria ?? {}),
+        ).toEqual([...placementKeys]);
+      });
+  });
 
   test('the 2-level size scale reads the size as the upper level probability', async () => {
     const plan = gatedPlan(

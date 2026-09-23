@@ -52,10 +52,7 @@ export interface LayoutComposedOptions {
 export type ComposedRoute = 'spatial' | 'same_instances' | 'instances_changed';
 
 /** Why a composed layout was handed to the completion stage. */
-export type ComposedHandOff =
-  | 'nothing_fits'
-  | 'more_than_4_parts'
-  | 'split_inside_nested_part';
+export type ComposedHandOff = 'nothing_fits' | 'none_of_these';
 
 /** A recorded choice answer with every option's probability. */
 export interface RecordedChoice {
@@ -271,31 +268,53 @@ const STAGE = 'jevLayout';
 /** Stands in for the probability of a choice answered without a distribution and with no confidence. */
 const MIN_PROBABILITY = 1e-6;
 
-const HAND_OFF_SHAPES = [
-  'more_than_4_parts',
-  'split_inside_nested_part',
-] as const;
+const HAND_OFF_SHAPE = 'none_of_these';
 
-const SHAPE_OPTIONS: Readonly<Record<string, string>> = {
+const SHAPE_TEXTS: Readonly<Record<string, string>> = {
   side_by_side_2: 'Two parts side by side, part 1 on the left.',
   side_by_side_3: 'Three parts side by side, part 1 on the left.',
   side_by_side_4: 'Four parts side by side, part 1 on the left.',
   stacked_2: 'Two parts stacked, part 1 at the top.',
   stacked_3: 'Three parts stacked, part 1 at the top.',
   stacked_4: 'Four parts stacked, part 1 at the top.',
-  more_than_4_parts:
-    'None of these: the request asks for more than four parts side by side or stacked.',
-  split_inside_nested_part:
-    'None of these: the request asks for a part inside a part to be divided again.',
+  [HAND_OFF_SHAPE]:
+    'None of these: the request asks for more than four parts, or for a part inside a part to be divided again.',
 };
 
-const PART_OPTIONS: Readonly<Record<string, string>> = {
+/** The most parts a composed shape or placement question offers. */
+const MAX_PARTS = 4;
+
+/**
+ * Shape options up to `partCount` parts (2 to {@link MAX_PARTS}), side by
+ * side then stacked, plus {@link HAND_OFF_SHAPE}.
+ */
+function shapeOptions(partCount: number): Readonly<Record<string, string>> {
+  const counts = [2, 3, 4].filter((count) => count <= partCount);
+  const keys = [
+    ...counts.map((count) => `side_by_side_${count}`),
+    ...counts.map((count) => `stacked_${count}`),
+    HAND_OFF_SHAPE,
+  ];
+  return Object.fromEntries(keys.map((key) => [key, SHAPE_TEXTS[key]]));
+}
+
+const PART_TEXTS: Readonly<Record<string, string>> = {
   part_1:
     'The first part: leftmost when the parts are side by side, top when stacked.',
   part_2: 'The second part.',
   part_3: 'The third part.',
   part_4: 'The fourth part.',
 };
+
+/** Placement options up to `partCount` parts (1 to {@link MAX_PARTS}). */
+function partOptions(partCount: number): Readonly<Record<string, string>> {
+  return Object.fromEntries(
+    Array.from({ length: partCount }, (_, index) => {
+      const key = `part_${index + 1}`;
+      return [key, PART_TEXTS[key]];
+    }),
+  );
+}
 
 const POSITION_OPTIONS: Readonly<Record<string, string>> = {
   first: 'First in its part: leftmost or topmost.',
@@ -320,6 +339,7 @@ function questions(
   ids: readonly InstanceId[],
   sizeLevels: SizeLevels,
 ): Record<string, Question> {
+  const partCount = Math.min(ids.length, MAX_PARTS);
   const positions = Object.fromEntries(
     POSITIONS.slice(0, ids.length).map((position) => [
       position,
@@ -328,8 +348,8 @@ function questions(
   );
   return {
     shape: choice(
-      'How is the chart divided at the top level? Instances placed in the same part are arranged the other way inside it: stacked inside a part of a side by side shape, side by side inside a part of a stacked shape. With every visible instance in its own part the layout is flat. Choose one of the two "none of these" options only when the request explicitly asks for an arrangement they describe.',
-      SHAPE_OPTIONS,
+      'How is the chart divided at the top level? Instances placed in the same part are arranged the other way inside it: stacked inside a part of a side by side shape, side by side inside a part of a stacked shape. With every visible instance in its own part the layout is flat. Choose "none of these" only when the request explicitly asks for an arrangement it describes.',
+      shapeOptions(partCount),
     ),
     ...Object.fromEntries(
       ids.flatMap((id) => [
@@ -337,7 +357,7 @@ function questions(
           `placement/${id}`,
           choice(
             `Which part of the chosen shape holds ${id}? Part 1 is the leftmost part when the parts are side by side and the top part when they are stacked.`,
-            PART_OPTIONS,
+            partOptions(partCount),
           ),
         ],
         [
@@ -445,8 +465,6 @@ function compositionAnswers(
   };
 }
 
-function isHandOffShape(
-  shape: string,
-): shape is (typeof HAND_OFF_SHAPES)[number] {
-  return (HAND_OFF_SHAPES as readonly string[]).includes(shape);
+function isHandOffShape(shape: string): shape is typeof HAND_OFF_SHAPE {
+  return shape === HAND_OFF_SHAPE;
 }

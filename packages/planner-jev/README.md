@@ -95,8 +95,8 @@ The Phase 5 arms vary the layout and completion stages on `selectGated` and `act
 
 `layoutComposed` asks one question about the shape and three about each visible Instance, `3n + 1` in one call, and code assembles the tree:
 
-- Shape, one choice: `side_by_side_2` to `side_by_side_4` (a `V` split, parts left to right) or `stacked_2` to `stacked_4` (an `H` split, parts top to bottom). Two more options, `more_than_4_parts` and `split_inside_nested_part`, hand the layout off.
-- Placement, per Instance: `part_1` to `part_4`, part 1 leftmost or topmost. A part with two or more Instances runs the other way inside; a part with one is a leaf.
+- Shape, one choice: `side_by_side_2` to `side_by_side_k` (a `V` split, parts left to right) or `stacked_2` to `stacked_k` (an `H` split, parts top to bottom), `k` the visible Instance count capped at 4. One more option, `none_of_these`, hands the layout off: the request asks for more than four parts, or for a part inside a part to be divided again.
+- Placement, per Instance: `part_1` to `part_k`, the same cap, part 1 leftmost or topmost. A part with two or more Instances runs the other way inside; a part with one is a leaf.
 - Position, per Instance: `first` to `fifth` within its part. Ties go to the more probable answer.
 - Size, a score per Instance: its share of the Chart by area, normalised across Instances with a small floor. A part's weight is the sum of its Instances' shares; weights are written as small whole numbers.
 
