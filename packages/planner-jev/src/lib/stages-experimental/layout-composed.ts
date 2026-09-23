@@ -267,6 +267,15 @@ export function layoutComposed(
   };
 }
 
+/**
+ * The size of a chosen level. On 5 levels the lowest reads as 0 ("as small
+ * as it can be", raised to the size floor); on 2 levels the lower one is
+ * half the upper one, so "small" still reads as a real share.
+ */
+export function levelSize(level: number, sizeLevels: SizeLevels): number {
+  return sizeLevels === 2 ? (level + 1) / 2 : level / (sizeLevels - 1);
+}
+
 const STAGE = 'jevLayout';
 
 /** Stands in for the probability of a choice answered without a distribution and with no confidence. */
@@ -430,15 +439,6 @@ function readAll(
     sizes,
   };
   return ok({ answers, records });
-}
-
-/**
- * The size of a chosen level. On 5 levels the lowest reads as 0 ("as small
- * as it can be", raised to the size floor); on 2 levels the lower one is
- * half the upper one, so "small" still reads as a real share.
- */
-function levelSize(level: number, sizeLevels: SizeLevels): number {
-  return sizeLevels === 2 ? (level + 1) / 2 : level / (sizeLevels - 1);
 }
 
 function answerRecord(question: string, answer: Answer): AnswerRecord {

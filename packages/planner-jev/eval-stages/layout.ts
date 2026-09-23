@@ -13,6 +13,10 @@ import {
   type ComposedLayoutRecord,
   layoutComposed,
 } from '../src/lib/stages-experimental/layout-composed.js';
+import {
+  type ComposedPairsRecord,
+  layoutComposedPairs,
+} from '../src/lib/stages-experimental/layout-composed-pairs.js';
 import { layoutPreset } from '../src/lib/stages-experimental/layout-preset.js';
 import { layoutPresetOrLlm } from '../src/lib/stages-experimental/layout-preset-or-llm.js';
 import { layoutSpatialGate } from '../src/lib/stages-experimental/layout-spatial-gate.js';
@@ -31,12 +35,20 @@ import {
 } from './composed-attribution.js';
 import { goldInputs } from './gold-inputs.js';
 import { layoutComposedScoreSized } from './layout-composed-score-sized.js';
-import { renderComposedSection } from './layout-report.js';
+import {
+  renderComposedPairsSection,
+  renderComposedSection,
+} from './layout-report.js';
+import {
+  checkPairAnswers,
+  type PairsAnswerCheck,
+} from './pairs-attribution.js';
 import type { Judgement, StageEvalModule } from './stage-eval.js';
 
-/** A layout decision as some stages return it, with the composed stage's record. */
+/** A layout decision as some stages return it, with the composed stages' records. */
 export type LayoutOutput = LayoutDecision & {
   readonly composition?: ComposedLayoutRecord;
+  readonly pairwise?: ComposedPairsRecord;
 };
 
 /**
@@ -63,19 +75,24 @@ export interface LayoutTurnDetail {
   readonly answerCheck?: ComposedAnswerCheck | { readonly unavailable: string };
   /** `layoutComposed` turns that did not pass only. */
   readonly miss?: ComposedMiss;
+  /** `layoutComposedPairs` only. */
+  readonly pairwise?: ComposedPairsRecord;
+  /** `layoutComposedPairs` calls only: every pair against the scenario's reference tree, or why it cannot be compared. */
+  readonly pairCheck?: PairsAnswerCheck | { readonly unavailable: string };
 }
 
 type LayoutVariant = (ask: Ask) => Stage<GatedActionPlan, LayoutOutput>;
 
 /**
  * Layout stage variants by descriptive name, each built as the matching
- * arm in `eval/arms.ts` builds it.
+ * arm in `eval/arms.ts` builds it; `composed-pairs` has no planner arm.
  */
 export const LAYOUT_VARIANTS: Readonly<Record<string, LayoutVariant>> = {
   preset: (ask) => layoutPreset(ask, { describe: 'placements' }),
   'preset-or-llm': layoutPresetOrLlm,
   'spatial-gate': () => layoutSpatialGate(),
   composed: (ask) => layoutComposed(ask),
+  'composed-pairs': (ask) => layoutComposedPairs(ask),
   'composed-2-size-levels': (ask) => layoutComposed(ask, { sizeLevels: 2 }),
   'composed-score-sized': (ask) => layoutComposedScoreSized(ask),
   'composed-2-size-levels-score-sized': (ask) =>
@@ -116,10 +133,11 @@ export const layoutStageEval: StageEvalModule<
     };
   },
   judge: judgeLayout,
-  reportSections: (records, variants) => {
-    const section = renderComposedSection(records, variants);
-    return section === undefined ? [] : [section];
-  },
+  reportSections: (records, variants) =>
+    [
+      renderComposedSection(records, variants),
+      renderComposedPairsSection(records, variants),
+    ].flatMap((section) => section ?? []),
 };
 
 /** Scores one layout decision on `input` against `scenario` (see {@link layoutStageEval}). */
@@ -134,7 +152,11 @@ export function judgeLayout(
     ...(output.tree !== undefined && { tree: output.tree }),
     answers: output.answers,
     ...(output.composition && { composition: output.composition }),
+    ...(output.pairwise && { pairwise: output.pairwise }),
   };
+  const pairCheck = output.pairwise?.called
+    ? comparePairs(scenario, output.pairwise, output.tree)
+    : undefined;
   const answerCheck = output.composition?.answers
     ? compareAnswers(scenario, output.composition)
     : undefined;
@@ -157,6 +179,7 @@ export function judgeLayout(
       ...recorded,
       ...(answerCheck && { answerCheck }),
       ...(miss && { miss }),
+      ...(pairCheck && { pairCheck }),
     },
   };
 }
@@ -208,6 +231,24 @@ function compareAnswers(
   if (composition.answers === undefined)
     return { unavailable: 'no Jev call was made' };
   const check = checkComposedAnswers(composition.answers, referenceTree);
+  return typeof check === 'string' ? { unavailable: check } : check;
+}
+
+function comparePairs(
+  scenario: Scenario,
+  record: ComposedPairsRecord,
+  tree: readonly TilingNode[] | undefined,
+): PairsAnswerCheck | { readonly unavailable: string } {
+  const referenceTree = referenceTreeOf(scenario);
+  if (referenceTree === undefined)
+    return { unavailable: 'the scenario states no reference tree' };
+  const { layout } = scenario.request;
+  const check = checkPairAnswers(
+    record,
+    referenceTree,
+    layout.type === 'tiling' ? layout.tree : [],
+    tree,
+  );
   return typeof check === 'string' ? { unavailable: check } : check;
 }
 
