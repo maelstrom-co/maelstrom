@@ -8,7 +8,10 @@ import {
   type VesselActionDefinition,
   VesselId,
 } from '@maelstrom-co/protocol';
-
+import type { StageReplacements } from '../eval/instrument.js';
+import type { ReplayShape } from '../eval/replay.js';
+import type { Scenario } from '../eval/scenarios.js';
+import { expectedRetained } from '../eval/score.js';
 import { actionPlanOf } from '../src/lib/stages-experimental/action-plan.js';
 import type {
   GateAnswer,
@@ -21,10 +24,6 @@ import type {
   PlannedAction,
   SelectedInstance,
 } from '../src/lib/types.js';
-import type { StageReplacements } from './instrument.js';
-import type { ReplayShape } from './replay.js';
-import type { Scenario } from './scenarios.js';
-import { expectedRetained } from './score.js';
 
 /**
  * The select and actions stage outputs a scenario's expectation implies,

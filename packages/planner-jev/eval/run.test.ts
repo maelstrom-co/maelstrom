@@ -1,17 +1,11 @@
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterEach, expect, test } from 'bun:test';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Logger } from '@maelstrom-co/engine';
-import {
-  deferred,
-  pipeline,
-  type Stage,
-  withFallback,
-  withRetry,
-} from '@maelstrom-co/engine';
-import type { MaelstromResponse, TilingNode } from '@maelstrom-co/protocol';
-import { err, isErr, ok } from '@maelstrom-co/protocol';
+import { pipeline, withFallback, withRetry } from '@maelstrom-co/engine';
+import type { MaelstromResponse } from '@maelstrom-co/protocol';
+import { isErr, ok } from '@maelstrom-co/protocol';
 import type { AnyTextAdapter } from '@tanstack/ai';
 
 import { conversation } from '../src/lib/__test-helpers__/actions-fixtures.js';
@@ -26,29 +20,17 @@ import {
   TEST_MODEL,
 } from '../src/lib/__test-helpers__/scripted-fetch.js';
 import { FALLBACK_RETRIES } from '../src/lib/jev-planner.js';
-import { buildJevStagePlanner } from '../src/lib/planners/jev-stage-planner.js';
-import { actionsBatchedPerInstance } from '../src/lib/stages-experimental/actions-batched-per-instance.js';
 import { actionsStepwise } from '../src/lib/stages-experimental/actions-stepwise.js';
 import { completeLayoutInline } from '../src/lib/stages-experimental/complete-layout-inline.js';
 import { layoutPreset } from '../src/lib/stages-experimental/layout-preset.js';
-import { selectGated } from '../src/lib/stages-experimental/select-gated.js';
 import { selectUngated } from '../src/lib/stages-experimental/select-ungated.js';
-import type {
-  GatedActionPlan,
-  LayoutDecision,
-  LayoutStage,
-} from '../src/lib/stages-experimental/types.js';
+import type { LayoutStage } from '../src/lib/stages-experimental/types.js';
 import type { Ask } from '../src/lib/typesafe-client.js';
 import { type Arm, jevDeps, resolveArms } from './arms.js';
 import { GRADER_VERSION } from './grader.js';
 import { loadReplay, replayedStages } from './replay.js';
-import { renderMarkdown, summarize, writeReport } from './report.js';
-import {
-  checkRunModes,
-  grade,
-  type LayoutStageOutput,
-  runEval,
-} from './run.js';
+import { writeReport } from './report.js';
+import { grade, type LayoutStageOutput, runEval } from './run.js';
 import { selectScenarios } from './scenarios.js';
 import { VERBALIZER_VERSION } from './verbalize-tree.js';
 
@@ -552,177 +534,4 @@ test('does not grade without the grader option', async () => {
   const [baseline, jev] = await run(gradedTokyo, ['quoted-location']);
   expect(baseline?.grader).toBe(undefined);
   expect(jev?.grader).toBe(undefined);
-});
-
-describe('stop after layout and gold inputs', () => {
-  const FOCUS_TREE = [
-    'V:2,1',
-    'ID:calendar-main',
-    'H',
-    'ID:weather-main',
-    'ID:tasks-main',
-  ] as unknown as readonly TilingNode[];
-  const noJev: Script = () => {
-    throw new Error('select and actions must come from the gold inputs');
-  };
-
-  /** A gated arm whose layout stage writes the focus tree on a spatial turn and hands off otherwise. */
-  function probeArm(
-    completeCalls: { count: number },
-    layout: (
-      plan: GatedActionPlan,
-    ) => ReturnType<Stage<GatedActionPlan, LayoutDecision>> = async (plan) =>
-      ok(
-        plan.gates.spatial.answer === 'yes'
-          ? {
-              plan,
-              source: 'jev',
-              layoutId: 'probe',
-              tree: FOCUS_TREE,
-              answers: [],
-            }
-          : { plan, source: 'llm', answers: [] },
-      ),
-  ): Arm {
-    return {
-      name: 'layout-probe',
-      kind: 'jev',
-      replayShape: 'gated',
-      build: (deps) =>
-        buildJevStagePlanner(
-          {
-            select: selectGated,
-            actions: actionsBatchedPerInstance,
-            layout: () => (plan) => layout(plan),
-            complete: () => async () => {
-              completeCalls.count += 1;
-              throw new Error('llmComplete must not run');
-            },
-          },
-          jevDeps(deps),
-          deps.instrument,
-        ),
-    };
-  }
-
-  test('refuses arms without stages, and gold inputs with a replay', () => {
-    const stageArm = resolveArms(['jev-gated-per-instance-composed-inline']);
-    expect(() =>
-      checkRunModes({ arms: resolveArms(['baseline']), stopAfter: 'layout' }),
-    ).toThrow(
-      '--stop-after layout run only stage-library arms; remove baseline',
-    );
-    expect(() =>
-      checkRunModes({ arms: resolveArms(['jev-poc']), goldInputs: true }),
-    ).toThrow('--gold-inputs run only stage-library arms; remove jev-poc');
-    expect(() =>
-      checkRunModes({ arms: stageArm, goldInputs: true, replay: 'recorded' }),
-    ).toThrow('--gold-inputs and --replay-from cannot be combined');
-    expect(() =>
-      checkRunModes({ arms: stageArm, goldInputs: true, stopAfter: 'layout' }),
-    ).not.toThrow();
-  });
-
-  test('scores the layout tree without running llmComplete, and counts a hand-off apart', async () => {
-    mockProvider();
-    const completeCalls = { count: 0 };
-    const records = await run(noJev, ['focus', 'hide'], {
-      arms: [probeArm(completeCalls)],
-      stopAfter: 'layout',
-      goldInputs: true,
-    });
-    expect(completeCalls.count).toBe(0);
-    expect(mockChat).not.toHaveBeenCalled();
-    const byId = (id: string) =>
-      records.find((record) => record.scenarioId === id);
-    const focus = byId('focus');
-    const hide = byId('hide');
-    expect(focus?.layoutOnly).toBe('tree');
-    expect(focus?.error).toBe(undefined);
-    expect(focus?.tree).toEqual(FOCUS_TREE);
-    expect(focus?.score?.pass).toBe(true);
-    expect(focus?.score?.arrangement?.pass).toBe(true);
-    expect(focus?.llmCalls).toEqual([]);
-    expect(
-      focus?.stages?.map((stage) => [stage.stage, stage.replayed]),
-    ).toEqual([
-      ['jevSelect', true],
-      ['jevActions', true],
-      ['jevLayout', undefined],
-    ]);
-    expect(hide?.layoutOnly).toBe('handed_off');
-    expect(hide?.error).toBe(undefined);
-    expect(hide?.score).toBe(undefined);
-    expect(hide?.fallbackCalls).toBe(0);
-
-    const [summary] = summarize(records);
-    expect(summary?.layoutOnly).toEqual({
-      handedOff: { count: 1, total: 2 },
-      passOverAll: { count: 1, total: 2 },
-      passOverTrees: { count: 1, total: 1 },
-    });
-    const report = renderMarkdown(summarize(records), {
-      stopAfter: 'layout',
-      goldInputs: true,
-    });
-    expect(report).toContain('- stopAfter: layout');
-    expect(report).toContain(
-      '| Layout-only hand-offs to the LLM | 1/2 (50.0%) |',
-    );
-    expect(report).toContain(
-      '| Layout-only pass over tree-producing turns | 1/1 (100.0%) |',
-    );
-  });
-
-  test('keeps a layout deferral a deferral and makes no fallback call', async () => {
-    mockProvider();
-    const [record] = await run(noJev, ['focus'], {
-      arms: [
-        probeArm({ count: 0 }, async () =>
-          err(deferred('jevLayout/nothing_fits')),
-        ),
-      ],
-      stopAfter: 'layout',
-      goldInputs: true,
-    });
-    expect(record?.layoutOnly).toBe('no_decision');
-    expect(record?.deferral?.reason).toBe('jevLayout/nothing_fits');
-    expect(record?.fallbackCalls).toBe(1);
-    expect(record?.error).toBe(undefined);
-    expect(record?.llmCalls).toEqual([]);
-  });
-
-  test('records a scenario gold inputs cannot form as not applicable and runs nothing', async () => {
-    mockProvider();
-    const records = await run(noJev, ['focus', 'ambiguous'], {
-      arms: [probeArm({ count: 0 })],
-      stopAfter: 'layout',
-      goldInputs: true,
-    });
-    const ambiguous = records.find(
-      (record) => record.scenarioId === 'ambiguous',
-    );
-    expect(ambiguous?.notApplicable).toBe('expects a deferral');
-    expect(ambiguous?.stages).toBe(undefined);
-    const [summary] = summarize(records);
-    expect(summary?.runs).toBe(1);
-    expect(summary?.notApplicable).toBe(1);
-    expect(renderMarkdown(summarize(records), {})).toContain(
-      '| Gold inputs not applicable (not run) | 1 |',
-    );
-  });
-
-  test('refuses gold inputs with a replay before any turn runs', async () => {
-    const out = await outDir();
-    await expect(
-      run(noJev, ['focus'], {
-        arms: [probeArm({ count: 0 })],
-        goldInputs: true,
-        replay: {
-          source: { dir: out, turn: (id) => ({ key: id }) },
-          stages: replayedStages('actions'),
-        },
-      }),
-    ).rejects.toThrow('--gold-inputs and --replay-from cannot be combined');
-  });
 });

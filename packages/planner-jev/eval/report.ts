@@ -185,18 +185,6 @@ export interface ArmSummary {
   };
   /** Jev arms only: filled stated_elsewhere slots over all such slots. */
   readonly fill?: Ratio;
-  /**
-   * Stop-after-layout runs only, over planned turns: hand-offs to the
-   * completion call, which neither pass nor fail, and the pass rate over
-   * every turn and over the turns whose layout stage wrote a tree.
-   */
-  readonly layoutOnly?: {
-    readonly handedOff: Ratio;
-    readonly passOverAll: Ratio;
-    readonly passOverTrees: Ratio;
-  };
-  /** Gold-input runs only: turns whose scenario could not form gold inputs; they count in no other field. */
-  readonly notApplicable?: number;
   /** Jev arms only: present when any turn recorded a `layoutComposed` composition. */
   readonly composed?: ComposedSummary;
   /** Stages replayed from a recorded run; their latency is left out. */
@@ -252,14 +240,12 @@ export function summarize(
     for (const suite of [...suites, 'all'] as const) {
       const inSuite = (record: RunRecord) =>
         suite === 'all' || record.suite === suite;
-      const all = records.filter(
+      const subset = records.filter(
         (record) => record.arm === arm && inSuite(record),
       );
-      const subset = all.filter((record) => record.notApplicable === undefined);
-      const notApplicable = all.length - subset.length;
       if (subset.length > 0)
-        summaries.push({
-          ...summarizeArm(
+        summaries.push(
+          summarizeArm(
             suite,
             subset,
             records.filter(
@@ -267,8 +253,7 @@ export function summarize(
             ),
             scenarioById,
           ),
-          ...(notApplicable > 0 && { notApplicable }),
-        });
+        );
     }
   return summaries;
 }
@@ -301,22 +286,7 @@ export function renderMarkdown(
     const row = (label: string, cell: (summary: ArmSummary) => string) =>
       lines.push(`| ${label} | ${rows.map(cell).join(' | ')} |`);
     row('Runs', (s) => String(s.runs));
-    if (rows.some((s) => s.notApplicable !== undefined))
-      row('Gold inputs not applicable (not run)', (s) =>
-        String(s.notApplicable ?? 0),
-      );
     row('Overall pass', (s) => ratio(s.overall));
-    if (rows.some((s) => s.layoutOnly !== undefined)) {
-      row('Layout-only hand-offs to the LLM', (s) =>
-        s.layoutOnly ? ratio(s.layoutOnly.handedOff) : 'n/a',
-      );
-      row('Layout-only pass over all planned turns', (s) =>
-        s.layoutOnly ? ratio(s.layoutOnly.passOverAll) : 'n/a',
-      );
-      row('Layout-only pass over tree-producing turns', (s) =>
-        s.layoutOnly ? ratio(s.layoutOnly.passOverTrees) : 'n/a',
-      );
-    }
     row('Arrangement pass', (s) => ratio(s.arrangement));
     row('Errors', (s) => String(s.errors));
     row('Decisive turns pass', (s) =>
@@ -439,7 +409,7 @@ export function renderPaired(records: readonly RunRecord[]): string {
   const lines = ['# Paired disagreements', ''];
   const turns = new Map<string, RunRecord[]>();
   for (const record of records) {
-    if (record.expectedDeferral || record.notApplicable !== undefined) continue;
+    if (record.expectedDeferral) continue;
     const key = `${record.scenarioId} #${record.repeat} (${record.suite})`;
     turns.set(key, [...(turns.get(key) ?? []), record]);
   }
@@ -542,20 +512,6 @@ function summarizeArm(
       ),
     ],
   };
-  if (records.some((record) => record.layoutOnly !== undefined)) {
-    const trees = planned.filter((record) => record.layoutOnly === 'tree');
-    Object.assign(common, {
-      layoutOnly: {
-        handedOff: {
-          count: planned.filter((record) => record.layoutOnly === 'handed_off')
-            .length,
-          total: planned.length,
-        },
-        passOverAll: passed(planned),
-        passOverTrees: passed(trees),
-      },
-    });
-  }
   const grader = graderSummary(
     planned,
     kind === 'baseline' ? undefined : baselines,
@@ -819,7 +775,6 @@ function sum(
 
 function verdict(record: RunRecord): string {
   if (record.error) return 'error';
-  if (record.layoutOnly === 'handed_off') return 'handed off';
   if (record.score === undefined) return 'no response';
   return record.score.pass ? 'pass' : 'fail';
 }

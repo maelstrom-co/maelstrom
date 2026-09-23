@@ -202,27 +202,12 @@ OPENAI_API_KEY=... TYPESAFE_API_KEY=... JEV_MODEL=jev-1.13.0 \
 | `--replay-from` | none | A previous run's output directory to replay upstream stages from. Needs `--replay-through`. |
 | `--replay-through` | none | `select`, `actions` or `layout`: every Jev arm replays the stages up to and including this one from the recorded run, and runs the rest live. |
 | `--replay-arm` | none | The arm of the recorded run whose stages are replayed. Required with `--replay-from`. |
-| `--stop-after` | none | `layout`: every arm ends its turn after `jevLayout` and the layout stage's tree is scored; `llmComplete` never runs and a deferral makes no fallback call, so no LLM is called. Stage-library arms only. |
-| `--gold-inputs` | off | Feeds `jevLayout` the select and actions outputs each scenario's expectation implies instead of running those stages. Works with or without `--stop-after`. Stage-library arms only; cannot be combined with `--replay-from`. |
 | `--grader` | off | Grades every planned shipped response with the TypeSafe grader (see Grader below). |
 | `--grader-validation` | none | A `grader-validation.json` written by `eval/grader-validate.ts`. The grader's rows appear in `report.md` only when it passed the gate. Needs `--grader`. |
 
 Without `OPENAI_API_KEY`, `TYPESAFE_API_KEY` or `JEV_MODEL` the runner writes `status.json` naming the missing variables and exits with code 2. Live runs are not part of `nx test`; the offline tests use a scripted TypeSafe transport and a mocked `chat()`.
 
 Each Jev turn writes its stages' inputs and outputs to `<out>/stages/<arm>/<scenarioId>-<repeat>.json`. Replay reads them back: a replayed stage returns the recorded output (or the same deferral), so the stage after it runs on identical upstream results. Jev and LLM replies are not deterministic, so replay isolates one stage; it never stands in for an end-to-end result. A turn with no recorded stage fails with an error naming the stage and turn. Before any call, the runner also refuses a recording that lacks what an arm reads from a replayed stage: stage-library arms read `minConfidence` from a replayed action plan, gated arms read every gate from a replayed selection and action plan, and ungated arms refuse a recording that carries gates, since their actions stage would act on them. Replay gated arms from a gated arm's run and ungated arms from an ungated one.
-
-### Layout-only runs
-
-`--stop-after layout --gold-inputs` scores the layout stage alone on perfect inputs, with no LLM call, so a prompt change to a layout stage can be measured in minutes:
-
-```sh
-bun packages/planner-jev/eval/cli.ts --suite development --arm jev-gated-per-instance-composed-inline --repeats 3 --stop-after layout --gold-inputs --out tmp/planner-jev-eval/<name>
-```
-
-- **Stop after layout**: the turn's score is `scoreLayout` on the layout decision's tree (tree leaves against the expected visible set, then the arrangement rules, including `unchangedTree`). A decision without a tree hands the layout to the LLM; it counts as **handed off**, neither pass nor fail, and the report shows the hand-off rate, the pass rate over every planned turn (a hand-off counts as not passing) and the pass rate over the turns whose layout stage wrote a tree. Deferrals stay deferrals, in the fallback rows. Arms whose layout stage always hands off (`always-llm`) run, and show only hand-offs. The baseline and `jev-poc` are refused: the baseline has no stages, and the POC's stages read a different shape.
-- **Gold inputs**: the selection keeps the expected visible set, hides the other retained Instances, deletes the rest and creates each new expected Instance (its Vessel read from the id prefix, in the default variant); the action plan carries the expected actions and asks. A gated arm also gets its gates: `needsActions` yes when any action is expected, `generatedContent` no, and `spatial` yes only for scenarios tagged `spatial: true`. A scenario that expects a deferral, states no visible set or actions, or expects an action whose required parameter it gives no value for cannot form gold inputs; its turn does not run, is recorded with `notApplicable`, and is counted in its own report row, outside every rate. Gold stages show as replayed.
-
-`summary.json` records `stopAfter` and `goldInputs` in the run's settings.
 
 ### Stage evals
 
@@ -244,7 +229,7 @@ bun packages/planner-jev/eval-stages/cli.ts --stage layout --variant composed --
 | `--out` | `tmp/planner-jev-eval/stage-<stage>-<timestamp>` | Output directory. |
 | `--verbose` | off | Logs every Jev call to the console. |
 
-The layout stage gets gold inputs from `eval/gold-inputs.ts`: the expected selection and action plan, with every gate (`spatial` yes only for scenarios tagged `spatial: true`). A scenario that cannot form them (it expects a deferral, or states no visible set or actions) is recorded once per variant as not applicable and does not run. Each turn ends in one outcome:
+The layout stage gets gold inputs from `eval-stages/gold-inputs.ts`: the expected selection and action plan, with every gate (`spatial` yes only for scenarios tagged `spatial: true`). A scenario that cannot form them (it expects a deferral, or states no visible set or actions) is recorded once per variant as not applicable and does not run. Each turn ends in one outcome:
 
 - **pass** or **fail**: the decision wrote a tree, scored with `scoreLayout` (the tree's leaves against the expected visible set, then the arrangement rules of `eval/predicates.ts`, including `unchangedTree`) and a fit check (every visible Instance once, within the Chart, at its variant's minimum size).
 - **handed off**: the decision has no tree, so the completion call would write the layout; neither pass nor fail.
