@@ -56,4 +56,23 @@ describe('layoutPreset', () => {
       error: { reason: 'jevLayout/layout_unavailable' },
     });
   });
+
+  test('with placements, describes each layout by its Instances and positions', async () => {
+    const plan = planOf(makeRequest('arrange'));
+    const { poc, next } = await runPair(
+      jevLayout,
+      (ask) => layoutPreset(ask, { describe: 'placements' }),
+      plan,
+      plan.selection.input,
+      () => ({ choices: {}, confidence: 1 }),
+    );
+    const pocCriteria = poc.calls[0]?.questions.layout?.criteria ?? {};
+    const nextCriteria = next.calls[0]?.questions.layout?.criteria ?? {};
+    expect(nextCriteria.preserve).toBeDefined();
+    expect(nextCriteria.preserve).not.toEqual(pocCriteria.preserve);
+    for (const instance of ['calendar-main', 'weather-main', 'tasks-main'])
+      expect(nextCriteria.preserve).toContain(instance);
+    if (!isOk(next.result)) throw new Error('expected a layout');
+    expect(next.result.value.source).toBe('jev');
+  });
 });
