@@ -314,7 +314,7 @@ it('retains bounded final and incomplete voice evidence across reconnect and pro
       if (provider !== 'live') return new Adapter();
       const adapter = new OpenAILiveAdapter({
         model: 'gpt-live-1',
-        responses: { model: 'gpt-5.4-mini' },
+        responses: { model: 'gpt-6-luna' },
         exchange: async () => {
           throw new Error('No network in this test');
         },
@@ -362,7 +362,7 @@ it('retains bounded final and incomplete voice evidence across reconnect and pro
   expect(first).toMatchObject({
     provider: 'live',
     model: 'gpt-live-1',
-    backendModel: 'gpt-5.4-mini',
+    backendModel: 'gpt-6-luna',
     generation: 1,
     usageSeconds: 7,
     finalUsageSeconds: 7,

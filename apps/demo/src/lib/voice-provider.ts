@@ -15,7 +15,7 @@ export const voiceProviderStore = new Store<{ provider: DemoVoiceProvider }>({
 });
 
 export const LIVE_MODEL = 'gpt-live-1';
-export const LIVE_BACKEND_MODEL = 'gpt-5.4-mini';
+export const LIVE_BACKEND_MODEL = 'gpt-6-luna';
 
 export function selectVoiceProvider(provider: DemoVoiceProvider) {
   if (isHosted() && provider === 'livekit') return;
