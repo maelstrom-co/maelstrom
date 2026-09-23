@@ -42,6 +42,8 @@ describe('arm registry', () => {
       'jev-gated-per-instance-composed-inline',
       'jev-gated-per-instance-composed-parallel',
       'jev-gated-per-instance-composed-2-size-levels-inline',
+      'jev-gated-per-instance-composed-pairs-inline',
+      'jev-gated-per-instance-composed-pairs-parallel',
       'jev-gated-per-instance-always-llm-inline',
       'jev-gated-per-instance-always-llm-parallel',
       'jev-ungated-per-instance-preset-or-llm-inline',
@@ -67,6 +69,8 @@ describe('arm registry', () => {
       'jev-gated-per-instance-composed-inline': 'gated',
       'jev-gated-per-instance-composed-parallel': 'gated',
       'jev-gated-per-instance-composed-2-size-levels-inline': 'gated',
+      'jev-gated-per-instance-composed-pairs-inline': 'gated',
+      'jev-gated-per-instance-composed-pairs-parallel': 'gated',
       'jev-gated-per-instance-always-llm-inline': 'gated',
       'jev-gated-per-instance-always-llm-parallel': 'gated',
       'jev-ungated-per-instance-preset-or-llm-inline': 'ungated',
@@ -100,7 +104,7 @@ describe('arm registry', () => {
 
   test('rejects an unknown name, listing the known ones', () => {
     expect(() => resolveArms(['baseline', 'jev2'])).toThrow(
-      'unknown arm jev2; known arms: baseline, jev-poc (alias jev), jev-ungated-stepwise-preset-inline, jev-ungated-batched-preset-inline, jev-ungated-per-instance-preset-inline, jev-gated-stepwise-preset-inline, jev-gated-batched-preset-inline, jev-gated-per-instance-preset-inline, jev-gated-per-instance-preset-or-llm-inline, jev-gated-per-instance-preset-or-llm-parallel, jev-gated-per-instance-spatial-gate-inline, jev-gated-per-instance-spatial-gate-parallel, jev-gated-per-instance-composed-inline, jev-gated-per-instance-composed-parallel, jev-gated-per-instance-composed-2-size-levels-inline, jev-gated-per-instance-always-llm-inline, jev-gated-per-instance-always-llm-parallel, jev-ungated-per-instance-preset-or-llm-inline',
+      'unknown arm jev2; known arms: baseline, jev-poc (alias jev), jev-ungated-stepwise-preset-inline, jev-ungated-batched-preset-inline, jev-ungated-per-instance-preset-inline, jev-gated-stepwise-preset-inline, jev-gated-batched-preset-inline, jev-gated-per-instance-preset-inline, jev-gated-per-instance-preset-or-llm-inline, jev-gated-per-instance-preset-or-llm-parallel, jev-gated-per-instance-spatial-gate-inline, jev-gated-per-instance-spatial-gate-parallel, jev-gated-per-instance-composed-inline, jev-gated-per-instance-composed-parallel, jev-gated-per-instance-composed-2-size-levels-inline, jev-gated-per-instance-composed-pairs-inline, jev-gated-per-instance-composed-pairs-parallel, jev-gated-per-instance-always-llm-inline, jev-gated-per-instance-always-llm-parallel, jev-ungated-per-instance-preset-or-llm-inline',
     );
     expect(() => resolveArms([])).toThrow('at least one arm');
   });

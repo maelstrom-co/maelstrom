@@ -14,6 +14,7 @@ import {
   layoutComposed,
 } from '../src/lib/stages-experimental/layout-composed.js';
 import {
+  type ComposedPairsDecision,
   type ComposedPairsRecord,
   layoutComposedPairs,
   layoutComposedPairsWithDirection,
@@ -98,9 +99,31 @@ const COMBINED = {
 const SIZE_SCORE_MINIMUM_CONFIDENCE = 0.8;
 
 /**
+ * The `composed-pairs-fraction-sizes-both-fixes` layout: the direction
+ * redirect limited to answers that change the top split, the size fallback
+ * and the whole-board examples, with sizes asked as fractions within each
+ * row or column and what stated fractions leave split by whole-Chart
+ * shares. The stage eval's variant and the planner's `composed-pairs` arms
+ * share it.
+ */
+export function layoutComposedPairsBothFixes(
+  ask: Ask,
+): Stage<GatedActionPlan, ComposedPairsDecision> {
+  return layoutComposedPairsWithOptions(ask, {
+    ...COMBINED,
+    layoutId: 'composed-pairs-fraction-sizes-both-fixes',
+    direction: 'redirects_not_stated_when_direction_changes',
+    sizeAnswers: {
+      kind: 'fractions_within_part',
+      unstatedSplit: 'whole_chart_shares',
+    },
+  });
+}
+
+/**
  * Layout stage variants by descriptive name, each built as the matching
- * arm in `eval/arms.ts` builds it; the `composed-pairs` variants have no
- * planner arm. Each `composed-pairs-` fix changes one thing from
+ * arm in `eval/arms.ts` builds it; of the `composed-pairs` variants only
+ * `composed-pairs-fraction-sizes-both-fixes` has planner arms. Each `composed-pairs-` fix changes one thing from
  * `composed-pairs` (the redirect builds on `composed-pairs-with-direction`),
  * see `ComposedPairsOptions`. `composed-pairs-combined` stacks the fixes
  * that passed the development stage eval: the direction redirect, the size
@@ -177,16 +200,7 @@ export const LAYOUT_VARIANTS: Readonly<Record<string, LayoutVariant>> = {
         unstatedSplit: 'whole_chart_shares',
       },
     }),
-  'composed-pairs-fraction-sizes-both-fixes': (ask) =>
-    layoutComposedPairsWithOptions(ask, {
-      ...COMBINED,
-      layoutId: 'composed-pairs-fraction-sizes-both-fixes',
-      direction: 'redirects_not_stated_when_direction_changes',
-      sizeAnswers: {
-        kind: 'fractions_within_part',
-        unstatedSplit: 'whole_chart_shares',
-      },
-    }),
+  'composed-pairs-fraction-sizes-both-fixes': layoutComposedPairsBothFixes,
   'composed-pairs-score-when-confident': (ask) =>
     layoutComposedPairsWithOptions(ask, {
       ...COMBINED,
