@@ -52,8 +52,15 @@ Run the Engine with `retry: false`. The Jev pipeline is never re-run whole: `llm
 | `actionsStepwiseGated` | `jevActions` | `actionsStepwise` behind the `needsActions` gate: a gated selection answering no plans no actions and makes no call, anything else runs the stepwise stage unchanged. |
 | `actionsBatched` | `jevActions` | State-keyed batching, two calls. The first asks, for every variant state the request can reach by transitions, which action comes next at each depth up to the action limit (`action/0`, then `action/<depth>@<state>`, the state named by the instances whose view changed, `same` when none did). Questions are keyed by state, not by the actions that led there, so two orders reaching the same views share a question. Code walks the answers from the current views. Past `MAX_BATCH_QUESTIONS` (48) whole depths are left out and asked one call per step. The second call binds every chosen action's parameters at once, with the same parameter questions as the stepwise stage. |
 | `actionsBatchedPerInstance` | `jevActions` | Per-instance batching, one call: for each instance, slot 1 (its first action, `none` or `unsupported`), slot 2 (its second action, each option labelled with the view slot 1 leaves it in, for example `week:addEvent`) and slot 3 (never planned: an answer naming an action defers `jevActions/action_limit`, the rest is measurement), plus the parameters of every action any slot could pick. Code takes slot 2 only when its label matches the view slot 1's answer leads to; any other label defers `jevActions/premise_mismatch`. Parameter answers off the walked path are discarded. |
-| `layoutPreset` | `jevLayout` | The POC's choice over precomputed layouts. |
+| `layoutPreset` | `jevLayout` | The POC's choice over precomputed layouts. Never hands off. With `describe: 'placements'` each layout is described by its Instances and positions ("Stacked: calendar-main and weather-main side by side on top, tasks-main full width below.") instead of by its split tokens, and layouts placing every Instance on the same rectangles are offered once; the default keeps the POC's wording and call. |
+| `layoutPresetOrLlm` | `jevLayout` | Experimental. One Jev call with the placements menu and two yes/no questions: `needsChange` (the request states an arrangement different from the current one) and `needsBetter` (no offered layout is that arrangement). No change keeps the current tree when it fits, else the balanced default; needing better hands the layout off; otherwise the chosen layout ships. |
+| `layoutSpatialGate` | `jevLayout` | Experimental. No layout call: reads the `spatial` gate of `selectGated`. A stated arrangement hands the layout off; otherwise it keeps the current tree when it fits, else the balanced default. Its input type requires the gates, so a planner with `selectUngated` does not compile. |
+| `layoutComposed` | `jevLayout` | Experimental. Composes the tree from Jev's answers about its parts in one call (see below). Reads the `spatial` gate like `layoutSpatialGate` and requires it the same way. |
+| `layoutAlwaysLlm` | `jevLayout` | Experimental. No Jev call; always hands the layout off. The control for the other layout stages. |
 | `completeLayoutInline` | `llmComplete` | The POC's completion call; when a layout stage hands the layout off, the LLM also writes the tree. |
+| `completeLayoutParallel` | `llmComplete` | Experimental. On a hand-off, runs the message-only completion call and a small tree-only layout call in parallel; a failure in either aborts the other. With a tree from the layout stage it is the same single call as `completeLayoutInline`. |
+
+The balanced default, shared by the layout stages that keep or default, is the first that fits of one side-by-side row, two stacked rows and three stacked rows (the `row`, `rows_2` and `rows_3` layouts of the preset menu); a lone Instance fills the Chart. When none fits, the layout is handed off.
 
 Both batched stages and `actionsStepwiseGated` skip their call when a gated selection's `needsActions` answers no, and plan no actions on a resize-only turn. Both batched stages check the planned actions against the simulated views and defer `jevActions/simulation_failed` when a dropped action leaves a later one invalid.
 
@@ -64,7 +71,38 @@ The per-instance stage trades against the state-keyed one:
 - Slot 2 is answered without seeing slot 1's answer, since questions in one call are answered independently. The premise labels let code pick the matching branch and defer the rest, so a mismatch costs a fallback, not a wrong plan.
 - At most two actions per instance are planned. A third requested action on one instance defers `jevActions/action_limit` to the fallback rather than shipping the first two on their own; slot 3's answers measure how often that happens.
 
-The named planners cross the two select stages with the three actions stages, all with `layoutPreset` and `completeLayoutInline`; the gated arms take `actionsStepwiseGated` where the ungated ones take `actionsStepwise`: `jev-ungated-stepwise-preset-inline`, `jev-ungated-batched-preset-inline`, `jev-ungated-per-instance-preset-inline`, `jev-gated-stepwise-preset-inline`, `jev-gated-batched-preset-inline` and `jev-gated-per-instance-preset-inline`.
+The Phase 3 planners cross the two select stages with the three actions stages, all with `layoutPreset` in the POC's wording and `completeLayoutInline`; the gated arms take `actionsStepwiseGated` where the ungated ones take `actionsStepwise`: `jev-ungated-stepwise-preset-inline`, `jev-ungated-batched-preset-inline`, `jev-ungated-per-instance-preset-inline`, `jev-gated-stepwise-preset-inline` and `jev-gated-batched-preset-inline`.
+
+The Phase 5 arms vary the layout and completion stages on `selectGated` and `actionsBatchedPerInstance`. Each is built by `buildJevStagePlanner` (`src/lib/planners/jev-stage-planner.ts`) from one stage factory per slot, so a further arm, such as the winning layout and completion stages on `actionsBatched`, is one entry in `eval/arms.ts`.
+
+| Arm | Layout | Complete |
+| --- | --- | --- |
+| `jev-gated-per-instance-preset-inline` | `layoutPreset`, placements wording | `completeLayoutInline` |
+| `jev-gated-per-instance-preset-or-llm-inline` | `layoutPresetOrLlm` | `completeLayoutInline` |
+| `jev-gated-per-instance-preset-or-llm-parallel` | `layoutPresetOrLlm` | `completeLayoutParallel` |
+| `jev-gated-per-instance-spatial-gate-inline` | `layoutSpatialGate` | `completeLayoutInline` |
+| `jev-gated-per-instance-spatial-gate-parallel` | `layoutSpatialGate` | `completeLayoutParallel` |
+| `jev-gated-per-instance-composed-inline` | `layoutComposed`, 5 size levels | `completeLayoutInline` |
+| `jev-gated-per-instance-composed-parallel` | `layoutComposed`, 5 size levels | `completeLayoutParallel` |
+| `jev-gated-per-instance-composed-2-size-levels-inline` | `layoutComposed`, 2 size levels | `completeLayoutInline` |
+| `jev-gated-per-instance-always-llm-inline` | `layoutAlwaysLlm` | `completeLayoutInline` |
+| `jev-gated-per-instance-always-llm-parallel` | `layoutAlwaysLlm` | `completeLayoutParallel` |
+| `jev-ungated-per-instance-preset-or-llm-inline` | `layoutPresetOrLlm` (with `selectUngated`) | `completeLayoutInline` |
+
+`jev-gated-per-instance-preset-inline` moved to the placements wording in Phase 5; its Phase 3 records used the POC's wording. There is no `preset-parallel` arm: the preset stage never hands off, so the parallel call would never run. The 2-size-level composed arm exists for the replay pass that picks the size scale (`--replay-through actions` against a recorded gated arm).
+
+### Composed layouts
+
+`layoutComposed` asks one question about the shape and three about each visible Instance, `3n + 1` in one call, and code assembles the tree:
+
+- Shape, one choice: `side_by_side_2` to `side_by_side_4` (a `V` split, parts left to right) or `stacked_2` to `stacked_4` (an `H` split, parts top to bottom). Two more options, `more_than_4_parts` and `split_inside_nested_part`, hand the layout off.
+- Placement, per Instance: `part_1` to `part_4`, part 1 leftmost or topmost. A part with two or more Instances runs the other way inside; a part with one is a leaf.
+- Position, per Instance: `first` to `fifth` within its part. Ties go to the more probable answer.
+- Size, a score per Instance: its share of the Chart by area, normalised across Instances with a small floor. A part's weight is the sum of its Instances' shares; weights are written as small whole numbers.
+
+The three most probable answer combinations each become a tree, checked with `layoutFits`; the first that fits ships, and none fitting hands off. A shape part no Instance was placed in is dropped (recorded as a repair). With no stated arrangement and the same visible Instances, the current tree is kept without a call when it fits; otherwise the call carries the current arrangement in words and a note to keep it. The stage returns a `composition` record (gating route, hand-off cause, every answer by question and Instance, the checked candidates and their dropped parts), which the eval keeps in `stageOutputs.jevLayout.composition`.
+
+Example: calendar, tasks, map, weather and journal are visible, and the request is "Put the calendar and tasks in a narrow column on the left. On the right, stack the map, weather and journal, and give the journal half the height." Jev answers shape `side_by_side_2`; calendar and tasks in `part_1`, map, weather and journal in `part_2`; positions in that order; sizes 0.25, 0.25, 0.5, 0.5 and 1.0, normalised to 0.1, 0.1, 0.2, 0.2 and 0.4. Code builds `["V:1,4", "H", "ID:calendar", "ID:tasks", "H:1,1,2", "ID:map", "ID:weather", "ID:journal"]`: 16 questions, one call.
 
 ### Arm names renamed for Phase 5
 
@@ -126,6 +164,7 @@ Every deferral logs `jev.defer` at info with `{ stage, reason, question }`, and 
 | `llmComplete/retry_recommended` | Validation recommended a retry for the assembled candidate. |
 | `jevActions/batch_cap` | Stage library only: not even the first batched question fits the question cap. |
 | `jevActions/premise_mismatch` | Stage library only: a per-instance second action assumes a view the first action does not lead to. |
+| `llmComplete/invalid_layout` | Stage library only: a tree the LLM wrote on a hand-off is malformed, leaves out or adds an Instance, or breaks a minimum size. |
 | `<stage>/option_cap` | A question had more than 255 options. |
 | `<stage>/provider_timeout` | A TypeSafe call took longer than its timeout (5 s by default). |
 | `<stage>/provider_network` | A TypeSafe call failed to connect. |
