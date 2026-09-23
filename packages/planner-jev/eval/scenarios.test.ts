@@ -53,6 +53,9 @@ describe('scenarios', () => {
     expect(
       holdout.filter((scenario) => scenario.id.startsWith('hold-ctl-')),
     ).toHaveLength(3);
+    expect(
+      holdout.filter((scenario) => scenario.id.startsWith('hold-inner-')),
+    ).toHaveLength(8);
     for (const id of ['swap', 'big-right', 'top-and-pair', 'bottom-strip'])
       expect(
         development.find((scenario) => scenario.id === id)?.expected.status,
