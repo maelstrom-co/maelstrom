@@ -90,7 +90,9 @@ type LayoutVariant = (ask: Ask) => Stage<GatedActionPlan, LayoutOutput>;
  * arm in `eval/arms.ts` builds it; the `composed-pairs` variants have no
  * planner arm. Each `composed-pairs-` fix changes one thing from
  * `composed-pairs` (the redirect builds on `composed-pairs-with-direction`),
- * see `ComposedPairsOptions`.
+ * see `ComposedPairsOptions`. `composed-pairs-combined` stacks the fixes
+ * that passed the development stage eval: the direction redirect, the size
+ * fallback and the whole-board examples.
  */
 export const LAYOUT_VARIANTS: Readonly<Record<string, LayoutVariant>> = {
   preset: (ask) => layoutPreset(ask, { describe: 'placements' }),
@@ -129,6 +131,13 @@ export const LAYOUT_VARIANTS: Readonly<Record<string, LayoutVariant>> = {
     layoutComposedPairsWithOptions(ask, {
       layoutId: 'composed-pairs-bigger-size-steps',
       sizeSteps: 'bigger',
+    }),
+  'composed-pairs-combined': (ask) =>
+    layoutComposedPairsWithOptions(ask, {
+      layoutId: 'composed-pairs-combined',
+      direction: 'redirects_not_stated',
+      sizeFallback: true,
+      wholeBoardExamples: true,
     }),
   'composed-pairs-lean-state': (ask) =>
     layoutComposedPairsWithOptions(ask, {

@@ -45,6 +45,10 @@ describe('composed pairs report', () => {
     ).toContain('| Size fallback: raised to minimum / equal weights | 1 / 1 |');
   });
 
+  test('registers the combined composed pairs variant', () => {
+    expect(Object.keys(LAYOUT_VARIANTS)).toContain('composed-pairs-combined');
+  });
+
   test('registers every composed pairs fix as a layout variant', () => {
     expect(Object.keys(LAYOUT_VARIANTS)).toEqual(
       expect.arrayContaining([
