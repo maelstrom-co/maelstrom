@@ -60,13 +60,16 @@ export function interpolateLevels(
 /**
  * Shares of one part for its members in order, from each member's stated
  * fraction of the part, `undefined` where the request states none.
- * Unstated members split what the stated ones leave evenly, each keeping
- * at least {@link MIN_UNSTATED_FRACTION}: stated fractions adding up to
- * more than that allows are scaled down in proportion. When every member
+ * Unstated members split what the stated ones leave evenly, or in
+ * proportion to `unstatedWeights` (one per member, such as whole-Chart
+ * shares) when given and positive for some unstated member. Stated
+ * fractions adding up to more than leaves {@link MIN_UNSTATED_FRACTION}
+ * per unstated member are scaled down in proportion. When every member
  * states one, the fractions are read as weights and normalised to sum to 1.
  */
 export function partFractionShares(
   fractions: readonly (number | undefined)[],
+  unstatedWeights?: readonly number[],
 ): readonly number[] {
   const unstated = fractions.filter((fraction) => fraction === undefined);
   const statedTotal = fractions.reduce<number>(
@@ -79,10 +82,19 @@ export function partFractionShares(
     );
   const room = 1 - unstated.length * MIN_UNSTATED_FRACTION;
   const scale = statedTotal > room ? room / statedTotal : 1;
-  const remainder = (1 - statedTotal * scale) / unstated.length;
-  return fractions.map((fraction) =>
-    fraction === undefined ? remainder : fraction * scale,
+  const remainder = 1 - statedTotal * scale;
+  const weightOf = (index: number) => unstatedWeights?.[index] ?? 0;
+  const unstatedWeight = fractions.reduce<number>(
+    (sum, fraction, index) =>
+      fraction === undefined ? sum + weightOf(index) : sum,
+    0,
   );
+  return fractions.map((fraction, index) => {
+    if (fraction !== undefined) return fraction * scale;
+    return unstatedWeight > 0
+      ? (remainder * weightOf(index)) / unstatedWeight
+      : remainder / unstated.length;
+  });
 }
 
 /** The log area ratio a size comparison `score` stands for, interpolated in log space between {@link COMPARISON_RATIOS}. */

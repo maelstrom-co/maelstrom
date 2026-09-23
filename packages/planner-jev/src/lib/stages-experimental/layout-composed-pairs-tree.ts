@@ -166,6 +166,8 @@ export function treeDirection(
  * pair's order in the current tree (the leaf that comes first there goes
  * left, or on top); still ignored for a pair the current tree does not
  * hold. A most likely not stated direction leaves the vote unchanged.
+ * With `redirectOnlyWhenDirectionChanges` as well, the redirect applies
+ * only when that direction differs from the current tree's top split.
  */
 export function rankArrangements(
   ids: readonly InstanceId[],
@@ -175,8 +177,13 @@ export function rankArrangements(
   options: RankOptions = {},
 ): readonly ScoredArrangement[] {
   const directionScore = direction && directionTable(direction, currentTree);
-  const redirectAxis =
+  const statedDirection =
     options.redirectNotStated && direction ? statedAxis(direction) : undefined;
+  const redirectAxis =
+    options.redirectOnlyWhenDirectionChanges &&
+    statedDirection === treeDirection(currentTree)
+      ? undefined
+      : statedDirection;
   const leafOrder =
     redirectAxis === undefined ? undefined : leafIndexes(currentTree);
   const tables = pairs.map((pair) => {
@@ -218,6 +225,8 @@ export function rankArrangements(
 export interface RankOptions {
   /** Send not stated pair answers along the direction answer when it names one. */
   readonly redirectNotStated?: boolean;
+  /** Limit {@link redirectNotStated} to a direction answer that differs from the current tree's top split. */
+  readonly redirectOnlyWhenDirectionChanges?: boolean;
 }
 
 /** How {@link arrangementTree} turns Instance shares into split weights. */

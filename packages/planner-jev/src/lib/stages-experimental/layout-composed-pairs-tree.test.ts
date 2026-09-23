@@ -303,6 +303,69 @@ describe('not stated redirected by the direction answer', () => {
   });
 });
 
+describe('not stated redirected only when the direction changes', () => {
+  const columnThenTasks = [
+    'V:1,1',
+    'H:1,1',
+    'ID:calendar-main',
+    'ID:weather-main',
+    'ID:tasks-main',
+  ] as TilingNode[];
+  const unstated = [
+    certain(calendar, weather, NOT_STATED),
+    certain(calendar, tasks, NOT_STATED),
+    certain(weather, tasks, NOT_STATED),
+  ];
+  const sideBySide = { side_by_side: 0.8, stacked: 0.1, not_stated: 0.1 };
+
+  test('a direction along the current top split keeps the pairs inside each part', () => {
+    const [best] = rankArrangements(
+      THREE,
+      unstated,
+      columnThenTasks,
+      sideBySide,
+      { redirectNotStated: true, redirectOnlyWhenDirectionChanges: true },
+    );
+    expect(best?.arrangement).toEqual({
+      axis: 'V',
+      parts: [[calendar, weather], [tasks]],
+    });
+  });
+
+  test('the full redirect splits the part along the same direction', () => {
+    const [best] = rankArrangements(
+      THREE,
+      unstated,
+      columnThenTasks,
+      sideBySide,
+      { redirectNotStated: true },
+    );
+    expect(best?.arrangement).toEqual({
+      axis: 'V',
+      parts: [[calendar], [weather], [tasks]],
+    });
+  });
+
+  test('a direction across the current top split still redirects every pair', () => {
+    const stacked = { side_by_side: 0.1, stacked: 0.8, not_stated: 0.1 };
+    const limited = rankArrangements(
+      THREE,
+      unstated,
+      columnThenTasks,
+      stacked,
+      { redirectNotStated: true, redirectOnlyWhenDirectionChanges: true },
+    );
+    const full = rankArrangements(THREE, unstated, columnThenTasks, stacked, {
+      redirectNotStated: true,
+    });
+    expect(limited).toEqual(full);
+    expect(limited[0]?.arrangement).toEqual({
+      axis: 'H',
+      parts: [[calendar], [weather], [tasks]],
+    });
+  });
+});
+
 describe('part sizing', () => {
   const focus = { axis: 'V' as const, parts: [[calendar], [weather, tasks]] };
   const shares = { [calendar]: 0.5, [weather]: 0.5, [tasks]: 0.5 };

@@ -92,6 +92,16 @@ describe('composed pairs report', () => {
     );
   });
 
+  test('registers the limited redirect and proportional fallback variants', () => {
+    expect(Object.keys(LAYOUT_VARIANTS)).toEqual(
+      expect.arrayContaining([
+        'composed-pairs-combined-limited-redirect',
+        'composed-pairs-fraction-sizes-proportional-fallback',
+        'composed-pairs-fraction-sizes-both-fixes',
+      ]),
+    );
+  });
+
   test('registers the combined composed pairs variant', () => {
     expect(Object.keys(LAYOUT_VARIANTS)).toContain('composed-pairs-combined');
   });
