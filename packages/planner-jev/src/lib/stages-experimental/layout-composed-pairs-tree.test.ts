@@ -5,9 +5,12 @@ import { InstanceId, type TilingNode } from '@maelstrom-co/protocol';
 import {
   arrangementRelation,
   arrangementTree,
+  arrangementTreeAtMinimum,
   enumerateArrangements,
+  equalArrangementTree,
   NOT_STATED,
   type PairAnswer,
+  raiseToMinimum,
   rankArrangements,
   treeDirection,
   treeRelation,
@@ -228,5 +231,162 @@ describe('top-level direction', () => {
     });
     expect(directed?.arrangement).toEqual(plain?.arrangement);
     expect(directed?.score).toBeCloseTo((plain?.score ?? 0) + Math.log(0.5));
+  });
+});
+
+describe('not stated redirected by the direction answer', () => {
+  const sideBySide = [
+    'V:1,1,1',
+    'ID:calendar-main',
+    'ID:weather-main',
+    'ID:tasks-main',
+  ] as TilingNode[];
+  const column = (first: InstanceId, second: InstanceId): PairAnswer => ({
+    first,
+    second,
+    probabilities: { left_of: 0.02, above: 0.4, below: 0.03, not_stated: 0.55 },
+  });
+  const pairs = [
+    column(calendar, weather),
+    column(calendar, tasks),
+    column(weather, tasks),
+  ];
+  const stacked = { side_by_side: 0, stacked: 1, not_stated: 0 };
+
+  test('without the redirect, not stated keeps one pair side by side in the best stacked tree', () => {
+    const [best] = rankArrangements(THREE, pairs, sideBySide, stacked);
+    expect(best?.arrangement.axis).toBe('H');
+    expect(best?.arrangement.parts.some((part) => part.length > 1)).toBe(true);
+  });
+
+  test('a stacked direction sends not stated to above or below in the current order', () => {
+    const [best] = rankArrangements(THREE, pairs, sideBySide, stacked, {
+      redirectNotStated: true,
+    });
+    expect(best?.arrangement).toEqual({
+      axis: 'H',
+      parts: [[calendar], [weather], [tasks]],
+    });
+  });
+
+  test('a side by side direction sends not stated to left or right in the current order', () => {
+    const current = [
+      'H:1,1,1',
+      'ID:tasks-main',
+      'ID:weather-main',
+      'ID:calendar-main',
+    ] as TilingNode[];
+    const [best] = rankArrangements(
+      THREE,
+      [
+        certain(calendar, weather, NOT_STATED),
+        certain(calendar, tasks, NOT_STATED),
+        certain(weather, tasks, NOT_STATED),
+      ],
+      current,
+      { side_by_side: 0.7, stacked: 0.1, not_stated: 0.2 },
+      { redirectNotStated: true },
+    );
+    expect(best?.arrangement).toEqual({
+      axis: 'V',
+      parts: [[tasks], [weather], [calendar]],
+    });
+  });
+
+  test('a not stated direction leaves not stated voting for the current relation', () => {
+    const direction = { side_by_side: 0.1, stacked: 0.3, not_stated: 0.6 };
+    const redirected = rankArrangements(THREE, pairs, sideBySide, direction, {
+      redirectNotStated: true,
+    });
+    const plain = rankArrangements(THREE, pairs, sideBySide, direction);
+    expect(redirected).toEqual(plain);
+  });
+});
+
+describe('part sizing', () => {
+  const focus = { axis: 'V' as const, parts: [[calendar], [weather, tasks]] };
+  const shares = { [calendar]: 0.5, [weather]: 0.5, [tasks]: 0.5 };
+
+  test('weights a part by the largest share of its members', () => {
+    expect(arrangementTree(focus, shares, { partWeight: 'max' })).toEqual([
+      'V',
+      'ID:calendar-main',
+      'H',
+      'ID:weather-main',
+      'ID:tasks-main',
+    ]);
+    expect(arrangementTree(focus, shares)[0]).toBe('V:1,2');
+  });
+
+  test('splits inside a part by the shares within the part', () => {
+    expect(
+      arrangementTree(focus, shares, {
+        innerShareById: { [calendar]: 0.5, [weather]: 1, [tasks]: 0.5 },
+      }),
+    ).toEqual([
+      'V:1,2',
+      'ID:calendar-main',
+      'H:2,1',
+      'ID:weather-main',
+      'ID:tasks-main',
+    ]);
+  });
+});
+
+describe('size fallback', () => {
+  const strip = {
+    axis: 'H' as const,
+    parts: [[calendar, weather], [tasks]],
+  };
+
+  test('raises shares below their minimum and scales the rest down', () => {
+    const raised = raiseToMinimum([4, 1], [0, 0.3]);
+    expect(raised?.[0]).toBeCloseTo(0.7);
+    expect(raised?.[1]).toBeCloseTo(0.3);
+    expect(raiseToMinimum([1, 1], [0.1, 0.1])).toEqual([0.5, 0.5]);
+    expect(raiseToMinimum([1, 1], [0.6, 0.6])).toBeUndefined();
+  });
+
+  test('keeps the structure and lifts a thin part to its minimum', () => {
+    const tree = arrangementTreeAtMinimum(
+      strip,
+      { [calendar]: 0.5, [weather]: 0.5, [tasks]: 0.25 },
+      {
+        [calendar]: { width: 0.2, height: 0.2 },
+        [weather]: { width: 0.2, height: 0.2 },
+        [tasks]: { width: 0.5, height: 1 / 3 },
+      },
+    );
+    expect(tree).toEqual([
+      'H:2,1',
+      'V',
+      'ID:calendar-main',
+      'ID:weather-main',
+      'ID:tasks-main',
+    ]);
+  });
+
+  test('gives up when the minimums along one split cannot fit together', () => {
+    expect(
+      arrangementTreeAtMinimum(
+        strip,
+        { [calendar]: 0.5, [weather]: 0.5, [tasks]: 0.25 },
+        {
+          [calendar]: { width: 0.6, height: 0.2 },
+          [weather]: { width: 0.6, height: 0.2 },
+          [tasks]: { width: 0.5, height: 0.3 },
+        },
+      ),
+    ).toBeUndefined();
+  });
+
+  test('writes every split of the structure with equal weights', () => {
+    expect(equalArrangementTree(strip)).toEqual([
+      'H',
+      'V',
+      'ID:calendar-main',
+      'ID:weather-main',
+      'ID:tasks-main',
+    ]);
   });
 });

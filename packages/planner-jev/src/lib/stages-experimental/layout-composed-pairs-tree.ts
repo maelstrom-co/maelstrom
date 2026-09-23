@@ -159,16 +159,31 @@ export function treeDirection(
  * {@link NOT_STATED}, each arrangement also scores the log probability of
  * its top-level axis, weighted as one pair, with not stated voting for the
  * current tree's top split the same way.
+ *
+ * With `redirectNotStated` and a `direction` whose most likely option is
+ * `side_by_side` or `stacked`, a pair's {@link NOT_STATED} probability
+ * votes instead for the relation along that direction that keeps the
+ * pair's order in the current tree (the leaf that comes first there goes
+ * left, or on top); still ignored for a pair the current tree does not
+ * hold. A most likely not stated direction leaves the vote unchanged.
  */
 export function rankArrangements(
   ids: readonly InstanceId[],
   pairs: readonly PairAnswer[],
   currentTree: readonly TilingNode[],
   direction?: OptionProbabilities,
+  options: RankOptions = {},
 ): readonly ScoredArrangement[] {
   const directionScore = direction && directionTable(direction, currentTree);
+  const redirectAxis =
+    options.redirectNotStated && direction ? statedAxis(direction) : undefined;
+  const leafOrder =
+    redirectAxis === undefined ? undefined : leafIndexes(currentTree);
   const tables = pairs.map((pair) => {
-    const current = treeRelation(currentTree, pair.first, pair.second);
+    const current =
+      redirectAxis === undefined || leafOrder === undefined
+        ? treeRelation(currentTree, pair.first, pair.second)
+        : orderAlong(redirectAxis, leafOrder, pair.first, pair.second);
     const notStated = pair.probabilities[NOT_STATED] ?? 0;
     return {
       pair,
@@ -199,32 +214,139 @@ export function rankArrangements(
     .map(({ scored }) => scored);
 }
 
+/** Scoring choices for {@link rankArrangements}. */
+export interface RankOptions {
+  /** Send not stated pair answers along the direction answer when it names one. */
+  readonly redirectNotStated?: boolean;
+}
+
+/** How {@link arrangementTree} turns Instance shares into split weights. */
+export interface PartSizing {
+  /** A part's weight along the top axis: the sum (default) or the largest of its members' shares. */
+  readonly partWeight?: 'sum' | 'max';
+  /** Shares for the split inside each part; `shareById` when absent. */
+  readonly innerShareById?: Readonly<Record<string, number>>;
+}
+
+/** An Instance's minimum size as fractions of the Chart's width and height. */
+export interface MinimumFraction {
+  readonly width: number;
+  readonly height: number;
+}
+
 /**
  * The tiling tree of `arrangement`, each split weighted by the summed
  * shares of the Instances under each child, as the smallest integers in
  * that ratio (see {@link integerWeights}). A part of one Instance is a leaf.
+ * `sizing` can weight a part by its largest share instead, and split
+ * inside a part by separate shares.
  */
 export function arrangementTree(
   arrangement: Arrangement,
   shareById: Readonly<Record<string, number>>,
+  sizing: PartSizing = {},
 ): readonly TilingNode[] {
-  const shareOf = (id: InstanceId) => shareById[id] ?? 0;
-  const partTrees = arrangement.parts.map((members) =>
-    splitTree(
-      inner(arrangement.axis),
-      members.map((id) => [tilingLeafToken(id)]),
-      weightsOf(members.map(shareOf)),
+  const { top, inner: innerShares } = arrangementShares(
+    arrangement,
+    shareById,
+    sizing,
+  );
+  return treeOfShares(arrangement, top, innerShares);
+}
+
+/**
+ * {@link arrangementTree} with every share below its Instance's minimum
+ * raised to it along each split and the other shares scaled down (see
+ * {@link raiseToMinimum}); a part's minimum along the top axis is the
+ * largest of its members'. `undefined` when the minimums along one split
+ * add up to more than the whole.
+ */
+export function arrangementTreeAtMinimum(
+  arrangement: Arrangement,
+  shareById: Readonly<Record<string, number>>,
+  minimumById: Readonly<Record<string, MinimumFraction>>,
+  sizing: PartSizing = {},
+): readonly TilingNode[] | undefined {
+  const { top, inner: innerShares } = arrangementShares(
+    arrangement,
+    shareById,
+    sizing,
+  );
+  const along = (axis: 'H' | 'V', id: InstanceId) => {
+    const minimum = minimumById[id];
+    if (minimum === undefined) return 0;
+    return axis === 'V' ? minimum.width : minimum.height;
+  };
+  const raisedTop = raiseToMinimum(
+    top,
+    arrangement.parts.map((members) =>
+      Math.max(0, ...members.map((id) => along(arrangement.axis, id))),
     ),
   );
-  return splitTree(
-    arrangement.axis,
-    partTrees,
-    weightsOf(
-      arrangement.parts.map((members) =>
-        members.reduce((sum, id) => sum + shareOf(id), 0),
-      ),
+  const raisedInner = arrangement.parts.map((members, index) =>
+    raiseToMinimum(
+      innerShares[index] ?? [],
+      members.map((id) => along(inner(arrangement.axis), id)),
     ),
   );
+  if (raisedTop === undefined) return undefined;
+  const fitted: (readonly number[])[] = [];
+  for (const shares of raisedInner) {
+    if (shares === undefined) return undefined;
+    fitted.push(shares);
+  }
+  return treeOfShares(arrangement, raisedTop, fitted);
+}
+
+/** The tiling tree of `arrangement` with every split's children weighted equally. */
+export function equalArrangementTree(
+  arrangement: Arrangement,
+): readonly TilingNode[] {
+  return treeOfShares(
+    arrangement,
+    arrangement.parts.map(() => 1),
+    arrangement.parts.map((members) => members.map(() => 1)),
+  );
+}
+
+/**
+ * `desired` normalised to fractions of 1, with every fraction below its
+ * `minimum` raised to it and the others scaled down in proportion until
+ * none is below its minimum. `undefined` when the minimums add up to more
+ * than 1.
+ */
+export function raiseToMinimum(
+  desired: readonly number[],
+  minimum: readonly number[],
+): readonly number[] | undefined {
+  const floorOf = (index: number) => minimum[index] ?? 0;
+  if (desired.reduce((sum, _, index) => sum + floorOf(index), 0) > 1 + 1e-9)
+    return undefined;
+  const total = desired.reduce((sum, share) => sum + share, 0);
+  const target = desired.map((share) =>
+    total > 0 ? share / total : 1 / desired.length,
+  );
+  const fixed = new Set<number>();
+  for (;;) {
+    const remaining =
+      1 - [...fixed].reduce((sum, index) => sum + floorOf(index), 0);
+    const freeTotal = target.reduce(
+      (sum, share, index) => (fixed.has(index) ? sum : sum + share),
+      0,
+    );
+    const shares = target.map((share, index) =>
+      fixed.has(index)
+        ? floorOf(index)
+        : freeTotal > 0
+          ? (share / freeTotal) * remaining
+          : remaining / (target.length - fixed.size),
+    );
+    const below = shares.flatMap((share, index) =>
+      !fixed.has(index) && share < floorOf(index) - 1e-12 ? [index] : [],
+    );
+    if (below.length === 0) return shares;
+    for (const index of below) fixed.add(index);
+  }
 }
 
 function directionTable(
@@ -256,6 +378,70 @@ function inner(axis: 'H' | 'V'): 'H' | 'V' {
 
 function weightsOf(shares: readonly number[]): readonly number[] {
   return shares.length < 2 ? shares : integerWeights(shares);
+}
+
+function arrangementShares(
+  arrangement: Arrangement,
+  shareById: Readonly<Record<string, number>>,
+  sizing: PartSizing,
+): {
+  readonly top: readonly number[];
+  readonly inner: readonly (readonly number[])[];
+} {
+  const shareOf = (id: InstanceId) => shareById[id] ?? 0;
+  const innerOf = (id: InstanceId) =>
+    sizing.innerShareById ? (sizing.innerShareById[id] ?? 0) : shareOf(id);
+  return {
+    top: arrangement.parts.map((members) =>
+      sizing.partWeight === 'max'
+        ? Math.max(0, ...members.map(shareOf))
+        : members.reduce((sum, id) => sum + shareOf(id), 0),
+    ),
+    inner: arrangement.parts.map((members) => members.map(innerOf)),
+  };
+}
+
+function treeOfShares(
+  arrangement: Arrangement,
+  top: readonly number[],
+  innerShares: readonly (readonly number[])[],
+): readonly TilingNode[] {
+  const partTrees = arrangement.parts.map((members, index) =>
+    splitTree(
+      inner(arrangement.axis),
+      members.map((id) => [tilingLeafToken(id)]),
+      weightsOf(innerShares[index] ?? []),
+    ),
+  );
+  return splitTree(arrangement.axis, partTrees, weightsOf(top));
+}
+
+/** The axis the direction answer's most likely option names, `undefined` when that is not stated. */
+function statedAxis(direction: OptionProbabilities): 'H' | 'V' | undefined {
+  const [best] = Object.entries(direction).sort((a, b) => b[1] - a[1]);
+  if (best === undefined || !(best[0] in TOP_DIRECTIONS)) return undefined;
+  return TOP_DIRECTIONS[best[0] as TopDirection];
+}
+
+function leafIndexes(tree: readonly TilingNode[]): Map<string, number> {
+  const order = new Map<string, number>();
+  for (const token of tree) {
+    const id = tilingLeafInstanceId(token ?? null);
+    if (id !== null) order.set(id, order.size);
+  }
+  return order;
+}
+
+function orderAlong(
+  axis: 'H' | 'V',
+  order: ReadonlyMap<string, number>,
+  first: InstanceId,
+  second: InstanceId,
+): PairRelation | undefined {
+  const a = order.get(first);
+  const b = order.get(second);
+  if (a === undefined || b === undefined) return undefined;
+  return relationAlong(axis, a < b);
 }
 
 /** Part sizes of every cut of `n` Instances into 2 to {@link MAX_TOP_PARTS} consecutive parts. */
