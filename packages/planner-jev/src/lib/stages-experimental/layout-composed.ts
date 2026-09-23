@@ -69,7 +69,11 @@ export interface RecordedSize {
   readonly score: number;
   readonly confidence: number;
   readonly probabilities: OptionProbabilities;
-  /** The size read from the answer, from 0 to 1, before normalising across Instances. */
+  /**
+   * The chosen level's size, up to 1, before normalising
+   * across Instances. The chosen level, not the probability-weighted score,
+   * so Instances given the same level get equal shares.
+   */
   readonly size: number;
 }
 
@@ -89,7 +93,7 @@ export interface ComposedLayoutRecord {
   readonly route: ComposedRoute;
   /** Whether a Jev call was made. */
   readonly called: boolean;
-  /** Whether the call's state carried the current arrangement and the keep-it note. */
+  /** Whether the call's state carried the note to keep the current arrangement. */
   readonly nudged: boolean;
   readonly sizeLevels: SizeLevels;
   /** Absent when no call was made. */
@@ -126,9 +130,9 @@ export const KEEP_ARRANGEMENT_NO_NEW_NOTE =
  *
  * Reads the `spatial` gate: with no stated arrangement and the same visible
  * Instances, the current tree is kept when it fits (`source: 'preserve'`,
- * no call); otherwise the call carries the current arrangement in words
- * and a note to keep it. With at most one visible Instance there is only
- * one tree and no call is made.
+ * no call); otherwise the call carries a note to keep the current
+ * arrangement. Every call carries the current arrangement in words. With
+ * at most one visible Instance there is only one tree and no call is made.
  */
 export function layoutComposed(
   ask: Ask,
@@ -203,9 +207,9 @@ export function layoutComposed(
           history: recentHistory(plan.selection.input.history),
           chartDimensions: request.context.chartDimensions,
           currentLayout: currentTree,
+          currentArrangement: describeLayout(currentTree),
           views: visible,
           ...(nudged && {
-            currentArrangement: describeLayout(currentTree),
             arrangementNote:
               added.length > 0
                 ? KEEP_ARRANGEMENT_NOTE
@@ -416,10 +420,7 @@ function readAll(
       score: answer.value.score,
       confidence,
       probabilities,
-      size:
-        sizeLevels === 2
-          ? (probabilities['1'] ?? 0)
-          : answer.value.score / (sizeLevels - 1),
+      size: levelSize(Number(level), sizeLevels),
     };
   }
   const answers: ComposedAnswers = {
@@ -429,6 +430,15 @@ function readAll(
     sizes,
   };
   return ok({ answers, records });
+}
+
+/**
+ * The size of a chosen level. On 5 levels the lowest reads as 0 ("as small
+ * as it can be", raised to the size floor); on 2 levels the lower one is
+ * half the upper one, so "small" still reads as a real share.
+ */
+function levelSize(level: number, sizeLevels: SizeLevels): number {
+  return sizeLevels === 2 ? (level + 1) / 2 : level / (sizeLevels - 1);
 }
 
 function answerRecord(question: string, answer: Answer): AnswerRecord {

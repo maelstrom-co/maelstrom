@@ -466,7 +466,7 @@ describe('layoutComposed', () => {
       });
   });
 
-  test('the 2-level size scale reads the size as the upper level probability', async () => {
+  test('the 2-level size scale reads the size from the chosen level', async () => {
     const plan = gatedPlan(
       makeRequest('narrow calendar on the left', {
         tree: ['V', 'ID:calendar-main', 'ID:map-main'],
@@ -475,7 +475,7 @@ describe('layoutComposed', () => {
     );
     const upper: Record<string, number> = {
       'size/calendar-main': 0.2,
-      'size/map-main': 0.8,
+      'size/map-main': 0.6,
     };
     const { result, calls } = await run(
       plan,
@@ -488,6 +488,7 @@ describe('layoutComposed', () => {
         for (const [id, probability] of Object.entries(upper))
           reply.answers[id] = {
             ...(reply.answers[id] as object),
+            choice: probability > 0.5 ? '1' : '0',
             score: probability,
             probabilities: { '0': 1 - probability, '1': probability },
           } as never;
@@ -506,8 +507,50 @@ describe('layoutComposed', () => {
       };
     }>(result);
     expect(value.composition.sizeLevels).toBe(2);
-    expect(value.composition.answers.sizes['map-main']?.size).toBe(0.8);
-    expect(value.tree).toEqual(['V:1,4', 'ID:calendar-main', 'ID:map-main']);
+    expect(value.composition.answers.sizes['map-main']?.size).toBe(1);
+    expect(value.tree).toEqual(['V:1,2', 'ID:calendar-main', 'ID:map-main']);
+  });
+
+  test('Instances given the same size level get equal shares whatever their scores', async () => {
+    const plan = gatedPlan(
+      makeRequest('calendar and map side by side, same size', {
+        tree: ['V', 'ID:calendar-main', 'ID:map-main'],
+      }),
+      'yes',
+    );
+    const levelProbabilities: Record<string, Record<string, number>> = {
+      'size/calendar-main': {
+        '0': 0,
+        '1': 0.1,
+        '2': 0.4,
+        '3': 0.35,
+        '4': 0.15,
+      },
+      'size/map-main': { '0': 0.15, '1': 0.35, '2': 0.4, '3': 0.1, '4': 0 },
+    };
+    const { result } = await run(plan, (payload) => {
+      const reply = buildReply(payload, {
+        shape: 'side_by_side_2',
+        'placement/calendar-main': 'part_1',
+        'placement/map-main': 'part_2',
+      });
+      for (const [id, probabilities] of Object.entries(levelProbabilities))
+        reply.answers[id] = {
+          ...(reply.answers[id] as object),
+          choice: '2',
+          score: Object.entries(probabilities).reduce(
+            (sum, [level, probability]) => sum + Number(level) * probability,
+            0,
+          ),
+          probabilities,
+        } as never;
+      return { reply };
+    });
+    expect(decisionOf<{ tree: unknown }>(result).tree).toEqual([
+      'V',
+      'ID:calendar-main',
+      'ID:map-main',
+    ]);
   });
 
   describe('gating on the spatial answer', () => {
@@ -615,11 +658,14 @@ describe('layoutComposed', () => {
       ).toBe('instances_changed');
     });
 
-    test('a stated arrangement composes without the nudge', async () => {
+    test('a stated arrangement composes with the current arrangement in words and without the nudge', async () => {
       const plan = gatedPlan(makeRequest('stack them'), 'yes');
       const { calls } = await run(plan, STACKED_THREE);
       expect(calls).toHaveLength(1);
-      expect(calls[0]?.state).not.toHaveProperty('currentArrangement');
+      expect(calls[0]?.state).toMatchObject({
+        currentArrangement:
+          'calendar-main on the left; weather-main in the middle; tasks-main on the right',
+      });
       expect(calls[0]?.state).not.toHaveProperty('arrangementNote');
     });
   });
