@@ -20,6 +20,7 @@ import {
 import type { AnyTextAdapter } from '@tanstack/ai';
 
 import type { JevCaller, StageName } from '../src/lib/defer.js';
+import type { ComposedLayoutRecord } from '../src/lib/stages-experimental/layout-composed.js';
 import type {
   LayoutSource,
   Selection2,
@@ -72,6 +73,37 @@ export interface RecordedAnswer {
   readonly confidence: number;
 }
 
+/** What each Jev stage decided in one turn, as the run record keeps it. */
+export interface StageOutputs {
+  readonly jevSelect?: {
+    readonly instances: Selection2['instances'];
+    readonly answers: readonly AnswerRecord[];
+    readonly gates?: Selection2['gates'];
+  };
+  readonly jevActions?: {
+    readonly actions: JevActionPlan['actions'];
+    readonly asks: JevActionPlan['asks'];
+    readonly answers: readonly AnswerRecord[];
+  };
+  readonly jevLayout?: LayoutStageOutput;
+}
+
+/** The layout stage's decision, as the run record keeps it. */
+export interface LayoutStageOutput {
+  /** Absent for the POC, whose layout stage always decides through Jev. */
+  readonly source?: LayoutSource;
+  readonly layoutId?: string;
+  /** Absent when the layout was handed to the completion call. */
+  readonly tree?: readonly TilingNode[];
+  readonly answers: readonly AnswerRecord[];
+  /**
+   * `layoutComposed` only: the gating route, the hand-off cause, every
+   * answer by question kind and Instance, and the checked candidates with
+   * the parts each dropped as empty.
+   */
+  readonly composition?: ComposedLayoutRecord;
+}
+
 export interface RunRecord {
   readonly scenarioId: string;
   readonly suite: Suite;
@@ -107,7 +139,7 @@ export interface RunRecord {
     readonly layout?: ArrangedScore;
   };
   readonly stages?: readonly Omit<StageRecord, 'input' | 'output'>[];
-  readonly stageOutputs?: Readonly<Record<string, unknown>>;
+  readonly stageOutputs?: StageOutputs;
   readonly jevCalls?: readonly JevCall[];
   /**
    * Every answer of every validated live Jev reply, deferred stages
@@ -398,6 +430,7 @@ function jevFields(
           layoutId: layout.layoutId,
           tree: layout.tree,
           answers: layout.answers,
+          ...(layout.composition && { composition: layout.composition }),
         },
       }),
     },
@@ -420,6 +453,7 @@ interface LayoutOutput {
   readonly layoutId?: string;
   readonly tree?: readonly TilingNode[];
   readonly answers: readonly AnswerRecord[];
+  readonly composition?: ComposedLayoutRecord;
 }
 
 function flattenAnswers(call: JevCall): RecordedAnswer[] {

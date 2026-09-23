@@ -30,7 +30,7 @@ import { type Arm, jevDeps, resolveArms } from './arms.js';
 import { GRADER_VERSION } from './grader.js';
 import { loadReplay, replayedStages } from './replay.js';
 import { writeReport } from './report.js';
-import { grade, runEval } from './run.js';
+import { grade, type LayoutStageOutput, runEval } from './run.js';
 import { selectScenarios } from './scenarios.js';
 import { VERBALIZER_VERSION } from './verbalize-tree.js';
 
@@ -289,7 +289,7 @@ test('runs jev-ungated-stepwise-preset-inline like the POC today: same stages, s
     ...poc?.stageOutputs,
     jevLayout: {
       source: 'jev',
-      ...(poc?.stageOutputs?.jevLayout as object),
+      ...(poc?.stageOutputs?.jevLayout as LayoutStageOutput),
     },
   });
   expect(stepwise?.answers).toEqual(poc?.answers);
