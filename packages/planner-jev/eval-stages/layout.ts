@@ -85,6 +85,18 @@ export interface LayoutTurnDetail {
 
 type LayoutVariant = (ask: Ask) => Stage<GatedActionPlan, LayoutOutput>;
 
+const COMBINED = {
+  direction: 'redirects_not_stated',
+  sizeFallback: true,
+  wholeBoardExamples: true,
+} as const;
+
+// Chosen from the composed-pairs-combined development records before any
+// run of the variant: the lowest confidence, in steps of 0.05, at and above
+// which every size answer's score lies within a quarter level of its
+// picked level (0.75 lets one stray 0.28 levels).
+const SIZE_SCORE_MINIMUM_CONFIDENCE = 0.8;
+
 /**
  * Layout stage variants by descriptive name, each built as the matching
  * arm in `eval/arms.ts` builds it; the `composed-pairs` variants have no
@@ -92,7 +104,10 @@ type LayoutVariant = (ask: Ask) => Stage<GatedActionPlan, LayoutOutput>;
  * `composed-pairs` (the redirect builds on `composed-pairs-with-direction`),
  * see `ComposedPairsOptions`. `composed-pairs-combined` stacks the fixes
  * that passed the development stage eval: the direction redirect, the size
- * fallback and the whole-board examples.
+ * fallback and the whole-board examples. `composed-pairs-fraction-sizes`,
+ * `composed-pairs-score-when-confident` and `composed-pairs-size-comparisons`
+ * each change how `composed-pairs-combined` asks or reads sizes, see
+ * `SizeAnswers`.
  */
 export const LAYOUT_VARIANTS: Readonly<Record<string, LayoutVariant>> = {
   preset: (ask) => layoutPreset(ask, { describe: 'placements' }),
@@ -134,10 +149,29 @@ export const LAYOUT_VARIANTS: Readonly<Record<string, LayoutVariant>> = {
     }),
   'composed-pairs-combined': (ask) =>
     layoutComposedPairsWithOptions(ask, {
+      ...COMBINED,
       layoutId: 'composed-pairs-combined',
-      direction: 'redirects_not_stated',
-      sizeFallback: true,
-      wholeBoardExamples: true,
+    }),
+  'composed-pairs-fraction-sizes': (ask) =>
+    layoutComposedPairsWithOptions(ask, {
+      ...COMBINED,
+      layoutId: 'composed-pairs-fraction-sizes',
+      sizeAnswers: { kind: 'fractions_within_part' },
+    }),
+  'composed-pairs-score-when-confident': (ask) =>
+    layoutComposedPairsWithOptions(ask, {
+      ...COMBINED,
+      layoutId: 'composed-pairs-score-when-confident',
+      sizeAnswers: {
+        kind: 'score_when_confident',
+        minimumConfidence: SIZE_SCORE_MINIMUM_CONFIDENCE,
+      },
+    }),
+  'composed-pairs-size-comparisons': (ask) =>
+    layoutComposedPairsWithOptions(ask, {
+      ...COMBINED,
+      layoutId: 'composed-pairs-size-comparisons',
+      sizeAnswers: { kind: 'pair_comparisons' },
     }),
   'composed-pairs-lean-state': (ask) =>
     layoutComposedPairsWithOptions(ask, {
