@@ -18,11 +18,28 @@ export const MAX_LEVELS = 10;
 
 const HISTORY_MESSAGES = 6;
 
+/** Any JSON value. */
+export type JsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | readonly JsonValue[]
+  | { readonly [key: string]: JsonValue };
+
+/**
+ * Instructions or an option description: plain text, or a JSON object
+ * TypeSafe reads as structured text, such as
+ * `{ "what": ..., "not_for": ..., "examples": [...] }` for options that are
+ * easily confused.
+ */
+export type QuestionText = string | { readonly [key: string]: JsonValue };
+
 /** One multiple-choice question: the option keys are the criteria's keys. */
 export interface ChoiceQuestion {
   readonly type: 'choice';
-  readonly instructions: string;
-  readonly criteria: Readonly<Record<string, string>>;
+  readonly instructions: QuestionText;
+  readonly criteria: Readonly<Record<string, QuestionText>>;
 }
 
 /** One yes/no question; the reply is the probability of yes. */
@@ -101,8 +118,8 @@ export interface ConfidencePolicy {
 
 /** A multiple-choice question over `criteria`, option key to description. */
 export function choice(
-  instructions: string,
-  criteria: Readonly<Record<string, string>>,
+  instructions: QuestionText,
+  criteria: Readonly<Record<string, QuestionText>>,
 ): ChoiceQuestion {
   return { type: 'choice', instructions, criteria };
 }
