@@ -145,8 +145,10 @@ export function renderStageReport(
   const row = (label: string, cell: (summary: VariantSummary) => string) =>
     rows.push(`| ${label} | ${summaries.map(cell).join(' | ')} |`);
   row('Turns run', (s) => String(s.turns));
-  row('Pass over all turns', (s) => ratio(s.pass));
-  row('Pass over scored turns (tree written)', (s) => ratio(s.passScored));
+  row('Pass (hand-offs and deferrals count as failures)', (s) => ratio(s.pass));
+  row('Pass over trees written (hand-offs and deferrals left out)', (s) =>
+    ratio(s.passScored),
+  );
   row('Handed off', (s) => ratio(s.handedOff));
   row('Deferred', (s) => ratio(s.deferred));
   row('Errors', (s) => ratio(s.errors));

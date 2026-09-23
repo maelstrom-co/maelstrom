@@ -94,9 +94,11 @@ describe('stage eval report', () => {
       { suite: 'development' },
     );
     expect(report).toContain('| Metric | composed | spatial-gate |');
-    expect(report).toContain('| Pass over all turns | 1/4 (25%) | 2/4 (50%) |');
     expect(report).toContain(
-      '| Pass over scored turns (tree written) | 1/2 (50%) | 2/2 (100%) |',
+      '| Pass (hand-offs and deferrals count as failures) | 1/4 (25%) | 2/4 (50%) |',
+    );
+    expect(report).toContain(
+      '| Pass over trees written (hand-offs and deferrals left out) | 1/2 (50%) | 2/2 (100%) |',
     );
     expect(report).toContain('| Handed off | 1/4 (25%) | 2/4 (50%) |');
     expect(report).toContain('| Not applicable scenarios (not run) | 1 | 1 |');

@@ -30,6 +30,7 @@ import {
   firstWrongQuestion,
 } from './composed-attribution.js';
 import { goldInputs } from './gold-inputs.js';
+import { layoutComposedScoreSized } from './layout-composed-score-sized.js';
 import { renderComposedSection } from './layout-report.js';
 import type { Judgement, StageEvalModule } from './stage-eval.js';
 
@@ -76,6 +77,9 @@ export const LAYOUT_VARIANTS: Readonly<Record<string, LayoutVariant>> = {
   'spatial-gate': () => layoutSpatialGate(),
   composed: (ask) => layoutComposed(ask),
   'composed-2-size-levels': (ask) => layoutComposed(ask, { sizeLevels: 2 }),
+  'composed-score-sized': (ask) => layoutComposedScoreSized(ask),
+  'composed-2-size-levels-score-sized': (ask) =>
+    layoutComposedScoreSized(ask, { sizeLevels: 2 }),
   'always-llm': () => layoutAlwaysLlm(),
 };
 
