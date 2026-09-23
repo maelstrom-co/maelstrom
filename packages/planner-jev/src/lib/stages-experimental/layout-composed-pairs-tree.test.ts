@@ -366,6 +366,19 @@ describe('size fallback', () => {
     ]);
   });
 
+  test('writes integer weights that keep every raised share at its minimum', () => {
+    const tree = arrangementTreeAtMinimum(
+      strip,
+      { [calendar]: 0.4, [weather]: 0.4, [tasks]: 0.2 },
+      {
+        [calendar]: { width: 4 / 30, height: 4 / 18 },
+        [weather]: { width: 4 / 30, height: 4 / 18 },
+        [tasks]: { width: 6 / 30, height: 4 / 18 },
+      },
+    );
+    expect(tree?.[0]).toBe('H:7,2');
+  });
+
   test('gives up when the minimums along one split cannot fit together', () => {
     expect(
       arrangementTreeAtMinimum(
