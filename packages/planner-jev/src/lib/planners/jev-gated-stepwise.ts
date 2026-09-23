@@ -6,14 +6,14 @@ import {
 } from '@maelstrom-co/engine';
 
 import { FALLBACK_RETRIES, type Instrument } from '../jev-planner.js';
-import { gatedStepwiseActions } from '../stages-experimental/actions-stepwise-gated.js';
-import { completeWithLayout } from '../stages-experimental/complete.js';
+import { actionsStepwiseGated } from '../stages-experimental/actions-stepwise-gated.js';
+import { completeLayoutInline } from '../stages-experimental/complete-layout-inline.js';
 import type { JevDeps } from '../stages-experimental/deps.js';
-import { menuLayout } from '../stages-experimental/layout-menu.js';
-import { selectWithGates } from '../stages-experimental/select-gate.js';
+import { layoutPreset } from '../stages-experimental/layout-preset.js';
+import { selectGated } from '../stages-experimental/select-gated.js';
 
 /**
- * The stage-library planner with gated select, the gated stepwise actions, the menu
+ * The stage-library planner with gated select, the gated stepwise actions, the preset
  * layout and the completion call, with the LLM fallback.
  */
 export function buildJevGatedStepwisePlanner(
@@ -22,10 +22,10 @@ export function buildJevGatedStepwisePlanner(
 ): Planner {
   return withFallback(
     pipeline(
-      instrument('jevSelect', selectWithGates(deps.ask)),
-      instrument('jevActions', gatedStepwiseActions(deps.ask)),
-      instrument('jevLayout', menuLayout(deps.ask)),
-      instrument('llmComplete', completeWithLayout(deps.llm)),
+      instrument('jevSelect', selectGated(deps.ask)),
+      instrument('jevActions', actionsStepwiseGated(deps.ask)),
+      instrument('jevLayout', layoutPreset(deps.ask)),
+      instrument('llmComplete', completeLayoutInline(deps.llm)),
     ),
     withRetry(deps.fallback, { max: FALLBACK_RETRIES }),
   );

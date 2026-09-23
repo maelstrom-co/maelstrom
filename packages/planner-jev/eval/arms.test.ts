@@ -18,8 +18,8 @@ describe('arm registry', () => {
   test('holds the baseline and the frozen POC by name', () => {
     expect(arms.baseline).toMatchObject({ name: 'baseline', kind: 'baseline' });
     expect(arms['jev-poc']).toMatchObject({ name: 'jev-poc', kind: 'jev-poc' });
-    expect(arms['jev-ungated-stepwise']).toMatchObject({
-      name: 'jev-ungated-stepwise',
+    expect(arms['jev-ungated-stepwise-preset-inline']).toMatchObject({
+      name: 'jev-ungated-stepwise-preset-inline',
       kind: 'jev',
     });
     expect(DEFAULT_ARMS).toEqual(['baseline', 'jev-poc']);
@@ -29,12 +29,12 @@ describe('arm registry', () => {
     expect(Object.keys(arms)).toEqual([
       'baseline',
       'jev-poc',
-      'jev-ungated-stepwise',
-      'jev-ungated-batched',
-      'jev-ungated-batched-per-instance',
-      'jev-gated-stepwise',
-      'jev-gated-batched',
-      'jev-gated-batched-per-instance',
+      'jev-ungated-stepwise-preset-inline',
+      'jev-ungated-batched-preset-inline',
+      'jev-ungated-per-instance-preset-inline',
+      'jev-gated-stepwise-preset-inline',
+      'jev-gated-batched-preset-inline',
+      'jev-gated-per-instance-preset-inline',
     ]);
     for (const [name, arm] of Object.entries(arms)) expect(arm.name).toBe(name);
     expect(
@@ -44,12 +44,12 @@ describe('arm registry', () => {
     ).toEqual({
       baseline: 'poc',
       'jev-poc': 'poc',
-      'jev-ungated-stepwise': 'ungated',
-      'jev-ungated-batched': 'ungated',
-      'jev-ungated-batched-per-instance': 'ungated',
-      'jev-gated-stepwise': 'gated',
-      'jev-gated-batched': 'gated',
-      'jev-gated-batched-per-instance': 'gated',
+      'jev-ungated-stepwise-preset-inline': 'ungated',
+      'jev-ungated-batched-preset-inline': 'ungated',
+      'jev-ungated-per-instance-preset-inline': 'ungated',
+      'jev-gated-stepwise-preset-inline': 'gated',
+      'jev-gated-batched-preset-inline': 'gated',
+      'jev-gated-per-instance-preset-inline': 'gated',
     });
   });
 
@@ -80,7 +80,7 @@ describe('arm registry', () => {
 
   test('rejects an unknown name, listing the known ones', () => {
     expect(() => resolveArms(['baseline', 'jev2'])).toThrow(
-      'unknown arm jev2; known arms: baseline, jev-poc (alias jev), jev-ungated-stepwise, jev-ungated-batched, jev-ungated-batched-per-instance, jev-gated-stepwise, jev-gated-batched, jev-gated-batched-per-instance',
+      'unknown arm jev2; known arms: baseline, jev-poc (alias jev), jev-ungated-stepwise-preset-inline, jev-ungated-batched-preset-inline, jev-ungated-per-instance-preset-inline, jev-gated-stepwise-preset-inline, jev-gated-batched-preset-inline, jev-gated-per-instance-preset-inline',
     );
     expect(() => resolveArms([])).toThrow('at least one arm');
   });

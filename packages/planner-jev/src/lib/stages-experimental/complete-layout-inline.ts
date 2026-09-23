@@ -55,7 +55,7 @@ type HandOffCompletion = Completion & {
  * exactly the visible instances, each at least at its minimum size, or the
  * stage defers with `invalid_layout`.
  */
-export function completeWithLayout(llm: CompletionLlm): CompleteStage {
+export function completeLayoutInline(llm: CompletionLlm): CompleteStage {
   return async (decision, ctx) => {
     const { plan } = decision;
     const input = plan.selection.input;

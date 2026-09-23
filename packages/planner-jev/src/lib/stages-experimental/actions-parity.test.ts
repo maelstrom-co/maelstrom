@@ -15,15 +15,15 @@ import {
 } from '../__test-helpers__/fixtures.js';
 import { scriptedAsk } from '../__test-helpers__/scripted-fetch.js';
 import type { Ask } from '../typesafe-client.js';
-import { batchedActions } from './actions-batched.js';
-import { perInstanceBatchedActions } from './actions-batched-per-instance.js';
-import { stepwiseActions } from './actions-stepwise.js';
+import { actionsBatched } from './actions-batched.js';
+import { actionsBatchedPerInstance } from './actions-batched-per-instance.js';
+import { actionsStepwise } from './actions-stepwise.js';
 import type { ActionsStage } from './types.js';
 
 const STAGES: Readonly<Record<string, (ask: Ask) => ActionsStage>> = {
-  stepwise: stepwiseActions,
-  batched: batchedActions,
-  perInstance: perInstanceBatchedActions,
+  stepwise: actionsStepwise,
+  batched: actionsBatched,
+  perInstance: actionsBatchedPerInstance,
 };
 
 const CASES: readonly (readonly [string, string, Conversation])[] = [

@@ -30,10 +30,10 @@ import {
   scriptedFetch,
   TEST_MODEL,
 } from '../__test-helpers__/scripted-fetch.js';
-import { stepwiseActions } from '../stages-experimental/actions-stepwise.js';
-import { completeWithLayout } from '../stages-experimental/complete.js';
+import { actionsStepwise } from '../stages-experimental/actions-stepwise.js';
+import { completeLayoutInline } from '../stages-experimental/complete-layout-inline.js';
 import { createJevDeps, type JevDeps } from '../stages-experimental/deps.js';
-import { menuLayout } from '../stages-experimental/layout-menu.js';
+import { layoutPreset } from '../stages-experimental/layout-preset.js';
 import { selectUngated } from '../stages-experimental/select-ungated.js';
 import type { LayoutStage } from '../stages-experimental/types.js';
 
@@ -67,7 +67,7 @@ async function run(request: ChartRequest, script: Script) {
   });
   const result = await engine.handle(
     ChartRequestMessage({
-      sessionId: SessionId('jev-ungated-stepwise'),
+      sessionId: SessionId('jev-ungated-stepwise-preset-inline'),
       id: MessageId('turn-1'),
       request,
     }),
@@ -88,9 +88,9 @@ async function run(request: ChartRequest, script: Script) {
   };
 }
 
-/** The jev-ungated-stepwise stages, with the layout stage handing the tree to the LLM. */
+/** The jev-ungated-stepwise-preset-inline stages, with the layout stage handing the tree to the LLM. */
 function handOffPlanner(deps: JevDeps): Planner {
-  const live = menuLayout(deps.ask);
+  const live = layoutPreset(deps.ask);
   const handOff: LayoutStage = async (plan, ctx) => {
     const result = await live(plan, ctx);
     if (isErr(result)) return result;
@@ -100,9 +100,9 @@ function handOffPlanner(deps: JevDeps): Planner {
   return withFallback(
     pipeline(
       selectUngated(deps.ask),
-      stepwiseActions(deps.ask),
+      actionsStepwise(deps.ask),
       handOff,
-      completeWithLayout(deps.llm),
+      completeLayoutInline(deps.llm),
     ),
     withRetry(deps.fallback, { max: 1 }),
   );

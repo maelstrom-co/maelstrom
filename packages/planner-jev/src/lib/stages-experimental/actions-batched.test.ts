@@ -20,8 +20,8 @@ import {
 } from '../__test-helpers__/scripted-fetch.js';
 import { MAX_ACTIONS } from '../stages/jev-actions.js';
 import type { Ask } from '../typesafe-client.js';
-import { batchedActions, MAX_BATCH_QUESTIONS } from './actions-batched.js';
-import { stepwiseActions } from './actions-stepwise.js';
+import { actionsBatched, MAX_BATCH_QUESTIONS } from './actions-batched.js';
+import { actionsStepwise } from './actions-stepwise.js';
 import type { ActionsStage, GateAnswer, Selection2 } from './types.js';
 
 const CALENDAR_AND_WEATHER = {
@@ -67,10 +67,10 @@ const TWO_VIEWS: Conversation = {
   confidence: 0.7,
 };
 
-describe('batchedActions', () => {
+describe('actionsBatched', () => {
   test('asks one question per reachable variant state and depth, deduplicated', async () => {
     const { calls } = await run(
-      batchedActions,
+      actionsBatched,
       selectionOf('show the week', CALENDAR_AND_WEATHER),
       conversation({}),
     );
@@ -120,7 +120,7 @@ describe('batchedActions', () => {
       };
     };
     const { result, calls } = await run(
-      batchedActions,
+      actionsBatched,
       selectionOf('week view, then add standup', CALENDAR_AND_WEATHER),
       script,
     );
@@ -145,7 +145,7 @@ describe('batchedActions', () => {
       { pick: 'calendar-main/showMonth' },
     ].slice(0, count);
     const { result, calls } = await run(
-      batchedActions,
+      actionsBatched,
       selectionOf('views', CALENDAR_AND_WEATHER),
       conversation({ actions: picks }),
     );
@@ -158,12 +158,12 @@ describe('batchedActions', () => {
   test('matches stepwise on the answers it consumes, with one parameter call', async () => {
     const selection = selectionOf('week view, then add standup');
     const stepwise = await run(
-      stepwiseActions,
+      actionsStepwise,
       selection,
       conversation(TWO_VIEWS),
     );
     const batched = await run(
-      batchedActions,
+      actionsBatched,
       selection,
       conversation(TWO_VIEWS),
     );
@@ -188,7 +188,7 @@ describe('batchedActions', () => {
     });
     const selection = selectionOf('views', CALENDAR_AND_WEATHER);
     const { ask, calls } = scriptedAsk(script);
-    const result = await batchedActions(ask, { maxQuestions: 5 })(
+    const result = await actionsBatched(ask, { maxQuestions: 5 })(
       selection,
       makeContext(selection.input),
     );
@@ -211,7 +211,7 @@ describe('batchedActions', () => {
   test('defers batch_cap when not even the first question fits', async () => {
     const selection = selectionOf('views');
     const { ask, calls } = scriptedAsk(conversation({}));
-    const result = await batchedActions(ask, { maxQuestions: 0 })(
+    const result = await actionsBatched(ask, { maxQuestions: 0 })(
       selection,
       makeContext(selection.input),
     );
@@ -221,7 +221,7 @@ describe('batchedActions', () => {
 
   test('defers an unsupported answer on the walked path and a fifth action', async () => {
     const unsupported = await run(
-      batchedActions,
+      actionsBatched,
       selectionOf('fly', CALENDAR_AND_WEATHER),
       conversation({ actions: [{ pick: 'unsupported' }] }),
     );
@@ -229,7 +229,7 @@ describe('batchedActions', () => {
       'jevActions/action_unsupported',
     );
     const tooMany = await run(
-      batchedActions,
+      actionsBatched,
       selectionOf('flip', CALENDAR_AND_WEATHER),
       conversation({
         actions: Array.from({ length: MAX_ACTIONS + 1 }, (_, i) => ({
@@ -243,7 +243,7 @@ describe('batchedActions', () => {
 
   test('drops an action whose parameter is not stated and asks for it', async () => {
     const { result } = await run(
-      batchedActions,
+      actionsBatched,
       selectionOf('set the weather'),
       conversation({
         actions: [
@@ -278,7 +278,7 @@ describe('batchedActions', () => {
     };
     for (const selection of [gated, keepAll(makeResizeRequest(12, 20))]) {
       const { result, calls } = await run(
-        batchedActions,
+        actionsBatched,
         selection,
         conversation({}),
       );
@@ -286,7 +286,7 @@ describe('batchedActions', () => {
       expect(planned(result)).toEqual({ actions: [], asks: [] });
       expect(isOk(result) && result.value.minConfidence).toBe(1);
     }
-    const { result } = await run(batchedActions, gated, conversation({}));
+    const { result } = await run(actionsBatched, gated, conversation({}));
     expect(isOk(result) && result.value.gates).toEqual({ needsActions });
   });
 
@@ -297,7 +297,7 @@ describe('batchedActions', () => {
         needsActions: { answer: 'yes', probability: 0.9, confidence: 0.8 },
       },
     };
-    const { calls } = await run(batchedActions, selection, conversation({}));
+    const { calls } = await run(actionsBatched, selection, conversation({}));
     expect(calls).toHaveLength(1);
   });
 });

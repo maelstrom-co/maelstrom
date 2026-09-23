@@ -29,16 +29,16 @@ const PLANNERS: readonly (readonly [
   (deps: JevDeps) => Planner,
   boolean,
 ])[] = [
-  ['jev-ungated-batched', buildJevUngatedBatchedPlanner, false],
+  ['jev-ungated-batched-preset-inline', buildJevUngatedBatchedPlanner, false],
   [
-    'jev-ungated-batched-per-instance',
+    'jev-ungated-per-instance-preset-inline',
     buildJevUngatedBatchedPerInstancePlanner,
     false,
   ],
-  ['jev-gated-stepwise', buildJevGatedStepwisePlanner, true],
-  ['jev-gated-batched', buildJevGatedBatchedPlanner, true],
+  ['jev-gated-stepwise-preset-inline', buildJevGatedStepwisePlanner, true],
+  ['jev-gated-batched-preset-inline', buildJevGatedBatchedPlanner, true],
   [
-    'jev-gated-batched-per-instance',
+    'jev-gated-per-instance-preset-inline',
     buildJevGatedBatchedPerInstancePlanner,
     true,
   ],

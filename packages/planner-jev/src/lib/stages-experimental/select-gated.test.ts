@@ -14,7 +14,7 @@ import {
 } from '../__test-helpers__/fixtures.js';
 import { scriptedAsk } from '../__test-helpers__/scripted-fetch.js';
 import { runPair } from '../__test-helpers__/stage-pair.js';
-import { GATE_THRESHOLD, selectWithGates } from './select-gate.js';
+import { GATE_THRESHOLD, selectGated } from './select-gated.js';
 import { selectUngated } from './select-ungated.js';
 
 const GATES = {
@@ -27,14 +27,14 @@ function pair(intent: string, script: Conversation) {
   const input = makeInput(makeRequest(intent));
   return runPair(
     selectUngated,
-    selectWithGates,
+    selectGated,
     input,
     input,
     conversation(script),
   );
 }
 
-describe('selectWithGates', () => {
+describe('selectGated', () => {
   test('records every gate answer with its probability and confidence', async () => {
     const { next } = await pair('set the weather to Oslo', { gates: GATES });
     expect(isOk(next.result) && next.result.value.gates).toEqual({
@@ -85,7 +85,7 @@ describe('selectWithGates', () => {
       conversation({ gates: { ...GATES, 'gate/generatedContent': 0.8 } }),
     );
     const input = makeInput(makeRequest('write a poem in my journal'));
-    const result = await selectWithGates(ask)(input, makeContext(input));
+    const result = await selectGated(ask)(input, makeContext(input));
     expect(deferralOf(result)).toBe('jevSelect/scope_unsupported');
     expect(calls).toHaveLength(1);
   });
@@ -95,14 +95,14 @@ describe('selectWithGates', () => {
       conversation({ select: { scope: 'ambiguous' }, gates: GATES }),
     );
     const input = makeInput(makeRequest('do the thing'));
-    const result = await selectWithGates(ask)(input, makeContext(input));
+    const result = await selectGated(ask)(input, makeContext(input));
     expect(deferralOf(result)).toBe('jevSelect/scope_ambiguous');
   });
 
   test('defers grid mode before any call', async () => {
     const { ask, calls } = scriptedAsk(conversation({ gates: GATES }));
     const input = makeInput(makeRequest('hide it', { layoutMode: 'grid' }));
-    const result = await selectWithGates(ask)(input, makeContext(input));
+    const result = await selectGated(ask)(input, makeContext(input));
     expect(deferralOf(result)).toBe('jevSelect/grid_mode');
     expect(calls).toEqual([]);
   });

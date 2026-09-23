@@ -19,8 +19,8 @@ import {
 } from '../__test-helpers__/scripted-fetch.js';
 import { createTypeSafeClient } from '../typesafe-client.js';
 import {
-  type PerInstanceBatchedActionsOptions,
-  perInstanceBatchedActions,
+  type ActionsBatchedPerInstanceOptions,
+  actionsBatchedPerInstance,
 } from './actions-batched-per-instance.js';
 import { MAX_CONCURRENT_CALLS } from './fan-out.js';
 import type { GateAnswer, Selection2 } from './types.js';
@@ -42,10 +42,10 @@ function selectionOf(
 async function run(
   selection: Selection2,
   script: Script,
-  options: PerInstanceBatchedActionsOptions = {},
+  options: ActionsBatchedPerInstanceOptions = {},
 ) {
   const { ask, calls } = scriptedAsk(script);
-  const result = await perInstanceBatchedActions(ask, options)(
+  const result = await actionsBatchedPerInstance(ask, options)(
     selection,
     makeContext(selection.input),
   );
@@ -84,7 +84,7 @@ function answering(choices: Record<string, string>): Script {
   });
 }
 
-describe('perInstanceBatchedActions', () => {
+describe('actionsBatchedPerInstance', () => {
   test('asks three slots per instance and every reachable parameter in one call', async () => {
     const { calls } = await run(
       selectionOf('week view, then add standup', CALENDAR_ONLY),
@@ -351,7 +351,7 @@ describe('perInstanceBatchedActions', () => {
       fetch: traced,
       timeoutMs: 5000,
     });
-    const result = await perInstanceBatchedActions(ask, {
+    const result = await actionsBatchedPerInstance(ask, {
       maxRequestBytes: SPLIT_BYTES,
     })(selection, makeContext(selection.input));
     expect(calls.length).toBeGreaterThan(MAX_CONCURRENT_CALLS);

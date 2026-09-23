@@ -8,7 +8,7 @@ import type { ActionsStage } from './types.js';
  * The POC's one-call-per-step actions, recording the lowest confidence of
  * its answers and forwarding the selection's gates.
  */
-export function stepwiseActions(ask: Ask): ActionsStage {
+export function actionsStepwise(ask: Ask): ActionsStage {
   const stage = jevActions(ask);
   return async (selection, ctx) => {
     const result = await stage(selection, ctx);
