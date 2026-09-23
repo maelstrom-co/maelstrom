@@ -75,3 +75,46 @@ describe('checkPairAnswers', () => {
     ).toBe('calendar-main or tasks-main is not in the reference tree');
   });
 });
+
+describe('checkPairAnswers direction', () => {
+  const withDirection = (choice: string): ComposedPairsRecord => ({
+    ...answered(['left_of', 'left_of', 'above']),
+    direction: { choice, confidence: 1, probabilities: { [choice]: 1 } },
+  });
+
+  test('compares the direction answer with the reference top split', () => {
+    const check = checkPairAnswers(
+      withDirection('stacked'),
+      FOCUS_TREE,
+      ROW,
+      FOCUS_TREE,
+    );
+    expect(typeof check !== 'string' && check.direction).toEqual({
+      wrong: true,
+      notStated: false,
+    });
+  });
+
+  test('reads a not stated direction as the current top split', () => {
+    const check = checkPairAnswers(
+      withDirection('not_stated'),
+      FOCUS_TREE,
+      ROW,
+      FOCUS_TREE,
+    );
+    expect(typeof check !== 'string' && check.direction).toEqual({
+      wrong: false,
+      notStated: true,
+    });
+  });
+
+  test('records no direction for a call that did not ask it', () => {
+    const check = checkPairAnswers(
+      answered(['left_of', 'left_of', 'above']),
+      FOCUS_TREE,
+      ROW,
+      FOCUS_TREE,
+    );
+    expect(typeof check !== 'string' && check.direction).toBeUndefined();
+  });
+});

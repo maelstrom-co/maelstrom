@@ -4,6 +4,9 @@ import type { ComposedPairsRecord } from '../src/lib/stages-experimental/layout-
 import {
   NOT_STATED,
   type PairRelation,
+  TOP_DIRECTIONS,
+  type TopDirection,
+  treeDirection,
   treeRelation,
 } from '../src/lib/stages-experimental/layout-composed-pairs-tree.js';
 
@@ -19,6 +22,15 @@ export interface PairsAnswerCheck {
   readonly wrongInTree?: readonly string[];
   /** Whether a candidate relates every answered pair as the reference does. */
   readonly referenceInCandidates: boolean;
+  /** The top-level direction answer against the reference's top split; absent when it was not asked. */
+  readonly direction?: DirectionCheck;
+}
+
+/** How a top-level direction answer compares with the reference tree's top split. */
+export interface DirectionCheck {
+  /** Whether the answer, with not stated read as the current tree's top split, differs from the reference's. */
+  readonly wrong: boolean;
+  readonly notStated: boolean;
 }
 
 /**
@@ -68,7 +80,22 @@ export function checkPairAnswers(
     referenceInCandidates: record.candidates.some(
       (candidate) => differing(candidate.tree).length === 0,
     ),
+    ...(record.direction && {
+      direction: checkDirection(record.direction.choice, reference, current),
+    }),
   };
+}
+
+function checkDirection(
+  choice: string,
+  reference: readonly TilingNode[],
+  current: readonly TilingNode[],
+): DirectionCheck {
+  const notStated = choice === NOT_STATED;
+  const stated = notStated
+    ? treeDirection(current)
+    : TOP_DIRECTIONS[choice as TopDirection];
+  return { wrong: stated !== treeDirection(reference), notStated };
 }
 
 function pairKey(first: string, second: string): string {

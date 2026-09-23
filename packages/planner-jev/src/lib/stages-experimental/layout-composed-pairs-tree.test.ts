@@ -9,6 +9,7 @@ import {
   NOT_STATED,
   type PairAnswer,
   rankArrangements,
+  treeDirection,
   treeRelation,
 } from './layout-composed-pairs-tree.js';
 
@@ -152,5 +153,80 @@ describe('rankArrangements', () => {
       best && arrangementRelation(best.arrangement, calendar, weather),
     ).toBe('left_of');
     expect(Number.isFinite(best?.score)).toBe(true);
+  });
+});
+
+describe('top-level direction', () => {
+  const sideBySide = [
+    'V:1,1,1',
+    'ID:calendar-main',
+    'ID:weather-main',
+    'ID:tasks-main',
+  ] as TilingNode[];
+  const leaning = (first: InstanceId, second: InstanceId): PairAnswer => ({
+    first,
+    second,
+    probabilities: {
+      left_of: 0.04,
+      above: 0.39,
+      below: 0.01,
+      not_stated: 0.56,
+    },
+  });
+  const leaningPairs = [
+    leaning(calendar, weather),
+    leaning(calendar, tasks),
+    leaning(weather, tasks),
+  ];
+
+  test('reads the top split of a tree', () => {
+    expect(treeDirection(sideBySide)).toBe('V');
+    expect(treeDirection(['H', 'ID:calendar-main', 'ID:weather-main'])).toBe(
+      'H',
+    );
+    expect(treeDirection(['ID:calendar-main'])).toBeUndefined();
+    expect(treeDirection([])).toBeUndefined();
+  });
+
+  test('a stacked answer turns the top split stacked over pairs that lean to the current tree', () => {
+    const [withoutDirection] = rankArrangements(
+      THREE,
+      leaningPairs,
+      sideBySide,
+    );
+    expect(withoutDirection?.arrangement.axis).toBe('V');
+    const [best] = rankArrangements(THREE, leaningPairs, sideBySide, {
+      side_by_side: 0.05,
+      stacked: 0.85,
+      not_stated: 0.1,
+    });
+    expect(best?.arrangement.axis).toBe('H');
+    expect(best && arrangementRelation(best.arrangement, calendar, tasks)).toBe(
+      'above',
+    );
+  });
+
+  test('a not stated direction votes for the current top split', () => {
+    const [best] = rankArrangements(THREE, leaningPairs, sideBySide, {
+      side_by_side: 0.02,
+      stacked: 0.08,
+      not_stated: 0.9,
+    });
+    expect(best?.arrangement.axis).toBe('V');
+  });
+
+  test("adds the log probability of each tree's top direction to its score", () => {
+    const pairs = [
+      certain(calendar, weather, 'left_of'),
+      certain(calendar, tasks, 'left_of'),
+      certain(weather, tasks, 'left_of'),
+    ];
+    const [plain] = rankArrangements(THREE, pairs, []);
+    const [directed] = rankArrangements(THREE, pairs, [], {
+      side_by_side: 0.5,
+      stacked: 0.5,
+    });
+    expect(directed?.arrangement).toEqual(plain?.arrangement);
+    expect(directed?.score).toBeCloseTo((plain?.score ?? 0) + Math.log(0.5));
   });
 });

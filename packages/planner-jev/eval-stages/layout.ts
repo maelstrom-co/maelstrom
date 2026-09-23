@@ -16,6 +16,7 @@ import {
 import {
   type ComposedPairsRecord,
   layoutComposedPairs,
+  layoutComposedPairsWithDirection,
 } from '../src/lib/stages-experimental/layout-composed-pairs.js';
 import { layoutPreset } from '../src/lib/stages-experimental/layout-preset.js';
 import { layoutPresetOrLlm } from '../src/lib/stages-experimental/layout-preset-or-llm.js';
@@ -75,7 +76,7 @@ export interface LayoutTurnDetail {
   readonly answerCheck?: ComposedAnswerCheck | { readonly unavailable: string };
   /** `layoutComposed` turns that did not pass only. */
   readonly miss?: ComposedMiss;
-  /** `layoutComposedPairs` only. */
+  /** `layoutComposedPairs` and `layoutComposedPairsWithDirection` only. */
   readonly pairwise?: ComposedPairsRecord;
   /** `layoutComposedPairs` calls only: every pair against the scenario's reference tree, or why it cannot be compared. */
   readonly pairCheck?: PairsAnswerCheck | { readonly unavailable: string };
@@ -85,7 +86,8 @@ type LayoutVariant = (ask: Ask) => Stage<GatedActionPlan, LayoutOutput>;
 
 /**
  * Layout stage variants by descriptive name, each built as the matching
- * arm in `eval/arms.ts` builds it; `composed-pairs` has no planner arm.
+ * arm in `eval/arms.ts` builds it; `composed-pairs` and
+ * `composed-pairs-with-direction` have no planner arm.
  */
 export const LAYOUT_VARIANTS: Readonly<Record<string, LayoutVariant>> = {
   preset: (ask) => layoutPreset(ask, { describe: 'placements' }),
@@ -93,6 +95,8 @@ export const LAYOUT_VARIANTS: Readonly<Record<string, LayoutVariant>> = {
   'spatial-gate': () => layoutSpatialGate(),
   composed: (ask) => layoutComposed(ask),
   'composed-pairs': (ask) => layoutComposedPairs(ask),
+  'composed-pairs-with-direction': (ask) =>
+    layoutComposedPairsWithDirection(ask),
   'composed-2-size-levels': (ask) => layoutComposed(ask, { sizeLevels: 2 }),
   'composed-score-sized': (ask) => layoutComposedScoreSized(ask),
   'composed-2-size-levels-score-sized': (ask) =>
