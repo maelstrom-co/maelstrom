@@ -79,24 +79,32 @@ const ARMS: readonly Arm[] = [
       ),
   },
   stageLibraryArm(
-    'jev-ungated-stepwise',
+    'jev-ungated-stepwise-preset-inline',
     'ungated',
     buildJevUngatedStepwisePlanner,
   ),
   stageLibraryArm(
-    'jev-ungated-batched',
+    'jev-ungated-batched-preset-inline',
     'ungated',
     buildJevUngatedBatchedPlanner,
   ),
   stageLibraryArm(
-    'jev-ungated-batched-per-instance',
+    'jev-ungated-per-instance-preset-inline',
     'ungated',
     buildJevUngatedBatchedPerInstancePlanner,
   ),
-  stageLibraryArm('jev-gated-stepwise', 'gated', buildJevGatedStepwisePlanner),
-  stageLibraryArm('jev-gated-batched', 'gated', buildJevGatedBatchedPlanner),
   stageLibraryArm(
-    'jev-gated-batched-per-instance',
+    'jev-gated-stepwise-preset-inline',
+    'gated',
+    buildJevGatedStepwisePlanner,
+  ),
+  stageLibraryArm(
+    'jev-gated-batched-preset-inline',
+    'gated',
+    buildJevGatedBatchedPlanner,
+  ),
+  stageLibraryArm(
+    'jev-gated-per-instance-preset-inline',
     'gated',
     buildJevGatedBatchedPerInstancePlanner,
   ),

@@ -20,9 +20,9 @@ import {
   TEST_MODEL,
 } from '../src/lib/__test-helpers__/scripted-fetch.js';
 import { FALLBACK_RETRIES } from '../src/lib/jev-planner.js';
-import { stepwiseActions } from '../src/lib/stages-experimental/actions-stepwise.js';
-import { completeWithLayout } from '../src/lib/stages-experimental/complete.js';
-import { menuLayout } from '../src/lib/stages-experimental/layout-menu.js';
+import { actionsStepwise } from '../src/lib/stages-experimental/actions-stepwise.js';
+import { completeLayoutInline } from '../src/lib/stages-experimental/complete-layout-inline.js';
+import { layoutPreset } from '../src/lib/stages-experimental/layout-preset.js';
 import { selectUngated } from '../src/lib/stages-experimental/select-ungated.js';
 import type { LayoutStage } from '../src/lib/stages-experimental/types.js';
 import type { Ask } from '../src/lib/typesafe-client.js';
@@ -197,7 +197,7 @@ test('records the gate answers of a gated arm and whether the scenario expects a
       },
     }),
     ['quoted-location'],
-    { arms: resolveArms(['jev-gated-batched']) },
+    { arms: resolveArms(['jev-gated-batched-preset-inline']) },
   );
   expect(gated?.score?.pass).toBe(true);
   expect(gated?.expectsActions).toBe(true);
@@ -275,11 +275,11 @@ test('replays recorded upstream stages and runs the rest live', async () => {
   expect(jev?.jevCalls?.map((call) => call.stage)).toEqual(['jevLayout']);
 });
 
-test('runs jev-ungated-stepwise like the POC today: same stages, scores and calls', async () => {
+test('runs jev-ungated-stepwise-preset-inline like the POC today: same stages, scores and calls', async () => {
   mockProvider();
   const out = await outDir();
   const [poc, stepwise] = await run(tokyo, ['quoted-location'], {
-    arms: resolveArms(['jev-poc', 'jev-ungated-stepwise']),
+    arms: resolveArms(['jev-poc', 'jev-ungated-stepwise-preset-inline']),
     out,
   });
   expect(stepwise?.kind).toBe('jev');
@@ -302,14 +302,19 @@ test('runs jev-ungated-stepwise like the POC today: same stages, scores and call
   expect(stepwise?.tree).toEqual(poc?.tree);
   const stageFile = JSON.parse(
     await readFile(
-      join(out, 'stages', 'jev-ungated-stepwise', 'quoted-location-1.json'),
+      join(
+        out,
+        'stages',
+        'jev-ungated-stepwise-preset-inline',
+        'quoted-location-1.json',
+      ),
       'utf8',
     ),
   );
   expect(stageFile.stages[2].output.source).toBe('jev');
 });
 
-test('replays a jev-poc selection into jev-ungated-stepwise', async () => {
+test('replays a jev-poc selection into jev-ungated-stepwise-preset-inline', async () => {
   mockProvider();
   const out = await outDir();
   await run(tokyo, ['quoted-location'], { out });
@@ -322,7 +327,7 @@ test('replays a jev-poc selection into jev-ungated-stepwise', async () => {
     }) satisfies Script,
     ['quoted-location'],
     {
-      arms: resolveArms(['jev-ungated-stepwise']),
+      arms: resolveArms(['jev-ungated-stepwise-preset-inline']),
       replay: {
         source: await loadReplay(out, 'jev-poc'),
         stages: replayedStages('select'),
@@ -352,18 +357,20 @@ test('refuses to replay jev-poc action plans into stage-library arms before any 
   const source = await loadReplay(out, 'jev-poc');
   await expect(
     run(noCalls, ['quoted-location'], {
-      arms: resolveArms(['jev-ungated-stepwise']),
+      arms: resolveArms(['jev-ungated-stepwise-preset-inline']),
       replay: { source, stages: replayedStages('actions') },
     }),
   ).rejects.toThrow(
-    '- jev-ungated-stepwise: jevActions has no minConfidence (1 turns: quoted-location #1)',
+    '- jev-ungated-stepwise-preset-inline: jevActions has no minConfidence (1 turns: quoted-location #1)',
   );
   await expect(
     run(noCalls, ['quoted-location'], {
-      arms: resolveArms(['jev-gated-batched']),
+      arms: resolveArms(['jev-gated-batched-preset-inline']),
       replay: { source, stages: replayedStages('select') },
     }),
-  ).rejects.toThrow('- jev-gated-batched: jevSelect has no complete gates');
+  ).rejects.toThrow(
+    '- jev-gated-batched-preset-inline: jevSelect has no complete gates',
+  );
   expect(mockChat).not.toHaveBeenCalled();
 });
 
@@ -410,7 +417,7 @@ const handOffArm: Arm = {
   kind: 'jev',
   build: (deps) => {
     const jev = jevDeps(deps);
-    const menu = menuLayout(jev.ask);
+    const menu = layoutPreset(jev.ask);
     const handOff: LayoutStage = async (plan, ctx) => {
       const result = await menu(plan, ctx);
       if (isErr(result)) return result;
@@ -420,9 +427,9 @@ const handOffArm: Arm = {
     return withFallback(
       pipeline(
         deps.instrument('jevSelect', selectUngated(jev.ask)),
-        deps.instrument('jevActions', stepwiseActions(jev.ask)),
+        deps.instrument('jevActions', actionsStepwise(jev.ask)),
         deps.instrument('jevLayout', handOff),
-        deps.instrument('llmComplete', completeWithLayout(jev.llm)),
+        deps.instrument('llmComplete', completeLayoutInline(jev.llm)),
       ),
       withRetry(jev.fallback, { max: FALLBACK_RETRIES }),
     );

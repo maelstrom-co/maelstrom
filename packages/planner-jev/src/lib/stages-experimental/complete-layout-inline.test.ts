@@ -24,7 +24,7 @@ import {
 } from '../__test-helpers__/mock-chat.js';
 import { llmComplete } from '../stages/llm-complete.js';
 import type { JevLayoutPlan, PendingParameter } from '../types.js';
-import { completeWithLayout } from './complete.js';
+import { completeLayoutInline } from './complete-layout-inline.js';
 import type { LayoutDecision } from './types.js';
 
 afterEach(() => mockChat.mockReset());
@@ -56,7 +56,7 @@ async function run(
   decision: LayoutDecision,
   overrides: { validate?: ValidateCandidate; signal?: AbortSignal } = {},
 ) {
-  return completeWithLayout({ adapter: dummyAdapter })(
+  return completeLayoutInline({ adapter: dummyAdapter })(
     decision,
     makeContext(decision.plan.selection.input, overrides),
   );
@@ -67,7 +67,7 @@ const hidden = () =>
     decisions: { 'tasks-main': 'hide' },
   });
 
-describe('completeWithLayout', () => {
+describe('completeLayoutInline', () => {
   test('with a tree, sends the llmComplete call and ships its candidate', async () => {
     const layoutPlan = completionPlan(
       makeRequest('weather for the capital of Japan'),
@@ -209,7 +209,7 @@ describe('completeWithLayout', () => {
       actions: [planned('weather-main/setLocation', {}, [LOCATION])],
     });
     const { logger, entries } = spyLogger();
-    const result = await completeWithLayout({ adapter: dummyAdapter })(
+    const result = await completeLayoutInline({ adapter: dummyAdapter })(
       decisionOf(layoutPlan),
       makeContext(layoutPlan.plan.selection.input, { logger }),
     );

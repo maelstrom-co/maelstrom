@@ -18,8 +18,8 @@ import {
   scriptedAsk,
 } from '../__test-helpers__/scripted-fetch.js';
 import type { Ask } from '../typesafe-client.js';
-import { stepwiseActions } from './actions-stepwise.js';
-import { gatedStepwiseActions } from './actions-stepwise-gated.js';
+import { actionsStepwise } from './actions-stepwise.js';
+import { actionsStepwiseGated } from './actions-stepwise-gated.js';
 import type { ActionsStage, GateAnswer, Selection2 } from './types.js';
 
 const TOKYO: Conversation = {
@@ -44,14 +44,14 @@ async function run(
   return { result, calls };
 }
 
-describe('gatedStepwiseActions', () => {
+describe('actionsStepwiseGated', () => {
   test('makes no call and plans no actions when the gate answers no', async () => {
     const selection: Selection2 = {
       ...keepAll(makeRequest('put the map on the left')),
       gates: { needsActions: NO },
     };
     const { result, calls } = await run(
-      gatedStepwiseActions,
+      actionsStepwiseGated,
       selection,
       conversation(TOKYO),
     );
@@ -65,7 +65,7 @@ describe('gatedStepwiseActions', () => {
 
   test('makes no call on a resize-only turn', async () => {
     const { result, calls } = await run(
-      gatedStepwiseActions,
+      actionsStepwiseGated,
       keepAll(makeResizeRequest(12, 20)),
       conversation({}),
     );
@@ -79,11 +79,11 @@ describe('gatedStepwiseActions', () => {
       gates: { needsActions: YES },
     };
     const gated = await run(
-      gatedStepwiseActions,
+      actionsStepwiseGated,
       selection,
       conversation(TOKYO),
     );
-    const control = await run(stepwiseActions, selection, conversation(TOKYO));
+    const control = await run(actionsStepwise, selection, conversation(TOKYO));
     expect(gated.calls).toEqual(control.calls);
     expect(plain(gated.result)).toEqual(plain(control.result));
     expect(isOk(gated.result) && plain(gated.result.value.actions)).toEqual([
@@ -99,11 +99,11 @@ describe('gatedStepwiseActions', () => {
   test('plans the stepwise actions when the selection carries no gates', async () => {
     const selection = keepAll(makeRequest('show the weather in "Tokyo"'));
     const gated = await run(
-      gatedStepwiseActions,
+      actionsStepwiseGated,
       selection,
       conversation(TOKYO),
     );
-    const control = await run(stepwiseActions, selection, conversation(TOKYO));
+    const control = await run(actionsStepwise, selection, conversation(TOKYO));
     expect(gated.calls).toEqual(control.calls);
     expect(plain(gated.result)).toEqual(plain(control.result));
   });

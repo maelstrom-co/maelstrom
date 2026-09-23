@@ -47,15 +47,15 @@ Run the Engine with `retry: false`. The Jev pipeline is never re-run whole: `llm
 | Stage | Replaces | What it does |
 | --- | --- | --- |
 | `selectUngated` | `jevSelect` | The POC's selection, unchanged. |
-| `selectWithGates` | `jevSelect` | The POC's selection plus three yes/no (`noul`) questions in the same call: `needsActions` (the intent asks for a view change or a content edit, not only showing, hiding, removing or arranging), `generatedContent` (the intent asks for content that must be invented or fetched) and `spatial` (the intent states where something goes or how large it is). A gate answers yes at a probability of 0.5 or more; every probability is kept on the selection's `gates`. A generated-content yes defers `jevSelect/scope_unsupported`. `spatial` is recorded for later layout stages. |
-| `stepwiseActions` | `jevActions` | The POC's actions, one call per step plus one per parameterised action. |
-| `gatedStepwiseActions` | `jevActions` | `stepwiseActions` behind the `needsActions` gate: a gated selection answering no plans no actions and makes no call, anything else runs the stepwise stage unchanged. |
-| `batchedActions` | `jevActions` | State-keyed batching, two calls. The first asks, for every variant state the request can reach by transitions, which action comes next at each depth up to the action limit (`action/0`, then `action/<depth>@<state>`, the state named by the instances whose view changed, `same` when none did). Questions are keyed by state, not by the actions that led there, so two orders reaching the same views share a question. Code walks the answers from the current views. Past `MAX_BATCH_QUESTIONS` (48) whole depths are left out and asked one call per step. The second call binds every chosen action's parameters at once, with the same parameter questions as the stepwise stage. |
-| `perInstanceBatchedActions` | `jevActions` | Per-instance batching, one call: for each instance, slot 1 (its first action, `none` or `unsupported`), slot 2 (its second action, each option labelled with the view slot 1 leaves it in, for example `week:addEvent`) and slot 3 (never planned: an answer naming an action defers `jevActions/action_limit`, the rest is measurement), plus the parameters of every action any slot could pick. Code takes slot 2 only when its label matches the view slot 1's answer leads to; any other label defers `jevActions/premise_mismatch`. Parameter answers off the walked path are discarded. |
-| `menuLayout` | `jevLayout` | The POC's choice over precomputed layouts. |
-| `completeWithLayout` | `llmComplete` | The POC's completion call; when a layout stage hands the layout off, the LLM also writes the tree. |
+| `selectGated` | `jevSelect` | The POC's selection plus three yes/no (`noul`) questions in the same call: `needsActions` (the intent asks for a view change or a content edit, not only showing, hiding, removing or arranging), `generatedContent` (the intent asks for content that must be invented or fetched) and `spatial` (the intent states where something goes or how large it is). A gate answers yes at a probability of 0.5 or more; every probability is kept on the selection's `gates`. A generated-content yes defers `jevSelect/scope_unsupported`. `spatial` is recorded for later layout stages. |
+| `actionsStepwise` | `jevActions` | The POC's actions, one call per step plus one per parameterised action. |
+| `actionsStepwiseGated` | `jevActions` | `actionsStepwise` behind the `needsActions` gate: a gated selection answering no plans no actions and makes no call, anything else runs the stepwise stage unchanged. |
+| `actionsBatched` | `jevActions` | State-keyed batching, two calls. The first asks, for every variant state the request can reach by transitions, which action comes next at each depth up to the action limit (`action/0`, then `action/<depth>@<state>`, the state named by the instances whose view changed, `same` when none did). Questions are keyed by state, not by the actions that led there, so two orders reaching the same views share a question. Code walks the answers from the current views. Past `MAX_BATCH_QUESTIONS` (48) whole depths are left out and asked one call per step. The second call binds every chosen action's parameters at once, with the same parameter questions as the stepwise stage. |
+| `actionsBatchedPerInstance` | `jevActions` | Per-instance batching, one call: for each instance, slot 1 (its first action, `none` or `unsupported`), slot 2 (its second action, each option labelled with the view slot 1 leaves it in, for example `week:addEvent`) and slot 3 (never planned: an answer naming an action defers `jevActions/action_limit`, the rest is measurement), plus the parameters of every action any slot could pick. Code takes slot 2 only when its label matches the view slot 1's answer leads to; any other label defers `jevActions/premise_mismatch`. Parameter answers off the walked path are discarded. |
+| `layoutPreset` | `jevLayout` | The POC's choice over precomputed layouts. |
+| `completeLayoutInline` | `llmComplete` | The POC's completion call; when a layout stage hands the layout off, the LLM also writes the tree. |
 
-Both batched stages and `gatedStepwiseActions` skip their call when a gated selection's `needsActions` answers no, and plan no actions on a resize-only turn. Both batched stages check the planned actions against the simulated views and defer `jevActions/simulation_failed` when a dropped action leaves a later one invalid.
+Both batched stages and `actionsStepwiseGated` skip their call when a gated selection's `needsActions` answers no, and plan no actions on a resize-only turn. Both batched stages check the planned actions against the simulated views and defer `jevActions/simulation_failed` when a dropped action leaves a later one invalid.
 
 The per-instance stage trades against the state-keyed one:
 
@@ -64,7 +64,22 @@ The per-instance stage trades against the state-keyed one:
 - Slot 2 is answered without seeing slot 1's answer, since questions in one call are answered independently. The premise labels let code pick the matching branch and defer the rest, so a mismatch costs a fallback, not a wrong plan.
 - At most two actions per instance are planned. A third requested action on one instance defers `jevActions/action_limit` to the fallback rather than shipping the first two on their own; slot 3's answers measure how often that happens.
 
-The named planners cross the two select stages with the three actions stages, all with `menuLayout` and `completeWithLayout`; the gated arms take `gatedStepwiseActions` where the ungated ones take `stepwiseActions`: `jev-ungated-stepwise`, `jev-ungated-batched`, `jev-ungated-batched-per-instance`, `jev-gated-stepwise`, `jev-gated-batched` and `jev-gated-batched-per-instance`.
+The named planners cross the two select stages with the three actions stages, all with `layoutPreset` and `completeLayoutInline`; the gated arms take `actionsStepwiseGated` where the ungated ones take `actionsStepwise`: `jev-ungated-stepwise-preset-inline`, `jev-ungated-batched-preset-inline`, `jev-ungated-per-instance-preset-inline`, `jev-gated-stepwise-preset-inline`, `jev-gated-batched-preset-inline` and `jev-gated-per-instance-preset-inline`.
+
+### Arm names renamed for Phase 5
+
+Phase 5 renamed the stage-library arms to carry all four pipeline segments (`jev-<select>-<actions>-<layout>-<complete>`), so later layout and completion variants read consistently alongside these. `jev-poc` and `baseline` keep their names.
+
+| Old arm name | New arm name |
+| --- | --- |
+| `jev-ungated-stepwise` | `jev-ungated-stepwise-preset-inline` |
+| `jev-ungated-batched` | `jev-ungated-batched-preset-inline` |
+| `jev-ungated-batched-per-instance` | `jev-ungated-per-instance-preset-inline` |
+| `jev-gated-stepwise` | `jev-gated-stepwise-preset-inline` |
+| `jev-gated-batched` | `jev-gated-batched-preset-inline` |
+| `jev-gated-batched-per-instance` | `jev-gated-per-instance-preset-inline` |
+
+Phase 3 and 4 records and `tmp/` runs keep the old arm names: nothing under `tmp/` was rewritten. `--replay-arm` still works with those old directory names, since it only names the recording directory to load.
 
 ## Environment (demo)
 
@@ -139,7 +154,7 @@ OPENAI_API_KEY=... TYPESAFE_API_KEY=... JEV_MODEL=jev-1.13.0 \
 | Flag | Default | Meaning |
 | --- | --- | --- |
 | `--suite` | `all` | `development`, `holdout` or `all`. |
-| `--arm` | `baseline`, `jev-poc` | A named arm from `eval/arms.ts`; repeat the flag for several. Columns follow the order given, and a repeated name runs once. `jev` is an alias of `jev-poc`. The stage-library arms (`jev-ungated-stepwise` and the other planners listed under Stage library) compose `src/lib/stages-experimental/`. |
+| `--arm` | `baseline`, `jev-poc` | A named arm from `eval/arms.ts`; repeat the flag for several. Columns follow the order given, and a repeated name runs once. `jev` is an alias of `jev-poc`. The stage-library arms (`jev-ungated-stepwise-preset-inline` and the other planners listed under Stage library) compose `src/lib/stages-experimental/`. |
 | `--repeats` | `3` | Runs per scenario and arm. |
 | `--case` | every case | A scenario id; repeat the flag for several. |
 | `--model` | the demo's default | OpenAI model for the baseline, `llmComplete` and the fallback. |

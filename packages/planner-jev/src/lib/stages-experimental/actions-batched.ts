@@ -42,10 +42,10 @@ import type { ActionsStage, Selection2 } from './types.js';
 
 const STAGE = 'jevActions';
 
-/** Questions the first call of {@link batchedActions} asks at most. */
+/** Questions the first call of {@link actionsBatched} asks at most. */
 export const MAX_BATCH_QUESTIONS = 48;
 
-export interface BatchedActionsOptions {
+export interface ActionsBatchedOptions {
   readonly maxQuestions?: number;
 }
 
@@ -59,9 +59,9 @@ export interface BatchedActionsOptions {
  * resize-only request, or a `needsActions` gate answering no, plans no
  * actions and makes no call.
  */
-export function batchedActions(
+export function actionsBatched(
   ask: Ask,
-  options: BatchedActionsOptions = {},
+  options: ActionsBatchedOptions = {},
 ): ActionsStage {
   const maxQuestions = options.maxQuestions ?? MAX_BATCH_QUESTIONS;
   return async (selection, ctx) => {

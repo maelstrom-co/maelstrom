@@ -36,7 +36,7 @@ import type { ActionsStage, Selection2 } from './types.js';
 const STAGE = 'jevActions';
 
 /** Overrides for the call the stage splits its questions over. */
-export type PerInstanceBatchedActionsOptions = FanOutOptions;
+export type ActionsBatchedPerInstanceOptions = FanOutOptions;
 
 /**
  * Plans each instance's actions in one call: numbered slots per instance,
@@ -54,9 +54,9 @@ export type PerInstanceBatchedActionsOptions = FanOutOptions;
  * request, or a `needsActions` gate answering no, plans no actions and makes
  * no call.
  */
-export function perInstanceBatchedActions(
+export function actionsBatchedPerInstance(
   ask: Ask,
-  options: PerInstanceBatchedActionsOptions = {},
+  options: ActionsBatchedPerInstanceOptions = {},
 ): ActionsStage {
   return async (selection, ctx) => {
     const { request } = selection.input;

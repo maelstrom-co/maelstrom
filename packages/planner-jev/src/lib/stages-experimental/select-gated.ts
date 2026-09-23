@@ -32,9 +32,7 @@ const GATES = Object.keys(GATE_QUESTIONS) as (keyof SelectionGates)[];
  * defers as unsupported; the other two travel on the selection for later
  * stages.
  */
-export function selectWithGates(
-  ask: Ask,
-): Stage<PlanningInput, GatedSelection> {
+export function selectGated(ask: Ask): Stage<PlanningInput, GatedSelection> {
   return async (input, ctx) => {
     let reply: Reply | undefined;
     const askWithGates: Ask = async (stage, evaluation, callCtx) => {

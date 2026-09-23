@@ -13,7 +13,7 @@ import {
 } from '../__test-helpers__/fixtures.js';
 import { runPair } from '../__test-helpers__/stage-pair.js';
 import { jevActions } from '../stages/jev-actions.js';
-import { stepwiseActions } from './actions-stepwise.js';
+import { actionsStepwise } from './actions-stepwise.js';
 import type { GateAnswer, Selection2 } from './types.js';
 
 const TOKYO: Conversation = {
@@ -29,7 +29,7 @@ const TOKYO: Conversation = {
 function pair(selection: Selection2, script: Conversation) {
   return runPair(
     jevActions,
-    stepwiseActions,
+    actionsStepwise,
     selection,
     selection.input,
     conversation(script),
@@ -40,7 +40,7 @@ function selectionOf(request: ChartRequest): Selection2 {
   return keepAll(request);
 }
 
-describe('stepwiseActions', () => {
+describe('actionsStepwise', () => {
   test('sends the POC action calls and adds the lowest answer confidence', async () => {
     const { poc, next } = await pair(
       selectionOf(makeRequest('show the weather in Tokyo')),

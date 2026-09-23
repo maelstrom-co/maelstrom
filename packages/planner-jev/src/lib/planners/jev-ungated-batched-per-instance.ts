@@ -6,14 +6,14 @@ import {
 } from '@maelstrom-co/engine';
 
 import { FALLBACK_RETRIES, type Instrument } from '../jev-planner.js';
-import { perInstanceBatchedActions } from '../stages-experimental/actions-batched-per-instance.js';
-import { completeWithLayout } from '../stages-experimental/complete.js';
+import { actionsBatchedPerInstance } from '../stages-experimental/actions-batched-per-instance.js';
+import { completeLayoutInline } from '../stages-experimental/complete-layout-inline.js';
 import type { JevDeps } from '../stages-experimental/deps.js';
-import { menuLayout } from '../stages-experimental/layout-menu.js';
+import { layoutPreset } from '../stages-experimental/layout-preset.js';
 import { selectUngated } from '../stages-experimental/select-ungated.js';
 
 /**
- * The stage-library planner with ungated select, per-instance batched actions, the menu layout and the
+ * The stage-library planner with ungated select, per-instance batched actions, the preset layout and the
  * completion call, with the LLM fallback.
  */
 export function buildJevUngatedBatchedPerInstancePlanner(
@@ -23,9 +23,9 @@ export function buildJevUngatedBatchedPerInstancePlanner(
   return withFallback(
     pipeline(
       instrument('jevSelect', selectUngated(deps.ask)),
-      instrument('jevActions', perInstanceBatchedActions(deps.ask)),
-      instrument('jevLayout', menuLayout(deps.ask)),
-      instrument('llmComplete', completeWithLayout(deps.llm)),
+      instrument('jevActions', actionsBatchedPerInstance(deps.ask)),
+      instrument('jevLayout', layoutPreset(deps.ask)),
+      instrument('llmComplete', completeLayoutInline(deps.llm)),
     ),
     withRetry(deps.fallback, { max: FALLBACK_RETRIES }),
   );
