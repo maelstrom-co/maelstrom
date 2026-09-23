@@ -224,6 +224,36 @@ bun packages/planner-jev/eval/cli.ts --suite development --arm jev-gated-per-ins
 
 `summary.json` records `stopAfter` and `goldInputs` in the run's settings.
 
+### Stage evals
+
+`eval-stages/` tests one pipeline stage on its own, so a stage can be tuned in minutes before a full-planner run. It calls the stage function directly on the input a scenario's expectation implies: no planner, no Engine, no replay and no LLM. Only the layout stage is covered so far. Use it while changing a stage's questions, options or code; use the full-planner eval above for the final comparison of whole planners, since a stage that scores well alone can still lose to the completion call or the fallback.
+
+```sh
+# from the workspace root, so Bun loads .env (TYPESAFE_API_KEY and JEV_MODEL; no OpenAI key is needed)
+bun packages/planner-jev/eval-stages/cli.ts --stage layout --variant composed --variant composed-2-size-levels --suite development --repeats 3 --out tmp/planner-jev-eval/<name>
+```
+
+| Flag | Default | Meaning |
+| --- | --- | --- |
+| `--stage` | required | The stage to test: `layout`. |
+| `--variant` | every variant of the stage | Repeat the flag for several; columns follow the order given. Layout variants: `preset` (the preset choice with placement descriptions), `preset-or-llm`, `spatial-gate`, `composed` (5 size levels), `composed-2-size-levels`, `always-llm`. Each is built as the matching arm in `eval/arms.ts` builds its layout stage. |
+| `--suite` | `development` | `development`, `holdout` or `all`. |
+| `--repeats` | `3` | Runs per scenario and variant. |
+| `--case` | every case | A scenario id; repeat the flag for several. |
+| `--concurrency` | `1` | Turns in flight at once. Latency is measured per call, so raising it can inflate the latency rows. |
+| `--out` | `tmp/planner-jev-eval/stage-<stage>-<timestamp>` | Output directory. |
+| `--verbose` | off | Logs every Jev call to the console. |
+
+The layout stage gets gold inputs from `eval/gold-inputs.ts`: the expected selection and action plan, with every gate (`spatial` yes only for scenarios tagged `spatial: true`). A scenario that cannot form them (it expects a deferral, or states no visible set or actions) is recorded once per variant as not applicable and does not run. Each turn ends in one outcome:
+
+- **pass** or **fail**: the decision wrote a tree, scored with `scoreLayout` (the tree's leaves against the expected visible set, then the arrangement rules of `eval/predicates.ts`, including `unchangedTree`) and a fit check (every visible Instance once, within the Chart, at its variant's minimum size).
+- **handed off**: the decision has no tree, so the completion call would write the layout; neither pass nor fail.
+- **deferred** or **error**: the stage deferred (a provider failure, an answer missing) or failed.
+
+`records.json` keeps every turn with its outcome, failures, the decision (source, tree, answers), and every Jev call with its raw answers, probabilities, usage, latency and the state the stage sent, for debugging prompts. `meta.json` holds the run's settings. `report.md` has one column per variant: turns run, pass over all turns, pass over the turns that wrote a tree, hand-off rate, deferrals and errors, not-applicable scenarios, Jev calls per turn, Jev call latency p50 and p95, stage latency, Jev tokens per turn, and one row per deferral reason. For the composed variants a further table shows the gating routes (turns and calls), hand-off causes, the chosen candidate's rank, missed turns (failed or handed off) by the first question answered differently from the scenario's reference tree (shape, then placement, then position, and size when those all match; `no_call` when no Jev call was made), and the wrong-answer rates per question. The reference tree is the scenario's `tree`, or the current tree when the scenario expects it unchanged. A per-scenario table lists passes over turns run for every variant, with hand-offs (`h`), deferrals (`d`) and errors (`e`), so a regression on one scenario stands out.
+
+A new stage joins by implementing `StageEvalModule` in `eval-stages/stage-eval.ts` (its variants, how a scenario forms its input, how an output is judged, and any extra report sections) and registering it in `eval-stages/stages.ts`.
+
 ### Reading the report
 
 `report.md` puts the arms side by side for each suite, one column per arm in the order given (`records.json` has every turn, `summary.json` the numbers and the run's settings, including `replay` when stages were replayed). `paired.md` lists every scenario and repeat where the arms disagree on pass, with each arm's failures.
