@@ -322,6 +322,168 @@ const arrangements: Scenario[] = [
       resizeFrom: { columns: 24, rows: 18 },
     },
   ),
+  // Composed-stage-only arrangements (MAE-804 Phase 5): each nests a nested
+  // split that no `layoutPreset` menu option offers, so only `layoutComposed`
+  // (or a hand-off to the LLM) can produce them.
+  planned(
+    'narrow-pair-stacked-triple',
+    'A narrow left pair beside a stacked right triple',
+    'Put the calendar and tasks in a narrow column on the left. On the right, stack the map, weather and journal, and give the journal half the height.',
+    {
+      visible: [...BASE_VISIBLE, 'map-main', 'journal-main'],
+      actions: [],
+      tree: [
+        'V:1,4',
+        'H',
+        'ID:calendar-main',
+        'ID:tasks-main',
+        'H:1,1,2',
+        'ID:map-main',
+        'ID:weather-main',
+        'ID:journal-main',
+      ],
+      arrangement: [
+        { kind: 'stacked', ids: ['calendar-main', 'tasks-main'] },
+        {
+          kind: 'stacked',
+          ids: ['map-main', 'weather-main', 'journal-main'],
+        },
+        // Only two cross-stack pairs share rows for any split of the two
+        // stacks' weights, not only the reference proportions: the
+        // top-of-left and top-of-right always both start at y=0, and the
+        // bottom-of-left and bottom-of-right always both end at the Chart's
+        // bottom edge. The middle-right item (weather) has no such
+        // guarantee, so it is left unchecked by `leftOf`.
+        { kind: 'leftOf', a: 'calendar-main', b: 'map-main' },
+        { kind: 'leftOf', a: 'tasks-main', b: 'journal-main' },
+        {
+          kind: 'order',
+          ids: ['map-main', 'weather-main', 'journal-main'],
+          axis: 'y',
+        },
+        {
+          kind: 'weightRatio',
+          a: 'journal-main',
+          b: 'map-main',
+          min: 1.6,
+          max: 2.5,
+        },
+        {
+          kind: 'weightRatio',
+          a: 'journal-main',
+          b: 'weather-main',
+          min: 1.6,
+          max: 2.5,
+        },
+        {
+          kind: 'weightRatio',
+          a: 'calendar-main',
+          b: 'map-main',
+          min: 0,
+          max: 0.75,
+        },
+      ],
+    },
+    {
+      tree: [
+        'V:1,1,1,1,1',
+        'ID:calendar-main',
+        'ID:tasks-main',
+        'ID:map-main',
+        'ID:weather-main',
+        'ID:journal-main',
+      ],
+    },
+  ),
+  planned(
+    'journal-half-of-right-column',
+    'A stated proportion within an existing column',
+    'Make the journal take half of the right column.',
+    {
+      visible: ['calendar-main', 'map-main', 'weather-main', 'journal-main'],
+      actions: [],
+      tree: [
+        'V',
+        'ID:calendar-main',
+        'H:1,1,2',
+        'ID:map-main',
+        'ID:weather-main',
+        'ID:journal-main',
+      ],
+      arrangement: [
+        { kind: 'leftOf', a: 'calendar-main', b: 'journal-main' },
+        {
+          kind: 'stacked',
+          ids: ['map-main', 'weather-main', 'journal-main'],
+        },
+        {
+          kind: 'order',
+          ids: ['map-main', 'weather-main', 'journal-main'],
+          axis: 'y',
+        },
+        {
+          kind: 'weightRatio',
+          a: 'journal-main',
+          b: 'map-main',
+          min: 1.6,
+          max: 2.5,
+        },
+        {
+          kind: 'weightRatio',
+          a: 'journal-main',
+          b: 'weather-main',
+          min: 1.6,
+          max: 2.5,
+        },
+        { kind: 'spansFullHeight', id: 'calendar-main' },
+      ],
+    },
+    {
+      tree: [
+        'V',
+        'ID:calendar-main',
+        'H:1,1,1',
+        'ID:map-main',
+        'ID:weather-main',
+        'ID:journal-main',
+      ],
+    },
+  ),
+  planned(
+    'edge-columns-nested-middle',
+    'Two edge columns flanking a stacked middle pair',
+    'Weather on the left, calendar above tasks in the middle, map on the right.',
+    {
+      visible: [...BASE_VISIBLE, 'map-main'],
+      actions: [],
+      tree: [
+        'V:1,1,1',
+        'ID:weather-main',
+        'H',
+        'ID:calendar-main',
+        'ID:tasks-main',
+        'ID:map-main',
+      ],
+      arrangement: [
+        { kind: 'leftOf', a: 'weather-main', b: 'calendar-main' },
+        { kind: 'leftOf', a: 'weather-main', b: 'tasks-main' },
+        { kind: 'leftOf', a: 'calendar-main', b: 'map-main' },
+        { kind: 'leftOf', a: 'tasks-main', b: 'map-main' },
+        { kind: 'above', a: 'calendar-main', b: 'tasks-main' },
+        { kind: 'spansFullHeight', id: 'weather-main' },
+        { kind: 'spansFullHeight', id: 'map-main' },
+      ],
+    },
+    {
+      tree: [
+        'V:1,1,1,1',
+        'ID:calendar-main',
+        'ID:weather-main',
+        'ID:tasks-main',
+        'ID:map-main',
+      ],
+    },
+  ),
 ].map(spatial);
 
 /** Requests that should leave the arrangement alone: content edits, view changes and an added widget. */
