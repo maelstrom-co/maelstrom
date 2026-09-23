@@ -107,6 +107,7 @@
       },
       "typecheck": {
         "dependsOn": [
+          "build",
           "infra-typecheck"
         ],
         "inputs": [

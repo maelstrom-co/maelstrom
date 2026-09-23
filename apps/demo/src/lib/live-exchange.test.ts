@@ -8,7 +8,7 @@ import { createDemoLiveExchange, liveErrorMessage } from './live-exchange';
 const offer: LiveExchangeRequest = {
   session: {
     model: 'gpt-live-1',
-    delegation: { type: 'responses', responses: { model: 'gpt-5.4-mini' } },
+    delegation: { type: 'responses', responses: { model: 'gpt-6-luna' } },
   },
   transport: { type: 'webrtc', sdp: 'v=0\r\no=fixture-offer' },
 };
@@ -73,7 +73,7 @@ describe('demo Live credential boundaries', () => {
       const backend = body.session.delegation.responses;
       expect(body.transport).toEqual(offer.transport);
       expect(body.session.model).toBe('gpt-live-1');
-      expect(backend.model).toBe('gpt-5.4-mini');
+      expect(backend.model).toBe('gpt-6-luna');
       expect(backend.tools).toEqual(
         configuredOffer.session.delegation.responses.tools,
       );
