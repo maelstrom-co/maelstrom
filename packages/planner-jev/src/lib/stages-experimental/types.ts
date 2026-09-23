@@ -37,6 +37,11 @@ export type ActionPlan2 = JevActionPlan & {
   readonly gates?: SelectionGates;
 };
 
+/** An action plan whose gates were all asked, ready for a stage that routes on them alone. */
+export type GatedActionPlan = ActionPlan2 & {
+  readonly gates: Required<NonNullable<Selection2['gates']>>;
+};
+
 /** Where a {@link LayoutDecision} came from. */
 export type LayoutSource = 'jev' | 'preserve' | 'default' | 'llm';
 
