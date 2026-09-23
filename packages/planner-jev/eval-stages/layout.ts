@@ -4,8 +4,6 @@ import {
   type TilingNode,
   type VesselInstanceSnapshot,
 } from '@maelstrom-co/protocol';
-
-import { goldInputs } from '../eval/gold-inputs.js';
 import type { Scenario } from '../eval/scenarios.js';
 import { scoreLayout } from '../eval/score.js';
 import { finalVariants } from '../src/lib/final-variants.js';
@@ -31,6 +29,7 @@ import {
   checkComposedAnswers,
   firstWrongQuestion,
 } from './composed-attribution.js';
+import { goldInputs } from './gold-inputs.js';
 import { renderComposedSection } from './layout-report.js';
 import type { Judgement, StageEvalModule } from './stage-eval.js';
 

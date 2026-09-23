@@ -37,12 +37,10 @@ export type StageReplacements = Readonly<
 /**
  * Records each stage's input, output, wall time and deferral, and each Jev
  * call. A stage named in `replacements` runs the replacement instead and is
- * recorded as replayed, unless it is also named in `unrecorded`, which runs
- * it without any record.
+ * recorded as replayed.
  */
 export function createRecorder(
   replacements: StageReplacements = {},
-  unrecorded: readonly StageName[] = [],
 ): TurnRecorder {
   const stages: StageRecord[] = [];
   const calls: JevCall[] = [];
@@ -51,7 +49,6 @@ export function createRecorder(
     async (input, ctx) => {
       const replacement = replacements[name];
       const stage = (replacement ?? live) as Stage<In, Out>;
-      if (unrecorded.includes(name)) return stage(input, ctx);
       const replayed = replacement !== undefined && { replayed: true };
       const started = performance.now();
       const result = await stage(input, ctx);

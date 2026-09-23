@@ -17,7 +17,7 @@ import {
   replayedStages,
 } from './replay.js';
 import { writeReport } from './report.js';
-import { checkRunModes, runEval, STOP_AFTER } from './run.js';
+import { runEval } from './run.js';
 import { type Suite, selectScenarios } from './scenarios.js';
 
 // The demo's default engine model (apps/demo/src/server/engine-model.ts).
@@ -36,8 +36,6 @@ const { values } = parseArgs({
     'replay-from': { type: 'string' },
     'replay-through': { type: 'string' },
     'replay-arm': { type: 'string' },
-    'stop-after': { type: 'string' },
-    'gold-inputs': { type: 'boolean', default: false },
     grader: { type: 'boolean', default: false },
     'grader-validation': { type: 'string' },
   },
@@ -66,16 +64,6 @@ if (
   );
 if (replayFrom !== undefined && arms.every((arm) => arm.kind === 'baseline'))
   fail('--replay-from needs at least one Jev arm');
-const stopAfter =
-  values['stop-after'] === undefined
-    ? undefined
-    : oneOf(values['stop-after'], STOP_AFTER, 'stop-after');
-const goldInputs = values['gold-inputs'];
-try {
-  checkRunModes({ arms, stopAfter, goldInputs, replay: replayFrom });
-} catch (error) {
-  fail(error instanceof Error ? error.message : String(error));
-}
 const repeats = Number(values.repeats);
 if (!Number.isInteger(repeats) || repeats < 1)
   fail('--repeats must be a positive integer');
@@ -166,8 +154,6 @@ const records = await runEval({
   typesafe: { apiKey: env.TYPESAFE_API_KEY, model: env.JEV_MODEL },
   out,
   grader: values.grader,
-  ...(stopAfter && { stopAfter }),
-  goldInputs,
   ...(values.verbose && { logger: consoleLogger }),
   ...(replay &&
     replayThrough && {
@@ -179,19 +165,15 @@ const records = await runEval({
   onRecord: (record) =>
     console.log(
       `${record.arm.padEnd(10)} ${record.scenarioId} #${record.repeat} ${Math.round(record.turnMs)} ms ${
-        record.notApplicable
-          ? `not applicable: ${record.notApplicable}`
-          : record.error
-            ? `error ${record.error.tag}: ${record.error.message}`
-            : record.layoutOnly === 'handed_off'
-              ? 'handed off'
-              : record.expectedDeferral
-                ? record.deferredAsExpected
-                  ? 'deferred as expected'
-                  : 'expected deferral'
-                : record.score?.pass
-                  ? 'pass'
-                  : 'fail'
+        record.error
+          ? `error ${record.error.tag}: ${record.error.message}`
+          : record.expectedDeferral
+            ? record.deferredAsExpected
+              ? 'deferred as expected'
+              : 'expected deferral'
+            : record.score?.pass
+              ? 'pass'
+              : 'fail'
       }${record.deferral ? ` (fallback: ${record.deferral.reason})` : ''}${
         record.grader?.failure
           ? ` (grader failed: ${record.grader.failure})`
@@ -211,8 +193,6 @@ await writeReport(
     jevModel: env.JEV_MODEL,
     date: new Date().toISOString(),
     ...(replay && { replay: replay.meta }),
-    stopAfter: stopAfter ?? 'none',
-    goldInputs,
     ...(values.grader && { grader: graderValidationPath ?? 'not validated' }),
   },
   graderValidation,

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import { isOk } from '@maelstrom-co/protocol';
-
+import { type Scenario, selectScenarios } from '../eval/scenarios.js';
 import {
   makeContext,
   makeInput,
@@ -11,7 +11,6 @@ import type {
   Selection2,
 } from '../src/lib/stages-experimental/types.js';
 import { goldInputs } from './gold-inputs.js';
-import { type Scenario, selectScenarios } from './scenarios.js';
 
 function scenario(id: string): Scenario {
   const [found] = selectScenarios('all', [id]);
