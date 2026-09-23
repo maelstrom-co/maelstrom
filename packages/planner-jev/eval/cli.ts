@@ -196,6 +196,7 @@ await writeReport(
     ...(values.grader && { grader: graderValidationPath ?? 'not validated' }),
   },
   graderValidation,
+  scenarios,
 );
 console.log(`Report written to ${out}/report.md`);
 
