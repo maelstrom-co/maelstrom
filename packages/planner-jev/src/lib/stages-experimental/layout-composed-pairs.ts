@@ -78,9 +78,15 @@ export interface ComposedPairsOptions {
    * to each tree (see {@link layoutComposedPairsWithDirection});
    * `redirects_not_stated` also sends not stated pair answers along the
    * direction's most likely option when that option is side by side or
-   * stacked, keeping each pair's order in the current tree.
+   * stacked, keeping each pair's order in the current tree;
+   * `redirects_not_stated_when_direction_changes` redirects only when that
+   * option differs from the current tree's top split, and otherwise lets
+   * not stated vote for each pair's current relation.
    */
-  readonly direction?: 'scored' | 'redirects_not_stated';
+  readonly direction?:
+    | 'scored'
+    | 'redirects_not_stated'
+    | 'redirects_not_stated_when_direction_changes';
   /**
    * When none of the top trees fits, retry each in rank order keeping its
    * structure: first with every share below its Instance's minimum size
@@ -118,8 +124,9 @@ export interface ComposedPairsOptions {
  *   {@link FRACTION_LEVELS}, read by its continuous score interpolated
  *   between the level fractions). Inside each part, stated members get
  *   their fraction and the others split the rest (see
- *   `partFractionShares`); parts along the top axis keep the summed
- *   whole-Chart shares.
+ *   `partFractionShares`): evenly, or with `unstatedSplit:
+ *   'whole_chart_shares'` in proportion to their whole-Chart shares. Parts
+ *   along the top axis keep the summed whole-Chart shares.
  * - `score_when_confident`: reads each whole-Chart size answer by its
  *   continuous score, interpolated between the level shares, when its
  *   confidence is at least `minimumConfidence`, and by its picked level
@@ -132,7 +139,10 @@ export interface ComposedPairsOptions {
  *   n(n-1)/2 questions instead of n.
  */
 export type SizeAnswers =
-  | { readonly kind: 'fractions_within_part' }
+  | {
+      readonly kind: 'fractions_within_part';
+      readonly unstatedSplit?: 'even' | 'whole_chart_shares';
+    }
   | {
       readonly kind: 'score_when_confident';
       readonly minimumConfidence: number;
@@ -414,7 +424,13 @@ function composedPairs(
       })),
       currentTree,
       direction?.probabilities,
-      { redirectNotStated: options.direction === 'redirects_not_stated' },
+      {
+        redirectNotStated:
+          options.direction === 'redirects_not_stated' ||
+          options.direction === 'redirects_not_stated_when_direction_changes',
+        redirectOnlyWhenDirectionChanges:
+          options.direction === 'redirects_not_stated_when_direction_changes',
+      },
     );
     const areaShares =
       sizeComparisons &&
@@ -427,6 +443,9 @@ function composedPairs(
         })),
       );
     const shareById = areaShares ?? sharesById(ids, sizes ?? {});
+    const unstatedByWholeChart =
+      options.sizeAnswers?.kind === 'fractions_within_part' &&
+      options.sizeAnswers.unstatedSplit === 'whole_chart_shares';
     const sizing: PartSizing = {
       ...(options.partWeight && { partWeight: options.partWeight }),
       ...(groupSizes && { innerShareById: sharesById(ids, groupSizes) }),
@@ -439,6 +458,9 @@ function composedPairs(
                 ? answer.fraction.size
                 : undefined;
             }),
+            unstatedByWholeChart
+              ? members.map((id) => shareById[id] ?? 0)
+              : undefined,
           ),
       }),
     };

@@ -65,6 +65,36 @@ describe('partFractionShares', () => {
   });
 });
 
+describe('partFractionShares with whole-Chart shares for the unstated members', () => {
+  test('splits the remainder among the unstated members by their whole-Chart shares', () => {
+    const shares = partFractionShares(
+      [undefined, undefined, 0.5],
+      [0.1, 0.3, 0.6],
+    );
+    expect(shares[0]).toBeCloseTo(0.125);
+    expect(shares[1]).toBeCloseTo(0.375);
+    expect(shares[2]).toBeCloseTo(0.5);
+  });
+
+  test('gives the whole-Chart share ratio when no member states a fraction', () => {
+    const shares = partFractionShares([undefined, undefined], [0.125, 0.375]);
+    expect(shares[0]).toBeCloseTo(0.25);
+    expect(shares[1]).toBeCloseTo(0.75);
+  });
+
+  test('still scales stated fractions down to leave each unstated member its floor', () => {
+    const shares = partFractionShares([0.75, 0.75, undefined], [0.4, 0.4, 0.2]);
+    expect(shares[2]).toBeCloseTo(MIN_UNSTATED_FRACTION);
+    expect(shares[0]).toBeCloseTo((1 - MIN_UNSTATED_FRACTION) / 2);
+  });
+
+  test('splits evenly when the unstated members have no whole-Chart share', () => {
+    const shares = partFractionShares([undefined, undefined, 0.5], [0, 0, 1]);
+    expect(shares[0]).toBeCloseTo(0.25);
+    expect(shares[1]).toBeCloseTo(0.25);
+  });
+});
+
 describe('comparisonLogRatio', () => {
   test('maps each level to the log of its area ratio', () => {
     COMPARISON_RATIOS.forEach((ratio, level) => {

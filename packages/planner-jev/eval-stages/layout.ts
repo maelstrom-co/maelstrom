@@ -107,7 +107,11 @@ const SIZE_SCORE_MINIMUM_CONFIDENCE = 0.8;
  * fallback and the whole-board examples. `composed-pairs-fraction-sizes`,
  * `composed-pairs-score-when-confident` and `composed-pairs-size-comparisons`
  * each change how `composed-pairs-combined` asks or reads sizes, see
- * `SizeAnswers`.
+ * `SizeAnswers`. `composed-pairs-combined-limited-redirect` redirects not
+ * stated only when the direction answer changes the top split;
+ * `composed-pairs-fraction-sizes-proportional-fallback` splits what stated
+ * fractions leave by whole-Chart shares; `composed-pairs-fraction-sizes-both-fixes`
+ * does both.
  */
 export const LAYOUT_VARIANTS: Readonly<Record<string, LayoutVariant>> = {
   preset: (ask) => layoutPreset(ask, { describe: 'placements' }),
@@ -157,6 +161,31 @@ export const LAYOUT_VARIANTS: Readonly<Record<string, LayoutVariant>> = {
       ...COMBINED,
       layoutId: 'composed-pairs-fraction-sizes',
       sizeAnswers: { kind: 'fractions_within_part' },
+    }),
+  'composed-pairs-combined-limited-redirect': (ask) =>
+    layoutComposedPairsWithOptions(ask, {
+      ...COMBINED,
+      layoutId: 'composed-pairs-combined-limited-redirect',
+      direction: 'redirects_not_stated_when_direction_changes',
+    }),
+  'composed-pairs-fraction-sizes-proportional-fallback': (ask) =>
+    layoutComposedPairsWithOptions(ask, {
+      ...COMBINED,
+      layoutId: 'composed-pairs-fraction-sizes-proportional-fallback',
+      sizeAnswers: {
+        kind: 'fractions_within_part',
+        unstatedSplit: 'whole_chart_shares',
+      },
+    }),
+  'composed-pairs-fraction-sizes-both-fixes': (ask) =>
+    layoutComposedPairsWithOptions(ask, {
+      ...COMBINED,
+      layoutId: 'composed-pairs-fraction-sizes-both-fixes',
+      direction: 'redirects_not_stated_when_direction_changes',
+      sizeAnswers: {
+        kind: 'fractions_within_part',
+        unstatedSplit: 'whole_chart_shares',
+      },
     }),
   'composed-pairs-score-when-confident': (ask) =>
     layoutComposedPairsWithOptions(ask, {

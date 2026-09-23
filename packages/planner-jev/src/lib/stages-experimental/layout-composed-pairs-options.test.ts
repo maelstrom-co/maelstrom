@@ -428,6 +428,134 @@ describe('fraction sizes', () => {
   });
 });
 
+describe('fraction sizes with whole-Chart shares for the unstated members', () => {
+  const options: ComposedPairsOptions = {
+    layoutId: 'fractions-proportional',
+    sizeAnswers: {
+      kind: 'fractions_within_part',
+      unstatedSplit: 'whole_chart_shares',
+    },
+  };
+  const smallerWeather = { ...FOCUS_SCORES, 'size/tasks-main': 3 };
+
+  test('splits a column with no stated size by the whole-Chart shares', async () => {
+    const { decision } = await runWith(
+      options,
+      makeRequest(FOCUS_INTENT),
+      () => ({
+        ...FOCUS_STEP,
+        nouls: { 'size_stated_in_group/weather-main': 0.2 },
+        scores: smallerWeather,
+      }),
+    );
+    expect(decision.layoutId).toBe('fractions-proportional');
+    expect(decision.tree?.[2]).toBe('H:1,3');
+  });
+
+  test('the even split ignores the whole-Chart shares inside the column', async () => {
+    const { decision } = await runWith(
+      { layoutId: 'fractions', sizeAnswers: { kind: 'fractions_within_part' } },
+      makeRequest(FOCUS_INTENT),
+      () => ({
+        ...FOCUS_STEP,
+        nouls: { 'size_stated_in_group/weather-main': 0.2 },
+        scores: smallerWeather,
+      }),
+    );
+    expect(decision.tree?.[2]).toBe('H');
+  });
+
+  test('still gives a stated Instance its fraction', async () => {
+    const { decision } = await runWith(
+      options,
+      makeRequest(FOCUS_INTENT),
+      () => ({
+        ...FOCUS_STEP,
+        nouls: { 'size_stated_in_group/weather-main': 0.9 },
+        scores: { ...smallerWeather, 'fraction_in_group/weather-main': 3 },
+      }),
+    );
+    expect(decision.tree?.[2]).toBe('H:2,1');
+  });
+});
+
+describe('direction redirects not stated only when it changes the top split', () => {
+  const columnThenTasks = [
+    'V:1,1',
+    'H:1,1',
+    'ID:calendar-main',
+    'ID:weather-main',
+    'ID:tasks-main',
+  ] as TilingNode[];
+  const unstated = {
+    left_of: 0.02,
+    right_of: 0,
+    above: 0.03,
+    below: 0,
+    not_stated: 0.95,
+  };
+  const request = makeRequest(
+    'Make the weather twice as tall as the calendar.',
+    {
+      tree: columnThenTasks,
+    },
+  );
+  const reply =
+    (direction: Readonly<Record<string, number>>) => (payload: Payload) => ({
+      reply: replyWith(payload, {
+        ...Object.fromEntries(PAIR_IDS.map((id) => [id, unstated])),
+        direction,
+      }),
+    });
+  const sideBySide = { side_by_side: 0.8, stacked: 0.1, not_stated: 0.1 };
+
+  test('keeps the column when the direction is the current top split', async () => {
+    const { decision } = await runWith(
+      {
+        layoutId: 'limited',
+        direction: 'redirects_not_stated_when_direction_changes',
+      },
+      request,
+      reply(sideBySide),
+    );
+    expect(decision.layoutId).toBe('limited');
+    expect(decision.tree).toEqual([
+      'V:2,1',
+      'H',
+      'ID:calendar-main',
+      'ID:weather-main',
+      'ID:tasks-main',
+    ]);
+  });
+
+  test('the full redirect splits the column side by side', async () => {
+    const { decision } = await runWith(
+      { layoutId: 'full', direction: 'redirects_not_stated' },
+      request,
+      reply(sideBySide),
+    );
+    expect(decision.tree?.[0]).toStartWith('V');
+    expect(decision.tree).not.toContain('H');
+  });
+
+  test('stacks every pair when the direction crosses the current top split', async () => {
+    const { decision } = await runWith(
+      {
+        layoutId: 'limited',
+        direction: 'redirects_not_stated_when_direction_changes',
+      },
+      request,
+      reply({ side_by_side: 0.1, stacked: 0.8, not_stated: 0.1 }),
+    );
+    expect(decision.tree).toEqual([
+      'H:1,1,1',
+      'ID:calendar-main',
+      'ID:weather-main',
+      'ID:tasks-main',
+    ]);
+  });
+});
+
 describe('score when confident', () => {
   const options: ComposedPairsOptions = {
     layoutId: 'confident',
