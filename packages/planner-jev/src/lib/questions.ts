@@ -65,7 +65,13 @@ export interface Answer {
   readonly probability?: number;
   /** The fractional position along the levels, from 0 to levels - 1; score answers only. */
   readonly score?: number;
-  /** Probability per level, keyed by level number string; score answers only in a {@link Reply}. */
+  /**
+   * Probability per option, keyed by option key for a choice answer and by
+   * level number string for a score answer; absent on noul answers, which
+   * carry {@link probability}. On a choice answer in a {@link Reply} it is a
+   * non-enumerable property: read it directly, since spreading the answer or
+   * serialising it to JSON leaves it out.
+   */
   readonly probabilities?: Readonly<Record<string, number>>;
 }
 

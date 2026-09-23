@@ -363,9 +363,16 @@ function replyAnswer({
 }: Answer): Answer {
   if (score !== undefined && probabilities !== undefined)
     return { choice, confidence, score, probabilities };
-  return probability === undefined
-    ? { choice, confidence }
-    : { choice, confidence, probability };
+  if (probability !== undefined) return { choice, confidence, probability };
+  const answer = { choice, confidence };
+  if (probabilities !== undefined)
+    // Non-enumerable so answer records spread from a choice answer, and every
+    // recording and snapshot built from them, keep their earlier shape.
+    Object.defineProperty(answer, 'probabilities', {
+      value: probabilities,
+      enumerable: false,
+    });
+  return answer;
 }
 
 async function readBody(
