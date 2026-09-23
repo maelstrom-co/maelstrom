@@ -3,7 +3,7 @@ import { isErr, ok } from '@maelstrom-co/protocol';
 
 import { deferAt } from '../defer.js';
 import { finalVariants } from '../final-variants.js';
-import { layoutChoices } from '../layouts.js';
+import { type LayoutChoicesOptions, layoutChoices } from '../layouts.js';
 import {
   type ConfidencePolicy,
   choice,
@@ -18,11 +18,13 @@ const STAGE = 'jevLayout';
 /**
  * Lets Jev pick a tiling tree for the visible instances among candidates
  * that fit the Chart, sizing each instance for the variant the planned
- * actions leave it in.
+ * actions leave it in. `options` sets how the candidates are described
+ * (see {@link layoutChoices}); the default is the POC's wording.
  */
 export function jevLayout(
   ask: Ask,
   policy: ConfidencePolicy = {},
+  options: LayoutChoicesOptions = {},
 ): Stage<JevActionPlan, JevLayoutPlan> {
   return async (plan, ctx) => {
     const { request } = plan.selection.input;
@@ -41,7 +43,7 @@ export function jevLayout(
     if (visible.length === 0)
       return ok({ plan, layoutId: 'empty', tree: [], answers: [] });
 
-    const choices = layoutChoices(request, visible);
+    const choices = layoutChoices(request, visible, options);
     if (choices.length === 0)
       return deferAt(ctx, STAGE, 'no_feasible_layout', 'layout');
 
