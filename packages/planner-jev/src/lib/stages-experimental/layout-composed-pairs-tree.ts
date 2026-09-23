@@ -226,6 +226,10 @@ export interface PartSizing {
   readonly partWeight?: 'sum' | 'max';
   /** Shares for the split inside each part; `shareById` when absent. */
   readonly innerShareById?: Readonly<Record<string, number>>;
+  /** Shares for the split inside each part from its members in order; takes precedence over {@link innerShareById}. */
+  readonly innerSharesOf?: (
+    members: readonly InstanceId[],
+  ) => readonly number[];
 }
 
 /** An Instance's minimum size as fractions of the Chart's width and height. */
@@ -393,7 +397,11 @@ function arrangementShares(
         ? Math.max(0, ...members.map(shareOf))
         : members.reduce((sum, id) => sum + shareOf(id), 0),
     ),
-    inner: arrangement.parts.map((members) => members.map(innerOf)),
+    inner: arrangement.parts.map((members) =>
+      sizing.innerSharesOf
+        ? sizing.innerSharesOf(members)
+        : members.map(innerOf),
+    ),
   };
 }
 

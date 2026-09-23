@@ -303,3 +303,213 @@ describe('lean state', () => {
     });
   });
 });
+
+/** The reply to `step` with each listed score question answered with that fractional score and distribution. */
+function withScores(
+  payload: Payload,
+  step: Extract<Step, { readonly choices: unknown }>,
+  scores: Readonly<
+    Record<
+      string,
+      {
+        readonly score: number;
+        readonly confidence: number;
+        readonly probabilities: Readonly<Record<string, number>>;
+      }
+    >
+  >,
+) {
+  const base = buildReply(
+    payload,
+    step.choices,
+    step.confidence ?? 1,
+    undefined,
+    step.nouls,
+    step.scores,
+  );
+  const answers = { ...base.answers } as Record<string, unknown>;
+  for (const [id, answer] of Object.entries(scores)) {
+    const levels = Object.values(payload.questions[id]?.criteria ?? {});
+    answers[id] = {
+      type: 'score',
+      score: answer.score,
+      confidence: answer.confidence,
+      legend: Object.fromEntries(
+        levels.map((text, index) => [String(index), text]),
+      ),
+      probabilities: Object.fromEntries(
+        levels.map((_, index) => [
+          String(index),
+          answer.probabilities[String(index)] ?? 0,
+        ]),
+      ),
+    };
+  }
+  return { ...base, answers };
+}
+
+const FOCUS_CHOICES = (FOCUS_STEP as { choices: Record<string, string> })
+  .choices;
+const FOCUS_SCORES = (FOCUS_STEP as { scores: Record<string, number> }).scores;
+
+describe('fraction sizes', () => {
+  const options: ComposedPairsOptions = {
+    layoutId: 'fractions',
+    sizeAnswers: { kind: 'fractions_within_part' },
+  };
+
+  test('asks per Instance whether a size is stated within its group and what fraction', async () => {
+    const { calls } = await runWith(
+      options,
+      makeRequest(FOCUS_INTENT),
+      () => FOCUS_STEP,
+    );
+    const questions = calls[0]?.questions ?? {};
+    expect(questions['size_stated_in_group/weather-main']?.type).toBe('noul');
+    expect(questions['fraction_in_group/weather-main']?.type).toBe('score');
+    expect(questions['size/weather-main']?.type).toBe('score');
+  });
+
+  test('gives a stated Instance its fraction and the rest of its column to the others', async () => {
+    const { decision } = await runWith(
+      options,
+      makeRequest(FOCUS_INTENT),
+      () => ({
+        ...FOCUS_STEP,
+        nouls: { 'size_stated_in_group/weather-main': 0.9 },
+        scores: { ...FOCUS_SCORES, 'fraction_in_group/weather-main': 3 },
+      }),
+    );
+    expect(decision.tree).toEqual([
+      'V:2,1',
+      'ID:calendar-main',
+      'H:2,1',
+      'ID:weather-main',
+      'ID:tasks-main',
+    ]);
+    expect(
+      decision.pairwise.groupFractions?.['weather-main']?.stated,
+    ).toBeCloseTo(0.9);
+  });
+
+  test('interpolates the fraction between neighbouring levels', async () => {
+    const step = {
+      ...FOCUS_STEP,
+      choices: FOCUS_CHOICES,
+      nouls: { 'size_stated_in_group/weather-main': 0.9 },
+    };
+    const { decision } = await runWith(
+      options,
+      makeRequest(FOCUS_INTENT),
+      (payload) => ({
+        reply: withScores(payload, step, {
+          'fraction_in_group/weather-main': {
+            score: 3.5,
+            confidence: 0.5,
+            probabilities: { 3: 0.5, 4: 0.5 },
+          },
+        }),
+      }),
+    );
+    expect(decision.tree?.[2]).toBe('H:5,2');
+  });
+
+  test('splits a column evenly when no size is stated within it', async () => {
+    const { decision } = await runWith(
+      options,
+      makeRequest(FOCUS_INTENT),
+      () => ({
+        ...FOCUS_STEP,
+        nouls: { 'size_stated_in_group/weather-main': 0.2 },
+        scores: { ...FOCUS_SCORES, 'fraction_in_group/weather-main': 4 },
+      }),
+    );
+    expect(decision.tree?.[2]).toBe('H');
+  });
+});
+
+describe('score when confident', () => {
+  const options: ComposedPairsOptions = {
+    layoutId: 'confident',
+    sizeAnswers: { kind: 'score_when_confident', minimumConfidence: 0.8 },
+  };
+  const step = { ...FOCUS_STEP, choices: FOCUS_CHOICES };
+  const calendarAt = (confidence: number) => (payload: Payload) => ({
+    reply: withScores(payload, step, {
+      'size/calendar-main': {
+        score: 3,
+        confidence,
+        probabilities: { 2: 0.45, 3: 0.1, 4: 0.45 },
+      },
+    }),
+  });
+
+  test('sizes a confident answer by its interpolated score', async () => {
+    const { decision } = await runWith(
+      options,
+      makeRequest(FOCUS_INTENT),
+      calendarAt(0.9),
+    );
+    expect(decision.tree?.[0]).toBe('V:3,2');
+    expect(decision.pairwise.sizes?.['calendar-main']?.size).toBe(0.75);
+  });
+
+  test('sizes an answer below the threshold by its picked level', async () => {
+    const { decision } = await runWith(
+      options,
+      makeRequest(FOCUS_INTENT),
+      calendarAt(0.6),
+    );
+    expect(decision.tree?.[0]).toBe('V');
+    expect(decision.pairwise.sizes?.['calendar-main']?.size).toBe(0.5);
+  });
+});
+
+describe('size comparisons', () => {
+  const options: ComposedPairsOptions = {
+    layoutId: 'comparisons',
+    sizeAnswers: { kind: 'pair_comparisons' },
+  };
+  const comparisonStep: Step = {
+    choices: FOCUS_CHOICES,
+    scores: {
+      'size_comparison/calendar-main/weather-main': 4,
+      'size_comparison/calendar-main/tasks-main': 4,
+      'size_comparison/weather-main/tasks-main': 2,
+    },
+    confidence: 0.9,
+  };
+
+  test('asks one comparison per pair instead of a size per Instance', async () => {
+    const { calls } = await runWith(
+      options,
+      makeRequest(FOCUS_INTENT),
+      () => comparisonStep,
+    );
+    const ids = Object.keys(calls[0]?.questions ?? {});
+    expect(ids.filter((id) => id.startsWith('size_comparison/'))).toEqual([
+      'size_comparison/calendar-main/weather-main',
+      'size_comparison/calendar-main/tasks-main',
+      'size_comparison/weather-main/tasks-main',
+    ]);
+    expect(ids.some((id) => id.startsWith('size/'))).toBe(false);
+  });
+
+  test('weights parts by the summed areas solved from the comparisons', async () => {
+    const { decision } = await runWith(
+      options,
+      makeRequest(FOCUS_INTENT),
+      () => comparisonStep,
+    );
+    expect(decision.tree).toEqual([
+      'V:2,1',
+      'ID:calendar-main',
+      'H',
+      'ID:weather-main',
+      'ID:tasks-main',
+    ]);
+    expect(decision.pairwise.areaShares?.['calendar-main']).toBeCloseTo(2 / 3);
+    expect(decision.pairwise.sizeComparisons).toHaveLength(3);
+    expect(decision.pairwise.sizes).toBeUndefined();
+  });
+});

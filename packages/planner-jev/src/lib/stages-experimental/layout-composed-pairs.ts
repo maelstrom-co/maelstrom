@@ -19,9 +19,11 @@ import {
   choice,
   intentText,
   isScoreAnswer,
+  noul,
   type Question,
   type Reply,
   readAnswer,
+  type ScoreAnswer,
   score,
 } from '../questions.js';
 import type { AnswerRecord } from '../types.js';
@@ -32,6 +34,13 @@ import {
   type RecordedChoice,
   type RecordedSize,
 } from './layout-composed.js';
+import {
+  comparisonLogRatio,
+  FRACTION_LEVELS,
+  interpolateLevels,
+  logAreaShares,
+  partFractionShares,
+} from './layout-composed-pairs-sizes.js';
 import {
   type Arrangement,
   arrangementTree,
@@ -96,6 +105,56 @@ export interface ComposedPairsOptions {
   readonly sizeSteps?: 'even' | 'bigger';
   /** Send only the request and each Instance's id and widget, without the current arrangement or variants. */
   readonly leanState?: boolean;
+  /** How sizes are asked and read; see {@link SizeAnswers}. The picked level of the whole-Chart size question when absent. */
+  readonly sizeAnswers?: SizeAnswers;
+}
+
+/**
+ * Other ways {@link layoutComposedPairsWithOptions} asks and reads sizes.
+ *
+ * - `fractions_within_part`: also asks per Instance whether the request
+ *   states its size within the row or column it groups it with (yes/no),
+ *   and what fraction of that row or column it gets (a score over
+ *   {@link FRACTION_LEVELS}, read by its continuous score interpolated
+ *   between the level fractions). Inside each part, stated members get
+ *   their fraction and the others split the rest (see
+ *   `partFractionShares`); parts along the top axis keep the summed
+ *   whole-Chart shares.
+ * - `score_when_confident`: reads each whole-Chart size answer by its
+ *   continuous score, interpolated between the level shares, when its
+ *   confidence is at least `minimumConfidence`, and by its picked level
+ *   otherwise.
+ * - `pair_comparisons`: replaces the whole-Chart size question with one
+ *   question per pair of visible Instances, how much space the request
+ *   gives the first compared with the second (see `COMPARISON_RATIOS`),
+ *   solves area shares from the log ratios by least squares (see
+ *   `logAreaShares`) and weights the tree by them as by shares. Asks
+ *   n(n-1)/2 questions instead of n.
+ */
+export type SizeAnswers =
+  | { readonly kind: 'fractions_within_part' }
+  | {
+      readonly kind: 'score_when_confident';
+      readonly minimumConfidence: number;
+    }
+  | { readonly kind: 'pair_comparisons' };
+
+/** Jev's answers about one Instance's fraction of the row or column the request groups it with. */
+export interface RecordedGroupFraction {
+  /** The probability that the request states a size for the Instance within its row or column. */
+  readonly stated: number;
+  /** The fraction answer; its `size` is the interpolated fraction. */
+  readonly fraction: RecordedSize;
+}
+
+/** Jev's answer comparing the space of one pair of visible Instances. */
+export interface RecordedComparison {
+  readonly first: InstanceId;
+  readonly second: InstanceId;
+  /** The answer; its `size` is unused and 0. */
+  readonly answer: RecordedSize;
+  /** The log area ratio, `first` over `second`, the continuous score stands for. */
+  readonly logRatio: number;
 }
 
 /** The share per size level for {@link ComposedPairsOptions.sizeSteps} `bigger`, smallest level first. */
@@ -124,10 +183,16 @@ export interface ComposedPairsRecord {
   readonly called: boolean;
   /** Absent when no call was made. */
   readonly pairs?: readonly RecordedPair[];
-  /** Absent when no call was made. */
+  /** Absent when no call was made, or when size comparisons replaced the size question. */
   readonly sizes?: Readonly<Record<string, RecordedSize>>;
   /** Answers to the size question within each Instance's row or column; present only when that question was asked. */
   readonly groupSizes?: Readonly<Record<string, RecordedSize>>;
+  /** Answers about each Instance's fraction of its row or column; present only when that question was asked. */
+  readonly groupFractions?: Readonly<Record<string, RecordedGroupFraction>>;
+  /** Answers comparing each pair's space; present only when those questions were asked. */
+  readonly sizeComparisons?: readonly RecordedComparison[];
+  /** Area shares solved from {@link sizeComparisons}. */
+  readonly areaShares?: Readonly<Record<string, number>>;
   /** Jev's answer about the top-level split; present only when {@link layoutComposedPairsWithDirection} made a call. */
   readonly direction?: RecordedChoice;
   /** The top-scored trees, best first, each checked with `layoutFits`. */
@@ -212,6 +277,9 @@ const CANDIDATES = 3;
 const SIZE_LEVEL_COUNT = 5;
 
 const DIRECTION_QUESTION = 'direction';
+
+/** The probability of yes at which a size counts as stated within its row or column. */
+const STATED_PROBABILITY = 0.5;
 
 function composedPairs(
   ask: Ask,
@@ -321,7 +389,14 @@ function composedPairs(
     if (isErr(reply)) return reply;
     const read = readAll(reply.value, ids, pairs, ctx, steps, options);
     if (isErr(read)) return read;
-    const { pairAnswers, sizes, groupSizes, records } = read.value;
+    const {
+      pairAnswers,
+      sizes,
+      groupSizes,
+      groupFractions,
+      sizeComparisons,
+      records,
+    } = read.value;
     let direction: RecordedChoice | undefined;
     if (withDirection) {
       const answer = readAnswer(reply.value, DIRECTION_QUESTION, STAGE, ctx);
@@ -341,10 +416,31 @@ function composedPairs(
       direction?.probabilities,
       { redirectNotStated: options.direction === 'redirects_not_stated' },
     );
-    const shareById = sharesById(ids, sizes);
+    const areaShares =
+      sizeComparisons &&
+      logAreaShares(
+        ids,
+        sizeComparisons.map(({ first, second, logRatio }) => ({
+          first,
+          second,
+          logRatio,
+        })),
+      );
+    const shareById = areaShares ?? sharesById(ids, sizes ?? {});
     const sizing: PartSizing = {
       ...(options.partWeight && { partWeight: options.partWeight }),
       ...(groupSizes && { innerShareById: sharesById(ids, groupSizes) }),
+      ...(groupFractions && {
+        innerSharesOf: (members: readonly InstanceId[]) =>
+          partFractionShares(
+            members.map((id) => {
+              const answer = groupFractions[id];
+              return answer && answer.stated >= STATED_PROBABILITY
+                ? answer.fraction.size
+                : undefined;
+            }),
+          ),
+      }),
     };
     const top = ranked.slice(0, CANDIDATES);
     const candidates = top.map(({ arrangement, score }) => {
@@ -356,8 +452,10 @@ function composedPairs(
       ...record,
       called: true,
       pairs: pairAnswers,
-      sizes,
+      ...(sizes && { sizes }),
       ...(groupSizes && { groupSizes }),
+      ...(groupFractions && { groupFractions }),
+      ...(sizeComparisons && { sizeComparisons, areaShares }),
       ...(direction && { direction }),
       candidates,
       margin,
@@ -497,6 +595,41 @@ function groupSizeQuestionId(id: InstanceId): string {
   return `size_in_group/${id}`;
 }
 
+function statedInGroupQuestionId(id: InstanceId): string {
+  return `size_stated_in_group/${id}`;
+}
+
+function fractionInGroupQuestionId(id: InstanceId): string {
+  return `fraction_in_group/${id}`;
+}
+
+function comparisonQuestionId(first: InstanceId, second: InstanceId): string {
+  return `size_comparison/${first}/${second}`;
+}
+
+const FRACTION_TEXTS = [
+  "a quarter of its row or column or less: signals: 'a quarter', 'a thin strip of the column', 'just a sliver'",
+  "a third of its row or column: signals: 'a third', 'one of three equal rows', 'the rest when another widget gets two thirds'",
+  "half of its row or column: signals: 'half', 'half the height', 'half the column', 'half of the row', 'one of two equal parts'",
+  "two thirds of its row or column: signals: 'two thirds', 'twice the others' when it shares with one other widget",
+  "three quarters of its row or column or more: signals: 'three quarters', 'most of the column', 'nearly all of the row'",
+];
+
+const COMPARISON_TEXTS = [
+  'a quarter of the space of the other widget or less',
+  'about half the space of the other widget',
+  'about the same space as the other widget, or the `request` states no size difference between them',
+  'about twice the space of the other widget',
+  'four times the space of the other widget or more',
+];
+
+function comparisonQuestion(a: NamedInstance, b: NamedInstance) {
+  return score(
+    `How much space on the chart does the \`request\` give ${a.id} (the ${a.widget} widget) compared with ${b.id} (the ${b.widget} widget)? Compare the areas the two widgets take. Answer from the \`request\` alone.`,
+    COMPARISON_TEXTS,
+  );
+}
+
 function questions(
   visible: readonly VesselInstanceSnapshot[],
   pairs: readonly (readonly [InstanceId, InstanceId])[],
@@ -521,15 +654,41 @@ function questions(
         ),
       ]),
     ),
-    ...Object.fromEntries(
-      visible.map(({ instanceId, vesselId }) => [
-        sizeQuestionId(instanceId),
-        score(
-          `How much of the chart does the \`request\` give ${instanceId} (the ${vesselId} widget)? Answer from the \`request\` alone.`,
-          SIZE_LEVELS,
-        ),
-      ]),
-    ),
+    ...(options.sizeAnswers?.kind !== 'pair_comparisons' &&
+      Object.fromEntries(
+        visible.map(({ instanceId, vesselId }) => [
+          sizeQuestionId(instanceId),
+          score(
+            `How much of the chart does the \`request\` give ${instanceId} (the ${vesselId} widget)? Answer from the \`request\` alone.`,
+            SIZE_LEVELS,
+          ),
+        ]),
+      )),
+    ...(options.sizeAnswers?.kind === 'fractions_within_part' &&
+      Object.fromEntries(
+        visible.flatMap(({ instanceId, vesselId }) => [
+          [
+            statedInGroupQuestionId(instanceId),
+            noul(
+              `Does the \`request\` state how much of its row or column ${instanceId} (the ${vesselId} widget) takes, compared with the other widgets in that row or column, such as 'half the height', 'a third of the column', 'two thirds of the row' or 'most of the right column'? Answer no when the \`request\` states no size for ${instanceId}, or only a size of the whole chart such as 'two thirds of the board' or 'a narrow column'. Answer from the \`request\` alone.`,
+            ),
+          ],
+          [
+            fractionInGroupQuestionId(instanceId),
+            score(
+              `The \`request\` may put ${instanceId} (the ${vesselId} widget) in a row or a column together with other widgets. What fraction of that row or column does the \`request\` give ${instanceId}? Answer from the \`request\` alone.`,
+              FRACTION_TEXTS,
+            ),
+          ],
+        ]),
+      )),
+    ...(options.sizeAnswers?.kind === 'pair_comparisons' &&
+      Object.fromEntries(
+        pairs.map(([first, second]) => [
+          comparisonQuestionId(first, second),
+          comparisonQuestion(nameOf(first), nameOf(second)),
+        ]),
+      )),
     ...(options.sizeWithinPart &&
       Object.fromEntries(
         visible.map(({ instanceId, vesselId }) => [
@@ -683,37 +842,92 @@ function readAll(
     records.push(answerRecord(question, answer.value));
     pairAnswers.push({ first, second, answer: recordedChoice(answer.value) });
   }
+  const sizeAnswers = options.sizeAnswers;
+  const readScore = (question: string) => {
+    const answer = readAnswer(reply, question, STAGE, ctx);
+    if (isErr(answer)) return answer;
+    if (!isScoreAnswer(answer.value))
+      return deferAt(ctx, STAGE, 'answer_missing', question);
+    records.push(answerRecord(question, answer.value));
+    return ok(answer.value);
+  };
+  const levelStep = (answer: ScoreAnswer) => steps[Number(answer.choice)] ?? 0;
+  const sizeOf = (answer: ScoreAnswer) =>
+    sizeAnswers?.kind === 'score_when_confident' &&
+    answer.confidence >= sizeAnswers.minimumConfidence
+      ? interpolateLevels(answer.score, steps)
+      : levelStep(answer);
   const sizes: Record<string, RecordedSize> = {};
   const groupSizes: Record<string, RecordedSize> = {};
   const sizeQuestions = [
-    { target: sizes, questionOf: sizeQuestionId },
+    ...(sizeAnswers?.kind === 'pair_comparisons'
+      ? []
+      : [{ target: sizes, questionOf: sizeQuestionId, size: sizeOf }]),
     ...(options.sizeWithinPart
-      ? [{ target: groupSizes, questionOf: groupSizeQuestionId }]
+      ? [
+          {
+            target: groupSizes,
+            questionOf: groupSizeQuestionId,
+            size: levelStep,
+          },
+        ]
       : []),
   ];
-  for (const { target, questionOf } of sizeQuestions)
+  for (const { target, questionOf, size } of sizeQuestions)
     for (const id of ids) {
-      const question = questionOf(id);
-      const answer = readAnswer(reply, question, STAGE, ctx);
+      const answer = readScore(questionOf(id));
       if (isErr(answer)) return answer;
-      if (!isScoreAnswer(answer.value))
-        return deferAt(ctx, STAGE, 'answer_missing', question);
-      records.push(answerRecord(question, answer.value));
-      const { choice: level, confidence, probabilities } = answer.value;
-      target[id] = {
-        level,
-        score: answer.value.score,
-        confidence,
-        probabilities,
-        size: steps[Number(level)] ?? 0,
+      target[id] = recordedSize(answer.value, size(answer.value));
+    }
+  const groupFractions: Record<string, RecordedGroupFraction> = {};
+  if (sizeAnswers?.kind === 'fractions_within_part')
+    for (const id of ids) {
+      const statedQuestion = statedInGroupQuestionId(id);
+      const stated = readAnswer(reply, statedQuestion, STAGE, ctx);
+      if (isErr(stated)) return stated;
+      if (stated.value.probability === undefined)
+        return deferAt(ctx, STAGE, 'answer_missing', statedQuestion);
+      records.push(answerRecord(statedQuestion, stated.value));
+      const fraction = readScore(fractionInGroupQuestionId(id));
+      if (isErr(fraction)) return fraction;
+      groupFractions[id] = {
+        stated: stated.value.probability,
+        fraction: recordedSize(
+          fraction.value,
+          interpolateLevels(fraction.value.score, FRACTION_LEVELS),
+        ),
       };
+    }
+  const sizeComparisons: RecordedComparison[] = [];
+  if (sizeAnswers?.kind === 'pair_comparisons')
+    for (const [first, second] of pairs) {
+      const answer = readScore(comparisonQuestionId(first, second));
+      if (isErr(answer)) return answer;
+      sizeComparisons.push({
+        first,
+        second,
+        answer: recordedSize(answer.value, 0),
+        logRatio: comparisonLogRatio(answer.value.score),
+      });
     }
   return ok({
     pairAnswers,
-    sizes,
+    ...(sizeAnswers?.kind !== 'pair_comparisons' && { sizes }),
     ...(options.sizeWithinPart && { groupSizes }),
+    ...(sizeAnswers?.kind === 'fractions_within_part' && { groupFractions }),
+    ...(sizeAnswers?.kind === 'pair_comparisons' && { sizeComparisons }),
     records,
   });
+}
+
+function recordedSize(answer: ScoreAnswer, size: number): RecordedSize {
+  return {
+    level: answer.choice,
+    score: answer.score,
+    confidence: answer.confidence,
+    probabilities: answer.probabilities,
+    size,
+  };
 }
 
 function answerRecord(question: string, answer: Answer): AnswerRecord {

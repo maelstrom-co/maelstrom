@@ -162,6 +162,14 @@ export interface ComposedPairsVariantSummary {
   /** Wrong top-level direction answers, not stated read as the current top split, over compared calls that asked it. */
   readonly wrongDirection: Ratio;
   readonly directionNotStated: Ratio;
+  /** Turns whose failures include a `weightRatio` or `dominant` rule. */
+  readonly sizeRuleFailures: number;
+  /** Confidence percentiles over every whole-Chart size and size comparison answer; absent when none was recorded. */
+  readonly sizeConfidence?: {
+    readonly p10: number;
+    readonly p50: number;
+    readonly p90: number;
+  };
 }
 
 /** Summarises `variant`'s composed-pairs records; `undefined` when none recorded one. */
@@ -169,12 +177,29 @@ export function summarizeComposedPairs(
   records: readonly StageTurnRecord<LayoutTurnDetail>[],
   variant: string,
 ): ComposedPairsVariantSummary | undefined {
-  const own = records.flatMap((record) =>
-    record.variant === variant && record.detail?.pairwise
-      ? [record.detail]
-      : [],
+  const ownRecords = records.filter(
+    (record) => record.variant === variant && record.detail?.pairwise,
+  );
+  const own = ownRecords.flatMap((record) =>
+    record.detail ? [record.detail] : [],
   );
   if (own.length === 0) return undefined;
+  const sizeRuleFailures = ownRecords.filter((record) =>
+    record.failures.some((failure) => SIZE_RULE.test(failure)),
+  ).length;
+  const confidences = own.flatMap(({ pairwise }) => [
+    ...Object.values(pairwise?.sizes ?? {}).map((size) => size.confidence),
+    ...(pairwise?.sizeComparisons ?? []).map(
+      (comparison) => comparison.answer.confidence,
+    ),
+  ]);
+  const p10 = percentile(confidences, 10);
+  const p50 = percentile(confidences, 50);
+  const p90 = percentile(confidences, 90);
+  const sizeConfidence =
+    p10 === undefined || p50 === undefined || p90 === undefined
+      ? undefined
+      : { p10, p50, p90 };
   const routes = {
     spatial: { turns: 0, calls: 0 },
     same_instances: { turns: 0, calls: 0 },
@@ -235,8 +260,12 @@ export function summarizeComposedPairs(
     medianMargin: percentile(margins, 50),
     wrongDirection,
     directionNotStated,
+    sizeRuleFailures,
+    ...(sizeConfidence && { sizeConfidence }),
   };
 }
+
+const SIZE_RULE = /\b(weightRatio|dominant)\(/;
 
 /**
  * The composed-pairs section: gating routes, hand-off causes, the chosen
@@ -297,6 +326,16 @@ export function renderComposedPairsSection(
     (s) => asked(s.wrongDirection),
   );
   row('Direction answers not stated', (s) => asked(s.directionNotStated));
+  row('Turns failing a size rule (weightRatio or dominant)', (s) =>
+    String(s.sizeRuleFailures),
+  );
+  row('Size answer confidence p10 / p50 / p90', (s) =>
+    s.sizeConfidence
+      ? [s.sizeConfidence.p10, s.sizeConfidence.p50, s.sizeConfidence.p90]
+          .map((value) => value.toFixed(2))
+          .join(' / ')
+      : 'n/a',
+  );
   return [
     '## Composed pairs layout',
     "Pairs are compared with the scenario's reference tree (the stated one, or the current tree when the scenario expects it unchanged), over the answered pairs it relates. A not stated answer counts as the relation the pair has in the current tree, and as wrong for a pair the current tree does not hold. The direction answer, where asked, is compared with the reference tree's top split in the same way. The reference tree is one tree the rules accept, so a wrong relation on a passing turn can be a valid alternative.",

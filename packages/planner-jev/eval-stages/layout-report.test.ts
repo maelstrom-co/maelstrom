@@ -10,6 +10,7 @@ import type { StageTurnRecord } from './stage-eval.js';
 
 function turn(
   pairwise: ComposedPairsRecord,
+  failures: readonly string[] = [],
 ): StageTurnRecord<LayoutTurnDetail> {
   return {
     stage: 'jevLayout',
@@ -17,8 +18,8 @@ function turn(
     scenarioId: 'bottom-strip',
     suite: 'development',
     repeat: 1,
-    outcome: 'pass',
-    failures: [],
+    outcome: failures.length === 0 ? 'pass' : 'fail',
+    failures,
     jevCalls: [],
     detail: { source: 'jev', answers: [], pairwise },
   };
@@ -43,6 +44,52 @@ describe('composed pairs report', () => {
     expect(
       renderComposedPairsSection(records, ['composed-pairs-size-fallback']),
     ).toContain('| Size fallback: raised to minimum / equal weights | 1 / 1 |');
+  });
+
+  test('counts turns failing a size rule and the size answer confidence', () => {
+    const size = (confidence: number) => ({
+      level: '2',
+      score: 2,
+      confidence,
+      probabilities: { 2: 1 },
+      size: 0.5,
+    });
+    const records = [
+      turn({ ...CALLED, sizes: { a: size(0.5), b: size(0.9) } }, [
+        'Arrangement weightRatio(a, b, 1.6..2.5): a/b area ratio 1.5, outside 1.6..2.5',
+      ]),
+      turn({ ...CALLED, sizes: { a: size(0.7) } }, [
+        'Arrangement dominant(a, 0.6): a has share 0.5',
+      ]),
+      turn({ ...CALLED, sizes: { a: size(1) } }, [
+        'Arrangement leftOf(a, b): a is not left of b',
+      ]),
+    ];
+    const summary = summarizeComposedPairs(
+      records,
+      'composed-pairs-size-fallback',
+    );
+    expect(summary?.sizeRuleFailures).toBe(2);
+    expect(summary?.sizeConfidence).toEqual({ p10: 0.5, p50: 0.7, p90: 1 });
+    const section = renderComposedPairsSection(records, [
+      'composed-pairs-size-fallback',
+    ]);
+    expect(section).toContain(
+      '| Turns failing a size rule (weightRatio or dominant) | 2 |',
+    );
+    expect(section).toContain(
+      '| Size answer confidence p10 / p50 / p90 | 0.50 / 0.70 / 1.00 |',
+    );
+  });
+
+  test('registers the size variants built on the combined variant', () => {
+    expect(Object.keys(LAYOUT_VARIANTS)).toEqual(
+      expect.arrayContaining([
+        'composed-pairs-fraction-sizes',
+        'composed-pairs-score-when-confident',
+        'composed-pairs-size-comparisons',
+      ]),
+    );
   });
 
   test('registers the combined composed pairs variant', () => {
