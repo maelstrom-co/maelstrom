@@ -94,6 +94,18 @@ describe('validateReply', () => {
     expect(reply?.usage).toEqual({ inputTokens: 11, outputTokens: 2 });
   });
 
+  test('keeps every option probability on a choice answer, out of its spread and JSON', () => {
+    const answer = validateReply(valid(), evaluation, TEST_MODEL)?.answers[
+      'view/weather-main'
+    ];
+    expect(answer?.probabilities).toEqual({ keep: 0, hide: 1, delete: 0 });
+    expect({ ...answer }).toEqual({ choice: 'hide', confidence: 0.8 });
+    expect(JSON.parse(JSON.stringify(answer))).toEqual({
+      choice: 'hide',
+      confidence: 0.8,
+    });
+  });
+
   test.each([
     [
       'a different model',
