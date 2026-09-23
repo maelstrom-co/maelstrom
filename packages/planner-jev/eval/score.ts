@@ -242,7 +242,11 @@ function compareVariants(
   }
 }
 
-function expectedRetained(scenario: Scenario): readonly string[] {
+/**
+ * The Instances a scenario expects retained: its stated set, or every
+ * current, visible and acted-on Instance when it states none.
+ */
+export function expectedRetained(scenario: Scenario): readonly string[] {
   const { expected, request } = scenario;
   return (
     expected.retained ?? [

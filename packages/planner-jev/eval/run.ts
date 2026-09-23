@@ -1,4 +1,5 @@
 import {
+  cancellationError,
   createEngine,
   type Logger,
   type Planner,
@@ -10,6 +11,7 @@ import {
 import {
   type ActionExecution,
   ChartRequestMessage,
+  err,
   isOk,
   type MaelstromResponse,
   MessageId,
@@ -32,6 +34,7 @@ import {
   type JevCall,
 } from '../src/lib/typesafe-client.js';
 import { type Arm, type ArmKind, demoLlmPlanner } from './arms.js';
+import { goldInputs } from './gold-inputs.js';
 import {
   GRADER_VERSION,
   type GraderCall,
@@ -104,6 +107,19 @@ export interface LayoutStageOutput {
   readonly composition?: ComposedLayoutRecord;
 }
 
+/** How far `--stop-after` runs each Jev arm's pipeline. */
+export type StopAfter = 'layout';
+
+/** Every `--stop-after` value. */
+export const STOP_AFTER: readonly StopAfter[] = ['layout'];
+
+/**
+ * What a stop-after-layout turn's layout stage decided: a `tree` it wrote,
+ * a hand-off to the completion call (`handed_off`, neither pass nor fail),
+ * or `no_decision` when a stage deferred or failed before a decision.
+ */
+export type LayoutOnlyOutcome = 'tree' | 'handed_off' | 'no_decision';
+
 export interface RunRecord {
   readonly scenarioId: string;
   readonly suite: Suite;
@@ -123,8 +139,18 @@ export interface RunRecord {
   readonly spatial?: boolean;
   /** Whether the scenario expects any action, when it states its actions. */
   readonly expectsActions?: boolean;
-  /** Overall score of the shipped response (planned scenarios only). */
+  /**
+   * Overall score of the shipped response (planned scenarios only); under
+   * stop-after-layout, the score of the layout stage's tree.
+   */
   readonly score?: ArrangedScore;
+  /** Stop-after-layout turns only. */
+  readonly layoutOnly?: LayoutOnlyOutcome;
+  /**
+   * Gold-input runs only: why the scenario's expectation cannot form the
+   * select and actions outputs. Nothing ran; the turn counts in no rate.
+   */
+  readonly notApplicable?: string;
   /** Jev arms only: whether it deferred at the expected stage (expected-deferral scenarios). */
   readonly deferredAsExpected?: boolean;
   readonly deferral?: {
@@ -196,6 +222,45 @@ export interface EvalOptions {
     readonly source: ReplaySource;
     readonly stages: readonly StageName[];
   };
+  /**
+   * Ends every turn after `jevLayout` and scores its tree: `llmComplete`
+   * never runs, and a deferral makes no fallback call.
+   */
+  readonly stopAfter?: StopAfter;
+  /**
+   * Feeds every turn the select and actions outputs its scenario's
+   * expectation implies (see {@link goldInputs}) in place of the live stages.
+   */
+  readonly goldInputs?: boolean;
+}
+
+/** The message of the error that ends a stop-after-layout turn. */
+export const STOPPED_AFTER_LAYOUT = 'stopped after jevLayout';
+
+/**
+ * Checks that `options` combine: stop-after and gold inputs need stage-library
+ * arms, since the baseline has no stages and the POC's stages read a
+ * different shape, and gold inputs replace what a replay would.
+ *
+ * @throws {Error} Naming the conflicting option and arms.
+ */
+export function checkRunModes(
+  options: Pick<EvalOptions, 'arms' | 'stopAfter' | 'goldInputs'> & {
+    /** Any value stands for a replay. */
+    readonly replay?: unknown;
+  },
+): void {
+  if (options.goldInputs && options.replay)
+    throw new Error('--gold-inputs and --replay-from cannot be combined');
+  const modes = [
+    ...(options.stopAfter ? [`--stop-after ${options.stopAfter}`] : []),
+    ...(options.goldInputs ? ['--gold-inputs'] : []),
+  ];
+  const unsupported = options.arms.filter((arm) => arm.kind !== 'jev');
+  if (modes.length > 0 && unsupported.length > 0)
+    throw new Error(
+      `${modes.join(' and ')} run only stage-library arms; remove ${unsupported.map((arm) => arm.name).join(', ')}`,
+    );
 }
 
 const silent: Logger = { debug() {}, info() {}, warn() {}, error() {} };
@@ -206,11 +271,13 @@ const silent: Logger = { debug() {}, info() {}, warn() {}, error() {} };
  * and `retry: false`: the baseline is the same once-retried LLM planner the
  * Jev arms fall back to, so the arms differ only in their pipelines.
  *
- * @throws {Error} Before any turn runs, when `options.replay` did not record
+ * @throws {Error} Before any turn runs, when {@link checkRunModes} refuses
+ *   the options, when `options.replay` did not record
  *   every scenario and repeat from the same request and history, or lacks
  *   fields an arm reads from a replayed stage.
  */
 export async function runEval(options: EvalOptions): Promise<RunRecord[]> {
+  checkRunModes(options);
   if (options.replay) {
     verifyReplay(options.replay.source, options.scenarios, options.repeats);
     verifyReplayShape(
@@ -312,16 +379,34 @@ async function runTurn(
   const llmCalls: LlmCall[] = [];
   const adapter = (role: LlmRole) =>
     withUsage(options.adapter, role, (call) => llmCalls.push(call));
+  const gold =
+    jev && options.goldInputs
+      ? goldInputs(scenario, arm.replayShape ?? 'poc')
+      : undefined;
+  if (gold && !gold.applicable)
+    return {
+      record: {
+        ...base(scenario, repeat, arm, { ms: 0 }),
+        notApplicable: gold.reason,
+      },
+    };
   const replay = jev ? options.replay : undefined;
-  const replacements: StageReplacements = replay
-    ? Object.fromEntries(
+  const stopAfter = jev ? options.stopAfter : undefined;
+  const replacements: StageReplacements = {
+    ...(replay &&
+      Object.fromEntries(
         replay.stages.map((name) => [
           name,
           replayStage(name, replay.source.turn(scenario.id, repeat)),
         ]),
-      )
-    : {};
-  const recorder = createRecorder(replacements);
+      )),
+    ...(gold?.applicable && gold.stages),
+    ...(stopAfter && { llmComplete: stopTurn }),
+  };
+  const recorder = createRecorder(
+    replacements,
+    stopAfter ? ['llmComplete'] : [],
+  );
   let fallbackCalls = 0;
   const fallback = demoLlmPlanner(adapter('fallback'));
   const counted: Stage<Retryable<PlanningInput>, PlannerCandidate> = (
@@ -329,7 +414,7 @@ async function runTurn(
     ctx,
   ) => {
     fallbackCalls += 1;
-    return fallback(input, ctx);
+    return stopAfter ? stopTurn(input, ctx) : fallback(input, ctx);
   };
   const planner = arm.build({
     typesafe: { ...options.typesafe, onCall: recorder.onCall },
@@ -337,7 +422,8 @@ async function runTurn(
     fallback: counted,
     instrument: recorder.instrument,
   });
-  const turn = await handle(options, scenario, repeat, arm.name, planner);
+  const handled = await handle(options, scenario, repeat, arm.name, planner);
+  const turn = stopAfter ? withoutStop(handled) : handled;
   const record = {
     ...base(scenario, repeat, arm, turn),
     llmCalls,
@@ -346,6 +432,7 @@ async function runTurn(
       scenario.expected.status === 'planned' && {
         score: scoreResponse(scenario, turn.response),
       }),
+    ...(stopAfter && layoutOnlyFields(scenario, recorder.stages)),
   };
   if (jev && options.out !== undefined)
     await writeStageFile(options.out, {
@@ -358,6 +445,38 @@ async function runTurn(
     record,
     ...(turn.response &&
       scenario.expected.status === 'planned' && { response: turn.response }),
+  };
+}
+
+const stopTurn: Stage<unknown, never> = async () =>
+  err(cancellationError(STOPPED_AFTER_LAYOUT, 'stop-after layout'));
+
+/** The turn without the error that stopped it after `jevLayout`. */
+function withoutStop(turn: Turn): Turn {
+  return turn.error?.tag === 'CancellationError' &&
+    turn.error.message === STOPPED_AFTER_LAYOUT
+    ? { ms: turn.ms }
+    : turn;
+}
+
+/** A stop-after-layout turn's outcome, and the layout stage's tree as the shipped one, scored. */
+function layoutOnlyFields(
+  scenario: Scenario,
+  stages: readonly StageRecord[],
+): Partial<RunRecord> {
+  const layout = stages.find(
+    (record) => record.stage === 'jevLayout' && record.outcome === 'ok',
+  )?.output as LayoutOutput | undefined;
+  if (layout === undefined) return { layoutOnly: 'no_decision' };
+  if (layout.tree === undefined) return { layoutOnly: 'handed_off' };
+  const score =
+    scenario.expected.status === 'planned'
+      ? scoreLayout(scenario, { tree: layout.tree })
+      : undefined;
+  return {
+    layoutOnly: 'tree',
+    tree: layout.tree,
+    ...(score && { score }),
   };
 }
 
