@@ -20,7 +20,6 @@ import {
   VariantName,
   VesselId,
 } from '@maelstrom-co/protocol';
-import type { AnyTextAdapter } from '@tanstack/ai';
 
 import type { Logger } from '../logger.js';
 import type { SkippedAction } from '../response/execution-plan/index.js';
@@ -32,61 +31,12 @@ export const silentLogger: Logger = {
   error: () => {},
 };
 
-// AnyTextAdapter's phantom `~types` field has no runtime shape, so
-// `satisfies` can't reproduce it — the double-cast is the only option.
-export const dummyAdapter = {
-  kind: 'text',
-  name: 'dummy',
-  model: 'dummy-model',
-  chatStream: () => {
-    throw new Error('dummyAdapter.chatStream not callable in tests');
-  },
-  structuredOutput: () => {
-    throw new Error('dummyAdapter.structuredOutput not callable in tests');
-  },
-} as unknown as AnyTextAdapter;
-
 /**
  * Negative-path schema-test helper. Wraps the `as unknown as T` double-cast
  * with a named call so test intent is explicit and a grep for
  * `as unknown as` in production code stays clean.
  */
 export const invalid = <T>(v: unknown): T => v as T;
-
-interface ChatCallShape {
-  readonly messages: ReadonlyArray<{
-    readonly role: 'user' | 'assistant' | 'system';
-    readonly content: string;
-  }>;
-}
-
-/**
- * Pulls the most recent `role: 'user'` message content out of the mocked
- * `chat()` call at index `callIndex`. Throws on shape mismatch so a future
- * adapter signature drift fails the test type-check instead of slipping
- * through string-shape assertions.
- */
-export function getLastUserMessage(
-  mockChat: { readonly mock: { readonly calls: ReadonlyArray<unknown[]> } },
-  callIndex: number,
-): string {
-  const callArgs = mockChat.mock.calls[callIndex]?.[0] as
-    | ChatCallShape
-    | undefined;
-  if (!callArgs?.messages) {
-    throw new Error(
-      `getLastUserMessage: call ${callIndex} has no messages array`,
-    );
-  }
-  const userMessages = callArgs.messages.filter((m) => m.role === 'user');
-  const last = userMessages[userMessages.length - 1];
-  if (!last) {
-    throw new Error(
-      `getLastUserMessage: call ${callIndex} has no user-role message`,
-    );
-  }
-  return last.content;
-}
 
 /**
  * Author-shape overrides for `ChartRequest` test fixtures. Accepts raw

@@ -14,6 +14,8 @@ import { isDeferred } from './stage.js';
  *
  * @example
  * ```ts
+ * import { llmPlanner } from '@maelstrom-co/planner-llm';
+ *
  * const planner = withFallback(
  *   pipeline(selectVessels, arrangeLayout),
  *   llmPlanner({ adapter }),

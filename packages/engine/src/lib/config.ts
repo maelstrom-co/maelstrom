@@ -8,9 +8,10 @@ import type { WithRetryOptions } from './planner/with-retry.js';
 export interface EngineConfig {
   /**
    * Produces the candidate response for every `chart_request`. Start from
-   * `llmPlanner({ adapter })`, or compose stages with `pipeline` and
-   * `withFallback`. The Engine heals and validates whatever the planner
-   * returns against the request the client sent.
+   * `llmPlanner({ adapter })` in `@maelstrom-co/planner-llm`, or compose
+   * stages with `pipeline` and `withFallback`. The Engine heals and
+   * validates whatever the planner returns against the request the client
+   * sent.
    */
   readonly planner: Planner;
   /** Optional logger (defaults to consoleLogger). Stages receive it as `StageContext.logger`. */

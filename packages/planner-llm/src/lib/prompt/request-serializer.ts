@@ -1,3 +1,8 @@
+import type { ActionParameterEnumSnapshot, Logger } from '@maelstrom-co/engine';
+import {
+  buildActionParameterEnumSnapshot,
+  isResizeOnlyBatch,
+} from '@maelstrom-co/engine';
 import type {
   ActionParameter,
   ChartRequest,
@@ -7,10 +12,6 @@ import type {
   VesselInstanceSnapshot,
 } from '@maelstrom-co/protocol';
 import { getVisibleInstanceIds } from '@maelstrom-co/protocol';
-import type { ActionParameterEnumSnapshot } from '../action-parameter-enum.js';
-import { buildActionParameterEnumSnapshot } from '../action-parameter-enum.js';
-import type { Logger } from '../logger.js';
-import { isResizeOnlyBatch } from '../update-reasons.js';
 import { computeAvailableIslands, serializeIslands } from './islands.js';
 import type { PromptSection } from './sections.js';
 import { UserSection } from './sections.js';

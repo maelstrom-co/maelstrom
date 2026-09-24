@@ -35,6 +35,8 @@ export interface WithRetryOptions {
  *
  * @example
  * ```ts
+ * import { llmPlanner } from '@maelstrom-co/planner-llm';
+ *
  * const planner = withRetry(llmPlanner({ adapter }), { max: 1 });
  * ```
  */

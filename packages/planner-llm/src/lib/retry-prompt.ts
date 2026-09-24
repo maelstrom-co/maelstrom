@@ -1,4 +1,4 @@
-import type { EngineDiagnostics } from './candidate.js';
+import type { EngineDiagnostics } from '@maelstrom-co/engine';
 
 /**
  * The system prompt is unchanged on retry, so the LLM still has the full

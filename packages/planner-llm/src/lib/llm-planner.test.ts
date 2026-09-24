@@ -1,4 +1,11 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test';
+import type {
+  LLMContextMessage,
+  PlanningInput,
+  Retryable,
+  RetryFeedback,
+} from '@maelstrom-co/engine';
+import { createEngine } from '@maelstrom-co/engine';
 import type { ChartRequest } from '@maelstrom-co/protocol';
 import {
   ActionName,
@@ -18,24 +25,19 @@ import {
   dummyAdapter,
   makeGridRequest,
   makeTilingRequest,
+  overflowDiagnostics,
   silentLogger,
-} from '../__test-helpers__/fixtures.js';
+} from './__test-helpers__/fixtures.js';
 import {
   makePlanningInput,
   makeStageContext,
   spyLogger,
-} from '../__test-helpers__/stage-context.js';
-import { createEngine } from '../engine.js';
-import type { LLMContextMessage } from '../history/history-manager.js';
-import type { PromptOptions } from '../prompt/prompt-builder.js';
-import {
-  buildSystemPrompt,
-  buildUserPrompt,
-} from '../prompt/prompt-builder.js';
+} from './__test-helpers__/stage-context.js';
 import type { LlmPlannerOptions } from './llm-planner.js';
 import { llmPlanner } from './llm-planner.js';
+import type { PromptOptions } from './prompt/prompt-builder.js';
+import { buildSystemPrompt, buildUserPrompt } from './prompt/prompt-builder.js';
 import { buildRetryPrompt } from './retry-prompt.js';
-import type { PlanningInput } from './stage.js';
 
 const mockChat = mock<(...args: unknown[]) => Promise<unknown>>();
 
@@ -277,13 +279,14 @@ describe('llmPlanner', () => {
         .mockResolvedValueOnce(overflowingResponse)
         .mockResolvedValueOnce(buildGridResponse());
       const input = makePlanningInput(request);
-      const expected = makeStageContext({ origin: input }).validate(
-        overflowingResponse,
-      );
-      if (!isOk(expected)) throw new Error('fixture must validate');
+      const planner = llmPlanner({ adapter: dummyAdapter });
+      let retry: RetryFeedback | undefined;
 
       const engine = createEngine({
-        planner: llmPlanner({ adapter: dummyAdapter }),
+        planner: (attempt: Retryable<PlanningInput>, ctx) => {
+          retry = attempt.retry;
+          return planner(attempt, ctx);
+        },
         logger: silentLogger,
       });
       const result = await engine.handle(
@@ -297,12 +300,15 @@ describe('llmPlanner', () => {
       expect(isOk(result)).toBe(true);
       expect(mockChat).toHaveBeenCalledTimes(2);
       expect(chatCall(1).systemPrompts).toEqual(chatCall(0).systemPrompts);
+      if (retry === undefined)
+        throw new Error('second attempt must be a retry');
+      expect(retry.diagnostics.feedback).toContain('exceeds chart bounds');
       expect(chatCall(1).messages).toEqual([
         {
           role: 'user',
           content: buildRetryPrompt(
             buildUserPrompt(request),
-            expected.value.diagnostics,
+            retry.diagnostics,
           ),
         },
       ]);
@@ -649,9 +655,7 @@ describe('llmPlanner', () => {
     });
     const input = makePlanningInput(request);
     const ctx = makeStageContext({ origin: input });
-    const validated = ctx.validate(overflowingResponse);
-    if (!isOk(validated)) throw new Error('fixture must validate');
-    const { diagnostics } = validated.value;
+    const diagnostics = overflowDiagnostics;
 
     await planner(input, ctx);
     await planner(
@@ -727,9 +731,7 @@ describe('llmPlanner', () => {
       const request = makeGridRequest();
       const input = makePlanningInput(request);
       const ctx = makeStageContext({ origin: input });
-      const validated = ctx.validate(overflowingResponse);
-      if (!isOk(validated)) throw new Error('fixture must validate');
-      const { diagnostics } = validated.value;
+      const diagnostics = overflowDiagnostics;
       const planner = llmPlanner({ adapter: dummyAdapter });
 
       await planner({ ...input, hints: ['A'] }, ctx);
@@ -756,9 +758,7 @@ describe('llmPlanner', () => {
       const hints = ['A'];
       const input = { ...makePlanningInput(request), hints };
       const ctx = makeStageContext({ origin: input });
-      const validated = ctx.validate(overflowingResponse);
-      if (!isOk(validated)) throw new Error('fixture must validate');
-      const { diagnostics } = validated.value;
+      const diagnostics = overflowDiagnostics;
       let customizerCalls = 0;
       const planner = llmPlanner({
         adapter: dummyAdapter,

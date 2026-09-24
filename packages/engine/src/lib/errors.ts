@@ -28,11 +28,11 @@ export interface ProviderError {
 }
 
 /**
- * Raised for generic engine-input validation failures (e.g. a misconfigured
- * user-prompt customizer that throws inside `buildUserPrompt`). LLM-output
- * layout problems no longer surface here — they heal into
- * `EngineDiagnostics.droppedLayoutEntries` instead. System-prompt customizer
- * misconfiguration does not surface here either; it throws synchronously
+ * Raised for generic engine-input validation failures (e.g. a planner that
+ * cannot build its prompt from the request). LLM-output layout problems do
+ * not surface here — they heal into `EngineDiagnostics.droppedLayoutEntries`
+ * instead. A planner's own construction-time misconfiguration does not
+ * surface here either; `@maelstrom-co/planner-llm` throws synchronously
  * when `llmPlanner` is constructed.
  *
  * `field` optionally identifies the offending input path as a free-form

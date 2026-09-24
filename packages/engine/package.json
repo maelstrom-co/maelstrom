@@ -1,16 +1,14 @@
 {
   "name": "@maelstrom-co/engine",
   "version": "0.1.0-alpha.4",
-  "description": "Reference LLM decision core for Maelstrom: turns chart state and user intent into a layout and an execution plan.",
+  "description": "Maelstrom orchestration engine: validates, heals and executes a planner's candidate into a layout and an execution plan for the current chart state.",
   "keywords": [
     "maelstrom",
     "ai",
-    "llm",
     "dynamic-ui",
     "generative-ui",
     "orchestration",
-    "layout",
-    "tanstack-ai"
+    "layout"
   ],
   "license": "MIT",
   "type": "module",
@@ -46,7 +44,6 @@
   },
   "dependencies": {
     "@maelstrom-co/protocol": "0.1.0-alpha.4",
-    "@tanstack/ai": "catalog:",
     "zod": "catalog:"
   },
   "nx": {
