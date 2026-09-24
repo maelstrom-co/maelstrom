@@ -1,0 +1,23 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./out-tsc/eval",
+    "types": ["bun"],
+    "rootDir": "."
+  },
+  "include": ["src/**/*.ts"],
+  "references": [
+    {
+      "path": "../protocol"
+    },
+    {
+      "path": "../planner-llm"
+    },
+    {
+      "path": "../planner-jev"
+    },
+    {
+      "path": "../engine"
+    }
+  ]
+}
