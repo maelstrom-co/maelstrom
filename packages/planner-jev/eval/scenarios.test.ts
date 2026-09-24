@@ -28,6 +28,43 @@ describe('scenarios', () => {
     expect(failures).toEqual([]);
   });
 
+  test.each([
+    [
+      'half-of-left-column-nested',
+      [
+        'H:5,2',
+        'V:1,2,1',
+        'ID:calendar-main',
+        'ID:tasks-main',
+        'ID:map-main',
+        'ID:weather-main',
+      ],
+    ],
+    [
+      'full-height-column-keep-row',
+      [
+        'V:3,2,2,4',
+        'ID:calendar-main',
+        'ID:tasks-main',
+        'ID:journal-main',
+        'H',
+        'ID:map-main',
+        'ID:weather-main',
+      ],
+    ],
+  ])('%s fails on the tree the logged demo shipped', (id, tree) => {
+    const scenario = scenarios.find((candidate) => candidate.id === id);
+    const rules = scenario?.expected.arrangement;
+    if (scenario === undefined || rules === undefined)
+      throw new Error(`no rules for ${id}`);
+    expect(
+      checkArrangement(rules, {
+        request: scenario.request,
+        tree: tree as TilingNode[],
+      }).failures,
+    ).not.toEqual([]);
+  });
+
   test('every scenario with rules is tagged, and rules only appear on planned ones', () => {
     for (const scenario of scenarios)
       if (scenario.expected.arrangement) {

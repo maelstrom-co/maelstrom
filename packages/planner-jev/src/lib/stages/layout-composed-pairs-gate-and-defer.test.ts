@@ -623,16 +623,6 @@ describe('size fallback and nothing fits', () => {
 });
 
 describe('the best tree before one that fits as sized', () => {
-  async function replayDemoTurn(key: string): Promise<ComposedPairsDecision> {
-    const turn = await demoTurn(key);
-    const plan = demoTurnPlan(turn);
-    const result = await layoutComposedPairsGateAndDefer(
-      recordedAsk(turn.answers),
-    )(plan, makeContext(plan.selection.input));
-    if (!isOk(result)) throw new Error(`${key} did not plan`);
-    return result.value;
-  }
-
   test('prefers the best tree raised to its minimums over a far worse tree that fits', async () => {
     const decision = await replayDemoTurn('log2:10');
     expect(decision.pairwise.fallback).toEqual({
@@ -659,3 +649,74 @@ describe('the best tree before one that fits as sized', () => {
     expect(decision.tree).toEqual(['H:1,3', 'ID:map-jev-1', 'ID:journal-main']);
   });
 });
+
+describe('the current layout kept as a candidate', () => {
+  test('keeps the calendar and tasks column when the tasks get half of it', async () => {
+    const decision = await replayDemoTurn('log1:11');
+    expect(decision.pairwise.candidates[0]?.kind).toBe('current_layout');
+    expect(decision.pairwise.fallback).toEqual({
+      kind: 'raised_to_minimum',
+      candidate: 0,
+    });
+    expect(decision.pairwise.chosen).toBeUndefined();
+    expect(decision.tree).toEqual([
+      'H:3,1',
+      'V',
+      'H',
+      'ID:calendar-main',
+      'ID:tasks-main',
+      'ID:map-jev-1',
+      'ID:weather-main',
+    ]);
+  });
+
+  test('keeps the journal and map column when the calendar is made wider', async () => {
+    const decision = await replayDemoTurn('log1:13');
+    expect(decision.pairwise.candidates[0]?.kind).toBe('current_layout');
+    expect(decision.pairwise.chosen).toBe(0);
+    expect(decision.pairwise.fallback).toBeUndefined();
+    expect(decision.tree).toEqual([
+      'H:5,2',
+      'V:6,2,1',
+      'ID:calendar-main',
+      'ID:tasks-main',
+      'H',
+      'ID:journal-main',
+      'ID:map-jev-1',
+      'ID:weather-main',
+    ]);
+  });
+
+  test('ranks the weather strip under the nested layout, but still ships the flat stack', async () => {
+    const decision = await replayDemoTurn('log2:10');
+    expect(decision.pairwise.candidates[2]).toMatchObject({
+      kind: 'one_widget_moved',
+      tree: [
+        'H:5,1',
+        'V:2,1',
+        'H',
+        'ID:calendar-main',
+        'ID:tasks-main',
+        'ID:map-jev-1',
+        'ID:weather-jev-1',
+      ],
+    });
+    expect(decision.tree).toEqual([
+      'H:1,1,1,1',
+      'ID:calendar-main',
+      'ID:tasks-main',
+      'ID:map-jev-1',
+      'ID:weather-jev-1',
+    ]);
+  });
+});
+
+async function replayDemoTurn(key: string): Promise<ComposedPairsDecision> {
+  const turn = await demoTurn(key);
+  const plan = demoTurnPlan(turn);
+  const result = await layoutComposedPairsGateAndDefer(
+    recordedAsk(turn.answers),
+  )(plan, makeContext(plan.selection.input));
+  if (!isOk(result)) throw new Error(`${key} did not plan`);
+  return result.value;
+}

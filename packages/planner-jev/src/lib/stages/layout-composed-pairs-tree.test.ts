@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import { InstanceId, type TilingNode } from '@maelstrom-co/protocol';
-
+import { rankLayoutCandidates } from './layout-composed-pairs-kept-layouts.js';
 import {
   arrangementRelation,
   arrangementTree,
@@ -166,6 +166,48 @@ describe('rankArrangements', () => {
       best && arrangementRelation(best.arrangement, calendar, weather),
     ).toBe('left_of');
     expect(Number.isFinite(best?.score)).toBe(true);
+  });
+});
+
+describe('rankLayoutCandidates', () => {
+  const [map, strip] = [InstanceId('map-main'), InstanceId('strip-main')];
+  const nested = [
+    'H:4,1',
+    'V',
+    'H',
+    'ID:calendar-main',
+    'ID:tasks-main',
+    'ID:map-main',
+    'ID:strip-main',
+  ] as TilingNode[];
+  const ids = [calendar, tasks, map, strip];
+  const unstated = ids.flatMap((first, index) =>
+    ids.slice(index + 1).map((second) => certain(first, second, NOT_STATED)),
+  );
+
+  test('ranks a three-level current tree first with score 0 when nothing is stated', () => {
+    const [best] = rankLayoutCandidates(ids, unstated, nested, NO_DIRECTION);
+    expect(best?.candidate.kind).toBe('current_layout');
+    expect(best?.score).toBe(0);
+  });
+
+  test('ranks the enumerated arrangements before the kept layouts on a tie', () => {
+    const undecided = unstated.map(({ first, second }) => ({
+      first,
+      second,
+      probabilities: {
+        left_of: 0.25,
+        right_of: 0.25,
+        above: 0.25,
+        below: 0.25,
+      },
+    }));
+    const [best] = rankLayoutCandidates(ids, undecided, nested, NO_DIRECTION);
+    expect(best?.candidate).toEqual({
+      kind: 'two_level',
+      arrangement: { axis: 'H', parts: [[calendar], [tasks], [map], [strip]] },
+    });
+    expect(best?.score).toBeCloseTo(6 * Math.log(0.25));
   });
 });
 
