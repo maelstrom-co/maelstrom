@@ -5,11 +5,11 @@ import { join, resolve } from 'node:path';
 
 import { FALLBACK_RETRIES, STAGE_NAMES } from '@maelstrom-co/planner-jev/_eval';
 import { summarize } from '../../core/report.js';
-import type { RunRecord } from '../../core/run.js';
+import { RUN_RECORD_FIELDS, type RunRecord } from '../../core/run.js';
+import { evalPlugins } from '../index.js';
 import { BASELINE_RETRIES, llmPlugin } from '../llm/plugin.js';
 import { JEV_PHASES, jevPlugin } from './plugin.js';
-
-const plugins = [llmPlugin, jevPlugin];
+import type { JevTurnFields } from './record.js';
 
 describe('the Jev plugin', () => {
   test('maps every phase to a stage of the pipeline, in order', () => {
@@ -40,10 +40,40 @@ describe('the Jev plugin', () => {
 /**
  * Key-set parity with a run recorded before the plugin seam: the summary
  * the current plugins build from that run's records must have the same
- * keys, at every depth, as the summary the run wrote. Skipped when no such
- * run is present (the directory is not committed).
+ * keys, at every depth, as the summary the pre-seam code wrote, and every
+ * record field must still be one the runner or the Jev plugin writes.
+ *
+ * `fixtures/preseam-run/` is committed: the baseline and one gated Jev arm
+ * of a live development run, repeat 1 of five scenarios (a control, a
+ * spatial pass, a selection deferral, and two expected deferrals). Its
+ * records drop the Jev call answers and question ids, every stage output
+ * but the selection gates, every answer but the gate answers, all
+ * instances but the first and most of each user message; `summary.json` is
+ * the pre-seam summary of exactly those trimmed records, which matched the
+ * summary of the untrimmed ones.
  */
-describe('summary.json parity with a recorded run', () => {
+describe('summary.json and records.json parity with a pre-seam run', () => {
+  const fixture = join(import.meta.dir, 'fixtures', 'preseam-run');
+
+  test('keeps every summary key of the committed pre-seam run', async () => {
+    await expectSummaryParity(fixture);
+  });
+
+  test('keeps every record field of the committed pre-seam run', async () => {
+    const records = JSON.parse(
+      await readFile(join(fixture, 'records.json'), 'utf8'),
+    ) as Record<string, unknown>[];
+    const recorded = new Set(records.flatMap((record) => Object.keys(record)));
+    const written = new Set<string>([...RUN_RECORD_FIELDS, ...JEV_FIELDS]);
+    expect([...recorded].filter((key) => !written.has(key))).toEqual([]);
+    // Fields this recording has no occasion to write: no turn errored and none was graded.
+    expect([...written].filter((key) => !recorded.has(key)).sort()).toEqual([
+      'error',
+      'grader',
+    ]);
+  });
+
+  // Longer local runs, when present; tmp/ is not committed.
   const runs = [
     'phase5-live-gate-defer',
     'phase3-baseline',
@@ -52,31 +82,46 @@ describe('summary.json parity with a recorded run', () => {
     resolve(import.meta.dir, '../../../../../tmp/planner-jev-eval', name),
   );
   const present = runs.filter((dir) => existsSync(join(dir, 'summary.json')));
-
   test.skipIf(present.length === 0).each(present)(
-    'keeps every summary key of %s',
-    async (dir) => {
-      const records = JSON.parse(
-        await readFile(join(dir, 'records.json'), 'utf8'),
-      ) as RunRecord[];
-      const recorded = JSON.parse(
-        await readFile(join(dir, 'summary.json'), 'utf8'),
-      ) as { summaries: Record<string, unknown>[] };
-      const rebuilt = summarize(records, plugins);
-      expect(
-        rebuilt.map((summary) => `${summary.arm}/${summary.suite}`),
-      ).toEqual(
-        recorded.summaries.map((summary) => `${summary.arm}/${summary.suite}`),
-      );
-      for (const [index, summary] of rebuilt.entries()) {
-        const before = recorded.summaries[index];
-        expect(keyPaths(JSON.parse(JSON.stringify(summary)))).toEqual(
-          keyPaths(before),
-        );
-      }
-    },
+    'keeps every summary key of the local run %s',
+    expectSummaryParity,
   );
 });
+
+// Every field jevTurnFields can add; the check below fails to compile when one is missing.
+const JEV_FIELDS = [
+  'stageScores',
+  'stageOutputs',
+  'jevCalls',
+  'answers',
+  'minConfidence',
+  'fill',
+] as const satisfies readonly (keyof JevTurnFields)[];
+const allJevFields: [
+  Exclude<keyof JevTurnFields, (typeof JEV_FIELDS)[number]>,
+] extends [never]
+  ? true
+  : false = true;
+void allJevFields;
+
+async function expectSummaryParity(dir: string): Promise<void> {
+  const records = JSON.parse(
+    await readFile(join(dir, 'records.json'), 'utf8'),
+  ) as RunRecord[];
+  const recorded = JSON.parse(
+    await readFile(join(dir, 'summary.json'), 'utf8'),
+  ) as { summaries: Record<string, unknown>[] };
+  const rebuilt = summarize(records, evalPlugins);
+  expect(rebuilt.map((summary) => `${summary.arm}/${summary.suite}`)).toEqual(
+    recorded.summaries.map((summary) => `${summary.arm}/${summary.suite}`),
+  );
+  for (const [index, summary] of rebuilt.entries()) {
+    const before = recorded.summaries[index];
+    expect(keyPaths(JSON.parse(JSON.stringify(summary)))).toEqual(
+      keyPaths(before),
+    );
+  }
+}
 
 /** Every key path of a JSON value, arrays collapsed to `[]`, sorted. */
 function keyPaths(value: unknown, prefix = ''): string[] {
