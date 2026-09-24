@@ -6,6 +6,16 @@ import type {
   RetryFeedback,
 } from '@maelstrom-co/engine';
 import { createEngine } from '@maelstrom-co/engine';
+import {
+  brandTilingResponse,
+  buildGridResponse,
+  makeGridRequest,
+  makePlanningInput,
+  makeStageContext,
+  makeTilingRequest,
+  silentLogger,
+  spyLogger,
+} from '@maelstrom-co/engine/_testing';
 import type { ChartRequest } from '@maelstrom-co/protocol';
 import {
   ActionName,
@@ -20,19 +30,9 @@ import {
 } from '@maelstrom-co/protocol';
 
 import {
-  brandTilingResponse,
-  buildGridResponse,
   dummyAdapter,
-  makeGridRequest,
-  makeTilingRequest,
   overflowDiagnostics,
-  silentLogger,
 } from './__test-helpers__/fixtures.js';
-import {
-  makePlanningInput,
-  makeStageContext,
-  spyLogger,
-} from './__test-helpers__/stage-context.js';
 import type { LlmPlannerOptions } from './llm-planner.js';
 import { llmPlanner } from './llm-planner.js';
 import type { PromptOptions } from './prompt/prompt-builder.js';
