@@ -188,8 +188,12 @@ export type ComposedPairsDecision = LayoutDecision & {
  * candidate by the log probability of the relations and the top-level
  * direction it implies (see `rankLayoutCandidates`): "not stated" votes
  * for the current tree's relation, or, when the direction answer changes
- * the current top split, for the relation along that direction in the
- * current order; on a tie an enumerated tree ranks first. In an enumerated
+ * the current top split and is meant for the whole board, for the
+ * relation along that direction in the current order. The direction is
+ * read as meant for one widget or group, and keeps the current relations,
+ * when a visible Instance is new to the tree or a pair states a relation
+ * across the direction (see `relationScores`). On a tie an enumerated
+ * tree ranks first. In an enumerated
  * tree, splits along the top axis are weighted by the whole-Chart size
  * answers; inside a row or column, members with a stated fraction get it
  * and the others split the rest by their whole-Chart shares (see
