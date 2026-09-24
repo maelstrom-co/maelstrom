@@ -12,11 +12,14 @@ import {
   chatCall,
   chatPrompt,
   dummyAdapter,
+  installMockChat,
   mockChat,
 } from '../__test-helpers__/mock-chat.js';
 import { prepareCompletion } from '../stages/complete-layout-inline.js';
 import type { LayoutDecision } from '../stages/stage-types.js';
 import { llmLayoutCall } from './llm-layout-call.js';
+
+installMockChat();
 
 afterEach(() => mockChat.mockReset());
 

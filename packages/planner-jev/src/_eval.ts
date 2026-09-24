@@ -4,6 +4,7 @@
  * ones included. Unsupported for any other consumer and free to change in
  * any release.
  */
+export { demoVessels } from './lib/__test-helpers__/demo-vessels.js';
 export { type JevCaller, STAGE_NAMES, type StageName } from './lib/defer.js';
 export { finalVariants } from './lib/final-variants.js';
 export {

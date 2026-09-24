@@ -32,6 +32,7 @@ import {
   chatCall,
   chatPrompt,
   dummyAdapter,
+  installMockChat,
   mockChat,
 } from '../__test-helpers__/mock-chat.js';
 import type {
@@ -40,6 +41,8 @@ import type {
   PlannedAction,
 } from '../types.js';
 import { llmComplete } from './llm-complete.js';
+
+installMockChat();
 
 afterEach(() => mockChat.mockReset());
 

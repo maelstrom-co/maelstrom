@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { mockChat } from '../__test-helpers__/mock-chat.js';
+import { installMockChat, mockChat } from '../__test-helpers__/mock-chat.js';
 import {
   POC_CASES,
   type PocRun,
@@ -11,6 +11,8 @@ import {
 import { jevPlanner } from '../jev-planner.js';
 import { buildJevUngatedStepwisePlanner } from '../planners-experimental/jev-ungated-stepwise.js';
 import { createJevDeps } from './stage-deps.js';
+
+installMockChat();
 
 const SNAPSHOT_DIR = join(
   import.meta.dir,

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 
 import type { Planner } from '@maelstrom-co/engine';
 
-import { mockChat } from '../__test-helpers__/mock-chat.js';
+import { installMockChat, mockChat } from '../__test-helpers__/mock-chat.js';
 import {
   POC_CASES,
   type PocCase,
@@ -15,6 +15,8 @@ import { buildJevGatedBatchedPerInstancePlanner } from './jev-gated-batched-per-
 import { buildJevGatedStepwisePlanner } from './jev-gated-stepwise.js';
 import { buildJevUngatedBatchedPlanner } from './jev-ungated-batched.js';
 import { buildJevUngatedBatchedPerInstancePlanner } from './jev-ungated-batched-per-instance.js';
+
+installMockChat();
 
 afterEach(() => mockChat.mockReset());
 

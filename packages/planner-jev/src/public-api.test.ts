@@ -6,6 +6,7 @@ import * as testingApi from './_testing.js';
 test('_eval exposes the runtime values @maelstrom-co/planner-eval composes', () => {
   expect(Object.keys(evalApi).sort()).toEqual(
     [
+      'demoVessels',
       'STAGE_NAMES',
       'finalVariants',
       'buildJevPlanner',
@@ -55,10 +56,25 @@ test('_testing exposes the fixtures and transports the eval tests use', () => {
       'loadDemoTurns',
       'recordedAsk',
       'dummyAdapter',
+      'installMockChat',
       'mockChat',
       'scriptedAsk',
       'scriptedFetch',
       'TEST_MODEL',
     ].sort(),
   );
+});
+
+test('importing _eval and _testing leaves @tanstack/ai chat untouched', () => {
+  const probe = `
+    const before = (await import('@tanstack/ai')).chat;
+    await import(${JSON.stringify(import.meta.resolve('./_eval.ts'))});
+    await import(${JSON.stringify(import.meta.resolve('./_testing.ts'))});
+    const after = (await import('@tanstack/ai')).chat;
+    process.exit(before === after ? 0 : 1);
+  `;
+  const run = Bun.spawnSync([process.execPath, '-e', probe], {
+    cwd: import.meta.dir,
+  });
+  expect(run.exitCode).toBe(0);
 });

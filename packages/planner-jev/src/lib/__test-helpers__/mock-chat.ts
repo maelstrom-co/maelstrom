@@ -14,12 +14,24 @@ export interface ChatCall {
   readonly abortController: AbortController;
 }
 
-/** Stands in for `@tanstack/ai`'s `chat`, the way the engine's own tests mock it. */
+/**
+ * Stands in for `@tanstack/ai`'s `chat` once {@link installMockChat} has run,
+ * the way the engine's own tests mock it.
+ */
 export const mockChat = mock<(options: ChatCall) => Promise<unknown>>();
 
-mock.module('@tanstack/ai', () => ({
-  chat: (options: ChatCall) => mockChat(options),
-}));
+/**
+ * Replaces `@tanstack/ai`'s `chat` with {@link mockChat} for the rest of the
+ * process, bindings already imported included. Call it at the top of every
+ * test file that relies on the mock; importing this module installs nothing,
+ * so runtime code that shares a barrel with it keeps the real `chat`.
+ */
+export function installMockChat(): typeof mockChat {
+  mock.module('@tanstack/ai', () => ({
+    chat: (options: ChatCall) => mockChat(options),
+  }));
+  return mockChat;
+}
 
 /** The options of the `index`th mocked `chat()` call. */
 export function chatCall(index = 0): ChatCall {
