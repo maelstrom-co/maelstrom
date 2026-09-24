@@ -29,7 +29,7 @@ import {
   type VesselInstanceSnapshot,
 } from '@maelstrom-co/protocol';
 import type { AnyTextAdapter } from '@tanstack/ai';
-import { type Arm, type ArmKind, demoLlmPlanner } from './arms.js';
+import { type Arm, type ArmKind, demoLlmPlanner } from '../plugins/jev/arms.js';
 import {
   GRADER_VERSION,
   type GraderCall,

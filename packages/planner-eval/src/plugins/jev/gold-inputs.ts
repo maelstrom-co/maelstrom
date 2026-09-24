@@ -19,10 +19,10 @@ import {
   type VesselActionDefinition,
   VesselId,
 } from '@maelstrom-co/protocol';
-import type { StageReplacements } from '../eval/instrument.js';
-import type { ReplayShape } from '../eval/replay.js';
-import type { Scenario } from '../eval/scenarios.js';
-import { expectedRetained } from '../eval/score.js';
+import type { StageReplacements } from '../../core/instrument.js';
+import type { ReplayShape } from '../../core/replay.js';
+import type { Scenario } from '../../core/scenarios.js';
+import { expectedRetained } from '../../core/score.js';
 
 /**
  * The select and actions stage outputs a scenario's expectation implies,

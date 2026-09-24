@@ -32,8 +32,8 @@ import {
 } from '@maelstrom-co/planner-jev/_eval';
 import { llmPlanner } from '@maelstrom-co/planner-llm';
 import type { AnyTextAdapter } from '@tanstack/ai';
-import type { ReplayShape } from './replay.js';
-import type { LlmRole } from './usage-adapter.js';
+import type { ReplayShape } from '../../core/replay.js';
+import type { LlmRole } from '../../core/usage-adapter.js';
 
 /** `baseline` is the LLM planner, `jev-poc` the frozen POC, `jev` any later Jev planner. */
 export type ArmKind = 'baseline' | 'jev-poc' | 'jev';

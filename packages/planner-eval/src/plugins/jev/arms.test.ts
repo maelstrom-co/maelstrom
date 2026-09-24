@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { dummyAdapter, TEST_MODEL } from '@maelstrom-co/planner-jev/_testing';
 import type { AnyTextAdapter } from '@tanstack/ai';
+import type { LlmRole } from '../../core/usage-adapter.js';
 import {
   type Arm,
   type ArmDeps,
@@ -9,7 +10,6 @@ import {
   DEFAULT_ARMS,
   resolveArms,
 } from './arms.js';
-import type { LlmRole } from './usage-adapter.js';
 
 describe('arm registry', () => {
   test('holds the baseline and the frozen POC by name', () => {

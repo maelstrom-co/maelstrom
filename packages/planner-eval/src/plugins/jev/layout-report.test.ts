@@ -1,13 +1,13 @@
 import { describe, expect, test } from 'bun:test';
 
 import type { ComposedPairsRecord } from '@maelstrom-co/planner-jev/_eval';
-import { LAYOUT_VARIANTS, type LayoutTurnDetail } from './layout.js';
+import type { StageTurnRecord } from '../../core/stage-eval.js';
 import {
   renderArrangementNotAskedSection,
   renderComposedPairsSection,
   summarizeComposedPairs,
 } from './layout-report.js';
-import type { StageTurnRecord } from './stage-eval.js';
+import { LAYOUT_VARIANTS, type LayoutTurnDetail } from './stages/layout.js';
 
 function turn(
   pairwise: ComposedPairsRecord,

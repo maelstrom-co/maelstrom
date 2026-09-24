@@ -12,7 +12,7 @@ import {
   type StageName,
 } from '@maelstrom-co/planner-jev/_eval';
 import { isErr, MessageId, SessionId } from '@maelstrom-co/protocol';
-import type { Scenario, Suite } from '../eval/scenarios.js';
+import type { Scenario, Suite } from './scenarios.js';
 
 /**
  * How one stage turn ended: its output `pass`ed or `fail`ed the stage's
