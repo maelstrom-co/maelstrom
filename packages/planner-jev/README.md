@@ -146,7 +146,7 @@ Set the variables below in the root `.env`, then run from the repo root:
 npx nx dev-jev @maelstrom-co/demo
 ```
 
-`dev-jev` is the demo's `dev` target with `MAELSTROM_PLANNER=jev` and server-key mode (`VITE_BROWSER_KEY_MODE=0`). `npx nx dev-jev-composed-pairs @maelstrom-co/demo` does the same with the experimental composed pairs planner. Add `JEV_LOG_REPLIES=1` to see raw Jev replies.
+`dev-jev` is the demo's `dev` target with `MAELSTROM_PLANNER=jev` and server-key mode (`VITE_BROWSER_KEY_MODE=0`). `npx nx dev-jev-composed-pairs @maelstrom-co/demo` does the same with the experimental composed pairs planner. Add `JEV_LOG_REPLIES=1` to see raw Jev replies, each turn's request and the shipped result.
 
 | Variable | Meaning |
 | --- | --- |
@@ -154,7 +154,7 @@ npx nx dev-jev @maelstrom-co/demo
 | `TYPESAFE_API_KEY` | TypeSafe key. Required for both Jev planners; server-side only and redacted from logs. |
 | `JEV_MODEL` | Pinned Jev model, for example `jev-1.13.0`. Required for both Jev planners; `jev-latest` drifts. |
 | `OPENAI_API_KEY` | Server OpenAI key for `llmComplete` and the fallback. Required for both Jev planners. |
-| `JEV_LOG_REPLIES` | `1` logs every raw Jev reply as `jev.reply`. Off by default; local debugging only. |
+| `JEV_LOG_REPLIES` | `1` logs every raw Jev reply as `jev.reply`, each turn's request as `jev.request` and the shipped result as `jev.result`. Off by default; local debugging only. |
 
 ## Limits
 
@@ -198,6 +198,7 @@ Every deferral logs `jev.defer` at info with `{ stage, reason, question }`, and 
 - `jev.call` (debug): stage, model, question ids, latency, outcome and token usage of every TypeSafe call.
 - `jev.answer` (debug): stage, question, choice and confidence of every answer read.
 - `jev.reply` (debug, opt-in via `logReplies` / `JEV_LOG_REPLIES=1`): the state and questions sent (the user's words included) and the raw reply, as JSON, before validation, so an invalid reply is visible too.
+- `jev.request` and `jev.result` (debug, same opt-in): the user's request at the start of each turn, and at the end the shipped candidate as JSON (reply text, layout tree, rationale) or the error tag. The candidate is the one from Jev or from the fallback, whichever ships.
 - `jev.action_dropped` (info): an action dropped for a `not_stated` parameter.
 
 ## Evaluating

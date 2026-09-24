@@ -1,6 +1,7 @@
 import type { Planner } from '@maelstrom-co/engine';
 
 import type { Instrument, JevPlannerOptions } from '../jev-planner.js';
+import { logTurns } from '../log-turn.js';
 import { actionsBatchedPerInstance } from '../stages/actions-batched-per-instance.js';
 import { completeLayoutInline } from '../stages/complete-layout-inline.js';
 import { layoutComposedPairsGateAndDefer } from '../stages/layout-composed-pairs-gate-and-defer.js';
@@ -69,5 +70,6 @@ export function buildJevComposedPairsPlanner(
  * ```
  */
 export function jevComposedPairsPlanner(options: JevPlannerOptions): Planner {
-  return buildJevComposedPairsPlanner(createJevDeps(options));
+  const planner = buildJevComposedPairsPlanner(createJevDeps(options));
+  return options.typesafe.logReplies === true ? logTurns(planner) : planner;
 }
