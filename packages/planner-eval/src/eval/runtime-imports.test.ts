@@ -10,6 +10,7 @@ const RUNTIME_MODULES = [
   'core/grader-validate.ts',
   'core/report-cli.ts',
   'core/stage-cli.ts',
+  'plugins/index.ts',
   'plugins/jev/plugin.ts',
   'plugins/llm/plugin.ts',
 ];
