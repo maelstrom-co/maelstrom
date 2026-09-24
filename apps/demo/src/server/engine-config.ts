@@ -17,15 +17,13 @@ import {
   createEngine,
   createInMemoryStore,
   type Engine,
-  llmPlanner,
 } from '@maelstrom-co/engine';
 import {
   jevComposedPairsPlanner,
   jevPlanner,
   type TypeSafeOptions,
 } from '@maelstrom-co/planner-jev';
-
-type LlmPlannerOptions = Parameters<typeof llmPlanner>[0];
+import { type LlmPlannerOptions, llmPlanner } from '@maelstrom-co/planner-llm';
 
 // Appended to the engine's system prompt. Deliberately about space rather
 // than content: the orchestrator's failure mode is emitting a layout that

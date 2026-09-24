@@ -61,8 +61,8 @@
  *     --seed=journal-create-entry --mounted=5
  *
  * `--conditions=@maelstrom-co/source` is required: without it
- * `@maelstrom-co/engine` resolves to a `dist/` that does not exist in an
- * unbuilt worktree.
+ * `@maelstrom-co/engine` and `@maelstrom-co/planner-llm` resolve to a
+ * `dist/` that does not exist in an unbuilt worktree.
  *
  * SIGINT/SIGTERM print a PARTIAL summary over whatever trials completed and
  * exit; an uninterrupted run prints the same summary format once at the end,
@@ -77,8 +77,8 @@ import {
   createInMemoryStore,
   type HistoryEntry,
   type Logger,
-  llmPlanner,
 } from '@maelstrom-co/engine';
+import { llmPlanner } from '@maelstrom-co/planner-llm';
 import {
   ActionName,
   InstanceId,
