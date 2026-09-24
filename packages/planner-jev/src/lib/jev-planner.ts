@@ -11,6 +11,7 @@ import {
 import type { AnyTextAdapter } from '@tanstack/ai';
 
 import type { StageName } from './defer.js';
+import { logTurns } from './log-turn.js';
 import { jevActions } from './stages/jev-actions.js';
 import { jevLayout } from './stages/jev-layout.js';
 import { jevSelect } from './stages/jev-select.js';
@@ -36,8 +37,9 @@ export interface TypeSafeOptions {
   /** Transport. Defaults to the global `fetch`. */
   readonly fetch?: typeof fetch;
   /**
-   * Logs every raw Jev reply at debug as `jev.reply`. For local debugging
-   * only. Defaults to `false`.
+   * Logs at debug every raw Jev reply as `jev.reply`, and for each turn the
+   * user's request as `jev.request` and the shipped candidate as
+   * `jev.result`. For local debugging only. Defaults to `false`.
    */
   readonly logReplies?: boolean;
 }
@@ -129,5 +131,6 @@ export function buildJevPlanner(
  * ```
  */
 export function jevPlanner(options: JevPlannerOptions): Planner {
-  return buildJevPlanner(options);
+  const planner = buildJevPlanner(options);
+  return options.typesafe.logReplies === true ? logTurns(planner) : planner;
 }
