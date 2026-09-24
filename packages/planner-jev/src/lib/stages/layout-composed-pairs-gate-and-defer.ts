@@ -29,6 +29,14 @@ import {
 import type { AnswerRecord } from '../types.js';
 import type { Ask } from '../typesafe-client.js';
 import {
+  equalKeptLayoutTree,
+  type KeptLayoutSizing,
+  keptLayoutTree,
+  keptLayoutTreeAtMinimum,
+  type LayoutCandidate,
+  rankLayoutCandidates,
+} from './layout-composed-pairs-kept-layouts.js';
+import {
   FRACTION_LEVELS,
   interpolateLevels,
   partFractionShares,
@@ -43,7 +51,7 @@ import {
   type PartSizing,
   PROBABILITY_FLOOR,
   pickSizedTree,
-  rankArrangements,
+  type SizedTreeCandidate,
   type SizeFallbackKind,
   sizeShares,
 } from './layout-composed-pairs-tree.js';
@@ -118,6 +126,13 @@ export interface PairsCandidate {
   /** Sum over the pairs and the top-level direction of the log probability the tree implies. */
   readonly score: number;
   readonly fits: boolean;
+  /**
+   * Where the tree's structure comes from: `two_level` for an enumerated
+   * two-level arrangement, `current_layout` for the current tree itself,
+   * `one_widget_moved` for the current tree with one widget moved or
+   * added. Absent on records written before kept layouts were ranked.
+   */
+  readonly kind?: LayoutCandidate['kind'];
 }
 
 /** What {@link layoutComposedPairsGateAndDefer} did, so a wrong layout attributes to a gate case or an answer. */
@@ -165,14 +180,22 @@ export type ComposedPairsDecision = LayoutDecision & {
  * independent answers cannot contradict a shared shape.
  *
  * Code enumerates every two-level tree of the visible Instances (see
- * `enumerateArrangements`) and scores each by the log probability of the
- * relations and the top-level direction it implies (see
- * `rankArrangements`): "not stated" votes for the current tree's relation,
- * or, when the direction answer changes the current top split, for the
- * relation along that direction in the current order. Splits along the top
- * axis are weighted by the whole-Chart size answers; inside a row or
- * column, members with a stated fraction get it and the others split the
- * rest by their whole-Chart shares (see `partFractionShares`). The top
+ * `enumerateArrangements`), and keeps the current tree at any depth as a
+ * candidate too: the current tree itself, and the current tree with one
+ * visible Instance moved or added beside any node (see
+ * `keptLayoutCandidates`), so a nested layout survives and "the current
+ * layout plus a strip along one edge" can be built. It scores every
+ * candidate by the log probability of the relations and the top-level
+ * direction it implies (see `rankLayoutCandidates`): "not stated" votes
+ * for the current tree's relation, or, when the direction answer changes
+ * the current top split, for the relation along that direction in the
+ * current order; on a tie an enumerated tree ranks first. In an enumerated
+ * tree, splits along the top axis are weighted by the whole-Chart size
+ * answers; inside a row or column, members with a stated fraction get it
+ * and the others split the rest by their whole-Chart shares (see
+ * `partFractionShares`). A kept tree keeps the current weights of the
+ * splits it copies, apart from stated fractions, and sizes its new splits
+ * by the size answers (see `keptLayoutTree`). The top
  * three trees are tried in rank order (see `pickSizedTree`): a tree that
  * fits as sized is returned (`source: 'jev'`); one that does not gives way
  * to a lower tree of the three that fits as sized and scores within
@@ -267,7 +290,7 @@ export function layoutComposedPairsGateAndDefer(
     const { pairAnswers, sizes, groupFractions, direction, records } =
       read.value;
 
-    const ranked = rankArrangements(
+    const ranked = rankLayoutCandidates(
       ids,
       pairAnswers.map(({ first, second, answer }) => ({
         first,
@@ -278,36 +301,29 @@ export function layoutComposedPairsGateAndDefer(
       direction.probabilities,
     );
     const shareById = sharesById(ids, sizes);
-    const sizing: PartSizing = {
-      innerSharesOf: (members: readonly InstanceId[]) =>
-        partFractionShares(
-          members.map((id) => {
-            const answer = groupFractions[id];
-            return answer && answer.stated >= STATED_PROBABILITY
-              ? answer.fraction.size
-              : undefined;
-          }),
-          members.map((id) => shareById[id] ?? 0),
-        ),
+    const statedFractionOf = (id: InstanceId) => {
+      const answer = groupFractions[id];
+      return answer && answer.stated >= STATED_PROBABILITY
+        ? answer.fraction.size
+        : undefined;
     };
     const minimums = minimumFractions(request, visible);
     const fits = (tree: readonly TilingNode[]) =>
       layoutFits(request, tree, visible);
-    const sized = ranked.slice(0, CANDIDATES).map(({ arrangement, score }) => ({
-      score,
-      asSized: arrangementTree(arrangement, shareById, sizing),
-      raised: arrangementTreeAtMinimum(
-        arrangement,
-        shareById,
+    const sized = ranked.slice(0, CANDIDATES).map(({ candidate, score }) => ({
+      kind: candidate.kind,
+      ...sizedCandidate(
+        candidate,
+        score,
+        { shareById, statedFractionOf },
         minimums,
-        sizing,
       ),
-      equal: equalArrangementTree(arrangement),
     }));
-    const candidates = sized.map(({ asSized, score }) => ({
+    const candidates = sized.map(({ asSized, score, kind }) => ({
       tree: asSized,
       score,
       fits: fits(asSized),
+      kind,
     }));
     const margin = (ranked[0]?.score ?? 0) - (ranked[1]?.score ?? 0);
     const called = {
@@ -355,6 +371,40 @@ function sharesById(
 ): Record<string, number> {
   const shares = sizeShares(ids.map((id) => sizes[id]?.size ?? 0));
   return Object.fromEntries(ids.map((id, index) => [id, shares[index] ?? 0]));
+}
+
+function sizedCandidate(
+  candidate: LayoutCandidate,
+  score: number,
+  sizing: KeptLayoutSizing,
+  minimums: Readonly<Record<string, MinimumFraction>>,
+): SizedTreeCandidate {
+  if (candidate.kind !== 'two_level')
+    return {
+      score,
+      asSized: keptLayoutTree(candidate.shape, sizing),
+      raised: keptLayoutTreeAtMinimum(candidate.shape, sizing, minimums),
+      equal: equalKeptLayoutTree(candidate.shape),
+    };
+  const { arrangement } = candidate;
+  const partSizing: PartSizing = {
+    innerSharesOf: (members: readonly InstanceId[]) =>
+      partFractionShares(
+        members.map((id) => sizing.statedFractionOf(id)),
+        members.map((id) => sizing.shareById[id] ?? 0),
+      ),
+  };
+  return {
+    score,
+    asSized: arrangementTree(arrangement, sizing.shareById, partSizing),
+    raised: arrangementTreeAtMinimum(
+      arrangement,
+      sizing.shareById,
+      minimums,
+      partSizing,
+    ),
+    equal: equalArrangementTree(arrangement),
+  };
 }
 
 function minimumFractions(
