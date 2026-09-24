@@ -46,7 +46,7 @@ import {
   rankArrangements,
   sizeShares,
 } from './layout-composed-pairs-tree.js';
-import { describeLayout } from './layout-describe.js';
+import { describeLayout, describeLayoutChange } from './layout-describe.js';
 import type { GatedActionPlan, LayoutDecision } from './stage-types.js';
 
 /** The most visible Instances {@link layoutComposedPairsGateAndDefer} enumerates every arrangement of. */
@@ -225,6 +225,7 @@ export function layoutComposedPairsGateAndDefer(
         source: 'jev',
         layoutId,
         tree,
+        layoutSummary: describeLayoutChange(currentTree, tree),
         pairwise: { ...record, candidates: [] },
       });
     }
@@ -308,6 +309,7 @@ export function layoutComposedPairsGateAndDefer(
         source: 'jev',
         layoutId,
         tree,
+        layoutSummary: describeLayoutChange(currentTree, tree),
         answers: records,
         pairwise: { ...called, chosen },
       });
@@ -329,6 +331,7 @@ export function layoutComposedPairsGateAndDefer(
       source: 'jev',
       layoutId,
       tree: resized.tree,
+      layoutSummary: describeLayoutChange(currentTree, resized.tree),
       answers: records,
       pairwise: { ...called, fallback: resized.fallback },
     });

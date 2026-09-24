@@ -219,3 +219,21 @@ describe('completeLayoutInline', () => {
     );
   });
 });
+
+describe('completeLayoutInline layout summary', () => {
+  test('the prompt and rationale state the layout summary when the stage gives one', async () => {
+    const layoutPlan = hidden();
+    mockChat.mockResolvedValue({ userMessage: 'Done.', params: {} });
+    const result = await run({
+      ...decisionOf(layoutPlan),
+      layoutSummary: 'changed. Before: a on the left. Now: b on the left',
+    });
+    expect(chatPrompt()).toContain(
+      '- Layout: changed. Before: a on the left. Now: b on the left',
+    );
+    if (!isOk(result)) throw new Error(`deferred: ${deferralOf(result)}`);
+    expect(result.value.rationale).toContain(
+      'Layout: changed. Before: a on the left. Now: b on the left',
+    );
+  });
+});
