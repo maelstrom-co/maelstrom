@@ -168,68 +168,76 @@ describe('engine.handle — chart_request idempotency', () => {
     // with aborts.
     const gate = defer<PlannerCandidate>();
     const { planner: blocking, entered } = blockingPlanner(gate);
-    const { planner, calls } = countingPlanner(blocking);
+    try {
+      const { planner, calls } = countingPlanner(blocking);
 
-    const { engine } = setupIdempotencyEngine(planner);
-    const request = makeGridRequest();
+      const { engine } = setupIdempotencyEngine(planner);
+      const request = makeGridRequest();
 
-    const leaderAbort = new AbortController();
-    const leader = engine.handle(
-      toChartRequestMessage(request),
-      leaderAbort.signal,
-    );
-    // Wait until the leader is registered in the in-flight map AND parked
-    // inside the planner.
-    await entered;
-    const followerAbort = new AbortController();
-    const follower = engine.handle(
-      toChartRequestMessage(request),
-      followerAbort.signal,
-    );
+      const leaderAbort = new AbortController();
+      const leader = engine.handle(
+        toChartRequestMessage(request),
+        leaderAbort.signal,
+      );
+      // Wait until the leader is registered in the in-flight map AND parked
+      // inside the planner.
+      await entered;
+      const followerAbort = new AbortController();
+      const follower = engine.handle(
+        toChartRequestMessage(request),
+        followerAbort.signal,
+      );
 
-    leaderAbort.abort('leader decided to cancel');
+      leaderAbort.abort('leader decided to cancel');
 
-    const [leaderResult, followerResult] = await Promise.all([
-      leader,
-      follower,
-    ]);
-    expect(isErr(leaderResult)).toBe(true);
-    expect(isErr(followerResult)).toBe(true);
-    if (!isErr(leaderResult) || !isErr(followerResult)) return;
-    expect(leaderResult.error._tag).toBe('CancellationError');
-    expect(followerResult.error._tag).toBe('CancellationError');
-    expect(calls()).toBe(1);
+      const [leaderResult, followerResult] = await Promise.all([
+        leader,
+        follower,
+      ]);
+      expect(isErr(leaderResult)).toBe(true);
+      expect(isErr(followerResult)).toBe(true);
+      if (!isErr(leaderResult) || !isErr(followerResult)) return;
+      expect(leaderResult.error._tag).toBe('CancellationError');
+      expect(followerResult.error._tag).toBe('CancellationError');
+      expect(calls()).toBe(1);
+    } finally {
+      gate.resolve(gridLLMResponse);
+    }
   });
 
   test('follower aborting its own signal does not cancel the leader', async () => {
     const gate = defer<PlannerCandidate>();
     const { planner: blocking, entered } = blockingPlanner(gate);
-    const { planner, calls } = countingPlanner(blocking);
+    try {
+      const { planner, calls } = countingPlanner(blocking);
 
-    const { engine } = setupIdempotencyEngine(planner);
-    const request = makeGridRequest();
+      const { engine } = setupIdempotencyEngine(planner);
+      const request = makeGridRequest();
 
-    const leader = engine.handle(toChartRequestMessage(request));
-    await entered;
+      const leader = engine.handle(toChartRequestMessage(request));
+      await entered;
 
-    const followerAbort = new AbortController();
-    const follower = engine.handle(
-      toChartRequestMessage(request),
-      followerAbort.signal,
-    );
+      const followerAbort = new AbortController();
+      const follower = engine.handle(
+        toChartRequestMessage(request),
+        followerAbort.signal,
+      );
 
-    followerAbort.abort('follower decided not to wait');
+      followerAbort.abort('follower decided not to wait');
 
-    const followerResult = await follower;
-    expect(isErr(followerResult)).toBe(true);
-    if (!isErr(followerResult)) return;
-    expect(followerResult.error._tag).toBe('CancellationError');
+      const followerResult = await follower;
+      expect(isErr(followerResult)).toBe(true);
+      if (!isErr(followerResult)) return;
+      expect(followerResult.error._tag).toBe('CancellationError');
 
-    // Leader must still be fulfillable — the planner call is still pending.
-    gate.resolve(gridLLMResponse);
-    const leaderResult = await leader;
-    expect(isOk(leaderResult)).toBe(true);
-    expect(calls()).toBe(1);
+      // Leader must still be fulfillable — the planner call is still pending.
+      gate.resolve(gridLLMResponse);
+      const leaderResult = await leader;
+      expect(isOk(leaderResult)).toBe(true);
+      expect(calls()).toBe(1);
+    } finally {
+      gate.resolve(gridLLMResponse);
+    }
   });
 
   test('a duplicate after a failure reaches the LLM again (failures are not persisted)', async () => {
@@ -360,28 +368,32 @@ describe('engine.handle — chart_request idempotency', () => {
     // CancellationError.
     const gate = defer<PlannerCandidate>();
     const { planner: blocking, entered } = blockingPlanner(gate);
-    const { planner, calls } = countingPlanner(blocking);
+    try {
+      const { planner, calls } = countingPlanner(blocking);
 
-    const { engine } = setupIdempotencyEngine(planner);
-    const request = makeGridRequest();
-    const leader = engine.handle(toChartRequestMessage(request));
-    await entered;
+      const { engine } = setupIdempotencyEngine(planner);
+      const request = makeGridRequest();
+      const leader = engine.handle(toChartRequestMessage(request));
+      await entered;
 
-    const followerAbort = new AbortController();
-    followerAbort.abort('follower never wanted to wait');
-    const followerResult = await engine.handle(
-      toChartRequestMessage(request),
-      followerAbort.signal,
-    );
+      const followerAbort = new AbortController();
+      followerAbort.abort('follower never wanted to wait');
+      const followerResult = await engine.handle(
+        toChartRequestMessage(request),
+        followerAbort.signal,
+      );
 
-    expect(isErr(followerResult)).toBe(true);
-    if (!isErr(followerResult)) return;
-    expect(followerResult.error._tag).toBe('CancellationError');
+      expect(isErr(followerResult)).toBe(true);
+      if (!isErr(followerResult)) return;
+      expect(followerResult.error._tag).toBe('CancellationError');
 
-    gate.resolve(gridLLMResponse);
-    const leaderResult = await leader;
-    expect(isOk(leaderResult)).toBe(true);
-    expect(calls()).toBe(1);
+      gate.resolve(gridLLMResponse);
+      const leaderResult = await leader;
+      expect(isOk(leaderResult)).toBe(true);
+      expect(calls()).toBe(1);
+    } finally {
+      gate.resolve(gridLLMResponse);
+    }
   });
 
   test('follower arriving in the post-LLM / pre-recordTurn window still hits the in-flight entry', async () => {

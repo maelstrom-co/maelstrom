@@ -57,23 +57,26 @@ describe('blockingPlanner', () => {
     });
     const gate = defer<PlannerCandidate>();
     const { planner, entered } = blockingPlanner(gate);
+    try {
+      const resultPromise = planner(input, ctx);
+      let settled = false;
+      void resultPromise.then(() => {
+        settled = true;
+      });
 
-    const resultPromise = planner(input, ctx);
-    let settled = false;
-    void resultPromise.then(() => {
-      settled = true;
-    });
+      await entered;
+      // Still parked: resolving `entered` only proves the planner started, not
+      // that the gate has released it.
+      await Promise.resolve();
+      expect(settled).toBe(false);
 
-    await entered;
-    // Still parked: resolving `entered` only proves the planner started, not
-    // that the gate has released it.
-    await Promise.resolve();
-    expect(settled).toBe(false);
+      gate.resolve(candidate);
+      const result = await resultPromise;
 
-    gate.resolve(candidate);
-    const result = await resultPromise;
-
-    expect(isOk(result) && result.value).toBe(candidate);
+      expect(isOk(result) && result.value).toBe(candidate);
+    } finally {
+      gate.resolve(candidate);
+    }
   });
 
   test('rejects once the context signal aborts while parked', async () => {
