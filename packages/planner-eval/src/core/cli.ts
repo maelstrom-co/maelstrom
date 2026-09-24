@@ -19,6 +19,8 @@ import { type Suite, selectScenarios } from './scenarios.js';
 // The demo's default engine model (apps/demo/src/server/engine-model.ts).
 const DEFAULT_MODEL = 'gpt-5.6-luna';
 const WORKSPACE_ROOT = resolve(import.meta.dir, '../../../..');
+// Core builds the OpenAI adapter behind every arm's LLM roles and the fallback planner.
+const OPENAI_KEY = 'OPENAI_API_KEY';
 
 /**
  * The eval command line over `plugins`: resolves the arms, checks the
@@ -163,6 +165,8 @@ export async function runEvalCli(
     graderValidation = raw;
   }
 
+  const openaiKey = process.env[OPENAI_KEY]?.trim();
+  if (!openaiKey) return fail(`${OPENAI_KEY} is not set`);
   const model = values.model;
   const pluginMeta = Object.assign(
     {},
@@ -183,10 +187,7 @@ export async function runEvalCli(
     scenarios,
     arms,
     repeats,
-    adapter: createOpenaiChat(
-      model as OpenAIChatModel,
-      process.env.OPENAI_API_KEY?.trim() ?? '',
-    ),
+    adapter: createOpenaiChat(model as OpenAIChatModel, openaiKey),
     fallback: fallback ?? unusedFallback,
     out,
     ...(judge && { judge }),
@@ -233,13 +234,18 @@ export async function runEvalCli(
   console.log(`Report written to ${out}/report.md`);
 }
 
-/** Every variable the selected arms and, with `--grader`, the judge need, each once, in the order first named. */
+/**
+ * Every variable the run needs, each once, in the order first named: the
+ * OpenAI key of the adapter core builds for every run, then what the
+ * selected arms and, with `--grader`, the judge need.
+ */
 export function requiredEnv(
   arms: readonly RegisteredArm[],
   judgeEnv: readonly string[] = [],
 ): readonly string[] {
   return [
     ...new Set([
+      OPENAI_KEY,
       ...arms.flatMap(({ arm }) => arm.requiredEnv ?? []),
       ...judgeEnv,
     ]),
