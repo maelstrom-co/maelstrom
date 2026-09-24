@@ -20,6 +20,8 @@ const [protocolTypeDoc, protocolTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
 const [engineTypeDoc, engineTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
+const [plannerLlmTypeDoc, plannerLlmTypeDocSidebarGroup] =
+  createStarlightTypeDocPlugin();
 const [realtimeTypeDoc, realtimeTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
 const [realtimeProtocolTypeDoc, realtimeProtocolTypeDocSidebarGroup] =
@@ -210,6 +212,17 @@ export default defineConfig({
           tsconfig: '../../packages/engine/tsconfig.lib.json',
           output: 'reference/engine',
           sidebar: { label: '@maelstrom-co/engine', collapsed: true },
+          typeDoc: {
+            excludeInternal: true,
+            basePath: repoRoot,
+            sourceLinkTemplate,
+          },
+        }),
+        plannerLlmTypeDoc({
+          entryPoints: ['../../packages/planner-llm/src/index.ts'],
+          tsconfig: '../../packages/planner-llm/tsconfig.lib.json',
+          output: 'reference/planner-llm',
+          sidebar: { label: '@maelstrom-co/planner-llm', collapsed: true },
           typeDoc: {
             excludeInternal: true,
             basePath: repoRoot,
@@ -453,6 +466,7 @@ export default defineConfig({
             connectorsTypeDocSidebarGroup,
             protocolTypeDocSidebarGroup,
             engineTypeDocSidebarGroup,
+            plannerLlmTypeDocSidebarGroup,
             {
               label: 'Voice',
               items: [

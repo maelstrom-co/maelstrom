@@ -73,7 +73,7 @@ Errors short-circuit the pipeline; recoverable problems become diagnostics that 
 
 The engine validates inputs at three boundaries and the LLM's output at a fourth:
 
-1. **Engine config** — `createEngine()` validates `EngineConfig` against a strict Zod schema; `llmPlanner()` validates its own options the same way and eagerly builds system prompts at construction. Misconfigured system prompt customizers throw synchronously from `llmPlanner(...)`, but user prompt customizer errors still surface on the first request as a `ValidationError`.
+1. **Engine config**: `createEngine()` validates `EngineConfig` against a strict Zod schema; `llmPlanner()` (from `@maelstrom-co/planner-llm`) validates its own options the same way and eagerly builds system prompts at construction. Misconfigured system prompt customizers throw synchronously from `llmPlanner(...)`, but user prompt customizer errors still surface on the first request as a `ValidationError`.
 2. **Engine messages** — every inbound `EngineMessage` envelope is parsed against the protocol Zod schema. Malformed payloads short-circuit before any LLM call with a `RequestValidationError` carrying the structured `path` of the failing field.
 3. **LLM structured output** — the JSON the model returns is parsed against the protocol schemas inside the adapter call. Schema-violating output surfaces as a `ProviderError`; a structurally valid response missing required content (such as an empty `userMessage`) surfaces as a `ParseError`.
 4. **LLM output coherence** — even a parseable response can be incoherent: positions overflowing the chart, unknown vessel/variant references, duplicate instance IDs, malformed tiling trees. This layer doesn't fail; it heals.
@@ -125,7 +125,8 @@ A partial layout or partial action plan does **not** trigger retry — partial o
 
 ```ts title="Configuring the engine"
 import { geminiText } from '@tanstack/ai-gemini';
-import { createEngine, llmPlanner } from '@maelstrom-co/engine';
+import { createEngine } from '@maelstrom-co/engine';
+import { llmPlanner } from '@maelstrom-co/planner-llm';
 
 const engine = createEngine({
   planner: llmPlanner({ adapter: geminiText('gemini-2.0-flash') }),
@@ -135,7 +136,7 @@ const engine = createEngine({
 
 The pluggable surfaces are intentionally small:
 
-- **`planner`** — produces the candidate response for every `chart_request`. `llmPlanner({ adapter, prompt?, modelOptions? })` makes a single structured-output LLM call per attempt; `adapter` swaps the provider (Gemini, OpenAI, Anthropic, your own via TanStack AI), and `prompt` replaces, prepends, appends, or transforms individual prompt sections. `pipeline`, `withFallback`, and `withRetry` compose more than one stage into a planner — see the [engine README](https://github.com/maelstrom-co/maelstrom/blob/main/packages/engine/README.md#planners-and-stages).
+- **`planner`** — produces the candidate response for every `chart_request`. `llmPlanner({ adapter, prompt?, modelOptions? })` from [`@maelstrom-co/planner-llm`](https://github.com/maelstrom-co/maelstrom/blob/main/packages/planner-llm/README.md) makes a single structured-output LLM call per attempt; `adapter` swaps the provider (Gemini, OpenAI, Anthropic, your own via TanStack AI), and `prompt` replaces, prepends, appends, or transforms individual prompt sections. `pipeline`, `withFallback`, and `withRetry` compose more than one stage into a planner — see the [engine README](https://github.com/maelstrom-co/maelstrom/blob/main/packages/engine/README.md#planners-and-stages).
 - **`history`** — opt-in conversation history with a store you supply (Redis, Postgres, SQLite). The reference engine ships an in-memory store for tests but never as a default.
 - **`retry`** — `{ max }` re-runs the planner while healing recommends a retry; `false` runs it exactly once.
 - **`logger`** — any object with `debug` / `info` / `warn` / `error` works.
