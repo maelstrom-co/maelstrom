@@ -1,10 +1,4 @@
 import {
-  finalVariants,
-  type JevActionPlan,
-  type JevLayoutPlan,
-  type JevSelection,
-} from '@maelstrom-co/planner-jev/_internal';
-import {
   getVisibleInstanceIds,
   isErr,
   type MaelstromResponse,
@@ -12,6 +6,7 @@ import {
   type TilingNode,
   tilingLeafInstanceId,
 } from '@maelstrom-co/protocol';
+import { finalVariants } from './final-variants.js';
 import { checkArrangement } from './predicates.js';
 import type { ExpectedAction, Scenario } from './scenarios.js';
 
@@ -91,85 +86,13 @@ export function scoreResponse(
   };
 }
 
-/** Selection stage: visible and retained sets from jevSelect's output. */
-export function scoreSelection(
-  scenario: Scenario,
-  selection: JevSelection,
-): Score | undefined {
-  if (!scenario.expected.visible) return undefined;
-  const failures: string[] = [];
-  compare(
-    failures,
-    'Selected visible',
-    selection.instances
-      .filter((i) => i.visible)
-      .map((i) => i.instanceId)
-      .sort(),
-    [...scenario.expected.visible].sort(),
-  );
-  compare(
-    failures,
-    'Selected retained',
-    selection.instances
-      .filter((i) => i.decision !== 'delete')
-      .map((i) => i.instanceId)
-      .sort(),
-    [...expectedRetained(scenario)].sort(),
-  );
-  return { pass: failures.length === 0, failures };
-}
-
-/**
- * Actions stage: ordered actions, bound parameters (a `stated_elsewhere`
- * slot counts when the expectation has a value for it, since the LLM fills
- * it later) and the asks.
- */
-export function scoreActions(
-  scenario: Scenario,
-  plan: JevActionPlan,
-): Score | undefined {
-  const { actions, asks } = scenario.expected;
-  if (!actions && !asks) return undefined;
-  const failures: string[] = [];
-  if (actions) {
-    const planned = plan.actions.map((action) => {
-      const expected = actions.find(
-        (candidate) =>
-          candidate.instanceId === action.instanceId &&
-          candidate.action === action.action,
-      );
-      const params: Record<string, unknown> = { ...action.params };
-      for (const slot of action.pending)
-        params[slot.name] = expected?.params?.[slot.name] ?? '(pending)';
-      return {
-        instanceId: String(action.instanceId),
-        action: String(action.action),
-        ...(Object.keys(params).length > 0 && { params }),
-      };
-    });
-    compareActions(failures, planned, actions);
-  }
-  compare(
-    failures,
-    'Asks',
-    plan.asks
-      .map((ask) => `${ask.instanceId}.${ask.action}.${ask.parameter.name}`)
-      .sort(),
-    (asks ?? [])
-      .map((ask) => `${ask.instanceId}.${ask.action}.${ask.parameter}`)
-      .sort(),
-    (actual, wanted) => wanted.every((ask) => actual.includes(ask)),
-  );
-  return { pass: failures.length === 0, failures };
-}
-
 /**
  * Layout stage: the tree's leaves are the expected visible set, and the tree
  * satisfies the scenario's arrangement rules.
  */
 export function scoreLayout(
   scenario: Scenario,
-  layout: Pick<JevLayoutPlan, 'tree'>,
+  layout: { readonly tree: readonly TilingNode[] },
 ): ArrangedScore | undefined {
   const { visible, arrangement: rules } = scenario.expected;
   if (!visible && !rules) return undefined;
@@ -288,7 +211,8 @@ function matchNewIds(
   return rename;
 }
 
-function compareActions(
+/** Adds a failure when `actual` and `expected` differ as ordered actions; parameters an expectation leaves out are not compared. */
+export function compareActions(
   failures: string[],
   actual: readonly {
     readonly instanceId: string;
@@ -332,7 +256,8 @@ function sortKeys(value: Readonly<Record<string, unknown>>) {
   );
 }
 
-function compare<T>(
+/** Adds a failure naming `label` when `actual` and `wanted` differ, by JSON equality unless `equal` says otherwise. */
+export function compare<T>(
   failures: string[],
   label: string,
   actual: T,

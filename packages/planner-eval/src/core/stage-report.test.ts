@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'bun:test';
 
-import type { LayoutTurnDetail } from '../plugins/jev/stages/layout.js';
 import type { StageOutcome, StageTurnRecord } from './stage-eval.js';
 import {
   renderScenarioTable,
@@ -8,43 +7,45 @@ import {
   summarizeVariant,
 } from './stage-report.js';
 
+interface Detail {
+  readonly source: string;
+}
+
 function turn(
   variant: string,
   scenarioId: string,
   outcome: StageOutcome,
-  extra: Partial<StageTurnRecord<LayoutTurnDetail>> = {},
-): StageTurnRecord<LayoutTurnDetail> {
+  extra: Partial<StageTurnRecord<Detail>> = {},
+): StageTurnRecord<Detail> {
   return {
-    stage: 'jevLayout',
+    stage: 'write',
     variant,
     scenarioId,
     suite: 'development',
     repeat: 1,
     outcome,
     failures: [],
-    jevCalls: [],
+    calls: [],
     ...(outcome !== 'not_applicable' && { stageMs: 10 }),
     ...extra,
   };
 }
 
 const call = (latencyMs: number) => ({
-  stage: 'jevLayout' as const,
-  questionIds: ['shape'],
   latencyMs,
   outcome: 'ok' as const,
   usage: { inputTokens: 100, outputTokens: 10 },
 });
 
-const RECORDS: StageTurnRecord<LayoutTurnDetail>[] = [
-  turn('composed-pairs', 'swap', 'pass', { jevCalls: [call(200)] }),
+const RECORDS: StageTurnRecord<Detail>[] = [
+  turn('composed-pairs', 'swap', 'pass', { calls: [call(200)] }),
   turn('composed-pairs', 'swap', 'handed_off', {
-    jevCalls: [call(400)],
-    detail: { source: 'llm', answers: [] },
+    calls: [call(400)],
+    detail: { source: 'llm' },
   }),
-  turn('composed-pairs', 'focus', 'fail', { jevCalls: [call(300)] }),
+  turn('composed-pairs', 'focus', 'fail', { calls: [call(300)] }),
   turn('composed-pairs', 'focus', 'deferred', {
-    reason: 'jevLayout/provider_timeout',
+    reason: 'write/provider_timeout',
   }),
   turn('composed-pairs', 'missing-enum', 'not_applicable', {
     reason: 'expects a deferral',
@@ -65,21 +66,26 @@ describe('stage eval report', () => {
     expect(summary.handedOff).toEqual({ count: 1, total: 4 });
     expect(summary.deferred).toEqual({ count: 1, total: 4 });
     expect(summary.deferralReasons).toEqual({
-      'jevLayout/provider_timeout': 1,
+      'write/provider_timeout': 1,
     });
     expect(summary.notApplicable).toBe(1);
-    expect(summary.jevCallsPerTurn).toBe(0.75);
-    expect(summary.jevLatencyMs).toEqual({ p50: 300, p95: 400 });
-    expect(summary.jevTokensPerTurn).toEqual({ input: 75, output: 7.5 });
+    expect(summary.callsPerTurn).toBe(0.75);
+    expect(summary.callLatencyMs).toEqual({ p50: 300, p95: 400 });
+    expect(summary.tokensPerTurn).toEqual({ input: 75, output: 7.5 });
   });
 
   test('renders one column per variant and a row per deferral reason', () => {
     const report = renderStageReport(
-      'jevLayout',
+      { stage: 'write', provider: 'Echo' },
       RECORDS,
       ['composed-pairs', 'preset-or-llm'],
       { suite: 'development' },
     );
+    expect(report).toContain('# Stage eval: write');
+    expect(report).toContain('| Echo calls per turn | 0.75 | 0.00 |');
+    expect(
+      renderStageReport({ stage: 'write' }, RECORDS, ['composed-pairs'], {}),
+    ).toContain('| Provider calls per turn | 0.75 |');
     expect(report).toContain('| Metric | composed-pairs | preset-or-llm |');
     expect(report).toContain(
       '| Pass (hand-offs and deferrals count as failures) | 1/4 (25%) | 2/4 (50%) |',
@@ -89,9 +95,7 @@ describe('stage eval report', () => {
     );
     expect(report).toContain('| Handed off | 1/4 (25%) | 2/4 (50%) |');
     expect(report).toContain('| Not applicable scenarios (not run) | 1 | 1 |');
-    expect(report).toContain(
-      '| Deferral: jevLayout/provider_timeout | 1 | 0 |',
-    );
+    expect(report).toContain('| Deferral: write/provider_timeout | 1 | 0 |');
     expect(report).toContain('- suite: development');
   });
 
@@ -110,26 +114,26 @@ describe('stage eval report', () => {
   });
 
   test('keeps expected layout deferrals out of the main rows and reports them apart', () => {
-    const expectedDeferral = 'jevLayout/no_feasible_layout';
+    const expectedDeferral = 'write/no_feasible_layout';
     const records = [
-      turn('composed-pairs', 'focus', 'pass', { jevCalls: [call(100)] }),
+      turn('composed-pairs', 'focus', 'pass', { calls: [call(100)] }),
       turn('composed-pairs', 'small-chart', 'pass', {
         expectedDeferral,
         reason: expectedDeferral,
-        jevCalls: [call(100)],
+        calls: [call(100)],
       }),
       turn('composed-pairs', 'small-chart', 'handed_off', { expectedDeferral }),
       turn('composed-pairs', 'small-chart', 'fail', { expectedDeferral }),
       turn('composed-pairs', 'small-chart', 'deferred', {
         expectedDeferral,
-        reason: 'jevLayout/provider_http',
+        reason: 'write/provider_http',
       }),
     ];
     const summary = summarizeVariant(records, 'composed-pairs');
     expect(summary.turns).toBe(1);
     expect(summary.pass).toEqual({ count: 1, total: 1 });
     expect(summary.deferralReasons).toEqual({});
-    expect(summary.jevCallsPerTurn).toBe(1);
+    expect(summary.callsPerTurn).toBe(1);
     expect(summary.expectedDeferrals).toEqual({
       turns: 4,
       deferredRight: 1,
@@ -138,7 +142,7 @@ describe('stage eval report', () => {
       otherDeferral: 1,
     });
     const report = renderStageReport(
-      'jevLayout',
+      { stage: 'write' },
       records,
       ['composed-pairs'],
       {},
@@ -150,7 +154,7 @@ describe('stage eval report', () => {
       '| Expected layout deferrals: handed off / wrote a tree / other deferral | 1 / 1 / 1 |',
     );
     expect(
-      renderStageReport('jevLayout', RECORDS, ['composed-pairs'], {}),
+      renderStageReport({ stage: 'write' }, RECORDS, ['composed-pairs'], {}),
     ).not.toContain('Expected layout deferrals');
   });
 });

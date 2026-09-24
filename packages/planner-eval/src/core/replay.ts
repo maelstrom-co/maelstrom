@@ -2,26 +2,13 @@ import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { deferred, type Stage } from '@maelstrom-co/engine';
-import type { StageName } from '@maelstrom-co/planner-jev/_internal';
 import { err, ok } from '@maelstrom-co/protocol';
+import type { RegisteredArm } from './arms.js';
 import type { StageRecord } from './instrument.js';
+import type { PlannerEvalPlugin } from './plugin.js';
 import type { Scenario } from './scenarios.js';
 
-/** How far `--replay-through` freezes the pipeline. */
-export type ReplayThrough = 'select' | 'actions' | 'layout';
-
-const LAST_REPLAYED: Readonly<Record<ReplayThrough, StageName>> = {
-  select: 'jevSelect',
-  actions: 'jevActions',
-  layout: 'jevLayout',
-};
-
-/** Every `--replay-through` value, in pipeline order. */
-export const REPLAY_THROUGH = Object.keys(
-  LAST_REPLAYED,
-) as readonly ReplayThrough[];
-
-/** What one Jev turn recorded, as written under `<out>/stages/<arm>/`. */
+/** What one staged turn recorded, as written under `<out>/stages/<arm>/`. */
 export interface StageFile {
   readonly arm: string;
   readonly scenarioId: string;
@@ -42,16 +29,30 @@ export interface ReplaySource {
   turn(scenarioId: string, repeat: number): TurnCache;
 }
 
-/** The stages `--replay-through <through>` replays, in pipeline order. */
-export function replayedStages(through: ReplayThrough): readonly StageName[] {
-  const order = Object.values(LAST_REPLAYED);
-  return order.slice(0, order.indexOf(LAST_REPLAYED[through]) + 1);
+/**
+ * The stages of `plugin` that `--replay-through <phase>` replays, in
+ * pipeline order: every stage up to and including the one the plugin maps
+ * the phase to.
+ *
+ * @throws {Error} When the plugin declares no such phase or stage order.
+ */
+export function replayedStages(
+  plugin: PlannerEvalPlugin,
+  through: string,
+): readonly string[] {
+  const stage = plugin.phases?.[through];
+  const order = plugin.stageOrder ?? [];
+  if (stage === undefined || !order.includes(stage))
+    throw new Error(
+      `replay: ${plugin.name} has no ${through} phase; its phases are ${Object.keys(plugin.phases ?? {}).join(', ') || 'none'}`,
+    );
+  return order.slice(0, order.indexOf(stage) + 1);
 }
 
 /**
  * Checks, before anything runs, that `source` recorded every scenario and
  * repeat to be replayed, from the same request and history. The first
- * stage's recorded input is compared with the scenario; its `messageId` and
+ * recorded stage's input is compared with the scenario; its `messageId` and
  * `sessionId` are ignored, since they name the arm that recorded it.
  *
  * @throws {Error} Naming `source.dir` and every mismatched turn with its reason.
@@ -78,24 +79,8 @@ export function verifyReplay(
 }
 
 /**
- * What an arm's stages read from a replayed stage's output. `poc` reads
- * only the POC's fields. `ungated` also reads `minConfidence` on the action
- * plan, and would act on gates it never asked for, so a recording with
- * gates is refused. `gated` reads every gate on the selection and the
- * action plan.
- */
-export type ReplayShape = 'poc' | 'ungated' | 'gated';
-
-/** An arm as {@link verifyReplayShape} sees it. */
-export interface ReplayingArm {
-  readonly name: string;
-  /** Defaults to `poc`. */
-  readonly replayShape?: ReplayShape;
-}
-
-/**
  * Checks, before anything runs, that every replayed stage output of every
- * turn has the fields each arm reads from it.
+ * turn has what each arm's plugin says the arm reads from it.
  *
  * @throws {Error} Naming `source.dir`, and per arm and problem the turns it affects.
  */
@@ -103,20 +88,20 @@ export function verifyReplayShape(
   source: ReplaySource,
   scenarios: readonly Scenario[],
   repeats: number,
-  stages: readonly StageName[],
-  arms: readonly ReplayingArm[],
+  through: string,
+  arms: readonly RegisteredArm[],
 ): void {
   const problems = new Map<string, string[]>();
-  for (const arm of arms) {
-    const shape = arm.replayShape ?? 'poc';
-    if (shape === 'poc') continue;
+  for (const { arm, plugin } of arms) {
+    if (plugin.verifyReplay === undefined) continue;
+    const stages = replayedStages(plugin, through);
     for (const scenario of scenarios)
       for (let repeat = 1; repeat <= repeats; repeat++) {
         const turn = source.turn(scenario.id, repeat);
         for (const record of turn.stages ?? []) {
           if (!stages.includes(record.stage) || record.outcome !== 'ok')
             continue;
-          for (const problem of shapeProblems(shape, record)) {
+          for (const problem of plugin.verifyReplay(record, arm)) {
             const key = `${arm.name}: ${record.stage} ${problem}`;
             problems.set(key, [...(problems.get(key) ?? []), turn.key]);
           }
@@ -141,7 +126,7 @@ export function verifyReplayShape(
  * or the stage failed there, since there is nothing faithful to replay.
  */
 export function replayStage(
-  name: StageName,
+  name: string,
   cache: TurnCache,
 ): Stage<unknown, unknown> {
   return async () => {
@@ -209,9 +194,8 @@ function mismatches(
   scenario: Scenario,
   stages: readonly StageRecord[] | undefined,
 ): string[] {
-  if (stages === undefined || stages.length === 0) return ['no recorded turn'];
-  const first = stages.find((record) => record.stage === 'jevSelect');
-  if (first === undefined) return ['no recorded jevSelect'];
+  const first = stages?.[0];
+  if (first === undefined) return ['no recorded turn'];
   const recorded = (first.input ?? {}) as {
     readonly request?: unknown;
     readonly history?: unknown;
@@ -222,35 +206,6 @@ function mismatches(
   if (!sameJson(scenario.history ?? [], recorded.history))
     reasons.push('history differs');
   return reasons;
-}
-
-const GATES = ['needsActions', 'generatedContent', 'spatial'] as const;
-
-function shapeProblems(shape: ReplayShape, record: StageRecord): string[] {
-  const output = (record.output ?? {}) as {
-    readonly gates?: Readonly<Record<string, unknown>>;
-    readonly minConfidence?: unknown;
-  };
-  const problems: string[] = [];
-  if (record.stage === 'jevActions' && typeof output.minConfidence !== 'number')
-    problems.push('has no minConfidence');
-  if (record.stage !== 'jevSelect' && record.stage !== 'jevActions')
-    return problems;
-  if (shape === 'ungated' && output.gates !== undefined)
-    problems.push('carries gates this ungated arm would act on');
-  if (shape === 'gated' && !GATES.every((gate) => isGate(output.gates?.[gate])))
-    problems.push('has no complete gates');
-  return problems;
-}
-
-function isGate(value: unknown): boolean {
-  if (typeof value !== 'object' || value === null) return false;
-  const gate = value as Record<string, unknown>;
-  return (
-    (gate.answer === 'yes' || gate.answer === 'no') &&
-    typeof gate.probability === 'number' &&
-    typeof gate.confidence === 'number'
-  );
 }
 
 function sameJson(live: unknown, recorded: unknown): boolean {

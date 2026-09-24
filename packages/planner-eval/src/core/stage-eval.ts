@@ -1,3 +1,5 @@
+import type { ParseArgsOptionDescriptor } from 'node:util';
+
 import {
   isDeferred,
   type Logger,
@@ -5,13 +7,8 @@ import {
   type Stage,
   type StageContext,
 } from '@maelstrom-co/engine';
-import {
-  type Ask,
-  createTypeSafeClient,
-  type JevCall,
-  type StageName,
-} from '@maelstrom-co/planner-jev/_internal';
 import { isErr, MessageId, SessionId } from '@maelstrom-co/protocol';
+import type { ProviderCall } from './plugin.js';
 import type { Scenario, Suite } from './scenarios.js';
 
 /**
@@ -55,17 +52,51 @@ export interface Judgement<Detail> {
   readonly detail: Detail;
 }
 
+/** An extra CLI option a stage module declares, as `parseArgs` takes it. */
+export type CliFlag = ParseArgsOptionDescriptor;
+
+/** What the CLI hands a module's `configure`: the flag values and the run they apply to. */
+export interface StageEvalRun {
+  readonly scenarios: readonly Scenario[];
+  readonly repeats: number;
+}
+
+/** A module as `configure` returns it, with the settings to print in `meta.json`. */
+export interface ConfiguredStageEval<Input, Output, Detail, Deps> {
+  readonly module: StageEvalModule<Input, Output, Detail, Deps>;
+  readonly meta: StageRunMeta;
+}
+
+/** The run's settings, printed at the top of the report. */
+export type StageRunMeta = Readonly<Record<string, string | number | boolean>>;
+
 /**
  * Everything the stage eval needs to test one pipeline stage on its own:
- * the variants to compare, the input each scenario implies, how an output
- * scores, and the stage-specific report sections.
+ * the variants to compare, what they depend on, the input each scenario
+ * implies, how an output scores, and the stage-specific report sections.
  */
-export interface StageEvalModule<Input, Output, Detail> {
-  readonly stage: StageName;
+export interface StageEvalModule<Input, Output, Detail, Deps> {
+  /** The `--stage` name that selects the module. */
+  readonly name: string;
+  /** The pipeline stage's name, recorded on every turn. */
+  readonly stage: string;
+  /** What the report calls the module's provider calls; `Provider` when absent. */
+  readonly provider?: string;
+  /** Environment variables the module needs; the CLI refuses to run without them. */
+  readonly requiredEnv?: readonly string[];
   /** Stage factories by descriptive variant name, in report order. */
   readonly variants: Readonly<
-    Record<string, (ask: Ask) => Stage<Input, Output>>
+    Record<string, (deps: Deps) => Stage<Input, Output>>
   >;
+  /** The dependencies one turn's stage runs on, reporting every provider call to `onCall`. */
+  makeDeps(onCall: (call: ProviderCall) => void): Deps;
+  /** Extra CLI options, by flag name. */
+  readonly flags?: Readonly<Record<string, CliFlag>>;
+  /** The module the CLI runs given its flags, with the settings to print; the module itself when absent. */
+  configure?(
+    values: Readonly<Record<string, unknown>>,
+    run: StageEvalRun,
+  ): Promise<ConfiguredStageEval<Input, Output, Detail, Deps>>;
   /** The stage's input for `scenario`, or why the scenario cannot form it. */
   readonly prepare: (
     scenario: Scenario,
@@ -100,14 +131,9 @@ export interface StageEvalModule<Input, Output, Detail> {
   ) => readonly string[];
 }
 
-/** One Jev call of a turn, with the state the stage sent, for debugging prompts. */
-export interface RecordedJevCall extends JevCall {
-  readonly state?: unknown;
-}
-
 /** One stage turn, as `records.json` keeps it. */
 export interface StageTurnRecord<Detail = unknown> {
-  readonly stage: StageName;
+  readonly stage: string;
   readonly variant: string;
   readonly scenarioId: string;
   readonly suite: Suite;
@@ -119,20 +145,12 @@ export interface StageTurnRecord<Detail = unknown> {
   readonly reason?: string;
   /** Wall time of the stage call; absent when nothing ran. */
   readonly stageMs?: number;
-  /** Every Jev call the stage made, with its raw answers. */
-  readonly jevCalls: readonly RecordedJevCall[];
+  /** Every provider call the stage made, as the module's `makeDeps` reported it. */
+  readonly calls: readonly ProviderCall[];
   /** The stage module's own record of the output; absent unless the stage returned one. */
   readonly detail?: Detail;
   /** The deferral reason the scenario expects of the stage; absent when it expects an output. */
   readonly expectedDeferral?: string;
-}
-
-/** TypeSafe settings for every turn's client. */
-export interface StageEvalTypeSafe {
-  readonly apiKey: string;
-  readonly model: string;
-  readonly fetch?: typeof fetch;
-  readonly timeoutMs?: number;
 }
 
 /** Options for {@link runStageEval}. */
@@ -141,7 +159,6 @@ export interface StageEvalOptions {
   /** Variant names of the module, run in this order for every scenario and repeat. */
   readonly variants: readonly string[];
   readonly repeats: number;
-  readonly typesafe: StageEvalTypeSafe;
   /** Turns in flight at once. Defaults to 1. */
   readonly concurrency?: number;
   readonly logger?: Logger;
@@ -154,8 +171,19 @@ export interface StageEvalOptions {
  * share one registry.
  */
 export interface RegisteredStageEval {
-  readonly stage: StageName;
+  readonly name: string;
+  readonly stage: string;
+  readonly provider?: string;
+  readonly requiredEnv?: readonly string[];
   readonly variants: readonly string[];
+  readonly flags?: Readonly<Record<string, CliFlag>>;
+  configure(
+    values: Readonly<Record<string, unknown>>,
+    run: StageEvalRun,
+  ): Promise<{
+    readonly module: RegisteredStageEval;
+    readonly meta: StageRunMeta;
+  }>;
   readonly run: (options: StageEvalOptions) => Promise<StageTurnRecord[]>;
   readonly reportSections: (
     records: readonly StageTurnRecord[],
@@ -171,8 +199,8 @@ export interface RegisteredStageEval {
  *
  * @throws {Error} On a variant name the module does not declare.
  */
-export async function runStageEval<Input, Output, Detail>(
-  module: StageEvalModule<Input, Output, Detail>,
+export async function runStageEval<Input, Output, Detail, Deps>(
+  module: StageEvalModule<Input, Output, Detail, Deps>,
   options: StageEvalOptions,
 ): Promise<StageTurnRecord<Detail>[]> {
   const unknown = options.variants.filter(
@@ -196,14 +224,14 @@ export async function runStageEval<Input, Output, Detail>(
           ...base(module.stage, variant, scenario, 1),
           outcome: 'not_applicable',
           reason: prepared.reason,
-          jevCalls: [],
+          calls: [],
         }));
       continue;
     }
     for (let repeat = 1; repeat <= options.repeats; repeat++)
       for (const variant of options.variants)
         tasks.push(() =>
-          runTurn(module, options, logger, {
+          runTurn(module, logger, {
             variant,
             scenario,
             repeat,
@@ -215,12 +243,25 @@ export async function runStageEval<Input, Output, Detail>(
 }
 
 /** Erases `module`'s types for a registry of stage evals. */
-export function registerStageEval<Input, Output, Detail>(
-  module: StageEvalModule<Input, Output, Detail>,
+export function registerStageEval<Input, Output, Detail, Deps>(
+  module: StageEvalModule<Input, Output, Detail, Deps>,
 ): RegisteredStageEval {
   return {
+    name: module.name,
     stage: module.stage,
+    ...(module.provider !== undefined && { provider: module.provider }),
+    ...(module.requiredEnv && { requiredEnv: module.requiredEnv }),
     variants: Object.keys(module.variants),
+    ...(module.flags && { flags: module.flags }),
+    configure: async (values, run) => {
+      const configured = await module.configure?.(values, run);
+      return configured === undefined
+        ? { module: registerStageEval(module), meta: {} }
+        : {
+            module: registerStageEval(configured.module),
+            meta: configured.meta,
+          };
+    },
     run: (options) => runStageEval(module, options),
     reportSections: (records, variants) =>
       module.reportSections?.(
@@ -240,9 +281,8 @@ export function planningInput(scenario: Scenario): PlanningInput {
   };
 }
 
-async function runTurn<Input, Output, Detail>(
-  module: StageEvalModule<Input, Output, Detail>,
-  options: StageEvalOptions,
+async function runTurn<Input, Output, Detail, Deps>(
+  module: StageEvalModule<Input, Output, Detail, Deps>,
   logger: Logger,
   turn: {
     readonly variant: string;
@@ -259,13 +299,10 @@ async function runTurn<Input, Output, Detail>(
     ...base(module.stage, variant, scenario, repeat),
     ...(expectedDeferral !== undefined && { expectedDeferral }),
   };
-  const jevCalls: RecordedJevCall[] = [];
-  const ask: Ask = (stage, evaluation, ctx) =>
-    createTypeSafeClient({
-      ...options.typesafe,
-      onCall: (call) => jevCalls.push({ ...call, state: evaluation.state }),
-    })(stage, evaluation, ctx);
-  const stage = module.variants[variant](ask);
+  const calls: ProviderCall[] = [];
+  const stage = module.variants[variant](
+    module.makeDeps((call) => calls.push(call)),
+  );
   const started = performance.now();
   let result: Awaited<ReturnType<typeof stage>>;
   try {
@@ -276,7 +313,7 @@ async function runTurn<Input, Output, Detail>(
       outcome: 'error',
       reason: error instanceof Error ? error.message : String(error),
       stageMs: performance.now() - started,
-      jevCalls,
+      calls,
     };
   }
   const stageMs = performance.now() - started;
@@ -295,7 +332,7 @@ async function runTurn<Input, Output, Detail>(
           : 'deferred',
       reason,
       stageMs,
-      jevCalls,
+      calls,
     };
   }
   const judgement = module.judge(scenario, input, result.value);
@@ -308,17 +345,17 @@ async function runTurn<Input, Output, Detail>(
       ? [`expected a deferral: ${expectedDeferral}`]
       : judgement.failures,
     stageMs,
-    jevCalls,
+    calls,
     detail: judgement.detail,
   };
 }
 
 function base(
-  stage: StageName,
+  stage: string,
   variant: string,
   scenario: Scenario,
   repeat: number,
-): Omit<StageTurnRecord<never>, 'outcome' | 'jevCalls'> & {
+): Omit<StageTurnRecord<never>, 'outcome' | 'calls'> & {
   readonly failures: readonly string[];
 } {
   return {

@@ -20,9 +20,9 @@ import {
   VesselId,
 } from '@maelstrom-co/protocol';
 import type { StageReplacements } from '../../core/instrument.js';
-import type { ReplayShape } from '../../core/replay.js';
 import type { Scenario } from '../../core/scenarios.js';
 import { expectedRetained } from '../../core/score.js';
+import type { ReplayShape } from './arms.js';
 
 /**
  * The select and actions stage outputs a scenario's expectation implies,
@@ -93,7 +93,7 @@ export function layoutDeferralGoldInputs(
   shape: ReplayShape = 'gated',
 ): GoldInputs {
   const { expected, request } = scenario;
-  if (expected.status !== 'deferred' || expected.deferStage !== 'jevLayout')
+  if (expected.status !== 'deferred' || expected.deferStage !== 'layout')
     return { applicable: false, reason: 'expects no layout stage deferral' };
   const current = getVisibleInstanceIds(request.layout);
   const instances: SelectedInstance[] = request.instances.map((instance) => {

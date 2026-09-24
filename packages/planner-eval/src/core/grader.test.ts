@@ -1,12 +1,5 @@
 import { expect, test } from 'bun:test';
 
-import type { Logger } from '@maelstrom-co/engine';
-import {
-  type Payload,
-  type Script,
-  scriptedAsk,
-  TEST_MODEL,
-} from '@maelstrom-co/planner-jev/_testing';
 import {
   ActionName,
   InstanceId,
@@ -14,6 +7,8 @@ import {
   VariantName,
   VesselId,
 } from '@maelstrom-co/protocol';
+import { scriptedJudge } from './__test-helpers__/fake-planner.js';
+import { silentLogger } from './__test-helpers__/fixtures.js';
 import {
   ARRANGEMENT_MATCH_LEVELS,
   GRADER_VERSION,
@@ -21,10 +16,10 @@ import {
   gradeResponse,
   REQUEST_SATISFIED_LEVELS,
 } from './grader.js';
+import type { JudgeInput, JudgeVerdict } from './plugin.js';
 import { selectScenarios } from './scenarios.js';
 
-const silent: Logger = { debug() {}, info() {}, warn() {}, error() {} };
-const ctx = { logger: silent };
+const ctx = { logger: silentLogger };
 
 const [swap] = selectScenarios('development', ['swap']);
 if (!swap) throw new Error('fixture scenario swap is missing');
@@ -39,13 +34,51 @@ const swapped: GradeInput = {
   },
 };
 
-test('asks both dimensions once and normalises a confident score to [0, 1]', async () => {
-  const { ask, calls } = scriptedAsk(() => ({
-    choices: {},
-    scores: { request_satisfied: 3, arrangement_match: 4 },
-  }));
+/**
+ * A verdict giving each asked dimension the fractional `scores` value and,
+ * where listed, the given level probabilities (all probability on the
+ * rounded score otherwise).
+ */
+function verdict(
+  input: JudgeInput,
+  scores: Readonly<Record<string, number>>,
+  probabilities: Readonly<
+    Record<string, Readonly<Record<string, number>>>
+  > = {},
+): JudgeVerdict {
+  return {
+    answers: Object.fromEntries(
+      input.dimensions.map((dimension) => {
+        const score = scores[dimension.name] ?? 0;
+        const listed = probabilities[dimension.name];
+        return [
+          dimension.name,
+          {
+            score,
+            probabilities: Object.fromEntries(
+              dimension.levels.map((_, index) => [
+                String(index),
+                listed
+                  ? (listed[String(index)] ?? 0)
+                  : index === Math.round(score)
+                    ? 1
+                    : 0,
+              ]),
+            ),
+          },
+        ];
+      }),
+    ),
+    calls: [{ latencyMs: 40, usage: { inputTokens: 40, outputTokens: 3 } }],
+  };
+}
 
-  const grade = await gradeResponse(ask, swapped, ctx);
+test('asks both dimensions once, with their levels, and normalises a confident score to [0, 1]', async () => {
+  const judge = scriptedJudge((input) =>
+    verdict(input, { request_satisfied: 3, arrangement_match: 4 }),
+  );
+
+  const grade = await gradeResponse(judge, swapped, ctx);
 
   expect(grade.failure).toBe(undefined);
   expect(grade.dimensions?.request_satisfied).toEqual({
@@ -56,18 +89,18 @@ test('asks both dimensions once and normalises a confident score to [0, 1]', asy
     score: 1,
     samples: [4],
   });
-  expect(calls).toHaveLength(1);
-  const [payload] = calls;
-  expect(Object.keys(payload?.questions ?? {}).sort()).toEqual([
-    'arrangement_match',
-    'request_satisfied',
+  expect(grade.calls).toEqual([
+    { latencyMs: 40, usage: { inputTokens: 40, outputTokens: 3 } },
   ]);
-  expect(
-    Object.values(payload?.questions.request_satisfied.criteria ?? {}),
-  ).toEqual([...REQUEST_SATISFIED_LEVELS]);
-  expect(
-    Object.values(payload?.questions.arrangement_match.criteria ?? {}),
-  ).toEqual([...ARRANGEMENT_MATCH_LEVELS]);
+  expect(judge.inputs).toHaveLength(1);
+  const [input] = judge.inputs;
+  expect(input?.dimensions.map((dimension) => dimension.name)).toEqual([
+    'request_satisfied',
+    'arrangement_match',
+  ]);
+  expect(input?.dimensions[0]?.levels).toEqual([...REQUEST_SATISFIED_LEVELS]);
+  expect(input?.dimensions[1]?.levels).toEqual([...ARRANGEMENT_MATCH_LEVELS]);
+  expect(input?.dimensions[0]?.question).toContain('userMessage is a claim');
   expect(REQUEST_SATISFIED_LEVELS[0]).toContain('Nothing the user asked for');
   expect(REQUEST_SATISFIED_LEVELS[4]).toContain('nothing else changed');
   expect(ARRANGEMENT_MATCH_LEVELS[0]).toContain('contradicts');
@@ -75,9 +108,9 @@ test('asks both dimensions once and normalises a confident score to [0, 1]', asy
 });
 
 test('states the intent, both layouts in words, the plan and the message', async () => {
-  const { ask, calls } = scriptedAsk(() => ({ choices: {} }));
+  const judge = scriptedJudge((input) => verdict(input, {}));
   await gradeResponse(
-    ask,
+    judge,
     {
       ...swapped,
       response: {
@@ -93,7 +126,7 @@ test('states the intent, both layouts in words, the plan and the message', async
     },
     ctx,
   );
-  const state = calls[0]?.state as Record<string, unknown>;
+  const state = judge.inputs[0]?.state as Record<string, unknown>;
   expect(state.intent).toBe('Swap the calendar and the map.');
   expect(state.before).toContain('calendar left of map');
   expect(state.after).toContain('map left of calendar');
@@ -110,9 +143,9 @@ test('states the intent, both layouts in words, the plan and the message', async
 test('states that the shipped layout is unchanged when its tree is identical to the incoming one', async () => {
   if (swap.request.layout.type !== 'tiling')
     throw new Error('fixture scenario swap is not tiling');
-  const { ask, calls } = scriptedAsk(() => ({ choices: {} }));
+  const judge = scriptedJudge((input) => verdict(input, {}));
   await gradeResponse(
-    ask,
+    judge,
     {
       ...swapped,
       response: {
@@ -123,14 +156,14 @@ test('states that the shipped layout is unchanged when its tree is identical to 
     },
     ctx,
   );
-  const state = calls[0]?.state as Record<string, unknown>;
+  const state = judge.inputs[0]?.state as Record<string, unknown>;
   expect(state.layoutUnchanged).toBe(true);
 });
 
 test('states that the shipped layout changed when its tree differs from the incoming one', async () => {
-  const { ask, calls } = scriptedAsk(() => ({ choices: {} }));
-  await gradeResponse(ask, swapped, ctx);
-  const state = calls[0]?.state as Record<string, unknown>;
+  const judge = scriptedJudge((input) => verdict(input, {}));
+  await gradeResponse(judge, swapped, ctx);
+  const state = judge.inputs[0]?.state as Record<string, unknown>;
   expect(state.layoutUnchanged).toBe(false);
 });
 
@@ -142,19 +175,18 @@ test('scores an unchanged layout at the lowest arrangement level when a change w
 });
 
 test('records the grader version that produced a grade', async () => {
-  const { ask } = scriptedAsk(() => ({
-    choices: {},
-    scores: { request_satisfied: 4, arrangement_match: 4 },
-  }));
-  const grade = await gradeResponse(ask, swapped, ctx);
+  const judge = scriptedJudge((input) =>
+    verdict(input, { request_satisfied: 4, arrangement_match: 4 }),
+  );
+  const grade = await gradeResponse(judge, swapped, ctx);
   expect(GRADER_VERSION).toBe(2);
   expect(grade.graderVersion).toBe(2);
 });
 
 test('describes the after layout with the variants the response declares', async () => {
-  const { ask, calls } = scriptedAsk(() => ({ choices: {} }));
+  const judge = scriptedJudge((input) => verdict(input, {}));
   await gradeResponse(
-    ask,
+    judge,
     {
       ...swapped,
       response: {
@@ -173,7 +205,7 @@ test('describes the after layout with the variants the response declares', async
     },
     ctx,
   );
-  const state = calls[0]?.state as Record<string, string>;
+  const state = judge.inputs[0]?.state as Record<string, string>;
   expect(state.after).toContain('map-main: map (satellite)');
   expect(state.before).toContain('map-main: map (overview)');
 });
@@ -184,22 +216,24 @@ test('samples three times only the dimension whose top two levels are within 0.1
     { request_satisfied: 2 },
     { request_satisfied: 3 },
   ];
-  const { ask, calls } = scriptedAsk((payload, call) => ({
-    reply: scoreReply(payload, replies[call] ?? {}, {
+  const judge = scriptedJudge((input, call) =>
+    verdict(input, replies[call] ?? {}, {
       // Levels 2 and 3 at 0.45 and 0.40: near a boundary.
       request_satisfied: { '1': 0.05, '2': 0.45, '3': 0.4, '4': 0.1 },
     }),
-  }));
-
-  const grade = await gradeResponse(ask, swapped, ctx);
-
-  expect(calls.map((payload) => Object.keys(payload.questions).sort())).toEqual(
-    [
-      ['arrangement_match', 'request_satisfied'],
-      ['request_satisfied'],
-      ['request_satisfied'],
-    ],
   );
+
+  const grade = await gradeResponse(judge, swapped, ctx);
+
+  expect(
+    judge.inputs.map((input) =>
+      input.dimensions.map((dimension) => dimension.name).sort(),
+    ),
+  ).toEqual([
+    ['arrangement_match', 'request_satisfied'],
+    ['request_satisfied'],
+    ['request_satisfied'],
+  ]);
   expect(grade.dimensions?.request_satisfied.samples).toEqual([2.4, 2, 3]);
   expect(grade.dimensions?.request_satisfied.score).toBeCloseTo(
     (2.4 + 2 + 3) / 3 / 4,
@@ -209,87 +243,58 @@ test('samples three times only the dimension whose top two levels are within 0.1
     score: 1,
     samples: [4],
   });
+  expect(grade.calls).toHaveLength(3);
 });
 
 test('does not resample when the top two levels are more than 0.15 apart', async () => {
-  const { ask, calls } = scriptedAsk((payload) => ({
-    reply: scoreReply(
-      payload,
+  const judge = scriptedJudge((input) =>
+    verdict(
+      input,
       { request_satisfied: 2.3, arrangement_match: 1 },
       { request_satisfied: { '2': 0.6, '3': 0.4 } },
     ),
-  }));
-  const grade = await gradeResponse(ask, swapped, ctx);
-  expect(calls).toHaveLength(1);
+  );
+  const grade = await gradeResponse(judge, swapped, ctx);
+  expect(judge.inputs).toHaveLength(1);
   expect(grade.dimensions?.request_satisfied.score).toBeCloseTo(2.3 / 4, 10);
   expect(grade.dimensions?.arrangement_match.score).toBe(0.25);
 });
 
-test('records a provider failure as a failed grade instead of throwing', async () => {
-  const { ask } = scriptedAsk(() => ({ status: 500 }));
-  const grade = await gradeResponse(ask, swapped, ctx);
+test('records a judge failure as a failed grade instead of throwing', async () => {
+  const judge = scriptedJudge(() => ({
+    failure: 'grader/provider_http',
+    calls: [{ latencyMs: 5, outcome: 'provider_http' }],
+  }));
+  const grade = await gradeResponse(judge, swapped, ctx);
   expect(grade.dimensions).toBe(undefined);
   expect(grade.failure).toBe('grader/provider_http');
+  expect(grade.calls).toEqual([{ latencyMs: 5, outcome: 'provider_http' }]);
+});
+
+test('a dimension the judge leaves unanswered fails the grade', async () => {
+  const judge = scriptedJudge((input) => {
+    const full = verdict(input, { request_satisfied: 4, arrangement_match: 4 });
+    if ('failure' in full) return full;
+    const { arrangement_match: _dropped, ...answers } = full.answers;
+    return { answers, calls: full.calls };
+  });
+  const grade = await gradeResponse(judge, swapped, ctx);
+  expect(grade.failure).toBe('grader/answer_missing');
 });
 
 test('a failed resample fails the grade rather than averaging fewer samples', async () => {
-  const script: Script = (payload, call) =>
+  const judge = scriptedJudge((input, call) =>
     call === 0
-      ? {
-          reply: scoreReply(
-            payload,
-            { request_satisfied: 2, arrangement_match: 4 },
-            { request_satisfied: { '2': 0.5, '3': 0.5 } },
-          ),
-        }
-      : { status: 503 };
-  const { ask, calls } = scriptedAsk(script);
-  const grade = await gradeResponse(ask, swapped, ctx);
-  expect(calls).toHaveLength(2);
+      ? verdict(
+          input,
+          { request_satisfied: 2, arrangement_match: 4 },
+          { request_satisfied: { '2': 0.5, '3': 0.5 } },
+        )
+      : { failure: 'grader/provider_http', calls: [{ latencyMs: 1 }] },
+  );
+  const grade = await gradeResponse(judge, swapped, ctx);
+  expect(judge.inputs).toHaveLength(2);
   expect(grade.failure).toBe('grader/provider_http');
   expect(grade.dimensions).toBe(undefined);
+  expect(grade.calls).toHaveLength(2);
 });
-
-/**
- * A valid reply giving each score question the fractional `scores` value
- * and, where listed, the given level probabilities (all probability on the
- * rounded score otherwise).
- */
-function scoreReply(
-  payload: Payload,
-  scores: Readonly<Record<string, number>>,
-  probabilities: Readonly<Record<string, Readonly<Record<string, number>>>>,
-) {
-  return {
-    model: TEST_MODEL,
-    answers: Object.fromEntries(
-      Object.entries(payload.questions).map(([id, question]) => {
-        const levels = Object.values(question.criteria);
-        const score = scores[id] ?? 0;
-        const listed = probabilities[id];
-        return [
-          id,
-          {
-            type: 'score',
-            score,
-            confidence: 0.9,
-            legend: Object.fromEntries(
-              levels.map((text, index) => [String(index), text]),
-            ),
-            probabilities: Object.fromEntries(
-              levels.map((_, index) => [
-                String(index),
-                listed
-                  ? (listed[String(index)] ?? 0)
-                  : index === Math.round(score)
-                    ? 1
-                    : 0,
-              ]),
-            ),
-          },
-        ];
-      }),
-    ),
-    usage: { input_tokens: 40, output_tokens: 3 },
-  };
-}

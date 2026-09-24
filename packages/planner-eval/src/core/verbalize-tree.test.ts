@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { makeRequest } from '@maelstrom-co/planner-jev/_testing';
 import type { TilingNode } from '@maelstrom-co/protocol';
+import { makeRequest } from './__test-helpers__/fixtures.js';
 import type { Arranged } from './predicates.js';
 import { VERBALIZER_VERSION, verbalizeTree } from './verbalize-tree.js';
 

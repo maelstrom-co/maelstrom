@@ -1,21 +1,16 @@
 import type { StageContext } from '@maelstrom-co/engine';
-import {
-  type Ask,
-  type Evaluation,
-  intentText,
-  isScoreAnswer,
-  type JevCall,
-  type Question,
-  score,
-} from '@maelstrom-co/planner-jev/_internal';
-import {
-  type ActionExecution,
-  type ChartRequest,
-  isErr,
-  type TilingNode,
-  type VesselInstanceSnapshot,
+import type {
+  ActionExecution,
+  ChartRequest,
+  TilingNode,
+  VesselInstanceSnapshot,
 } from '@maelstrom-co/protocol';
-import { VERBALIZER_VERSION, verbalizeTree } from './verbalize-tree.js';
+import type { Judge, JudgeAnswer, ProviderCall } from './plugin.js';
+import {
+  intentText,
+  VERBALIZER_VERSION,
+  verbalizeTree,
+} from './verbalize-tree.js';
 
 /** Bumped whenever the grader's questions, levels or state change, so a stored grade records which wording produced it. */
 export const GRADER_VERSION = 2;
@@ -84,40 +79,42 @@ export interface GraderGrade {
   readonly failure?: string;
 }
 
-/** One TypeSafe call the grader made, as the client reported it. */
-export type GraderCall = Pick<JevCall, 'latencyMs' | 'usage' | 'outcome'>;
+/** One call the judge made, as its client reported it. */
+export type GraderCall = ProviderCall;
 
 /** A grade and the calls that produced it, as a run record stores it. */
 export interface GraderRecord extends GraderGrade {
   readonly calls: readonly GraderCall[];
 }
 
-/** The part of a stage context the TypeSafe client reads. */
+/** The part of a stage context a judge reads. */
 export type GraderContext = Pick<StageContext, 'logger' | 'signal'>;
 
 /**
- * Grades one shipped response with one TypeSafe call asking both score
- * questions. A dimension whose two most probable levels are within
+ * Grades one shipped response with one judge call asking both dimensions.
+ * A dimension whose two most probable levels are within
  * {@link NEAR_BOUNDARY_MARGIN} is asked again, alone, until it has
  * {@link NEAR_BOUNDARY_SAMPLES} samples, and scores their mean. Never
  * throws on a provider failure: any failed call fails the whole grade.
  */
 export async function gradeResponse(
-  ask: Ask,
+  judge: Judge,
   input: GradeInput,
   ctx: GraderContext,
-): Promise<GraderGrade> {
+): Promise<GraderRecord> {
   const versions = {
     graderVersion: GRADER_VERSION,
     verbalizerVersion: VERBALIZER_VERSION,
   };
   const state = graderState(input);
+  const calls: GraderCall[] = [];
   const samples = Object.fromEntries(
     GRADER_DIMENSIONS.map((dimension) => [dimension, [] as number[]]),
   ) as Record<GraderDimension, number[]>;
 
-  const first = await askDimensions(ask, state, GRADER_DIMENSIONS, ctx);
-  if ('failure' in first) return { ...versions, failure: first.failure };
+  const first = await askDimensions(judge, state, GRADER_DIMENSIONS, ctx);
+  calls.push(...first.calls);
+  if ('failure' in first) return { ...versions, failure: first.failure, calls };
   const nearBoundary: GraderDimension[] = [];
   for (const dimension of GRADER_DIMENSIONS) {
     const answer = first.answers[dimension];
@@ -127,8 +124,10 @@ export async function gradeResponse(
   }
   if (nearBoundary.length > 0)
     for (let sample = 1; sample < NEAR_BOUNDARY_SAMPLES; sample++) {
-      const again = await askDimensions(ask, state, nearBoundary, ctx);
-      if ('failure' in again) return { ...versions, failure: again.failure };
+      const again = await askDimensions(judge, state, nearBoundary, ctx);
+      calls.push(...again.calls);
+      if ('failure' in again)
+        return { ...versions, failure: again.failure, calls };
       for (const dimension of nearBoundary)
         samples[dimension].push(again.answers[dimension].score);
     }
@@ -142,7 +141,7 @@ export async function gradeResponse(
     request_satisfied: dimensionGrade('request_satisfied'),
     arrangement_match: dimensionGrade('arrangement_match'),
   };
-  return { ...versions, dimensions };
+  return { ...versions, dimensions, calls };
 }
 
 const LEVELS: Readonly<Record<GraderDimension, readonly string[]>> = {
@@ -150,54 +149,45 @@ const LEVELS: Readonly<Record<GraderDimension, readonly string[]>> = {
   arrangement_match: ARRANGEMENT_MATCH_LEVELS,
 };
 
-const QUESTIONS: Readonly<Record<GraderDimension, Question>> = {
-  request_satisfied: score(
+const QUESTIONS: Readonly<Record<GraderDimension, string>> = {
+  request_satisfied:
     'Rate how fully the response did what the user asked in intent. before and after describe the layout before and after the response, layoutUnchanged is true when after is exactly before, executionPlan lists the actions it ran, and userMessage is what it told the user. userMessage is a claim, not evidence: judge what actually changed in after and executionPlan, not how the message reads. A requested rearrangement did not happen when layoutUnchanged is true, unless before already had it.',
-    REQUEST_SATISFIED_LEVELS,
-  ),
-  arrangement_match: score(
+  arrangement_match:
     'Rate how well the layout in after matches the arrangement the user stated in intent: which widget sits where, their order and their relative sizes. When intent states an arrangement, judge after only against that arrangement; keeping the previous layout earns no credit by itself. layoutUnchanged is true when after is exactly before: when it is true and before does not already have the stated arrangement, the score is the lowest level. Only when intent states no arrangement, compare after with before instead, where preserving before is best. userMessage is a claim, not evidence: judge the layout descriptions, not the message.',
-    ARRANGEMENT_MATCH_LEVELS,
-  ),
 };
 
-interface ScoredAnswer {
-  readonly score: number;
-  readonly probabilities: Readonly<Record<string, number>>;
-}
-
 async function askDimensions(
-  ask: Ask,
+  judge: Judge,
   state: Record<string, unknown>,
   dimensions: readonly GraderDimension[],
   ctx: GraderContext,
 ): Promise<
-  | { readonly answers: Readonly<Record<string, ScoredAnswer>> }
-  | { readonly failure: string }
+  | {
+      readonly answers: Readonly<Record<string, JudgeAnswer>>;
+      readonly calls: readonly GraderCall[];
+    }
+  | { readonly failure: string; readonly calls: readonly GraderCall[] }
 > {
-  const evaluation: Evaluation = {
-    state,
-    questions: Object.fromEntries(
-      dimensions.map((dimension) => [dimension, QUESTIONS[dimension]]),
-    ),
-  };
-  // The client reads only the logger and signal; the grader runs outside any pipeline.
-  const result = await ask('grader', evaluation, ctx as StageContext);
-  if (isErr(result))
-    return {
-      failure:
-        result.error._tag === 'Deferred'
-          ? result.error.reason
-          : result.error.message,
-    };
-  const answers: Record<string, ScoredAnswer> = {};
+  const verdict = await judge.score(
+    {
+      state,
+      dimensions: dimensions.map((dimension) => ({
+        name: dimension,
+        question: QUESTIONS[dimension],
+        levels: LEVELS[dimension],
+      })),
+    },
+    ctx,
+  );
+  if ('failure' in verdict) return verdict;
+  const answers: Record<string, JudgeAnswer> = {};
   for (const dimension of dimensions) {
-    const answer = result.value.answers[dimension];
-    if (answer === undefined || !isScoreAnswer(answer))
-      return { failure: 'grader/answer_missing' };
+    const answer = verdict.answers[dimension];
+    if (answer === undefined)
+      return { failure: 'grader/answer_missing', calls: verdict.calls };
     answers[dimension] = answer;
   }
-  return { answers };
+  return { answers, calls: verdict.calls };
 }
 
 function graderState({ request, response }: GradeInput) {

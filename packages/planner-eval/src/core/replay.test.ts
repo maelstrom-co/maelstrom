@@ -4,12 +4,16 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { deferred, pipeline, type Stage } from '@maelstrom-co/engine';
+import { err, isErr, isOk, ok } from '@maelstrom-co/protocol';
+import {
+  fakePluginWith,
+  TOKYO_CANDIDATE,
+} from './__test-helpers__/fake-planner.js';
 import {
   makeContext,
   makeInput,
   makeRequest,
-} from '@maelstrom-co/planner-jev/_testing';
-import { err, isErr, isOk, ok } from '@maelstrom-co/protocol';
+} from './__test-helpers__/fixtures.js';
 import { createRecorder, type StageRecord } from './instrument.js';
 import {
   loadReplay,
@@ -21,16 +25,17 @@ import {
 } from './replay.js';
 import { type Scenario, selectScenarios } from './scenarios.js';
 
+const fake = fakePluginWith({ candidate: () => TOKYO_CANDIDATE });
 const input = makeInput(makeRequest('hide the weather'));
 const ctx = makeContext(input);
 
 const recorded: StageRecord[] = [
-  { stage: 'jevSelect', ms: 5, outcome: 'ok', output: { picked: 'select' } },
+  { stage: 'pick', ms: 5, outcome: 'ok', output: { picked: 'select' } },
   {
-    stage: 'jevActions',
+    stage: 'write',
     ms: 7,
     outcome: 'deferred',
-    reason: 'jevActions/action_unsupported',
+    reason: 'write/action_unsupported',
   },
 ];
 
@@ -44,29 +49,29 @@ describe('replayStage', () => {
   const cache = { key: 'swap #1', stages: recorded };
 
   test('returns the recorded output without running anything', async () => {
-    const result = await replayStage('jevSelect', cache)(input, ctx);
+    const result = await replayStage('pick', cache)(input, ctx);
     expect(isOk(result) && result.value).toEqual({ picked: 'select' });
   });
 
   test('replays a recorded deferral as the same deferral', async () => {
-    const result = await replayStage('jevActions', cache)(input, ctx);
+    const result = await replayStage('write', cache)(input, ctx);
     expect(isErr(result) && result.error).toEqual(
-      deferred('jevActions/action_unsupported'),
+      deferred('write/action_unsupported'),
     );
   });
 
   test('throws naming the stage and turn when nothing was recorded', async () => {
-    await expect(replayStage('jevLayout', cache)(input, ctx)).rejects.toThrow(
-      'replay: no recorded jevLayout for swap #1',
+    await expect(replayStage('other', cache)(input, ctx)).rejects.toThrow(
+      'replay: no recorded other for swap #1',
     );
     await expect(
-      replayStage('jevSelect', { key: 'gone #2' })(input, ctx),
-    ).rejects.toThrow('replay: no recorded jevSelect for gone #2');
+      replayStage('pick', { key: 'gone #2' })(input, ctx),
+    ).rejects.toThrow('replay: no recorded pick for gone #2');
   });
 
   test('a downstream stage runs live on the replayed output', async () => {
     const recorder = createRecorder({
-      jevSelect: replayStage('jevSelect', cache),
+      pick: replayStage('pick', cache),
     });
     let liveSelectRan = false;
     const liveSelect: Stage<unknown, unknown> = async () => {
@@ -76,18 +81,18 @@ describe('replayStage', () => {
     const seen: unknown[] = [];
     const liveActions: Stage<unknown, never> = async (value) => {
       seen.push(value);
-      return err(deferred('jevActions/action_limit'));
+      return err(deferred('write/action_limit'));
     };
     await pipeline(
-      recorder.instrument('jevSelect', liveSelect),
-      recorder.instrument('jevActions', liveActions),
+      recorder.instrument('pick', liveSelect),
+      recorder.instrument('write', liveActions),
     )(input, ctx);
     expect(liveSelectRan).toBe(false);
     expect(seen).toEqual([{ picked: 'select' }]);
     expect(recorder.stages).toMatchObject([
-      { stage: 'jevSelect', outcome: 'ok', replayed: true, input },
+      { stage: 'pick', outcome: 'ok', replayed: true, input },
       {
-        stage: 'jevActions',
+        stage: 'write',
         outcome: 'deferred',
         input: { picked: 'select' },
       },
@@ -98,7 +103,7 @@ describe('replayStage', () => {
 
 describe('replay files', () => {
   test('round-trip through <out>/stages/<arm>/<scenarioId>-<repeat>.json', async () => {
-    const out = await mkdtemp(join(tmpdir(), 'planner-jev-replay-'));
+    const out = await mkdtemp(join(tmpdir(), 'planner-eval-replay-'));
     dirs.push(out);
     const path = await writeStageFile(out, {
       arm: 'jev-poc',
@@ -116,7 +121,7 @@ describe('replay files', () => {
   });
 
   test('a missing source directory is a clear error', async () => {
-    const out = await mkdtemp(join(tmpdir(), 'planner-jev-replay-'));
+    const out = await mkdtemp(join(tmpdir(), 'planner-eval-replay-'));
     dirs.push(out);
     await expect(loadReplay(out, 'jev-poc')).rejects.toThrow(
       `replay: no recorded stages in ${join(out, 'stages', 'jev-poc')}`,
@@ -124,7 +129,7 @@ describe('replay files', () => {
   });
 
   test('a directory that cannot be read is surfaced, not taken for an empty run', async () => {
-    const out = await mkdtemp(join(tmpdir(), 'planner-jev-replay-'));
+    const out = await mkdtemp(join(tmpdir(), 'planner-eval-replay-'));
     dirs.push(out);
     await mkdir(join(out, 'stages'), { recursive: true });
     await writeFile(join(out, 'stages', 'jev-poc'), 'not a directory');
@@ -134,7 +139,7 @@ describe('replay files', () => {
   });
 
   test('a stage file that is not JSON is named', async () => {
-    const out = await mkdtemp(join(tmpdir(), 'planner-jev-replay-'));
+    const out = await mkdtemp(join(tmpdir(), 'planner-eval-replay-'));
     dirs.push(out);
     const dir = join(out, 'stages', 'jev-poc');
     await mkdir(dir, { recursive: true });
@@ -144,14 +149,15 @@ describe('replay files', () => {
     );
   });
 
-  test('--replay-through names every stage up to and including it', () => {
-    expect(replayedStages('select')).toEqual(['jevSelect']);
-    expect(replayedStages('actions')).toEqual(['jevSelect', 'jevActions']);
-    expect(replayedStages('layout')).toEqual([
-      'jevSelect',
-      'jevActions',
-      'jevLayout',
-    ]);
+  test('--replay-through names every stage up to and including the one the plugin maps the phase to', () => {
+    expect(replayedStages(fake, 'select')).toEqual(['pick']);
+    expect(replayedStages(fake, 'layout')).toEqual(['pick', 'write']);
+    expect(() => replayedStages(fake, 'actions')).toThrow(
+      'replay: fake has no actions phase; its phases are select, layout',
+    );
+    expect(() => replayedStages({ name: 'bare', arms: [] }, 'select')).toThrow(
+      'replay: bare has no select phase; its phases are none',
+    );
   });
 });
 
@@ -159,7 +165,7 @@ describe('verifyReplay', () => {
   const [swap] = selectScenarios('development', ['swap']) as [Scenario];
 
   async function recordedRun(repeats: readonly number[]) {
-    const out = await mkdtemp(join(tmpdir(), 'planner-jev-replay-'));
+    const out = await mkdtemp(join(tmpdir(), 'planner-eval-replay-'));
     dirs.push(out);
     for (const repeat of repeats)
       await writeStageFile(out, {
@@ -168,7 +174,7 @@ describe('verifyReplay', () => {
         repeat,
         stages: [
           {
-            stage: 'jevSelect',
+            stage: 'pick',
             ms: 5,
             outcome: 'ok',
             input: {
@@ -216,21 +222,6 @@ describe('verifyReplay', () => {
 
 describe('verifyReplayShape', () => {
   const [swap] = selectScenarios('development', ['swap']) as [Scenario];
-  const gate = { answer: 'no', probability: 0.1, confidence: 0.8 };
-  const gates = { needsActions: gate, generatedContent: gate, spatial: gate };
-  const pocTurn: StageRecord[] = [
-    { stage: 'jevSelect', ms: 1, outcome: 'ok', output: { instances: [] } },
-    { stage: 'jevActions', ms: 1, outcome: 'ok', output: { actions: [] } },
-  ];
-  const gatedTurn: StageRecord[] = [
-    { stage: 'jevSelect', ms: 1, outcome: 'ok', output: { gates } },
-    {
-      stage: 'jevActions',
-      ms: 1,
-      outcome: 'ok',
-      output: { gates, minConfidence: 0.8 },
-    },
-  ];
   const sourceOf = (stages: readonly StageRecord[]) => ({
     dir: '/recorded',
     turn: (scenarioId: string, repeat: number) => ({
@@ -238,59 +229,49 @@ describe('verifyReplayShape', () => {
       stages,
     }),
   });
-  const check =
-    (
-      stages: readonly StageRecord[],
-      through: 'select' | 'actions',
-      replayShape: 'poc' | 'ungated' | 'gated',
-    ) =>
-    () =>
-      verifyReplayShape(sourceOf(stages), [swap], 2, replayedStages(through), [
-        { name: 'arm', replayShape },
-      ]);
+  const [staged] = fake.arms.filter((arm) => !arm.baseline);
+  if (!staged) throw new Error('the fake plugin has no staged arm');
+  const check = (stages: readonly StageRecord[], through: string) => () =>
+    verifyReplayShape(sourceOf(stages), [swap], 2, through, [
+      { arm: staged, plugin: fake },
+    ]);
 
-  test('lets the POC replay any recording', () => {
-    expect(check(pocTurn, 'actions', 'poc')).not.toThrow();
-    expect(check(gatedTurn, 'actions', 'poc')).not.toThrow();
-  });
-
-  test('refuses a gated arm a selection or action plan without gates', () => {
-    expect(check(pocTurn, 'select', 'gated')).toThrow(
-      'replay: the recording in /recorded lacks what these arms read:\n- arm: jevSelect has no complete gates (2 turns: swap #1, swap #2)',
+  test('asks the plugin what each replayed, completed stage lacks and names every affected turn', () => {
+    const bare: StageRecord[] = [
+      { stage: 'pick', ms: 1, outcome: 'ok', output: {} },
+    ];
+    expect(check(bare, 'select')).toThrow(
+      'replay: the recording in /recorded lacks what these arms read:\n- fake: pick has no picked (2 turns: swap #1, swap #2)',
     );
-    expect(check(gatedTurn, 'actions', 'gated')).not.toThrow();
-  });
-
-  test('refuses a stage-library arm an action plan without minConfidence', () => {
-    expect(check(pocTurn, 'select', 'ungated')).not.toThrow();
-    expect(check(pocTurn, 'actions', 'ungated')).toThrow(
-      '- arm: jevActions has no minConfidence',
-    );
-  });
-
-  test('refuses an ungated arm a recording that carries gates', () => {
-    expect(check(gatedTurn, 'select', 'ungated')).toThrow(
-      '- arm: jevSelect carries gates this ungated arm would act on',
-    );
+    expect(
+      check(
+        [{ stage: 'pick', ms: 1, outcome: 'ok', output: { picked: [] } }],
+        'select',
+      ),
+    ).not.toThrow();
   });
 
   test('checks only replayed stages that completed', () => {
-    const deferredActions: StageRecord[] = [
-      gatedTurn[0] as StageRecord,
-      {
-        stage: 'jevActions',
-        ms: 1,
-        outcome: 'deferred',
-        reason: 'jevActions/action_limit',
-      },
-    ];
-    expect(check(deferredActions, 'actions', 'gated')).not.toThrow();
     expect(
       check(
-        pocTurn.slice(0, 1).concat(gatedTurn[1] as StageRecord),
+        [{ stage: 'pick', ms: 1, outcome: 'deferred', reason: 'pick/x' }],
         'select',
-        'ungated',
       ),
+    ).not.toThrow();
+    expect(
+      check([{ stage: 'write', ms: 1, outcome: 'ok', output: {} }], 'select'),
+    ).not.toThrow();
+  });
+
+  test('skips arms whose plugin declares no replay check', () => {
+    const bare: StageRecord[] = [
+      { stage: 'pick', ms: 1, outcome: 'ok', output: {} },
+    ];
+    const { verifyReplay: _verify, ...unchecked } = fake;
+    expect(() =>
+      verifyReplayShape(sourceOf(bare), [swap], 1, 'select', [
+        { arm: staged, plugin: unchecked },
+      ]),
     ).not.toThrow();
   });
 });

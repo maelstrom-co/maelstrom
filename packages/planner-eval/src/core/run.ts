@@ -8,106 +8,55 @@ import {
   type Stage,
 } from '@maelstrom-co/engine';
 import {
-  type AnswerRecord,
-  type Ask,
-  createTypeSafeClient,
-  type JevActionPlan,
-  type JevCall,
-  type JevCaller,
-  type LayoutSource,
-  type Selection2,
-  type StageName,
-} from '@maelstrom-co/planner-jev/_internal';
-import {
   type ActionExecution,
   ChartRequestMessage,
   isOk,
   type MaelstromResponse,
   MessageId,
   SessionId,
-  type TilingNode,
   type VesselInstanceSnapshot,
 } from '@maelstrom-co/protocol';
 import type { AnyTextAdapter } from '@tanstack/ai';
-import { type Arm, type ArmKind, demoLlmPlanner } from '../plugins/jev/arms.js';
-import {
-  GRADER_VERSION,
-  type GraderCall,
-  type GraderGrade,
-  type GraderRecord,
-  gradeResponse,
-} from './grader.js';
+import type { RegisteredArm } from './arms.js';
+import { GRADER_VERSION, type GraderRecord, gradeResponse } from './grader.js';
 import {
   createRecorder,
   type StageRecord,
   type StageReplacements,
 } from './instrument.js';
+import type { Judge, PlannerEvalPlugin } from './plugin.js';
 import {
   type ReplaySource,
+  replayedStages,
   replayStage,
   verifyReplay,
   verifyReplayShape,
   writeStageFile,
 } from './replay.js';
 import type { Scenario, Suite } from './scenarios.js';
-import {
-  type ArrangedScore,
-  type Score,
-  scoreActions,
-  scoreLayout,
-  scoreResponse,
-  scoreSelection,
-} from './score.js';
+import { type ArrangedScore, scoreResponse } from './score.js';
 import { type LlmCall, type LlmRole, withUsage } from './usage-adapter.js';
 import { VERBALIZER_VERSION } from './verbalize-tree.js';
 
-/** One Jev answer from a validated reply, flattened for the records. */
-export interface RecordedAnswer {
-  readonly stage: JevCaller;
-  readonly question: string;
-  readonly choice: string;
-  /** The chosen option's probability. */
-  readonly probability?: number;
-  readonly confidence: number;
-}
-
-/** What each Jev stage decided in one turn, as the run record keeps it. */
-export interface StageOutputs {
-  readonly jevSelect?: {
-    readonly instances: Selection2['instances'];
-    readonly answers: readonly AnswerRecord[];
-    readonly gates?: Selection2['gates'];
-  };
-  readonly jevActions?: {
-    readonly actions: JevActionPlan['actions'];
-    readonly asks: JevActionPlan['asks'];
-    readonly answers: readonly AnswerRecord[];
-  };
-  readonly jevLayout?: LayoutStageOutput;
-}
-
-/** The layout stage's decision, as the run record keeps it. */
-export interface LayoutStageOutput {
-  /** Absent for the POC, whose layout stage always decides through Jev. */
-  readonly source?: LayoutSource;
-  readonly layoutId?: string;
-  /** Absent when the layout was handed to the completion call. */
-  readonly tree?: readonly TilingNode[];
-  readonly answers: readonly AnswerRecord[];
-}
-
+/**
+ * One turn of one arm, as `records.json` keeps it. A staged arm's plugin
+ * adds its own fields through `recordTurn`, which the index signature
+ * admits; the named fields are the runner's own.
+ */
 export interface RunRecord {
+  readonly [field: string]: unknown;
   readonly scenarioId: string;
   readonly suite: Suite;
   /** The arm's registry name. */
   readonly arm: string;
-  readonly kind: ArmKind;
+  /** `baseline` for a baseline arm, else the arm's `kind` or its plugin's name. */
+  readonly kind: string;
   readonly repeat: number;
   /** Wall time of `engine.handle` for the turn. */
   readonly turnMs: number;
   readonly userMessage?: string;
   readonly error?: { readonly tag: string; readonly message: string };
-  /** The scenario expects the POC to defer; excluded from every arm's overall pass rate. */
+  /** The scenario expects a deferral; excluded from every arm's overall pass rate. */
   readonly expectedDeferral: boolean;
   /** The scenario declares arrangement rules. */
   readonly arrangementRules: boolean;
@@ -117,76 +66,48 @@ export interface RunRecord {
   readonly expectsActions?: boolean;
   /** Overall score of the shipped response (planned scenarios only). */
   readonly score?: ArrangedScore;
-  /** Jev arms only: whether it deferred at the expected stage (expected-deferral scenarios). */
+  /** Staged arms only: whether it deferred at the expected phase (expected-deferral scenarios). */
   readonly deferredAsExpected?: boolean;
   readonly deferral?: {
-    readonly stage: StageName;
+    readonly stage: string;
     readonly reason: string;
     readonly provider: boolean;
   };
   readonly fallbackCalls?: number;
-  readonly stageScores?: {
-    readonly selection?: Score;
-    readonly actions?: Score;
-    readonly layout?: ArrangedScore;
-  };
   readonly stages?: readonly Omit<StageRecord, 'input' | 'output'>[];
-  readonly stageOutputs?: StageOutputs;
-  readonly jevCalls?: readonly JevCall[];
-  /**
-   * Every answer of every validated live Jev reply, deferred stages
-   * included. Replayed stages make no calls, so their answers are absent.
-   */
-  readonly answers?: readonly RecordedAnswer[];
-  /**
-   * Lowest confidence among the answers the completed stages consumed,
-   * replayed stages included; recorded, not enforced.
-   */
-  readonly minConfidence?: number;
   /** Every LLM call of the turn, by role. */
   readonly llmCalls?: readonly LlmCall[];
-  /** `stated_elsewhere` slots the actions stage left for the LLM, and how many it filled. */
-  readonly fill?: { readonly slots: number; readonly filled: number };
   readonly tree?: readonly unknown[];
   /** The shipped execution plan; absent from records written before the grader. */
   readonly executionPlan?: readonly ActionExecution[];
   /** Every retained instance the shipped layout declares; absent from records written before the grader. */
   readonly instances?: readonly VesselInstanceSnapshot[];
-  /**
-   * The grader's verdict on the shipped response (`--grader`, planned
-   * scenarios only), with its own TypeSafe calls, which are never counted
-   * in `jevCalls`.
-   */
+  /** The judge's verdict on the shipped response (`--grader`, planned scenarios only), with its own calls. */
   readonly grader?: GraderRecord;
 }
 
 export interface EvalOptions {
   readonly scenarios: readonly Scenario[];
   /** Run in this order for every scenario and repeat. */
-  readonly arms: readonly Arm[];
+  readonly arms: readonly RegisteredArm[];
   readonly repeats: number;
   /** Text adapter behind every LLM role; each role gets its own recording wrapper. */
   readonly adapter: AnyTextAdapter;
-  readonly typesafe: {
-    readonly apiKey: string;
-    readonly model: string;
-    readonly fetch?: typeof fetch;
-    readonly timeoutMs?: number;
-  };
+  /** The planner staged arms fall back to, on the `fallback` role's adapter. */
+  readonly fallback: (
+    adapter: AnyTextAdapter,
+  ) => Stage<Retryable<PlanningInput>, PlannerCandidate>;
   readonly logger?: Logger;
   /** Called after every turn, for progress output. */
   readonly onRecord?: (record: RunRecord) => void;
-  /** Output directory; each Jev turn's stage records are written under `<out>/stages/<arm>/`. */
+  /** Output directory; each staged turn's stage records are written under `<out>/stages/<arm>/`. */
   readonly out?: string;
-  /**
-   * Grade every planned shipped response with the TypeSafe grader, after
-   * the turn's latency is measured, through its own client.
-   */
-  readonly grader?: boolean;
-  /** Stages every Jev arm replays from a recorded run instead of running live. */
+  /** Grades every planned shipped response after the turn's latency is measured. */
+  readonly judge?: Judge;
+  /** The phase through which every staged arm replays a recorded run instead of running live. */
   readonly replay?: {
     readonly source: ReplaySource;
-    readonly stages: readonly StageName[];
+    readonly through: string;
   };
 }
 
@@ -195,8 +116,7 @@ const silent: Logger = { debug() {}, info() {}, warn() {}, error() {} };
 /**
  * Runs every scenario `repeats` times through each arm and scores the
  * shipped response. Every arm plans through `createEngine` with history off
- * and `retry: false`: the baseline is the same once-retried LLM planner the
- * Jev arms fall back to, so the arms differ only in their pipelines.
+ * and `retry: false`, so the arms differ only in their pipelines.
  *
  * @throws {Error} Before any turn runs, when `options.replay` did not record
  *   every scenario and repeat from the same request and history, or lacks
@@ -209,19 +129,27 @@ export async function runEval(options: EvalOptions): Promise<RunRecord[]> {
       options.replay.source,
       options.scenarios,
       options.repeats,
-      options.replay.stages,
-      options.arms.filter((arm) => arm.kind !== 'baseline'),
+      options.replay.through,
+      options.arms.filter(isStaged),
     );
   }
-  const grader = options.grader ? graderClient(options) : undefined;
+  const { judge } = options;
   const records: RunRecord[] = [];
   for (const scenario of options.scenarios)
     for (let repeat = 1; repeat <= options.repeats; repeat++)
-      for (const arm of options.arms) {
-        const turn = await runTurn(options, arm, scenario, repeat);
+      for (const registered of options.arms) {
+        const turn = await runTurn(options, registered, scenario, repeat);
         const record =
-          grader && turn.response
-            ? { ...turn.record, grader: await grader(scenario, turn.response) }
+          judge && turn.response
+            ? {
+                ...turn.record,
+                grader: await grade(
+                  judge,
+                  scenario,
+                  turn.response,
+                  options.logger ?? silent,
+                ),
+              }
             : turn.record;
         records.push(record);
         options.onRecord?.(record);
@@ -231,26 +159,27 @@ export async function runEval(options: EvalOptions): Promise<RunRecord[]> {
 
 /**
  * Grades one shipped response: `grader/not_tiling` for a non-tiling
- * layout, or `grader/exception` for any exception `ask` or the grading
+ * layout, or `grader/exception` for any exception the judge or the grading
  * itself raises. The grader is secondary and must never abort a run or
  * change a turn's primary result.
  */
 export async function grade(
-  ask: Ask,
+  judge: Judge,
   scenario: Scenario,
   response: MaelstromResponse,
   logger: Logger,
-): Promise<GraderGrade> {
+): Promise<GraderRecord> {
   const { layout } = response;
   if (layout.type !== 'tiling')
     return {
       graderVersion: GRADER_VERSION,
       verbalizerVersion: VERBALIZER_VERSION,
       failure: 'grader/not_tiling',
+      calls: [],
     };
   try {
     return await gradeResponse(
-      ask,
+      judge,
       {
         request: scenario.request,
         response: {
@@ -267,47 +196,31 @@ export async function grade(
       graderVersion: GRADER_VERSION,
       verbalizerVersion: VERBALIZER_VERSION,
       failure: 'grader/exception',
+      calls: [],
     };
   }
 }
 
-type Grader = (
-  scenario: Scenario,
-  response: MaelstromResponse,
-) => Promise<GraderRecord>;
-
-/** Grades on a client of its own, so its calls never reach an arm's recorder. */
-function graderClient(options: EvalOptions): Grader {
-  let calls: GraderCall[] = [];
-  const ask: Ask = createTypeSafeClient({
-    ...options.typesafe,
-    onCall: ({ latencyMs, usage, outcome }) =>
-      calls.push({ latencyMs, outcome, ...(usage && { usage }) }),
-  });
-  return async (scenario, response) => {
-    calls = [];
-    return {
-      ...(await grade(ask, scenario, response, options.logger ?? silent)),
-      calls,
-    };
-  };
+function isStaged({ arm }: RegisteredArm): boolean {
+  return arm.baseline !== true;
 }
 
 /** A turn's record, and the planned response to grade when it shipped one. */
 async function runTurn(
   options: EvalOptions,
-  arm: Arm,
+  registered: RegisteredArm,
   scenario: Scenario,
   repeat: number,
 ): Promise<{ record: RunRecord; response?: MaelstromResponse }> {
-  const jev = arm.kind !== 'baseline';
+  const { arm, plugin } = registered;
+  const staged = isStaged(registered);
   const llmCalls: LlmCall[] = [];
   const adapter = (role: LlmRole) =>
     withUsage(options.adapter, role, (call) => llmCalls.push(call));
-  const replay = jev ? options.replay : undefined;
+  const replay = staged ? options.replay : undefined;
   const replacements: StageReplacements = replay
     ? Object.fromEntries(
-        replay.stages.map((name) => [
+        replayedStages(plugin, replay.through).map((name) => [
           name,
           replayStage(name, replay.source.turn(scenario.id, repeat)),
         ]),
@@ -315,7 +228,7 @@ async function runTurn(
     : {};
   const recorder = createRecorder(replacements);
   let fallbackCalls = 0;
-  const fallback = demoLlmPlanner(adapter('fallback'));
+  const fallback = options.fallback(adapter('fallback'));
   const counted: Stage<Retryable<PlanningInput>, PlannerCandidate> = (
     input,
     ctx,
@@ -324,22 +237,25 @@ async function runTurn(
     return fallback(input, ctx);
   };
   const planner = arm.build({
-    typesafe: { ...options.typesafe, onCall: recorder.onCall },
     adapter,
     fallback: counted,
     instrument: recorder.instrument,
+    onCall: recorder.onCall,
   });
   const turn = await handle(options, scenario, repeat, arm.name, planner);
-  const record = {
-    ...base(scenario, repeat, arm, turn),
+  const record: RunRecord = {
+    ...base(scenario, repeat, registered, turn),
     llmCalls,
-    ...(jev && jevFields(scenario, recorder, fallbackCalls)),
+    ...(staged &&
+      stagedFields(scenario, plugin, recorder.stages, fallbackCalls)),
+    ...(staged &&
+      plugin.recordTurn?.(scenario, recorder.stages, recorder.calls)),
     ...(turn.response &&
       scenario.expected.status === 'planned' && {
         score: scoreResponse(scenario, turn.response),
       }),
   };
-  if (jev && options.out !== undefined)
+  if (staged && options.out !== undefined)
     await writeStageFile(options.out, {
       arm: arm.name,
       scenarioId: scenario.id,
@@ -353,21 +269,13 @@ async function runTurn(
   };
 }
 
-function jevFields(
+function stagedFields(
   scenario: Scenario,
-  recorder: ReturnType<typeof createRecorder>,
+  plugin: PlannerEvalPlugin,
+  stages: readonly StageRecord[],
   fallbackCalls: number,
 ): Partial<RunRecord> {
-  const outputOf = <T>(stage: StageName) =>
-    recorder.stages.find(
-      (record) => record.stage === stage && record.outcome === 'ok',
-    )?.output as T | undefined;
-  const selection = outputOf<Selection2>('jevSelect');
-  const actions = outputOf<JevActionPlan>('jevActions');
-  const layout = outputOf<LayoutOutput>('jevLayout');
-  const deferredRecord = recorder.stages.find(
-    (record) => record.outcome === 'deferred',
-  );
+  const deferredRecord = stages.find((record) => record.outcome === 'deferred');
   const deferral = deferredRecord?.reason
     ? {
         stage: deferredRecord.stage,
@@ -376,87 +284,21 @@ function jevFields(
           deferredRecord.reason.split('/')[1]?.startsWith('provider_') ?? false,
       }
     : undefined;
-  const fill = actions && fillOf(actions, recorder.stages);
-  const consumed: AnswerRecord[] = [
-    ...(selection?.answers ?? []),
-    ...(actions?.answers ?? []),
-    ...(layout?.answers ?? []),
-  ];
+  const expectedStage =
+    scenario.expected.deferStage === undefined
+      ? undefined
+      : plugin.phases?.[scenario.expected.deferStage];
   return {
     ...(scenario.expected.status === 'deferred' && {
       deferredAsExpected:
         deferral !== undefined &&
         (scenario.expected.deferStage === undefined ||
-          deferral.stage === scenario.expected.deferStage),
+          deferral.stage === expectedStage),
     }),
     ...(deferral && { deferral }),
     fallbackCalls,
-    stageScores: {
-      ...(selection && { selection: scoreSelection(scenario, selection) }),
-      ...(actions && { actions: scoreActions(scenario, actions) }),
-      ...(layout?.tree && {
-        layout: scoreLayout(scenario, { tree: layout.tree }),
-      }),
-    },
-    stages: recorder.stages.map(
-      ({ input: _input, output: _output, ...rest }) => rest,
-    ),
-    stageOutputs: {
-      ...(selection && {
-        jevSelect: {
-          instances: selection.instances,
-          answers: selection.answers,
-          ...(selection.gates && { gates: selection.gates }),
-        },
-      }),
-      ...(actions && {
-        jevActions: {
-          actions: actions.actions,
-          asks: actions.asks,
-          answers: actions.answers,
-        },
-      }),
-      ...(layout && {
-        jevLayout: {
-          ...(layout.source && { source: layout.source }),
-          layoutId: layout.layoutId,
-          tree: layout.tree,
-          answers: layout.answers,
-        },
-      }),
-    },
-    jevCalls: recorder.calls,
-    answers: recorder.calls.flatMap(flattenAnswers),
-    ...(consumed.length > 0 && {
-      minConfidence: Math.min(...consumed.map((answer) => answer.confidence)),
-    }),
-    ...(fill && { fill }),
+    stages: stages.map(({ input: _input, output: _output, ...rest }) => rest),
   };
-}
-
-/**
- * What a layout stage returns: the POC's plan, or a stage-library decision
- * that carries its `source` and leaves `tree` undefined to hand the layout
- * to the completion call.
- */
-interface LayoutOutput {
-  readonly source?: LayoutSource;
-  readonly layoutId?: string;
-  readonly tree?: readonly TilingNode[];
-  readonly answers: readonly AnswerRecord[];
-}
-
-function flattenAnswers(call: JevCall): RecordedAnswer[] {
-  return Object.entries(call.answers ?? {}).map(([question, answer]) => {
-    const probability = answer.probabilities?.[answer.choice];
-    return {
-      stage: call.stage,
-      question,
-      choice: answer.choice,
-      ...(probability !== undefined && { probability }),
-      confidence: answer.confidence,
-    };
-  });
 }
 
 interface Turn {
@@ -507,14 +349,14 @@ async function handle(
 function base(
   scenario: Scenario,
   repeat: number,
-  arm: Arm,
+  { arm, plugin }: RegisteredArm,
   turn: Turn,
 ): RunRecord {
   return {
     scenarioId: scenario.id,
     suite: scenario.suite,
     arm: arm.name,
-    kind: arm.kind,
+    kind: arm.baseline ? 'baseline' : (arm.kind ?? plugin.name),
     repeat,
     turnMs: turn.ms,
     expectedDeferral: scenario.expected.status === 'deferred',
@@ -533,27 +375,5 @@ function base(
       }),
     }),
     ...(turn.error && { error: turn.error }),
-  };
-}
-
-/**
- * Slots count as filled when `llmComplete` got past the fill: it returned a
- * candidate, or deferred for a reason other than `param_unfilled`. A
- * `param_unfilled` deferral counts every slot of that turn as unfilled. A
- * turn that never reached `llmComplete`, or whose call failed, is left out.
- */
-function fillOf(
-  actions: JevActionPlan,
-  stages: readonly StageRecord[],
-): { slots: number; filled: number } | undefined {
-  const complete = stages.find((record) => record.stage === 'llmComplete');
-  if (complete === undefined || complete.outcome === 'error') return undefined;
-  const slots = actions.actions.reduce(
-    (count, action) => count + action.pending.length,
-    0,
-  );
-  return {
-    slots,
-    filled: complete.reason === 'llmComplete/param_unfilled' ? 0 : slots,
   };
 }

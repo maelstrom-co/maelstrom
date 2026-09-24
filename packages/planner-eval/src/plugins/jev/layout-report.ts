@@ -3,9 +3,9 @@ import type {
   PairsHandOff,
   PairsSizeFallback,
 } from '@maelstrom-co/planner-jev/_internal';
-import { percentile } from '../../core/report.js';
 import type { StageTurnRecord } from '../../core/stage-eval.js';
 import { type Ratio, ratio } from '../../core/stage-report.js';
+import { percentile } from '../../core/stats.js';
 import type { LayoutTurnDetail } from './stages/layout.js';
 
 /** The composed-pairs layout stage's numbers for one variant. */
@@ -250,7 +250,7 @@ export function renderArrangementNotAskedSection(
   const tokens =
     (side: 'inputTokens' | 'outputTokens') =>
     (record: StageTurnRecord<LayoutTurnDetail>) =>
-      record.jevCalls.reduce(
+      record.calls.reduce(
         (total, call) => total + (call.usage?.[side] ?? 0),
         0,
       );
@@ -266,7 +266,7 @@ export function renderArrangementNotAskedSection(
     }),
   );
   row('Jev calls per turn', (own) =>
-    perTurn(own, (record) => record.jevCalls.length, 2),
+    perTurn(own, (record) => record.calls.length, 2),
   );
   row(
     'Jev tokens per turn (input / output)',

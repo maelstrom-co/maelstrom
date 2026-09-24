@@ -1,12 +1,11 @@
 import type { LLMContextMessage } from '@maelstrom-co/engine';
-import type { StageName } from '@maelstrom-co/planner-jev/_internal';
-import { demoVessels } from '@maelstrom-co/planner-jev/_internal';
 import {
   type ChartRequest,
   ChartRequestSchema,
   type Vessel,
   VesselSchema,
 } from '@maelstrom-co/protocol';
+import { demoVessels } from './fixtures/demo-vessels.js';
 import type { ArrangementRule } from './predicates.js';
 
 export type Suite = 'development' | 'holdout';
@@ -26,8 +25,8 @@ export interface ExpectedAsk {
 
 export interface Expectation {
   readonly status: 'planned' | 'deferred';
-  /** For `deferred`: the POC stage that should defer. Omitted: any stage. */
-  readonly deferStage?: StageName;
+  /** For `deferred`: the phase that should defer (`select`, `actions`, `layout`), as each plugin maps it to a stage. Omitted: any stage. */
+  readonly deferStage?: string;
   readonly visible?: readonly string[];
   readonly retained?: readonly string[];
   /** A reference tree the arrangement rules accept; not scored. */
@@ -1045,7 +1044,7 @@ const development: Scenario[] = [
     'generate-content',
     'New prose is outside this planner',
     'Write a new poem about the sea in my journal.',
-    'jevSelect',
+    'select',
   ),
   planned(
     'too-many-actions',
@@ -1056,18 +1055,13 @@ const development: Scenario[] = [
       actions: [addTask('One'), addTask('Two'), addTask('Three')],
     },
   ),
-  deferred(
-    'ambiguous',
-    'Unresolved reference',
-    'Delete that one.',
-    'jevSelect',
-  ),
+  deferred('ambiguous', 'Unresolved reference', 'Delete that one.', 'select'),
   spatial(
     deferred(
       'small-chart',
       'No layout gives every widget its minimum size',
       'Put calendar, weather, and tasks side by side.',
-      'jevLayout',
+      'layout',
       { columns: 10, rows: 6 },
     ),
   ),
@@ -1173,7 +1167,7 @@ const development: Scenario[] = [
     },
     { vessels: withTaskTitles(['Buy milk', 'Send invoice']) },
   ),
-  deferred('tiny-resize', 'A tiny Chart fits no widget', '', 'jevLayout', {
+  deferred('tiny-resize', 'A tiny Chart fits no widget', '', 'layout', {
     columns: 2,
     rows: 2,
     resizeFrom: { columns: 30, rows: 18 },
@@ -1335,7 +1329,7 @@ const holdout: Scenario[] = [
     'hold-unknown-vessel',
     'Refuse an unavailable trading widget',
     'Open a stock trading widget and place a buy order.',
-    'jevSelect',
+    'select',
   ),
   deferred(
     'hold-generated-content',
@@ -1355,7 +1349,7 @@ const holdout: Scenario[] = [
     'hold-ambiguous',
     'Refuse an unresolved destructive reference',
     'Delete the one I was thinking of.',
-    'jevSelect',
+    'select',
   ),
   ...[
     planned(
@@ -2296,7 +2290,7 @@ function deferred(
   id: string,
   title: string,
   intent: string,
-  deferStage?: StageName,
+  deferStage?: string,
   options: InputOptions = {},
 ): Scenario {
   return {

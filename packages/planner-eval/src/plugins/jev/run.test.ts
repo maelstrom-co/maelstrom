@@ -2,13 +2,12 @@ import { afterEach, expect, mock, test } from 'bun:test';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { Logger } from '@maelstrom-co/engine';
 import { pipeline, withFallback, withRetry } from '@maelstrom-co/engine';
 import {
-  type Ask,
   actionsStepwise,
   completeLayoutInline,
   FALLBACK_RETRIES,
+  type JevCall,
   type LayoutStage,
   layoutPreset,
   selectUngated,
@@ -22,25 +21,26 @@ import {
   scriptedFetch,
   TEST_MODEL,
 } from '@maelstrom-co/planner-jev/_testing';
-import type { MaelstromResponse } from '@maelstrom-co/protocol';
 import { isErr, ok } from '@maelstrom-co/protocol';
 import type { AnyTextAdapter } from '@tanstack/ai';
-import { GRADER_VERSION } from '../../core/grader.js';
-import { loadReplay, replayedStages } from '../../core/replay.js';
+import { type RegisteredArm, resolveArms } from '../../core/arms.js';
+import type { PlannerEvalPlugin } from '../../core/plugin.js';
+import { loadReplay } from '../../core/replay.js';
 import { writeReport } from '../../core/report.js';
-import { grade, type LayoutStageOutput, runEval } from '../../core/run.js';
+import { type EvalOptions, runEval } from '../../core/run.js';
 import { selectScenarios } from '../../core/scenarios.js';
-import { VERBALIZER_VERSION } from '../../core/verbalize-tree.js';
-import { type Arm, jevDeps, resolveArms } from './arms.js';
+import { demoLlmPlanner, llmPlugin } from '../llm/plugin.js';
+import { type JevArm, jevDeps } from './arms.js';
+import { jevPlugin, jevPluginWith } from './plugin.js';
+import type { JevRunRecord, LayoutStageOutput } from './record.js';
+import {
+  type TypeSafeSettings,
+  typesafeSettings,
+} from './typesafe-settings.js';
 
 const mockChat = installMockChat(mock);
 
-const silentLogger: Logger = {
-  debug() {},
-  info() {},
-  warn() {},
-  error() {},
-};
+const plugins = [llmPlugin, jevPlugin];
 
 const realFetch = globalThis.fetch;
 const dirs: string[] = [];
@@ -102,20 +102,36 @@ async function outDir() {
   return out;
 }
 
-function run(
-  script: Script,
-  ids: readonly string[],
-  extra: Partial<Parameters<typeof runEval>[0]> = {},
-) {
+interface RunExtra extends Partial<Omit<EvalOptions, 'arms' | 'judge'>> {
+  /** Arm names, or arms built on the turn's scripted TypeSafe transport. */
+  readonly arms?:
+    | readonly string[]
+    | ((
+        jev: PlannerEvalPlugin<JevCall>,
+        typesafe: TypeSafeSettings,
+      ) => readonly RegisteredArm[]);
+  /** Grade with the Jev plugin's judge, on the scripted transport. */
+  readonly grader?: boolean;
+}
+
+function run(script: Script, ids: readonly string[], extra: RunExtra = {}) {
   const { fetch } = scriptedFetch(script);
+  const settings = { apiKey: 'typesafe-test-key', model: TEST_MODEL, fetch };
+  const jev = jevPluginWith({ typesafe: settings });
+  const scripted = [llmPlugin, jev];
+  const { arms, grader, ...options } = extra;
   return runEval({
     scenarios: selectScenarios('development', ids),
-    arms: resolveArms(['baseline', 'jev-poc']),
+    arms:
+      typeof arms === 'function'
+        ? arms(jev, typesafeSettings(settings))
+        : resolveArms(scripted, arms ?? ['baseline', 'jev-poc']),
     repeats: 1,
     adapter: usageAdapter,
-    typesafe: { apiKey: 'typesafe-test-key', model: TEST_MODEL, fetch },
-    ...extra,
-  });
+    fallback: demoLlmPlanner,
+    ...(grader && { judge: jev.judge }),
+    ...options,
+  }) as Promise<JevRunRecord[]>;
 }
 
 const tokyo = conversation({
@@ -169,7 +185,7 @@ test('runs two named arms offline and writes a complete report', async () => {
   ).toEqual(['jevSelect', 'jevActions', 'jevLayout', 'llmComplete']);
   expect(stageFile.stages[0].input.request.type).toBe('chart_request');
 
-  await writeReport(out, records, { repeats: 1 });
+  await writeReport(out, records, { repeats: 1 }, { plugins });
   const report = await readFile(join(out, 'report.md'), 'utf8');
   expect(report).toContain('## development');
   expect(report).toContain('| Metric | baseline | jev-poc |');
@@ -198,7 +214,7 @@ test('records the gate answers of a gated arm and whether the scenario expects a
       },
     }),
     ['quoted-location'],
-    { arms: resolveArms(['jev-gated-batched-preset-inline']) },
+    { arms: ['jev-gated-batched-preset-inline'] },
   );
   expect(gated?.score?.pass).toBe(true);
   expect(gated?.expectsActions).toBe(true);
@@ -262,10 +278,10 @@ test('the gate and defer arm ends a turn nothing fits as a layout deferral, as p
         : answers(payload, call),
     ['tiny-resize'],
     {
-      arms: resolveArms([
+      arms: [
         'jev-ungated-per-instance-preset-or-llm-inline',
         'jev-gated-per-instance-composed-pairs-gate-and-defer-inline',
-      ]),
+      ],
     },
   );
   expect(records).toHaveLength(2);
@@ -294,7 +310,7 @@ test('replays recorded upstream stages and runs the rest live', async () => {
   const records = await run(layoutOnly, ['quoted-location'], {
     replay: {
       source: await loadReplay(out, 'jev-poc'),
-      stages: replayedStages('actions'),
+      through: 'actions',
     },
   });
   const [baseline, jev] = records;
@@ -315,7 +331,7 @@ test('runs jev-ungated-stepwise-preset-inline like the POC today: same stages, s
   mockProvider();
   const out = await outDir();
   const [poc, stepwise] = await run(tokyo, ['quoted-location'], {
-    arms: resolveArms(['jev-poc', 'jev-ungated-stepwise-preset-inline']),
+    arms: ['jev-poc', 'jev-ungated-stepwise-preset-inline'],
     out,
   });
   expect(stepwise?.kind).toBe('jev');
@@ -363,10 +379,10 @@ test('replays a jev-poc selection into jev-ungated-stepwise-preset-inline', asyn
     }) satisfies Script,
     ['quoted-location'],
     {
-      arms: resolveArms(['jev-ungated-stepwise-preset-inline']),
+      arms: ['jev-ungated-stepwise-preset-inline'],
       replay: {
         source: await loadReplay(out, 'jev-poc'),
-        stages: replayedStages('select'),
+        through: 'select',
       },
     },
   );
@@ -393,16 +409,16 @@ test('refuses to replay jev-poc action plans into stage-library arms before any 
   const source = await loadReplay(out, 'jev-poc');
   await expect(
     run(noCalls, ['quoted-location'], {
-      arms: resolveArms(['jev-ungated-stepwise-preset-inline']),
-      replay: { source, stages: replayedStages('actions') },
+      arms: ['jev-ungated-stepwise-preset-inline'],
+      replay: { source, through: 'actions' },
     }),
   ).rejects.toThrow(
     '- jev-ungated-stepwise-preset-inline: jevActions has no minConfidence (1 turns: quoted-location #1)',
   );
   await expect(
     run(noCalls, ['quoted-location'], {
-      arms: resolveArms(['jev-gated-batched-preset-inline']),
-      replay: { source, stages: replayedStages('select') },
+      arms: ['jev-gated-batched-preset-inline'],
+      replay: { source, through: 'select' },
     }),
   ).rejects.toThrow(
     '- jev-gated-batched-preset-inline: jevSelect has no complete gates',
@@ -423,7 +439,7 @@ test('refuses a replay missing a selected case before any provider call', async 
     run(noCalls, ['quoted-location', 'ambiguous'], {
       replay: {
         source: await loadReplay(out, 'jev-poc'),
-        stages: replayedStages('actions'),
+        through: 'actions',
       },
     }),
   ).rejects.toThrow('ambiguous #1: no recorded turn');
@@ -433,7 +449,10 @@ test('refuses a replay missing a selected case before any provider call', async 
 test('a layout stage that hands the tree to the LLM is scored on the shipped response only', async () => {
   mockProvider();
   const [record] = await run(tokyo, ['quoted-location'], {
-    arms: [handOffArm],
+    arms: (jev, typesafe) => {
+      const arm = handOffArm(typesafe);
+      return [{ arm, plugin: { ...jev, arms: [arm] } }];
+    },
   });
   expect(record?.error).toBe(undefined);
   expect(record?.fallbackCalls).toBe(0);
@@ -448,11 +467,12 @@ test('a layout stage that hands the tree to the LLM is scored on the shipped res
 });
 
 /** The stage-library pipeline, its layout stage dropping the tree so the completion call writes it. */
-const handOffArm: Arm = {
+const handOffArm = (typesafe: TypeSafeSettings): JevArm => ({
   name: 'jev-hand-off',
   kind: 'jev',
+  replayShape: 'ungated',
   build: (deps) => {
-    const jev = jevDeps(deps);
+    const jev = jevDeps(typesafe, deps);
     const menu = layoutPreset(jev.ask);
     const handOff: LayoutStage = async (plan, ctx) => {
       const result = await menu(plan, ctx);
@@ -470,7 +490,7 @@ const handOffArm: Arm = {
       withRetry(jev.fallback, { max: FALLBACK_RETRIES }),
     );
   },
-};
+});
 
 const gradedTokyo: Script = (payload, call) =>
   'request_satisfied' in payload.questions
@@ -536,33 +556,6 @@ test('a grader failure is recorded without touching the turn', async () => {
   }
   expect(jev?.fallbackCalls).toBe(0);
   expect(jev?.deferral).toBe(undefined);
-});
-
-test('grade catches an exception ask raises and records grader/exception, never throwing', async () => {
-  const [scenario] = selectScenarios('development', ['quoted-location']);
-  if (!scenario) throw new Error('fixture scenario is missing');
-  const throwingAsk: Ask = () => {
-    throw new Error('boom');
-  };
-  const response = {
-    type: 'maelstrom_response',
-    requestId: 'r',
-    userMessage: 'Done.',
-    rationale: '',
-    executionPlan: [],
-    layout: {
-      type: 'tiling',
-      tree: [],
-      instances: scenario.request.instances,
-    },
-  } as unknown as MaelstromResponse;
-  await expect(
-    grade(throwingAsk, scenario, response, silentLogger),
-  ).resolves.toEqual({
-    graderVersion: GRADER_VERSION,
-    verbalizerVersion: VERBALIZER_VERSION,
-    failure: 'grader/exception',
-  });
 });
 
 test('does not grade without the grader option', async () => {
