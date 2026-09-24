@@ -1,15 +1,17 @@
 import { describe, expect, test } from 'bun:test';
 
+import {
+  fakePluginWith,
+  TOKYO_CANDIDATE,
+} from './__test-helpers__/fake-planner.js';
 import { GRADER_VERSION } from './grader.js';
 import type { GraderValidation } from './grader-validate.js';
-import {
-  percentile,
-  renderMarkdown,
-  renderPaired,
-  summarize,
-} from './report.js';
+import { renderMarkdown, renderPaired, summarize } from './report.js';
 import type { RunRecord } from './run.js';
+import { percentile } from './stats.js';
 import { VERBALIZER_VERSION } from './verbalize-tree.js';
+
+const plugins = [fakePluginWith({ candidate: () => TOKYO_CANDIDATE })];
 
 const pass = { pass: true, failures: [] };
 const fail = { pass: false, failures: ['x'] };
@@ -18,8 +20,8 @@ function record(overrides: Partial<RunRecord>): RunRecord {
   return {
     scenarioId: 's',
     suite: 'development',
-    arm: 'jev',
-    kind: 'jev-poc',
+    arm: 'fake',
+    kind: 'fake',
     repeat: 1,
     turnMs: 100,
     expectedDeferral: false,
@@ -47,7 +49,7 @@ describe('summarize', () => {
       scenarioId: 'a',
       score: pass,
       turnMs: 100,
-      stageScores: { selection: pass, actions: pass, layout: pass },
+      picked: ['a', 'b'],
     }),
     record({
       scenarioId: 'b',
@@ -55,11 +57,10 @@ describe('summarize', () => {
       turnMs: 300,
       fallbackCalls: 1,
       deferral: {
-        stage: 'jevLayout',
-        reason: 'jevLayout/layout_unavailable',
+        stage: 'write',
+        reason: 'write/layout_unavailable',
         provider: false,
       },
-      stageScores: { selection: pass, actions: fail },
     }),
     record({
       scenarioId: 'c',
@@ -67,8 +68,8 @@ describe('summarize', () => {
       turnMs: 200,
       fallbackCalls: 1,
       deferral: {
-        stage: 'jevSelect',
-        reason: 'jevSelect/provider_timeout',
+        stage: 'pick',
+        reason: 'pick/provider_timeout',
         provider: true,
       },
     }),
@@ -81,20 +82,15 @@ describe('summarize', () => {
     record({
       scenarioId: 'e',
       score: fail,
-      fill: { slots: 2, filled: 1 },
-      jevCalls: [
+      fakeCalls: [
         {
-          stage: 'jevSelect',
-          questionIds: ['scope'],
+          stage: 'pick',
           latencyMs: 40,
-          outcome: 'ok',
           usage: { inputTokens: 10, outputTokens: 1 },
         },
         {
-          stage: 'jevLayout',
-          questionIds: ['layout'],
+          stage: 'write',
           latencyMs: 60,
-          outcome: 'ok',
           usage: { inputTokens: 5, outputTokens: 1 },
         },
       ],
@@ -106,8 +102,8 @@ describe('summarize', () => {
         },
       ],
       stages: [
-        { stage: 'jevSelect', ms: 45, outcome: 'ok' },
-        { stage: 'jevActions', ms: 5, outcome: 'ok', replayed: true },
+        { stage: 'pick', ms: 45, outcome: 'ok' },
+        { stage: 'write', ms: 5, outcome: 'ok', replayed: true },
       ],
     }),
     record({
@@ -141,8 +137,8 @@ describe('summarize', () => {
     }),
     baseline({ scenarioId: 'd', expectedDeferral: true }),
   ];
-  const summaries = summarize(records);
-  const jev = summaries.find((s) => s.arm === 'jev' && s.suite === 'all');
+  const summaries = summarize(records, plugins);
+  const jev = summaries.find((s) => s.arm === 'fake' && s.suite === 'all');
   const base = summaries.find((s) => s.arm === 'baseline' && s.suite === 'all');
 
   test('excludes expected deferrals from every arm’s overall pass rate', () => {
@@ -154,32 +150,30 @@ describe('summarize', () => {
   test('lists fallbacks by full reason, with the by-stage split kept', () => {
     expect(jev?.fallbacks?.total).toEqual({ count: 3, total: 7 });
     expect(jev?.fallbacks?.byReason).toEqual({
-      'jevLayout/layout_unavailable': 1,
-      'jevSelect/provider_timeout': 1,
+      'write/layout_unavailable': 1,
+      'pick/provider_timeout': 1,
     });
-    expect(jev?.fallbacks?.byStage).toEqual({ jevLayout: 1 });
-    expect(jev?.fallbacks?.providerByStage).toEqual({ jevSelect: 1 });
+    expect(jev?.fallbacks?.byStage).toEqual({ write: 1 });
+    expect(jev?.fallbacks?.providerByStage).toEqual({ pick: 1 });
   });
 
-  test('reports stage accuracy, fill rate, live latency and Jev tokens', () => {
-    expect(jev?.stages).toEqual({
-      selection: { count: 2, total: 2 },
-      actions: { count: 1, total: 2 },
-      layout: { count: 1, total: 1 },
-    });
-    expect(jev?.fill).toEqual({ count: 1, total: 2 });
+  test('reports live stage latency per plugin stage, replayed stages and the plugin summary fields', () => {
     expect(jev?.latency.turn.p50).toBe(100);
-    expect(jev?.latency.jevCall).toEqual({ p50: 40, p95: 60, samples: 2 });
-    expect(jev?.latency.stages?.jevSelect?.p50).toBe(45);
-    expect(jev?.latency.stages?.jevActions?.samples).toBe(0);
-    expect(jev?.replayed).toEqual(['jevActions']);
-    expect(jev?.tokens.jev).toEqual({
+    expect(jev?.latency.stages?.pick?.p50).toBe(45);
+    expect(jev?.latency.stages?.write?.samples).toBe(0);
+    expect(Object.keys(jev?.latency.stages ?? {})).toEqual(['pick', 'write']);
+    expect(jev?.replayed).toEqual(['write']);
+    expect(jev?.picks).toBe(2);
+    expect(jev?.latency.fakeCall).toEqual({ p50: 40, p95: 60, samples: 2 });
+    expect(jev?.tokens.fake).toEqual({
       calls: 2,
       input: 15,
       output: 2,
       withoutUsage: 0,
-      perTurn: { input: 15 / 7, output: 2 / 7 },
     });
+    expect(base?.picks).toBe(undefined);
+    expect(base?.latency.stages).toBe(undefined);
+    expect(base?.tokens.fake).toBe(undefined);
   });
 
   test('scores arrangement only over scenarios that declare rules', () => {
@@ -189,25 +183,28 @@ describe('summarize', () => {
   });
 
   test('counts every planned turn on a ruled scenario, an unscored one as a failure', () => {
-    const [ruled] = summarize([
-      record({
-        scenarioId: 'p',
-        arrangementRules: true,
-        score: { ...pass, arrangement: pass },
-      }),
-      record({
-        scenarioId: 'q',
-        arrangementRules: true,
-        error: { tag: 'ProviderError', message: 'down' },
-      }),
-      record({ scenarioId: 'r', arrangementRules: true, score: fail }),
-      record({ scenarioId: 's', score: pass }),
-      record({
-        scenarioId: 't',
-        arrangementRules: true,
-        expectedDeferral: true,
-      }),
-    ]);
+    const [ruled] = summarize(
+      [
+        record({
+          scenarioId: 'p',
+          arrangementRules: true,
+          score: { ...pass, arrangement: pass },
+        }),
+        record({
+          scenarioId: 'q',
+          arrangementRules: true,
+          error: { tag: 'ProviderError', message: 'down' },
+        }),
+        record({ scenarioId: 'r', arrangementRules: true, score: fail }),
+        record({ scenarioId: 's', score: pass }),
+        record({
+          scenarioId: 't',
+          arrangementRules: true,
+          expectedDeferral: true,
+        }),
+      ],
+      plugins,
+    );
     expect(ruled?.arrangement).toEqual({ count: 1, total: 3 });
   });
 
@@ -242,11 +239,15 @@ describe('summarize', () => {
   });
 
   test('renders one column per arm in the order records name them', () => {
-    const markdown = renderMarkdown(summaries, {
-      repeats: 1,
-      replay: { from: '/tmp/run', through: 'actions', arm: 'jev-poc' },
-    });
-    expect(markdown).toContain('| Metric | jev | baseline |');
+    const markdown = renderMarkdown(
+      summaries,
+      {
+        repeats: 1,
+        replay: { from: '/tmp/run', through: 'actions', arm: 'jev-poc' },
+      },
+      { plugins },
+    );
+    expect(markdown).toContain('| Metric | fake | baseline |');
     expect(markdown).toContain(
       '- replay: {"from":"/tmp/run","through":"actions","arm":"jev-poc"}',
     );
@@ -255,14 +256,15 @@ describe('summarize', () => {
       '| Arrangement pass | 1/2 (50.0%) | 0/1 (0.0%) |',
     );
     expect(markdown).toContain(
-      '| Fallbacks: jevLayout/layout_unavailable | 1 | n/a |',
+      '| Fallbacks: write/layout_unavailable | 1 | n/a |',
     );
     expect(markdown).toContain('| Decisive turns pass | 2/4 (50.0%) | n/a |');
     expect(markdown).toContain(
       '| Decisive wins / losses vs baseline (paired) | 2 / 1 (3) | n/a |',
     );
+    expect(markdown).toContain('| Fake picks | 2 | n/a |');
     expect(markdown).toContain(
-      '| jevActions latency p50 / p95 (ms) | replayed | n/a |',
+      '| write latency p50 / p95 (ms) | replayed | n/a |',
     );
     expect(markdown).toContain(
       '| LLM calls / input / output tokens | 1 / 900 / 40 | 2 / 3000 / 500 (1 without usage) |',
@@ -271,78 +273,9 @@ describe('summarize', () => {
       '| LLM planner calls / input / output tokens | 0 / 0 / 0 | 2 / 3000 / 500 (1 without usage) |',
     );
     expect(markdown).toContain(
-      '| Jev tokens per turn (input / output) | 2.1 / 0.3 | n/a |',
+      '| Fake calls / input / output tokens | 2 / 15 / 2 | n/a |',
     );
-    expect(markdown).toContain(
-      '| Spatial gate false positives / negatives | n/a (1 spatial, 0 controls) | n/a (0 spatial, 0 controls) |',
-    );
-  });
-});
-
-describe('gate errors', () => {
-  const gate = (question: string, choice: 'yes' | 'no') => ({
-    stage: 'jevSelect' as const,
-    question,
-    choice,
-    confidence: 0.5,
-  });
-  const records: RunRecord[] = [
-    record({
-      scenarioId: 'edit',
-      expectsActions: true,
-      spatial: false,
-      answers: [gate('gate/needsActions', 'no'), gate('gate/spatial', 'yes')],
-    }),
-    record({
-      scenarioId: 'swap',
-      expectsActions: false,
-      spatial: true,
-      arrangementRules: true,
-      stages: [{ stage: 'jevLayout', ms: 5, outcome: 'ok' }],
-      answers: [gate('gate/needsActions', 'no'), gate('gate/spatial', 'yes')],
-    }),
-    record({
-      scenarioId: 'big-right',
-      expectsActions: false,
-      spatial: true,
-      arrangementRules: true,
-      stages: [{ stage: 'jevActions', ms: 5, outcome: 'deferred' }],
-      answers: [gate('gate/needsActions', 'yes'), gate('gate/spatial', 'no')],
-    }),
-    record({ scenarioId: 'untagged' }),
-  ];
-  const [summary] = summarize(records);
-
-  test('counts false positives and negatives against the scenario tags', () => {
-    expect(summary?.gates).toEqual({
-      needsActions: {
-        falsePositives: { count: 1, total: 2 },
-        falseNegatives: { count: 1, total: 1 },
-      },
-      spatial: {
-        falsePositives: { count: 1, total: 1 },
-        falseNegatives: { count: 1, total: 2 },
-      },
-    });
-    expect(summary?.arrangementReachedLayout).toEqual({ count: 1, total: 2 });
-  });
-
-  test('renders the gate rows and Jev calls per turn', () => {
-    const markdown = renderMarkdown(summarize(records), {});
-    expect(markdown).toContain(
-      '| needsActions gate false positives / negatives | 1/2 (50.0%) / 1/1 (100.0%) |',
-    );
-    expect(markdown).toContain(
-      '| Spatial gate false positives / negatives | 1/1 (100.0%) / 1/2 (50.0%) |',
-    );
-    expect(markdown).toContain(
-      '| Arrangement turns reaching jevLayout | 1/2 (50.0%) |',
-    );
-    expect(markdown).toContain('| Jev calls per turn | 0.00 |');
-  });
-
-  test('has no gate errors without gate answers', () => {
-    expect(summarize([record({})])[0]?.gates).toBe(undefined);
+    expect(markdown).not.toContain('Spatial gate');
   });
 });
 
@@ -358,7 +291,7 @@ describe('renderPaired', () => {
         score: { pass: false, failures: ['Visible instances: expected a'] },
         deferral: {
           stage: 'jevActions',
-          reason: 'jevActions/action_unsupported',
+          reason: 'write/action_unsupported',
           provider: false,
         },
       }),
@@ -373,10 +306,10 @@ describe('renderPaired', () => {
     expect(paired).toContain('## split #2 (development)');
     expect(paired).toContain('- baseline: pass');
     expect(paired).toContain(
-      '- jev: fail (fallback jevActions/action_unsupported)',
+      '- fake: fail (fallback write/action_unsupported)',
     );
     expect(paired).toContain('  - Visible instances: expected a');
-    expect(paired).toContain('- jev: error ProviderError: down');
+    expect(paired).toContain('- fake: error ProviderError: down');
     expect(paired).not.toContain('## same');
     expect(paired).not.toContain('## expected');
     expect(renderPaired([record({ score: pass })])).toContain(
@@ -430,7 +363,7 @@ describe('grader', () => {
       grader: graded(0, 0),
     }),
   ];
-  const summaries = summarize(records).filter(
+  const summaries = summarize(records, plugins).filter(
     (summary) => summary.suite === 'development',
   );
   const [baselineSummary, jevSummary] = summaries;
@@ -453,12 +386,12 @@ describe('grader', () => {
     expect(baselineSummary?.grader?.versusBaseline).toBe(undefined);
   });
 
-  test('keeps grader usage out of the arm’s Jev tokens', () => {
-    expect(jevSummary?.tokens.jev?.calls).toBe(0);
+  test('keeps grader usage out of the arm’s own provider tokens', () => {
+    expect((jevSummary?.tokens.fake as { calls: number }).calls).toBe(0);
   });
 
   test('has no grader summary when no turn was graded', () => {
-    expect(summarize([record({})])[0]?.grader).toBe(undefined);
+    expect(summarize([record({})], plugins)[0]?.grader).toBe(undefined);
   });
 
   const passing: GraderValidation = {
@@ -473,7 +406,14 @@ describe('grader', () => {
   };
 
   test('shows the grader rows only when validation passed', () => {
-    const markdown = renderMarkdown(summaries, {}, passing);
+    const markdown = renderMarkdown(
+      summaries,
+      {},
+      {
+        plugins,
+        graderValidation: passing,
+      },
+    );
     expect(markdown).toContain('grader: validated (rho=0.75, agreement=90.0%)');
     expect(markdown).toContain(
       '| Grader request_satisfied mean | 0.750 | 0.875 |',
@@ -494,7 +434,14 @@ describe('grader', () => {
       { ...passing, passed: false, agreement: { agree: 40, total: 50 } },
       undefined,
     ]) {
-      const markdown = renderMarkdown(summaries, {}, validation);
+      const markdown = renderMarkdown(
+        summaries,
+        {},
+        {
+          plugins,
+          graderValidation: validation,
+        },
+      );
       expect(markdown).not.toContain('Grader request_satisfied');
       expect(markdown).not.toContain('Grader calls');
       expect(markdown).toContain(
@@ -506,6 +453,8 @@ describe('grader', () => {
   });
 
   test('says nothing about the grader in a run without it', () => {
-    expect(renderMarkdown(summarize([record({})]), {})).not.toContain('grader');
+    expect(
+      renderMarkdown(summarize([record({})], plugins), {}, { plugins }),
+    ).not.toContain('grader');
   });
 });

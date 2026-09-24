@@ -1,9 +1,10 @@
-import { treeRects } from '@maelstrom-co/planner-jev/_eval';
 import {
+  type ChartRequest,
   parseTilingSplitToken,
   type TilingNode,
   tilingLeafInstanceId,
 } from '@maelstrom-co/protocol';
+import { treeRects } from './geometry.js';
 import type { Arranged } from './predicates.js';
 
 /**
@@ -11,6 +12,13 @@ import type { Arranged } from './predicates.js';
  * records which wording produced it.
  */
 export const VERBALIZER_VERSION = 1;
+
+/** The user's intent, from every `user_intent` update reason of the request. */
+export function intentText(request: ChartRequest): string {
+  return request.context.updateReasons
+    .flatMap((reason) => (reason.type === 'user_intent' ? [reason.intent] : []))
+    .join('\n');
+}
 
 /**
  * Deterministic, versioned English description of a tiling layout: the

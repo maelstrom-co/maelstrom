@@ -21,7 +21,7 @@ function turn(
     repeat: 1,
     outcome: failures.length === 0 ? 'pass' : 'fail',
     failures,
-    jevCalls: [],
+    calls: [],
     detail: { source: 'jev', answers: [], pairwise },
   };
 }
@@ -101,7 +101,7 @@ describe('arrangement not asked report', () => {
       repeat: 1,
       outcome: changed ? 'fail' : 'pass',
       failures: [],
-      jevCalls: Array.from({ length: calls }, () => ({
+      calls: Array.from({ length: calls }, () => ({
         stage: 'jevLayout' as const,
         questionIds: [],
         latencyMs: 100,

@@ -9,7 +9,6 @@ import {
   type Logger,
   type PlannerCandidate,
 } from '@maelstrom-co/engine';
-import { createTypeSafeClient } from '@maelstrom-co/planner-jev/_eval';
 import {
   ChartRequestMessage,
   isOk,
@@ -21,6 +20,7 @@ import {
   type TilingNode,
   tilingLeafInstanceId,
 } from '@maelstrom-co/protocol';
+import { pluginOf } from './arms.js';
 import {
   GRADER_DIMENSIONS,
   GRADER_VERSION,
@@ -31,6 +31,7 @@ import {
   type ShippedResponse,
 } from './grader.js';
 import type { StageRecord } from './instrument.js';
+import type { PlannerEvalPlugin } from './plugin.js';
 import type { StageFile } from './replay.js';
 import type { RunRecord } from './run.js';
 import { type Scenario, selectScenarios } from './scenarios.js';
@@ -51,7 +52,7 @@ export const PASS_THRESHOLD = 0.5;
 /**
  * One hand label: a shipped response from a recorded run, identified by the
  * record's `scenarioId`, `arm` and `repeat`, scored from 0 to 1 on each
- * grader dimension. `src/eval/fixtures/grader-labels.ts` exports
+ * grader dimension. `src/core/fixtures/grader-labels.ts` exports
  * `graderLabels`, an array of these.
  */
 export type GraderLabel = {
@@ -274,7 +275,11 @@ export async function loadGraderLabels(
 export async function shippedFromRecord(
   record: RunRecord,
   scenario: Scenario,
-  stages?: readonly StageRecord[],
+  completion?: {
+    /** The pipeline's last stage, whose output is the candidate the Engine shipped. */
+    readonly stage: string;
+    readonly records: readonly StageRecord[];
+  },
 ): Promise<ShippedResponse | undefined> {
   if (record.userMessage === undefined || record.tree === undefined)
     return undefined;
@@ -289,8 +294,8 @@ export async function shippedFromRecord(
           instances: record.instances,
         };
   if (record.fallbackCalls === 0) {
-    const candidate = stages?.find(
-      (stage) => stage.stage === 'llmComplete' && stage.outcome === 'ok',
+    const candidate = completion?.records.find(
+      (stage) => stage.stage === completion.stage && stage.outcome === 'ok',
     )?.output;
     const healed =
       candidate === undefined
@@ -418,8 +423,18 @@ function ranks(values: readonly number[]): number[] {
   return result;
 }
 
-async function main(): Promise<void> {
+/**
+ * The grader validation command line: grades the recorded responses of a
+ * run with the first judge `plugins` offer, compares the grades with the
+ * hand labels and the rule-based score, and writes
+ * `grader-validation.json`. `argv` is `process.argv`.
+ */
+export async function runGraderValidateCli(
+  plugins: readonly PlannerEvalPlugin[],
+  argv: readonly string[],
+): Promise<void> {
   const { values } = parseArgs({
+    args: argv.slice(2),
     options: {
       records: { type: 'string' },
       scores: { type: 'string' },
@@ -482,38 +497,40 @@ async function main(): Promise<void> {
   let failed = 0;
   let graded = 0;
   if (!values.offline && targets.length > 0 && limit > 0) {
-    const apiKey = process.env.TYPESAFE_API_KEY?.trim() ?? '';
-    const model = process.env.JEV_MODEL?.trim() ?? '';
-    if (apiKey.length === 0 || model.length === 0)
+    const judge = plugins
+      .map((plugin) => plugin.judge)
+      .find((candidate) => candidate);
+    if (judge === undefined)
+      fail('grader-validate needs a plugin with a judge');
+    const missing = (judge.requiredEnv ?? []).filter(
+      (name) => (process.env[name]?.trim() ?? '').length === 0,
+    );
+    if (missing.length > 0)
       fail(
-        'grader-validate needs TYPESAFE_API_KEY and JEV_MODEL to grade; pass --offline to validate cached grades only',
+        `grader-validate needs ${missing.join(' and ')} to grade; pass --offline to validate cached grades only`,
       );
     const logger: Logger = values.verbose ? consoleLogger : silent;
-    let calls: GraderCall[] = [];
-    const ask = createTypeSafeClient({
-      apiKey,
-      model,
-      onCall: ({ latencyMs, usage, outcome }) =>
-        calls.push({ latencyMs, outcome, ...(usage && { usage }) }),
-    });
     const stageDir = join(dirname(recordsPath), 'stages');
     for (const record of targets) {
       if (graded + failed >= limit) break;
       const scenario = scenarios.get(record.scenarioId);
+      const completionStage = pluginOf(plugins, record.arm)?.stageOrder?.at(-1);
+      const stages = await stagesOf(stageDir, record);
       const shipped =
         scenario &&
         (await shippedFromRecord(
           record,
           scenario,
-          await stagesOf(stageDir, record),
+          completionStage !== undefined && stages !== undefined
+            ? { stage: completionStage, records: stages }
+            : undefined,
         ));
       if (scenario === undefined || shipped === undefined) {
         skipped += 1;
         continue;
       }
-      calls = [];
-      const grade = await gradeResponse(
-        ask,
+      const { calls, ...grade } = await gradeResponse(
+        judge,
         { request: scenario.request, response: shipped },
         { logger },
       );
@@ -605,5 +622,3 @@ function fail(message: string): never {
   console.error(message);
   process.exit(1);
 }
-
-if (import.meta.main) await main();

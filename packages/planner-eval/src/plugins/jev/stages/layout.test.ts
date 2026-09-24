@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import type { JevCall } from '@maelstrom-co/planner-jev/_eval';
 import { layoutComposedPairsGateAndDefer } from '@maelstrom-co/planner-jev/_eval';
 import {
   type Script,
@@ -8,15 +9,15 @@ import {
 import { selectScenarios } from '../../../core/scenarios.js';
 import {
   runStageEval,
-  type StageEvalModule,
   type StageTurnRecord,
 } from '../../../core/stage-eval.js';
 import { recordedSpatialSignal } from '../recorded-spatial.js';
+import { typesafeSettings } from '../typesafe-settings.js';
 import {
-  LAYOUT_VARIANTS,
+  LAYOUT_STAGES,
+  type LayoutModuleOptions,
   type LayoutTurnDetail,
-  layoutStageEval,
-  layoutStageEvalWith,
+  layoutModuleWith,
 } from './layout.js';
 
 /** Answers every pair question with the map left of the calendar, and every size as an equal share. */
@@ -41,24 +42,28 @@ async function run(
   variants: readonly string[],
   script: Script = SWAP_CORRECT,
   repeats = 1,
-  module: StageEvalModule<
-    never,
-    never,
-    LayoutTurnDetail
-  > = layoutStageEval as never,
+  options: Omit<LayoutModuleOptions, 'typesafe'> = {},
 ) {
   const transport = scriptedFetch(script);
+  const module = layoutModuleWith({
+    ...options,
+    typesafe: typesafeSettings({
+      apiKey: 'typesafe-test-key',
+      model: TEST_MODEL,
+      fetch: transport.fetch,
+    }),
+  });
   const records = (await runStageEval(module, {
     scenarios: selectScenarios('all', ids),
     variants,
     repeats,
-    typesafe: {
-      apiKey: 'typesafe-test-key',
-      model: TEST_MODEL,
-      fetch: transport.fetch,
-    },
   })) as StageTurnRecord<LayoutTurnDetail>[];
   return { records, payloads: transport.calls };
+}
+
+/** The Jev calls of a turn, with the state each one sent. */
+function jevCalls(record: StageTurnRecord<LayoutTurnDetail>) {
+  return record.calls as readonly (JevCall & { readonly state?: unknown })[];
 }
 
 describe('layout stage eval', () => {
@@ -73,11 +78,11 @@ describe('layout stage eval', () => {
     expect(Object.keys(payloads[0].questions)).toContain(
       'pair/calendar-main/map-main',
     );
-    expect(record.jevCalls).toHaveLength(1);
+    expect(jevCalls(record)).toHaveLength(1);
     expect(
-      record.jevCalls[0].answers?.['pair/calendar-main/map-main']?.choice,
+      jevCalls(record)[0].answers?.['pair/calendar-main/map-main']?.choice,
     ).toBe('right_of');
-    expect(record.jevCalls[0].state).toMatchObject({
+    expect(jevCalls(record)[0].state).toMatchObject({
       currentArrangement: expect.any(String),
     });
     expect(record.detail?.pairwise?.route).toBe('spatial');
@@ -135,7 +140,7 @@ describe('layout stage eval', () => {
     }));
     expect(records[0].outcome).toBe('deferred');
     expect(records[0].reason).toBe('jevLayout/provider_http');
-    expect(records[0].jevCalls[0].outcome).toBe('provider_http');
+    expect(jevCalls(records[0])[0].outcome).toBe('provider_http');
   });
 
   test('rejects an unknown variant before running', async () => {
@@ -181,13 +186,12 @@ describe('layout stage eval', () => {
       ],
       'live-arm',
     );
-    const module = layoutStageEvalWith({ spatialSignal: signal });
     const { records, payloads } = await run(
       ['swap'],
       ['composed-pairs'],
       pairsAll('not_stated'),
       2,
-      module as never,
+      { spatialSignal: signal },
     );
     expect(
       records.map((record) => [
@@ -251,7 +255,7 @@ describe('layout stage eval', () => {
       ['composed-pairs'],
       pairsAll('left_of'),
       1,
-      layoutStageEvalWith({ spatialSignal: signal }) as never,
+      { spatialSignal: signal },
     );
     const byScenario = Object.fromEntries(
       records.map((record) => [record.scenarioId, record]),
@@ -266,7 +270,7 @@ describe('layout stage eval', () => {
 
 describe('the composed pairs gate and defer layout', () => {
   test('is the stage eval variant the planner arm uses', () => {
-    expect(LAYOUT_VARIANTS['composed-pairs']).toBe(
+    expect(LAYOUT_STAGES['composed-pairs']).toBe(
       layoutComposedPairsGateAndDefer,
     );
   });

@@ -354,9 +354,10 @@ describe('shippedFromRecord', () => {
         instances: quoted.request.instances,
       },
     };
-    const stages = [
-      { stage: 'llmComplete', ms: 1, outcome: 'ok', output: candidate },
-    ] as never;
+    const stages = {
+      stage: 'complete',
+      records: [{ stage: 'complete', ms: 1, outcome: 'ok', output: candidate }],
+    } as never;
     const shippedRecord = record({
       scenarioId: 'quoted-location',
       userMessage: candidate.userMessage,

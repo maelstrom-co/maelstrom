@@ -1,8 +1,8 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { percentile } from './report.js';
-import type { StageTurnRecord } from './stage-eval.js';
+import type { StageRunMeta, StageTurnRecord } from './stage-eval.js';
+import { percentile } from './stats.js';
 
 /** A count over a total. */
 export interface Ratio {
@@ -42,8 +42,8 @@ export interface VariantSummary {
   readonly deferralReasons: Readonly<Record<string, number>>;
   /** Scenarios whose input could not be formed; nothing ran for them. */
   readonly notApplicable: number;
-  readonly jevCallsPerTurn: number | undefined;
-  readonly jevLatencyMs: {
+  readonly callsPerTurn: number | undefined;
+  readonly callLatencyMs: {
     readonly p50: number | undefined;
     readonly p95: number | undefined;
   };
@@ -51,15 +51,12 @@ export interface VariantSummary {
     readonly p50: number | undefined;
     readonly p95: number | undefined;
   };
-  readonly jevTokensPerTurn: {
+  readonly tokensPerTurn: {
     readonly input: number | undefined;
     readonly output: number | undefined;
   };
   readonly expectedDeferrals: ExpectedDeferralSummary;
 }
-
-/** The run's settings, printed at the top of the report. */
-export type StageRunMeta = Readonly<Record<string, string | number | boolean>>;
 
 /** Summarises `variant`'s records. */
 export function summarizeVariant(
@@ -87,7 +84,7 @@ export function summarizeVariant(
     if (record.outcome === 'deferred' && record.reason !== undefined)
       deferralReasons[record.reason] =
         (deferralReasons[record.reason] ?? 0) + 1;
-  const calls = ran.flatMap((record) => record.jevCalls);
+  const calls = ran.flatMap((record) => record.calls);
   const latencies = calls.map((call) => call.latencyMs);
   const stageMs = ran.flatMap((record) =>
     record.stageMs === undefined ? [] : [record.stageMs],
@@ -108,8 +105,8 @@ export function summarizeVariant(
         .filter((record) => record.outcome === 'not_applicable')
         .map((record) => record.scenarioId),
     ).size,
-    jevCallsPerTurn: perTurn(calls.length),
-    jevLatencyMs: {
+    callsPerTurn: perTurn(calls.length),
+    callLatencyMs: {
       p50: percentile(latencies, 50),
       p95: percentile(latencies, 95),
     },
@@ -117,7 +114,7 @@ export function summarizeVariant(
       p50: percentile(stageMs, 50),
       p95: percentile(stageMs, 95),
     },
-    jevTokensPerTurn: {
+    tokensPerTurn: {
       input: perTurn(sum(calls.map((call) => call.usage?.inputTokens ?? 0))),
       output: perTurn(sum(calls.map((call) => call.usage?.outputTokens ?? 0))),
     },
@@ -159,17 +156,25 @@ export function renderScenarioTable(
   return lines.join('\n');
 }
 
+/** What the report names the stage and its provider calls. */
+export interface StageReportSubject {
+  readonly stage: string;
+  /** `Provider` when absent. */
+  readonly provider?: string;
+}
+
 /**
  * The report: settings, one summary column per variant, deferral reasons,
  * the stage module's own `sections`, and the scenario table.
  */
 export function renderStageReport(
-  stage: string,
+  subject: StageReportSubject,
   records: readonly StageTurnRecord[],
   variants: readonly string[],
   meta: StageRunMeta,
   sections: readonly string[] = [],
 ): string {
+  const provider = subject.provider ?? 'Provider';
   const summaries = variants.map((variant) =>
     summarizeVariant(records, variant),
   );
@@ -188,13 +193,15 @@ export function renderStageReport(
   row('Deferred', (s) => ratio(s.deferred));
   row('Errors', (s) => ratio(s.errors));
   row('Not applicable scenarios (not run)', (s) => String(s.notApplicable));
-  row('Jev calls per turn', (s) => fixed(s.jevCallsPerTurn, 2));
-  row('Jev call latency p50 / p95 (ms)', (s) => spread(s.jevLatencyMs));
+  row(`${provider} calls per turn`, (s) => fixed(s.callsPerTurn, 2));
+  row(`${provider} call latency p50 / p95 (ms)`, (s) =>
+    spread(s.callLatencyMs),
+  );
   row('Stage latency p50 / p95 (ms)', (s) => spread(s.stageLatencyMs));
   row(
-    'Jev tokens per turn (input / output)',
+    `${provider} tokens per turn (input / output)`,
     (s) =>
-      `${fixed(s.jevTokensPerTurn.input, 0)} / ${fixed(s.jevTokensPerTurn.output, 0)}`,
+      `${fixed(s.tokensPerTurn.input, 0)} / ${fixed(s.tokensPerTurn.output, 0)}`,
   );
   if (summaries.some((s) => s.expectedDeferrals.turns > 0)) {
     row('Expected layout deferrals: deferred with the right reason', (s) =>
@@ -216,7 +223,7 @@ export function renderStageReport(
     row(`Deferral: ${reason}`, (s) => String(s.deferralReasons[reason] ?? 0));
 
   return [
-    `# Stage eval: ${stage}`,
+    `# Stage eval: ${subject.stage}`,
     Object.entries(meta)
       .map(([key, value]) => `- ${key}: ${value}`)
       .join('\n'),
@@ -232,7 +239,7 @@ export function renderStageReport(
 /** Writes `records.json`, `meta.json` and `report.md` under `out`. */
 export async function writeStageReport(
   out: string,
-  stage: string,
+  subject: StageReportSubject,
   records: readonly StageTurnRecord[],
   variants: readonly string[],
   meta: StageRunMeta,
@@ -246,7 +253,7 @@ export async function writeStageReport(
   await writeFile(join(out, 'meta.json'), `${JSON.stringify(meta, null, 2)}\n`);
   await writeFile(
     join(out, 'report.md'),
-    `${renderStageReport(stage, records, variants, meta, sections)}\n`,
+    `${renderStageReport(subject, records, variants, meta, sections)}\n`,
   );
 }
 

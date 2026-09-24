@@ -1,10 +1,10 @@
-import { type LeafRect, treeRects } from '@maelstrom-co/planner-jev/_eval';
 import {
   type ChartRequest,
   parseTilingSplitToken,
   type TilingNode,
   tilingLeafInstanceId,
 } from '@maelstrom-co/protocol';
+import { type LeafRect, treeRects } from './geometry.js';
 
 /** `x` runs left to right, `y` top to bottom. */
 export type Axis = 'x' | 'y';
