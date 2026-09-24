@@ -4,6 +4,8 @@ Live evals for Maelstrom planners. Workspace-internal: the package is private, h
 
 Two evals live here: `src/eval/` runs whole planners through `createEngine` and compares named arms, `src/eval-stages/` runs one pipeline stage on gold inputs. The Jev arms and stage modules read planner-jev's stages and planners through `@maelstrom-co/planner-jev/_eval`, and the offline tests read its fixtures and scripted transports through `@maelstrom-co/planner-jev/_testing`. Both subpaths are unsupported outside this repository.
 
+Bun resolves workspace packages to their built `dist/` unless told otherwise, so every entry point here runs with `--conditions=@maelstrom-co/source`: planner-jev, planner-llm, engine and protocol then load from `src/`, the way `tsc` reads them, and a stage edit is measured without a rebuild. The nx targets (`eval`, `eval-stages`, `test`) pass the flag; pass it yourself when running a file with `bun` directly, as the commands below do. Without it Bun loads the last build and quietly measures stale code.
+
 ## Evaluating
 
 `src/eval/` holds a live runner that compares named planners (arms, registered in `src/eval/arms.ts`) on the same scenarios: the tiling scenarios of the Jev prototype, keep-versus-replace cases, parameter cases that separate `stated_elsewhere` from `not_stated`, explicit arrangement requests scored by arrangement rules (swap, big instance on the right, mixed row-and-split, edge strip, reorder, a 2x2 grid and more, tagged `spatial: true`) and non-spatial controls that should leave the arrangement alone (content edits, view changes, an added widget, tagged `spatial: false`). Any arm may satisfy an arrangement rule, the Jev arms' fallback included; the fallback columns show who did. Every arm runs through `createEngine` with history off and `retry: false`; the baseline is the same once-retried `llmPlanner` (from `@maelstrom-co/planner-llm`) the Jev arms fall back to, so the arms differ only in their pipelines. Scores use the shipped (validated and healed) response.
@@ -38,7 +40,7 @@ Each Jev turn writes its stages' inputs and outputs to `<out>/stages/<arm>/<scen
 
 ```sh
 # from the workspace root, so Bun loads .env (TYPESAFE_API_KEY and JEV_MODEL; no OpenAI key is needed)
-bun packages/planner-eval/src/eval-stages/cli.ts --stage layout --variant preset-or-llm --variant composed-pairs --suite development --repeats 3 --out tmp/planner-jev-eval/<name>
+bun --conditions=@maelstrom-co/source packages/planner-eval/src/eval-stages/cli.ts --stage layout --variant preset-or-llm --variant composed-pairs --suite development --repeats 3 --out tmp/planner-jev-eval/<name>
 ```
 
 | Flag | Default | Meaning |
@@ -86,7 +88,7 @@ The rule-based pass stays the primary metric. The grader reads the LLM-written `
 
 ```sh
 # from the workspace root, so Bun loads .env
-bun packages/planner-eval/src/eval/grader-validate.ts --records tmp/planner-jev-eval/<run>/records.json
+bun --conditions=@maelstrom-co/source packages/planner-eval/src/eval/grader-validate.ts --records tmp/planner-jev-eval/<run>/records.json
 ```
 
 It grades the hand-labelled responses and every planned development turn whose scenario declares arrangement rules, then writes `grader-validation.json` next to the records (or under `--out`). Grades are cached in `grader-scores.json` (`--scores` to name another file) and reused while the grader and verbalizer versions match, so a re-validation calls TypeSafe only for responses not yet graded. `--arm` narrows the arrangement turns to some arms, `--limit` caps how many responses are graded live, `--offline` grades nothing and validates the cached grades, `--labels` reads another labels file, and `--verbose` logs every call and provider error. A record written before the grader existed carries no shipped plan: its completion stage's candidate, healed again by the Engine, stands in when the turn did not fall back and the healed message and tree are the ones the record shipped; for a turn recorded against a scenario that expected no actions, the rule-based score proves an empty plan; any other such turn is skipped and counted in the summary line.

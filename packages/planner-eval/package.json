@@ -21,20 +21,14 @@
     "name": "@maelstrom-co/planner-eval",
     "targets": {
       "eval": {
-        "command": "bun src/eval/cli.ts",
-        "dependsOn": [
-          "^build"
-        ],
+        "command": "bun --conditions=@maelstrom-co/source src/eval/cli.ts",
         "cache": false,
         "options": {
           "cwd": "{projectRoot}"
         }
       },
       "eval-stages": {
-        "command": "bun src/eval-stages/cli.ts",
-        "dependsOn": [
-          "^build"
-        ],
+        "command": "bun --conditions=@maelstrom-co/source src/eval-stages/cli.ts",
         "cache": false,
         "options": {
           "cwd": "{projectRoot}"
@@ -50,7 +44,7 @@
         }
       },
       "test": {
-        "command": "bun test",
+        "command": "bun test --conditions=@maelstrom-co/source",
         "options": {
           "cwd": "{projectRoot}"
         }
