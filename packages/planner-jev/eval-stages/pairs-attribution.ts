@@ -1,6 +1,6 @@
 import type { TilingNode } from '@maelstrom-co/protocol';
 
-import type { ComposedPairsRecord } from '../src/lib/stages-experimental/layout-composed-pairs.js';
+import type { ComposedPairsRecord } from '../src/lib/stages-experimental/layout-composed-pairs-gate-and-defer.js';
 import {
   NOT_STATED,
   type PairRelation,

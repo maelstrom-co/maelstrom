@@ -139,16 +139,6 @@ describe('layout stage eval', () => {
     expect(records[0].jevCalls[0].outcome).toBe('provider_http');
   });
 
-  test('keeps the current tree without a call on the same Instances and no stated arrangement', async () => {
-    const { records, payloads } = await run(['preserve'], ['composed-pairs']);
-    expect(payloads).toHaveLength(0);
-    expect(records[0].outcome).toBe('pass');
-    expect(records[0].detail?.pairwise).toMatchObject({
-      route: 'same_instances',
-      called: false,
-    });
-  });
-
   test('rejects an unknown variant before running', async () => {
     await expect(run(['swap'], ['no-such-variant'])).rejects.toThrow(
       /unknown jevLayout variant no-such-variant/,
@@ -158,11 +148,7 @@ describe('layout stage eval', () => {
   test('scores a scenario that expects a layout stage deferral: only deferring with no feasible layout passes', async () => {
     const { records } = await run(
       ['small-chart'],
-      [
-        'preset-or-llm',
-        'composed-pairs-fraction-sizes-both-fixes',
-        'composed-pairs-fraction-sizes-both-fixes-defers-when-nothing-fits',
-      ],
+      ['preset-or-llm', 'composed-pairs'],
       pairsAll('left_of'),
     );
     expect(
@@ -173,18 +159,9 @@ describe('layout stage eval', () => {
       ]),
     ).toEqual([
       ['preset-or-llm', 'pass', 'jevLayout/no_feasible_layout'],
-      [
-        'composed-pairs-fraction-sizes-both-fixes',
-        'handed_off',
-        'jevLayout/no_feasible_layout',
-      ],
-      [
-        'composed-pairs-fraction-sizes-both-fixes-defers-when-nothing-fits',
-        'pass',
-        'jevLayout/no_feasible_layout',
-      ],
+      ['composed-pairs', 'pass', 'jevLayout/no_feasible_layout'],
     ]);
-    expect(records[2].reason).toBe('jevLayout/no_feasible_layout');
+    expect(records[1].reason).toBe('jevLayout/no_feasible_layout');
   });
 
   test('feeds the recorded live spatial signal per scenario and repeat, and gold where none was recorded', async () => {
@@ -208,10 +185,7 @@ describe('layout stage eval', () => {
     const module = layoutStageEvalWith({ spatialSignal: signal });
     const { records, payloads } = await run(
       ['swap'],
-      [
-        'composed-pairs-fraction-sizes-both-fixes',
-        'composed-pairs-fraction-sizes-both-fixes-always-asks',
-      ],
+      ['composed-pairs'],
       pairsAll('not_stated'),
       2,
       module as never,
@@ -224,28 +198,16 @@ describe('layout stage eval', () => {
         record.detail?.pairwise?.called,
       ]),
     ).toEqual([
-      [1, 'composed-pairs-fraction-sizes-both-fixes', 'same_instances', false],
-      [
-        1,
-        'composed-pairs-fraction-sizes-both-fixes-always-asks',
-        'same_instances',
-        true,
-      ],
-      [2, 'composed-pairs-fraction-sizes-both-fixes', 'spatial', true],
-      [
-        2,
-        'composed-pairs-fraction-sizes-both-fixes-always-asks',
-        'spatial',
-        true,
-      ],
+      [1, 'composed-pairs', 'same_instances', true],
+      [2, 'composed-pairs', 'spatial', true],
     ]);
-    expect(payloads).toHaveLength(3);
+    expect(payloads).toHaveLength(2);
   });
 
   test('marks whether a turn that asks no arrangement changed the layout', async () => {
     const kept = await run(
       ['preserve', 'swap'],
-      ['composed-pairs-fraction-sizes-both-fixes-always-asks'],
+      ['composed-pairs'],
       pairsAll('not_stated'),
     );
     expect(
@@ -259,7 +221,7 @@ describe('layout stage eval', () => {
     ]);
     const moved = await run(
       ['preserve'],
-      ['composed-pairs-fraction-sizes-both-fixes-always-asks'],
+      ['composed-pairs'],
       pairsAll('above'),
     );
     expect(moved.records[0].detail?.arrangementNotAsked).toEqual({
@@ -267,7 +229,7 @@ describe('layout stage eval', () => {
     });
   });
 
-  test('the combined gate and deferral variant asks on a recorded no and defers when nothing fits', async () => {
+  test('the composed pairs variant asks on a recorded no and defers when nothing fits', async () => {
     const signal = recordedSpatialSignal(
       [
         {
@@ -287,7 +249,7 @@ describe('layout stage eval', () => {
     );
     const { records } = await run(
       ['swap', 'small-chart'],
-      ['composed-pairs-gate-and-defer-combined'],
+      ['composed-pairs'],
       pairsAll('left_of'),
       1,
       layoutStageEvalWith({ spatialSignal: signal }) as never,
@@ -305,7 +267,7 @@ describe('layout stage eval', () => {
 
 describe('the composed pairs gate and defer layout', () => {
   test('is the stage eval variant the planner arm uses', () => {
-    expect(LAYOUT_VARIANTS['composed-pairs-gate-and-defer-combined']).toBe(
+    expect(LAYOUT_VARIANTS['composed-pairs']).toBe(
       layoutComposedPairsGateAndDefer,
     );
   });

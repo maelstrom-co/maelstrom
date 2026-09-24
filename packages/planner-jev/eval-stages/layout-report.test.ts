@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import type { ComposedPairsRecord } from '../src/lib/stages-experimental/layout-composed-pairs.js';
+import type { ComposedPairsRecord } from '../src/lib/stages-experimental/layout-composed-pairs-gate-and-defer.js';
 import { LAYOUT_VARIANTS, type LayoutTurnDetail } from './layout.js';
 import {
   renderArrangementNotAskedSection,
@@ -15,7 +15,7 @@ function turn(
 ): StageTurnRecord<LayoutTurnDetail> {
   return {
     stage: 'jevLayout',
-    variant: 'composed-pairs-size-fallback',
+    variant: 'composed-pairs',
     scenarioId: 'bottom-strip',
     suite: 'development',
     repeat: 1,
@@ -39,12 +39,11 @@ describe('composed pairs report', () => {
       turn({ ...CALLED, chosen: 0 }),
     ];
     expect(
-      summarizeComposedPairs(records, 'composed-pairs-size-fallback')
-        ?.sizeFallbacks,
+      summarizeComposedPairs(records, 'composed-pairs')?.sizeFallbacks,
     ).toEqual({ raised_to_minimum: 1, equal_weights: 1 });
-    expect(
-      renderComposedPairsSection(records, ['composed-pairs-size-fallback']),
-    ).toContain('| Size fallback: raised to minimum / equal weights | 1 / 1 |');
+    expect(renderComposedPairsSection(records, ['composed-pairs'])).toContain(
+      '| Size fallback: raised to minimum / equal weights | 1 / 1 |',
+    );
   });
 
   test('counts turns failing a size rule and the size answer confidence', () => {
@@ -66,15 +65,10 @@ describe('composed pairs report', () => {
         'Arrangement leftOf(a, b): a is not left of b',
       ]),
     ];
-    const summary = summarizeComposedPairs(
-      records,
-      'composed-pairs-size-fallback',
-    );
+    const summary = summarizeComposedPairs(records, 'composed-pairs');
     expect(summary?.sizeRuleFailures).toBe(2);
     expect(summary?.sizeConfidence).toEqual({ p10: 0.5, p50: 0.7, p90: 1 });
-    const section = renderComposedPairsSection(records, [
-      'composed-pairs-size-fallback',
-    ]);
+    const section = renderComposedPairsSection(records, ['composed-pairs']);
     expect(section).toContain(
       '| Turns failing a size rule (weightRatio or dominant) | 2 |',
     );
@@ -83,34 +77,12 @@ describe('composed pairs report', () => {
     );
   });
 
-  test('registers the fraction size variant built on the combined variant', () => {
-    expect(Object.keys(LAYOUT_VARIANTS)).toContain(
-      'composed-pairs-fraction-sizes',
-    );
-  });
-
-  test('registers the limited redirect and proportional fallback variants', () => {
-    expect(Object.keys(LAYOUT_VARIANTS)).toEqual(
-      expect.arrayContaining([
-        'composed-pairs-combined-limited-redirect',
-        'composed-pairs-fraction-sizes-proportional-fallback',
-        'composed-pairs-fraction-sizes-both-fixes',
-      ]),
-    );
-  });
-
-  test('registers the combined composed pairs variant', () => {
-    expect(Object.keys(LAYOUT_VARIANTS)).toContain('composed-pairs-combined');
-  });
-
-  test('registers every composed pairs fix as a layout variant', () => {
-    expect(Object.keys(LAYOUT_VARIANTS)).toEqual(
-      expect.arrayContaining([
-        'composed-pairs-direction-redirects-not-stated',
-        'composed-pairs-size-fallback',
-        'composed-pairs-whole-board-examples',
-      ]),
-    );
+  test('registers the layout stage of every arm as a variant', () => {
+    expect(Object.keys(LAYOUT_VARIANTS)).toEqual([
+      'preset',
+      'preset-or-llm',
+      'composed-pairs',
+    ]);
   });
 });
 

@@ -12,12 +12,6 @@ import { finalVariants } from '../src/lib/final-variants.js';
 import { layoutFits } from '../src/lib/layout-fit.js';
 import {
   type ComposedPairsRecord,
-  layoutComposedPairs,
-  layoutComposedPairsWithDirection,
-  layoutComposedPairsWithOptions,
-} from '../src/lib/stages-experimental/layout-composed-pairs.js';
-import {
-  COMPOSED_PAIRS_BOTH_FIXES_OPTIONS,
   layoutComposedPairsGateAndDefer,
 } from '../src/lib/stages-experimental/layout-composed-pairs-gate-and-defer.js';
 import { layoutPreset } from '../src/lib/stages-experimental/layout-preset.js';
@@ -54,9 +48,9 @@ export interface LayoutTurnDetail {
   /** Absent when the decision handed the layout off. */
   readonly tree?: readonly TilingNode[];
   readonly answers: readonly AnswerRecord[];
-  /** The composed-pairs stages only. */
+  /** The composed-pairs stage only. */
   readonly pairwise?: ComposedPairsRecord;
-  /** `layoutComposedPairs` calls only: every pair against the scenario's reference tree, or why it cannot be compared. */
+  /** Composed-pairs calls only: every pair against the scenario's reference tree, or why it cannot be compared. */
   readonly pairCheck?: PairsAnswerCheck | { readonly unavailable: string };
   /**
    * Present on a turn that asks no arrangement: a scenario not tagged
@@ -69,113 +63,17 @@ export interface LayoutTurnDetail {
 
 type LayoutVariant = (ask: Ask) => Stage<GatedActionPlan, LayoutOutput>;
 
-const COMBINED = {
-  direction: 'redirects_not_stated',
-  sizeFallback: true,
-  wholeBoardExamples: true,
-} as const;
-
-// Chosen from the spatial gate the live composed-pairs-inline arm answered
-// on the development suite, before any run of the variant: the lowest
-// probability a scenario tagged spatial got was 0.22 (reverse-order), and
-// 0.2 is the 0.05 step below it.
-const CONFIDENT_SPATIAL_NO_BELOW = 0.2;
-
 /**
- * Layout stage variants by descriptive name; the composed-pairs ones are
- * the steps that led to `composed-pairs-gate-and-defer-combined`, the
- * layout stage of the `jev-gated-per-instance-composed-pairs-gate-and-defer-inline`
- * arm. Each `composed-pairs-` fix changes one thing from `composed-pairs`
- * (the redirect builds on `composed-pairs-with-direction`), see
- * `ComposedPairsOptions`. `composed-pairs-combined` stacks the fixes that
- * passed the development stage eval: the direction redirect, the size
- * fallback and the whole-board examples. `composed-pairs-fraction-sizes`
- * also asks sizes as fractions within each row or column, see
- * `SizeAnswers`. `composed-pairs-combined-limited-redirect` redirects not
- * stated only when the direction answer changes the top split;
- * `composed-pairs-fraction-sizes-proportional-fallback` splits what stated
- * fractions leave by whole-Chart shares; `composed-pairs-fraction-sizes-both-fixes`
- * does both. The `composed-pairs-fraction-sizes-both-fixes-` variants each
- * change one thing from it: `-always-asks` never keeps the current tree on
- * the spatial gate alone, `-weak-gate` keeps it only on a confident no, and
- * `-defers-when-nothing-fits` defers as `layoutPresetOrLlm` does when no
- * tree fits instead of handing off. `composed-pairs-gate-and-defer-combined`
- * stacks `-always-asks` and `-defers-when-nothing-fits`: on the stage eval
- * with the recorded live spatial signal `-always-asks` passed as often as
- * `-weak-gate`, whose threshold was picked from those same records.
+ * Layout stage variants by descriptive name, each the layout stage of an
+ * arm in `eval/arms.ts`: `preset` the preset choice with placement
+ * descriptions, `preset-or-llm` the preset choice that may keep the tree
+ * or hand it off, and `composed-pairs` the composed pairs planner's layout
+ * stage, `layoutComposedPairsGateAndDefer`.
  */
 export const LAYOUT_VARIANTS: Readonly<Record<string, LayoutVariant>> = {
   preset: (ask) => layoutPreset(ask, { describe: 'placements' }),
   'preset-or-llm': layoutPresetOrLlm,
-  'composed-pairs': (ask) => layoutComposedPairs(ask),
-  'composed-pairs-with-direction': (ask) =>
-    layoutComposedPairsWithDirection(ask),
-  'composed-pairs-direction-redirects-not-stated': (ask) =>
-    layoutComposedPairsWithOptions(ask, {
-      layoutId: 'composed-pairs-direction-redirects-not-stated',
-      direction: 'redirects_not_stated',
-    }),
-  'composed-pairs-size-fallback': (ask) =>
-    layoutComposedPairsWithOptions(ask, {
-      layoutId: 'composed-pairs-size-fallback',
-      sizeFallback: true,
-    }),
-  'composed-pairs-whole-board-examples': (ask) =>
-    layoutComposedPairsWithOptions(ask, {
-      layoutId: 'composed-pairs-whole-board-examples',
-      wholeBoardExamples: true,
-    }),
-  'composed-pairs-combined': (ask) =>
-    layoutComposedPairsWithOptions(ask, {
-      ...COMBINED,
-      layoutId: 'composed-pairs-combined',
-    }),
-  'composed-pairs-fraction-sizes': (ask) =>
-    layoutComposedPairsWithOptions(ask, {
-      ...COMBINED,
-      layoutId: 'composed-pairs-fraction-sizes',
-      sizeAnswers: { kind: 'fractions_within_part' },
-    }),
-  'composed-pairs-combined-limited-redirect': (ask) =>
-    layoutComposedPairsWithOptions(ask, {
-      ...COMBINED,
-      layoutId: 'composed-pairs-combined-limited-redirect',
-      direction: 'redirects_not_stated_when_direction_changes',
-    }),
-  'composed-pairs-fraction-sizes-proportional-fallback': (ask) =>
-    layoutComposedPairsWithOptions(ask, {
-      ...COMBINED,
-      layoutId: 'composed-pairs-fraction-sizes-proportional-fallback',
-      sizeAnswers: {
-        kind: 'fractions_within_part',
-        unstatedSplit: 'whole_chart_shares',
-      },
-    }),
-  'composed-pairs-fraction-sizes-both-fixes': (ask) =>
-    layoutComposedPairsWithOptions(ask, {
-      ...COMPOSED_PAIRS_BOTH_FIXES_OPTIONS,
-      layoutId: 'composed-pairs-fraction-sizes-both-fixes',
-    }),
-  'composed-pairs-fraction-sizes-both-fixes-always-asks': (ask) =>
-    layoutComposedPairsWithOptions(ask, {
-      ...COMPOSED_PAIRS_BOTH_FIXES_OPTIONS,
-      layoutId: 'composed-pairs-fraction-sizes-both-fixes-always-asks',
-      spatialGate: 'never_skips',
-    }),
-  'composed-pairs-fraction-sizes-both-fixes-weak-gate': (ask) =>
-    layoutComposedPairsWithOptions(ask, {
-      ...COMPOSED_PAIRS_BOTH_FIXES_OPTIONS,
-      layoutId: 'composed-pairs-fraction-sizes-both-fixes-weak-gate',
-      spatialGate: { kind: 'confident_no', below: CONFIDENT_SPATIAL_NO_BELOW },
-    }),
-  'composed-pairs-fraction-sizes-both-fixes-defers-when-nothing-fits': (ask) =>
-    layoutComposedPairsWithOptions(ask, {
-      ...COMPOSED_PAIRS_BOTH_FIXES_OPTIONS,
-      layoutId:
-        'composed-pairs-fraction-sizes-both-fixes-defers-when-nothing-fits',
-      nothingFits: 'defers',
-    }),
-  'composed-pairs-gate-and-defer-combined': layoutComposedPairsGateAndDefer,
+  'composed-pairs': layoutComposedPairsGateAndDefer,
 };
 
 /** The deferral reason a scenario that expects the layout stage to defer expects. */

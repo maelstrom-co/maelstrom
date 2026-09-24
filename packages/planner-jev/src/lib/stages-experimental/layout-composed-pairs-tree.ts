@@ -150,39 +150,32 @@ export function treeDirection(
 }
 
 /**
- * Scores every arrangement of `ids` against the pair answers, highest
- * first; ties keep enumeration order. An arrangement scores the sum over
- * answered pairs of the log probability of the relation it implies,
- * floored at {@link PROBABILITY_FLOOR}. {@link NOT_STATED} votes for
- * `currentTree`: its probability is added to the relation the pair has in
- * the current tree, and ignored for a pair the current tree does not hold.
+ * Scores every arrangement of `ids` against the pair answers and the
+ * top-level `direction` answer, highest first; ties keep enumeration
+ * order. An arrangement scores the sum over answered pairs of the log
+ * probability of the relation it implies, floored at
+ * {@link PROBABILITY_FLOOR}, plus the log probability of its top-level
+ * axis under `direction` (a distribution over {@link TOP_DIRECTIONS} and
+ * {@link NOT_STATED}), weighted as one pair.
  *
- * With `direction`, a distribution over {@link TOP_DIRECTIONS} and
- * {@link NOT_STATED}, each arrangement also scores the log probability of
- * its top-level axis, weighted as one pair, with not stated voting for the
- * current tree's top split the same way.
- *
- * With `redirectNotStated` and a `direction` whose most likely option is
- * `side_by_side` or `stacked`, a pair's {@link NOT_STATED} probability
- * votes instead for the relation along that direction that keeps the
- * pair's order in the current tree (the leaf that comes first there goes
- * left, or on top); still ignored for a pair the current tree does not
- * hold. A most likely not stated direction leaves the vote unchanged.
- * With `redirectOnlyWhenDirectionChanges` as well, the redirect applies
- * only when that direction differs from the current tree's top split.
+ * {@link NOT_STATED} votes for `currentTree`: a pair's not stated
+ * probability is added to the relation the pair has in the current tree,
+ * and ignored for a pair the current tree does not hold; a not stated
+ * direction is added to the current tree's top split. When the direction's
+ * most likely option is `side_by_side` or `stacked` and differs from the
+ * current tree's top split, a pair's not stated probability votes instead
+ * for the relation along that direction that keeps the pair's order in the
+ * current tree (the leaf that comes first there goes left, or on top).
  */
 export function rankArrangements(
   ids: readonly InstanceId[],
   pairs: readonly PairAnswer[],
   currentTree: readonly TilingNode[],
-  direction?: OptionProbabilities,
-  options: RankOptions = {},
+  direction: OptionProbabilities,
 ): readonly ScoredArrangement[] {
-  const directionScore = direction && directionTable(direction, currentTree);
-  const statedDirection =
-    options.redirectNotStated && direction ? statedAxis(direction) : undefined;
+  const directionScore = directionTable(direction, currentTree);
+  const statedDirection = statedAxis(direction);
   const redirectAxis =
-    options.redirectOnlyWhenDirectionChanges &&
     statedDirection === treeDirection(currentTree)
       ? undefined
       : statedDirection;
@@ -216,19 +209,11 @@ export function rankArrangements(
           pair.second,
         );
         return relation === undefined ? sum : sum + logProbability[relation];
-      }, directionScore?.[arrangement.axis] ?? 0),
+      }, directionScore[arrangement.axis]),
     }))
     .map((scored, order) => ({ scored, order }))
     .sort((a, b) => b.scored.score - a.scored.score || a.order - b.order)
     .map(({ scored }) => scored);
-}
-
-/** Scoring choices for {@link rankArrangements}. */
-export interface RankOptions {
-  /** Send not stated pair answers along the direction answer when it names one. */
-  readonly redirectNotStated?: boolean;
-  /** Limit {@link redirectNotStated} to a direction answer that differs from the current tree's top split. */
-  readonly redirectOnlyWhenDirectionChanges?: boolean;
 }
 
 /** How {@link arrangementTree} splits inside each part. */
