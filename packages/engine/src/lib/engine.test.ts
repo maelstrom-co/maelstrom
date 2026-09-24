@@ -53,10 +53,7 @@ const toChartRequestMessage = (
   id: MessageId = DEFAULT_MESSAGE_ID,
 ): ChartRequestMessage => ChartRequestMessage({ sessionId, id, request });
 
-/**
- * Wraps a planner with an invocation counter, for the tests that used to
- * pin a call count on the mocked `chat()`.
- */
+/** Wraps a planner with an invocation counter. */
 const countingPlanner = (
   inner: Planner,
 ): { readonly planner: Planner; readonly calls: () => number } => {
@@ -647,7 +644,7 @@ describe('engine.handle — chart_request', () => {
 
     // Default retry is { max: 1 } — two attempts total, both resolving to
     // the same unrecoverable candidate so "Response healed" fires at error
-    // level on the final attempt, not just when the mock is consumed once.
+    // level on the final attempt.
     const engine = createEngine({
       planner: scriptedPlanner([
         layoutEmptyingResponse,
@@ -837,10 +834,7 @@ describe('engine.handle — retry on retryHint.recommend', () => {
     // skipped action. With `proposedActionCount > 0 && acceptedActionCount
     // === 0 && anySkipFixable`, deriveRetryHint flips recommend=true at
     // severity 'medium'. Pins the integration path for the action-empty
-    // retry trigger that the layout-empty path doesn't exercise. (The
-    // retry prompt's content for this diagnostic shape — "unparseable
-    // params" rather than "exceeds chart bounds" — is pinned in
-    // llm-planner.test.ts, which owns retry-prompt building.)
+    // retry trigger that the layout-empty path doesn't exercise.
     const actionEmptyResponse = buildGridResponse({
       executionPlan: [
         {
