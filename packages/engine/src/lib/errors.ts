@@ -32,8 +32,8 @@ export interface ProviderError {
  * cannot build its prompt from the request). LLM-output layout problems do
  * not surface here — they heal into `EngineDiagnostics.droppedLayoutEntries`
  * instead. A planner's own construction-time misconfiguration does not
- * surface here either; `@maelstrom-co/planner-llm` throws synchronously
- * when `llmPlanner` is constructed.
+ * surface here either; a planner implementation reports that when it is
+ * constructed, before any request reaches the Engine.
  *
  * `field` optionally identifies the offending input path as a free-form
  * symbolic name (e.g. `'prompt'`, `'history'`, `'vessels'` for Action
