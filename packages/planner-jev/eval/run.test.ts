@@ -245,6 +245,41 @@ test('records every answer and confidence on a turn a stage deferred', async () 
   expect(jev?.minConfidence).toBe(1);
 });
 
+test('the gate and defer arm ends a turn nothing fits as a layout deferral, as preset-or-llm does', async () => {
+  mockProvider();
+  const answers = conversation({
+    gates: {
+      'gate/needsActions': 0.1,
+      'gate/generatedContent': 0.1,
+      'gate/spatial': 0.1,
+    },
+  });
+  const records = await run(
+    (payload, call) =>
+      Object.keys(payload.questions).some((id) => id.startsWith('pair/'))
+        ? { choices: {} }
+        : answers(payload, call),
+    ['tiny-resize'],
+    {
+      arms: resolveArms([
+        'jev-ungated-per-instance-preset-or-llm-inline',
+        'jev-gated-per-instance-composed-pairs-gate-and-defer-inline',
+      ]),
+    },
+  );
+  expect(records).toHaveLength(2);
+  for (const record of records) {
+    expect(record.error).toBe(undefined);
+    expect(record.deferral).toMatchObject({
+      stage: 'jevLayout',
+      reason: 'jevLayout/no_feasible_layout',
+    });
+    expect(record.deferredAsExpected).toBe(true);
+    expect(record.fallbackCalls).toBe(1);
+    expect(record.llmCalls?.map((call) => call.role)).toEqual(['fallback']);
+  }
+});
+
 test('replays recorded upstream stages and runs the rest live', async () => {
   mockProvider();
   const out = await outDir();

@@ -143,9 +143,30 @@ export function layoutComposedPairsBothFixes(
 }
 
 /**
+ * The `composed-pairs-gate-and-defer-combined` layout:
+ * {@link layoutComposedPairsBothFixes} that never keeps the current tree
+ * on the spatial gate alone, so two or more visible Instances are always
+ * asked about, and defers with `jevLayout/no_feasible_layout` when nothing
+ * fits. More than six visible Instances still hand off to the completion
+ * call. The stage eval's variant and the planner's
+ * `composed-pairs-gate-and-defer` arm share it.
+ */
+export function layoutComposedPairsGateAndDefer(
+  ask: Ask,
+): Stage<GatedActionPlan, ComposedPairsDecision> {
+  return layoutComposedPairsWithOptions(ask, {
+    ...BOTH_FIXES_OPTIONS,
+    layoutId: 'composed-pairs-gate-and-defer-combined',
+    spatialGate: 'never_skips',
+    nothingFits: 'defers',
+  });
+}
+
+/**
  * Layout stage variants by descriptive name, each built as the matching
  * arm in `eval/arms.ts` builds it; of the `composed-pairs` variants only
- * `composed-pairs-fraction-sizes-both-fixes` has planner arms. Each `composed-pairs-` fix changes one thing from
+ * `composed-pairs-fraction-sizes-both-fixes` and
+ * `composed-pairs-gate-and-defer-combined` have planner arms. Each `composed-pairs-` fix changes one thing from
  * `composed-pairs` (the redirect builds on `composed-pairs-with-direction`),
  * see `ComposedPairsOptions`. `composed-pairs-combined` stacks the fixes
  * that passed the development stage eval: the direction redirect, the size
@@ -249,13 +270,7 @@ export const LAYOUT_VARIANTS: Readonly<Record<string, LayoutVariant>> = {
         'composed-pairs-fraction-sizes-both-fixes-defers-when-nothing-fits',
       nothingFits: 'defers',
     }),
-  'composed-pairs-gate-and-defer-combined': (ask) =>
-    layoutComposedPairsWithOptions(ask, {
-      ...BOTH_FIXES_OPTIONS,
-      layoutId: 'composed-pairs-gate-and-defer-combined',
-      spatialGate: 'never_skips',
-      nothingFits: 'defers',
-    }),
+  'composed-pairs-gate-and-defer-combined': layoutComposedPairsGateAndDefer,
   'composed-pairs-score-when-confident': (ask) =>
     layoutComposedPairsWithOptions(ask, {
       ...COMBINED,
