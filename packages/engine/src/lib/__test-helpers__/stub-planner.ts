@@ -47,7 +47,9 @@ export interface BlockingPlanner {
  * for example to issue a concurrent duplicate request while the first is
  * still in progress.
  */
-export function blockingPlanner(gate: Deferred<PlannerCandidate>): BlockingPlanner {
+export function blockingPlanner(
+  gate: Deferred<PlannerCandidate>,
+): BlockingPlanner {
   const parked = defer<void>();
   const planner: Planner = (_input, ctx) => {
     parked.resolve();

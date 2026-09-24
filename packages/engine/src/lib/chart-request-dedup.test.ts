@@ -11,7 +11,11 @@ import {
   SessionId,
 } from '@maelstrom-co/protocol';
 import { defer } from './__test-helpers__/defer.js';
-import { buildGridResponse, makeGridRequest, silentLogger } from './__test-helpers__/fixtures.js';
+import {
+  buildGridResponse,
+  makeGridRequest,
+  silentLogger,
+} from './__test-helpers__/fixtures.js';
 import {
   blockingPlanner,
   scriptedPlanner,
@@ -67,8 +71,8 @@ const setupIdempotencyEngine = (
 };
 
 /**
- * Wraps a planner with an invocation counter, replacing the `mockChat`
- * call-count assertions the dedup tests used to pin on the mocked `chat()`.
+ * Wraps a planner with an invocation counter, replacing the call-count
+ * assertions these tests used to pin on the mocked chat function.
  */
 const countingPlanner = (
   inner: Planner,
@@ -119,7 +123,9 @@ const captureLogger = (): {
 
 describe('engine.handle — chart_request idempotency', () => {
   test('replays the stored response on a sequential duplicate without invoking the LLM', async () => {
-    const { planner, calls } = countingPlanner(scriptedPlanner([gridLLMResponse]));
+    const { planner, calls } = countingPlanner(
+      scriptedPlanner([gridLLMResponse]),
+    );
     const { engine } = setupIdempotencyEngine(planner);
     const request = makeGridRequest();
 
@@ -315,8 +321,8 @@ describe('engine.handle — chart_request idempotency', () => {
       userMessage: 'response for B',
     };
     // Each call is routed to the next gate in order — mirrors the two
-    // sequential `mockChat.mockImplementationOnce` calls this test used to
-    // set up, one per session's leader.
+    // sequential mocked-chat implementations this test used to set up,
+    // one per session's leader.
     const gates = [aGate, bGate];
     let index = 0;
     const planner: Planner = async () => {
@@ -402,7 +408,9 @@ describe('engine.handle — chart_request idempotency', () => {
         return inner.append(sessionId, entry);
       },
     };
-    const { planner, calls } = countingPlanner(scriptedPlanner([gridLLMResponse]));
+    const { planner, calls } = countingPlanner(
+      scriptedPlanner([gridLLMResponse]),
+    );
 
     const { engine } = setupIdempotencyEngine(planner, { store: wrappedStore });
     const request = makeGridRequest();
@@ -438,7 +446,9 @@ describe('engine.handle — chart_request idempotency', () => {
         throw new Error('store write blew up');
       },
     };
-    const { planner, calls } = countingPlanner(scriptedPlanner([gridLLMResponse]));
+    const { planner, calls } = countingPlanner(
+      scriptedPlanner([gridLLMResponse]),
+    );
 
     const { engine } = setupIdempotencyEngine(planner, { store: wrappedStore });
     const request = makeGridRequest();
@@ -524,7 +534,9 @@ describe('engine.handle — chart_request idempotency', () => {
     // path — the user still gets their response. A regression that
     // re-tagged the catch as `return err(...)` would silently fail every
     // chart_request whose store hiccupped on the read path.
-    const { planner, calls } = countingPlanner(scriptedPlanner([gridLLMResponse]));
+    const { planner, calls } = countingPlanner(
+      scriptedPlanner([gridLLMResponse]),
+    );
     const cause = new Error('lookup blew up');
     const wrappedStore: HistoryStore = {
       ...createInMemoryStore(),
