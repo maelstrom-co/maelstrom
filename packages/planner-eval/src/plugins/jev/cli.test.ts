@@ -9,12 +9,22 @@ const PACKAGE_ROOT = resolve(import.meta.dir, '../../..');
 async function cli(entry: string, args: readonly string[]) {
   const out = await mkdtemp(join(tmpdir(), 'planner-eval-cli-'));
   try {
-    const proc = Bun.spawn(['bun', entry, ...args, '--out', out], {
-      cwd: PACKAGE_ROOT,
-      env: { PATH: process.env.PATH ?? '', HOME: process.env.HOME ?? '' },
-      stdout: 'pipe',
-      stderr: 'pipe',
-    });
+    const proc = Bun.spawn(
+      [
+        'bun',
+        '--conditions=@maelstrom-co/source',
+        entry,
+        ...args,
+        '--out',
+        out,
+      ],
+      {
+        cwd: PACKAGE_ROOT,
+        env: { PATH: process.env.PATH ?? '', HOME: process.env.HOME ?? '' },
+        stdout: 'pipe',
+        stderr: 'pipe',
+      },
+    );
     const [stdout, stderr, exitCode] = await Promise.all([
       new Response(proc.stdout).text(),
       new Response(proc.stderr).text(),

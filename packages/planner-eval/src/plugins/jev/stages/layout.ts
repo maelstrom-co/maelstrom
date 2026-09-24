@@ -24,6 +24,7 @@ import { checkArrangement } from '../../../core/predicates.js';
 import type { Scenario } from '../../../core/scenarios.js';
 import { scoreLayout } from '../../../core/score.js';
 import type { Judgement, StageEvalModule } from '../../../core/stage-eval.js';
+import { jevArms } from '../arms.js';
 import { goldInputs, layoutDeferralGoldInputs } from '../gold-inputs.js';
 import {
   renderArrangementNotAskedSection,
@@ -34,6 +35,7 @@ import {
   type PairsAnswerCheck,
 } from '../pairs-attribution.js';
 import {
+  DEFAULT_SPATIAL_RECORDS_ARM,
   loadRecordedSpatialSignal,
   type RecordedSpatialSignal,
 } from '../recorded-spatial.js';
@@ -100,10 +102,6 @@ export const LAYOUT_VARIANTS: Readonly<
 
 /** The deferral reason a scenario that expects the layout stage to defer expects. */
 export const EXPECTED_LAYOUT_DEFERRAL = 'jevLayout/no_feasible_layout';
-
-/** The arm whose recorded spatial gates `--spatial-signal recorded-live` reads by default. */
-export const DEFAULT_SPATIAL_RECORDS_ARM =
-  'jev-gated-per-instance-composed-pairs-gate-and-defer-inline';
 
 /** Where {@link layoutModuleWith} takes the stage's client and spatial gate from. */
 export interface LayoutModuleOptions {
@@ -182,6 +180,11 @@ export function layoutModuleWith(
       const arm = String(
         values['spatial-records-arm'] ?? DEFAULT_SPATIAL_RECORDS_ARM,
       );
+      const known = jevArms(typesafe).map((registered) => registered.name);
+      if (!known.includes(arm))
+        throw new Error(
+          `--spatial-records-arm: unknown arm ${arm}; known arms: ${known.join(', ')}`,
+        );
       const recorded = await loadRecordedSpatialSignal(path, arm);
       let found = 0;
       for (const scenario of run.scenarios)
