@@ -11,8 +11,10 @@ import {
   integerWeights,
   NOT_STATED,
   type PairAnswer,
+  pickSizedTree,
   raiseToMinimum,
   rankArrangements,
+  type SizedTreeCandidate,
   sizeShares,
   treeDirection,
   treeRelation,
@@ -424,6 +426,95 @@ describe('size fallback', () => {
       'ID:weather-main',
       'ID:tasks-main',
     ]);
+  });
+});
+
+describe('pickSizedTree', () => {
+  function candidate(name: string, score: number): SizedTreeCandidate {
+    return {
+      score,
+      asSized: [`ID:${name}-as-sized`] as TilingNode[],
+      raised: [`ID:${name}-raised`] as TilingNode[],
+      equal: [`ID:${name}-equal`] as TilingNode[],
+    };
+  }
+
+  function fitting(...trees: (readonly TilingNode[] | undefined)[]) {
+    const fits = new Set(trees);
+    return (tree: readonly TilingNode[]) => fits.has(tree);
+  }
+
+  test('ships the best tree as sized when it fits', () => {
+    const best = candidate('best', -1);
+    const next = candidate('next', -1.5);
+    expect(
+      pickSizedTree([best, next], fitting(best.asSized, next.asSized)),
+    ).toEqual({ tree: best.asSized, chosen: 0 });
+  });
+
+  test('ships a lower tree as sized when it is at most the margin behind', () => {
+    const best = candidate('best', -1);
+    const next = candidate('next', -3);
+    expect(
+      pickSizedTree([best, next], fitting(best.raised, next.asSized)),
+    ).toEqual({ tree: next.asSized, chosen: 1 });
+  });
+
+  test('raises the best tree to its minimums when the fitting tree is further behind than the margin', () => {
+    const best = candidate('best', -1);
+    const next = candidate('next', -3.01);
+    expect(
+      pickSizedTree([best, next], fitting(best.raised, next.asSized)),
+    ).toEqual({
+      tree: best.raised,
+      fallback: { kind: 'raised_to_minimum', candidate: 0 },
+    });
+  });
+
+  test('gives the best tree equal weights when it fits neither as sized nor raised', () => {
+    const best = candidate('best', -1);
+    const next = candidate('next', -4);
+    expect(
+      pickSizedTree([best, next], fitting(best.equal, next.asSized)),
+    ).toEqual({
+      tree: best.equal,
+      fallback: { kind: 'equal_weights', candidate: 0 },
+    });
+  });
+
+  test('skips a best tree that has no raised form', () => {
+    const best = { ...candidate('best', -1), raised: undefined };
+    const next = candidate('next', -4);
+    expect(pickSizedTree([best, next], fitting(undefined, best.equal))).toEqual(
+      {
+        tree: best.equal,
+        fallback: { kind: 'equal_weights', candidate: 0 },
+      },
+    );
+  });
+
+  test('goes on to the next tree with the same rules when the best fits in no form', () => {
+    const best = candidate('best', -1);
+    const next = candidate('next', -4);
+    const last = candidate('last', -5);
+    expect(
+      pickSizedTree([best, next, last], fitting(next.raised, last.asSized)),
+    ).toEqual({
+      tree: last.asSized,
+      chosen: 2,
+    });
+    expect(
+      pickSizedTree([best, next, last], fitting(next.raised, last.equal)),
+    ).toEqual({
+      tree: next.raised,
+      fallback: { kind: 'raised_to_minimum', candidate: 1 },
+    });
+  });
+
+  test('returns undefined when no tree fits in any form', () => {
+    expect(
+      pickSizedTree([candidate('best', -1), candidate('next', -2)], fitting()),
+    ).toBeUndefined();
   });
 });
 
