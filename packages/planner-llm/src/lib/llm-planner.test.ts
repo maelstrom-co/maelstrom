@@ -796,9 +796,7 @@ describe('llmPlanner', () => {
       const hints = ['Prefer the calendar'];
       const input = { ...makePlanningInput(request), hints };
       const ctx = makeStageContext({ origin: input });
-      const validated = ctx.validate(overflowingResponse);
-      if (!isOk(validated)) throw new Error('fixture must validate');
-      const { diagnostics } = validated.value;
+      const diagnostics = overflowDiagnostics;
 
       await llmPlanner({ adapter: dummyAdapter })(
         {
@@ -808,12 +806,21 @@ describe('llmPlanner', () => {
         ctx,
       );
 
-      expect(chatCall(0).messages.at(-1)?.content).toBe(
+      const retryPrompt = chatCall(0).messages.at(-1)?.content;
+      expect(retryPrompt).toBe(
         buildRetryPrompt(
           `${buildUserPrompt(request)}\n\n## Planner Hints\n\n- Prefer the calendar`,
           diagnostics,
         ),
       );
+      expect(typeof retryPrompt).toBe('string');
+      if (typeof retryPrompt !== 'string') return;
+      const feedbackAt = retryPrompt.indexOf('exceeds chart bounds');
+      const originalAt = retryPrompt.indexOf('Original request:');
+      const hintsAt = retryPrompt.indexOf('- Prefer the calendar');
+      expect(feedbackAt).toBeGreaterThan(-1);
+      expect(originalAt).toBeGreaterThan(feedbackAt);
+      expect(hintsAt).toBeGreaterThan(originalAt);
     });
   });
 
