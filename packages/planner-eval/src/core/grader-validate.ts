@@ -20,7 +20,7 @@ import {
   type TilingNode,
   tilingLeafInstanceId,
 } from '@maelstrom-co/protocol';
-import { pluginOf } from './arms.js';
+import { armRegistry, pluginOf } from './arms.js';
 import {
   GRADER_DIMENSIONS,
   GRADER_VERSION,
@@ -276,7 +276,7 @@ export async function shippedFromRecord(
   record: RunRecord,
   scenario: Scenario,
   completion?: {
-    /** The pipeline's last stage, whose output is the candidate the Engine shipped. */
+    /** The plugin's completion stage, whose output is the candidate the Engine shipped. */
     readonly stage: string;
     readonly records: readonly StageRecord[];
   },
@@ -433,6 +433,11 @@ export async function runGraderValidateCli(
   plugins: readonly PlannerEvalPlugin[],
   argv: readonly string[],
 ): Promise<void> {
+  try {
+    armRegistry(plugins);
+  } catch (error) {
+    fail(error instanceof Error ? error.message : String(error));
+  }
   const { values } = parseArgs({
     args: argv.slice(2),
     options: {
@@ -514,7 +519,7 @@ export async function runGraderValidateCli(
     for (const record of targets) {
       if (graded + failed >= limit) break;
       const scenario = scenarios.get(record.scenarioId);
-      const completionStage = pluginOf(plugins, record.arm)?.stageOrder?.at(-1);
+      const completionStage = pluginOf(plugins, record.arm)?.completionStage;
       const stages = await stagesOf(stageDir, record);
       const shipped =
         scenario &&

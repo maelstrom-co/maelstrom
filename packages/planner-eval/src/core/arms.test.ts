@@ -57,6 +57,16 @@ describe('arm registry', () => {
     );
   });
 
+  test('refuses a plugin whose completion stage is outside its stageOrder', () => {
+    expect(() => armRegistry([{ ...fake, completionStage: 'act' }])).toThrow(
+      'plugin fake names completion stage act, which is not in its stageOrder',
+    );
+    const { stageOrder: _stageOrder, phases: _phases, ...unordered } = fake;
+    expect(() => armRegistry([unordered])).toThrow(
+      'plugin fake names completion stage write, which is not in its stageOrder',
+    );
+  });
+
   test('refuses a plugin whose defaults or aliases name an arm it does not register', () => {
     expect(() =>
       armRegistry([{ ...fake, defaultArms: ['other-baseline'] }, other]),

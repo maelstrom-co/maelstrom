@@ -162,6 +162,14 @@ export interface PlannerEvalPlugin<
    * plugin of a staged arm leaves unmapped.
    */
   readonly phases?: Partial<Readonly<Record<Phase, StageName>>>;
+  /**
+   * The stage of `stageOrder` whose output is the candidate the Engine
+   * heals and ships. Grader validation reads its recorded output for a
+   * record written before records carried the shipped plan; without it
+   * such records of the plugin's arms are skipped. The arm registry
+   * refuses a stage outside `stageOrder`.
+   */
+  readonly completionStage?: StageName;
   /** The planner staged arms fall back to; the CLI takes the first plugin that offers one. */
   fallback?(
     adapter: AnyTextAdapter,

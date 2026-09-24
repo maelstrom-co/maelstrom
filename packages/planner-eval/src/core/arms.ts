@@ -65,8 +65,9 @@ export function resolveArms(
 
 /**
  * What makes `plugin` inconsistent, one line each: a key of `phases` that
- * is no planner-neutral phase or maps to a stage missing from `stageOrder`, and a
- * default arm or alias target the plugin does not register. Empty when
+ * is no planner-neutral phase or maps to a stage missing from `stageOrder`, a
+ * `completionStage` missing from `stageOrder`, and a default arm or alias
+ * target the plugin does not register. Empty when
  * the plugin is consistent.
  */
 export function pluginProblems(plugin: PlannerEvalPlugin): readonly string[] {
@@ -80,6 +81,13 @@ export function pluginProblems(plugin: PlannerEvalPlugin): readonly string[] {
         `plugin ${plugin.name} maps phase ${phase} to ${stage}, which is not in its stageOrder`,
       );
   }
+  if (
+    plugin.completionStage !== undefined &&
+    !order.includes(plugin.completionStage)
+  )
+    problems.push(
+      `plugin ${plugin.name} names completion stage ${plugin.completionStage}, which is not in its stageOrder`,
+    );
   const owned = new Set(plugin.arms.map((arm) => arm.name));
   for (const name of plugin.defaultArms ?? [])
     if (!owned.has(name))

@@ -130,6 +130,7 @@ export function fakePluginWith(
     aliases: { poc: 'fake-poc' },
     stageOrder: FAKE_STAGES,
     phases: { select: 'pick', layout: 'write' },
+    completionStage: 'write',
     meta: () => ({ fakeModel: 'fake-1' }),
     verifyReplay: (record) =>
       record.stage === 'pick' &&

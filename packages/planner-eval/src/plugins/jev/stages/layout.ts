@@ -156,14 +156,19 @@ export function layoutModuleWith(
     flags: {
       'spatial-signal': { type: 'string', default: 'gold' },
       'spatial-records': { type: 'string' },
-      'spatial-records-arm': {
-        type: 'string',
-        default: DEFAULT_SPATIAL_RECORDS_ARM,
-      },
+      'spatial-records-arm': { type: 'string' },
     },
     configure: async (values, run) => {
       const signal = values['spatial-signal'];
       const meta = { jevModel: typesafe().model, inputs: 'gold' };
+      if (
+        signal !== 'recorded-live' &&
+        (values['spatial-records'] !== undefined ||
+          values['spatial-records-arm'] !== undefined)
+      )
+        throw new Error(
+          '--spatial-records and --spatial-records-arm need --spatial-signal recorded-live',
+        );
       if (signal === 'gold')
         return {
           module: layoutModuleWith(options),
@@ -189,6 +194,10 @@ export function layoutModuleWith(
       for (const scenario of run.scenarios)
         for (let repeat = 1; repeat <= run.repeats; repeat++)
           if (recorded.lookup(scenario.id, repeat)) found++;
+      if (found === 0)
+        throw new Error(
+          `${path} holds no spatial gate recorded by arm ${arm} for the selected ${run.scenarios.length} scenarios x ${run.repeats} repeats; every turn would fall back to gold`,
+        );
       return {
         module: layoutModuleWith({ ...options, spatialSignal: recorded }),
         meta: {
