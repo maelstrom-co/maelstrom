@@ -128,6 +128,7 @@ export interface ReportRow {
 /**
  * Fields a plugin adds to one arm's summary. Top-level fields are added to
  * the summary; `latency` and `tokens` are merged into the summary's own.
+ * None may name a field the runner already sets there.
  */
 export interface ArmSummaryExtension {
   readonly [field: string]: unknown;
@@ -169,13 +170,21 @@ export interface PlannerEvalPlugin<
   meta?(): Readonly<Record<string, unknown>>;
   /** What a replayed stage output lacks for `arm` to read it; empty when the arm can replay it. */
   verifyReplay?(record: StageRecord, arm: Arm<Call>): readonly string[];
-  /** Fields added to a staged turn's run record, from the stages recorded and the calls the arm's client made. */
+  /**
+   * Fields added to a staged turn's run record, from the stages recorded
+   * and the calls the arm's client made. The runner throws when one names
+   * a field of its own.
+   */
   recordTurn?(
     scenario: Scenario,
     stages: readonly StageRecord[],
     calls: readonly Call[],
   ): Readonly<Record<string, unknown>>;
-  /** Fields added to one staged arm's summary over its records. */
+  /**
+   * Fields added to one staged arm's summary over its records. The report
+   * throws when one names a field of its own, top level or within
+   * `latency` or `tokens`.
+   */
   summarizeArm?(records: readonly RunRecord[]): ArmSummaryExtension;
   /** Rows added to a suite's table for the arms in it, each cell reading one arm's summary. */
   reportRows?(summaries: readonly ArmSummary[]): readonly ReportRow[];
@@ -183,4 +192,29 @@ export interface PlannerEvalPlugin<
   readonly judge?: Judge;
   /** Single-stage evals the stage eval CLI offers under `--stage`. */
   readonly stageModules?: readonly RegisteredStageEval[];
+}
+
+/**
+ * `owned` with a plugin's `extension` added. `reserved` names the fields the
+ * runner owns whether or not `owned` sets them this time.
+ *
+ * @throws {Error} When `extension` names a field of `owned` or of `reserved`,
+ *   naming `plugin`, `where` and every such field.
+ */
+export function extendOwned<T extends object>(
+  owned: T,
+  extension: Readonly<Record<string, unknown>>,
+  context: {
+    readonly plugin: string;
+    readonly where: string;
+    readonly reserved?: readonly string[];
+  },
+): T & Readonly<Record<string, unknown>> {
+  const taken = new Set([...Object.keys(owned), ...(context.reserved ?? [])]);
+  const collisions = Object.keys(extension).filter((key) => taken.has(key));
+  if (collisions.length > 0)
+    throw new Error(
+      `plugin ${context.plugin} sets ${collisions.join(', ')} in ${context.where}, which the runner owns`,
+    );
+  return { ...owned, ...extension };
 }

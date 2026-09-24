@@ -260,6 +260,36 @@ test('refuses, before any turn, a scenario whose deferral phase a staged arm can
   ).toEqual([]);
 });
 
+test('refuses a recordTurn field the runner owns', async () => {
+  const plugin = fakePluginWith(tokyo);
+  const clobbering = {
+    ...plugin,
+    recordTurn: () => ({ fallbackCalls: 0, picked: [] }),
+  };
+  await expect(
+    runEval({
+      scenarios: selectScenarios('all', ['quoted-location']),
+      arms: resolveArms([clobbering], ['fake']),
+      repeats: 1,
+      adapter: unusedAdapter,
+      fallback: () => async () => ok(TOKYO_CANDIDATE),
+    }),
+  ).rejects.toThrow(
+    'plugin fake sets fallbackCalls in a run record, which the runner owns',
+  );
+  // Reserved even when the runner leaves it out of this turn's record.
+  const scoring = { ...plugin, recordTurn: () => ({ grader: {} }) };
+  await expect(
+    runEval({
+      scenarios: selectScenarios('all', ['quoted-location']),
+      arms: resolveArms([scoring], ['fake']),
+      repeats: 1,
+      adapter: unusedAdapter,
+      fallback: () => async () => ok(TOKYO_CANDIDATE),
+    }),
+  ).rejects.toThrow('plugin fake sets grader in a run record');
+});
+
 test('replays recorded upstream stages and runs the rest live', async () => {
   const out = await outDir();
   await run(tokyo, ['quoted-location'], { out });
