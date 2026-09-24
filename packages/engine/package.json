@@ -23,6 +23,12 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./_testing": {
+      "@maelstrom-co/source": "./src/_testing.ts",
+      "types": "./dist/_testing.d.ts",
+      "import": "./dist/_testing.js",
+      "default": "./dist/_testing.js"
     }
   },
   "files": [

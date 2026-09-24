@@ -17,9 +17,11 @@ export default defineConfig({
     reportCompressedSize: true,
     commonjsOptions: { transformMixedEsModules: true },
     lib: {
-      entry: 'src/index.ts',
+      entry: {
+        index: 'src/index.ts',
+        _testing: 'src/_testing.ts',
+      },
       name: '@maelstrom-co/engine',
-      fileName: 'index',
       formats: ['es' as const],
     },
     rolldownOptions: {
