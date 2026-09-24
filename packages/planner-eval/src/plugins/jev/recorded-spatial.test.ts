@@ -3,16 +3,17 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-import { arms } from '../eval/arms.js';
+import { jevArms } from './arms.js';
 import {
   DEFAULT_SPATIAL_RECORDS_ARM,
   loadRecordedSpatialSignal,
   recordedSpatialSignal,
 } from './recorded-spatial.js';
+import { typesafeSettings } from './typesafe-settings.js';
 
 const ARM = 'jev-gated-per-instance-composed-pairs-inline';
 
-const PACKAGE_ROOT = resolve(import.meta.dir, '../..');
+const PACKAGE_ROOT = resolve(import.meta.dir, '../../..');
 
 async function withRecords<T>(
   records: unknown,
@@ -93,7 +94,8 @@ describe('recorded spatial signal', () => {
   });
 
   test('the default arm is a registered arm', () => {
-    expect(Object.keys(arms)).toContain(DEFAULT_SPATIAL_RECORDS_ARM);
+    const names = jevArms(typesafeSettings()).map((arm) => arm.name);
+    expect(names).toContain(DEFAULT_SPATIAL_RECORDS_ARM);
   });
 
   test('loading fails when the arm recorded no spatial gate', async () => {
@@ -135,7 +137,7 @@ describe('recorded spatial signal', () => {
     );
     expect(run.exitCode).toBe(1);
     expect(run.stderr.toString()).toContain(
-      '--spatial-records-arm: unknown arm nope; known arms: baseline, jev-poc,',
+      `--spatial-records-arm: unknown arm nope; known arms: jev-poc, jev-ungated-stepwise-preset-inline,`,
     );
   }, 30_000);
 });

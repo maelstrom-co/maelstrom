@@ -4,19 +4,14 @@ import { join } from 'node:path';
 
 const SRC = join(import.meta.dir, '..');
 
-/** Every module the eval and stage-eval CLIs import, short of the CLIs, which run on import. */
+/** What the entry points in this folder import; the entry points themselves run on import. */
 const RUNTIME_MODULES = [
-  'eval/arms.ts',
-  'eval/grader-validate.ts',
-  'eval/replay.ts',
-  'eval/report.ts',
-  'eval/run.ts',
-  'eval/scenarios.ts',
-  'eval-stages/layout.ts',
-  'eval-stages/recorded-spatial.ts',
-  'eval-stages/report.ts',
-  'eval-stages/stage-eval.ts',
-  'eval-stages/stages.ts',
+  'core/cli.ts',
+  'core/grader-validate.ts',
+  'core/report-cli.ts',
+  'core/stage-cli.ts',
+  'plugins/jev/plugin.ts',
+  'plugins/llm/plugin.ts',
 ];
 
 test('the live eval modules leave @tanstack/ai chat untouched outside bun test', () => {
