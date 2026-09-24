@@ -1,8 +1,7 @@
-import { afterEach, describe, expect, mock, test } from 'bun:test';
+import { describe, expect, mock, test } from 'bun:test';
 
 import type { ChartRequest, EngineMessage } from '@maelstrom-co/protocol';
 import {
-  ActionName,
   AssistantInjectionMessage,
   ChartRequestMessage,
   err,
@@ -16,21 +15,22 @@ import {
 import {
   brandTilingResponse,
   buildGridResponse,
-  dummyAdapter,
-  getLastUserMessage,
   invalid,
   makeGridRequest,
   makeTilingRequest,
   silentLogger,
 } from './__test-helpers__/fixtures.js';
 import { spyLogger } from './__test-helpers__/stage-context.js';
+import {
+  scriptedPlanner,
+  throwingPlanner,
+} from './__test-helpers__/stub-planner.js';
 import type { EngineConfig } from './config.js';
 import { createEngine } from './engine.js';
 import { providerError } from './errors.js';
 import type { HistoryEntry, HistoryStore } from './history/history-store.js';
 import { createInMemoryStore } from './history/in-memory-store.js';
 import type { PlannerCandidate } from './planner/candidate.js';
-import { llmPlanner } from './planner/llm-planner.js';
 import { pipeline } from './planner/pipeline.js';
 import type {
   Planner,
@@ -40,16 +40,6 @@ import type {
 } from './planner/stage.js';
 import { deferred } from './planner/stage.js';
 import { withFallback } from './planner/with-fallback.js';
-
-// ---------------------------------------------------------------------------
-// Mock TanStack AI chat()
-// ---------------------------------------------------------------------------
-
-const mockChat = mock<(...args: unknown[]) => Promise<unknown>>();
-
-mock.module('@tanstack/ai', () => ({
-  chat: (...args: unknown[]) => mockChat(...args),
-}));
 
 const gridLLMResponse = buildGridResponse();
 
@@ -63,9 +53,20 @@ const toChartRequestMessage = (
   id: MessageId = DEFAULT_MESSAGE_ID,
 ): ChartRequestMessage => ChartRequestMessage({ sessionId, id, request });
 
-afterEach(() => {
-  mockChat.mockReset();
-});
+/**
+ * Wraps a planner with an invocation counter, for the tests that used to
+ * pin a call count on the mocked `chat()`.
+ */
+const countingPlanner = (
+  inner: Planner,
+): { readonly planner: Planner; readonly calls: () => number } => {
+  let count = 0;
+  const planner: Planner = async (input, ctx) => {
+    count += 1;
+    return inner(input, ctx);
+  };
+  return { planner, calls: () => count };
+};
 
 describe('createEngine', () => {
   test.each([
@@ -76,21 +77,21 @@ describe('createEngine', () => {
     },
     {
       name: 'planner is not a function',
-      config: { planner: { adapter: dummyAdapter } } as unknown as EngineConfig,
+      config: { planner: {} } as unknown as EngineConfig,
       pattern: /planner \[custom\]: expected function/,
     },
     {
-      name: 'adapter passed to the engine instead of llmPlanner',
+      name: 'adapter passed to the engine instead of into the planner',
       config: {
-        planner: llmPlanner({ adapter: dummyAdapter }),
-        adapter: dummyAdapter,
+        planner: scriptedPlanner([]),
+        adapter: {},
       } as unknown as EngineConfig,
       pattern: /unrecognized|adapter/i,
     },
     {
       name: 'removed maxRetries key',
       config: {
-        planner: llmPlanner({ adapter: dummyAdapter }),
+        planner: scriptedPlanner([]),
         maxRetries: 1,
       } as unknown as EngineConfig,
       pattern: /unrecognized|maxRetries/i,
@@ -98,7 +99,7 @@ describe('createEngine', () => {
     {
       name: 'invalid retry budget',
       config: {
-        planner: llmPlanner({ adapter: dummyAdapter }),
+        planner: scriptedPlanner([]),
         retry: { max: -1 },
       } as unknown as EngineConfig,
       pattern: /retry/,
@@ -124,7 +125,7 @@ describe('createEngine', () => {
 
   test('returns an Engine for a valid minimal config', () => {
     const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
+      planner: scriptedPlanner([]),
     });
     expect(engine).toBeDefined();
     expect(typeof engine.handle).toBe('function');
@@ -132,133 +133,13 @@ describe('createEngine', () => {
 });
 
 // ---------------------------------------------------------------------------
-// System prompt memoization
-// ---------------------------------------------------------------------------
-
-describe('createEngine — system prompt memoization', () => {
-  test('derives system prompts once per createEngine and routes by layout mode', async () => {
-    let customizerCalls = 0;
-    const engine = createEngine({
-      planner: llmPlanner({
-        adapter: dummyAdapter,
-        prompt: {
-          system: {
-            rules: (defaults) => {
-              customizerCalls++;
-              return `${defaults}\n\nSENTINEL_RULES`;
-            },
-          },
-        },
-      }),
-      logger: silentLogger,
-    });
-
-    // One customizer call per mode at planner construction (grid + tiling).
-    expect(customizerCalls).toBe(2);
-
-    const tilingLLMResponse = brandTilingResponse({
-      userMessage: 'Tiling ready',
-      rationale: 'User asked for tiling',
-      executionPlan: [],
-      layout: {
-        tree: ['calendar-main'],
-        instances: [
-          {
-            instanceId: 'calendar-main',
-            vesselId: 'calendar',
-            variant: 'month',
-          },
-        ],
-      },
-    });
-    mockChat.mockResolvedValueOnce(gridLLMResponse);
-    mockChat.mockResolvedValueOnce(tilingLLMResponse);
-    mockChat.mockResolvedValueOnce(gridLLMResponse);
-
-    await engine.handle(toChartRequestMessage(makeGridRequest()));
-    await engine.handle(toChartRequestMessage(makeTilingRequest()));
-    await engine.handle(toChartRequestMessage(makeGridRequest()));
-
-    // Per-request path must not re-derive — customizer count is unchanged.
-    expect(customizerCalls).toBe(2);
-
-    const gridFirst = mockChat.mock.calls[0]?.[0] as Record<string, unknown>;
-    const tilingCall = mockChat.mock.calls[1]?.[0] as Record<string, unknown>;
-    const gridSecond = mockChat.mock.calls[2]?.[0] as Record<string, unknown>;
-
-    // Customized output (sentinel) reaches the LLM for both modes — proves
-    // promptOptions wasn't dropped on the per-request path.
-    for (const call of [gridFirst, tilingCall, gridSecond]) {
-      const systemPrompts = call.systemPrompts as string[];
-      expect(systemPrompts[0]).toContain('SENTINEL_RULES');
-    }
-
-    // Mode-specific content distinguishes the precomputed entries — proves
-    // systemPrompts[mode] is keyed off the request's layoutMode.
-    expect((gridFirst.systemPrompts as string[])[0]).toContain(
-      'GRID LAYOUT SYSTEM',
-    );
-    expect((tilingCall.systemPrompts as string[])[0]).toContain(
-      'TILING LAYOUT SYSTEM',
-    );
-    expect((gridSecond.systemPrompts as string[])[0]).toContain(
-      'GRID LAYOUT SYSTEM',
-    );
-  });
-
-  test('user-customizer errors still surface as Result err per request', async () => {
-    const engine = createEngine({
-      planner: llmPlanner({
-        adapter: dummyAdapter,
-        prompt: {
-          user: {
-            vessels: () => {
-              throw new Error('user boom');
-            },
-          },
-        },
-      }),
-      logger: silentLogger,
-    });
-
-    const result = await engine.handle(
-      toChartRequestMessage(makeGridRequest()),
-    );
-    expect(isErr(result)).toBe(true);
-    if (!isErr(result)) return;
-    expect(result.error._tag).toBe('ValidationError');
-    if (result.error._tag !== 'ValidationError') return;
-    expect(result.error.field).toBe('prompt');
-    expect(result.error.message).toMatch(/customizer for "vessels" threw/);
-    // The user-thrown error must remain reachable across the engine boundary
-    // so debuggers can recover the customizer's original failure. Walk the
-    // `.cause` chain rather than asserting a fixed depth — that decouples
-    // this test from prompt-builder's wrapping shape.
-    expect(findCauseMessage(result.error.cause, 'user boom')).toBe(true);
-    // chat() must not be called when prompt construction fails.
-    expect(mockChat).not.toHaveBeenCalled();
-  });
-});
-
-const findCauseMessage = (cause: unknown, target: string): boolean => {
-  let current: unknown = cause;
-  while (current instanceof Error) {
-    if (current.message === target) return true;
-    current = current.cause;
-  }
-  return false;
-};
-
-// ---------------------------------------------------------------------------
 // chart_request variant
 // ---------------------------------------------------------------------------
 
 describe('engine.handle — chart_request', () => {
   test('returns a chart_response envelope on success', async () => {
-    mockChat.mockResolvedValueOnce(gridLLMResponse);
-
     const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
+      planner: scriptedPlanner([gridLLMResponse]),
       logger: silentLogger,
     });
     const request = makeGridRequest();
@@ -277,112 +158,6 @@ describe('engine.handle — chart_request', () => {
     expect(result.value.response.layout.type).toBe('grid');
   });
 
-  test('invokes chat() with the expected options', async () => {
-    mockChat.mockResolvedValueOnce(gridLLMResponse);
-
-    const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
-      logger: silentLogger,
-    });
-    await engine.handle(toChartRequestMessage(makeGridRequest()));
-
-    expect(mockChat).toHaveBeenCalledTimes(1);
-    const callArgs = mockChat.mock.calls[0]?.[0] as Record<string, unknown>;
-    expect(callArgs).toHaveProperty('adapter', dummyAdapter);
-    expect(callArgs).toHaveProperty('stream', false);
-    expect(callArgs).toHaveProperty('outputSchema');
-    expect(callArgs).toHaveProperty('systemPrompts');
-    expect(callArgs).toHaveProperty('messages');
-  });
-
-  test('returns ProviderError when chat() rejects with an Error', async () => {
-    mockChat.mockRejectedValueOnce(new Error('LLM service unavailable'));
-
-    const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
-      logger: silentLogger,
-    });
-    const result = await engine.handle(
-      toChartRequestMessage(makeGridRequest()),
-    );
-
-    expect(isErr(result)).toBe(true);
-    if (!isErr(result)) return;
-    expect(result.error._tag).toBe('ProviderError');
-    expect(result.error.message).toBe('LLM service unavailable');
-  });
-
-  test('returns ProviderError when chat() rejects with a non-Error value', async () => {
-    mockChat.mockRejectedValueOnce('rate limited');
-
-    const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
-      logger: silentLogger,
-    });
-    const result = await engine.handle(
-      toChartRequestMessage(makeGridRequest()),
-    );
-
-    expect(isErr(result)).toBe(true);
-    if (!isErr(result)) return;
-    expect(result.error._tag).toBe('ProviderError');
-    expect(result.error.message).toBe('rate limited');
-  });
-
-  test('passes an AbortController through to chat()', async () => {
-    mockChat.mockResolvedValueOnce(gridLLMResponse);
-
-    const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
-      logger: silentLogger,
-    });
-    await engine.handle(toChartRequestMessage(makeGridRequest()));
-
-    const callArgs = mockChat.mock.calls[0]?.[0] as Record<string, unknown>;
-    expect(callArgs.abortController).toBeInstanceOf(AbortController);
-  });
-
-  test('returns CancellationError when the signal is already aborted', async () => {
-    const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
-      logger: silentLogger,
-    });
-
-    const controller = new AbortController();
-    controller.abort('user cancel');
-
-    const result = await engine.handle(
-      toChartRequestMessage(makeGridRequest()),
-      controller.signal,
-    );
-
-    expect(isErr(result)).toBe(true);
-    if (!isErr(result)) return;
-    expect(result.error._tag).toBe('CancellationError');
-    expect(mockChat).not.toHaveBeenCalled();
-  });
-
-  test('returns CancellationError when the signal aborts during chat()', async () => {
-    const controller = new AbortController();
-    mockChat.mockImplementationOnce(() => {
-      controller.abort('timed out');
-      return Promise.reject(new DOMException('Aborted', 'AbortError'));
-    });
-
-    const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
-      logger: silentLogger,
-    });
-    const result = await engine.handle(
-      toChartRequestMessage(makeGridRequest()),
-      controller.signal,
-    );
-
-    expect(isErr(result)).toBe(true);
-    if (!isErr(result)) return;
-    expect(result.error._tag).toBe('CancellationError');
-  });
-
   test('returns HistoryError when getLLMContext throws (no LLM call)', async () => {
     const throwingStore: HistoryStore = {
       ...createInMemoryStore(),
@@ -390,8 +165,13 @@ describe('engine.handle — chart_request', () => {
         throw new Error('network down');
       },
     };
+    let plannerCalls = 0;
+    const planner: Planner = async (input, ctx) => {
+      plannerCalls += 1;
+      return scriptedPlanner([gridLLMResponse])(input, ctx);
+    };
     const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
+      planner,
       logger: silentLogger,
       history: { maxEntries: 10, maxChars: 1_000, store: throwingStore },
     });
@@ -406,7 +186,7 @@ describe('engine.handle — chart_request', () => {
     if (result.error._tag !== 'HistoryError') return;
     expect(result.error.operation).toBe('get_llm_context');
     expect(result.error.cause).toBeInstanceOf(Error);
-    expect(mockChat).not.toHaveBeenCalled();
+    expect(plannerCalls).toBe(0);
   });
 
   test('preserves non-Error throw values from getLLMContext as cause', async () => {
@@ -421,7 +201,7 @@ describe('engine.handle — chart_request', () => {
       },
     };
     const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
+      planner: scriptedPlanner([]),
       logger: silentLogger,
       history: { maxEntries: 10, maxChars: 1_000, store: throwingStore },
     });
@@ -462,7 +242,7 @@ describe('engine.handle — chart_request', () => {
     const sessionId = SessionId('failing-session');
     const messageId = MessageId('failing-msg');
     const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
+      planner: scriptedPlanner([]),
       logger: captureLogger,
       history: { maxEntries: 10, maxChars: 1_000, store: throwingStore },
     });
@@ -492,7 +272,7 @@ describe('engine.handle — chart_request', () => {
       },
     };
     const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
+      planner: scriptedPlanner([]),
       logger: silentLogger,
       history: { maxEntries: 10, maxChars: 1_000, store: recordThrows },
     });
@@ -513,35 +293,13 @@ describe('engine.handle — chart_request', () => {
   });
 
   test('uses consoleLogger when no logger is provided', async () => {
-    mockChat.mockResolvedValueOnce(gridLLMResponse);
     const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
+      planner: scriptedPlanner([gridLLMResponse]),
     });
     const result = await engine.handle(
       toChartRequestMessage(makeGridRequest()),
     );
     expect(isOk(result)).toBe(true);
-  });
-
-  test('applies prompt options from config', async () => {
-    mockChat.mockResolvedValueOnce(gridLLMResponse);
-
-    const engine = createEngine({
-      planner: llmPlanner({
-        adapter: dummyAdapter,
-        prompt: { system: { identity: 'You are a custom assistant.' } },
-      }),
-      logger: silentLogger,
-    });
-    const result = await engine.handle(
-      toChartRequestMessage(makeGridRequest()),
-    );
-    expect(isOk(result)).toBe(true);
-
-    const callArgs = mockChat.mock.calls[0]?.[0] as Record<string, unknown>;
-    const systemPrompts = callArgs.systemPrompts as string[];
-    expect(systemPrompts[0]).toContain('You are a custom assistant.');
-    expect(systemPrompts[0]).not.toContain('You are Maelstrom');
   });
 
   test('parses the execution plan from the LLM response', async () => {
@@ -554,10 +312,9 @@ describe('engine.handle — chart_request', () => {
         },
       ],
     });
-    mockChat.mockResolvedValueOnce(responseWithActions);
 
     const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
+      planner: scriptedPlanner([responseWithActions]),
       logger: silentLogger,
     });
     const result = await engine.handle(
@@ -620,20 +377,19 @@ describe('engine.handle — chart_request', () => {
       warn: () => undefined,
       error: (message, error, data) => logged.push([message, error, data]),
     };
-    mockChat.mockResolvedValueOnce(
-      buildGridResponse({
-        userMessage,
-        executionPlan: [
-          {
-            instanceId: 'calendar-main',
-            action: 'showWeek',
-            paramsJson: JSON.stringify({ nested: { value: secret } }),
-          },
-        ],
-      }),
-    );
     const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
+      planner: scriptedPlanner([
+        buildGridResponse({
+          userMessage,
+          executionPlan: [
+            {
+              instanceId: 'calendar-main',
+              action: 'showWeek',
+              paramsJson: JSON.stringify({ nested: { value: secret } }),
+            },
+          ],
+        }),
+      ]),
       logger,
     });
 
@@ -671,7 +427,6 @@ describe('engine.handle — chart_request', () => {
         ],
       },
     });
-    mockChat.mockResolvedValueOnce(tilingResponse);
 
     const tilingRequest = makeTilingRequest({
       context: {
@@ -722,7 +477,7 @@ describe('engine.handle — chart_request', () => {
     });
 
     const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
+      planner: scriptedPlanner([tilingResponse]),
       logger: silentLogger,
     });
     const tilingId = MessageId('req-tiling');
@@ -764,7 +519,6 @@ describe('engine.handle — chart_request', () => {
         ],
       },
     });
-    mockChat.mockResolvedValueOnce(partiallyHealed);
 
     const logEntries: Array<{ level: string; msg: string; ctx?: unknown }> = [];
     const spyLogger = {
@@ -780,7 +534,7 @@ describe('engine.handle — chart_request', () => {
     // Two-instance request so the partial-heal layout still has one
     // surviving position → recommend=false at severity 'medium'.
     const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
+      planner: scriptedPlanner([partiallyHealed]),
       logger: spyLogger,
     });
     const request = makeGridRequest({
@@ -814,12 +568,6 @@ describe('engine.handle — chart_request', () => {
     // The scalar count says how many actions were refused; only these fields
     // say which. An eval harness reads them to tell a specific replay apart
     // from any other skip, so a reword of the shape has to break a test.
-    mockChat.mockResolvedValueOnce(
-      buildGridResponse({
-        executionPlan: [{ instanceId: 'calendar-main', action: 'showWeek' }],
-      }),
-    );
-
     const logEntries: Array<{ msg: string; ctx?: unknown }> = [];
     const spyLogger = {
       debug: () => {},
@@ -830,7 +578,11 @@ describe('engine.handle — chart_request', () => {
     };
 
     const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
+      planner: scriptedPlanner([
+        buildGridResponse({
+          executionPlan: [{ instanceId: 'calendar-main', action: 'showWeek' }],
+        }),
+      ]),
       logger: spyLogger,
     });
     await engine.handle(
@@ -882,11 +634,6 @@ describe('engine.handle — chart_request', () => {
         ],
       },
     });
-    // mockResolvedValue (not Once) so retry attempts also resolve cleanly —
-    // the test's invariant is "Response healed fires at error level on the
-    // final attempt", not "the mock is consumed once".
-    mockChat.mockResolvedValue(layoutEmptyingResponse);
-
     const logEntries: Array<{ level: string; msg: string; ctx?: unknown }> = [];
     const spyLogger = {
       debug: () => {},
@@ -898,8 +645,14 @@ describe('engine.handle — chart_request', () => {
         logEntries.push({ level: 'error', msg, ctx }),
     };
 
+    // Default retry is { max: 1 } — two attempts total, both resolving to
+    // the same unrecoverable candidate so "Response healed" fires at error
+    // level on the final attempt, not just when the mock is consumed once.
     const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
+      planner: scriptedPlanner([
+        layoutEmptyingResponse,
+        layoutEmptyingResponse,
+      ]),
       logger: spyLogger,
     });
     await engine.handle(toChartRequestMessage(makeGridRequest()));
@@ -921,25 +674,6 @@ describe('engine.handle — chart_request', () => {
       { length: overflowCount },
       (_, index) => `extra-${index}`,
     );
-    mockChat.mockResolvedValueOnce(
-      buildGridResponse({
-        layout: {
-          positions: [
-            {
-              instanceId: 'calendar-main',
-              position: { row: 0, column: 0 },
-              size: { width: 6, height: 4 },
-            },
-            ...extras.map((instanceId) => ({
-              instanceId,
-              position: { row: 0, column: 0 },
-              size: { width: 15, height: 4 },
-            })),
-          ],
-        },
-      }),
-    );
-
     const logEntries: Array<{ level: string; msg: string; ctx?: unknown }> = [];
     const spyLogger = {
       debug: () => {},
@@ -952,7 +686,24 @@ describe('engine.handle — chart_request', () => {
     };
 
     const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
+      planner: scriptedPlanner([
+        buildGridResponse({
+          layout: {
+            positions: [
+              {
+                instanceId: 'calendar-main',
+                position: { row: 0, column: 0 },
+                size: { width: 6, height: 4 },
+              },
+              ...extras.map((instanceId) => ({
+                instanceId,
+                position: { row: 0, column: 0 },
+                size: { width: 15, height: 4 },
+              })),
+            ],
+          },
+        }),
+      ]),
       logger: spyLogger,
     });
     const request = makeGridRequest({
@@ -1009,11 +760,11 @@ describe('engine.handle — retry on retryHint.recommend', () => {
   });
 
   test('retries when retryHint recommends and succeeds on the second attempt', async () => {
-    mockChat.mockResolvedValueOnce(layoutEmptyingResponse);
-    mockChat.mockResolvedValueOnce(gridLLMResponse);
-
+    const { planner, calls } = countingPlanner(
+      scriptedPlanner([layoutEmptyingResponse, gridLLMResponse]),
+    );
     const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
+      planner,
       logger: silentLogger,
       retry: { max: 3 },
     });
@@ -1024,14 +775,7 @@ describe('engine.handle — retry on retryHint.recommend', () => {
     expect(isOk(result)).toBe(true);
     if (!isOk(result) || result.value.type !== 'chart_response') return;
     expect(result.value.response.layout.type).toBe('grid');
-    expect(mockChat).toHaveBeenCalledTimes(2);
-
-    // The second chat() call must carry the retry-built prompt with
-    // structured drop feedback and the verbatim original prompt.
-    const lastUserMessage = getLastUserMessage(mockChat, 1);
-    expect(lastUserMessage).toContain('previous response had issues');
-    expect(lastUserMessage).toContain('exceeds chart bounds');
-    expect(lastUserMessage).toContain('Original request:');
+    expect(calls()).toBe(2);
   });
 
   test('exhaustion ships the last response (Ok, not Err) and routes "Retries exhausted" through the configured logger', async () => {
@@ -1040,8 +784,6 @@ describe('engine.handle — retry on retryHint.recommend', () => {
     // turn under the realtime-UX principle. Spy logger pins the integration
     // path that wires `config.logger` into `withRetry` end-to-end — a
     // future refactor passing `silentLogger` instead would fail here.
-    mockChat.mockResolvedValue(layoutEmptyingResponse);
-
     const logEntries: Array<{ level: string; msg: string; ctx?: unknown }> = [];
     const spyLogger = {
       debug: () => {},
@@ -1053,8 +795,17 @@ describe('engine.handle — retry on retryHint.recommend', () => {
         logEntries.push({ level: 'error', msg, ctx }),
     };
 
+    // Initial + 2 retries = 3 attempts, all resolving to the same
+    // unrecoverable candidate.
+    const { planner, calls } = countingPlanner(
+      scriptedPlanner([
+        layoutEmptyingResponse,
+        layoutEmptyingResponse,
+        layoutEmptyingResponse,
+      ]),
+    );
     const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
+      planner,
       logger: spyLogger,
       retry: { max: 2 },
     });
@@ -1068,8 +819,7 @@ describe('engine.handle — retry on retryHint.recommend', () => {
     expect(result.value.response.layout.type).toBe('grid');
     if (result.value.response.layout.type !== 'grid') return;
     expect(result.value.response.layout.positions).toHaveLength(0);
-    // Initial + 2 retries = 3 attempts.
-    expect(mockChat).toHaveBeenCalledTimes(3);
+    expect(calls()).toBe(3);
 
     const exhausted = logEntries.filter((e) => e.msg === 'Retries exhausted');
     expect(exhausted).toHaveLength(1);
@@ -1087,7 +837,10 @@ describe('engine.handle — retry on retryHint.recommend', () => {
     // skipped action. With `proposedActionCount > 0 && acceptedActionCount
     // === 0 && anySkipFixable`, deriveRetryHint flips recommend=true at
     // severity 'medium'. Pins the integration path for the action-empty
-    // retry trigger that the layout-empty path doesn't exercise.
+    // retry trigger that the layout-empty path doesn't exercise. (The
+    // retry prompt's content for this diagnostic shape — "unparseable
+    // params" rather than "exceeds chart bounds" — is pinned in
+    // llm-planner.test.ts, which owns retry-prompt building.)
     const actionEmptyResponse = buildGridResponse({
       executionPlan: [
         {
@@ -1098,11 +851,11 @@ describe('engine.handle — retry on retryHint.recommend', () => {
       ],
     });
     // First attempt: action skipped → recommend retry. Second: clean.
-    mockChat.mockResolvedValueOnce(actionEmptyResponse);
-    mockChat.mockResolvedValueOnce(gridLLMResponse);
-
+    const { planner, calls } = countingPlanner(
+      scriptedPlanner([actionEmptyResponse, gridLLMResponse]),
+    );
     const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
+      planner,
       logger: silentLogger,
       retry: { max: 3 },
     });
@@ -1111,19 +864,15 @@ describe('engine.handle — retry on retryHint.recommend', () => {
     );
 
     expect(isOk(result)).toBe(true);
-    expect(mockChat).toHaveBeenCalledTimes(2);
-
-    // Retry prompt should reference the unparseable params, not "exceeds chart bounds".
-    const lastUserMessage = getLastUserMessage(mockChat, 1);
-    expect(lastUserMessage).toContain('unparseable params');
-    expect(lastUserMessage).not.toContain('exceeds chart bounds');
+    expect(calls()).toBe(2);
   });
 
   test('default retry is { max: 1 } (2 total attempts before shipping partial)', async () => {
-    mockChat.mockResolvedValue(layoutEmptyingResponse);
-
+    const { planner, calls } = countingPlanner(
+      scriptedPlanner([layoutEmptyingResponse, layoutEmptyingResponse]),
+    );
     const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
+      planner,
       logger: silentLogger,
     });
     const result = await engine.handle(
@@ -1131,14 +880,15 @@ describe('engine.handle — retry on retryHint.recommend', () => {
     );
 
     expect(isOk(result)).toBe(true);
-    expect(mockChat).toHaveBeenCalledTimes(2);
+    expect(calls()).toBe(2);
   });
 
   test('retry { max: 0 } disables retry — ships the first response unconditionally', async () => {
-    mockChat.mockResolvedValueOnce(layoutEmptyingResponse);
-
+    const { planner, calls } = countingPlanner(
+      scriptedPlanner([layoutEmptyingResponse]),
+    );
     const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
+      planner,
       logger: silentLogger,
       retry: { max: 0 },
     });
@@ -1147,20 +897,18 @@ describe('engine.handle — retry on retryHint.recommend', () => {
     );
 
     expect(isOk(result)).toBe(true);
-    expect(mockChat).toHaveBeenCalledTimes(1);
+    expect(calls()).toBe(1);
   });
 
   test('does not retry when heal absorbs the failure without flipping recommend (missing rationale → warning, not retry)', async () => {
     // Empty rationale heals to a warning rather than an Err; recommend stays
     // false because the layout still renders. Retry must not fire on a
     // healing-but-renderable response.
-    mockChat.mockResolvedValueOnce({
-      ...gridLLMResponse,
-      rationale: '',
-    });
-
+    const { planner, calls } = countingPlanner(
+      scriptedPlanner([{ ...gridLLMResponse, rationale: '' }]),
+    );
     const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
+      planner,
       logger: silentLogger,
       retry: { max: 3 },
     });
@@ -1169,7 +917,7 @@ describe('engine.handle — retry on retryHint.recommend', () => {
     );
 
     expect(isOk(result)).toBe(true);
-    expect(mockChat).toHaveBeenCalledTimes(1);
+    expect(calls()).toBe(1);
   });
 
   test('processResponse Err (empty userMessage) short-circuits — no retry, surfaces ParseError', async () => {
@@ -1178,13 +926,11 @@ describe('engine.handle — retry on retryHint.recommend', () => {
     // immediately rather than burning retries. A regression that mapped
     // processResponse Errs into Ok-with-recommend would silently retry on
     // user-visible parse failures.
-    mockChat.mockResolvedValueOnce({
-      ...gridLLMResponse,
-      userMessage: '',
-    });
-
+    const { planner, calls } = countingPlanner(
+      scriptedPlanner([{ ...gridLLMResponse, userMessage: '' }]),
+    );
     const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
+      planner,
       logger: silentLogger,
       retry: { max: 3 },
     });
@@ -1195,7 +941,7 @@ describe('engine.handle — retry on retryHint.recommend', () => {
     expect(isErr(result)).toBe(true);
     if (!isErr(result)) return;
     expect(result.error._tag).toBe('ParseError');
-    expect(mockChat).toHaveBeenCalledTimes(1);
+    expect(calls()).toBe(1);
   });
 });
 
@@ -1251,7 +997,6 @@ describe('engine.handle with a configured planner', () => {
     expect(result.value.response.userMessage).toBe('from a custom stage');
     expect(result.value.response.requestId).toBe(DEFAULT_MESSAGE_ID);
     expect(result.value.response).not.toHaveProperty('diagnostics');
-    expect(mockChat).not.toHaveBeenCalled();
     expect(inputs).toHaveLength(1);
     expect(inputs[0]).toEqual({
       messageId: DEFAULT_MESSAGE_ID,
@@ -1408,12 +1153,14 @@ describe('engine.handle with a configured planner', () => {
     });
   });
 
-  test('withFallback recovers a Deferred through llmPlanner', async () => {
-    mockChat.mockResolvedValueOnce(gridLLMResponse);
+  test('withFallback recovers a Deferred through the configured planner', async () => {
+    const { planner: fallback, calls } = countingPlanner(
+      scriptedPlanner([gridLLMResponse]),
+    );
     const engine = createEngine({
       planner: withFallback(
         async () => err(deferred('not confident')),
-        llmPlanner({ adapter: dummyAdapter }),
+        fallback,
       ),
       logger: silentLogger,
     });
@@ -1425,7 +1172,7 @@ describe('engine.handle with a configured planner', () => {
     expect(isOk(result)).toBe(true);
     if (!isOk(result) || result.value.type !== 'chart_response') return;
     expect(result.value.response.userMessage).toBe('Here is your calendar!');
-    expect(mockChat).toHaveBeenCalledTimes(1);
+    expect(calls()).toBe(1);
   });
 
   test('an EngineError from a stage passes through unchanged', async () => {
@@ -1712,97 +1459,8 @@ describe('engine.handle with a configured planner', () => {
 });
 
 describe('engine.handle — request enum snapshot', () => {
-  test('reuses the exact prompt enum snapshot for stateful toJSON validation', async () => {
-    let toJSONCalls = 0;
-    const statefulValue = {
-      toJSON: () => ({ id: ++toJSONCalls }),
-    };
-    const base = makeGridRequest();
-    const calendar = base.vessels[0];
-    expect(calendar).toBeDefined();
-    if (calendar === undefined) return;
-    const month = calendar.variants[calendar.defaultVariant];
-    expect(month).toBeDefined();
-    if (month === undefined) return;
-    const showWeek = month.actions[0];
-    expect(showWeek).toBeDefined();
-    if (showWeek === undefined) return;
-
-    const request: ChartRequest = {
-      ...base,
-      vessels: [
-        {
-          ...calendar,
-          variants: {
-            ...calendar.variants,
-            [calendar.defaultVariant]: {
-              ...month,
-              actions: [
-                {
-                  ...showWeek,
-                  parameters: [
-                    {
-                      name: 'selection',
-                      type: 'object',
-                      description: 'Selected view',
-                      enum: [statefulValue],
-                    },
-                  ],
-                },
-              ],
-            },
-          },
-        },
-      ],
-    };
-    const action = {
-      instanceId: 'calendar-main',
-      action: 'showWeek',
-      paramsJson: '{"selection":{"id":1}}',
-    };
-    mockChat.mockResolvedValueOnce(
-      buildGridResponse({
-        executionPlan: [action],
-        layout: {
-          positions: [
-            {
-              instanceId: 'calendar-main',
-              position: { row: 0, column: 0 },
-              size: { width: 15, height: 4 },
-            },
-          ],
-        },
-      }),
-    );
-    mockChat.mockResolvedValueOnce(
-      buildGridResponse({ executionPlan: [action] }),
-    );
-
-    const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
-      logger: silentLogger,
-      retry: { max: 1 },
-    });
-    const result = await engine.handle(toChartRequestMessage(request));
-
-    expect(isOk(result)).toBe(true);
-    if (!isOk(result) || result.value.type !== 'chart_response') return;
-    expect(mockChat).toHaveBeenCalledTimes(2);
-    expect(toJSONCalls).toBe(1);
-    expect(getLastUserMessage(mockChat, 0)).toContain('selection: {"id":1}');
-    expect(getLastUserMessage(mockChat, 1)).toContain('selection: {"id":1}');
-    expect(getLastUserMessage(mockChat, 1)).not.toContain('had invalid params');
-    expect(result.value.response.executionPlan).toEqual([
-      {
-        instanceId: InstanceId('calendar-main'),
-        action: ActionName('showWeek'),
-        params: { selection: { id: 1 } },
-      },
-    ]);
-  });
-
   test('rejects duplicate parameter definitions before calling the adapter', async () => {
-    let promptCustomizerCalls = 0;
+    let plannerCalls = 0;
     const base = makeGridRequest();
     const calendar = base.vessels[0];
     expect(calendar).toBeDefined();
@@ -1845,18 +1503,12 @@ describe('engine.handle — request enum snapshot', () => {
       ],
     };
 
+    const planner: Planner = async (input, ctx) => {
+      plannerCalls += 1;
+      return scriptedPlanner([])(input, ctx);
+    };
     const engine = createEngine({
-      planner: llmPlanner({
-        adapter: dummyAdapter,
-        prompt: {
-          user: {
-            vessels: (defaults) => {
-              promptCustomizerCalls++;
-              return defaults;
-            },
-          },
-        },
-      }),
+      planner,
       logger: silentLogger,
     });
     const result = await engine.handle(toChartRequestMessage(request));
@@ -1864,8 +1516,7 @@ describe('engine.handle — request enum snapshot', () => {
     expect(isErr(result)).toBe(true);
     if (!isErr(result)) return;
     expect(result.error._tag).toBe('RequestValidationError');
-    expect(promptCustomizerCalls).toBe(0);
-    expect(mockChat).not.toHaveBeenCalled();
+    expect(plannerCalls).toBe(0);
   });
 });
 
@@ -1877,7 +1528,7 @@ describe('engine.handle — assistant_message', () => {
   test('returns outcome=inserted and persists the injection when history is configured', async () => {
     const store = createInMemoryStore();
     const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
+      planner: scriptedPlanner([]),
       logger: silentLogger,
       history: { maxEntries: 10, maxChars: 1_000, store },
     });
@@ -1906,7 +1557,7 @@ describe('engine.handle — assistant_message', () => {
   test('reports outcome=deduped on a duplicate id', async () => {
     const store = createInMemoryStore();
     const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
+      planner: scriptedPlanner([]),
       logger: silentLogger,
       history: { maxEntries: 10, maxChars: 1_000, store },
     });
@@ -1931,7 +1582,7 @@ describe('engine.handle — assistant_message', () => {
 
   test('returns a ValidationError when history is not configured', async () => {
     const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
+      planner: scriptedPlanner([]),
       logger: silentLogger,
     });
     const result = await engine.handle(
@@ -1951,7 +1602,7 @@ describe('engine.handle — assistant_message', () => {
   test('rejects an injection whose content exceeds the configured maxChars', async () => {
     const store = createInMemoryStore();
     const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
+      planner: scriptedPlanner([]),
       logger: silentLogger,
       history: { maxEntries: 10, maxChars: 100, store },
     });
@@ -1976,7 +1627,7 @@ describe('engine.handle — assistant_message', () => {
   test('accepts an injection at exactly maxChars (boundary)', async () => {
     const store = createInMemoryStore();
     const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
+      planner: scriptedPlanner([]),
       logger: silentLogger,
       history: { maxEntries: 10, maxChars: 100, store },
     });
@@ -1993,7 +1644,7 @@ describe('engine.handle — assistant_message', () => {
   test('accepts arbitrarily large injections when maxChars is not configured', async () => {
     const store = createInMemoryStore();
     const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
+      planner: scriptedPlanner([]),
       logger: silentLogger,
       history: { maxEntries: 10, store },
     });
@@ -2014,11 +1665,9 @@ describe('engine.handle — assistant_message', () => {
 
 describe('engine.handle — history integration', () => {
   test('records the turn after a successful chart_request when history is configured', async () => {
-    mockChat.mockResolvedValueOnce(gridLLMResponse);
-
     const store = createInMemoryStore();
     const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
+      planner: scriptedPlanner([gridLLMResponse]),
       logger: silentLogger,
       history: { maxEntries: 10, maxChars: 1_000, store },
     });
@@ -2031,8 +1680,6 @@ describe('engine.handle — history integration', () => {
   });
 
   test('does NOT record when history is not configured', async () => {
-    mockChat.mockResolvedValueOnce(gridLLMResponse);
-
     // Spy store passed in via a dummy assertion — we don't wire it into the
     // engine; we just check that no engine code path could have written to a
     // store when none is configured. (Old version asserted on a store the
@@ -2047,7 +1694,7 @@ describe('engine.handle — history integration', () => {
     };
     void spyStore; // not wired into the engine
     const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
+      planner: scriptedPlanner([gridLLMResponse]),
       logger: silentLogger,
     });
     const result = await engine.handle(
@@ -2062,19 +1709,21 @@ describe('engine.handle — history integration', () => {
     // short-circuits via the persistent-cache replay and never reaches
     // recordTurn. The invariant the test pins is the observable outcome on
     // the store: exactly one entry recorded, truncation (replace()) never
-    // fires for a duplicate envelope. mockChat call count is asserted to
+    // fires for a duplicate envelope. The planner call count is asserted to
     // pin the cache-replay short-circuit specifically — without it the
     // assertion would also pass via the older recordTurn-internal dedup
     // path (store.append returns inserted=false → truncation skipped).
-    mockChat.mockResolvedValue(gridLLMResponse);
     const inner = createInMemoryStore();
     const replace = mock<HistoryStore['replace']>(async () => undefined);
     const wrappedStore: HistoryStore = {
       ...inner,
       replace,
     };
+    const { planner, calls } = countingPlanner(
+      scriptedPlanner([gridLLMResponse]),
+    );
     const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
+      planner,
       logger: silentLogger,
       history: { maxEntries: 10, maxChars: 1_000, store: wrappedStore },
     });
@@ -2083,15 +1732,13 @@ describe('engine.handle — history integration', () => {
     await engine.handle(toChartRequestMessage(request));
     expect((await wrappedStore.get(DEFAULT_SESSION_ID)).length).toBe(1);
     expect(replace).not.toHaveBeenCalled();
-    expect(mockChat).toHaveBeenCalledTimes(1);
+    expect(calls()).toBe(1);
   });
 
   test('does NOT record when the chart_request fails', async () => {
-    mockChat.mockRejectedValueOnce(new Error('LLM down'));
-
     const store = createInMemoryStore();
     const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
+      planner: throwingPlanner(new Error('LLM down')),
       logger: silentLogger,
       history: { maxEntries: 10, maxChars: 1_000, store },
     });
@@ -2104,11 +1751,9 @@ describe('engine.handle — history integration', () => {
   });
 
   test('routes on message.type discriminator (type narrowing)', async () => {
-    mockChat.mockResolvedValueOnce(gridLLMResponse);
-
     const store = createInMemoryStore();
     const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
+      planner: scriptedPlanner([gridLLMResponse]),
       logger: silentLogger,
       history: { maxEntries: 10, maxChars: 1_000, store },
     });
@@ -2131,8 +1776,6 @@ describe('engine.handle — history integration', () => {
   });
 
   test('returns ok(chart_response) when history.recordTurn throws (advisory write)', async () => {
-    mockChat.mockResolvedValueOnce(gridLLMResponse);
-
     const inner = createInMemoryStore();
     const throwingStore: HistoryStore = {
       ...inner,
@@ -2141,7 +1784,7 @@ describe('engine.handle — history integration', () => {
       },
     };
     const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
+      planner: scriptedPlanner([gridLLMResponse]),
       logger: silentLogger,
       history: { maxEntries: 10, maxChars: 1_000, store: throwingStore },
     });
@@ -2163,7 +1806,7 @@ describe('engine.handle — history integration', () => {
       },
     };
     const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
+      planner: scriptedPlanner([]),
       logger: silentLogger,
       history: { maxEntries: 10, maxChars: 1_000, store: throwingStore },
     });
@@ -2185,18 +1828,20 @@ describe('engine.handle — history integration', () => {
   });
 
   test('feeds recorded turns back into the next LLM call as prior messages', async () => {
-    mockChat.mockResolvedValueOnce({
-      ...gridLLMResponse,
-      userMessage: 'First response.',
-    });
-    mockChat.mockResolvedValueOnce({
-      ...gridLLMResponse,
-      userMessage: 'Second response.',
-    });
+    // A generic Planner that records the `history` slot it received —
+    // proves the Engine threads recorded turns into the next planner call
+    // without depending on any particular planner's prompt shape.
+    const seenHistory: PlanningInput['history'][] = [];
+    const planner: Planner = async (input) => {
+      seenHistory.push(input.history);
+      const userMessage =
+        seenHistory.length === 1 ? 'First response.' : 'Second response.';
+      return ok({ ...gridLLMResponse, userMessage });
+    };
 
     const store = createInMemoryStore();
     const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
+      planner,
       logger: silentLogger,
       history: { maxEntries: 10, maxChars: 10_000, store },
     });
@@ -2210,15 +1855,11 @@ describe('engine.handle — history integration', () => {
       ),
     );
     expect(isOk(first)).toBe(true);
-
-    const firstCall = mockChat.mock.calls[0]?.[0] as Record<string, unknown>;
-    expect(firstCall.messages).toEqual([
-      { role: 'user', content: expect.any(String) },
-    ]);
+    expect(seenHistory[0]).toEqual([]);
 
     // Turn 2 — reuse session with a fresh messageId so the idempotency
     // cache doesn't replay turn 1; we want to see turn 1 echo into the
-    // next LLM call's history slot, not short-circuit on duplicate-id
+    // next planner call's history slot, not short-circuit on duplicate-id
     // replay.
     const second = await engine.handle(
       toChartRequestMessage(
@@ -2229,26 +1870,22 @@ describe('engine.handle — history integration', () => {
     );
     expect(isOk(second)).toBe(true);
 
-    const secondCall = mockChat.mock.calls[1]?.[0] as Record<string, unknown>;
-    const messages = secondCall.messages as ReadonlyArray<{
-      role: string;
-      content: string;
-    }>;
-    expect(messages.length).toBe(3);
-    expect(messages[0]?.role).toBe('user');
-    expect(messages[1]).toEqual({
-      role: 'assistant',
-      content: 'First response.',
-    });
-    expect(messages[2]?.role).toBe('user');
+    expect(seenHistory[1]).toEqual([
+      { role: 'user', content: expect.any(String) },
+      { role: 'assistant', content: 'First response.' },
+    ]);
   });
 
   test('feeds assistant_message injections into the next LLM call', async () => {
-    mockChat.mockResolvedValueOnce(gridLLMResponse);
+    const seenHistory: PlanningInput['history'][] = [];
+    const planner: Planner = async (input) => {
+      seenHistory.push(input.history);
+      return ok(gridLLMResponse);
+    };
 
     const store = createInMemoryStore();
     const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
+      planner,
       logger: silentLogger,
       history: { maxEntries: 10, maxChars: 10_000, store },
     });
@@ -2265,30 +1902,26 @@ describe('engine.handle — history integration', () => {
 
     await engine.handle(toChartRequestMessage(makeGridRequest()));
 
-    const callArgs = mockChat.mock.calls[0]?.[0] as Record<string, unknown>;
-    const messages = callArgs.messages as ReadonlyArray<{
-      role: string;
-      content: string;
-    }>;
-    expect(messages).toContainEqual({
+    expect(seenHistory[0]).toContainEqual({
       role: 'assistant',
       content: 'Background: user is on the pricing page.',
     });
   });
 
   test('does not inject any prior messages when history is not configured', async () => {
-    mockChat.mockResolvedValueOnce(gridLLMResponse);
+    let seenHistory: PlanningInput['history'] | undefined;
+    const planner: Planner = async (input) => {
+      seenHistory = input.history;
+      return ok(gridLLMResponse);
+    };
 
     const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
+      planner,
       logger: silentLogger,
     });
     await engine.handle(toChartRequestMessage(makeGridRequest()));
 
-    const callArgs = mockChat.mock.calls[0]?.[0] as Record<string, unknown>;
-    expect(callArgs.messages).toEqual([
-      { role: 'user', content: expect.any(String) },
-    ]);
+    expect(seenHistory).toEqual([]);
   });
 });
 
@@ -2298,8 +1931,9 @@ describe('engine.handle — history integration', () => {
 
 describe('engine.handle — wire-format validation', () => {
   test('rejects malformed envelope before LLM call', async () => {
+    const { planner, calls } = countingPlanner(scriptedPlanner([]));
     const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
+      planner,
       logger: silentLogger,
     });
 
@@ -2321,12 +1955,13 @@ describe('engine.handle — wire-format validation', () => {
         expect(result.error.path).toEqual(['sessionId']);
       }
     }
-    expect(mockChat).not.toHaveBeenCalled();
+    expect(calls()).toBe(0);
   });
 
   test('rejects malformed inner payload before LLM call', async () => {
+    const { planner, calls } = countingPlanner(scriptedPlanner([]));
     const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
+      planner,
       logger: silentLogger,
     });
 
@@ -2347,7 +1982,7 @@ describe('engine.handle — wire-format validation', () => {
         expect(result.error.path[0]).toBe('request');
       }
     }
-    expect(mockChat).not.toHaveBeenCalled();
+    expect(calls()).toBe(0);
   });
 
   test('rejects assistant_message with empty content before history write', async () => {
@@ -2360,7 +1995,7 @@ describe('engine.handle — wire-format validation', () => {
       getResponseById: mock(() => Promise.resolve({ kind: 'miss' as const })),
     } satisfies HistoryStore;
     const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
+      planner: scriptedPlanner([]),
       logger: silentLogger,
       history: { store, maxEntries: 10, maxChars: 1000 },
     });
@@ -2387,10 +2022,11 @@ describe('engine.handle — wire-format validation', () => {
   });
 
   test('passes valid envelopes through to the existing pipeline (regression)', async () => {
-    mockChat.mockResolvedValueOnce(gridLLMResponse);
-
+    const { planner, calls } = countingPlanner(
+      scriptedPlanner([gridLLMResponse]),
+    );
     const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
+      planner,
       logger: silentLogger,
     });
 
@@ -2398,7 +2034,7 @@ describe('engine.handle — wire-format validation', () => {
 
     const result = await engine.handle(env);
     expect(isOk(result)).toBe(true);
-    expect(mockChat).toHaveBeenCalledTimes(1);
+    expect(calls()).toBe(1);
   });
 });
 
@@ -2409,7 +2045,7 @@ describe('engine.handle — wire-format validation', () => {
 describe('engine.getHistory', () => {
   test('returns a ValidationError when history is not configured', async () => {
     const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
+      planner: scriptedPlanner([]),
       logger: silentLogger,
     });
     const result = await engine.getHistory(SessionId('s-unknown'));
@@ -2422,7 +2058,7 @@ describe('engine.getHistory', () => {
   test('returns an empty array for a session with no recorded entries', async () => {
     const store = createInMemoryStore();
     const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
+      planner: scriptedPlanner([]),
       logger: silentLogger,
       history: { maxEntries: 10, maxChars: 1_000, store },
     });
@@ -2433,10 +2069,9 @@ describe('engine.getHistory', () => {
   });
 
   test('projects turn and injection entries to the wire DTO in chronological order', async () => {
-    mockChat.mockResolvedValue(gridLLMResponse);
     const store = createInMemoryStore();
     const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
+      planner: scriptedPlanner([gridLLMResponse]),
       logger: silentLogger,
       history: { maxEntries: 10, maxChars: 10_000, store },
     });
@@ -2488,7 +2123,7 @@ describe('engine.getHistory', () => {
   test('isolates entries per sessionId — does not leak across sessions', async () => {
     const store = createInMemoryStore();
     const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
+      planner: scriptedPlanner([]),
       logger: silentLogger,
       history: { maxEntries: 10, maxChars: 1_000, store },
     });
@@ -2507,10 +2142,9 @@ describe('engine.getHistory', () => {
   });
 
   test('concatenates multiple user_intent reasons and ignores non-user-intent reasons', async () => {
-    mockChat.mockResolvedValue(gridLLMResponse);
     const store = createInMemoryStore();
     const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
+      planner: scriptedPlanner([gridLLMResponse]),
       logger: silentLogger,
       history: { maxEntries: 10, maxChars: 10_000, store },
     });
@@ -2544,10 +2178,9 @@ describe('engine.getHistory', () => {
   });
 
   test('returns empty userIntent when no user_intent reasons are present', async () => {
-    mockChat.mockResolvedValue(gridLLMResponse);
     const store = createInMemoryStore();
     const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
+      planner: scriptedPlanner([gridLLMResponse]),
       logger: silentLogger,
       history: { maxEntries: 10, maxChars: 10_000, store },
     });
@@ -2600,7 +2233,7 @@ describe('engine.getHistory', () => {
         ]),
     };
     const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
+      planner: scriptedPlanner([]),
       logger: silentLogger,
       history: { maxEntries: 10, maxChars: 1_000, store: malformed },
     });
@@ -2621,7 +2254,7 @@ describe('engine.getHistory', () => {
       },
     };
     const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
+      planner: scriptedPlanner([]),
       logger: silentLogger,
       history: { maxEntries: 10, maxChars: 1_000, store: failing },
     });

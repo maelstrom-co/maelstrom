@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test';
 import type { ChartRequest } from '@maelstrom-co/protocol';
 import {
+  ActionName,
   ChartRequestMessage,
   GridResponseSchema,
+  InstanceId,
   isErr,
   isOk,
   MessageId,
@@ -11,6 +13,7 @@ import {
 } from '@maelstrom-co/protocol';
 
 import {
+  brandTilingResponse,
   buildGridResponse,
   dummyAdapter,
   makeGridRequest,
@@ -78,6 +81,142 @@ const overflowingResponse = buildGridResponse({
     ],
   },
 });
+
+describe('createEngine — system prompt memoization', () => {
+  test('derives system prompts once per createEngine and routes by layout mode', async () => {
+    let customizerCalls = 0;
+    const engine = createEngine({
+      planner: llmPlanner({
+        adapter: dummyAdapter,
+        prompt: {
+          system: {
+            rules: (defaults) => {
+              customizerCalls++;
+              return `${defaults}\n\nSENTINEL_RULES`;
+            },
+          },
+        },
+      }),
+      logger: silentLogger,
+    });
+
+    // One customizer call per mode at planner construction (grid + tiling).
+    expect(customizerCalls).toBe(2);
+
+    const tilingLLMResponse = brandTilingResponse({
+      userMessage: 'Tiling ready',
+      rationale: 'User asked for tiling',
+      executionPlan: [],
+      layout: {
+        tree: ['calendar-main'],
+        instances: [
+          {
+            instanceId: 'calendar-main',
+            vesselId: 'calendar',
+            variant: 'month',
+          },
+        ],
+      },
+    });
+    mockChat.mockResolvedValueOnce(buildGridResponse());
+    mockChat.mockResolvedValueOnce(tilingLLMResponse);
+    mockChat.mockResolvedValueOnce(buildGridResponse());
+
+    await engine.handle(
+      ChartRequestMessage({
+        sessionId: SessionId('session-1'),
+        id: MessageId('req-1'),
+        request: makeGridRequest(),
+      }),
+    );
+    await engine.handle(
+      ChartRequestMessage({
+        sessionId: SessionId('session-1'),
+        id: MessageId('req-2'),
+        request: makeTilingRequest(),
+      }),
+    );
+    await engine.handle(
+      ChartRequestMessage({
+        sessionId: SessionId('session-1'),
+        id: MessageId('req-3'),
+        request: makeGridRequest(),
+      }),
+    );
+
+    // Per-request path must not re-derive — customizer count is unchanged.
+    expect(customizerCalls).toBe(2);
+
+    const gridFirst = mockChat.mock.calls[0]?.[0] as Record<string, unknown>;
+    const tilingCall = mockChat.mock.calls[1]?.[0] as Record<string, unknown>;
+    const gridSecond = mockChat.mock.calls[2]?.[0] as Record<string, unknown>;
+
+    // Customized output (sentinel) reaches the LLM for both modes — proves
+    // promptOptions wasn't dropped on the per-request path.
+    for (const call of [gridFirst, tilingCall, gridSecond]) {
+      const systemPrompts = call.systemPrompts as string[];
+      expect(systemPrompts[0]).toContain('SENTINEL_RULES');
+    }
+
+    // Mode-specific content distinguishes the precomputed entries — proves
+    // systemPrompts[mode] is keyed off the request's layoutMode.
+    expect((gridFirst.systemPrompts as string[])[0]).toContain(
+      'GRID LAYOUT SYSTEM',
+    );
+    expect((tilingCall.systemPrompts as string[])[0]).toContain(
+      'TILING LAYOUT SYSTEM',
+    );
+    expect((gridSecond.systemPrompts as string[])[0]).toContain(
+      'GRID LAYOUT SYSTEM',
+    );
+  });
+
+  test('user-customizer errors still surface as Result err per request', async () => {
+    const engine = createEngine({
+      planner: llmPlanner({
+        adapter: dummyAdapter,
+        prompt: {
+          user: {
+            vessels: () => {
+              throw new Error('user boom');
+            },
+          },
+        },
+      }),
+      logger: silentLogger,
+    });
+
+    const result = await engine.handle(
+      ChartRequestMessage({
+        sessionId: SessionId('session-1'),
+        id: MessageId('req-1'),
+        request: makeGridRequest(),
+      }),
+    );
+    expect(isErr(result)).toBe(true);
+    if (!isErr(result)) return;
+    expect(result.error._tag).toBe('ValidationError');
+    if (result.error._tag !== 'ValidationError') return;
+    expect(result.error.field).toBe('prompt');
+    expect(result.error.message).toMatch(/customizer for "vessels" threw/);
+    // The user-thrown error must remain reachable across the engine boundary
+    // so debuggers can recover the customizer's original failure. Walk the
+    // `.cause` chain rather than asserting a fixed depth — that decouples
+    // this test from prompt-builder's wrapping shape.
+    expect(findCauseMessage(result.error.cause, 'user boom')).toBe(true);
+    // chat() must not be called when prompt construction fails.
+    expect(mockChat).not.toHaveBeenCalled();
+  });
+});
+
+const findCauseMessage = (cause: unknown, target: string): boolean => {
+  let current: unknown = cause;
+  while (current instanceof Error) {
+    if (current.message === target) return true;
+    current = current.cause;
+  }
+  return false;
+};
 
 describe('llmPlanner', () => {
   describe('as the Engine planner', () => {
@@ -167,6 +306,304 @@ describe('llmPlanner', () => {
           ),
         },
       ]);
+    });
+
+    test('invokes chat() with the expected options', async () => {
+      mockChat.mockResolvedValueOnce(buildGridResponse());
+
+      const engine = createEngine({
+        planner: llmPlanner({ adapter: dummyAdapter }),
+        logger: silentLogger,
+      });
+      await engine.handle(
+        ChartRequestMessage({
+          sessionId: SessionId('session-1'),
+          id: MessageId('req-1'),
+          request: makeGridRequest(),
+        }),
+      );
+
+      expect(mockChat).toHaveBeenCalledTimes(1);
+      const callArgs = chatCall(0);
+      expect(callArgs).toHaveProperty('adapter', dummyAdapter);
+      expect(callArgs).toHaveProperty('stream', false);
+      expect(callArgs).toHaveProperty('outputSchema');
+      expect(callArgs).toHaveProperty('systemPrompts');
+      expect(callArgs).toHaveProperty('messages');
+    });
+
+    test('passes an AbortController through to chat()', async () => {
+      mockChat.mockResolvedValueOnce(buildGridResponse());
+
+      const engine = createEngine({
+        planner: llmPlanner({ adapter: dummyAdapter }),
+        logger: silentLogger,
+      });
+      await engine.handle(
+        ChartRequestMessage({
+          sessionId: SessionId('session-1'),
+          id: MessageId('req-1'),
+          request: makeGridRequest(),
+        }),
+      );
+
+      expect(chatCall(0).abortController).toBeInstanceOf(AbortController);
+    });
+
+    test('applies prompt options from config', async () => {
+      mockChat.mockResolvedValueOnce(buildGridResponse());
+
+      const engine = createEngine({
+        planner: llmPlanner({
+          adapter: dummyAdapter,
+          prompt: { system: { identity: 'You are a custom assistant.' } },
+        }),
+        logger: silentLogger,
+      });
+      const result = await engine.handle(
+        ChartRequestMessage({
+          sessionId: SessionId('session-1'),
+          id: MessageId('req-1'),
+          request: makeGridRequest(),
+        }),
+      );
+      expect(isOk(result)).toBe(true);
+
+      const systemPrompts = chatCall(0).systemPrompts;
+      expect(systemPrompts[0]).toContain('You are a custom assistant.');
+      expect(systemPrompts[0]).not.toContain('You are Maelstrom');
+    });
+
+    test('reuses the exact prompt enum snapshot for stateful toJSON validation', async () => {
+      let toJSONCalls = 0;
+      const statefulValue = {
+        toJSON: () => ({ id: ++toJSONCalls }),
+      };
+      const base = makeGridRequest();
+      const calendar = base.vessels[0];
+      expect(calendar).toBeDefined();
+      if (calendar === undefined) return;
+      const month = calendar.variants[calendar.defaultVariant];
+      expect(month).toBeDefined();
+      if (month === undefined) return;
+      const showWeek = month.actions[0];
+      expect(showWeek).toBeDefined();
+      if (showWeek === undefined) return;
+
+      const request: ChartRequest = {
+        ...base,
+        vessels: [
+          {
+            ...calendar,
+            variants: {
+              ...calendar.variants,
+              [calendar.defaultVariant]: {
+                ...month,
+                actions: [
+                  {
+                    ...showWeek,
+                    parameters: [
+                      {
+                        name: 'selection',
+                        type: 'object',
+                        description: 'Selected view',
+                        enum: [statefulValue],
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+          },
+        ],
+      };
+      const action = {
+        instanceId: 'calendar-main',
+        action: 'showWeek',
+        paramsJson: '{"selection":{"id":1}}',
+      };
+      mockChat.mockResolvedValueOnce(
+        buildGridResponse({
+          executionPlan: [action],
+          layout: {
+            positions: [
+              {
+                instanceId: 'calendar-main',
+                position: { row: 0, column: 0 },
+                size: { width: 15, height: 4 },
+              },
+            ],
+          },
+        }),
+      );
+      mockChat.mockResolvedValueOnce(
+        buildGridResponse({ executionPlan: [action] }),
+      );
+
+      const engine = createEngine({
+        planner: llmPlanner({ adapter: dummyAdapter }),
+        logger: silentLogger,
+        retry: { max: 1 },
+      });
+      const result = await engine.handle(
+        ChartRequestMessage({
+          sessionId: SessionId('session-1'),
+          id: MessageId('req-1'),
+          request,
+        }),
+      );
+
+      expect(isOk(result)).toBe(true);
+      if (!isOk(result) || result.value.type !== 'chart_response') return;
+      expect(mockChat).toHaveBeenCalledTimes(2);
+      expect(toJSONCalls).toBe(1);
+      expect(chatCall(0).messages.at(-1)?.content).toContain(
+        'selection: {"id":1}',
+      );
+      expect(chatCall(1).messages.at(-1)?.content).toContain(
+        'selection: {"id":1}',
+      );
+      expect(chatCall(1).messages.at(-1)?.content).not.toContain(
+        'had invalid params',
+      );
+      expect(result.value.response.executionPlan).toEqual([
+        {
+          instanceId: InstanceId('calendar-main'),
+          action: ActionName('showWeek'),
+          params: { selection: { id: 1 } },
+        },
+      ]);
+    });
+
+    test('a retry prompt built from a params_parse_failed diagnostic reflects that reason, not a layout overflow', async () => {
+      // Companion to the position-overflow retry-prompt assertion above:
+      // pins that the retry prompt's content tracks the diagnostic's actual
+      // shape rather than always describing a layout drop. The engine-level
+      // retry mechanics (attempt count, `retry.diagnostics` plumbing) are
+      // covered in engine.test.ts through a generic Planner; this test owns
+      // the prompt-content half, which only llmPlanner produces.
+      const actionEmptyResponse = buildGridResponse({
+        executionPlan: [
+          {
+            instanceId: 'calendar-main',
+            action: 'showWeek',
+            paramsJson: '{not valid json',
+          },
+        ],
+      });
+      mockChat.mockResolvedValueOnce(actionEmptyResponse);
+      mockChat.mockResolvedValueOnce(buildGridResponse());
+
+      const engine = createEngine({
+        planner: llmPlanner({ adapter: dummyAdapter }),
+        logger: silentLogger,
+        retry: { max: 3 },
+      });
+      const result = await engine.handle(
+        ChartRequestMessage({
+          sessionId: SessionId('session-1'),
+          id: MessageId('req-1'),
+          request: makeGridRequest(),
+        }),
+      );
+
+      expect(isOk(result)).toBe(true);
+      expect(mockChat).toHaveBeenCalledTimes(2);
+
+      const lastUserMessage = chatCall(1).messages.at(-1)?.content ?? '';
+      expect(lastUserMessage).toContain('unparseable params');
+      expect(lastUserMessage).not.toContain('exceeds chart bounds');
+    });
+
+    test('returns ProviderError when chat() rejects with an Error', async () => {
+      mockChat.mockRejectedValueOnce(new Error('LLM service unavailable'));
+
+      const engine = createEngine({
+        planner: llmPlanner({ adapter: dummyAdapter }),
+        logger: silentLogger,
+      });
+      const result = await engine.handle(
+        ChartRequestMessage({
+          sessionId: SessionId('session-1'),
+          id: MessageId('req-1'),
+          request: makeGridRequest(),
+        }),
+      );
+
+      expect(isErr(result)).toBe(true);
+      if (!isErr(result)) return;
+      expect(result.error._tag).toBe('ProviderError');
+      expect(result.error.message).toBe('LLM service unavailable');
+    });
+
+    test('returns ProviderError when chat() rejects with a non-Error value', async () => {
+      mockChat.mockRejectedValueOnce('rate limited');
+
+      const engine = createEngine({
+        planner: llmPlanner({ adapter: dummyAdapter }),
+        logger: silentLogger,
+      });
+      const result = await engine.handle(
+        ChartRequestMessage({
+          sessionId: SessionId('session-1'),
+          id: MessageId('req-1'),
+          request: makeGridRequest(),
+        }),
+      );
+
+      expect(isErr(result)).toBe(true);
+      if (!isErr(result)) return;
+      expect(result.error._tag).toBe('ProviderError');
+      expect(result.error.message).toBe('rate limited');
+    });
+
+    test('returns CancellationError when the signal is already aborted', async () => {
+      const engine = createEngine({
+        planner: llmPlanner({ adapter: dummyAdapter }),
+        logger: silentLogger,
+      });
+
+      const controller = new AbortController();
+      controller.abort('user cancel');
+
+      const result = await engine.handle(
+        ChartRequestMessage({
+          sessionId: SessionId('session-1'),
+          id: MessageId('req-1'),
+          request: makeGridRequest(),
+        }),
+        controller.signal,
+      );
+
+      expect(isErr(result)).toBe(true);
+      if (!isErr(result)) return;
+      expect(result.error._tag).toBe('CancellationError');
+      expect(mockChat).not.toHaveBeenCalled();
+    });
+
+    test('returns CancellationError when the signal aborts during chat()', async () => {
+      const controller = new AbortController();
+      mockChat.mockImplementationOnce(() => {
+        controller.abort('timed out');
+        return Promise.reject(new DOMException('Aborted', 'AbortError'));
+      });
+
+      const engine = createEngine({
+        planner: llmPlanner({ adapter: dummyAdapter }),
+        logger: silentLogger,
+      });
+      const result = await engine.handle(
+        ChartRequestMessage({
+          sessionId: SessionId('session-1'),
+          id: MessageId('req-1'),
+          request: makeGridRequest(),
+        }),
+        controller.signal,
+      );
+
+      expect(isErr(result)).toBe(true);
+      if (!isErr(result)) return;
+      expect(result.error._tag).toBe('CancellationError');
     });
   });
 
