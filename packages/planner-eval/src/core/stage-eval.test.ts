@@ -107,6 +107,44 @@ describe('stage eval', () => {
     expect(notApplicable?.stageMs).toBe(undefined);
   });
 
+  test('records a turn whose deps or stage cannot be built as an error and runs the rest', async () => {
+    const shout = shoutModule();
+    let built = 0;
+    const module: typeof shout = {
+      ...shout,
+      variants: {
+        ...shout.variants,
+        broken: () => {
+          throw new Error('no stage to build');
+        },
+      },
+      makeDeps: (onCall) => {
+        built += 1;
+        if (built === 1) throw new Error('no deps on the first turn');
+        return shout.makeDeps(onCall);
+      },
+    };
+    const records = await runStageEval(module, {
+      scenarios: selectScenarios('development', ['swap']),
+      variants: ['upper', 'broken'],
+      repeats: 2,
+    });
+    expect(
+      records.map((record) => [
+        record.repeat,
+        record.variant,
+        record.outcome,
+        record.reason,
+      ]),
+    ).toEqual([
+      [1, 'upper', 'error', 'no deps on the first turn'],
+      [1, 'broken', 'error', 'no stage to build'],
+      [2, 'upper', 'pass', undefined],
+      [2, 'broken', 'error', 'no stage to build'],
+    ]);
+    expect(records[0]?.calls).toEqual([]);
+  });
+
   test('records a deferral, an error and a missed expected deferral', async () => {
     const scenarios = selectScenarios('development', ['swap', 'preserve']);
     expect(scenarios.map((scenario) => scenario.id)).toEqual([

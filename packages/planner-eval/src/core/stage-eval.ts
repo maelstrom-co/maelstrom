@@ -292,20 +292,21 @@ async function runTurn<Input, Output, Detail, Deps>(
   },
 ): Promise<StageTurnRecord<Detail>> {
   const { variant, scenario, repeat, prepared } = turn;
-  const input =
-    module.turnInput?.(scenario, repeat, prepared.input) ?? prepared.input;
   const expectedDeferral = module.expectedDeferral?.(scenario);
   const own = {
     ...base(module.stage, variant, scenario, repeat),
     ...(expectedDeferral !== undefined && { expectedDeferral }),
   };
   const calls: ProviderCall[] = [];
-  const stage = module.variants[variant](
-    module.makeDeps((call) => calls.push(call)),
-  );
-  const started = performance.now();
-  let result: Awaited<ReturnType<typeof stage>>;
+  let input = prepared.input;
+  let started = performance.now();
+  let result: Awaited<ReturnType<Stage<Input, Output>>>;
   try {
+    input = module.turnInput?.(scenario, repeat, input) ?? input;
+    const stage = module.variants[variant](
+      module.makeDeps((call) => calls.push(call)),
+    );
+    started = performance.now();
     result = await stage(input, stageContext(prepared.origin, logger));
   } catch (error) {
     return {
