@@ -1,5 +1,4 @@
 import { runEvalCli } from '../core/cli.js';
-import { jevPlugin } from '../plugins/jev/plugin.js';
-import { llmPlugin } from '../plugins/llm/plugin.js';
+import { evalPlugins } from '../plugins/index.js';
 
-await runEvalCli([llmPlugin, jevPlugin], process.argv);
+await runEvalCli(evalPlugins, process.argv);

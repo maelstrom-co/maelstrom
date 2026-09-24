@@ -1,5 +1,4 @@
 import { runReportCli } from '../core/report-cli.js';
-import { jevPlugin } from '../plugins/jev/plugin.js';
-import { llmPlugin } from '../plugins/llm/plugin.js';
+import { evalPlugins } from '../plugins/index.js';
 
-await runReportCli([llmPlugin, jevPlugin], process.argv);
+await runReportCli(evalPlugins, process.argv);
