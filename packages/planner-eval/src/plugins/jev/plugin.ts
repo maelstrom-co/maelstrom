@@ -7,7 +7,7 @@ import {
 import type { StageRecord } from '../../core/instrument.js';
 import type { Phase, PlannerEvalPlugin } from '../../core/plugin.js';
 import { registerStageEval } from '../../core/stage-eval.js';
-import { jevArms, type ReplayShape } from './arms.js';
+import { type JevArm, jevArms, type ReplayShape } from './arms.js';
 import { type JevRunRecord, jevTurnFields } from './record.js';
 import { jevRows, jevSummary } from './report.js';
 import { layoutModuleWith } from './stages/layout.js';
@@ -44,13 +44,10 @@ export function jevPluginWith(
     aliases: { jev: 'jev-poc' },
     stageOrder: STAGE_NAMES,
     phases: JEV_PHASES,
+    completionStage: 'llmComplete',
     meta: () => ({ jevModel: typesafe().model }),
     verifyReplay: (record, arm) =>
-      shapeProblems(
-        arms.find((candidate) => candidate.name === arm.name)?.replayShape ??
-          'poc',
-        record,
-      ),
+      shapeProblems(replayShapeOf(arms, arm.name), record),
     recordTurn: jevTurnFields,
     summarizeArm: (records) => jevSummary(records as readonly JevRunRecord[]),
     reportRows: jevRows,
@@ -63,6 +60,15 @@ export function jevPluginWith(
 export const jevPlugin: PlannerEvalPlugin<JevCall, StageName> = jevPluginWith();
 
 const GATES = ['needsActions', 'generatedContent', 'spatial'] as const;
+
+function replayShapeOf(arms: readonly JevArm[], name: string): ReplayShape {
+  const arm = arms.find((candidate) => candidate.name === name);
+  if (arm === undefined)
+    throw new Error(
+      `the jev plugin has no arm ${name} to check a replayed stage output against`,
+    );
+  return arm.replayShape;
+}
 
 /** What a replayed stage output lacks for an arm of `shape` to read it. */
 export function shapeProblems(

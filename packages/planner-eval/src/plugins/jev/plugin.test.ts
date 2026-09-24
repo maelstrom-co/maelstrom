@@ -4,10 +4,12 @@ import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 
 import { FALLBACK_RETRIES, STAGE_NAMES } from '@maelstrom-co/planner-jev/_eval';
+import type { StageRecord } from '../../core/instrument.js';
 import { summarize } from '../../core/report.js';
 import { RUN_RECORD_FIELDS, type RunRecord } from '../../core/run.js';
 import { evalPlugins } from '../index.js';
 import { BASELINE_RETRIES, llmPlugin } from '../llm/plugin.js';
+import type { JevArm } from './arms.js';
 import { JEV_PHASES, jevPlugin } from './plugin.js';
 import type { JevTurnFields } from './record.js';
 
@@ -17,6 +19,11 @@ describe('the Jev plugin', () => {
     expect(Object.values(JEV_PHASES) as string[]).toEqual(
       [...STAGE_NAMES].slice(0, 3) as string[],
     );
+  });
+
+  test('names llmComplete, whose candidate the Engine ships, as its completion stage', () => {
+    expect(jevPlugin.completionStage).toBe('llmComplete');
+    expect(jevPlugin.stageOrder).toContain('llmComplete');
   });
 
   test('offers the layout stage eval under --stage layout', () => {
@@ -29,6 +36,27 @@ describe('the Jev plugin', () => {
       requiredEnv: ['TYPESAFE_API_KEY', 'JEV_MODEL'],
       variants: ['preset', 'preset-or-llm', 'composed-pairs'],
     });
+  });
+
+  test('checks a replayed stage output against the shape of the named arm and throws for an arm it does not own', () => {
+    const record: StageRecord = {
+      stage: 'jevSelect',
+      ms: 0,
+      outcome: 'ok',
+      output: {},
+    };
+    const [gated] = jevPlugin.arms.filter(
+      (arm) => (arm as JevArm).replayShape === 'gated',
+    );
+    if (gated === undefined) throw new Error('no gated Jev arm');
+    expect(jevPlugin.verifyReplay?.(record, gated)).toEqual([
+      'has no complete gates',
+    ]);
+    expect(() =>
+      jevPlugin.verifyReplay?.(record, { ...gated, name: 'not-a-jev-arm' }),
+    ).toThrow(
+      'the jev plugin has no arm not-a-jev-arm to check a replayed stage output against',
+    );
   });
 
   test('the baseline is the once-retried planner the Jev arms fall back to', () => {

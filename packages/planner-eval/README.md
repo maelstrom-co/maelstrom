@@ -14,7 +14,7 @@ A plugin declares:
 | --- | --- |
 | `name`, `arms` | Arms by unique name. An arm has a `build(deps)` that returns a `Planner`, wrapping every stage it wants recorded in `deps.instrument(name, stage)` and reporting its provider calls to `deps.onCall`. `baseline: true` marks a reference arm: no stages, no replay, paired against by the others. `requiredEnv` lists the variables the arm needs; `kind` labels its records (the plugin's name when absent). |
 | `defaultArms`, `aliases` | What `--arm` runs when absent, and other names it accepts. |
-| `stageOrder`, `phases` | The pipeline's stage names in order, and the stage each planner-neutral phase (`select`, `actions`, `layout`) maps to. The scenarios' `deferStage` expectations and `--replay-through` name phases, never stages, so they hold for every plugin. The arm registry refuses a plugin that maps an unknown phase or a stage outside `stageOrder`, and the runner refuses, before any turn, a scenario whose `deferStage` the plugin of a selected staged arm does not map. |
+| `stageOrder`, `phases`, `completionStage` | The pipeline's stage names in order, the stage each planner-neutral phase (`select`, `actions`, `layout`) maps to, and the stage whose candidate the Engine heals and ships, which grader validation reads for records that predate the shipped plan (without it those records are skipped). The scenarios' `deferStage` expectations and `--replay-through` name phases, never stages, so they hold for every plugin. The arm registry refuses a plugin that maps an unknown phase, or a phase or `completionStage` to a stage outside `stageOrder`, and the runner refuses, before any turn, a scenario whose `deferStage` the plugin of a selected staged arm does not map. |
 | `fallback(adapter)` | The planner staged arms fall back to; the CLI takes the first plugin that offers one. |
 | `verifyReplay(record, arm)` | What a replayed stage output lacks for the arm to read it, checked before any turn runs. |
 | `recordTurn(scenario, stages, calls)` | Fields added to a staged turn's record in `records.json`. Naming a field the runner owns throws. |
@@ -74,6 +74,9 @@ bun --conditions=@maelstrom-co/source packages/planner-eval/src/eval-stages/cli.
 | `--concurrency` | `1` | Turns in flight at once. Latency is measured per call, so raising it can inflate the latency rows. |
 | `--out` | `tmp/planner-eval/stage-<stage>-<timestamp>` | Output directory. |
 | `--verbose` | off | Logs every Jev call to the console. |
+| `--spatial-signal` | `gold` | Layout only. `gold` feeds the stage the scenario's spatial tag; `recorded-live` feeds it the `spatial` gate a live planner answered, read from `--spatial-records`, and keeps the gold gate for a turn that recorded none. |
+| `--spatial-records` | none | Layout only. The `records.json` of a full planner eval to read the spatial gates from. Needs `--spatial-signal recorded-live`. |
+| `--spatial-records-arm` | `jev-gated-per-instance-composed-pairs-gate-and-defer-inline` | Layout only. The arm of `--spatial-records` whose gates are read; it must be a registered Jev arm. Needs `--spatial-signal recorded-live`. The run fails before any turn when that arm recorded no spatial gate in the file, or none for the selected scenarios and repeats, rather than running every turn on gold. |
 
 The layout stage gets gold inputs from `src/plugins/jev/gold-inputs.ts`: the expected selection and action plan, with every gate (`spatial` yes only for scenarios tagged `spatial: true`). A scenario that cannot form them (it expects a deferral, or states no visible set or actions) is recorded once per variant as not applicable and does not run. Each turn ends in one outcome:
 
