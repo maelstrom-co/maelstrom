@@ -9,12 +9,12 @@ Provider choice changes the three things users feel first: structured-output qua
 
 The reference engine talks to the model through a [TanStack AI](https://tanstack.com/ai)
 text adapter. Swapping providers is a single field on `llmPlanner({ adapter })`
-— the prompt builder, response parser, heal layer, and retry policy are all
-provider-agnostic.
+from `@maelstrom-co/planner-llm`: the prompt builder, response parser, heal
+layer, and retry policy are all provider-agnostic.
 
 ## Before you start
 
-- An installed `@maelstrom-co/engine` package.
+- An installed `@maelstrom-co/engine` package and an installed `@maelstrom-co/planner-llm` package.
 - An API key for the provider you want to use, exposed as the environment
   variable the adapter expects.
 
@@ -72,7 +72,8 @@ provider-agnostic.
     <Tabs syncKey="llm-provider">
       <TabItem label="Gemini">
         ```ts title="src/server/engine.ts"
-        import { createEngine, llmPlanner } from '@maelstrom-co/engine';
+        import { createEngine } from '@maelstrom-co/engine';
+        import { llmPlanner } from '@maelstrom-co/planner-llm';
         import { geminiText } from '@tanstack/ai-gemini';
 
         export const engine = createEngine({
@@ -82,7 +83,8 @@ provider-agnostic.
       </TabItem>
       <TabItem label="OpenAI">
         ```ts title="src/server/engine.ts"
-        import { createEngine, llmPlanner } from '@maelstrom-co/engine';
+        import { createEngine } from '@maelstrom-co/engine';
+        import { llmPlanner } from '@maelstrom-co/planner-llm';
         import { openaiText } from '@tanstack/ai-openai';
 
         export const engine = createEngine({
@@ -92,7 +94,8 @@ provider-agnostic.
       </TabItem>
       <TabItem label="Anthropic">
         ```ts title="src/server/engine.ts"
-        import { createEngine, llmPlanner } from '@maelstrom-co/engine';
+        import { createEngine } from '@maelstrom-co/engine';
+        import { llmPlanner } from '@maelstrom-co/planner-llm';
         import { anthropicText } from '@tanstack/ai-anthropic';
 
         export const engine = createEngine({
@@ -140,7 +143,8 @@ you need per-request routing (A/B test, role-based model selection, fallback
 on quota errors), stand up multiple engines:
 
 ```ts title="src/server/route.ts"
-import { createEngine, llmPlanner } from '@maelstrom-co/engine';
+import { createEngine } from '@maelstrom-co/engine';
+import { llmPlanner } from '@maelstrom-co/planner-llm';
 import { geminiText } from '@tanstack/ai-gemini';
 import { openaiText } from '@tanstack/ai-openai';
 

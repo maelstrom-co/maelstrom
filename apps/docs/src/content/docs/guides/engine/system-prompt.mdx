@@ -35,12 +35,12 @@ Customizations target a key by name. The current set is:
 | `user`   | `chartState`     | The current chart state (instances, layout snapshot).           |
 | `user`   | `updateTriggers` | Why this turn is happening (user intent, action results, etc.). |
 
-`SystemSection` and `UserSection` are exported from `@maelstrom-co/engine` if
+`SystemSection` and `UserSection` are exported from `@maelstrom-co/planner-llm` if
 you want the string constants instead of typing the keys — useful when you
 want autocomplete on section names:
 
 ```ts
-import { SystemSection } from '@maelstrom-co/engine';
+import { SystemSection } from '@maelstrom-co/planner-llm';
 
 prompt: { system: { [SystemSection.RULES]: { append: '...' } } };
 ```
@@ -68,7 +68,8 @@ section keys (anything outside the table above), only `string` and
     half (`system` / `user`) and then by section name.
 
     ```ts title="src/server/engine.ts"
-    import { createEngine, llmPlanner } from '@maelstrom-co/engine';
+    import { createEngine } from '@maelstrom-co/engine';
+    import { llmPlanner } from '@maelstrom-co/planner-llm';
     import { geminiText } from '@tanstack/ai-gemini';
 
     export const engine = createEngine({
@@ -237,12 +238,11 @@ Two practical consequences:
 
 ## Verify
 
-The fastest check is a log line on first call. The engine exposes
-`buildPrompt`, `buildSystemPrompt`, and `buildUserPrompt` from
-`@maelstrom-co/engine` for tests and dry runs:
+The fastest check is a log line on first call. `@maelstrom-co/planner-llm` exposes
+`buildPrompt`, `buildSystemPrompt`, and `buildUserPrompt` for tests and dry runs:
 
 ```ts title="scripts/preview-prompt.ts"
-import { buildSystemPrompt } from '@maelstrom-co/engine';
+import { buildSystemPrompt } from '@maelstrom-co/planner-llm';
 
 const systemPrompt = buildSystemPrompt('grid', {
   vars: { assistantName: 'Aria' },

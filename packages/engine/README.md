@@ -2,7 +2,7 @@
 
 [![license](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](https://github.com/maelstrom-co/maelstrom/blob/main/LICENSE)
 
-Reference implementation of the Maelstrom orchestration engine. Given the current chart state, available vessels, and accumulated update reasons, it asks an LLM for a layout + execution plan and returns a structured response.
+Reference implementation of the Maelstrom orchestration engine. Given the current chart state, available vessels, and accumulated update reasons, it takes a configured planner's candidate layout + execution plan, heals and validates it, and returns a structured response. The reference LLM planner lives in `@maelstrom-co/planner-llm`.
 
 📚 **Full documentation:** <https://docs.maelstrom-ai.co/reference/engine/readme/>
 
@@ -21,7 +21,8 @@ import {
   SessionId,
   isOk,
 } from '@maelstrom-co/protocol';
-import { createEngine, llmPlanner } from '@maelstrom-co/engine';
+import { createEngine } from '@maelstrom-co/engine';
+import { llmPlanner } from '@maelstrom-co/planner-llm';
 
 const engine = createEngine({
   planner: llmPlanner({ adapter: geminiText('gemini-2.0-flash') }),
@@ -77,7 +78,7 @@ interface Engine {
 
 ### Message variants
 
-**`chart_request`** — asks the engine to produce a layout + execution plan for the current chart state. Runs the full prompt → LLM → response-processor pipeline. If history is configured, the engine reads the session's prior turns + injections into the LLM call as prior messages (so the model reasons across turns), then records the completed turn after the response returns.
+**`chart_request`** — asks the engine to produce a layout + execution plan for the current chart state. Runs the configured planner, then the response processor (heal and validate). If history is configured, the engine reads the session's prior turns + injections into the LLM call as prior messages (so the model reasons across turns), then records the completed turn after the response returns.
 
 **`assistant_message`** — persists developer-supplied content into session history so subsequent LLM turns see it as prior context. Does not invoke the LLM. Returns an `assistant_message_result` envelope whose `outcome` is `'inserted'` (new write) or `'deduped'` (a prior entry with the same `MessageId` already existed; the write was a no-op). Callers who don't care about idempotency can ignore `outcome`; callers instrumenting replay-safe behavior can branch on it. If history is not configured, returns a `ValidationError`.
 
@@ -129,25 +130,7 @@ interface EngineConfig {
 }
 ```
 
-`planner` is a `Stage<PlanningInput, PlannerCandidate>` — most consumers reach for `llmPlanner`, which makes a single structured-output LLM call per attempt:
-
-```ts
-interface LlmPlannerOptions {
-  /** TanStack AI text adapter. Required. */
-  adapter: AnyTextAdapter;
-  /** Section-based prompt customization. */
-  prompt?: PromptOptions;
-  /** Provider-specific options forwarded verbatim to every `chat()` call. */
-  modelOptions?: Record<string, unknown>;
-}
-```
-
-```ts
-import { geminiText } from '@tanstack/ai-gemini';
-import { llmPlanner } from '@maelstrom-co/engine';
-
-const planner = llmPlanner({ adapter: geminiText('gemini-2.0-flash') });
-```
+`planner` is a `Stage<PlanningInput, PlannerCandidate>`. Most consumers use `llmPlanner` from [`@maelstrom-co/planner-llm`](https://github.com/maelstrom-co/maelstrom/blob/main/packages/planner-llm/README.md), which makes a single structured-output LLM call per attempt.
 
 See [Planners and stages](#planners-and-stages) below for composing more than one LLM call, or non-LLM steps, into a planner.
 
@@ -175,7 +158,8 @@ interface HistoryConfig<TMeta = unknown> {
 `store` has no default. Local dev and tests pass `createInMemoryStore()` explicitly:
 
 ```ts
-import { createEngine, createInMemoryStore, llmPlanner } from '@maelstrom-co/engine';
+import { createEngine, createInMemoryStore } from '@maelstrom-co/engine';
+import { llmPlanner } from '@maelstrom-co/planner-llm';
 
 const engine = createEngine({
   planner: llmPlanner({ adapter: /* ... */ }),
@@ -246,7 +230,7 @@ The trigger is *exclusively* `retryHint.recommend === true` on a healed response
 | `Ok` with `retryHint.recommend === true` | retry with a structured prompt summarizing the prior diagnostics |
 | `ProviderError`, `CancellationError`, `TimeoutError`, `ParseError`, `HistoryError` | fatal — surfaced as-is (these are not heal-recoverable; the LLM adapter handles its own transient retries) |
 
-On retry, the user prompt is replaced with a structured feedback block followed by the verbatim original prompt. The system prompt is unchanged, so the LLM still has the full vessel/variant catalogue and chart bounds — diagnostics cite fields by name and trust the LLM to re-derive valid options from context. Tree-malformation drops collapse to a single advisory line (token-position fields would be useless to the LLM); `state_drift` skips are suppressed (the LLM cannot fix engine-state mismatch by re-prompting).
+On retry, `llmPlanner` (from `@maelstrom-co/planner-llm`) replaces the user prompt with a structured feedback block followed by the verbatim original prompt. The system prompt is unchanged, so the LLM still has the full vessel/variant catalogue and chart bounds — diagnostics cite fields by name and trust the LLM to re-derive valid options from context. Tree-malformation drops collapse to a single advisory line (token-position fields would be useless to the LLM); `state_drift` skips are suppressed (the LLM cannot fix engine-state mismatch by re-prompting).
 
 ```
 The previous response had issues. Please re-issue the response addressing:
@@ -271,7 +255,7 @@ If every attempt produces `recommend === true`, the **last** attempt's response 
 
 ## Planners and stages
 
-`EngineConfig.planner` is a `Stage<PlanningInput, PlannerCandidate>` — a function from the request (plus context: signal, logger, the original request, and a `validate` callback) to a candidate response or a failure. `llmPlanner` is the stage most consumers need, but the same `Stage` shape composes:
+`EngineConfig.planner` is a `Stage<PlanningInput, PlannerCandidate>` — a function from the request (plus context: signal, logger, the original request, and a `validate` callback) to a candidate response or a failure. `llmPlanner` from `@maelstrom-co/planner-llm` is the stage most consumers need, but the same `Stage` shape composes:
 
 - **`pipeline(...stages)`** chains stages so each one's output feeds the next, typed end to end (up to nine stages). The first `Err` — a `Deferred` or an `EngineError` — stops the chain.
 - **`withFallback(primary, fallback)`** runs `fallback` only when `primary` returns a `Deferred` (a stage abstaining from the request via `deferred(reason)`, checked with `isDeferred`). A real `EngineError` from `primary` is never masked.
@@ -280,7 +264,8 @@ If every attempt produces `recommend === true`, the **last** attempt's response 
 A `Deferred` that reaches the top of the configured planner with nothing to recover it becomes `Err(ValidationError)` on field `'planner'` — the Engine cannot ship a response without a candidate.
 
 ```ts
-import { llmPlanner, pipeline, withFallback } from '@maelstrom-co/engine';
+import { pipeline, withFallback } from '@maelstrom-co/engine';
+import { llmPlanner } from '@maelstrom-co/planner-llm';
 
 const planner = withFallback(
   pipeline(selectVessels, arrangeLayout),
@@ -394,7 +379,7 @@ A response with a partial layout and a partial execution plan is **not** recomme
 `Engine.handle()` returns a `Result<EngineOutput, EngineError>`. The error union:
 
 - **`ProviderError`** — LLM adapter failure (rate limit, service unavailable, non-Error rejection).
-- **`ValidationError`** — malformed prompt customization, `assistant_message` without history configured, unsupported `layoutMode`, and similar caller-fixable conditions.
+- **`ValidationError`**: a planner that cannot build its prompt from the request, `assistant_message` without history configured, unsupported `layoutMode`, and similar caller-fixable conditions.
 - **`ParseError`** — LLM output failed structural validation (e.g. missing `userMessage`).
 - **`TimeoutError`** — configured LLM call timeout elapsed.
 - **`CancellationError`** — the `AbortSignal` fired before or during the call.
