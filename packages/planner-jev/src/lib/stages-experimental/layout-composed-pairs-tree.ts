@@ -7,10 +7,6 @@ import {
 } from '@maelstrom-co/protocol';
 
 import { splitTree } from '../layout-fit.js';
-import {
-  integerWeights,
-  type OptionProbabilities,
-} from './layout-composed-tree.js';
 
 /** Where one Instance sits relative to another. */
 export const PAIR_RELATIONS = [
@@ -37,6 +33,12 @@ export const MAX_TOP_PARTS = 4;
 
 /** The smallest probability a relation is scored with, so no tree scores minus infinity. */
 export const PROBABILITY_FLOOR = 1e-6;
+
+/** Probability per option of one choice answer; options left out have probability 0. */
+export type OptionProbabilities = Readonly<Record<string, number>>;
+
+/** The smallest share of the Chart any Instance is given, before renormalising. */
+export const SIZE_FLOOR = 0.05;
 
 /**
  * A two-level arrangement: the top-level split direction (`V` side by side,
@@ -229,13 +231,9 @@ export interface RankOptions {
   readonly redirectOnlyWhenDirectionChanges?: boolean;
 }
 
-/** How {@link arrangementTree} turns Instance shares into split weights. */
+/** How {@link arrangementTree} splits inside each part. */
 export interface PartSizing {
-  /** A part's weight along the top axis: the sum (default) or the largest of its members' shares. */
-  readonly partWeight?: 'sum' | 'max';
-  /** Shares for the split inside each part; `shareById` when absent. */
-  readonly innerShareById?: Readonly<Record<string, number>>;
-  /** Shares for the split inside each part from its members in order; takes precedence over {@link innerShareById}. */
+  /** Shares for the split inside each part from its members in order; `shareById` when absent. */
   readonly innerSharesOf?: (
     members: readonly InstanceId[],
   ) => readonly number[];
@@ -251,8 +249,7 @@ export interface MinimumFraction {
  * The tiling tree of `arrangement`, each split weighted by the summed
  * shares of the Instances under each child, as the smallest integers in
  * that ratio (see {@link integerWeights}). A part of one Instance is a leaf.
- * `sizing` can weight a part by its largest share instead, and split
- * inside a part by separate shares.
+ * `sizing` can split inside a part by separate shares.
  */
 export function arrangementTree(
   arrangement: Arrangement,
@@ -358,6 +355,55 @@ export function raiseToMinimum(
   }
 }
 
+/**
+ * Normalises answered sizes into shares of the Chart summing to 1. All zero
+ * reads as equal shares; any share under {@link SIZE_FLOOR} is raised to it
+ * before renormalising, so no share is 0.
+ */
+export function sizeShares(sizes: readonly number[]): readonly number[] {
+  const total = sizes.reduce((sum, size) => sum + size, 0);
+  const shares =
+    total > 0
+      ? sizes.map((size) => size / total)
+      : sizes.map(() => 1 / sizes.length);
+  if (shares.every((share) => share >= SIZE_FLOOR)) return shares;
+  const floored = shares.map((share) => Math.max(share, SIZE_FLOOR));
+  const flooredTotal = floored.reduce((sum, share) => sum + share, 0);
+  return floored.map((share) => share / flooredTotal);
+}
+
+/**
+ * The smallest positive integers in the ratio of `shares`, within
+ * {@link WEIGHT_TOLERANCE} of each normalised share, for a Weighted Split
+ * token. Falls back to the closest ratio with a total of at most
+ * {@link MAX_WEIGHT_TOTAL}.
+ */
+export function integerWeights(shares: readonly number[]): readonly number[] {
+  const total = shares.reduce((sum, share) => sum + share, 0);
+  const target = shares.map((share) => share / total);
+  let best: { weights: number[]; error: number } | undefined;
+  for (let scale = 1; scale <= MAX_WEIGHT_TOTAL; scale += 1) {
+    const weights = target.map((share) =>
+      Math.max(1, Math.round(share * scale)),
+    );
+    const sum = weights.reduce((acc, weight) => acc + weight, 0);
+    const error = Math.max(
+      ...weights.map((weight, index) =>
+        Math.abs(weight / sum - (target[index] ?? 0)),
+      ),
+    );
+    if (error <= WEIGHT_TOLERANCE) return reduced(weights);
+    if (best === undefined || error < best.error) best = { weights, error };
+  }
+  return reduced(best?.weights ?? shares.map(() => 1));
+}
+
+/** Largest error per share a ratio of small integers may have before a larger total is tried. */
+const WEIGHT_TOLERANCE = 0.025;
+
+/** The largest sum of integer weights one split is written with. */
+const MAX_WEIGHT_TOTAL = 24;
+
 function directionTable(
   direction: OptionProbabilities,
   currentTree: readonly TilingNode[],
@@ -398,18 +444,14 @@ function arrangementShares(
   readonly inner: readonly (readonly number[])[];
 } {
   const shareOf = (id: InstanceId) => shareById[id] ?? 0;
-  const innerOf = (id: InstanceId) =>
-    sizing.innerShareById ? (sizing.innerShareById[id] ?? 0) : shareOf(id);
   return {
     top: arrangement.parts.map((members) =>
-      sizing.partWeight === 'max'
-        ? Math.max(0, ...members.map(shareOf))
-        : members.reduce((sum, id) => sum + shareOf(id), 0),
+      members.reduce((sum, id) => sum + shareOf(id), 0),
     ),
     inner: arrangement.parts.map((members) =>
       sizing.innerSharesOf
         ? sizing.innerSharesOf(members)
-        : members.map(innerOf),
+        : members.map(shareOf),
     ),
   };
 }
@@ -561,4 +603,13 @@ function leafPaths(
   };
   if (tree.length === 0 || !walk([])) return undefined;
   return paths;
+}
+
+function reduced(weights: readonly number[]): readonly number[] {
+  const divisor = weights.reduce(gcd);
+  return weights.map((weight) => weight / divisor);
+}
+
+function gcd(a: number, b: number): number {
+  return b === 0 ? a : gcd(b, a % b);
 }

@@ -8,10 +8,12 @@ import {
   arrangementTreeAtMinimum,
   enumerateArrangements,
   equalArrangementTree,
+  integerWeights,
   NOT_STATED,
   type PairAnswer,
   raiseToMinimum,
   rankArrangements,
+  sizeShares,
   treeDirection,
   treeRelation,
 } from './layout-composed-pairs-tree.js';
@@ -370,21 +372,15 @@ describe('part sizing', () => {
   const focus = { axis: 'V' as const, parts: [[calendar], [weather, tasks]] };
   const shares = { [calendar]: 0.5, [weather]: 0.5, [tasks]: 0.5 };
 
-  test('weights a part by the largest share of its members', () => {
-    expect(arrangementTree(focus, shares, { partWeight: 'max' })).toEqual([
-      'V',
-      'ID:calendar-main',
-      'H',
-      'ID:weather-main',
-      'ID:tasks-main',
-    ]);
+  test('weights a part by the summed shares of its members', () => {
     expect(arrangementTree(focus, shares)[0]).toBe('V:1,2');
   });
 
   test('splits inside a part by the shares within the part', () => {
     expect(
       arrangementTree(focus, shares, {
-        innerShareById: { [calendar]: 0.5, [weather]: 1, [tasks]: 0.5 },
+        innerSharesOf: (members) =>
+          members.map((id) => (id === weather ? 2 / 3 : 1 / 3)),
       }),
     ).toEqual([
       'V:1,2',
@@ -464,5 +460,39 @@ describe('size fallback', () => {
       'ID:weather-main',
       'ID:tasks-main',
     ]);
+  });
+});
+
+describe('sizeShares', () => {
+  test('normalises to shares summing to 1', () => {
+    expect(sizeShares([0.25, 0.25, 0.5, 0.5, 1])).toEqual([
+      0.1, 0.1, 0.2, 0.2, 0.4,
+    ]);
+  });
+
+  test('raises a zero share to the floor and still sums to 1', () => {
+    const shares = sizeShares([0, 1, 1]);
+    expect(shares[0]).toBeGreaterThan(0);
+    expect(shares[0]).toBeCloseTo(0.05 / 1.05);
+    expect(shares.reduce((sum, share) => sum + share, 0)).toBeCloseTo(1);
+  });
+
+  test('all sizes zero reads as equal shares', () => {
+    expect(sizeShares([0, 0])).toEqual([0.5, 0.5]);
+  });
+});
+
+describe('integerWeights', () => {
+  test('writes shares as the smallest integer ratio', () => {
+    expect(integerWeights([0.2, 0.8])).toEqual([1, 4]);
+    expect(integerWeights([0.2, 0.2, 0.4])).toEqual([1, 1, 2]);
+    expect(integerWeights([0.1, 0.1])).toEqual([1, 1]);
+    expect(integerWeights([1 / 3, 2 / 3])).toEqual([1, 2]);
+    expect(integerWeights([0.25, 0.75])).toEqual([1, 3]);
+  });
+
+  test('every weight is a positive integer', () => {
+    const weights = integerWeights([0.01, 0.99]);
+    expect(weights.every((w) => Number.isInteger(w) && w >= 1)).toBe(true);
   });
 });

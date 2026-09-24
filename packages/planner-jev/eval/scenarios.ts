@@ -322,9 +322,9 @@ const arrangements: Scenario[] = [
       resizeFrom: { columns: 24, rows: 18 },
     },
   ),
-  // Composed-stage-only arrangements (MAE-804 Phase 5): each nests a nested
-  // split that no `layoutPreset` menu option offers, so only `layoutComposed`
-  // (or a hand-off to the LLM) can produce them.
+  // Composed-stage-only arrangements: each nests a split that no
+  // `layoutPreset` menu option offers, so only a composed layout stage (or a
+  // hand-off to the LLM) can produce them.
   planned(
     'narrow-pair-stacked-triple',
     'A narrow left pair beside a stacked right triple',

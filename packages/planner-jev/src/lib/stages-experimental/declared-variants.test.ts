@@ -17,12 +17,10 @@ import type { SelectedInstance } from '../types.js';
 import type { Ask } from '../typesafe-client.js';
 import { completeLayoutInline } from './complete-layout-inline.js';
 import { completeLayoutParallel } from './complete-layout-parallel.js';
-import { layoutAlwaysLlm } from './layout-always-llm.js';
-import { layoutComposed } from './layout-composed.js';
+import { layoutComposedPairsGateAndDefer } from './layout-composed-pairs-gate-and-defer.js';
 import { layoutKeepOrDefault } from './layout-keep-or-default.js';
 import { layoutPreset } from './layout-preset.js';
 import { layoutPresetOrLlm } from './layout-preset-or-llm.js';
-import { layoutSpatialGate } from './layout-spatial-gate.js';
 import type {
   CompleteStage,
   GateAnswer,
@@ -43,9 +41,7 @@ const LAYOUT_STAGES: readonly (readonly [
   ],
   ['layoutPresetOrLlm', layoutPresetOrLlm],
   ['layoutKeepOrDefault', () => layoutKeepOrDefault],
-  ['layoutSpatialGate', layoutSpatialGate],
-  ['layoutComposed', (ask) => layoutComposed(ask)],
-  ['layoutAlwaysLlm', layoutAlwaysLlm],
+  ['layoutComposedPairsGateAndDefer', layoutComposedPairsGateAndDefer],
 ];
 
 const COMPLETE_STAGES: readonly (readonly [string, CompleteStage])[] = [

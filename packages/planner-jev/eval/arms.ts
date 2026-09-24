@@ -8,7 +8,6 @@ import {
   withRetry,
 } from '@maelstrom-co/engine';
 import type { AnyTextAdapter } from '@tanstack/ai';
-import { layoutComposedPairsBothFixes } from '../eval-stages/layout.js';
 import {
   buildJevPlanner,
   FALLBACK_RETRIES,
@@ -31,11 +30,8 @@ import {
   createJevDeps,
   type JevDeps,
 } from '../src/lib/stages-experimental/deps.js';
-import { layoutAlwaysLlm } from '../src/lib/stages-experimental/layout-always-llm.js';
-import { layoutComposed } from '../src/lib/stages-experimental/layout-composed.js';
 import { layoutPreset } from '../src/lib/stages-experimental/layout-preset.js';
 import { layoutPresetOrLlm } from '../src/lib/stages-experimental/layout-preset-or-llm.js';
-import { layoutSpatialGate } from '../src/lib/stages-experimental/layout-spatial-gate.js';
 import { selectGated } from '../src/lib/stages-experimental/select-gated.js';
 import { selectUngated } from '../src/lib/stages-experimental/select-ungated.js';
 import type { Selection2 } from '../src/lib/stages-experimental/types.js';
@@ -138,60 +134,11 @@ const ARMS: readonly Arm[] = [
     layout: layoutPresetOrLlm,
     complete: completeLayoutParallel,
   }),
-  stagePlannerArm('jev-gated-per-instance-spatial-gate-inline', 'gated', {
-    ...GATED_PER_INSTANCE,
-    layout: layoutSpatialGate,
-    complete: completeLayoutInline,
-  }),
-  stagePlannerArm('jev-gated-per-instance-spatial-gate-parallel', 'gated', {
-    ...GATED_PER_INSTANCE,
-    layout: layoutSpatialGate,
-    complete: completeLayoutParallel,
-  }),
-  stagePlannerArm('jev-gated-per-instance-composed-inline', 'gated', {
-    ...GATED_PER_INSTANCE,
-    layout: (ask) => layoutComposed(ask),
-    complete: completeLayoutInline,
-  }),
-  stagePlannerArm('jev-gated-per-instance-composed-parallel', 'gated', {
-    ...GATED_PER_INSTANCE,
-    layout: (ask) => layoutComposed(ask),
-    complete: completeLayoutParallel,
-  }),
-  stagePlannerArm(
-    'jev-gated-per-instance-composed-2-size-levels-inline',
-    'gated',
-    {
-      ...GATED_PER_INSTANCE,
-      layout: (ask) => layoutComposed(ask, { sizeLevels: 2 }),
-      complete: completeLayoutInline,
-    },
-  ),
-  stagePlannerArm('jev-gated-per-instance-composed-pairs-inline', 'gated', {
-    ...GATED_PER_INSTANCE,
-    layout: layoutComposedPairsBothFixes,
-    complete: completeLayoutInline,
-  }),
-  stagePlannerArm('jev-gated-per-instance-composed-pairs-parallel', 'gated', {
-    ...GATED_PER_INSTANCE,
-    layout: layoutComposedPairsBothFixes,
-    complete: completeLayoutParallel,
-  }),
   stageLibraryArm(
     'jev-gated-per-instance-composed-pairs-gate-and-defer-inline',
     'gated',
     buildJevComposedPairsPlanner,
   ),
-  stagePlannerArm('jev-gated-per-instance-always-llm-inline', 'gated', {
-    ...GATED_PER_INSTANCE,
-    layout: layoutAlwaysLlm,
-    complete: completeLayoutInline,
-  }),
-  stagePlannerArm('jev-gated-per-instance-always-llm-parallel', 'gated', {
-    ...GATED_PER_INSTANCE,
-    layout: layoutAlwaysLlm,
-    complete: completeLayoutParallel,
-  }),
   stagePlannerArm('jev-ungated-per-instance-preset-or-llm-inline', 'ungated', {
     select: selectUngated,
     actions: actionsBatchedPerInstance,
