@@ -3,9 +3,11 @@ import { parseArgs } from 'node:util';
 
 import { consoleLogger } from '@maelstrom-co/engine';
 
+import { arms } from '../eval/arms.js';
 import { type Suite, selectScenarios } from '../eval/scenarios.js';
 import { layoutStageEvalWith } from './layout.js';
 import {
+  DEFAULT_SPATIAL_RECORDS_ARM,
   loadRecordedSpatialSignal,
   type RecordedSpatialSignal,
 } from './recorded-spatial.js';
@@ -29,7 +31,7 @@ const { values } = parseArgs({
     'spatial-records': { type: 'string' },
     'spatial-records-arm': {
       type: 'string',
-      default: 'jev-gated-per-instance-composed-pairs-gate-and-defer-inline',
+      default: DEFAULT_SPATIAL_RECORDS_ARM,
     },
   },
 });
@@ -136,10 +138,16 @@ async function spatialSignalOption(): Promise<
     fail(
       '--spatial-signal recorded-live needs --spatial-records <records.json of a full planner eval>',
     );
-  return loadRecordedSpatialSignal(
-    resolve(path),
-    values['spatial-records-arm'],
-  );
+  const arm = values['spatial-records-arm'];
+  if (!Object.hasOwn(arms, arm))
+    fail(
+      `--spatial-records-arm: unknown arm ${arm}; known arms: ${Object.keys(arms).join(', ')}`,
+    );
+  try {
+    return await loadRecordedSpatialSignal(resolve(path), arm);
+  } catch (error) {
+    fail(`--spatial-records: ${(error as Error).message}`);
+  }
 }
 
 function recordedTurns(signal: RecordedSpatialSignal): number {
