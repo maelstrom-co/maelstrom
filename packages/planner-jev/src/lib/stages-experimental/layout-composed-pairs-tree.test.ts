@@ -33,6 +33,9 @@ function certain(
   return { first, second, probabilities: { [relation]: 1 } };
 }
 
+/** A direction answer that states no top-level split. */
+const NO_DIRECTION = { [NOT_STATED]: 1 };
+
 describe('enumerateArrangements', () => {
   test.each([
     [2, 4],
@@ -95,6 +98,7 @@ describe('rankArrangements', () => {
         certain(weather, tasks, 'above'),
       ],
       [],
+      NO_DIRECTION,
     );
     expect(best?.arrangement).toEqual({
       axis: 'V',
@@ -130,6 +134,7 @@ describe('rankArrangements', () => {
         certain(weather, tasks, NOT_STATED),
       ],
       current,
+      NO_DIRECTION,
     );
     expect(best?.arrangement).toEqual({
       axis: 'H',
@@ -152,6 +157,7 @@ describe('rankArrangements', () => {
         certain(weather, tasks, NOT_STATED),
       ],
       current,
+      NO_DIRECTION,
     );
     const best = ranked[0];
     expect(
@@ -198,6 +204,7 @@ describe('top-level direction', () => {
       THREE,
       leaningPairs,
       sideBySide,
+      NO_DIRECTION,
     );
     expect(withoutDirection?.arrangement.axis).toBe('V');
     const [best] = rankArrangements(THREE, leaningPairs, sideBySide, {
@@ -226,7 +233,7 @@ describe('top-level direction', () => {
       certain(calendar, tasks, 'left_of'),
       certain(weather, tasks, 'left_of'),
     ];
-    const [plain] = rankArrangements(THREE, pairs, []);
+    const [plain] = rankArrangements(THREE, pairs, [], { side_by_side: 1 });
     const [directed] = rankArrangements(THREE, pairs, [], {
       side_by_side: 0.5,
       stacked: 0.5,
@@ -255,16 +262,8 @@ describe('not stated redirected by the direction answer', () => {
   ];
   const stacked = { side_by_side: 0, stacked: 1, not_stated: 0 };
 
-  test('without the redirect, not stated keeps one pair side by side in the best stacked tree', () => {
-    const [best] = rankArrangements(THREE, pairs, sideBySide, stacked);
-    expect(best?.arrangement.axis).toBe('H');
-    expect(best?.arrangement.parts.some((part) => part.length > 1)).toBe(true);
-  });
-
   test('a stacked direction sends not stated to above or below in the current order', () => {
-    const [best] = rankArrangements(THREE, pairs, sideBySide, stacked, {
-      redirectNotStated: true,
-    });
+    const [best] = rankArrangements(THREE, pairs, sideBySide, stacked);
     expect(best?.arrangement).toEqual({
       axis: 'H',
       parts: [[calendar], [weather], [tasks]],
@@ -287,21 +286,11 @@ describe('not stated redirected by the direction answer', () => {
       ],
       current,
       { side_by_side: 0.7, stacked: 0.1, not_stated: 0.2 },
-      { redirectNotStated: true },
     );
     expect(best?.arrangement).toEqual({
       axis: 'V',
       parts: [[tasks], [weather], [calendar]],
     });
-  });
-
-  test('a not stated direction leaves not stated voting for the current relation', () => {
-    const direction = { side_by_side: 0.1, stacked: 0.3, not_stated: 0.6 };
-    const redirected = rankArrangements(THREE, pairs, sideBySide, direction, {
-      redirectNotStated: true,
-    });
-    const plain = rankArrangements(THREE, pairs, sideBySide, direction);
-    expect(redirected).toEqual(plain);
   });
 });
 
@@ -326,7 +315,6 @@ describe('not stated redirected only when the direction changes', () => {
       unstated,
       columnThenTasks,
       sideBySide,
-      { redirectNotStated: true, redirectOnlyWhenDirectionChanges: true },
     );
     expect(best?.arrangement).toEqual({
       axis: 'V',
@@ -334,34 +322,10 @@ describe('not stated redirected only when the direction changes', () => {
     });
   });
 
-  test('the full redirect splits the part along the same direction', () => {
-    const [best] = rankArrangements(
-      THREE,
-      unstated,
-      columnThenTasks,
-      sideBySide,
-      { redirectNotStated: true },
-    );
-    expect(best?.arrangement).toEqual({
-      axis: 'V',
-      parts: [[calendar], [weather], [tasks]],
-    });
-  });
-
   test('a direction across the current top split still redirects every pair', () => {
     const stacked = { side_by_side: 0.1, stacked: 0.8, not_stated: 0.1 };
-    const limited = rankArrangements(
-      THREE,
-      unstated,
-      columnThenTasks,
-      stacked,
-      { redirectNotStated: true, redirectOnlyWhenDirectionChanges: true },
-    );
-    const full = rankArrangements(THREE, unstated, columnThenTasks, stacked, {
-      redirectNotStated: true,
-    });
-    expect(limited).toEqual(full);
-    expect(limited[0]?.arrangement).toEqual({
+    const [best] = rankArrangements(THREE, unstated, columnThenTasks, stacked);
+    expect(best?.arrangement).toEqual({
       axis: 'H',
       parts: [[calendar], [weather], [tasks]],
     });

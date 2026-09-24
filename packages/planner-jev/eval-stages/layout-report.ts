@@ -3,7 +3,7 @@ import type {
   ComposedRoute,
   PairsHandOff,
   PairsSizeFallback,
-} from '../src/lib/stages-experimental/layout-composed-pairs.js';
+} from '../src/lib/stages-experimental/layout-composed-pairs-gate-and-defer.js';
 import type { LayoutTurnDetail } from './layout.js';
 import { type Ratio, ratio } from './report.js';
 import type { StageTurnRecord } from './stage-eval.js';
@@ -73,7 +73,7 @@ export function summarizeComposedPairs(
     same_instances: { turns: 0, calls: 0 },
     instances_changed: { turns: 0, calls: 0 },
   };
-  const handOffs = { nothing_fits: 0, too_many_instances: 0 };
+  const handOffs = { too_many_instances: 0 };
   const chosenRank = [0, 0, 0];
   const sizeFallbacks = { raised_to_minimum: 0, equal_weights: 0 };
   let compared = 0;
@@ -166,7 +166,6 @@ export function renderComposedPairsSection(
       `Route ${route}: turns (Jev calls)`,
       (s) => `${s.routes[route].turns} (${s.routes[route].calls})`,
     );
-  row('Hand-off: nothing_fits', (s) => String(s.handOffs.nothing_fits));
   row('Hand-off: too_many_instances', (s) =>
     String(s.handOffs.too_many_instances),
   );
