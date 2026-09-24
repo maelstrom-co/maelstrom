@@ -15,7 +15,10 @@ import {
   type ReplayAnswers,
   recordedAsk,
 } from '../src/lib/__test-helpers__/layout-replay.js';
-import { layoutComposedPairsGateAndDefer } from '../src/lib/stages/layout-composed-pairs-gate-and-defer.js';
+import {
+  type ComposedPairsDecision,
+  layoutComposedPairsGateAndDefer,
+} from '../src/lib/stages/layout-composed-pairs-gate-and-defer.js';
 import type { GatedActionPlan } from '../src/lib/stages/stage-types.js';
 import { judgeLayout, layoutStageEval } from './layout.js';
 import { planningInput } from './stage-eval.js';
@@ -91,6 +94,42 @@ describe('layout stage replay of recorded Jev answers', () => {
   });
 });
 
+describe('close calls the size check leaves to a lower tree that fits as sized', () => {
+  test('keeps the right stack when rank 0 is only 0.02 nats ahead and does not fit as sized', async () => {
+    for (const key of ['combined/focus#1', 'gold/focus#2']) {
+      const decision = await replayStageEvalTurn(key);
+      expect(decision.pairwise.chosen).toBe(1);
+      expect(decision.tree).toEqual([
+        'V:2,1',
+        'ID:calendar-main',
+        'H',
+        'ID:weather-main',
+        'ID:tasks-main',
+      ]);
+    }
+  });
+
+  test('keeps the narrow stacked pair when rank 0 is 1.2 nats ahead', async () => {
+    for (const key of [
+      'gold/narrow-pair-stacked-triple#1',
+      'gold/narrow-pair-stacked-triple#2',
+    ]) {
+      const decision = await replayStageEvalTurn(key);
+      expect(decision.pairwise.chosen).toBe(1);
+      expect(decision.tree).toEqual([
+        'V:1,4',
+        'H',
+        'ID:calendar-main',
+        'ID:tasks-main',
+        'H:1,1,2',
+        'ID:map-main',
+        'ID:weather-main',
+        'ID:journal-main',
+      ]);
+    }
+  });
+});
+
 interface PreparedTurnInput {
   readonly plan: GatedActionPlan;
   readonly ctx: StageContext;
@@ -159,4 +198,17 @@ function passes(
     judgeLayout(scenario, plan, { plan, source: 'jev', tree, answers: [] })
       .outcome === 'pass'
   );
+}
+
+async function replayStageEvalTurn(
+  key: string,
+): Promise<ComposedPairsDecision> {
+  const turn = stageEvalTurns.find((candidate) => candidate.key === key);
+  if (turn === undefined) throw new Error(`no stage-eval turn ${key}`);
+  const { plan, ctx } = await preparedTurnInput(scenarioById(turn.scenarioId));
+  const result = await layoutComposedPairsGateAndDefer(
+    recordedAsk(turn.answers),
+  )(plan, ctx);
+  if (!isOk(result)) throw new Error(`${key} did not plan`);
+  return result.value;
 }

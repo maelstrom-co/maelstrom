@@ -10,6 +10,11 @@ import {
 import { makeContext, makeRequest } from '../__test-helpers__/fixtures.js';
 import { actionPlan } from '../__test-helpers__/layout-fixtures.js';
 import {
+  demoTurn,
+  demoTurnPlan,
+  recordedAsk,
+} from '../__test-helpers__/layout-replay.js';
+import {
   buildReply,
   type Payload,
   type Step,
@@ -614,5 +619,43 @@ describe('size fallback and nothing fits', () => {
       scriptedAsk(() => inARow).ask,
     )(plan, makeContext(plan.selection.input));
     expect(isOk(result)).toBe(false);
+  });
+});
+
+describe('the best tree before one that fits as sized', () => {
+  async function replayDemoTurn(key: string): Promise<ComposedPairsDecision> {
+    const turn = await demoTurn(key);
+    const plan = demoTurnPlan(turn);
+    const result = await layoutComposedPairsGateAndDefer(
+      recordedAsk(turn.answers),
+    )(plan, makeContext(plan.selection.input));
+    if (!isOk(result)) throw new Error(`${key} did not plan`);
+    return result.value;
+  }
+
+  test('prefers the best tree raised to its minimums over a far worse tree that fits', async () => {
+    const decision = await replayDemoTurn('log2:10');
+    expect(decision.pairwise.fallback).toEqual({
+      kind: 'raised_to_minimum',
+      candidate: 0,
+    });
+    expect(decision.pairwise.chosen).toBeUndefined();
+    expect(decision.tree).toEqual([
+      'H:1,1,1,1',
+      'ID:calendar-main',
+      'ID:tasks-main',
+      'ID:map-jev-1',
+      'ID:weather-jev-1',
+    ]);
+  });
+
+  test('keeps the map above the journal at its minimum height', async () => {
+    const decision = await replayDemoTurn('log1:25');
+    expect(decision.pairwise.fallback).toEqual({
+      kind: 'raised_to_minimum',
+      candidate: 0,
+    });
+    expect(decision.pairwise.chosen).toBeUndefined();
+    expect(decision.tree).toEqual(['H:1,3', 'ID:map-jev-1', 'ID:journal-main']);
   });
 });
