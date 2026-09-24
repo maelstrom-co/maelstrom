@@ -1,3 +1,4 @@
+import { formatValidationIssues } from '@maelstrom-co/engine';
 import type { AnyTextAdapter } from '@tanstack/ai';
 import { z } from 'zod';
 
@@ -112,48 +113,10 @@ export function validateLlmPlannerOptions(options: unknown): LlmPlannerOptions {
   const result = llmPlannerOptionsSchema.safeParse(options);
   if (!result.success) {
     throw new Error(
-      `Invalid LlmPlannerOptions: ${formatIssues(result.error)}`,
+      `Invalid LlmPlannerOptions: ${formatValidationIssues(result.error)}`,
       { cause: result.error },
     );
   }
   // See `_AdapterContract`: the phantom `~types` field requires this cast.
   return options as LlmPlannerOptions;
-}
-
-function formatIssues(error: z.ZodError): string {
-  return error.issues.map(formatIssue).join('; ');
-}
-
-function formatIssue(issue: z.core.$ZodIssue): string {
-  const path = issue.path.length > 0 ? issue.path.join('.') : '(root)';
-  const base = `${path} [${issue.code}]: ${issue.message}`;
-  if (hasNestedBranches(issue)) {
-    const branches = issue.errors
-      .map((branch) => branch.map(formatIssue).join(' & '))
-      .join(' | ');
-    return branches.length > 0 ? `${base} (${branches})` : base;
-  }
-  if (hasNestedIssues(issue)) {
-    const nested = issue.issues.map(formatIssue).join(' & ');
-    return nested.length > 0 ? `${base} (${nested})` : base;
-  }
-  return base;
-}
-
-function hasNestedBranches(
-  issue: z.core.$ZodIssue,
-): issue is z.core.$ZodIssue & {
-  readonly errors: readonly z.core.$ZodIssue[][];
-} {
-  return (
-    'errors' in issue && Array.isArray((issue as { errors?: unknown }).errors)
-  );
-}
-
-function hasNestedIssues(issue: z.core.$ZodIssue): issue is z.core.$ZodIssue & {
-  readonly issues: readonly z.core.$ZodIssue[];
-} {
-  return (
-    'issues' in issue && Array.isArray((issue as { issues?: unknown }).issues)
-  );
 }

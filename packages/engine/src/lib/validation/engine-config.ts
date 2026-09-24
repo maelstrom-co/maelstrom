@@ -5,6 +5,7 @@ import type { LLMContextMessage } from '../history/history-manager.js';
 import type { HistoryEntry, HistoryStore } from '../history/history-store.js';
 import type { Logger } from '../logger.js';
 import type { Planner } from '../planner/stage.js';
+import { formatValidationIssues } from './format-validation-issues.js';
 
 // `T` is compile-time shape only — runtime only verifies that `v` is callable.
 // Method signature/arity drift surfaces via the type-level guards below
@@ -106,9 +107,12 @@ void [
 export function validateEngineConfig(config: unknown): EngineConfig {
   const result = engineConfigSchema.safeParse(config);
   if (!result.success) {
-    throw new Error(`Invalid EngineConfig: ${formatIssues(result.error)}`, {
-      cause: result.error,
-    });
+    throw new Error(
+      `Invalid EngineConfig: ${formatValidationIssues(result.error)}`,
+      {
+        cause: result.error,
+      },
+    );
   }
   // Return the caller's original instance, not `result.data`. Zod's
   // `.object().loose()` rebuilds objects by copying own-enumerable keys,
@@ -118,42 +122,4 @@ export function validateEngineConfig(config: unknown): EngineConfig {
   // is safe and keeps planner, logger, and history.store identity intact
   // across the validation boundary.
   return config as EngineConfig;
-}
-
-function formatIssues(error: z.ZodError): string {
-  return error.issues.map(formatIssue).join('; ');
-}
-
-function formatIssue(issue: z.core.$ZodIssue): string {
-  const path = issue.path.length > 0 ? issue.path.join('.') : '(root)';
-  const base = `${path} [${issue.code}]: ${issue.message}`;
-  if (hasNestedBranches(issue)) {
-    const branches = issue.errors
-      .map((branch) => branch.map(formatIssue).join(' & '))
-      .join(' | ');
-    return branches.length > 0 ? `${base} (${branches})` : base;
-  }
-  if (hasNestedIssues(issue)) {
-    const nested = issue.issues.map(formatIssue).join(' & ');
-    return nested.length > 0 ? `${base} (${nested})` : base;
-  }
-  return base;
-}
-
-function hasNestedBranches(
-  issue: z.core.$ZodIssue,
-): issue is z.core.$ZodIssue & {
-  readonly errors: readonly z.core.$ZodIssue[][];
-} {
-  return (
-    'errors' in issue && Array.isArray((issue as { errors?: unknown }).errors)
-  );
-}
-
-function hasNestedIssues(issue: z.core.$ZodIssue): issue is z.core.$ZodIssue & {
-  readonly issues: readonly z.core.$ZodIssue[];
-} {
-  return (
-    'issues' in issue && Array.isArray((issue as { issues?: unknown }).issues)
-  );
 }

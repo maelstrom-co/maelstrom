@@ -73,6 +73,8 @@ export type { WithRetryOptions } from './lib/planner/with-retry.js';
 export { withRetry } from './lib/planner/with-retry.js';
 // Update reasons
 export { isResizeOnlyBatch } from './lib/update-reasons.js';
+// Validation
+export { formatValidationIssues } from './lib/validation/format-validation-issues.js';
 // Response diagnostics
 export type {
   RetryHint,
