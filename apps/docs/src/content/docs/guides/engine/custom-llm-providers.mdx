@@ -171,7 +171,7 @@ object satisfying that contract — including your own — is accepted.
 
 Implementing a custom adapter is out of scope for this guide. See the
 [TanStack AI docs](https://tanstack.com/ai) for the `AnyTextAdapter`
-contract; the engine does not extend it.
+contract; neither `llmPlanner` nor the engine extends it.
 
 Use this when you need to call a model the TanStack AI catalogue does not
 cover yet (an internal endpoint, a fine-tuned deployment, a gateway), or
@@ -181,8 +181,9 @@ or fallback chains.
 ## Verify
 
 Send a `chart_request` through the engine and inspect the result. If the
-adapter errors, the engine emits a `LLM call failed` log line with the
-structured `EngineError` attached and returns `Err(ProviderError)`:
+adapter errors, `llmPlanner` logs `LLM call failed` through the engine's
+configured logger with the structured `EngineError` attached, and the engine
+returns `Err(ProviderError)`:
 
 ```ts
 import { isOk } from '@maelstrom-co/protocol';

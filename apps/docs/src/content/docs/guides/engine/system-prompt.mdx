@@ -1,13 +1,14 @@
 ---
 title: Customize the system prompt
-description: How to replace, extend, or transform the Engine's prompt sections without forking the prompt builder.
+description: How to replace, extend, or transform llmPlanner's prompt sections without forking the prompt builder.
 ---
 
 import { Aside, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
 
 Prompt customization changes the instructions sent to the model; it does not bypass protocol schemas, layout validation, healing, or retry behavior. Treat it as a behavior layer on top of the same structured-output contract.
 
-The Engine builds its prompt from **named sections**. You can override any
+The reference LLM planner (`llmPlanner` from `@maelstrom-co/planner-llm`) builds
+its prompt from **named sections**. You can override any
 section by name without touching the others — the prompt-builder owns
 joining, ordering, and template-variable substitution.
 
@@ -17,11 +18,12 @@ This page covers the section catalogue, the four customizer forms
 ## Before you start
 
 - A wired engine (see [Use a custom LLM provider](/guides/engine/custom-llm-providers)).
+- An installed `@maelstrom-co/planner-llm` package.
 - Familiarity with the engine's job — see [The Engine](/understanding/engine).
 
 ## The sections
 
-The engine builds two halves of every prompt from a set of named sections.
+`llmPlanner` builds two halves of every prompt from a set of named sections.
 Customizations target a key by name. The current set is:
 
 | Half     | Key              | What it contains                                                |
