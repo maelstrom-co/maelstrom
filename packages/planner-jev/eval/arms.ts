@@ -8,15 +8,13 @@ import {
   withRetry,
 } from '@maelstrom-co/engine';
 import type { AnyTextAdapter } from '@tanstack/ai';
-import {
-  layoutComposedPairsBothFixes,
-  layoutComposedPairsGateAndDefer,
-} from '../eval-stages/layout.js';
+import { layoutComposedPairsBothFixes } from '../eval-stages/layout.js';
 import {
   buildJevPlanner,
   FALLBACK_RETRIES,
   type Instrument,
 } from '../src/lib/jev-planner.js';
+import { buildJevComposedPairsPlanner } from '../src/lib/planners/jev-composed-pairs.js';
 import { buildJevGatedBatchedPlanner } from '../src/lib/planners/jev-gated-batched.js';
 import { buildJevGatedStepwisePlanner } from '../src/lib/planners/jev-gated-stepwise.js';
 import {
@@ -179,14 +177,10 @@ const ARMS: readonly Arm[] = [
     layout: layoutComposedPairsBothFixes,
     complete: completeLayoutParallel,
   }),
-  stagePlannerArm(
+  stageLibraryArm(
     'jev-gated-per-instance-composed-pairs-gate-and-defer-inline',
     'gated',
-    {
-      ...GATED_PER_INSTANCE,
-      layout: layoutComposedPairsGateAndDefer,
-      complete: completeLayoutInline,
-    },
+    buildJevComposedPairsPlanner,
   ),
   stagePlannerArm('jev-gated-per-instance-always-llm-inline', 'gated', {
     ...GATED_PER_INSTANCE,

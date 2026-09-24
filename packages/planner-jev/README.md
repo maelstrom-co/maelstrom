@@ -2,7 +2,7 @@
 
 Experimental, server-only Maelstrom planner built on TypeSafe's Jev model. Jev answers typed multiple-choice questions quickly and cheaply but writes no text, so this planner hands it the multiple-choice-shaped decisions and keeps one small LLM call for the reply.
 
-The package is demo-only. It serves the local demo (`MAELSTROM_PLANNER=jev`) and the comparison eval. The hosted demo keeps the plain `llmPlanner`.
+The package is demo-only. It serves the local demo (`MAELSTROM_PLANNER=jev`, or `jev-composed-pairs` for the experimental planner below) and the comparison eval. The hosted demo keeps the plain `llmPlanner`.
 
 ## What it does
 
@@ -40,9 +40,15 @@ const engine = createEngine({
 
 Run the Engine with `retry: false`. The Jev pipeline is never re-run whole: `llmComplete` validates its own candidate and defers instead. Retry lives on the fallback only, and the planner wraps `fallback` in `withRetry(fallback, { max: 1 })` itself, so pass it unwrapped.
 
+### Composed pairs planner (experimental)
+
+`jevComposedPairsPlanner(options)` takes the same options as `jevPlanner` and runs the same way. It is the eval arm `jev-gated-per-instance-composed-pairs-gate-and-defer-inline`: `selectGated`, `actionsBatchedPerInstance`, `layoutComposedPairsGateAndDefer` and `completeLayoutInline` (see Stage library). Its layout stage asks where the request puts each pair of visible Instances and how much space each gets, and code builds the tree, instead of choosing from precomputed layouts. `buildJevComposedPairsPlanner` (`src/lib/planners/jev-composed-pairs.ts`) builds it for the eval arm, the export and the demo alike.
+
+It is not the default: `jevPlanner` passed more holdout scenarios in the comparison eval. The demo selects it with `MAELSTROM_PLANNER=jev-composed-pairs` so the composed layout can be tried in a real UI.
+
 ## Stage library (experimental)
 
-`src/lib/stages-experimental/` holds candidate stages measured against the frozen POC, and `src/lib/planners/` composes them into named planners with `pipeline(...)`, each wrapped in the same fallback. None is exported yet; the eval runs them as arms. Every stage keeps the POC's stage names (`jevSelect`, `jevActions`, `jevLayout`, `llmComplete`), so deferral reasons, the report and replay treat them alike.
+`src/lib/stages-experimental/` holds candidate stages measured against the frozen POC, and `src/lib/planners/` composes them into named planners with `pipeline(...)`, each wrapped in the same fallback. Only the composed pairs planner is exported (see above); the eval runs every planner as an arm. Every stage keeps the POC's stage names (`jevSelect`, `jevActions`, `jevLayout`, `llmComplete`), so deferral reasons, the report and replay treat them alike.
 
 | Stage | Replaces | What it does |
 | --- | --- | --- |
@@ -87,12 +93,12 @@ The Phase 5 arms vary the layout and completion stages on `selectGated` and `act
 | `jev-gated-per-instance-composed-2-size-levels-inline` | `layoutComposed`, 2 size levels | `completeLayoutInline` |
 | `jev-gated-per-instance-composed-pairs-inline` | `layoutComposedPairsWithOptions`, the stage eval's `composed-pairs-fraction-sizes-both-fixes` options | `completeLayoutInline` |
 | `jev-gated-per-instance-composed-pairs-parallel` | `layoutComposedPairsWithOptions`, the stage eval's `composed-pairs-fraction-sizes-both-fixes` options | `completeLayoutParallel` |
-| `jev-gated-per-instance-composed-pairs-gate-and-defer-inline` | `layoutComposedPairsWithOptions`, the stage eval's `composed-pairs-gate-and-defer-combined` options | `completeLayoutInline` |
+| `jev-gated-per-instance-composed-pairs-gate-and-defer-inline` | `layoutComposedPairsGateAndDefer`, the stage eval's `composed-pairs-gate-and-defer-combined` variant; built by `buildJevComposedPairsPlanner` | `completeLayoutInline` |
 | `jev-gated-per-instance-always-llm-inline` | `layoutAlwaysLlm` | `completeLayoutInline` |
 | `jev-gated-per-instance-always-llm-parallel` | `layoutAlwaysLlm` | `completeLayoutParallel` |
 | `jev-ungated-per-instance-preset-or-llm-inline` | `layoutPresetOrLlm` (with `selectUngated`) | `completeLayoutInline` |
 
-`jev-gated-per-instance-preset-inline` moved to the placements wording in Phase 5; its Phase 3 records used the POC's wording. There is no `preset-parallel` arm: the preset stage never hands off, so the parallel call would never run. The 2-size-level composed arm exists for the replay pass that picks the size scale (`--replay-through actions` against a recorded gated arm). The composed-pairs arms share `layoutComposedPairsBothFixes` (`eval-stages/layout.ts`) with the stage eval: the direction redirect only when the answer changes the top split, the size fallback, the whole-board examples, sizes asked as fractions within each row or column, and what stated fractions leave split by whole-Chart shares. With more than 6 visible Instances, or when no candidate tree fits, the stage hands the layout to the completion call. The gate-and-defer arm shares `layoutComposedPairsGateAndDefer` with the stage eval's `composed-pairs-gate-and-defer-combined` variant: the same options, except that it asks the pair questions whenever 2 or more Instances are visible, even when the spatial gate answers no, and defers with `jevLayout/no_feasible_layout` when no tree fits, as `layoutPresetOrLlm` does, so the fallback planner answers the turn. More than 6 visible Instances still hand the layout to the completion call.
+`jev-gated-per-instance-preset-inline` moved to the placements wording in Phase 5; its Phase 3 records used the POC's wording. There is no `preset-parallel` arm: the preset stage never hands off, so the parallel call would never run. The 2-size-level composed arm exists for the replay pass that picks the size scale (`--replay-through actions` against a recorded gated arm). The composed-pairs arms share `layoutComposedPairsBothFixes` (`eval-stages/layout.ts`) with the stage eval: the direction redirect only when the answer changes the top split, the size fallback, the whole-board examples, sizes asked as fractions within each row or column, and what stated fractions leave split by whole-Chart shares. With more than 6 visible Instances, or when no candidate tree fits, the stage hands the layout to the completion call. The gate-and-defer arm shares `layoutComposedPairsGateAndDefer` (`src/lib/stages-experimental/layout-composed-pairs-gate-and-defer.ts`) with the stage eval's `composed-pairs-gate-and-defer-combined` variant: the same options, except that it asks the pair questions whenever 2 or more Instances are visible, even when the spatial gate answers no, and defers with `jevLayout/no_feasible_layout` when no tree fits, as `layoutPresetOrLlm` does, so the fallback planner answers the turn. More than 6 visible Instances still hand the layout to the completion call.
 
 ### Composed layouts
 
@@ -130,14 +136,14 @@ Set the variables below in the root `.env`, then run from the repo root:
 npx nx dev-jev @maelstrom-co/demo
 ```
 
-`dev-jev` is the demo's `dev` target with `MAELSTROM_PLANNER=jev` and server-key mode (`VITE_BROWSER_KEY_MODE=0`). Add `JEV_LOG_REPLIES=1` to see raw Jev replies.
+`dev-jev` is the demo's `dev` target with `MAELSTROM_PLANNER=jev` and server-key mode (`VITE_BROWSER_KEY_MODE=0`). `npx nx dev-jev-composed-pairs @maelstrom-co/demo` does the same with the experimental composed pairs planner. Add `JEV_LOG_REPLIES=1` to see raw Jev replies.
 
 | Variable | Meaning |
 | --- | --- |
-| `MAELSTROM_PLANNER` | `llm` (default) or `jev`. Anything else fails startup. |
-| `TYPESAFE_API_KEY` | TypeSafe key. Required for `jev`; server-side only and redacted from logs. |
-| `JEV_MODEL` | Pinned Jev model, for example `jev-1.13.0`. Required for `jev`; `jev-latest` drifts. |
-| `OPENAI_API_KEY` | Server OpenAI key for `llmComplete` and the fallback. Required for `jev`. |
+| `MAELSTROM_PLANNER` | `llm` (default), `jev` (`jevPlanner`) or `jev-composed-pairs` (`jevComposedPairsPlanner`, experimental). Anything else fails startup. |
+| `TYPESAFE_API_KEY` | TypeSafe key. Required for both Jev planners; server-side only and redacted from logs. |
+| `JEV_MODEL` | Pinned Jev model, for example `jev-1.13.0`. Required for both Jev planners; `jev-latest` drifts. |
+| `OPENAI_API_KEY` | Server OpenAI key for `llmComplete` and the fallback. Required for both Jev planners. |
 | `JEV_LOG_REPLIES` | `1` logs every raw Jev reply as `jev.reply`. Off by default; local debugging only. |
 
 ## Limits

@@ -1,17 +1,22 @@
 /**
  * Chooses the local dev server's planner from the environment:
- * `MAELSTROM_PLANNER=llm` (the default) or `jev`. The hosted Worker never
- * reads this; it always plans with the LLM.
+ * `MAELSTROM_PLANNER=llm` (the default), `jev` (the frozen Jev POC) or
+ * `jev-composed-pairs` (the experimental Jev planner that composes the
+ * layout from pair answers). The hosted Worker never reads this; it always
+ * plans with the LLM.
  */
 import type { Engine } from '@maelstrom-co/engine';
 import {
   createJevPlaygroundEngine,
   createPlaygroundEngine,
+  type JevPlannerName,
 } from './engine-config';
 import { createDemoOpenaiChat, ENGINE_MODEL } from './engine-model';
 import { createRedactingLogger, redactSecrets } from './redact';
 
-export type LocalPlannerName = 'llm' | 'jev';
+export type LocalPlannerName = 'llm' | JevPlannerName;
+
+const JEV_PLANNERS: readonly JevPlannerName[] = ['jev', 'jev-composed-pairs'];
 
 export interface SharedEngineResult {
   readonly engine: Engine | null;
@@ -72,11 +77,12 @@ export function buildSharedEngine(
 /**
  * Builds the engine every local socket shares. `llm` keeps today's
  * behaviour: a server `OPENAI_API_KEY` builds a shared engine, otherwise each
- * visitor supplies a browser key. `jev` needs `TYPESAFE_API_KEY`, a pinned
- * `JEV_MODEL` and a server `OPENAI_API_KEY`, and has no browser-key flow.
+ * visitor supplies a browser key. `jev` and `jev-composed-pairs` need
+ * `TYPESAFE_API_KEY`, a pinned `JEV_MODEL` and a server `OPENAI_API_KEY`,
+ * and have no browser-key flow.
  *
- * @throws {Error} On an unknown `MAELSTROM_PLANNER`, a missing `jev`
- *   setting, or a `jev` engine that fails to build. Secrets are redacted.
+ * @throws {Error} On an unknown `MAELSTROM_PLANNER`, a missing Jev
+ *   setting, or a Jev engine that fails to build. Secrets are redacted.
  */
 export function buildLocalEngine(
   env: Readonly<Record<string, string | undefined>>,
@@ -107,27 +113,28 @@ export function buildLocalEngine(
       secrets,
     };
   }
-  if (planner !== 'jev')
+  if (!isJevPlanner(planner))
     throw new Error(
-      `MAELSTROM_PLANNER must be llm or jev, got "${redactSecrets(planner, secrets)}".`,
+      `MAELSTROM_PLANNER must be llm, jev or jev-composed-pairs, got "${redactSecrets(planner, secrets)}".`,
     );
 
   if (!typesafeKey)
-    throw new Error('MAELSTROM_PLANNER=jev requires TYPESAFE_API_KEY.');
+    throw new Error(`MAELSTROM_PLANNER=${planner} requires TYPESAFE_API_KEY.`);
   const model = env.JEV_MODEL?.trim();
   if (!model)
     throw new Error(
-      'MAELSTROM_PLANNER=jev requires a pinned JEV_MODEL, for example jev-1.13.0.',
+      `MAELSTROM_PLANNER=${planner} requires a pinned JEV_MODEL, for example jev-1.13.0.`,
     );
   if (!openaiKey)
     throw new Error(
-      'MAELSTROM_PLANNER=jev requires a server OPENAI_API_KEY for the reply and the fallback.',
+      `MAELSTROM_PLANNER=${planner} requires a server OPENAI_API_KEY for the reply and the fallback.`,
     );
 
   const logReplies = env.JEV_LOG_REPLIES?.trim() === '1';
   let engine: Engine;
   try {
     engine = createJevPlaygroundEngine({
+      planner,
       adapter: createDemoOpenaiChat(openaiKey),
       logger,
       typesafe: {
@@ -145,7 +152,7 @@ export function buildLocalEngine(
     );
   }
   logger.info('local_planner.ready', {
-    planner: 'jev',
+    planner,
     jevModel: model,
     llmModel: ENGINE_MODEL,
     logReplies,
@@ -154,8 +161,12 @@ export function buildLocalEngine(
   return {
     engine,
     initError: null,
-    planner: 'jev',
+    planner,
     helloReceived: true,
     secrets,
   };
+}
+
+function isJevPlanner(planner: string): planner is JevPlannerName {
+  return (JEV_PLANNERS as readonly string[]).includes(planner);
 }

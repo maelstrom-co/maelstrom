@@ -2,9 +2,10 @@
 /**
  * Text-only WebSocket engine server for local dev. It uses one shared engine
  * built from the environment (see `./local-planner`): the LLM planner keyed by
- * OPENAI_API_KEY, or the Jev planner with MAELSTROM_PLANNER=jev. Without a
- * server key the LLM profile accepts the browser's memory-only key through
- * playground.hello and each connection owns its engine.
+ * OPENAI_API_KEY, or a Jev planner with MAELSTROM_PLANNER=jev or
+ * jev-composed-pairs. Without a server key the LLM profile accepts the
+ * browser's memory-only key through playground.hello and each connection
+ * owns its engine.
  *
  * Speaks the same handleEnvelope/encodeEnvelope loop from @maelstrom-co/engine
  * and @maelstrom-co/protocol as the hosted transport (`src/worker/session-do.ts`),

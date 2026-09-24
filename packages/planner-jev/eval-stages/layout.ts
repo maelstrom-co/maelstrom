@@ -22,6 +22,10 @@ import {
   layoutComposedPairsWithDirection,
   layoutComposedPairsWithOptions,
 } from '../src/lib/stages-experimental/layout-composed-pairs.js';
+import {
+  COMPOSED_PAIRS_BOTH_FIXES_OPTIONS,
+  layoutComposedPairsGateAndDefer,
+} from '../src/lib/stages-experimental/layout-composed-pairs-gate-and-defer.js';
 import { layoutPreset } from '../src/lib/stages-experimental/layout-preset.js';
 import { layoutPresetOrLlm } from '../src/lib/stages-experimental/layout-preset-or-llm.js';
 import { layoutSpatialGate } from '../src/lib/stages-experimental/layout-spatial-gate.js';
@@ -110,15 +114,6 @@ const COMBINED = {
 // picked level (0.75 lets one stray 0.28 levels).
 const SIZE_SCORE_MINIMUM_CONFIDENCE = 0.8;
 
-const BOTH_FIXES_OPTIONS = {
-  ...COMBINED,
-  direction: 'redirects_not_stated_when_direction_changes',
-  sizeAnswers: {
-    kind: 'fractions_within_part',
-    unstatedSplit: 'whole_chart_shares',
-  },
-} as const;
-
 // Chosen from the spatial gate the live composed-pairs-inline arm answered
 // on the development suite, before any run of the variant: the lowest
 // probability a scenario tagged spatial got was 0.22 (reverse-order), and
@@ -137,28 +132,8 @@ export function layoutComposedPairsBothFixes(
   ask: Ask,
 ): Stage<GatedActionPlan, ComposedPairsDecision> {
   return layoutComposedPairsWithOptions(ask, {
-    ...BOTH_FIXES_OPTIONS,
+    ...COMPOSED_PAIRS_BOTH_FIXES_OPTIONS,
     layoutId: 'composed-pairs-fraction-sizes-both-fixes',
-  });
-}
-
-/**
- * The `composed-pairs-gate-and-defer-combined` layout:
- * {@link layoutComposedPairsBothFixes} that never keeps the current tree
- * on the spatial gate alone, so two or more visible Instances are always
- * asked about, and defers with `jevLayout/no_feasible_layout` when nothing
- * fits. More than six visible Instances still hand off to the completion
- * call. The stage eval's variant and the planner's
- * `composed-pairs-gate-and-defer` arm share it.
- */
-export function layoutComposedPairsGateAndDefer(
-  ask: Ask,
-): Stage<GatedActionPlan, ComposedPairsDecision> {
-  return layoutComposedPairsWithOptions(ask, {
-    ...BOTH_FIXES_OPTIONS,
-    layoutId: 'composed-pairs-gate-and-defer-combined',
-    spatialGate: 'never_skips',
-    nothingFits: 'defers',
   });
 }
 
@@ -253,19 +228,19 @@ export const LAYOUT_VARIANTS: Readonly<Record<string, LayoutVariant>> = {
   'composed-pairs-fraction-sizes-both-fixes': layoutComposedPairsBothFixes,
   'composed-pairs-fraction-sizes-both-fixes-always-asks': (ask) =>
     layoutComposedPairsWithOptions(ask, {
-      ...BOTH_FIXES_OPTIONS,
+      ...COMPOSED_PAIRS_BOTH_FIXES_OPTIONS,
       layoutId: 'composed-pairs-fraction-sizes-both-fixes-always-asks',
       spatialGate: 'never_skips',
     }),
   'composed-pairs-fraction-sizes-both-fixes-weak-gate': (ask) =>
     layoutComposedPairsWithOptions(ask, {
-      ...BOTH_FIXES_OPTIONS,
+      ...COMPOSED_PAIRS_BOTH_FIXES_OPTIONS,
       layoutId: 'composed-pairs-fraction-sizes-both-fixes-weak-gate',
       spatialGate: { kind: 'confident_no', below: CONFIDENT_SPATIAL_NO_BELOW },
     }),
   'composed-pairs-fraction-sizes-both-fixes-defers-when-nothing-fits': (ask) =>
     layoutComposedPairsWithOptions(ask, {
-      ...BOTH_FIXES_OPTIONS,
+      ...COMPOSED_PAIRS_BOTH_FIXES_OPTIONS,
       layoutId:
         'composed-pairs-fraction-sizes-both-fixes-defers-when-nothing-fits',
       nothingFits: 'defers',
