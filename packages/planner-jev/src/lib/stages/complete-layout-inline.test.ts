@@ -20,12 +20,15 @@ import {
   chatCall,
   chatPrompt,
   dummyAdapter,
+  installMockChat,
   mockChat,
 } from '../__test-helpers__/mock-chat.js';
 import type { JevLayoutPlan, PendingParameter } from '../types.js';
 import { completeLayoutInline } from './complete-layout-inline.js';
 import { llmComplete } from './llm-complete.js';
 import type { LayoutDecision } from './stage-types.js';
+
+installMockChat();
 
 afterEach(() => mockChat.mockReset());
 

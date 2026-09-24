@@ -27,7 +27,11 @@ import {
   plain,
   spyLogger,
 } from './__test-helpers__/fixtures.js';
-import { dummyAdapter, mockChat } from './__test-helpers__/mock-chat.js';
+import {
+  dummyAdapter,
+  installMockChat,
+  mockChat,
+} from './__test-helpers__/mock-chat.js';
 import { fallbackCandidate } from './__test-helpers__/poc-fixtures.js';
 import {
   type Script,
@@ -35,6 +39,8 @@ import {
   TEST_MODEL,
 } from './__test-helpers__/scripted-fetch.js';
 import { jevPlanner } from './jev-planner.js';
+
+installMockChat();
 
 afterEach(() => mockChat.mockReset());
 

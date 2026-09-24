@@ -1,6 +1,6 @@
 import type { LLMContextMessage } from '@maelstrom-co/engine';
 import type { StageName } from '@maelstrom-co/planner-jev/_eval';
-import { demoVessels } from '@maelstrom-co/planner-jev/_testing';
+import { demoVessels } from '@maelstrom-co/planner-jev/_eval';
 import {
   type ChartRequest,
   ChartRequestSchema,

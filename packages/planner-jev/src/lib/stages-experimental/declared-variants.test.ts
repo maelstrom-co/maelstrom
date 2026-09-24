@@ -11,7 +11,11 @@ import {
 import { keepAll } from '../__test-helpers__/actions-fixtures.js';
 import { makeContext, makeRequest } from '../__test-helpers__/fixtures.js';
 import { planned } from '../__test-helpers__/layout-fixtures.js';
-import { dummyAdapter, mockChat } from '../__test-helpers__/mock-chat.js';
+import {
+  dummyAdapter,
+  installMockChat,
+  mockChat,
+} from '../__test-helpers__/mock-chat.js';
 import { scriptedAsk } from '../__test-helpers__/scripted-fetch.js';
 import { completeLayoutInline } from '../stages/complete-layout-inline.js';
 import { layoutComposedPairsGateAndDefer } from '../stages/layout-composed-pairs-gate-and-defer.js';
@@ -27,6 +31,8 @@ import { completeLayoutParallel } from './complete-layout-parallel.js';
 import { layoutKeepOrDefault } from './layout-keep-or-default.js';
 import { layoutPreset } from './layout-preset.js';
 import { layoutPresetOrLlm } from './layout-preset-or-llm.js';
+
+installMockChat();
 
 afterEach(() => mockChat.mockReset());
 

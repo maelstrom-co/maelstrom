@@ -27,10 +27,13 @@ import {
   chatCall,
   chatPrompt,
   dummyAdapter,
+  installMockChat,
   mockChat,
 } from '../__test-helpers__/mock-chat.js';
 import type { JevLayoutPlan, PendingParameter } from '../types.js';
 import { llmComplete } from './llm-complete.js';
+
+installMockChat();
 
 afterEach(() => mockChat.mockReset());
 

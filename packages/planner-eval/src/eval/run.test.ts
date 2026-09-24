@@ -17,6 +17,7 @@ import {
   type ChatCall,
   conversation,
   dummyAdapter,
+  installMockChat,
   mockChat,
   type Script,
   scriptedFetch,
@@ -32,6 +33,8 @@ import { writeReport } from './report.js';
 import { grade, type LayoutStageOutput, runEval } from './run.js';
 import { selectScenarios } from './scenarios.js';
 import { VERBALIZER_VERSION } from './verbalize-tree.js';
+
+installMockChat();
 
 const silentLogger: Logger = {
   debug() {},

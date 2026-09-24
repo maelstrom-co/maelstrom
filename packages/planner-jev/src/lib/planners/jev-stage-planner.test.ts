@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 
 import type { Planner } from '@maelstrom-co/engine';
 
-import { mockChat } from '../__test-helpers__/mock-chat.js';
+import { installMockChat, mockChat } from '../__test-helpers__/mock-chat.js';
 import {
   POC_CASES,
   type PocCase,
@@ -17,6 +17,8 @@ import { createJevDeps, type JevDeps } from '../stages/stage-deps.js';
 import { layoutPreset } from '../stages-experimental/layout-preset.js';
 import { selectUngated } from '../stages-experimental/select-ungated.js';
 import { buildJevStagePlanner } from './jev-stage-planner.js';
+
+installMockChat();
 
 afterEach(() => mockChat.mockReset());
 
