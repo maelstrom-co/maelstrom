@@ -11,13 +11,8 @@ import {
 } from './plugin.js';
 import type { RunRecord } from './run.js';
 import type { Suite } from './scenarios.js';
-import { percentile } from './stats.js';
+import { PLANNER_RATIO, percentile, type Ratio, ratio } from './stats.js';
 import { LLM_ROLES, type LlmCall } from './usage-adapter.js';
-
-export interface Ratio {
-  readonly count: number;
-  readonly total: number;
-}
 
 export interface Percentiles {
   readonly p50: number | undefined;
@@ -196,11 +191,11 @@ export function renderMarkdown(
         row(entry.label, (summary) => entry.cell(summary));
     };
     row('Runs', (s) => String(s.runs));
-    row('Overall pass', (s) => ratio(s.overall));
-    row('Arrangement pass', (s) => ratio(s.arrangement));
+    row('Overall pass', (s) => ratio(s.overall, PLANNER_RATIO));
+    row('Arrangement pass', (s) => ratio(s.arrangement, PLANNER_RATIO));
     row('Errors', (s) => String(s.errors));
     row('Decisive turns pass', (s) =>
-      s.decisive ? ratio(s.decisive.pass) : 'n/a',
+      s.decisive ? ratio(s.decisive.pass, PLANNER_RATIO) : 'n/a',
     );
     row('Decisive wins / losses vs baseline (paired)', (s) =>
       s.decisive
@@ -208,10 +203,10 @@ export function renderMarkdown(
         : 'n/a',
     );
     row('Expected deferrals at the right stage', (s) =>
-      s.expectedDeferrals ? ratio(s.expectedDeferrals) : 'n/a',
+      s.expectedDeferrals ? ratio(s.expectedDeferrals, PLANNER_RATIO) : 'n/a',
     );
     row('Fallback rate', (s) =>
-      s.fallbacks ? ratio(s.fallbacks.total) : 'n/a',
+      s.fallbacks ? ratio(s.fallbacks.total, PLANNER_RATIO) : 'n/a',
     );
     const reasons = [
       ...new Set(rows.flatMap((s) => Object.keys(s.fallbacks?.byReason ?? {}))),
@@ -260,10 +255,13 @@ export function renderMarkdown(
       }
       row('Grader failures', (s) =>
         s.grader
-          ? ratio({
-              count: s.grader.failed,
-              total: s.grader.graded + s.grader.failed,
-            })
+          ? ratio(
+              {
+                count: s.grader.failed,
+                total: s.grader.graded + s.grader.failed,
+              },
+              PLANNER_RATIO,
+            )
           : 'n/a',
       );
       row('Grader calls / input / output tokens', (s) =>
@@ -373,12 +371,6 @@ export function spreadOf(values: readonly number[]): Percentiles {
     p95: percentile(values, 95),
     samples: values.length,
   };
-}
-
-/** `count/total (percent)`, or `n/a` without a total. */
-export function ratio({ count, total }: Ratio): string {
-  if (total === 0) return 'n/a';
-  return `${count}/${total} (${((count / total) * 100).toFixed(1)}%)`;
 }
 
 /** `p50 / p95` rounded, or `n/a` without samples. */

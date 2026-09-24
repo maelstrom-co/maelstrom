@@ -3,14 +3,13 @@ import type { ArmSummaryExtension, ReportRow } from '../../core/plugin.js';
 import {
   type ArmSummary,
   type Percentiles,
-  type Ratio,
-  ratio,
   spread,
   spreadOf,
   type TokenTotals,
   tokenTotals,
   totals,
 } from '../../core/report.js';
+import { PLANNER_RATIO, type Ratio, ratio } from '../../core/stats.js';
 import type { JevRunRecord } from './record.js';
 
 /** How often a yes/no gate answered wrongly. */
@@ -124,7 +123,7 @@ export function jevRows(): readonly ReportRow[] {
     label,
     cell: (s) => {
       const { stages } = jev(s);
-      return stages ? ratio(stages[key]) : 'n/a';
+      return stages ? ratio(stages[key], PLANNER_RATIO) : 'n/a';
     },
   });
   return [
@@ -135,7 +134,7 @@ export function jevRows(): readonly ReportRow[] {
       label: 'llmComplete fill rate',
       cell: (s) => {
         const { fill } = jev(s);
-        return fill ? ratio(fill) : 'n/a';
+        return fill ? ratio(fill, PLANNER_RATIO) : 'n/a';
       },
     },
     {
@@ -159,7 +158,7 @@ export function jevRows(): readonly ReportRow[] {
       cell: (s) => {
         const { arrangementReachedLayout } = jev(s);
         return arrangementReachedLayout
-          ? ratio(arrangementReachedLayout)
+          ? ratio(arrangementReachedLayout, PLANNER_RATIO)
           : 'n/a';
       },
     },
@@ -251,5 +250,5 @@ function errorsOf(
 }
 
 function gateErrors({ falsePositives, falseNegatives }: GateErrors): string {
-  return `${ratio(falsePositives)} / ${ratio(falseNegatives)}`;
+  return `${ratio(falsePositives, PLANNER_RATIO)} / ${ratio(falseNegatives, PLANNER_RATIO)}`;
 }
