@@ -26,6 +26,18 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./_eval": {
+      "@maelstrom-co/source": "./src/_eval.ts",
+      "types": "./dist/_eval.d.ts",
+      "import": "./dist/_eval.js",
+      "default": "./dist/_eval.js"
+    },
+    "./_testing": {
+      "@maelstrom-co/source": "./src/_testing.ts",
+      "types": "./dist/_testing.d.ts",
+      "import": "./dist/_testing.js",
+      "default": "./dist/_testing.js"
     }
   },
   "files": [
@@ -51,33 +63,9 @@
     "@tanstack/ai": "catalog:",
     "zod": "catalog:"
   },
-  "devDependencies": {
-    "@maelstrom-co/planner-llm": "0.1.0-alpha.4",
-    "@tanstack/ai-openai": "catalog:"
-  },
   "nx": {
     "name": "@maelstrom-co/planner-jev",
     "targets": {
-      "eval": {
-        "command": "bun eval/cli.ts",
-        "dependsOn": [
-          "^build"
-        ],
-        "cache": false,
-        "options": {
-          "cwd": "{projectRoot}"
-        }
-      },
-      "eval-stages": {
-        "command": "bun eval-stages/cli.ts",
-        "dependsOn": [
-          "^build"
-        ],
-        "cache": false,
-        "options": {
-          "cwd": "{projectRoot}"
-        }
-      },
       "typecheck": {
         "command": "tsc -p tsconfig.lib.json --noEmit && tsc -p tsconfig.spec.json --noEmit",
         "options": {

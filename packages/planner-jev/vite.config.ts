@@ -17,9 +17,12 @@ export default defineConfig({
     reportCompressedSize: true,
     commonjsOptions: { transformMixedEsModules: true },
     lib: {
-      entry: 'src/index.ts',
+      entry: {
+        index: 'src/index.ts',
+        _eval: 'src/_eval.ts',
+        _testing: 'src/_testing.ts',
+      },
       name: '@maelstrom-co/planner-jev',
-      fileName: 'index',
       formats: ['es' as const],
     },
     rolldownOptions: {
@@ -27,6 +30,8 @@ export default defineConfig({
         '@maelstrom-co/engine',
         '@maelstrom-co/protocol',
         '@tanstack/ai',
+        'bun:test',
+        /^node:/,
         'zod',
       ],
     },

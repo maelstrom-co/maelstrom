@@ -1,0 +1,60 @@
+{
+  "name": "@maelstrom-co/planner-eval",
+  "version": "0.1.0-alpha.4",
+  "description": "Live evals for Maelstrom planners: whole-planner arm comparisons through the engine and single-stage evals on gold inputs. Workspace-internal, never published.",
+  "private": true,
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "type": "module",
+  "dependencies": {
+    "@maelstrom-co/engine": "0.1.0-alpha.4",
+    "@maelstrom-co/planner-jev": "0.1.0-alpha.4",
+    "@maelstrom-co/planner-llm": "0.1.0-alpha.4",
+    "@maelstrom-co/protocol": "0.1.0-alpha.4",
+    "@tanstack/ai": "catalog:",
+    "@tanstack/ai-openai": "catalog:",
+    "zod": "catalog:"
+  },
+  "nx": {
+    "name": "@maelstrom-co/planner-eval",
+    "targets": {
+      "eval": {
+        "command": "bun src/eval/cli.ts",
+        "dependsOn": [
+          "^build"
+        ],
+        "cache": false,
+        "options": {
+          "cwd": "{projectRoot}"
+        }
+      },
+      "eval-stages": {
+        "command": "bun src/eval-stages/cli.ts",
+        "dependsOn": [
+          "^build"
+        ],
+        "cache": false,
+        "options": {
+          "cwd": "{projectRoot}"
+        }
+      },
+      "typecheck": {
+        "command": "tsc -p tsconfig.json --noEmit",
+        "dependsOn": [
+          "^build"
+        ],
+        "options": {
+          "cwd": "{projectRoot}"
+        }
+      },
+      "test": {
+        "command": "bun test",
+        "options": {
+          "cwd": "{projectRoot}"
+        }
+      }
+    }
+  }
+}

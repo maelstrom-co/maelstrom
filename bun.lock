@@ -242,6 +242,19 @@
         "zod": "catalog:",
       },
     },
+    "packages/planner-eval": {
+      "name": "@maelstrom-co/planner-eval",
+      "version": "0.1.0-alpha.4",
+      "dependencies": {
+        "@maelstrom-co/engine": "0.1.0-alpha.4",
+        "@maelstrom-co/planner-jev": "0.1.0-alpha.4",
+        "@maelstrom-co/planner-llm": "0.1.0-alpha.4",
+        "@maelstrom-co/protocol": "0.1.0-alpha.4",
+        "@tanstack/ai": "catalog:",
+        "@tanstack/ai-openai": "catalog:",
+        "zod": "catalog:",
+      },
+    },
     "packages/planner-jev": {
       "name": "@maelstrom-co/planner-jev",
       "version": "0.1.0-alpha.4",
@@ -250,10 +263,6 @@
         "@maelstrom-co/protocol": "0.1.0-alpha.4",
         "@tanstack/ai": "catalog:",
         "zod": "catalog:",
-      },
-      "devDependencies": {
-        "@maelstrom-co/planner-llm": "0.1.0-alpha.4",
-        "@tanstack/ai-openai": "catalog:",
       },
     },
     "packages/planner-llm": {
@@ -1298,6 +1307,8 @@
     "@maelstrom-co/docs": ["@maelstrom-co/docs@workspace:apps/docs"],
 
     "@maelstrom-co/engine": ["@maelstrom-co/engine@workspace:packages/engine"],
+
+    "@maelstrom-co/planner-eval": ["@maelstrom-co/planner-eval@workspace:packages/planner-eval"],
 
     "@maelstrom-co/planner-jev": ["@maelstrom-co/planner-jev@workspace:packages/planner-jev"],
 
