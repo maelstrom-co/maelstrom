@@ -1,5 +1,5 @@
 import {
-  type ActionName,
+  type ActionExecution,
   err,
   type InstanceId,
   ok,
@@ -8,36 +8,47 @@ import {
   type Vessel,
   type VesselAction,
   type VesselId,
+  type VesselInstanceSnapshot,
 } from '@maelstrom-co/protocol';
 
-interface InstanceVariant {
-  readonly instanceId: InstanceId;
-  readonly vesselId: VesselId;
-  readonly variant: VariantName;
-}
+type InstanceVariant = Readonly<
+  Pick<VesselInstanceSnapshot, 'instanceId' | 'vesselId' | 'variant'>
+>;
 
-interface ActionStep {
-  readonly instanceId: InstanceId;
-  readonly action: ActionName;
-}
+type ActionStep = Readonly<Pick<ActionExecution, 'instanceId' | 'action'>>;
 
-/** Why {@link finalVariants} could not simulate an action. */
+/**
+ * Why {@link finalVariants} stopped replaying an Execution Plan. Each case
+ * carries the `step` it stopped at; the steps before it replayed cleanly.
+ */
 export type SimulationError =
+  /** The step names an instance missing from `instances`, or one whose Vessel is missing from `vessels`. */
   | { readonly kind: 'unknown_instance'; readonly step: ActionStep }
+  /** The instance's replayed variant does not offer the step's action. */
   | { readonly kind: 'action_not_valid'; readonly step: ActionStep }
+  /** The action's `transitionsTo` names a variant the Vessel does not define. */
   | {
       readonly kind: 'unknown_target';
       readonly step: ActionStep;
+      /** The missing variant the action transitions to. */
       readonly target: VariantName;
     };
 
 /**
- * The variant each instance ends in once `actions` run in order: an action
- * with `transitionsTo` moves its instance to that variant, any other action
- * leaves it. This is the engine's simulate-variant rule. An action the
- * instance's simulated variant does not offer, or whose target the Vessel
- * lacks, is an error rather than the engine's silent skip, because a Jev
- * plan that needs the skip should defer instead.
+ * Replays an Execution Plan's actions in order and returns the variant each
+ * instance ends in.
+ *
+ * An action with `transitionsTo` moves its instance to that variant, and each
+ * later action resolves against the variant reached so far. Any other action
+ * leaves the variant unchanged, as do instances no action targets.
+ *
+ * Where the Engine skips an action it cannot resolve and carries on, this
+ * replay stops at the first such action and returns a {@link SimulationError},
+ * so a planner can reject or repair the plan before handing it over.
+ *
+ * @param instances - The instances and their variants before the plan runs.
+ * @param actions - The plan's actions, in execution order.
+ * @param vessels - The catalog the instances belong to.
  */
 export function finalVariants(
   instances: readonly InstanceVariant[],
@@ -69,7 +80,11 @@ export function finalVariants(
   return ok(variants);
 }
 
-/** The actions an instance of `vesselId` offers in `variant`. */
+/**
+ * The actions an instance of `vesselId` offers while in `variant`: the
+ * variant's declared actions, in declaration order. Empty when the Vessel or
+ * the variant is not in `vessels`.
+ */
 export function legalActions(
   vesselId: VesselId,
   variant: VariantName,

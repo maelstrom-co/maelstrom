@@ -1,6 +1,7 @@
 import {
   type CancellationError,
   cancellationError,
+  finalVariants,
   type LLMContextMessage,
   type PlannerCandidate,
   type ProviderError,
@@ -11,7 +12,6 @@ import {
 import { err, isErr, ok, type Result } from '@maelstrom-co/protocol';
 import { type AnyTextAdapter, chat } from '@tanstack/ai';
 import type { z } from 'zod';
-
 import {
   type Completion,
   outputSchema,

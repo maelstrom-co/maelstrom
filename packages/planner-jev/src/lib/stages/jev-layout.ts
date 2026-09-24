@@ -1,8 +1,7 @@
 import type { Stage } from '@maelstrom-co/engine';
+import { finalVariants } from '@maelstrom-co/engine';
 import { isErr, ok } from '@maelstrom-co/protocol';
-
 import { deferAt } from '../defer.js';
-import { finalVariants } from '../final-variants.js';
 import { type LayoutChoicesOptions, layoutChoices } from '../layouts.js';
 import {
   type ConfidencePolicy,

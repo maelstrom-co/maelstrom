@@ -6,7 +6,6 @@
  */
 export { demoVessels } from './lib/__test-helpers__/demo-vessels.js';
 export { type JevCaller, STAGE_NAMES, type StageName } from './lib/defer.js';
-export { finalVariants } from './lib/final-variants.js';
 export {
   buildJevPlanner,
   FALLBACK_RETRIES,
