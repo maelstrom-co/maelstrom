@@ -430,7 +430,10 @@ describe('size fallback', () => {
 });
 
 describe('pickSizedTree', () => {
-  function candidate(name: string, score: number): SizedTreeCandidate {
+  function candidate(
+    name: string,
+    score: number,
+  ): SizedTreeCandidate & { readonly raised: readonly TilingNode[] } {
     return {
       score,
       asSized: [`ID:${name}-as-sized`] as TilingNode[],

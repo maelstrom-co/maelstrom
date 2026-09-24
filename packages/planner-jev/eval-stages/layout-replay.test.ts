@@ -23,9 +23,28 @@ import type { GatedActionPlan } from '../src/lib/stages/stage-types.js';
 import { judgeLayout, layoutStageEval } from './layout.js';
 import { planningInput } from './stage-eval.js';
 
+const HOLDOUT_FOCUS_KEPT_ROW = [
+  'V:9,3,2',
+  'ID:calendar-main',
+  'ID:weather-main',
+  'ID:tasks-main',
+] as TilingNode[];
+
 const INTENDED_TREE_CHANGES: Readonly<
   Record<string, readonly TilingNode[] | null>
-> = {};
+> = {
+  'log1:25': ['H:1,3', 'ID:map-jev-1', 'ID:journal-main'] as TilingNode[],
+  'log2:10': [
+    'H:1,1,1,1',
+    'ID:calendar-main',
+    'ID:tasks-main',
+    'ID:map-jev-1',
+    'ID:weather-jev-1',
+  ] as TilingNode[],
+  'combined-holdout/hold-arr-focus#1': HOLDOUT_FOCUS_KEPT_ROW,
+  'combined-holdout/hold-arr-focus#2': HOLDOUT_FOCUS_KEPT_ROW,
+  'combined-holdout/hold-arr-focus#3': HOLDOUT_FOCUS_KEPT_ROW,
+};
 
 const STAGE_EVAL_TURNS = 401;
 const DEMO_TURNS = 34;
