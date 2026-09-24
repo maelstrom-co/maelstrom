@@ -282,6 +282,41 @@ describe('layout stage eval', () => {
       changed: true,
     });
   });
+
+  test('the combined gate and deferral variant asks on a recorded no and defers when nothing fits', async () => {
+    const signal = recordedSpatialSignal(
+      [
+        {
+          arm: 'live-arm',
+          scenarioId: 'swap',
+          repeat: 1,
+          stageOutputs: {
+            jevSelect: {
+              gates: {
+                spatial: { answer: 'no', probability: 0.1, confidence: 0.9 },
+              },
+            },
+          },
+        },
+      ],
+      'live-arm',
+    );
+    const { records } = await run(
+      ['swap', 'small-chart'],
+      ['composed-pairs-gate-and-defer-combined'],
+      pairsAll('left_of'),
+      1,
+      layoutStageEvalWith({ spatialSignal: signal }) as never,
+    );
+    const byScenario = Object.fromEntries(
+      records.map((record) => [record.scenarioId, record]),
+    );
+    expect(byScenario.swap?.detail?.pairwise?.called).toBe(true);
+    expect(byScenario['small-chart']).toMatchObject({
+      outcome: 'pass',
+      reason: 'jevLayout/no_feasible_layout',
+    });
+  });
 });
 
 function pairsAll(choice: string): Script {

@@ -160,7 +160,10 @@ export function layoutComposedPairsBothFixes(
  * change one thing from it: `-always-asks` never keeps the current tree on
  * the spatial gate alone, `-weak-gate` keeps it only on a confident no, and
  * `-defers-when-nothing-fits` defers as `layoutPresetOrLlm` does when no
- * tree fits instead of handing off.
+ * tree fits instead of handing off. `composed-pairs-gate-and-defer-combined`
+ * stacks `-always-asks` and `-defers-when-nothing-fits`: on the stage eval
+ * with the recorded live spatial signal `-always-asks` passed as often as
+ * `-weak-gate`, whose threshold was picked from those same records.
  */
 export const LAYOUT_VARIANTS: Readonly<Record<string, LayoutVariant>> = {
   preset: (ask) => layoutPreset(ask, { describe: 'placements' }),
@@ -244,6 +247,13 @@ export const LAYOUT_VARIANTS: Readonly<Record<string, LayoutVariant>> = {
       ...BOTH_FIXES_OPTIONS,
       layoutId:
         'composed-pairs-fraction-sizes-both-fixes-defers-when-nothing-fits',
+      nothingFits: 'defers',
+    }),
+  'composed-pairs-gate-and-defer-combined': (ask) =>
+    layoutComposedPairsWithOptions(ask, {
+      ...BOTH_FIXES_OPTIONS,
+      layoutId: 'composed-pairs-gate-and-defer-combined',
+      spatialGate: 'never_skips',
       nothingFits: 'defers',
     }),
   'composed-pairs-score-when-confident': (ask) =>
