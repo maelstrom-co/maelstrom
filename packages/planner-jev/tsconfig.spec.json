@@ -13,5 +13,8 @@
     "eval/**/*.ts",
     "eval-stages/**/*.ts"
   ],
-  "references": [{ "path": "./tsconfig.lib.json" }]
+  "references": [
+    { "path": "./tsconfig.lib.json" },
+    { "path": "../planner-llm/tsconfig.lib.json" }
+  ]
 }

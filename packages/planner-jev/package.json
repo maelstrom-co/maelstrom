@@ -52,6 +52,7 @@
     "zod": "catalog:"
   },
   "devDependencies": {
+    "@maelstrom-co/planner-llm": "0.1.0-alpha.4",
     "@tanstack/ai-openai": "catalog:"
   },
   "nx": {
