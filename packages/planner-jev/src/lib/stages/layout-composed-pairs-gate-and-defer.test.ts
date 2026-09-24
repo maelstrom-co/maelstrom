@@ -65,6 +65,16 @@ const LEANING_PAIR = {
   not_stated: 0.56,
 };
 
+const WEATHER_STRIP_UNDER_NESTED_LAYOUT = [
+  'H:3,1',
+  'V:2,1',
+  'H',
+  'ID:calendar-main',
+  'ID:tasks-main',
+  'ID:map-jev-1',
+  'ID:weather-jev-1',
+] as TilingNode[];
+
 type Distributions = Readonly<Record<string, Readonly<Record<string, number>>>>;
 
 function gate(answer: 'yes' | 'no'): GateAnswer {
@@ -630,13 +640,7 @@ describe('the best tree before one that fits as sized', () => {
       candidate: 0,
     });
     expect(decision.pairwise.chosen).toBeUndefined();
-    expect(decision.tree).toEqual([
-      'H:1,1,1,1',
-      'ID:calendar-main',
-      'ID:tasks-main',
-      'ID:map-jev-1',
-      'ID:weather-jev-1',
-    ]);
+    expect(decision.tree).toEqual(WEATHER_STRIP_UNDER_NESTED_LAYOUT);
   });
 
   test('keeps the map above the journal at its minimum height', async () => {
@@ -687,9 +691,9 @@ describe('the current layout kept as a candidate', () => {
     ]);
   });
 
-  test('ranks the weather strip under the nested layout, but still ships the flat stack', async () => {
+  test('ranks the weather strip under the nested layout first', async () => {
     const decision = await replayDemoTurn('log2:10');
-    expect(decision.pairwise.candidates[2]).toMatchObject({
+    expect(decision.pairwise.candidates[0]).toMatchObject({
       kind: 'one_widget_moved',
       tree: [
         'H:5,1',
@@ -701,12 +705,38 @@ describe('the current layout kept as a candidate', () => {
         'ID:weather-jev-1',
       ],
     });
+    expect(decision.tree).toEqual(WEATHER_STRIP_UNDER_NESTED_LAYOUT);
+  });
+});
+
+describe('the board restacked only when the whole board is meant', () => {
+  test('keeps the top row when the calendar moves into a full-height column', async () => {
+    const decision = await replayDemoTurn('log1:15');
+    expect(decision.pairwise.chosen).toBe(1);
     expect(decision.tree).toEqual([
-      'H:1,1,1,1',
+      'V:1,3',
+      'ID:calendar-main',
+      'H:3,1',
+      'V:2,1,2',
+      'ID:tasks-main',
+      'ID:journal-main',
+      'ID:map-jev-1',
+      'ID:weather-main',
+    ]);
+  });
+
+  test('keeps the board side by side when the calendar and tasks go into a narrow column', async () => {
+    const decision = await replayDemoTurn('log1:16');
+    expect(decision.pairwise.candidates[0]?.tree[0]).toStartWith('V');
+    expect(decision.pairwise.chosen).toBe(0);
+    expect(decision.tree).toEqual([
+      'V:1,1,1,4',
       'ID:calendar-main',
       'ID:tasks-main',
+      'ID:journal-main',
+      'H',
       'ID:map-jev-1',
-      'ID:weather-jev-1',
+      'ID:weather-main',
     ]);
   });
 });

@@ -376,6 +376,141 @@ describe('not stated redirected only when the direction changes', () => {
   });
 });
 
+describe('not stated redirected only when the direction is meant for the whole board', () => {
+  const map = InstanceId('map-main');
+
+  test('a new widget keeps the current relations of the other pairs', () => {
+    const [best] = rankArrangements(
+      [calendar, map, weather],
+      [
+        certain(calendar, map, NOT_STATED),
+        certain(calendar, weather, 'above'),
+        certain(map, weather, 'above'),
+      ],
+      ['V', 'ID:calendar-main', 'ID:map-main'] as TilingNode[],
+      { stacked: 1 },
+    );
+    expect(best?.arrangement).toEqual({
+      axis: 'H',
+      parts: [[calendar, map], [weather]],
+    });
+  });
+
+  test('a stated pair across the direction keeps the current relations', () => {
+    const [best] = rankArrangements(
+      THREE,
+      [
+        certain(calendar, weather, NOT_STATED),
+        {
+          first: calendar,
+          second: tasks,
+          probabilities: { left_of: 0.6, not_stated: 0.4 },
+        },
+        certain(weather, tasks, NOT_STATED),
+      ],
+      [
+        'V:1,1,1',
+        'ID:calendar-main',
+        'ID:weather-main',
+        'ID:tasks-main',
+      ] as TilingNode[],
+      { side_by_side: 0.1, stacked: 0.8, not_stated: 0.1 },
+    );
+    expect(best && arrangementRelation(best.arrangement, calendar, tasks)).toBe(
+      'left_of',
+    );
+  });
+
+  test('a stated pair along the direction still redirects', () => {
+    const [best] = rankArrangements(
+      [calendar, map, tasks, weather],
+      [
+        certain(calendar, map, NOT_STATED),
+        certain(calendar, tasks, NOT_STATED),
+        {
+          first: calendar,
+          second: weather,
+          probabilities: { left_of: 0.74, not_stated: 0.26 },
+        },
+        certain(map, tasks, NOT_STATED),
+        certain(map, weather, NOT_STATED),
+        certain(tasks, weather, NOT_STATED),
+      ],
+      [
+        'H',
+        'V',
+        'ID:calendar-main',
+        'ID:map-main',
+        'V',
+        'ID:tasks-main',
+        'ID:weather-main',
+      ] as TilingNode[],
+      { side_by_side: 0.9, stacked: 0.05, not_stated: 0.05 },
+    );
+    expect(best?.arrangement).toEqual({
+      axis: 'V',
+      parts: [[calendar], [map], [tasks], [weather]],
+    });
+  });
+
+  test('a new strip along the bottom keeps the current relation of an unmentioned pair', () => {
+    const [loggedMap, loggedWeather] = [
+      InstanceId('map-jev-1'),
+      InstanceId('weather-jev-1'),
+    ];
+    const ranked = rankArrangements(
+      [calendar, tasks, loggedMap, loggedWeather],
+      [
+        {
+          first: calendar,
+          second: tasks,
+          probabilities: { not_stated: 0.87, above: 0.13 },
+        },
+        {
+          first: calendar,
+          second: loggedMap,
+          probabilities: { not_stated: 0.86, left_of: 0.13 },
+        },
+        {
+          first: tasks,
+          second: loggedMap,
+          probabilities: { not_stated: 0.81, left_of: 0.18 },
+        },
+        {
+          first: calendar,
+          second: loggedWeather,
+          probabilities: { above: 0.9 },
+        },
+        { first: tasks, second: loggedWeather, probabilities: { above: 0.81 } },
+        {
+          first: loggedMap,
+          second: loggedWeather,
+          probabilities: { above: 0.66, not_stated: 0.33, right_of: 0.01 },
+        },
+      ],
+      [
+        'V:2,1',
+        'H',
+        'ID:calendar-main',
+        'ID:tasks-main',
+        'ID:map-jev-1',
+      ] as TilingNode[],
+      { stacked: 0.76, not_stated: 0.22, side_by_side: 0.02 },
+    );
+    const scoreOf = (parts: readonly (readonly InstanceId[])[]) =>
+      ranked.find(
+        ({ arrangement }) =>
+          arrangement.axis === 'H' &&
+          JSON.stringify(arrangement.parts) === JSON.stringify(parts),
+      )?.score ?? Number.NEGATIVE_INFINITY;
+    expect(
+      scoreOf([[calendar, loggedMap], [tasks], [loggedWeather]]),
+    ).toBeGreaterThan(
+      scoreOf([[calendar], [loggedMap], [tasks], [loggedWeather]]),
+    );
+  });
+});
+
 describe('part sizing', () => {
   const focus = { axis: 'V' as const, parts: [[calendar], [weather, tasks]] };
   const shares = { [calendar]: 0.5, [weather]: 0.5, [tasks]: 0.5 };
