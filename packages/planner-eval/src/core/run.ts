@@ -24,7 +24,7 @@ import {
   type StageRecord,
   type StageReplacements,
 } from './instrument.js';
-import type { Judge, PlannerEvalPlugin } from './plugin.js';
+import type { Judge, Phase, PlannerEvalPlugin } from './plugin.js';
 import {
   type ReplaySource,
   replayedStages,
@@ -118,11 +118,15 @@ const silent: Logger = { debug() {}, info() {}, warn() {}, error() {} };
  * shipped response. Every arm plans through `createEngine` with history off
  * and `retry: false`, so the arms differ only in their pipelines.
  *
- * @throws {Error} Before any turn runs, when `options.replay` did not record
- *   every scenario and repeat from the same request and history, or lacks
- *   fields an arm reads from a replayed stage.
+ * @throws {Error} Before any turn runs, when the plugin of a staged arm
+ *   maps no stage to a scenario's `deferStage` phase (see
+ *   {@link unmappedPhases}), or when `options.replay` did not record every
+ *   scenario and repeat from the same request and history, or lacks fields
+ *   an arm reads from a replayed stage.
  */
 export async function runEval(options: EvalOptions): Promise<RunRecord[]> {
+  const unmapped = unmappedPhases(options.arms, options.scenarios);
+  if (unmapped.length > 0) throw new Error(unmapped.join('\n'));
   if (options.replay) {
     verifyReplay(options.replay.source, options.scenarios, options.repeats);
     verifyReplayShape(
@@ -155,6 +159,30 @@ export async function runEval(options: EvalOptions): Promise<RunRecord[]> {
         options.onRecord?.(record);
       }
   return records;
+}
+
+/**
+ * One line per staged arm and scenario whose expected deferral phase the
+ * arm's plugin maps to no stage; such a turn could never count as deferred
+ * at the expected phase. Empty when every expectation can be judged.
+ */
+export function unmappedPhases(
+  arms: readonly RegisteredArm[],
+  scenarios: readonly Scenario[],
+): readonly string[] {
+  const problems: string[] = [];
+  const plugins = [
+    ...new Set(arms.filter(isStaged).map(({ plugin }) => plugin)),
+  ];
+  for (const plugin of plugins)
+    for (const scenario of scenarios) {
+      const phase = scenario.expected.deferStage;
+      if (phase !== undefined && plugin.phases?.[phase] === undefined)
+        problems.push(
+          `plugin ${plugin.name} maps no stage to phase ${phase}, which scenario ${scenario.id} expects to defer at`,
+        );
+    }
+  return problems;
 }
 
 /**
@@ -284,10 +312,9 @@ function stagedFields(
           deferredRecord.reason.split('/')[1]?.startsWith('provider_') ?? false,
       }
     : undefined;
+  const phase: Phase | undefined = scenario.expected.deferStage;
   const expectedStage =
-    scenario.expected.deferStage === undefined
-      ? undefined
-      : plugin.phases?.[scenario.expected.deferStage];
+    phase === undefined ? undefined : plugin.phases?.[phase];
   return {
     ...(scenario.expected.status === 'deferred' && {
       deferredAsExpected:

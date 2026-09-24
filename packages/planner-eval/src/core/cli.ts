@@ -13,7 +13,7 @@ import {
 import type { PlannerEvalPlugin } from './plugin.js';
 import { loadReplay, type ReplaySource, replayedStages } from './replay.js';
 import { writeReport } from './report.js';
-import { runEval } from './run.js';
+import { runEval, unmappedPhases } from './run.js';
 import { type Suite, selectScenarios } from './scenarios.js';
 
 // The demo's default engine model (apps/demo/src/server/engine-model.ts).
@@ -118,6 +118,8 @@ export async function runEvalCli(
 
   const scenarios = selectScenarios(suite as Suite | 'all', values.case ?? []);
   if (scenarios.length === 0) fail('no scenario matches --suite and --case');
+  const unmapped = unmappedPhases(arms, scenarios);
+  if (unmapped.length > 0) fail(unmapped.join('\n'));
 
   let replay:
     | {

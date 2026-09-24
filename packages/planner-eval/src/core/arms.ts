@@ -1,4 +1,4 @@
-import type { Arm, PlannerEvalPlugin } from './plugin.js';
+import { type Arm, isPhase, type PlannerEvalPlugin } from './plugin.js';
 
 /** An arm with the plugin that registered it, as the runner selects them. */
 export interface RegisteredArm {
@@ -9,11 +9,14 @@ export interface RegisteredArm {
 /**
  * Every arm of every plugin, by name, in registration order.
  *
- * @throws {Error} When two arms share a name, within or across plugins.
+ * @throws {Error} When two arms share a name, within or across plugins, or
+ *   when a plugin is inconsistent (see {@link pluginProblems}).
  */
 export function armRegistry(
   plugins: readonly PlannerEvalPlugin[],
 ): ReadonlyMap<string, RegisteredArm> {
+  const problems = plugins.flatMap(pluginProblems);
+  if (problems.length > 0) throw new Error(problems.join('; '));
   const registry = new Map<string, RegisteredArm>();
   for (const plugin of plugins)
     for (const arm of plugin.arms) {
@@ -58,6 +61,37 @@ export function resolveArms(
     if (!resolved.includes(registered)) resolved.push(registered);
   }
   return resolved;
+}
+
+/**
+ * What makes `plugin` inconsistent, one line each: a key of `phases` that
+ * is no planner-neutral phase or maps to a stage missing from `stageOrder`, and a
+ * default arm or alias target the plugin does not register. Empty when
+ * the plugin is consistent.
+ */
+export function pluginProblems(plugin: PlannerEvalPlugin): readonly string[] {
+  const problems: string[] = [];
+  const order: readonly string[] = plugin.stageOrder ?? [];
+  for (const [phase, stage] of Object.entries(plugin.phases ?? {})) {
+    if (!isPhase(phase))
+      problems.push(`plugin ${plugin.name} maps unknown phase ${phase}`);
+    else if (stage === undefined || !order.includes(stage))
+      problems.push(
+        `plugin ${plugin.name} maps phase ${phase} to ${stage}, which is not in its stageOrder`,
+      );
+  }
+  const owned = new Set(plugin.arms.map((arm) => arm.name));
+  for (const name of plugin.defaultArms ?? [])
+    if (!owned.has(name))
+      problems.push(
+        `plugin ${plugin.name} runs ${name} by default but registers no such arm`,
+      );
+  for (const [alias, target] of Object.entries(plugin.aliases ?? {}))
+    if (!owned.has(target))
+      problems.push(
+        `plugin ${plugin.name} aliases ${alias} to ${target} but registers no such arm`,
+      );
+  return problems;
 }
 
 /** The plugin that registered the arm named `name`, when any did. */

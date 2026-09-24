@@ -6,6 +6,7 @@ import {
   VesselSchema,
 } from '@maelstrom-co/protocol';
 import { demoVessels } from './fixtures/demo-vessels.js';
+import type { Phase } from './plugin.js';
 import type { ArrangementRule } from './predicates.js';
 
 export type Suite = 'development' | 'holdout';
@@ -26,7 +27,7 @@ export interface ExpectedAsk {
 export interface Expectation {
   readonly status: 'planned' | 'deferred';
   /** For `deferred`: the phase that should defer (`select`, `actions`, `layout`), as each plugin maps it to a stage. Omitted: any stage. */
-  readonly deferStage?: string;
+  readonly deferStage?: Phase;
   readonly visible?: readonly string[];
   readonly retained?: readonly string[];
   /** A reference tree the arrangement rules accept; not scored. */
@@ -2198,7 +2199,7 @@ function deferred(
   id: string,
   title: string,
   intent: string,
-  deferStage?: string,
+  deferStage?: Phase,
   options: InputOptions = {},
 ): Scenario {
   return {

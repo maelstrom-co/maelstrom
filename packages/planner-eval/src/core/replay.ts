@@ -5,7 +5,7 @@ import { deferred, type Stage } from '@maelstrom-co/engine';
 import { err, ok } from '@maelstrom-co/protocol';
 import type { RegisteredArm } from './arms.js';
 import type { StageRecord } from './instrument.js';
-import type { PlannerEvalPlugin } from './plugin.js';
+import { isPhase, type PlannerEvalPlugin } from './plugin.js';
 import type { Scenario } from './scenarios.js';
 
 /** What one staged turn recorded, as written under `<out>/stages/<arm>/`. */
@@ -40,7 +40,7 @@ export function replayedStages(
   plugin: PlannerEvalPlugin,
   through: string,
 ): readonly string[] {
-  const stage = plugin.phases?.[through];
+  const stage = isPhase(through) ? plugin.phases?.[through] : undefined;
   const order = plugin.stageOrder ?? [];
   if (stage === undefined || !order.includes(stage))
     throw new Error(

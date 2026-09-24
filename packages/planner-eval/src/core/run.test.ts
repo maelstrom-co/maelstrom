@@ -17,7 +17,7 @@ import { GRADER_VERSION } from './grader.js';
 import type { JudgeVerdict } from './plugin.js';
 import { loadReplay, writeStageFile } from './replay.js';
 import { writeReport } from './report.js';
-import { grade, type RunRecord, runEval } from './run.js';
+import { grade, type RunRecord, runEval, unmappedPhases } from './run.js';
 import { selectScenarios } from './scenarios.js';
 import { VERBALIZER_VERSION } from './verbalize-tree.js';
 
@@ -232,6 +232,32 @@ test('an expected deferral is judged at the phase the plugin maps the scenario t
   expect(any?.deferredAsExpected).toBe(true);
   const [none] = await run(tokyo, ['missing-enum'], { arms: ['fake'] });
   expect(none?.deferredAsExpected).toBe(false);
+});
+
+test('refuses, before any turn, a scenario whose deferral phase a staged arm cannot map', async () => {
+  // tiny-resize expects a deferral at the layout phase.
+  const plugin = fakePluginWith(tokyo);
+  const selectOnly = { ...plugin, phases: { select: 'pick' as const } };
+  const scenarios = selectScenarios('all', ['tiny-resize']);
+  let turns = 0;
+  const options = {
+    scenarios,
+    repeats: 1,
+    adapter: unusedAdapter,
+    fallback: () => async () => ok(TOKYO_CANDIDATE),
+    onRecord: () => {
+      turns += 1;
+    },
+  };
+  await expect(
+    runEval({ ...options, arms: resolveArms([selectOnly], ['fake']) }),
+  ).rejects.toThrow(
+    'plugin fake maps no stage to phase layout, which scenario tiny-resize expects to defer at',
+  );
+  expect(turns).toBe(0);
+  expect(
+    unmappedPhases(resolveArms([selectOnly], ['fake-baseline']), scenarios),
+  ).toEqual([]);
 });
 
 test('replays recorded upstream stages and runs the rest live', async () => {

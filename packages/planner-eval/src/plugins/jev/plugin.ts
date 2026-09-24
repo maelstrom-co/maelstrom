@@ -1,10 +1,11 @@
 import {
   type JevCall,
   STAGE_NAMES,
+  type StageName,
   type TypeSafeClientOptions,
 } from '@maelstrom-co/planner-jev/_eval';
 import type { StageRecord } from '../../core/instrument.js';
-import type { PlannerEvalPlugin } from '../../core/plugin.js';
+import type { Phase, PlannerEvalPlugin } from '../../core/plugin.js';
 import { registerStageEval } from '../../core/stage-eval.js';
 import { jevArms, type ReplayShape } from './arms.js';
 import { type JevRunRecord, jevTurnFields } from './record.js';
@@ -18,7 +19,7 @@ export const JEV_PHASES = {
   select: 'jevSelect',
   actions: 'jevActions',
   layout: 'jevLayout',
-} as const;
+} as const satisfies Readonly<Record<Phase, StageName>>;
 
 /** What {@link jevPluginWith} takes: TypeSafe settings, for tests that script the transport. */
 export interface JevPluginOptions {
@@ -33,7 +34,7 @@ export interface JevPluginOptions {
  */
 export function jevPluginWith(
   options: JevPluginOptions = {},
-): PlannerEvalPlugin<JevCall> {
+): PlannerEvalPlugin<JevCall, StageName> {
   const typesafe = typesafeSettings(options.typesafe);
   const arms = jevArms(typesafe);
   return {
@@ -59,7 +60,7 @@ export function jevPluginWith(
 }
 
 /** The Jev plugin on the TypeSafe settings from the environment. */
-export const jevPlugin: PlannerEvalPlugin<JevCall> = jevPluginWith();
+export const jevPlugin: PlannerEvalPlugin<JevCall, StageName> = jevPluginWith();
 
 const GATES = ['needsActions', 'generatedContent', 'spatial'] as const;
 

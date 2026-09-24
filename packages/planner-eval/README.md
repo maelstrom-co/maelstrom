@@ -14,7 +14,7 @@ A plugin declares:
 | --- | --- |
 | `name`, `arms` | Arms by unique name. An arm has a `build(deps)` that returns a `Planner`, wrapping every stage it wants recorded in `deps.instrument(name, stage)` and reporting its provider calls to `deps.onCall`. `baseline: true` marks a reference arm: no stages, no replay, paired against by the others. `requiredEnv` lists the variables the arm needs; `kind` labels its records (the plugin's name when absent). |
 | `defaultArms`, `aliases` | What `--arm` runs when absent, and other names it accepts. |
-| `stageOrder`, `phases` | The pipeline's stage names in order, and the stage each planner-neutral phase (`select`, `actions`, `layout`) maps to. The scenarios' `deferStage` expectations and `--replay-through` name phases, never stages, so they hold for every plugin. |
+| `stageOrder`, `phases` | The pipeline's stage names in order, and the stage each planner-neutral phase (`select`, `actions`, `layout`) maps to. The scenarios' `deferStage` expectations and `--replay-through` name phases, never stages, so they hold for every plugin. The arm registry refuses a plugin that maps an unknown phase or a stage outside `stageOrder`, and the runner refuses, before any turn, a scenario whose `deferStage` the plugin of a selected staged arm does not map. |
 | `fallback(adapter)` | The planner staged arms fall back to; the CLI takes the first plugin that offers one. |
 | `verifyReplay(record, arm)` | What a replayed stage output lacks for the arm to read it, checked before any turn runs. |
 | `recordTurn(scenario, stages, calls)` | Fields added to a staged turn's record in `records.json`. |
