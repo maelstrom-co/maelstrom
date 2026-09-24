@@ -354,12 +354,22 @@ test('a judge failure is recorded without touching the turn', async () => {
   ]);
 });
 
-test('grade catches an exception the judge raises and records grader/exception, never throwing', async () => {
+test('grade catches an exception the judge raises and records grader/exception with its cause and the calls before it, never throwing', async () => {
   const [scenario] = selectScenarios('development', ['quoted-location']);
   if (!scenario) throw new Error('fixture scenario is missing');
-  const throwingJudge = scriptedJudge(() => {
-    throw new Error('boom');
+  const nearBoundary = { score: 3, probabilities: { '3': 0.5, '4': 0.45 } };
+  const throwingJudge = scriptedJudge((_input, call) => {
+    if (call === 0)
+      return {
+        answers: {
+          request_satisfied: nearBoundary,
+          arrangement_match: nearBoundary,
+        },
+        calls: [{ latencyMs: 4 }],
+      };
+    throw new Error('boom', { cause: new TypeError('bad shape') });
   });
+  const logged: unknown[] = [];
   const response = {
     type: 'maelstrom_response',
     requestId: 'r',
@@ -373,13 +383,22 @@ test('grade catches an exception the judge raises and records grader/exception, 
     },
   } as unknown as MaelstromResponse;
   await expect(
-    grade(throwingJudge, scenario, response, silentLogger),
+    grade(throwingJudge, scenario, response, {
+      ...silentLogger,
+      error: (message, context) => logged.push({ message, context }),
+    }),
   ).resolves.toEqual({
     graderVersion: GRADER_VERSION,
     verbalizerVersion: VERBALIZER_VERSION,
-    failure: 'grader/exception',
-    calls: [],
+    failure: 'grader/exception: boom (cause: bad shape)',
+    calls: [{ latencyMs: 4 }],
   });
+  expect(logged).toEqual([
+    {
+      message: 'grader threw',
+      context: { scenario: 'quoted-location', error: expect.any(Error) },
+    },
+  ]);
   await expect(
     grade(
       throwingJudge,

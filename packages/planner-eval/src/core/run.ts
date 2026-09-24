@@ -18,7 +18,12 @@ import {
 } from '@maelstrom-co/protocol';
 import type { AnyTextAdapter } from '@tanstack/ai';
 import type { RegisteredArm } from './arms.js';
-import { GRADER_VERSION, type GraderRecord, gradeResponse } from './grader.js';
+import {
+  GRADER_VERSION,
+  type GraderCall,
+  type GraderRecord,
+  gradeResponse,
+} from './grader.js';
 import {
   createRecorder,
   type StageRecord,
@@ -187,9 +192,10 @@ export function unmappedPhases(
 
 /**
  * Grades one shipped response: `grader/not_tiling` for a non-tiling
- * layout, or `grader/exception` for any exception the judge or the grading
- * itself raises. The grader is secondary and must never abort a run or
- * change a turn's primary result.
+ * layout, or `grader/exception: <message>` for any exception the judge or
+ * the grading itself raises, logged with the error and keeping the judge
+ * calls made before it. The grader is secondary and must never abort a run
+ * or change a turn's primary result.
  */
 export async function grade(
   judge: Judge,
@@ -205,6 +211,7 @@ export async function grade(
       failure: 'grader/not_tiling',
       calls: [],
     };
+  const calls: GraderCall[] = [];
   try {
     return await gradeResponse(
       judge,
@@ -218,15 +225,24 @@ export async function grade(
         },
       },
       { logger },
+      calls,
     );
-  } catch {
+  } catch (error) {
+    logger.error('grader threw', { scenario: scenario.id, error });
     return {
       graderVersion: GRADER_VERSION,
       verbalizerVersion: VERBALIZER_VERSION,
-      failure: 'grader/exception',
-      calls: [],
+      failure: `grader/exception: ${describeError(error)}`,
+      calls,
     };
   }
+}
+
+function describeError(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  return error.cause === undefined
+    ? error.message
+    : `${error.message} (cause: ${describeError(error.cause)})`;
 }
 
 function isStaged({ arm }: RegisteredArm): boolean {

@@ -96,18 +96,20 @@ export type GraderContext = Pick<StageContext, 'logger' | 'signal'>;
  * {@link NEAR_BOUNDARY_MARGIN} is asked again, alone, until it has
  * {@link NEAR_BOUNDARY_SAMPLES} samples, and scores their mean. Never
  * throws on a provider failure: any failed call fails the whole grade.
+ * Every judge call is pushed to `calls` as it returns, so a caller that
+ * catches an exception still holds the calls made before it.
  */
 export async function gradeResponse(
   judge: Judge,
   input: GradeInput,
   ctx: GraderContext,
+  calls: GraderCall[] = [],
 ): Promise<GraderRecord> {
   const versions = {
     graderVersion: GRADER_VERSION,
     verbalizerVersion: VERBALIZER_VERSION,
   };
   const state = graderState(input);
-  const calls: GraderCall[] = [];
   const samples = Object.fromEntries(
     GRADER_DIMENSIONS.map((dimension) => [dimension, [] as number[]]),
   ) as Record<GraderDimension, number[]>;
