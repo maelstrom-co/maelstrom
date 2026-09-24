@@ -14,6 +14,20 @@ import type { Scenario } from './scenarios.js';
 import type { RegisteredStageEval } from './stage-eval.js';
 import type { LlmRole } from './usage-adapter.js';
 
+/** The planner-neutral phases a plugin maps to its own stages, in pipeline order. */
+export const PHASES = ['select', 'actions', 'layout'] as const;
+
+/**
+ * A planner-neutral phase: where a scenario expects a deferral, and how far
+ * `--replay-through` replays.
+ */
+export type Phase = (typeof PHASES)[number];
+
+/** Whether `name` is one of the {@link PHASES}. */
+export function isPhase(name: string): name is Phase {
+  return (PHASES as readonly string[]).includes(name);
+}
+
 /**
  * Wraps a pipeline stage so the runner records it under `name`, replays it
  * when a recorded run is replayed, and reports its latency.
@@ -127,7 +141,10 @@ export interface ArmSummaryExtension {
  * without knowing its stages. A plugin whose arms are all `baseline` needs
  * nothing beyond `arms`.
  */
-export interface PlannerEvalPlugin<Call extends ProviderCall = ProviderCall> {
+export interface PlannerEvalPlugin<
+  Call extends ProviderCall = ProviderCall,
+  StageName extends string = string,
+> {
   readonly name: string;
   readonly arms: readonly Arm<Call>[];
   /** Arm names run when `--arm` is not given; every plugin's defaults run together. */
@@ -135,13 +152,15 @@ export interface PlannerEvalPlugin<Call extends ProviderCall = ProviderCall> {
   /** Other names `--arm` accepts, alias to arm name. */
   readonly aliases?: Readonly<Record<string, string>>;
   /** The pipeline's stage names in order, as the arms hand them to `instrument`. */
-  readonly stageOrder?: readonly string[];
+  readonly stageOrder?: readonly StageName[];
   /**
-   * The stage each planner-neutral phase maps to (`select`, `actions`,
-   * `layout`), for the scenarios' `deferStage` expectations and
-   * `--replay-through`.
+   * The stage of `stageOrder` each planner-neutral phase maps to, for the
+   * scenarios' `deferStage` expectations and `--replay-through`. The arm
+   * registry refuses a plugin that maps a phase to a stage outside
+   * `stageOrder`, and the runner refuses a scenario whose `deferStage` the
+   * plugin of a staged arm leaves unmapped.
    */
-  readonly phases?: Readonly<Record<string, string>>;
+  readonly phases?: Partial<Readonly<Record<Phase, StageName>>>;
   /** The planner staged arms fall back to; the CLI takes the first plugin that offers one. */
   fallback?(
     adapter: AnyTextAdapter,

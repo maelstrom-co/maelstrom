@@ -38,6 +38,38 @@ describe('arm registry', () => {
     );
   });
 
+  test('refuses a plugin that maps an unknown phase or a stage outside its stageOrder', () => {
+    const phases = {
+      ...fake.phases,
+      layuot: 'write',
+    } as PlannerEvalPlugin['phases'];
+    expect(() => armRegistry([{ ...fake, phases }])).toThrow(
+      'plugin fake maps unknown phase layuot',
+    );
+    expect(() =>
+      armRegistry([{ ...fake, phases: { ...fake.phases, actions: 'act' } }]),
+    ).toThrow(
+      'plugin fake maps phase actions to act, which is not in its stageOrder',
+    );
+    const { stageOrder: _stageOrder, ...unordered } = fake;
+    expect(() => armRegistry([unordered])).toThrow(
+      'plugin fake maps phase select to pick, which is not in its stageOrder',
+    );
+  });
+
+  test('refuses a plugin whose defaults or aliases name an arm it does not register', () => {
+    expect(() =>
+      armRegistry([{ ...fake, defaultArms: ['other-baseline'] }, other]),
+    ).toThrow(
+      'plugin fake runs other-baseline by default but registers no such arm',
+    );
+    expect(() =>
+      armRegistry([{ ...fake, aliases: { ob: 'other-baseline' } }, other]),
+    ).toThrow(
+      'plugin fake aliases ob to other-baseline but registers no such arm',
+    );
+  });
+
   test('runs every plugin default when --arm is not given', () => {
     expect(defaultArms([other, fake])).toEqual(['other-baseline', 'fake']);
   });
