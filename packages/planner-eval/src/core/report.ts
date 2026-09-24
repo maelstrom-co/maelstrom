@@ -4,7 +4,11 @@ import { join } from 'node:path';
 import { pluginOf } from './arms.js';
 import { GRADER_DIMENSIONS, type GraderDimension } from './grader.js';
 import { type GraderValidation, graderGate } from './grader-validate.js';
-import type { PlannerEvalPlugin, ReportRow } from './plugin.js';
+import {
+  extendOwned,
+  type PlannerEvalPlugin,
+  type ReportRow,
+} from './plugin.js';
 import type { RunRecord } from './run.js';
 import type { Suite } from './scenarios.js';
 import { percentile } from './stats.js';
@@ -54,7 +58,8 @@ export interface GraderSummary {
 /**
  * One arm's numbers over one suite. A staged arm's plugin adds its own
  * fields through `summarizeArm`, which the index signatures admit; the
- * named fields are the runner's own.
+ * named fields are the runner's own, and the report throws when a plugin
+ * names one.
  */
 export interface ArmSummary {
   readonly [field: string]: unknown;
@@ -510,11 +515,12 @@ function summarizeArm(
     );
   const extension = plugin?.summarizeArm?.(records) ?? {};
   const {
-    latency: extraLatency,
-    tokens: extraTokens,
+    latency: extraLatency = {},
+    tokens: extraTokens = {},
     ...extraFields
   } = extension;
-  return {
+  const owner = plugin?.name ?? '';
+  const owned = {
     ...common,
     decisive: { pass: passed(decisive), wins, losses, paired },
     expectedDeferrals: {
@@ -531,16 +537,52 @@ function summarizeArm(
       byStage,
       providerByStage,
     },
-    ...extraFields,
-    latency: {
-      turn: spreadOf(records.map((record) => record.turnMs)),
-      ...(plugin?.stageOrder && { stages: stageMs }),
-      llmCall: llm.llmCall,
-      ...extraLatency,
-    },
-    tokens: { llm: llm.tokens, ...extraTokens },
+  };
+  return {
+    ...extendOwned(owned, extraFields, {
+      plugin: owner,
+      where: 'an arm summary',
+      reserved: ARM_SUMMARY_FIELDS,
+    }),
+    latency: extendOwned(
+      {
+        turn: spreadOf(records.map((record) => record.turnMs)),
+        ...(plugin?.stageOrder && { stages: stageMs }),
+        llmCall: llm.llmCall,
+      },
+      extraLatency,
+      {
+        plugin: owner,
+        where: 'an arm summary latency',
+        reserved: LATENCY_FIELDS,
+      },
+    ),
+    tokens: extendOwned({ llm: llm.tokens }, extraTokens, {
+      plugin: owner,
+      where: 'an arm summary tokens',
+    }),
   };
 }
+
+const ARM_SUMMARY_FIELDS = [
+  'arm',
+  'kind',
+  'suite',
+  'runs',
+  'overall',
+  'arrangement',
+  'errors',
+  'spatial',
+  'decisive',
+  'expectedDeferrals',
+  'fallbacks',
+  'replayed',
+  'grader',
+  'latency',
+  'tokens',
+] as const satisfies readonly (keyof ArmSummary)[];
+
+const LATENCY_FIELDS = ['turn', 'stages', 'llmCall'] as const;
 
 function graderSummary(
   planned: readonly RunRecord[],

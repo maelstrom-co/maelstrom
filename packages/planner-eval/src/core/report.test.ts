@@ -458,3 +458,19 @@ describe('grader', () => {
     ).not.toContain('grader');
   });
 });
+
+describe('plugin summary fields', () => {
+  const [fake] = plugins;
+  if (!fake) throw new Error('fake plugin is missing');
+  test.each([
+    [{ overall: 1 }, 'overall in an arm summary'],
+    [{ grader: {} }, 'grader in an arm summary'],
+    [{ latency: { turn: 1 } }, 'turn in an arm summary latency'],
+    [{ tokens: { llm: 1 } }, 'llm in an arm summary tokens'],
+  ])('refuses %o, a field the runner owns', (extension, where) => {
+    const clobbering = { ...fake, summarizeArm: () => extension };
+    expect(() => summarize([record({})], [clobbering])).toThrow(
+      `plugin fake sets ${where}, which the runner owns`,
+    );
+  });
+});

@@ -29,7 +29,12 @@ import {
   type StageRecord,
   type StageReplacements,
 } from './instrument.js';
-import type { Judge, Phase, PlannerEvalPlugin } from './plugin.js';
+import {
+  extendOwned,
+  type Judge,
+  type Phase,
+  type PlannerEvalPlugin,
+} from './plugin.js';
 import {
   type ReplaySource,
   replayedStages,
@@ -46,7 +51,8 @@ import { VERBALIZER_VERSION } from './verbalize-tree.js';
 /**
  * One turn of one arm, as `records.json` keeps it. A staged arm's plugin
  * adds its own fields through `recordTurn`, which the index signature
- * admits; the named fields are the runner's own.
+ * admits; the named fields are the runner's own, and the runner throws when
+ * a plugin names one.
  */
 export interface RunRecord {
   readonly [field: string]: unknown;
@@ -91,6 +97,33 @@ export interface RunRecord {
   readonly grader?: GraderRecord;
 }
 
+/** The fields of {@link RunRecord} the runner owns; no plugin's `recordTurn` may set one. */
+export const RUN_RECORD_FIELDS = [
+  'scenarioId',
+  'suite',
+  'arm',
+  'kind',
+  'repeat',
+  'turnMs',
+  'userMessage',
+  'error',
+  'expectedDeferral',
+  'arrangementRules',
+  'spatial',
+  'expectsActions',
+  'score',
+  'deferredAsExpected',
+  'deferral',
+  'fallbackCalls',
+  'stages',
+  'llmCalls',
+  'tree',
+  'executionPlan',
+  'instances',
+  'grader',
+] as const satisfies readonly (keyof RunRecord)[];
+
+/** What {@link runEval} runs: the scenarios, the arms and how, and where the results go. */
 export interface EvalOptions {
   readonly scenarios: readonly Scenario[];
   /** Run in this order for every scenario and repeat. */
@@ -128,6 +161,7 @@ const silent: Logger = { debug() {}, info() {}, warn() {}, error() {} };
  *   {@link unmappedPhases}), or when `options.replay` did not record every
  *   scenario and repeat from the same request and history, or lacks fields
  *   an arm reads from a replayed stage.
+ * @throws {Error} When a plugin's `recordTurn` sets a field the runner owns.
  */
 export async function runEval(options: EvalOptions): Promise<RunRecord[]> {
   const unmapped = unmappedPhases(options.arms, options.scenarios);
@@ -287,18 +321,25 @@ async function runTurn(
     onCall: recorder.onCall,
   });
   const turn = await handle(options, scenario, repeat, arm.name, planner);
-  const record: RunRecord = {
+  const owned: RunRecord = {
     ...base(scenario, repeat, registered, turn),
     llmCalls,
     ...(staged &&
       stagedFields(scenario, plugin, recorder.stages, fallbackCalls)),
-    ...(staged &&
-      plugin.recordTurn?.(scenario, recorder.stages, recorder.calls)),
     ...(turn.response &&
       scenario.expected.status === 'planned' && {
         score: scoreResponse(scenario, turn.response),
       }),
   };
+  const extension =
+    staged && plugin.recordTurn?.(scenario, recorder.stages, recorder.calls);
+  const record: RunRecord = extension
+    ? extendOwned(owned, extension, {
+        plugin: plugin.name,
+        where: 'a run record',
+        reserved: RUN_RECORD_FIELDS,
+      })
+    : owned;
   if (staged && options.out !== undefined)
     await writeStageFile(options.out, {
       arm: arm.name,
