@@ -52,7 +52,39 @@ describe('scenarios', () => {
         'ID:weather-main',
       ],
     ],
-  ])('%s fails on the tree the logged demo shipped', (id, tree) => {
+    [
+      'narrow-column-pair',
+      [
+        'H:4,3,5,4',
+        'ID:calendar-main',
+        'ID:tasks-main',
+        'V:1,2',
+        'ID:journal-main',
+        'ID:map-main',
+        'ID:weather-main',
+      ],
+    ],
+    [
+      'narrow-column-pair',
+      [
+        'V:1,1,1,4',
+        'ID:calendar-main',
+        'ID:tasks-main',
+        'ID:journal-main',
+        'H',
+        'ID:map-main',
+        'ID:weather-main',
+      ],
+    ],
+    [
+      'bottom-strip',
+      ['H:5,5,3', 'ID:calendar-main', 'ID:map-main', 'ID:weather-main'],
+    ],
+    [
+      'bottom-strip-keep-row',
+      ['H:5,5,3', 'ID:calendar-main', 'ID:map-main', 'ID:weather-main'],
+    ],
+  ])('%s fails on a tree a logged or recorded run shipped', (id, tree) => {
     const scenario = scenarios.find((candidate) => candidate.id === id);
     const rules = scenario?.expected.arrangement;
     if (scenario === undefined || rules === undefined)
