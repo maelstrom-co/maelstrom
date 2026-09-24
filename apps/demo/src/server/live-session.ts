@@ -75,7 +75,7 @@ export function createLocalLiveHandler(
       const backend = session.delegation.responses;
       if (
         session.model !== 'gpt-live-1' ||
-        backend.model !== 'gpt-6-luna' ||
+        backend.model !== 'gpt-5.4-mini' ||
         session.store === true ||
         backend.tools?.some(
           (tool) =>

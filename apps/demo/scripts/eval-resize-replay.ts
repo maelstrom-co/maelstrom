@@ -114,7 +114,7 @@ import { SEEDED_ACTION, scoreTrial } from './resize-replay-verdict';
  * `gemini-3.1-flash-lite-preview` (gemini). These are deliberately weak
  * models: stronger models rarely emit resize-only mutations, so they mask the
  * defect and produce a green run that proves nothing. The demo's own
- * shipping default is `gpt-6-luna` (see
+ * shipping default is `gpt-5.6-luna` (see
  * apps/demo/src/server/engine-model.ts); the mismatch is intentional.
  */
 const DEFAULT_MODELS: { openai: OpenAIChatModel; gemini: GeminiTextModel } = {

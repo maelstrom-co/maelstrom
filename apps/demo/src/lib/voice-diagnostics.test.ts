@@ -35,7 +35,7 @@ it('does not retain unbounded or content-shaped provider session identifiers', (
       {
         providerInstanceId: 'local-instance',
         model: 'gpt-live-1',
-        backendModel: 'gpt-6-luna',
+        backendModel: 'gpt-5.4-mini',
       },
     );
     expect(JSON.stringify(diagnostics.getTransportHistory())).not.toMatch(

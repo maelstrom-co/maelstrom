@@ -7,7 +7,7 @@ import { createDemoLiveExchange, liveErrorMessage } from './live-exchange';
 const offer: LiveExchangeRequest = {
   session: {
     model: 'gpt-live-1',
-    delegation: { type: 'responses', responses: { model: 'gpt-6-luna' } },
+    delegation: { type: 'responses', responses: { model: 'gpt-5.4-mini' } },
   },
   transport: { type: 'webrtc', sdp: 'v=0\r\no=fixture-offer' },
 };
