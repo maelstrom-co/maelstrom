@@ -71,6 +71,22 @@ export interface StageEvalModule<Input, Output, Detail> {
     scenario: Scenario,
     ctx: StageContext,
   ) => Promise<PreparedInput<Input>>;
+  /**
+   * The input one turn runs on, from the scenario's prepared input, for a
+   * module that varies part of it by repeat. The prepared input when absent.
+   */
+  readonly turnInput?: (
+    scenario: Scenario,
+    repeat: number,
+    input: Input,
+  ) => Input;
+  /**
+   * The deferral reason the stage should return for `scenario`, or
+   * undefined when it should return an output. A turn of such a scenario
+   * passes only when the stage defers with that reason; an output that
+   * would pass is a fail, and a hand-off stays handed off.
+   */
+  readonly expectedDeferral?: (scenario: Scenario) => string | undefined;
   /** Scores one output of the stage against `scenario`. */
   readonly judge: (
     scenario: Scenario,
@@ -107,6 +123,8 @@ export interface StageTurnRecord<Detail = unknown> {
   readonly jevCalls: readonly RecordedJevCall[];
   /** The stage module's own record of the output; absent unless the stage returned one. */
   readonly detail?: Detail;
+  /** The deferral reason the scenario expects of the stage; absent when it expects an output. */
+  readonly expectedDeferral?: string;
 }
 
 /** TypeSafe settings for every turn's client. */
@@ -234,6 +252,13 @@ async function runTurn<Input, Output, Detail>(
   },
 ): Promise<StageTurnRecord<Detail>> {
   const { variant, scenario, repeat, prepared } = turn;
+  const input =
+    module.turnInput?.(scenario, repeat, prepared.input) ?? prepared.input;
+  const expectedDeferral = module.expectedDeferral?.(scenario);
+  const own = {
+    ...base(module.stage, variant, scenario, repeat),
+    ...(expectedDeferral !== undefined && { expectedDeferral }),
+  };
   const jevCalls: RecordedJevCall[] = [];
   const ask: Ask = (stage, evaluation, ctx) =>
     createTypeSafeClient({
@@ -244,10 +269,10 @@ async function runTurn<Input, Output, Detail>(
   const started = performance.now();
   let result: Awaited<ReturnType<typeof stage>>;
   try {
-    result = await stage(prepared.input, stageContext(prepared.origin, logger));
+    result = await stage(input, stageContext(prepared.origin, logger));
   } catch (error) {
     return {
-      ...base(module.stage, variant, scenario, repeat),
+      ...own,
       outcome: 'error',
       reason: error instanceof Error ? error.message : String(error),
       stageMs: performance.now() - started,
@@ -255,21 +280,33 @@ async function runTurn<Input, Output, Detail>(
     };
   }
   const stageMs = performance.now() - started;
-  if (isErr(result))
+  if (isErr(result)) {
+    const { error } = result;
+    const deferred = isDeferred(error);
+    const reason = isDeferred(error)
+      ? error.reason
+      : `${error._tag}: ${error.message}`;
     return {
-      ...base(module.stage, variant, scenario, repeat),
-      outcome: isDeferred(result.error) ? 'deferred' : 'error',
-      reason: isDeferred(result.error)
-        ? result.error.reason
-        : `${result.error._tag}: ${result.error.message}`,
+      ...own,
+      outcome: !deferred
+        ? 'error'
+        : reason === expectedDeferral
+          ? 'pass'
+          : 'deferred',
+      reason,
       stageMs,
       jevCalls,
     };
-  const judgement = module.judge(scenario, prepared.input, result.value);
+  }
+  const judgement = module.judge(scenario, input, result.value);
+  const missedDeferral =
+    expectedDeferral !== undefined && judgement.outcome === 'pass';
   return {
-    ...base(module.stage, variant, scenario, repeat),
-    outcome: judgement.outcome,
-    failures: judgement.failures,
+    ...own,
+    outcome: missedDeferral ? 'fail' : judgement.outcome,
+    failures: missedDeferral
+      ? [`expected a deferral: ${expectedDeferral}`]
+      : judgement.failures,
     stageMs,
     jevCalls,
     detail: judgement.detail,

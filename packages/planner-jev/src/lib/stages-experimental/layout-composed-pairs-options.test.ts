@@ -641,3 +641,158 @@ describe('size comparisons', () => {
     expect(decision.pairwise.sizes).toBeUndefined();
   });
 });
+
+describe('spatial gate', () => {
+  const notStated: Step = {
+    choices: Object.fromEntries(PAIR_IDS.map((id) => [id, 'not_stated'])),
+    confidence: 0.9,
+  };
+
+  async function runWithSpatial(
+    options: ComposedPairsOptions,
+    spatial: GateAnswer,
+    decisions: Readonly<Record<string, 'keep' | 'hide'>> = {},
+  ) {
+    const request = makeRequest('Refresh the weather.', { tree: SIDE_BY_SIDE });
+    const plan: GatedActionPlan = {
+      ...actionPlan(request, [], decisions),
+      minConfidence: 1,
+      gates: {
+        needsActions: gate('no'),
+        generatedContent: gate('no'),
+        spatial,
+      },
+    };
+    const scripted = scriptedAsk(() => notStated);
+    const result = await layoutComposedPairsWithOptions(scripted.ask, options)(
+      plan,
+      makeContext(plan.selection.input),
+    );
+    if (!isOk(result)) throw new Error('expected a layout decision');
+    return { decision: result.value as ComposedPairsDecision, ...scripted };
+  }
+
+  const unsure: GateAnswer = {
+    answer: 'no',
+    probability: 0.3,
+    confidence: 0.6,
+  };
+  const confidentNo: GateAnswer = {
+    answer: 'no',
+    probability: 0.1,
+    confidence: 0.9,
+  };
+
+  test('never skipping asks the pairs on the same Instances and not stated keeps the current tree', async () => {
+    const { decision, calls } = await runWithSpatial(
+      { layoutId: 'asks', spatialGate: 'never_skips' },
+      confidentNo,
+    );
+    expect(calls).toHaveLength(1);
+    expect(decision.source).toBe('jev');
+    expect(decision.pairwise).toMatchObject({
+      route: 'same_instances',
+      called: true,
+    });
+    expect(decision.tree?.slice(1)).toEqual(SIDE_BY_SIDE.slice(1));
+  });
+
+  test('never skipping still makes no call with one visible Instance', async () => {
+    const { decision, calls } = await runWithSpatial(
+      { layoutId: 'asks', spatialGate: 'never_skips' },
+      confidentNo,
+      { 'weather-main': 'hide', 'tasks-main': 'hide' },
+    );
+    expect(calls).toHaveLength(0);
+    expect(decision.tree).toEqual(['ID:calendar-main']);
+  });
+
+  test('a confident no keeps the current tree without a call', async () => {
+    const { decision, calls } = await runWithSpatial(
+      { layoutId: 'weak', spatialGate: { kind: 'confident_no', below: 0.2 } },
+      confidentNo,
+    );
+    expect(calls).toHaveLength(0);
+    expect(decision.source).toBe('preserve');
+  });
+
+  test('an unsure no asks the pairs', async () => {
+    const { decision, calls } = await runWithSpatial(
+      { layoutId: 'weak', spatialGate: { kind: 'confident_no', below: 0.2 } },
+      unsure,
+    );
+    expect(calls).toHaveLength(1);
+    expect(decision.source).toBe('jev');
+    expect(decision.pairwise.called).toBe(true);
+  });
+
+  test('by default any no keeps the current tree without a call', async () => {
+    const { decision, calls } = await runWithSpatial(
+      { layoutId: 'default' },
+      unsure,
+    );
+    expect(calls).toHaveLength(0);
+    expect(decision.source).toBe('preserve');
+  });
+});
+
+describe('nothing fits', () => {
+  const inARow: Step = {
+    choices: {
+      'pair/calendar-main/weather-main': 'left_of',
+      'pair/calendar-main/tasks-main': 'left_of',
+      'pair/weather-main/tasks-main': 'left_of',
+    },
+    confidence: 1,
+  };
+
+  async function runNarrow(options: ComposedPairsOptions) {
+    const request = makeRequest('Put them in a row.', {
+      tree: SIDE_BY_SIDE,
+      columns: 8,
+    });
+    const plan = gatedPlan(request);
+    const scripted = scriptedAsk(() => inARow);
+    const result = await layoutComposedPairsWithOptions(scripted.ask, options)(
+      plan,
+      makeContext(plan.selection.input),
+    );
+    return { result, ...scripted };
+  }
+
+  test('defers as no feasible layout when no tree fits after the size fallback', async () => {
+    const { result } = await runNarrow({
+      layoutId: 'defers',
+      sizeFallback: true,
+      nothingFits: 'defers',
+    });
+    expect(isOk(result)).toBe(false);
+    if (isOk(result)) return;
+    expect(result.error).toMatchObject({
+      reason: 'jevLayout/no_feasible_layout',
+    });
+  });
+
+  test('defers when a single visible Instance does not fit', async () => {
+    const request = makeRequest('Show the calendar.', {
+      tree: ['ID:calendar-main'],
+      columns: 1,
+      rows: 1,
+    });
+    const plan = gatedPlan(request);
+    const result = await layoutComposedPairsWithOptions(
+      scriptedAsk(() => inARow).ask,
+      { layoutId: 'defers', nothingFits: 'defers' },
+    )(plan, makeContext(plan.selection.input));
+    expect(isOk(result)).toBe(false);
+  });
+
+  test('still hands off when no tree fits by default', async () => {
+    const { result } = await runNarrow({
+      layoutId: 'hands-off',
+      sizeFallback: true,
+    });
+    if (!isOk(result)) throw new Error('expected a layout decision');
+    expect(result.value.source).toBe('llm');
+  });
+});

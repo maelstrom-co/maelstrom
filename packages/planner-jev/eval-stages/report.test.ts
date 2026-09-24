@@ -134,4 +134,44 @@ describe('stage eval report', () => {
     expect(section).toContain('| Missed turns: shape | 1 |');
     expect(renderComposedSection(RECORDS, ['spatial-gate'])).toBeUndefined();
   });
+
+  test('keeps expected layout deferrals out of the main rows and reports them apart', () => {
+    const expectedDeferral = 'jevLayout/no_feasible_layout';
+    const records = [
+      turn('composed', 'focus', 'pass', { jevCalls: [call(100)] }),
+      turn('composed', 'small-chart', 'pass', {
+        expectedDeferral,
+        reason: expectedDeferral,
+        jevCalls: [call(100)],
+      }),
+      turn('composed', 'small-chart', 'handed_off', { expectedDeferral }),
+      turn('composed', 'small-chart', 'fail', { expectedDeferral }),
+      turn('composed', 'small-chart', 'deferred', {
+        expectedDeferral,
+        reason: 'jevLayout/provider_http',
+      }),
+    ];
+    const summary = summarizeVariant(records, 'composed');
+    expect(summary.turns).toBe(1);
+    expect(summary.pass).toEqual({ count: 1, total: 1 });
+    expect(summary.deferralReasons).toEqual({});
+    expect(summary.jevCallsPerTurn).toBe(1);
+    expect(summary.expectedDeferrals).toEqual({
+      turns: 4,
+      deferredRight: 1,
+      handedOff: 1,
+      wroteTree: 1,
+      otherDeferral: 1,
+    });
+    const report = renderStageReport('jevLayout', records, ['composed'], {});
+    expect(report).toContain(
+      '| Expected layout deferrals: deferred with the right reason | 1/4 (25%) |',
+    );
+    expect(report).toContain(
+      '| Expected layout deferrals: handed off / wrote a tree / other deferral | 1 / 1 / 1 |',
+    );
+    expect(
+      renderStageReport('jevLayout', RECORDS, ['composed'], {}),
+    ).not.toContain('Expected layout deferrals');
+  });
 });

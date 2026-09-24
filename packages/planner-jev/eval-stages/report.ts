@@ -10,7 +10,23 @@ export interface Ratio {
   readonly total: number;
 }
 
-/** One variant's numbers over the turns it ran. */
+/** How the turns of scenarios that expect the stage to defer ended. */
+export interface ExpectedDeferralSummary {
+  readonly turns: number;
+  /** Deferred with the expected reason: the passes. */
+  readonly deferredRight: number;
+  readonly handedOff: number;
+  /** Returned an output instead of deferring. */
+  readonly wroteTree: number;
+  /** Deferred with another reason, or errored. */
+  readonly otherDeferral: number;
+}
+
+/**
+ * One variant's numbers over the turns it ran. Every row but
+ * `expectedDeferrals` leaves out the turns of scenarios that expect the
+ * stage to defer.
+ */
 export interface VariantSummary {
   readonly variant: string;
   /** Turns that ran; not-applicable scenarios are left out. */
@@ -39,6 +55,7 @@ export interface VariantSummary {
     readonly input: number | undefined;
     readonly output: number | undefined;
   };
+  readonly expectedDeferrals: ExpectedDeferralSummary;
 }
 
 /** The run's settings, printed at the top of the report. */
@@ -50,7 +67,18 @@ export function summarizeVariant(
   variant: string,
 ): VariantSummary {
   const own = records.filter((record) => record.variant === variant);
-  const ran = own.filter((record) => record.outcome !== 'not_applicable');
+  const ran = own.filter(
+    (record) =>
+      record.outcome !== 'not_applicable' &&
+      record.expectedDeferral === undefined,
+  );
+  const deferralTurns = own.filter(
+    (record) =>
+      record.outcome !== 'not_applicable' &&
+      record.expectedDeferral !== undefined,
+  );
+  const deferralCount = (...outcomes: StageTurnRecord['outcome'][]) =>
+    deferralTurns.filter((record) => outcomes.includes(record.outcome)).length;
   const count = (outcome: StageTurnRecord['outcome']) =>
     ran.filter((record) => record.outcome === outcome).length;
   const passes = count('pass');
@@ -92,6 +120,13 @@ export function summarizeVariant(
     jevTokensPerTurn: {
       input: perTurn(sum(calls.map((call) => call.usage?.inputTokens ?? 0))),
       output: perTurn(sum(calls.map((call) => call.usage?.outputTokens ?? 0))),
+    },
+    expectedDeferrals: {
+      turns: deferralTurns.length,
+      deferredRight: deferralCount('pass'),
+      handedOff: deferralCount('handed_off'),
+      wroteTree: deferralCount('fail'),
+      otherDeferral: deferralCount('deferred', 'error'),
     },
   };
 }
@@ -161,6 +196,19 @@ export function renderStageReport(
     (s) =>
       `${fixed(s.jevTokensPerTurn.input, 0)} / ${fixed(s.jevTokensPerTurn.output, 0)}`,
   );
+  if (summaries.some((s) => s.expectedDeferrals.turns > 0)) {
+    row('Expected layout deferrals: deferred with the right reason', (s) =>
+      ratio({
+        count: s.expectedDeferrals.deferredRight,
+        total: s.expectedDeferrals.turns,
+      }),
+    );
+    row(
+      'Expected layout deferrals: handed off / wrote a tree / other deferral',
+      (s) =>
+        `${s.expectedDeferrals.handedOff} / ${s.expectedDeferrals.wroteTree} / ${s.expectedDeferrals.otherDeferral}`,
+    );
+  }
   const reasons = [
     ...new Set(summaries.flatMap((s) => Object.keys(s.deferralReasons))),
   ].sort();

@@ -342,3 +342,73 @@ export function renderComposedPairsSection(
     rows.join('\n'),
   ].join('\n\n');
 }
+
+/**
+ * The turns that ask no arrangement (see
+ * `LayoutTurnDetail.arrangementNotAsked`): how many ran per variant, how
+ * many changed the layout, and what they cost in Jev calls and tokens.
+ * `undefined` when no turn asks no arrangement.
+ */
+export function renderArrangementNotAskedSection(
+  records: readonly StageTurnRecord<LayoutTurnDetail>[],
+  variants: readonly string[],
+): string | undefined {
+  const turns = records.filter((record) => record.detail?.arrangementNotAsked);
+  if (turns.length === 0) return undefined;
+  const rows: string[] = [
+    `| Metric | ${variants.join(' | ')} |`,
+    `| --- |${variants.map(() => ' --- |').join('')}`,
+  ];
+  const row = (
+    label: string,
+    cell: (own: readonly StageTurnRecord<LayoutTurnDetail>[]) => string,
+  ) =>
+    rows.push(
+      `| ${label} | ${variants
+        .map((variant) =>
+          cell(turns.filter((record) => record.variant === variant)),
+        )
+        .join(' | ')} |`,
+    );
+  const perTurn = (
+    own: readonly StageTurnRecord<LayoutTurnDetail>[],
+    value: (record: StageTurnRecord<LayoutTurnDetail>) => number,
+    digits: number,
+  ) =>
+    own.length === 0
+      ? 'n/a'
+      : (
+          own.reduce((total, record) => total + value(record), 0) / own.length
+        ).toFixed(digits);
+  const tokens =
+    (side: 'inputTokens' | 'outputTokens') =>
+    (record: StageTurnRecord<LayoutTurnDetail>) =>
+      record.jevCalls.reduce(
+        (total, call) => total + (call.usage?.[side] ?? 0),
+        0,
+      );
+  row(
+    'Turns that ask no arrangement (same Instances, current tree fits)',
+    (own) => String(own.length),
+  );
+  row('Changed the layout', (own) =>
+    ratio({
+      count: own.filter((record) => record.detail?.arrangementNotAsked?.changed)
+        .length,
+      total: own.length,
+    }),
+  );
+  row('Jev calls per turn', (own) =>
+    perTurn(own, (record) => record.jevCalls.length, 2),
+  );
+  row(
+    'Jev tokens per turn (input / output)',
+    (own) =>
+      `${perTurn(own, tokens('inputTokens'), 0)} / ${perTurn(own, tokens('outputTokens'), 0)}`,
+  );
+  return [
+    '## Turns that ask no arrangement',
+    'Turns of scenarios not tagged spatial that expect an output, keep the current visible Instances and whose current tree fits. A changed layout is a returned tree that differs from the current one; a hand-off or deferral changes nothing here and is scored above.',
+    rows.join('\n'),
+  ].join('\n\n');
+}

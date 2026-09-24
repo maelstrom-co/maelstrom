@@ -6,8 +6,17 @@ import {
   scriptedFetch,
   TEST_MODEL,
 } from '../src/lib/__test-helpers__/scripted-fetch.js';
-import { type LayoutTurnDetail, layoutStageEval } from './layout.js';
-import { runStageEval, type StageTurnRecord } from './stage-eval.js';
+import {
+  type LayoutTurnDetail,
+  layoutStageEval,
+  layoutStageEvalWith,
+} from './layout.js';
+import { recordedSpatialSignal } from './recorded-spatial.js';
+import {
+  runStageEval,
+  type StageEvalModule,
+  type StageTurnRecord,
+} from './stage-eval.js';
 
 const SWAP_CORRECT = {
   choices: {
@@ -24,9 +33,14 @@ async function run(
   variants: readonly string[],
   script: Script = () => SWAP_CORRECT,
   repeats = 1,
+  module: StageEvalModule<
+    never,
+    never,
+    LayoutTurnDetail
+  > = layoutStageEval as never,
 ) {
   const transport = scriptedFetch(script);
-  const records = (await runStageEval(layoutStageEval, {
+  const records = (await runStageEval(module, {
     scenarios: selectScenarios('all', ids),
     variants,
     repeats,
@@ -156,4 +170,131 @@ describe('layout stage eval', () => {
       /unknown jevLayout variant no-such-variant/,
     );
   });
+
+  test('scores a scenario that expects a layout stage deferral: only deferring with no feasible layout passes', async () => {
+    const { records } = await run(
+      ['small-chart'],
+      [
+        'preset-or-llm',
+        'composed-pairs-fraction-sizes-both-fixes',
+        'composed-pairs-fraction-sizes-both-fixes-defers-when-nothing-fits',
+      ],
+      pairsAll('left_of'),
+    );
+    expect(
+      records.map((record) => [
+        record.variant,
+        record.outcome,
+        record.expectedDeferral,
+      ]),
+    ).toEqual([
+      ['preset-or-llm', 'pass', 'jevLayout/no_feasible_layout'],
+      [
+        'composed-pairs-fraction-sizes-both-fixes',
+        'handed_off',
+        'jevLayout/no_feasible_layout',
+      ],
+      [
+        'composed-pairs-fraction-sizes-both-fixes-defers-when-nothing-fits',
+        'pass',
+        'jevLayout/no_feasible_layout',
+      ],
+    ]);
+    expect(records[2].reason).toBe('jevLayout/no_feasible_layout');
+  });
+
+  test('feeds the recorded live spatial signal per scenario and repeat, and gold where none was recorded', async () => {
+    const signal = recordedSpatialSignal(
+      [
+        {
+          arm: 'live-arm',
+          scenarioId: 'swap',
+          repeat: 1,
+          stageOutputs: {
+            jevSelect: {
+              gates: {
+                spatial: { answer: 'no', probability: 0.47, confidence: 0.6 },
+              },
+            },
+          },
+        },
+      ],
+      'live-arm',
+    );
+    const module = layoutStageEvalWith({ spatialSignal: signal });
+    const { records, payloads } = await run(
+      ['swap'],
+      [
+        'composed-pairs-fraction-sizes-both-fixes',
+        'composed-pairs-fraction-sizes-both-fixes-always-asks',
+      ],
+      pairsAll('not_stated'),
+      2,
+      module as never,
+    );
+    expect(
+      records.map((record) => [
+        record.repeat,
+        record.variant,
+        record.detail?.pairwise?.route,
+        record.detail?.pairwise?.called,
+      ]),
+    ).toEqual([
+      [1, 'composed-pairs-fraction-sizes-both-fixes', 'same_instances', false],
+      [
+        1,
+        'composed-pairs-fraction-sizes-both-fixes-always-asks',
+        'same_instances',
+        true,
+      ],
+      [2, 'composed-pairs-fraction-sizes-both-fixes', 'spatial', true],
+      [
+        2,
+        'composed-pairs-fraction-sizes-both-fixes-always-asks',
+        'spatial',
+        true,
+      ],
+    ]);
+    expect(payloads).toHaveLength(3);
+  });
+
+  test('marks whether a turn that asks no arrangement changed the layout', async () => {
+    const kept = await run(
+      ['preserve', 'swap'],
+      ['composed-pairs-fraction-sizes-both-fixes-always-asks'],
+      pairsAll('not_stated'),
+    );
+    expect(
+      kept.records.map((record) => [
+        record.scenarioId,
+        record.detail?.arrangementNotAsked,
+      ]),
+    ).toEqual([
+      ['preserve', { changed: false }],
+      ['swap', undefined],
+    ]);
+    const moved = await run(
+      ['preserve'],
+      ['composed-pairs-fraction-sizes-both-fixes-always-asks'],
+      pairsAll('above'),
+    );
+    expect(moved.records[0].detail?.arrangementNotAsked).toEqual({
+      changed: true,
+    });
+  });
 });
+
+function pairsAll(choice: string): Script {
+  return (payload) => ({
+    choices: Object.fromEntries(
+      Object.keys(payload.questions)
+        .filter((id) => id.startsWith('pair/'))
+        .map((id) => [id, choice]),
+    ),
+    scores: Object.fromEntries(
+      Object.keys(payload.questions)
+        .filter((id) => id.startsWith('size/'))
+        .map((id) => [id, 2]),
+    ),
+  });
+}
