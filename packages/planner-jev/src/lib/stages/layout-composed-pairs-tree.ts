@@ -150,13 +150,24 @@ export function treeDirection(
 }
 
 /**
- * Scores every arrangement of `ids` against the pair answers and the
- * top-level `direction` answer, highest first; ties keep enumeration
- * order. An arrangement scores the sum over answered pairs of the log
- * probability of the relation it implies, floored at
- * {@link PROBABILITY_FLOOR}, plus the log probability of its top-level
- * axis under `direction` (a distribution over {@link TOP_DIRECTIONS} and
- * {@link NOT_STATED}), weighted as one pair.
+ * The log probability every relation and top-level axis scores with,
+ * read from the pair answers and the top-level `direction` answer (a
+ * distribution over {@link TOP_DIRECTIONS} and {@link NOT_STATED}), each
+ * floored at {@link PROBABILITY_FLOOR}.
+ */
+export interface RelationScores {
+  /** The log probability of each top-level axis, weighted as one pair. */
+  readonly direction: Readonly<Record<'H' | 'V', number>>;
+  /** Per answered pair, the log probability of each relation `first` can have to `second`. */
+  readonly pairs: readonly {
+    readonly first: InstanceId;
+    readonly second: InstanceId;
+    readonly logProbability: Readonly<Record<PairRelation, number>>;
+  }[];
+}
+
+/**
+ * The {@link RelationScores} of the answers against `currentTree`.
  *
  * {@link NOT_STATED} votes for `currentTree`: a pair's not stated
  * probability is added to the relation the pair has in the current tree,
@@ -167,13 +178,11 @@ export function treeDirection(
  * for the relation along that direction that keeps the pair's order in the
  * current tree (the leaf that comes first there goes left, or on top).
  */
-export function rankArrangements(
-  ids: readonly InstanceId[],
+export function relationScores(
   pairs: readonly PairAnswer[],
   currentTree: readonly TilingNode[],
   direction: OptionProbabilities,
-): readonly ScoredArrangement[] {
-  const directionScore = directionTable(direction, currentTree);
+): RelationScores {
   const statedDirection = statedAxis(direction);
   const redirectAxis =
     statedDirection === treeDirection(currentTree)
@@ -181,37 +190,79 @@ export function rankArrangements(
       : statedDirection;
   const leafOrder =
     redirectAxis === undefined ? undefined : leafIndexes(currentTree);
-  const tables = pairs.map((pair) => {
-    const current =
-      redirectAxis === undefined || leafOrder === undefined
-        ? treeRelation(currentTree, pair.first, pair.second)
-        : orderAlong(redirectAxis, leafOrder, pair.first, pair.second);
-    const notStated = pair.probabilities[NOT_STATED] ?? 0;
-    return {
-      pair,
-      logProbability: Object.fromEntries(
-        PAIR_RELATIONS.map((relation) => {
-          const probability =
-            (pair.probabilities[relation] ?? 0) +
-            (relation === current ? notStated : 0);
-          return [relation, Math.log(Math.max(probability, PROBABILITY_FLOOR))];
-        }),
-      ) as Record<PairRelation, number>,
-    };
-  });
+  return {
+    direction: directionTable(direction, currentTree),
+    pairs: pairs.map((pair) => {
+      const current =
+        redirectAxis === undefined || leafOrder === undefined
+          ? treeRelation(currentTree, pair.first, pair.second)
+          : orderAlong(redirectAxis, leafOrder, pair.first, pair.second);
+      const notStated = pair.probabilities[NOT_STATED] ?? 0;
+      return {
+        first: pair.first,
+        second: pair.second,
+        logProbability: Object.fromEntries(
+          PAIR_RELATIONS.map((relation) => {
+            const probability =
+              (pair.probabilities[relation] ?? 0) +
+              (relation === current ? notStated : 0);
+            return [
+              relation,
+              Math.log(Math.max(probability, PROBABILITY_FLOOR)),
+            ];
+          }),
+        ) as Record<PairRelation, number>,
+      };
+    }),
+  };
+}
+
+/**
+ * The score of a tree whose top split runs along `axis` and whose pairs
+ * relate as `relationOf` reads them: the direction's log probability plus,
+ * for each answered pair the tree holds, the log probability of its
+ * relation.
+ */
+export function scoreRelations(
+  scores: RelationScores,
+  axis: 'H' | 'V',
+  relationOf: (
+    first: InstanceId,
+    second: InstanceId,
+  ) => PairRelation | undefined,
+): number {
+  return scores.pairs.reduce((sum, { first, second, logProbability }) => {
+    const relation = relationOf(first, second);
+    return relation === undefined ? sum : sum + logProbability[relation];
+  }, scores.direction[axis]);
+}
+
+/**
+ * Scores every arrangement of `ids` against the pair answers and the
+ * top-level `direction` answer, highest first; ties keep enumeration
+ * order. An arrangement scores the sum over answered pairs of the log
+ * probability of the relation it implies plus the log probability of its
+ * top-level axis, read with {@link relationScores}, so not stated votes
+ * for the current tree or, when the direction changes its top split, for
+ * the current order along that direction.
+ */
+export function rankArrangements(
+  ids: readonly InstanceId[],
+  pairs: readonly PairAnswer[],
+  currentTree: readonly TilingNode[],
+  direction: OptionProbabilities,
+): readonly ScoredArrangement[] {
+  const scores = relationScores(pairs, currentTree, direction);
   return enumerateArrangements(ids)
-    .map((arrangement) => ({
-      arrangement,
-      score: tables.reduce((sum, { pair, logProbability }) => {
-        const relation = arrangementRelation(
-          arrangement,
-          pair.first,
-          pair.second,
-        );
-        return relation === undefined ? sum : sum + logProbability[relation];
-      }, directionScore[arrangement.axis]),
+    .map((arrangement, order) => ({
+      scored: {
+        arrangement,
+        score: scoreRelations(scores, arrangement.axis, (first, second) =>
+          arrangementRelation(arrangement, first, second),
+        ),
+      },
+      order,
     }))
-    .map((scored, order) => ({ scored, order }))
     .sort((a, b) => b.scored.score - a.scored.score || a.order - b.order)
     .map(({ scored }) => scored);
 }
@@ -341,6 +392,41 @@ export function raiseToMinimum(
 }
 
 /**
+ * Small integer weights for `shares` raised to `minimum` (see
+ * {@link raiseToMinimum}) that keep every child at or above its minimum
+ * fraction after rounding, the closest to the raised shares among the
+ * smallest totals tried. `undefined` when the minimums cannot fit or no
+ * total up to {@link MAX_MINIMUM_WEIGHT_TOTAL} keeps them.
+ */
+export function weightsAtMinimum(
+  shares: readonly number[],
+  minimum: readonly number[],
+): readonly number[] | undefined {
+  if (shares.length < 2) return shares;
+  const raised = raiseToMinimum(shares, minimum);
+  if (raised === undefined) return undefined;
+  let best: { weights: number[]; error: number } | undefined;
+  for (let scale = 1; scale <= MAX_MINIMUM_WEIGHT_TOTAL; scale += 1) {
+    const weights = raised.map((share) =>
+      Math.max(1, Math.round(share * scale)),
+    );
+    const sum = weights.reduce((acc, weight) => acc + weight, 0);
+    const keepsMinimum = weights.every(
+      (weight, index) => weight / sum + 1e-9 >= (minimum[index] ?? 0),
+    );
+    if (!keepsMinimum) continue;
+    const error = Math.max(
+      ...weights.map((weight, index) =>
+        Math.abs(weight / sum - (raised[index] ?? 0)),
+      ),
+    );
+    if (error <= MINIMUM_WEIGHT_TOLERANCE) return weights;
+    if (best === undefined || error < best.error) best = { weights, error };
+  }
+  return best?.weights;
+}
+
+/**
  * Normalises answered sizes into shares of the Chart summing to 1. All zero
  * reads as equal shares; any share under {@link SIZE_FLOOR} is raised to it
  * before renormalising, so no share is 0.
@@ -460,6 +546,12 @@ export function pickSizedTree(
   return undefined;
 }
 
+/** The largest weight total {@link weightsAtMinimum} tries. */
+const MAX_MINIMUM_WEIGHT_TOTAL = 48;
+
+/** Largest error per share {@link weightsAtMinimum} accepts before trying a larger total. */
+const MINIMUM_WEIGHT_TOLERANCE = 0.025;
+
 /** Largest error per share a ratio of small integers may have before a larger total is tried. */
 const WEIGHT_TOLERANCE = 0.025;
 
@@ -544,47 +636,6 @@ function treeOfWeights(
   );
   return splitTree(arrangement.axis, partTrees, top);
 }
-
-/** The largest weight total {@link weightsAtMinimum} tries. */
-const MAX_MINIMUM_WEIGHT_TOTAL = 48;
-
-/**
- * Small integer weights for `shares` raised to `minimum` (see
- * {@link raiseToMinimum}) that keep every child at or above its minimum
- * fraction after rounding, the closest to the raised shares among the
- * smallest totals tried. `undefined` when the minimums cannot fit or no
- * total up to {@link MAX_MINIMUM_WEIGHT_TOTAL} keeps them.
- */
-function weightsAtMinimum(
-  shares: readonly number[],
-  minimum: readonly number[],
-): readonly number[] | undefined {
-  if (shares.length < 2) return shares;
-  const raised = raiseToMinimum(shares, minimum);
-  if (raised === undefined) return undefined;
-  let best: { weights: number[]; error: number } | undefined;
-  for (let scale = 1; scale <= MAX_MINIMUM_WEIGHT_TOTAL; scale += 1) {
-    const weights = raised.map((share) =>
-      Math.max(1, Math.round(share * scale)),
-    );
-    const sum = weights.reduce((acc, weight) => acc + weight, 0);
-    const keepsMinimum = weights.every(
-      (weight, index) => weight / sum + 1e-9 >= (minimum[index] ?? 0),
-    );
-    if (!keepsMinimum) continue;
-    const error = Math.max(
-      ...weights.map((weight, index) =>
-        Math.abs(weight / sum - (raised[index] ?? 0)),
-      ),
-    );
-    if (error <= MINIMUM_WEIGHT_TOLERANCE) return weights;
-    if (best === undefined || error < best.error) best = { weights, error };
-  }
-  return best?.weights;
-}
-
-/** Largest error per share {@link weightsAtMinimum} accepts before trying a larger total. */
-const MINIMUM_WEIGHT_TOLERANCE = 0.025;
 
 /** The axis the direction answer's most likely option names, `undefined` when that is not stated. */
 function statedAxis(direction: OptionProbabilities): 'H' | 'V' | undefined {
