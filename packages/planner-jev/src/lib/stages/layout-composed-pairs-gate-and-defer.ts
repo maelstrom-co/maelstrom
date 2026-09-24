@@ -47,7 +47,7 @@ import {
   sizeShares,
 } from './layout-composed-pairs-tree.js';
 import { describeLayout } from './layout-describe.js';
-import type { GatedActionPlan, LayoutDecision } from './types.js';
+import type { GatedActionPlan, LayoutDecision } from './stage-types.js';
 
 /** The most visible Instances {@link layoutComposedPairsGateAndDefer} enumerates every arrangement of. */
 export const MAX_PAIRS_INSTANCES = 6;

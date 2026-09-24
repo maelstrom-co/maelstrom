@@ -14,8 +14,8 @@ import {
 } from '../__test-helpers__/fixtures.js';
 import { scriptedAsk } from '../__test-helpers__/scripted-fetch.js';
 import { runPair } from '../__test-helpers__/stage-pair.js';
+import { selectUngated } from '../stages-experimental/select-ungated.js';
 import { GATE_THRESHOLD, selectGated } from './select-gated.js';
-import { selectUngated } from './select-ungated.js';
 
 const GATES = {
   'gate/needsActions': 0.9,

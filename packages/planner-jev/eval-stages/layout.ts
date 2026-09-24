@@ -13,15 +13,15 @@ import { layoutFits } from '../src/lib/layout-fit.js';
 import {
   type ComposedPairsRecord,
   layoutComposedPairsGateAndDefer,
-} from '../src/lib/stages-experimental/layout-composed-pairs-gate-and-defer.js';
-import { layoutPreset } from '../src/lib/stages-experimental/layout-preset.js';
-import { layoutPresetOrLlm } from '../src/lib/stages-experimental/layout-preset-or-llm.js';
+} from '../src/lib/stages/layout-composed-pairs-gate-and-defer.js';
 import type {
   GateAnswer,
   GatedActionPlan,
   LayoutDecision,
   LayoutSource,
-} from '../src/lib/stages-experimental/types.js';
+} from '../src/lib/stages/stage-types.js';
+import { layoutPreset } from '../src/lib/stages-experimental/layout-preset.js';
+import { layoutPresetOrLlm } from '../src/lib/stages-experimental/layout-preset-or-llm.js';
 import type { AnswerRecord } from '../src/lib/types.js';
 import type { Ask } from '../src/lib/typesafe-client.js';
 import { goldInputs, layoutDeferralGoldInputs } from './gold-inputs.js';

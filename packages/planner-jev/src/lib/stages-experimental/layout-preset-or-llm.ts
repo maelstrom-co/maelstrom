@@ -4,10 +4,10 @@ import { deferAt } from '../defer.js';
 import { finalVariants } from '../final-variants.js';
 import { layoutChoices } from '../layouts.js';
 import { choice, noul, readAnswer, recentHistory } from '../questions.js';
+import type { LayoutStage } from '../stages/stage-types.js';
 import type { AnswerRecord } from '../types.js';
 import type { Ask } from '../typesafe-client.js';
 import { layoutKeepOrDefault } from './layout-keep-or-default.js';
-import type { LayoutStage } from './types.js';
 
 const STAGE = 'jevLayout';
 

@@ -13,12 +13,12 @@ import type { StageReplacements } from '../eval/instrument.js';
 import type { ReplayShape } from '../eval/replay.js';
 import type { Scenario } from '../eval/scenarios.js';
 import { expectedRetained } from '../eval/score.js';
-import { actionPlanOf } from '../src/lib/stages-experimental/action-plan.js';
+import { actionPlanOf } from '../src/lib/stages/action-plan.js';
 import type {
   GateAnswer,
   Selection2,
   SelectionGates,
-} from '../src/lib/stages-experimental/types.js';
+} from '../src/lib/stages/stage-types.js';
 import type {
   ParameterAsk,
   PendingParameter,

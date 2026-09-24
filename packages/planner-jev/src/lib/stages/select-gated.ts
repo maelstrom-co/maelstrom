@@ -3,9 +3,13 @@ import { isErr, isOk, ok } from '@maelstrom-co/protocol';
 
 import { deferAt } from '../defer.js';
 import { noul, type Question, type Reply, readAnswer } from '../questions.js';
-import { jevSelect } from '../stages/jev-select.js';
 import type { Ask } from '../typesafe-client.js';
-import type { GateAnswer, GatedSelection, SelectionGates } from './types.js';
+import { jevSelect } from './jev-select.js';
+import type {
+  GateAnswer,
+  GatedSelection,
+  SelectionGates,
+} from './stage-types.js';
 
 const STAGE = 'jevSelect';
 

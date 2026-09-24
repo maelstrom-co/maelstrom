@@ -19,10 +19,14 @@ import {
   scriptedAsk,
 } from '../__test-helpers__/scripted-fetch.js';
 import { MAX_ACTIONS } from '../stages/jev-actions.js';
+import type {
+  ActionsStage,
+  GateAnswer,
+  Selection2,
+} from '../stages/stage-types.js';
 import type { Ask } from '../typesafe-client.js';
 import { actionsBatched, MAX_BATCH_QUESTIONS } from './actions-batched.js';
 import { actionsStepwise } from './actions-stepwise.js';
-import type { ActionsStage, GateAnswer, Selection2 } from './types.js';
 
 const CALENDAR_AND_WEATHER = {
   'tasks-main': 'delete',

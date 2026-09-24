@@ -46,23 +46,39 @@ Run the Engine with `retry: false`. The Jev pipeline is never re-run whole: `llm
 
 It is not the default: `jevPlanner` passed more holdout scenarios in the comparison eval. The demo selects it with `MAELSTROM_PLANNER=jev-composed-pairs` so the composed layout can be tried in a real UI.
 
-## Stage library (experimental)
+## Stage library
 
-`src/lib/stages-experimental/` holds candidate stages measured against the frozen POC, and `src/lib/planners/` composes them into named planners with `pipeline(...)`, each wrapped in the same fallback. Only the composed pairs planner is exported (see above); the eval runs every planner as an arm. Every stage keeps the POC's stage names (`jevSelect`, `jevActions`, `jevLayout`, `llmComplete`), so deferral reasons, the report and replay treat them alike.
+The stage library composes named planners from interchangeable stages with `pipeline(...)`, each wrapped in the same fallback. Every stage keeps the POC's stage names (`jevSelect`, `jevActions`, `jevLayout`, `llmComplete`), so deferral reasons, the report and replay treat them alike. The eval runs every planner as an arm.
 
-| Stage | Replaces | What it does |
-| --- | --- | --- |
-| `selectUngated` | `jevSelect` | The POC's selection, unchanged. |
-| `selectGated` | `jevSelect` | The POC's selection plus three yes/no (`noul`) questions in the same call: `needsActions` (the intent asks for a view change or a content edit, not only showing, hiding, removing or arranging), `generatedContent` (the intent asks for content that must be invented or fetched) and `spatial` (the intent states where something goes or how large it is). A gate answers yes at a probability of 0.5 or more; every probability is kept on the selection's `gates`. A generated-content yes defers `jevSelect/scope_unsupported`. `spatial` is recorded for later layout stages. |
-| `actionsStepwise` | `jevActions` | The POC's actions, one call per step plus one per parameterised action. |
-| `actionsStepwiseGated` | `jevActions` | `actionsStepwise` behind the `needsActions` gate: a gated selection answering no plans no actions and makes no call, anything else runs the stepwise stage unchanged. |
-| `actionsBatched` | `jevActions` | State-keyed batching, two calls. The first asks, for every variant state the request can reach by transitions, which action comes next at each depth up to the action limit (`action/0`, then `action/<depth>@<state>`, the state named by the instances whose view changed, `same` when none did). Questions are keyed by state, not by the actions that led there, so two orders reaching the same views share a question. Code walks the answers from the current views. Past `MAX_BATCH_QUESTIONS` (48) whole depths are left out and asked one call per step. The second call binds every chosen action's parameters at once, with the same parameter questions as the stepwise stage. |
-| `actionsBatchedPerInstance` | `jevActions` | Per-instance batching, one call: for each instance, slot 1 (its first action, `none` or `unsupported`), slot 2 (its second action, each option labelled with the view slot 1 leaves it in, for example `week:addEvent`) and slot 3 (never planned: an answer naming an action defers `jevActions/action_limit`, the rest is measurement), plus the parameters of every action any slot could pick. Code takes slot 2 only when its label matches the view slot 1's answer leads to; any other label defers `jevActions/premise_mismatch`. Parameter answers off the walked path are discarded. |
-| `layoutPreset` | `jevLayout` | The POC's choice over precomputed layouts. Never hands off. With `describe: 'placements'` each layout is described by its Instances and positions ("Stacked: calendar-main and weather-main side by side on top, tasks-main full width below.") instead of by its split tokens, and layouts placing every Instance on the same rectangles are offered once; the default keeps the POC's wording and call. |
-| `layoutPresetOrLlm` | `jevLayout` | Experimental. One Jev call with the placements menu and two yes/no questions: `needsChange` (the request states an arrangement different from the current one) and `needsBetter` (no offered layout is that arrangement). No change keeps the current tree when it fits, else the balanced default; needing better hands the layout off; otherwise the chosen layout ships. |
-| `layoutComposedPairsGateAndDefer` | `jevLayout` | Composes the tree from Jev's answers about pairs of visible Instances in one call (see below). Its input type requires the gates, so a planner with `selectUngated` does not compile. |
-| `completeLayoutInline` | `llmComplete` | The POC's completion call; when a layout stage hands the layout off, the LLM also writes the tree. |
-| `completeLayoutParallel` | `llmComplete` | Experimental. On a hand-off, runs the message-only completion call and a small tree-only layout call in parallel; a failure in either aborts the other. With a tree from the layout stage it is the same single call as `completeLayoutInline`. |
+### Chosen and experimental code
+
+Chosen code is what ships: the two planners that are exported and selectable in the demo, `jevPlanner` and `jevComposedPairsPlanner`, and every stage and utility they run. `jevComposedPairsPlanner` keeps its `@experimental` tag in the public API because it is still being tried in a real UI, but it is the chosen direction, so it and its stages live with the chosen code. Everything else is experiment code: the Phase 3 planners and the stages only they, the eval arms or the stage eval use.
+
+| Folder | Holds |
+| --- | --- |
+| `src/lib/` | `jevPlanner` (`jev-planner.ts`) and the helpers every stage shares: questions, layouts, fit checks, deferral, the TypeSafe client. |
+| `src/lib/stages/` | Chosen stages: the frozen POC stages (`jev-select.ts`, `jev-actions.ts`, `jev-layout.ts`, `llm-complete.ts`), the composed pairs planner's stages (`select-gated.ts`, `actions-batched-per-instance.ts`, `layout-composed-pairs-gate-and-defer.ts` with its `-tree.ts` and `-sizes.ts` helpers, `complete-layout-inline.ts`) and the stage utilities both sides share (`stage-types.ts`, `stage-deps.ts`, `fan-out.ts`, `action-plan.ts`, `layout-describe.ts`). |
+| `src/lib/planners/` | Chosen planners: `jev-composed-pairs.ts` and the shared pipeline builder `jev-stage-planner.ts`. |
+| `src/lib/stages-experimental/` | Stages only experiments use. |
+| `src/lib/planners-experimental/` | The Phase 3 planners (`jev-gated-*`, `jev-ungated-*`). |
+
+Chosen code never imports from `stages-experimental/` or `planners-experimental/`; experiment code may import chosen code. `src/lib/experimental-boundary.test.ts` enforces the rule on every non-test file outside the experimental folders. Tests and `__test-helpers__` are exempt, so a test of chosen code may use an experimental stage as a fixture. Deleting an experiment therefore never touches what ships. When an experimental stage wins, move it to `stages/` (renaming the moved file on a name clash, never a POC file).
+
+### Stages
+
+| Stage | Folder | Replaces | What it does |
+| --- | --- | --- | --- |
+| `selectUngated` | `stages-experimental/` | `jevSelect` | The POC's selection, unchanged. |
+| `selectGated` | `stages/` | `jevSelect` | The POC's selection plus three yes/no (`noul`) questions in the same call: `needsActions` (the intent asks for a view change or a content edit, not only showing, hiding, removing or arranging), `generatedContent` (the intent asks for content that must be invented or fetched) and `spatial` (the intent states where something goes or how large it is). A gate answers yes at a probability of 0.5 or more; every probability is kept on the selection's `gates`. A generated-content yes defers `jevSelect/scope_unsupported`. `spatial` is recorded for later layout stages. |
+| `actionsStepwise` | `stages-experimental/` | `jevActions` | The POC's actions, one call per step plus one per parameterised action. |
+| `actionsStepwiseGated` | `stages-experimental/` | `jevActions` | `actionsStepwise` behind the `needsActions` gate: a gated selection answering no plans no actions and makes no call, anything else runs the stepwise stage unchanged. |
+| `actionsBatched` | `stages-experimental/` | `jevActions` | State-keyed batching, two calls. The first asks, for every variant state the request can reach by transitions, which action comes next at each depth up to the action limit (`action/0`, then `action/<depth>@<state>`, the state named by the instances whose view changed, `same` when none did). Questions are keyed by state, not by the actions that led there, so two orders reaching the same views share a question. Code walks the answers from the current views. Past `MAX_BATCH_QUESTIONS` (48) whole depths are left out and asked one call per step. The second call binds every chosen action's parameters at once, with the same parameter questions as the stepwise stage. |
+| `actionsBatchedPerInstance` | `stages/` | `jevActions` | Per-instance batching, one call: for each instance, slot 1 (its first action, `none` or `unsupported`), slot 2 (its second action, each option labelled with the view slot 1 leaves it in, for example `week:addEvent`) and slot 3 (never planned: an answer naming an action defers `jevActions/action_limit`, the rest is measurement), plus the parameters of every action any slot could pick. Code takes slot 2 only when its label matches the view slot 1's answer leads to; any other label defers `jevActions/premise_mismatch`. Parameter answers off the walked path are discarded. |
+| `layoutPreset` | `stages-experimental/` | `jevLayout` | The POC's choice over precomputed layouts. Never hands off. With `describe: 'placements'` each layout is described by its Instances and positions ("Stacked: calendar-main and weather-main side by side on top, tasks-main full width below.") instead of by its split tokens, and layouts placing every Instance on the same rectangles are offered once; the default keeps the POC's wording and call. |
+| `layoutPresetOrLlm` | `stages-experimental/` | `jevLayout` | One Jev call with the placements menu and two yes/no questions: `needsChange` (the request states an arrangement different from the current one) and `needsBetter` (no offered layout is that arrangement). No change keeps the current tree when it fits, else the balanced default; needing better hands the layout off; otherwise the chosen layout ships. |
+| `layoutComposedPairsGateAndDefer` | `stages/` | `jevLayout` | Composes the tree from Jev's answers about pairs of visible Instances in one call (see below). Its input type requires the gates, so a planner with `selectUngated` does not compile. |
+| `completeLayoutInline` | `stages/` | `llmComplete` | The POC's completion call; when a layout stage hands the layout off, the LLM also writes the tree. |
+| `completeLayoutParallel` | `stages-experimental/` | `llmComplete` | On a hand-off, runs the message-only completion call and a small tree-only layout call in parallel; a failure in either aborts the other. With a tree from the layout stage it is the same single call as `completeLayoutInline`. |
 
 The balanced default, shared by the layout stages that keep or default, is the first that fits of one side-by-side row, two stacked rows and three stacked rows (the `row`, `rows_2` and `rows_3` layouts of the preset menu); a lone Instance fills the Chart. When none fits, the layout is handed off.
 
@@ -75,7 +91,7 @@ The per-instance stage trades against the state-keyed one:
 - Slot 2 is answered without seeing slot 1's answer, since questions in one call are answered independently. The premise labels let code pick the matching branch and defer the rest, so a mismatch costs a fallback, not a wrong plan.
 - At most two actions per instance are planned. A third requested action on one instance defers `jevActions/action_limit` to the fallback rather than shipping the first two on their own; slot 3's answers measure how often that happens.
 
-The Phase 3 planners cross the two select stages with the three actions stages, all with `layoutPreset` in the POC's wording and `completeLayoutInline`; the gated arms take `actionsStepwiseGated` where the ungated ones take `actionsStepwise`: `jev-ungated-stepwise-preset-inline`, `jev-ungated-batched-preset-inline`, `jev-ungated-per-instance-preset-inline`, `jev-gated-stepwise-preset-inline` and `jev-gated-batched-preset-inline`.
+The Phase 3 planners (`src/lib/planners-experimental/`) cross the two select stages with the three actions stages, all with `layoutPreset` in the POC's wording and `completeLayoutInline`; the gated arms take `actionsStepwiseGated` where the ungated ones take `actionsStepwise`: `jev-ungated-stepwise-preset-inline`, `jev-ungated-batched-preset-inline`, `jev-ungated-per-instance-preset-inline`, `jev-gated-stepwise-preset-inline` and `jev-gated-batched-preset-inline`.
 
 The Phase 5 arms vary the layout and completion stages on `selectGated` and `actionsBatchedPerInstance`. Each is built by `buildJevStagePlanner` (`src/lib/planners/jev-stage-planner.ts`) from one stage factory per slot, so a further arm, such as the winning layout and completion stages on `actionsBatched`, is one entry in `eval/arms.ts`.
 
@@ -196,7 +212,7 @@ OPENAI_API_KEY=... TYPESAFE_API_KEY=... JEV_MODEL=jev-1.13.0 \
 | Flag | Default | Meaning |
 | --- | --- | --- |
 | `--suite` | `all` | `development`, `holdout` or `all`. |
-| `--arm` | `baseline`, `jev-poc` | A named arm from `eval/arms.ts`; repeat the flag for several. Columns follow the order given, and a repeated name runs once. `jev` is an alias of `jev-poc`. The stage-library arms (`jev-ungated-stepwise-preset-inline` and the other planners listed under Stage library) compose `src/lib/stages-experimental/`. |
+| `--arm` | `baseline`, `jev-poc` | A named arm from `eval/arms.ts`; repeat the flag for several. Columns follow the order given, and a repeated name runs once. `jev` is an alias of `jev-poc`. The stage-library arms (`jev-ungated-stepwise-preset-inline` and the other planners listed under Stage library) compose the stages in `src/lib/stages/` and `src/lib/stages-experimental/`. |
 | `--repeats` | `3` | Runs per scenario and arm. |
 | `--case` | every case | A scenario id; repeat the flag for several. |
 | `--model` | the demo's default | OpenAI model for the baseline, `llmComplete` and the fallback. |

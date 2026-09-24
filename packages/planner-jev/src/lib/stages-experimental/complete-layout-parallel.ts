@@ -14,10 +14,10 @@ import {
   callLlm,
   layoutLabel,
   prepareCompletion,
-} from './complete-layout-inline.js';
-import type { CompletionLlm } from './deps.js';
+} from '../stages/complete-layout-inline.js';
+import type { CompletionLlm } from '../stages/stage-deps.js';
+import type { CompleteStage } from '../stages/stage-types.js';
 import { llmLayoutCall } from './llm-layout-call.js';
-import type { CompleteStage } from './types.js';
 
 /** What the decisions section says under "Layout:" while the layout call is still in flight. */
 const PARALLEL_HAND_OFF_LABEL = 'written by a separate call this turn';

@@ -1,6 +1,6 @@
 import type { TilingNode } from '@maelstrom-co/protocol';
 
-import type { ComposedPairsRecord } from '../src/lib/stages-experimental/layout-composed-pairs-gate-and-defer.js';
+import type { ComposedPairsRecord } from '../src/lib/stages/layout-composed-pairs-gate-and-defer.js';
 import {
   NOT_STATED,
   type PairRelation,
@@ -8,7 +8,7 @@ import {
   type TopDirection,
   treeDirection,
   treeRelation,
-} from '../src/lib/stages-experimental/layout-composed-pairs-tree.js';
+} from '../src/lib/stages/layout-composed-pairs-tree.js';
 
 /** How one composed-pairs call's answers and trees compare with a reference tree. */
 export interface PairsAnswerCheck {

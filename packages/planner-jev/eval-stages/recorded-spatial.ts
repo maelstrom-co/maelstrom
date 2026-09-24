@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 
-import { GATE_THRESHOLD } from '../src/lib/stages-experimental/select-gated.js';
-import type { GateAnswer } from '../src/lib/stages-experimental/types.js';
+import { GATE_THRESHOLD } from '../src/lib/stages/select-gated.js';
+import type { GateAnswer } from '../src/lib/stages/stage-types.js';
 
 /**
  * The `spatial` gate one live planner arm answered, per scenario turn, so

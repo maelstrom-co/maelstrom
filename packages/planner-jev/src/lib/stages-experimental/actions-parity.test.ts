@@ -14,11 +14,11 @@ import {
   plain,
 } from '../__test-helpers__/fixtures.js';
 import { scriptedAsk } from '../__test-helpers__/scripted-fetch.js';
+import { actionsBatchedPerInstance } from '../stages/actions-batched-per-instance.js';
+import type { ActionsStage } from '../stages/stage-types.js';
 import type { Ask } from '../typesafe-client.js';
 import { actionsBatched } from './actions-batched.js';
-import { actionsBatchedPerInstance } from './actions-batched-per-instance.js';
 import { actionsStepwise } from './actions-stepwise.js';
-import type { ActionsStage } from './types.js';
 
 const STAGES: Readonly<Record<string, (ask: Ask) => ActionsStage>> = {
   stepwise: actionsStepwise,

@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 
 import { InstanceId, type TilingNode } from '@maelstrom-co/protocol';
 
-import type { ComposedPairsRecord } from '../src/lib/stages-experimental/layout-composed-pairs-gate-and-defer.js';
+import type { ComposedPairsRecord } from '../src/lib/stages/layout-composed-pairs-gate-and-defer.js';
 import { checkPairAnswers } from './pairs-attribution.js';
 
 const FOCUS_TREE = [

@@ -3,7 +3,7 @@ import type {
   ComposedRoute,
   PairsHandOff,
   PairsSizeFallback,
-} from '../src/lib/stages-experimental/layout-composed-pairs-gate-and-defer.js';
+} from '../src/lib/stages/layout-composed-pairs-gate-and-defer.js';
 import type { LayoutTurnDetail } from './layout.js';
 import { type Ratio, ratio } from './report.js';
 import type { StageTurnRecord } from './stage-eval.js';

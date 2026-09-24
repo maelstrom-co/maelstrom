@@ -9,7 +9,7 @@ import {
   type PocRun,
   runPocCase,
 } from '../__test-helpers__/poc-fixtures.js';
-import { createJevDeps, type JevDeps } from '../stages-experimental/deps.js';
+import { createJevDeps, type JevDeps } from '../stages/stage-deps.js';
 import { buildJevGatedBatchedPlanner } from './jev-gated-batched.js';
 import { buildJevGatedBatchedPerInstancePlanner } from './jev-gated-batched-per-instance.js';
 import { buildJevGatedStepwisePlanner } from './jev-gated-stepwise.js';

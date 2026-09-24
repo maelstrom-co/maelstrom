@@ -14,27 +14,24 @@ import {
   type Instrument,
 } from '../src/lib/jev-planner.js';
 import { buildJevComposedPairsPlanner } from '../src/lib/planners/jev-composed-pairs.js';
-import { buildJevGatedBatchedPlanner } from '../src/lib/planners/jev-gated-batched.js';
-import { buildJevGatedStepwisePlanner } from '../src/lib/planners/jev-gated-stepwise.js';
 import {
   buildJevStagePlanner,
   type JevStages,
 } from '../src/lib/planners/jev-stage-planner.js';
-import { buildJevUngatedBatchedPlanner } from '../src/lib/planners/jev-ungated-batched.js';
-import { buildJevUngatedBatchedPerInstancePlanner } from '../src/lib/planners/jev-ungated-batched-per-instance.js';
-import { buildJevUngatedStepwisePlanner } from '../src/lib/planners/jev-ungated-stepwise.js';
-import { actionsBatchedPerInstance } from '../src/lib/stages-experimental/actions-batched-per-instance.js';
-import { completeLayoutInline } from '../src/lib/stages-experimental/complete-layout-inline.js';
+import { buildJevGatedBatchedPlanner } from '../src/lib/planners-experimental/jev-gated-batched.js';
+import { buildJevGatedStepwisePlanner } from '../src/lib/planners-experimental/jev-gated-stepwise.js';
+import { buildJevUngatedBatchedPlanner } from '../src/lib/planners-experimental/jev-ungated-batched.js';
+import { buildJevUngatedBatchedPerInstancePlanner } from '../src/lib/planners-experimental/jev-ungated-batched-per-instance.js';
+import { buildJevUngatedStepwisePlanner } from '../src/lib/planners-experimental/jev-ungated-stepwise.js';
+import { actionsBatchedPerInstance } from '../src/lib/stages/actions-batched-per-instance.js';
+import { completeLayoutInline } from '../src/lib/stages/complete-layout-inline.js';
+import { selectGated } from '../src/lib/stages/select-gated.js';
+import { createJevDeps, type JevDeps } from '../src/lib/stages/stage-deps.js';
+import type { Selection2 } from '../src/lib/stages/stage-types.js';
 import { completeLayoutParallel } from '../src/lib/stages-experimental/complete-layout-parallel.js';
-import {
-  createJevDeps,
-  type JevDeps,
-} from '../src/lib/stages-experimental/deps.js';
 import { layoutPreset } from '../src/lib/stages-experimental/layout-preset.js';
 import { layoutPresetOrLlm } from '../src/lib/stages-experimental/layout-preset-or-llm.js';
-import { selectGated } from '../src/lib/stages-experimental/select-gated.js';
 import { selectUngated } from '../src/lib/stages-experimental/select-ungated.js';
-import type { Selection2 } from '../src/lib/stages-experimental/types.js';
 import type { TypeSafeClientOptions } from '../src/lib/typesafe-client.js';
 import type { ReplayShape } from './replay.js';
 import type { LlmRole } from './usage-adapter.js';

@@ -22,10 +22,10 @@ import {
   dummyAdapter,
   mockChat,
 } from '../__test-helpers__/mock-chat.js';
+import { completeLayoutInline } from '../stages/complete-layout-inline.js';
+import type { LayoutDecision } from '../stages/stage-types.js';
 import type { JevLayoutPlan, PendingParameter } from '../types.js';
-import { completeLayoutInline } from './complete-layout-inline.js';
 import { completeLayoutParallel } from './complete-layout-parallel.js';
-import type { LayoutDecision } from './types.js';
 
 afterEach(() => mockChat.mockReset());
 

@@ -14,9 +14,9 @@ import {
   dummyAdapter,
   mockChat,
 } from '../__test-helpers__/mock-chat.js';
-import { prepareCompletion } from './complete-layout-inline.js';
+import { prepareCompletion } from '../stages/complete-layout-inline.js';
+import type { LayoutDecision } from '../stages/stage-types.js';
 import { llmLayoutCall } from './llm-layout-call.js';
-import type { LayoutDecision } from './types.js';
 
 afterEach(() => mockChat.mockReset());
 

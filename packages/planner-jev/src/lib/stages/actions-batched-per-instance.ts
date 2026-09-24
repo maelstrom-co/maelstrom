@@ -21,7 +21,6 @@ import {
   readAnswer,
   recentHistory,
 } from '../questions.js';
-import { MAX_ACTIONS } from '../stages/jev-actions.js';
 import type {
   AnswerRecord,
   ParameterAsk,
@@ -31,7 +30,8 @@ import type {
 import type { Ask } from '../typesafe-client.js';
 import { actionPlanOf } from './action-plan.js';
 import { askInChunks, type FanOutOptions } from './fan-out.js';
-import type { ActionsStage, Selection2 } from './types.js';
+import { MAX_ACTIONS } from './jev-actions.js';
+import type { ActionsStage, Selection2 } from './stage-types.js';
 
 const STAGE = 'jevActions';
 

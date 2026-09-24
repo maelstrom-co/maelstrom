@@ -6,7 +6,7 @@ import {
   scriptedFetch,
   TEST_MODEL,
 } from '../src/lib/__test-helpers__/scripted-fetch.js';
-import { layoutComposedPairsGateAndDefer } from '../src/lib/stages-experimental/layout-composed-pairs-gate-and-defer.js';
+import { layoutComposedPairsGateAndDefer } from '../src/lib/stages/layout-composed-pairs-gate-and-defer.js';
 import {
   LAYOUT_VARIANTS,
   type LayoutTurnDetail,
