@@ -3,6 +3,7 @@ import { describe, expect, test } from 'bun:test';
 import type { ComposedPairsRecord } from '../src/lib/stages-experimental/layout-composed-pairs.js';
 import { LAYOUT_VARIANTS, type LayoutTurnDetail } from './layout.js';
 import {
+  renderArrangementNotAskedSection,
   renderComposedPairsSection,
   summarizeComposedPairs,
 } from './layout-report.js';
@@ -118,5 +119,61 @@ describe('composed pairs report', () => {
         'composed-pairs-lean-state',
       ]),
     );
+  });
+});
+
+describe('arrangement not asked report', () => {
+  const usage = { inputTokens: 300, outputTokens: 30 };
+  function notAsked(
+    variant: string,
+    changed: boolean,
+    calls: number,
+  ): StageTurnRecord<LayoutTurnDetail> {
+    return {
+      stage: 'jevLayout',
+      variant,
+      scenarioId: 'preserve',
+      suite: 'development',
+      repeat: 1,
+      outcome: changed ? 'fail' : 'pass',
+      failures: [],
+      jevCalls: Array.from({ length: calls }, () => ({
+        stage: 'jevLayout' as const,
+        questionIds: [],
+        latencyMs: 100,
+        outcome: 'ok' as const,
+        usage,
+      })),
+      detail: {
+        source: calls > 0 ? 'jev' : 'preserve',
+        answers: [],
+        arrangementNotAsked: { changed },
+      },
+    };
+  }
+
+  test('counts changed layouts and cost on the turns that ask no arrangement', () => {
+    const section = renderArrangementNotAskedSection(
+      [
+        notAsked('gate', false, 0),
+        notAsked('gate', false, 0),
+        notAsked('asks', true, 1),
+        notAsked('asks', false, 1),
+      ],
+      ['gate', 'asks'],
+    );
+    expect(section).toContain('| Metric | gate | asks |');
+    expect(section).toContain(
+      '| Turns that ask no arrangement (same Instances, current tree fits) | 2 | 2 |',
+    );
+    expect(section).toContain('| Changed the layout | 0/2 (0%) | 1/2 (50%) |');
+    expect(section).toContain('| Jev calls per turn | 0.00 | 1.00 |');
+    expect(section).toContain(
+      '| Jev tokens per turn (input / output) | 0 / 0 | 300 / 30 |',
+    );
+  });
+
+  test('is absent when no turn asks no arrangement', () => {
+    expect(renderArrangementNotAskedSection([], ['gate'])).toBeUndefined();
   });
 });

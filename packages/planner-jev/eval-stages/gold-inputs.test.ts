@@ -10,7 +10,7 @@ import type {
   ActionPlan2,
   Selection2,
 } from '../src/lib/stages-experimental/types.js';
-import { goldInputs } from './gold-inputs.js';
+import { goldInputs, layoutDeferralGoldInputs } from './gold-inputs.js';
 
 function scenario(id: string): Scenario {
   const [found] = selectScenarios('all', [id]);
@@ -21,8 +21,9 @@ function scenario(id: string): Scenario {
 async function run(
   id: string,
   shape: 'gated' | 'ungated' = 'gated',
+  form: typeof goldInputs = goldInputs,
 ): Promise<ActionPlan2> {
-  const gold = goldInputs(scenario(id), shape);
+  const gold = form(scenario(id), shape);
   if (!gold.applicable) throw new Error(gold.reason);
   const input = makeInput(scenario(id).request);
   const ctx = makeContext(input);
@@ -111,6 +112,45 @@ describe('goldInputs', () => {
     expect(goldInputs(scenario('small-chart'))).toEqual({
       applicable: false,
       reason: 'expects a deferral',
+    });
+  });
+});
+
+describe('layoutDeferralGoldInputs', () => {
+  test('keeps the board as it is for a scenario that expects the layout stage to defer', async () => {
+    const plan = await run('small-chart', 'gated', layoutDeferralGoldInputs);
+    expect(plan.gates).toMatchObject({
+      needsActions: { answer: 'no' },
+      generatedContent: { answer: 'no' },
+      spatial: { answer: 'yes', probability: 1 },
+    });
+    expect(decisions(plan.selection)).toEqual({
+      'calendar-main': ['keep', true],
+      'weather-main': ['keep', true],
+      'tasks-main': ['keep', true],
+      'map-main': ['hide', false],
+      'journal-main': ['hide', false],
+    });
+    expect(plan.actions).toEqual([]);
+  });
+
+  test('answers the spatial gate no for an untagged scenario', async () => {
+    const plan = await run('tiny-resize', 'gated', layoutDeferralGoldInputs);
+    expect(plan.gates?.spatial).toMatchObject({ answer: 'no', probability: 0 });
+  });
+
+  test('is not applicable to a deferral at another stage or to a planned scenario', () => {
+    expect(layoutDeferralGoldInputs(scenario('ambiguous'))).toEqual({
+      applicable: false,
+      reason: 'expects no layout stage deferral',
+    });
+    expect(layoutDeferralGoldInputs(scenario('missing-enum'))).toEqual({
+      applicable: false,
+      reason: 'expects no layout stage deferral',
+    });
+    expect(layoutDeferralGoldInputs(scenario('focus'))).toEqual({
+      applicable: false,
+      reason: 'expects no layout stage deferral',
     });
   });
 });

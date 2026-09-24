@@ -113,7 +113,30 @@ export interface ComposedPairsOptions {
   readonly leanState?: boolean;
   /** How sizes are asked and read; see {@link SizeAnswers}. The picked level of the whole-Chart size question when absent. */
   readonly sizeAnswers?: SizeAnswers;
+  /**
+   * When the select stage's `spatial` gate lets the stage keep the current
+   * tree without a call, given the same visible Instances and a current
+   * tree that fits: `answer` (default) on any no; `confident_no` only when
+   * the gate's probability of yes is below `below`; `never_skips` never, so
+   * two or more visible Instances are always asked about, with not stated
+   * voting for the current tree.
+   */
+  readonly spatialGate?: SpatialGateUse;
+  /**
+   * What the stage does when no tree fits, after the size fallback when it
+   * is on, or when a single visible Instance does not fit: `hands_off`
+   * (default) to the completion stage, or `defers` with
+   * `jevLayout/no_feasible_layout`, as `layoutPresetOrLlm` does. More than
+   * {@link MAX_PAIRS_INSTANCES} visible Instances still hand off.
+   */
+  readonly nothingFits?: 'hands_off' | 'defers';
 }
+
+/** How {@link ComposedPairsOptions.spatialGate} reads the `spatial` gate. */
+export type SpatialGateUse =
+  | 'answer'
+  | 'never_skips'
+  | { readonly kind: 'confident_no'; readonly below: number };
 
 /**
  * Other ways {@link layoutComposedPairsWithOptions} asks and reads sizes.
@@ -334,7 +357,11 @@ function composedPairs(
           : 'instances_changed';
     const record = { route, called: false };
 
-    if (route === 'same_instances' && layoutFits(request, currentTree, visible))
+    if (
+      route === 'same_instances' &&
+      skipsOnSpatialNo(options.spatialGate, plan.gates.spatial.probability) &&
+      layoutFits(request, currentTree, visible)
+    )
       return ok({
         plan,
         source: 'preserve',
@@ -347,6 +374,8 @@ function composedPairs(
     if (visible.length <= 1) {
       const tree = visible.map(({ instanceId }) => tilingLeafToken(instanceId));
       const fits = layoutFits(request, tree, visible);
+      if (!fits && options.nothingFits === 'defers')
+        return deferAt(ctx, STAGE, 'no_feasible_layout', 'layout');
       return ok({
         plan,
         answers: [],
@@ -506,6 +535,8 @@ function composedPairs(
           pairwise: { ...called, fallback: resized.fallback },
         });
     }
+    if (tree === undefined && options.nothingFits === 'defers')
+      return deferAt(ctx, STAGE, 'no_feasible_layout', 'layout');
     if (tree === undefined)
       return ok({
         plan,
@@ -522,6 +553,15 @@ function composedPairs(
       pairwise: { ...called, chosen },
     });
   };
+}
+
+function skipsOnSpatialNo(
+  use: SpatialGateUse | undefined,
+  probability: number,
+): boolean {
+  if (use === undefined || use === 'answer') return true;
+  if (use === 'never_skips') return false;
+  return probability < use.below;
 }
 
 function sharesById(

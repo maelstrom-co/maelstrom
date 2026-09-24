@@ -4,7 +4,13 @@ import { parseArgs } from 'node:util';
 import { consoleLogger } from '@maelstrom-co/engine';
 
 import { type Suite, selectScenarios } from '../eval/scenarios.js';
+import { layoutStageEvalWith } from './layout.js';
+import {
+  loadRecordedSpatialSignal,
+  type RecordedSpatialSignal,
+} from './recorded-spatial.js';
 import { writeStageReport } from './report.js';
+import { registerStageEval } from './stage-eval.js';
 import { STAGE_EVALS } from './stages.js';
 
 const WORKSPACE_ROOT = resolve(import.meta.dir, '../../..');
@@ -19,13 +25,23 @@ const { values } = parseArgs({
     concurrency: { type: 'string', default: '1' },
     out: { type: 'string' },
     verbose: { type: 'boolean', default: false },
+    'spatial-signal': { type: 'string', default: 'gold' },
+    'spatial-records': { type: 'string' },
+    'spatial-records-arm': {
+      type: 'string',
+      default: 'jev-gated-per-instance-composed-pairs-inline',
+    },
   },
 });
 
 const stageName = values.stage;
-const stage = stageName === undefined ? undefined : STAGE_EVALS[stageName];
-if (stageName === undefined || stage === undefined)
+const registered = stageName === undefined ? undefined : STAGE_EVALS[stageName];
+if (stageName === undefined || registered === undefined)
   fail(`--stage must be one of ${Object.keys(STAGE_EVALS).join(', ')}`);
+const spatialSignal = await spatialSignalOption();
+const stage = spatialSignal
+  ? registerStageEval(layoutStageEvalWith({ spatialSignal }))
+  : registered;
 const variants = values.variant ?? stage.variants;
 const unknown = variants.filter((variant) => !stage.variants.includes(variant));
 if (unknown.length > 0)
@@ -93,11 +109,46 @@ await writeStageReport(
     concurrency,
     jevModel: env.JEV_MODEL,
     inputs: 'gold',
+    spatialSignal:
+      spatialSignal === undefined
+        ? 'gold'
+        : `recorded live from ${values['spatial-records']} (${values['spatial-records-arm']}), gold where none was recorded`,
+    ...(spatialSignal && {
+      spatialSignalRecordedTurns: `${recordedTurns(spatialSignal)} of ${scenarios.length * repeats} scenario turns`,
+    }),
     date: new Date().toISOString(),
   },
   stage.reportSections(records, variants),
 );
 console.log(`Report written to ${out}/report.md`);
+
+async function spatialSignalOption(): Promise<
+  RecordedSpatialSignal | undefined
+> {
+  const signal = values['spatial-signal'];
+  if (signal === 'gold') return undefined;
+  if (signal !== 'recorded-live')
+    fail('--spatial-signal must be one of gold, recorded-live');
+  if (stageName !== 'layout')
+    fail('--spatial-signal recorded-live applies to --stage layout only');
+  const path = values['spatial-records'];
+  if (path === undefined)
+    fail(
+      '--spatial-signal recorded-live needs --spatial-records <records.json of a full planner eval>',
+    );
+  return loadRecordedSpatialSignal(
+    resolve(path),
+    values['spatial-records-arm'],
+  );
+}
+
+function recordedTurns(signal: RecordedSpatialSignal): number {
+  let found = 0;
+  for (const scenario of scenarios)
+    for (let repeat = 1; repeat <= repeats; repeat++)
+      if (signal.lookup(scenario.id, repeat)) found++;
+  return found;
+}
 
 function positiveInteger(value: string, name: string): number {
   const parsed = Number(value);

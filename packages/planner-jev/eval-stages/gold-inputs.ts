@@ -2,6 +2,7 @@ import type { PlanningInput, Stage } from '@maelstrom-co/engine';
 import {
   ActionName,
   type ChartRequest,
+  getVisibleInstanceIds,
   InstanceId,
   ok,
   VariantName,
@@ -73,6 +74,53 @@ export function goldInputs(
     });
   const plan: Stage<Selection2, unknown> = async (selection) =>
     ok(actionPlanOf(selection, actions, asks, []));
+  return {
+    applicable: true,
+    stages: {
+      jevSelect: select as Stage<unknown, unknown>,
+      jevActions: plan as Stage<unknown, unknown>,
+    },
+  };
+}
+
+/**
+ * Gold inputs for a scenario that expects the layout stage to defer: the
+ * board kept as it is (every Instance in the current tree kept, the rest
+ * hidden), no actions, and the gated arm's gates with `needsActions` no
+ * and `spatial` from the scenario's tag. Not applicable to any other
+ * scenario.
+ */
+export function layoutDeferralGoldInputs(
+  scenario: Scenario,
+  shape: ReplayShape = 'gated',
+): GoldInputs {
+  const { expected, request } = scenario;
+  if (expected.status !== 'deferred' || expected.deferStage !== 'jevLayout')
+    return { applicable: false, reason: 'expects no layout stage deferral' };
+  const current = getVisibleInstanceIds(request.layout);
+  const instances: SelectedInstance[] = request.instances.map((instance) => {
+    const visible = current.has(instance.instanceId);
+    return {
+      instanceId: instance.instanceId,
+      vesselId: instance.vesselId,
+      variant: instance.variant,
+      visible,
+      fresh: false,
+      decision: visible ? 'keep' : 'hide',
+    };
+  });
+  const gates =
+    shape === 'gated'
+      ? {
+          needsActions: gate(false),
+          generatedContent: gate(false),
+          spatial: gate(scenario.spatial === true),
+        }
+      : undefined;
+  const select: Stage<PlanningInput, Selection2> = async (input) =>
+    ok({ input, instances, answers: [], ...(gates && { gates }) });
+  const plan: Stage<Selection2, unknown> = async (selection) =>
+    ok(actionPlanOf(selection, [], [], []));
   return {
     applicable: true,
     stages: {

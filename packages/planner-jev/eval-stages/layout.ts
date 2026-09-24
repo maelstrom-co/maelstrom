@@ -1,9 +1,11 @@
 import type { Stage } from '@maelstrom-co/engine';
 import {
+  getVisibleInstanceIds,
   isErr,
   type TilingNode,
   type VesselInstanceSnapshot,
 } from '@maelstrom-co/protocol';
+import { checkArrangement } from '../eval/predicates.js';
 import type { Scenario } from '../eval/scenarios.js';
 import { scoreLayout } from '../eval/score.js';
 import { finalVariants } from '../src/lib/final-variants.js';
@@ -24,6 +26,7 @@ import { layoutPreset } from '../src/lib/stages-experimental/layout-preset.js';
 import { layoutPresetOrLlm } from '../src/lib/stages-experimental/layout-preset-or-llm.js';
 import { layoutSpatialGate } from '../src/lib/stages-experimental/layout-spatial-gate.js';
 import type {
+  GateAnswer,
   GatedActionPlan,
   LayoutDecision,
   LayoutSource,
@@ -36,9 +39,10 @@ import {
   checkComposedAnswers,
   firstWrongQuestion,
 } from './composed-attribution.js';
-import { goldInputs } from './gold-inputs.js';
+import { goldInputs, layoutDeferralGoldInputs } from './gold-inputs.js';
 import { layoutComposedScoreSized } from './layout-composed-score-sized.js';
 import {
+  renderArrangementNotAskedSection,
   renderComposedPairsSection,
   renderComposedSection,
 } from './layout-report.js';
@@ -46,6 +50,7 @@ import {
   checkPairAnswers,
   type PairsAnswerCheck,
 } from './pairs-attribution.js';
+import type { RecordedSpatialSignal } from './recorded-spatial.js';
 import type { Judgement, StageEvalModule } from './stage-eval.js';
 
 /** A layout decision as some stages return it, with the composed stages' records. */
@@ -82,6 +87,13 @@ export interface LayoutTurnDetail {
   readonly pairwise?: ComposedPairsRecord;
   /** `layoutComposedPairs` calls only: every pair against the scenario's reference tree, or why it cannot be compared. */
   readonly pairCheck?: PairsAnswerCheck | { readonly unavailable: string };
+  /**
+   * Present on a turn that asks no arrangement: a scenario not tagged
+   * spatial, expecting an output, whose visible Instances are the current
+   * tree's and whose current tree fits. `changed` is whether the returned
+   * tree differs from the current one.
+   */
+  readonly arrangementNotAsked?: { readonly changed: boolean };
 }
 
 type LayoutVariant = (ask: Ask) => Stage<GatedActionPlan, LayoutOutput>;
@@ -98,6 +110,21 @@ const COMBINED = {
 // picked level (0.75 lets one stray 0.28 levels).
 const SIZE_SCORE_MINIMUM_CONFIDENCE = 0.8;
 
+const BOTH_FIXES_OPTIONS = {
+  ...COMBINED,
+  direction: 'redirects_not_stated_when_direction_changes',
+  sizeAnswers: {
+    kind: 'fractions_within_part',
+    unstatedSplit: 'whole_chart_shares',
+  },
+} as const;
+
+// Chosen from the spatial gate the live composed-pairs-inline arm answered
+// on the development suite, before any run of the variant: the lowest
+// probability a scenario tagged spatial got was 0.22 (reverse-order), and
+// 0.2 is the 0.05 step below it.
+const CONFIDENT_SPATIAL_NO_BELOW = 0.2;
+
 /**
  * The `composed-pairs-fraction-sizes-both-fixes` layout: the direction
  * redirect limited to answers that change the top split, the size fallback
@@ -110,13 +137,8 @@ export function layoutComposedPairsBothFixes(
   ask: Ask,
 ): Stage<GatedActionPlan, ComposedPairsDecision> {
   return layoutComposedPairsWithOptions(ask, {
-    ...COMBINED,
+    ...BOTH_FIXES_OPTIONS,
     layoutId: 'composed-pairs-fraction-sizes-both-fixes',
-    direction: 'redirects_not_stated_when_direction_changes',
-    sizeAnswers: {
-      kind: 'fractions_within_part',
-      unstatedSplit: 'whole_chart_shares',
-    },
   });
 }
 
@@ -134,7 +156,11 @@ export function layoutComposedPairsBothFixes(
  * stated only when the direction answer changes the top split;
  * `composed-pairs-fraction-sizes-proportional-fallback` splits what stated
  * fractions leave by whole-Chart shares; `composed-pairs-fraction-sizes-both-fixes`
- * does both.
+ * does both. The `composed-pairs-fraction-sizes-both-fixes-` variants each
+ * change one thing from it: `-always-asks` never keeps the current tree on
+ * the spatial gate alone, `-weak-gate` keeps it only on a confident no, and
+ * `-defers-when-nothing-fits` defers as `layoutPresetOrLlm` does when no
+ * tree fits instead of handing off.
  */
 export const LAYOUT_VARIANTS: Readonly<Record<string, LayoutVariant>> = {
   preset: (ask) => layoutPreset(ask, { describe: 'placements' }),
@@ -201,6 +227,25 @@ export const LAYOUT_VARIANTS: Readonly<Record<string, LayoutVariant>> = {
       },
     }),
   'composed-pairs-fraction-sizes-both-fixes': layoutComposedPairsBothFixes,
+  'composed-pairs-fraction-sizes-both-fixes-always-asks': (ask) =>
+    layoutComposedPairsWithOptions(ask, {
+      ...BOTH_FIXES_OPTIONS,
+      layoutId: 'composed-pairs-fraction-sizes-both-fixes-always-asks',
+      spatialGate: 'never_skips',
+    }),
+  'composed-pairs-fraction-sizes-both-fixes-weak-gate': (ask) =>
+    layoutComposedPairsWithOptions(ask, {
+      ...BOTH_FIXES_OPTIONS,
+      layoutId: 'composed-pairs-fraction-sizes-both-fixes-weak-gate',
+      spatialGate: { kind: 'confident_no', below: CONFIDENT_SPATIAL_NO_BELOW },
+    }),
+  'composed-pairs-fraction-sizes-both-fixes-defers-when-nothing-fits': (ask) =>
+    layoutComposedPairsWithOptions(ask, {
+      ...BOTH_FIXES_OPTIONS,
+      layoutId:
+        'composed-pairs-fraction-sizes-both-fixes-defers-when-nothing-fits',
+      nothingFits: 'defers',
+    }),
   'composed-pairs-score-when-confident': (ask) =>
     layoutComposedPairsWithOptions(ask, {
       ...COMBINED,
@@ -228,45 +273,76 @@ export const LAYOUT_VARIANTS: Readonly<Record<string, LayoutVariant>> = {
   'always-llm': () => layoutAlwaysLlm(),
 };
 
+/** The deferral reason a scenario that expects the layout stage to defer expects. */
+export const EXPECTED_LAYOUT_DEFERRAL = 'jevLayout/no_feasible_layout';
+
+/** Where {@link layoutStageEvalWith} takes the stage's spatial gate from. */
+export interface LayoutStageEvalOptions {
+  /**
+   * The spatial gate a live planner answered, per scenario turn; a turn it
+   * holds no gate for keeps the gold gate. Every gate is gold when absent.
+   */
+  readonly spatialSignal?: RecordedSpatialSignal;
+}
+
 /**
  * The layout stage on gold inputs: each scenario's expected selection and
- * action plan with every gate (see `goldInputs`). A decision with a tree
- * passes when the tree's leaves are the expected visible set, the
+ * action plan with every gate (see `goldInputs`), or, for a scenario that
+ * expects the layout stage to defer, the board as it is (see
+ * `layoutDeferralGoldInputs`). With `spatialSignal` the spatial gate of
+ * each turn is the recorded live one where there is one. A decision with a
+ * tree passes when the tree's leaves are the expected visible set, the
  * arrangement rules hold and the tree fits the Chart and every minimum
- * size; a decision without a tree is handed off.
+ * size; a decision without a tree is handed off. A scenario that expects
+ * a layout deferral passes only on {@link EXPECTED_LAYOUT_DEFERRAL}.
  */
-export const layoutStageEval: StageEvalModule<
-  GatedActionPlan,
-  LayoutOutput,
-  LayoutTurnDetail
-> = {
-  stage: 'jevLayout',
-  variants: LAYOUT_VARIANTS,
-  prepare: async (scenario, ctx) => {
-    const gold = goldInputs(scenario, 'gated');
-    if (!gold.applicable) return gold;
-    const { jevSelect, jevActions } = gold.stages;
-    if (jevSelect === undefined || jevActions === undefined)
-      return { applicable: false, reason: 'gold inputs formed no stages' };
-    const selection = await jevSelect(ctx.origin, ctx);
-    if (isErr(selection))
-      return { applicable: false, reason: 'the gold selection failed' };
-    const plan = await jevActions(selection.value, ctx);
-    if (isErr(plan))
-      return { applicable: false, reason: 'the gold action plan failed' };
-    return {
-      applicable: true,
-      input: plan.value as GatedActionPlan,
-      origin: ctx.origin,
-    };
-  },
-  judge: judgeLayout,
-  reportSections: (records, variants) =>
-    [
-      renderComposedSection(records, variants),
-      renderComposedPairsSection(records, variants),
-    ].flatMap((section) => section ?? []),
-};
+export function layoutStageEvalWith(
+  options: LayoutStageEvalOptions = {},
+): StageEvalModule<GatedActionPlan, LayoutOutput, LayoutTurnDetail> {
+  const { spatialSignal } = options;
+  return {
+    stage: 'jevLayout',
+    variants: LAYOUT_VARIANTS,
+    prepare: async (scenario, ctx) => {
+      const gold = expectsLayoutDeferral(scenario)
+        ? layoutDeferralGoldInputs(scenario, 'gated')
+        : goldInputs(scenario, 'gated');
+      if (!gold.applicable) return gold;
+      const { jevSelect, jevActions } = gold.stages;
+      if (jevSelect === undefined || jevActions === undefined)
+        return { applicable: false, reason: 'gold inputs formed no stages' };
+      const selection = await jevSelect(ctx.origin, ctx);
+      if (isErr(selection))
+        return { applicable: false, reason: 'the gold selection failed' };
+      const plan = await jevActions(selection.value, ctx);
+      if (isErr(plan))
+        return { applicable: false, reason: 'the gold action plan failed' };
+      return {
+        applicable: true,
+        input: plan.value as GatedActionPlan,
+        origin: ctx.origin,
+      };
+    },
+    ...(spatialSignal && {
+      turnInput: (scenario, repeat, input) => {
+        const spatial = spatialSignal.lookup(scenario.id, repeat);
+        return spatial === undefined ? input : withSpatialGate(input, spatial);
+      },
+    }),
+    expectedDeferral: (scenario) =>
+      expectsLayoutDeferral(scenario) ? EXPECTED_LAYOUT_DEFERRAL : undefined,
+    judge: judgeLayout,
+    reportSections: (records, variants) =>
+      [
+        renderArrangementNotAskedSection(records, variants),
+        renderComposedSection(records, variants),
+        renderComposedPairsSection(records, variants),
+      ].flatMap((section) => section ?? []),
+  };
+}
+
+/** {@link layoutStageEvalWith} with every gate gold. */
+export const layoutStageEval = layoutStageEvalWith();
 
 /** Scores one layout decision on `input` against `scenario` (see {@link layoutStageEval}). */
 export function judgeLayout(
@@ -300,6 +376,11 @@ export function judgeLayout(
     output.composition && outcome !== 'pass'
       ? missOf(output.composition, answerCheck)
       : undefined;
+  const arrangementNotAsked = asksNoArrangement(scenario, input)
+    ? {
+        changed: output.tree !== undefined && !keepsTree(scenario, output.tree),
+      }
+    : undefined;
   return {
     outcome,
     failures,
@@ -308,8 +389,57 @@ export function judgeLayout(
       ...(answerCheck && { answerCheck }),
       ...(miss && { miss }),
       ...(pairCheck && { pairCheck }),
+      ...(arrangementNotAsked && { arrangementNotAsked }),
     },
   };
+}
+
+function expectsLayoutDeferral(scenario: Scenario): boolean {
+  return (
+    scenario.expected.status === 'deferred' &&
+    scenario.expected.deferStage === 'jevLayout'
+  );
+}
+
+function withSpatialGate(
+  plan: GatedActionPlan,
+  spatial: GateAnswer,
+): GatedActionPlan {
+  return {
+    ...plan,
+    gates: { ...plan.gates, spatial },
+    selection: {
+      ...plan.selection,
+      ...(plan.selection.gates && {
+        gates: { ...plan.selection.gates, spatial },
+      }),
+    },
+  };
+}
+
+function asksNoArrangement(
+  scenario: Scenario,
+  input: GatedActionPlan,
+): boolean {
+  if (scenario.spatial === true || scenario.expected.status !== 'planned')
+    return false;
+  const { request } = input.selection.input;
+  if (request.layout.type !== 'tiling') return false;
+  const visible = visibleInstances(input);
+  if (visible === undefined) return false;
+  const current = getVisibleInstanceIds(request.layout);
+  return (
+    current.size === visible.length &&
+    visible.every(({ instanceId }) => current.has(instanceId)) &&
+    layoutFits(request, request.layout.tree, visible)
+  );
+}
+
+function keepsTree(scenario: Scenario, tree: readonly TilingNode[]): boolean {
+  return checkArrangement([{ kind: 'unchangedTree' }], {
+    request: scenario.request,
+    tree,
+  }).pass;
 }
 
 function treeFailures(
