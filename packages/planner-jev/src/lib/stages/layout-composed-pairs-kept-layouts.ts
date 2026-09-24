@@ -224,8 +224,11 @@ export interface ScoredLayoutCandidate {
  * `rankArrangements`) and every layout kept from `currentTree` (see
  * {@link keptLayoutCandidates}) from the same `relationScores`, a kept
  * layout reading each pair's relation at the split where the two leaves
- * part, at any depth. Highest first; ties keep the enumeration order, with
- * the kept layouts after every arrangement.
+ * part, at any depth. Not stated votes for the current tree, or for the
+ * current order along a direction that changes the top split and is meant
+ * for the whole board: no Instance is new to the tree and no pair states a
+ * relation across the direction. Highest first; ties keep the enumeration
+ * order, with the kept layouts after every arrangement.
  */
 export function rankLayoutCandidates(
   ids: readonly InstanceId[],
@@ -233,7 +236,7 @@ export function rankLayoutCandidates(
   currentTree: readonly TilingNode[],
   direction: OptionProbabilities,
 ): readonly ScoredLayoutCandidate[] {
-  const scores = relationScores(pairs, currentTree, direction);
+  const scores = relationScores(ids, pairs, currentTree, direction);
   const arrangements = enumerateArrangements(ids).map(
     (arrangement): ScoredLayoutCandidate => ({
       candidate: { kind: 'two_level', arrangement },

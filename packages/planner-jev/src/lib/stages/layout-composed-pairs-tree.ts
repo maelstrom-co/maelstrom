@@ -167,25 +167,45 @@ export interface RelationScores {
 }
 
 /**
- * The {@link RelationScores} of the answers against `currentTree`.
+ * The probability from which a pair's stated relation across the stated
+ * direction marks that direction as meant for part of the board, so it
+ * does not redirect not stated.
+ */
+export const CROSS_RELATION_STATED_PROBABILITY = 0.5;
+
+/**
+ * The {@link RelationScores} of the answers about the visible `ids`
+ * against `currentTree`.
  *
  * {@link NOT_STATED} votes for `currentTree`: a pair's not stated
  * probability is added to the relation the pair has in the current tree,
  * and ignored for a pair the current tree does not hold; a not stated
  * direction is added to the current tree's top split. When the direction's
  * most likely option is `side_by_side` or `stacked` and differs from the
- * current tree's top split, a pair's not stated probability votes instead
- * for the relation along that direction that keeps the pair's order in the
- * current tree (the leaf that comes first there goes left, or on top).
+ * current tree's top split, the direction is read as meant for the whole
+ * board, and a pair's not stated probability votes instead for the
+ * relation along that direction that keeps the pair's order in the current
+ * tree (the leaf that comes first there goes left, or on top). It is read
+ * as meant for one widget or group, and redirects nothing, when one of
+ * `ids` is not a leaf of `currentTree` (the direction places the new
+ * widget), or when some pair states a relation across the direction
+ * (`left_of` or `right_of` for `stacked`, `above` or `below` for
+ * `side_by_side`) with probability at least
+ * {@link CROSS_RELATION_STATED_PROBABILITY}. A relation stated along the
+ * direction still redirects.
  */
 export function relationScores(
+  ids: readonly InstanceId[],
   pairs: readonly PairAnswer[],
   currentTree: readonly TilingNode[],
   direction: OptionProbabilities,
 ): RelationScores {
   const statedDirection = statedAxis(direction);
   const redirectAxis =
-    statedDirection === treeDirection(currentTree)
+    statedDirection === treeDirection(currentTree) ||
+    statedDirection === undefined ||
+    placesNewWidget(ids, currentTree) ||
+    statesRelationAcross(statedDirection, pairs)
       ? undefined
       : statedDirection;
   const leafOrder =
@@ -243,8 +263,10 @@ export function scoreRelations(
  * order. An arrangement scores the sum over answered pairs of the log
  * probability of the relation it implies plus the log probability of its
  * top-level axis, read with {@link relationScores}, so not stated votes
- * for the current tree or, when the direction changes its top split, for
- * the current order along that direction.
+ * for the current tree or, when the direction changes its top split and
+ * is meant for the whole board (no Instance is new to the tree and no
+ * pair states a relation across the direction), for the current order
+ * along that direction.
  */
 export function rankArrangements(
   ids: readonly InstanceId[],
@@ -252,7 +274,7 @@ export function rankArrangements(
   currentTree: readonly TilingNode[],
   direction: OptionProbabilities,
 ): readonly ScoredArrangement[] {
-  const scores = relationScores(pairs, currentTree, direction);
+  const scores = relationScores(ids, pairs, currentTree, direction);
   return enumerateArrangements(ids)
     .map((arrangement, order) => ({
       scored: {
@@ -642,6 +664,29 @@ function statedAxis(direction: OptionProbabilities): 'H' | 'V' | undefined {
   const [best] = Object.entries(direction).sort((a, b) => b[1] - a[1]);
   if (best === undefined || !(best[0] in TOP_DIRECTIONS)) return undefined;
   return TOP_DIRECTIONS[best[0] as TopDirection];
+}
+
+function placesNewWidget(
+  ids: readonly InstanceId[],
+  currentTree: readonly TilingNode[],
+): boolean {
+  const leaves = leafIndexes(currentTree);
+  return ids.some((id) => !leaves.has(id));
+}
+
+function statesRelationAcross(
+  axis: 'H' | 'V',
+  pairs: readonly PairAnswer[],
+): boolean {
+  const across: readonly PairRelation[] =
+    axis === 'H' ? ['left_of', 'right_of'] : ['above', 'below'];
+  return pairs.some((pair) =>
+    across.some(
+      (relation) =>
+        (pair.probabilities[relation] ?? 0) >=
+        CROSS_RELATION_STATED_PROBABILITY,
+    ),
+  );
 }
 
 function leafIndexes(tree: readonly TilingNode[]): Map<string, number> {
