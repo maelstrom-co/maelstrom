@@ -30,6 +30,26 @@ const HOLDOUT_FOCUS_KEPT_ROW = [
   'ID:tasks-main',
 ] as TilingNode[];
 
+const HOLDOUT_KEEP_ROW_TASKS_BESIDE_WEATHER = [
+  'V:5,2',
+  'H',
+  'V',
+  'ID:weather-main',
+  'ID:tasks-main',
+  'ID:calendar-main',
+  'ID:journal-main',
+] as TilingNode[];
+
+const HOLDOUT_MIDDLE_WEATHER_COLUMN = [
+  'V:1,5',
+  'ID:weather-main',
+  'H',
+  'V:3,2',
+  'ID:calendar-main',
+  'ID:tasks-main',
+  'ID:map-main',
+] as TilingNode[];
+
 const INTENDED_TREE_CHANGES: Readonly<
   Record<string, readonly TilingNode[] | null>
 > = {
@@ -44,6 +64,35 @@ const INTENDED_TREE_CHANGES: Readonly<
   'combined-holdout/hold-arr-focus#1': HOLDOUT_FOCUS_KEPT_ROW,
   'combined-holdout/hold-arr-focus#2': HOLDOUT_FOCUS_KEPT_ROW,
   'combined-holdout/hold-arr-focus#3': HOLDOUT_FOCUS_KEPT_ROW,
+  'log1:11': [
+    'H:3,1',
+    'V',
+    'H',
+    'ID:calendar-main',
+    'ID:tasks-main',
+    'ID:map-jev-1',
+    'ID:weather-main',
+  ] as TilingNode[],
+  'log1:13': [
+    'H:5,2',
+    'V:6,2,1',
+    'ID:calendar-main',
+    'ID:tasks-main',
+    'H',
+    'ID:journal-main',
+    'ID:map-jev-1',
+    'ID:weather-main',
+  ] as TilingNode[],
+  'combined-holdout/hold-fresh-keep-row-move-single#1':
+    HOLDOUT_KEEP_ROW_TASKS_BESIDE_WEATHER,
+  'combined-holdout/hold-fresh-keep-row-move-single#2':
+    HOLDOUT_KEEP_ROW_TASKS_BESIDE_WEATHER,
+  'combined-holdout/hold-fresh-keep-row-move-single#3':
+    HOLDOUT_KEEP_ROW_TASKS_BESIDE_WEATHER,
+  'combined-holdout/hold-fresh-middle-twice-as-wide#1':
+    HOLDOUT_MIDDLE_WEATHER_COLUMN,
+  'combined-holdout/hold-fresh-middle-twice-as-wide#3':
+    HOLDOUT_MIDDLE_WEATHER_COLUMN,
 };
 
 const STAGE_EVAL_TURNS = 401;
