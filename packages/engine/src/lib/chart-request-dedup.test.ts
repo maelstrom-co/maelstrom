@@ -70,10 +70,7 @@ const setupIdempotencyEngine = (
   return { engine, store };
 };
 
-/**
- * Wraps a planner with an invocation counter, replacing the call-count
- * assertions these tests used to pin on the mocked chat function.
- */
+/** Wraps a planner with an invocation counter. */
 const countingPlanner = (
   inner: Planner,
 ): { readonly planner: Planner; readonly calls: () => number } => {
@@ -142,8 +139,7 @@ describe('engine.handle — chart_request idempotency', () => {
   test('collapses concurrent duplicates onto a single LLM call (in-flight dedup)', async () => {
     const gate = defer<PlannerCandidate>();
     // The planner parks on `gate` — only the leader ever reaches it. If a
-    // second call slipped through, `calls()` would catch it directly instead
-    // of relying on the mock resolving `undefined` downstream.
+    // second call slipped through, `calls()` would report it.
     const { planner: blocking, entered } = blockingPlanner(gate);
     const { planner, calls } = countingPlanner(blocking);
 
@@ -169,7 +165,7 @@ describe('engine.handle — chart_request idempotency', () => {
     // leader; the follower (with its own, unaborted signal) must observe
     // the same Err via the in-flight shared promise. `blockingPlanner`
     // rejects with an AbortError once the context signal it was called
-    // with aborts — the same reaction the mocked adapter used to simulate.
+    // with aborts.
     const gate = defer<PlannerCandidate>();
     const { planner: blocking, entered } = blockingPlanner(gate);
     const { planner, calls } = countingPlanner(blocking);
@@ -320,9 +316,8 @@ describe('engine.handle — chart_request idempotency', () => {
       ...gridLLMResponse,
       userMessage: 'response for B',
     };
-    // Each call is routed to the next gate in order — mirrors the two
-    // sequential mocked-chat implementations this test used to set up,
-    // one per session's leader.
+    // Each call is routed to the next gate in order, one per session's
+    // leader.
     const gates = [aGate, bGate];
     let index = 0;
     const planner: Planner = async () => {
