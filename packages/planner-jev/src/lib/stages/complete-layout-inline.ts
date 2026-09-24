@@ -432,6 +432,7 @@ function rationale(decision: LayoutDecision): string {
 
 /** What "Layout:" says in the decisions section and the rationale. */
 export function layoutLabel(decision: LayoutDecision): string {
+  if (decision.layoutSummary !== undefined) return decision.layoutSummary;
   if (decision.layoutId !== undefined) return decision.layoutId;
   return decision.tree === undefined ? 'written by the LLM' : decision.source;
 }

@@ -54,6 +54,11 @@ export interface LayoutDecision {
   readonly source: LayoutSource;
   readonly layoutId?: string;
   readonly tree?: readonly TilingNode[];
+  /**
+   * What `tree` does to the current layout, in words for the reply. When
+   * set, the completion stage states it in place of `layoutId`.
+   */
+  readonly layoutSummary?: string;
   readonly answers: readonly AnswerRecord[];
 }
 

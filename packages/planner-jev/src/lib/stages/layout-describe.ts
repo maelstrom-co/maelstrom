@@ -24,6 +24,25 @@ export function describeLayout(tree: readonly TilingNode[]): string {
     .join('; ');
 }
 
+/**
+ * What a layout decision does to the current layout, in plain words for the
+ * reply: `unchanged: <layout>` when `next` equals `current` token for token,
+ * otherwise `changed. Before: <layout>. Now: <layout>` (see
+ * {@link describeLayout}).
+ */
+export function describeLayoutChange(
+  current: readonly TilingNode[],
+  next: readonly TilingNode[],
+): string {
+  const now = describeLayout(next);
+  const same =
+    current.length === next.length &&
+    current.every((token, index) => token === next[index]);
+  return same
+    ? `unchanged: ${now}`
+    : `changed. Before: ${describeLayout(current)}. Now: ${now}`;
+}
+
 type Node =
   | { readonly kind: 'leaf'; readonly instanceId: string | null }
   | {

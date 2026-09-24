@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 
 import type { TilingNode } from '@maelstrom-co/protocol';
 
-import { describeLayout } from './layout-describe.js';
+import { describeLayout, describeLayoutChange } from './layout-describe.js';
 
 const tree = (...tokens: (string | null)[]) => tokens as TilingNode[];
 
@@ -72,5 +72,23 @@ describe('describeLayout', () => {
 
   test('an empty tree is an empty chart', () => {
     expect(describeLayout([])).toBe('the chart is empty');
+  });
+});
+
+describe('describeLayoutChange', () => {
+  const before: TilingNode[] = ['V', 'ID:calendar-main', 'ID:map-main'];
+
+  test('a new tree states the layout before and after', () => {
+    expect(
+      describeLayoutChange(before, ['V', 'ID:map-main', 'ID:calendar-main']),
+    ).toBe(
+      'changed. Before: calendar-main on the left; map-main on the right. Now: map-main on the left; calendar-main on the right',
+    );
+  });
+
+  test('the same tree says the layout is unchanged', () => {
+    expect(describeLayoutChange(before, [...before])).toBe(
+      'unchanged: calendar-main on the left; map-main on the right',
+    );
   });
 });

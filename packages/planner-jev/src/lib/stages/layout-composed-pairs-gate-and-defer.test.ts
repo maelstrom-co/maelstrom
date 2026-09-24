@@ -168,6 +168,9 @@ describe('layoutComposedPairsGateAndDefer', () => {
       'ID:weather-main',
       'ID:tasks-main',
     ]);
+    expect(decision.layoutSummary).toMatch(
+      /^changed\. Before: .*\. Now: calendar-main on the left \(2\/3 of the width\); weather-main and tasks-main stacked on the right \(1\/3 of the width\)$/,
+    );
     expect(decision.pairwise).toMatchObject({
       route: 'spatial',
       called: true,
