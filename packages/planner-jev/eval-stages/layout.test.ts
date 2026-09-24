@@ -1,13 +1,24 @@
 import { describe, expect, test } from 'bun:test';
 
+import { InstanceId, isOk } from '@maelstrom-co/protocol';
+
 import { selectScenarios } from '../eval/scenarios.js';
 import {
+  makeContext,
+  makeRequest,
+} from '../src/lib/__test-helpers__/fixtures.js';
+import { actionPlan } from '../src/lib/__test-helpers__/layout-fixtures.js';
+import {
   type Script,
+  scriptedAsk,
   scriptedFetch,
   TEST_MODEL,
 } from '../src/lib/__test-helpers__/scripted-fetch.js';
+import type { GatedActionPlan } from '../src/lib/stages-experimental/types.js';
 import {
+  LAYOUT_VARIANTS,
   type LayoutTurnDetail,
+  layoutComposedPairsGateAndDefer,
   layoutStageEval,
   layoutStageEvalWith,
 } from './layout.js';
@@ -316,6 +327,46 @@ describe('layout stage eval', () => {
       outcome: 'pass',
       reason: 'jevLayout/no_feasible_layout',
     });
+  });
+});
+
+describe('the composed pairs gate and defer layout', () => {
+  test('is the stage eval variant the planner arm uses', () => {
+    expect(LAYOUT_VARIANTS['composed-pairs-gate-and-defer-combined']).toBe(
+      layoutComposedPairsGateAndDefer,
+    );
+  });
+
+  test('still hands more than six visible Instances to the completion call without a call', async () => {
+    const request = makeRequest('show everything');
+    const base = actionPlan(request);
+    const extra = request.vessels.slice(0, 4).map((vessel) => ({
+      instanceId: InstanceId(`${vessel.id}-extra`),
+      vesselId: vessel.id,
+      variant: vessel.defaultVariant,
+      visible: true,
+      fresh: true,
+      decision: 'create' as const,
+    }));
+    const gate = { answer: 'yes' as const, probability: 0.9, confidence: 0.8 };
+    const plan: GatedActionPlan = {
+      ...base,
+      selection: {
+        ...base.selection,
+        instances: [...base.selection.instances, ...extra],
+      },
+      minConfidence: 1,
+      gates: { needsActions: gate, generatedContent: gate, spatial: gate },
+    };
+    const scripted = scriptedAsk(() => ({ choices: {} }));
+    const result = await layoutComposedPairsGateAndDefer(scripted.ask)(
+      plan,
+      makeContext(plan.selection.input),
+    );
+    if (!isOk(result)) throw new Error('expected a layout decision');
+    expect(scripted.calls).toHaveLength(0);
+    expect(result.value.source).toBe('llm');
+    expect(result.value.pairwise.handOff).toBe('too_many_instances');
   });
 });
 
