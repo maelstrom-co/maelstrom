@@ -22,9 +22,9 @@ export interface LeafRect {
  * tree is malformed: a repaired split token, a token that is neither a split
  * nor a leaf, too few children for a split, or tokens after the root closes.
  *
- * The scorers keep their own copy of this rule so the eval never measures a
- * planner with that planner's ruler; a test in the Jev plugin holds it equal
- * to the planner's.
+ * A copy of planner-jev's `treeRects`: eval core may not import planner-jev,
+ * and no shared geometry package exists yet. A test in the Jev plugin holds
+ * the two equal.
  */
 export function treeRects(
   request: ChartRequest,
