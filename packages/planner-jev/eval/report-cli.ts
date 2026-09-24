@@ -5,7 +5,6 @@ import { parseArgs } from 'node:util';
 import { isGraderValidation } from './grader-validate.js';
 import { writeReport } from './report.js';
 import type { RunRecord } from './run.js';
-import { scenarios } from './scenarios.js';
 
 const { values } = parseArgs({
   options: {
@@ -26,7 +25,7 @@ const graderValidation = isGraderValidation(summary?.graderValidation)
   ? summary.graderValidation
   : undefined;
 
-await writeReport(out, records, meta, graderValidation, scenarios);
+await writeReport(out, records, meta, graderValidation);
 console.log(`Report re-rendered at ${out}/report.md`);
 
 function fail(message: string): never {

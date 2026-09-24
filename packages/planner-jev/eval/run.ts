@@ -20,7 +20,6 @@ import {
 import type { AnyTextAdapter } from '@tanstack/ai';
 
 import type { JevCaller, StageName } from '../src/lib/defer.js';
-import type { ComposedLayoutRecord } from '../src/lib/stages-experimental/layout-composed.js';
 import type {
   LayoutSource,
   Selection2,
@@ -96,12 +95,6 @@ export interface LayoutStageOutput {
   /** Absent when the layout was handed to the completion call. */
   readonly tree?: readonly TilingNode[];
   readonly answers: readonly AnswerRecord[];
-  /**
-   * `layoutComposed` only: the gating route, the hand-off cause, every
-   * answer by question kind and Instance, and the checked candidates with
-   * the parts each dropped as empty.
-   */
-  readonly composition?: ComposedLayoutRecord;
 }
 
 export interface RunRecord {
@@ -430,7 +423,6 @@ function jevFields(
           layoutId: layout.layoutId,
           tree: layout.tree,
           answers: layout.answers,
-          ...(layout.composition && { composition: layout.composition }),
         },
       }),
     },
@@ -453,7 +445,6 @@ interface LayoutOutput {
   readonly layoutId?: string;
   readonly tree?: readonly TilingNode[];
   readonly answers: readonly AnswerRecord[];
-  readonly composition?: ComposedLayoutRecord;
 }
 
 function flattenAnswers(call: JevCall): RecordedAnswer[] {

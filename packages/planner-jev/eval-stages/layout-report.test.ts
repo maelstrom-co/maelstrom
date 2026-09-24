@@ -83,13 +83,9 @@ describe('composed pairs report', () => {
     );
   });
 
-  test('registers the size variants built on the combined variant', () => {
-    expect(Object.keys(LAYOUT_VARIANTS)).toEqual(
-      expect.arrayContaining([
-        'composed-pairs-fraction-sizes',
-        'composed-pairs-score-when-confident',
-        'composed-pairs-size-comparisons',
-      ]),
+  test('registers the fraction size variant built on the combined variant', () => {
+    expect(Object.keys(LAYOUT_VARIANTS)).toContain(
+      'composed-pairs-fraction-sizes',
     );
   });
 
@@ -113,10 +109,6 @@ describe('composed pairs report', () => {
         'composed-pairs-direction-redirects-not-stated',
         'composed-pairs-size-fallback',
         'composed-pairs-whole-board-examples',
-        'composed-pairs-size-within-part',
-        'composed-pairs-part-size-max',
-        'composed-pairs-bigger-size-steps',
-        'composed-pairs-lean-state',
       ]),
     );
   });

@@ -1,28 +1,12 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import {
-  parseTilingSplitToken,
-  type TilingNode,
-  tilingLeafInstanceId,
-} from '@maelstrom-co/protocol';
-
 import { STAGE_NAMES } from '../src/lib/defer.js';
-import type {
-  ComposedAnswers,
-  ComposedHandOff,
-  ComposedLayoutRecord,
-  ComposedRoute,
-} from '../src/lib/stages-experimental/layout-composed.js';
-import {
-  PARTS,
-  POSITIONS,
-} from '../src/lib/stages-experimental/layout-composed-tree.js';
 import type { ArmKind } from './arms.js';
 import { GRADER_DIMENSIONS, type GraderDimension } from './grader.js';
 import { type GraderValidation, graderGate } from './grader-validate.js';
 import type { RunRecord } from './run.js';
-import type { Scenario, Suite } from './scenarios.js';
+import type { Suite } from './scenarios.js';
 import { LLM_ROLES, type LlmCall } from './usage-adapter.js';
 
 export interface Ratio {
@@ -50,61 +34,6 @@ export interface GateErrors {
   readonly falsePositives: Ratio;
   /** No where the answer should be yes, over turns whose answer should be yes. */
   readonly falseNegatives: Ratio;
-}
-
-/** A route's turns and the share of them that made a Jev call. */
-export interface ComposedRouteSummary {
-  readonly turns: Ratio;
-  readonly calls: Ratio;
-}
-
-/** Which composed-layout question a failed turn's Jev answers first diverge from the reference tree on. */
-export type AttributionQuestion = 'shape' | 'placement' | 'position' | 'size';
-
-/**
- * Whether {@link ComposedSummary.nudgedOrderKept} could be computed for at
- * least one nudged turn; `false` when no scenario was joined to a record, so
- * the request's current tree was unavailable.
- */
-export type NudgedOrderKept =
-  | { readonly derivable: true; readonly ratio: Ratio }
-  | { readonly derivable: false; readonly reason: string };
-
-/**
- * `layoutComposed` stage stats for one arm, built from every turn whose
- * record carries a {@link ComposedLayoutRecord}.
- */
-export interface ComposedSummary {
-  /** Turns with a recorded composition; the denominator of {@link routes} and {@link calls}. */
-  readonly turns: number;
-  readonly routes: Readonly<Record<ComposedRoute, ComposedRouteSummary>>;
-  readonly calls: Ratio;
-  readonly handOff: {
-    /** Over turns that called Jev. */
-    readonly rate: Ratio;
-    readonly byCause: Readonly<Record<ComposedHandOff, number>>;
-  };
-  /** Over turns whose composition chose a candidate. */
-  readonly repairs: {
-    readonly droppedParts: Ratio;
-    readonly addedParts: Ratio;
-  };
-  /** `counts[i]` is how often the candidate at rank `i` was chosen; `total` is every chosen turn. */
-  readonly chosenIndex: {
-    readonly counts: readonly number[];
-    readonly total: number;
-  };
-  /**
-   * Failed-arrangement turns whose scenario has a reference tree: how many
-   * attribute to a question (see {@link attributeFailure}), and the count
-   * per question.
-   */
-  readonly attribution: {
-    readonly attributed: Ratio;
-    readonly byQuestion: Readonly<Record<AttributionQuestion, number>>;
-  };
-  /** Nudged turns only: whether the pre-existing Instances kept their relative order. */
-  readonly nudgedOrderKept: NudgedOrderKept;
 }
 
 /** The grader's verdicts on one arm's planned turns; secondary to the rule-based pass. */
@@ -185,8 +114,6 @@ export interface ArmSummary {
   };
   /** Jev arms only: filled stated_elsewhere slots over all such slots. */
   readonly fill?: Ratio;
-  /** Jev arms only: present when any turn recorded a `layoutComposed` composition. */
-  readonly composed?: ComposedSummary;
   /** Stages replayed from a recorded run; their latency is left out. */
   readonly replayed: readonly string[];
   /** Present when any of the arm's turns was graded. */
@@ -222,17 +149,9 @@ export function percentile(
 
 /**
  * One summary per arm and suite present, plus `all` per arm, arms in the
- * order records name them. `scenarios` joins each record to its reference
- * tree and request by `scenarioId`, for the composed-layout section; omit it
- * where that join is unavailable (see {@link ComposedSummary.nudgedOrderKept}).
+ * order records name them.
  */
-export function summarize(
-  records: readonly RunRecord[],
-  scenarios: readonly Scenario[] = [],
-): ArmSummary[] {
-  const scenarioById = new Map(
-    scenarios.map((scenario) => [scenario.id, scenario]),
-  );
+export function summarize(records: readonly RunRecord[]): ArmSummary[] {
   const summaries: ArmSummary[] = [];
   const arms = [...new Set(records.map((record) => record.arm))];
   const suites = [...new Set(records.map((record) => record.suite))];
@@ -251,7 +170,6 @@ export function summarize(
             records.filter(
               (record) => record.kind === 'baseline' && inSuite(record),
             ),
-            scenarioById,
           ),
         );
     }
@@ -329,7 +247,6 @@ export function renderMarkdown(
     row('Arrangement turns reaching jevLayout', (s) =>
       s.arrangementReachedLayout ? ratio(s.arrangementReachedLayout) : 'n/a',
     );
-    if (rows.some((s) => s.composed !== undefined)) renderComposed(row);
     row('Replayed stages', (s) =>
       s.replayed.length > 0 ? s.replayed.join(', ') : 'none',
     );
@@ -437,17 +354,15 @@ export function renderPaired(records: readonly RunRecord[]): string {
 
 /**
  * Writes `records.json`, `summary.json`, `report.md` and `paired.md` to
- * `out`; `graderValidation` decides whether the grader's rows appear, and
- * `scenarios` (see {@link summarize}) fills the composed-layout section.
+ * `out`; `graderValidation` decides whether the grader's rows appear.
  */
 export async function writeReport(
   out: string,
   records: readonly RunRecord[],
   meta: Readonly<Record<string, unknown>>,
   graderValidation?: GraderValidation,
-  scenarios: readonly Scenario[] = [],
 ): Promise<ArmSummary[]> {
-  const summaries = summarize(records, scenarios);
+  const summaries = summarize(records);
   await mkdir(out, { recursive: true });
   await writeFile(join(out, 'records.json'), JSON.stringify(records, null, 2));
   await writeFile(
@@ -474,7 +389,6 @@ function summarizeArm(
   suite: Suite | 'all',
   records: readonly RunRecord[],
   baselines: readonly RunRecord[],
-  scenarioById: ReadonlyMap<string, Scenario>,
 ): ArmSummary {
   const [first] = records;
   const arm = first?.arm ?? '';
@@ -592,11 +506,9 @@ function summarizeArm(
     );
   const jev = sum(calls);
   const gates = gateSummary(records);
-  const composed = composedSummaryOf(records, scenarioById);
   return {
     ...common,
     ...(gates && { gates }),
-    ...(composed && { composed }),
     arrangementReachedLayout: {
       count: ruled.filter((record) =>
         (record.stages ?? []).some((entry) => entry.stage === 'jevLayout'),
@@ -801,321 +713,4 @@ function totals(value: TokenTotals): string {
   const missing =
     value.withoutUsage > 0 ? ` (${value.withoutUsage} without usage)` : '';
   return `${value.calls} / ${value.input} / ${value.output}${missing}`;
-}
-
-const COMPOSED_ROUTES: readonly ComposedRoute[] = [
-  'spatial',
-  'same_instances',
-  'instances_changed',
-];
-
-const HAND_OFF_CAUSES: readonly ComposedHandOff[] = [
-  'nothing_fits',
-  'none_of_these',
-];
-
-const ATTRIBUTION_QUESTIONS: readonly AttributionQuestion[] = [
-  'shape',
-  'placement',
-  'position',
-  'size',
-];
-
-/** Ranks {@link composeCandidates} (from `layout-composed-tree.ts`) returns, most probable first. */
-const CHOSEN_RANKS = [0, 1, 2] as const;
-
-function renderComposed(
-  row: (label: string, cell: (summary: ArmSummary) => string) => void,
-): void {
-  row('Composed layout turns', (s) =>
-    s.composed ? String(s.composed.turns) : 'n/a',
-  );
-  row('Composed layout calls', (s) =>
-    s.composed ? ratio(s.composed.calls) : 'n/a',
-  );
-  for (const route of COMPOSED_ROUTES) {
-    row(`Composed route: ${route}`, (s) =>
-      s.composed ? ratio(s.composed.routes[route].turns) : 'n/a',
-    );
-    row(`Composed route: ${route} calls`, (s) =>
-      s.composed ? ratio(s.composed.routes[route].calls) : 'n/a',
-    );
-  }
-  row('Composed hand-off rate', (s) =>
-    s.composed ? ratio(s.composed.handOff.rate) : 'n/a',
-  );
-  for (const cause of HAND_OFF_CAUSES)
-    row(`Composed hand-off: ${cause}`, (s) =>
-      s.composed ? String(s.composed.handOff.byCause[cause]) : 'n/a',
-    );
-  row('Composed empty-part repairs', (s) =>
-    s.composed ? ratio(s.composed.repairs.droppedParts) : 'n/a',
-  );
-  row('Composed added-part rate', (s) =>
-    s.composed ? ratio(s.composed.repairs.addedParts) : 'n/a',
-  );
-  for (const rank of CHOSEN_RANKS)
-    row(`Composed chosen candidate ${rank + 1}`, (s) =>
-      s.composed
-        ? ratio({
-            count: s.composed.chosenIndex.counts[rank] ?? 0,
-            total: s.composed.chosenIndex.total,
-          })
-        : 'n/a',
-    );
-  row('Composed failure attribution turns', (s) =>
-    s.composed ? ratio(s.composed.attribution.attributed) : 'n/a',
-  );
-  for (const question of ATTRIBUTION_QUESTIONS)
-    row(`Composed failure attribution: ${question}`, (s) =>
-      s.composed ? String(s.composed.attribution.byQuestion[question]) : 'n/a',
-    );
-  row('Composed nudged order kept', (s) => {
-    if (!s.composed) return 'n/a';
-    const kept = s.composed.nudgedOrderKept;
-    return kept.derivable ? ratio(kept.ratio) : `not derivable: ${kept.reason}`;
-  });
-}
-
-/** Every record of `records` with a recorded composition, paired with it. */
-function withCompositions(records: readonly RunRecord[]): readonly {
-  readonly record: RunRecord;
-  readonly composition: ComposedLayoutRecord;
-}[] {
-  return records.flatMap((record) => {
-    const composition = record.stageOutputs?.jevLayout?.composition;
-    return composition ? [{ record, composition }] : [];
-  });
-}
-
-function composedSummaryOf(
-  records: readonly RunRecord[],
-  scenarioById: ReadonlyMap<string, Scenario>,
-): ComposedSummary | undefined {
-  const entries = withCompositions(records);
-  if (entries.length === 0) return undefined;
-
-  const routes = Object.fromEntries(
-    COMPOSED_ROUTES.map((route) => {
-      const inRoute = entries.filter(
-        (entry) => entry.composition.route === route,
-      );
-      return [
-        route,
-        {
-          turns: { count: inRoute.length, total: entries.length },
-          calls: {
-            count: inRoute.filter((entry) => entry.composition.called).length,
-            total: inRoute.length,
-          },
-        },
-      ];
-    }),
-  ) as Readonly<Record<ComposedRoute, ComposedRouteSummary>>;
-
-  const called = entries.filter((entry) => entry.composition.called);
-  const handedOff = called.filter(
-    (entry) => entry.composition.handOff !== undefined,
-  );
-  const byCause = Object.fromEntries(
-    HAND_OFF_CAUSES.map((cause) => [
-      cause,
-      handedOff.filter((entry) => entry.composition.handOff === cause).length,
-    ]),
-  ) as Readonly<Record<ComposedHandOff, number>>;
-
-  const chosen = entries.filter(
-    (entry) => entry.composition.chosen !== undefined,
-  );
-  const chosenCandidate = (entry: (typeof chosen)[number]) =>
-    entry.composition.candidates[entry.composition.chosen as number];
-  const droppedParts = chosen.filter(
-    (entry) => (chosenCandidate(entry)?.droppedParts.length ?? 0) > 0,
-  );
-  const addedParts = chosen.filter(
-    (entry) => (chosenCandidate(entry)?.addedParts.length ?? 0) > 0,
-  );
-  const chosenCounts: number[] = [];
-  for (const entry of chosen) {
-    const rank = entry.composition.chosen as number;
-    chosenCounts[rank] = (chosenCounts[rank] ?? 0) + 1;
-  }
-
-  return {
-    turns: entries.length,
-    routes,
-    calls: { count: called.length, total: entries.length },
-    handOff: {
-      rate: { count: handedOff.length, total: called.length },
-      byCause,
-    },
-    repairs: {
-      droppedParts: { count: droppedParts.length, total: chosen.length },
-      addedParts: { count: addedParts.length, total: chosen.length },
-    },
-    chosenIndex: { counts: chosenCounts, total: chosen.length },
-    attribution: attributionOf(entries, scenarioById),
-    nudgedOrderKept: nudgedOrderKeptOf(entries, scenarioById),
-  };
-}
-
-function attributionOf(
-  entries: ReturnType<typeof withCompositions>,
-  scenarioById: ReadonlyMap<string, Scenario>,
-): ComposedSummary['attribution'] {
-  const byQuestion: Record<AttributionQuestion, number> = {
-    shape: 0,
-    placement: 0,
-    position: 0,
-    size: 0,
-  };
-  let eligible = 0;
-  let attributed = 0;
-  for (const { record, composition } of entries) {
-    if (!composition.called || !composition.answers) continue;
-    if (record.score?.arrangement?.pass !== false) continue;
-    const referenceTree = scenarioById.get(record.scenarioId)?.expected.tree;
-    if (referenceTree === undefined) continue;
-    eligible += 1;
-    const question = attributeFailure(
-      composition.answers,
-      referenceTree as readonly TilingNode[],
-    );
-    if (question === undefined) continue;
-    attributed += 1;
-    byQuestion[question] += 1;
-  }
-  return { attributed: { count: attributed, total: eligible }, byQuestion };
-}
-
-/**
- * Attributes a failed arrangement to the first composed-layout question
- * Jev's answers disagree with the reference tree's top split: `shape`
- * (direction or part count), then per visible Instance `placement` (which
- * part) and `position` (order within the part). When all three agree the
- * failure attributes to `size` by elimination. `undefined` when the
- * reference tree's top level cannot be read as a composed shape, or an
- * answered Instance is missing from the reference tree.
- */
-function attributeFailure(
-  answers: ComposedAnswers,
-  referenceTree: readonly TilingNode[],
-): AttributionQuestion | undefined {
-  const root = parseReferenceNode(referenceTree, 0)?.node;
-  if (root === undefined || root.kind !== 'split') return undefined;
-  const expectedShape = shapeKeyOf(root.axis, root.children.length);
-  if (expectedShape === undefined) return undefined;
-  if (answers.shape.choice !== expectedShape) return 'shape';
-
-  const expectedPlacement = new Map<string, number>();
-  const expectedPosition = new Map<string, number>();
-  root.children.forEach((child, partIndex) => {
-    leavesOf(child).forEach((instanceId, position) => {
-      expectedPlacement.set(instanceId, partIndex);
-      expectedPosition.set(instanceId, position);
-    });
-  });
-
-  const instanceIds = Object.keys(answers.placements);
-  for (const instanceId of instanceIds) {
-    const part = expectedPlacement.get(instanceId);
-    if (part === undefined) return undefined;
-    if (answers.placements[instanceId]?.choice !== PARTS[part])
-      return 'placement';
-  }
-  for (const instanceId of instanceIds) {
-    const position = expectedPosition.get(instanceId);
-    if (position === undefined) return undefined;
-    if (answers.positions[instanceId]?.choice !== POSITIONS[position])
-      return 'position';
-  }
-  return 'size';
-}
-
-interface ReferenceLeaf {
-  readonly kind: 'leaf';
-  readonly instanceId: string | null;
-}
-
-interface ReferenceSplit {
-  readonly kind: 'split';
-  readonly axis: 'H' | 'V';
-  readonly children: readonly ReferenceNode[];
-}
-
-type ReferenceNode = ReferenceLeaf | ReferenceSplit;
-
-/** Reads one preorder node of a reference tree from `index`, recursing over a split's declared arity. */
-function parseReferenceNode(
-  tree: readonly TilingNode[],
-  index: number,
-): { readonly node: ReferenceNode; readonly next: number } | undefined {
-  const token = tree[index];
-  if (token === undefined) return undefined;
-  const branch = parseTilingSplitToken(token);
-  if (!branch)
-    return {
-      node: {
-        kind: 'leaf',
-        instanceId: token === null ? null : tilingLeafInstanceId(token),
-      },
-      next: index + 1,
-    };
-  const children: ReferenceNode[] = [];
-  let cursor = index + 1;
-  for (const _weight of branch.weights) {
-    const child = parseReferenceNode(tree, cursor);
-    if (child === undefined) return undefined;
-    children.push(child.node);
-    cursor = child.next;
-  }
-  return { node: { kind: 'split', axis: branch.axis, children }, next: cursor };
-}
-
-function leavesOf(node: ReferenceNode): readonly string[] {
-  if (node.kind === 'leaf')
-    return node.instanceId === null ? [] : [node.instanceId];
-  return node.children.flatMap(leavesOf);
-}
-
-/** A composed shape's key for a top split with `partCount` children, within the 2 to 4 parts Jev is offered. */
-function shapeKeyOf(axis: 'H' | 'V', partCount: number): string | undefined {
-  if (partCount < 2 || partCount > PARTS.length) return undefined;
-  return `${axis === 'V' ? 'side_by_side' : 'stacked'}_${partCount}`;
-}
-
-function nudgedOrderKeptOf(
-  entries: ReturnType<typeof withCompositions>,
-  scenarioById: ReadonlyMap<string, Scenario>,
-): NudgedOrderKept {
-  if (scenarioById.size === 0)
-    return {
-      derivable: false,
-      reason: "no scenario was joined to read the request's current tree",
-    };
-  const nudged = entries.filter((entry) => entry.composition.nudged);
-  let count = 0;
-  let total = 0;
-  for (const { record } of nudged) {
-    const scenario = scenarioById.get(record.scenarioId);
-    if (scenario === undefined || record.tree === undefined) continue;
-    const currentTree =
-      scenario.request.layout.type === 'tiling'
-        ? scenario.request.layout.tree
-        : [];
-    const currentIds = leafIds(currentTree);
-    const shippedIds = leafIds(record.tree as readonly TilingNode[]);
-    const shippedSet = new Set(shippedIds);
-    const currentSet = new Set(currentIds);
-    const keptCurrentOrder = currentIds.filter((id) => shippedSet.has(id));
-    const keptShippedOrder = shippedIds.filter((id) => currentSet.has(id));
-    total += 1;
-    if (JSON.stringify(keptCurrentOrder) === JSON.stringify(keptShippedOrder))
-      count += 1;
-  }
-  return { derivable: true, ratio: { count, total } };
-}
-
-function leafIds(tree: readonly TilingNode[]): readonly string[] {
-  return tree.flatMap((token) => tilingLeafInstanceId(token) ?? []);
 }

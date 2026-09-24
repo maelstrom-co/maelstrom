@@ -30,7 +30,7 @@ export type ActionPlanAfter<Selected extends Selection2> = ActionPlan2 &
 /**
  * One stage factory per pipeline slot. The layout factory's input is typed
  * by the select stage's output, so a layout stage that routes on the gates
- * (`layoutSpatialGate`, `layoutComposed`) only compiles after `selectGated`.
+ * (`layoutComposedPairsGateAndDefer`) only compiles after `selectGated`.
  */
 export interface JevStages<Selected extends Selection2> {
   readonly select: (ask: Ask) => Stage<PlanningInput, Selected>;

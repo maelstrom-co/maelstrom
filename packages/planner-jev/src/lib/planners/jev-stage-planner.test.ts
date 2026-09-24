@@ -12,9 +12,8 @@ import {
 import { actionsBatchedPerInstance } from '../stages-experimental/actions-batched-per-instance.js';
 import { completeLayoutInline } from '../stages-experimental/complete-layout-inline.js';
 import { createJevDeps, type JevDeps } from '../stages-experimental/deps.js';
-import { layoutComposed } from '../stages-experimental/layout-composed.js';
+import { layoutComposedPairsGateAndDefer } from '../stages-experimental/layout-composed-pairs-gate-and-defer.js';
 import { layoutPreset } from '../stages-experimental/layout-preset.js';
-import { layoutSpatialGate } from '../stages-experimental/layout-spatial-gate.js';
 import { selectGated } from '../stages-experimental/select-gated.js';
 import { selectUngated } from '../stages-experimental/select-ungated.js';
 import { buildJevStagePlanner } from './jev-stage-planner.js';
@@ -88,18 +87,8 @@ function typeCases(): Planner[] {
       {
         select: selectUngated,
         actions: actionsBatchedPerInstance,
-        // @ts-expect-error layoutSpatialGate routes on gates selectUngated never asks
-        layout: layoutSpatialGate,
-        complete: completeLayoutInline,
-      },
-      deps,
-    ),
-    buildJevStagePlanner(
-      {
-        select: selectUngated,
-        actions: actionsBatchedPerInstance,
-        // @ts-expect-error layoutComposed routes on gates selectUngated never asks
-        layout: (ask) => layoutComposed(ask),
+        // @ts-expect-error layoutComposedPairsGateAndDefer routes on gates selectUngated never asks
+        layout: layoutComposedPairsGateAndDefer,
         complete: completeLayoutInline,
       },
       deps,
@@ -108,7 +97,7 @@ function typeCases(): Planner[] {
       {
         select: selectGated,
         actions: actionsBatchedPerInstance,
-        layout: (ask) => layoutComposed(ask),
+        layout: layoutComposedPairsGateAndDefer,
         complete: completeLayoutInline,
       },
       deps,

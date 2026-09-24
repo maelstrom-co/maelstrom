@@ -10,13 +10,7 @@ import type { Scenario } from '../eval/scenarios.js';
 import { scoreLayout } from '../eval/score.js';
 import { finalVariants } from '../src/lib/final-variants.js';
 import { layoutFits } from '../src/lib/layout-fit.js';
-import { layoutAlwaysLlm } from '../src/lib/stages-experimental/layout-always-llm.js';
 import {
-  type ComposedLayoutRecord,
-  layoutComposed,
-} from '../src/lib/stages-experimental/layout-composed.js';
-import {
-  type ComposedPairsDecision,
   type ComposedPairsRecord,
   layoutComposedPairs,
   layoutComposedPairsWithDirection,
@@ -28,7 +22,6 @@ import {
 } from '../src/lib/stages-experimental/layout-composed-pairs-gate-and-defer.js';
 import { layoutPreset } from '../src/lib/stages-experimental/layout-preset.js';
 import { layoutPresetOrLlm } from '../src/lib/stages-experimental/layout-preset-or-llm.js';
-import { layoutSpatialGate } from '../src/lib/stages-experimental/layout-spatial-gate.js';
 import type {
   GateAnswer,
   GatedActionPlan,
@@ -37,18 +30,10 @@ import type {
 } from '../src/lib/stages-experimental/types.js';
 import type { AnswerRecord } from '../src/lib/types.js';
 import type { Ask } from '../src/lib/typesafe-client.js';
-import {
-  type ComposedAnswerCheck,
-  type ComposedQuestion,
-  checkComposedAnswers,
-  firstWrongQuestion,
-} from './composed-attribution.js';
 import { goldInputs, layoutDeferralGoldInputs } from './gold-inputs.js';
-import { layoutComposedScoreSized } from './layout-composed-score-sized.js';
 import {
   renderArrangementNotAskedSection,
   renderComposedPairsSection,
-  renderComposedSection,
 } from './layout-report.js';
 import {
   checkPairAnswers,
@@ -57,22 +42,10 @@ import {
 import type { RecordedSpatialSignal } from './recorded-spatial.js';
 import type { Judgement, StageEvalModule } from './stage-eval.js';
 
-/** A layout decision as some stages return it, with the composed stages' records. */
+/** A layout decision as some stages return it, with the composed-pairs record. */
 export type LayoutOutput = LayoutDecision & {
-  readonly composition?: ComposedLayoutRecord;
   readonly pairwise?: ComposedPairsRecord;
 };
-
-/**
- * Why a composed turn missed, against the scenario's reference tree: the
- * first question kind answered wrong (`size` by elimination), `no_call`
- * when the stage kept or wrote a tree without asking Jev, or `undefined`
- * when the reference tree cannot be compared (see `reason`).
- */
-export interface ComposedMiss {
-  readonly question?: ComposedQuestion | 'no_call';
-  readonly reason?: string;
-}
 
 /** What the layout stage eval records of one decision. */
 export interface LayoutTurnDetail {
@@ -81,13 +54,7 @@ export interface LayoutTurnDetail {
   /** Absent when the decision handed the layout off. */
   readonly tree?: readonly TilingNode[];
   readonly answers: readonly AnswerRecord[];
-  /** `layoutComposed` only. */
-  readonly composition?: ComposedLayoutRecord;
-  /** `layoutComposed` calls only: every answer against the scenario's reference tree, or why it cannot be compared. */
-  readonly answerCheck?: ComposedAnswerCheck | { readonly unavailable: string };
-  /** `layoutComposed` turns that did not pass only. */
-  readonly miss?: ComposedMiss;
-  /** `layoutComposedPairs` and `layoutComposedPairsWithDirection` only. */
+  /** The composed-pairs stages only. */
   readonly pairwise?: ComposedPairsRecord;
   /** `layoutComposedPairs` calls only: every pair against the scenario's reference tree, or why it cannot be compared. */
   readonly pairCheck?: PairsAnswerCheck | { readonly unavailable: string };
@@ -108,12 +75,6 @@ const COMBINED = {
   wholeBoardExamples: true,
 } as const;
 
-// Chosen from the composed-pairs-combined development records before any
-// run of the variant: the lowest confidence, in steps of 0.05, at and above
-// which every size answer's score lies within a quarter level of its
-// picked level (0.75 lets one stray 0.28 levels).
-const SIZE_SCORE_MINIMUM_CONFIDENCE = 0.8;
-
 // Chosen from the spatial gate the live composed-pairs-inline arm answered
 // on the development suite, before any run of the variant: the lowest
 // probability a scenario tagged spatial got was 0.22 (reverse-order), and
@@ -121,33 +82,15 @@ const SIZE_SCORE_MINIMUM_CONFIDENCE = 0.8;
 const CONFIDENT_SPATIAL_NO_BELOW = 0.2;
 
 /**
- * The `composed-pairs-fraction-sizes-both-fixes` layout: the direction
- * redirect limited to answers that change the top split, the size fallback
- * and the whole-board examples, with sizes asked as fractions within each
- * row or column and what stated fractions leave split by whole-Chart
- * shares. The stage eval's variant and the planner's `composed-pairs` arms
- * share it.
- */
-export function layoutComposedPairsBothFixes(
-  ask: Ask,
-): Stage<GatedActionPlan, ComposedPairsDecision> {
-  return layoutComposedPairsWithOptions(ask, {
-    ...COMPOSED_PAIRS_BOTH_FIXES_OPTIONS,
-    layoutId: 'composed-pairs-fraction-sizes-both-fixes',
-  });
-}
-
-/**
- * Layout stage variants by descriptive name, each built as the matching
- * arm in `eval/arms.ts` builds it; of the `composed-pairs` variants only
- * `composed-pairs-fraction-sizes-both-fixes` and
- * `composed-pairs-gate-and-defer-combined` have planner arms. Each `composed-pairs-` fix changes one thing from
- * `composed-pairs` (the redirect builds on `composed-pairs-with-direction`),
- * see `ComposedPairsOptions`. `composed-pairs-combined` stacks the fixes
- * that passed the development stage eval: the direction redirect, the size
- * fallback and the whole-board examples. `composed-pairs-fraction-sizes`,
- * `composed-pairs-score-when-confident` and `composed-pairs-size-comparisons`
- * each change how `composed-pairs-combined` asks or reads sizes, see
+ * Layout stage variants by descriptive name; the composed-pairs ones are
+ * the steps that led to `composed-pairs-gate-and-defer-combined`, the
+ * layout stage of the `jev-gated-per-instance-composed-pairs-gate-and-defer-inline`
+ * arm. Each `composed-pairs-` fix changes one thing from `composed-pairs`
+ * (the redirect builds on `composed-pairs-with-direction`), see
+ * `ComposedPairsOptions`. `composed-pairs-combined` stacks the fixes that
+ * passed the development stage eval: the direction redirect, the size
+ * fallback and the whole-board examples. `composed-pairs-fraction-sizes`
+ * also asks sizes as fractions within each row or column, see
  * `SizeAnswers`. `composed-pairs-combined-limited-redirect` redirects not
  * stated only when the direction answer changes the top split;
  * `composed-pairs-fraction-sizes-proportional-fallback` splits what stated
@@ -164,8 +107,6 @@ export function layoutComposedPairsBothFixes(
 export const LAYOUT_VARIANTS: Readonly<Record<string, LayoutVariant>> = {
   preset: (ask) => layoutPreset(ask, { describe: 'placements' }),
   'preset-or-llm': layoutPresetOrLlm,
-  'spatial-gate': () => layoutSpatialGate(),
-  composed: (ask) => layoutComposed(ask),
   'composed-pairs': (ask) => layoutComposedPairs(ask),
   'composed-pairs-with-direction': (ask) =>
     layoutComposedPairsWithDirection(ask),
@@ -183,21 +124,6 @@ export const LAYOUT_VARIANTS: Readonly<Record<string, LayoutVariant>> = {
     layoutComposedPairsWithOptions(ask, {
       layoutId: 'composed-pairs-whole-board-examples',
       wholeBoardExamples: true,
-    }),
-  'composed-pairs-size-within-part': (ask) =>
-    layoutComposedPairsWithOptions(ask, {
-      layoutId: 'composed-pairs-size-within-part',
-      sizeWithinPart: true,
-    }),
-  'composed-pairs-part-size-max': (ask) =>
-    layoutComposedPairsWithOptions(ask, {
-      layoutId: 'composed-pairs-part-size-max',
-      partWeight: 'max',
-    }),
-  'composed-pairs-bigger-size-steps': (ask) =>
-    layoutComposedPairsWithOptions(ask, {
-      layoutId: 'composed-pairs-bigger-size-steps',
-      sizeSteps: 'bigger',
     }),
   'composed-pairs-combined': (ask) =>
     layoutComposedPairsWithOptions(ask, {
@@ -225,7 +151,11 @@ export const LAYOUT_VARIANTS: Readonly<Record<string, LayoutVariant>> = {
         unstatedSplit: 'whole_chart_shares',
       },
     }),
-  'composed-pairs-fraction-sizes-both-fixes': layoutComposedPairsBothFixes,
+  'composed-pairs-fraction-sizes-both-fixes': (ask) =>
+    layoutComposedPairsWithOptions(ask, {
+      ...COMPOSED_PAIRS_BOTH_FIXES_OPTIONS,
+      layoutId: 'composed-pairs-fraction-sizes-both-fixes',
+    }),
   'composed-pairs-fraction-sizes-both-fixes-always-asks': (ask) =>
     layoutComposedPairsWithOptions(ask, {
       ...COMPOSED_PAIRS_BOTH_FIXES_OPTIONS,
@@ -246,31 +176,6 @@ export const LAYOUT_VARIANTS: Readonly<Record<string, LayoutVariant>> = {
       nothingFits: 'defers',
     }),
   'composed-pairs-gate-and-defer-combined': layoutComposedPairsGateAndDefer,
-  'composed-pairs-score-when-confident': (ask) =>
-    layoutComposedPairsWithOptions(ask, {
-      ...COMBINED,
-      layoutId: 'composed-pairs-score-when-confident',
-      sizeAnswers: {
-        kind: 'score_when_confident',
-        minimumConfidence: SIZE_SCORE_MINIMUM_CONFIDENCE,
-      },
-    }),
-  'composed-pairs-size-comparisons': (ask) =>
-    layoutComposedPairsWithOptions(ask, {
-      ...COMBINED,
-      layoutId: 'composed-pairs-size-comparisons',
-      sizeAnswers: { kind: 'pair_comparisons' },
-    }),
-  'composed-pairs-lean-state': (ask) =>
-    layoutComposedPairsWithOptions(ask, {
-      layoutId: 'composed-pairs-lean-state',
-      leanState: true,
-    }),
-  'composed-2-size-levels': (ask) => layoutComposed(ask, { sizeLevels: 2 }),
-  'composed-score-sized': (ask) => layoutComposedScoreSized(ask),
-  'composed-2-size-levels-score-sized': (ask) =>
-    layoutComposedScoreSized(ask, { sizeLevels: 2 }),
-  'always-llm': () => layoutAlwaysLlm(),
 };
 
 /** The deferral reason a scenario that expects the layout stage to defer expects. */
@@ -335,7 +240,6 @@ export function layoutStageEvalWith(
     reportSections: (records, variants) =>
       [
         renderArrangementNotAskedSection(records, variants),
-        renderComposedSection(records, variants),
         renderComposedPairsSection(records, variants),
       ].flatMap((section) => section ?? []),
   };
@@ -355,14 +259,10 @@ export function judgeLayout(
     ...(output.layoutId !== undefined && { layoutId: output.layoutId }),
     ...(output.tree !== undefined && { tree: output.tree }),
     answers: output.answers,
-    ...(output.composition && { composition: output.composition }),
     ...(output.pairwise && { pairwise: output.pairwise }),
   };
   const pairCheck = output.pairwise?.called
     ? comparePairs(scenario, output.pairwise, output.tree)
-    : undefined;
-  const answerCheck = output.composition?.answers
-    ? compareAnswers(scenario, output.composition)
     : undefined;
   const failures =
     output.tree === undefined ? [] : treeFailures(scenario, input, output.tree);
@@ -372,10 +272,6 @@ export function judgeLayout(
       : failures.length === 0
         ? 'pass'
         : 'fail';
-  const miss =
-    output.composition && outcome !== 'pass'
-      ? missOf(output.composition, answerCheck)
-      : undefined;
   const arrangementNotAsked = asksNoArrangement(scenario, input)
     ? {
         changed: output.tree !== undefined && !keepsTree(scenario, output.tree),
@@ -386,8 +282,6 @@ export function judgeLayout(
     failures,
     detail: {
       ...recorded,
-      ...(answerCheck && { answerCheck }),
-      ...(miss && { miss }),
       ...(pairCheck && { pairCheck }),
       ...(arrangementNotAsked && { arrangementNotAsked }),
     },
@@ -479,19 +373,6 @@ function visibleInstances(
     }));
 }
 
-function compareAnswers(
-  scenario: Scenario,
-  composition: ComposedLayoutRecord,
-): ComposedAnswerCheck | { readonly unavailable: string } {
-  const referenceTree = referenceTreeOf(scenario);
-  if (referenceTree === undefined)
-    return { unavailable: 'the scenario states no reference tree' };
-  if (composition.answers === undefined)
-    return { unavailable: 'no Jev call was made' };
-  const check = checkComposedAnswers(composition.answers, referenceTree);
-  return typeof check === 'string' ? { unavailable: check } : check;
-}
-
 function comparePairs(
   scenario: Scenario,
   record: ComposedPairsRecord,
@@ -521,14 +402,4 @@ function referenceTreeOf(
   ) && layout.type === 'tiling'
     ? layout.tree
     : undefined;
-}
-
-function missOf(
-  composition: ComposedLayoutRecord,
-  answerCheck: LayoutTurnDetail['answerCheck'],
-): ComposedMiss {
-  if (!composition.called) return { question: 'no_call' };
-  if (answerCheck === undefined || 'unavailable' in answerCheck)
-    return { reason: answerCheck?.unavailable ?? 'no answers were recorded' };
-  return { question: firstWrongQuestion(answerCheck) };
 }

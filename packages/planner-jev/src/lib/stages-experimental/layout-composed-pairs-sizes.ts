@@ -1,5 +1,3 @@
-import type { InstanceId } from '@maelstrom-co/protocol';
-
 /**
  * The fraction of its row or column each level of the within-part
  * fraction question stands for, smallest first: a quarter, a third,
@@ -18,26 +16,6 @@ export const FRACTION_LEVELS: readonly number[] = [
  * keeps (see {@link partFractionShares}).
  */
 export const MIN_UNSTATED_FRACTION = 0.1;
-
-/**
- * The area ratio, first Instance over second, each level of the size
- * comparison question stands for, smallest first. Powers of two, so the
- * levels are evenly spaced in log space.
- */
-export const COMPARISON_RATIOS: readonly [
-  number,
-  number,
-  number,
-  number,
-  number,
-] = [0.25, 0.5, 1, 2, 4];
-
-/** One size comparison as a log area ratio, `first` over `second`. */
-export interface LogRatio {
-  readonly first: InstanceId;
-  readonly second: InstanceId;
-  readonly logRatio: number;
-}
 
 /**
  * The value at a fractional `score` along `values`, one value per level:
@@ -95,34 +73,4 @@ export function partFractionShares(
       ? (remainder * weightOf(index)) / unstatedWeight
       : remainder / unstated.length;
   });
-}
-
-/** The log area ratio a size comparison `score` stands for, interpolated in log space between {@link COMPARISON_RATIOS}. */
-export function comparisonLogRatio(score: number): number {
-  return interpolateLevels(score, COMPARISON_RATIOS.map(Math.log));
-}
-
-/**
- * Area shares of `ids` summing to 1 from log area ratios between pairs of
- * them: the log areas that fit every ratio best in least squares, with
- * mean zero, exponentiated and normalised. With every pair compared once
- * the least-squares log area of an Instance is the mean of its log ratios
- * against every Instance, itself included at zero; a pair left out counts
- * as about the same size.
- */
-export function logAreaShares(
-  ids: readonly InstanceId[],
-  ratios: readonly LogRatio[],
-): Readonly<Record<string, number>> {
-  const sums = new Map<InstanceId, number>(ids.map((id) => [id, 0]));
-  for (const { first, second, logRatio } of ratios) {
-    if (!sums.has(first) || !sums.has(second) || first === second) continue;
-    sums.set(first, (sums.get(first) ?? 0) + logRatio);
-    sums.set(second, (sums.get(second) ?? 0) - logRatio);
-  }
-  const areas = ids.map((id) => Math.exp((sums.get(id) ?? 0) / ids.length));
-  const total = areas.reduce((sum, area) => sum + area, 0);
-  return Object.fromEntries(
-    ids.map((id, index) => [id, (areas[index] ?? 0) / total]),
-  );
 }

@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
 import type { LayoutTurnDetail } from './layout.js';
-import { renderComposedSection, summarizeComposed } from './layout-report.js';
 import {
   renderScenarioTable,
   renderStageReport,
@@ -38,40 +37,28 @@ const call = (latencyMs: number) => ({
 });
 
 const RECORDS: StageTurnRecord<LayoutTurnDetail>[] = [
-  turn('composed', 'swap', 'pass', { jevCalls: [call(200)] }),
-  turn('composed', 'swap', 'handed_off', {
+  turn('composed-pairs', 'swap', 'pass', { jevCalls: [call(200)] }),
+  turn('composed-pairs', 'swap', 'handed_off', {
     jevCalls: [call(400)],
-    detail: {
-      source: 'llm',
-      answers: [],
-      composition: {
-        route: 'spatial',
-        called: true,
-        nudged: false,
-        sizeLevels: 5,
-        candidates: [],
-        handOff: 'none_of_these',
-      },
-      miss: { question: 'shape' },
-    },
+    detail: { source: 'llm', answers: [] },
   }),
-  turn('composed', 'focus', 'fail', { jevCalls: [call(300)] }),
-  turn('composed', 'focus', 'deferred', {
+  turn('composed-pairs', 'focus', 'fail', { jevCalls: [call(300)] }),
+  turn('composed-pairs', 'focus', 'deferred', {
     reason: 'jevLayout/provider_timeout',
   }),
-  turn('composed', 'missing-enum', 'not_applicable', {
+  turn('composed-pairs', 'missing-enum', 'not_applicable', {
     reason: 'expects a deferral',
   }),
-  turn('spatial-gate', 'swap', 'handed_off'),
-  turn('spatial-gate', 'swap', 'handed_off'),
-  turn('spatial-gate', 'focus', 'pass'),
-  turn('spatial-gate', 'focus', 'pass'),
-  turn('spatial-gate', 'missing-enum', 'not_applicable'),
+  turn('preset-or-llm', 'swap', 'handed_off'),
+  turn('preset-or-llm', 'swap', 'handed_off'),
+  turn('preset-or-llm', 'focus', 'pass'),
+  turn('preset-or-llm', 'focus', 'pass'),
+  turn('preset-or-llm', 'missing-enum', 'not_applicable'),
 ];
 
 describe('stage eval report', () => {
   test('summarises pass, hand-offs, deferrals and not-applicable scenarios apart', () => {
-    const summary = summarizeVariant(RECORDS, 'composed');
+    const summary = summarizeVariant(RECORDS, 'composed-pairs');
     expect(summary.turns).toBe(4);
     expect(summary.pass).toEqual({ count: 1, total: 4 });
     expect(summary.passScored).toEqual({ count: 1, total: 2 });
@@ -90,10 +77,10 @@ describe('stage eval report', () => {
     const report = renderStageReport(
       'jevLayout',
       RECORDS,
-      ['composed', 'spatial-gate'],
+      ['composed-pairs', 'preset-or-llm'],
       { suite: 'development' },
     );
-    expect(report).toContain('| Metric | composed | spatial-gate |');
+    expect(report).toContain('| Metric | composed-pairs | preset-or-llm |');
     expect(report).toContain(
       '| Pass (hand-offs and deferrals count as failures) | 1/4 (25%) | 2/4 (50%) |',
     );
@@ -109,9 +96,11 @@ describe('stage eval report', () => {
   });
 
   test('tables every scenario by variant', () => {
-    expect(renderScenarioTable(RECORDS, ['composed', 'spatial-gate'])).toBe(
+    expect(
+      renderScenarioTable(RECORDS, ['composed-pairs', 'preset-or-llm']),
+    ).toBe(
       [
-        '| Scenario | composed | spatial-gate |',
+        '| Scenario | composed-pairs | preset-or-llm |',
         '| --- | --- | --- |',
         '| swap | 1/2 h1 | 0/2 h2 |',
         '| focus | 0/2 d1 | 2/2 |',
@@ -120,38 +109,23 @@ describe('stage eval report', () => {
     );
   });
 
-  test('adds a composed section only for variants that recorded a composition', () => {
-    const summary = summarizeComposed(RECORDS, 'composed');
-    expect(summary?.routes.spatial).toEqual({ turns: 1, calls: 1 });
-    expect(summary?.handOffs.none_of_these).toBe(1);
-    expect(summary?.misses.shape).toBe(1);
-    expect(summarizeComposed(RECORDS, 'spatial-gate')).toBeUndefined();
-    const section = renderComposedSection(RECORDS, [
-      'composed',
-      'spatial-gate',
-    ]);
-    expect(section).toContain('| Metric | composed |');
-    expect(section).toContain('| Missed turns: shape | 1 |');
-    expect(renderComposedSection(RECORDS, ['spatial-gate'])).toBeUndefined();
-  });
-
   test('keeps expected layout deferrals out of the main rows and reports them apart', () => {
     const expectedDeferral = 'jevLayout/no_feasible_layout';
     const records = [
-      turn('composed', 'focus', 'pass', { jevCalls: [call(100)] }),
-      turn('composed', 'small-chart', 'pass', {
+      turn('composed-pairs', 'focus', 'pass', { jevCalls: [call(100)] }),
+      turn('composed-pairs', 'small-chart', 'pass', {
         expectedDeferral,
         reason: expectedDeferral,
         jevCalls: [call(100)],
       }),
-      turn('composed', 'small-chart', 'handed_off', { expectedDeferral }),
-      turn('composed', 'small-chart', 'fail', { expectedDeferral }),
-      turn('composed', 'small-chart', 'deferred', {
+      turn('composed-pairs', 'small-chart', 'handed_off', { expectedDeferral }),
+      turn('composed-pairs', 'small-chart', 'fail', { expectedDeferral }),
+      turn('composed-pairs', 'small-chart', 'deferred', {
         expectedDeferral,
         reason: 'jevLayout/provider_http',
       }),
     ];
-    const summary = summarizeVariant(records, 'composed');
+    const summary = summarizeVariant(records, 'composed-pairs');
     expect(summary.turns).toBe(1);
     expect(summary.pass).toEqual({ count: 1, total: 1 });
     expect(summary.deferralReasons).toEqual({});
@@ -163,7 +137,12 @@ describe('stage eval report', () => {
       wroteTree: 1,
       otherDeferral: 1,
     });
-    const report = renderStageReport('jevLayout', records, ['composed'], {});
+    const report = renderStageReport(
+      'jevLayout',
+      records,
+      ['composed-pairs'],
+      {},
+    );
     expect(report).toContain(
       '| Expected layout deferrals: deferred with the right reason | 1/4 (25%) |',
     );
@@ -171,7 +150,7 @@ describe('stage eval report', () => {
       '| Expected layout deferrals: handed off / wrote a tree / other deferral | 1 / 1 / 1 |',
     );
     expect(
-      renderStageReport('jevLayout', RECORDS, ['composed'], {}),
+      renderStageReport('jevLayout', RECORDS, ['composed-pairs'], {}),
     ).not.toContain('Expected layout deferrals');
   });
 });
