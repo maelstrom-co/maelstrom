@@ -23,7 +23,7 @@ import type { JevCaller, StageName } from '../src/lib/defer.js';
 import type {
   LayoutSource,
   Selection2,
-} from '../src/lib/stages-experimental/types.js';
+} from '../src/lib/stages/stage-types.js';
 import type { AnswerRecord, JevActionPlan } from '../src/lib/types.js';
 import {
   type Ask,

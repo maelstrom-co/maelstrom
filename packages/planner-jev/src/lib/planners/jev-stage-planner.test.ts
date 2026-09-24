@@ -9,12 +9,12 @@ import {
   type PocRun,
   runPocCase,
 } from '../__test-helpers__/poc-fixtures.js';
-import { actionsBatchedPerInstance } from '../stages-experimental/actions-batched-per-instance.js';
-import { completeLayoutInline } from '../stages-experimental/complete-layout-inline.js';
-import { createJevDeps, type JevDeps } from '../stages-experimental/deps.js';
-import { layoutComposedPairsGateAndDefer } from '../stages-experimental/layout-composed-pairs-gate-and-defer.js';
+import { actionsBatchedPerInstance } from '../stages/actions-batched-per-instance.js';
+import { completeLayoutInline } from '../stages/complete-layout-inline.js';
+import { layoutComposedPairsGateAndDefer } from '../stages/layout-composed-pairs-gate-and-defer.js';
+import { selectGated } from '../stages/select-gated.js';
+import { createJevDeps, type JevDeps } from '../stages/stage-deps.js';
 import { layoutPreset } from '../stages-experimental/layout-preset.js';
-import { selectGated } from '../stages-experimental/select-gated.js';
 import { selectUngated } from '../stages-experimental/select-ungated.js';
 import { buildJevStagePlanner } from './jev-stage-planner.js';
 

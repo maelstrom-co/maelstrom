@@ -30,12 +30,12 @@ import {
   scriptedFetch,
   TEST_MODEL,
 } from '../__test-helpers__/scripted-fetch.js';
+import { completeLayoutInline } from '../stages/complete-layout-inline.js';
+import { createJevDeps, type JevDeps } from '../stages/stage-deps.js';
+import type { LayoutStage } from '../stages/stage-types.js';
 import { actionsStepwise } from '../stages-experimental/actions-stepwise.js';
-import { completeLayoutInline } from '../stages-experimental/complete-layout-inline.js';
-import { createJevDeps, type JevDeps } from '../stages-experimental/deps.js';
 import { layoutPreset } from '../stages-experimental/layout-preset.js';
 import { selectUngated } from '../stages-experimental/select-ungated.js';
-import type { LayoutStage } from '../stages-experimental/types.js';
 
 afterEach(() => mockChat.mockReset());
 

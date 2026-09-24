@@ -18,8 +18,8 @@ import type {
   Step,
 } from '../__test-helpers__/scripted-fetch.js';
 import { scriptedAsk } from '../__test-helpers__/scripted-fetch.js';
+import type { ActionPlan2 } from '../stages/stage-types.js';
 import { layoutPresetOrLlm } from './layout-preset-or-llm.js';
-import type { ActionPlan2 } from './types.js';
 
 function planOf(request: ChartRequest): ActionPlan2 {
   return { ...actionPlan(request), minConfidence: 1 };

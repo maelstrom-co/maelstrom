@@ -6,10 +6,7 @@ import {
   makeContext,
   makeInput,
 } from '../src/lib/__test-helpers__/fixtures.js';
-import type {
-  ActionPlan2,
-  Selection2,
-} from '../src/lib/stages-experimental/types.js';
+import type { ActionPlan2, Selection2 } from '../src/lib/stages/stage-types.js';
 import { goldInputs, layoutDeferralGoldInputs } from './gold-inputs.js';
 
 function scenario(id: string): Scenario {

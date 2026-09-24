@@ -7,8 +7,8 @@ import { actionPlan } from '../__test-helpers__/layout-fixtures.js';
 import type { Script } from '../__test-helpers__/scripted-fetch.js';
 import { runPair } from '../__test-helpers__/stage-pair.js';
 import { jevLayout } from '../stages/jev-layout.js';
+import type { ActionPlan2 } from '../stages/stage-types.js';
 import { layoutPreset } from './layout-preset.js';
-import type { ActionPlan2 } from './types.js';
 
 function planOf(
   request: ChartRequest,

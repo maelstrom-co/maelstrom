@@ -1,5 +1,5 @@
 import type { AnswerRecord, ParameterAsk, PlannedAction } from '../types.js';
-import type { ActionPlan2, Selection2 } from './types.js';
+import type { ActionPlan2, Selection2 } from './stage-types.js';
 
 /** An action plan over `answers`, forwarding the selection's gates. */
 export function actionPlanOf(

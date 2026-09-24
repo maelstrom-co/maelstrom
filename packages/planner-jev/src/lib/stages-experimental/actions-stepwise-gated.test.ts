@@ -17,10 +17,14 @@ import {
   type Script,
   scriptedAsk,
 } from '../__test-helpers__/scripted-fetch.js';
+import type {
+  ActionsStage,
+  GateAnswer,
+  Selection2,
+} from '../stages/stage-types.js';
 import type { Ask } from '../typesafe-client.js';
 import { actionsStepwise } from './actions-stepwise.js';
 import { actionsStepwiseGated } from './actions-stepwise-gated.js';
-import type { ActionsStage, GateAnswer, Selection2 } from './types.js';
 
 const TOKYO: Conversation = {
   actions: [

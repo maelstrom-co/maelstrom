@@ -2,8 +2,8 @@ import { isErr, ok } from '@maelstrom-co/protocol';
 
 import type { LayoutChoicesDescribeMode } from '../layouts.js';
 import { jevLayout } from '../stages/jev-layout.js';
+import type { LayoutStage } from '../stages/stage-types.js';
 import type { Ask } from '../typesafe-client.js';
-import type { LayoutStage } from './types.js';
 
 /** Options for {@link layoutPreset}. */
 export interface LayoutPresetOptions {

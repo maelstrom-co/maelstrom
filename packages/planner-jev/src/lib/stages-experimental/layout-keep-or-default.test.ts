@@ -19,9 +19,9 @@ import {
   actionPlan,
   withMinSizes,
 } from '../__test-helpers__/layout-fixtures.js';
+import type { ActionPlan2 } from '../stages/stage-types.js';
 import type { SelectedInstance } from '../types.js';
 import { layoutKeepOrDefault } from './layout-keep-or-default.js';
-import type { ActionPlan2 } from './types.js';
 
 function planOf(
   request: ReturnType<typeof makeRequest>,

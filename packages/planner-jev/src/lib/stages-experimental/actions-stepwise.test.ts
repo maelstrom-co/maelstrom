@@ -13,8 +13,8 @@ import {
 } from '../__test-helpers__/fixtures.js';
 import { runPair } from '../__test-helpers__/stage-pair.js';
 import { jevActions } from '../stages/jev-actions.js';
+import type { GateAnswer, Selection2 } from '../stages/stage-types.js';
 import { actionsStepwise } from './actions-stepwise.js';
-import type { GateAnswer, Selection2 } from './types.js';
 
 const TOKYO: Conversation = {
   actions: [

@@ -13,20 +13,20 @@ import { makeContext, makeRequest } from '../__test-helpers__/fixtures.js';
 import { planned } from '../__test-helpers__/layout-fixtures.js';
 import { dummyAdapter, mockChat } from '../__test-helpers__/mock-chat.js';
 import { scriptedAsk } from '../__test-helpers__/scripted-fetch.js';
-import type { SelectedInstance } from '../types.js';
-import type { Ask } from '../typesafe-client.js';
-import { completeLayoutInline } from './complete-layout-inline.js';
-import { completeLayoutParallel } from './complete-layout-parallel.js';
-import { layoutComposedPairsGateAndDefer } from './layout-composed-pairs-gate-and-defer.js';
-import { layoutKeepOrDefault } from './layout-keep-or-default.js';
-import { layoutPreset } from './layout-preset.js';
-import { layoutPresetOrLlm } from './layout-preset-or-llm.js';
+import { completeLayoutInline } from '../stages/complete-layout-inline.js';
+import { layoutComposedPairsGateAndDefer } from '../stages/layout-composed-pairs-gate-and-defer.js';
 import type {
   CompleteStage,
   GateAnswer,
   GatedActionPlan,
   LayoutDecision,
-} from './types.js';
+} from '../stages/stage-types.js';
+import type { SelectedInstance } from '../types.js';
+import type { Ask } from '../typesafe-client.js';
+import { completeLayoutParallel } from './complete-layout-parallel.js';
+import { layoutKeepOrDefault } from './layout-keep-or-default.js';
+import { layoutPreset } from './layout-preset.js';
+import { layoutPresetOrLlm } from './layout-preset-or-llm.js';
 
 afterEach(() => mockChat.mockReset());
 

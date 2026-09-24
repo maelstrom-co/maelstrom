@@ -23,7 +23,7 @@ import {
   actionsBatchedPerInstance,
 } from './actions-batched-per-instance.js';
 import { MAX_CONCURRENT_CALLS } from './fan-out.js';
-import type { GateAnswer, Selection2 } from './types.js';
+import type { GateAnswer, Selection2 } from './stage-types.js';
 
 const CALENDAR_ONLY = {
   'weather-main': 'delete',

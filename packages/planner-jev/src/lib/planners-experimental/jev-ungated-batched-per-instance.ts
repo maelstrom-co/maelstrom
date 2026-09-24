@@ -6,9 +6,9 @@ import {
 } from '@maelstrom-co/engine';
 
 import { FALLBACK_RETRIES, type Instrument } from '../jev-planner.js';
-import { actionsBatchedPerInstance } from '../stages-experimental/actions-batched-per-instance.js';
-import { completeLayoutInline } from '../stages-experimental/complete-layout-inline.js';
-import type { JevDeps } from '../stages-experimental/deps.js';
+import { actionsBatchedPerInstance } from '../stages/actions-batched-per-instance.js';
+import { completeLayoutInline } from '../stages/complete-layout-inline.js';
+import type { JevDeps } from '../stages/stage-deps.js';
 import { layoutPreset } from '../stages-experimental/layout-preset.js';
 import { selectUngated } from '../stages-experimental/select-ungated.js';
 

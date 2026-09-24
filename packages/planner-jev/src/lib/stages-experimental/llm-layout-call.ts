@@ -12,9 +12,9 @@ import {
 import type { z } from 'zod';
 
 import { intentText } from '../questions.js';
-import { callLlm, LAYOUT_SCHEMA } from './complete-layout-inline.js';
-import type { CompletionLlm } from './deps.js';
-import type { LayoutDecision } from './types.js';
+import { callLlm, LAYOUT_SCHEMA } from '../stages/complete-layout-inline.js';
+import type { CompletionLlm } from '../stages/stage-deps.js';
+import type { LayoutDecision } from '../stages/stage-types.js';
 
 /** What {@link llmLayoutCall} returns: the tree, and nothing else. */
 export type LayoutCompletion = z.infer<typeof LAYOUT_SCHEMA>;

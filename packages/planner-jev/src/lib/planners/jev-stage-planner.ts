@@ -9,14 +9,14 @@ import {
 import { isErr, ok } from '@maelstrom-co/protocol';
 
 import { FALLBACK_RETRIES, type Instrument } from '../jev-planner.js';
-import type { CompletionLlm, JevDeps } from '../stages-experimental/deps.js';
+import type { CompletionLlm, JevDeps } from '../stages/stage-deps.js';
 import type {
   ActionPlan2,
   ActionsStage,
   CompleteStage,
   LayoutDecision,
   Selection2,
-} from '../stages-experimental/types.js';
+} from '../stages/stage-types.js';
 import type { Ask } from '../typesafe-client.js';
 
 /**

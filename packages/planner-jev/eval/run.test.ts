@@ -20,11 +20,11 @@ import {
   TEST_MODEL,
 } from '../src/lib/__test-helpers__/scripted-fetch.js';
 import { FALLBACK_RETRIES } from '../src/lib/jev-planner.js';
+import { completeLayoutInline } from '../src/lib/stages/complete-layout-inline.js';
+import type { LayoutStage } from '../src/lib/stages/stage-types.js';
 import { actionsStepwise } from '../src/lib/stages-experimental/actions-stepwise.js';
-import { completeLayoutInline } from '../src/lib/stages-experimental/complete-layout-inline.js';
 import { layoutPreset } from '../src/lib/stages-experimental/layout-preset.js';
 import { selectUngated } from '../src/lib/stages-experimental/select-ungated.js';
-import type { LayoutStage } from '../src/lib/stages-experimental/types.js';
 import type { Ask } from '../src/lib/typesafe-client.js';
 import { type Arm, jevDeps, resolveArms } from './arms.js';
 import { GRADER_VERSION } from './grader.js';

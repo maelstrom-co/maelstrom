@@ -39,8 +39,8 @@ import type {
   PlannedAction,
   SelectedInstance,
 } from '../types.js';
-import type { CompletionLlm } from './deps.js';
-import type { CompleteStage, LayoutDecision } from './types.js';
+import type { CompletionLlm } from './stage-deps.js';
+import type { CompleteStage, LayoutDecision } from './stage-types.js';
 
 const STAGE = 'llmComplete';
 

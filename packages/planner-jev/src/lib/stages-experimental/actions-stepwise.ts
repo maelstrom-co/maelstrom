@@ -1,8 +1,8 @@
 import { isErr, ok } from '@maelstrom-co/protocol';
 
 import { jevActions } from '../stages/jev-actions.js';
+import type { ActionsStage } from '../stages/stage-types.js';
 import type { Ask } from '../typesafe-client.js';
-import type { ActionsStage } from './types.js';
 
 /**
  * The POC's one-call-per-step actions, recording the lowest confidence of

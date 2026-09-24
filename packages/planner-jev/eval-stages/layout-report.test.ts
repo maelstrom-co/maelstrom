@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import type { ComposedPairsRecord } from '../src/lib/stages-experimental/layout-composed-pairs-gate-and-defer.js';
+import type { ComposedPairsRecord } from '../src/lib/stages/layout-composed-pairs-gate-and-defer.js';
 import { LAYOUT_VARIANTS, type LayoutTurnDetail } from './layout.js';
 import {
   renderArrangementNotAskedSection,

@@ -20,7 +20,7 @@ import {
   type ComposedPairsDecision,
   layoutComposedPairsGateAndDefer,
 } from './layout-composed-pairs-gate-and-defer.js';
-import type { GateAnswer, GatedActionPlan } from './types.js';
+import type { GateAnswer, GatedActionPlan } from './stage-types.js';
 
 const SIDE_BY_SIDE = [
   'V:1,1,1',
