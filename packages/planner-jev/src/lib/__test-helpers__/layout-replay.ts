@@ -1,5 +1,3 @@
-import { readFile } from 'node:fs/promises';
-
 import {
   ChartRequestSchema,
   InstanceId,
@@ -17,6 +15,9 @@ import type { GateAnswer, GatedActionPlan } from '../stages/stage-types.js';
 import type { SelectedInstance } from '../types.js';
 import type { Ask } from '../typesafe-client.js';
 import { demoVessels } from './demo-vessels.js';
+import demoTurnsJson from './layout-replay-fixtures/demo-turns.json' with {
+  type: 'json',
+};
 
 /** One recorded Jev answer, trimmed to what the layout stage reads; options with probability 0 are left out. */
 export interface ReplayAnswer {
@@ -71,7 +72,7 @@ export interface DemoReplayTurn {
 
 /** Every logged demo layout turn, in log and turn order. */
 export async function loadDemoTurns(): Promise<readonly DemoReplayTurn[]> {
-  return (await readFixture('demo-turns.json')) as readonly DemoReplayTurn[];
+  return demoTurnsJson as unknown as readonly DemoReplayTurn[];
 }
 
 /** The logged demo turn with `key`, such as `log2:10`. */
@@ -144,21 +145,7 @@ export function demoTurnPlan(turn: DemoReplayTurn): GatedActionPlan {
   };
 }
 
-// Anchored on the package root so the loaders also work from dist/_testing.js.
-const FIXTURES = new URL(
-  './src/lib/__test-helpers__/layout-replay-fixtures/',
-  import.meta.resolve('@maelstrom-co/planner-jev/package.json'),
-);
-
 const NO: GateAnswer = { answer: 'no', probability: 0, confidence: 1 };
-
-async function readFixture(name: string): Promise<unknown[]> {
-  const parsed: unknown = JSON.parse(
-    await readFile(new URL(name, FIXTURES), 'utf8'),
-  );
-  if (!Array.isArray(parsed)) throw new Error(`${name} holds no list of turns`);
-  return parsed;
-}
 
 function snapshot(
   instance: DemoReplayInstance,

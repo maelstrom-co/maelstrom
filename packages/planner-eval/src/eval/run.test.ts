@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from 'bun:test';
+import { afterEach, expect, mock, test } from 'bun:test';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -18,7 +18,6 @@ import {
   conversation,
   dummyAdapter,
   installMockChat,
-  mockChat,
   type Script,
   scriptedFetch,
   TEST_MODEL,
@@ -34,7 +33,7 @@ import { grade, type LayoutStageOutput, runEval } from './run.js';
 import { selectScenarios } from './scenarios.js';
 import { VERBALIZER_VERSION } from './verbalize-tree.js';
 
-installMockChat();
+const mockChat = installMockChat(mock);
 
 const silentLogger: Logger = {
   debug() {},

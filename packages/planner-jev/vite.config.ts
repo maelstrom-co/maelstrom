@@ -8,6 +8,8 @@ export default defineConfig({
   plugins: [
     dts({
       entryRoot: 'src',
+      beforeWriteFile: (filePath) =>
+        filePath.endsWith('.json.d.ts') ? false : undefined,
       tsconfigPath: path.join(__dirname, 'tsconfig.lib.json'),
     }),
   ],
@@ -30,7 +32,6 @@ export default defineConfig({
         '@maelstrom-co/engine',
         '@maelstrom-co/protocol',
         '@tanstack/ai',
-        'bun:test',
         /^node:/,
         'zod',
       ],

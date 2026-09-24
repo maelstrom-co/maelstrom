@@ -57,7 +57,6 @@ test('_testing exposes the fixtures and transports the eval tests use', () => {
       'recordedAsk',
       'dummyAdapter',
       'installMockChat',
-      'mockChat',
       'scriptedAsk',
       'scriptedFetch',
       'TEST_MODEL',
