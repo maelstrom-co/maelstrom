@@ -2,7 +2,7 @@
   "$schema": "https://biomejs.dev/schemas/2.4.10/schema.json",
   "extends": "//",
   "files": {
-    "includes": ["**", "!**/src/eval-stages/fixtures"]
+    "includes": ["**", "!**/src/eval-stages/fixtures/*.json"]
   },
   "linter": {
     "rules": {

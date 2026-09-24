@@ -1,8 +1,6 @@
 import { readFile } from 'node:fs/promises';
-
-import type { TilingNode } from '@maelstrom-co/protocol';
-
 import type { ReplayAnswers } from '@maelstrom-co/planner-jev/_testing';
+import type { TilingNode } from '@maelstrom-co/protocol';
 
 /** A layout stage-eval turn recorded against a scenario's gold input. */
 export interface StageEvalReplayTurn {
