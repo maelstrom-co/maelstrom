@@ -1,10 +1,9 @@
-import type { Stage } from '@maelstrom-co/engine';
+import { finalVariants, type Stage } from '@maelstrom-co/engine';
 import {
   type AnswerRecord,
   type Ask,
   type ComposedPairsRecord,
   createTypeSafeClient,
-  finalVariants,
   type GateAnswer,
   type GatedActionPlan,
   type LayoutDecision,

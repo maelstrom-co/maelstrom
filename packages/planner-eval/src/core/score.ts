@@ -1,3 +1,4 @@
+import { finalVariants } from '@maelstrom-co/engine';
 import {
   getVisibleInstanceIds,
   isErr,
@@ -6,7 +7,6 @@ import {
   type TilingNode,
   tilingLeafInstanceId,
 } from '@maelstrom-co/protocol';
-import { finalVariants } from './final-variants.js';
 import { checkArrangement } from './predicates.js';
 import type { ExpectedAction, Scenario } from './scenarios.js';
 

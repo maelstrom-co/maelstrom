@@ -10,8 +10,56 @@ import {
   VesselId,
 } from '@maelstrom-co/protocol';
 
-import { vessels } from './__test-helpers__/fixtures.js';
+import { makeVessel } from '../../__test-helpers__/fixtures.js';
 import { finalVariants, legalActions } from './final-variants.js';
+
+const vessels: readonly Vessel[] = [
+  makeVessel({
+    id: 'weather',
+    name: 'Weather',
+    description: 'Current conditions or a weekly forecast',
+    defaultVariant: 'current',
+    variants: {
+      current: {
+        props: {},
+        minSize: { width: 6, height: 4 },
+        actions: [
+          { name: 'setLocation', description: 'Load weather for a place' },
+          {
+            name: 'showWeekly',
+            description: 'Show the weekly forecast',
+            transitionsTo: 'weekly',
+          },
+        ],
+      },
+      weekly: {
+        props: {},
+        minSize: { width: 8, height: 3 },
+        actions: [
+          { name: 'setLocation', description: 'Load weather for a place' },
+          {
+            name: 'showCurrent',
+            description: 'Show current conditions',
+            transitionsTo: 'current',
+          },
+        ],
+      },
+    },
+  }),
+  makeVessel({
+    id: 'tasks',
+    name: 'Tasks',
+    description: 'Task list',
+    defaultVariant: 'list',
+    variants: {
+      list: {
+        props: {},
+        minSize: { width: 3, height: 3 },
+        actions: [{ name: 'addTask', description: 'Add a new task' }],
+      },
+    },
+  }),
+];
 
 const weather = {
   instanceId: InstanceId('weather-main'),

@@ -8,7 +8,6 @@ test('_eval exposes the runtime values @maelstrom-co/planner-eval composes', () 
     [
       'demoVessels',
       'STAGE_NAMES',
-      'finalVariants',
       'buildJevPlanner',
       'FALLBACK_RETRIES',
       'layoutFits',

@@ -2,10 +2,12 @@ import {
   type CancellationError,
   cancellationError,
   type Deferred,
+  finalVariants,
   type LLMContextMessage,
   type PlannerCandidate,
   type ProviderError,
   providerError,
+  type SimulationError,
   type StageContext,
 } from '@maelstrom-co/engine';
 import {
@@ -23,7 +25,6 @@ import {
 } from '@maelstrom-co/protocol';
 import { chat } from '@tanstack/ai';
 import { z } from 'zod';
-
 import {
   type Completion,
   outputSchema,
@@ -31,7 +32,6 @@ import {
   type Slot,
 } from '../completion-schema.js';
 import { deferAt } from '../defer.js';
-import { finalVariants, type SimulationError } from '../final-variants.js';
 import { layoutFits } from '../layout-fit.js';
 import { intentText, recentHistory } from '../questions.js';
 import type {
