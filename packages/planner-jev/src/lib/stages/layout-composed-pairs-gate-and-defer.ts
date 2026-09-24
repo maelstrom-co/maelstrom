@@ -34,7 +34,6 @@ import {
   partFractionShares,
 } from './layout-composed-pairs-sizes.js';
 import {
-  type Arrangement,
   arrangementTree,
   arrangementTreeAtMinimum,
   equalArrangementTree,
@@ -43,7 +42,9 @@ import {
   type OptionProbabilities,
   type PartSizing,
   PROBABILITY_FLOOR,
+  pickSizedTree,
   rankArrangements,
+  type SizeFallbackKind,
   sizeShares,
 } from './layout-composed-pairs-tree.js';
 import { describeLayout, describeLayoutChange } from './layout-describe.js';
@@ -92,8 +93,8 @@ export interface RecordedSize {
 /** Why a composed-pairs layout was handed to the completion stage. */
 export type PairsHandOff = 'too_many_instances';
 
-/** How a composed-pairs tree was resized when none of the top candidates fit as sized. */
-export type PairsSizeFallback = 'raised_to_minimum' | 'equal_weights';
+/** How a composed-pairs tree was resized because the candidate it kept did not fit as sized. */
+export type PairsSizeFallback = SizeFallbackKind;
 
 /** Jev's answers about one Instance's fraction of the row or column the request groups it with. */
 export interface RecordedGroupFraction {
@@ -171,11 +172,15 @@ export type ComposedPairsDecision = LayoutDecision & {
  * relation along that direction in the current order. Splits along the top
  * axis are weighted by the whole-Chart size answers; inside a row or
  * column, members with a stated fraction get it and the others split the
- * rest by their whole-Chart shares (see `partFractionShares`). The best of
- * the top three trees that fits is returned (`source: 'jev'`). When none
- * fits as sized, each is retried in rank order with every share below its
- * Instance's minimum raised to it, then with equal weights. When still
- * none fits, or a single visible Instance does not fit, the stage defers
+ * rest by their whole-Chart shares (see `partFractionShares`). The top
+ * three trees are tried in rank order (see `pickSizedTree`): a tree that
+ * fits as sized is returned (`source: 'jev'`); one that does not gives way
+ * to a lower tree of the three that fits as sized and scores within
+ * `AS_SIZED_SCORE_MARGIN` of it, and otherwise is returned with every
+ * share below its Instance's minimum raised to it, or else with equal
+ * weights, before the next tree is tried. So a far worse tree never ships
+ * just because it fits without resizing. When nothing fits, or a single
+ * visible Instance does not fit, the stage defers
  * with `jevLayout/no_feasible_layout` so the fallback planner answers the
  * turn. More than {@link MAX_PAIRS_INSTANCES} visible Instances hand the
  * layout to the completion stage (`source: 'llm'`, no tree, no call).
@@ -285,11 +290,25 @@ export function layoutComposedPairsGateAndDefer(
           members.map((id) => shareById[id] ?? 0),
         ),
     };
-    const top = ranked.slice(0, CANDIDATES);
-    const candidates = top.map(({ arrangement, score }) => {
-      const tree = arrangementTree(arrangement, shareById, sizing);
-      return { tree, score, fits: layoutFits(request, tree, visible) };
-    });
+    const minimums = minimumFractions(request, visible);
+    const fits = (tree: readonly TilingNode[]) =>
+      layoutFits(request, tree, visible);
+    const sized = ranked.slice(0, CANDIDATES).map(({ arrangement, score }) => ({
+      score,
+      asSized: arrangementTree(arrangement, shareById, sizing),
+      raised: arrangementTreeAtMinimum(
+        arrangement,
+        shareById,
+        minimums,
+        sizing,
+      ),
+      equal: equalArrangementTree(arrangement),
+    }));
+    const candidates = sized.map(({ asSized, score }) => ({
+      tree: asSized,
+      score,
+      fits: fits(asSized),
+    }));
     const margin = (ranked[0]?.score ?? 0) - (ranked[1]?.score ?? 0);
     const called = {
       ...record,
@@ -301,39 +320,18 @@ export function layoutComposedPairsGateAndDefer(
       candidates,
       margin,
     };
-    const chosen = candidates.findIndex((candidate) => candidate.fits);
-    const tree = candidates[chosen]?.tree;
-    if (tree !== undefined)
-      return ok({
-        plan,
-        source: 'jev',
-        layoutId,
-        tree,
-        layoutSummary: describeLayoutChange(currentTree, tree),
-        answers: records,
-        pairwise: { ...called, chosen },
-      });
-    const resized = sizeFallback(
-      top.map(({ arrangement }) => arrangement),
-      (arrangement) =>
-        arrangementTreeAtMinimum(
-          arrangement,
-          shareById,
-          minimumFractions(request, visible),
-          sizing,
-        ),
-      (candidate) => layoutFits(request, candidate, visible),
-    );
-    if (resized === undefined)
+    const picked = pickSizedTree(sized, fits);
+    if (picked === undefined)
       return deferAt(ctx, STAGE, 'no_feasible_layout', 'layout');
+    const { tree, ...sizedHow } = picked;
     return ok({
       plan,
       source: 'jev',
       layoutId,
-      tree: resized.tree,
-      layoutSummary: describeLayoutChange(currentTree, resized.tree),
+      tree,
+      layoutSummary: describeLayoutChange(currentTree, tree),
       answers: records,
-      pairwise: { ...called, fallback: resized.fallback },
+      pairwise: { ...called, ...sizedHow },
     });
   };
 }
@@ -357,30 +355,6 @@ function sharesById(
 ): Record<string, number> {
   const shares = sizeShares(ids.map((id) => sizes[id]?.size ?? 0));
   return Object.fromEntries(ids.map((id, index) => [id, shares[index] ?? 0]));
-}
-
-function sizeFallback(
-  arrangements: readonly Arrangement[],
-  atMinimum: (arrangement: Arrangement) => readonly TilingNode[] | undefined,
-  fits: (tree: readonly TilingNode[]) => boolean,
-):
-  | {
-      readonly tree: readonly TilingNode[];
-      readonly fallback: NonNullable<ComposedPairsRecord['fallback']>;
-    }
-  | undefined {
-  for (const [candidate, arrangement] of arrangements.entries()) {
-    const raised = atMinimum(arrangement);
-    if (raised && fits(raised))
-      return {
-        tree: raised,
-        fallback: { kind: 'raised_to_minimum', candidate },
-      };
-    const equal = equalArrangementTree(arrangement);
-    if (fits(equal))
-      return { tree: equal, fallback: { kind: 'equal_weights', candidate } };
-  }
-  return undefined;
 }
 
 function minimumFractions(

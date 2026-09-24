@@ -383,6 +383,83 @@ export function integerWeights(shares: readonly number[]): readonly number[] {
   return reduced(best?.weights ?? shares.map(() => 1));
 }
 
+/**
+ * How far, in nats, a lower-ranked tree that fits as sized may score behind
+ * a tree that does not before the higher tree is resized instead. Within it
+ * the two are too close to trust the ranking over the answered sizes.
+ */
+export const AS_SIZED_SCORE_MARGIN = 2;
+
+/** How a tree was resized because it did not fit as sized. */
+export type SizeFallbackKind = 'raised_to_minimum' | 'equal_weights';
+
+/** One of the top-ranked trees offered to {@link pickSizedTree}, written each way it can be sized. */
+export interface SizedTreeCandidate {
+  /** Log probability of the tree under the answers; higher is better. */
+  readonly score: number;
+  /** The tree weighted by the answered sizes. */
+  readonly asSized: readonly TilingNode[];
+  /** The tree with every share raised to its Instance's minimum; `undefined` when the minimums cannot fit together. */
+  readonly raised: readonly TilingNode[] | undefined;
+  /** The tree with every split's children weighted equally. */
+  readonly equal: readonly TilingNode[];
+}
+
+/** The tree {@link pickSizedTree} picked, and how it was sized. */
+export type SizedTreePick =
+  | {
+      readonly tree: readonly TilingNode[];
+      /** Index of the candidate shipped as sized. */
+      readonly chosen: number;
+      readonly fallback?: undefined;
+    }
+  | {
+      readonly tree: readonly TilingNode[];
+      readonly chosen?: undefined;
+      /** The resize that wrote the tree, and the index of the candidate whose structure it kept. */
+      readonly fallback: {
+        readonly kind: SizeFallbackKind;
+        readonly candidate: number;
+      };
+    };
+
+/**
+ * Picks the tree to ship from `candidates`, best first. Each candidate in
+ * turn ships as sized when it fits. When it does not, the first lower
+ * candidate that fits as sized and scores within
+ * {@link AS_SIZED_SCORE_MARGIN} of it ships instead; otherwise the
+ * candidate ships raised to its minimums, then with equal weights, before
+ * the next candidate is tried. `undefined` when nothing fits.
+ */
+export function pickSizedTree(
+  candidates: readonly SizedTreeCandidate[],
+  fits: (tree: readonly TilingNode[]) => boolean,
+): SizedTreePick | undefined {
+  for (const [index, candidate] of candidates.entries()) {
+    if (fits(candidate.asSized))
+      return { tree: candidate.asSized, chosen: index };
+    const near = candidates.findIndex(
+      (lower, lowerIndex) =>
+        lowerIndex > index &&
+        lower.score >= candidate.score - AS_SIZED_SCORE_MARGIN &&
+        fits(lower.asSized),
+    );
+    const nearTree = candidates[near]?.asSized;
+    if (nearTree !== undefined) return { tree: nearTree, chosen: near };
+    if (candidate.raised !== undefined && fits(candidate.raised))
+      return {
+        tree: candidate.raised,
+        fallback: { kind: 'raised_to_minimum', candidate: index },
+      };
+    if (fits(candidate.equal))
+      return {
+        tree: candidate.equal,
+        fallback: { kind: 'equal_weights', candidate: index },
+      };
+  }
+  return undefined;
+}
+
 /** Largest error per share a ratio of small integers may have before a larger total is tried. */
 const WEIGHT_TOLERANCE = 0.025;
 
