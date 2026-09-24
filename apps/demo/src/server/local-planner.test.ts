@@ -6,6 +6,23 @@ vi.mock('@maelstrom-co/engine', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@maelstrom-co/engine')>()),
   createEngine: createEngineMock,
 }));
+const plannerSpies = vi.hoisted(() => ({
+  jevPlanner: vi.fn(),
+  jevComposedPairsPlanner: vi.fn(),
+}));
+vi.mock('@maelstrom-co/planner-jev', async (importOriginal) => {
+  const original =
+    await importOriginal<typeof import('@maelstrom-co/planner-jev')>();
+  plannerSpies.jevPlanner.mockImplementation(original.jevPlanner);
+  plannerSpies.jevComposedPairsPlanner.mockImplementation(
+    original.jevComposedPairsPlanner,
+  );
+  return {
+    ...original,
+    jevPlanner: plannerSpies.jevPlanner,
+    jevComposedPairsPlanner: plannerSpies.jevComposedPairsPlanner,
+  };
+});
 
 import { buildLocalEngine } from './local-planner';
 
@@ -24,8 +41,16 @@ function stubEngine() {
 
 afterEach(() => {
   createEngineMock.mockReset();
+  plannerSpies.jevPlanner.mockClear();
+  plannerSpies.jevComposedPairsPlanner.mockClear();
   vi.restoreAllMocks();
 });
+
+const JEV_ENV = {
+  OPENAI_API_KEY: OPENAI_KEY,
+  TYPESAFE_API_KEY: TYPESAFE_KEY,
+  JEV_MODEL: 'jev-1.13.0',
+};
 
 function quietly<T>(build: () => T): T {
   vi.spyOn(console, 'info').mockImplementation(() => {});
@@ -55,7 +80,52 @@ describe('buildLocalEngine', () => {
   it('rejects an unknown planner', () => {
     expect(() =>
       quietly(() => buildLocalEngine({ MAELSTROM_PLANNER: 'gpt' })),
-    ).toThrow(/MAELSTROM_PLANNER must be llm or jev/);
+    ).toThrow(/MAELSTROM_PLANNER must be llm, jev or jev-composed-pairs/);
+  });
+
+  it.each([
+    'jev',
+    'jev-composed-pairs',
+  ])('%s without the TypeSafe key names its planner value', (planner) => {
+    expect(() =>
+      quietly(() =>
+        buildLocalEngine({
+          MAELSTROM_PLANNER: planner,
+          OPENAI_API_KEY: OPENAI_KEY,
+          JEV_MODEL: 'jev-1.13.0',
+        }),
+      ),
+    ).toThrow(`MAELSTROM_PLANNER=${planner} requires TYPESAFE_API_KEY.`);
+  });
+
+  it('jev builds the frozen POC planner', () => {
+    createEngineMock.mockReturnValue(stubEngine());
+    const local = quietly(() =>
+      buildLocalEngine({ MAELSTROM_PLANNER: 'jev', ...JEV_ENV }),
+    );
+    expect(local.planner).toBe('jev');
+    expect(plannerSpies.jevPlanner).toHaveBeenCalledTimes(1);
+    expect(plannerSpies.jevComposedPairsPlanner).not.toHaveBeenCalled();
+  });
+
+  it('jev-composed-pairs builds the experimental composed pairs planner with retry off', () => {
+    createEngineMock.mockReturnValue(stubEngine());
+    const local = quietly(() =>
+      buildLocalEngine({ MAELSTROM_PLANNER: 'jev-composed-pairs', ...JEV_ENV }),
+    );
+    expect(local.planner).toBe('jev-composed-pairs');
+    expect(local.engine).not.toBeNull();
+    expect(local.helloReceived).toBe(true);
+    expect(local.secrets).toEqual([OPENAI_KEY, TYPESAFE_KEY]);
+    expect(plannerSpies.jevComposedPairsPlanner).toHaveBeenCalledTimes(1);
+    expect(plannerSpies.jevPlanner).not.toHaveBeenCalled();
+    const [options] = plannerSpies.jevComposedPairsPlanner.mock.calls[0] ?? [];
+    expect(options.typesafe).toMatchObject({
+      apiKey: TYPESAFE_KEY,
+      model: 'jev-1.13.0',
+    });
+    expect(typeof options.fallback).toBe('function');
+    expect(createEngineMock.mock.calls[0]?.[0].retry).toBe(false);
   });
 
   it.each([
