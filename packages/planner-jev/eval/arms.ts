@@ -1,5 +1,4 @@
 import {
-  llmPlanner,
   type Planner,
   type PlannerCandidate,
   type PlanningInput,
@@ -7,6 +6,7 @@ import {
   type Stage,
   withRetry,
 } from '@maelstrom-co/engine';
+import { llmPlanner } from '@maelstrom-co/planner-llm';
 import type { AnyTextAdapter } from '@tanstack/ai';
 import {
   buildJevPlanner,

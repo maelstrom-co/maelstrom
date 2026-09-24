@@ -54,8 +54,8 @@ export interface JevPlannerOptions {
   readonly modelOptions?: Record<string, unknown>;
   /**
    * Full planner that re-plans the request whenever a Jev stage defers, for
-   * example `llmPlanner({ adapter })`. Pass it unwrapped: the planner wraps
-   * it in `withRetry` itself.
+   * example `llmPlanner({ adapter })` from `@maelstrom-co/planner-llm`. Pass
+   * it unwrapped: the planner wraps it in `withRetry` itself.
    */
   readonly fallback: Stage<Retryable<PlanningInput>, PlannerCandidate>;
 }
@@ -120,6 +120,8 @@ export function buildJevPlanner(
  *
  * @example
  * ```ts
+ * import { llmPlanner } from '@maelstrom-co/planner-llm';
+ *
  * const engine = createEngine({
  *   planner: jevPlanner({
  *     typesafe: { apiKey: process.env.TYPESAFE_API_KEY, model: 'jev-1.13.0' },
