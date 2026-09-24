@@ -40,14 +40,22 @@ const HOLDOUT_KEEP_ROW_TASKS_BESIDE_WEATHER = [
   'ID:journal-main',
 ] as TilingNode[];
 
-const HOLDOUT_MIDDLE_WEATHER_COLUMN = [
-  'V:1,5',
-  'ID:weather-main',
-  'H',
-  'V:3,2',
+const MAP_FULL_WIDTH_UNDER_KEPT_ROW = [
+  'H:3,2',
+  'V:1,1,1',
   'ID:calendar-main',
+  'ID:weather-main',
   'ID:tasks-main',
   'ID:map-main',
+] as TilingNode[];
+
+const HOLDOUT_BANNER_OVER_ROW = [
+  'H:2,3',
+  'ID:map-main',
+  'V:1,1,1',
+  'ID:calendar-main',
+  'ID:weather-main',
+  'ID:tasks-main',
 ] as TilingNode[];
 
 const INTENDED_TREE_CHANGES: Readonly<
@@ -55,7 +63,9 @@ const INTENDED_TREE_CHANGES: Readonly<
 > = {
   'log1:25': ['H:1,3', 'ID:map-jev-1', 'ID:journal-main'] as TilingNode[],
   'log2:10': [
-    'H:1,1,1,1',
+    'H:3,1',
+    'V:2,1',
+    'H',
     'ID:calendar-main',
     'ID:tasks-main',
     'ID:map-jev-1',
@@ -89,10 +99,49 @@ const INTENDED_TREE_CHANGES: Readonly<
     HOLDOUT_KEEP_ROW_TASKS_BESIDE_WEATHER,
   'combined-holdout/hold-fresh-keep-row-move-single#3':
     HOLDOUT_KEEP_ROW_TASKS_BESIDE_WEATHER,
-  'combined-holdout/hold-fresh-middle-twice-as-wide#1':
-    HOLDOUT_MIDDLE_WEATHER_COLUMN,
-  'combined-holdout/hold-fresh-middle-twice-as-wide#3':
-    HOLDOUT_MIDDLE_WEATHER_COLUMN,
+  'log1:15': [
+    'V:1,3',
+    'ID:calendar-main',
+    'H:3,1',
+    'V:2,1,2',
+    'ID:tasks-main',
+    'ID:journal-main',
+    'ID:map-jev-1',
+    'ID:weather-main',
+  ] as TilingNode[],
+  'log1:16': [
+    'V:1,1,1,4',
+    'ID:calendar-main',
+    'ID:tasks-main',
+    'ID:journal-main',
+    'H',
+    'ID:map-jev-1',
+    'ID:weather-main',
+  ] as TilingNode[],
+  'combined/map-full-width-bottom#1': MAP_FULL_WIDTH_UNDER_KEPT_ROW,
+  'combined/map-full-width-bottom#2': MAP_FULL_WIDTH_UNDER_KEPT_ROW,
+  'combined/map-full-width-bottom#3': MAP_FULL_WIDTH_UNDER_KEPT_ROW,
+  'gold/map-full-width-bottom#1': MAP_FULL_WIDTH_UNDER_KEPT_ROW,
+  'gold/map-full-width-bottom#2': MAP_FULL_WIDTH_UNDER_KEPT_ROW,
+  'gold/map-full-width-bottom#3': MAP_FULL_WIDTH_UNDER_KEPT_ROW,
+  'combined-holdout/hold-arr-banner#1': [
+    'H:1,2',
+    'ID:map-main',
+    'V:1,1,1',
+    'ID:calendar-main',
+    'ID:weather-main',
+    'ID:tasks-main',
+  ] as TilingNode[],
+  'combined-holdout/hold-arr-banner#2': HOLDOUT_BANNER_OVER_ROW,
+  'combined-holdout/hold-arr-banner#3': HOLDOUT_BANNER_OVER_ROW,
+  'combined-holdout/hold-inner-two-thirds-of-row#1': [
+    'H:2,1',
+    'V:9,3,2',
+    'ID:calendar-main',
+    'ID:weather-main',
+    'ID:tasks-main',
+    'ID:map-main',
+  ] as TilingNode[],
 };
 
 const STAGE_EVAL_TURNS = 401;
