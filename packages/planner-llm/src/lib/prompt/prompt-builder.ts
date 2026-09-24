@@ -1,6 +1,5 @@
+import type { ActionParameterEnumSnapshot, Logger } from '@maelstrom-co/engine';
 import type { ChartRequest, LayoutMode } from '@maelstrom-co/protocol';
-import type { ActionParameterEnumSnapshot } from '../action-parameter-enum.js';
-import type { Logger } from '../logger.js';
 import {
   buildDefaultUserSections,
   buildDefaultUserSectionsWithSnapshot,

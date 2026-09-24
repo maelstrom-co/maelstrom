@@ -106,10 +106,10 @@ export interface Engine {
    * boundary).
    *
    * `signal` cancels mid-flight: it reaches every planner stage as
-   * `StageContext.signal`. With `llmPlanner`, a pre-aborted signal
-   * short-circuits to `CancellationError` without invoking the LLM, and an
-   * abort during the LLM call is mapped to `CancellationError` via the
-   * adapter. A stage that throws after the signal aborted also yields
+   * `StageContext.signal`. A stage that calls a provider is expected to
+   * short-circuit a pre-aborted signal to `CancellationError` and to map an
+   * abort during the call the same way (`@maelstrom-co/planner-llm` does).
+   * A stage that throws after the signal aborted also yields
    * `CancellationError`.
    *
    * **Idempotency.** When `history` is configured on {@link EngineConfig},
@@ -191,6 +191,8 @@ export interface Engine {
  *
  * @example
  * ```ts
+ * import { llmPlanner } from '@maelstrom-co/planner-llm';
+ *
  * const engine = createEngine({
  *   planner: llmPlanner({ adapter: openaiText('gpt-4o') }),
  *   retry: { max: 2 },

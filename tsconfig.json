@@ -28,6 +28,9 @@
       "path": "./packages/planner-jev"
     },
     {
+      "path": "./packages/planner-llm"
+    },
+    {
       "path": "./packages/realtime"
     },
     {

@@ -1,16 +1,17 @@
 import type { UpdateReason } from '@maelstrom-co/protocol';
 
-// An empty reason list is deliberately not resize-only: `every` alone would
-// call it one and guard a turn nothing triggered.
-//
-// This is the single source of truth for both the prompt-side instruction and
-// the response-side guard, by decision rather than by accident, and one test
-// pins the two to each other. Broadening one of them means introducing a
-// second, differently-named predicate, not editing this one.
-//
-// Neither consumer needs to tell an empty batch from a mixed one, so both
-// collapse into `false`. A feature that does need the difference should get a
-// discriminated result here rather than re-deriving `reasons.length === 0`.
+/**
+ * Whether every update reason in a batch is a `chart_resize`, so the turn
+ * needs a new layout and no new actions.
+ *
+ * An empty batch is not resize-only: nothing triggered the turn, so nothing
+ * should guard it. Empty and mixed batches both collapse into `false`.
+ *
+ * This is the single predicate behind the Engine's resize-only execution
+ * turn and a planner's prompt-side instruction, so a prompt that says
+ * "no actions" and an Engine that drops them always agree. Broadening one
+ * side means a second, differently named predicate, not a change here.
+ */
 export function isResizeOnlyBatch(reasons: readonly UpdateReason[]): boolean {
   return (
     reasons.length > 0 &&

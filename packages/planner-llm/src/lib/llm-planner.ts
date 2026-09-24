@@ -1,4 +1,18 @@
 import type {
+  ActionParameterEnumSnapshot,
+  EngineError,
+  Logger,
+  PlannerCandidate,
+  PlanningInput,
+  Retryable,
+  Stage,
+} from '@maelstrom-co/engine';
+import {
+  buildActionParameterEnumSnapshot,
+  enumSnapshotFor,
+  validationError,
+} from '@maelstrom-co/engine';
+import type {
   ChartRequest,
   LayoutMode,
   MessageId,
@@ -13,22 +27,14 @@ import {
 } from '@maelstrom-co/protocol';
 import type { AnyTextAdapter } from '@tanstack/ai';
 
-import type { ActionParameterEnumSnapshot } from '../action-parameter-enum.js';
-import { buildActionParameterEnumSnapshot } from '../action-parameter-enum.js';
-import type { EngineError } from '../errors.js';
-import { validationError } from '../errors.js';
-import type { Logger } from '../logger.js';
-import type { PromptOptions } from '../prompt/prompt-builder.js';
+import { callLLM, logLLMCallError } from './call-llm.js';
+import type { PromptOptions } from './prompt/prompt-builder.js';
 import {
   buildSystemPrompt,
   buildUserPromptWithSnapshot,
-} from '../prompt/prompt-builder.js';
-import { validateLlmPlannerOptions } from '../validation/engine-config.js';
-import { callLLM, logLLMCallError } from './call-llm.js';
-import type { PlannerCandidate } from './candidate.js';
+} from './prompt/prompt-builder.js';
 import { buildRetryPrompt } from './retry-prompt.js';
-import type { PlanningInput, Retryable, Stage } from './stage.js';
-import { enumSnapshotFor } from './stage.js';
+import { validateLlmPlannerOptions } from './validate-options.js';
 
 /** Configuration for {@link llmPlanner}. */
 export interface LlmPlannerOptions {
@@ -45,9 +51,9 @@ export interface LlmPlannerOptions {
 }
 
 /**
- * Input accepted by {@link llmPlanner}: a {@link PlanningInput}, optional
- * hints from earlier stages, and optional retry feedback from
- * {@link withRetry}.
+ * Input accepted by {@link llmPlanner}: the engine's `PlanningInput`,
+ * optional hints from earlier stages, and optional retry feedback from the
+ * engine's `withRetry`.
  */
 export type LlmPlannerInput = Retryable<
   PlanningInput & {
@@ -65,7 +71,7 @@ export type LlmPlannerInput = Retryable<
  * serialized from the request (plus any `hints`), prior history, and the
  * layout mode's structured output schema.
  *
- * On a retry from {@link withRetry} the user prompt becomes the original
+ * On a retry from the engine's `withRetry` the user prompt becomes the original
  * prompt preceded by the previous attempt's diagnostics; the system prompt is
  * unchanged. The original prompt is reused rather than rebuilt, so prompt
  * customizers and serializer warnings run once per request.

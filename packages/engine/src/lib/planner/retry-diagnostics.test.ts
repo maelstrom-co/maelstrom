@@ -17,7 +17,6 @@ import type {
 import { deriveRetryHint } from '../validation/llm-output/retry-hint.js';
 
 import type { DiagnosticRecords, FullValidatedCandidate } from './candidate.js';
-import { buildRetryPrompt } from './retry-prompt.js';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -86,50 +85,35 @@ const stateDrift = (id: string, action: string): SkippedAction => ({
 });
 
 // ---------------------------------------------------------------------------
-// buildRetryPrompt: diagnostic content per heal outcome
+// Diagnostic feedback per heal outcome
 // ---------------------------------------------------------------------------
 
-describe('buildRetryPrompt diagnostic content', () => {
-  test('a recommended retry carries the drop and the original request', () => {
+describe('diagnostic feedback content', () => {
+  test('a recommended retry carries the drop', () => {
     const failed = recommendingResponse({
       droppedLayoutEntries: [overflowDrop('a')],
     });
-    const prompt = buildRetryPrompt('do the thing', failed.diagnostics);
 
-    expect(prompt).toContain('previous response had issues');
-    expect(prompt).toContain('do the thing');
-    expect(prompt).toContain(
+    expect(failed.diagnostics.feedback).toContain(
       'instance "a" at (10,5) size 4x3 exceeds chart bounds (12x8)',
     );
   });
 
-  test('retry prompt reproduces the original user prompt verbatim', () => {
-    const original =
-      'Make the chart show three panels: \n  - top: orders\n  - middle: trades\n  - bottom: positions';
-    const failed = recommendingResponse({
-      droppedLayoutEntries: [overflowDrop('a')],
-    });
-    const prompt = buildRetryPrompt(original, failed.diagnostics);
-
-    expect(prompt).toContain('Original request:');
-    expect(prompt.endsWith(original)).toBe(true);
-  });
-
-  test('retry prompt suppresses state_drift skipped actions', () => {
+  test('feedback suppresses state_drift skipped actions', () => {
     const failed = recommendingResponse({
       skippedActions: [paramsParseFailed('a', 'go'), stateDrift('b', 'wander')],
       severity: 'medium',
     });
-    const prompt = buildRetryPrompt('p', failed.diagnostics);
+    const feedback = failed.diagnostics.feedback;
 
-    expect(prompt).toContain(
+    expect(feedback).toContain(
       'Action "go" on instance "a" had unparseable params',
     );
-    expect(prompt).not.toContain('"b"');
-    expect(prompt).not.toContain('wander');
+    expect(feedback).not.toContain('"b"');
+    expect(feedback).not.toContain('wander');
   });
 
-  test('retry prompt collapses every tree_* drop into a single advisory line', () => {
+  test('feedback collapses every tree_* drop into a single advisory line', () => {
     const failed = recommendingResponse({
       droppedLayoutEntries: [
         { reason: 'tree_missing_child', atTokenIndex: 3 },
@@ -141,30 +125,32 @@ describe('buildRetryPrompt diagnostic content', () => {
         { reason: 'tree_extra_tokens', fromTokenIndex: 10, count: 2 },
       ],
     });
-    const prompt = buildRetryPrompt('p', failed.diagnostics);
+    const feedback = failed.diagnostics.feedback;
 
-    expect(prompt).toContain(
+    expect(feedback).toContain(
       'tiling tree was malformed and could not be fully parsed',
     );
     // Token-position fields must not leak — they mean nothing to the LLM.
-    expect(prompt).not.toMatch(/atTokenIndex|fromTokenIndex|token index/);
+    expect(feedback).not.toMatch(/atTokenIndex|fromTokenIndex|token index/);
     // No per-drop tree line should survive.
-    const treeLines = prompt?.split('\n').filter((l) => /tiling tree/i.test(l));
+    const treeLines = feedback
+      ?.split('\n')
+      .filter((l) => /tiling tree/i.test(l));
     expect(treeLines).toHaveLength(1);
   });
 
   test('the tree advisory teaches the grammar the same request carries', () => {
-    // The schema description shipped alongside this prompt teaches weighted
+    // The schema description shipped alongside this feedback teaches weighted
     // n-ary splits. An advisory telling the model to re-emit a binary tree
     // using only H/V contradicts it, and fires on retries that had nothing
     // to do with weights.
     const failed = recommendingResponse({
       droppedLayoutEntries: [{ reason: 'tree_missing_child', atTokenIndex: 3 }],
     });
-    const prompt = buildRetryPrompt('p', failed.diagnostics);
+    const feedback = failed.diagnostics.feedback;
 
-    expect(prompt).not.toContain('binary');
-    expect(prompt).toContain('as many subtrees as it declares weights');
+    expect(feedback).not.toContain('binary');
+    expect(feedback).toContain('as many subtrees as it declares weights');
   });
 
   test('a repeated leaf gets its own line naming the instance', () => {
@@ -198,11 +184,11 @@ describe('buildRetryPrompt diagnostic content', () => {
       ],
       retryHint,
     });
-    const prompt = buildRetryPrompt('p', failed.diagnostics);
+    const feedback = failed.diagnostics.feedback;
 
-    expect(prompt).toContain('"calendar-main"');
-    expect(prompt).toContain('at most once');
-    expect(prompt).not.toContain('could not be fully parsed');
+    expect(feedback).toContain('"calendar-main"');
+    expect(feedback).toContain('at most once');
+    expect(feedback).not.toContain('could not be fully parsed');
   });
 
   test('an over-wide split reports the count it declared', () => {
@@ -216,10 +202,10 @@ describe('buildRetryPrompt diagnostic content', () => {
         },
       ],
     });
-    const prompt = buildRetryPrompt('p', failed.diagnostics);
+    const feedback = failed.diagnostics.feedback;
 
-    expect(prompt).toContain('declared 20 children');
-    expect(prompt).toContain('at most 12');
+    expect(feedback).toContain('declared 20 children');
+    expect(feedback).toContain('at most 12');
   });
 
   test('a repaired weight suffix reaches the model verbatim', () => {
@@ -235,11 +221,11 @@ describe('buildRetryPrompt diagnostic content', () => {
         },
       ],
     });
-    const prompt = buildRetryPrompt('p', failed.diagnostics);
+    const feedback = failed.diagnostics.feedback;
 
-    expect(prompt).toContain('Layout repairs:');
-    expect(prompt).toContain('"V:xyz"');
-    expect(prompt).toContain('read as 2 children weighted 1,1');
+    expect(feedback).toContain('Layout repairs:');
+    expect(feedback).toContain('"V:xyz"');
+    expect(feedback).toContain('read as 2 children weighted 1,1');
   });
 
   test('an over-wide split is never reported as an unreadable suffix', () => {
@@ -265,10 +251,10 @@ describe('buildRetryPrompt diagnostic content', () => {
         },
       ],
     });
-    const prompt = buildRetryPrompt('p', failed.diagnostics);
+    const feedback = failed.diagnostics.feedback;
 
-    expect(prompt).toContain('declared 14 children');
-    expect(prompt).not.toContain('unreadable weight suffix');
+    expect(feedback).toContain('declared 14 children');
+    expect(feedback).not.toContain('unreadable weight suffix');
   });
 
   test('a one-weight split is reported as short, not as illegible', () => {
@@ -286,12 +272,12 @@ describe('buildRetryPrompt diagnostic content', () => {
         },
       ],
     });
-    const prompt = buildRetryPrompt('p', failed.diagnostics);
+    const feedback = failed.diagnostics.feedback;
 
-    expect(prompt).toContain(
+    expect(feedback).toContain(
       'declared fewer than the two weights a split needs',
     );
-    expect(prompt).not.toContain('unreadable weight suffix');
+    expect(feedback).not.toContain('unreadable weight suffix');
   });
 
   test('an omitted rationale is not filed under layout repairs', () => {
@@ -301,11 +287,11 @@ describe('buildRetryPrompt diagnostic content', () => {
       skippedActions: [paramsParseFailed('a', 'go')],
       warnings: [{ kind: 'missing_rationale' }],
     });
-    const prompt = buildRetryPrompt('p', failed.diagnostics);
+    const feedback = failed.diagnostics.feedback;
 
-    expect(prompt).toContain('Response quality:');
-    expect(prompt).not.toContain('Layout repairs:');
-    expect(prompt).toContain('omitted its rationale');
+    expect(feedback).toContain('Response quality:');
+    expect(feedback).not.toContain('Layout repairs:');
+    expect(feedback).toContain('omitted its rationale');
   });
 
   test('a drop and a repair in one response render as two sections', () => {
@@ -330,18 +316,18 @@ describe('buildRetryPrompt diagnostic content', () => {
         },
       ],
     });
-    const prompt = buildRetryPrompt('p', failed.diagnostics);
+    const feedback = failed.diagnostics.feedback;
 
-    expect(prompt).toContain('Layout drops:');
-    expect(prompt).toContain('"calendar-main"');
-    expect(prompt).toContain('Layout repairs:');
-    expect(prompt).toContain('"V:xyz"');
-    expect(prompt.indexOf('Layout drops:')).toBeLessThan(
-      prompt.indexOf('Layout repairs:'),
+    expect(feedback).toContain('Layout drops:');
+    expect(feedback).toContain('"calendar-main"');
+    expect(feedback).toContain('Layout repairs:');
+    expect(feedback).toContain('"V:xyz"');
+    expect(feedback.indexOf('Layout drops:')).toBeLessThan(
+      feedback.indexOf('Layout repairs:'),
     );
   });
 
-  test('retry prompt mixes per-instance drops with the tree advisory', () => {
+  test('feedback mixes per-instance drops with the tree advisory', () => {
     // Mixed-drop coverage: a future refactor that early-returns on hitting
     // a tree drop would silently strip per-instance drops; this test would
     // fail on the missing per-instance line.
@@ -351,19 +337,21 @@ describe('buildRetryPrompt diagnostic content', () => {
         { reason: 'tree_missing_child', atTokenIndex: 7 },
       ],
     });
-    const prompt = buildRetryPrompt('p', failed.diagnostics);
+    const feedback = failed.diagnostics.feedback;
 
-    expect(prompt).toContain('exceeds chart bounds');
-    expect(prompt).toContain(
+    expect(feedback).toContain('exceeds chart bounds');
+    expect(feedback).toContain(
       'tiling tree was malformed and could not be fully parsed',
     );
-    const treeLines = prompt?.split('\n').filter((l) => /tiling tree/i.test(l));
+    const treeLines = feedback
+      ?.split('\n')
+      .filter((l) => /tiling tree/i.test(l));
     expect(treeLines).toHaveLength(1);
   });
 });
 
 // ---------------------------------------------------------------------------
-// buildRetryPrompt — direct format pinning
+// buildDiagnostics feedback: direct format pinning
 // ---------------------------------------------------------------------------
 
 const recommendUnrecoverable: RetryHint = {
@@ -372,23 +360,16 @@ const recommendUnrecoverable: RetryHint = {
 };
 const recommendMedium: RetryHint = { severity: 'medium', recommend: true };
 
-describe('buildRetryPrompt', () => {
-  test('no diagnostics → only the header + original prompt', () => {
-    const out = retryPrompt('original', {
+describe('buildDiagnostics feedback', () => {
+  test('no records renders empty feedback', () => {
+    const out = feedbackOf({
       skippedActions: [],
       droppedLayoutEntries: [],
       warnings: [],
       retryHint: recommendUnrecoverable,
     });
 
-    expect(out).toBe(
-      [
-        'The previous response had issues. Please re-issue the response addressing:',
-        '',
-        'Original request:',
-        'original',
-      ].join('\n'),
-    );
+    expect(out).toBe('');
   });
 
   test('layout drops and skipped actions appear in their own sections', () => {
@@ -398,7 +379,7 @@ describe('buildRetryPrompt', () => {
       // Runtime diagnostics may outlive their originating Engine version.
       paramsJson: malformedParams,
     } as unknown as SkippedAction;
-    const out = retryPrompt('orig', {
+    const out = feedbackOf({
       skippedActions: [skipped],
       droppedLayoutEntries: [overflowDrop('a')],
       warnings: [],
@@ -415,7 +396,6 @@ describe('buildRetryPrompt', () => {
     );
     expect(out).not.toContain(malformedParams);
     expect(out).not.toContain('do-not-repeat');
-    expect(out).toContain('orig');
   });
 
   // Pin every per-instance DroppedLayoutEntry formatter via the shared
@@ -476,7 +456,7 @@ describe('buildRetryPrompt', () => {
   ] satisfies Array<
     [DroppedLayoutEntry, string]
   >)('formats DroppedLayoutEntry %p', (drop, expected) => {
-    const out = retryPrompt('orig', {
+    const out = feedbackOf({
       skippedActions: [],
       droppedLayoutEntries: [drop],
       warnings: [],
@@ -568,7 +548,7 @@ describe('buildRetryPrompt', () => {
   ] satisfies Array<
     [SkippedAction, string]
   >)('formats SkippedAction %p', (skipped, expected) => {
-    const out = retryPrompt('orig', {
+    const out = feedbackOf({
       skippedActions: [skipped],
       droppedLayoutEntries: [],
       warnings: [],
@@ -578,7 +558,7 @@ describe('buildRetryPrompt', () => {
   });
 
   test('action_not_valid with empty validActions formats "(none)"', () => {
-    const out = retryPrompt('orig', {
+    const out = feedbackOf({
       skippedActions: [
         {
           reason: 'action_not_valid',
@@ -598,7 +578,7 @@ describe('buildRetryPrompt', () => {
   });
 
   test('state_drift skipped actions are suppressed', () => {
-    const out = retryPrompt('orig', {
+    const out = feedbackOf({
       skippedActions: [stateDrift('a', 'go')],
       droppedLayoutEntries: [],
       warnings: [],
@@ -611,7 +591,7 @@ describe('buildRetryPrompt', () => {
   });
 
   test('resource and definition skips add no retry diagnostics', () => {
-    const out = retryPrompt('original', {
+    const out = feedbackOf({
       skippedActions: [
         { reason: 'params_limits_exceeded', limit: 'traversal_work' },
         { reason: 'invalid_action_definition' },
@@ -621,21 +601,14 @@ describe('buildRetryPrompt', () => {
       retryHint: { severity: 'medium', recommend: false },
     });
 
-    expect(out).toBe(
-      [
-        'The previous response had issues. Please re-issue the response addressing:',
-        '',
-        'Original request:',
-        'original',
-      ].join('\n'),
-    );
+    expect(out).toBe('');
   });
 
   test('quotes and sanitizes every model-derived diagnostic identifier', () => {
     const injected =
       'line\ncarriage\rcontrol\u0000quote"slash\\ls\u2028ps\u2029';
     const id = (prefix: string) => `${prefix}-${injected}`;
-    const out = retryPrompt('original\nrequest stays verbatim', {
+    const out = feedbackOf({
       skippedActions: [
         {
           reason: 'params_validation_failed',
@@ -673,7 +646,7 @@ describe('buildRetryPrompt', () => {
       warnings: [],
       retryHint: recommendMedium,
     });
-    const diagnostics = retryDiagnosticSection(out);
+    const diagnostics = out;
 
     for (const prefix of [
       'instance',
@@ -700,38 +673,33 @@ describe('buildRetryPrompt', () => {
       expect(diagnostics).not.toContain(String.fromCodePoint(codePoint));
     }
     expect(diagnostics).not.toContain('line\ncarriage');
-    expect(out.endsWith('original\nrequest stays verbatim')).toBe(true);
   });
 
   test('accepts 128 identifier code points and truncates 129', () => {
     const atLimit = '😀'.repeat(128);
     const overLimit = `${atLimit}x`;
-    const atLimitOutput = retryPrompt('original', {
+    const atLimitOutput = feedbackOf({
       skippedActions: [paramsParseFailed('instance', atLimit)],
       droppedLayoutEntries: [],
       warnings: [],
       retryHint: recommendMedium,
     });
-    const overLimitOutput = retryPrompt('original', {
+    const overLimitOutput = feedbackOf({
       skippedActions: [paramsParseFailed('instance', overLimit)],
       droppedLayoutEntries: [],
       warnings: [],
       retryHint: recommendMedium,
     });
 
-    expect(retryDiagnosticSection(atLimitOutput)).toContain(
-      JSON.stringify(atLimit),
-    );
-    expect(retryDiagnosticSection(atLimitOutput)).not.toContain('[truncated]');
-    expect(retryDiagnosticSection(overLimitOutput)).toContain(
-      JSON.stringify(`${atLimit}…[truncated]`),
-    );
-    expect(retryDiagnosticSection(overLimitOutput)).not.toContain(overLimit);
+    expect(atLimitOutput).toContain(JSON.stringify(atLimit));
+    expect(atLimitOutput).not.toContain('[truncated]');
+    expect(overLimitOutput).toContain(JSON.stringify(`${atLimit}…[truncated]`));
+    expect(overLimitOutput).not.toContain(overLimit);
   });
 
   test('renders 16 list identifiers and summarizes the seventeenth', () => {
     const makeOutput = (count: number) =>
-      retryPrompt('original', {
+      feedbackOf({
         skippedActions: [
           {
             reason: 'action_not_valid',
@@ -748,8 +716,8 @@ describe('buildRetryPrompt', () => {
         warnings: [],
         retryHint: recommendMedium,
       });
-    const atLimit = retryDiagnosticSection(makeOutput(16));
-    const overLimit = retryDiagnosticSection(makeOutput(17));
+    const atLimit = makeOutput(16);
+    const overLimit = makeOutput(17);
 
     for (let index = 0; index < 16; index += 1) {
       expect(atLimit).toContain(JSON.stringify(`valid-${index}`));
@@ -762,7 +730,7 @@ describe('buildRetryPrompt', () => {
 
   test('renders at most 32 diagnostic lines', () => {
     const makeOutput = (count: number) =>
-      retryPrompt('original', {
+      feedbackOf({
         skippedActions: Array.from({ length: count }, (_, index) =>
           paramsParseFailed(`instance-${index}`, `action-${index}`),
         ),
@@ -770,8 +738,8 @@ describe('buildRetryPrompt', () => {
         warnings: [],
         retryHint: recommendMedium,
       });
-    const atLimit = retryDiagnosticSection(makeOutput(32));
-    const overLimit = retryDiagnosticSection(makeOutput(33));
+    const atLimit = makeOutput(32);
+    const overLimit = makeOutput(33);
 
     expect(diagnosticBulletLines(atLimit)).toHaveLength(32);
     expect(atLimit).toContain(JSON.stringify('action-31'));
@@ -785,7 +753,7 @@ describe('buildRetryPrompt', () => {
 
   test('caps the diagnostic section at 8192 UTF-8 bytes', () => {
     const makeOutput = (finalAsciiCount: number) =>
-      retryPrompt('original', {
+      feedbackOf({
         skippedActions: [
           ...Array.from({ length: 14 }, (_, index) =>
             paramsParseFailed(`i-${index}`, '😀'.repeat(128)),
@@ -799,8 +767,8 @@ describe('buildRetryPrompt', () => {
         warnings: [],
         retryHint: recommendMedium,
       });
-    const atLimit = retryDiagnosticSection(makeOutput(100));
-    const overLimit = retryDiagnosticSection(makeOutput(101));
+    const atLimit = makeOutput(100);
+    const overLimit = makeOutput(101);
 
     expect(new TextEncoder().encode(atLimit).byteLength).toBe(8_192);
     expect(atLimit).not.toContain('diagnostic text omitted');
@@ -830,14 +798,12 @@ describe('buildRetryPrompt', () => {
         }),
       );
 
-      const section = retryDiagnosticSection(
-        retryPrompt('original', {
-          skippedActions,
-          droppedLayoutEntries: [],
-          warnings: [],
-          retryHint: recommendMedium,
-        }),
-      );
+      const section = feedbackOf({
+        skippedActions,
+        droppedLayoutEntries: [],
+        warnings: [],
+        retryHint: recommendMedium,
+      });
 
       expect(rendered).toBe(32);
       expect(section).toContain('169 diagnostic lines omitted');
@@ -862,14 +828,12 @@ describe('buildRetryPrompt', () => {
         }),
       );
 
-      const section = retryDiagnosticSection(
-        retryPrompt('original', {
-          skippedActions: [],
-          droppedLayoutEntries,
-          warnings: [],
-          retryHint: recommendMedium,
-        }),
-      );
+      const section = feedbackOf({
+        skippedActions: [],
+        droppedLayoutEntries,
+        warnings: [],
+        retryHint: recommendMedium,
+      });
 
       expect(rendered).toBe(32);
       expect(section).toContain('169 diagnostic lines omitted');
@@ -891,14 +855,12 @@ describe('buildRetryPrompt', () => {
         }),
       );
 
-      const section = retryDiagnosticSection(
-        retryPrompt('original', {
-          skippedActions: [],
-          droppedLayoutEntries: [],
-          warnings,
-          retryHint: recommendMedium,
-        }),
-      );
+      const section = feedbackOf({
+        skippedActions: [],
+        droppedLayoutEntries: [],
+        warnings,
+        retryHint: recommendMedium,
+      });
 
       expect(rendered).toBe(32);
       expect(section).toContain('169 diagnostic lines omitted');
@@ -906,17 +868,8 @@ describe('buildRetryPrompt', () => {
   });
 });
 
-const RETRY_HEADER =
-  'The previous response had issues. Please re-issue the response addressing:\n\n';
-
-function retryPrompt(original: string, records: DiagnosticRecords): string {
-  return buildRetryPrompt(original, buildDiagnostics(records));
-}
-
-function retryDiagnosticSection(prompt: string): string {
-  const end = prompt.indexOf('\n\nOriginal request:');
-  if (!prompt.startsWith(RETRY_HEADER) || end < 0) return '';
-  return prompt.slice(RETRY_HEADER.length, end);
+function feedbackOf(records: DiagnosticRecords): string {
+  return buildDiagnostics(records).feedback;
 }
 
 function diagnosticBulletLines(section: string): string[] {
