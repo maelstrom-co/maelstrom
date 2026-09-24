@@ -108,7 +108,7 @@ export interface Engine {
    * `signal` cancels mid-flight: it reaches every planner stage as
    * `StageContext.signal`. A stage that calls a provider is expected to
    * short-circuit a pre-aborted signal to `CancellationError` and to map an
-   * abort during the call the same way (`@maelstrom-co/planner-llm` does).
+   * abort during the call the same way.
    * A stage that throws after the signal aborted also yields
    * `CancellationError`.
    *
@@ -191,10 +191,9 @@ export interface Engine {
  *
  * @example
  * ```ts
- * import { llmPlanner } from '@maelstrom-co/planner-llm';
- *
+ * // `modelPlanner` is any `Planner`, for example one that calls a model.
  * const engine = createEngine({
- *   planner: llmPlanner({ adapter: openaiText('gpt-4o') }),
+ *   planner: modelPlanner,
  *   retry: { max: 2 },
  * });
  * ```

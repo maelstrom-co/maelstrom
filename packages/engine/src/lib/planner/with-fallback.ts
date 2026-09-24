@@ -14,11 +14,10 @@ import { isDeferred } from './stage.js';
  *
  * @example
  * ```ts
- * import { llmPlanner } from '@maelstrom-co/planner-llm';
- *
+ * // `modelPlanner` is any `Planner`, for example one that calls a model.
  * const planner = withFallback(
  *   pipeline(selectVessels, arrangeLayout),
- *   llmPlanner({ adapter }),
+ *   modelPlanner,
  * );
  * ```
  */

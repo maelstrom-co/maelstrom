@@ -7,9 +7,9 @@ import type { WithRetryOptions } from './planner/with-retry.js';
 /** Dependencies and optional policies used to construct an Engine. */
 export interface EngineConfig {
   /**
-   * Produces the candidate response for every `chart_request`. Start from
-   * `llmPlanner({ adapter })` in `@maelstrom-co/planner-llm`, or compose
-   * stages with `pipeline` and `withFallback`. The Engine heals and
+   * Produces the candidate response for every `chart_request`. Use a
+   * planner implementation as is, or compose stages with `pipeline` and
+   * `withFallback`. The Engine heals and
    * validates whatever the planner returns against the request the client
    * sent.
    */

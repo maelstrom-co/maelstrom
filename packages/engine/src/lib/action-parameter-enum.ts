@@ -14,7 +14,8 @@ export interface NormalizedActionParameterEnumValue {
 
 /**
  * Immutable, request-scoped enum candidates keyed by parameter definition
- * object. Read it from `StageContext.enumSnapshot`.
+ * object. Read it with `enumSnapshotFor(ctx, vessels)`, which returns it only
+ * when `vessels` is the catalog it was captured from.
  */
 export interface ActionParameterEnumSnapshot {
   /**
