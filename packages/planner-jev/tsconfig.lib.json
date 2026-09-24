@@ -8,9 +8,13 @@
     "emitDeclarationOnly": true,
     "forceConsistentCasingInFileNames": true,
     "lib": ["es2022", "dom"],
-    "types": ["node", "bun"]
+    "types": ["node"],
+    "resolveJsonModule": true
   },
-  "include": ["src/**/*.ts"],
+  "include": [
+    "src/**/*.ts",
+    "src/lib/__test-helpers__/layout-replay-fixtures/*.json"
+  ],
   "references": [
     {
       "path": "../protocol/tsconfig.lib.json"
@@ -19,5 +23,10 @@
       "path": "../engine/tsconfig.lib.json"
     }
   ],
-  "exclude": ["src/**/*.test.ts", "src/**/*.spec.ts"]
+  "exclude": [
+    "src/**/*.test.ts",
+    "src/**/*.spec.ts",
+    "src/lib/__test-helpers__/mock-chat.ts",
+    "src/lib/__test-helpers__/poc-fixtures.ts"
+  ]
 }

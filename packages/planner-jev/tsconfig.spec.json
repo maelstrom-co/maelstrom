@@ -3,8 +3,15 @@
   "compilerOptions": {
     "outDir": "./out-tsc/bun",
     "types": ["bun"],
+    "resolveJsonModule": true,
     "rootDir": "."
   },
-  "include": ["src/**/*.test.ts", "src/**/*.spec.ts", "src/**/*.d.ts"],
+  "include": [
+    "src/**/*.test.ts",
+    "src/**/*.spec.ts",
+    "src/**/*.d.ts",
+    "src/lib/__test-helpers__/mock-chat.ts",
+    "src/lib/__test-helpers__/poc-fixtures.ts"
+  ],
   "references": [{ "path": "./tsconfig.lib.json" }]
 }

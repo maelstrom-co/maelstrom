@@ -3,9 +3,9 @@ import { readFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 
 /**
- * The build marks `bun:test` external so the `_testing` entry can bundle its
- * mocks, which means a test helper reached from a published entry would ship
- * instead of failing the build. These walks are that guard.
+ * Every entry ships in the tarball, so none may reach `bun:test`: a consumer
+ * without Bun types could not load its declarations. The root entry also
+ * reaches no test helper at all.
  */
 
 const SRC = import.meta.dir;
@@ -28,9 +28,17 @@ test('the _eval entry reaches no bun:test and no chat mock', () => {
   expect(packages).not.toContain('bun:test');
 });
 
-test('the walk sees the _testing entry reach bun:test, so it is not vacuous', () => {
+test('the _testing entry reaches test helpers but no bun:test', () => {
   const { files, packages } = importGraph(join(SRC, '_testing.ts'));
   expect(files.some(isTestHelper)).toBe(true);
+  expect(files.some((file) => file.endsWith('mock-chat.ts'))).toBe(false);
+  expect(packages).not.toContain('bun:test');
+});
+
+test('the walk sees the internal chat mock reach bun:test, so it is not vacuous', () => {
+  const { packages } = importGraph(
+    join(SRC, 'lib', '__test-helpers__', 'mock-chat.ts'),
+  );
   expect(packages).toContain('bun:test');
 });
 
