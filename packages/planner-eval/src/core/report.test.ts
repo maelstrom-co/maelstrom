@@ -290,7 +290,7 @@ describe('renderPaired', () => {
         repeat: 2,
         score: { pass: false, failures: ['Visible instances: expected a'] },
         deferral: {
-          stage: 'jevActions',
+          stage: 'write',
           reason: 'write/action_unsupported',
           provider: false,
         },
