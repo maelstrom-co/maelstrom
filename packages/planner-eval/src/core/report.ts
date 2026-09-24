@@ -2,7 +2,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { STAGE_NAMES } from '@maelstrom-co/planner-jev/_internal';
-import type { ArmKind } from './arms.js';
+import type { ArmKind } from '../plugins/jev/arms.js';
 import { GRADER_DIMENSIONS, type GraderDimension } from './grader.js';
 import { type GraderValidation, graderGate } from './grader-validate.js';
 import type { RunRecord } from './run.js';

@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { percentile } from '../eval/report.js';
+import { percentile } from './report.js';
 import type { StageTurnRecord } from './stage-eval.js';
 
 /** A count over a total. */

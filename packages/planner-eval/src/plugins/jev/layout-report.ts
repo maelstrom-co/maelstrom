@@ -3,10 +3,10 @@ import type {
   PairsHandOff,
   PairsSizeFallback,
 } from '@maelstrom-co/planner-jev/_internal';
-import { percentile } from '../eval/report.js';
-import type { LayoutTurnDetail } from './layout.js';
-import { type Ratio, ratio } from './report.js';
-import type { StageTurnRecord } from './stage-eval.js';
+import { percentile } from '../../core/report.js';
+import type { StageTurnRecord } from '../../core/stage-eval.js';
+import { type Ratio, ratio } from '../../core/stage-report.js';
+import type { LayoutTurnDetail } from './stages/layout.js';
 
 /** The composed-pairs layout stage's numbers for one variant. */
 export interface ComposedPairsVariantSummary {

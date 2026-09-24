@@ -5,7 +5,7 @@ import type {
 } from '@maelstrom-co/planner-jev/_internal';
 import { makeContext, makeInput } from '@maelstrom-co/planner-jev/_testing';
 import { isOk } from '@maelstrom-co/protocol';
-import { type Scenario, selectScenarios } from '../eval/scenarios.js';
+import { type Scenario, selectScenarios } from '../../core/scenarios.js';
 import { goldInputs, layoutDeferralGoldInputs } from './gold-inputs.js';
 
 function scenario(id: string): Scenario {

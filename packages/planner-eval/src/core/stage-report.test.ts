@@ -1,12 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 
-import type { LayoutTurnDetail } from './layout.js';
+import type { LayoutTurnDetail } from '../plugins/jev/stages/layout.js';
+import type { StageOutcome, StageTurnRecord } from './stage-eval.js';
 import {
   renderScenarioTable,
   renderStageReport,
   summarizeVariant,
-} from './report.js';
-import type { StageOutcome, StageTurnRecord } from './stage-eval.js';
+} from './stage-report.js';
 
 function turn(
   variant: string,

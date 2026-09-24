@@ -25,13 +25,13 @@ import {
 import type { MaelstromResponse } from '@maelstrom-co/protocol';
 import { isErr, ok } from '@maelstrom-co/protocol';
 import type { AnyTextAdapter } from '@tanstack/ai';
+import { GRADER_VERSION } from '../../core/grader.js';
+import { loadReplay, replayedStages } from '../../core/replay.js';
+import { writeReport } from '../../core/report.js';
+import { grade, type LayoutStageOutput, runEval } from '../../core/run.js';
+import { selectScenarios } from '../../core/scenarios.js';
+import { VERBALIZER_VERSION } from '../../core/verbalize-tree.js';
 import { type Arm, jevDeps, resolveArms } from './arms.js';
-import { GRADER_VERSION } from './grader.js';
-import { loadReplay, replayedStages } from './replay.js';
-import { writeReport } from './report.js';
-import { grade, type LayoutStageOutput, runEval } from './run.js';
-import { selectScenarios } from './scenarios.js';
-import { VERBALIZER_VERSION } from './verbalize-tree.js';
 
 const mockChat = installMockChat(mock);
 

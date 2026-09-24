@@ -19,20 +19,20 @@ import {
   type TilingNode,
   type VesselInstanceSnapshot,
 } from '@maelstrom-co/protocol';
-import { checkArrangement } from '../eval/predicates.js';
-import type { Scenario } from '../eval/scenarios.js';
-import { scoreLayout } from '../eval/score.js';
-import { goldInputs, layoutDeferralGoldInputs } from './gold-inputs.js';
+import { checkArrangement } from '../../../core/predicates.js';
+import type { Scenario } from '../../../core/scenarios.js';
+import { scoreLayout } from '../../../core/score.js';
+import type { Judgement, StageEvalModule } from '../../../core/stage-eval.js';
+import { goldInputs, layoutDeferralGoldInputs } from '../gold-inputs.js';
 import {
   renderArrangementNotAskedSection,
   renderComposedPairsSection,
-} from './layout-report.js';
+} from '../layout-report.js';
 import {
   checkPairAnswers,
   type PairsAnswerCheck,
-} from './pairs-attribution.js';
-import type { RecordedSpatialSignal } from './recorded-spatial.js';
-import type { Judgement, StageEvalModule } from './stage-eval.js';
+} from '../pairs-attribution.js';
+import type { RecordedSpatialSignal } from '../recorded-spatial.js';
 
 /** A layout decision as some stages return it, with the composed-pairs record. */
 export type LayoutOutput = LayoutDecision & {

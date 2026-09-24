@@ -5,19 +5,19 @@ import {
   scriptedFetch,
   TEST_MODEL,
 } from '@maelstrom-co/planner-jev/_testing';
-import { selectScenarios } from '../eval/scenarios.js';
+import { selectScenarios } from '../../../core/scenarios.js';
+import {
+  runStageEval,
+  type StageEvalModule,
+  type StageTurnRecord,
+} from '../../../core/stage-eval.js';
+import { recordedSpatialSignal } from '../recorded-spatial.js';
 import {
   LAYOUT_VARIANTS,
   type LayoutTurnDetail,
   layoutStageEval,
   layoutStageEvalWith,
 } from './layout.js';
-import { recordedSpatialSignal } from './recorded-spatial.js';
-import {
-  runStageEval,
-  type StageEvalModule,
-  type StageTurnRecord,
-} from './stage-eval.js';
 
 /** Answers every pair question with the map left of the calendar, and every size as an equal share. */
 const SWAP_CORRECT: Script = (payload) => ({
