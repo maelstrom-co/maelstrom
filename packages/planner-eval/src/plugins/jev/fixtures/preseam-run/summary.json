@@ -1,0 +1,455 @@
+{
+  "meta": {
+    "suite": "development",
+    "arms": "baseline, jev-gated-per-instance-preset-or-llm-inline",
+    "repeats": 1,
+    "scenarios": 5,
+    "llmModel": "gpt-5.6-luna",
+    "jevModel": "jev-1.13.0",
+    "date": "2026-09-23T16:36:44.895Z"
+  },
+  "summaries": [
+    {
+      "arm": "baseline",
+      "kind": "baseline",
+      "suite": "development",
+      "runs": 5,
+      "overall": {
+        "count": 2,
+        "total": 3
+      },
+      "arrangement": {
+        "count": 2,
+        "total": 2
+      },
+      "errors": 0,
+      "spatial": {
+        "spatial": 2,
+        "controls": 1
+      },
+      "replayed": [],
+      "latency": {
+        "turn": {
+          "p50": 3643.2724589998834,
+          "p95": 7118.628125000047,
+          "samples": 5
+        },
+        "llmCall": {
+          "planner": {
+            "p50": 3640.64274999965,
+            "p95": 7110.960500000045,
+            "samples": 5
+          }
+        }
+      },
+      "tokens": {
+        "llm": {
+          "calls": 5,
+          "withoutUsage": 0,
+          "input": 26826,
+          "output": 1293,
+          "byRole": {
+            "planner": {
+              "calls": 5,
+              "withoutUsage": 0,
+              "input": 26826,
+              "output": 1293
+            }
+          }
+        }
+      }
+    },
+    {
+      "arm": "baseline",
+      "kind": "baseline",
+      "suite": "all",
+      "runs": 5,
+      "overall": {
+        "count": 2,
+        "total": 3
+      },
+      "arrangement": {
+        "count": 2,
+        "total": 2
+      },
+      "errors": 0,
+      "spatial": {
+        "spatial": 2,
+        "controls": 1
+      },
+      "replayed": [],
+      "latency": {
+        "turn": {
+          "p50": 3643.2724589998834,
+          "p95": 7118.628125000047,
+          "samples": 5
+        },
+        "llmCall": {
+          "planner": {
+            "p50": 3640.64274999965,
+            "p95": 7110.960500000045,
+            "samples": 5
+          }
+        }
+      },
+      "tokens": {
+        "llm": {
+          "calls": 5,
+          "withoutUsage": 0,
+          "input": 26826,
+          "output": 1293,
+          "byRole": {
+            "planner": {
+              "calls": 5,
+              "withoutUsage": 0,
+              "input": 26826,
+              "output": 1293
+            }
+          }
+        }
+      }
+    },
+    {
+      "arm": "jev-gated-per-instance-preset-or-llm-inline",
+      "kind": "jev",
+      "suite": "development",
+      "runs": 5,
+      "overall": {
+        "count": 2,
+        "total": 3
+      },
+      "arrangement": {
+        "count": 2,
+        "total": 2
+      },
+      "errors": 0,
+      "spatial": {
+        "spatial": 2,
+        "controls": 1
+      },
+      "replayed": [],
+      "gates": {
+        "needsActions": {
+          "falsePositives": {
+            "count": 1,
+            "total": 3
+          },
+          "falseNegatives": {
+            "count": 0,
+            "total": 0
+          }
+        },
+        "spatial": {
+          "falsePositives": {
+            "count": 0,
+            "total": 1
+          },
+          "falseNegatives": {
+            "count": 0,
+            "total": 2
+          }
+        }
+      },
+      "arrangementReachedLayout": {
+        "count": 2,
+        "total": 2
+      },
+      "decisive": {
+        "pass": {
+          "count": 2,
+          "total": 2
+        },
+        "wins": 0,
+        "losses": 0,
+        "paired": 2
+      },
+      "expectedDeferrals": {
+        "count": 2,
+        "total": 2
+      },
+      "stages": {
+        "selection": {
+          "count": 2,
+          "total": 2
+        },
+        "actions": {
+          "count": 2,
+          "total": 2
+        },
+        "layout": {
+          "count": 1,
+          "total": 1
+        }
+      },
+      "fallbacks": {
+        "total": {
+          "count": 3,
+          "total": 5
+        },
+        "byReason": {
+          "jevSelect/scope_ambiguous": 1,
+          "jevSelect/scope_unsupported": 1,
+          "jevLayout/no_feasible_layout": 1
+        },
+        "byStage": {
+          "jevSelect": 2,
+          "jevLayout": 1
+        },
+        "providerByStage": {}
+      },
+      "fill": {
+        "count": 0,
+        "total": 0
+      },
+      "latency": {
+        "turn": {
+          "p50": 3562.4836670000223,
+          "p95": 6836.056749999989,
+          "samples": 5
+        },
+        "stages": {
+          "jevSelect": {
+            "p50": 357.1104589998722,
+            "p95": 587.4605410000077,
+            "samples": 5
+          },
+          "jevActions": {
+            "p50": 0.2118750000372529,
+            "p95": 0.9714579999999842,
+            "samples": 3
+          },
+          "jevLayout": {
+            "p50": 307.9894590000622,
+            "p95": 368.13495800000055,
+            "samples": 3
+          },
+          "llmComplete": {
+            "p50": 1196.4833750000007,
+            "p95": 3508.775833999971,
+            "samples": 2
+          }
+        },
+        "jevCall": {
+          "p50": 356.39562499988824,
+          "p95": 584.8824580000364,
+          "samples": 7
+        },
+        "llmCall": {
+          "fallback": {
+            "p50": 2966.3511250000447,
+            "p95": 6472.79137500003,
+            "samples": 3
+          },
+          "complete": {
+            "p50": 1190.2662910000008,
+            "p95": 3504.2545420000097,
+            "samples": 2
+          }
+        }
+      },
+      "tokens": {
+        "jev": {
+          "calls": 7,
+          "withoutUsage": 0,
+          "input": 42926,
+          "output": 4667,
+          "perTurn": {
+            "input": 8585.2,
+            "output": 933.4
+          }
+        },
+        "llm": {
+          "calls": 5,
+          "withoutUsage": 0,
+          "input": 16908,
+          "output": 1056,
+          "byRole": {
+            "fallback": {
+              "calls": 3,
+              "withoutUsage": 0,
+              "input": 16091,
+              "output": 866
+            },
+            "complete": {
+              "calls": 2,
+              "withoutUsage": 0,
+              "input": 817,
+              "output": 190
+            }
+          }
+        }
+      }
+    },
+    {
+      "arm": "jev-gated-per-instance-preset-or-llm-inline",
+      "kind": "jev",
+      "suite": "all",
+      "runs": 5,
+      "overall": {
+        "count": 2,
+        "total": 3
+      },
+      "arrangement": {
+        "count": 2,
+        "total": 2
+      },
+      "errors": 0,
+      "spatial": {
+        "spatial": 2,
+        "controls": 1
+      },
+      "replayed": [],
+      "gates": {
+        "needsActions": {
+          "falsePositives": {
+            "count": 1,
+            "total": 3
+          },
+          "falseNegatives": {
+            "count": 0,
+            "total": 0
+          }
+        },
+        "spatial": {
+          "falsePositives": {
+            "count": 0,
+            "total": 1
+          },
+          "falseNegatives": {
+            "count": 0,
+            "total": 2
+          }
+        }
+      },
+      "arrangementReachedLayout": {
+        "count": 2,
+        "total": 2
+      },
+      "decisive": {
+        "pass": {
+          "count": 2,
+          "total": 2
+        },
+        "wins": 0,
+        "losses": 0,
+        "paired": 2
+      },
+      "expectedDeferrals": {
+        "count": 2,
+        "total": 2
+      },
+      "stages": {
+        "selection": {
+          "count": 2,
+          "total": 2
+        },
+        "actions": {
+          "count": 2,
+          "total": 2
+        },
+        "layout": {
+          "count": 1,
+          "total": 1
+        }
+      },
+      "fallbacks": {
+        "total": {
+          "count": 3,
+          "total": 5
+        },
+        "byReason": {
+          "jevSelect/scope_ambiguous": 1,
+          "jevSelect/scope_unsupported": 1,
+          "jevLayout/no_feasible_layout": 1
+        },
+        "byStage": {
+          "jevSelect": 2,
+          "jevLayout": 1
+        },
+        "providerByStage": {}
+      },
+      "fill": {
+        "count": 0,
+        "total": 0
+      },
+      "latency": {
+        "turn": {
+          "p50": 3562.4836670000223,
+          "p95": 6836.056749999989,
+          "samples": 5
+        },
+        "stages": {
+          "jevSelect": {
+            "p50": 357.1104589998722,
+            "p95": 587.4605410000077,
+            "samples": 5
+          },
+          "jevActions": {
+            "p50": 0.2118750000372529,
+            "p95": 0.9714579999999842,
+            "samples": 3
+          },
+          "jevLayout": {
+            "p50": 307.9894590000622,
+            "p95": 368.13495800000055,
+            "samples": 3
+          },
+          "llmComplete": {
+            "p50": 1196.4833750000007,
+            "p95": 3508.775833999971,
+            "samples": 2
+          }
+        },
+        "jevCall": {
+          "p50": 356.39562499988824,
+          "p95": 584.8824580000364,
+          "samples": 7
+        },
+        "llmCall": {
+          "fallback": {
+            "p50": 2966.3511250000447,
+            "p95": 6472.79137500003,
+            "samples": 3
+          },
+          "complete": {
+            "p50": 1190.2662910000008,
+            "p95": 3504.2545420000097,
+            "samples": 2
+          }
+        }
+      },
+      "tokens": {
+        "jev": {
+          "calls": 7,
+          "withoutUsage": 0,
+          "input": 42926,
+          "output": 4667,
+          "perTurn": {
+            "input": 8585.2,
+            "output": 933.4
+          }
+        },
+        "llm": {
+          "calls": 5,
+          "withoutUsage": 0,
+          "input": 16908,
+          "output": 1056,
+          "byRole": {
+            "fallback": {
+              "calls": 3,
+              "withoutUsage": 0,
+              "input": 16091,
+              "output": 866
+            },
+            "complete": {
+              "calls": 2,
+              "withoutUsage": 0,
+              "input": 817,
+              "output": 190
+            }
+          }
+        }
+      }
+    }
+  ]
+}
