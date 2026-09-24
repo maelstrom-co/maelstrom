@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { builtinModules } from 'node:module';
-import { dirname, join, relative, resolve } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 
 /**
  * Enforces the package-layering invariant documented in
@@ -83,10 +83,15 @@ function discoverWorkspacePackages(): WorkspacePackage[] {
     } catch {
       continue;
     }
-    // Non-published workspace members (apps, internal tooling) sit outside
-    // the layering invariant — it governs the published `@maelstrom-co/*`
-    // package graph.
-    if (pkgJson.private || !pkgJson.name?.startsWith('@maelstrom-co/')) {
+    // Apps, infra and internal tooling are composition roots that may wire
+    // every layer together, so the invariant governs the library packages
+    // under packages/ only. Private libraries there are held to it too: a
+    // private server package is still a Node process one dependency edge
+    // away from a browser package.
+    if (
+      relative(repoRoot, dir).split(sep)[0] !== 'packages' ||
+      !pkgJson.name?.startsWith('@maelstrom-co/')
+    ) {
       continue;
     }
     packages.push({ name: pkgJson.name, dir, pkgJson });
@@ -227,6 +232,15 @@ describe('package layering — manifest graph', () => {
     expect(packagesByName.has('@maelstrom-co/realtime-protocol')).toBe(true);
   });
 
+  test('discovers private library packages and leaves apps out', () => {
+    // A private package under packages/ is a library like any other; only
+    // the composition roots outside packages/ sit outside the invariant.
+    expect(
+      packagesByName.get('@maelstrom-co/planner-eval')?.pkgJson.private,
+    ).toBe(true);
+    expect(packagesByName.has('@maelstrom-co/demo')).toBe(false);
+  });
+
   for (const pkg of packages) {
     const layer = classify(pkg.name);
 
@@ -237,7 +251,7 @@ describe('package layering — manifest graph', () => {
         const depPkg = packagesByName.get(depName);
         if (!depPkg) {
           violations.push(
-            `${pkg.name} depends on ${depName}, but no non-private workspace package with that name was discovered under the root package.json "workspaces" globs. Fix the dependency name or the workspaces globs.`,
+            `${pkg.name} depends on ${depName}, but no workspace package with that name was discovered under packages/ through the root package.json "workspaces" globs. Fix the dependency name or the workspaces globs.`,
           );
           continue;
         }
