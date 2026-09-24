@@ -4,8 +4,12 @@ import type {
   PairsSizeFallback,
 } from '@maelstrom-co/planner-jev/_internal';
 import type { StageTurnRecord } from '../../core/stage-eval.js';
-import { type Ratio, ratio } from '../../core/stage-report.js';
-import { percentile } from '../../core/stats.js';
+import {
+  percentile,
+  type Ratio,
+  ratio,
+  STAGE_RATIO,
+} from '../../core/stats.js';
 import type { LayoutTurnDetail } from './stages/layout.js';
 
 /** The composed-pairs layout stage's numbers for one variant. */
@@ -177,17 +181,19 @@ export function renderComposedPairsSection(
   );
   row('Calls compared with the reference tree', (s) => String(s.compared));
   row('Wrong pair answers (not stated read as the current relation)', (s) =>
-    ratio(s.wrongAnswers),
+    ratio(s.wrongAnswers, STAGE_RATIO),
   );
-  row('Pair answers not stated', (s) => ratio(s.notStated));
-  row('Wrong pair relations in the returned tree', (s) => ratio(s.wrongInTree));
+  row('Pair answers not stated', (s) => ratio(s.notStated, STAGE_RATIO));
+  row('Wrong pair relations in the returned tree', (s) =>
+    ratio(s.wrongInTree, STAGE_RATIO),
+  );
   row('Reference tree among the top 3 candidates', (s) =>
-    ratio(s.referenceInCandidates),
+    ratio(s.referenceInCandidates, STAGE_RATIO),
   );
   row('Median score margin, best over second best (log)', (s) =>
     s.medianMargin === undefined ? 'n/a' : s.medianMargin.toFixed(2),
   );
-  const asked = (r: Ratio) => (r.total === 0 ? 'n/a' : ratio(r));
+  const asked = (r: Ratio) => (r.total === 0 ? 'n/a' : ratio(r, STAGE_RATIO));
   row(
     'Wrong direction answers (not stated read as the current top split)',
     (s) => asked(s.wrongDirection),
@@ -259,11 +265,15 @@ export function renderArrangementNotAskedSection(
     (own) => String(own.length),
   );
   row('Changed the layout', (own) =>
-    ratio({
-      count: own.filter((record) => record.detail?.arrangementNotAsked?.changed)
-        .length,
-      total: own.length,
-    }),
+    ratio(
+      {
+        count: own.filter(
+          (record) => record.detail?.arrangementNotAsked?.changed,
+        ).length,
+        total: own.length,
+      },
+      STAGE_RATIO,
+    ),
   );
   row('Jev calls per turn', (own) =>
     perTurn(own, (record) => record.calls.length, 2),

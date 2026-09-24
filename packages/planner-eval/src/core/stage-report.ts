@@ -2,13 +2,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import type { StageRunMeta, StageTurnRecord } from './stage-eval.js';
-import { percentile } from './stats.js';
-
-/** A count over a total. */
-export interface Ratio {
-  readonly count: number;
-  readonly total: number;
-}
+import { percentile, type Ratio, ratio, STAGE_RATIO } from './stats.js';
 
 /** How the turns of scenarios that expect the stage to defer ended. */
 export interface ExpectedDeferralSummary {
@@ -185,13 +179,15 @@ export function renderStageReport(
   const row = (label: string, cell: (summary: VariantSummary) => string) =>
     rows.push(`| ${label} | ${summaries.map(cell).join(' | ')} |`);
   row('Turns run', (s) => String(s.turns));
-  row('Pass (hand-offs and deferrals count as failures)', (s) => ratio(s.pass));
-  row('Pass over trees written (hand-offs and deferrals left out)', (s) =>
-    ratio(s.passScored),
+  row('Pass (hand-offs and deferrals count as failures)', (s) =>
+    ratio(s.pass, STAGE_RATIO),
   );
-  row('Handed off', (s) => ratio(s.handedOff));
-  row('Deferred', (s) => ratio(s.deferred));
-  row('Errors', (s) => ratio(s.errors));
+  row('Pass over trees written (hand-offs and deferrals left out)', (s) =>
+    ratio(s.passScored, STAGE_RATIO),
+  );
+  row('Handed off', (s) => ratio(s.handedOff, STAGE_RATIO));
+  row('Deferred', (s) => ratio(s.deferred, STAGE_RATIO));
+  row('Errors', (s) => ratio(s.errors, STAGE_RATIO));
   row('Not applicable scenarios (not run)', (s) => String(s.notApplicable));
   row(`${provider} calls per turn`, (s) => fixed(s.callsPerTurn, 2));
   row(`${provider} call latency p50 / p95 (ms)`, (s) =>
@@ -205,10 +201,13 @@ export function renderStageReport(
   );
   if (summaries.some((s) => s.expectedDeferrals.turns > 0)) {
     row('Expected layout deferrals: deferred with the right reason', (s) =>
-      ratio({
-        count: s.expectedDeferrals.deferredRight,
-        total: s.expectedDeferrals.turns,
-      }),
+      ratio(
+        {
+          count: s.expectedDeferrals.deferredRight,
+          total: s.expectedDeferrals.turns,
+        },
+        STAGE_RATIO,
+      ),
     );
     row(
       'Expected layout deferrals: handed off / wrote a tree / other deferral',
@@ -255,12 +254,6 @@ export async function writeStageReport(
     join(out, 'report.md'),
     `${renderStageReport(subject, records, variants, meta, sections)}\n`,
   );
-}
-
-/** `count/total (percent)`, or `0/0`. */
-export function ratio({ count, total }: Ratio): string {
-  if (total === 0) return '0/0';
-  return `${count}/${total} (${Math.round((count / total) * 100)}%)`;
 }
 
 function scenarioCell(records: readonly StageTurnRecord[]): string {
