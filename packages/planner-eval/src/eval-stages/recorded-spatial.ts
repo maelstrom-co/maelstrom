@@ -5,6 +5,10 @@ import {
   type GateAnswer,
 } from '@maelstrom-co/planner-jev/_eval';
 
+/** The arm whose spatial gates `--spatial-records-arm` reads by default. */
+export const DEFAULT_SPATIAL_RECORDS_ARM =
+  'jev-gated-per-instance-composed-pairs-gate-and-defer-inline';
+
 /**
  * The `spatial` gate one live planner arm answered, per scenario turn, so
  * the layout stage eval can feed the stage the signal the live planner
@@ -43,7 +47,11 @@ export function recordedSpatialSignal(
   };
 }
 
-/** {@link recordedSpatialSignal} over the `records.json` a full planner eval wrote at `path`. */
+/**
+ * {@link recordedSpatialSignal} over the `records.json` a full planner eval
+ * wrote at `path`. Throws when no turn of `arm` recorded a spatial gate, so a
+ * wrong arm or file fails instead of every turn falling back to gold.
+ */
 export async function loadRecordedSpatialSignal(
   path: string,
   arm: string,
@@ -51,7 +59,10 @@ export async function loadRecordedSpatialSignal(
   const records: unknown = JSON.parse(await readFile(path, 'utf8'));
   if (!Array.isArray(records))
     throw new Error(`${path} holds no list of eval records`);
-  return recordedSpatialSignal(records, arm);
+  const signal = recordedSpatialSignal(records, arm);
+  if (signal.size === 0)
+    throw new Error(`${path} holds no spatial gate recorded by arm ${arm}`);
+  return signal;
 }
 
 function key(scenarioId: string, repeat: number): string {
