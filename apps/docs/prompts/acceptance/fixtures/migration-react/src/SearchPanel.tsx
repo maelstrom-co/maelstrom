@@ -1,5 +1,5 @@
-import { useState, type FormEvent } from 'react';
-import { searchTickets, type SearchResult } from './search';
+import { type FormEvent, useState } from 'react';
+import { type SearchResult, searchTickets } from './search';
 
 export function SearchPanel() {
   const [query, setQuery] = useState('');
