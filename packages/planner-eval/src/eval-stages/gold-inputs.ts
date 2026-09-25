@@ -8,7 +8,7 @@ import {
   type SelectedInstance,
   type Selection2,
   type SelectionGates,
-} from '@maelstrom-co/planner-jev/_eval';
+} from '@maelstrom-co/planner-jev/_internal';
 import {
   ActionName,
   type ChartRequest,

@@ -1,9 +1,9 @@
 import { expect, test } from 'bun:test';
 
-import * as evalApi from './_eval.js';
+import * as evalApi from './_internal.js';
 import * as testingApi from './_testing.js';
 
-test('_eval exposes the runtime values @maelstrom-co/planner-eval composes', () => {
+test('_internal exposes the runtime values @maelstrom-co/planner-eval composes', () => {
   expect(Object.keys(evalApi).sort()).toEqual(
     [
       'demoVessels',
@@ -64,10 +64,10 @@ test('_testing exposes the fixtures and transports the eval tests use', () => {
   );
 });
 
-test('importing _eval and _testing leaves @tanstack/ai chat untouched', () => {
+test('importing _internal and _testing leaves @tanstack/ai chat untouched', () => {
   const probe = `
     const before = (await import('@tanstack/ai')).chat;
-    await import(${JSON.stringify(import.meta.resolve('./_eval.ts'))});
+    await import(${JSON.stringify(import.meta.resolve('./_internal.ts'))});
     await import(${JSON.stringify(import.meta.resolve('./_testing.ts'))});
     const after = (await import('@tanstack/ai')).chat;
     process.exit(before === after ? 0 : 1);

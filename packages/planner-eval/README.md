@@ -1,8 +1,8 @@
 # @maelstrom-co/planner-eval
 
-Live evals for Maelstrom planners. Workspace-internal: the package is private, has no build and runs with `bun`. It depends on `@maelstrom-co/planner-jev` (through its `_eval` and `_testing` subpaths), `@maelstrom-co/planner-llm`, `@maelstrom-co/engine` and `@maelstrom-co/protocol`; nothing depends on it.
+Live evals for Maelstrom planners. Workspace-internal: the package is private, has no build and runs with `bun`. It depends on `@maelstrom-co/planner-jev` (through its `_internal` and `_testing` subpaths), `@maelstrom-co/planner-llm`, `@maelstrom-co/engine` and `@maelstrom-co/protocol`; nothing depends on it.
 
-Two evals live here: `src/eval/` runs whole planners through `createEngine` and compares named arms, `src/eval-stages/` runs one pipeline stage on gold inputs. The Jev arms and stage modules read planner-jev's stages and planners through `@maelstrom-co/planner-jev/_eval`, and the offline tests read its fixtures and scripted transports through `@maelstrom-co/planner-jev/_testing`. Both subpaths are unsupported outside this repository.
+Two evals live here: `src/eval/` runs whole planners through `createEngine` and compares named arms, `src/eval-stages/` runs one pipeline stage on gold inputs. The Jev arms and stage modules read planner-jev's stages and planners through `@maelstrom-co/planner-jev/_internal`, and the offline tests read its fixtures and scripted transports through `@maelstrom-co/planner-jev/_testing`. Both subpaths are unsupported outside this repository.
 
 Bun resolves workspace packages to their built `dist/` unless told otherwise, so every entry point here runs with `--conditions=@maelstrom-co/source`: planner-jev, planner-llm, engine and protocol then load from `src/`, the way `tsc` reads them, and a stage edit is measured without a rebuild. The nx targets (`eval`, `eval-stages`, `test`) pass the flag; pass it yourself when running a file with `bun` directly, as the commands below do. Without it Bun loads the last build and quietly measures stale code.
 

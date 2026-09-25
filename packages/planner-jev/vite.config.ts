@@ -21,7 +21,7 @@ export default defineConfig({
     lib: {
       entry: {
         index: 'src/index.ts',
-        _eval: 'src/_eval.ts',
+        _internal: 'src/_internal.ts',
         _testing: 'src/_testing.ts',
       },
       name: '@maelstrom-co/planner-jev',

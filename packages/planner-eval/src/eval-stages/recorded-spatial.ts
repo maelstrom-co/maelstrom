@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import {
   GATE_THRESHOLD,
   type GateAnswer,
-} from '@maelstrom-co/planner-jev/_eval';
+} from '@maelstrom-co/planner-jev/_internal';
 
 /** The arm whose spatial gates `--spatial-records-arm` reads by default. */
 export const DEFAULT_SPATIAL_RECORDS_ARM =

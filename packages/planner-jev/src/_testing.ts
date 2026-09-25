@@ -1,5 +1,5 @@
 /**
- * Workspace-internal subpath for `@maelstrom-co/planner-eval`'s tests: the
+ * Workspace-internal subpath for tests outside this package: the
  * demo Vessel snapshot, the recorded demo turns and the scripted transports
  * planner-jev's own tests use. Importing it has no side effects and no test
  * runner import: a test that relies on a mocked `chat()` calls

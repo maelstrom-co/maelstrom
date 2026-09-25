@@ -10,7 +10,7 @@ import {
   createTypeSafeClient,
   type JevCall,
   type StageName,
-} from '@maelstrom-co/planner-jev/_eval';
+} from '@maelstrom-co/planner-jev/_internal';
 import { isErr, MessageId, SessionId } from '@maelstrom-co/protocol';
 import type { Scenario, Suite } from '../eval/scenarios.js';
 

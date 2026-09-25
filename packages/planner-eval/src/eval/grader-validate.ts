@@ -9,7 +9,7 @@ import {
   type Logger,
   type PlannerCandidate,
 } from '@maelstrom-co/engine';
-import { createTypeSafeClient } from '@maelstrom-co/planner-jev/_eval';
+import { createTypeSafeClient } from '@maelstrom-co/planner-jev/_internal';
 import {
   ChartRequestMessage,
   isOk,

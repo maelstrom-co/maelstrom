@@ -2,7 +2,7 @@ import type {
   ComposedRoute,
   PairsHandOff,
   PairsSizeFallback,
-} from '@maelstrom-co/planner-jev/_eval';
+} from '@maelstrom-co/planner-jev/_internal';
 import { percentile } from '../eval/report.js';
 import type { LayoutTurnDetail } from './layout.js';
 import { type Ratio, ratio } from './report.js';

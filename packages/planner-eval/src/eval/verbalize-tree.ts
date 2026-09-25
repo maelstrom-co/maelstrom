@@ -1,4 +1,4 @@
-import { treeRects } from '@maelstrom-co/planner-jev/_eval';
+import { treeRects } from '@maelstrom-co/planner-jev/_internal';
 import {
   parseTilingSplitToken,
   type TilingNode,

@@ -1,4 +1,4 @@
-import { type LeafRect, treeRects } from '@maelstrom-co/planner-jev/_eval';
+import { type LeafRect, treeRects } from '@maelstrom-co/planner-jev/_internal';
 import {
   type ChartRequest,
   parseTilingSplitToken,

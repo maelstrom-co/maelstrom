@@ -3,7 +3,7 @@ import {
   type JevActionPlan,
   type JevLayoutPlan,
   type JevSelection,
-} from '@maelstrom-co/planner-jev/_eval';
+} from '@maelstrom-co/planner-jev/_internal';
 import {
   getVisibleInstanceIds,
   isErr,

@@ -6,7 +6,7 @@ import {
   type TopDirection,
   treeDirection,
   treeRelation,
-} from '@maelstrom-co/planner-jev/_eval';
+} from '@maelstrom-co/planner-jev/_internal';
 import type { TilingNode } from '@maelstrom-co/protocol';
 
 /** How one composed-pairs call's answers and trees compare with a reference tree. */

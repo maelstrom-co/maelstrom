@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { layoutComposedPairsGateAndDefer } from '@maelstrom-co/planner-jev/_eval';
+import { layoutComposedPairsGateAndDefer } from '@maelstrom-co/planner-jev/_internal';
 import {
   type Script,
   scriptedFetch,

@@ -1,8 +1,8 @@
 /**
- * Workspace-internal subpath for `@maelstrom-co/planner-eval`: the stages,
- * planners and helpers its arms and stage modules compose, experimental
- * ones included. Unsupported for any other consumer and free to change in
- * any release.
+ * Workspace-internal subpath: the stages, planners, builders, geometry
+ * helpers and TypeSafe client that code elsewhere in this repository
+ * composes outside a shipped planner, experimental ones included.
+ * Unsupported outside the repository and free to change in any release.
  */
 export { demoVessels } from './lib/__test-helpers__/demo-vessels.js';
 export { type JevCaller, STAGE_NAMES, type StageName } from './lib/defer.js';

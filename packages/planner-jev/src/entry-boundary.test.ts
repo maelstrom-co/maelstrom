@@ -22,8 +22,8 @@ test('the root entry reaches no test helper and no bun:test', () => {
   expect(packages).not.toContain('bun:test');
 });
 
-test('the _eval entry reaches no bun:test and no chat mock', () => {
-  const { files, packages } = importGraph(join(SRC, '_eval.ts'));
+test('the _internal entry reaches no bun:test and no chat mock', () => {
+  const { files, packages } = importGraph(join(SRC, '_internal.ts'));
   expect(files.some((file) => file.endsWith('mock-chat.ts'))).toBe(false);
   expect(packages).not.toContain('bun:test');
 });

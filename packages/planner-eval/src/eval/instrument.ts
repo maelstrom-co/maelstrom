@@ -3,7 +3,7 @@ import type {
   Instrument,
   JevCall,
   StageName,
-} from '@maelstrom-co/planner-jev/_eval';
+} from '@maelstrom-co/planner-jev/_internal';
 import { isErr } from '@maelstrom-co/protocol';
 
 export interface StageRecord {

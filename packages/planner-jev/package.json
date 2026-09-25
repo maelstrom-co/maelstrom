@@ -27,11 +27,11 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
-    "./_eval": {
-      "@maelstrom-co/source": "./src/_eval.ts",
-      "types": "./dist/_eval.d.ts",
-      "import": "./dist/_eval.js",
-      "default": "./dist/_eval.js"
+    "./_internal": {
+      "@maelstrom-co/source": "./src/_internal.ts",
+      "types": "./dist/_internal.d.ts",
+      "import": "./dist/_internal.js",
+      "default": "./dist/_internal.js"
     },
     "./_testing": {
       "@maelstrom-co/source": "./src/_testing.ts",

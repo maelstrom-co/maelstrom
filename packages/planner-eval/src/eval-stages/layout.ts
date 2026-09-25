@@ -12,7 +12,7 @@ import {
   layoutFits,
   layoutPreset,
   layoutPresetOrLlm,
-} from '@maelstrom-co/planner-jev/_eval';
+} from '@maelstrom-co/planner-jev/_internal';
 import {
   getVisibleInstanceIds,
   isErr,

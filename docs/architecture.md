@@ -410,7 +410,7 @@ WORKER    realtime-livekit-agent
 - **engine**: Server-side only; planner seam, validation and orchestration, with no LLM provider dependency
 - **planner-llm**: the reference LLM planner (`llmPlanner` and the prompt builder) on the engine's planner seam; owns the `@tanstack/ai` dependency the engine dropped. Depends on `engine` and `protocol`; the engine never depends on it
 - **planner-jev**: experimental server-only planner that composes Jev (TypeSafe) stages on the engine's planner seam. Depends on `engine` and `protocol`; the engine never depends on it
-- **planner-eval**: private, unpublished live evals for the planners (whole-planner arms and single-stage evals). Depends on `planner-jev` (through its internal `_eval` and `_testing` subpaths), `planner-llm`, `engine` and `protocol`; nothing depends on it
+- **planner-eval**: private, unpublished live evals for the planners (whole-planner arms and single-stage evals). Depends on `planner-jev` (through its internal `_internal` and `_testing` subpaths), `planner-llm`, `engine` and `protocol`; nothing depends on it
 - **react** / **react-realtime**: React-specific bindings, optional
 - **realtime**: browser-side realtime voice core; talks to the provider directly with ephemeral tokens, feeds intents into the client
 - **realtime-vad**: provider-neutral browser voice-activity detector; `MediaStream` in, speech boundaries out

@@ -1,5 +1,8 @@
 import { describe, expect, test } from 'bun:test';
-import type { ActionPlan2, Selection2 } from '@maelstrom-co/planner-jev/_eval';
+import type {
+  ActionPlan2,
+  Selection2,
+} from '@maelstrom-co/planner-jev/_internal';
 import { makeContext, makeInput } from '@maelstrom-co/planner-jev/_testing';
 import { isOk } from '@maelstrom-co/protocol';
 import { type Scenario, selectScenarios } from '../eval/scenarios.js';

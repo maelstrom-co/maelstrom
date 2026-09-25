@@ -29,7 +29,7 @@ import {
   selectGated,
   selectUngated,
   type TypeSafeClientOptions,
-} from '@maelstrom-co/planner-jev/_eval';
+} from '@maelstrom-co/planner-jev/_internal';
 import { llmPlanner } from '@maelstrom-co/planner-llm';
 import type { AnyTextAdapter } from '@tanstack/ai';
 import type { ReplayShape } from './replay.js';

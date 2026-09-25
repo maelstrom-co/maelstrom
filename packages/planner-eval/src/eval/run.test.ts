@@ -12,7 +12,7 @@ import {
   type LayoutStage,
   layoutPreset,
   selectUngated,
-} from '@maelstrom-co/planner-jev/_eval';
+} from '@maelstrom-co/planner-jev/_internal';
 import {
   type ChatCall,
   conversation,

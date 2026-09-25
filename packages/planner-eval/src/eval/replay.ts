@@ -2,7 +2,7 @@ import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { deferred, type Stage } from '@maelstrom-co/engine';
-import type { StageName } from '@maelstrom-co/planner-jev/_eval';
+import type { StageName } from '@maelstrom-co/planner-jev/_internal';
 import { err, ok } from '@maelstrom-co/protocol';
 import type { StageRecord } from './instrument.js';
 import type { Scenario } from './scenarios.js';

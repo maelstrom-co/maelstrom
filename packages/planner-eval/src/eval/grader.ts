@@ -7,7 +7,7 @@ import {
   type JevCall,
   type Question,
   score,
-} from '@maelstrom-co/planner-jev/_eval';
+} from '@maelstrom-co/planner-jev/_internal';
 import {
   type ActionExecution,
   type ChartRequest,

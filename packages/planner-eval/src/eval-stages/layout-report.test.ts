@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import type { ComposedPairsRecord } from '@maelstrom-co/planner-jev/_eval';
+import type { ComposedPairsRecord } from '@maelstrom-co/planner-jev/_internal';
 import { LAYOUT_VARIANTS, type LayoutTurnDetail } from './layout.js';
 import {
   renderArrangementNotAskedSection,
