@@ -3,6 +3,9 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
+  "scripts": {
+    "prompts:check": "bun tools/prompts/check.ts"
+  },
   "dependencies": {
     "@astrojs/react": "catalog:",
     "@astrojs/sitemap": "catalog:",
@@ -35,6 +38,9 @@
     "@tailwindcss/vite": "catalog:",
     "@testing-library/react": "^16.1.0",
     "@types/jsdom": "^21.1.7",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^24.0.0",
+    "@types/semver": "^7.7.1",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "alchemy": "2.0.0-beta.73",
@@ -42,6 +48,8 @@
     "effect": "catalog:",
     "jsdom": "catalog:",
     "mermaid": "^11.15.0",
+    "js-yaml": "^4.3.0",
+    "semver": "^7.7.4",
     "starlight-llms-txt": "^0.11.0",
     "starlight-typedoc": "^0.23.0",
     "tailwindcss": "catalog:",
@@ -72,6 +80,8 @@
           "{projectRoot}/astro.config.ts",
           "{projectRoot}/src/**/*",
           "{projectRoot}/public/**/*",
+          "{projectRoot}/prompts/**/*",
+          "{projectRoot}/tools/prompts/**/*",
           {
             "externalDependencies": [
               "astro"
@@ -111,6 +121,8 @@
           "{projectRoot}/astro.config.ts",
           "{projectRoot}/src/**/*",
           "{projectRoot}/public/**/*",
+          "{projectRoot}/prompts/**/*",
+          "{projectRoot}/tools/prompts/**/*",
           {
             "externalDependencies": [
               "astro"
@@ -143,8 +155,21 @@
           "^build"
         ]
       },
+      "prompts-check": {
+        "executor": "nx:run-commands",
+        "cache": true,
+        "inputs": [
+          "{projectRoot}/prompts/library/**/*",
+          "{projectRoot}/tools/prompts/**/*",
+          "{workspaceRoot}/bun.lock"
+        ],
+        "options": {
+          "cwd": "{projectRoot}",
+          "command": "bun run prompts:check"
+        }
+      },
       "test": {
-        "command": "bun test src",
+        "command": "bun test src tools/prompts",
         "options": {
           "cwd": "{projectRoot}"
         }
