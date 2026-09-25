@@ -64,6 +64,8 @@ describe('canonical prompt source', () => {
     expect(prompts.map(({ metadata }) => metadata.id).sort()).toEqual([
       'maelstrom-debugging',
       'maelstrom-project-onboarding',
+      'maelstrom-react-conversion',
+      'maelstrom-react-inventory',
       'maelstrom-vessel-modeling',
     ]);
   });
