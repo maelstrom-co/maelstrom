@@ -4,6 +4,8 @@ import { MessageId, SessionId } from '@maelstrom-co/protocol';
 import type { ActionParameterEnumSnapshot } from '../action-parameter-enum.js';
 import { buildActionParameterEnumSnapshot } from '../action-parameter-enum.js';
 import type { Logger } from '../logger.js';
+import type { Instrument } from '../planner/instrument.js';
+import { noopInstrument } from '../planner/instrument.js';
 import type {
   PlanningInput,
   StageContext,
@@ -54,14 +56,15 @@ export function makePlanningInput(
 
 /**
  * Builds a context the way the Engine does: `validate` runs the real Engine
- * validator against `origin.request` and `enumSnapshot` is the snapshot it
- * checks against. Either can be overridden; pass `enumSnapshot: undefined`
+ * validator against `origin.request`, `enumSnapshot` is the snapshot it
+ * checks against and `instrument` is `noopInstrument`. Each can be overridden; pass `enumSnapshot: undefined`
  * for a context without one.
  */
 export function makeStageContext(
   overrides: {
     readonly origin?: PlanningInput;
     readonly logger?: Logger;
+    readonly instrument?: Instrument;
     readonly signal?: AbortSignal;
     readonly validate?: ValidateCandidate;
     readonly enumSnapshot?: ActionParameterEnumSnapshot;
@@ -76,6 +79,7 @@ export function makeStageContext(
   return {
     origin,
     logger,
+    instrument: overrides.instrument ?? noopInstrument,
     signal: overrides.signal,
     validate:
       overrides.validate ??

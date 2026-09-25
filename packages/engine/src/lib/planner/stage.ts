@@ -16,6 +16,7 @@ import type {
   PlannerCandidate,
   ValidatedCandidate,
 } from './candidate.js';
+import type { Instrument } from './instrument.js';
 
 /**
  * What the Engine hands the first stage of a {@link Planner} for one
@@ -76,6 +77,13 @@ export interface StageContext {
   readonly signal?: AbortSignal;
   /** The Engine's logger. Log through it so stage logs share the Engine's sink and redaction. */
   readonly logger: Logger;
+  /**
+   * The Engine's telemetry seam. {@link pipeline} wraps every stage with it;
+   * a stage reports what happens inside it (for example a model call) with
+   * `instrument.event`. The Engine always sets it, to a no-op when none is
+   * configured; combinators that derive a context must forward it unchanged.
+   */
+  readonly instrument: Instrument;
   /** The untouched input the Engine passed to the first stage. */
   readonly origin: PlanningInput;
   /** Heals and validates a candidate against the request in {@link StageContext.origin}. */

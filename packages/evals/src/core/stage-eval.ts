@@ -3,6 +3,7 @@ import type { ParseArgsOptionDescriptor } from 'node:util';
 import {
   isDeferred,
   type Logger,
+  noopInstrument,
   type PlanningInput,
   type Stage,
   type StageContext,
@@ -373,6 +374,7 @@ function stageContext(origin: PlanningInput, logger: Logger): StageContext {
   return {
     origin,
     logger,
+    instrument: noopInstrument,
     validate: () => {
       throw new Error('the stage eval validates no candidate');
     },

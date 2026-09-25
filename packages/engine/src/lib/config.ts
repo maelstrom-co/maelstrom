@@ -1,6 +1,8 @@
 import type { HistoryConfig } from './history/history-manager.js';
 import type { Logger } from './logger.js';
 import { consoleLogger } from './logger.js';
+import type { Instrument } from './planner/instrument.js';
+import { noopInstrument } from './planner/instrument.js';
 import type { Planner } from './planner/stage.js';
 import type { WithRetryOptions } from './planner/with-retry.js';
 
@@ -24,6 +26,13 @@ export interface EngineConfig {
    */
   readonly history?: HistoryConfig;
   /**
+   * Optional telemetry seam (defaults to `noopInstrument`). Stages receive it
+   * as `StageContext.instrument`; `pipeline` wraps every stage with
+   * `instrument.stage` per request, and stages report model calls and other
+   * events through `instrument.event`.
+   */
+  readonly instrument?: Instrument;
+  /**
    * Retry policy the Engine wraps around {@link EngineConfig.planner} with
    * `withRetry`. `{ max }` re-runs the planner up to `max` times while
    * healing recommends a retry (`max` is a non-negative integer). `false`
@@ -43,6 +52,8 @@ export interface ResolvedEngineConfig {
   readonly logger: Logger;
   /** The configured history, or `undefined` when history is off. */
   readonly history: HistoryConfig | undefined;
+  /** The configured instrument, or {@link noopInstrument}. */
+  readonly instrument: Instrument;
   /** The configured retry policy, or `{ max: 1 }`. */
   readonly retry: WithRetryOptions | false;
 }
@@ -52,7 +63,8 @@ const DEFAULT_RETRY: WithRetryOptions = { max: 1 };
 /**
  * Applies Engine defaults without cloning configured dependencies.
  *
- * The logger defaults to {@link consoleLogger} and `retry` to `{ max: 1 }`;
+ * The logger defaults to {@link consoleLogger}, the instrument to
+ * {@link noopInstrument} and `retry` to `{ max: 1 }`;
  * history remains optional.
  */
 export function resolveConfig(config: EngineConfig): ResolvedEngineConfig {
@@ -60,6 +72,7 @@ export function resolveConfig(config: EngineConfig): ResolvedEngineConfig {
     planner: config.planner,
     logger: config.logger ?? consoleLogger,
     history: config.history,
+    instrument: config.instrument ?? noopInstrument,
     retry: config.retry ?? DEFAULT_RETRY,
   };
 }

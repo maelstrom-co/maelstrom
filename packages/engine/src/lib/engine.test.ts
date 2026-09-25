@@ -31,6 +31,8 @@ import { providerError } from './errors.js';
 import type { HistoryEntry, HistoryStore } from './history/history-store.js';
 import { createInMemoryStore } from './history/in-memory-store.js';
 import type { PlannerCandidate } from './planner/candidate.js';
+import type { Instrument, InstrumentAttributes } from './planner/instrument.js';
+import { named, noopInstrument } from './planner/instrument.js';
 import { pipeline } from './planner/pipeline.js';
 import type {
   Planner,
@@ -1000,6 +1002,44 @@ describe('engine.handle with a configured planner', () => {
     });
     expect(contexts[0]?.origin).toBe(inputs[0]);
     expect(contexts[0]?.logger).toBe(logger);
+    expect(contexts[0]?.instrument).toBe(noopInstrument);
+  });
+
+  test('hands the configured instrument to the stages, which wraps each stage and receives their events', async () => {
+    const stageNames: string[] = [];
+    const events: { name: string; attributes: InstrumentAttributes }[] = [];
+    const instrument: Instrument = {
+      stage: (name, stage) => {
+        stageNames.push(name);
+        return stage;
+      },
+      event: (name, attributes) => events.push({ name, attributes }),
+    };
+    const planner = pipeline(
+      named('select', async (_input: PlanningInput, ctx: StageContext) => {
+        ctx.instrument.event('test.call', { 'maelstrom.stage': 'select' });
+        return ok('selection');
+      }),
+      named('layout', async (_input: string) =>
+        ok(buildGridResponse({ userMessage: 'instrumented' })),
+      ),
+    );
+    const engine = createEngine({
+      planner,
+      logger: silentLogger,
+      instrument,
+      retry: false,
+    });
+
+    const result = await engine.handle(
+      toChartRequestMessage(makeGridRequest()),
+    );
+
+    expect(isOk(result)).toBe(true);
+    expect(stageNames).toEqual(['select', 'layout']);
+    expect(events).toEqual([
+      { name: 'test.call', attributes: { 'maelstrom.stage': 'select' } },
+    ]);
   });
 
   test('composes stages with pipeline and feeds prior history to the first', async () => {
