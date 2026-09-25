@@ -38,6 +38,13 @@ jobs:
           bun-version-file: .bun-version
       - run: bun install --frozen-lockfile
 
+      - name: Validate canonical prompt sources and versions
+        if: github.event_name == 'pull_request'
+        env:
+          PROMPT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PROMPT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: cd apps/docs && bun run prompts:check -- "$PROMPT_BASE_SHA" "$PROMPT_HEAD_SHA"
+
       # Vale scans the complete authored corpus. Reviewdog must not hide errors
       # outside the pull request diff when a rule or configuration changes.
       - name: Select authored documentation
