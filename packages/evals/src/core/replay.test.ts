@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { deferred, pipeline, type Stage } from '@maelstrom-co/engine';
+import { deferred, named, pipeline, type Stage } from '@maelstrom-co/engine';
 import { err, isErr, isOk, ok } from '@maelstrom-co/protocol';
 import {
   fakePluginWith,
@@ -83,10 +83,10 @@ describe('replayStage', () => {
       seen.push(value);
       return err(deferred('write/action_limit'));
     };
-    await pipeline(
-      recorder.instrument('pick', liveSelect),
-      recorder.instrument('write', liveActions),
-    )(input, ctx);
+    await pipeline(named('pick', liveSelect), named('write', liveActions))(
+      input,
+      makeContext(input, recorder.instrument),
+    );
     expect(liveSelectRan).toBe(false);
     expect(seen).toEqual([{ picked: 'select' }]);
     expect(recorder.stages).toMatchObject([

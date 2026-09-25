@@ -1,5 +1,6 @@
 import {
   createEngine,
+  type Instrument,
   type Logger,
   type Planner,
   type PlannerCandidate,
@@ -317,10 +318,16 @@ async function runTurn(
   const planner = arm.build({
     adapter,
     fallback: counted,
-    instrument: recorder.instrument,
     onCall: recorder.onCall,
   });
-  const turn = await handle(options, scenario, repeat, arm.name, planner);
+  const turn = await handle(
+    options,
+    scenario,
+    repeat,
+    arm.name,
+    planner,
+    recorder.instrument,
+  );
   const owned: RunRecord = {
     ...base(scenario, repeat, registered, turn),
     llmCalls,
@@ -397,6 +404,7 @@ async function handle(
   repeat: number,
   arm: string,
   planner: Planner,
+  instrument: Instrument,
 ): Promise<Turn> {
   const withHistory: Planner = (input, ctx) =>
     planner(
@@ -407,6 +415,7 @@ async function handle(
     planner: withHistory,
     retry: false,
     logger: options.logger ?? silent,
+    instrument,
   });
   const started = performance.now();
   const result = await engine.handle(

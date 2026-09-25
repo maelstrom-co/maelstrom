@@ -29,15 +29,6 @@ export function isPhase(name: string): name is Phase {
 }
 
 /**
- * Wraps a pipeline stage so the runner records it under `name`, replays it
- * when a recorded run is replayed, and reports its latency.
- */
-export type Instrument = <In, Out>(
-  name: string,
-  stage: Stage<In, Out>,
-) => Stage<In, Out>;
-
-/**
  * What the runner needs of every call an arm's own provider client makes,
  * so the report can count calls, latency and tokens without knowing the
  * provider. A plugin's call type extends it with whatever else it records.
@@ -59,8 +50,6 @@ export interface ArmDeps<Call extends ProviderCall = ProviderCall> {
   adapter(role: LlmRole): AnyTextAdapter;
   /** The fallback planner, counted by the runner; staged arms run it on a deferral. */
   readonly fallback: Stage<Retryable<PlanningInput>, PlannerCandidate>;
-  /** Wraps every stage, for recording and replay. */
-  readonly instrument: Instrument;
   /** Records one call of the arm's own provider client, for the plugin's `recordTurn`. */
   onCall(call: Call): void;
 }
@@ -78,7 +67,11 @@ export interface Arm<Call extends ProviderCall = ProviderCall> {
   readonly kind?: string;
   /** Environment variables the arm needs; the CLI refuses to run without them. */
   readonly requiredEnv?: readonly string[];
-  /** The planner for one turn. Every stage it wants recorded goes through `deps.instrument`. */
+  /**
+   * The planner for one turn. The runner records and replays the stages of
+   * its pipelines through the Engine's `instrument`, under the names given
+   * with the engine's `named`.
+   */
   build(deps: ArmDeps<Call>): Planner;
 }
 
@@ -152,7 +145,7 @@ export interface PlannerEvalPlugin<
   readonly defaultArms?: readonly string[];
   /** Other names `--arm` accepts, alias to arm name. */
   readonly aliases?: Readonly<Record<string, string>>;
-  /** The pipeline's stage names in order, as the arms hand them to `instrument`. */
+  /** The pipeline's stage names in order, as the arms name them with `named`. */
   readonly stageOrder?: readonly StageName[];
   /**
    * The stage of `stageOrder` each planner-neutral phase maps to, for the

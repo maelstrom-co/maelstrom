@@ -12,7 +12,6 @@ import {
   completeLayoutInline,
   completeLayoutParallel,
   createJevDeps,
-  type Instrument,
   type JevCall,
   type JevDeps,
   type JevStages,
@@ -52,22 +51,20 @@ export function jevArms(typesafe: TypeSafeSettings): readonly JevArm[] {
   const library = (
     name: string,
     replayShape: ReplayShape,
-    build: (deps: JevDeps, instrument: Instrument) => Planner,
+    build: (deps: JevDeps) => Planner,
   ): JevArm => ({
     name,
     kind: 'jev',
     requiredEnv: JEV_ENV,
     replayShape,
-    build: (deps) => build(jevDeps(typesafe, deps), deps.instrument),
+    build: (deps) => build(jevDeps(typesafe, deps)),
   });
   const stagePlanner = <Selected extends Selection2>(
     name: string,
     replayShape: ReplayShape,
     stages: JevStages<Selected>,
   ): JevArm =>
-    library(name, replayShape, (deps, instrument) =>
-      buildJevStagePlanner(stages, deps, instrument),
-    );
+    library(name, replayShape, (deps) => buildJevStagePlanner(stages, deps));
   return [
     {
       name: 'jev-poc',
@@ -75,14 +72,11 @@ export function jevArms(typesafe: TypeSafeSettings): readonly JevArm[] {
       requiredEnv: JEV_ENV,
       replayShape: 'poc',
       build: (deps) =>
-        buildJevPlanner(
-          {
-            typesafe: { ...typesafe(), onCall: deps.onCall },
-            adapter: deps.adapter('complete'),
-            fallback: deps.fallback,
-          },
-          deps.instrument,
-        ),
+        buildJevPlanner({
+          typesafe: { ...typesafe(), onCall: deps.onCall },
+          adapter: deps.adapter('complete'),
+          fallback: deps.fallback,
+        }),
     },
     library(
       'jev-ungated-stepwise-preset-inline',

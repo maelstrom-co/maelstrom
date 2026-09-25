@@ -1,4 +1,5 @@
 import {
+  type Instrument,
   type Logger,
   noopInstrument,
   type PlanningInput,
@@ -76,11 +77,14 @@ export const silentLogger: Logger = {
   error() {},
 };
 
-export function makeContext(input: PlanningInput): StageContext {
+export function makeContext(
+  input: PlanningInput,
+  instrument: Instrument = noopInstrument,
+): StageContext {
   return {
     origin: input,
     logger: silentLogger,
-    instrument: noopInstrument,
+    instrument,
     validate: () => {
       throw new Error('the core tests validate no candidate');
     },
