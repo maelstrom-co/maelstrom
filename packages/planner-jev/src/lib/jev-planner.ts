@@ -1,4 +1,5 @@
 import {
+  named,
   type Planner,
   type PlannerCandidate,
   type PlanningInput,
@@ -10,7 +11,6 @@ import {
 } from '@maelstrom-co/engine';
 import type { AnyTextAdapter } from '@tanstack/ai';
 
-import type { StageName } from './defer.js';
 import { logTurns } from './log-turn.js';
 import { jevActions } from './stages/jev-actions.js';
 import { jevLayout } from './stages/jev-layout.js';
@@ -60,21 +60,15 @@ export interface JevPlannerOptions {
   readonly fallback: Stage<Retryable<PlanningInput>, PlannerCandidate>;
 }
 
-/** Wraps each stage of the composition, for instrumentation. */
-export type Instrument = <In, Out>(
-  name: StageName,
-  stage: Stage<In, Out>,
-) => Stage<In, Out>;
-
 /**
- * Builds the composition with an instrumentation hook and the TypeSafe
- * client's call hook. {@link jevPlanner} is this without instrumentation.
+ * Builds the composition from TypeSafe client options, which may carry the
+ * client's call hook. Stages are named for `StageContext.instrument`.
+ * {@link jevPlanner} is this with the public options.
  */
 export function buildJevPlanner(
   options: Omit<JevPlannerOptions, 'typesafe'> & {
     readonly typesafe: TypeSafeClientOptions;
   },
-  instrument: Instrument = (_name, stage) => stage,
 ): Planner {
   if (typeof options.fallback !== 'function')
     throw new Error('Invalid JevPlannerOptions: fallback must be a stage');
@@ -83,10 +77,10 @@ export function buildJevPlanner(
   const ask = createTypeSafeClient(options.typesafe);
   return withFallback(
     pipeline(
-      instrument('jevSelect', jevSelect(ask)),
-      instrument('jevActions', jevActions(ask)),
-      instrument('jevLayout', jevLayout(ask)),
-      instrument(
+      named('jevSelect', jevSelect(ask)),
+      named('jevActions', jevActions(ask)),
+      named('jevLayout', jevLayout(ask)),
+      named(
         'llmComplete',
         llmComplete({
           adapter: options.adapter,

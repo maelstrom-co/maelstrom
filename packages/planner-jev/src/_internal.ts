@@ -6,11 +6,7 @@
  */
 export { demoVessels } from './lib/__test-helpers__/demo-vessels.js';
 export { type JevCaller, STAGE_NAMES, type StageName } from './lib/defer.js';
-export {
-  buildJevPlanner,
-  FALLBACK_RETRIES,
-  type Instrument,
-} from './lib/jev-planner.js';
+export { buildJevPlanner, FALLBACK_RETRIES } from './lib/jev-planner.js';
 export { type LeafRect, layoutFits, treeRects } from './lib/layout-fit.js';
 export { buildJevComposedPairsPlanner } from './lib/planners/jev-composed-pairs.js';
 export {

@@ -1,11 +1,12 @@
 import {
+  named,
   type Planner,
   pipeline,
   withFallback,
   withRetry,
 } from '@maelstrom-co/engine';
 
-import { FALLBACK_RETRIES, type Instrument } from '../jev-planner.js';
+import { FALLBACK_RETRIES } from '../jev-planner.js';
 import { actionsBatchedPerInstance } from '../stages/actions-batched-per-instance.js';
 import { completeLayoutInline } from '../stages/complete-layout-inline.js';
 import type { JevDeps } from '../stages/stage-deps.js';
@@ -18,14 +19,13 @@ import { selectUngated } from '../stages-experimental/select-ungated.js';
  */
 export function buildJevUngatedBatchedPerInstancePlanner(
   deps: JevDeps,
-  instrument: Instrument = (_name, stage) => stage,
 ): Planner {
   return withFallback(
     pipeline(
-      instrument('jevSelect', selectUngated(deps.ask)),
-      instrument('jevActions', actionsBatchedPerInstance(deps.ask)),
-      instrument('jevLayout', layoutPreset(deps.ask)),
-      instrument('llmComplete', completeLayoutInline(deps.llm)),
+      named('jevSelect', selectUngated(deps.ask)),
+      named('jevActions', actionsBatchedPerInstance(deps.ask)),
+      named('jevLayout', layoutPreset(deps.ask)),
+      named('llmComplete', completeLayoutInline(deps.llm)),
     ),
     withRetry(deps.fallback, { max: FALLBACK_RETRIES }),
   );
