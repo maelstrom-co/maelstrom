@@ -5,7 +5,7 @@ import {
   type VariantName,
   type VesselAction,
 } from '@maelstrom-co/protocol';
-import { deferAt } from '../defer.js';
+import { deferAt, STAGE_NAME } from '../defer.js';
 import {
   bindParameterChoices,
   enumSnapshotOf,
@@ -32,7 +32,7 @@ import { askInChunks, type FanOutOptions } from './fan-out.js';
 import { MAX_ACTIONS } from './jev-actions.js';
 import type { ActionsStage, Selection2 } from './stage-types.js';
 
-const STAGE = 'jevActions';
+const STAGE = STAGE_NAME.jevActions;
 
 /** Overrides for the call the stage splits its questions over. */
 export type ActionsBatchedPerInstanceOptions = FanOutOptions;

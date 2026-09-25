@@ -10,6 +10,7 @@ import {
   type JevCall,
   type LayoutStage,
   layoutPreset,
+  STAGE_NAME,
   selectUngated,
 } from '@maelstrom-co/planner-jev/_internal';
 import {
@@ -482,10 +483,10 @@ const handOffArm = (typesafe: TypeSafeSettings): JevArm => ({
     };
     return withFallback(
       pipeline(
-        named('jevSelect', selectUngated(jev.ask)),
-        named('jevActions', actionsStepwise(jev.ask)),
-        named('jevLayout', handOff),
-        named('llmComplete', completeLayoutInline(jev.llm)),
+        named(STAGE_NAME.jevSelect, selectUngated(jev.ask)),
+        named(STAGE_NAME.jevActions, actionsStepwise(jev.ask)),
+        named(STAGE_NAME.jevLayout, handOff),
+        named(STAGE_NAME.llmComplete, completeLayoutInline(jev.llm)),
       ),
       withRetry(jev.fallback, { max: FALLBACK_RETRIES }),
     );

@@ -32,7 +32,7 @@ import {
   type DeclaredVariants,
   declaredVariants,
 } from '../declared-variants.js';
-import { deferAt } from '../defer.js';
+import { deferAt, STAGE_NAME } from '../defer.js';
 import { layoutFits } from '../layout-fit.js';
 import { intentText, recentHistory } from '../questions.js';
 import type {
@@ -43,7 +43,7 @@ import type {
 import type { CompletionLlm } from './stage-deps.js';
 import type { CompleteStage, LayoutDecision } from './stage-types.js';
 
-const STAGE = 'llmComplete';
+const STAGE = STAGE_NAME.llmComplete;
 
 const SYSTEM_PROMPT = `You write the reply of a dashboard assistant after its planner already decided what to change.
 - Describe only what was decided, in one or two short, friendly sentences that read well aloud.

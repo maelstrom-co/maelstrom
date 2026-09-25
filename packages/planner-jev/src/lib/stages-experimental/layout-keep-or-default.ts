@@ -1,10 +1,10 @@
 import { finalVariants } from '@maelstrom-co/engine';
 import { isErr, ok, type VesselInstanceSnapshot } from '@maelstrom-co/protocol';
-import { deferAt } from '../defer.js';
+import { deferAt, STAGE_NAME } from '../defer.js';
 import { layoutChoices } from '../layouts.js';
 import type { LayoutStage } from '../stages/stage-types.js';
 
-const STAGE = 'jevLayout';
+const STAGE = STAGE_NAME.jevLayout;
 
 /**
  * Keeps the current tree when it still fits the visible set, otherwise

@@ -1,4 +1,4 @@
-import { STAGE_NAMES } from '@maelstrom-co/planner-jev/_internal';
+import { STAGE_NAME, STAGE_NAMES } from '@maelstrom-co/planner-jev/_internal';
 import type { ArmSummaryExtension, ReportRow } from '../../core/plugin.js';
 import {
   type ArmSummary,
@@ -84,7 +84,9 @@ export function jevSummary(
     ...(gates && { gates }),
     arrangementReachedLayout: {
       count: ruled.filter((record) =>
-        (record.stages ?? []).some((entry) => entry.stage === 'jevLayout'),
+        (record.stages ?? []).some(
+          (entry) => entry.stage === STAGE_NAME.jevLayout,
+        ),
       ).length,
       total: ruled.length,
     },
@@ -216,7 +218,8 @@ function gateSummary(
   const answered = (question: string) =>
     records.flatMap((record) => {
       const answer = record.answers?.find(
-        (entry) => entry.stage === 'jevSelect' && entry.question === question,
+        (entry) =>
+          entry.stage === STAGE_NAME.jevSelect && entry.question === question,
       );
       return answer ? [{ record, yes: answer.choice === 'yes' }] : [];
     });

@@ -8,7 +8,7 @@ import {
   withRetry,
 } from '@maelstrom-co/engine';
 import { isErr, ok } from '@maelstrom-co/protocol';
-
+import { STAGE_NAME } from '../defer.js';
 import { FALLBACK_RETRIES } from '../jev-planner.js';
 import type { CompletionLlm, JevDeps } from '../stages/stage-deps.js';
 import type {
@@ -53,10 +53,13 @@ export function buildJevStagePlanner<Selected extends Selection2>(
 ): Planner {
   return withFallback(
     pipeline(
-      named('jevSelect', stages.select(deps.ask)),
-      named('jevActions', keepingGates<Selected>(stages.actions(deps.ask))),
-      named('jevLayout', stages.layout(deps.ask)),
-      named('llmComplete', stages.complete(deps.llm)),
+      named(STAGE_NAME.jevSelect, stages.select(deps.ask)),
+      named(
+        STAGE_NAME.jevActions,
+        keepingGates<Selected>(stages.actions(deps.ask)),
+      ),
+      named(STAGE_NAME.jevLayout, stages.layout(deps.ask)),
+      named(STAGE_NAME.llmComplete, stages.complete(deps.llm)),
     ),
     withRetry(deps.fallback, { max: FALLBACK_RETRIES }),
   );

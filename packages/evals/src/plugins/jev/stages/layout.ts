@@ -12,6 +12,7 @@ import {
   layoutFits,
   layoutPreset,
   layoutPresetOrLlm,
+  STAGE_NAME,
 } from '@maelstrom-co/planner-jev/_internal';
 import {
   getVisibleInstanceIds,
@@ -139,7 +140,7 @@ export function layoutModuleWith(
   const typesafe = options.typesafe ?? typesafeSettings();
   return {
     name: 'layout',
-    stage: 'jevLayout',
+    stage: STAGE_NAME.jevLayout,
     provider: 'Jev',
     requiredEnv: TYPESAFE_ENV,
     variants: LAYOUT_VARIANTS,

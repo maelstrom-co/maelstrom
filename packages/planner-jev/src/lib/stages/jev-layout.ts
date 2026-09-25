@@ -1,7 +1,7 @@
 import type { Stage } from '@maelstrom-co/engine';
 import { finalVariants } from '@maelstrom-co/engine';
 import { isErr, ok } from '@maelstrom-co/protocol';
-import { deferAt } from '../defer.js';
+import { deferAt, STAGE_NAME } from '../defer.js';
 import { type LayoutChoicesOptions, layoutChoices } from '../layouts.js';
 import {
   type ConfidencePolicy,
@@ -12,7 +12,7 @@ import {
 import type { JevActionPlan, JevLayoutPlan } from '../types.js';
 import type { Ask } from '../typesafe-client.js';
 
-const STAGE = 'jevLayout';
+const STAGE = STAGE_NAME.jevLayout;
 
 /**
  * Lets Jev pick a tiling tree for the visible instances among candidates

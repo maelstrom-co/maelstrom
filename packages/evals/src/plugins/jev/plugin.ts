@@ -1,5 +1,6 @@
 import {
   type JevCall,
+  STAGE_NAME,
   STAGE_NAMES,
   type StageName,
   type TypeSafeClientOptions,
@@ -16,9 +17,9 @@ import { typesafeSettings } from './typesafe-settings.js';
 
 /** The stage each planner-neutral phase maps to in the Jev pipeline. */
 export const JEV_PHASES = {
-  select: 'jevSelect',
-  actions: 'jevActions',
-  layout: 'jevLayout',
+  select: STAGE_NAME.jevSelect,
+  actions: STAGE_NAME.jevActions,
+  layout: STAGE_NAME.jevLayout,
 } as const satisfies Readonly<Record<Phase, StageName>>;
 
 /** What {@link jevPluginWith} takes: TypeSafe settings, for tests that script the transport. */
@@ -44,7 +45,7 @@ export function jevPluginWith(
     aliases: { jev: 'jev-poc' },
     stageOrder: STAGE_NAMES,
     phases: JEV_PHASES,
-    completionStage: 'llmComplete',
+    completionStage: STAGE_NAME.llmComplete,
     meta: () => ({ jevModel: typesafe().model }),
     verifyReplay: (record, arm) =>
       shapeProblems(replayShapeOf(arms, arm.name), record),
@@ -81,9 +82,15 @@ export function shapeProblems(
   };
   const problems: string[] = [];
   if (shape === 'poc') return problems;
-  if (record.stage === 'jevActions' && typeof output.minConfidence !== 'number')
+  if (
+    record.stage === STAGE_NAME.jevActions &&
+    typeof output.minConfidence !== 'number'
+  )
     problems.push('has no minConfidence');
-  if (record.stage !== 'jevSelect' && record.stage !== 'jevActions')
+  if (
+    record.stage !== STAGE_NAME.jevSelect &&
+    record.stage !== STAGE_NAME.jevActions
+  )
     return problems;
   if (shape === 'ungated' && output.gates !== undefined)
     problems.push('carries gates this ungated arm would act on');

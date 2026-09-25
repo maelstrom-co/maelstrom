@@ -1,10 +1,11 @@
-import type {
-  AnswerRecord,
-  JevActionPlan,
-  JevCall,
-  JevCaller,
-  LayoutSource,
-  Selection2,
+import {
+  type AnswerRecord,
+  type JevActionPlan,
+  type JevCall,
+  type JevCaller,
+  type LayoutSource,
+  type Selection2,
+  STAGE_NAME,
 } from '@maelstrom-co/planner-jev/_internal';
 import type { TilingNode } from '@maelstrom-co/protocol';
 import type { StageRecord } from '../../core/instrument.js';
@@ -87,9 +88,9 @@ export function jevTurnFields(
   const outputOf = <T>(stage: string) =>
     stages.find((record) => record.stage === stage && record.outcome === 'ok')
       ?.output as T | undefined;
-  const selection = outputOf<Selection2>('jevSelect');
-  const actions = outputOf<JevActionPlan>('jevActions');
-  const layout = outputOf<LayoutOutput>('jevLayout');
+  const selection = outputOf<Selection2>(STAGE_NAME.jevSelect);
+  const actions = outputOf<JevActionPlan>(STAGE_NAME.jevActions);
+  const layout = outputOf<LayoutOutput>(STAGE_NAME.jevLayout);
   const fill = actions && fillOf(actions, stages);
   const consumed: AnswerRecord[] = [
     ...(selection?.answers ?? []),
@@ -172,7 +173,9 @@ function fillOf(
   actions: JevActionPlan,
   stages: readonly StageRecord[],
 ): { slots: number; filled: number } | undefined {
-  const complete = stages.find((record) => record.stage === 'llmComplete');
+  const complete = stages.find(
+    (record) => record.stage === STAGE_NAME.llmComplete,
+  );
   if (complete === undefined || complete.outcome === 'error') return undefined;
   const slots = actions.actions.reduce(
     (count, action) => count + action.pending.length,

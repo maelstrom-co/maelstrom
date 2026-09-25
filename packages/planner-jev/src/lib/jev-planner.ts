@@ -10,7 +10,7 @@ import {
   withRetry,
 } from '@maelstrom-co/engine';
 import type { AnyTextAdapter } from '@tanstack/ai';
-
+import { STAGE_NAME } from './defer.js';
 import { logTurns } from './log-turn.js';
 import { jevActions } from './stages/jev-actions.js';
 import { jevLayout } from './stages/jev-layout.js';
@@ -77,11 +77,11 @@ export function buildJevPlanner(
   const ask = createTypeSafeClient(options.typesafe);
   return withFallback(
     pipeline(
-      named('jevSelect', jevSelect(ask)),
-      named('jevActions', jevActions(ask)),
-      named('jevLayout', jevLayout(ask)),
+      named(STAGE_NAME.jevSelect, jevSelect(ask)),
+      named(STAGE_NAME.jevActions, jevActions(ask)),
+      named(STAGE_NAME.jevLayout, jevLayout(ask)),
       named(
-        'llmComplete',
+        STAGE_NAME.llmComplete,
         llmComplete({
           adapter: options.adapter,
           ...(options.modelOptions !== undefined && {

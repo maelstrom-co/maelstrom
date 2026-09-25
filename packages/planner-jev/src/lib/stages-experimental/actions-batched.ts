@@ -12,7 +12,7 @@ import {
   type VariantName,
   type VesselAction,
 } from '@maelstrom-co/protocol';
-import { deferAt } from '../defer.js';
+import { deferAt, STAGE_NAME } from '../defer.js';
 import {
   bindParameterChoices,
   enumSnapshotOf,
@@ -39,7 +39,7 @@ import type {
 } from '../types.js';
 import type { Ask } from '../typesafe-client.js';
 
-const STAGE = 'jevActions';
+const STAGE = STAGE_NAME.jevActions;
 
 /** Questions the first call of {@link actionsBatched} asks at most. */
 export const MAX_BATCH_QUESTIONS = 48;
