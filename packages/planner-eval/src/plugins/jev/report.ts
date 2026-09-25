@@ -1,4 +1,4 @@
-import { STAGE_NAMES } from '@maelstrom-co/planner-jev/_eval';
+import { STAGE_NAMES } from '@maelstrom-co/planner-jev/_internal';
 import type { ArmSummaryExtension, ReportRow } from '../../core/plugin.js';
 import {
   type ArmSummary,

@@ -4,7 +4,7 @@ import {
   type Evaluation,
   isScoreAnswer,
   score,
-} from '@maelstrom-co/planner-jev/_eval';
+} from '@maelstrom-co/planner-jev/_internal';
 import { isErr } from '@maelstrom-co/protocol';
 import type { GraderCall } from '../../core/grader.js';
 import type { Judge, JudgeAnswer } from '../../core/plugin.js';

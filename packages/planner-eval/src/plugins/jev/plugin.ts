@@ -3,7 +3,7 @@ import {
   STAGE_NAMES,
   type StageName,
   type TypeSafeClientOptions,
-} from '@maelstrom-co/planner-jev/_eval';
+} from '@maelstrom-co/planner-jev/_internal';
 import type { StageRecord } from '../../core/instrument.js';
 import type { Phase, PlannerEvalPlugin } from '../../core/plugin.js';
 import { registerStageEval } from '../../core/stage-eval.js';

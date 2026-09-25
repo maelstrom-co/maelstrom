@@ -3,7 +3,10 @@ import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 
-import { FALLBACK_RETRIES, STAGE_NAMES } from '@maelstrom-co/planner-jev/_eval';
+import {
+  FALLBACK_RETRIES,
+  STAGE_NAMES,
+} from '@maelstrom-co/planner-jev/_internal';
 import type { StageRecord } from '../../core/instrument.js';
 import { summarize } from '../../core/report.js';
 import { RUN_RECORD_FIELDS, type RunRecord } from '../../core/run.js';

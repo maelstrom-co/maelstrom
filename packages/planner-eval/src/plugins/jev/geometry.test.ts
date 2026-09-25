@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { treeRects as plannerTreeRects } from '@maelstrom-co/planner-jev/_eval';
+import { treeRects as plannerTreeRects } from '@maelstrom-co/planner-jev/_internal';
 import { demoVessels as plannerDemoVessels } from '@maelstrom-co/planner-jev/_testing';
 import type { TilingNode } from '@maelstrom-co/protocol';
 import { demoVessels } from '../../core/fixtures/demo-vessels.js';

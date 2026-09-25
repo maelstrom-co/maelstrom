@@ -5,7 +5,7 @@ import type {
   JevCaller,
   LayoutSource,
   Selection2,
-} from '@maelstrom-co/planner-jev/_eval';
+} from '@maelstrom-co/planner-jev/_internal';
 import type { TilingNode } from '@maelstrom-co/protocol';
 import type { StageRecord } from '../../core/instrument.js';
 import type { RunRecord } from '../../core/run.js';
