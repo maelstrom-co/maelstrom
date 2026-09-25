@@ -35,7 +35,7 @@ const unusedAdapter = {
 } as unknown as AnyTextAdapter;
 
 async function outDir() {
-  const out = await mkdtemp(join(tmpdir(), 'planner-eval-core-'));
+  const out = await mkdtemp(join(tmpdir(), 'evals-core-'));
   dirs.push(out);
   return out;
 }

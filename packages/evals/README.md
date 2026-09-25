@@ -1,4 +1,4 @@
-# @maelstrom-co/planner-eval
+# @maelstrom-co/evals
 
 Live evals for Maelstrom planners. Workspace-internal: the package is private, has no build and runs with `bun`. It depends on `@maelstrom-co/planner-jev` (through its `_internal` and `_testing` subpaths), `@maelstrom-co/planner-llm`, `@maelstrom-co/engine` and `@maelstrom-co/protocol`; nothing depends on it.
 
@@ -33,7 +33,7 @@ Bun resolves workspace packages to their built `dist/` unless told otherwise, so
 
 ```sh
 OPENAI_API_KEY=... TYPESAFE_API_KEY=... JEV_MODEL=jev-1.13.0 \
-  bunx nx run @maelstrom-co/planner-eval:eval -- --suite all --arm baseline --arm jev-poc --repeats 3
+  bunx nx run @maelstrom-co/evals:eval -- --suite all --arm baseline --arm jev-poc --repeats 3
 ```
 
 | Flag | Default | Meaning |
@@ -43,7 +43,7 @@ OPENAI_API_KEY=... TYPESAFE_API_KEY=... JEV_MODEL=jev-1.13.0 \
 | `--repeats` | `3` | Runs per scenario and arm. |
 | `--case` | every case | A scenario id; repeat the flag for several. |
 | `--model` | the demo's default | OpenAI model for the baseline, `llmComplete` and the fallback. |
-| `--out` | `tmp/planner-eval/<timestamp>` | Output directory (`tmp` is gitignored). |
+| `--out` | `tmp/evals/<timestamp>` | Output directory (`tmp` is gitignored). |
 | `--verbose` | off | Logs the Engine and every Jev call to the console. |
 | `--replay-from` | none | A previous run's output directory to replay upstream stages from. Needs `--replay-through`. |
 | `--replay-through` | none | `select`, `actions` or `layout`: every staged arm replays its plugin's stages up to and including the one mapped to this phase from the recorded run, and runs the rest live. |
@@ -61,7 +61,7 @@ Each staged turn writes its stages' inputs and outputs to `<out>/stages/<arm>/<s
 
 ```sh
 # from the workspace root, so Bun loads .env (TYPESAFE_API_KEY and JEV_MODEL; no OpenAI key is needed)
-bun --conditions=@maelstrom-co/source packages/planner-eval/src/eval-stages/cli.ts --stage layout --variant preset-or-llm --variant composed-pairs --suite development --repeats 3 --out tmp/planner-eval/<name>
+bun --conditions=@maelstrom-co/source packages/evals/src/eval-stages/cli.ts --stage layout --variant preset-or-llm --variant composed-pairs --suite development --repeats 3 --out tmp/evals/<name>
 ```
 
 | Flag | Default | Meaning |
@@ -72,7 +72,7 @@ bun --conditions=@maelstrom-co/source packages/planner-eval/src/eval-stages/cli.
 | `--repeats` | `3` | Runs per scenario and variant. |
 | `--case` | every case | A scenario id; repeat the flag for several. |
 | `--concurrency` | `1` | Turns in flight at once. Latency is measured per call, so raising it can inflate the latency rows. |
-| `--out` | `tmp/planner-eval/stage-<stage>-<timestamp>` | Output directory. |
+| `--out` | `tmp/evals/stage-<stage>-<timestamp>` | Output directory. |
 | `--verbose` | off | Logs every Jev call to the console. |
 | `--spatial-signal` | `gold` | Layout only. `gold` feeds the stage the scenario's spatial tag; `recorded-live` feeds it the `spatial` gate a live planner answered, read from `--spatial-records`, and keeps the gold gate for a turn that recorded none. |
 | `--spatial-records` | none | Layout only. The `records.json` of a full planner eval to read the spatial gates from. Needs `--spatial-signal recorded-live`. |
@@ -112,7 +112,7 @@ The rule-based pass stays the primary metric. The grader reads the LLM-written `
 
 ```sh
 # from the workspace root, so Bun loads .env
-bun --conditions=@maelstrom-co/source packages/planner-eval/src/eval/grader-validate.ts --records tmp/planner-eval/<run>/records.json
+bun --conditions=@maelstrom-co/source packages/evals/src/eval/grader-validate.ts --records tmp/evals/<run>/records.json
 ```
 
 It grades the hand-labelled responses and every planned development turn whose scenario declares arrangement rules, then writes `grader-validation.json` next to the records (or under `--out`). Grades are cached in `grader-scores.json` (`--scores` to name another file) and reused while the grader and verbalizer versions match, so a re-validation calls TypeSafe only for responses not yet graded. `--arm` narrows the arrangement turns to some arms, `--limit` caps how many responses are graded live, `--offline` grades nothing and validates the cached grades, `--labels` reads another labels file, and `--verbose` logs every call and provider error. A record written before the grader existed carries no shipped plan: its completion stage's candidate, healed again by the Engine, stands in when the turn did not fall back and the healed message and tree are the ones the record shipped; for a turn recorded against a scenario that expected no actions, the rule-based score proves an empty plan; any other such turn is skipped and counted in the summary line.

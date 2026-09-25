@@ -3,7 +3,7 @@ import { expect, test } from 'bun:test';
 import * as evalApi from './_internal.js';
 import * as testingApi from './_testing.js';
 
-test('_internal exposes the runtime values @maelstrom-co/planner-eval composes', () => {
+test('_internal exposes the runtime values @maelstrom-co/evals composes', () => {
   expect(Object.keys(evalApi).sort()).toEqual(
     [
       'demoVessels',

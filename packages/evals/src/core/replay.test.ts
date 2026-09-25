@@ -103,7 +103,7 @@ describe('replayStage', () => {
 
 describe('replay files', () => {
   test('round-trip through <out>/stages/<arm>/<scenarioId>-<repeat>.json', async () => {
-    const out = await mkdtemp(join(tmpdir(), 'planner-eval-replay-'));
+    const out = await mkdtemp(join(tmpdir(), 'evals-replay-'));
     dirs.push(out);
     const path = await writeStageFile(out, {
       arm: 'jev-poc',
@@ -121,7 +121,7 @@ describe('replay files', () => {
   });
 
   test('a missing source directory is a clear error', async () => {
-    const out = await mkdtemp(join(tmpdir(), 'planner-eval-replay-'));
+    const out = await mkdtemp(join(tmpdir(), 'evals-replay-'));
     dirs.push(out);
     await expect(loadReplay(out, 'jev-poc')).rejects.toThrow(
       `replay: no recorded stages in ${join(out, 'stages', 'jev-poc')}`,
@@ -129,7 +129,7 @@ describe('replay files', () => {
   });
 
   test('a directory that cannot be read is surfaced, not taken for an empty run', async () => {
-    const out = await mkdtemp(join(tmpdir(), 'planner-eval-replay-'));
+    const out = await mkdtemp(join(tmpdir(), 'evals-replay-'));
     dirs.push(out);
     await mkdir(join(out, 'stages'), { recursive: true });
     await writeFile(join(out, 'stages', 'jev-poc'), 'not a directory');
@@ -139,7 +139,7 @@ describe('replay files', () => {
   });
 
   test('a stage file that is not JSON is named', async () => {
-    const out = await mkdtemp(join(tmpdir(), 'planner-eval-replay-'));
+    const out = await mkdtemp(join(tmpdir(), 'evals-replay-'));
     dirs.push(out);
     const dir = join(out, 'stages', 'jev-poc');
     await mkdir(dir, { recursive: true });
@@ -165,7 +165,7 @@ describe('verifyReplay', () => {
   const [swap] = selectScenarios('development', ['swap']) as [Scenario];
 
   async function recordedRun(repeats: readonly number[]) {
-    const out = await mkdtemp(join(tmpdir(), 'planner-eval-replay-'));
+    const out = await mkdtemp(join(tmpdir(), 'evals-replay-'));
     dirs.push(out);
     for (const repeat of repeats)
       await writeStageFile(out, {

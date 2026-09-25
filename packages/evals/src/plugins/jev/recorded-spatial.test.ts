@@ -22,7 +22,7 @@ async function withRecords<T>(
   records: unknown,
   body: (path: string) => Promise<T>,
 ): Promise<T> {
-  const dir = await mkdtemp(join(tmpdir(), 'planner-eval-spatial-'));
+  const dir = await mkdtemp(join(tmpdir(), 'evals-spatial-'));
   try {
     const path = join(dir, 'records.json');
     await writeFile(path, JSON.stringify(records));

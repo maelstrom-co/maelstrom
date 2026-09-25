@@ -7,7 +7,7 @@ const PACKAGE_ROOT = resolve(import.meta.dir, '../../..');
 
 /** Runs one of the package's entry points with no provider key in the environment. */
 async function cli(entry: string, args: readonly string[]) {
-  const out = await mkdtemp(join(tmpdir(), 'planner-eval-cli-'));
+  const out = await mkdtemp(join(tmpdir(), 'evals-cli-'));
   try {
     const proc = Bun.spawn(
       [

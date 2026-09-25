@@ -77,7 +77,7 @@ export async function runStageEvalCli(
     (values.out as string | undefined) ??
       resolve(
         WORKSPACE_ROOT,
-        'tmp/planner-eval',
+        'tmp/evals',
         `stage-${stageName}-${new Date().toISOString().replace(/[:.]/g, '-')}`,
       ),
   );

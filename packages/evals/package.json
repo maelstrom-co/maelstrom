@@ -1,5 +1,5 @@
 {
-  "name": "@maelstrom-co/planner-eval",
+  "name": "@maelstrom-co/evals",
   "version": "0.1.0-alpha.4",
   "description": "Live evals for Maelstrom planners: whole-planner arm comparisons through the engine and single-stage evals on gold inputs. Workspace-internal, never published.",
   "private": true,
@@ -18,7 +18,7 @@
     "zod": "catalog:"
   },
   "nx": {
-    "name": "@maelstrom-co/planner-eval",
+    "name": "@maelstrom-co/evals",
     "targets": {
       "eval": {
         "command": "bun --conditions=@maelstrom-co/source src/eval/cli.ts",

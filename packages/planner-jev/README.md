@@ -204,4 +204,4 @@ Every deferral logs `jev.defer` at info with `{ stage, reason, question }`, and 
 
 ## Evaluating
 
-The full-planner eval (arms, replay, scorers, grader) and the stage evals live in `@maelstrom-co/planner-eval` (`packages/planner-eval/README.md`). They reach this package's stages, planners and test fixtures through the workspace-internal `@maelstrom-co/planner-jev/_internal` and `@maelstrom-co/planner-jev/_testing` subpaths, which are unsupported outside this repository.
+The full-planner eval (arms, replay, scorers, grader) and the stage evals live in `@maelstrom-co/evals` (`packages/evals/README.md`). They reach this package's stages, planners and test fixtures through the workspace-internal `@maelstrom-co/planner-jev/_internal` and `@maelstrom-co/planner-jev/_testing` subpaths, which are unsupported outside this repository.

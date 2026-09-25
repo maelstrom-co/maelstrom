@@ -88,7 +88,7 @@ export async function runEvalCli(
     values.out ??
       join(
         WORKSPACE_ROOT,
-        'tmp/planner-eval',
+        'tmp/evals',
         new Date().toISOString().replace(/[:.]/g, '-'),
       ),
   );
