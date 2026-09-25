@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test';
 import type {
+  Instrument,
+  InstrumentAttributes,
   LLMContextMessage,
   PlanningInput,
   Retryable,
@@ -1005,3 +1007,72 @@ function withShowWeekParameter(
     ],
   };
 }
+
+describe('llmPlanner instrumentation', () => {
+  function spyInstrument(): {
+    instrument: Instrument;
+    events: { name: string; attributes: InstrumentAttributes }[];
+  } {
+    const events: { name: string; attributes: InstrumentAttributes }[] = [];
+    return {
+      events,
+      instrument: {
+        stage: (_name, stage) => stage,
+        event: (name, attributes) => events.push({ name, attributes }),
+      },
+    };
+  }
+
+  test('reports a successful model call with the adapter model and latency', async () => {
+    mockChat.mockResolvedValueOnce(buildGridResponse());
+    const { instrument, events } = spyInstrument();
+
+    const result = await llmPlanner({ adapter: dummyAdapter })(
+      makePlanningInput(),
+      makeStageContext({ instrument }),
+    );
+
+    expect(isOk(result)).toBe(true);
+    expect(events).toHaveLength(1);
+    expect(events[0]?.name).toBe('llm.call');
+    expect(events[0]?.attributes).toMatchObject({
+      'gen_ai.request.model': 'dummy-model',
+      'maelstrom.outcome': 'ok',
+    });
+    expect(typeof events[0]?.attributes['maelstrom.latency_ms']).toBe('number');
+    expect(Object.keys(events[0]?.attributes ?? {}).sort()).toEqual([
+      'gen_ai.request.model',
+      'maelstrom.latency_ms',
+      'maelstrom.outcome',
+    ]);
+  });
+
+  test('reports a failed model call as an error', async () => {
+    mockChat.mockRejectedValueOnce(new Error('LLM service unavailable'));
+    const { instrument, events } = spyInstrument();
+
+    await llmPlanner({ adapter: dummyAdapter })(
+      makePlanningInput(),
+      makeStageContext({ instrument }),
+    );
+
+    expect(
+      events.map((event) => event.attributes['maelstrom.outcome']),
+    ).toEqual(['error']);
+  });
+
+  test('reports a cancelled model call as cancelled', async () => {
+    const controller = new AbortController();
+    controller.abort('user cancel');
+    const { instrument, events } = spyInstrument();
+
+    await llmPlanner({ adapter: dummyAdapter })(
+      makePlanningInput(),
+      makeStageContext({ instrument, signal: controller.signal }),
+    );
+
+    expect(
+      events.map((event) => event.attributes['maelstrom.outcome']),
+    ).toEqual(['cancelled']);
+  });
+});
