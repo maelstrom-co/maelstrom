@@ -55,6 +55,12 @@ describe('prompt presentation data', () => {
 
   test('uses UI labels only for presentation and falls back to the stable ID', () => {
     expect(promptLabel('maelstrom-debugging')).toBe('Debug a Maelstrom issue');
+    expect(promptLabel('maelstrom-connector-auth')).toBe(
+      'Design connector and app authentication',
+    );
+    expect(promptLabel('maelstrom-voice-integration')).toBe(
+      'Integrate voice (optional)',
+    );
     expect(promptLabel('new-prompt')).toBe('new-prompt');
   });
 });

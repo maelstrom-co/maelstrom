@@ -13,8 +13,9 @@ import PromptDisclosure from '../../../components/PromptDisclosure.astro';
 By the end of this guide you'll have a chart with one vessel, driven by a running Maelstrom engine that interprets a natural-language intent and positions the component on screen. The visible result is deliberately small: a single greeting card appears where the engine places it, proving that the client, connector, engine, and chart can complete one full turn.
 
 <Aside type="tip" title="Use with a coding agent">
-  To plan and implement a bounded Maelstrom integration in an existing React app, start with the [project onboarding prompt](/agents/prompts/maelstrom-project-onboarding/). It asks the agent to inspect the app and installed SDK before making changes.
+  To plan a new integration, start with the [project onboarding prompt](/agents/prompts/maelstrom-project-onboarding/). For an authorized bounded implementation, use the [SDK scaffold prompt](/agents/prompts/maelstrom-sdk-scaffold/). Both inspect the app and installed SDK before proposing changes. For a reusable end-to-end procedure, choose the [project onboarding skill](/agents/skills/) and follow its linked bundle instructions.
   <PromptDisclosure id="maelstrom-project-onboarding" />
+  <PromptDisclosure id="maelstrom-sdk-scaffold" />
 </Aside>
 
 **Time:** ~5 minutes &nbsp;|&nbsp; **Framework:** React

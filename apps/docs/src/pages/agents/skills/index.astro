@@ -1,0 +1,65 @@
+---
+import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro';
+import { resolveDocsSourceRef } from '../../../lib/docs-source-links.js';
+
+const sourceRef = resolveDocsSourceRef(process.env);
+const sourceTree = `https://github.com/maelstrom-co/maelstrom/tree/${sourceRef}/apps/docs/skills`;
+const sourceFile = `https://github.com/maelstrom-co/maelstrom/blob/${sourceRef}/apps/docs/skills/README.md`;
+const sourceArchive = `https://github.com/maelstrom-co/maelstrom/archive/${sourceRef}.zip`;
+---
+<StarlightPage
+  frontmatter={{
+    title: 'Agent skills',
+    description: 'Portable Maelstrom lead skills and their conditional references.',
+  }}
+>
+  <main class="skill-index">
+    <nav aria-label="Breadcrumb">
+      <a href="/agents/prompts/">Agent prompts</a> / Agent skills
+    </nav>
+    <header>
+      <p class="eyebrow">AGENT SKILLS</p>
+      <h1>Portable workflow skills</h1>
+      <p>
+        Choose one lead skill for a task. It owns the workflow and points to
+        supporting references only when they apply. Skills do not assemble or
+        change standalone prompt bodies.
+      </p>
+    </header>
+    <section aria-labelledby="obtain-heading">
+      <h2 id="obtain-heading">Obtain the complete bundle</h2>
+      <p>
+        The canonical bundle is the complete <code>apps/docs/skills/</code>
+        directory. Download the repository source archive and keep that directory
+        intact, or browse the exact source tree. Include every linked
+        Markdown files in <code>references/</code> when copying a lead skill; the Markdown
+        links are relative to the bundle and resolve without installation.
+      </p>
+      <ul>
+        <li><a href={sourceArchive}>Download source archive for this docs revision</a></li>
+        <li><a href={sourceTree}>Browse the canonical skill bundle</a></li>
+        <li><a href={sourceFile}>Read the consumer entrypoint and skill selection map</a></li>
+      </ul>
+      <p>
+        Extract or copy <code>apps/docs/skills/</code> into the coding agent's
+        supported skill directory, preserving each <code>SKILL.md</code> and
+        <code>references/</code> path. No registry, installer, or global
+        configuration is provided here. Follow the selected agent's own skill
+        discovery instructions.
+      </p>
+    </section>
+    <p class="prompt-link">
+      Looking for a standalone instruction instead? Browse the
+      <a href="/agents/prompts/">canonical prompt library</a>.
+    </p>
+  </main>
+</StarlightPage>
+<style>
+  .skill-index { max-width: 58rem; margin: 0 auto; }
+  nav, .eyebrow { color: var(--sl-color-gray-2); font-size: .9rem; }
+  header { margin: 2rem 0; max-width: 46rem; }
+  .eyebrow { letter-spacing: .12em; font-weight: 700; }
+  section { padding: 1.25rem; border: 1px solid var(--sl-color-gray-5); border-radius: .75rem; background: var(--sl-color-bg); }
+  li { margin: .6rem 0; }
+  .prompt-link { margin-top: 2rem; }
+</style>

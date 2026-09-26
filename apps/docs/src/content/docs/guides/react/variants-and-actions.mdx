@@ -22,7 +22,7 @@ By the end of this guide your `greetingVessel` will:
 
 ## Mental model
 
-A variant is a legal UI state. An action is a legal transition or operation from the currently active state. The engine can only invoke actions declared on the active variant, so the state machine is both a UI model and a safety boundary.
+A variant is a legal UI state. An action is a legal transition or operation from the currently active state. The engine can only invoke actions declared on the active variant, so the state machine is both a UI model and a safety boundary. When external data changes these definitions or a live Instance, use the [state synchronization prompt](/agents/prompts/maelstrom-state-sync/) to inspect the supported update path and conflicts before editing.
 
 ## Define variants
 

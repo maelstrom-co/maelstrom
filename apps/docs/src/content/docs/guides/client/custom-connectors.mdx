@@ -20,7 +20,7 @@ Most React apps start with `WebSocketConnector` because interactive sessions ben
 
 ## When you need a custom connector
 
-Use a custom Connector when the built-in transport does not match your deployment shape: a proprietary WebSocket gateway, an HTTP endpoint with bespoke auth, or an in-process test harness.
+Use a custom Connector when the built-in transport does not match your deployment shape: a proprietary WebSocket gateway, an HTTP endpoint with bespoke auth, or an in-process test harness. Keep it transport-focused and keep application authentication and authorization in the app's existing boundary. For a bounded design, use the [connector/auth prompt](/agents/prompts/maelstrom-connector-auth/) or the connector/auth reference from the [portable skill bundle](/agents/skills/).
 
 ## Responsibilities
 

@@ -112,6 +112,25 @@ describe('portable agent skill bundle', () => {
       expect(usedTargets.has(relative(skillsRoot, reference))).toBe(true);
   });
 
+  test('docs expose the complete portable bundle from the canonical source tree', async () => {
+    const docsPage = await readFile(
+      resolve(import.meta.dir, '../../src/pages/agents/skills/index.astro'),
+      'utf8',
+    );
+    const promptIndex = await readFile(
+      resolve(import.meta.dir, '../../src/pages/agents/prompts/index.astro'),
+      'utf8',
+    );
+    expect(docsPage).toContain('resolveDocsSourceRef(process.env)');
+    expect(docsPage).toContain('maelstrom/archive/');
+    expect(docsPage).toContain('maelstrom/tree/');
+    expect(docsPage).toContain('/apps/docs/skills');
+    expect(docsPage).toContain('.zip');
+    expect(docsPage).toContain('complete');
+    expect(docsPage).toContain('references/');
+    expect(promptIndex).toContain('agents/skills/');
+  });
+
   test('each task has one lead and supporting guidance is conditional, not an orchestration graph', async () => {
     const readme = await readFile(join(skillsRoot, 'README.md'), 'utf8');
     const taskRows = readme

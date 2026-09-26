@@ -62,11 +62,18 @@ describe('canonical prompt source', () => {
       join(import.meta.dir, '../../prompts/library'),
     );
     expect(prompts.map(({ metadata }) => metadata.id).sort()).toEqual([
+      'maelstrom-connector-auth',
       'maelstrom-debugging',
+      'maelstrom-observability',
       'maelstrom-project-onboarding',
       'maelstrom-react-conversion',
       'maelstrom-react-inventory',
+      'maelstrom-sdk-scaffold',
+      'maelstrom-state-sync',
+      'maelstrom-testing',
+      'maelstrom-upgrade',
       'maelstrom-vessel-modeling',
+      'maelstrom-voice-integration',
     ]);
   });
 

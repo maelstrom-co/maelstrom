@@ -1,6 +1,6 @@
 # Maelstrom agent skills
 
-This directory is the portable, app-owned filesystem bundle for Maelstrom coding-agent skills. The canonical package root is `apps/docs/skills/`; obtain the **entire directory tree**, preserving relative paths, rather than copying only a `SKILL.md`. The files are plain Markdown and require no runtime package, registry installation, or repository-specific absolute path.
+This directory is the portable, app-owned filesystem bundle for Maelstrom coding-agent skills. The canonical package root is `apps/docs/skills/`; obtain the **entire directory tree**, preserving relative paths, rather than copying only a `SKILL.md`. The files are plain Markdown and require no runtime package, registry installation, or repository-specific absolute path. The [Agent Skills docs page](https://docs.maelstrom-ai.co/agents/skills/) links to the complete source archive and canonical tree.
 
 ## Consumer entrypoint
 
