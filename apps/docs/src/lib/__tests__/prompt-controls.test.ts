@@ -45,12 +45,13 @@ describe('canonical prompt controls', () => {
   test('keeps multiple collapsed prompt panels independent when copying', async () => {
     const dom = new JSDOM(`
       <details><summary>First prompt</summary><main data-prompt-root>
-        <button data-copy-prompt aria-label="Copy first prompt">Copy</button>
+        <button data-copy-prompt aria-label="Copy first prompt"><svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18"></svg></button>
         <pre><code>${body.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')}</code></pre>
         <p data-prompt-status role="status"></p>
       </main></details>
       <details><summary>Second prompt</summary><main data-prompt-root>
-        <button data-copy-prompt aria-label="Copy second prompt">Copy</button>
+        <button data-copy-prompt aria-label="Copy second prompt"><svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18"></svg></button>
+        <button data-download-prompt>Download .md</button>
         <pre><code>second &amp; source\n</code></pre>
         <p data-prompt-status role="status"></p>
       </main></details>
@@ -73,6 +74,15 @@ describe('canonical prompt controls', () => {
 
     expect(dom.window.document.querySelector('details')?.open).toBe(false);
     expect(roots[0]?.querySelector('pre')?.textContent).toBe(body);
+    expect(roots[1]?.querySelector('[data-copy-prompt]')?.textContent).toBe('');
+    expect(
+      roots[1]
+        ?.querySelector('[data-copy-prompt] svg')
+        ?.getAttribute('aria-hidden'),
+    ).toBe('true');
+    expect(roots[1]?.querySelector('[data-download-prompt]')?.textContent).toBe(
+      'Download .md',
+    );
     roots[1]?.querySelector<HTMLButtonElement>('[data-copy-prompt]')?.click();
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(copied).toEqual([secondBody]);
