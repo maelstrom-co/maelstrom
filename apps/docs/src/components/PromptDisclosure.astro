@@ -15,7 +15,7 @@ const label = promptLabel(id);
 const encodedBody = Buffer.from(entry.data.body, 'utf8').toString('base64');
 ---
 <details class="prompt-disclosure">
-  <summary>View canonical prompt source: {label}</summary>
+  <summary>{label}</summary>
   <section
     aria-label={`${label} canonical prompt source`}
     data-prompt-root
