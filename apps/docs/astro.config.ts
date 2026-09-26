@@ -355,10 +355,6 @@ export default defineConfig({
           ],
         },
         {
-          label: 'Agent Prompts',
-          link: '/agents/prompts/',
-        },
-        {
           label: 'Guides',
           items: [
             {
@@ -447,6 +443,10 @@ export default defineConfig({
             { slug: 'community/jsdoc-contract' },
             { slug: 'community/changelog' },
           ],
+        },
+        {
+          label: 'Agent Prompts',
+          link: '/agents/prompts/',
         },
       ],
       lastUpdated: true,
