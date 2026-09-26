@@ -355,6 +355,10 @@ export default defineConfig({
           ],
         },
         {
+          label: 'Agent Prompts',
+          link: '/agents/prompts/',
+        },
+        {
           label: 'Guides',
           items: [
             {
