@@ -16,7 +16,7 @@ const base = import.meta.env.BASE_URL;
     description: 'Browse the current version of each canonical Maelstrom prompt.',
   }}
 >
-  <main class="prompt-index">
+  <div class="prompt-index">
     <nav aria-label="Breadcrumb">
       <a href={base}>Maelstrom docs</a> / Agent prompts
     </nav>
@@ -40,7 +40,7 @@ const base = import.meta.env.BASE_URL;
         ))
       }
     </ul>
-  </main>
+  </div>
 </StarlightPage>
 <style>
   .prompt-index { max-width: 58rem; margin: 0 auto; }

@@ -23,7 +23,7 @@ const description = `Current canonical prompt ${id}, version ${data.metadata.pro
 const { Content } = await render(entry);
 ---
 <StarlightPage frontmatter={{ title: promptLabel(id), description }}>
-  <main
+  <div
     class="prompt-detail"
     data-prompt-root
     data-prompt-body={encodedBody}
@@ -77,7 +77,7 @@ const { Content } = await render(entry);
       </article>
       <p data-prompt-status role="status" aria-live="polite"></p>
     </section>
-  </main>
+  </div>
 </StarlightPage>
 <script>
   import { initPromptControls } from '../../../lib/prompt-controls';

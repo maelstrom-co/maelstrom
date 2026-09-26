@@ -26,6 +26,8 @@ try {
     const response = await page.goto(`${baseUrl}/agents/prompts/${id}/`);
     if (response?.status() !== 200)
       throw new Error(`${id}: detail route failed`);
+    if ((await page.getByRole('main').count()) !== 1)
+      throw new Error(`${id}: expected exactly one main landmark`);
     const pageHeadings = await page
       .getByRole('heading', { level: 1 })
       .allTextContents();
@@ -122,6 +124,8 @@ try {
 
   const index = await page.goto(`${baseUrl}/agents/prompts/`);
   if (index?.status() !== 200) throw new Error('Prompt index route failed');
+  if ((await page.getByRole('main').count()) !== 1)
+    throw new Error('Prompt index must have exactly one main landmark');
   const indexHeadings = await page
     .getByRole('heading', { level: 1 })
     .allTextContents();
