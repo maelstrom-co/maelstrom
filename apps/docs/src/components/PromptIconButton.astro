@@ -28,6 +28,6 @@ const accessibleName = `${action === 'copy' ? 'Copy' : 'Download'} ${label} prom
   )}
 </button>
 <style>
-  button { display: inline-grid; place-items: center; padding: .45rem; border: 1px solid var(--sl-color-gray-5); border-radius: .4rem; background: var(--sl-color-bg); color: var(--sl-color-text); cursor: pointer; }
+  button { display: inline-grid; flex-shrink: 0; place-items: center; padding: .45rem; border: 1px solid var(--sl-color-gray-5); border-radius: .4rem; background: var(--sl-color-bg); color: var(--sl-color-text); cursor: pointer; }
   button:hover, button:focus-visible { border-color: var(--sl-color-accent); outline: 2px solid var(--sl-color-accent); outline-offset: 2px; }
 </style>
