@@ -81,7 +81,9 @@
           "{projectRoot}/src/**/*",
           "{projectRoot}/public/**/*",
           "{projectRoot}/prompts/**/*",
+          "{projectRoot}/skills/**/*",
           "{projectRoot}/tools/prompts/**/*",
+          "{projectRoot}/tools/skills/**/*",
           {
             "externalDependencies": [
               "astro"
@@ -122,7 +124,9 @@
           "{projectRoot}/src/**/*",
           "{projectRoot}/public/**/*",
           "{projectRoot}/prompts/**/*",
+          "{projectRoot}/skills/**/*",
           "{projectRoot}/tools/prompts/**/*",
+          "{projectRoot}/tools/skills/**/*",
           {
             "externalDependencies": [
               "astro"
@@ -169,7 +173,7 @@
         }
       },
       "test": {
-        "command": "bun test src tools/prompts",
+        "command": "bun test src tools/prompts tools/skills",
         "options": {
           "cwd": "{projectRoot}"
         }
