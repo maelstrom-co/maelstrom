@@ -1,0 +1,250 @@
+{
+  "runId": "1674b3c0-18d3-43ca-9e30-20af5bed1d0d",
+  "agent": "worker",
+  "task": "[prompt redacted]",
+  "exitCode": 0,
+  "model": "openai-codex/gpt-6-luna:high",
+  "requestedModel": "openai-codex/gpt-6-luna:high",
+  "usage": {
+    "input": 76309,
+    "output": 21281,
+    "cacheRead": 1422336,
+    "cacheWrite": 0,
+    "cost": 0.03249476,
+    "turns": 32
+  },
+  "acceptance": {
+    "status": "review-required",
+    "evidenceStatus": "checked",
+    "explicit": false,
+    "effectiveAcceptance": {
+      "level": "checked",
+      "explicit": false,
+      "inferredReason": [
+        "async declared writer"
+      ],
+      "criteria": [
+        {
+          "id": "criterion-1",
+          "must": "Implement the requested change without widening scope",
+          "evidence": [
+            "changed-files",
+            "tests-added",
+            "commands-run",
+            "residual-risks",
+            "no-staged-files"
+          ],
+          "severity": "required"
+        },
+        {
+          "id": "criterion-2",
+          "must": "Return evidence sufficient for an independent acceptance review",
+          "evidence": [
+            "changed-files",
+            "tests-added",
+            "commands-run",
+            "residual-risks",
+            "no-staged-files"
+          ],
+          "severity": "required"
+        }
+      ],
+      "evidence": [
+        "changed-files",
+        "tests-added",
+        "commands-run",
+        "residual-risks",
+        "no-staged-files"
+      ],
+      "verify": [],
+      "review": {
+        "agent": "reviewer",
+        "required": true
+      },
+      "stopRules": []
+    },
+    "inferredReason": [
+      "async declared writer"
+    ],
+    "criteria": [
+      {
+        "id": "criterion-1",
+        "must": "Implement the requested change without widening scope",
+        "evidence": [
+          "changed-files",
+          "tests-added",
+          "commands-run",
+          "residual-risks",
+          "no-staged-files"
+        ],
+        "severity": "required"
+      },
+      {
+        "id": "criterion-2",
+        "must": "Return evidence sufficient for an independent acceptance review",
+        "evidence": [
+          "changed-files",
+          "tests-added",
+          "commands-run",
+          "residual-risks",
+          "no-staged-files"
+        ],
+        "severity": "required"
+      }
+    ],
+    "runtimeChecks": [
+      {
+        "id": "criterion:criterion-1",
+        "status": "passed",
+        "message": "Required criterion 'criterion-1' satisfied."
+      },
+      {
+        "id": "criterion:criterion-2",
+        "status": "passed",
+        "message": "Required criterion 'criterion-2' satisfied."
+      },
+      {
+        "id": "evidence:changed-files",
+        "status": "passed",
+        "message": "changed-files evidence present."
+      },
+      {
+        "id": "evidence:tests-added",
+        "status": "passed",
+        "message": "tests-added evidence present."
+      },
+      {
+        "id": "evidence:commands-run",
+        "status": "passed",
+        "message": "commands-run evidence present."
+      },
+      {
+        "id": "evidence:residual-risks",
+        "status": "passed",
+        "message": "residual-risks evidence present."
+      },
+      {
+        "id": "evidence:no-staged-files",
+        "status": "passed",
+        "message": "no-staged-files evidence present."
+      },
+      {
+        "id": "no-staged-files",
+        "status": "not-applicable",
+        "message": "git status unavailable; no staged-files check skipped"
+      }
+    ],
+    "verifyRuns": [],
+    "childReport": {
+      "criteriaSatisfied": [
+        {
+          "id": "criterion-1",
+          "status": "satisfied",
+          "evidence": "Registered one developer-authored, single-variant Vessel with no Actions; preserved SearchPanel behavior and the searchTickets boundary. No unrelated files, dependencies, credentials, or requests were added."
+        },
+        {
+          "id": "criterion-2",
+          "status": "satisfied",
+          "evidence": "Report and .trial/authorized-conversion-evidence.txt record provenance, observed behavior, exact checks/results, limitations, and rollback."
+        }
+      ],
+      "changedFiles": [
+        "/tmp/maelstrom-coding-agent-trials.96S7SD/migration-conversion/src/SearchPanel.tsx",
+        "/tmp/maelstrom-coding-agent-trials.96S7SD/migration-conversion/src/App.tsx",
+        "/tmp/maelstrom-coding-agent-trials.96S7SD/migration-conversion/src/SearchPanel.test.tsx",
+        "/tmp/maelstrom-coding-agent-trials.96S7SD/migration-conversion/.trial/authorized-conversion-evidence.txt",
+        "/Users/javcab/.pi/agent/sessions/--Users-javcab-Documents-maelstrom-maelstrom-prompting--/subagent-artifacts/outputs/0b7d355a-b9aa-4d54-b394-8c03d49649de/remainder/trials/authorized-conversion.md"
+      ],
+      "testsAddedOrUpdated": [
+        "/tmp/maelstrom-coding-agent-trials.96S7SD/migration-conversion/src/SearchPanel.test.tsx"
+      ],
+      "commandsRun": [
+        {
+          "command": "cd /tmp/maelstrom-coding-agent-trials.96S7SD/migration-conversion && npm run typecheck && npm test",
+          "result": "passed",
+          "summary": "Typecheck passed; Vitest passed with 1 file and 4 tests."
+        },
+        {
+          "command": "cd /tmp/maelstrom-coding-agent-trials.96S7SD/migration-conversion && npm run build",
+          "result": "passed",
+          "summary": "Vite build passed; generated artifacts were restored to baseline output."
+        },
+        {
+          "command": "cd /tmp/maelstrom-coding-agent-trials.96S7SD/migration-conversion && node .trial/sdk-runtime.ts",
+          "result": "passed",
+          "summary": "SDK exports resolved; smoke check created no connector and does not verify a live Engine."
+        },
+        {
+          "command": "cd /tmp/maelstrom-coding-agent-trials.96S7SD/migration-conversion && sha256sum -c /tmp/maelstrom-coding-agent-trials.96S7SD/sdk-source-checksums.sha256",
+          "result": "passed",
+          "summary": "All SDK provenance checksums matched."
+        },
+        {
+          "command": "cd /tmp/maelstrom-coding-agent-trials.96S7SD/migration-conversion && npm ls --depth=0",
+          "result": "failed",
+          "summary": "npm reported ELSPROBLEMS for the four local tarball dependencies; direct installed package version inspection and project checks succeeded."
+        },
+        {
+          "command": "cd /tmp/maelstrom-coding-agent-trials.96S7SD/migration-conversion && npm run",
+          "result": "passed",
+          "summary": "Only test, typecheck, and build scripts are configured; no lint/format script."
+        },
+        {
+          "command": "cd /tmp/maelstrom-coding-agent-trials.96S7SD/migration-conversion && git status --short",
+          "result": "failed",
+          "summary": "Fixture has no git metadata; no staged files or commits."
+        }
+      ],
+      "validationOutput": [
+        "Typecheck passed.",
+        "Final Vitest run: 1 file passed, 4 tests passed.",
+        "Implementation build and SDK import smoke check passed.",
+        "No lint/format script; no live Engine or hosted/provider verification."
+      ],
+      "residualRisks": [
+        "No Provider/Chart or live Engine connector is configured in the fixture; only local static registration and component rendering were verified.",
+        "npm ls reports local tarball dependencies invalid; direct installed versions were all 0.1.0-alpha.4."
+      ],
+      "noStagedFiles": true,
+      "diffSummary": "Added one developer-authored Vessel definition and static registration, coverage for registration and preserved UI behavior, plus raw trial evidence; restored generated dist output to baseline.",
+      "reviewFindings": [
+        "No blockers to the bounded conversion.",
+        "Hosted selection/live Engine behavior remains unverified."
+      ],
+      "manualNotes": "Canonical prompt v1.0.0. React/React DOM 19.2.8; @maelstrom-co/react/client/protocol/connectors 0.1.0-alpha.4. No external request sent."
+    },
+    "reviewResult": {
+      "status": "review-required",
+      "findings": [
+        {
+          "severity": "non-blocking",
+          "issue": "Independent review has not been supplied.",
+          "rationale": "The run cannot be marked reviewed from child evidence alone."
+        }
+      ]
+    }
+  },
+  "launchContractDigest": "d07a49e341277a5057ed93855a844e7728366f52f51c231e73d7683b213836af",
+  "launchResolvedExtensions": {
+    "version": 1,
+    "source": "launch-resolved",
+    "disableAmbientExtensions": false,
+    "runtime": [
+      "sha256:ab9b423985aedf59"
+    ],
+    "configured": [],
+    "required": [],
+    "effective": [
+      "sha256:ab9b423985aedf59"
+    ],
+    "omitted": {
+      "runtime": 0,
+      "configured": 0,
+      "required": 0,
+      "effective": 0
+    }
+  },
+  "transcriptPath": "/Users/javcab/.pi/agent/sessions/--Users-javcab-Documents-maelstrom-maelstrom-prompting--/subagent-artifacts/1674b3c0-18d3-43ca-9e30-20af5bed1d0d_worker_transcript.jsonl",
+  "skills": [],
+  "timestamp": 1790412878050
+}

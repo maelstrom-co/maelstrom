@@ -3,10 +3,12 @@
 These fixtures are controlled inputs for prompt evaluation. Fixture contents
 are test inputs, not evaluation results. Trial records live in `runs/`; they
 separate agent-instruction adherence from implementation acceptance and fixture
-checks. The current records are blocked or limited where noted, not evidence of
-live provider or Engine behavior.
+checks. The current records are limited to their stated local scope and do not
+evidence hosted, production, live provider, or Engine behavior. Overall acceptance
+remains blocked pending independent review.
 
-- [Trial review, 2026-09-26](runs/2026-09-26/README.md)
+- [Historical trial review, 2026-09-26](runs/2026-09-26/README.md)
+- [Current-v1.0.0 replay assessments and raw evidence](runs/2026-09-26/replays/README.md)
 
 ## Reproduce safely
 

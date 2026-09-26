@@ -1,0 +1,53 @@
+Manual acceptance evidence: maelstrom-react-conversion v1.0.0
+Fixture: /tmp/maelstrom-coding-agent-trials.96S7SD/migration-conversion
+
+Baseline provenance:
+workspace-source-revision.txt: 82f711c9ac211a1f4777de301f6da01757cc0bb7
+runtime-versions.txt: react=19.2.8 react-dom=19.2.8 SDK=0.1.0-alpha.4
+sdk-source-checksums.sha256 verification: all 12 files OK
+migration-baseline.sha256: initial SearchPanel and search hashes matched conversion fixture before edit.
+
+Final checks (commands run from fixture cwd):
+
+$ npm run typecheck
+> typecheck
+> tsc --noEmit
+(exit 0)
+
+$ npm test
+> test
+> vitest run
+Test Files  1 passed (1)
+Tests       4 passed (4)
+(exit 0)
+
+$ npm run build
+vite v8.2.1 building client environment for production...
+✓ 30 modules transformed.
+✓ built in 137ms
+(exit 0)
+
+$ node .trial/sdk-runtime.ts
+SDK runtime exports resolved; no Vessel or connector was created.
+(exit 0; smoke test only, not a live Engine check)
+
+$ node -e "for (const p of ['@maelstrom-co/react','@maelstrom-co/client','@maelstrom-co/protocol','@maelstrom-co/connectors','react','react-dom']) console.log(p+'='+require('./node_modules/'+p+'/package.json').version)"
+@maelstrom-co/react=0.1.0-alpha.4
+@maelstrom-co/client=0.1.0-alpha.4
+@maelstrom-co/protocol=0.1.0-alpha.4
+@maelstrom-co/connectors=0.1.0-alpha.4
+react=19.2.8
+react-dom=19.2.8
+(exit 0)
+
+$ npm ls --depth=0
+(exit 1; npm error code ELSPROBLEMS, reports four file: tarball dependencies invalid; installed package metadata and typecheck/test/build/runtime import nonetheless succeeded)
+
+$ npm run
+available: test (vitest run), typecheck (tsc --noEmit), build (vite build)
+(no lint/format script; no Biome executable)
+
+$ git status --short / git rev-parse --show-toplevel
+(exit 128; fixture has no .git metadata; no staged files or commits)
+
+No live Engine/hosted/provider verification was performed. No connector probe was altered, no live connector was configured, and no external request was sent. First post-edit test attempt had two failures caused by missing Testing Library cleanup between cases; explicit afterEach(cleanup) was added and the final run passed.

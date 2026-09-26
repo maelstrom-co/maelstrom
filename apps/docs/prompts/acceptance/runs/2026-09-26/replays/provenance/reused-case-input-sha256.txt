@@ -1,0 +1,13 @@
+# Current-source and prepared-scratch hashes used to validate evidence reuse.
+# `maelstrom-vessel-modeling` current/historical full instruction body hash and
+# task wording are documented in replays/README.md. The full Markdown hashes
+# differ only in version metadata; historical report remains unchanged.
+# sha256sum -a 256 apps/docs/prompts/acceptance/fixtures/modeling-react/src/Queue.tsx /tmp/maelstrom-coding-agent-trials.96S7SD/modeling/src/Queue.tsx apps/docs/prompts/acceptance/checklists/modeling.md
+fdf66d3bc39794bdb1c1929097fa1b3fa07225744151c2ac76835ba79daf9b9c  apps/docs/prompts/acceptance/fixtures/modeling-react/src/Queue.tsx
+fdf66d3bc39794bdb1c1929097fa1b3fa07225744151c2ac76835ba79daf9b9c  /tmp/maelstrom-coding-agent-trials.96S7SD/modeling/src/Queue.tsx
+4683c204255a784cc22dcd7ade3ff6c544674354f2de471725fed2a2b28d6abd  apps/docs/prompts/acceptance/checklists/modeling.md
+
+# sha256sum -a 256 apps/docs/prompts/acceptance/fixtures/debugging-react/report.md /tmp/maelstrom-coding-agent-trials.96S7SD/debugging/report.md apps/docs/prompts/acceptance/checklists/debugging.md
+31066f550d4413af42e88cd428b30f6b9bdbe69ddc36eba9e61cf9a2ed6363b5  apps/docs/prompts/acceptance/fixtures/debugging-react/report.md
+31066f550d4413af42e88cd428b30f6b9bdbe69ddc36eba9e61cf9a2ed6363b5  /tmp/maelstrom-coding-agent-trials.96S7SD/debugging/report.md
+2d776f37c644654a297c7fbdbc3c98421982318da54e9038a8f07127cb23fee5  apps/docs/prompts/acceptance/checklists/debugging.md
