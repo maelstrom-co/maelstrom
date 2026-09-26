@@ -40,6 +40,47 @@ describe('canonical prompt controls', () => {
     dom.window.close();
   });
 
+  test('keeps multiple collapsed prompt panels independent when copying', async () => {
+    const dom = new JSDOM(`
+      <details><summary>First prompt</summary><main data-prompt-root>
+        <button data-copy-prompt aria-label="Copy first prompt">Copy</button>
+        <pre><code>${body.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')}</code></pre>
+        <p data-prompt-status role="status"></p>
+      </main></details>
+      <details><summary>Second prompt</summary><main data-prompt-root>
+        <button data-copy-prompt aria-label="Copy second prompt">Copy</button>
+        <pre><code>second &amp; source\n</code></pre>
+        <p data-prompt-status role="status"></p>
+      </main></details>
+    `);
+    const roots =
+      dom.window.document.querySelectorAll<HTMLElement>('[data-prompt-root]');
+    const copied: string[] = [];
+    const clipboard = {
+      writeText: async (value: string) => {
+        copied.push(value);
+      },
+    };
+    const secondBody = 'second & source\\n';
+    initPromptControls(roots[0]!, { body, filename: 'first.md', clipboard });
+    initPromptControls(roots[1]!, {
+      body: secondBody,
+      filename: 'second.md',
+      clipboard,
+    });
+
+    expect(dom.window.document.querySelector('details')?.open).toBe(false);
+    expect(roots[0]?.querySelector('pre')?.textContent).toBe(body);
+    roots[1]?.querySelector<HTMLButtonElement>('[data-copy-prompt]')?.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(copied).toEqual([secondBody]);
+    expect(roots[1]?.querySelector('[role="status"]')?.textContent).toBe(
+      'Prompt copied.',
+    );
+    expect(roots[0]?.querySelector('[role="status"]')?.textContent).toBe('');
+    dom.window.close();
+  });
+
   test('reports clipboard unavailability and rejection truthfully', async () => {
     await expect(copyPromptBody(body, undefined)).rejects.toThrow(
       'Clipboard is unavailable',

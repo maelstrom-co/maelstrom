@@ -4,11 +4,13 @@ description: How to handle errors in Maelstrom React applications.
 ---
 
 import { Aside } from '@astrojs/starlight/components';
+import PromptDisclosure from '../../../../components/PromptDisclosure.astro';
 
 Maelstrom surfaces failures through a small, deliberate set of channels. This guide shows you where each kind of error lands and how to build UI around it.
 
 <Aside type="tip" title="Use with a coding agent">
   To investigate a concrete issue, use the [Maelstrom debugging prompt](/agents/prompts/maelstrom-debugging/) with the symptom and redacted evidence. It is for diagnosis from repository and runtime evidence before changing code; it does not authorize a fix by itself.
+  <PromptDisclosure id="maelstrom-debugging" />
 </Aside>
 
 <Aside type="note">

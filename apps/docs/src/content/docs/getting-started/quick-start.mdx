@@ -4,6 +4,7 @@ description: Get a Maelstrom app running in 5 minutes — one vessel, one intent
 ---
 
 import { Aside, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+import PromptDisclosure from '../../../components/PromptDisclosure.astro';
 
 <Aside type="note" title="Installing during the private beta">
   Complete the [private beta setup](/getting-started/install-beta/) and use the guide's `@alpha` install command instead of step 1 below. The rest of this Quick Start is unchanged.
@@ -13,6 +14,7 @@ By the end of this guide you'll have a chart with one vessel, driven by a runnin
 
 <Aside type="tip" title="Use with a coding agent">
   To plan and implement a bounded Maelstrom integration in an existing React app, start with the [project onboarding prompt](/agents/prompts/maelstrom-project-onboarding/). It asks the agent to inspect the app and installed SDK before making changes.
+  <PromptDisclosure id="maelstrom-project-onboarding" />
 </Aside>
 
 **Time:** ~5 minutes &nbsp;|&nbsp; **Framework:** React
