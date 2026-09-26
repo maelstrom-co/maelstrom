@@ -10,6 +10,18 @@ remains blocked pending independent review.
 - [Historical trial review, 2026-09-26](runs/2026-09-26/README.md)
 - [Current-v1.0.0 replay assessments and raw evidence](runs/2026-09-26/replays/README.md)
 
+## Additional prompt manual checklists
+
+These authored checklists define future manual scenarios; they are not completed
+trials or evaluation results.
+
+- [SDK scaffold](checklists/sdk-scaffold.md)
+- [Connector/auth](checklists/connector-auth.md)
+- [Observability](checklists/observability.md)
+- [State synchronization](checklists/state-sync.md)
+- [Testing](checklists/testing.md)
+- [Upgrade](checklists/upgrade.md)
+
 ## Reproduce safely
 
 Fixture revision: `acceptance-fixtures-v1` (the tracked contents at this revision
