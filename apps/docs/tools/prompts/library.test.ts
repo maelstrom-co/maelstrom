@@ -161,10 +161,13 @@ describe('canonical prompt source', () => {
     ).toContain('sample: prompt_version decreased');
   });
 
-  test('rejects new IDs above initial version and removed IDs', () => {
+  test('new IDs start at 0.1.0, and removed IDs are rejected', () => {
     expect(
-      comparePromptSets([], [parsePromptSource(source('new-prompt', '1.1.0'))]),
-    ).toContain('new-prompt: new prompts must start at 1.0.0');
+      comparePromptSets([], [parsePromptSource(source('new-prompt', '0.1.0'))]),
+    ).toEqual([]);
+    expect(
+      comparePromptSets([], [parsePromptSource(source('new-prompt', '0.1.1'))]),
+    ).toContain('new-prompt: new prompts must start at 0.1.0');
     expect(comparePromptSets([parsePromptSource(source())], [])).toContain(
       'removed prompt ID sample',
     );
@@ -174,7 +177,9 @@ describe('canonical prompt source', () => {
     const root = await temporaryDirectory();
     git(root, 'init', '-q');
     const base = await commitLibrary(root, {});
-    const head = await commitLibrary(root, { 'renamed.md': source() });
+    const head = await commitLibrary(root, {
+      'renamed.md': source('sample', '0.1.0'),
+    });
     await checkPromptVersions(base, head, root);
     const cli = Bun.spawnSync(
       [process.execPath, join(import.meta.dir, 'check.ts'), base, head],

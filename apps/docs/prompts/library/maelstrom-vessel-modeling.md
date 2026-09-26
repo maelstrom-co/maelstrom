@@ -1,6 +1,6 @@
 ---
 id: maelstrom-vessel-modeling
-prompt_version: 1.0.0
+prompt_version: 0.1.0
 compatibility:
   sdk:
     "@maelstrom-co/react": "0.1.0-alpha.4"

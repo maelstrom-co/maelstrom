@@ -33,9 +33,9 @@ export function comparePromptSets(
   for (const current of head) {
     if (
       !baseById.has(current.metadata.id) &&
-      current.metadata.prompt_version !== '1.0.0'
+      current.metadata.prompt_version !== '0.1.0'
     ) {
-      errors.push(`${current.metadata.id}: new prompts must start at 1.0.0`);
+      errors.push(`${current.metadata.id}: new prompts must start at 0.1.0`);
     }
   }
   return errors;
