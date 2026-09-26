@@ -1,6 +1,6 @@
 ---
 id: maelstrom-react-conversion
-prompt_version: 1.0.0
+prompt_version: 1.0.1
 compatibility:
   sdk:
     "@maelstrom-co/react": "0.1.0-alpha.4"
@@ -51,7 +51,9 @@ the authorization or expand it.
   each as a Vessel.
 - Register only the approved developer-authored Vessel(s) and make only the
   smallest authorized intent/integration change. Do not replace them with
-  model-generated JSX or move layout ownership to the Engine/browser.
+  model-generated JSX. Preserve client-owned layout state while the Engine
+  plans layout directives; neither the Engine nor browser rendering takes
+  ownership of that client state.
 - Do not widen into broad migration, voice, unrelated refactors, new auth, or
   inline overflow/size reconciliation.
 

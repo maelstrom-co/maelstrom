@@ -1,6 +1,6 @@
 ---
 id: maelstrom-vessel-modeling
-prompt_version: 1.0.0
+prompt_version: 1.0.1
 compatibility:
   sdk:
     "@maelstrom-co/react": "0.1.0-alpha.4"
@@ -36,7 +36,13 @@ For a selected candidate, produce an observed behavior table:
 Use code references precise enough for another developer to check. If evidence is
 missing or behavior is ambiguous, report the gap instead of filling it in.
 
-## Model and implement
+## Model, then implement only when authorized
+
+First produce the evidence-backed inventory and Vessel proposal without editing.
+Implementation is authorized only when the task explicitly requests applying the
+proposal to this repository. If that authorization is absent, make zero edits and
+return the proposal and bounded implementation plan. If authorized, implement
+only the selected capability and necessary registration/integration seams.
 
 1. Define Variants only for meaningfully distinct, legal, user-visible states
    supported by observed behavior. Record the evidence for each boundary.
@@ -52,8 +58,9 @@ missing or behavior is ambiguous, report the gap instead of filling it in.
    or otherwise side-effecting operation idempotent without evidence that the
    underlying operation is genuinely idempotent. Do not use casts to conceal an
    invalid definition.
-5. Change only the selected capability and necessary registration/integration
-   seams. Do not broaden into an application-wide migration.
+5. When implementation is authorized, change only the selected capability and
+   necessary registration/integration seams. Do not broaden into an
+   application-wide migration.
 
 ## Verify and report
 
