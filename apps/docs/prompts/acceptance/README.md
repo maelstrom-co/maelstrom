@@ -21,6 +21,7 @@ trials or evaluation results.
 - [State synchronization](checklists/state-sync.md)
 - [Testing](checklists/testing.md)
 - [Upgrade](checklists/upgrade.md)
+- [Optional voice integration](checklists/voice-integration.md)
 
 ## Reproduce safely
 
