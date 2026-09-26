@@ -63,6 +63,46 @@ async function loadCollection(directory?: string) {
   return { entries, renderedBodies, renderedEntries, markdownInputs };
 }
 
+function createWatchingContext(directory: string) {
+  const entries = new Map<string, PromptCollectionData>();
+  const subscriptions = new Map<string, Set<(path: string) => unknown>>();
+  const errors: string[] = [];
+  const watcher = {
+    add: () => {},
+    on: (event: string, callback: (path: string) => unknown) => {
+      const callbacks = subscriptions.get(event) ?? new Set();
+      callbacks.add(callback);
+      subscriptions.set(event, callbacks);
+    },
+    off: (event: string, callback: (path: string) => unknown) => {
+      subscriptions.get(event)?.delete(callback);
+    },
+    emit: async (event: string, path: string) => {
+      await Promise.all(
+        [...(subscriptions.get(event) ?? [])].map((callback) => callback(path)),
+      );
+    },
+  };
+  const context = {
+    store: {
+      clear: () => entries.clear(),
+      set: ({ id, data }: { id: string; data: PromptCollectionData }) =>
+        entries.set(id, data),
+    },
+    watcher,
+    logger: { error: (message: string) => errors.push(message) },
+    renderMarkdown: async () => ({ html: '', metadata: { headings: [] } }),
+  } as unknown as LoaderContext;
+  return {
+    entries,
+    errors,
+    context,
+    watcher,
+    subscriptions,
+    loader: createPromptCollectionLoader(directory),
+  };
+}
+
 const validSource = (id = 'sample', body = 'Body.\n') =>
   `---\nid: ${id}\nprompt_version: 1.0.0\ncompatibility:\n  sdk:\n    "@maelstrom-co/react": ">=1.0.0 <2.0.0"\n---\n${body}`;
 
@@ -97,6 +137,62 @@ describe('prompt content collection loader', () => {
     const loaded = await loadCollection(directory);
     expect(loaded.entries.get('sample')?.body).toBe(`${body}\n`);
     expect(loaded.renderedBodies.get('sample')).toBe(`${body}\n`);
+  });
+
+  test('refreshes stale store entries on startup and tracks prompt file lifecycle', async () => {
+    const directory = await temporaryDirectory();
+    for (let index = 0; index < 5; index += 1) {
+      await writeFile(
+        join(directory, `old-${index}.md`),
+        validSource(`old-${index}`),
+      );
+    }
+    for (let index = 0; index < 7; index += 1) {
+      await writeFile(
+        join(directory, `new-${index}.md`),
+        validSource(`new-${index}`),
+      );
+    }
+    const harness = createWatchingContext(directory);
+    for (let index = 0; index < 5; index += 1) {
+      harness.entries.set(`old-${index}`, {} as PromptCollectionData);
+    }
+    await harness.loader.load(harness.context);
+    expect(harness.entries.size).toBe(12);
+    expect(harness.entries.has('new-6')).toBe(true);
+
+    await writeFile(join(directory, 'added.md'), validSource('added'));
+    await harness.watcher.emit('add', join(directory, 'added.md'));
+    expect(harness.entries.size).toBe(13);
+
+    await writeFile(join(directory, 'new-0.md'), validSource('renamed-id'));
+    await harness.watcher.emit('change', join(directory, 'new-0.md'));
+    expect(harness.entries.has('new-0')).toBe(false);
+    expect(harness.entries.has('renamed-id')).toBe(true);
+
+    await rm(join(directory, 'old-0.md'));
+    await harness.watcher.emit('unlink', join(directory, 'old-0.md'));
+    expect(harness.entries.has('old-0')).toBe(false);
+    expect(harness.entries.size).toBe(12);
+
+    await writeFile(join(directory, 'invalid.md'), 'not frontmatter\\n');
+    await harness.watcher.emit('add', join(directory, 'invalid.md'));
+    expect(harness.errors[0]).toContain('expected YAML frontmatter');
+    expect(harness.entries.size).toBe(12);
+    expect(harness.entries.has('renamed-id')).toBe(true);
+  });
+
+  test('does not duplicate watcher subscriptions when Astro reloads the loader', async () => {
+    const directory = await temporaryDirectory();
+    await writeFile(join(directory, 'sample.md'), validSource());
+    const harness = createWatchingContext(directory);
+    await harness.loader.load(harness.context);
+    await harness.loader.load(harness.context);
+    expect(
+      ['add', 'change', 'unlink'].map(
+        (event) => harness.subscriptions.get(event)?.size,
+      ),
+    ).toEqual([1, 1, 1]);
   });
 
   test('propagates a missing prompt source directory error', async () => {
