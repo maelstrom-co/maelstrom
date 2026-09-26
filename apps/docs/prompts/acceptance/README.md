@@ -1,8 +1,12 @@
 # Prompt acceptance fixtures
 
-These fixtures are controlled inputs for future manual prompt evaluation. They
-are not evaluations, and no prompt has been run against them as part of authoring
-this directory. Every result starts as **unrun** in `record-template.md`.
+These fixtures are controlled inputs for prompt evaluation. Fixture contents
+are test inputs, not evaluation results. Trial records live in `runs/`; they
+separate agent-instruction adherence from implementation acceptance and fixture
+checks. The current records are blocked or limited where noted, not evidence of
+live provider or Engine behavior.
+
+- [Trial review, 2026-09-26](runs/2026-09-26/README.md)
 
 ## Reproduce safely
 
