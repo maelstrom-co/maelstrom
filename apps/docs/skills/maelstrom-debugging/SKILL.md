@@ -7,7 +7,7 @@ description: >-
 license: MIT
 metadata:
   author: Maelstrom
-  version: 1.0.0
+  version: 0.1.0
 ---
 
 # Evidence-led debugging

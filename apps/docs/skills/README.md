@@ -4,7 +4,13 @@ This directory is the canonical Markdown source for Maelstrom coding-agent skill
 
 ## Consumer entrypoint
 
-Start here when selecting guidance: choose exactly one lead `SKILL.md` whose description matches the task. Its workflow owns the task and conditionally directs the reader to bundled references. Do not load every skill or combine the lead procedures. A standalone prompt can be used without a skill; skills do not assemble, modify, or supply prompt bodies. Follow the user's authorization: plan-only work stops at a plan, while explicitly authorized implementation proceeds after inspection unless inspection reveals a material unresolved decision.
+Install the complete bundle in the selected tool's project-scoped skill directory, then invoke the `maelstrom` entry skill for any Maelstrom task. It inspects the task and installed package versions, selects exactly one procedure, and routes API-specific work to guides shipped inside the SDK packages. The entry skill remains useful before any SDK is installed. A standalone prompt can be used without a skill; skills do not assemble, modify, or supply prompt bodies. Follow the user's authorization: plan-only work stops at a plan, while explicitly authorized implementation proceeds after inspection unless inspection reveals a material unresolved decision.
+
+### Install, discover, update, and remove
+
+The [Agent Skills page](https://docs.maelstrom-ai.co/agents/skills/) provides the complete revision-matched ZIP. Install its `apps/docs/skills/` contents in the selected tool's project-scoped skill location; for example, OpenCode uses `.agents/skills/` and Claude Code uses `.claude/skills/`. Discovery locations vary by tool; do not assume `.agents/skills/` is universal. Preserve paths and the complete `references/` tree. Invoke the `maelstrom` entry skill using that tool's skill loader. No global install or SDK install is required.
+
+For an existing checkout of this repository, `bun run --cwd apps/docs skills:install` downloads and installs the bundle; run the same command with `skills:update` after obtaining a newer docs build. `bun run --cwd apps/docs skills:remove` removes only files recorded by that installer and leaves unrelated skill files intact. For a downloaded ZIP/manual installation, re-extract the newer complete bundle into the same tool-specific skills directory to update; remove the Maelstrom-owned skill directories and `references/` only when no other installed skill uses those references. Do not delete the entire skills directory. SDK updates are independent: update the desired `@maelstrom-co/*` dependency with the project's package manager, then reload the package-owned guide under `node_modules/@maelstrom-co/<package>/skills/`; do not update an SDK merely to update skills, or vice versa.
 
 | Task | Lead skill | Reference selection |
 | --- | --- | --- |
@@ -25,13 +31,18 @@ The portable package consists of every Markdown file below this directory. Prese
 ```text
 apps/docs/skills/
 ├── README.md
+├── maelstrom/SKILL.md
 ├── maelstrom-project-onboarding/SKILL.md
+├── maelstrom-project-onboarding/references/
+│   ├── maelstrom-project-onboarding/references/connectors-and-auth.md
+│   └── maelstrom-project-onboarding/references/vessel-modeling.md
 ├── maelstrom-vessel-modeling/SKILL.md
 ├── maelstrom-react-migration/SKILL.md
 ├── maelstrom-debugging/SKILL.md
 ├── maelstrom-observability/SKILL.md
 ├── maelstrom-state-sync/SKILL.md
 ├── maelstrom-voice-integration/SKILL.md
+├── trials/README.md
 └── references/
     ├── actions-and-idempotence.md
     ├── browser-react.md
@@ -45,4 +56,6 @@ apps/docs/skills/
     └── voice-lifecycle-and-turn-taking.md
 ```
 
-The build-generated bundle also includes the exact canonical `docs/realtime-voice-architecture.md`, `docs/architecture.md`, and `docs/adr/0001`–`0003` Markdown under `references/canonical-voice/docs/`; these files are projected read-only at build time, not maintained copies. Maelstrom-specific API names must still be verified against the consumer project's installed exports, declarations, source, tests, and version-specific provider documentation. The bundle does not imply that an API exists in every SDK version or that external provider documentation is version-matched. Voice references are optional and do not imply that a provider is selected or supported. No skill assumes repository-internal absolute paths, starts agents, or performs side effects without the task's authorization.
+The build-generated bundle also includes the exact canonical `docs/realtime-voice-architecture.md`, `docs/architecture.md`, and `docs/adr/0001`–`0003` Markdown under `references/canonical-voice/docs/`; these files are projected read-only at build time, not maintained copies. Each `@maelstrom-co/*` SDK package ships its API guide under its own `skills/` directory. The owning installed package's `package.json` is the version authority; the guide does not duplicate a version field. Maelstrom-specific API names must still be verified against the consumer project's installed exports, declarations, source, tests, and version-specific provider documentation. The bundle does not imply that an API exists in every SDK version or that external provider documentation is version-matched. Voice references are optional and do not imply that a provider is selected or supported. No skill assumes repository-internal absolute paths, starts agents, or performs side effects without the task's authorization.
+
+Representative task inputs and expected outcomes are in [`trials/README.md`](trials/README.md). These are structural routing scenarios, not completed model trials; behavioral compliance requires executing them with a named agent/runtime and reviewing its output and diff.

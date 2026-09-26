@@ -5,6 +5,12 @@ import { expect, type Page, test } from '@playwright/test';
 const PAGE = '/getting-started/introduction/';
 const SIDEBAR = '#starlight__sidebar';
 const HTML = 'html';
+const SIDEBAR_COLLAPSE_READY = 'html[data-sidebar-collapse-ready="true"]';
+
+async function gotoPage(page: Page, path = PAGE) {
+  await page.goto(path);
+  await page.locator(SIDEBAR_COLLAPSE_READY).waitFor();
+}
 
 async function collapse(page: Page) {
   await page.locator('[data-sidebar-toggle="collapse"]').click();
@@ -18,7 +24,7 @@ test.describe('sidebar focus mode', () => {
   test('collapsing hides the sidebar and re-centers the article', async ({
     page,
   }) => {
-    await page.goto(PAGE);
+    await gotoPage(page);
     await expect(page.locator(SIDEBAR)).toBeVisible();
 
     await collapse(page);
@@ -68,7 +74,7 @@ test.describe('sidebar focus mode', () => {
   test('focus mode does not lengthen lines past the 52rem cap', async ({
     page,
   }) => {
-    await page.goto(PAGE);
+    await gotoPage(page);
     // Measured, not converted: reading the custom property and multiplying by
     // the root font size would silently assume the value is declared in `rem`
     // and break if Starlight ever moves it to `px` or `ch`.
@@ -107,7 +113,7 @@ test.describe('sidebar focus mode', () => {
   });
 
   test('the floating button restores the sidebar', async ({ page }) => {
-    await page.goto(PAGE);
+    await gotoPage(page);
     await collapse(page);
 
     await page.locator('[data-sidebar-toggle="expand"]').click();
@@ -119,7 +125,7 @@ test.describe('sidebar focus mode', () => {
   });
 
   test('Mod+B toggles focus mode', async ({ page }) => {
-    await page.goto(PAGE);
+    await gotoPage(page);
 
     await page.keyboard.press('ControlOrMeta+b');
     await expect(page.locator(HTML)).toHaveAttribute(
@@ -135,7 +141,7 @@ test.describe('sidebar focus mode', () => {
   });
 
   test('the collapsed state survives a reload', async ({ page }) => {
-    await page.goto(PAGE);
+    await gotoPage(page);
     await collapse(page);
 
     await page.reload();
@@ -151,7 +157,7 @@ test.describe('sidebar focus mode', () => {
   test('the collapsed state survives client-side navigation', async ({
     page,
   }) => {
-    await page.goto(PAGE);
+    await gotoPage(page);
     await collapse(page);
 
     await page.locator('.pagination-links a[rel="next"]').click();
@@ -182,7 +188,7 @@ test.describe('sidebar focus mode', () => {
   // scripts is what isolates the inline one — inline scripts issue no request,
   // so they still run.
   test('the pre-paint script alone restores focus mode', async ({ page }) => {
-    await page.goto(PAGE);
+    await gotoPage(page);
     await collapse(page);
 
     await page.route('**/*', (route) =>
@@ -208,10 +214,10 @@ test.describe('sidebar focus mode', () => {
   test('the expand button hides on a page with no sidebar', async ({
     page,
   }) => {
-    await page.goto(PAGE);
+    await gotoPage(page);
     await collapse(page);
 
-    await page.goto(NO_SIDEBAR_PAGE);
+    await gotoPage(page, NO_SIDEBAR_PAGE);
     // Guards the premise: if Starlight ever gives this route a sidebar, the
     // assertions below stop testing the sidebar-less case and say so.
     await expect(page.locator('html[data-has-sidebar]')).toHaveCount(0);
@@ -231,13 +237,13 @@ test.describe('sidebar focus mode', () => {
   test('the shortcut does nothing on a page with no sidebar', async ({
     page,
   }) => {
-    await page.goto(PAGE);
+    await gotoPage(page);
     await collapse(page);
 
-    await page.goto(NO_SIDEBAR_PAGE);
+    await gotoPage(page, NO_SIDEBAR_PAGE);
     await page.keyboard.press('ControlOrMeta+b');
 
-    await page.goto(PAGE);
+    await gotoPage(page);
     await expect(page.locator(HTML)).toHaveAttribute(
       'data-sidebar-collapsed',
       'true',
@@ -254,7 +260,7 @@ test.describe('sidebar focus mode', () => {
     page,
   }) => {
     await page.setViewportSize({ width: 1153, height: 720 });
-    await page.goto(PAGE);
+    await gotoPage(page);
     await collapse(page);
 
     const overflow = await page.evaluate(() => ({
@@ -290,7 +296,7 @@ test.describe('reduced motion', () => {
   // would catch that reorder.
   test('the collapse transition is disabled', async ({ page }) => {
     await page.emulateMedia({ reducedMotion: 'reduce' });
-    await page.goto(PAGE);
+    await gotoPage(page);
     await collapse(page);
 
     const durations = await page.evaluate(() => {

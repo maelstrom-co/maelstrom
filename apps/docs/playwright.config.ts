@@ -54,6 +54,6 @@ export default defineConfig({
     // that. Playwright merges this over the inherited env rather than replacing
     // it, so PATH and the rest survive. `--ignore-lock` is rejected while agent
     // detection is active, which is why this must be set alongside it.
-    env: { ASTRO_DEV_BACKGROUND: '0' },
+    env: { ASTRO_DEV_BACKGROUND: '0', NODE_ENV: 'development' },
   },
 });

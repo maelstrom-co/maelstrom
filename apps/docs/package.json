@@ -4,7 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "prompts:check": "bun tools/prompts/check.ts"
+    "prompts:check": "bun tools/prompts/check.ts",
+    "skills:install": "bun tools/skills/cli.ts install",
+    "skills:update": "bun tools/skills/cli.ts update",
+    "skills:remove": "bun tools/skills/cli.ts remove"
   },
   "dependencies": {
     "@astrojs/react": "catalog:",

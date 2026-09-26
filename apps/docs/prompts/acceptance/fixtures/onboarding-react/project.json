@@ -1,0 +1,12 @@
+{
+  "name": "prompt-fixture-onboarding-react",
+  "targets": {
+    "typecheck": {
+      "dependsOn": [],
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "tsc --noEmit"
+      }
+    }
+  }
+}

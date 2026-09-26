@@ -20,10 +20,15 @@ Implementation authorized: [YES / NO]
 Inspect the app's current intent flow, React shell, server routes/deployment,
 installed package versions, and the canonical voice architecture before proposing
 changes. Read `docs/realtime-voice-architecture.md` and ADRs 0001, 0002, and 0003
-from the app checkout when present. For a portable skill bundle, use the exact
-canonical files under `apps/docs/skills/references/canonical-voice/docs/`. If
-neither source is available, ask for the materials before implementation; do not
-infer their contents or assume a public guide links the ADRs. Confirm selected
+from the app checkout when present. For a portable skill bundle, resolve the
+installed skill root (commonly `.agents/skills/` or `.claude/skills/`) and read
+`references/canonical-voice/docs/realtime-voice-architecture.md` and the ADRs
+under `references/canonical-voice/docs/adr/`. For standalone use, retrieve the
+canonical files from the Maelstrom source repository at
+`https://github.com/maelstrom-co/maelstrom/tree/main/docs/` and
+`https://github.com/maelstrom-co/maelstrom/tree/main/docs/adr/`. If none is
+available, ask for the materials before implementation; do not infer their
+contents or assume a public guide links the ADRs. Confirm selected
 APIs against installed package exports/types/source/tests. Use a provider guide
 as version-specific evidence only when its version matches the installed SDK; label
 current external docs as unversioned when that match is unknown. Do not assume a

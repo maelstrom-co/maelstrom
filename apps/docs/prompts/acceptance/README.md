@@ -1,27 +1,7 @@
 # Prompt acceptance fixtures
 
 These fixtures are controlled inputs for prompt evaluation. Fixture contents
-are test inputs, not evaluation results. Trial records live in `runs/`; they
-separate agent-instruction adherence from implementation acceptance and fixture
-checks. The current records are limited to their stated local scope and do not
-evidence hosted, production, live provider, or Engine behavior. Overall acceptance
-remains blocked pending independent review.
-
-- [Historical trial review, 2026-09-26](runs/2026-09-26/README.md)
-- [Current-v1.0.0 replay assessments and raw evidence](runs/2026-09-26/replays/README.md)
-
-## Additional prompt manual checklists
-
-These authored checklists define future manual scenarios; they are not completed
-trials or evaluation results.
-
-- [SDK scaffold](checklists/sdk-scaffold.md)
-- [Connector/auth](checklists/connector-auth.md)
-- [Observability](checklists/observability.md)
-- [State synchronization](checklists/state-sync.md)
-- [Testing](checklists/testing.md)
-- [Upgrade](checklists/upgrade.md)
-- [Optional voice integration](checklists/voice-integration.md)
+are test inputs, not evaluation results.
 
 ## Reproduce safely
 
@@ -51,7 +31,7 @@ are the test input; record the actual repository revision separately when runnin
    hashes emitted for paired migration input files. A read-only inventory and
    authorized conversion project begin from the same SearchPanel/search source
    bytes; no Vessel implementation is seeded.
-3. Use the exact task inputs below with the named scenario and only its checklist:
+3. Use the exact task inputs below with the named scenario:
 
    - **Onboarding / `onboarding-react`:** “Integrate Maelstrom into this small
      support workspace so the support queue can be selected and presented as a
@@ -93,7 +73,7 @@ are the test input; record the actual repository revision separately when runnin
    modeling case contains only `src/Queue.tsx`; debugging contains only the
    explicitly synthetic `report.md`. Never target the canonical fixture directory
    with an implementation prompt.
-5. Record exact prompt ID/version, model/runtime if known, input revision, temp
+4. Record exact prompt ID/version, model/runtime if known, input revision, temp
    path, commands, and unedited output in a copy of `record-template.md`. For
    SDK-version evidence also record the repository revision and paths/commands
    used to inspect manifests, lockfile, installed source/types/tests. Apply
@@ -114,24 +94,13 @@ never place credentials or tokens in a fixture or record.
   explanatory text, and two ticket rows (`T-104`, `T-105`) render; there is no
   existing Maelstrom integration, route, action, or persistence.
 - `fixtures/modeling-react`: a support-queue detail view with documented
-  observed states and existing operations for inventory/modeling. Expected
-  assertions are in `checklists/modeling.md`.
+  observed states and existing operations for inventory/modeling.
 - `fixtures/migration-react`: an existing controlled search form with
   application-owned network handling. The setup script gives the paired scratch
   projects a minimal Vite/React app shell and baseline test without pre-seeding
   Maelstrom conversion code. The read-only inventory and authorized conversion
   project begin byte-identically from the same SearchPanel and `search.ts` sources.
-  No request should actually be sent; assertions in `checklists/inventory.md` and
-  `checklists/migration.md`.
+  No request should actually be sent.
 - `fixtures/debugging-react`: a synthetic redacted report with enough separate
   transport/processing evidence to classify the observed failure while keeping
-  the root cause bounded. Assertions in `checklists/debugging.md`.
-
-## Acceptance checklist use
-
-Checklists define observable prompt outcomes, not implementation tests. A pass
-requires cited source evidence or an exact output artifact for every required
-criterion. A checklist failure does not authorize an out-of-scope fix. Keep
-prompt evaluation distinct from the source-only fixture typecheck and workspace
-CI checks. Use the pending record and replace each criterion status only after
-review; do not report authored expectations as completed acceptance.
+  the root cause bounded.
