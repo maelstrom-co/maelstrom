@@ -1,0 +1,24 @@
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ NX   --skip-nx-cache disables the connection to Nx Cloud for the current run.
+
+The remote cache will not be read from or written to during this run.
+
+
+> nx run @maelstrom-co/docs:check
+
+> biome check apps/docs --error-on-warnings
+
+Checked 102 files in 43ms. No fixes applied.
+
+
+
+ NX   Successfully ran target check for project @maelstrom-co/docs
+
+
+  Run duration:      178ms
+  Cache:             Skipped (--skip-nx-cache)
+  Critical path:     157ms (1 task)
+  Recoverable time:  <1ms

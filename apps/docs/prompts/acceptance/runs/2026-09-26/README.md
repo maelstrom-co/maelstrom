@@ -2,6 +2,12 @@
 
 These records capture five actual coding-agent trials against disposable copies of the `acceptance-fixtures-v1` inputs. They are not fixture unit tests and do not establish live provider/Engine behavior. The original trial reports are preserved verbatim alongside this review. Trial reports do not name the evaluator or exact wall-clock run date; the directory date is based on the report artifact timestamps (Sep 26, 2026), not an independently recorded trial timestamp. Evaluator identity: **not recorded**. The applicable checklists are linked below.
 
+## Review corrections and evidence validity
+
+The aggregate initial-version check found that `maelstrom-react-conversion` and `maelstrom-vessel-modeling` were introduced as 1.0.1 even though neither ID exists at the locked baseline. Their canonical versions are corrected to 1.0.0 in the follow-up fix; the Markdown bodies are unchanged. The original trial reports remain verbatim historical evidence for the exact 1.0.1 metadata they read. They do **not** claim trials under the corrected current version; replay the modeling trial and both migration authority cases against current prompt versions before claiming implementation acceptance. The new browser interaction evidence is regenerated from current v1.0.0 sources and versioned download names.
+
+The prior `maelstrom-react-inventory` trial evaluated the support-queue onboarding fixture and is not the read-only plan-only precursor for the migration `SearchPanel.tsx` fixture. The migration plan-only and authorized-conversion cases must use the same migration fixture and exact bounded task plan. Those coding-agent trials remain **unrun/blocked**, as no approved runnable agent/model environment or resolved fixture SDK was supplied. Do not mark the initial feature fully accepted based on the historical safe-stop reports.
+
 Repository source revision used: `smvmlwkxlmkloozuxlsywvnoopruqwrz` (`f50ec0c286a6750c6ddc5303719ce6e6d961f237`, inventory checklist addition). Fixture revision: `acceptance-fixtures-v1`. Disposable trial workspace root recorded in reports: `/tmp/maelstrom-prompt-acceptance.0ncOs4`. The canonical prompt versions and compatibility declarations below are from reports; declared compatibility is not installed SDK evidence. All five identify `@maelstrom-co/react` `0.1.0-alpha.4` as canonical compatibility; actual SDK resolution was absent in the fixtures.
 
 | Trial / record | Prompt version; exact task | Checklist assessment | Outcome / limitations |
@@ -37,6 +43,8 @@ The local docs preview was exercised in headless Chromium by the separate [brows
 Final docs project checks ran uncached after the added evidence files: `bunx nx run @maelstrom-co/docs:typecheck --skip-nx-cache` (0 errors, 0 warnings, 181 existing hints), `test` (203 pass, 0 fail), `check` (Biome checked 102 files), and `build` (523 pages). The Nx summary flags the existing `@maelstrom-co/realtime-livekit-agent:build` as flaky even though the dependency and requested targets completed successfully. `bun run --cwd apps/docs prompts:check` passed the source schema check. The prompt library exact-revision CLI was also exercised in a throwaway Git repo with the workflow's `bun run prompts:check -- <base-sha> <head-sha>` argument shape: same-version body edits were rejected, then accepted after a semver bump. The unit suite covers schema/body/version fixtures, exact Git revisions, and the exported app CLI.
 
 One preliminary `check` failed only because the new one-off browser runner had not yet been Biome formatted; it was formatted, rerun successfully against the preview, and the final check passed. The locked architecture SHA-256 remained `34c0e1bf3cbd15b9b1b694b287fee118963aa484e7def409bc92bf4e129f0b6b`. No hosted CI/required-check state was claimed or modified.
+
+The narrow review follow-up, current-source browser run, preserved logs, and remaining trial-replay blockers are recorded in [review-fixes](review-fixes/README.md). Those successful local checks do not close the blocked coding-agent acceptance described above.
 
 ## Reproducibility and hashes
 

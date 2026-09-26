@@ -13,10 +13,11 @@ export function createPromptCollectionLoader(
 ): Loader {
   return {
     name: 'maelstrom-prompt-library',
-    async load({ store }) {
+    async load({ store, renderMarkdown }) {
       const prompts = await loadPromptLibrary(directory);
       store.clear();
       for (const prompt of prompts) {
+        const rendered = await renderMarkdown(prompt.body);
         store.set({
           id: prompt.metadata.id,
           data: {
@@ -24,6 +25,8 @@ export function createPromptCollectionLoader(
             body: prompt.body,
             filename: prompt.filename,
           },
+          body: prompt.body,
+          rendered,
         });
       }
     },

@@ -25,14 +25,42 @@ async function temporaryDirectory(): Promise<string> {
 
 async function loadCollection(directory?: string) {
   const entries = new Map<string, PromptCollectionData>();
+  const renderedBodies = new Map<string, string>();
+  const renderedEntries = new Map<
+    string,
+    { html: string; metadata: { headings: unknown[] } }
+  >();
+  const markdownInputs: string[] = [];
   const store = {
     clear: () => entries.clear(),
-    set: ({ id, data }: { id: string; data: PromptCollectionData }) =>
-      entries.set(id, data),
+    set: ({
+      id,
+      data,
+      body,
+      rendered,
+    }: {
+      id: string;
+      data: PromptCollectionData;
+      body?: string;
+      rendered?: { html: string; metadata: { headings: unknown[] } };
+    }) => {
+      entries.set(id, data);
+      if (body) renderedBodies.set(id, body);
+      if (rendered) renderedEntries.set(id, rendered);
+    },
   };
   const loader = createPromptCollectionLoader(directory);
-  await loader.load({ store } as LoaderContext);
-  return entries;
+  await loader.load({
+    store,
+    renderMarkdown: async (body: string) => {
+      markdownInputs.push(body);
+      return {
+        html: '<h2>Rendered Markdown</h2>',
+        metadata: { headings: [] },
+      };
+    },
+  } as LoaderContext);
+  return { entries, renderedBodies, renderedEntries, markdownInputs };
 }
 
 const validSource = (id = 'sample', body = 'Body.\n') =>
@@ -45,13 +73,19 @@ describe('prompt content collection loader', () => {
       loadCollection(),
     ]);
 
-    expect(loaded.size).toBe(actual.length);
+    expect(loaded.entries.size).toBe(actual.length);
     for (const prompt of actual) {
-      expect(loaded.get(prompt.metadata.id)).toEqual({
+      expect(loaded.entries.get(prompt.metadata.id)).toEqual({
         metadata: prompt.metadata,
         body: prompt.body,
         filename: prompt.filename,
       });
+      expect(loaded.renderedBodies.get(prompt.metadata.id)).toBe(prompt.body);
+      expect(loaded.renderedEntries.get(prompt.metadata.id)).toEqual({
+        html: '<h2>Rendered Markdown</h2>',
+        metadata: { headings: [] },
+      });
+      expect(loaded.markdownInputs).toContain(prompt.body);
     }
   });
 
@@ -60,9 +94,9 @@ describe('prompt content collection loader', () => {
     const body = '```tsx\nconst label = "café 🧭 &amp;";\n```';
     await writeFile(join(directory, 'sample.md'), validSource('sample', body));
 
-    expect((await loadCollection(directory)).get('sample')?.body).toBe(
-      `${body}\n`,
-    );
+    const loaded = await loadCollection(directory);
+    expect(loaded.entries.get('sample')?.body).toBe(`${body}\n`);
+    expect(loaded.renderedBodies.get('sample')).toBe(`${body}\n`);
   });
 
   test('propagates a missing prompt source directory error', async () => {

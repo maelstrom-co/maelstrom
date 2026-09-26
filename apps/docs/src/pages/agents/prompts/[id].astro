@@ -1,53 +1,119 @@
 ---
-import { getCollection } from 'astro:content';
+import { getCollection, render } from 'astro:content';
+import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro';
 import {
   type PromptEntry,
   promptLabel,
   promptRoutes,
 } from '../../../lib/prompt-presentation';
+
 export async function getStaticPaths(): Promise<
   { params: { id: string }; props: { entry: PromptEntry } }[]
 > {
   const prompts = (await getCollection('prompts')) as PromptEntry[];
   return promptRoutes(prompts);
 }
+
 const { entry } = Astro.props as { entry: PromptEntry };
 const { id, data } = entry;
 const filename = `${id}-v${data.metadata.prompt_version}.md`;
 const encodedBody = Buffer.from(data.body, 'utf8').toString('base64');
 const base = import.meta.env.BASE_URL;
+const description = `Current canonical prompt ${id}, version ${data.metadata.prompt_version}.`;
+const { Content } = await render(entry);
 ---
-<html lang="en">
-  <head><meta charset="utf-8" /><meta name="viewport" content="width=device-width" /><meta name="description" content={`Current canonical prompt ${id}, version ${data.metadata.prompt_version}.`} /><title>{promptLabel(id)} | Maelstrom prompts</title></head>
-  <body>
-    <main class="page" data-prompt-root data-prompt-body={encodedBody} data-prompt-filename={filename}>
-      <nav aria-label="Breadcrumb"><a href={`${base}agents/prompts/`}>Agent prompts</a> / {promptLabel(id)}</nav>
-      <header><p class="eyebrow">CURRENT PROMPT</p><h1>{promptLabel(id)}</h1><p>Use the controls to copy or download the canonical Markdown body. Frontmatter and page metadata are not included.</p></header>
-      <section aria-labelledby="prompt-details"><h2 id="prompt-details">Prompt details</h2><dl class="metadata"><div><dt>Stable ID</dt><dd><code>{data.metadata.id}</code></dd></div><div><dt>Prompt version</dt><dd>{data.metadata.prompt_version}</dd></div><div><dt>SDK compatibility</dt><dd>{Object.entries(data.metadata.compatibility.sdk).map(([name, range]) => <span><code>{name}</code> <code>{range}</code></span>)}</dd></div></dl></section>
-      <section aria-labelledby="prompt-body-heading"><div class="body-heading"><h2 id="prompt-body-heading">Prompt body</h2><div class="actions"><button type="button" data-copy-prompt>Copy Markdown</button><button type="button" data-download-prompt>Download .md</button></div></div><pre><code>{data.body}</code></pre><p data-prompt-status role="status" aria-live="polite"></p></section>
-    </main>
-    <script>
-      import { initPromptControls } from '../../../lib/prompt-controls';
-      const root = document.querySelector<HTMLElement>('[data-prompt-root]');
-      if (root) {
-        const body = new TextDecoder().decode(Uint8Array.from(atob(root.dataset.promptBody ?? ''), (char) => char.charCodeAt(0)));
-        initPromptControls(root, { body, filename: root.dataset.promptFilename ?? 'prompt.md' });
-      }
-    </script>
-  </body>
-</html>
+<StarlightPage frontmatter={{ title: promptLabel(id), description }}>
+  <main
+    class="prompt-detail"
+    data-prompt-root
+    data-prompt-body={encodedBody}
+    data-prompt-filename={filename}
+  >
+    <nav aria-label="Breadcrumb">
+      <a href={`${base}agents/prompts/`}>Agent prompts</a> / {promptLabel(id)}
+    </nav>
+    <header>
+      <p class="eyebrow">CURRENT PROMPT</p>
+      <p>
+        Copy or download the canonical Markdown body. Frontmatter and page
+        metadata are not included.
+      </p>
+    </header>
+    <section aria-labelledby="prompt-details">
+      <h2 id="prompt-details">Prompt details</h2>
+      <dl class="metadata">
+        <div>
+          <dt>Stable ID</dt>
+          <dd><code>{data.metadata.id}</code></dd>
+        </div>
+        <div>
+          <dt>Prompt version</dt>
+          <dd>{data.metadata.prompt_version}</dd>
+        </div>
+        <div>
+          <dt>SDK compatibility</dt>
+          <dd>
+            {
+              Object.entries(data.metadata.compatibility.sdk).map(
+                ([name, range]) => (
+                  <span><code>{name}</code> <code>{range}</code></span>
+                ),
+              )
+            }
+          </dd>
+        </div>
+      </dl>
+    </section>
+    <section aria-labelledby="prompt-body-heading">
+      <div class="body-heading">
+        <h2 id="prompt-body-heading">Prompt body</h2>
+        <div class="actions">
+          <button type="button" data-copy-prompt>Copy Markdown</button>
+          <button type="button" data-download-prompt>Download .md</button>
+        </div>
+      </div>
+      <article class="prompt-content" data-rendered-prompt>
+        <Content />
+      </article>
+      <p data-prompt-status role="status" aria-live="polite"></p>
+    </section>
+  </main>
+</StarlightPage>
+<script>
+  import { initPromptControls } from '../../../lib/prompt-controls';
+
+  const root = document.querySelector<HTMLElement>('[data-prompt-root]');
+  if (root) {
+    const body = new TextDecoder().decode(
+      Uint8Array.from(atob(root.dataset.promptBody ?? ''), (char) =>
+        char.charCodeAt(0),
+      ),
+    );
+    initPromptControls(root, {
+      body,
+      filename: root.dataset.promptFilename ?? 'prompt.md',
+    });
+  }
+</script>
 <style>
-  :global(body) { margin: 0; color: #20232a; background: #f8f9fb; font: 1rem/1.6 system-ui, sans-serif; }
-  .page { box-sizing: border-box; max-width: 64rem; margin: 0 auto; padding: clamp(1.25rem, 5vw, 3rem); }
-  nav, .eyebrow { color: #566174; font-size: .9rem; } header { margin: 3rem 0 2rem; max-width: 46rem; }
-  h1 { margin: .3rem 0; font-size: clamp(2rem, 6vw, 3.2rem); line-height: 1.12; } h2 { font-size: 1.25rem; }
-  .eyebrow { letter-spacing: .12em; font-weight: 700; } .metadata { display: grid; gap: .75rem; margin: 0 0 2rem; }
-  .metadata div { display: grid; grid-template-columns: minmax(9rem, .3fr) 1fr; gap: 1rem; padding: .75rem 1rem; border: 1px solid #d7dce5; border-radius: .5rem; background: white; }
-  dt { font-weight: 650; } dd { margin: 0; overflow-wrap: anywhere; } dd span { display: block; }
+  .prompt-detail { max-width: 64rem; margin: 0 auto; }
+  nav, .eyebrow { color: var(--sl-color-gray-2); font-size: .9rem; }
+  header { margin: 2rem 0; max-width: 46rem; }
+  h2 { font-size: 1.25rem; }
+  .eyebrow { letter-spacing: .12em; font-weight: 700; }
+  .metadata { display: grid; gap: .75rem; margin: 0 0 2rem; }
+  .metadata div { display: grid; grid-template-columns: minmax(9rem, .3fr) 1fr; gap: 1rem; padding: .75rem 1rem; border: 1px solid var(--sl-color-gray-5); border-radius: .5rem; background: var(--sl-color-bg); }
+  dt { font-weight: 650; }
+  dd { margin: 0; overflow-wrap: anywhere; }
+  dd span { display: block; }
   .body-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
-  .actions { display: flex; gap: .5rem; flex-wrap: wrap; } button { padding: .55rem .85rem; border: 1px solid #69748a; border-radius: .4rem; background: white; color: #20232a; font: inherit; cursor: pointer; }
-  button:hover, button:focus-visible { border-color: #5265c5; outline: 2px solid #5265c5; outline-offset: 2px; }
-  pre { box-sizing: border-box; max-width: 100%; overflow: auto; padding: 1.25rem; border: 1px solid #d7dce5; border-radius: .75rem; background: white; white-space: pre-wrap; overflow-wrap: anywhere; font: .9rem/1.6 ui-monospace, monospace; }
+  .actions { display: flex; gap: .5rem; flex-wrap: wrap; }
+  button { padding: .55rem .85rem; border: 1px solid var(--sl-color-gray-3); border-radius: .4rem; background: var(--sl-color-bg); color: var(--sl-color-text); font: inherit; cursor: pointer; }
+  button:hover, button:focus-visible { border-color: var(--sl-color-accent); outline: 2px solid var(--sl-color-accent); outline-offset: 2px; }
   [data-prompt-status] { min-height: 1.6em; }
-  @media (max-width: 36rem) { .metadata div { grid-template-columns: 1fr; gap: .2rem; } .actions { width: 100%; } button { flex: 1; } }
+  @media (max-width: 36rem) {
+    .metadata div { grid-template-columns: 1fr; gap: .2rem; }
+    .actions { width: 100%; }
+    button { flex: 1; }
+  }
 </style>

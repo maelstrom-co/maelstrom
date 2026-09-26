@@ -1,0 +1,2 @@
+$ bun tools/prompts/check.ts
+Prompt source schema check passed.

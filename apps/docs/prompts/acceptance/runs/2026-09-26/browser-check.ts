@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { chromium } from '@playwright/test';
-
+import { promptLabel } from '../../../../src/lib/prompt-presentation';
 import { loadPromptLibrary } from '../../../../tools/prompts/library';
 
 const baseUrl = 'http://127.0.0.1:4317';
@@ -26,13 +26,35 @@ try {
     const response = await page.goto(`${baseUrl}/agents/prompts/${id}/`);
     if (response?.status() !== 200)
       throw new Error(`${id}: detail route failed`);
+    const pageHeadings = await page
+      .getByRole('heading', { level: 1 })
+      .allTextContents();
+    if (pageHeadings.length !== 1 || pageHeadings[0] !== promptLabel(id))
+      throw new Error(`${id}: Starlight page title is missing or duplicated`);
+    const encodedBody = await page
+      .locator('[data-prompt-root]')
+      .getAttribute('data-prompt-body');
     if (
-      (await page
-        .locator('pre code')
-        .evaluate((element) => element.textContent)) !== prompt.body
+      !encodedBody ||
+      Buffer.from(encodedBody, 'base64').toString('utf8') !== prompt.body
     ) {
-      throw new Error(`${id}: rendered body differs from the canonical source`);
+      throw new Error(
+        `${id}: raw body transport differs from the canonical source`,
+      );
     }
+    const rendered = page.locator('[data-rendered-prompt]');
+    if ((await rendered.locator('h2, h3').count()) === 0)
+      throw new Error(`${id}: Markdown headings were not rendered`);
+    if ((await rendered.locator('ul, ol').count()) === 0)
+      throw new Error(`${id}: Markdown lists were not rendered`);
+    if (
+      ['maelstrom-react-inventory', 'maelstrom-vessel-modeling'].includes(id) &&
+      (await rendered.locator('table').count()) === 0
+    ) {
+      throw new Error(`${id}: Markdown table was not rendered`);
+    }
+    if ((await rendered.locator('.metadata').count()) !== 0)
+      throw new Error(`${id}: page metadata leaked into the rendered body`);
     const metadata = await page.locator('.metadata').innerText();
     if (
       !metadata.includes(id) ||
@@ -94,12 +116,17 @@ try {
       });
     }
     console.log(
-      `${id}: body, metadata, keyboard copy/download and exact bytes passed; ${filename}; ${bytes.length} bytes; sha256=${createHash('sha256').update(bytes).digest('hex')}`,
+      `${id}: raw body transport, rendered Markdown, metadata separation, keyboard copy/download and exact bytes passed; ${filename}; ${bytes.length} bytes; sha256=${createHash('sha256').update(bytes).digest('hex')}`,
     );
   }
 
   const index = await page.goto(`${baseUrl}/agents/prompts/`);
   if (index?.status() !== 200) throw new Error('Prompt index route failed');
+  const indexHeadings = await page
+    .getByRole('heading', { level: 1 })
+    .allTextContents();
+  if (indexHeadings.length !== 1 || indexHeadings[0] !== 'Agent prompts')
+    throw new Error('Prompt index Starlight title is missing or duplicated');
   for (const prompt of prompts) {
     const route = `/agents/prompts/${prompt.metadata.id}/`;
     if ((await page.locator(`a[href="${route}"]`).count()) !== 1)

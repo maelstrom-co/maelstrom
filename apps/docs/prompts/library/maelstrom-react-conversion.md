@@ -1,6 +1,6 @@
 ---
 id: maelstrom-react-conversion
-prompt_version: 1.0.1
+prompt_version: 1.0.0
 compatibility:
   sdk:
     "@maelstrom-co/react": "0.1.0-alpha.4"
