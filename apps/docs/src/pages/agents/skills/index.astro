@@ -5,7 +5,6 @@ import { resolveDocsSourceRef } from '../../../lib/docs-source-links.js';
 const sourceRef = resolveDocsSourceRef(process.env);
 const sourceTree = `https://github.com/maelstrom-co/maelstrom/tree/${sourceRef}/apps/docs/skills`;
 const sourceFile = `https://github.com/maelstrom-co/maelstrom/blob/${sourceRef}/apps/docs/skills/README.md`;
-const sourceArchive = `https://github.com/maelstrom-co/maelstrom/archive/${sourceRef}.zip`;
 ---
 <StarlightPage
   frontmatter={{
@@ -13,7 +12,7 @@ const sourceArchive = `https://github.com/maelstrom-co/maelstrom/archive/${sourc
     description: 'Portable Maelstrom lead skills and their conditional references.',
   }}
 >
-  <main class="skill-index">
+  <div class="skill-index">
     <nav aria-label="Breadcrumb">
       <a href="/agents/prompts/">Agent prompts</a> / Agent skills
     </nav>
@@ -29,18 +28,22 @@ const sourceArchive = `https://github.com/maelstrom-co/maelstrom/archive/${sourc
     <section aria-labelledby="obtain-heading">
       <h2 id="obtain-heading">Obtain the complete bundle</h2>
       <p>
-        The canonical bundle is the complete <code>apps/docs/skills/</code>
-        directory. Download the repository source archive and keep that directory
-        intact, or browse the exact source tree. Include every linked
-        Markdown files in <code>references/</code> when copying a lead skill; the Markdown
-        links are relative to the bundle and resolve without installation.
+        Download the complete, revision-matched skills bundle generated from
+        this docs build. It contains the entire <code>apps/docs/skills/</code>
+        tree and the exact canonical voice architecture and ADR Markdown needed
+        by the optional voice skill. Preserve the paths when extracting or
+        copying the bundle; its relative Markdown links resolve without
+        installation.
       </p>
       <ul>
-        <li><a href={sourceArchive}>Download source archive for this docs revision</a></li>
-        <li><a href={sourceTree}>Browse the canonical skill bundle</a></li>
-        <li><a href={sourceFile}>Read the consumer entrypoint and skill selection map</a></li>
+        <li><a href="/agents/skills/bundle.zip" download="maelstrom-agent-skills.zip">Download complete skills bundle for this docs build</a></li>
+        <li><a href={sourceTree}>Browse the GitHub skills source tree</a></li>
+        <li><a href={sourceFile}>Browse the README source</a></li>
       </ul>
       <p>
+        GitHub links are for source browsing only and may refer to a mutable
+        branch when build revision metadata is unavailable. The downloaded
+        bundle is generated from the exact sources used by this docs build.
         Extract or copy <code>apps/docs/skills/</code> into the coding agent's
         supported skill directory, preserving each <code>SKILL.md</code> and
         <code>references/</code> path. No registry, installer, or global
@@ -52,7 +55,7 @@ const sourceArchive = `https://github.com/maelstrom-co/maelstrom/archive/${sourc
       Looking for a standalone instruction instead? Browse the
       <a href="/agents/prompts/">canonical prompt library</a>.
     </p>
-  </main>
+  </div>
 </StarlightPage>
 <style>
   .skill-index { max-width: 58rem; margin: 0 auto; }

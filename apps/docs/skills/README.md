@@ -1,6 +1,6 @@
 # Maelstrom agent skills
 
-This directory is the portable, app-owned filesystem bundle for Maelstrom coding-agent skills. The canonical package root is `apps/docs/skills/`; obtain the **entire directory tree**, preserving relative paths, rather than copying only a `SKILL.md`. The files are plain Markdown and require no runtime package, registry installation, or repository-specific absolute path. The [Agent Skills docs page](https://docs.maelstrom-ai.co/agents/skills/) links to the complete source archive and canonical tree.
+This directory is the canonical Markdown source for Maelstrom coding-agent skills. The revision-matched consumer bundle is generated from this complete tree during the docs build and is available as a [direct ZIP download](https://docs.maelstrom-ai.co/agents/skills/bundle.zip) or from the [Agent Skills docs page](https://docs.maelstrom-ai.co/agents/skills/). It includes these files and read-only projections of the canonical voice architecture and ADRs; use the generated bundle rather than copying an individual `SKILL.md` or browsing a potentially mutable source branch. The extracted files are plain Markdown and need no runtime package, registry, or repository checkout.
 
 ## Consumer entrypoint
 
@@ -10,7 +10,7 @@ Start here when selecting guidance: choose exactly one lead `SKILL.md` whose des
 | --- | --- | --- |
 | New integration or broad project orientation | [`maelstrom-project-onboarding/SKILL.md`](maelstrom-project-onboarding/SKILL.md) | Connector/auth only for custom transport or application authentication. |
 | Select and model a user-visible capability as a Vessel | [`maelstrom-vessel-modeling/SKILL.md`](maelstrom-vessel-modeling/SKILL.md) | Actions/idempotence before exposing side effects or retry-sensitive operations. |
-| Incrementally migrate an existing React capability | [`maelstrom-react-migration/SKILL.md`](maelstrom-react-migration/SKILL.md) | Vessel modeling for the selected contract; rollback before changing/removing the legacy path. |
+| Incrementally migrate an existing React capability | [`maelstrom-react-migration/SKILL.md`](maelstrom-react-migration/SKILL.md) | Vessel modeling for the selected contract; Actions/idempotence before exposing side effects or retry-sensitive operations; rollback before changing/removing the legacy path. |
 | Diagnose an observed failure | [`maelstrom-debugging/SKILL.md`](maelstrom-debugging/SKILL.md) | Connector/auth for transport/auth evidence; state-sync for definition/update conflicts. |
 | Add event reporting | [`maelstrom-observability/SKILL.md`](maelstrom-observability/SKILL.md) | Security before logging request data, credentials, or user content. |
 | Update a Vessel definition or runtime state | [`maelstrom-state-sync/SKILL.md`](maelstrom-state-sync/SKILL.md) | Actions/idempotence if operations are added or removed. |
@@ -45,4 +45,4 @@ apps/docs/skills/
     └── voice-lifecycle-and-turn-taking.md
 ```
 
-All mandatory workflow material is in this bundle. Maelstrom-specific API names must still be verified against the consumer project's installed exports, declarations, source, tests, and version-matched docs; the bundle is not a claim that an API exists in every SDK version. Voice references are optional and do not imply that a provider is selected or supported. No skill assumes repository-internal absolute paths, starts agents, or performs side effects without the task's authorization.
+The build-generated bundle also includes the exact canonical `docs/realtime-voice-architecture.md`, `docs/architecture.md`, and `docs/adr/0001`–`0003` Markdown under `references/canonical-voice/docs/`; these files are projected read-only at build time, not maintained copies. Maelstrom-specific API names must still be verified against the consumer project's installed exports, declarations, source, tests, and version-specific provider documentation. The bundle does not imply that an API exists in every SDK version or that external provider documentation is version-matched. Voice references are optional and do not imply that a provider is selected or supported. No skill assumes repository-internal absolute paths, starts agents, or performs side effects without the task's authorization.

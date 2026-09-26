@@ -19,11 +19,17 @@ Implementation authorized: [YES / NO]
 
 Inspect the app's current intent flow, React shell, server routes/deployment,
 installed package versions, and the canonical voice architecture before proposing
-changes. Read `docs/realtime-voice-architecture.md` and ADRs 0001, 0002, and 0003.
-Confirm selected APIs against the installed package exports/types and the matching
-provider guide. Do not assume a provider or add voice packages until the user goal
-and provider/deployment decision justify them. If a decision is missing, return
-the bounded decision needed rather than choosing a provider.
+changes. Read `docs/realtime-voice-architecture.md` and ADRs 0001, 0002, and 0003
+from the app checkout when present. For a portable skill bundle, use the exact
+canonical files under `apps/docs/skills/references/canonical-voice/docs/`. If
+neither source is available, ask for the materials before implementation; do not
+infer their contents or assume a public guide links the ADRs. Confirm selected
+APIs against installed package exports/types/source/tests. Use a provider guide
+as version-specific evidence only when its version matches the installed SDK; label
+current external docs as unversioned when that match is unknown. Do not assume a
+provider or add voice packages until the user goal and provider/deployment
+decision justify them. If a decision is missing, return the bounded decision
+needed rather than choosing a provider.
 
 Keep the responsibilities distinct:
 
@@ -31,17 +37,19 @@ Keep the responsibilities distinct:
   appropriate React binding. Voice controls are not automatically a Vessel.
 - **Realtime:** provider adapter/session lifecycle and turn-taking, with provider
   differences preserved rather than hidden behind invented common behavior.
-- **Server/worker:** provider keys and minters/workers only on their owning server
-  side. Browser receives only the narrowly scoped short-lived credential needed
-  by the selected provider. Application auth, authorization, origin policy, and
-  rate limits remain app-owned; a package minter does not authenticate callers.
+- **Server/worker:** long-lived provider keys stay out of browser code. A
+  server or LiveKit worker may hold only the credentials its documented role
+  requires; for the supported LiveKit cascade, the worker uses LiveKit,
+  Deepgram, and Cartesia credentials while the browser receives a short-lived
+  room grant. Application auth, authorization, origin policy, and rate limits
+  remain app-owned; a package minter does not authenticate callers.
 - **Planning:** speech becomes ordinary natural-language intent. The Engine stays
   the planner and uses client-owned Chart state. Turn mode is runtime behavior,
   not a fixed provider flag.
 
 Honor the four-layer boundary: CONTRACT, BROWSER, SERVER, WORKER. No server or
-worker package may depend on a browser package. Do not put provider secrets or
-Vessel/Chart structure into a voice worker. Distinguish actual provider support
+worker package may depend on a browser package. A worker must never receive
+Vessel/Chart structure or become a second planner. Distinguish actual provider support
 and deployment requirements in the checked-in guides from hypothetical options.
 
 For an authorized bounded implementation, preserve unrelated application flows,
