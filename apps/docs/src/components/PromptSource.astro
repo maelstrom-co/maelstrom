@@ -30,6 +30,7 @@ const { heading, label, body, showHeader = true } = Astro.props;
   .source-actions { display: flex; align-items: center; gap: .5rem; }
   .source-actions :global(button) { margin: 0; }
   pre { max-height: 32rem; overflow: auto; padding: 1rem; border: 1px solid var(--sl-color-gray-5); border-radius: .5rem; background: var(--sl-color-gray-6); color: var(--sl-color-text); white-space: pre; }
+  :global(.starlight-aside) .prompt-source pre code { background-color: transparent; }
   pre code { white-space: inherit; }
   [data-prompt-status] { min-height: 1.4em; margin: .5rem 0 0; }
 </style>
