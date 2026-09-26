@@ -1,6 +1,7 @@
 ---
 import { getCollection } from 'astro:content';
 import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro';
+import PromptIconButton from '../../../components/PromptIconButton.astro';
 import PromptSource from '../../../components/PromptSource.astro';
 import {
   type PromptEntry,
@@ -64,7 +65,7 @@ const description = `Current canonical prompt ${id}, version ${data.metadata.pro
       <h2 id="prompt-body-heading">Prompt body</h2>
       <article aria-label="Canonical Markdown source">
         <PromptSource heading={promptLabel(id)} label={promptLabel(id)} body={data.body}>
-          <button slot="actions" type="button" data-download-prompt>Download .md</button>
+          <PromptIconButton slot="actions" action="download" label={promptLabel(id)} />
         </PromptSource>
       </article>
     </section>
@@ -100,12 +101,8 @@ const description = `Current canonical prompt ${id}, version ${data.metadata.pro
   article { margin-top: 1rem; }
   article :global(.prompt-source) { padding: 1rem; border: 1px solid var(--sl-color-gray-5); border-radius: .5rem; background: var(--sl-color-bg); }
   article :global(pre) { max-height: 60vh; margin-bottom: 0; }
-  button { padding: .55rem .85rem; border: 1px solid var(--sl-color-gray-3); border-radius: .4rem; background: var(--sl-color-bg); color: var(--sl-color-text); font: inherit; cursor: pointer; }
-  button:hover, button:focus-visible { border-color: var(--sl-color-accent); outline: 2px solid var(--sl-color-accent); outline-offset: 2px; }
   [data-prompt-status] { min-height: 1.6em; }
   @media (max-width: 36rem) {
     .metadata div { grid-template-columns: 1fr; gap: .2rem; }
-    .actions { width: 100%; }
-    button { flex: 1; }
   }
 </style>

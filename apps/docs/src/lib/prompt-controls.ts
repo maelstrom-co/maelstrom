@@ -55,7 +55,9 @@ export function initPromptControls(
   const download = root.querySelector<HTMLButtonElement>(
     '[data-download-prompt]',
   );
-  copy?.addEventListener('click', async () => {
+  copy?.addEventListener('click', async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
     if (status) status.textContent = 'Copying prompt…';
     try {
       await copyPromptBody(options.body, options.clipboard);

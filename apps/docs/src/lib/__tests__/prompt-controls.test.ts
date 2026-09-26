@@ -10,7 +10,7 @@ const body = '```tsx\nconst title = "café 🧭 &amp;";\n```\n';
 
 function page() {
   const dom = new JSDOM(
-    '<main><button data-copy-prompt>Copy</button><button data-download-prompt>Download</button><p data-prompt-status role="status"></p></main>',
+    '<main><button data-copy-prompt aria-label="Copy sample prompt" title="Copy sample prompt"><svg aria-hidden="true"></svg></button><button data-download-prompt aria-label="Download sample prompt" title="Download sample prompt"><svg aria-hidden="true"></svg></button><p data-prompt-status role="status"></p></main>',
   );
   return {
     dom,
@@ -44,20 +44,24 @@ describe('canonical prompt controls', () => {
 
   test('keeps multiple collapsed prompt panels independent when copying', async () => {
     const dom = new JSDOM(`
-      <details><summary>First prompt</summary><main data-prompt-root>
-        <button data-copy-prompt aria-label="Copy first prompt"><svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18"></svg></button>
+      <details data-prompt-root>
+        <summary>First prompt <button data-copy-prompt aria-label="Copy first prompt" title="Copy first prompt"><svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18"></svg></button></summary>
         <pre><code>${body.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')}</code></pre>
         <p data-prompt-status role="status"></p>
-      </main></details>
-      <details><summary>Second prompt</summary><main data-prompt-root>
-        <button data-copy-prompt aria-label="Copy second prompt"><svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18"></svg></button>
-        <button data-download-prompt>Download .md</button>
+      </details>
+      <details data-prompt-root>
+        <summary>Second prompt <button data-copy-prompt aria-label="Copy second prompt" title="Copy second prompt"><svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18"></svg></button></summary>
+        <button data-download-prompt aria-label="Download second prompt" title="Download second prompt"><svg aria-hidden="true"></svg></button>
         <pre><code>second &amp; source\n</code></pre>
         <p data-prompt-status role="status"></p>
-      </main></details>
+      </details>
     `);
     const roots =
       dom.window.document.querySelectorAll<HTMLElement>('[data-prompt-root]');
+    let bubbled = false;
+    roots[1]?.addEventListener('click', () => {
+      bubbled = true;
+    });
     const copied: string[] = [];
     const clipboard = {
       writeText: async (value: string) => {
@@ -76,15 +80,30 @@ describe('canonical prompt controls', () => {
     expect(roots[0]?.querySelector('pre')?.textContent).toBe(body);
     expect(roots[1]?.querySelector('[data-copy-prompt]')?.textContent).toBe('');
     expect(
+      roots[1]?.querySelector('[data-copy-prompt]')?.getAttribute('aria-label'),
+    ).toBe('Copy second prompt');
+    expect(
       roots[1]
         ?.querySelector('[data-copy-prompt] svg')
         ?.getAttribute('aria-hidden'),
     ).toBe('true');
-    expect(roots[1]?.querySelector('[data-download-prompt]')?.textContent).toBe(
-      'Download .md',
+    const downloadButton = roots[1]?.querySelector<HTMLButtonElement>(
+      '[data-download-prompt]',
     );
-    roots[1]?.querySelector<HTMLButtonElement>('[data-copy-prompt]')?.click();
+    expect(downloadButton?.textContent).toBe('');
+    expect(downloadButton?.getAttribute('aria-label')).toBe(
+      'Download second prompt',
+    );
+    const click = new dom.window.MouseEvent('click', {
+      bubbles: true,
+      cancelable: true,
+    });
+    roots[1]
+      ?.querySelector<HTMLButtonElement>('[data-copy-prompt]')
+      ?.dispatchEvent(click);
     await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(click.defaultPrevented).toBe(true);
+    expect(bubbled).toBe(false);
     expect(copied).toEqual([secondBody]);
     expect(roots[1]?.querySelector('[role="status"]')?.textContent).toBe(
       'Prompt copied.',

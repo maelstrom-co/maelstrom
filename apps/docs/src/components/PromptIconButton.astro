@@ -1,0 +1,33 @@
+---
+interface Props {
+  action: 'copy' | 'download';
+  label: string;
+}
+
+const { action, label } = Astro.props;
+const accessibleName = `${action === 'copy' ? 'Copy' : 'Download'} ${label} prompt`;
+---
+<button
+  type="button"
+  data-copy-prompt={action === 'copy' ? '' : undefined}
+  data-download-prompt={action === 'download' ? '' : undefined}
+  aria-label={accessibleName}
+  title={accessibleName}
+>
+  {action === 'copy' ? (
+    <svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="8" y="8" width="12" height="12" rx="2"></rect>
+      <path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"></path>
+    </svg>
+  ) : (
+    <svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+      <path d="m7 10 5 5 5-5"></path>
+      <path d="M12 15V3"></path>
+    </svg>
+  )}
+</button>
+<style>
+  button { display: inline-grid; place-items: center; padding: .45rem; border: 1px solid var(--sl-color-gray-5); border-radius: .4rem; background: var(--sl-color-bg); color: var(--sl-color-text); cursor: pointer; }
+  button:hover, button:focus-visible { border-color: var(--sl-color-accent); outline: 2px solid var(--sl-color-accent); outline-offset: 2px; }
+</style>
