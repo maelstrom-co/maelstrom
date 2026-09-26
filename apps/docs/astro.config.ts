@@ -437,16 +437,19 @@ export default defineConfig({
           ],
         },
         {
+          label: 'AGENTS',
+          items: [
+            { label: 'Prompts library', link: '/agents/prompts/' },
+            { label: 'SKILL', link: '/agents/skills/' },
+          ],
+        },
+        {
           label: 'Community',
           items: [
             { slug: 'community/contributing' },
             { slug: 'community/jsdoc-contract' },
             { slug: 'community/changelog' },
           ],
-        },
-        {
-          label: 'Agent Prompts',
-          link: '/agents/prompts/',
         },
       ],
       lastUpdated: true,
