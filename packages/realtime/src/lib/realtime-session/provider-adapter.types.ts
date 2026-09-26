@@ -26,9 +26,12 @@ export interface RealtimeToolSpec<Name extends string = string> {
 export interface AdapterConnectOptions {
   readonly tools: readonly RealtimeToolSpec[];
   readonly instructions: string;
+  /** Tool-routing instructions for a separate managed backend. Adapters without one ignore this field; managed adapters fall back to `instructions` when omitted. */
+  readonly backendInstructions?: string;
   /**
    * Conversation-only instructions for providers with a separate conversational
-   * frontend. `instructions` and `tools` configure their managed tool backend.
+   * frontend. `backendInstructions` (or `instructions` when absent) and `tools`
+   * configure their managed tool backend.
    * Legacy adapters may ignore this field and keep their existing instruction path.
    */
   readonly conversationInstructions?: string;

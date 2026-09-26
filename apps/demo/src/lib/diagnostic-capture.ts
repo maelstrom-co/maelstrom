@@ -228,7 +228,13 @@ export class DiagnosticCapture {
       const type = text(envelope.type);
       const event = object(envelope.event);
       const eventType = text(event.type);
-      if (!type || !/^(session\.delegation\.|response\.)/.test(type)) return;
+      if (
+        !type ||
+        !/^(session\.delegation\.|session\.thinking\.append(?:ed)?$|response\.)/.test(
+          type,
+        )
+      )
+        return;
       if (eventType?.endsWith('.delta')) return;
       const response = object(event.response);
       const delegation = object(envelope.delegation);
@@ -247,6 +253,19 @@ export class DiagnosticCapture {
         type,
         eventType,
         eventId: text(envelope.event_id),
+        clientEventId: text(envelope.client_event_id),
+        contextKind:
+          type === 'session.thinking.append' && direction === 'sent'
+            ? text(envelope.content)?.startsWith('Observed UI data')
+              ? 'ui_snapshot'
+              : text(envelope.content)?.startsWith('Observed application data')
+                ? 'recovery_outcome'
+                : 'other'
+            : undefined,
+        snapshotRevision:
+          type === 'session.thinking.append' && direction === 'sent'
+            ? text(envelope.content)?.match(/UI snapshot r(\d+)/)?.[1]
+            : undefined,
         delegationId: text(envelope.delegation_id) ?? text(delegation.id),
         responseId:
           text(event.response_id) ??
