@@ -14,7 +14,7 @@ This proposal is for developer-facing prompts and skills. It does not change Mae
 
 ## Decisions for the initial implementation
 
-- Store exactly one canonical Markdown source file per complete prompt in `docs/prompts/library/`. The prompt body is all Markdown after YAML frontmatter. Copy and download include that entire body and exclude frontmatter. Explanations and editorial prose stay outside the canonical file.
+- Store exactly one canonical Markdown source file per complete prompt in `apps/docs/prompts/library/`. The prompt body is all Markdown after YAML frontmatter. Copy and download include that entire body and exclude frontmatter. Explanations and editorial prose stay outside the canonical file.
 - Give genuinely different instructions separate stable IDs and files. Do not generate short and extended projections from one prompt, and do not generate skills from prompts.
 - Prompts stand alone: no prompt dependencies, shared-text assembly, transclusion, or dependency-resolution graph.
 - Publish only stable prompts. Each has a stable `id`, a `prompt_version` starting at `1.0.0`, and `compatibility.sdk`. Experimental/draft prompts are not published. SDK prereleases match only when a compatibility range explicitly includes them.
@@ -32,7 +32,7 @@ This proposal is for developer-facing prompts and skills. It does not change Mae
 | P1 | SDK-use, connector/auth, event observability, state synchronization, testing, and upgrade prompts; lead skills for recurring workflows | Each task has one lead skill or a standalone prompt, the sample cases pass their written checks, and supporting-guide triggers are documented. |
 | P2 (proposed) | More frameworks and tasks; automated behavioral evaluation | Automation follows experience with the manual acceptance cases; it does not replace the metadata/version CI gate. |
 
-P0's minimum integration path should inspect the project, identify installed versions, wire a bounded integration, and verify an intent without exposing provider credentials in browser code. Prompt files, skill packages, a renderer, and CI are proposed work, not present implementation.
+P0's minimum integration path should inspect the project, identify installed versions, wire a bounded integration, and verify an intent without exposing provider credentials in browser code. The rollout and acceptance plan below describe intended work; they do not claim that all prompt sources, checks, or acceptance cases are complete.
 
 ## Task taxonomy and ownership
 
@@ -81,7 +81,7 @@ Skills guide an end-to-end workflow and identify supporting references with conc
 
 ## Canonical prompt format and docs publication
 
-The proposed canonical location is `docs/prompts/library/<id>.md`. A file contains YAML frontmatter followed by one complete, standalone Markdown prompt. No other document maintains a copy of that prompt body. Human explanation, selection guidance, and examples belong in architecture/docs pages and link to the canonical prompt.
+The proposed canonical location is `apps/docs/prompts/library/<id>.md`. A file contains YAML frontmatter followed by one complete, standalone Markdown prompt. No other document maintains a copy of that prompt body. Human explanation, selection guidance, and examples belong in architecture/docs pages and link to the canonical prompt.
 
 The initial schema is deliberately small:
 
@@ -96,9 +96,9 @@ Unknown fields, malformed YAML, duplicate IDs, invalid types, missing fields, in
 
 ### Proposed docs adapter
 
-The basic publication plan is a build-time docs-content adapter that reads `docs/prompts/library/*.md`, validates frontmatter, and exposes one latest route per ID under `/agents/prompts/<id>/`. It renders the Markdown body and shows ID, prompt version, and SDK compatibility as separate page metadata. Docs navigation links to those routes. The approach is proposed; it does not require a runtime API or a separate release service.
+The publication plan is a docs-content adapter that reads `apps/docs/prompts/library/*.md`, validates frontmatter, and exposes latest-only pages at `/agents/prompts/` and `/agents/prompts/<id>/`. Each prompt page shows the Markdown body literally as escaped source in a distinct code panel, not as rendered prompt headings or lists in the page flow, alongside ID, prompt version, and SDK compatibility as separate page metadata. Docs navigation links to these pages. The approach does not require a runtime API or a separate release service.
 
-The page's copy and download controls read the canonical source body, not rendered page DOM. Copy the complete Markdown body with its original content and a trailing newline; do not prepend title, URL, YAML, or page explanation. Download as `<id>-v<prompt_version>.md`, containing that same body. The ordinary docs site's page-copy button remains distinct and must not be reused for this body-only contract.
+The page's copy and download controls read the canonical source body, not rendered page DOM. Copy the complete Markdown body with its original content and a trailing newline; do not prepend title, URL, YAML, or page explanation. Download as `<id>-v<version>.md`, where `<version>` is the prompt version, containing that same body. The ordinary docs site's page-copy button remains distinct and must not be reused for this body-only contract.
 
 ### Version and CI contract
 
@@ -204,3 +204,13 @@ Runtime Engine prompt customization remains a separate concern. Changing Engine 
 ## Proposed future work
 
 The initial implementation can begin with a small stable library, a source-based docs adapter, a blocking metadata/version check, and manual sample-project acceptance. Broader framework recipes, behavioral automation, and additional lead skills remain proposed. Do not expand this work into a skill orchestrator, prompt dependency system, historical prompt hosting, or a release service.
+
+## Decision lock
+
+This section is authoritative where earlier recommendations in this document conflict with these decisions. It supersedes only earlier implementation-location recommendations that place prompt implementation assets at the repository root, and any interpretation that prompt bodies should be rendered as page content. The remaining architecture, prompt semantics, versioning, and deferred-scope decisions are unchanged.
+
+- Keep prompt implementation assets in `apps/docs`: canonical complete prompt files in `apps/docs/prompts/library/`, validation and collection tooling in `apps/docs/tools/prompts/`, acceptance materials in `apps/docs/prompts/acceptance/`, and presentation in `apps/docs/src/`. Architecture and planning documents may remain under `docs/prompts/`; `.github/workflows/ci.yml` may invoke checks owned by the app.
+- Keep one complete, self-contained Markdown source file per prompt, with validated YAML metadata separate from the full raw body. Do not assemble prompts from fragments. Publish latest-only pages at `/agents/prompts/` and `/agents/prompts/<id>/`; do not add public version history.
+- Show the full prompt as literal Markdown source in a distinct escaped source/code panel, not as rendered Markdown in page flow. Copy and download the exact complete body, excluding frontmatter, with no added title or page text; download as `<id>-v<version>.md`.
+- Keep guide explanations, titles, and links visible when prompt details are collapsed. Use labeled native disclosures for each prompt, closed by default; opening one reveals that prompt's raw Markdown and an accessible copy icon. When a guide has multiple prompts, each disclosure and copy action is bound to its own prompt. Place the prominent, legible Agent Prompts sidebar link last among top-level links, after all groups.
+- Keep additional prompts, skills, and automated behavioral evaluation deferred as described above. The current UX implementation is committed and verified; the separate onboarding acceptance follow-up remains open. This does not claim that full prompt acceptance or hosted CI is complete.
