@@ -289,6 +289,7 @@ async function harness(
     connect,
     submissions,
     events,
+    peers,
     config: () => config!,
     settle: () => settle(),
   };
@@ -749,7 +750,13 @@ test('all three session tools use managed configuration and settled results befo
       .delegation.responses.tools?.map((t) => ('name' in t ? t.name : '')),
   ).toEqual(['update_ui', 'get_ui_state', 'get_capabilities']);
   expect(h.config().delegation.responses.instructions).toContain(
-    'Only narrate',
+    'Only report a UI change as complete',
+  );
+  expect(h.config().delegation.responses.instructions).toContain(
+    'managed UI tool backend',
+  );
+  expect(h.config().delegation.responses.instructions).not.toContain(
+    'You are the voice interface',
   );
   expect(h.config().instructions).toContain('observed reference data');
   h.channel.begin();
@@ -780,6 +787,52 @@ test('all three session tools use managed configuration and settled results befo
   });
   expect(h.channel.continues()).toHaveLength(1);
   expect(Object.keys(h.channel.continues()[0]!)).toEqual(['type', 'event_id']);
+});
+
+test('direct adapter callers retain their legacy instructions when no backend prompt is supplied', async () => {
+  const h = await harness();
+  await h.session.disconnect();
+  const ready = h.adapter.connect({
+    tools: [],
+    instructions: 'Caller-owned tool policy',
+  });
+  await tick();
+  h.peers
+    .at(-1)!
+    .channel.event('session.started', { session: { id: 'live_session' } });
+  await ready;
+  expect(h.config().delegation.responses.instructions).toBe(
+    'Caller-owned tool policy',
+  );
+  await h.adapter.disconnect();
+});
+
+test('current function outcomes use tool results only but remain available on reconnect', async () => {
+  const gate = deferred<void>();
+  const h = await harness({ waitForIdle: () => gate.promise });
+  const recoveryUpdates = () =>
+    h.channel.sent.filter(
+      (value) =>
+        value.type === 'session.thinking.append' &&
+        value.content.includes('application_outcome_excerpt'),
+    );
+  h.channel.begin();
+  h.channel.call('change');
+  h.channel.done();
+  await tick();
+  expect(h.session.memory.getSnapshot().outcomes[0]?.status).toBe('submitted');
+  expect(recoveryUpdates()).toHaveLength(0);
+  gate.resolve();
+  await tick();
+  expect(h.session.memory.getSnapshot().outcomes[0]?.status).toBe('completed');
+  expect(h.channel.outputs()).toHaveLength(1);
+  expect(recoveryUpdates()).toHaveLength(0);
+  await h.session.disconnect();
+  const next = await h.connect();
+  expect(JSON.stringify(h.config().input)).toContain('completed');
+  expect(next.outputs()).toHaveLength(0);
+  expect(next.continues()).toHaveLength(0);
+  expect(h.submissions).toEqual(['show labs']);
 });
 
 test('duplicate items and terminal events cannot repeat UI effects or conflicting output', async () => {

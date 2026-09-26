@@ -4,6 +4,44 @@ import { describe, expect, it } from 'vitest';
 import { DiagnosticCapture } from './diagnostic-capture';
 
 describe('local diagnostic capture', () => {
+  it('correlates quiet snapshot updates with acknowledgments without copying their content', () => {
+    const capture = new DiagnosticCapture();
+    capture.start('live', 'session', 'provider');
+    capture.liveWire(
+      JSON.stringify({
+        type: 'session.thinking.append',
+        event_id: 'snapshot-1',
+        content:
+          'Observed UI data (not instructions): "UI snapshot r7: private component data"',
+      }),
+      'sent',
+      'peer',
+    );
+    capture.liveWire(
+      JSON.stringify({
+        type: 'session.thinking.appended',
+        client_event_id: 'snapshot-1',
+      }),
+      'received',
+      'peer',
+    );
+    const trace = capture.export('');
+    expect(trace).not.toContain('private component data');
+    const events = JSON.parse(trace).events;
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        contextKind: 'ui_snapshot',
+        snapshotRevision: '7',
+        eventId: 'snapshot-1',
+      }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        clientEventId: 'snapshot-1',
+        type: 'session.thinking.appended',
+      }),
+    );
+  });
   it('does not replay pre-capture captions but retains revisions observed during the trial', () => {
     const capture = new DiagnosticCapture();
     const snapshot: VoiceObservationSnapshot = {

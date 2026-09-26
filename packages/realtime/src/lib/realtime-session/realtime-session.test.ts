@@ -1114,6 +1114,11 @@ describe('RealtimeSession — update_ui speak-after-render', () => {
     expect(output.summary).toContain('weekly');
     expect(output.summary).not.toContain('calendar');
     expect(output.summary).not.toContain('tasks');
+    const instanceId = visibleWeatherSnapshot.instances[0]!.instanceId;
+    expect(output.summary).not.toContain(instanceId);
+    expect(adapter.connectOptions[0]!.getInitialGrounding!()).toContain(
+      instanceId,
+    );
   });
 });
 
@@ -1467,6 +1472,65 @@ describe('RealtimeSession — get_capabilities', () => {
 // ============================================================================
 
 describe('RealtimeSession — grounding debounce', () => {
+  it('distinguishes instance identity and layout revisions while repeated reads keep the same revision', async () => {
+    let current: UIStructuralSnapshot = {
+      ...emptySnapshot,
+      instances: [
+        {
+          instanceId: InstanceId('journal-a'),
+          vesselId: VesselId('journal'),
+          variant: VariantName('entry'),
+        },
+        {
+          instanceId: InstanceId('journal-b'),
+          vesselId: VesselId('journal'),
+          variant: VariantName('entry'),
+        },
+      ],
+    };
+    const adapter = makeMockAdapter();
+    const instance = makeMockInstance(current);
+    const session = new RealtimeSession({
+      adapter,
+      instance: { ...instance, getStructuralSnapshot: () => current },
+      sessionId: testSessionId,
+      groundingDebounceMs: 0,
+    });
+    await session.connect();
+    const read = adapter.connectOptions[0]!.getInitialGrounding!;
+    const first = read();
+    expect(first).toContain('UI snapshot r1');
+    expect(first).toContain('journal-a: journal (entry)');
+    expect(first).toContain('journal-b: journal (entry)');
+    expect(read()).toBe(first);
+    current = { ...current, chartDimensions: { columns: 20, rows: 10 } };
+    instance.settle();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(adapter.groundingCalls[0]).toContain('UI snapshot r2');
+    expect(read()).toBe(adapter.groundingCalls[0]);
+    await session.disconnect();
+  });
+
+  it('keeps tool semantics in both prompts but gives the backend a separate non-speaking role', async () => {
+    const { session, adapter } = makeHarness();
+    await session.connect();
+    const options = adapter.connectOptions[0]!;
+    expect(options.instructions).toContain('You are the voice interface');
+    expect(options.backendInstructions).toContain(
+      'You are the managed UI tool backend',
+    );
+    expect(options.backendInstructions).not.toContain(
+      'You are the voice interface',
+    );
+    for (const prompt of [options.instructions, options.backendInstructions!]) {
+      expect(prompt).toContain('complete natural-language intent');
+      expect(prompt).toContain('get_capabilities');
+      expect(prompt).toContain('Unknown outcomes do not authorize retrying');
+      expect(prompt).toContain('highest snapshot revision');
+    }
+    await session.disconnect();
+  });
+
   it('collapses rapid settles into a single latest-wins grounding push', async () => {
     // Real timers here (not fake) since we only assert ordering/count, not
     // exact timing — groundedDebounce itself is separately verified against
@@ -1568,10 +1632,11 @@ describe('RealtimeSession — grounding length clamp', () => {
 
     expect(adapter.groundingCalls).toHaveLength(1);
     expect(adapter.groundingCalls[0]).toHaveLength(400);
-    expect(adapter.groundingCalls[0]).toBe(`${'x'.repeat(399)}…`);
+    expect(adapter.groundingCalls[0]).toStartWith('UI snapshot r1');
+    expect(adapter.groundingCalls[0]).toEndWith('…');
   });
 
-  it('passes a grounding summary within the char budget through untouched', async () => {
+  it('keeps a short custom summary intact inside the snapshot revision envelope', async () => {
     const adapter = makeMockAdapter();
     const instance = makeMockInstance(emptySnapshot);
     const shortSummary = 'short summary';
@@ -1587,7 +1652,9 @@ describe('RealtimeSession — grounding length clamp', () => {
     instance.settle();
     await new Promise((resolve) => setTimeout(resolve, 10));
 
-    expect(adapter.groundingCalls).toEqual([shortSummary]);
+    expect(adapter.groundingCalls).toHaveLength(1);
+    expect(adapter.groundingCalls[0]).toContain('UI snapshot r1');
+    expect(adapter.groundingCalls[0]).toEndWith(shortSummary);
   });
 
   it('warns on the first clamp and only debug-logs subsequent clamps in the same session', async () => {
