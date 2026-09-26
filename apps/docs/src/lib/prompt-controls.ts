@@ -46,6 +46,10 @@ export function initPromptControls(
   root: ParentNode,
   options: PromptControlOptions,
 ): void {
+  const rootElement = root as HTMLElement;
+  if (rootElement.dataset?.promptControlsInitialized) return;
+  if (rootElement.dataset)
+    rootElement.dataset.promptControlsInitialized = 'true';
   const status = root.querySelector<HTMLElement>('[data-prompt-status]');
   const copy = root.querySelector<HTMLButtonElement>('[data-copy-prompt]');
   const download = root.querySelector<HTMLButtonElement>(

@@ -42,12 +42,17 @@ const encodedBody = Buffer.from(entry.data.body, 'utf8').toString('base64');
       Uint8Array.from(atob(encoded), (char) => char.charCodeAt(0)),
     );
 
-  document.querySelectorAll<HTMLElement>('.prompt-disclosure [data-prompt-root]').forEach((root) => {
-    initPromptControls(root, {
-      body: decodePromptBody(root.dataset.promptBody ?? ''),
-      filename: 'prompt.md',
+  const initDisclosures = () => {
+    document.querySelectorAll<HTMLElement>('.prompt-disclosure [data-prompt-root]').forEach((root) => {
+      initPromptControls(root, {
+        body: decodePromptBody(root.dataset.promptBody ?? ''),
+        filename: 'prompt.md',
+      });
     });
-  });
+  };
+
+  initDisclosures();
+  document.addEventListener('astro:page-load', initDisclosures);
 </script>
 <style>
   .prompt-disclosure { margin-top: .75rem; }

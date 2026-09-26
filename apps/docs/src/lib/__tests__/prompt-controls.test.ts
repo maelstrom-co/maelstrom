@@ -22,15 +22,17 @@ describe('canonical prompt controls', () => {
   test('copies the exact body and reports success', async () => {
     const { dom, root } = page();
     let copied = '';
-    initPromptControls(root, {
+    const options = {
       body,
       filename: 'sample-v1.0.0.md',
       clipboard: {
-        writeText: async (value) => {
+        writeText: async (value: string) => {
           copied = value;
         },
       },
-    });
+    };
+    initPromptControls(root, options);
+    initPromptControls(root, options);
     root.querySelector('button')?.click();
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(copied).toBe(body);
