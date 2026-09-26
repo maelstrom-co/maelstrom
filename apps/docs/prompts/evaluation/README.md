@@ -1,0 +1,32 @@
+# Prompt evaluation CLI
+
+The registry names five cases: `onboarding-implementation`, `modeling-read-only`, `react-inventory`, `react-conversion`, and `debugging-read-only`. The modeling task uses the registered case input and evidence grader; the older direct modeling API remains available for compatibility. Inputs keep canonical prompt bodies and versions, add case-specific task text and fixture bytes, and record hashes. Evidence tasks publish an exact JSON schema, literal fixture paths, 4–300 Unicode-code-point quote bounds, and exact substring rules. Read-only cases grade process/transport, JSON schema, fixture paths, quote length/membership, and zero filesystem changes with separate diagnostics. Those objective checks are not semantic correctness: semantic review remains `unrun` until independent review.
+
+No model call runs as part of CI. Read-only Pi cases use `--no-tools` and supplied fixture excerpts; this only checks context-only output, not repository-tool use or read-only obedience. The adapter disables sessions, extensions, skills, prompt templates, themes, and context-file loading. User/global Pi settings still apply.
+
+## Deterministic implementation grading
+
+`gradeCandidate` checks an already-produced candidate and **never starts an agent**. It is separate from execution authorization, but typecheck/tests/browser checks execute candidate code on the trusted host; it is not safe isolation for arbitrary hostile source. Use only approved disposable trial candidates. Onboarding and React-conversion candidates are checked against copied trusted baselines, an application TypeScript allowlist, local SDK typecheck, evaluator-owned React behavior tests where applicable, and a real Playwright browser check. The browser grader injects a temporary evaluator observer at the public SDK Orchestrator connection seam, correlates evaluator-observed registrations and instance-to-Vessel mappings with rendered markers without requiring particular ID names, then checks marker geometry and case-specific UI. Calibration includes known-good onboarding and conversion candidates whose Vessel/instance IDs differ from the base variants. Only named disposable outputs (`.vite/`, `node_modules/.vite/`, `dist/`, `coverage/`, `test-results/`, `playwright-report/`) may be added, modified, or deleted; symlinks, dependencies outside the named Vite cache, source/config and protected support/baseline changes are not exempt. Integrity/allowlist failures block executable checks. A simulated connector is only local test infrastructure; neither the evaluator nor a report may describe it as live Engine verification. Semantic review stays explicitly `unrun`.
+
+After `bun apps/docs/prompts/acceptance/prepare-trials.mjs`, use the prepared private disposable project path printed by the script. Calibrate the grader without model calls using known-good and deliberately broken candidates:
+
+```sh
+bun apps/docs/prompts/evaluation/calibrate-cases.ts /private/tmp/PREPARED_TRIAL_ROOT
+```
+
+Calibration separately verifies immutable source/config/support files byte-for-byte and checks the package manifest against the documented prepared-fixture transformation (pinned dependencies and local SDK archives); it refuses a modified tree. It exits nonzero if a known-good app (including onboarding and conversion variants with renamed Vessel/instance IDs) fails SDK/browser/UI checks, or a known-bad SDK, collapsed/hidden/unregistered Chart, no-SDK DOM lookalike, missing/wrong ticket status, whitespace/pending/controlled/error/success/handler regression, or tampered baseline test is accepted. A dedicated known-good conversion probe runs `bun run build` and `bun run test` with an old hashed asset already in `dist/`, then invokes production `gradeCandidate` against the pre-check baseline; calibration requires observing that asset's deletion, new hashed JS/CSS output, and a passed allowlist. The probe restores `dist/`, the source overlay, and the local Vite cache before later calibration cases. The browser context grants `local-network-access` only to its loopback Vite origin so Chromium can receive the optimizer/HMR reload; it does not grant remote origins. Keep the prepared tree and logs private.
+
+Implementation agent execution is a separate, explicit opt-in. The authorization below means trusted-host tools are allowed by the operator; **it does not create OS confinement**. Use only disposable prepared trial projects, never a workspace checkout. Each task carries strict instructions to stay in its own project and avoid credentials, environment/config, network, unrelated processes, and delegation, but those are instructions, not a technical security boundary. Candidate graders do not require this authorization.
+
+```sh
+bun run --cwd apps/docs prompts:evaluate --case onboarding-implementation --runner pi \
+  --candidate-root /private/tmp/PREPARED_TRIAL_ROOT/onboarding \
+  --authorize-coding operator-approved --pi-tools enabled \
+  --output /private/tmp/maelstrom-onboarding-evaluation
+```
+
+For a read-only case, omit candidate/authorization/tool flags and use e.g. `--case modeling-read-only`; Pi will use `--no-tools`. Generic argv-based CLI runner policy remains unknown unless separately configured. `PI_CLI` can select a Pi executable for testing. Tool-enabled case trials use only `read,write,edit,bash,grep,find,ls`, no session or extensions, and may execute local project typecheck/tests. Never run live Engine/provider/voice calls for these fixtures.
+
+Output directories are created mode `0700` with files mode `0600`, outside the checkout. Raw Pi JSONL and stderr may contain sensitive content and must remain private. The manifest records Pi version/model/provider where available, transport and process status, candidate diff/check results, and explicitly states the trust boundary. Candidate grader command argv/status/exit/timeout/cancellation/duration and the last 2,000 characters of combined process evidence (including browser geometry/SDK output or failure diagnostics) are also retained in that private manifest. Subprocess output is capped per stream; incomplete/truncated capture is reported rather than silently treated as complete. Do not put credentials, raw output, or the prepared candidates in the repository or handoff.
+
+This is not a hosted Engine, SDK, skill-comparison, or model-benchmark harness. No commits, bookmarks, pushes, user/global settings changes, or repository history changes are performed.

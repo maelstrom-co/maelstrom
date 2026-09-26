@@ -7,7 +7,9 @@
     "prompts:check": "bun tools/prompts/check.ts",
     "skills:install": "bun tools/skills/cli.ts install",
     "skills:update": "bun tools/skills/cli.ts update",
-    "skills:remove": "bun tools/skills/cli.ts remove"
+    "skills:remove": "bun tools/skills/cli.ts remove",
+    "prompts:evaluate": "bun prompts/evaluation/index.ts",
+    "prompts:evaluation:test": "bun test prompts/evaluation"
   },
   "dependencies": {
     "@astrojs/react": "catalog:",
@@ -140,6 +142,7 @@
           "{projectRoot}/skills/**/*",
           "{projectRoot}/tools/prompts/**/*",
           "{projectRoot}/tools/skills/**/*",
+          "{projectRoot}/prompts/evaluation/**/*.ts",
           {
             "externalDependencies": [
               "astro"
@@ -186,7 +189,7 @@
         }
       },
       "test": {
-        "command": "bun test src tools/prompts tools/skills",
+        "command": "bun test src tools/prompts tools/skills prompts/evaluation prompts/acceptance/prepare-trials.test.mjs",
         "inputs": [
           "default",
           "{workspaceRoot}/docs/realtime-voice-architecture.md",

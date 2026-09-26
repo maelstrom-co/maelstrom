@@ -10,25 +10,37 @@ are the test input; record the actual repository revision separately when runnin
 
 1. Start from the workspace revision under evaluation. Never edit canonical
    prompt sources or tracked fixture inputs during a trial.
-2. Build five independent scratch project directories outside the checkout using
-   the app-owned setup script. It copies local workspace SDK build outputs into
-   per-project tarballs, installs dependencies into each scratch project, and
-   runs baseline checks before printing ready scenario paths:
+2. Prepare independent scratch case directories outside the checkout using
+   the app-owned setup script. Application sources, package configuration,
+   simulated connector, SDK probes, and baseline test are tracked as files under
+   `fixtures/`; the migration package manifest is named `package.json.fixture`
+   to avoid Nx treating the test input as a workspace project. Staging copies
+   it to `package.json`. `prepareFixtures(root, trialRoot)` copies these sources
+   without packaging an SDK, installing dependencies, or running checks. Modeling,
+   debugging, and React inventory can therefore be staged as source-only cases.
+   The full CLI also performs SDK setup and baseline checks for onboarding and
+   both migration projects. The conversion and inventory directories are
+   checked byte-identical before SDK setup:
 
    ```sh
-   bash apps/docs/prompts/acceptance/prepare-trials.sh "$PWD" /tmp
+   node apps/docs/prompts/acceptance/prepare-trials.mjs "$PWD" /tmp
    ```
 
    The exact Maelstrom package sources are the checkout's `packages/{react,
    client,protocol,connectors}` built output at the recorded checkout revision;
-   package version metadata is `0.1.0-alpha.4`. The script resolves their
-   `catalog:` dependencies using versions from the tracked `bun.lock`, packs
-   them locally, and installs those tarballs and lock-resolved React/Vite/test
-   dependencies privately in each disposable `node_modules`. It does not link
-   scratch projects to shared workspace `node_modules` or editable package
-   directories, access provider services, or copy secrets. Record the printed
-   full workspace revision, each generated lockfile, installed versions, and the
-   hashes emitted for paired migration input files. A read-only inventory and
+   package version metadata is `0.1.0-alpha.4`. The script rewrites the expected
+   SDK `catalog:` runtime dependencies to explicit pinned versions
+   (`@tanstack/react-store` 0.9.3, `@tanstack/store` 0.9.3, `nanoid` 5.1.16,
+   and `zod` 4.4.3), packs them locally, and installs those tarballs and pinned
+   React/Vite/test dependencies privately in the two SDK-backed project types
+   (onboarding and migration).
+   The generated Bun lockfiles capture the resolved dependency trees. It does
+   not link scratch projects to shared workspace `node_modules` or editable
+   package directories, access provider services, or copy secrets. Record the
+   printed source revision (the parent of the working copy, not a claim that
+   dirty working-tree package bytes are identified by that revision), each
+   generated lockfile, installed versions, SDK source/build hashes, and hashes
+   emitted for paired migration input files. A read-only inventory and
    authorized conversion project begin from the same SearchPanel/search source
    bytes; no Vessel implementation is seeded.
 3. Use the exact task inputs below with the named scenario:
