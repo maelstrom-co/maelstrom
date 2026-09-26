@@ -1,25 +1,28 @@
 # React inventory prompt checklist
 
-Use with `maelstrom-react-inventory` and an isolated copy of the onboarding
-React workspace. The task is read-only: any fixture edit is a failure.
+Use with `maelstrom-react-inventory` and `migration-inventory` scratch workspace.
+The case inventories the same unchanged SearchPanel input as the paired
+implementation trial; any fixture edit is a failure.
 
-- [ ] The workspace inventory cites `package.json`, `src/main.tsx`,
-      `src/App.tsx`, `index.html`, and `vite.config.ts` where relevant, and
-      reports that no router, state/data layer, test suite, or Maelstrom
-      integration is evidenced rather than assuming one exists.
-- [ ] It identifies the displayed support queue and tickets `T-104` and
-      `T-105`, distinguishes the capability from incidental markup, and ties
-      conclusions to actual source evidence.
-- [ ] It distinguishes declared dependency ranges from resolved versions and
-      reports Maelstrom SDK package/source/version evidence as unavailable in
-      this fixture instead of inventing APIs or installing packages.
-- [ ] The capability inventory states plausible user intent, Engine value,
-      and expose/internal decision; the proposed smallest pilot is the
-      developer-authored support queue, not model-generated JSX.
-- [ ] The behavior/ownership and implementation plan preserve existing
-      rendering and app ownership, invent no actions, persistence, routing,
-      network behavior, or unsupported states, and identify missing evidence.
-- [ ] It gives bounded tests/checks and rollback steps, explicitly marks them
-      unrun for this read-only planning task, and does not claim live Engine
-      verification.
-- [ ] The temporary workspace is byte-for-byte unchanged after the trial.
+- [ ] The report cites `package.json`, `src/main.tsx`, `src/App.tsx`,
+      `src/SearchPanel.tsx`, `src/search.ts`, `index.html`, and `vite.config.ts`
+      where relevant. It reports that no router or server/API implementation is
+      evidenced rather than assuming one exists.
+- [ ] It distinguishes declared app dependency versions from installed
+      resolutions and reports the exact local workspace Maelstrom SDK package
+      versions and source revision. The SDK is bundled from the checked-out
+      workspace build, not fetched from a registry.
+- [ ] It identifies the support search capability and cites the controlled query,
+      disabled empty submit, pending state, validation boundary, local stub result,
+      and error/success presentation from the actual component and search source.
+- [ ] The capability inventory states plausible user intent, Engine value, and
+      expose/internal decision; it proposes only a bounded developer-authored
+      capability, not model-generated JSX.
+- [ ] The behavior/ownership and implementation plan preserve current rendering,
+      controlled input, and app-owned request boundary; they invent no routes,
+      remote service, credentials, persistence, retries, or unsupported states.
+- [ ] It gives bounded tests/checks and rollback steps, marks execution unrun for
+      this read-only planning task, and does not claim live Engine verification.
+- [ ] `src/SearchPanel.tsx` and `src/search.ts` checksums match the paired
+      `migration-conversion` input, and the inventory scratch project is unchanged
+      after the trial.

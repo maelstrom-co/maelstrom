@@ -13,29 +13,30 @@ live provider or Engine behavior.
 Fixture revision: `acceptance-fixtures-v1` (the tracked contents at this revision
 are the test input; record the actual repository revision separately when running).
 
-1. Start from a clean checkout of the repository revision under evaluation. Do
-   not edit the canonical fixture files.
-2. Copy the selected fixture into a new temporary directory outside the checkout:
-   `cp -R apps/docs/prompts/acceptance/fixtures/<name> /tmp/maelstrom-fixture-<name>`.
-3. For `onboarding-react`, prepare dependencies in the disposable copy so
-   TypeScript resolves imports relative to the copied TSX files. From the
-   repository root, after setting `TEMP` as above, run:
+1. Start from the workspace revision under evaluation. Never edit canonical
+   prompt sources or tracked fixture inputs during a trial.
+2. Build five independent scratch project directories outside the checkout using
+   the app-owned setup script. It copies local workspace SDK build outputs into
+   per-project tarballs, installs dependencies into each scratch project, and
+   runs baseline checks before printing ready scenario paths:
 
    ```sh
-   ln -s "$PWD/node_modules" "$TEMP/node_modules"
-   (cd "$TEMP" && ./node_modules/.bin/tsc --noEmit --skipLibCheck -p tsconfig.json)
+   bash apps/docs/prompts/acceptance/prepare-trials.sh "$PWD" /tmp
    ```
 
-   This typechecks the copied source with workspace-installed dependencies; it
-   does not install or exercise the SDK and is not a prompt-evaluation result.
-   Record the workspace root/revision used for the dependency link. The fixture
-   has no Maelstrom SDK dependency: each prompt run must inspect the named
-   repository root's manifests, lockfile, installed package source/types/tests,
-   and report declared and resolved SDK versions or that the SDK evidence is
-   unavailable. Do not install or upgrade packages to fill an evidence gap.
-   `modeling-react`, `migration-react`, and `debugging-react` are source contexts,
-   not standalone applications, and require no package install or typecheck.
-4. Use these exact task inputs with the listed fixture and only its checklist:
+   The exact Maelstrom package sources are the checkout's `packages/{react,
+   client,protocol,connectors}` built output at the recorded checkout revision;
+   package version metadata is `0.1.0-alpha.4`. The script resolves their
+   `catalog:` dependencies using versions from the tracked `bun.lock`, packs
+   them locally, and installs those tarballs and lock-resolved React/Vite/test
+   dependencies privately in each disposable `node_modules`. It does not link
+   scratch projects to shared workspace `node_modules` or editable package
+   directories, access provider services, or copy secrets. Record the printed
+   full workspace revision, each generated lockfile, installed versions, and the
+   hashes emitted for paired migration input files. A read-only inventory and
+   authorized conversion project begin from the same SearchPanel/search source
+   bytes; no Vessel implementation is seeded.
+3. Use the exact task inputs below with the named scenario and only its checklist:
 
    - **Onboarding / `onboarding-react`:** “Integrate Maelstrom into this small
      support workspace so the support queue can be selected and presented as a
@@ -47,36 +48,47 @@ are the test input; record the actual repository revision separately when runnin
      in `src/Queue.tsx`; identify observed user-visible states and operations,
      choose whether it should be one Vessel, and give an evidence-backed Vessel
      proposal. Do not edit files.”
-   - **Migration plan-only / `migration-react`:** “Plan a bounded conversion of
-     the existing search form in `src/SearchPanel.tsx` to a Maelstrom capability.
-     Inspect its source and `src/search.ts`, preserve application-owned request
-     handling, and report a plan, tests, versions, and rollback. This is
-     read-only: make zero edits and send no request.”
-   - **Migration implementation / same `migration-react` fixture:** Use the
-     same goal and inputs as the plan-only case, adding: “You are authorized to
-     implement that bounded conversion now. Do not request another approval;
-     stop only if inspection finds a material scope, product, or architecture
-     decision not authorized here. Do not send a request.” This paired run tests
-     that authority changes behavior, not fixture content.
+   - **React inventory / `migration-inventory`:** Replace `[PRODUCT GOAL]` in
+     `maelstrom-react-inventory` with “Plan how to make the support search form
+     in `src/SearchPanel.tsx` available as a developer-authored Maelstrom
+     capability without changing current behavior.” Repository root is the
+     `migration-inventory` cwd. This is read-only: make zero edits, do not
+     install packages, and send no request.
+   - **Authorized conversion / `migration-conversion`:** Read the same prompt
+     task goal and use the identical SearchPanel UI/input as inventory. Its
+     approved bounded plan is: “Implement the smallest developer-authored
+     Maelstrom capability for the existing SearchPanel. Preserve its controlled
+     input, empty-submit disabled state, pending/error/success UI, and existing
+     `searchTickets` application-owned handler. Keep the request boundary
+     unchanged and send no request. Edit only files required to define/register
+     and test this capability in the supplied app shell; do not add routes,
+     backend work, credentials, persistence, broad scaffolding, or unrelated
+     changes. Use the supplied simulated connector only for deterministic local
+     tests, and label its result simulated—not live Engine verification. Stop if
+     inspection finds a material decision not authorized by this plan.” This
+     paired run checks read-only versus explicitly authorized behavior, not
+     different fixture content.
    - **Debugging / `debugging-react`:** “Classify the failure described in
      `report.md` from the supplied evidence. State what is observed versus
      inferred, identify missing evidence, and recommend only a bounded next
      diagnostic step; do not edit files or claim a root cause beyond the
      evidence.”
 
-   Point the prompt's repository root at the temporary copy. For onboarding,
-   copy the full fixture directory. For source-context fixtures, create a
-   temporary project and place the context files under their displayed relative
-   paths. Never target the canonical directory with an implementation prompt.
+   Use the `cwd` printed by the setup script as the task repository root. The
+   modeling case contains only `src/Queue.tsx`; debugging contains only the
+   explicitly synthetic `report.md`. Never target the canonical fixture directory
+   with an implementation prompt.
 5. Record exact prompt ID/version, model/runtime if known, input revision, temp
    path, commands, and unedited output in a copy of `record-template.md`. For
    SDK-version evidence also record the repository revision and paths/commands
    used to inspect manifests, lockfile, installed source/types/tests. Apply
    pass/fail criteria literally; use unrun when evidence was not collected.
 
-No real provider credentials or live Engine are required for these basic source
-inspection cases. Live Engine behavior is not asserted by any fixture. An
-optional external-service check must be separately authorized, use a disposable
+No real provider credentials or live Engine are required for these local cases.
+The setup compiles/import-checks the checked-out SDK and includes a local
+`EngineConnector` test double that returns a deterministic synthetic response;
+it never contacts an Engine. Live Engine behavior is not asserted by any fixture.
+An optional external-service check must be separately authorized, use a disposable
 non-production environment, and record infrastructure setup and redacted evidence;
 never place credentials or tokens in a fixture or record.
 
@@ -90,8 +102,11 @@ never place credentials or tokens in a fixture or record.
   observed states and existing operations for inventory/modeling. Expected
   assertions are in `checklists/modeling.md`.
 - `fixtures/migration-react`: an existing controlled search form with
-  application-owned network handling, intended to test authorized conversion
-  boundaries. No request should actually be sent; assertions in
+  application-owned network handling. The setup script gives the paired scratch
+  projects a minimal Vite/React app shell and baseline test without pre-seeding
+  Maelstrom conversion code. The read-only inventory and authorized conversion
+  project begin byte-identically from the same SearchPanel and `search.ts` sources.
+  No request should actually be sent; assertions in `checklists/inventory.md` and
   `checklists/migration.md`.
 - `fixtures/debugging-react`: a synthetic redacted report with enough separate
   transport/processing evidence to classify the observed failure while keeping
