@@ -289,9 +289,6 @@ diff -qr --exclude=node_modules --exclude=vendor --exclude=dist \
 (
   cd "$TRIAL_ROOT/onboarding" && node -p '"react="+require("react/package.json").version+" react-dom="+require("react-dom/package.json").version+" SDK="+require("@maelstrom-co/react/package.json").version'
 ) > "$TRIAL_ROOT/runtime-versions.txt"
-for project in migration-inventory migration-conversion; do
-  (cd "$TRIAL_ROOT/$project" && bun pm ls) >> "$TRIAL_ROOT/runtime-versions.txt"
-done
 printf 'TRIAL_ROOT=%s\n' "$TRIAL_ROOT"
 printf 'WORKSPACE_SOURCE_REVISION=%s\n' "$(jj -R "$ROOT" log --no-graph -r @- -T 'commit_id')"
 printf 'MODEL_FIXTURE=%s\nDEBUG_REPORT=%s\n' "$TRIAL_ROOT/modeling/src/Queue.tsx" "$TRIAL_ROOT/debugging/report.md"
@@ -303,6 +300,7 @@ for package in react client protocol connectors; do
   sha256sum "$ROOT/packages/$package/package.json" "$ROOT/packages/$package/src/index.ts" "$ROOT/packages/$package/dist/index.js" >> "$TRIAL_ROOT/sdk-source-checksums.sha256"
 done
 jj -R "$ROOT" log --no-graph -r @- -T 'commit_id' > "$TRIAL_ROOT/workspace-source-revision.txt"
+printf '\n' >> "$TRIAL_ROOT/workspace-source-revision.txt"
 cat "$TRIAL_ROOT/workspace-source-revision.txt"
 cat "$TRIAL_ROOT/migration-baseline.sha256"
 cat "$TRIAL_ROOT/runtime-versions.txt"
