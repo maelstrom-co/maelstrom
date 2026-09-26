@@ -17,6 +17,7 @@ import {
   DEMO_OPENAI_VOICE,
 } from './demo-greeting-tts';
 import { demoVoice } from './demo-voice';
+import { createDiagnosticPeer } from './diagnostic-capture';
 import { isHosted, usesBrowserKey } from './hosted-mode';
 import { HOSTED_VAD_MODEL } from './hosted-vad';
 import { createDemoLiveExchange } from './live-exchange';
@@ -116,6 +117,7 @@ function createAdapter(
 
 function createLiveAdapter(): OpenAILiveAdapter {
   return new OpenAILiveAdapter({
+    createPeer: createDiagnosticPeer,
     model: LIVE_MODEL,
     responses: { model: LIVE_BACKEND_MODEL },
     exchange: createDemoLiveExchange(

@@ -4,6 +4,7 @@ import { m } from '../lib/maelstrom';
 import { DEFAULT_REALTIME_MODEL } from '../lib/realtime-model';
 import { projectLiveTransport } from '../lib/voice-diagnostics';
 import { LIVE_BACKEND_MODEL, LIVE_MODEL } from '../lib/voice-provider';
+import { DiagnosticCapturePanel } from './diagnostic-capture-panel';
 
 export function VoiceDebugDrawer() {
   const { owner, provider } = m.useVoice();
@@ -68,9 +69,10 @@ export function VoiceDebugDrawer() {
           </button>
         </div>
         <p className="my-3 text-xs text-ink-3">
-          Metadata only. Timings use this browser's clock. Playback acceptance
-          is not proof of audible speech.
+          The timeline below is metadata only. Timings use this browser's clock.
+          Playback acceptance is not proof of audible speech.
         </p>
+        <DiagnosticCapturePanel />
         <dl className="space-y-2 text-sm">
           <dt>Application session</dt>
           <dd className="break-all">{owner.memory.sessionId}</dd>

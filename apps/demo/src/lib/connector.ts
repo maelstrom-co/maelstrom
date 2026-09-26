@@ -1,13 +1,11 @@
-import {
-  DEFAULT_HEARTBEAT_INTERVAL_MS,
-  WebSocketConnector,
-} from '@maelstrom-co/client';
+import { DEFAULT_HEARTBEAT_INTERVAL_MS } from '@maelstrom-co/client';
 import { SessionId } from '@maelstrom-co/protocol';
 // A wire literal both sides must agree on byte-for-byte, so it is imported
 // rather than restated here. playground-frames.ts is browser-safe (it pulls
 // only @maelstrom-co/client and @maelstrom-co/protocol) despite living under
 // src/server — it defines the contract, not a server implementation of it.
 import { PLAYGROUND_NOKEY_FRAME } from '../server/playground-frames';
+import { DiagnosticConnector } from './diagnostic-connector';
 import { isHosted, usesBrowserKey } from './hosted-mode';
 import { playgroundKeyStore } from './playground-key-store';
 
@@ -138,7 +136,7 @@ export function createDemoConnector(options: CreateDemoConnectorOptions = {}) {
     routingSession,
   );
 
-  return new WebSocketConnector({
+  return new DiagnosticConnector({
     url: wsUrl,
     // Client-side liveness detection: the DO answers each ping via
     // setWebSocketAutoResponse without waking the object, so this costs
