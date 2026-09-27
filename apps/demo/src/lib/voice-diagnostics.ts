@@ -52,7 +52,8 @@ export interface DiagnosticEntry {
 }
 
 export class VoiceDiagnostics {
-  private entries: readonly DiagnosticEntry[] = [];
+  private entries: readonly (DiagnosticEntry & { readonly entryId: string })[] =
+    [];
   private transportHistory: readonly RetainedLiveTransport[] = [];
   private listeners = new Set<() => void>();
   getSnapshot = () => this.entries;
@@ -113,6 +114,7 @@ export class VoiceDiagnostics {
     this.entries = [
       ...this.entries.slice(-99),
       {
+        entryId: crypto.randomUUID(),
         at: entry.at,
         kind: entry.kind,
         provider: entry.provider,

@@ -4,6 +4,48 @@ import { describe, expect, it } from 'vitest';
 import { DiagnosticCapture } from './diagnostic-capture';
 
 describe('local diagnostic capture', () => {
+  it('does not present the Realtime default as the model used by a server-owned session', () => {
+    const capture = new DiagnosticCapture();
+    capture.start('realtime', 'session', 'provider');
+    expect(JSON.parse(capture.export()).metadata).toMatchObject({
+      voiceModel: null,
+      voiceModelSource: 'unobserved',
+      defaultVoiceModel: 'gpt-realtime-2.1',
+    });
+  });
+
+  it('retains capture identity and notes until an explicit reset, even when key custody changes', () => {
+    let key: string | null = 'private-test-key';
+    const capture = new DiagnosticCapture(() => key);
+    capture.start('live', 'session', 'provider');
+    capture.setOutcome(
+      'Expected journal; accidentally pasted private-test-key',
+    );
+    key = null;
+    capture.stop();
+    expect(capture.getSnapshot()).toMatchObject({
+      mode: 'live',
+      outcome: 'Expected journal; accidentally pasted [REDACTED]',
+    });
+    expect(JSON.parse(capture.export()).outcome).toBe(
+      capture.getSnapshot().outcome,
+    );
+    capture.clear();
+    expect(capture.getSnapshot()).toMatchObject({ outcome: '' });
+    expect(capture.getSnapshot().mode).toBeUndefined();
+  });
+
+  it('keeps distinct nanoid correlations while redacting known and full-length credentials', () => {
+    const capture = new DiagnosticCapture(() => 'short-known-key');
+    capture.start('typed', 'session', 'provider');
+    for (const id of ['sk-123456789012345678', 'sk-987654321098765432'])
+      capture.record('tool_call', { callId: id });
+    const trace = capture.export(`short-known-key sk-${'a'.repeat(40)}`);
+    expect(trace).toContain('sk-123456789012345678');
+    expect(trace).toContain('sk-987654321098765432');
+    expect(trace).not.toContain('short-known-key');
+    expect(trace).not.toContain(`sk-${'a'.repeat(40)}`);
+  });
   it('correlates quiet snapshot updates with acknowledgments without copying their content', () => {
     const capture = new DiagnosticCapture();
     capture.start('live', 'session', 'provider');
@@ -126,6 +168,7 @@ describe('local diagnostic capture', () => {
       active: false,
       count: 0,
       dropped: 0,
+      outcome: '',
     });
   });
 
@@ -153,7 +196,7 @@ describe('local diagnostic capture', () => {
             call_id: 'native-call',
             name: 'update_ui',
             arguments: JSON.stringify({
-              intent: 'Show journal private-test-key sk-testsecret',
+              intent: `Show journal private-test-key sk-${'a'.repeat(40)}`,
               apiKey: 'private-test-key',
             }),
             otherContent: 'unrelated-secret',
@@ -166,7 +209,7 @@ describe('local diagnostic capture', () => {
     capture.liveWire('invalid', 'received', 'peer');
     const output = capture.export('Bearer secret-value');
     expect(output).not.toMatch(
-      /private-test-key|sk-testsecret|unrelated-secret|private instructions|secret-value|apiKey/,
+      /private-test-key|sk-a{40}|unrelated-secret|private instructions|secret-value|apiKey/,
     );
     expect(JSON.parse(output).events).toContainEqual(
       expect.objectContaining({

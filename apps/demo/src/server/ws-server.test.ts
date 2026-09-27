@@ -138,6 +138,24 @@ describe('truncateCloseReason (Finding #1)', () => {
 });
 
 describe('createWebSocketHandlers pre-hello frame handling', () => {
+  it('reports configured model metadata only to opted-in sockets without requiring an Engine', () => {
+    const handlers = createWebSocketHandlers({
+      sharedEngine: null,
+      sharedEngineInitError: null,
+    });
+    const ws = makeFakeWs(false);
+    const socket = ws as unknown as Parameters<typeof handlers.message>[0];
+    handlers.open?.(socket);
+    expect(ws.sent).toEqual([]);
+    ws.data.reportMetadata = true;
+    handlers.open?.(socket);
+    expect(JSON.parse(ws.sent[0]!)).toMatchObject({
+      type: 'playground.metadata',
+      source: 'server-configuration',
+      engineModel: expect.any(String),
+    });
+    expect(ws.data.helloReceived).toBe(false);
+  });
   it('builds a connection engine from a browser key before dispatching local requests', async () => {
     createEngineMock.mockReturnValue(stubEngine());
     const handlers = createWebSocketHandlers({

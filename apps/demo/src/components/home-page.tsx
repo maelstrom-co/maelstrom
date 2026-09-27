@@ -7,6 +7,7 @@ import { createDemoConnector } from '../lib/connector';
 import { isDebugRequested } from '../lib/debug-mode';
 import { DEFAULT_LAYOUT, NARROW_LAYOUT } from '../lib/default-layout';
 import { STATUS_COLORS } from '../lib/design-tokens';
+import { diagnosticCapture } from '../lib/diagnostic-capture';
 import {
   isHosted,
   usesBrowserKey,
@@ -27,6 +28,7 @@ import { DemoHeader } from './demo-header';
 import { FIRST_RUN_EXAMPLES, FirstRunHint } from './first-run-hint';
 import { KeyDrawer } from './key-drawer';
 import { KeylessDemo } from './keyless-demo';
+import { RetainedCaptureDrawer } from './retained-capture-drawer';
 import { VesselOptionSync } from './vessel-option-sync';
 import { VoiceControl } from './voice-control';
 import { VoiceDebugDrawer } from './voice-debug-drawer';
@@ -174,6 +176,7 @@ export function HomePage() {
           }}
         />
       )}
+      {!connector && <RetainedCaptureDrawer />}
       {browserKeyMode && (
         <KeyDrawer
           isOpen={drawerOpen}
@@ -189,6 +192,7 @@ export function HomePage() {
             // arranged so far. Only a genuine key change earns the reset.
             const keyChanged = key !== playgroundKeyStore.state.apiKey;
             const firstKey = playgroundKeyStore.state.apiKey === null;
+            if (keyChanged) diagnosticCapture.stop();
             setPlaygroundKey(key);
             setDrawerOpen(false);
             setKeyErrorMessage(null);
@@ -206,6 +210,7 @@ export function HomePage() {
             setKeyEpoch((e) => e + 1);
           }}
           onRemove={() => {
+            diagnosticCapture.stop();
             clearPlaygroundKey();
             setDrawerOpen(false);
             setKeyErrorMessage(null);
