@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import type {
   CapabilitySnapshot,
+  TimedTranscriptFragment,
   UIStructuralSnapshot,
 } from '@maelstrom-co/client';
 import { MessageId, SessionId, ToolCallId } from '@maelstrom-co/protocol';
@@ -8,7 +9,6 @@ import type {
   AdapterConnectOptions,
   RealtimeAdapterEvent,
   RealtimeInstance,
-  RealtimeProviderAdapter,
 } from '@maelstrom-co/realtime';
 import {
   GreetingCoordinator,
@@ -333,7 +333,7 @@ beforeEach(() => {
 });
 
 async function connectWithChannel(): Promise<{
-  adapter: RealtimeProviderAdapter;
+  adapter: OpenAIAdapter;
   channel: FakeDataChannel;
   connection: FakeRTCPeerConnection;
 }> {
@@ -3343,6 +3343,67 @@ describe('OpenAIAdapter — greeting speakAssistantText', () => {
     expect(calls[0]?.voice).toBe('marin');
   });
 
+  it('observes the greeting as one final assistant fragment when playback starts', async () => {
+    const { synthesizeGreeting } = makeSynthesizer();
+    const adapter = new OpenAIAdapter({
+      mintToken: async () => fakeToken,
+      synthesizeGreeting,
+    });
+    await connectAndOpen(adapter);
+    adapter.activateAudio();
+    const order: string[] = [];
+    adapter.observations.subscribe((event) => {
+      if (event.type === 'fragment')
+        order.push(`fragment:${event.fragment.id}:${event.fragment.text}`);
+      expect(event).toMatchObject({
+        type: 'fragment',
+        fragment: { role: 'assistant', speakerId: 'assistant', final: true },
+      });
+    });
+
+    await settleGreetingPlay(
+      adapter.speakAssistantText({
+        id: greetingId,
+        text: greetingText,
+        signal: new AbortController().signal,
+        onPlaybackStart: () => order.push('playback'),
+      }),
+    );
+
+    expect(order).toEqual([
+      `fragment:${greetingId}:${greetingText}`,
+      'playback',
+    ]);
+  });
+
+  it('does not observe the greeting once its signal is aborted before playback starts', async () => {
+    const controller = new AbortController();
+    const { synthesizeGreeting } = makeSynthesizer({
+      impl: async () => {
+        controller.abort();
+        return new ArrayBuffer(8);
+      },
+    });
+    const adapter = new OpenAIAdapter({
+      mintToken: async () => fakeToken,
+      synthesizeGreeting,
+    });
+    await connectAndOpen(adapter);
+    adapter.activateAudio();
+    const fragments: unknown[] = [];
+    adapter.observations.subscribe((event) => fragments.push(event));
+
+    await expect(
+      adapter.speakAssistantText({
+        id: greetingId,
+        text: greetingText,
+        signal: controller.signal,
+      }),
+    ).resolves.toBe('accepted');
+
+    expect(fragments).toEqual([]);
+  });
+
   it('completes without any conversation.item.created provider event', async () => {
     const { synthesizeGreeting } = makeSynthesizer();
     const adapter = new OpenAIAdapter({
@@ -5403,5 +5464,132 @@ describe('GreetingCoordinator × OpenAIAdapter — cross-layer ordering', () => 
     });
     expect(responses).toHaveLength(0);
     // Completes without any conversation.item.created provider echo.
+  });
+});
+
+describe('OpenAIAdapter — transcript observations', () => {
+  function observe(adapter: OpenAIAdapter) {
+    const fragments: TimedTranscriptFragment[] = [];
+    adapter.observations.subscribe((event) => {
+      if (event.type === 'fragment') fragments.push(event.fragment);
+    });
+    return fragments;
+  }
+
+  it('revises one fragment per item and replaces it with the full text on the final event', async () => {
+    const { adapter, channel } = await connectWithChannel();
+    const fragments = observe(adapter);
+
+    channel.receive({
+      type: 'response.output_audio_transcript.delta',
+      item_id: 'item_a',
+      delta: 'Pulling ',
+    });
+    channel.receive({
+      type: 'response.output_audio_transcript.delta',
+      item_id: 'item_a',
+      delta: 'that up',
+    });
+    channel.receive({
+      type: 'response.output_audio_transcript.done',
+      item_id: 'item_a',
+      transcript: 'Pulling that up.',
+    });
+
+    expect(
+      fragments.map(({ id, text, final }) => ({ id, text, final })),
+    ).toEqual([
+      { id: 'item_a', text: 'Pulling ', final: undefined },
+      { id: 'item_a', text: 'Pulling that up', final: undefined },
+      { id: 'item_a', text: 'Pulling that up.', final: true },
+    ]);
+    const [first, , last] = fragments;
+    expect(last?.role).toBe('assistant');
+    expect(last?.speakerId).toBe('assistant');
+    expect(last?.startMs).toBe(first?.startMs ?? Number.NaN);
+    expect(last?.endMs).toBeGreaterThanOrEqual(last?.startMs ?? 0);
+  });
+
+  it('observes user transcription deltas and completion under the input item id', async () => {
+    const { adapter, channel } = await connectWithChannel();
+    const fragments = observe(adapter);
+
+    channel.receive({
+      type: 'conversation.item.input_audio_transcription.delta',
+      item_id: 'item_u',
+      delta: 'show ',
+    });
+    channel.receive({
+      type: 'conversation.item.input_audio_transcription.completed',
+      item_id: 'item_u',
+      transcript: 'Show my labs.',
+    });
+
+    expect(fragments.at(-1)).toMatchObject({
+      id: 'item_u',
+      role: 'user',
+      text: 'Show my labs.',
+      final: true,
+    });
+    expect(fragments).toHaveLength(2);
+  });
+
+  it('keeps the legacy transcript event alongside the observation', async () => {
+    const { adapter, channel } = await connectWithChannel();
+    const legacy: unknown[] = [];
+    adapter.on((event) => {
+      if (event.type === 'transcript') legacy.push(event);
+    });
+    observe(adapter);
+
+    channel.receive({
+      type: 'response.output_audio_transcript.done',
+      item_id: 'item_a',
+      transcript: 'Done.',
+    });
+
+    expect(legacy).toEqual([
+      { type: 'transcript', role: 'assistant', text: 'Done.', final: true },
+    ]);
+  });
+
+  it('reports no media evidence and skips transcripts without an item id', async () => {
+    const { adapter, channel } = await connectWithChannel();
+    const events: unknown[] = [];
+    adapter.observations.subscribe((event) => events.push(event));
+
+    channel.receive({ type: 'input_audio_buffer.speech_started' });
+    channel.receive({ type: 'output_audio_buffer.started' });
+    channel.receive({
+      type: 'response.output_audio_transcript.delta',
+      delta: 'no item',
+    });
+
+    expect(events).toEqual([]);
+  });
+
+  it('starts a fresh item timeline on reconnect and drops the old channel', async () => {
+    const adapter = new OpenAIAdapter({ mintToken: async () => fakeToken });
+    const fragments = observe(adapter);
+    const first = await connectAndOpen(adapter);
+    first.receive({
+      type: 'conversation.item.input_audio_transcription.delta',
+      item_id: 'item_x',
+      delta: 'old',
+    });
+    await adapter.disconnect();
+    const second = await connectAndOpen(adapter);
+    first.receive({
+      type: 'conversation.item.input_audio_transcription.delta',
+      item_id: 'item_x',
+      delta: ' stale',
+    });
+    second.receive({
+      type: 'conversation.item.input_audio_transcription.delta',
+      item_id: 'item_x',
+      delta: 'new',
+    });
+
+    expect(fragments.map((fragment) => fragment.text)).toEqual(['old', 'new']);
   });
 });
