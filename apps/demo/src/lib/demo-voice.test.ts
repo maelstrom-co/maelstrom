@@ -106,6 +106,39 @@ it.each([
   orchestrator.dispose();
 });
 
+it('does not present the fixed greeting after a Live opening in the same session', async () => {
+  selectVoiceProvider('live');
+  const orchestrator = new Orchestrator(createMockConnector(), {
+    sessionId: SessionId(),
+  });
+  await orchestrator.connect();
+  const acknowledge = vi
+    .spyOn(orchestrator, 'addAssistantMessageAcknowledged')
+    .mockResolvedValue('inserted');
+  const fixed = Object.assign(new Adapter(), {
+    activateAudio() {},
+    speakAssistantText: vi.fn(async () => 'accepted' as const),
+  });
+  const live = new Adapter();
+  const owner = new DemoVoiceOwner(
+    orchestrator,
+    (provider) => (provider === 'live' ? live : fixed),
+    'hello',
+  );
+  await owner.connect();
+  expect(live.openings).toBe(1);
+  await owner.select('realtime');
+  await owner.connect();
+  expect(owner.session.greetingState).not.toBe('preparing');
+  expect(fixed.speakAssistantText).not.toHaveBeenCalled();
+  expect(acknowledge).not.toHaveBeenCalled();
+  await owner.select('livekit');
+  await owner.connect();
+  expect(fixed.speakAssistantText).not.toHaveBeenCalled();
+  await owner.disconnect();
+  orchestrator.dispose();
+});
+
 it.each([
   'inert',
   'connection failure',
