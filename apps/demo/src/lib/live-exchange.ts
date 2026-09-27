@@ -4,6 +4,7 @@ import {
   type LiveSessionExchange,
   LiveTransportError,
 } from '@maelstrom-co/realtime-protocol/openai-live';
+import { configureDemoLiveOffer } from './live-demo-instructions';
 
 export function createDemoLiveExchange(
   getKey: (() => string | null) | undefined,
@@ -12,6 +13,10 @@ export function createDemoLiveExchange(
   return async (input, signal) => {
     const parsed = LiveExchangeRequestSchema.safeParse(input);
     if (!parsed.success) throw new LiveTransportError('invalid_offer');
+    const configured = LiveExchangeRequestSchema.safeParse(
+      configureDemoLiveOffer(parsed.data),
+    );
+    if (!configured.success) throw new LiveTransportError('invalid_offer');
     const key = getKey?.();
     if (getKey && !key) throw new LiveTransportError('missing_key');
     const timeout = AbortSignal.timeout(30_000);
@@ -30,7 +35,7 @@ export function createDemoLiveExchange(
             'Content-Type': 'application/json',
             ...(key ? { Authorization: `Bearer ${key}` } : {}),
           },
-          body: JSON.stringify(parsed.data),
+          body: JSON.stringify(configured.data),
         },
       );
       if (response.redirected || response.status !== 201) {

@@ -280,7 +280,7 @@ export class DiagnosticCapture {
           'Browser receipt times, not provider execution times or proof of audibility.',
           'Provider delegation task content and server-side model retries are not exposed.',
           'Native provider call IDs and application call IDs are separate; no inferred mapping.',
-          'Date metadata is diagnostic only; it is not injected into model prompts.',
+          'Capture metadata does not alter prompts. Engine user intents carry separate request-time browser calendar context.',
         ],
         events: this.entries,
       }),

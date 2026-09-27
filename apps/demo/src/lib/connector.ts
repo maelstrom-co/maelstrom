@@ -5,9 +5,16 @@ import { SessionId } from '@maelstrom-co/protocol';
 // only @maelstrom-co/client and @maelstrom-co/protocol) despite living under
 // src/server — it defines the contract, not a server implementation of it.
 import { PLAYGROUND_NOKEY_FRAME } from '../server/playground-frames';
+import { withBrowserCalendarContext } from './calendar-context';
 import { DiagnosticConnector } from './diagnostic-connector';
 import { isHosted, usesBrowserKey } from './hosted-mode';
 import { playgroundKeyStore } from './playground-key-store';
+
+class DemoConnector extends DiagnosticConnector {
+  override process(message: Parameters<DiagnosticConnector['process']>[0]) {
+    return super.process(withBrowserCalendarContext(message));
+  }
+}
 
 export interface CreateDemoConnectorOptions {
   /**
@@ -136,7 +143,7 @@ export function createDemoConnector(options: CreateDemoConnectorOptions = {}) {
     routingSession,
   );
 
-  return new DiagnosticConnector({
+  return new DemoConnector({
     url: wsUrl,
     // Client-side liveness detection: the DO answers each ping via
     // setWebSocketAutoResponse without waking the object, so this costs
