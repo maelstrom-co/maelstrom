@@ -7,6 +7,8 @@ import {
   buildWsUrl,
   createDemoConnector,
 } from './connector';
+import { diagnosticCapture } from './diagnostic-capture';
+import { engineMetadata } from './engine-metadata';
 
 /**
  * Minimal in-memory WebSocket fake, just enough to drive
@@ -167,6 +169,84 @@ describe('buildPlaygroundHello', () => {
 });
 
 describe('createDemoConnector', () => {
+  it('ignores late model metadata from an older socket on the same connector', async () => {
+    vi.stubEnv('VITE_HOSTED', '0');
+    vi.stubEnv('VITE_BROWSER_KEY_MODE', '0');
+    const restore = installFakeWebSocket();
+    const connector = createDemoConnector();
+    const metadata = (model: string) =>
+      JSON.stringify({
+        type: 'playground.metadata',
+        engineModel: model,
+        source: 'server-configuration',
+      });
+    try {
+      const firstConnection = connector.connect(SessionId('first'));
+      const first = FakeWebSocket.instances.at(-1)!;
+      first.emitOpen();
+      await firstConnection;
+      first.onmessage?.({ data: metadata('first-model') });
+      const nextConnection = connector.connect(SessionId('next'));
+      const next = FakeWebSocket.instances.at(-1)!;
+      next.emitOpen();
+      await nextConnection;
+      next.onmessage?.({ data: metadata('next-model') });
+      first.onmessage?.({ data: metadata('stale-model') });
+      expect(engineMetadata.getSnapshot()?.engineModel).toBe('next-model');
+    } finally {
+      await connector.disconnect();
+      restore();
+      vi.unstubAllEnvs();
+    }
+  });
+  it('refreshes model evidence per connection, preserves capture history, and ignores retired owners', async () => {
+    vi.stubEnv('VITE_HOSTED', '0');
+    vi.stubEnv('VITE_BROWSER_KEY_MODE', '0');
+    const restore = installFakeWebSocket();
+    const first = createDemoConnector();
+    const second = createDemoConnector();
+    const metadata = (model: string) =>
+      JSON.stringify({
+        type: 'playground.metadata',
+        engineModel: model,
+        source: 'server-configuration',
+      });
+    try {
+      const connected = first.connect(SessionId('first'));
+      const socket = FakeWebSocket.instances.at(-1)!;
+      socket.emitOpen();
+      await connected;
+      socket.onmessage?.({ data: metadata('configured-model-a') });
+      expect(engineMetadata.getSnapshot()?.engineModel).toBe(
+        'configured-model-a',
+      );
+      diagnosticCapture.start('typed', 'first', 'voice');
+      diagnosticCapture.stop();
+      const next = second.connect(SessionId('second'));
+      const replacement = FakeWebSocket.instances.at(-1)!;
+      replacement.emitOpen();
+      await next;
+      expect(engineMetadata.getSnapshot()).toBeUndefined();
+      replacement.onmessage?.({ data: metadata('configured-model-b') });
+      socket.onmessage?.({ data: metadata('stale-model') });
+      await first.disconnect();
+      expect(engineMetadata.getSnapshot()?.engineModel).toBe(
+        'configured-model-b',
+      );
+      expect(JSON.parse(diagnosticCapture.export('')).metadata).toMatchObject({
+        engineModel: 'configured-model-a',
+        engineModelSource: 'server-configuration',
+      });
+      replacement.onclose?.({ code: 1006, reason: '' });
+      expect(engineMetadata.getSnapshot()).toBeUndefined();
+    } finally {
+      await first.disconnect();
+      await second.disconnect();
+      diagnosticCapture.clear();
+      restore();
+      vi.unstubAllEnvs();
+    }
+  });
   // Localhost with a server-owned key has no hello gate. A stray handshake
   // would reach handleEnvelope as malformed traffic and would also send a
   // browser key that this custody mode must never read.
@@ -207,7 +287,7 @@ describe('createDemoConnector', () => {
       socket.emitOpen();
       await connectPromise;
 
-      expect(socket.url).toBe('ws://localhost:3001/ws');
+      expect(socket.url).toBe('ws://localhost:3001/ws?diagnostics=1');
       expect(socket.sent).toHaveLength(1);
       expect(JSON.parse(socket.sent[0] ?? '{}')).toMatchObject({
         type: 'playground.hello',

@@ -75,11 +75,17 @@ export interface WebSocketConnectorOptions {
    *
    * Heartbeat pongs are consumed by the connector before this runs, so a
    * consumer cannot accidentally break liveness detection.
+   *
+   * `isCurrentConnection` reports whether the receiving socket is still
+   * current at delivery. Late frames can still be handled and replied to on
+   * their originating socket; consumers updating current connection state
+   * should ignore frames where this value is `false`.
    */
   onFrame?: (
     raw: string,
     send: (data: string) => void,
     sessionId: SessionId,
+    isCurrentConnection?: boolean,
   ) => boolean;
   /**
    * If set, sends `{"type":"heartbeat.ping"}` on this interval while
@@ -129,13 +135,7 @@ export class WebSocketConnector implements AcknowledgedAssistantConnector {
   readonly #onOpen:
     | ((send: (data: string) => void, sessionId: SessionId) => void)
     | undefined;
-  readonly #onFrame:
-    | ((
-        raw: string,
-        send: (data: string) => void,
-        sessionId: SessionId,
-      ) => boolean)
-    | undefined;
+  readonly #onFrame: WebSocketConnectorOptions['onFrame'];
   readonly #heartbeatIntervalMs: number | undefined;
 
   readonly capabilities: ConnectorCapabilities = {
@@ -583,6 +583,7 @@ export class WebSocketConnector implements AcknowledgedAssistantConnector {
           // never asked. Same hazard `onclose` guards against above.
           (data) => socket.send(data),
           sessionId,
+          socket === this.#ws,
         );
       } catch (error) {
         // A consumer hook is arbitrary code. Letting it throw would escape

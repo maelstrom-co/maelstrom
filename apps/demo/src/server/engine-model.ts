@@ -1,5 +1,6 @@
 import { type AnyTextAdapter, createModel, extendAdapter } from '@tanstack/ai';
 import { createOpenaiChat, type OpenAIChatModel } from '@tanstack/ai-openai';
+import type { PlaygroundMetadata } from './playground-metadata';
 
 export const DEFAULT_ENGINE_MODEL = 'gpt-6-luna';
 
@@ -19,4 +20,12 @@ export const ENGINE_MODEL: DemoEngineModel = engineModelOverride
 
 export function createDemoOpenaiChat(apiKey: string): AnyTextAdapter {
   return createLunaChat(ENGINE_MODEL, apiKey);
+}
+
+export function engineMetadataFrame(): string {
+  return JSON.stringify({
+    type: 'playground.metadata',
+    engineModel: ENGINE_MODEL,
+    source: 'server-configuration',
+  } satisfies PlaygroundMetadata);
 }

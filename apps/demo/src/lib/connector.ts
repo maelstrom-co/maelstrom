@@ -5,12 +5,50 @@ import { SessionId } from '@maelstrom-co/protocol';
 // only @maelstrom-co/client and @maelstrom-co/protocol) despite living under
 // src/server — it defines the contract, not a server implementation of it.
 import { PLAYGROUND_NOKEY_FRAME } from '../server/playground-frames';
+import { parsePlaygroundMetadata } from '../server/playground-metadata';
 import { withBrowserCalendarContext } from './calendar-context';
+import { diagnosticCapture } from './diagnostic-capture';
 import { DiagnosticConnector } from './diagnostic-connector';
+import { engineMetadata } from './engine-metadata';
 import { isHosted, usesBrowserKey } from './hosted-mode';
 import { playgroundKeyStore } from './playground-key-store';
 
 class DemoConnector extends DiagnosticConnector {
+  private readonly metadataOwner: symbol;
+  constructor(options: ConstructorParameters<typeof DiagnosticConnector>[0]) {
+    const owner = Symbol('engine connection');
+    super({
+      ...options,
+      onOpen: (send, sessionId) => {
+        engineMetadata.begin(owner);
+        options.onOpen?.(send, sessionId);
+      },
+      onFrame: (raw, send, sessionId, isCurrentConnection) => {
+        const metadata = parsePlaygroundMetadata(raw);
+        if (metadata) {
+          if (isCurrentConnection === false) return true;
+          engineMetadata.receive(owner, metadata);
+          if (engineMetadata.getSnapshot() === metadata)
+            diagnosticCapture.record('engine_metadata', {
+              sessionId,
+              ...metadata,
+            });
+          return true;
+        }
+        return (
+          options.onFrame?.(raw, send, sessionId, isCurrentConnection) ?? false
+        );
+      },
+    });
+    this.metadataOwner = owner;
+    this.subscribe((event) => {
+      if (event.type === 'disconnected') engineMetadata.clear(owner);
+    });
+  }
+  override disconnect() {
+    engineMetadata.clear(this.metadataOwner);
+    return super.disconnect();
+  }
   override process(message: Parameters<DiagnosticConnector['process']>[0]) {
     return super.process(withBrowserCalendarContext(message));
   }
@@ -143,8 +181,10 @@ export function createDemoConnector(options: CreateDemoConnectorOptions = {}) {
     routingSession,
   );
 
+  const diagnosticsUrl = new URL(wsUrl);
+  diagnosticsUrl.searchParams.set('diagnostics', '1');
   return new DemoConnector({
-    url: wsUrl,
+    url: diagnosticsUrl.toString(),
     // Client-side liveness detection: the DO answers each ping via
     // setWebSocketAutoResponse without waking the object, so this costs
     // nothing server-side and just lets WebSocketConnector notice a dead

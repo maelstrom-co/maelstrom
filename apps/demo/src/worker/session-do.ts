@@ -48,6 +48,7 @@ import { encodeEnvelope } from '@maelstrom-co/protocol';
 import { Effect, Layer, ManagedRuntime } from 'effect';
 import * as Result from 'effect/Result';
 import { dispatchFrame, encodeEngineErrorReply } from '../server/dispatch';
+import { engineMetadataFrame } from '../server/engine-model';
 import { resolvePreHelloDispatch } from '../server/playground-frames';
 import { redactSecrets } from '../server/redact';
 import { Connections, ConnectionsLive } from './session/connections';
@@ -106,6 +107,9 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
     // acceptWebSocket, not server.accept(): the latter pins this object in
     // memory for the socket's life — the cost model this migration leaves.
     this.ctx.acceptWebSocket(server);
+    if (new URL(request.url).searchParams.get('diagnostics') === '1') {
+      server.send(engineMetadataFrame());
+    }
     return new Response(null, { status: 101, webSocket: client });
   }
 

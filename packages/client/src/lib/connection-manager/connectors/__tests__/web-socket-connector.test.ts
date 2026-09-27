@@ -1382,6 +1382,31 @@ describe('WebSocketConnector cross-correlator isolation', () => {
 });
 
 describe('onFrame inbound hook', () => {
+  test('identifies retired sockets even when a replacement reuses the same session', async () => {
+    const current: (boolean | undefined)[] = [];
+    const connector = new WebSocketConnector({
+      url: 'ws://localhost/ws',
+      onFrame: (_raw, _send, _session, isCurrent) => {
+        current.push(isCurrent);
+        return true;
+      },
+    });
+    const firstConnection = connector.connect(SessionId('same'));
+    const first = FakeWebSocket.instances.at(-1)!;
+    first.emitOpen();
+    await firstConnection;
+    first.emitJson({ type: 'custom' });
+    await connector.disconnect();
+    first.emitJson({ type: 'custom' });
+    const nextConnection = connector.connect(SessionId('same'));
+    const next = FakeWebSocket.instances.at(-1)!;
+    next.emitOpen();
+    await nextConnection;
+    next.emitJson({ type: 'custom' });
+    first.emitJson({ type: 'custom' });
+    expect(current).toEqual([true, false, true, false]);
+    await connector.disconnect();
+  });
   test('consumes a frame when it returns true, so it never reaches the decode path', async () => {
     const warn = spyOn(console, 'warn').mockImplementation(() => {});
     const seen: string[] = [];
