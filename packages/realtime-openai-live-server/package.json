@@ -1,0 +1,59 @@
+{
+  "name": "@maelstrom-co/realtime-openai-live-server",
+  "version": "0.1.0-alpha.3",
+  "description": "Server-held-key session exchange for OpenAI Live WebRTC.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "sideEffects": false,
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "@maelstrom-co/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "!**/*.tsbuildinfo"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/maelstrom-co/maelstrom.git",
+    "directory": "packages/realtime-openai-live-server"
+  },
+  "homepage": "https://maelstrom-ai.co",
+  "bugs": {
+    "url": "https://github.com/maelstrom-co/maelstrom/issues"
+  },
+  "author": "Maelstrom (https://maelstrom-ai.co)",
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "dependencies": {
+    "@maelstrom-co/realtime-protocol": "workspace:*"
+  },
+  "nx": {
+    "targets": {
+      "typecheck": {
+        "command": "tsc -p tsconfig.lib.json --noEmit && tsc -p tsconfig.spec.json --noEmit",
+        "options": {
+          "cwd": "{projectRoot}"
+        }
+      },
+      "test": {
+        "command": "bun test",
+        "options": {
+          "cwd": "{projectRoot}"
+        }
+      }
+    }
+  }
+}

@@ -4,6 +4,12 @@
   "files": [],
   "references": [
     {
+      "path": "./packages/realtime-openai-live"
+    },
+    {
+      "path": "./packages/realtime-openai-live-server"
+    },
+    {
       "path": "./apps/demo"
     },
     {

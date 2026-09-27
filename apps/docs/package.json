@@ -60,6 +60,8 @@
       "@maelstrom-co/react-realtime",
       "@maelstrom-co/realtime-openai",
       "@maelstrom-co/realtime-openai-server",
+      "@maelstrom-co/realtime-openai-live",
+      "@maelstrom-co/realtime-openai-live-server",
       "@maelstrom-co/realtime-protocol",
       "@maelstrom-co/realtime-vad",
       "@maelstrom-co/realtime-livekit",

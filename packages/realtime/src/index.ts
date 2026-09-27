@@ -34,6 +34,7 @@ export type {
   RealtimeGreetingAdapter,
   RealtimeProviderAdapter,
   RealtimeToolSpec,
+  RealtimeTransportAdapter,
   ToolResult,
   TurnMode,
   TurnModeEvent,

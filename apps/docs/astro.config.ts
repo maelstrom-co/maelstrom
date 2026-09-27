@@ -26,6 +26,12 @@ const [realtimeProtocolTypeDoc, realtimeProtocolTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
 const [realtimeOpenaiTypeDoc, realtimeOpenaiTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
+const [realtimeOpenaiLiveTypeDoc, realtimeOpenaiLiveTypeDocSidebarGroup] =
+  createStarlightTypeDocPlugin();
+const [
+  realtimeOpenaiLiveServerTypeDoc,
+  realtimeOpenaiLiveServerTypeDocSidebarGroup,
+] = createStarlightTypeDocPlugin();
 const [reactRealtimeTypeDoc, reactRealtimeTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
 const [realtimeOpenaiServerTypeDoc, realtimeOpenaiServerTypeDocSidebarGroup] =
@@ -47,6 +53,8 @@ const sourceLinkTemplate = createGitHubSourceLinkTemplate(
 );
 const multiEntryTypeDocOptions = {
   entryPointStrategy: 'resolve' as const,
+  plugin: ['./src/lib/typedoc-module-index.ts'],
+  router: 'module-index',
   excludeInternal: true,
   basePath: repoRoot,
   sourceLinkTemplate,
@@ -219,6 +227,7 @@ export default defineConfig({
           entryPoints: [
             '../../packages/realtime-protocol/src/index.ts',
             '../../packages/realtime-protocol/src/openai.ts',
+            '../../packages/realtime-protocol/src/openai-live.ts',
             '../../packages/realtime-protocol/src/livekit.ts',
             '../../packages/realtime-protocol/src/livekit-wire.ts',
           ],
@@ -243,6 +252,29 @@ export default defineConfig({
           output: 'reference/react-realtime',
           sidebar: {
             label: '@maelstrom-co/react-realtime',
+            collapsed: true,
+          },
+          typeDoc: multiEntryTypeDocOptions,
+        }),
+        realtimeOpenaiLiveTypeDoc({
+          entryPoints: ['../../packages/realtime-openai-live/src/index.ts'],
+          tsconfig: '../../packages/realtime-openai-live/tsconfig.lib.json',
+          output: 'reference/realtime-openai-live',
+          sidebar: {
+            label: '@maelstrom-co/realtime-openai-live',
+            collapsed: true,
+          },
+          typeDoc: multiEntryTypeDocOptions,
+        }),
+        realtimeOpenaiLiveServerTypeDoc({
+          entryPoints: [
+            '../../packages/realtime-openai-live-server/src/index.ts',
+          ],
+          tsconfig:
+            '../../packages/realtime-openai-live-server/tsconfig.lib.json',
+          output: 'reference/realtime-openai-live-server',
+          sidebar: {
+            label: '@maelstrom-co/realtime-openai-live-server',
             collapsed: true,
           },
           typeDoc: multiEntryTypeDocOptions,
@@ -426,6 +458,8 @@ export default defineConfig({
                 realtimeTypeDocSidebarGroup,
                 realtimeProtocolTypeDocSidebarGroup,
                 realtimeOpenaiTypeDocSidebarGroup,
+                realtimeOpenaiLiveTypeDocSidebarGroup,
+                realtimeOpenaiLiveServerTypeDocSidebarGroup,
                 reactRealtimeTypeDocSidebarGroup,
                 realtimeOpenaiServerTypeDocSidebarGroup,
                 realtimeLivekitTypeDocSidebarGroup,
