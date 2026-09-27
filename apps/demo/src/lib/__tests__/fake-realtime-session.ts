@@ -1,5 +1,6 @@
 import type {
   TranscriptEntry,
+  VoiceCaption,
   VoiceObservationSnapshot,
   VoiceSessionState,
 } from '@maelstrom-co/client';
@@ -27,6 +28,7 @@ export class FakeRealtimeSession {
   state: VoiceSessionState = 'idle';
   private observationSnapshot = EMPTY_VOICE_OBSERVATIONS;
   private observationHandlers = new Set<() => void>();
+  private captionCount = 0;
   observations = {
     getSnapshot: () => this.observationSnapshot,
     subscribe: (handler: () => void) => {
@@ -39,6 +41,35 @@ export class FakeRealtimeSession {
   emitObservations(snapshot: VoiceObservationSnapshot) {
     this.observationSnapshot = snapshot;
     for (const handler of this.observationHandlers) handler();
+  }
+  /**
+   * Publishes one caption the way the observation store groups fragments: a
+   * speaker's open caption is revised in place, and a final one is followed by
+   * a new caption with a new ID.
+   */
+  emitCaption(entry: TranscriptEntry): void {
+    const captions = [...this.observationSnapshot.captions];
+    const latest = captions
+      .filter((caption) => caption.role === entry.role)
+      .at(-1);
+    const index = latest ? captions.indexOf(latest) : -1;
+    const open = latest !== undefined && !latest.final;
+    const id = open
+      ? latest.id
+      : `caption-${entry.role}-${++this.captionCount}`;
+    const caption: VoiceCaption = {
+      id,
+      role: entry.role,
+      speakerId: entry.role,
+      fragmentIds: [id],
+      text: entry.text,
+      startMs: 0,
+      endMs: 0,
+      final: entry.final,
+    };
+    if (open) captions[index] = caption;
+    else captions.push(caption);
+    this.emitObservations({ ...this.observationSnapshot, captions });
   }
   lastError: unknown = undefined;
   connectCalls = 0;
@@ -58,9 +89,10 @@ export class FakeRealtimeSession {
   }
 
   /**
-   * Emit the configured greeting as one final assistant transcript, once per
-   * instance. No-op when unconfigured or already emitted. Does not auto-fire
-   * from `connect()` — keeps existing tests deterministic.
+   * Emit the configured greeting as one final assistant transcript and one
+   * final assistant caption, the way an adapter observes it at playback start,
+   * once per instance. No-op when unconfigured or already emitted. Does not
+   * auto-fire from `connect()`, which keeps existing tests deterministic.
    */
   emitGreeting(): void {
     const greeting = (
@@ -68,7 +100,9 @@ export class FakeRealtimeSession {
     )?.greeting?.text;
     if (this.greetingEmitted || !greeting) return;
     this.greetingEmitted = true;
-    this.emitTranscript({ role: 'assistant', text: greeting, final: true });
+    const entry = { role: 'assistant', text: greeting, final: true } as const;
+    this.emitTranscript(entry);
+    this.emitCaption(entry);
   }
 
   async disconnect(): Promise<void> {
