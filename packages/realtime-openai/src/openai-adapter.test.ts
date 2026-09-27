@@ -2705,7 +2705,7 @@ describe('RealtimeSession + OpenAIAdapter — fatal in-session error recovery', 
   });
 });
 
-describe('RealtimeSession + OpenAIAdapter — store captions', () => {
+describe('RealtimeSession + OpenAIAdapter: store captions', () => {
   it('ends a caption cleanly on the final event and starts the next item as a new caption', async () => {
     const adapter = new OpenAIAdapter({ mintToken: async () => fakeToken });
     const session = new RealtimeSession({
@@ -5513,7 +5513,7 @@ describe('GreetingCoordinator × OpenAIAdapter — cross-layer ordering', () => 
   });
 });
 
-describe('OpenAIAdapter — transcript observations', () => {
+describe('OpenAIAdapter: transcript observations', () => {
   function observe(adapter: OpenAIAdapter) {
     const fragments: TimedTranscriptFragment[] = [];
     adapter.observations.subscribe((event) => {
