@@ -8,12 +8,53 @@ import type {
   VoiceObservationSource,
 } from '@maelstrom-co/client';
 import type { ContinuousTranscriptOptions } from './realtime-session.types.js';
+import type { SessionEventHandler } from './session-event-bus.js';
+import {
+  DEFAULT_MAX_FRAGMENT_CHARS,
+  isValidFragment,
+} from './transcript-fragment-validation.js';
 
 const UNKNOWN_MEDIA: VoiceMediaObservation = Object.freeze({
   microphone: 'unknown',
   userSpeech: 'unknown',
   incomingAudio: 'unknown',
 });
+
+/**
+ * Folds session events into `store` through its existing methods. Tool
+ * outcomes and the opening claim are not observations and are ignored.
+ */
+export function observationStoreSubscriber(
+  store: VoiceObservationStore,
+): SessionEventHandler {
+  return (event) => {
+    switch (event.type) {
+      case 'session.started':
+        store.begin();
+        return;
+      case 'session.connected':
+        store.connection('connected');
+        return;
+      case 'session.disconnecting':
+        store.connection('disconnecting');
+        return;
+      case 'session.disconnected':
+        store.connection('disconnected');
+        return;
+      case 'session.error':
+        store.connection('error');
+        return;
+      case 'transcript.fragment':
+        store.fragment(event.fragment);
+        return;
+      case 'media':
+        store.media(event.media);
+        return;
+      default:
+        return;
+    }
+  };
+}
 
 export class VoiceObservationStore implements VoiceObservationSource {
   readonly #maxFragments: number;
@@ -43,7 +84,8 @@ export class VoiceObservationStore implements VoiceObservationSource {
     work?: VoiceApplicationWorkSource,
   ) {
     this.#maxFragments = options.maxFragments ?? 256;
-    this.#maxFragmentChars = options.maxFragmentChars ?? 16384;
+    this.#maxFragmentChars =
+      options.maxFragmentChars ?? DEFAULT_MAX_FRAGMENT_CHARS;
     this.#groupGapMs = options.groupGapMs ?? 1000;
     for (const value of [this.#maxFragments, this.#maxFragmentChars]) {
       if (!Number.isSafeInteger(value) || value <= 0)
@@ -143,18 +185,7 @@ export class VoiceObservationStore implements VoiceObservationSource {
   }
 
   fragment(fragment: TimedTranscriptFragment): boolean {
-    if (
-      !fragment.id ||
-      fragment.id.length > 256 ||
-      !fragment.speakerId ||
-      fragment.speakerId.length > 256 ||
-      !Number.isFinite(fragment.startMs) ||
-      !Number.isFinite(fragment.endMs) ||
-      fragment.startMs < 0 ||
-      fragment.endMs < fragment.startMs ||
-      fragment.text.length > this.#maxFragmentChars
-    )
-      return false;
+    if (!isValidFragment(fragment, this.#maxFragmentChars)) return false;
     const fragments = this.#snapshot.fragments.filter(
       (old) => old.id !== fragment.id,
     );
