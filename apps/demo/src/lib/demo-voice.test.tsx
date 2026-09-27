@@ -29,6 +29,7 @@ import {
   demoVoiceOpening,
   demoVoiceSession,
 } from './demo-voice';
+import { diagnosticCapture } from './diagnostic-capture';
 import {
   DEMO_VOICE_PROVIDERS,
   type DemoVoiceProvider,
@@ -153,6 +154,7 @@ function newOrchestrator(connector = createMockConnector()) {
 
 afterEach(() => {
   cleanup();
+  diagnosticCapture.clear();
   selectVoiceProvider('realtime');
 });
 
@@ -673,3 +675,110 @@ it('records a call and a result for every tool, stamped with the session generat
   await voice.disconnect();
   orchestrator.dispose();
 });
+
+it('captures tool calls, observations, and settled work under the identity of the session that produced them across a provider switch', async () => {
+  selectVoiceProvider('live');
+  const orchestrator = newOrchestrator();
+  await orchestrator.connect();
+  const adapters = {
+    live: new Adapter(),
+    realtime: Object.assign(new Adapter(), {
+      activateAudio() {},
+      speakAssistantText: async () => 'accepted' as const,
+    }),
+  };
+  const voice = mountDemoVoice(orchestrator, (provider) =>
+    provider === 'live' ? adapters.live : adapters.realtime,
+  );
+  await voice.flush();
+  diagnosticCapture.start(
+    'live',
+    voice.memory.sessionId,
+    voice.providerInstanceId,
+  );
+  const callTool = async (adapter: Adapter, callId: string) => {
+    adapter.emit({
+      type: 'tool_call',
+      callId: ToolCallId(callId),
+      name: 'update_ui',
+      argumentsJson: '{"intent":"Arrange the workspace"}',
+    });
+    await vi.waitFor(() =>
+      expect(captured('application_settled').at(-1)).toBeDefined(),
+    );
+    await vi.waitFor(() =>
+      expect(
+        captured('tool_result').some((entry) => entry.callId === callId),
+      ).toBe(true),
+    );
+  };
+
+  await voice.connect();
+  const first = voice.providerInstanceId;
+  await callTool(adapters.live, 'first-call');
+  await voice.select('realtime');
+  const second = voice.providerInstanceId;
+  const switchedAt = capturedEvents().length;
+  await voice.connect();
+  await callTool(adapters.realtime, 'second-call');
+
+  expect(second).not.toBe(first);
+  expect(
+    captured('tool_call').map(
+      ({ callId, provider, providerInstanceId, generation }) => ({
+        callId,
+        provider,
+        providerInstanceId,
+        generation,
+      }),
+    ),
+  ).toEqual([
+    {
+      callId: 'first-call',
+      provider: 'live',
+      providerInstanceId: first,
+      generation: 1,
+    },
+    {
+      callId: 'second-call',
+      provider: 'realtime',
+      providerInstanceId: second,
+      generation: 1,
+    },
+  ]);
+  const observations = captured('observations');
+  expect(observations.some((entry) => entry.providerInstanceId === first)).toBe(
+    true,
+  );
+  expect(
+    capturedEvents()
+      .slice(switchedAt)
+      .filter((entry) => entry.kind === 'observations')
+      .map(({ provider, providerInstanceId }) => [
+        provider,
+        providerInstanceId,
+      ]),
+  ).toEqual(expect.arrayContaining([['realtime', second]]));
+  expect(
+    capturedEvents()
+      .slice(switchedAt)
+      .some(
+        (entry) =>
+          entry.kind === 'observations' && entry.providerInstanceId === first,
+      ),
+  ).toBe(false);
+  expect(captured('application_settled').at(-1)).toMatchObject({
+    sessionId: voice.memory.sessionId,
+    providerInstanceId: second,
+  });
+  await voice.disconnect();
+  orchestrator.dispose();
+});
+
+function capturedEvents(): Record<string, unknown>[] {
+  return JSON.parse(diagnosticCapture.export()).events;
+}
+
+function captured(kind: string) {
+  return capturedEvents().filter((entry) => entry.kind === kind);
+}
