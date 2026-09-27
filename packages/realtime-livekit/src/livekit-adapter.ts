@@ -12,7 +12,11 @@ import type {
   RealtimeProviderAdapter,
   ToolResult,
 } from '@maelstrom-co/realtime';
-import { ConnectRaceGuard, RealtimeVoiceError } from '@maelstrom-co/realtime';
+import {
+  ConnectRaceGuard,
+  RealtimeVoiceError,
+  TranscriptObservationFeed,
+} from '@maelstrom-co/realtime';
 import type {
   TtsCancelMessage,
   TurnEndMessage,
@@ -196,8 +200,19 @@ export class LiveKitAdapter
   readonly #vadConfig: ReturnType<typeof resolveBrowserVadConfig> | undefined;
   readonly #vadConfigError: unknown;
   readonly #greetingReadyWaitMs: number;
+  readonly #transcripts = new TranscriptObservationFeed();
+
+  /**
+   * Transcript fragments on a local receipt-time timeline. Each push-to-talk
+   * or VAD turn becomes one final user fragment when the worker's final
+   * transcript arrives, and the fixed greeting becomes one final assistant
+   * fragment when the worker reports its playout start. Media evidence is not
+   * reported.
+   */
+  readonly observations = this.#transcripts;
 
   #room: Room | undefined;
+  #userTurnSeq = 0;
   /** Room created during gesture activation and reserved for the next connect. */
   #roomPreparedForAudio = false;
   #audioEl: HTMLAudioElement | undefined;
@@ -369,6 +384,7 @@ export class LiveKitAdapter
     this.#connecting = true;
     this.#connectionGeneration += 1;
     const generation = this.#connectionGeneration;
+    this.#transcripts.restart();
     this.#emit({ type: 'state', state: 'connecting' });
 
     const attempt = this.#connectGuard.begin();
@@ -678,7 +694,8 @@ export class LiveKitAdapter
   /**
    * Speak the exact configured greeting text once the coordinator hands off.
    * Waits for the worker's `tts_ready` gate; reuses the existing SPEAK_TOPIC
-   * hand-off. Engine `id` is not wired — LiveKit has no provider conversation.
+   * hand-off. The engine `id` is never sent to the worker, because LiveKit has
+   * no provider conversation; it only names the greeting's caption fragment.
    * Once `sendText()` starts, delivery is ambiguous and therefore terminal to
    * preserve at-most-once speech across reconnects.
    */
@@ -688,7 +705,6 @@ export class LiveKitAdapter
     readonly signal: AbortSignal;
     readonly onPlaybackStart?: () => void;
   }): Promise<GreetingSpeechResult> {
-    void args.id;
     if (!this.#room) return 'not_started';
     if (!this.#greetGestureUnlocked) return 'not_started';
     if (args.signal.aborted) return 'not_started';
@@ -705,9 +721,15 @@ export class LiveKitAdapter
     this.#utteranceSeq += 1;
     const utteranceId = this.#utteranceSeq;
     this.#currentUtteranceId = utteranceId;
-    this.#greetingPlaybackStart = args.onPlaybackStart
-      ? { utteranceId, callback: args.onPlaybackStart }
-      : undefined;
+    const generation = this.#connectionGeneration;
+    this.#greetingPlaybackStart = {
+      utteranceId,
+      callback: () => {
+        if (this.#isCurrentRoom(generation, room) && !args.signal.aborted)
+          this.#transcripts.complete(args.id, 'assistant', args.text);
+        args.onPlaybackStart?.();
+      },
+    };
     this.#unmutePlaybackForNextTtsTurn();
     this.#emit({ type: 'state', state: 'speaking' });
     try {
@@ -806,7 +828,7 @@ export class LiveKitAdapter
       });
     });
     room.on(RoomEvent.TranscriptionReceived, (segments) => {
-      this.#handleTranscription(segments);
+      this.#handleTranscription(segments, room);
     });
     // Publishing the worker's TTS track ≠ hearing it — attach it to a sink.
     room.on(RoomEvent.TrackSubscribed, (track) => {
@@ -931,7 +953,7 @@ export class LiveKitAdapter
     }
   }
 
-  #handleTranscription(segments: TranscriptionSegment[]): void {
+  #handleTranscription(segments: TranscriptionSegment[], room: Room): void {
     const finals = segments.filter((s) => s.final);
     if (finals.length === 0) return;
     const text = finals
@@ -944,6 +966,10 @@ export class LiveKitAdapter
     // empty-turn fallback before this drives a render.
     this.#clearThinkingFallback();
     this.#emit({ type: 'transcript', role: 'user', text, final: true });
+    if (this.#room === room) {
+      this.#userTurnSeq += 1;
+      this.#transcripts.complete(`user-${this.#userTurnSeq}`, 'user', text);
+    }
     // The spike's core: a cascaded final transcript is turned into the same
     // `update_ui` tool call a speech-native model would emit, so RealtimeSession
     // drives it through the identical path (submitIntent → speak-after-render).

@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, mock, spyOn, test } from 'bun:test';
-import type { RealtimeAdapterEvent } from '@maelstrom-co/realtime';
+import type { TimedTranscriptFragment } from '@maelstrom-co/client';
+import type {
+  AdapterVoiceObservation,
+  RealtimeAdapterEvent,
+} from '@maelstrom-co/realtime';
 import { RealtimeVoiceError } from '@maelstrom-co/realtime';
 import type { UnixSeconds } from '@maelstrom-co/realtime-protocol';
 import type { LiveKitTokenGrant } from '@maelstrom-co/realtime-protocol/livekit';
@@ -2822,6 +2826,51 @@ describe('LiveKitAdapter transcript → tool_call synthesis', () => {
 
     expect(events.length).toBe(before);
   });
+
+  test('each final turn becomes one final user fragment with its own id', async () => {
+    const { adapter } = makeAdapter();
+    const fragments: TimedTranscriptFragment[] = [];
+    const observed: AdapterVoiceObservation[] = [];
+    adapter.observations.subscribe((event) => {
+      observed.push(event);
+      if (event.type === 'fragment') fragments.push(event.fragment);
+    });
+    await adapter.connect({ tools: [], instructions: '' });
+
+    currentRoom._emit('transcriptionReceived', [
+      { text: 'show', final: true },
+      { text: 'the weather', final: true },
+    ]);
+    currentRoom._emit('transcriptionReceived', [{ text: '   ', final: true }]);
+    currentRoom._emit('transcriptionReceived', [
+      { text: 'partial', final: false },
+    ]);
+    currentRoom._emit('transcriptionReceived', [
+      { text: 'and news', final: true },
+    ]);
+
+    expect(observed.every((event) => event.type === 'fragment')).toBe(true);
+    expect(
+      fragments.map(({ role, speakerId, text, final }) => ({
+        role,
+        speakerId,
+        text,
+        final,
+      })),
+    ).toEqual([
+      {
+        role: 'user',
+        speakerId: 'user',
+        text: 'show the weather',
+        final: true,
+      },
+      { role: 'user', speakerId: 'user', text: 'and news', final: true },
+    ]);
+    expect(fragments[0]?.id).not.toBe(fragments[1]?.id);
+    expect(fragments[1]?.startMs).toBeGreaterThanOrEqual(
+      fragments[0]?.endMs ?? Number.POSITIVE_INFINITY,
+    );
+  });
 });
 
 function encodeTts(type: 'tts_done' | 'tts_error'): Uint8Array {
@@ -4429,6 +4478,89 @@ describe('LiveKitAdapter greeting capability', () => {
     );
     expect(playbackStarts).toBe(1);
     expect(states(events).at(-1)).toBe('speaking');
+  });
+
+  test('observes the greeting as one final assistant fragment at playout start', async () => {
+    const { adapter } = makeAdapter(undefined, { greetingReadyWaitMs: 5000 });
+    await adapter.connect({ tools: [], instructions: '' });
+    adapter.activateAudio();
+    const order: string[] = [];
+    const fragments: TimedTranscriptFragment[] = [];
+    adapter.observations.subscribe((event) => {
+      if (event.type !== 'fragment') return;
+      fragments.push(event.fragment);
+      order.push('fragment');
+    });
+    currentRoom._emit(
+      'dataReceived',
+      new TextEncoder().encode(JSON.stringify({ type: 'tts_ready' })),
+      undefined,
+      undefined,
+      TTS_READY_TOPIC,
+    );
+
+    await expect(
+      adapter.speakAssistantText({
+        id: greetingId,
+        text: greetingText,
+        signal: new AbortController().signal,
+        onPlaybackStart: () => order.push('playback'),
+      }),
+    ).resolves.toBe('accepted');
+    expect(fragments).toEqual([]);
+    currentRoom._emit(
+      'dataReceived',
+      new TextEncoder().encode(
+        JSON.stringify({ type: 'tts_started', utteranceId: lastUtteranceId() }),
+      ),
+      undefined,
+      undefined,
+      TTS_TOPIC,
+    );
+
+    expect(order).toEqual(['fragment', 'playback']);
+    expect(fragments).toEqual([
+      expect.objectContaining({
+        id: String(greetingId),
+        role: 'assistant',
+        speakerId: 'assistant',
+        text: greetingText,
+        final: true,
+      }),
+    ]);
+  });
+
+  test('does not observe a greeting whose signal aborted before playout start', async () => {
+    const { adapter } = makeAdapter(undefined, { greetingReadyWaitMs: 5000 });
+    await adapter.connect({ tools: [], instructions: '' });
+    adapter.activateAudio();
+    const fragments: unknown[] = [];
+    adapter.observations.subscribe((event) => fragments.push(event));
+    currentRoom._emit(
+      'dataReceived',
+      new TextEncoder().encode(JSON.stringify({ type: 'tts_ready' })),
+      undefined,
+      undefined,
+      TTS_READY_TOPIC,
+    );
+    const controller = new AbortController();
+    await adapter.speakAssistantText({
+      id: greetingId,
+      text: greetingText,
+      signal: controller.signal,
+    });
+    controller.abort();
+    currentRoom._emit(
+      'dataReceived',
+      new TextEncoder().encode(
+        JSON.stringify({ type: 'tts_started', utteranceId: lastUtteranceId() }),
+      ),
+      undefined,
+      undefined,
+      TTS_TOPIC,
+    );
+
+    expect(fragments).toEqual([]);
   });
 
   test('requires a matching utterance id before publishing the greeting caption', async () => {
