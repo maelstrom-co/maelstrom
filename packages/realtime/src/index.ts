@@ -58,3 +58,5 @@ export type {
 export { RealtimeSessionMemory } from './lib/realtime-session/realtime-session-memory.js';
 export type { RealtimeVoiceErrorCode } from './lib/realtime-voice-error.js';
 export { RealtimeVoiceError } from './lib/realtime-voice-error.js';
+export type { TranscriptObservationFeedOptions } from './lib/transcript-observation-feed.js';
+export { TranscriptObservationFeed } from './lib/transcript-observation-feed.js';
