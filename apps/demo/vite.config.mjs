@@ -7,6 +7,7 @@ import react from '@vitejs/plugin-react';
 import { defineConfig, loadEnv } from 'vite';
 
 import { browserVadAssetNamesForModel } from '../../packages/realtime-vad/src/vad-asset-manifest.ts';
+import { localLiveDevPlugin } from './local-live-dev-plugin.ts';
 import { HOSTED_VAD_MODEL } from './src/lib/hosted-vad-model.ts';
 
 import {
@@ -73,6 +74,9 @@ export default defineConfig(({ command, mode }) => {
     },
     server: {
       port: 3000,
+      ...(process.env.DEMO_LOCAL_SERVER_KEY === '1' && !hosted
+        ? { host: '127.0.0.1' }
+        : {}),
     },
     // Workspace packages' `exports` maps put source behind a
     // "@maelstrom-co/source" custom condition (dist/ is otherwise the
@@ -102,6 +106,12 @@ export default defineConfig(({ command, mode }) => {
       },
     },
     plugins: [
+      localLiveDevPlugin({
+        enabled: process.env.DEMO_LOCAL_SERVER_KEY === '1',
+        hosted,
+        password: process.env.DEMO_LOCAL_PASSWORD,
+        apiKey: process.env.OPENAI_API_KEY ?? '',
+      }),
       createBuildPublicAssetsPlugin({
         applyToEnvironment: (environment) => environment.name === 'client',
         build: command === 'build' && !livekitBuild,

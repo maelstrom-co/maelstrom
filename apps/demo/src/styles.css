@@ -76,6 +76,13 @@ body {
   flex-direction: column;
 }
 
+.demo-shell:not(.keyless-shell) {
+  height: 100dvh;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(1px, 1fr) auto;
+}
+
 .demo-layout-host {
   width: 100%;
   min-width: 0;
@@ -115,7 +122,7 @@ body {
 }
 
 .demo-main {
-  min-height: 320px;
+  min-height: 0;
 }
 
 .keyless-main {
@@ -952,12 +959,6 @@ body {
     font-size: 9px;
   }
 
-  .demo-main {
-    height: max(420px, calc(100dvh - 300px));
-    min-height: max(420px, calc(100dvh - 300px));
-    flex: 0 0 auto;
-  }
-
   .keyless-shell {
     padding-bottom: 80px;
   }
@@ -1003,10 +1004,35 @@ body {
 }
 
 @media (max-height: 600px) {
-  .demo-main {
-    height: auto;
-    min-height: 1px;
-    flex: 1 1 auto;
+  .demo-header {
+    padding: 8px 12px;
+  }
+
+  .demo-shell:not(.keyless-shell) .demo-brand {
+    display: none;
+  }
+
+  .connected-input {
+    padding: 4px;
+  }
+
+  .demo-voice-band {
+    height: 72px;
+    margin-bottom: 0;
+  }
+
+  .demo-captions {
+    height: 28px;
+    margin-bottom: 0;
+  }
+
+  .caption-line {
+    font-size: 12px;
+    line-height: 14px;
+  }
+
+  .voice-provider-label {
+    display: none;
   }
 }
 

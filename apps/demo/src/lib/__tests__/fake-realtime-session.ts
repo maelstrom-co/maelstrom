@@ -1,4 +1,21 @@
-import type { TranscriptEntry, VoiceSessionState } from '@maelstrom-co/client';
+import type {
+  TranscriptEntry,
+  VoiceObservationSnapshot,
+  VoiceSessionState,
+} from '@maelstrom-co/client';
+
+export const EMPTY_VOICE_OBSERVATIONS: VoiceObservationSnapshot = {
+  generation: 0,
+  connection: 'disconnected',
+  media: {
+    microphone: 'unknown',
+    userSpeech: 'unknown',
+    incomingAudio: 'unknown',
+  },
+  applicationWork: { planning: 'inactive', applying: 'inactive' },
+  fragments: [],
+  captions: [],
+};
 
 // Fakes the module boundary maelstrom.ts constructs against (RealtimeSession
 // from @maelstrom-co/realtime) — mirrors packages/react-realtime's own
@@ -8,6 +25,21 @@ export class FakeRealtimeSession {
   static instances: FakeRealtimeSession[] = [];
 
   state: VoiceSessionState = 'idle';
+  private observationSnapshot = EMPTY_VOICE_OBSERVATIONS;
+  private observationHandlers = new Set<() => void>();
+  observations = {
+    getSnapshot: () => this.observationSnapshot,
+    subscribe: (handler: () => void) => {
+      this.observationHandlers.add(handler);
+      return () => {
+        this.observationHandlers.delete(handler);
+      };
+    },
+  };
+  emitObservations(snapshot: VoiceObservationSnapshot) {
+    this.observationSnapshot = snapshot;
+    for (const handler of this.observationHandlers) handler();
+  }
   lastError: unknown = undefined;
   connectCalls = 0;
   disconnectCalls = 0;

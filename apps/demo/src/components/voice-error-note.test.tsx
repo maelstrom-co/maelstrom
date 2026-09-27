@@ -4,6 +4,7 @@ import { act, cleanup, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FakeRealtimeSession } from '../lib/__tests__/fake-realtime-session';
 import { createMockConnector } from '../lib/__tests__/mock-connector';
+import { selectVoiceProvider } from '../lib/voice-provider';
 
 // Keeps RealtimeVoiceError real (VoiceErrorNote's `instanceof` check must
 // hold against the actual class) while swapping only RealtimeSession for the
@@ -41,6 +42,7 @@ function must<T>(value: T | null | undefined): T {
 }
 
 beforeEach(() => {
+  selectVoiceProvider('realtime');
   vi.stubEnv('VITE_HOSTED', '0');
   vi.stubEnv('VITE_BROWSER_KEY_MODE', '0');
   FakeRealtimeSession.instances = [];

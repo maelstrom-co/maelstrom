@@ -89,6 +89,9 @@ test('loads the keyless workspace cleanly without horizontal overflow', async ({
 
   await page.goto('/');
   await expect(page.getByText('Interactive preview')).toBeVisible();
+  await expect(page.getByLabel('Voice provider')).toHaveValue('live');
+  await page.getByLabel('Voice provider').selectOption('realtime');
+  await expect(page.getByLabel('Voice provider')).toHaveValue('realtime');
   await expect(page.getByText('DAY VIEW')).toBeVisible();
   await expect(page.getByText('TASKS')).toBeVisible();
   const intentInput = page.getByPlaceholder(
@@ -200,9 +203,15 @@ test('shows a visible seeded workspace after adding a key', async ({
   expect(orbBounds?.width).toBeGreaterThanOrEqual(44);
   expect(orbBounds?.height).toBeGreaterThanOrEqual(44);
   const composerBounds = await page.locator('.connected-input').boundingBox();
-  expect(composerBounds?.height).toBeLessThanOrEqual(160);
   const inputBounds = await connectedInput.boundingBox();
   const viewport = page.viewportSize();
+  const chartBounds = await page.locator('.chart-wrapper').boundingBox();
+  expect(chartBounds?.height).toBeGreaterThan(
+    composerBounds?.height ?? Infinity,
+  );
+  expect(
+    (composerBounds?.y ?? Infinity) + (composerBounds?.height ?? 0),
+  ).toBeLessThanOrEqual(viewport?.height ?? 0);
   expect(
     (inputBounds?.y ?? Infinity) + (inputBounds?.height ?? 0),
   ).toBeLessThanOrEqual(viewport?.height ?? 0);

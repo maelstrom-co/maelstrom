@@ -19,6 +19,7 @@ import {
   clearPlaygroundKey,
   setPlaygroundKey,
 } from '../lib/playground-key-store';
+import { selectVoiceProvider } from '../lib/voice-provider';
 import { calendarActions, resetCalendarStore } from '../vessels/calendar.store';
 import {
   __resetTasksStoreForTests,
@@ -126,6 +127,7 @@ class LayoutHostResizeObserver {
 }
 
 beforeEach(() => {
+  selectVoiceProvider('realtime');
   vi.stubEnv('VITE_HOSTED', '1');
   vi.stubEnv('VITE_BROWSER_KEY_MODE', '1');
   FakeRealtimeSession.instances = [];
@@ -153,7 +155,7 @@ afterEach(() => {
 });
 
 describe('key drawer gating (hosted, no key)', () => {
-  it('starts voice after the first lobby key save without a second orb click', async () => {
+  it('starts selected Realtime voice after the first lobby key save without a second orb click', async () => {
     const { HomePage } = await import('../components/home-page');
     render(<HomePage />);
 

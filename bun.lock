@@ -68,6 +68,8 @@
         "@maelstrom-co/realtime-livekit-agent": "workspace:*",
         "@maelstrom-co/realtime-livekit-server": "workspace:*",
         "@maelstrom-co/realtime-openai": "workspace:*",
+        "@maelstrom-co/realtime-openai-live": "workspace:*",
+        "@maelstrom-co/realtime-openai-live-server": "workspace:*",
         "@maelstrom-co/realtime-openai-server": "workspace:*",
         "@maelstrom-co/realtime-protocol": "workspace:*",
         "@maelstrom-co/realtime-vad": "workspace:*",

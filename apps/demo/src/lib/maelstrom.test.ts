@@ -1,7 +1,9 @@
+import type { SessionId } from '@maelstrom-co/protocol';
 import type {
   CreateAdapterContext,
   MaelstromRealtimeOptions,
 } from '@maelstrom-co/react-realtime';
+import type { RealtimeProviderAdapter } from '@maelstrom-co/realtime';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { makeValidWavBytes } from './__tests__/wav-fixtures';
 import {
@@ -11,6 +13,8 @@ import {
   DEMO_OPENAI_VOICE,
 } from './demo-greeting-tts';
 import { clearPlaygroundKey, setPlaygroundKey } from './playground-key-store';
+import type { DemoVoiceProvider } from './voice-provider';
+import { selectVoiceProvider } from './voice-provider';
 
 const state = vi.hoisted(() => ({
   extension: {},
@@ -34,10 +38,25 @@ vi.mock('@maelstrom-co/react', async (importOriginal) => ({
     return maelstrom;
   },
 }));
-vi.mock('@maelstrom-co/react-realtime', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@maelstrom-co/react-realtime')>()),
-  maelstromRealtime: (options: MaelstromRealtimeOptions) => {
-    state.realtimeOptions = options;
+vi.mock('./demo-voice', () => ({
+  demoVoice: (
+    factory: (
+      provider: DemoVoiceProvider,
+      sessionId: SessionId,
+    ) => RealtimeProviderAdapter,
+    greeting: string,
+  ) => {
+    state.realtimeOptions = {
+      greeting: { text: greeting },
+      createAdapter: ({ sessionId }) =>
+        factory(
+          import.meta.env.VITE_VOICE_PROVIDER === 'livekit' &&
+            import.meta.env.VITE_HOSTED !== '1'
+            ? 'livekit'
+            : 'realtime',
+          sessionId,
+        ),
+    };
     return state.extension;
   },
 }));
@@ -84,6 +103,12 @@ vi.mock('./voice/get-livekit-token', () => ({
 // Static import of maelstrom under a stable specifier (existing pattern).
 const providerTestSpecifier = './maelstrom.ts' + '?provider-test';
 const providerModule = await import(providerTestSpecifier);
+
+it('does not claim inert Live audio preparation succeeded when saving the first browser key', () => {
+  vi.stubEnv('VITE_HOSTED', '1');
+  selectVoiceProvider('live');
+  expect(providerModule.prepareBrowserOpenAIVoice()).toBe(false);
+});
 
 function createAdapter(provider: 'livekit' | 'openai') {
   vi.stubEnv('VITE_VOICE_PROVIDER', provider);
@@ -205,6 +230,7 @@ describe('demo voice provider wiring', () => {
     vi.stubEnv('VITE_HOSTED', '1');
     vi.stubEnv('VITE_BROWSER_KEY_MODE', '1');
     vi.stubEnv('VITE_VOICE_PROVIDER', 'openai');
+    selectVoiceProvider('realtime');
 
     expect(providerModule.prepareBrowserOpenAIVoice()).toBe(true);
     expect(state.openAIAdapterInstances).toHaveLength(1);

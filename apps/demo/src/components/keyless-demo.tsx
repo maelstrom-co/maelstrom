@@ -2,6 +2,7 @@ import type { FormEvent } from 'react';
 import { useCalendarStore } from '../vessels/calendar.store';
 import { useTasksStore } from '../vessels/tasks.store';
 import { DemoHeader } from './demo-header';
+import { KeylessVoiceProviderSelect } from './voice-provider-select';
 
 interface KeylessDemoProps {
   readonly intent: string;
@@ -31,6 +32,7 @@ export function KeylessDemo({
   return (
     <div className="demo-shell keyless-shell relative z-[2]">
       <DemoHeader>
+        <KeylessVoiceProviderSelect />
         <button
           type="button"
           className="text-sm text-ink-2"
@@ -61,8 +63,9 @@ export function KeylessDemo({
           <p className="eyebrow">Interactive preview</p>
           <h2>Arrange a workspace around what you need.</h2>
           <p>
-            Add an OpenAI API key to let Maelstrom rearrange these components.
-            The key stays in this tab's memory and is never persisted.
+            Add an OpenAI API key to let Maelstrom rearrange these components.{' '}
+            Start with GPT-Live for voice, or choose another provider above. The
+            key stays in this tab's memory and is never persisted.
           </p>
           <button
             type="button"

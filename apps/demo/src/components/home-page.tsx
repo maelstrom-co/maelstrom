@@ -20,6 +20,7 @@ import {
   setPlaygroundKey,
 } from '../lib/playground-key-store';
 import { useFlashInstances } from '../lib/use-touched-instances';
+import { voiceProviderStore } from '../lib/voice-provider';
 import { AssistantResponse } from './assistant-response';
 import { Captions } from './captions';
 import { DemoHeader } from './demo-header';
@@ -28,7 +29,9 @@ import { KeyDrawer } from './key-drawer';
 import { KeylessDemo } from './keyless-demo';
 import { VesselOptionSync } from './vessel-option-sync';
 import { VoiceControl } from './voice-control';
+import { VoiceDebugDrawer } from './voice-debug-drawer';
 import { VoiceErrorNote } from './voice-error-note';
+import { VoiceProviderSelect } from './voice-provider-select';
 
 /**
  * True for a text-path (chart_request) failure caused by a rejected OpenAI
@@ -194,7 +197,11 @@ export function HomePage() {
               return;
             }
             setResumeIntent(blockedSubmit && intent.trim().length > 0);
-            setAutoStartVoice(firstKey && prepareBrowserOpenAIVoice());
+            setAutoStartVoice(
+              firstKey &&
+                (voiceProviderStore.state.provider === 'live' ||
+                  prepareBrowserOpenAIVoice()),
+            );
             setBlockedSubmit(false);
             setKeyEpoch((e) => e + 1);
           }}
@@ -274,6 +281,8 @@ function DemoApp({
   return (
     <div className="demo-shell relative z-[2]">
       <DemoHeader>
+        <VoiceProviderSelect />
+        <VoiceDebugDrawer />
         {browserKeyMode && (
           <button
             type="button"
@@ -464,7 +473,7 @@ function IntentInput({
           scrim covered vessel flash borders, and in-flow height changes here
           would fire engine chart_resize. Captions always reserves a fixed band. */}
       <Captions />
-      <div className="mx-auto mb-2 flex max-w-4xl items-center justify-between gap-3">
+      <div className="demo-voice-band mx-auto mb-2 flex h-24 w-full max-w-4xl items-center justify-between gap-3 sm:h-12">
         <VoiceControl showOrb={false} />
         <span
           className="shrink-0 text-xs text-ink-3"

@@ -100,6 +100,40 @@ after validating the local path.
    livekit-server --dev
    ```
 
+## Optional: GPT-Live with a local server key
+
+Fresh visits select **GPT-Live** by default. You can change the voice provider
+in the selector before starting voice.
+When you enter an OpenAI key in the browser drawer, Live exchanges the session
+directly with OpenAI. The Engine still receives that key separately for planning.
+
+To use a server-held OpenAI key for Live instead, configure the repository's
+ignored `.env` file:
+
+```dotenv
+OPENAI_API_KEY=<redacted>
+DEMO_LOCAL_SERVER_KEY=1
+DEMO_LOCAL_PASSWORD=<a-separate-unique-password-of-at-least-24-characters>
+```
+
+Restart `bunx nx dev demo`, open `http://127.0.0.1:3000`, and sign in to the
+browser's HTTP authentication prompt. Use `maelstrom` as the username and
+`DEMO_LOCAL_PASSWORD` as the password. This password is separate from the OpenAI
+key. Select **GPT-Live** and start voice. A successful exchange returns HTTP 201
+from `/api/live-session`.
+
+This mode serves the Live exchange only through the authenticated Vite development
+middleware. It checks the listener and connection addresses and refuses a
+non-loopback bind. HTTP authentication also prevents a local forwarding proxy
+from granting access through forged request headers alone. The standalone Start
+handler and hosted mode reject this server-key route. An authenticated remote
+Start deployment needs its own host integration; forwarding the development
+server is not that integration.
+
+If local mode is disabled, the password is missing, or authentication fails,
+repair the configuration before reconnecting. Live does not automatically start
+another paid session.
+
 ## Optional: OpenAI realtime voice
 
 OpenAI realtime voice is optional. The typed baseline works without voice and does not request microphone permission unless you use the voice orb.
@@ -108,11 +142,20 @@ To enable this track, add the following to `.env` from the repository root:
 
 ```dotenv
 OPENAI_API_KEY=<redacted>
+# Select Realtime on fresh visits instead of the GPT-Live default.
+VITE_VOICE_PROVIDER=realtime
 # Optional model override; omit it to use gpt-realtime-2.1.
 OPENAI_REALTIME_MODEL=
 ```
 
-Keep the API key only in the ignored `.env` file. The demo's server-side minter uses it to create a short-lived browser credential; do not expose the API key in browser code or shared output. Start the demo with the same baseline command above, allow microphone access when the browser asks, and use the voice orb.
+Keep the API key only in the ignored `.env` file. The demo's server-side minter uses it to create a short-lived browser credential; do not expose the API key in browser code or shared output.
+
+Start the demo with the baseline command above. Confirm that the selector shows
+**OpenAI Realtime**, then use the voice orb and allow microphone access. You can
+also select **OpenAI Realtime** manually instead of setting `VITE_VOICE_PROVIDER`.
+This Realtime setup does not enable the authenticated local GPT-Live exchange;
+follow [the local GPT-Live setup](#optional-gpt-live-with-a-local-server-key) to use
+that provider with a server-held key.
 
 ## Optional: LiveKit cascade voice
 
