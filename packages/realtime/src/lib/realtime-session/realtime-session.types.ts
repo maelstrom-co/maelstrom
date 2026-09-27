@@ -4,6 +4,7 @@ import type {
   Result,
   UIStructuralSnapshot,
   Unsubscribe,
+  VoiceApplicationWorkSource,
 } from '@maelstrom-co/client';
 import type {
   MessageId,
@@ -47,6 +48,8 @@ export interface SubmitIntentResult {
  * contract drives the barge-in queue and is unchanged.
  */
 export interface RealtimeInstance {
+  /** Optional application-wide current work observations, including non-voice input. */
+  readonly applicationWork?: VoiceApplicationWorkSource;
   submitIntent(intent: string): Promise<SubmitIntentResult>;
   waitForIdle(): Promise<void>;
   /**
@@ -137,6 +140,10 @@ export type GreetingState =
 
 /** Options for constructing a {@link RealtimeSession}. */
 export interface RealtimeSessionOptions {
+  /** Conversation-only instructions for adapters with a separate managed tool backend. */
+  readonly conversationInstructions?: string;
+  /** Bounds and display grouping policy for the continuous transcript channel. */
+  readonly transcript?: ContinuousTranscriptOptions;
   readonly adapter: RealtimeProviderAdapter;
   readonly instance: RealtimeInstance;
   /**
@@ -160,4 +167,18 @@ export interface RealtimeSessionOptions {
     readonly text: string;
     readonly coordinator: GreetingCoordinator;
   };
+}
+
+/**
+ * Bounded continuous caption retention and display policy; no timer creates
+ * semantic finality. Invalid values throw RangeError synchronously when
+ * constructing RealtimeSession.
+ */
+export interface ContinuousTranscriptOptions {
+  /** Maximum retained fragments, a positive safe integer. Defaults to 256. */
+  readonly maxFragments?: number;
+  /** Maximum characters per fragment, a positive safe integer. Oversized fragments are rejected, never truncated. Defaults to 16384. */
+  readonly maxFragmentChars?: number;
+  /** Maximum gap between same-speaker fragments in a display group, finite and at least zero. Defaults to 1000 milliseconds. */
+  readonly groupGapMs?: number;
 }

@@ -25,7 +25,10 @@ export { groundedDebounce } from './lib/realtime-session/grounding-debounce.js';
 export type {
   AdapterAudioStreams,
   AdapterConnectOptions,
+  AdapterGeneratedOpening,
   AdapterTurnControl,
+  AdapterVoiceObservation,
+  AdapterVoiceObservations,
   GreetingSpeechResult,
   RealtimeAdapterEvent,
   RealtimeGreetingAdapter,
@@ -39,6 +42,7 @@ export type {
 export { isRealtimeGreetingAdapter } from './lib/realtime-session/provider-adapter.types.js';
 export { RealtimeSession } from './lib/realtime-session/realtime-session.js';
 export type {
+  ContinuousTranscriptOptions,
   GreetingState,
   RealtimeInstance,
   RealtimeSessionOptions,

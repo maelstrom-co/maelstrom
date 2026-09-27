@@ -175,6 +175,17 @@ export {
 export type { UIStructuralSnapshot } from './lib/voice-session/ui-structural-snapshot.js';
 export { readStructuralSnapshot } from './lib/voice-session/ui-structural-snapshot.js';
 export type {
+  TimedTranscriptFragment,
+  VoiceActivity,
+  VoiceApplicationWork,
+  VoiceApplicationWorkSource,
+  VoiceCaption,
+  VoiceConnectionState,
+  VoiceMediaObservation,
+  VoiceObservationSnapshot,
+  VoiceObservationSource,
+} from './lib/voice-session/voice-observations.js';
+export type {
   GroundingUpdate,
   SpeakableResult,
   TranscriptEntry,

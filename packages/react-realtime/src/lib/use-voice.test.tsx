@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
-import type { TranscriptEntry, VoiceSessionState } from '@maelstrom-co/client';
+import type {
+  TranscriptEntry,
+  VoiceObservationSnapshot,
+  VoiceSessionState,
+} from '@maelstrom-co/client';
 import {
   defineVessel,
   InstanceId,
@@ -22,6 +26,7 @@ import { createMockConnector } from './__tests__/mock-connector.js';
 import type {
   CreateAdapterContext,
   MaelstromRealtimeOptions,
+  UseVoiceObservationsResult,
   UseVoiceResult,
 } from './maelstrom-realtime.js';
 
@@ -53,6 +58,32 @@ class FakeGreetingCoordinator {
 
 class FakeRealtimeSession {
   static instances: FakeRealtimeSession[] = [];
+  #observationSnapshot: VoiceObservationSnapshot = {
+    generation: 0,
+    connection: 'disconnected',
+    media: {
+      microphone: 'unknown',
+      userSpeech: 'unknown',
+      incomingAudio: 'unknown',
+    },
+    applicationWork: { planning: 'unknown', applying: 'unknown' },
+    fragments: [],
+    captions: [],
+  };
+  readonly observationListeners = new Set<() => void>();
+  readonly observations = {
+    getSnapshot: () => this.#observationSnapshot,
+    subscribe: (handler: () => void) => {
+      this.observationListeners.add(handler);
+      return () => {
+        this.observationListeners.delete(handler);
+      };
+    },
+  };
+  emitObservation(update: Partial<VoiceObservationSnapshot>): void {
+    this.#observationSnapshot = { ...this.#observationSnapshot, ...update };
+    for (const handler of this.observationListeners) handler();
+  }
 
   state: VoiceSessionState = 'idle';
   lastError: unknown;
@@ -271,6 +302,106 @@ afterEach(() => {
 });
 
 describe('maelstromRealtime() useVoice lifecycle', () => {
+  it('shares continuous snapshots with late consumers and keeps voice alive when the legacy consumer unmounts', async () => {
+    const { m, connector } = setup();
+    const seen: Record<string, UseVoiceObservationsResult> = {};
+    function Continuous({ name }: { name: string }) {
+      seen[name] = m.useVoiceObservations();
+      return (
+        <div data-testid={name}>
+          {seen[name].snapshot.captions
+            .map((caption) => caption.text)
+            .join('|')}
+        </div>
+      );
+    }
+    function Legacy() {
+      m.useVoice();
+      return null;
+    }
+    const tree = (legacy: boolean, second: boolean) => (
+      <StrictMode>
+        <m.Provider connector={connector}>
+          {legacy && <Legacy />}
+          <Continuous name="first" />
+          {second && <Continuous name="second" />}
+        </m.Provider>
+      </StrictMode>
+    );
+    let view!: ReturnType<typeof render>;
+    await act(async () => {
+      view = render(tree(true, false));
+    });
+    const session = must(FakeRealtimeSession.instances[0]);
+    await act(async () => {
+      session.emitObservation({
+        captions: [
+          {
+            id: 'stable',
+            role: 'assistant',
+            speakerId: 'a',
+            fragmentIds: ['a'],
+            text: '  raw text',
+            startMs: 0,
+            endMs: 1,
+            final: false,
+          },
+        ],
+      });
+    });
+    await act(async () => {
+      view.rerender(tree(false, true));
+    });
+    expect(FakeRealtimeSession.instances).toHaveLength(1);
+    expect(session.disconnectCalls).toBe(0);
+    expect(seen.first.session).toBe(seen.second.session);
+    expect(seen.first.snapshot).toBe(seen.second.snapshot);
+    expect(view.getByTestId('second').textContent).toBe('  raw text');
+    expect(session.observationListeners.size).toBe(2);
+    await act(async () => {
+      view.unmount();
+      await Promise.resolve();
+    });
+    expect(session.observationListeners.size).toBe(0);
+    expect(session.disconnectCalls).toBe(1);
+  });
+
+  it('observes application work while voice is disconnected, including work submitted through the bridge', async () => {
+    const { m, connector } = setup();
+    function Consumer() {
+      m.useVoice();
+      return null;
+    }
+    await act(async () => {
+      render(
+        <m.Provider connector={connector}>
+          <Consumer />
+        </m.Provider>,
+      );
+    });
+    const session = must(FakeRealtimeSession.instances[0]);
+    const source = must(session.options.instance.applicationWork);
+    const seen: string[] = [];
+    const release = source.subscribe(() =>
+      seen.push(source.getSnapshot().planning),
+    );
+    expect(source.getSnapshot()).toEqual({
+      planning: 'inactive',
+      applying: 'inactive',
+    });
+    await act(async () => {
+      await session.options.instance.submitIntent('show something');
+    });
+    expect(session.connectCalls).toBe(0);
+    expect(seen).toContain('active');
+    expect(source.getSnapshot().planning).toBe('inactive');
+    release();
+    const count = seen.length;
+    await act(async () => {
+      await session.options.instance.submitIntent('show another thing');
+    });
+    expect(seen).toHaveLength(count);
+  });
   it('shares one session between consumers under one Provider', async () => {
     const { m, connector } = setup();
     function Consumer() {

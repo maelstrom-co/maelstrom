@@ -2,6 +2,7 @@ import type {
   TranscriptEntry,
   UIStructuralSnapshot,
   Unsubscribe,
+  VoiceObservationSource,
   VoiceSession,
   VoiceSessionState,
 } from '@maelstrom-co/client';
@@ -38,6 +39,7 @@ import type {
   SubmitIntentResult,
   SummarizeFn,
 } from './realtime-session.types.js';
+import { VoiceObservationStore } from './voice-observation-store.js';
 
 // Single source of truth for tool names — the `tools` array passed to the
 // adapter and the dispatch table below are both keyed off this union, so a
@@ -119,6 +121,40 @@ interface QueuedIntent {
   readonly resolve: (ok: boolean) => void;
 }
 
+interface ConnectionSubscriptions {
+  adapter?: Unsubscribe;
+  observations?: Unsubscribe;
+  settled?: Unsubscribe;
+}
+
+function releaseSubscriptions(
+  subscriptions: ConnectionSubscriptions,
+): unknown[] {
+  const { adapter, observations, settled } = subscriptions;
+  subscriptions.adapter = undefined;
+  subscriptions.observations = undefined;
+  subscriptions.settled = undefined;
+  const errors: unknown[] = [];
+  for (const release of [observations, adapter, settled]) {
+    try {
+      release?.();
+    } catch (error) {
+      errors.push(error);
+    }
+  }
+  return errors;
+}
+
+function connectionFailure(errors: unknown[]): unknown {
+  return errors.length === 1
+    ? errors[0]
+    : new AggregateError(errors, 'Realtime connection cleanup failed');
+}
+
+function throwConnectionFailures(errors: unknown[]): void {
+  if (errors.length > 0) throw connectionFailure(errors);
+}
+
 function defaultSummarize(snapshot: UIStructuralSnapshot): string {
   const count = snapshot.instances.length;
   if (count === 0) return 'The screen is empty.';
@@ -175,6 +211,11 @@ function defaultSummarize(snapshot: UIStructuralSnapshot): string {
  * ```
  */
 export class RealtimeSession implements VoiceSession {
+  readonly #observations: VoiceObservationStore;
+  readonly #conversationInstructions: string | undefined;
+  #subscriptions: ConnectionSubscriptions | undefined;
+  #lastConnectEpoch = 0;
+  #openingAttempted = false;
   readonly #adapter: RealtimeProviderAdapter;
   readonly #instance: RealtimeInstance;
   readonly #sessionId: SessionId;
@@ -201,8 +242,6 @@ export class RealtimeSession implements VoiceSession {
   readonly #transcriptHandlers = new Set<(t: TranscriptEntry) => void>();
   readonly #turnModeHandlers = new Set<(event: TurnModeEvent) => void>();
   readonly #greetingStateHandlers = new Set<(state: GreetingState) => void>();
-  #unsubscribeAdapter: Unsubscribe | undefined;
-  #unsubscribeSettled: Unsubscribe | undefined;
   #queuedIntent: QueuedIntent | undefined;
   #bargeInLoopRunning = false;
   #groundingClampWarned = false;
@@ -231,6 +270,11 @@ export class RealtimeSession implements VoiceSession {
   };
 
   constructor(options: RealtimeSessionOptions) {
+    this.#observations = new VoiceObservationStore(
+      options.transcript,
+      options.instance.applicationWork,
+    );
+    this.#conversationInstructions = options.conversationInstructions;
     this.#adapter = options.adapter;
     this.#instance = options.instance;
     this.#sessionId = options.sessionId;
@@ -248,6 +292,32 @@ export class RealtimeSession implements VoiceSession {
 
   get state(): VoiceSessionState {
     return this.#state;
+  }
+
+  /** Shared continuous observations. Reading or subscribing does not connect the provider. */
+  get observations(): VoiceObservationSource {
+    return this.#observations;
+  }
+
+  /**
+   * Requests generated wording once per RealtimeSession, including reconnects.
+   * Returns false when unsupported, disconnected, already attempted, or a fixed
+   * greeting is configured. A rejection still consumes the attempt because a
+   * provider may already have received it. No intended text becomes a transcript
+   * or Engine history entry. Automatic introduction policy belongs to the caller.
+   */
+  async requestGeneratedOpening(instructions: string): Promise<boolean> {
+    const opening = this.#adapter.generatedOpening;
+    if (
+      !opening ||
+      this.#greeting ||
+      this.#openingAttempted ||
+      this.#observations.getSnapshot().connection !== 'connected'
+    )
+      return false;
+    this.#openingAttempted = true;
+    await opening.request(instructions);
+    return true;
   }
 
   /**
@@ -294,8 +364,9 @@ export class RealtimeSession implements VoiceSession {
    * The failure behind the most recent `error` state, if any. Cleared at the
    * start of the next `connect()` attempt, but preserved by explicit
    * `disconnect()` even after that method returns the public state to `idle`.
-   * Typed failures are `RealtimeVoiceError` — switch on `.code` for recovery
-   * UX.
+   * Typed provider failures are `RealtimeVoiceError` — switch on `.code` for
+   * recovery UX. If subscription cleanup also fails, an `AggregateError`
+   * retains the provider failure first, followed by cleanup failures.
    */
   get lastError(): unknown {
     return this.#lastError;
@@ -319,9 +390,16 @@ export class RealtimeSession implements VoiceSession {
     // states) a second connect() would stack a second set of subscriptions on
     // top of the first's (only the last unsubscribe would ever be reachable),
     // so only idle or error may (re)connect.
-    if (this.#state !== 'idle' && this.#state !== 'error') return;
+    if (
+      this.#disconnectInFlight ||
+      (this.#state !== 'idle' && this.#state !== 'error')
+    )
+      return;
 
     const epoch = ++this.#connectEpoch;
+    this.#lastConnectEpoch = epoch;
+    const subscriptions: ConnectionSubscriptions = {};
+    this.#subscriptions = subscriptions;
     this.#lastError = undefined;
     let greetingController: AbortController | undefined;
 
@@ -350,48 +428,80 @@ export class RealtimeSession implements VoiceSession {
 
     this.#setState('connecting');
     if (epoch !== this.#connectEpoch) return;
+    this.#observations.begin();
+    if (epoch !== this.#connectEpoch) return;
 
     try {
       // Still inside the initiating user gesture: no await has occurred, so the
       // unlock begins synchronously after re-entrant notifications are fenced.
       this.#greetingAdapter?.activateAudio();
-      this.#unsubscribeAdapter = this.#adapter.on((event) => {
-        this.#handleAdapterEvent(event);
+      subscriptions.adapter = this.#adapter.on((event) => {
+        if (epoch === this.#connectEpoch) this.#handleAdapterEvent(event);
       });
+      subscriptions.observations = this.#adapter.observations?.subscribe(
+        (event) => {
+          if (epoch !== this.#connectEpoch) return;
+          const connection = this.#observations.getSnapshot().connection;
+          if (connection !== 'connecting' && connection !== 'connected') return;
+          if (event.type === 'media') this.#observations.media(event.media);
+          else this.#observations.fragment(event.fragment);
+        },
+      );
+      if (epoch !== this.#connectEpoch) {
+        throwConnectionFailures(releaseSubscriptions(subscriptions));
+        return;
+      }
       await this.#adapter.connect({
         tools: [UPDATE_UI_TOOL, GET_UI_STATE_TOOL, GET_CAPABILITIES_TOOL],
         instructions: DEFAULT_INSTRUCTIONS,
         prepareGreeting: this.#greetingState === 'preparing',
+        ...(this.#conversationInstructions === undefined
+          ? {}
+          : { conversationInstructions: this.#conversationInstructions }),
       });
     } catch (error) {
+      const errors = [error];
       // A disconnect() that raced this attempt already reset state/cleanup —
       // don't stomp its 'idle' back to 'error'.
-      if (epoch === this.#connectEpoch) {
-        this.#cleanupConnection();
+      const current = epoch === this.#connectEpoch;
+      if (current) errors.push(...this.#cleanupConnection());
+      errors.push(...releaseSubscriptions(subscriptions));
+      const failure = connectionFailure(errors);
+      if (current) {
         this.#resetGreetingAfterConnectionEnd();
-        this.#lastError = error;
+        this.#lastError = failure;
         this.#setState('error');
       }
-      throw error;
+      throw failure;
     }
     if (epoch !== this.#connectEpoch) {
-      // disconnect() ran while adapter.connect() was still in flight — the
-      // handshake succeeded, but nothing is listening for it anymore. Tear
-      // the now-live adapter back down instead of resurrecting the session
-      // into 'connected' with a hot mic and zero consumers.
-      this.#cleanupConnection();
-      void this.#adapter.disconnect().catch(() => {});
+      const errors = releaseSubscriptions(subscriptions);
+      // Only the adapter can identify transport resources after a replacement
+      // attempt. A shared disconnect here would tear down that replacement.
+      if (this.#lastConnectEpoch === epoch) {
+        try {
+          await this.#adapter.disconnect();
+        } catch (error) {
+          errors.push(error);
+        }
+      }
+      throwConnectionFailures(errors);
       return;
     }
     if (this.#turnModeEstablishedEpoch !== epoch) {
       this.#setTurnMode({ type: 'turn_mode', mode: 'automatic' });
     }
+    if (epoch !== this.#connectEpoch) return;
     // Grounding only makes sense once the data channel is actually up — a UI
     // settle mid-handshake would otherwise schedule a debounced push that
     // fires against a still-closed channel.
-    this.#unsubscribeSettled = this.#instance.onSettled(() => {
+    subscriptions.settled = this.#instance.onSettled(() => {
       this.#pushGrounding(this.#instance.getStructuralSnapshot());
     });
+    if (epoch !== this.#connectEpoch) {
+      throwConnectionFailures(releaseSubscriptions(subscriptions));
+      return;
+    }
     this.#setState('connected');
 
     if (
@@ -423,7 +533,8 @@ export class RealtimeSession implements VoiceSession {
    * greeting work before awaiting provider cleanup. Whether provider cleanup
    * resolves or rejects, coordinator proof restores the greeting to retryable
    * `pending` or terminal `settled`, and the public state becomes `idle`.
-   * `lastError` is preserved, and any provider rejection is rethrown unchanged.
+   * `lastError` is preserved. A single cleanup or provider failure is rethrown
+   * unchanged; multiple failures are reported together in an `AggregateError`.
    */
   disconnect(): Promise<void> {
     if (this.#disconnectInFlight !== undefined) {
@@ -448,13 +559,17 @@ export class RealtimeSession implements VoiceSession {
 
   async #performDisconnect(): Promise<void> {
     this.#connectEpoch++;
-    this.#cleanupConnection();
+    this.#observations.connection('disconnecting');
+    const errors = this.#cleanupConnection();
     try {
       await this.#adapter.disconnect();
+    } catch (error) {
+      errors.push(error);
     } finally {
       this.#resetGreetingAfterConnectionEnd();
       this.#setState('idle');
     }
+    throwConnectionFailures(errors);
   }
 
   /**
@@ -465,11 +580,10 @@ export class RealtimeSession implements VoiceSession {
     return this.#adapter.getAudioStreams();
   }
 
-  #cleanupConnection(): void {
-    this.#unsubscribeAdapter?.();
-    this.#unsubscribeSettled?.();
-    this.#unsubscribeAdapter = undefined;
-    this.#unsubscribeSettled = undefined;
+  #cleanupConnection(): unknown[] {
+    const subscriptions = this.#subscriptions;
+    this.#subscriptions = undefined;
+    const errors = subscriptions ? releaseSubscriptions(subscriptions) : [];
     this.#pushGrounding.cancel();
     this.#greetingController?.abort();
     this.#greetingController = undefined;
@@ -481,6 +595,7 @@ export class RealtimeSession implements VoiceSession {
     // it `false` before clearing.
     this.#queuedIntent?.resolve(false);
     this.#queuedIntent = undefined;
+    return errors;
   }
 
   /** Applies a coordinator result only while its controller and epoch still own the connection. */
@@ -617,7 +732,12 @@ export class RealtimeSession implements VoiceSession {
   }
 
   #setState(next: VoiceSessionState): void {
+    const epoch = this.#connectEpoch;
     this.#state = next;
+    if (next === 'idle') this.#observations.connection('disconnected');
+    else if (next === 'error') this.#observations.connection('error');
+    else if (next === 'connected') this.#observations.connection('connected');
+    if (epoch !== this.#connectEpoch || this.#state !== next) return;
     for (const handler of this.#stateHandlers) handler(next);
   }
 
@@ -669,7 +789,7 @@ export class RealtimeSession implements VoiceSession {
           // late handshake success can't flip this fatally-errored session
           // back to 'connected'.
           this.#connectEpoch++;
-          this.#cleanupConnection();
+          const errors = this.#cleanupConnection();
           this.#resetGreetingAfterConnectionEnd();
           // The adapter itself is still "connected" from its own point of
           // view (mic track live, peer connection open) — teardown() is
@@ -677,7 +797,7 @@ export class RealtimeSession implements VoiceSession {
           // also calls disconnect() later. Without this, a retry connect()
           // throws ALREADY_CONNECTED against the still-live adapter.
           void this.#adapter.disconnect().catch(() => {});
-          this.#lastError = event.error;
+          this.#lastError = connectionFailure([event.error, ...errors]);
           this.#setState('error');
         }
         break;
