@@ -1700,6 +1700,57 @@ describe('RealtimeSession — barge-in latest-wins queueing', () => {
     ).toHaveLength(1);
   });
 
+  for (const busy of [false, true]) {
+    it(`keeps ${busy ? 'retried' : 'direct'} application settlement observable without sending into a replacement provider`, async () => {
+      const { session, adapter, instance, events } = makeHarness();
+      let release!: (result: SubmitIntentResult) => void;
+      const submitted = new Promise<SubmitIntentResult>((resolve) => {
+        release = resolve;
+      });
+      let attempts = 0;
+      instance.submitIntent = () => {
+        attempts += 1;
+        if (busy && attempts === 1) {
+          return Promise.reject(new RequestInFlightError());
+        }
+        return submitted;
+      };
+      await session.connect();
+      adapter.emitToolCall({
+        callId: 'retired',
+        name: 'update_ui',
+        argumentsJson: '{"intent":"show labs"}',
+      });
+      await flushMicrotasks();
+      if (busy) {
+        instance.settle();
+        await flushMicrotasks();
+      }
+      expect(attempts).toBe(busy ? 2 : 1);
+      await session.disconnect();
+      await session.connect();
+      release({ userMessage: 'Applied' });
+      await flushMicrotasks();
+      instance.settle();
+      await flushMicrotasks();
+      expect(adapter.toolResults).toHaveLength(0);
+      expect(
+        events.filter((event) => event.type === 'tool_result'),
+      ).toMatchObject([{ callId: 'retired', ok: true }]);
+      adapter.emitToolCall({
+        callId: 'current',
+        name: 'get_ui_state',
+        argumentsJson: '{}',
+      });
+      await flushMicrotasks();
+      expect(adapter.toolResults.map((result) => result.callId)).toEqual([
+        'current',
+      ]);
+      expect(attempts).toBe(busy ? 2 : 1);
+      await session.disconnect();
+    });
+  }
+
   it('supersedes a queued call with a newer one, answering the bumped call immediately', async () => {
     const { session, adapter, instance, events } = makeHarness();
     await session.connect();

@@ -355,6 +355,12 @@
         "@maelstrom-co/realtime": "workspace:*",
         "@maelstrom-co/realtime-protocol": "workspace:*",
       },
+      "devDependencies": {
+        "@maelstrom-co/client": "workspace:*",
+        "@maelstrom-co/engine": "workspace:*",
+        "@maelstrom-co/protocol": "workspace:*",
+        "@tanstack/ai": "catalog:",
+      },
     },
     "packages/realtime-openai-live-server": {
       "name": "@maelstrom-co/realtime-openai-live-server",

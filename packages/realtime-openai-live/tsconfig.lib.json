@@ -12,7 +12,20 @@
   "include": ["src/**/*.ts"],
   "exclude": ["src/**/*.test.ts"],
   "references": [
-    { "path": "../realtime/tsconfig.lib.json" },
-    { "path": "../realtime-protocol/tsconfig.lib.json" }
+    {
+      "path": "../realtime-protocol/tsconfig.lib.json"
+    },
+    {
+      "path": "../realtime/tsconfig.lib.json"
+    },
+    {
+      "path": "../protocol/tsconfig.lib.json"
+    },
+    {
+      "path": "../client/tsconfig.lib.json"
+    },
+    {
+      "path": "../engine/tsconfig.lib.json"
+    }
   ]
 }

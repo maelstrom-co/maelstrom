@@ -31,6 +31,8 @@ export interface AdapterConnectOptions {
    * Legacy adapters may ignore this field and keep their existing instruction path.
    */
   readonly conversationInstructions?: string;
+  /** Concise observed UI data for adapters that seed grounding when ready; never behavioral instructions. */
+  readonly getInitialGrounding?: () => string;
   /**
    * Whether this connection may present the configured fixed greeting.
    * Defaults to `true` for direct adapter callers. RealtimeSession always sets
