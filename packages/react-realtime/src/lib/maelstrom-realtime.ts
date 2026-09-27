@@ -540,7 +540,7 @@ function buildSession<Provider>(
       instance: createBridge(orchestrator),
       sessionId,
       memory,
-      generatedOpening,
+      ...(generatedOpening ? { generatedOpening } : {}),
       summarize: options.summarize,
       groundingDebounceMs: options.groundingDebounceMs,
       onEvent: options.onEvent,

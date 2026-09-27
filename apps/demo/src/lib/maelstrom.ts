@@ -1,5 +1,6 @@
 import type { SessionId } from '@maelstrom-co/protocol';
 import { createMaelstrom } from '@maelstrom-co/react';
+import { maelstromRealtime } from '@maelstrom-co/react-realtime';
 import type { RealtimeProviderAdapter } from '@maelstrom-co/realtime';
 import { LiveKitAdapter } from '@maelstrom-co/realtime-livekit';
 import { OpenAIAdapter } from '@maelstrom-co/realtime-openai';
@@ -16,7 +17,7 @@ import {
   DEMO_GREETING,
   DEMO_OPENAI_VOICE,
 } from './demo-greeting-tts';
-import { demoVoice } from './demo-voice';
+import { attachDemoVoice, demoVoiceOpening } from './demo-voice';
 import { createDiagnosticPeer } from './diagnostic-capture';
 import { isHosted, usesBrowserKey } from './hosted-mode';
 import { HOSTED_VAD_MODEL } from './hosted-vad';
@@ -27,6 +28,7 @@ import { playgroundKeyStore } from './playground-key-store';
 import { DEFAULT_REALTIME_MODEL } from './realtime-model';
 import { getLivekitToken } from './voice/get-livekit-token';
 import {
+  DEMO_VOICE_PROVIDERS,
   type DemoVoiceProvider,
   LIVE_BACKEND_MODEL,
   LIVE_MODEL,
@@ -74,7 +76,16 @@ export function prepareBrowserOpenAIVoice(): boolean {
 export const m = createMaelstrom({
   vessels,
 })
-  .with(demoVoice(createAdapter, DEMO_GREETING))
+  .with(
+    maelstromRealtime({
+      providers: DEMO_VOICE_PROVIDERS,
+      initialProvider: () => voiceProviderStore.state.provider,
+      createAdapter: ({ provider, sessionId }) =>
+        createAdapter(provider, sessionId),
+      opening: demoVoiceOpening(DEMO_GREETING),
+      onSession: attachDemoVoice,
+    }),
+  )
   .with(orchestrationLegibility);
 
 function createAdapter(

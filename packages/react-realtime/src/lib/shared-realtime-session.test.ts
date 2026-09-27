@@ -162,6 +162,28 @@ test('refuses connect while switching and shares a pending switch to the same pr
   expect(state.built).toHaveLength(2);
 });
 
+test('a switch requested while the old session starts disconnecting shares the pending promise', async () => {
+  const state = switchingSetup();
+  const current = state.registry.read(state.orchestrator).entry
+    .session as unknown as FakeSession;
+  let nested: Promise<void> | undefined;
+  let switchingSeen: boolean | undefined;
+  const disconnect = current.disconnect;
+  current.disconnect = () => {
+    switchingSeen = state.registry.read(state.orchestrator).switching;
+    nested = state.registry.switchProvider(state.orchestrator, 'realtime');
+    return disconnect();
+  };
+  const switching = state.registry.switchProvider(
+    state.orchestrator,
+    'realtime',
+  );
+  expect(nested).toBe(switching);
+  expect(switchingSeen).toBe(true);
+  await switching;
+  expect(state.built).toHaveLength(2);
+});
+
 test('drops a superseded switch and builds only the latest provider', async () => {
   const state = switchingSetup();
   state.registry.read(state.orchestrator);

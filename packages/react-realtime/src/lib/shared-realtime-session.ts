@@ -50,7 +50,7 @@ interface Entry<Provider> extends SharedRealtimeSessionEntry {
 
 interface PendingSwitch<Provider> {
   readonly provider: Provider;
-  promise: Promise<void>;
+  readonly promise: Promise<void>;
 }
 
 interface Slot<Provider> {
@@ -136,19 +136,34 @@ export class SharedRealtimeSessionRegistry<Provider> {
       return slot.pendingSwitch.promise;
     if (!slot.pendingSwitch && slot.provider === provider)
       return Promise.resolve();
+    let resolve!: () => void;
+    let reject!: (error: unknown) => void;
     const pending: PendingSwitch<Provider> = {
       provider,
-      promise: Promise.resolve(),
+      promise: new Promise<void>((resolvePromise, rejectPromise) => {
+        resolve = resolvePromise;
+        reject = rejectPromise;
+      }),
     };
+    // Published before the old session starts disconnecting, so observers
+    // reacting to its lifecycle events already see the pending switch.
     slot.pendingSwitch = pending;
-    pending.promise = this.#runSwitch(orchestrator, slot, pending).finally(
+    this.#notify(slot);
+    const settle = (): void => {
+      if (slot.pendingSwitch !== pending) return;
+      slot.pendingSwitch = undefined;
+      this.#notify(slot);
+    };
+    this.#runSwitch(orchestrator, slot, pending).then(
       () => {
-        if (slot.pendingSwitch !== pending) return;
-        slot.pendingSwitch = undefined;
-        this.#notify(slot);
+        settle();
+        resolve();
+      },
+      (error: unknown) => {
+        settle();
+        reject(error);
       },
     );
-    this.#notify(slot);
     return pending.promise;
   }
 

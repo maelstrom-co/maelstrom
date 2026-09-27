@@ -16,19 +16,16 @@ vi.mock('../lib/maelstrom', () => ({
   m: {
     useVoice: () => ({
       provider: fixture.provider,
-      owner: {
+      session: {
         memory: { sessionId: 'session-test' },
-        providerInstanceId: 'provider-test',
-        session: {
-          observations: {
-            getSnapshot: () => ({
-              generation: 1,
-              connection: fixture.connection,
-              media: {},
-              applicationWork: {},
-              fragments: [],
-            }),
-          },
+        observations: {
+          getSnapshot: () => ({
+            generation: 1,
+            connection: fixture.connection,
+            media: {},
+            applicationWork: {},
+            fragments: [],
+          }),
         },
       },
     }),
@@ -36,6 +33,10 @@ vi.mock('../lib/maelstrom', () => ({
       snapshot: { connection: fixture.connection },
     }),
   },
+}));
+
+vi.mock('../lib/demo-voice', () => ({
+  demoVoiceSession: () => ({ providerInstanceId: 'provider-test' }),
 }));
 
 afterEach(() => {
