@@ -118,8 +118,21 @@ it('projects metadata before retention and excludes transcript, tool payloads, a
     latencyMs: 25,
   });
   expect(diagnostics.getSnapshot()).toEqual([
-    { kind: 'tool_call', at: 2, id: callId, tool: 'update_ui' },
-    { kind: 'tool_result', at: 3, id: callId, ok: true, durationMs: 25 },
+    {
+      entryId: expect.any(String),
+      kind: 'tool_call',
+      at: 2,
+      id: callId,
+      tool: 'update_ui',
+    },
+    {
+      entryId: expect.any(String),
+      kind: 'tool_result',
+      at: 3,
+      id: callId,
+      ok: true,
+      durationMs: 25,
+    },
   ]);
   const transport = projectLiveTransport({
     generation: 1,

@@ -12,7 +12,7 @@ import { HEARTBEAT_PONG_FRAME } from '@maelstrom-co/connectors';
 import type { Engine } from '@maelstrom-co/engine';
 import { dispatchFrame } from './dispatch';
 import { createPlaygroundEngine } from './engine-config';
-import { createDemoOpenaiChat } from './engine-model';
+import { createDemoOpenaiChat, engineMetadataFrame } from './engine-model';
 import { createRedactingLogger, redactSecrets } from './redact';
 
 const PORT = Number(process.env.WS_PORT ?? 3001);
@@ -95,6 +95,7 @@ const { engine: sharedEngine, initError: sharedEngineInitError } =
 
 export interface SocketData {
   helloReceived: boolean;
+  reportMetadata?: boolean;
   browserApiKey?: string;
   browserEngine?: Engine | null;
   browserEngineInitError?: string | null;
@@ -119,6 +120,9 @@ export function createWebSocketHandlers(
   const { sharedEngine, sharedEngineInitError, apiKey } = deps;
 
   return {
+    open(ws) {
+      if (ws.data.reportMetadata) ws.send(engineMetadataFrame());
+    },
     async message(ws, raw) {
       const browserApiKey = ws.data.browserApiKey;
       const result = await dispatchFrame(raw, {
@@ -187,7 +191,11 @@ if (import.meta.main) {
       }
       if (pathname === '/ws') {
         return srv.upgrade(req, {
-          data: { helloReceived: HAS_SERVER_API_KEY },
+          data: {
+            helloReceived: HAS_SERVER_API_KEY,
+            reportMetadata:
+              new URL(req.url).searchParams.get('diagnostics') === '1',
+          },
         })
           ? undefined
           : new Response('WebSocket upgrade failed', { status: 400 });

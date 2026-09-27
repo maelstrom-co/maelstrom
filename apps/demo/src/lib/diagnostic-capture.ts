@@ -4,6 +4,7 @@ import type {
   MaelstromResponse,
   SidechannelEvent,
 } from '@maelstrom-co/protocol';
+import { engineMetadata } from './engine-metadata';
 import { playgroundKeyStore } from './playground-key-store';
 import { DEFAULT_REALTIME_MODEL } from './realtime-model';
 import { LIVE_BACKEND_MODEL, LIVE_MODEL } from './voice-provider';
@@ -24,7 +25,13 @@ function text(value: unknown): string | undefined {
 
 export class DiagnosticCapture {
   private listeners = new Set<() => void>();
-  private state = { active: false, count: 0, dropped: 0 };
+  private state: {
+    active: boolean;
+    count: number;
+    dropped: number;
+    outcome: string;
+    mode?: string;
+  } = { active: false, count: 0, dropped: 0, outcome: '' };
   private startedAt = 0;
   private startedMono = 0;
   private characters = 0;
@@ -54,16 +61,17 @@ export class DiagnosticCapture {
       startedAt: new Date(this.startedAt).toISOString(),
       localDate: new Date(this.startedAt).toLocaleDateString(),
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-      voiceModel:
-        mode === 'live'
-          ? LIVE_MODEL
-          : mode === 'realtime'
-            ? DEFAULT_REALTIME_MODEL
-            : null,
+      voiceModel: mode === 'live' ? LIVE_MODEL : null,
+      voiceModelSource: mode === 'live' ? 'configured' : 'unobserved',
+      defaultVoiceModel:
+        mode === 'realtime' ? DEFAULT_REALTIME_MODEL : undefined,
       managedModel: mode === 'live' ? LIVE_BACKEND_MODEL : null,
-      engineModel: 'unobserved: server-owned configuration',
+      engineModel:
+        engineMetadata.getSnapshot()?.engineModel ??
+        'unobserved: server-owned configuration',
+      engineModelSource: engineMetadata.getSnapshot()?.source ?? 'unobserved',
     };
-    this.state = { active: true, count: 0, dropped: 0 };
+    this.state = { active: true, count: 0, dropped: 0, outcome: '', mode };
     this.record('capture_started', { mode });
   }
 
@@ -81,7 +89,7 @@ export class DiagnosticCapture {
     this.fragments.clear();
     this.work = '';
     this.characters = 0;
-    this.state = { active: false, count: 0, dropped: 0 };
+    this.state = { active: false, count: 0, dropped: 0, outcome: '' };
     this.notify();
   }
 
@@ -91,7 +99,7 @@ export class DiagnosticCapture {
       JSON.stringify(value, (_name, field: unknown) => {
         if (typeof field !== 'string') return field;
         const redacted = (key ? field.replaceAll(key, '[REDACTED]') : field)
-          .replace(/\bsk-[a-zA-Z0-9_-]+/g, '[REDACTED]')
+          .replace(/\bsk-[a-zA-Z0-9_-]{32,}/g, '[REDACTED]')
           .replace(/Bearer\s+\S+/gi, 'Bearer [REDACTED]');
         return redacted.length > 16_384
           ? `${redacted.slice(0, 16_384)} [TRUNCATED]`
@@ -104,6 +112,7 @@ export class DiagnosticCapture {
     if (!this.state.active) return;
     try {
       const entry = this.clean({
+        entryId: crypto.randomUUID(),
         kind,
         at: Date.now(),
         elapsedMs: performance.now() - this.startedMono,
@@ -201,6 +210,8 @@ export class DiagnosticCapture {
 
   engineRequest(message: ChartRequestMessage) {
     this.record('engine_request', {
+      engineModel: engineMetadata.getSnapshot()?.engineModel,
+      engineModelSource: engineMetadata.getSnapshot()?.source,
       requestId: message.id,
       sessionId: message.sessionId,
       reasons: message.request.context.updateReasons,
@@ -282,7 +293,15 @@ export class DiagnosticCapture {
     }
   }
 
-  export(outcome: string) {
+  setOutcome(outcome: string) {
+    this.state = {
+      ...this.state,
+      outcome: String(this.clean(outcome.slice(0, 4000))),
+    };
+    this.notify();
+  }
+
+  export(outcome = this.state.outcome) {
     return JSON.stringify(
       this.clean({
         schemaVersion: 1,
