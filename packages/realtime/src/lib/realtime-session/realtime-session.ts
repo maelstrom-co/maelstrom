@@ -8,12 +8,7 @@ import type {
   VoiceSessionState,
 } from '@maelstrom-co/client';
 import { Logger, RequestInFlightError } from '@maelstrom-co/client';
-import type {
-  Result,
-  SessionId,
-  SidechannelEvent,
-  ToolCallId,
-} from '@maelstrom-co/protocol';
+import type { Result, SessionId, ToolCallId } from '@maelstrom-co/protocol';
 import { ok } from '@maelstrom-co/protocol';
 import type {
   GreetingCoordinator,
@@ -48,8 +43,10 @@ import {
 } from './realtime-session-memory.js';
 import {
   SessionEventBus,
+  type SessionEventSource,
   type ToolLaterOutcomeType,
 } from './session-event-bus.js';
+import { sidechannelSubscriber } from './sidechannel-subscriber.js';
 import {
   observationStoreSubscriber,
   VoiceObservationStore,
@@ -200,8 +197,9 @@ function defaultSummarize(
  * resulting render settles (speak-after-render); `get_ui_state` answers
  * immediately from a structural snapshot; `get_capabilities` answers
  * immediately from the vessel capability catalog; render-settle events push
- * a debounced, latest-wins grounding string; and every tool round-trip is
- * mirrored onto `onEvent` as {@link SidechannelEvent}s for observability.
+ * a debounced, latest-wins grounding string; and every fact the session
+ * learns is published on {@link RealtimeSession.events}, which also feeds the
+ * `onEvent` sidechannel.
  *
  * Concurrent `update_ui` calls (a model can emit a second while the first is
  * still being applied — the natural way a voice UI corrects itself mid-request)
@@ -242,6 +240,7 @@ function defaultSummarize(
 export class RealtimeSession implements VoiceSession {
   readonly #observations: VoiceObservationStore;
   readonly #events: SessionEventBus;
+  readonly #eventSource: SessionEventSource;
   readonly #releaseMemory: Unsubscribe;
   #disposed = false;
   #disposal: Promise<void> | undefined;
@@ -269,7 +268,6 @@ export class RealtimeSession implements VoiceSession {
   readonly #sessionId: SessionId;
   readonly #summarize: SummarizeFn;
   readonly #summarizeGrounding: SummarizeFn;
-  readonly #onEvent: (event: SidechannelEvent) => void;
   readonly #pushGrounding: ((snapshot: UIStructuralSnapshot) => void) & {
     cancel(): void;
   };
@@ -346,6 +344,13 @@ export class RealtimeSession implements VoiceSession {
         options.transcript?.maxFragmentChars,
       ),
     );
+    if (options.onEvent)
+      this.#events.subscribe(
+        sidechannelSubscriber(options.sessionId, options.onEvent),
+      );
+    this.#eventSource = {
+      subscribe: (handler) => this.#events.subscribe(handler),
+    };
     this.#conversationInstructions = options.conversationInstructions;
     this.#adapter = options.adapter;
     this.#instance = options.instance;
@@ -353,7 +358,6 @@ export class RealtimeSession implements VoiceSession {
     this.#summarize = options.summarize ?? defaultSummarize;
     this.#summarizeGrounding =
       options.summarize ?? ((snapshot) => defaultSummarize(snapshot, true));
-    this.#onEvent = options.onEvent ?? (() => {});
     this.#greeting = options.greeting;
     this.#greetingState = this.#initialGreetingState();
     this.#pushGrounding = groundedDebounce((snapshot: UIStructuralSnapshot) => {
@@ -363,6 +367,18 @@ export class RealtimeSession implements VoiceSession {
 
   get state(): VoiceSessionState {
     return this.#state;
+  }
+
+  /**
+   * Every fact this session publishes: connection lifecycle, transcript and
+   * media evidence, tool calls and their results, `update_ui` recovery
+   * outcomes, timings and the opening claim. Delivery is synchronous and in
+   * publish order, with no replay, so read {@link RealtimeSession.observations}
+   * for current values. The stream lives as long as this session; a
+   * replacement session has its own.
+   */
+  get events(): SessionEventSource {
+    return this.#eventSource;
   }
 
   /** Shared continuous observations. Reading or subscribing does not connect the provider. */
@@ -819,18 +835,12 @@ export class RealtimeSession implements VoiceSession {
         this.#logger.warn('greeting transcript handler failed');
       }
     }
-    try {
-      this.#emit({
-        type: 'transcript',
-        sessionId: this.#sessionId,
-        at: Date.now(),
-        role: 'assistant',
-        text,
-        final: true,
-      });
-    } catch {
-      this.#logger.warn('greeting transcript event handler failed');
-    }
+    this.#events.publish({
+      type: 'transcript.entry',
+      role: 'assistant',
+      text,
+      final: true,
+    });
   }
 
   on(event: 'state', handler: (s: VoiceSessionState) => void): Unsubscribe;
@@ -980,14 +990,7 @@ export class RealtimeSession implements VoiceSession {
           final: event.final,
         };
         for (const handler of this.#transcriptHandlers) handler(entry);
-        this.#emit({
-          type: 'transcript',
-          sessionId: this.#sessionId,
-          at: Date.now(),
-          role: event.role,
-          text: event.text,
-          final: event.final,
-        });
+        this.#events.publish({ type: 'transcript.entry', ...entry });
         break;
       }
       case 'speech_started':
@@ -1006,12 +1009,10 @@ export class RealtimeSession implements VoiceSession {
     const epoch = this.#connectEpoch;
     this.#logger.debug('session: tool_call received', call);
     const startedAt = Date.now();
-    this.#emit({
-      type: 'tool_call',
-      sessionId: this.#sessionId,
-      at: startedAt,
-      name: call.name,
+    this.#events.publish({
+      type: 'tool.called',
       callId: call.callId,
+      name: call.name,
       argumentsJson: call.argumentsJson,
     });
     if (epoch !== this.#connectEpoch) return;
@@ -1044,10 +1045,8 @@ export class RealtimeSession implements VoiceSession {
     }
     this.#outcomeIntents.delete(call.callId);
 
-    this.#emit({
-      type: 'tool_result',
-      sessionId: this.#sessionId,
-      at: Date.now(),
+    this.#events.publish({
+      type: 'tool.result',
       callId: call.callId,
       ok,
       latencyMs: Date.now() - startedAt,
@@ -1136,13 +1135,7 @@ export class RealtimeSession implements VoiceSession {
       }
       // A transport rejection can follow Engine admission. It does not prove
       // application failure and must not invite an automatic retry.
-      this.#emit({
-        type: 'timing',
-        sessionId: this.#sessionId,
-        at: Date.now(),
-        label: 'update_ui.error',
-        ms: Date.now() - renderStart,
-      });
+      this.#publishTiming('update_ui.error', renderStart);
       await this.#sendUpdateUIResult(
         epoch,
         callId,
@@ -1181,13 +1174,7 @@ export class RealtimeSession implements VoiceSession {
     // a success would confirm a render that never happened.
     if (!settled.ok) {
       this.#logger.debug('update_ui: settle reported a refusal', settled.error);
-      this.#emit({
-        type: 'timing',
-        sessionId: this.#sessionId,
-        at: Date.now(),
-        label: 'update_ui.error',
-        ms: Date.now() - renderStart,
-      });
+      this.#publishTiming('update_ui.error', renderStart);
       await this.#sendUpdateUIResult(
         epoch,
         callId,
@@ -1200,13 +1187,7 @@ export class RealtimeSession implements VoiceSession {
       return false;
     }
 
-    this.#emit({
-      type: 'timing',
-      sessionId: this.#sessionId,
-      at: Date.now(),
-      label: 'update_ui.render',
-      ms: Date.now() - renderStart,
-    });
+    this.#publishTiming('update_ui.render', renderStart);
 
     // speak-after-render: carry BOTH the structural summary (from the
     // POST-settle snapshot) and the engine's own reply, unmerged — each
@@ -1407,13 +1388,7 @@ export class RealtimeSession implements VoiceSession {
             continue;
           }
           if (!notAdmitted) {
-            this.#emit({
-              type: 'timing',
-              sessionId: this.#sessionId,
-              at: Date.now(),
-              label: 'update_ui.error',
-              ms: Date.now() - renderStart,
-            });
+            this.#publishTiming('update_ui.error', renderStart);
             await this.#sendUpdateUIResult(
               entry.epoch,
               entry.callId,
@@ -1480,13 +1455,7 @@ export class RealtimeSession implements VoiceSession {
           continue;
         }
         if (!settled.ok) {
-          this.#emit({
-            type: 'timing',
-            sessionId: this.#sessionId,
-            at: Date.now(),
-            label: 'update_ui.error',
-            ms: Date.now() - renderStart,
-          });
+          this.#publishTiming('update_ui.error', renderStart);
           await this.#sendUpdateUIResult(
             entry.epoch,
             entry.callId,
@@ -1500,13 +1469,7 @@ export class RealtimeSession implements VoiceSession {
           attempt = 0;
           continue;
         }
-        this.#emit({
-          type: 'timing',
-          sessionId: this.#sessionId,
-          at: Date.now(),
-          label: 'update_ui.render',
-          ms: Date.now() - renderStart,
-        });
+        this.#publishTiming('update_ui.render', renderStart);
         try {
           await this.#sendUpdateUIResult(
             entry.epoch,
@@ -1573,12 +1536,8 @@ export class RealtimeSession implements VoiceSession {
     return `${text.slice(0, GROUNDING_MAX_CHARS - 1)}…`;
   }
 
-  #emit(event: SidechannelEvent): void {
-    try {
-      this.#onEvent(event);
-    } catch {
-      this.#logger.warn('sidechannel observer failed');
-    }
+  #publishTiming(label: string, startedAt: number): void {
+    this.#events.publish({ type: 'timing', label, ms: Date.now() - startedAt });
   }
 }
 

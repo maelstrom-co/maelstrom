@@ -6,17 +6,25 @@ import type {
 import type { ToolCallId } from '@maelstrom-co/protocol';
 
 /**
- * A fact one `RealtimeSession` learned or caused, in the past tense.
- * The union is closed and has no request variants, so the bus cannot carry a
- * command. Requests that need an answer (tool calls, the opening claim) stay
- * on their own request and response paths. Work status is not an event: it
- * is a level owned by the Orchestrator and read through its own source.
+ * A fact one `RealtimeSession` learned or caused, in the past tense or as an
+ * observation. The union has no request variants, so the bus cannot carry a
+ * command. Requests that need an answer stay on their own request and
+ * response paths: `tool.called` only reports that a call arrived, and the
+ * answer still goes back to the provider directly. Work status is not an
+ * event: it is a level owned by the Orchestrator and read through its own
+ * source.
+ *
+ * The union is additive: later versions may add variants, so a subscriber
+ * must ignore types it does not handle.
  */
 export type SessionEvent =
   | SessionLifecycleEvent
   | TranscriptFragmentEvent
+  | TranscriptEntryEvent
   | MediaEvent
+  | ToolCallEvent
   | ToolOutcomeEvent
+  | TimingEvent
   | OpeningClaimedEvent;
 
 /** Connection lifecycle facts. Only the session knows them. */
@@ -69,6 +77,22 @@ export interface TranscriptFragmentEvent {
   readonly fragment: TimedTranscriptFragment;
 }
 
+/**
+ * A whole transcript entry: a legacy adapter transcript, or the fixed greeting
+ * line when its playback started. Live fragments are
+ * {@link TranscriptFragmentEvent}s instead.
+ */
+export interface TranscriptEntryEvent {
+  /** Discriminant. */
+  readonly type: 'transcript.entry';
+  /** Who spoke. */
+  readonly role: 'user' | 'assistant';
+  /** Transcript text as the adapter reported it. */
+  readonly text: string;
+  /** Whether the provider marked the entry as final. */
+  readonly final: boolean;
+}
+
 /** Adapter media evidence, relayed only after the session fenced stale connections. */
 export interface MediaEvent {
   /** Discriminant. */
@@ -77,6 +101,51 @@ export interface MediaEvent {
   readonly generation: number;
   /** Changed media fields only; absent fields keep their previous value. */
   readonly media: Partial<VoiceMediaObservation>;
+}
+
+/**
+ * Brackets every provider tool call, whatever its name. Recovery outcomes of
+ * `update_ui` requests are separate {@link ToolOutcomeEvent}s published
+ * between the two, and both kinds share `callId`.
+ */
+export type ToolCallEvent = ToolCalledEvent | ToolResultEvent;
+
+/** A provider tool call arrived and is about to be dispatched. */
+export interface ToolCalledEvent {
+  /** Discriminant. */
+  readonly type: 'tool.called';
+  /** Provider correlation identity of the call. */
+  readonly callId: ToolCallId;
+  /** Tool name as the provider sent it, including names the session does not know. */
+  readonly name: string;
+  /** Raw JSON arguments exactly as the provider sent them; may contain user speech. */
+  readonly argumentsJson: string;
+}
+
+/**
+ * The answer to a tool call went back to the provider. It is not published
+ * when a disconnect or reconnect started between the call's arrival and its
+ * dispatch.
+ */
+export interface ToolResultEvent {
+  /** Discriminant. */
+  readonly type: 'tool.result';
+  /** Provider correlation identity of the call. */
+  readonly callId: ToolCallId;
+  /** Whether the tool succeeded; for `update_ui`, whether the change rendered. */
+  readonly ok: boolean;
+  /** Client-clock milliseconds from the call's arrival to its answer. */
+  readonly latencyMs: number;
+}
+
+/** A measured duration of `update_ui` work, such as its render or its failure. */
+export interface TimingEvent {
+  /** Discriminant. */
+  readonly type: 'timing';
+  /** What was measured, for example `update_ui.render` or `update_ui.error`. */
+  readonly label: string;
+  /** Client-clock duration in milliseconds. */
+  readonly ms: number;
 }
 
 /**
@@ -128,6 +197,16 @@ export interface OpeningClaimedEvent {
 /** Receives every published event, in publish order. */
 export type SessionEventHandler = (event: SessionEvent) => void;
 
+/**
+ * Read-only access to one session's events. Delivery is synchronous, in
+ * publish order, with no replay: a subscriber sees only events published
+ * after it subscribed. A subscriber that throws is isolated from the others.
+ */
+export interface SessionEventSource {
+  /** Delivers every later event to `handler` until the returned release is called. */
+  subscribe(handler: SessionEventHandler): Unsubscribe;
+}
+
 /** Reports a subscriber that threw while handling an event. */
 export type SessionEventErrorReporter = (
   error: unknown,
@@ -143,7 +222,7 @@ export type SessionEventErrorReporter = (
  * behind the event being delivered instead of being delivered depth-first.
  * Each subscriber's failure is caught and reported separately.
  */
-export class SessionEventBus {
+export class SessionEventBus implements SessionEventSource {
   readonly #subscribers = new Set<SessionEventHandler>();
   readonly #queue: SessionEvent[] = [];
   readonly #reportError: SessionEventErrorReporter;
