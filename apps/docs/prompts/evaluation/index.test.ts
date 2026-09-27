@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import {
   chmod,
+  mkdir,
   mkdtemp,
   readdir,
   readFile,
@@ -22,9 +23,12 @@ import {
   diff,
   evaluateCase,
   evaluateModeling,
+  extractClaudeResult,
+  extractOpenCodeResult,
   extractPiAssistantText,
   gradeCandidate,
   isDisposableArtifactChange,
+  resolveCommand,
   runCommand,
   snapshotCandidate,
 } from './index';
@@ -32,17 +36,22 @@ import {
 let root: string;
 let fakePi: string;
 let oldPi: string | undefined;
+let oldClaude: string | undefined;
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), 'evaluation-test-'));
   fakePi = join(root, 'fake-pi.mjs');
   oldPi = process.env.PI_CLI;
+  oldClaude = process.env.CLAUDE_CLI;
   process.env.PI_CLI = fakePi;
+  process.env.CLAUDE_CLI = fakePi;
 });
 
 afterEach(async () => {
   if (oldPi === undefined) delete process.env.PI_CLI;
   else process.env.PI_CLI = oldPi;
+  if (oldClaude === undefined) delete process.env.CLAUDE_CLI;
+  else process.env.CLAUDE_CLI = oldClaude;
   await rm(root, { recursive: true, force: true });
 });
 
@@ -134,6 +143,287 @@ describe('registered behavioral cases', () => {
     expect((await buildCaseInput('react-conversion')).prompt.id).toBe(
       'maelstrom-react-conversion',
     );
+  });
+
+  test('builds a per-process OpenCode primary-agent deny policy and explicit coding allowlist without global mutations', () => {
+    const before = process.env.OPENCODE_PERMISSION;
+    const openCode = resolveCommand({
+      runner: 'opencode',
+      toolAccess: 'disabled',
+    });
+    expect(openCode.invocation.args.slice(0, 4)).toEqual([
+      '--pure',
+      'run',
+      '--format',
+      'json',
+    ]);
+    const agentArg = openCode.invocation.args.indexOf('--agent');
+    const agentName = openCode.invocation.args[agentArg + 1]!;
+    const content = JSON.parse(
+      openCode.invocationEnv?.OPENCODE_CONFIG_CONTENT ?? '{}',
+    );
+    expect(content.agent[agentName]).toMatchObject({
+      mode: 'primary',
+      permission: { '*': 'deny', task: 'deny', edit: 'deny' },
+    });
+    expect(content.agent[agentName]).not.toHaveProperty('model');
+    expect(
+      JSON.parse(openCode.invocationEnv?.OPENCODE_PERMISSION ?? '{}')['*'],
+    ).toBe('deny');
+    const coding = resolveCommand({
+      runner: 'opencode',
+      toolAccess: 'enabled',
+    });
+    const codingAgent =
+      coding.invocation.args[coding.invocation.args.indexOf('--agent') + 1]!;
+    const codingContent = JSON.parse(
+      coding.invocationEnv?.OPENCODE_CONFIG_CONTENT ?? '{}',
+    );
+    expect(codingContent.agent[codingAgent].permission).toMatchObject({
+      '*': 'deny',
+      edit: 'allow',
+      task: 'deny',
+    });
+    expect(process.env.OPENCODE_PERMISSION).toBe(before);
+    const claude = resolveCommand({ runner: 'claude', toolAccess: 'disabled' });
+    expect(claude.invocation.args).toContain('');
+    expect(claude.invocation.args).toContain('mcp__*');
+  });
+
+  test('OpenCode preserves inline JSONC config in its child profile without exposing it in artifacts', async () => {
+    const previous = process.env.OPENCODE_CONFIG_CONTENT;
+    const previousCli = process.env.OPENCODE_CLI;
+    process.env.OPENCODE_CLI = fakePi;
+    const marker = 'fake-token-sentinel-never-publish';
+    const inline = `{
+      // Existing user configuration must survive the evaluator overlay.
+      "model": "provider/model-id",
+      "provider": { "provider-id": { "options": { "baseURL": "https://provider.invalid", "apiKey": "${marker}" } } },
+      "agent": { "operator-agent": { "mode": "primary", "model": { "providerID": "provider-id", "modelID": "model-id" } } },
+    }`;
+    process.env.OPENCODE_CONFIG_CONTENT = inline;
+    await fake(`
+if (process.argv.includes('--version')) { console.log('1.18.32-fake'); process.exit(0); }
+const config = JSON.parse(process.env.OPENCODE_CONFIG_CONTENT);
+if (config.model !== 'provider/model-id' || config.provider['provider-id'].options.apiKey !== ${JSON.stringify(marker)} || !config.agent['operator-agent'] || config.agent[process.argv.at(-1)]?.permission['*'] !== 'deny') process.exit(9);
+const sessionID = 'session-config'; const messageID = 'message-config';
+console.log(JSON.stringify({ type: 'step_start', sessionID, part: { type: 'step-start', sessionID, messageID } }));
+console.log(JSON.stringify({ type: 'text', sessionID, part: { type: 'text', sessionID, messageID, text: 'safe answer', time: { end: 1 } } }));
+console.log(JSON.stringify({ type: 'step_finish', sessionID, part: { type: 'step-finish', sessionID, messageID, reason: 'stop' } }));
+process.exit(0);`);
+    try {
+      const result = await evaluateCase('modeling-read-only', {
+        output: join(root, 'opencode-config-output'),
+        runner: 'opencode',
+      });
+      expect(result.exitCode).toBe(0);
+      const artifactDir = (
+        result.manifest.security as { privateOutputDirectory: string }
+      ).privateOutputDirectory;
+      const artifactText = [
+        JSON.stringify(result.manifest),
+        result.stdout,
+        result.stderr,
+        await readFile(join(artifactDir, 'manifest.json'), 'utf8'),
+        await readFile(join(artifactDir, 'stdout.jsonl'), 'utf8'),
+        await readFile(join(artifactDir, 'stderr.txt'), 'utf8'),
+      ].join('\\n');
+      expect(artifactText).not.toContain(marker);
+      expect(process.env.OPENCODE_CONFIG_CONTENT).toBe(inline);
+    } finally {
+      if (previous === undefined) delete process.env.OPENCODE_CONFIG_CONTENT;
+      else process.env.OPENCODE_CONFIG_CONTENT = previous;
+      if (previousCli === undefined) delete process.env.OPENCODE_CLI;
+      else process.env.OPENCODE_CLI = previousCli;
+    }
+  });
+
+  test('rejects invalid OpenCode inline config before allocating output or spawning, without echoing it', async () => {
+    const previous = process.env.OPENCODE_CONFIG_CONTENT;
+    const previousCli = process.env.OPENCODE_CLI;
+    process.env.OPENCODE_CLI = fakePi;
+    const secret = 'private-sentinel-invalid-jsonc';
+    const output = join(root, 'invalid-opencode-config-output');
+    process.env.OPENCODE_CONFIG_CONTENT = `{ broken ${secret}`;
+    await fake(
+      `(await import('node:fs')).writeFileSync(${JSON.stringify(join(root, 'unexpected-spawn'))}, 'started');`,
+    );
+    try {
+      const rejection = await evaluateCase('modeling-read-only', {
+        output,
+        runner: 'opencode',
+      }).then(
+        () => '',
+        (error: unknown) => String(error),
+      );
+      expect(rejection).toContain('contents were not logged');
+      expect(rejection).not.toContain(secret);
+      await expect(stat(output)).rejects.toThrow();
+      await expect(stat(join(root, 'unexpected-spawn'))).rejects.toThrow();
+    } finally {
+      if (previous === undefined) delete process.env.OPENCODE_CONFIG_CONTENT;
+      else process.env.OPENCODE_CONFIG_CONTENT = previous;
+      if (previousCli === undefined) delete process.env.OPENCODE_CLI;
+      else process.env.OPENCODE_CLI = previousCli;
+    }
+  });
+
+  test('OpenCode adapter sends stdin with the selected primary agent and child-only policy argv', async () => {
+    const adapter = resolveCommand({
+      runner: 'opencode',
+      toolAccess: 'disabled',
+    });
+    const cwd = join(root, 'opencode-cwd');
+    await (await import('node:fs/promises')).mkdir(cwd);
+    const agent = adapter.invocation.args.at(-1)!;
+    const sessionID = 'session-smoke';
+    const messageID = 'message-smoke';
+    const answer = 'adapter fixture answer';
+    const startEvent = JSON.stringify({
+      type: 'step_start',
+      sessionID,
+      part: { type: 'step-start', sessionID, messageID },
+    });
+    const textEvent = JSON.stringify({
+      type: 'text',
+      sessionID,
+      part: {
+        type: 'text',
+        sessionID,
+        messageID,
+        text: answer,
+        time: { end: 1 },
+      },
+    });
+    const finishEvent = JSON.stringify({
+      type: 'step_finish',
+      sessionID,
+      part: { type: 'step-finish', sessionID, messageID, reason: 'stop' },
+    });
+    const script = `let input='';process.stdin.setEncoding('utf8');process.stdin.on('data',x=>input+=x);process.stdin.on('end',()=>{const c=JSON.parse(process.env.OPENCODE_CONFIG_CONTENT);if(process.cwd()!==require('node:fs').realpathSync(${JSON.stringify(cwd)})||!input.includes('known fixture context')||process.argv.at(-1)!==${JSON.stringify(agent)}||c.agent[${JSON.stringify(agent)}]?.mode!=='primary'||c.agent[${JSON.stringify(agent)}]?.permission['*']!=='deny')process.exit(9);console.log(${JSON.stringify(startEvent)});console.log(${JSON.stringify(textEvent)});console.log(${JSON.stringify(finishEvent)});process.exit(0);});`;
+    const result = await runCommand({
+      command: {
+        executable: process.execPath,
+        args: ['-e', script, ...adapter.invocation.args],
+      },
+      env: { ...process.env, ...adapter.invocationEnv },
+      input: 'known fixture context',
+      cwd,
+    });
+    expect(result.exitCode).toBe(0);
+    expect(
+      extractOpenCodeResult(result.stdout, result.outputTruncated),
+    ).toEqual({ text: answer, status: 'ok' });
+  });
+
+  test('Claude JSON extraction rejects truncation, malformed, error, and empty results', () => {
+    expect(extractClaudeResult('{"subtype":"success","result":"ok"}')).toEqual({
+      text: 'ok',
+      status: 'ok',
+    });
+    expect(
+      extractClaudeResult('{"subtype":"success","result":"ok"}', true).status,
+    ).toBe('truncated');
+    expect(extractClaudeResult('not-json').status).toBe('invalid-json');
+    expect(
+      extractClaudeResult(
+        '{"subtype":"error","is_error":true,"result":"partial"}',
+      ).status,
+    ).toBe('error-result');
+    expect(
+      extractClaudeResult('{"subtype":"success","result":""}').status,
+    ).toBe('no-final-result');
+    for (const primitive of ['null', '[]', '1', '"text"', '{}'])
+      expect(extractClaudeResult(primitive).status).toBe('invalid-envelope');
+  });
+
+  test('parses OpenCode 1.18 JSONL only when the last completed step has matching text', () => {
+    const stream = [
+      {
+        type: 'step_start',
+        sessionID: 's',
+        part: { type: 'step-start', sessionID: 's', messageID: 'm1' },
+      },
+      {
+        type: 'text',
+        sessionID: 's',
+        part: {
+          type: 'text',
+          sessionID: 's',
+          messageID: 'm1',
+          text: 'earlier',
+          time: { end: 1 },
+        },
+      },
+      {
+        type: 'step_finish',
+        sessionID: 's',
+        part: {
+          type: 'step-finish',
+          sessionID: 's',
+          messageID: 'm1',
+          reason: 'tool-calls',
+        },
+      },
+      {
+        type: 'step_start',
+        sessionID: 's',
+        part: { type: 'step-start', sessionID: 's', messageID: 'm2' },
+      },
+      {
+        type: 'text',
+        sessionID: 's',
+        part: {
+          type: 'text',
+          sessionID: 's',
+          messageID: 'm2',
+          text: '{"claims":[]}',
+          time: { end: 2 },
+        },
+      },
+      {
+        type: 'step_finish',
+        sessionID: 's',
+        part: {
+          type: 'step-finish',
+          sessionID: 's',
+          messageID: 'm2',
+          reason: 'stop',
+        },
+      },
+    ]
+      .map((event) => JSON.stringify(event))
+      .join('\n');
+    expect(extractOpenCodeResult(stream)).toEqual({
+      text: '{"claims":[]}',
+      status: 'ok',
+    });
+    expect(extractOpenCodeResult(stream, true).status).toBe('truncated');
+    expect(
+      extractOpenCodeResult(
+        `${stream}\n${JSON.stringify({ type: 'step_start', sessionID: 's', part: { type: 'step-start', sessionID: 's', messageID: 'm3' } })}`,
+      ).status,
+    ).toBe('unfinished-final-step');
+    expect(
+      extractOpenCodeResult(
+        `${stream}\n${JSON.stringify({ type: 'text', sessionID: 's', part: { type: 'text', sessionID: 'other', messageID: 'm2', text: 'wrong-session', time: { end: 3 } } })}`,
+      ).status,
+    ).toBe('nested-session-mismatch');
+    expect(extractOpenCodeResult('null').status).toBe('invalid-event-envelope');
+    expect(extractOpenCodeResult('[]').status).toBe('invalid-event-envelope');
+    expect(extractOpenCodeResult('"primitive"').status).toBe(
+      'invalid-event-envelope',
+    );
+    expect(
+      extractOpenCodeResult(
+        `${stream}\n${JSON.stringify({ type: 'error', sessionID: 's' })}`,
+      ).status,
+    ).toBe('error-event');
+    expect(
+      extractOpenCodeResult(
+        `${stream}\n${JSON.stringify({ type: 'text', sessionID: 'other', part: {} })}`,
+      ).status,
+    ).toBe('mixed-or-missing-session');
   });
 
   test('extracts only final assistant text from Pi JSONL and rejects malformed, intermediate-only, or truncated output', () => {
@@ -342,6 +632,50 @@ describe('evaluation CLI harness', () => {
       'Evidence output contract (exact JSON schema; no extra keys)',
     );
   });
+  test('Claude adapter passes stdin and explicit no-tools argv, parses terminal JSON, and leaves unreported identity unknown', async () => {
+    const finalText = JSON.stringify({ claims: [] });
+    await fake(`
+if (process.argv.includes('--version')) { console.log('Claude Code 2.0-test'); process.exit(0); }
+if (!process.argv.includes('--output-format') || !process.argv.includes('json') || !process.argv.includes('--tools')) process.exit(7);
+let input = ''; process.stdin.setEncoding('utf8'); process.stdin.on('data', x => input += x);
+process.stdin.on('end', () => {
+ if (!input.includes('Support queue') || !process.cwd().endsWith('/case')) process.exit(8);
+ console.log(JSON.stringify({ subtype: 'success', is_error: false, result: ${JSON.stringify(finalText)}, session_id: 'session-test' }));
+});`);
+    const result = await evaluateCase('modeling-read-only', {
+      output: join(root, 'claude-output'),
+      runner: 'claude',
+    });
+    expect(
+      result.criteria.find(({ id }) => id === 'assistant-final-text')?.status,
+    ).toBe('passed');
+    expect(result.manifest.runner).toMatchObject({
+      version: 'Claude Code 2.0-test',
+      model: 'unknown',
+      provider: 'unknown',
+      sessionId: 'session-test',
+      tools: { requested: 'disabled' },
+    });
+    expect(result.manifest.transport).toMatchObject({
+      parser: 'claude-print-json-result',
+      status: 'ok',
+    });
+  });
+
+  test('Claude adapter rejects error envelopes even when the process exits zero', async () => {
+    await fake(
+      `if (process.argv.includes('--version')) { process.exit(0); } console.log(JSON.stringify({ subtype: 'error', is_error: true, result: 'partial answer' }));`,
+    );
+    const result = await evaluateCase('modeling-read-only', {
+      output: join(root, 'claude-error-output'),
+      runner: 'claude',
+    });
+    expect(
+      result.criteria.find(({ id }) => id === 'assistant-final-text')?.status,
+    ).toBe('failed');
+    expect(result.manifest.transport).toMatchObject({ status: 'error-result' });
+  });
+
   test('delivers task on stdin in scratch cwd and separates objective checks from semantic review', async () => {
     await fake(`
 if (process.argv.includes('--version')) { console.log('fake-pi 1.2.3'); process.exit(0); }
@@ -355,6 +689,7 @@ process.stdin.on('end', () => {
     expect(result.exitCode).toBe(0);
     expect(result.changes).toEqual([]);
     expect(result.criteria.map((criterion) => criterion.status)).toEqual([
+      'passed',
       'passed',
       'passed',
       'unrun',
@@ -641,6 +976,16 @@ const fs = await import('node:fs'); fs.writeFileSync('added.txt', 'new'); fs.wri
     await expect(stat(marker)).rejects.toThrow();
   });
 
+  test('generic command adapter preserves its single invocation and does not invent a version probe', async () => {
+    const calls = join(root, 'generic-calls.txt');
+    await fake(
+      `const fs = await import('node:fs'); fs.appendFileSync(${JSON.stringify(calls)}, 'call\\n'); process.stdin.resume(); process.stdin.on('end', () => process.exit(0));`,
+    );
+    const result = await evaluateModeling(genericOptions());
+    expect(result.exitCode).toBe(0);
+    expect(await readFile(calls, 'utf8')).toBe('call\n');
+  });
+
   test('generic tool-use evidence does not claim the CLI disabled tools', async () => {
     await fake(
       `process.stdin.resume(); process.stdin.on('end', () => process.exit(0));`,
@@ -654,6 +999,45 @@ const fs = await import('node:fs'); fs.writeFileSync('added.txt', 'new'); fs.wri
       'tool policy and tool use were not evaluated',
     );
     expect(criterion?.evidence).not.toContain('Tools were disabled');
+  });
+
+  test('legacy read-only API rejects managed tool opt-in and conflicting aliases before setup', async () => {
+    const marker = join(root, 'unexpected-managed-spawn');
+    const oldOpenCode = process.env.OPENCODE_CLI;
+    const oldTmpdir = process.env.TMPDIR;
+    process.env.OPENCODE_CLI = fakePi;
+    process.env.TMPDIR = root;
+    await fake(
+      `(await import('node:fs')).writeFileSync(${JSON.stringify(marker)}, 'started');`,
+    );
+    const before = await readdir(root);
+    try {
+      const invalid = [
+        { runner: 'pi' as const, toolAccess: 'enabled' as const },
+        { runner: 'claude' as const, toolAccess: 'enabled' as const },
+        { runner: 'opencode' as const, toolAccess: 'enabled' as const },
+        {
+          runner: 'pi' as const,
+          toolAccess: 'disabled' as const,
+          piToolAccess: 'enabled' as const,
+        },
+        { runner: 'claude' as const, piToolAccess: 'disabled' as const },
+      ];
+      for (const [index, options] of invalid.entries())
+        await expect(
+          evaluateModeling({
+            output: join(root, `legacy-readonly-${index}`),
+            ...options,
+          }),
+        ).rejects.toThrow(/read-only|Conflicting|Pi-only/);
+      expect(await readdir(root)).toEqual(before);
+      await expect(stat(marker)).rejects.toThrow();
+    } finally {
+      if (oldOpenCode === undefined) delete process.env.OPENCODE_CLI;
+      else process.env.OPENCODE_CLI = oldOpenCode;
+      if (oldTmpdir === undefined) delete process.env.TMPDIR;
+      else process.env.TMPDIR = oldTmpdir;
+    }
   });
 
   test('CLI parser preserves reserved-looking literal --arg values', async () => {
@@ -694,6 +1078,93 @@ const fs = await import('node:fs'); fs.writeFileSync('added.txt', 'new'); fs.wri
     expect(summary.manifest.runner.command).toEqual([fakePi, ...literalArgs]);
   });
 
+  test('CLI runs an explicitly authorized generic implementation command without imposing managed tool policy', async () => {
+    const candidateRoot = join(root, 'authorized-candidate');
+    await mkdir(join(candidateRoot, 'src'), { recursive: true });
+    await writeFile(
+      join(candidateRoot, 'package.json'),
+      JSON.stringify({ name: 'authorized-candidate', version: '0.0.0' }),
+    );
+    await fake(`
+if (!process.argv.includes('literal command argument')) process.exit(9);
+const fs = await import('node:fs');
+fs.writeFileSync('src/Feature.tsx', 'export const Feature = () => <section>Authorized</section>;\\n');
+process.stdin.resume(); process.stdin.on('end', () => { console.log('generic implementation complete'); process.exit(0); });`);
+    const result = await runCommand({
+      command: {
+        executable: process.execPath,
+        args: [
+          join(import.meta.dir, 'index.ts'),
+          '--case',
+          'onboarding-implementation',
+          '--runner',
+          'command',
+          '--candidate-root',
+          candidateRoot,
+          '--authorize-coding',
+          'operator-approved',
+          '--output',
+          join(root, 'authorized-command-output'),
+          '--command',
+          fakePi,
+          '--arg',
+          'literal command argument',
+        ],
+      },
+      input: '',
+      cwd: root,
+      timeoutMs: 10_000,
+    });
+    expect(result.exitCode).toBe(0);
+    const summary = JSON.parse(result.stdout) as {
+      manifest: { runner: { tools: { requested: string }; command: string[] } };
+      criteria: { id: string; status: string }[];
+    };
+    expect(summary.manifest.runner.tools.requested).toBe('unknown');
+    expect(summary.manifest.runner.command).toEqual([
+      fakePi,
+      'literal command argument',
+    ]);
+    expect(
+      summary.criteria.find(({ id }) => id === 'process-success')?.status,
+    ).toBe('passed');
+    expect(
+      await readFile(join(candidateRoot, 'src/Feature.tsx'), 'utf8'),
+    ).toContain('Authorized');
+  });
+
+  test('CLI tool flags reject conflicting values and the Pi-only alias on other runners before setup', async () => {
+    for (const flags of [
+      ['--tools', 'enabled', '--pi-tools', 'disabled'],
+      ['--pi-tools', 'disabled'],
+    ]) {
+      const output = join(
+        root,
+        `invalid-tools-${flags.length}-${flags.at(-1)}`,
+      );
+      const result = await runCommand({
+        command: {
+          executable: process.execPath,
+          args: [
+            join(import.meta.dir, 'index.ts'),
+            '--case',
+            'modeling-read-only',
+            '--runner',
+            'claude',
+            '--output',
+            output,
+            ...flags,
+          ],
+        },
+        input: '',
+        cwd: root,
+        timeoutMs: 10_000,
+      });
+      expect(result.exitCode).toBe(2);
+      await expect(stat(output)).rejects.toThrow();
+    }
+  });
+
   test('invalid generic configuration allocates no scratch or output directory', async () => {
     const previousTmpdir = process.env.TMPDIR;
     process.env.TMPDIR = root;
@@ -709,6 +1180,120 @@ const fs = await import('node:fs'); fs.writeFileSync('added.txt', 'new'); fs.wri
     } finally {
       if (previousTmpdir === undefined) delete process.env.TMPDIR;
       else process.env.TMPDIR = previousTmpdir;
+    }
+  });
+
+  test('managed adapters fail transport and acceptance when inherited pipes prevent complete capture', async () => {
+    if (process.platform === 'win32') return;
+    const oldOpenCode = process.env.OPENCODE_CLI;
+    process.env.OPENCODE_CLI = fakePi;
+    const previousPidPath = process.env.EVALUATION_ORPHAN_PID;
+    const orphanCode = `process.on('SIGTERM', () => {}); setInterval(() => {}, 1000);`;
+    try {
+      for (const runner of ['claude', 'opencode'] as const) {
+        const pidPath = join(root, `${runner}-orphan.pid`);
+        process.env.EVALUATION_ORPHAN_PID = pidPath;
+        const claude = runner === 'claude';
+        const finalOutput = claude
+          ? `console.log(JSON.stringify({ subtype: 'success', is_error: false, result: 'complete-looking answer', session_id: 's' }));`
+          : `const sessionID = 's'; const messageID = 'm'; console.log(JSON.stringify({ type: 'step_start', sessionID, part: { type: 'step-start', sessionID, messageID } })); console.log(JSON.stringify({ type: 'text', sessionID, part: { type: 'text', sessionID, messageID, text: 'complete-looking answer', time: { end: 1 } } })); console.log(JSON.stringify({ type: 'step_finish', sessionID, part: { type: 'step-finish', sessionID, messageID, reason: 'stop' } }));`;
+        await fake(`
+if (process.argv.includes('--version')) { console.log('fake-version'); process.exit(0); }
+const fs = await import('node:fs'); const { spawn } = await import('node:child_process');
+const orphan = spawn(process.execPath, ['-e', ${JSON.stringify(orphanCode)}], { detached: true, stdio: ['ignore', process.stdout, process.stderr] });
+orphan.unref(); fs.writeFileSync(process.env.EVALUATION_ORPHAN_PID, String(orphan.pid));
+process.stdin.resume(); process.stdin.on('end', () => { ${finalOutput} process.exit(0); });`);
+        let orphanPid: number | undefined;
+        try {
+          const result = await evaluateCase('modeling-read-only', {
+            output: join(root, `${runner}-incomplete-output`),
+            runner,
+            timeoutMs: 5_000,
+          });
+          orphanPid = Number(await readFile(pidPath, 'utf8'));
+          expect(result.exitCode).toBe(0);
+          expect(result.captureIncomplete).toBe(true);
+          expect(result.manifest.transport).toMatchObject({
+            status: 'capture-incomplete',
+          });
+          expect(
+            result.criteria.find(({ id }) => id === 'process-success')?.status,
+          ).toBe('failed');
+          expect(
+            result.criteria.find(({ id }) => id === 'assistant-final-text')
+              ?.status,
+          ).toBe('failed');
+          expect(result.manifest.process).toMatchObject({
+            captureIncomplete: true,
+          });
+          expect(result.stdout).toContain('complete-looking answer');
+        } finally {
+          if (!orphanPid) {
+            try {
+              orphanPid = Number(await readFile(pidPath, 'utf8'));
+            } catch {}
+          }
+          if (orphanPid && isProcessAlive(orphanPid)) {
+            try {
+              process.kill(orphanPid, 'SIGKILL');
+            } catch {}
+            for (
+              let attempt = 0;
+              attempt < 50 && isProcessAlive(orphanPid);
+              attempt++
+            )
+              await new Promise((resolveDelay) => setTimeout(resolveDelay, 10));
+          }
+        }
+      }
+    } finally {
+      if (previousPidPath === undefined)
+        delete process.env.EVALUATION_ORPHAN_PID;
+      else process.env.EVALUATION_ORPHAN_PID = previousPidPath;
+      if (oldOpenCode === undefined) delete process.env.OPENCODE_CLI;
+      else process.env.OPENCODE_CLI = oldOpenCode;
+    }
+  });
+
+  test('production adapters publish failure artifacts for JSON null and primitive envelopes', async () => {
+    const oldOpenCode = process.env.OPENCODE_CLI;
+    process.env.OPENCODE_CLI = fakePi;
+    try {
+      for (const runner of ['claude', 'opencode'] as const) {
+        await fake(
+          `if (process.argv.includes('--version')) { console.log('fake-version'); process.exit(0); } process.stdin.resume(); process.stdin.on('end', () => { console.log('null'); process.exit(0); });`,
+        );
+        const result = await evaluateCase('modeling-read-only', {
+          output: join(root, `${runner}-null-output`),
+          runner,
+        });
+        expect(result.exitCode).toBe(0);
+        expect(result.manifest.transport).toMatchObject({
+          status:
+            runner === 'claude' ? 'invalid-envelope' : 'invalid-event-envelope',
+        });
+        expect(
+          result.criteria.find(({ id }) => id === 'assistant-final-text')
+            ?.status,
+        ).toBe('failed');
+        const artifactDirectory = (
+          result.manifest.security as { privateOutputDirectory: string }
+        ).privateOutputDirectory;
+        const savedManifest = JSON.parse(
+          await readFile(join(artifactDirectory, 'manifest.json'), 'utf8'),
+        ) as {
+          transport: { status: string };
+        };
+        expect(savedManifest.transport.status).toBe(
+          runner === 'claude' ? 'invalid-envelope' : 'invalid-event-envelope',
+        );
+        expect(
+          await readFile(join(artifactDirectory, 'stdout.jsonl'), 'utf8'),
+        ).toContain('null');
+      }
+    } finally {
+      if (oldOpenCode === undefined) delete process.env.OPENCODE_CLI;
+      else process.env.OPENCODE_CLI = oldOpenCode;
     }
   });
 

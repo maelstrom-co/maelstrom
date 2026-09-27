@@ -1,5 +1,5 @@
 import { type ChildProcess, spawn } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   chmod,
   copyFile,
@@ -16,6 +16,7 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parse as parseJsonc } from 'jsonc-parser';
 import { parsePromptSource } from '../../tools/prompts/library';
 import {
   buildCaseInput,
@@ -50,6 +51,10 @@ export interface CommandSpec {
   executable: string;
   args: string[];
 }
+
+/** Supported invocation adapters for case evaluation. */
+export type EvaluationRunner = 'pi' | 'command' | 'opencode' | 'claude';
+type ToolAccess = 'disabled' | 'enabled';
 
 /** Captured process streams, status, limits and termination evidence. */
 export interface ProcessResult {
@@ -227,12 +232,12 @@ export async function runCommand(options: {
   };
 }
 
-/** Runs a registered case; implementation agents require explicit authorization and Pi tool access, while candidate grading is independent of agent execution. */
+/** Runs a registered case; managed implementation adapters need explicit tool opt-in, while generic command policy remains caller-defined. */
 export async function evaluateCase(
   caseId: CaseId,
   options: {
     output: string;
-    runner: 'pi' | 'command';
+    runner: EvaluationRunner;
     command?: CommandSpec;
     signal?: AbortSignal;
     timeoutMs?: number;
@@ -240,10 +245,12 @@ export async function evaluateCase(
     candidateRoot?: string;
     baseline?: Map<string, string>;
     executionAuthorization?: 'operator-approved' | 'verified-containment';
-    piToolAccess?: 'disabled' | 'enabled';
+    toolAccess?: ToolAccess;
+    piToolAccess?: ToolAccess;
   },
 ): Promise<RunResult> {
   const definition = caseRegistry[caseId];
+  const toolAccess = normalizeToolAccess(options);
   if (definition.mode === 'implementation' && !options.executionAuthorization)
     throw new Error(
       `Case ${caseId} requires explicit operator approval or verified containment for agent execution.`,
@@ -254,19 +261,23 @@ export async function evaluateCase(
     );
   if (
     definition.mode === 'implementation' &&
-    options.runner === 'pi' &&
-    options.piToolAccess !== 'enabled'
+    options.runner !== 'command' &&
+    toolAccess !== 'enabled'
   )
     throw new Error(
-      `Case ${caseId} is an implementation task; Pi --no-tools cannot perform it.`,
+      `Case ${caseId} is an implementation task; ${options.runner} tools must be explicitly enabled.`,
     );
-  if (definition.mode === 'read-only' && options.piToolAccess === 'enabled')
-    throw new Error('Read-only cases keep Pi tools disabled.');
+  if (
+    definition.mode === 'read-only' &&
+    options.runner !== 'command' &&
+    toolAccess === 'enabled'
+  )
+    throw new Error('Read-only cases keep managed-runner tools disabled.');
   throwIfAborted(options.signal);
   const context = await buildCaseInput(caseId);
   const command = resolveCommand({
     ...options,
-    piToolAccess: options.piToolAccess ?? 'disabled',
+    ...(toolAccess ? { toolAccess } : {}),
   });
   const ownsScratch = definition.mode === 'read-only';
   const scratch = ownsScratch
@@ -293,40 +304,46 @@ export async function evaluateCase(
   let changes: FileChange[] = [];
   let inspectionError: string | undefined;
   let before: Map<string, string> | undefined;
-  let piVersion = 'unknown';
-  let eventMetadata: { model?: string; provider?: string } = {};
+  let runnerVersion = 'unknown';
+  let eventMetadata: { model?: string; provider?: string; sessionId?: string } =
+    {};
   let transportStatus: string | undefined;
   try {
     if (ownsScratch) await copyTree(source, cwd);
     before = options.baseline ?? (await snapshot(cwd));
     processResult = await runCommand({
       command: command.invocation,
+      ...(command.invocationEnv
+        ? { env: { ...process.env, ...command.invocationEnv } }
+        : {}),
       input: context.input,
       cwd,
       signal: options.signal,
       timeoutMs: options.timeoutMs,
     });
-    if (options.runner === 'pi') {
-      eventMetadata = command.parseMetadata?.(processResult.stdout) ?? {};
-      const parsed = extractPiAssistantText(
-        processResult.stdout,
-        processResult.outputTruncated,
-      );
-      transportStatus = parsed.status;
-      if (!processResult.cancelled && !processResult.spawnError) {
-        const versionResult = await runCommand({
-          command: command.versionInvocation,
-          input: '',
-          cwd,
-          timeoutMs: options.versionTimeoutMs ?? 5_000,
-          outputLimit: 4096,
-          signal: options.signal,
-        });
-        piVersion =
-          versionResult.exitCode === 0 && !versionResult.timedOut
-            ? versionResult.stdout.trim().slice(0, 256)
-            : 'unknown';
-      }
+    eventMetadata = command.parseMetadata?.(processResult.stdout) ?? {};
+    const parsed = extractCommandText(command, processResult);
+    transportStatus = parsed?.status;
+    if (
+      command.versionInvocation &&
+      !processResult.cancelled &&
+      !processResult.spawnError
+    ) {
+      const versionResult = await runCommand({
+        command: command.versionInvocation,
+        input: '',
+        cwd,
+        timeoutMs: options.versionTimeoutMs ?? 5_000,
+        outputLimit: 4096,
+        signal: options.signal,
+      });
+      runnerVersion =
+        versionResult.exitCode === 0 &&
+        !versionResult.timedOut &&
+        !versionResult.cancelled &&
+        !versionResult.outputTruncated
+          ? versionResult.stdout.trim().slice(0, 256)
+          : 'unknown';
     }
   } catch (error) {
     if (isAbortError(error)) processResult = cancelledProcessResult();
@@ -351,12 +368,9 @@ export async function evaluateCase(
       );
   }
   const proc = processResult ?? emptyProcessResult(inspectionError);
-  const extracted =
-    options.runner === 'pi'
-      ? extractPiAssistantText(proc.stdout, proc.outputTruncated)
-      : undefined;
+  const extracted = extractCommandText(command, proc);
   const applicationOutput =
-    options.runner === 'pi' ? (extracted?.text ?? '') : proc.stdout;
+    options.runner === 'command' ? proc.stdout : (extracted?.text ?? '');
   const candidateGrade =
     definition.mode === 'implementation' && before
       ? await gradeCandidate(caseId, {
@@ -374,7 +388,7 @@ export async function evaluateCase(
         context.fixtureFiles.map((file) => [file.path, file.text]),
       ),
     );
-  if (options.runner === 'pi')
+  if (options.runner !== 'command')
     criteria.unshift({
       id: 'assistant-final-text',
       status: extracted?.status === 'ok' ? 'passed' : 'failed',
@@ -387,7 +401,8 @@ export async function evaluateCase(
       !proc.spawnError &&
       !proc.stdinError &&
       !proc.timedOut &&
-      !proc.cancelled
+      !proc.cancelled &&
+      (options.runner === 'command' || !proc.captureIncomplete)
         ? 'passed'
         : 'failed',
     evidence: `exit=${proc.exitCode}; signal=${proc.signal ?? 'none'}; timeout=${proc.timedOut}; cancelled=${proc.cancelled}`,
@@ -414,8 +429,10 @@ export async function evaluateCase(
       id: 'tool-use-and-repository-inspection',
       status: 'unrun',
       evidence:
-        options.runner === 'pi'
-          ? 'Pi tools disabled; explicit fixture evidence supplied in prompt.'
+        options.runner === 'pi' ||
+        options.runner === 'claude' ||
+        options.runner === 'opencode'
+          ? `${options.runner} requested tools=${toolAccess}; inherited configuration may still apply. Explicit fixture evidence supplied in prompt.`
           : 'Generic CLI tool policy and tool use are unknown.',
     });
   }
@@ -451,23 +468,32 @@ export async function evaluateCase(
       },
       runner: {
         name: options.runner,
-        version: piVersion,
+        version: runnerVersion,
         model: eventMetadata.model ?? 'unknown',
         provider: eventMetadata.provider ?? 'unknown',
+        sessionId: eventMetadata.sessionId ?? 'unknown',
         executable: command.invocation.executable,
         command: [command.invocation.executable, ...command.invocation.args],
         tools:
-          options.runner === 'pi'
-            ? (options.piToolAccess ?? 'disabled')
-            : 'unknown',
+          options.runner === 'pi' ||
+          options.runner === 'claude' ||
+          options.runner === 'opencode'
+            ? {
+                requested: toolAccess,
+                guarantee:
+                  options.runner === 'opencode'
+                    ? 'child-only primary-agent wildcard deny; requested tool allowlist if enabled; inherited hooks/config remain'
+                    : 'requested CLI policy; inherited configuration may apply',
+              }
+            : { requested: 'unknown', guarantee: 'unknown' },
       },
       transport:
-        options.runner === 'pi'
-          ? {
-              parser: 'pi-jsonl-final-assistant-message',
-              status: transportStatus ?? extracted?.status ?? 'unavailable',
-            }
-          : { parser: 'plaintext', status: 'not-applicable' },
+        options.runner === 'command'
+          ? { parser: 'plaintext', status: 'not-applicable' }
+          : {
+              parser: command.parserName ?? 'unknown',
+              status: transportStatus ?? 'unavailable',
+            },
       process: {
         exitCode: proc.exitCode,
         signal: proc.signal,
@@ -492,10 +518,12 @@ export async function evaluateCase(
         environmentSerialized: false,
         toolProfile:
           options.runner === 'pi'
-            ? options.piToolAccess === 'enabled'
+            ? toolAccess === 'enabled'
               ? 'operator-authorized trusted-host tools; no OS confinement'
               : 'context-only; Pi tools disabled'
-            : 'generic CLI; tool policy unknown',
+            : options.runner === 'claude' || options.runner === 'opencode'
+              ? `requested ${toolAccess}; inherited configuration may apply; no OS confinement`
+              : 'generic CLI; tool policy unknown',
       },
     },
   };
@@ -852,12 +880,19 @@ export async function gradeCandidate(
 /** Runs the legacy modeling CLI API. */
 export async function evaluateModeling(options: {
   output: string;
-  runner: 'pi' | 'command';
+  runner: EvaluationRunner;
   command?: CommandSpec;
   signal?: AbortSignal;
   timeoutMs?: number;
   versionTimeoutMs?: number;
+  toolAccess?: ToolAccess;
+  piToolAccess?: ToolAccess;
 }): Promise<RunResult> {
+  const toolAccess = normalizeToolAccess(options);
+  if (options.runner !== 'command' && toolAccess === 'enabled')
+    throw new Error(
+      'The legacy modeling case is read-only; managed-runner tools must stay disabled.',
+    );
   throwIfAborted(options.signal);
   const promptPath = join(
     docsRoot,
@@ -873,7 +908,10 @@ export async function evaluateModeling(options: {
     'utf8',
   );
   throwIfAborted(options.signal);
-  const command = resolveCommand(options);
+  const command = resolveCommand({
+    ...options,
+    ...(toolAccess ? { toolAccess } : {}),
+  });
 
   const fixture = await mkdtemp(join(tmpdir(), 'maelstrom-evaluation-'));
   let runDir: string;
@@ -893,8 +931,9 @@ export async function evaluateModeling(options: {
   const input = `${prompt.body}\n\nEvaluation task:\n${renderedTask}`;
   let before: Map<string, string> | undefined;
   let after: Map<string, string> | undefined;
-  let piVersion = 'unknown';
-  let eventMetadata: { model?: string; provider?: string } = {};
+  let runnerVersion = 'unknown';
+  let eventMetadata: { model?: string; provider?: string; sessionId?: string } =
+    {};
 
   try {
     await copyTree(fixtureRoot, cwd);
@@ -902,6 +941,9 @@ export async function evaluateModeling(options: {
     throwIfAborted(options.signal);
     processResult = await runCommand({
       command: command.invocation,
+      ...(command.invocationEnv
+        ? { env: { ...process.env, ...command.invocationEnv } }
+        : {}),
       input,
       cwd,
       signal: options.signal,
@@ -909,7 +951,7 @@ export async function evaluateModeling(options: {
     });
     eventMetadata = command.parseMetadata?.(processResult.stdout) ?? {};
     if (
-      options.runner === 'pi' &&
+      command.versionInvocation &&
       !processResult.cancelled &&
       !options.signal?.aborted
     ) {
@@ -928,8 +970,11 @@ export async function evaluateModeling(options: {
           durationMs: processResult.durationMs + versionResult.durationMs,
         };
       }
-      piVersion =
-        versionResult.exitCode === 0 && !versionResult.timedOut
+      runnerVersion =
+        versionResult.exitCode === 0 &&
+        !versionResult.timedOut &&
+        !versionResult.cancelled &&
+        !versionResult.outputTruncated
           ? versionResult.stdout.trim().slice(0, 256)
           : 'unknown';
     }
@@ -957,7 +1002,20 @@ export async function evaluateModeling(options: {
   }
 
   const processEvidence = processResult ?? emptyProcessResult(inspectionError);
+  const finalAnswer = extractCommandText(command, processEvidence);
   const criteria = [
+    ...(options.runner === 'command'
+      ? []
+      : [
+          {
+            id: 'assistant-final-text',
+            status:
+              finalAnswer?.status === 'ok'
+                ? ('passed' as const)
+                : ('failed' as const),
+            evidence: `transport=${finalAnswer?.status ?? 'unavailable'}`,
+          },
+        ]),
     {
       id: 'process-success',
       status:
@@ -965,7 +1023,8 @@ export async function evaluateModeling(options: {
         !processEvidence.spawnError &&
         !processEvidence.stdinError &&
         !processEvidence.timedOut &&
-        !processEvidence.cancelled
+        !processEvidence.cancelled &&
+        (options.runner === 'command' || !processEvidence.captureIncomplete)
           ? 'passed'
           : 'failed',
       evidence: `exit=${processEvidence.exitCode}; signal=${processEvidence.signal ?? 'none'}; timedOut=${processEvidence.timedOut}; cancelled=${processEvidence.cancelled}; stdinError=${processEvidence.stdinError ?? 'none'}`,
@@ -989,8 +1048,10 @@ export async function evaluateModeling(options: {
       id: 'tool-use-and-repository-inspection',
       status: 'unrun',
       evidence:
-        options.runner === 'pi'
-          ? 'Pi tools were disabled; fixture bytes were supplied as explicit case context.'
+        options.runner === 'pi' ||
+        options.runner === 'claude' ||
+        options.runner === 'opencode'
+          ? `${options.runner} requested tools=${options.toolAccess ?? options.piToolAccess ?? 'disabled'}; inherited settings may apply. Fixture bytes were supplied as explicit case context.`
           : 'Generic CLI tool policy and tool use were not evaluated; fixture bytes were supplied as explicit case context.',
     },
     {
@@ -1037,12 +1098,21 @@ export async function evaluateModeling(options: {
       },
       runner: {
         name: options.runner,
-        version: piVersion,
+        version: runnerVersion,
         executable: command.invocation.executable,
         command: [command.invocation.executable, ...command.invocation.args],
         model: eventMetadata.model ?? 'unknown',
         provider: eventMetadata.provider ?? 'unknown',
-        tools: options.runner === 'pi' ? 'disabled' : 'unknown',
+        tools:
+          options.runner === 'pi' ||
+          options.runner === 'claude' ||
+          options.runner === 'opencode'
+            ? {
+                requested:
+                  options.toolAccess ?? options.piToolAccess ?? 'disabled',
+                guarantee: 'inherited settings may apply',
+              }
+            : { requested: 'unknown', guarantee: 'unknown' },
       },
       process: {
         exitCode: processEvidence.exitCode,
@@ -1065,7 +1135,9 @@ export async function evaluateModeling(options: {
         toolProfile:
           options.runner === 'pi'
             ? 'Pi tools disabled; cwd is not a filesystem sandbox'
-            : 'Generic CLI; cwd is not a filesystem sandbox',
+            : options.runner === 'claude' || options.runner === 'opencode'
+              ? `requested ${options.toolAccess ?? 'disabled'}; inherited configuration may apply; cwd is not a filesystem sandbox`
+              : 'Generic CLI; cwd is not a filesystem sandbox',
       },
     },
   };
@@ -1073,21 +1145,167 @@ export async function evaluateModeling(options: {
   return result;
 }
 
-function resolveCommand(options: {
-  runner: 'pi' | 'command';
+function parseOpenCodeInlineConfig(
+  raw: string | undefined,
+): Record<string, unknown> {
+  if (!raw?.trim()) return {};
+  const errors: import('jsonc-parser').ParseError[] = [];
+  const parsed: unknown = parseJsonc(raw, errors, { allowTrailingComma: true });
+  if (!isRecord(parsed) || errors.length > 0)
+    throw new Error(
+      'OPENCODE_CONFIG_CONTENT must be a valid JSON/JSONC object; its contents were not logged.',
+    );
+  if (parsed.agent !== undefined && !isRecord(parsed.agent))
+    throw new Error(
+      'OPENCODE_CONFIG_CONTENT agent entries must be an object; its contents were not logged.',
+    );
+  return parsed;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function normalizeToolAccess(options: {
+  runner: EvaluationRunner;
+  toolAccess?: ToolAccess;
+  piToolAccess?: ToolAccess;
+}): ToolAccess | undefined {
+  if (
+    options.toolAccess !== undefined &&
+    options.piToolAccess !== undefined &&
+    options.toolAccess !== options.piToolAccess
+  )
+    throw new Error('Conflicting --tools and --pi-tools values.');
+  if (options.piToolAccess !== undefined && options.runner !== 'pi')
+    throw new Error(
+      'piToolAccess is Pi-only; use toolAccess for managed CLI runners.',
+    );
+  if (options.runner === 'command') {
+    if (options.toolAccess !== undefined || options.piToolAccess !== undefined)
+      throw new Error(
+        'Generic command tool policy is caller-defined and cannot be asserted by the evaluator.',
+      );
+    return undefined;
+  }
+  return options.toolAccess ?? options.piToolAccess ?? 'disabled';
+}
+
+/** Resolves a runner's literal invocation and adapter-specific transport/policy settings. */
+export function resolveCommand(options: {
+  runner: EvaluationRunner;
   command?: CommandSpec;
-  piToolAccess?: 'disabled' | 'enabled';
+  toolAccess?: ToolAccess;
+  piToolAccess?: ToolAccess;
 }): {
   invocation: CommandSpec;
-  versionInvocation: CommandSpec;
-  parseMetadata?: (stdout: string) => { model?: string; provider?: string };
+  versionInvocation?: CommandSpec;
+  invocationEnv?: NodeJS.ProcessEnv;
+  parseMetadata?: (stdout: string) => {
+    model?: string;
+    provider?: string;
+    sessionId?: string;
+  };
+  extractText?: (
+    stdout: string,
+    truncated: boolean,
+  ) => { text?: string; status: string };
+  parserName?: string;
 } {
   if (options.runner === 'command') {
     if (!options.command?.executable)
       throw new Error('Generic command runner requires an executable');
+    return { invocation: options.command };
+  }
+  if (options.runner === 'claude') {
+    const executable = process.env.CLAUDE_CLI ?? 'claude';
+    const enabled = options.toolAccess === 'enabled';
     return {
-      invocation: options.command,
-      versionInvocation: options.command,
+      invocation: {
+        executable,
+        args: [
+          '-p',
+          '--output-format',
+          'json',
+          '--permission-mode',
+          'dontAsk',
+          '--tools',
+          enabled ? 'Read,Write,Edit,Bash,Glob,Grep' : '',
+          ...(enabled
+            ? ['--allowedTools', 'Read,Write,Edit,Bash,Glob,Grep']
+            : []),
+          '--disallowedTools',
+          'mcp__*',
+        ],
+      },
+      versionInvocation: { executable, args: ['--version'] },
+      extractText: extractClaudeResult,
+      parseMetadata: parseClaudeMetadata,
+      parserName: 'claude-print-json-result',
+    };
+  }
+  if (options.runner === 'opencode') {
+    const executable = process.env.OPENCODE_CLI ?? 'opencode';
+    const agent = `maelstrom-evaluation-${randomUUID()}`;
+    const enabledTools = [
+      'bash',
+      'edit',
+      'write',
+      'read',
+      'list',
+      'glob',
+      'grep',
+    ];
+    const permission = Object.fromEntries([
+      ['*', 'deny'],
+      ...[
+        'bash',
+        'edit',
+        'write',
+        'apply_patch',
+        'read',
+        'list',
+        'glob',
+        'grep',
+        'lsp',
+        'webfetch',
+        'websearch',
+        'skill',
+        'task',
+        'question',
+        'plan_enter',
+        'plan_exit',
+        'todowrite',
+      ].map((tool) => [
+        tool,
+        options.toolAccess === 'enabled' && enabledTools.includes(tool)
+          ? 'allow'
+          : 'deny',
+      ]),
+    ]);
+    const inlineConfig = parseOpenCodeInlineConfig(
+      process.env.OPENCODE_CONFIG_CONTENT,
+    );
+    const config = {
+      ...inlineConfig,
+      agent: {
+        ...(inlineConfig.agent as Record<string, unknown> | undefined),
+        [agent]: { mode: 'primary', permission },
+      },
+    };
+    return {
+      invocation: {
+        executable,
+        args: ['--pure', 'run', '--format', 'json', '--agent', agent],
+      },
+      versionInvocation: { executable, args: ['--version'] },
+      invocationEnv: {
+        OPENCODE_PERMISSION: JSON.stringify(permission),
+        OPENCODE_CONFIG_CONTENT: JSON.stringify(config),
+      },
+      extractText: extractOpenCodeResult,
+      parseMetadata: parseOpenCodeMetadata,
+      parserName: 'opencode-1.18.32-jsonl-final-step',
     };
   }
   const executable = process.env.PI_CLI ?? 'pi';
@@ -1103,7 +1321,7 @@ function resolveCommand(options: {
         '--no-prompt-templates',
         '--no-themes',
         '--no-context-files',
-        ...(options.piToolAccess === 'enabled'
+        ...(options.toolAccess === 'enabled'
           ? ['--tools', 'read,write,edit,bash,grep,find,ls']
           : ['--no-tools']),
         '-p',
@@ -1112,6 +1330,9 @@ function resolveCommand(options: {
     },
     versionInvocation: { executable, args: ['--version'] },
     parseMetadata: parsePiMetadata,
+    extractText: (stdout, truncated) =>
+      extractPiAssistantText(stdout, truncated),
+    parserName: 'pi-jsonl-final-assistant-message',
   };
 }
 
@@ -1246,6 +1467,178 @@ export function extractPiAssistantText(
   return text.trim()
     ? { text, status: 'ok' }
     : { status: 'no-final-assistant-text' };
+}
+
+function extractCommandText(
+  command: ReturnType<typeof resolveCommand>,
+  processResult: ProcessResult,
+) {
+  if (processResult.captureIncomplete && command.parserName !== undefined)
+    return { status: 'capture-incomplete' };
+  const extracted = command.extractText?.(
+    processResult.stdout,
+    processResult.outputTruncated,
+  );
+  if (
+    command.parserName === 'opencode-1.18.32-jsonl-final-step' &&
+    /agent .*?(not found|not a primary agent)|Falling back to default agent/i.test(
+      processResult.stderr,
+    )
+  )
+    return { status: 'agent-selection-fallback' };
+  return extracted;
+}
+
+export function extractOpenCodeResult(
+  stdout: string,
+  truncated = false,
+): { text?: string; status: string } {
+  if (truncated) return { status: 'truncated' };
+  const lines = stdout.split('\n').filter(Boolean);
+  if (!lines.length) return { status: 'no-events' };
+  let sessionID: string | undefined;
+  let activeStep: { messageID: string; text: string[] } | undefined;
+  let finalText: string | undefined;
+  for (const line of lines) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      return { status: 'invalid-jsonl' };
+    }
+    if (!isRecord(parsed) || typeof parsed.type !== 'string')
+      return { status: 'invalid-event-envelope' };
+    const event = parsed;
+    if (
+      typeof event.sessionID !== 'string' ||
+      (sessionID !== undefined && sessionID !== event.sessionID)
+    )
+      return { status: 'mixed-or-missing-session' };
+    sessionID = event.sessionID;
+    if (event.type === 'error') return { status: 'error-event' };
+    if (event.type === 'step_start') {
+      if (activeStep) return { status: 'unfinished-step-before-next-step' };
+      const part = event.part;
+      if (!isRecord(part) || part.type !== 'step-start')
+        return { status: 'incomplete-step-start' };
+      const common = openCodePartIdentity(part, sessionID);
+      if (common.status !== 'ok') return common;
+      activeStep = { messageID: common.messageID, text: [] };
+      finalText = undefined;
+      continue;
+    }
+    if (event.type === 'step_finish') {
+      const part = event.part;
+      if (!isRecord(part) || part.type !== 'step-finish')
+        return { status: 'incomplete-step-finish' };
+      const common = openCodePartIdentity(part, sessionID);
+      if (common.status !== 'ok') return common;
+      if (!activeStep || activeStep.messageID !== common.messageID)
+        return { status: 'step-finish-without-active-step' };
+      if (typeof part.reason !== 'string')
+        return { status: 'incomplete-step-finish' };
+      finalText = part.reason === 'stop' ? activeStep.text.join('') : undefined;
+      activeStep = undefined;
+      continue;
+    }
+    if (event.type === 'text') {
+      const part = event.part;
+      if (!isRecord(part) || part.type !== 'text')
+        return { status: 'incomplete-text-part' };
+      const common = openCodePartIdentity(part, sessionID);
+      if (common.status !== 'ok') return common;
+      if (!activeStep || activeStep.messageID !== common.messageID)
+        return { status: 'text-outside-active-step' };
+      if (
+        typeof part.text !== 'string' ||
+        !isRecord(part.time) ||
+        typeof part.time.end !== 'number'
+      )
+        return { status: 'incomplete-text-part' };
+      activeStep.text.push(part.text);
+      continue;
+    }
+    if (event.type === 'tool_use' || event.type === 'reasoning') {
+      if (event.part !== undefined) {
+        if (!isRecord(event.part)) return { status: 'invalid-event-part' };
+        const common = openCodePartIdentity(event.part, sessionID);
+        if (common.status !== 'ok') return common;
+        if (!activeStep || activeStep.messageID !== common.messageID)
+          return { status: 'part-outside-active-step' };
+      }
+      continue;
+    }
+    return { status: 'unsupported-event-type' };
+  }
+  if (activeStep) return { status: 'unfinished-final-step' };
+  return finalText?.trim()
+    ? { text: finalText, status: 'ok' }
+    : { status: 'no-final-step-text' };
+}
+
+function parseOpenCodeMetadata(stdout: string): { sessionId?: string } {
+  for (const line of stdout.split('\n').filter(Boolean)) {
+    try {
+      const event = JSON.parse(line) as Record<string, unknown>;
+      if (typeof event.sessionID === 'string')
+        return { sessionId: event.sessionID };
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
+function openCodePartIdentity(
+  part: Record<string, unknown>,
+  sessionID: string,
+):
+  | { messageID: string; status: 'ok' }
+  | { status: 'nested-session-mismatch' | 'missing-part-message-id' } {
+  if (part.sessionID !== sessionID)
+    return { status: 'nested-session-mismatch' };
+  if (typeof part.messageID !== 'string')
+    return { status: 'missing-part-message-id' };
+  return { messageID: part.messageID, status: 'ok' };
+}
+
+export function extractClaudeResult(
+  stdout: string,
+  truncated = false,
+): { text?: string; status: string } {
+  if (truncated) return { status: 'truncated' };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    return { status: 'invalid-json' };
+  }
+  if (!isRecord(parsed)) return { status: 'invalid-envelope' };
+  const result = parsed;
+  if (typeof result.subtype !== 'string') return { status: 'invalid-envelope' };
+  if (result.is_error === true || result.subtype !== 'success')
+    return { status: 'error-result' };
+  if (typeof result.result !== 'string' || !result.result.trim())
+    return { status: 'no-final-result' };
+  return { text: result.result, status: 'ok' };
+}
+
+function parseClaudeMetadata(stdout: string): {
+  model?: string;
+  provider?: string;
+  sessionId?: string;
+} {
+  try {
+    const value = JSON.parse(stdout) as Record<string, unknown>;
+    return {
+      sessionId:
+        typeof value.session_id === 'string' ? value.session_id : undefined,
+      model: typeof value.model === 'string' ? value.model : undefined,
+      provider: typeof value.provider === 'string' ? value.provider : undefined,
+    };
+  } catch {
+    return {};
+  }
 }
 
 function parsePiMetadata(stdout: string): {
@@ -1433,7 +1826,9 @@ if (import.meta.main) {
   let executable: string | undefined;
   let candidateRoot: string | undefined;
   let authorization: 'operator-approved' | 'verified-containment' | undefined;
-  let piToolAccess: 'disabled' | 'enabled' | undefined;
+  let toolAccess: ToolAccess | undefined;
+  let piToolFlag = false;
+  let cliError = false;
   const commandArgs: string[] = [];
   for (let index = 0; index < args.length; index++) {
     const flag = args[index];
@@ -1463,22 +1858,44 @@ if (import.meta.main) {
       authorization = value;
       index++;
     } else if (
-      flag === '--pi-tools' &&
+      (flag === '--tools' || flag === '--pi-tools') &&
       (value === 'enabled' || value === 'disabled')
     ) {
-      piToolAccess = value;
+      if (toolAccess && toolAccess !== value) {
+        console.error('Conflicting --tools and --pi-tools values');
+        process.exitCode = 2;
+        cliError = true;
+        break;
+      }
+      toolAccess = value;
+      piToolFlag ||= flag === '--pi-tools';
       index++;
+    } else if (flag === '--tools' || flag === '--pi-tools') {
+      console.error(`${flag} requires enabled or disabled`);
+      process.exitCode = 2;
+      cliError = true;
+      break;
     }
   }
   if (
+    cliError ||
     !caseId ||
     !isCaseId(caseId) ||
-    (runner !== 'pi' && runner !== 'command') ||
+    (runner !== 'pi' &&
+      runner !== 'command' &&
+      runner !== 'opencode' &&
+      runner !== 'claude') ||
     !output ||
-    (runner === 'command' && !executable)
+    (runner === 'command' && !executable) ||
+    (toolAccess !== undefined && runner === 'command') ||
+    (piToolFlag && runner !== 'pi') ||
+    (toolAccess === 'enabled' &&
+      runner !== 'pi' &&
+      runner !== 'claude' &&
+      runner !== 'opencode')
   ) {
     console.error(
-      `Usage: bun run --cwd apps/docs prompts:evaluate --case <${Object.keys(caseRegistry).join('|')}> --runner <pi|command> --output <private-outside-checkout-dir> [--candidate-root <prepared-trial-project> --authorize-coding <operator-approved|verified-containment> --pi-tools enabled] [--command <executable> --arg <argv> ...]`,
+      `Usage: bun run --cwd apps/docs prompts:evaluate --case <${Object.keys(caseRegistry).join('|')}> --runner <pi|opencode|claude|command> --output <private-outside-checkout-dir> [--candidate-root <prepared-trial-project> --authorize-coding <operator-approved|verified-containment> --tools enabled] [--command <executable> --arg <argv> ...]`,
     );
     process.exitCode = 2;
   } else {
@@ -1498,7 +1915,7 @@ if (import.meta.main) {
         signal: controller.signal,
         ...(candidateRoot ? { candidateRoot, baseline } : {}),
         ...(authorization ? { executionAuthorization: authorization } : {}),
-        ...(piToolAccess ? { piToolAccess } : {}),
+        ...(toolAccess ? { toolAccess } : {}),
       }),
     );
     evaluation

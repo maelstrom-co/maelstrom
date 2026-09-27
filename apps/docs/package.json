@@ -19,6 +19,7 @@
     "@fontsource/inter": "^5.2.8",
     "@fontsource/jetbrains-mono": "^5.2.8",
     "astro": "catalog:",
+    "jsonc-parser": "3.3.1",
     "react": "catalog:",
     "react-dom": "catalog:"
   },

@@ -490,6 +490,10 @@ export default defineConfig({
           items: [
             { label: 'Prompts library', link: '/agents/prompts/' },
             { label: 'SKILL', link: '/agents/skills/' },
+            {
+              label: 'Testing prompts and skills',
+              link: '/agents/evaluations/',
+            },
           ],
         },
         {

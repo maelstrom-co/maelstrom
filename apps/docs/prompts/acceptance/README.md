@@ -99,6 +99,14 @@ An optional external-service check must be separately authorized, use a disposab
 non-production environment, and record infrastructure setup and redacted evidence;
 never place credentials or tokens in a fixture or record.
 
+## Comparing prompt and skill conditions
+
+Each registered task uses the same fresh, unsolved task fixture. Calibration's known-good and deliberately broken projects test the grader; they are not candidate answers shown to an agent. A task is always present. The canonical prompt is optional context, and skills are optional available procedures—not evidence that an agent discovered or used them. The four conceptual conditions are task only, task plus canonical prompt, task plus skills, and task plus both. A forced skill run tests following supplied guidance; it does not test skill discovery.
+
+A fair comparison holds fixture, model/CLI/settings, permissions, budget, and grader constant. Independent repeats can compare reliability, elapsed time, tokens, or cost only when measured; no condition guarantees improvement. When changing a prompt or skill, preserve the baseline result, rerun on fresh copies, retain concrete failures as regression cases, and do not tune only known cases or weaken checks to improve a score. Version/schema guards establish contract validity, not behavioral quality. Objective evidence checks are distinct from pending semantic review; the simulated connector is not a live Engine/provider.
+
+The current harness has five canonical-prompt cases and objective grading. It does not yet provide an automatic prompt/skill A/B matrix, repeated old/new summaries, or release thresholds. Deliberately suppressing a skill is a separate baseline condition; CLI skill discovery is not automatically toggled by this harness.
+
 ## Fixture inputs
 
 - `fixtures/onboarding-react`: small React support-queue application for
