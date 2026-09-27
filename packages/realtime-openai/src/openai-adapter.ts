@@ -395,6 +395,20 @@ export class OpenAIAdapter
           'OpenAI realtime data channel closed during connection setup',
         );
       }
+      try {
+        const grounding = opts.getInitialGrounding?.();
+        if (
+          grounding !== undefined &&
+          attempt.isCurrent &&
+          channel === this.#dc
+        )
+          this.injectGrounding(grounding);
+      } catch {
+        this.#emit({
+          type: 'error',
+          error: new Error('Initial UI context unavailable'),
+        });
+      }
     } catch (error) {
       // Always close this attempt's own connection + mic. They may never have
       // reached the shared fields (e.g. a failure before the post-getUserMedia
@@ -489,7 +503,7 @@ export class OpenAIAdapter
           item: {
             id: GROUNDING_ITEM_ID,
             type: 'message',
-            role: 'system',
+            role: 'user',
             content: [{ type: 'input_text', text }],
           },
         }),

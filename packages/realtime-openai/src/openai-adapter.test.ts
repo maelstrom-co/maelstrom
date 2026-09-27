@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import type {
   CapabilitySnapshot,
   UIStructuralSnapshot,
@@ -6,6 +6,7 @@ import type {
 import { MessageId, SessionId, ToolCallId } from '@maelstrom-co/protocol';
 import type {
   AdapterConnectOptions,
+  RealtimeAdapterEvent,
   RealtimeInstance,
   RealtimeProviderAdapter,
 } from '@maelstrom-co/realtime';
@@ -1231,6 +1232,60 @@ describe('OpenAIAdapter — closed data channel', () => {
 // ============================================================================
 
 describe('OpenAIAdapter — successful connect then disconnect', () => {
+  it('reads initial grounding after the handshake and replaces it as data without requesting speech', async () => {
+    let current = 'UI snapshot r1: calendar';
+    const adapter = new OpenAIAdapter({ mintToken: async () => fakeToken });
+    const getInitialGrounding = mock(() => current);
+    const connecting = adapter.connect({ ...connectOpts, getInitialGrounding });
+    const channel = await latestDataChannel();
+    expect(getInitialGrounding).not.toHaveBeenCalled();
+    current = 'UI snapshot r2: journal';
+    channel.triggerOpen();
+    await connecting;
+    const initial = channel.sent.map((value) => JSON.parse(value));
+    expect(initial.map((value) => value.type)).toEqual([
+      'session.update',
+      'conversation.item.create',
+    ]);
+    expect(initial[1].item).toMatchObject({
+      role: 'user',
+      content: [{ type: 'input_text', text: current }],
+    });
+    adapter.injectGrounding('UI snapshot r3: tasks');
+    const replacement = channel.sent
+      .slice(-2)
+      .map((value) => JSON.parse(value));
+    expect(replacement[0]).toMatchObject({
+      type: 'conversation.item.delete',
+      item_id: initial[1].item.id,
+    });
+    expect(replacement[1].item.id).toBe(initial[1].item.id);
+    expect(
+      channel.sent.some(
+        (value) => JSON.parse(value).type === 'response.create',
+      ),
+    ).toBe(false);
+    await adapter.disconnect();
+  });
+
+  it('keeps the connection usable when optional startup context is unavailable', async () => {
+    const adapter = new OpenAIAdapter({ mintToken: async () => fakeToken });
+    const events: RealtimeAdapterEvent[] = [];
+    adapter.on((event) => events.push(event));
+    const connecting = adapter.connect({
+      ...connectOpts,
+      getInitialGrounding: () => {
+        throw new Error('private snapshot');
+      },
+    });
+    const channel = await latestDataChannel();
+    channel.triggerOpen();
+    await connecting;
+    expect(events.some((event) => event.type === 'error')).toBe(true);
+    adapter.injectGrounding('Later valid snapshot');
+    expect(channel.sent.at(-1)).toContain('Later valid snapshot');
+    await adapter.disconnect();
+  });
   it('sends session.update with tools and instructions on channel open, then disconnect tears everything down', async () => {
     const adapter = new OpenAIAdapter({ mintToken: async () => fakeToken });
     const dc = await connectAndOpen(adapter);
