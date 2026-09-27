@@ -32,6 +32,9 @@
               "@maelstrom-co/realtime-openai": {
                 "message": "Server and worker packages may not import @maelstrom-co/realtime-openai \u2014 it's a browser package. See packages/realtime-protocol/src/layer-boundary.test.ts for the enforced layering rule."
               },
+              "@maelstrom-co/realtime-openai-live": {
+                "message": "Server and worker packages may not import @maelstrom-co/realtime-openai-live \u2014 it's a browser package. See packages/realtime-protocol/src/layer-boundary.test.ts for the enforced layering rule."
+              },
               "@maelstrom-co/realtime-vad": {
                 "message": "Server and worker packages may not import @maelstrom-co/realtime-vad \u2014 it's a browser package. See packages/realtime-protocol/src/layer-boundary.test.ts for the enforced layering rule."
               },
