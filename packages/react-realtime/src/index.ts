@@ -2,7 +2,13 @@ export type { LevelMeter } from './lib/level-meter.js';
 export { createLevelMeter } from './lib/level-meter.js';
 export type {
   CreateAdapterContext,
+  MaelstromRealtimeBaseOptions,
+  MaelstromRealtimeFixedOpeningOptions,
+  MaelstromRealtimeOpeningOptions,
   MaelstromRealtimeOptions,
+  RealtimeOpening,
+  RealtimeSessionContext,
+  RealtimeSessionInit,
   UseVoiceObservationsResult,
   UseVoiceResult,
 } from './lib/maelstrom-realtime.js';

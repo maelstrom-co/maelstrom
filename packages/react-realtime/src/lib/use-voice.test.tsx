@@ -876,7 +876,9 @@ describe('maelstromRealtime() useVoice lifecycle', () => {
       );
     });
 
-    expect(contexts).toEqual([{ sessionId: SessionId('fixed-session-id') }]);
+    expect(contexts).toEqual([
+      { sessionId: SessionId('fixed-session-id'), provider: undefined },
+    ]);
   });
 });
 
@@ -1416,5 +1418,207 @@ describe('maelstromRealtime() instance bridge', () => {
     const settled = await instance.waitForIdleResult?.();
 
     expect(settled).toEqual({ ok: false, error: expect.any(Error) });
+  });
+});
+
+describe('maelstromRealtime() provider switching', () => {
+  type Provider = 'live' | 'realtime';
+
+  function switchingSetup() {
+    const adapters: Array<{ provider: Provider }> = [];
+    const attached: Array<{ provider: Provider; instanceId: string }> = [];
+    const released: string[] = [];
+    const entry = vessel(testVessel, () => null);
+    const m = createMaelstrom({ vessels: [entry] }).with(
+      maelstromRealtime({
+        providers: ['live', 'realtime'],
+        createAdapter: ({ provider }) => {
+          adapters.push({ provider });
+          return makeFakeAdapter();
+        },
+        opening: ({ provider }) =>
+          provider === 'live'
+            ? { generatedOpening: { instructions: 'Introduce yourself.' } }
+            : { greeting: { text: 'Hello.' } },
+        onSession: (_session, context) => {
+          attached.push({
+            provider: context.provider,
+            instanceId: context.instanceId,
+          });
+          return () => released.push(context.instanceId);
+        },
+      }),
+    );
+    return {
+      m,
+      connector: createMockConnector(),
+      adapters,
+      attached,
+      released,
+    };
+  }
+
+  it('moves every mounted consumer to the new session and resets transcripts', async () => {
+    const { m, connector, adapters, attached, released } = switchingSetup();
+    const voices: Record<string, UseVoiceResult<Provider>> = {};
+    let observed: UseVoiceObservationsResult | undefined;
+    function Voice({ name }: { name: string }) {
+      voices[name] = m.useVoice();
+      return null;
+    }
+    function Observations() {
+      observed = m.useVoiceObservations();
+      return null;
+    }
+    const disconnect = deferred<void>();
+    await act(async () => {
+      render(
+        <StrictMode>
+          <m.Provider connector={connector}>
+            <Voice name="first" />
+            <Voice name="second" />
+            <Observations />
+            <m.VoiceOrb />
+          </m.Provider>
+        </StrictMode>,
+      );
+    });
+    const old = must(FakeRealtimeSession.instances[0]);
+    expect(must(voices.first).provider).toBe('live');
+    expect(
+      (old.options as { generatedOpening?: unknown }).generatedOpening,
+    ).toEqual({ instructions: 'Introduce yourself.' });
+    await act(async () => {
+      old.emitTranscript({ role: 'user', text: 'hi', final: true });
+    });
+    expect(must(voices.second).userTranscript?.text).toBe('hi');
+
+    sessionDisconnectGate = disconnect.promise;
+    let switching!: Promise<void>;
+    await act(async () => {
+      switching = must(voices.first).switchProvider('realtime');
+    });
+    expect(must(voices.second).switching).toBe(true);
+    expect(
+      document.querySelector('button[aria-label="Start voice"]'),
+    ).toHaveProperty('disabled', true);
+    await act(async () => must(voices.second).connect());
+    expect(old.connectCalls).toBe(0);
+    expect(FakeRealtimeSession.instances).toHaveLength(1);
+
+    sessionDisconnectGate = undefined;
+    await act(async () => {
+      disconnect.resolve();
+      await switching;
+    });
+    const replacement = must(FakeRealtimeSession.instances[1]);
+    expect(old.disconnectCalls).toBe(1);
+    for (const voice of [must(voices.first), must(voices.second)]) {
+      expect(voice.session).toBe(replacement as never);
+      expect(voice.provider).toBe('realtime');
+      expect(voice.switching).toBe(false);
+      expect(voice.userTranscript).toBeUndefined();
+    }
+    expect(must(observed).session).toBe(replacement as never);
+    expect(replacement.options.greeting?.text).toBe('Hello.');
+    expect(replacement.options.greeting?.coordinator).toBeDefined();
+    expect(adapters.map((adapter) => adapter.provider)).toEqual([
+      'live',
+      'realtime',
+    ]);
+    expect(attached.map((session) => session.provider)).toEqual([
+      'live',
+      'realtime',
+    ]);
+    expect(released).toEqual([must(attached[0]).instanceId]);
+    expect(replacement.connectCalls).toBe(0);
+
+    await act(async () => {
+      old.emitState('error');
+      replacement.emitState('listening');
+    });
+    expect(must(voices.first).state).toBe('listening');
+    await act(async () => must(voices.first).connect());
+    expect(replacement.connectCalls).toBe(1);
+    expect(old.connectCalls).toBe(0);
+  });
+
+  it('builds the next session with the provider selected before retirement', async () => {
+    const { m, connector, adapters } = switchingSetup();
+    let voice: UseVoiceResult<Provider> | undefined;
+    function Voice() {
+      voice = m.useVoice();
+      return null;
+    }
+    let rerender!: (ui: ReactNode) => void;
+    await act(async () => {
+      ({ rerender } = render(
+        <m.Provider connector={connector}>
+          <Voice />
+        </m.Provider>,
+      ));
+    });
+    await act(async () => must(voice).switchProvider('realtime'));
+    await act(async () => {
+      rerender(<m.Provider connector={connector}>{null}</m.Provider>);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      rerender(
+        <m.Provider connector={connector}>
+          <Voice />
+        </m.Provider>,
+      );
+    });
+    expect(FakeRealtimeSession.instances).toHaveLength(3);
+    expect(must(voice).provider).toBe('realtime');
+    expect(adapters.map((adapter) => adapter.provider)).toEqual([
+      'live',
+      'realtime',
+      'realtime',
+    ]);
+  });
+
+  it('omits the generated opening once the fixed greeting is terminal', async () => {
+    const { m, connector } = switchingSetup();
+    let voice: UseVoiceResult<Provider> | undefined;
+    function Voice() {
+      voice = m.useVoice();
+      return null;
+    }
+    await act(async () => {
+      render(
+        <m.Provider connector={connector}>
+          <Voice />
+        </m.Provider>,
+      );
+    });
+    await act(async () => must(voice).switchProvider('realtime'));
+    await act(async () => must(voice).skipGreeting());
+    await act(async () => must(voice).switchProvider('live'));
+    const live = must(FakeRealtimeSession.instances[2]);
+    expect(
+      (live.options as { generatedOpening?: unknown }).generatedOpening,
+    ).toBeUndefined();
+  });
+
+  it('rejects a provider that is not listed', async () => {
+    const { m, connector } = switchingSetup();
+    let voice: UseVoiceResult<Provider> | undefined;
+    function Voice() {
+      voice = m.useVoice();
+      return null;
+    }
+    await act(async () => {
+      render(
+        <m.Provider connector={connector}>
+          <Voice />
+        </m.Provider>,
+      );
+    });
+    await expect(
+      must(voice).switchProvider('livekit' as Provider),
+    ).rejects.toBeInstanceOf(RangeError);
+    expect(FakeRealtimeSession.instances).toHaveLength(1);
   });
 });

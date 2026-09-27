@@ -34,12 +34,17 @@ const STATE_COLORS: Record<VoiceSessionState, string> = {
  * same `useVoice` instance the extension attaches to the Maelstrom
  * instance) rather than exported as a standalone component.
  */
-export function createVoiceOrb(useVoice: () => UseVoiceResult) {
+export function createVoiceOrb(
+  useVoice: () => Pick<
+    UseVoiceResult<unknown>,
+    'state' | 'session' | 'connect' | 'disconnect' | 'switching'
+  >,
+) {
   return function VoiceOrb({
     size = 64,
     className,
   }: VoiceOrbProps): ReactElement {
-    const { state, session, connect, disconnect } = useVoice();
+    const { state, session, connect, disconnect, switching } = useVoice();
     const orbRef = useRef<HTMLButtonElement>(null);
     const disconnectPendingRef = useRef(false);
     const [disconnectPending, setDisconnectPending] = useState(false);
@@ -90,7 +95,7 @@ export function createVoiceOrb(useVoice: () => UseVoiceResult) {
         aria-label={live ? 'Stop voice' : 'Start voice'}
         className={className}
         style={style}
-        disabled={disconnectPending}
+        disabled={disconnectPending || switching}
         onClick={() => {
           if (!live) {
             void connect().catch(() => {});

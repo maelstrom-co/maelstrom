@@ -362,7 +362,7 @@ export class DemoVoiceOwner {
     };
   }
 
-  read(): UseVoiceResult & {
+  read(): Omit<UseVoiceResult, 'provider' | 'switching' | 'switchProvider'> & {
     owner: DemoVoiceOwner;
     provider: DemoVoiceProvider;
     switching: boolean;
