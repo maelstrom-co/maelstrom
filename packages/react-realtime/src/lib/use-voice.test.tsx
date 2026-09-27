@@ -19,6 +19,7 @@ import type {
   RealtimeProviderAdapter,
   TurnModeEvent,
 } from '@maelstrom-co/realtime';
+import { RealtimeSessionMemory } from '@maelstrom-co/realtime';
 import { act, cleanup, render } from '@testing-library/react';
 import { type ReactNode, StrictMode } from 'react';
 
@@ -208,6 +209,7 @@ class FakeRealtimeSession {
 }
 
 mock.module('@maelstrom-co/realtime', () => ({
+  RealtimeSessionMemory,
   RealtimeSession: FakeRealtimeSession,
   GreetingCoordinator: FakeGreetingCoordinator,
 }));

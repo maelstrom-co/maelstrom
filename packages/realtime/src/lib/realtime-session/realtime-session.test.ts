@@ -48,6 +48,45 @@ function flushMicrotasks(): Promise<void> {
 }
 
 describe('additive continuous capabilities', () => {
+  it('preserves deliberate cancellation during recovery without installing a late listener', async () => {
+    const { session, adapter } = makeHarness();
+    const subscribe = spyOn(session.memory, 'subscribe');
+    let ending: Promise<void> | undefined;
+    Object.assign(adapter, {
+      recovery: {
+        update: () => {
+          ending = session.disconnect();
+        },
+      },
+    });
+    await session.connect();
+    await ending;
+    expect(session.state).toBe('idle');
+    expect(subscribe).not.toHaveBeenCalled();
+    subscribe.mockRestore();
+  });
+  it('rejects synchronous fatal recovery setup without retaining listeners on repeated attempts', async () => {
+    const { session, adapter, instance } = makeHarness();
+    const failure = new RealtimeVoiceError(
+      'DATA_CHANNEL_ERROR',
+      'recovery failed',
+    );
+    const subscribe = spyOn(session.memory, 'subscribe');
+    Object.assign(adapter, {
+      recovery: { update: () => adapter.emitError(failure) },
+    });
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await expect(session.connect()).rejects.toBe(failure);
+      expect(session.lastError).toBe(failure);
+      expect(session.state).toBe('error');
+      expect(adapter.listenerCount).toBe(0);
+      expect(instance.settledSubscriberCount).toBe(0);
+      expect(subscribe).not.toHaveBeenCalled();
+    }
+    subscribe.mockRestore();
+    await session.disconnect();
+  });
+
   it('preserves provider and disposer failures together after shutdown', async () => {
     const { session, adapter } = makeHarness();
     const cleanup = new Error('observation release failed');

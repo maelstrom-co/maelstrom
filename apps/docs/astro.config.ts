@@ -394,6 +394,7 @@ export default defineConfig({
               items: [
                 { slug: 'guides/voice/overview' },
                 { slug: 'guides/voice/openai-realtime' },
+                { slug: 'guides/voice/live-opening-recovery' },
                 { slug: 'guides/voice/livekit-cascade' },
               ],
             },

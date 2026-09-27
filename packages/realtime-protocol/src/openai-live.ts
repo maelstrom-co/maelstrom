@@ -47,6 +47,8 @@ export interface LiveResponsesConfig {
 
 /** Startup configuration for WebRTC with managed Responses; no credential fields. */
 export interface LiveSessionConfig {
+  /** Prior text context available at startup. This implementation bounds combined text to 8192 UTF-8 bytes, conservatively below the provider token limit. */
+  readonly input?: readonly LiveInputMessage[];
   /** Voice model with project access. */
   readonly model: string;
   /** Conversation-only instructions. */
@@ -70,6 +72,39 @@ export interface LiveSessionConfig {
   };
 }
 
+/** Supported Live startup text message. Factual recovery data must not use the trusted developer role. */
+export type LiveInputMessage = {
+  /** Message discriminator. */
+  readonly type: 'message';
+} & (
+  | {
+      /** Trusted application behavior or untrusted reference/user data. */
+      readonly role: 'developer' | 'user';
+      /** Exactly one input text part. */
+      readonly content: readonly [
+        {
+          /** Input text discriminator. */
+          readonly type: 'input_text';
+          /** Message text. */
+          readonly text: string;
+        },
+      ];
+    }
+  | {
+      /** Prior assistant text, not fabricated intended speech. */
+      readonly role: 'assistant';
+      /** Exactly one assistant text part. */
+      readonly content: readonly [
+        {
+          /** Supported assistant text discriminators. */
+          readonly type: 'output_text' | 'text';
+          /** Message text. */
+          readonly text: string;
+        },
+      ];
+    }
+);
+
 const nonempty = z
   .string()
   .min(1)
@@ -90,6 +125,41 @@ export const LiveSessionConfigSchema: z.ZodType<LiveSessionConfig> =
   z.strictObject({
     model: nonempty,
     instructions: z.string().max(131_072).optional(),
+    input: z
+      .array(
+        z.union([
+          z.strictObject({
+            type: z.literal('message'),
+            role: z.enum(['user', 'developer']),
+            content: z.tuple([
+              z.strictObject({
+                type: z.literal('input_text'),
+                text: z.string(),
+              }),
+            ]),
+          }),
+          z.strictObject({
+            type: z.literal('message'),
+            role: z.literal('assistant'),
+            content: z.tuple([
+              z.strictObject({
+                type: z.enum(['output_text', 'text']),
+                text: z.string(),
+              }),
+            ]),
+          }),
+        ]),
+      )
+      .max(128)
+      .refine(
+        (messages) =>
+          messages.reduce(
+            (bytes, message) =>
+              bytes + new TextEncoder().encode(message.content[0].text).length,
+            0,
+          ) <= 8192,
+      )
+      .optional(),
     store: z.boolean().optional(),
     audio: z
       .strictObject({ output: z.strictObject({ voice: nonempty }) })

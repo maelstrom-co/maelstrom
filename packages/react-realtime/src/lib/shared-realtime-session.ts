@@ -2,6 +2,7 @@ import type { Orchestrator } from '@maelstrom-co/client';
 import {
   GreetingCoordinator,
   type RealtimeSession,
+  RealtimeSessionMemory,
 } from '@maelstrom-co/realtime';
 
 export interface SharedRealtimeSessionEntry {
@@ -18,18 +19,28 @@ interface Entry extends SharedRealtimeSessionEntry {
 export class SharedRealtimeSessionRegistry {
   readonly #entries = new WeakMap<Orchestrator, Entry>();
   readonly #coordinators = new WeakMap<Orchestrator, GreetingCoordinator>();
+  readonly #memories = new WeakMap<Orchestrator, RealtimeSessionMemory>();
 
   getOrCreate(
     orchestrator: Orchestrator,
-    factory: (coordinator: GreetingCoordinator) => RealtimeSession,
+    factory: (
+      coordinator: GreetingCoordinator,
+      memory: RealtimeSessionMemory,
+    ) => RealtimeSession,
   ): SharedRealtimeSessionEntry {
     let entry = this.#entries.get(orchestrator);
     if (!entry) {
       const coordinator =
         this.#coordinators.get(orchestrator) ?? new GreetingCoordinator();
       this.#coordinators.set(orchestrator, coordinator);
+      const sessionId = orchestrator.getConfig().sessionId;
+      let memory = this.#memories.get(orchestrator);
+      if (!memory || memory.sessionId !== sessionId) {
+        memory = new RealtimeSessionMemory(sessionId);
+        this.#memories.set(orchestrator, memory);
+      }
       entry = {
-        session: factory(coordinator),
+        session: factory(coordinator, memory),
         consumers: 0,
         phase: 'live',
         retirementQueued: false,

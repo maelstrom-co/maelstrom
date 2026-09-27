@@ -1,4 +1,4 @@
-import { afterEach, expect, mock, test } from 'bun:test';
+import { afterEach, expect, mock, spyOn, test } from 'bun:test';
 import {
   type EngineConnector,
   Orchestrator,
@@ -11,7 +11,12 @@ import {
   SessionId,
   type SidechannelEvent,
 } from '@maelstrom-co/protocol';
-import { type RealtimeInstance, RealtimeSession } from '@maelstrom-co/realtime';
+import {
+  type RealtimeInstance,
+  RealtimeSession,
+  RealtimeSessionMemory,
+  type RealtimeSessionOptions,
+} from '@maelstrom-co/realtime';
 import type {
   LiveCommand,
   LiveSessionConfig,
@@ -165,6 +170,7 @@ afterEach(async () => {
 async function harness(
   overrides: Partial<RealtimeInstance> = {},
   options: Partial<OpenAILiveAdapterOptions> = {},
+  sessionOptions: Partial<RealtimeSessionOptions> = {},
 ) {
   const peers: Peer[] = [];
   const submissions: string[] = [];
@@ -238,12 +244,38 @@ async function harness(
     onEvent: (e) => {
       events.push(e);
     },
+    ...sessionOptions,
   });
   cleanup.push(() => session.disconnect());
   const connect = async () => {
     const ready = session.connect();
     await tick();
     const channel = peers.at(-1)!.channel;
+    const originalStream = globalThis.MediaStream;
+    globalThis.MediaStream = class {
+      tracks: MediaStreamTrack[] = [];
+      addTrack(track: MediaStreamTrack) {
+        this.tracks.push(track);
+      }
+      getAudioTracks() {
+        return this.tracks;
+      }
+      getTracks() {
+        return this.tracks;
+      }
+    } as unknown as typeof MediaStream;
+    try {
+      const track = Object.assign(new EventTarget(), {
+        kind: 'audio',
+        readyState: 'live',
+        muted: true,
+        stop() {},
+      });
+      peers.at(-1)!.dispatchEvent(Object.assign(new Event('track'), { track }));
+    } finally {
+      globalThis.MediaStream = originalStream;
+    }
+    await tick();
     channel.event('session.started', { session: { id: 'live_session' } });
     await ready;
     return channel;
@@ -261,6 +293,452 @@ async function harness(
     settle: () => settle(),
   };
 }
+
+test('native opening ACK is correlated acceptance, while interrupted observed speech is the only conversation evidence', async () => {
+  const history = mock(async () => 'inserted' as const);
+  const h = await harness({ addAssistantMessageAcknowledged: history });
+  let accepted = false;
+  const opening = h.session
+    .requestGeneratedOpening('In English, introduce yourself briefly.')
+    .then((value) => {
+      accepted = value;
+    });
+  const command = h.channel.sent.find(
+    (value) => value.type === 'session.instructions.append',
+  )!;
+  expect(command).toMatchObject({ delegation_id: null });
+  expect(h.session.getAudioStreams().mic!.getAudioTracks()[0]!.enabled).toBe(
+    true,
+  );
+  h.channel.event('session.instructions.appended', {
+    client_event_id: 'unrelated',
+    start_ms: 0,
+    end_ms: 1,
+  });
+  await tick();
+  expect(accepted).toBe(false);
+  h.channel.event('session.output_transcript.delta', {
+    delta: 'Hello, I can',
+    start_ms: 0,
+    end_ms: 200,
+  });
+  h.channel.event('session.input_transcript.delta', {
+    delta: 'Show labs',
+    start_ms: 100,
+    end_ms: 300,
+  });
+  h.channel.event('session.instructions.appended', {
+    client_event_id: command.event_id,
+    start_ms: 0,
+    end_ms: 1,
+  });
+  await opening;
+  expect(accepted).toBe(true);
+  expect(
+    h.session.memory.getSnapshot().fragments.map((value) => value.text),
+  ).toEqual(['Hello, I can', 'Show labs']);
+  expect(
+    h.session.observations
+      .getSnapshot()
+      .captions.every((value) => !value.final),
+  ).toBe(true);
+  expect(history).not.toHaveBeenCalled();
+  expect(h.events.filter((value) => value.type === 'transcript')).toEqual([]);
+  await h.session.disconnect();
+  const next = await h.connect();
+  expect(await h.session.requestGeneratedOpening('Repeat')).toBe(false);
+  expect(
+    next.sent.some((value) => value.type === 'session.instructions.append'),
+  ).toBe(false);
+  expect(JSON.stringify(h.config().input)).toContain('Hello, I can');
+  expect(JSON.stringify(h.config().input)).not.toContain(
+    'introduce yourself briefly',
+  );
+});
+
+test('blocked playback leaves the introduction unclaimed until explicit activation accepts playback', async () => {
+  let blocked = true;
+  const h = await harness(
+    {},
+    {
+      createAudio: () =>
+        ({
+          pause() {},
+          play: async () => {
+            if (blocked) throw new Error('autoplay blocked');
+          },
+        }) as unknown as HTMLAudioElement,
+    },
+    { generatedOpening: { instructions: 'Introduce yourself briefly.' } },
+  );
+  expect(h.adapter.getTransportSnapshot().playback).toBe('blocked');
+  expect(h.session.getAudioStreams().mic).toBeDefined();
+  expect(h.session.memory.getSnapshot().introductionAttempted).toBe(false);
+  expect(
+    h.channel.sent.filter(
+      (event) => event.type === 'session.instructions.append',
+    ),
+  ).toHaveLength(0);
+  blocked = false;
+  await h.adapter.activateAudio();
+  const openings = h.channel.sent.filter(
+    (event) => event.type === 'session.instructions.append',
+  );
+  expect(openings).toHaveLength(1);
+  expect(h.session.memory.getSnapshot().introductionAttempted).toBe(true);
+  h.channel.event('session.instructions.appended', {
+    client_event_id: openings[0]!.event_id,
+    start_ms: 0,
+    end_ms: 1,
+  });
+  await h.adapter.activateAudio();
+  expect(
+    h.channel.sent.filter(
+      (event) => event.type === 'session.instructions.append',
+    ),
+  ).toHaveLength(1);
+  await h.session.disconnect();
+  const next = await h.connect();
+  expect(
+    next.sent.filter((event) => event.type === 'session.instructions.append'),
+  ).toHaveLength(0);
+});
+
+for (const failure of ['rejected', 'timeout', 'end'] as const) {
+  test(`a ${failure} opening consumes its attempt and late events cannot revive it`, async () => {
+    const h = await harness({}, { contextTimeoutMs: 10 });
+    const opening = h.session
+      .requestGeneratedOpening('In English, greet briefly.')
+      .then(
+        () => 'accepted',
+        () => 'unknown',
+      );
+    const command = h.channel.sent.find(
+      (value) => value.type === 'session.instructions.append',
+    )!;
+    if (failure === 'rejected')
+      h.channel.event('error', {
+        error: {
+          type: 'invalid_request_error',
+          code: 'rejected',
+          message: 'no',
+          client_event_id: command.event_id,
+        },
+      });
+    if (failure === 'end') await h.session.disconnect();
+    expect(await opening).toBe('unknown');
+    await h.session.disconnect();
+    const next = await h.connect();
+    h.channel.event('session.instructions.appended', {
+      client_event_id: command.event_id,
+      start_ms: 0,
+      end_ms: 1,
+    });
+    h.channel.event('session.output_transcript.delta', {
+      delta: 'stale words',
+      start_ms: 0,
+      end_ms: 1,
+    });
+    expect(await h.session.requestGeneratedOpening('In English, repeat.')).toBe(
+      false,
+    );
+    expect(h.session.observations.getSnapshot().fragments).toEqual([]);
+    expect(next.continues()).toEqual([]);
+  });
+}
+
+test('automatic introduction survives full adapter and session recreation but a different identity starts independently', async () => {
+  const memory = new RealtimeSessionMemory(SessionId('application'));
+  const settings = {
+    memory,
+    generatedOpening: { instructions: 'In English, greet briefly.' },
+  };
+  const first = await harness({}, {}, settings);
+  await Promise.all([first.session.connect(), first.session.connect()]);
+  first.channel.event('session.started', { session: { id: 'live_session' } });
+  expect(
+    first.channel.sent.filter(
+      (value) => value.type === 'session.instructions.append',
+    ),
+  ).toHaveLength(1);
+  await first.session.disconnect();
+  const second = await harness({}, {}, settings);
+  expect(
+    second.channel.sent.some(
+      (value) => value.type === 'session.instructions.append',
+    ),
+  ).toBe(false);
+  expect(second.session.memory.getSnapshot().introductionAttempted).toBe(true);
+  const third = await harness(
+    {},
+    {},
+    {
+      sessionId: SessionId('different'),
+      generatedOpening: settings.generatedOpening,
+    },
+  );
+  expect(
+    third.channel.sent.filter(
+      (value) => value.type === 'session.instructions.append',
+    ),
+  ).toHaveLength(1);
+});
+
+test('memory from another session cannot leak recovery context into a new paid connection', async () => {
+  let exchanges = 0;
+  await expect(
+    harness(
+      {},
+      {
+        exchange: async () => {
+          exchanges++;
+          throw new Error('must not connect');
+        },
+      },
+      { memory: new RealtimeSessionMemory(SessionId('another')) },
+    ),
+  ).rejects.toThrow('another Maelstrom session');
+  expect(exchanges).toBe(0);
+});
+
+test('End voice drops the latest unsubmitted slot, retains a late known outcome across recreation, and never resumes functions', async () => {
+  const gate = deferred<void>();
+  const submissions: string[] = [];
+  const memory = new RealtimeSessionMemory(SessionId('application'));
+  const first = await harness(
+    {
+      submitIntent: async (intent) => {
+        submissions.push(intent);
+        if (intent !== 'first') throw new RequestInFlightError();
+        return {};
+      },
+      waitForIdle: () => gate.promise,
+    },
+    {},
+    { memory },
+  );
+  first.channel.begin();
+  first.channel.call('first', 'update_ui', '{"intent":"first"}');
+  first.channel.call('queued', 'update_ui', '{"intent":"queued"}');
+  first.channel.done();
+  await tick();
+  await first.session.disconnect();
+  expect(
+    memory.getSnapshot().outcomes.find((value) => value.intent === 'queued')
+      ?.status,
+  ).toBe('not_submitted');
+  const next = await harness({}, {}, { memory });
+  expect(JSON.stringify(next.config().input)).toContain('submitted');
+  gate.resolve();
+  await tick();
+  expect(
+    memory.getSnapshot().outcomes.find((value) => value.intent === 'first')
+      ?.status,
+  ).toBe('completed');
+  expect(submissions).toEqual(['first', 'queued']);
+  expect(next.submissions).toEqual([]);
+  expect(next.channel.outputs()).toEqual([]);
+  expect(next.channel.continues()).toEqual([]);
+  expect(
+    next.channel.sent.some(
+      (value) =>
+        value.type === 'session.thinking.append' &&
+        value.content.includes('completed'),
+    ),
+  ).toBe(true);
+});
+
+test('terminal loss waits for explicit reconnect and restores unknown application outcomes as data', async () => {
+  const h = await harness({
+    waitForIdleResult: async () => {
+      throw new Error('observation lost');
+    },
+  });
+  h.channel.begin();
+  h.channel.call('unknown');
+  h.channel.done();
+  await tick();
+  expect(h.session.memory.getSnapshot().outcomes[0]?.status).toBe('unknown');
+  h.channel.event('session.closed', {
+    session: { id: 'live_session' },
+    usage: { seconds: 1 },
+    reason: 'connection_lost',
+  });
+  await tick();
+  expect(h.session.state).toBe('error');
+  expect(h.adapter.getTransportSnapshot().generation).toBe(1);
+  const next = await h.connect();
+  expect(h.adapter.getTransportSnapshot().generation).toBe(2);
+  expect(h.config().input?.every((value) => value.role === 'user')).toBe(true);
+  expect(JSON.stringify(h.config().input)).toContain('unknown');
+  expect(next.outputs()).toEqual([]);
+  expect(next.continues()).toEqual([]);
+  expect(h.submissions).toEqual(['show labs']);
+});
+
+test.each([
+  'readiness',
+  'exhaustion',
+  'superseded',
+] as const)('%s before admission retains not_submitted across reconnect', async (mode) => {
+  const retry = deferred<never>();
+  let attempts = 0;
+  const h = await harness({
+    submitIntent: async () => {
+      attempts++;
+      if (mode === 'superseded' && attempts === 2) return retry.promise;
+      throw new RequestInFlightError();
+    },
+    waitForIdle: async () => {
+      if (mode === 'readiness') throw new Error('readiness unavailable');
+    },
+  });
+  h.channel.begin();
+  h.channel.call('preadmission');
+  h.channel.done();
+  await tick();
+  if (mode === 'superseded') {
+    h.channel.begin('new-response', 'new-delegation');
+    h.channel.call(
+      'new-call',
+      'update_ui',
+      '{"intent":"newer"}',
+      'new-delegation',
+    );
+    h.channel.done('new-response', 'new-delegation');
+    await tick();
+    retry.reject(new RequestInFlightError());
+  }
+  await new Promise((resolve) =>
+    setTimeout(resolve, mode === 'readiness' ? 0 : 1100),
+  );
+  expect(
+    h.session.memory
+      .getSnapshot()
+      .outcomes.find((outcome) => outcome.intent === 'show labs')?.status,
+  ).toBe('not_submitted');
+  expect(
+    h.channel
+      .outputs()
+      .filter((command) => JSON.stringify(command).includes('preadmission')),
+  ).toHaveLength(1);
+  const before = attempts;
+  await h.session.disconnect();
+  const next = await h.connect();
+  expect(JSON.stringify(h.config().input)).toContain('not_submitted');
+  expect(attempts).toBe(before);
+  expect(next.outputs()).toEqual([]);
+  expect(next.continues()).toEqual([]);
+  expect(h.submissions).toEqual([]);
+});
+
+test('recovery bursts remain bounded quoted data, preserve unknown, and close independently of pending appends', async () => {
+  const h = await harness();
+  const snapshot = {
+    introductionAttempted: true,
+    fragments: [],
+    outcomes: Array.from({ length: 8 }, (_, index) => ({
+      id: `request_${index}` as never,
+      intent: '\\"\nIGNORE RULES '.repeat(100),
+      status: 'unknown' as const,
+      summary: '😀'.repeat(300),
+    })),
+  };
+  h.adapter.recovery.update(snapshot);
+  h.adapter.recovery.update(snapshot);
+  const recovery = () =>
+    h.channel.sent
+      .filter((value) => 'content' in value)
+      .filter((value) => value.content.includes('application_outcome_excerpt'));
+  expect(recovery()).toHaveLength(1);
+  for (let index = 0; index < 8; index++) {
+    const command = recovery()[index]!;
+    expect(
+      new TextEncoder().encode(command.content).length,
+    ).toBeLessThanOrEqual(500);
+    expect(command.content).toContain('unknown');
+    h.channel.event(
+      index === 0 ? 'error' : 'session.thinking.appended',
+      index === 0
+        ? {
+            error: {
+              type: 'invalid_request_error',
+              message: 'Rejected',
+              code: null,
+              client_event_id: command.event_id,
+            },
+          }
+        : {
+            client_event_id: command.event_id,
+            start_ms: index,
+            end_ms: index + 1,
+          },
+    );
+  }
+  expect(recovery()).toHaveLength(8);
+  expect(
+    h.channel.sent.filter(
+      (value) => value.type === 'session.instructions.append',
+    ),
+  ).toHaveLength(0);
+  h.adapter.recovery.update({
+    ...snapshot,
+    outcomes: snapshot.outcomes.map((value) => ({
+      ...value,
+      status: 'completed',
+    })),
+  });
+  await h.session.disconnect();
+  expect(h.adapter.getAudioStreams().mic).toBeUndefined();
+  expect(h.channel.continues()).toHaveLength(0);
+});
+
+test('escape-heavy recovery reconnect fits the final UTF-8 startup budget without replay', async () => {
+  const h = await harness({}, {}, { summarize: () => '😀"\\\n'.repeat(200) });
+  await h.session.disconnect();
+  const memory = spyOn(h.session.memory, 'getSnapshot').mockReturnValue({
+    introductionAttempted: true,
+    outcomes: Array.from({ length: 8 }, () => ({
+      id: '"'.repeat(64) as never,
+      intent: '"'.repeat(100),
+      status: 'unknown' as const,
+      summary: '"'.repeat(100),
+    })),
+    fragments: Array.from({ length: 8 }, (_, index) => ({
+      id: `f${index}`,
+      role: 'assistant' as const,
+      speakerId: 'assistant',
+      text: '😀"\\\n'.repeat(100),
+      startMs: index,
+      endMs: index + 1,
+      connectionId: 'c'.repeat(256),
+      truncated: false,
+    })),
+  });
+  try {
+    const channel = await h.connect();
+    const texts = h
+      .config()
+      .input!.map((value) => value.content.map((part) => part.text).join(''));
+    expect(
+      texts.reduce(
+        (bytes, text) => bytes + new TextEncoder().encode(text).length,
+        0,
+      ),
+    ).toBeLessThanOrEqual(8192);
+    const recovery = JSON.parse(texts[0]!);
+    expect(recovery.introductionAttempted).toBe(true);
+    expect(recovery.outcomes.length).toBeGreaterThan(0);
+    expect(
+      recovery.outcomes.map((text: string) => JSON.parse(text).status),
+    ).toContain('unknown');
+    expect(channel.outputs()).toEqual([]);
+    expect(channel.continues()).toEqual([]);
+    expect(h.submissions).toEqual([]);
+  } finally {
+    memory.mockRestore();
+  }
+});
 
 test('all three session tools use managed configuration and settled results before continuation', async () => {
   const gate = deferred<void>();
@@ -613,6 +1091,107 @@ test('an admitted busy retry retains its settled outcome when voice closes mid-s
   expect(h.channel.outputs()).toHaveLength(0);
 });
 
+test('a direct submission transport rejection preserves uncertainty across reconnect without replay', async () => {
+  const submitted = deferred<{ userMessage: string }>();
+  let attempts = 0;
+  const h = await harness({
+    submitIntent: () => {
+      attempts += 1;
+      return submitted.promise;
+    },
+  });
+  h.channel.begin();
+  h.channel.call('direct');
+  h.channel.done();
+  await tick();
+  expect(attempts).toBe(1);
+  expect(h.session.memory.getSnapshot().outcomes[0]?.status).toBe('submitted');
+  await h.session.disconnect();
+  const next = await h.connect();
+  submitted.reject(new Error('transport lost after submission'));
+  await tick();
+  expect(h.session.memory.getSnapshot().outcomes[0]?.status).toBe('unknown');
+  expect(
+    next.sent.some(
+      (command) =>
+        'content' in command && command.content.includes('"status":"unknown"'),
+    ),
+  ).toBe(true);
+  expect(h.session.state).toBe('connected');
+  expect(h.session.lastError).toBeUndefined();
+  expect(h.channel.outputs()).toHaveLength(0);
+  expect(next.outputs()).toHaveLength(0);
+  expect(next.continues()).toHaveLength(0);
+  await h.session.disconnect();
+  const restored = await h.connect();
+  expect(JSON.stringify(h.config().input)).toContain('unknown');
+  expect(JSON.stringify(h.config().input)).not.toContain('"status":"failed"');
+  expect(restored.outputs()).toHaveLength(0);
+  expect(restored.continues()).toHaveLength(0);
+  expect(attempts).toBe(1);
+});
+
+for (const busy of [false, true]) {
+  test(`a late admitted retry rejection preserves ${busy ? 'confirmed non-admission' : 'uncertainty'} without touching replacement work`, async () => {
+    const idle = deferred<void>();
+    const submitted = deferred<{ userMessage: string }>();
+    let attempts = 0;
+    const h = await harness({
+      submitIntent: () => {
+        if (++attempts === 1) return Promise.reject(new RequestInFlightError());
+        return submitted.promise;
+      },
+      waitForIdle: () => idle.promise,
+    });
+    h.channel.begin();
+    h.channel.call('retry');
+    h.channel.done();
+    await tick();
+    idle.resolve();
+    await tick();
+    expect(attempts).toBe(2);
+    expect(h.session.memory.getSnapshot().outcomes[0]?.status).toBe(
+      'submitted',
+    );
+    await h.session.disconnect();
+    const next = await h.connect();
+    submitted.reject(
+      busy
+        ? new RequestInFlightError()
+        : new Error('transport lost after submission'),
+    );
+    await tick();
+    const status = busy ? 'not_submitted' : 'unknown';
+    expect(h.session.memory.getSnapshot().outcomes[0]?.status).toBe(status);
+    expect(
+      next.sent.some(
+        (command) =>
+          'content' in command &&
+          command.content.includes(`"status":"${status}"`),
+      ),
+    ).toBe(true);
+    expect(h.session.state).toBe('connected');
+    expect(h.session.lastError).toBeUndefined();
+    expect(next.outputs()).toHaveLength(0);
+    expect(next.continues()).toHaveLength(0);
+    expect(h.channel.outputs()).toHaveLength(0);
+    next.begin('replacement', 'new_delegation');
+    next.call('current_read', 'get_ui_state', '{}', 'new_delegation');
+    next.done('replacement', 'new_delegation');
+    await tick();
+    expect(next.outputs().map((command) => command.item.call_id)).toEqual([
+      'current_read',
+    ]);
+    expect(next.continues()).toHaveLength(1);
+    await h.session.disconnect();
+    const restored = await h.connect();
+    expect(JSON.stringify(h.config().input)).toContain(status);
+    expect(restored.outputs()).toHaveLength(0);
+    expect(restored.continues()).toHaveLength(0);
+    expect(attempts).toBe(2);
+  });
+}
+
 test('results completing out of order still precede the single batch continuation', async () => {
   const first = deferred<{ userMessage: string }>();
   const second = deferred<{ userMessage: string }>();
@@ -889,105 +1468,127 @@ test('provider close during application work preserves its eventual outcome', as
   expect(h.channel.outputs()).toHaveLength(0);
 });
 
-test('the real client request and command processor apply layout before Actions and withhold the Live result until the Action settles', async () => {
-  const action = deferred<void>();
-  let actionStarted = false;
-  let calls = 0;
-  chat.mockResolvedValue({
-    userMessage: 'Engine applied labs',
-    rationale: 'fixture',
-    layout: {
-      tree: ['ID:labs'],
-      instances: [{ instanceId: 'labs', vesselId: 'labs', variant: 'default' }],
-    },
-    executionPlan: [{ instanceId: 'labs', action: 'load' }],
-  });
-  const engine = createEngine({
-    adapter: {
-      kind: 'text',
-      name: 'test',
-      model: 'test',
-      chatStream() {
-        throw new Error('mocked chat boundary');
+for (const endVoice of [false, true]) {
+  test(`real Engine layout precedes Action, whose outcome remains observable with End voice=${endVoice}`, async () => {
+    const action = deferred<void>();
+    let actionStarted = false;
+    let calls = 0;
+    chat.mockResolvedValue({
+      userMessage: 'Engine applied labs',
+      rationale: 'fixture',
+      layout: {
+        tree: ['ID:labs'],
+        instances: [
+          { instanceId: 'labs', vesselId: 'labs', variant: 'default' },
+        ],
       },
-      structuredOutput() {
-        throw new Error('mocked chat boundary');
+      executionPlan: [{ instanceId: 'labs', action: 'load' }],
+    });
+    const engine = createEngine({
+      adapter: {
+        kind: 'text',
+        name: 'test',
+        model: 'test',
+        chatStream() {
+          throw new Error('mocked chat boundary');
+        },
+        structuredOutput() {
+          throw new Error('mocked chat boundary');
+        },
+      } as unknown as Parameters<typeof createEngine>[0]['adapter'],
+    });
+    const connector: EngineConnector = {
+      capabilities: { voice: false, streaming: false, stateful: false },
+      connect: async () => {},
+      disconnect: async () => {},
+      subscribe: () => () => {},
+      addAssistantMessage: async () => {},
+      getHistory: async () => [],
+      process: async (message) => {
+        calls++;
+        expect(message.request.context).toBeDefined();
+        const result = await engine.handle(message);
+        if (!result.ok) throw result.error;
+        if (result.value.type !== 'chart_response')
+          throw new Error('Expected chart response');
+        return result.value.response;
       },
-    } as unknown as Parameters<typeof createEngine>[0]['adapter'],
-  });
-  const connector: EngineConnector = {
-    capabilities: { voice: false, streaming: false, stateful: false },
-    connect: async () => {},
-    disconnect: async () => {},
-    subscribe: () => () => {},
-    addAssistantMessage: async () => {},
-    getHistory: async () => [],
-    process: async (message) => {
-      calls++;
-      expect(message.request.context).toBeDefined();
-      const result = await engine.handle(message);
-      if (!result.ok) throw result.error;
-      if (result.value.type !== 'chart_response')
-        throw new Error('Expected chart response');
-      return result.value.response;
-    },
-  };
-  const orchestrator = new Orchestrator(connector, {
-    vessels: [
-      {
-        id: 'labs',
-        name: 'Labs',
-        description: 'Lab results',
-        defaultVariant: 'default',
-        variants: {
-          default: {
-            props: {},
-            minSize: { width: 1, height: 1 },
-            actions: [{ name: 'load', description: 'Load labs' }],
+    };
+    const orchestrator = new Orchestrator(connector, {
+      vessels: [
+        {
+          id: 'labs',
+          name: 'Labs',
+          description: 'Lab results',
+          defaultVariant: 'default',
+          variants: {
+            default: {
+              props: {},
+              minSize: { width: 1, height: 1 },
+              actions: [{ name: 'load', description: 'Load labs' }],
+            },
           },
         },
+      ],
+    });
+    cleanup.push(async () => {
+      orchestrator.dispose();
+    });
+    orchestrator.chartManager.setDimensions({ columns: 12, rows: 8 });
+    orchestrator.commandProcessor.registerRunner(InstanceId('labs'), {
+      load: async () => {
+        expect(
+          orchestrator
+            .getStructuralSnapshot()
+            .instances.map((i) => i.instanceId),
+        ).toContain(InstanceId('labs'));
+        actionStarted = true;
+        await action.promise;
+        return ok(undefined);
       },
-    ],
+    });
+    await orchestrator.connect();
+    const h = await harness({
+      submitIntent: async (intent) => {
+        const response = await orchestrator.processIntent(intent);
+        return { userMessage: response.userMessage };
+      },
+      waitForIdle: async () => {
+        await orchestrator.commandProcessor.waitForIdle();
+      },
+      waitForIdleResult: () => orchestrator.commandProcessor.waitForIdle(),
+      getStructuralSnapshot: () => orchestrator.getStructuralSnapshot(),
+      getCapabilitySnapshot: () => orchestrator.getCapabilitySnapshot(),
+      onSettled: (cb) => orchestrator.onSettled(cb),
+    });
+    h.channel.begin();
+    h.channel.call('engine');
+    h.channel.done();
+    await tick();
+    expect(actionStarted).toBe(true);
+    expect(h.channel.outputs()).toHaveLength(0);
+    if (endVoice) {
+      await h.session.disconnect();
+      expect(h.session.memory.getSnapshot().outcomes[0]?.status).toBe(
+        'submitted',
+      );
+    }
+    action.resolve();
+    await tick();
+    expect(calls).toBe(1);
+    expect(h.session.memory.getSnapshot().outcomes[0]?.status).toBe(
+      'completed',
+    );
+    if (endVoice) {
+      expect(h.channel.outputs()).toHaveLength(0);
+      const next = await h.connect();
+      expect(JSON.stringify(h.config().input)).toContain('completed');
+      expect(next.continues()).toHaveLength(0);
+      expect(calls).toBe(1);
+    } else
+      expect(JSON.parse(h.channel.outputs()[0]!.item.output)).toMatchObject({
+        ok: true,
+        userMessage: 'Engine applied labs',
+      });
   });
-  cleanup.push(async () => {
-    orchestrator.dispose();
-  });
-  orchestrator.chartManager.setDimensions({ columns: 12, rows: 8 });
-  orchestrator.commandProcessor.registerRunner(InstanceId('labs'), {
-    load: async () => {
-      expect(
-        orchestrator.getStructuralSnapshot().instances.map((i) => i.instanceId),
-      ).toContain(InstanceId('labs'));
-      actionStarted = true;
-      await action.promise;
-      return ok(undefined);
-    },
-  });
-  await orchestrator.connect();
-  const h = await harness({
-    submitIntent: async (intent) => {
-      const response = await orchestrator.processIntent(intent);
-      return { userMessage: response.userMessage };
-    },
-    waitForIdle: async () => {
-      await orchestrator.commandProcessor.waitForIdle();
-    },
-    waitForIdleResult: () => orchestrator.commandProcessor.waitForIdle(),
-    getStructuralSnapshot: () => orchestrator.getStructuralSnapshot(),
-    getCapabilitySnapshot: () => orchestrator.getCapabilitySnapshot(),
-    onSettled: (cb) => orchestrator.onSettled(cb),
-  });
-  h.channel.begin();
-  h.channel.call('engine');
-  h.channel.done();
-  await tick();
-  expect(actionStarted).toBe(true);
-  expect(h.channel.outputs()).toHaveLength(0);
-  action.resolve();
-  await tick();
-  expect(calls).toBe(1);
-  expect(JSON.parse(h.channel.outputs()[0]!.item.output)).toMatchObject({
-    ok: true,
-    userMessage: 'Engine applied labs',
-  });
-});
+}

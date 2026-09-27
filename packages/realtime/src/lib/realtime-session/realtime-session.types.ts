@@ -14,6 +14,7 @@ import type {
 
 import type { GreetingCoordinator } from '../greeting-coordinator.js';
 import type { RealtimeProviderAdapter } from './provider-adapter.types.js';
+import type { RealtimeSessionMemory } from './realtime-session-memory.js';
 
 /**
  * What submitting an intent tells the voice layer, narrowed to what it speaks.
@@ -139,6 +140,10 @@ export type GreetingState =
 
 /** Options for constructing a {@link RealtimeSession}. */
 export interface RealtimeSessionOptions {
+  /** Shared evidence owner for this sessionId. Retain across provider/session recreation; React supplies it automatically. */
+  readonly memory?: RealtimeSessionMemory;
+  /** Optional natural introduction. One attempt per memory lifetime; use an explicit language in these trusted instructions. Cannot accompany a fixed greeting. */
+  readonly generatedOpening?: { readonly instructions: string };
   /** Conversation-only instructions for adapters with a separate managed tool backend. */
   readonly conversationInstructions?: string;
   /** Bounds and display grouping policy for the continuous transcript channel. */

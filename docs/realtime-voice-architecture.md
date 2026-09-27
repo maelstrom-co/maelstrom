@@ -215,6 +215,14 @@ must stamp its own receipt time.
 
 ## Why the greeting is recorded before it is spoken
 
+This section describes retained fixed greetings. Live uses a separate generated
+opening. Its session-owned memory claims one introduction attempt before provider
+send, including ambiguous failures. The shared React registry retains that memory
+across provider-session recreation under the same Orchestrator. Only observed
+transcript excerpts enter recovery context; requested wording never enters Engine
+history or captions. Native append acknowledgment does not prove model consumption
+or audible completion. See the [Live opening and recovery guide](https://docs.maelstrom-ai.co/guides/voice/live-opening-recovery/).
+
 The demo greets once when voice connects. Ordering is fixed:
 
 **Engine ack → provider handoff → provider playout start + caption.**
