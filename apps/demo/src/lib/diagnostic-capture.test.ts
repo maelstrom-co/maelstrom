@@ -1,5 +1,5 @@
 import type { VoiceObservationSnapshot } from '@maelstrom-co/client';
-import { SessionId, ToolCallId } from '@maelstrom-co/protocol';
+import { ToolCallId } from '@maelstrom-co/protocol';
 import { describe, expect, it } from 'vitest';
 import { DiagnosticCapture } from './diagnostic-capture';
 
@@ -125,16 +125,14 @@ describe('local diagnostic capture', () => {
   it('requires an explicit recording window and clears prior content for the next trial', () => {
     const capture = new DiagnosticCapture();
     const event = {
-      type: 'tool_call' as const,
-      at: 0,
-      sessionId: SessionId('session'),
+      type: 'tool.called' as const,
       callId: ToolCallId('call'),
       name: 'update_ui',
       argumentsJson: JSON.stringify({
         intent: 'Create a journal titled today’s date',
       }),
     };
-    capture.sidechannel(event, { provider: 'live' });
+    capture.sessionEvent(event, { provider: 'live' });
     expect(capture.export('')).not.toContain('Create a journal');
     capture.start('live', 'session', 'provider');
     capture.liveWire(
@@ -149,7 +147,7 @@ describe('local diagnostic capture', () => {
       'received',
       'peer',
     );
-    capture.sidechannel(event, { provider: 'live' });
+    capture.sessionEvent(event, { provider: 'live' });
     expect(JSON.parse(capture.export('')).events).toContainEqual(
       expect.objectContaining({
         kind: 'tool_call',
@@ -159,7 +157,7 @@ describe('local diagnostic capture', () => {
     );
     capture.stop();
     const count = capture.getSnapshot().count;
-    capture.sidechannel(event, {});
+    capture.sessionEvent(event, {});
     expect(capture.getSnapshot().count).toBe(count);
     capture.start('typed', 'other-session', 'other-provider');
     expect(capture.export('')).not.toContain('Create a journal');

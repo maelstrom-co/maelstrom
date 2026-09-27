@@ -2,8 +2,8 @@ import type { VoiceObservationSnapshot } from '@maelstrom-co/client';
 import type {
   ChartRequestMessage,
   MaelstromResponse,
-  SidechannelEvent,
 } from '@maelstrom-co/protocol';
+import type { SessionEvent } from '@maelstrom-co/realtime';
 import { engineMetadata } from './engine-metadata';
 import { playgroundKeyStore } from './playground-key-store';
 import { DEFAULT_REALTIME_MODEL } from './realtime-model';
@@ -135,9 +135,9 @@ export class DiagnosticCapture {
     }
   }
 
-  sidechannel(event: SidechannelEvent, identity: Fields) {
+  sessionEvent(event: SessionEvent, identity: Fields) {
     if (!this.state.active) return;
-    if (event.type === 'tool_call') {
+    if (event.type === 'tool.called') {
       let intent: string | undefined;
       try {
         intent = text(object(JSON.parse(event.argumentsJson)).intent);
@@ -150,14 +150,14 @@ export class DiagnosticCapture {
         tool: event.name,
         intent,
       });
-    } else if (event.type === 'tool_result') {
+    } else if (event.type === 'tool.result') {
       this.record('tool_result', {
         ...identity,
         callId: event.callId,
         ok: event.ok,
         durationMs: event.latencyMs,
       });
-    } else if (event.type === 'transcript') {
+    } else if (event.type === 'transcript.entry') {
       this.record('transcript', {
         ...identity,
         role: event.role,

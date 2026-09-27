@@ -489,3 +489,79 @@ it('keeps submitted application outcomes after End voice and never delivers them
   await owner.disconnect();
   orchestrator.dispose();
 });
+
+it('records a call and a result for every tool, stamped with the session generation', async () => {
+  selectVoiceProvider('live');
+  const orchestrator = new Orchestrator(createMockConnector(), {
+    sessionId: SessionId(),
+  });
+  await orchestrator.connect();
+  const adapter = new Adapter();
+  const owner = new DemoVoiceOwner(orchestrator, () => adapter, 'hello');
+  await owner.connect();
+  await owner.disconnect();
+  await owner.connect();
+  for (const name of ['update_ui', 'get_ui_state', 'get_capabilities']) {
+    adapter.emit({
+      type: 'tool_call',
+      callId: ToolCallId(`${name}-call`),
+      name,
+      argumentsJson: '{"intent":"Arrange the workspace"}',
+    });
+    await vi.waitFor(() =>
+      expect(owner.diagnostics.getSnapshot().at(-1)).toMatchObject({
+        kind: 'tool_result',
+        id: `${name}-call`,
+      }),
+    );
+  }
+  const providerInstanceId = owner.providerInstanceId;
+  const tools = owner.diagnostics
+    .getSnapshot()
+    .filter(
+      (entry) => entry.kind === 'tool_call' || entry.kind === 'tool_result',
+    )
+    .map(({ kind, id, tool, ok, generation, providerInstanceId }) => ({
+      kind,
+      id,
+      tool,
+      ok,
+      generation,
+      providerInstanceId,
+    }));
+  expect(tools).toEqual(
+    ['update_ui', 'get_ui_state', 'get_capabilities'].flatMap((name) => [
+      {
+        kind: 'tool_call',
+        id: `${name}-call`,
+        tool: name,
+        ok: undefined,
+        generation: 2,
+        providerInstanceId,
+      },
+      {
+        kind: 'tool_result',
+        id: `${name}-call`,
+        tool: undefined,
+        ok: true,
+        generation: 2,
+        providerInstanceId,
+      },
+    ]),
+  );
+  expect(
+    owner.diagnostics
+      .getSnapshot()
+      .filter((entry) => entry.kind === 'voice_state')
+      .map((entry) => [entry.state, entry.generation]),
+  ).toEqual([
+    ['connecting', 1],
+    ['connected', 1],
+    ['disconnecting', 1],
+    ['disconnected', 1],
+    ['connecting', 2],
+    ['connected', 2],
+  ]);
+  await owner.disconnect();
+  orchestrator.dispose();
+});
