@@ -17,6 +17,7 @@ import { OpenAILiveAdapter } from '@maelstrom-co/realtime-openai-live';
 import { LiveTransportError } from '@maelstrom-co/realtime-protocol/openai-live';
 import { Mic, Square } from 'lucide-react';
 import { useEffect, useSyncExternalStore } from 'react';
+import { diagnosticCapture } from './diagnostic-capture';
 import { VoiceDiagnostics } from './voice-diagnostics';
 import {
   type DemoVoiceProvider,
@@ -134,6 +135,13 @@ export class DemoVoiceOwner {
     this.adapter = factory(this.provider, this.memory.sessionId);
     this.session = this.createSession();
     this.observe();
+    orchestrator.onSettled(() => {
+      diagnosticCapture.record('application_settled', {
+        sessionId: this.memory.sessionId,
+        providerInstanceId: this.providerInstanceId,
+        snapshot: orchestrator.getStructuralSnapshot(),
+      });
+    });
     orchestrator.requestCoordinator.events.on('processing_started', (event) =>
       this.diagnostics.record({
         at: Date.now(),
@@ -164,12 +172,18 @@ export class DemoVoiceOwner {
       instance: bridge(this.orchestrator),
       sessionId: this.memory.sessionId,
       memory: this.memory,
-      onEvent: (event) =>
+      onEvent: (event) => {
+        diagnosticCapture.sidechannel(event, {
+          provider,
+          providerInstanceId,
+          generation: session.observations.getSnapshot().generation,
+        });
         this.diagnostics.onEvent(event, {
           provider,
           providerInstanceId,
           generation: session.observations.getSnapshot().generation,
-        }),
+        });
+      },
       ...(provider === 'live'
         ? this.coordinator.getSnapshot(this.memory.sessionId).lifecycle !==
           'terminal'
@@ -206,6 +220,7 @@ export class DemoVoiceOwner {
     this.releases = [
       session.observations.subscribe(() => {
         const next = session.observations.getSnapshot();
+        diagnosticCapture.observations(next, { provider, providerInstanceId });
         const changed =
           next.generation !== observedGeneration ||
           next.connection !== observedConnection;
