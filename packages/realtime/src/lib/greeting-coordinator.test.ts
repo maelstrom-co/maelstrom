@@ -124,6 +124,7 @@ function makeFakeAdapter(): FakeAdapter {
     | (() => Promise<GreetingSpeechResult>) = 'accepted';
 
   const adapter: RealtimeGreetingAdapter = {
+    observations: { subscribe: () => () => {} },
     connect: async () => {},
     disconnect: async () => {},
     getAudioStreams: () => ({}),

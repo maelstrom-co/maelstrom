@@ -30,6 +30,7 @@ const { fixtures, FixtureAdapter } = vi.hoisted(() => {
 
   class FixtureAdapter implements RealtimeProviderAdapter {
     listeners = new Set<(event: RealtimeAdapterEvent) => void>();
+    observations = { subscribe: () => () => {} };
     close = () => Promise.resolve();
     starts = 0;
     constructor() {
