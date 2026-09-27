@@ -3734,7 +3734,7 @@ describe('RealtimeSession — greeting lifecycle', () => {
 // Observation and recovery equivalence
 // ============================================================================
 
-describe('RealtimeSession — observation and recovery equivalence', () => {
+describe('RealtimeSession observation and recovery equivalence', () => {
   it('produces the observation snapshot and recovery memory that direct store and memory calls produce', async () => {
     const connectionIds = ['connection-1', 'connection-2'];
     const randomUUID = spyOn(crypto, 'randomUUID').mockImplementation(
