@@ -1,6 +1,7 @@
 import { describe, expect, it, spyOn } from 'bun:test';
 import type {
   CapabilitySnapshot,
+  TimedTranscriptFragment,
   UIStructuralSnapshot,
   VoiceSession,
 } from '@maelstrom-co/client';
@@ -42,6 +43,8 @@ import type {
   RealtimeInstance,
   SubmitIntentResult,
 } from './realtime-session.types.js';
+import { RealtimeSessionMemory } from './realtime-session-memory.js';
+import { VoiceObservationStore } from './voice-observation-store.js';
 
 function flushMicrotasks(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
@@ -3726,3 +3729,187 @@ describe('RealtimeSession — greeting lifecycle', () => {
     expect(instance.acknowledged).toHaveLength(2);
   });
 });
+
+// ============================================================================
+// Observation and recovery equivalence
+// ============================================================================
+
+describe('RealtimeSession — observation and recovery equivalence', () => {
+  it('produces the observation snapshot and recovery memory that direct store and memory calls produce', async () => {
+    const connectionIds = ['connection-1', 'connection-2'];
+    const randomUUID = spyOn(crypto, 'randomUUID').mockImplementation(
+      () =>
+        (connectionIds.shift() ??
+          'unexpected-connection') as `${string}-${string}-${string}-${string}-${string}`,
+    );
+    try {
+      const adapter = makeMockAdapter();
+      const feeds: Array<(event: AdapterVoiceObservation) => void> = [];
+      Object.assign(adapter, {
+        observations: {
+          subscribe: (handler: (event: AdapterVoiceObservation) => void) => {
+            feeds.push(handler);
+            return () => {};
+          },
+        },
+      });
+      const instance = makeMockInstance(emptySnapshot);
+      const session = new RealtimeSession({
+        adapter,
+        instance,
+        sessionId: testSessionId,
+      });
+      const feed = (event: AdapterVoiceObservation) => feeds.at(-1)?.(event);
+
+      await session.connect();
+      feed({ type: 'fragment', fragment: firstUserFragment });
+      feed({ type: 'fragment', fragment: revisedUserFragment });
+      feed({ type: 'fragment', fragment: invalidFragment });
+      feed({ type: 'media', media: { microphone: 'active' } });
+      adapter.emitToolCall({
+        callId: 'equivalence-1',
+        name: 'update_ui',
+        argumentsJson: JSON.stringify({ intent: 'show labs' }),
+      });
+      await flushMicrotasks();
+      adapter.emitToolCall({
+        callId: 'equivalence-2',
+        name: 'update_ui',
+        argumentsJson: JSON.stringify({ intent: 'show weather' }),
+      });
+      await flushMicrotasks();
+      instance.settle();
+      await flushMicrotasks();
+      instance.settle();
+      await flushMicrotasks();
+      feed({ type: 'fragment', fragment: assistantFragment });
+      adapter.emitError(
+        new RealtimeVoiceError('DATA_CHANNEL_ERROR', 'connection lost'),
+      );
+      feed({ type: 'fragment', fragment: lateFragment });
+      await session.connect();
+      feed({ type: 'fragment', fragment: secondConnectionFragment });
+      feed({ type: 'media', media: { incomingAudio: 'active' } });
+
+      const store = new VoiceObservationStore();
+      const memory = new RealtimeSessionMemory(testSessionId);
+      const observe = (
+        fragment: TimedTranscriptFragment,
+        connectionId: string,
+      ) => {
+        store.fragment(fragment);
+        const retained = store
+          .getSnapshot()
+          .fragments.find((value) => value.id === fragment.id);
+        if (retained) memory.observe(retained, connectionId);
+      };
+      store.begin();
+      store.connection('connected');
+      observe(firstUserFragment, 'connection-1');
+      observe(revisedUserFragment, 'connection-1');
+      observe(invalidFragment, 'connection-1');
+      store.media({ microphone: 'active' });
+      memory.outcome({
+        id: ToolCallId('equivalence-1'),
+        intent: 'show labs',
+        status: 'submitted',
+      });
+      memory.outcome({
+        id: ToolCallId('equivalence-2'),
+        intent: 'show weather',
+        status: 'submitted',
+      });
+      memory.outcome({
+        id: ToolCallId('equivalence-2'),
+        intent: 'show weather',
+        status: 'queued',
+      });
+      memory.outcome({
+        id: ToolCallId('equivalence-1'),
+        intent: 'show labs',
+        status: 'completed',
+        summary: 'The screen is empty.',
+      });
+      memory.outcome({
+        id: ToolCallId('equivalence-2'),
+        intent: 'show weather',
+        status: 'submitted',
+      });
+      memory.outcome({
+        id: ToolCallId('equivalence-2'),
+        intent: 'show weather',
+        status: 'completed',
+        summary: 'The screen is empty.',
+      });
+      observe(assistantFragment, 'connection-1');
+      store.connection('error');
+      store.begin();
+      store.connection('connected');
+      observe(secondConnectionFragment, 'connection-2');
+      store.media({ incomingAudio: 'active' });
+
+      expect(session.observations.getSnapshot()).toEqual(store.getSnapshot());
+      expect(session.memory.getSnapshot()).toEqual(memory.getSnapshot());
+
+      await session.disconnect();
+      store.connection('disconnecting');
+      store.connection('disconnected');
+      expect(session.observations.getSnapshot()).toEqual(store.getSnapshot());
+      expect(session.memory.getSnapshot()).toEqual(memory.getSnapshot());
+    } finally {
+      randomUUID.mockRestore();
+    }
+  });
+});
+
+const firstUserFragment: TimedTranscriptFragment = {
+  id: 'user-1',
+  role: 'user',
+  speakerId: 'user',
+  text: 'show',
+  startMs: 0,
+  endMs: 200,
+};
+
+const revisedUserFragment: TimedTranscriptFragment = {
+  ...firstUserFragment,
+  text: 'show me the labs',
+  endMs: 600,
+};
+
+const invalidFragment: TimedTranscriptFragment = {
+  id: 'invalid-1',
+  role: 'user',
+  speakerId: 'user',
+  text: 'backwards',
+  startMs: 500,
+  endMs: 100,
+};
+
+const assistantFragment: TimedTranscriptFragment = {
+  id: 'assistant-1',
+  role: 'assistant',
+  speakerId: 'assistant',
+  text: 'Here are your labs.',
+  startMs: 900,
+  endMs: 1400,
+  final: true,
+};
+
+const lateFragment: TimedTranscriptFragment = {
+  id: 'late-1',
+  role: 'user',
+  speakerId: 'user',
+  text: 'after the drop',
+  startMs: 1500,
+  endMs: 1600,
+};
+
+const secondConnectionFragment: TimedTranscriptFragment = {
+  id: 'user-2',
+  role: 'user',
+  speakerId: 'user',
+  text: 'thanks',
+  startMs: 0,
+  endMs: 300,
+};
