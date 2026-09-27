@@ -79,14 +79,14 @@ The demo engine uses OpenAI. Set the following environment variables:
 
 ```bash
 # .env
-ENGINE_MODEL=                  # Optional — defaults to gpt-5.6-luna
+ENGINE_MODEL=                  # Optional — defaults to gpt-6-luna
 OPENAI_API_KEY=your-key        # Demo engine + realtime voice mint
 OPENAI_REALTIME_MODEL=         # Optional — defaults to gpt-realtime-2.1
 WS_PORT=3001                   # Optional — WebSocket port (defaults to 3001)
 ```
 
 <Aside type="tip">
-  The demo engine uses `@tanstack/ai-openai` with `gpt-5.6-luna` by default. Access to that model is organization/project-specific — if your key cannot call it, set `ENGINE_MODEL` to a model your project can use. You can also switch providers entirely by changing the engine adapter; see [Use a custom LLM provider](/guides/engine/custom-llm-providers/).
+  The demo engine uses `@tanstack/ai-openai` with `gpt-6-luna` by default. Access to that model is organization/project-specific — if your key cannot call it, set `ENGINE_MODEL` to a model your project can use. You can also switch providers entirely by changing the engine adapter; see [Use a custom LLM provider](/guides/engine/custom-llm-providers/).
 </Aside>
 
 ## Next steps

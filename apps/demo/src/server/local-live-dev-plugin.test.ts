@@ -13,7 +13,7 @@ const options = {
 const offer = {
   session: {
     model: 'gpt-live-1',
-    delegation: { type: 'responses', responses: { model: 'gpt-5.4-mini' } },
+    delegation: { type: 'responses', responses: { model: 'gpt-6-luna' } },
   },
   transport: { type: 'webrtc', sdp: 'v=0\r\no=fixture' },
 };

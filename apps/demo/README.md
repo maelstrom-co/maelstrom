@@ -48,7 +48,7 @@ Choose where the demo keeps your OpenAI key:
 ```dotenv
 # Optional. Leave empty to use the browser key drawer.
 OPENAI_API_KEY=<redacted>
-# Optional; defaults to gpt-5.6-luna.
+# Optional; defaults to gpt-6-luna.
 ENGINE_MODEL=
 ```
 
