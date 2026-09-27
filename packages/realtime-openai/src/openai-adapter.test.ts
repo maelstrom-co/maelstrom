@@ -2705,6 +2705,52 @@ describe('RealtimeSession + OpenAIAdapter — fatal in-session error recovery', 
   });
 });
 
+describe('RealtimeSession + OpenAIAdapter — store captions', () => {
+  it('ends a caption cleanly on the final event and starts the next item as a new caption', async () => {
+    const adapter = new OpenAIAdapter({ mintToken: async () => fakeToken });
+    const session = new RealtimeSession({
+      adapter,
+      instance: makeInertInstance(),
+      sessionId: SessionId('sess-captions'),
+    });
+    const connecting = session.connect();
+    const channel = await latestDataChannel();
+    channel.triggerOpen();
+    await connecting;
+
+    for (const delta of ['Pulling ', 'that up']) {
+      channel.receive({
+        type: 'response.output_audio_transcript.delta',
+        item_id: 'item_a',
+        delta,
+      });
+    }
+    channel.receive({
+      type: 'response.output_audio_transcript.done',
+      item_id: 'item_a',
+      transcript: 'Pulling that up.',
+    });
+    channel.receive({
+      type: 'response.output_audio_transcript.delta',
+      item_id: 'item_b',
+      delta: 'Anything else?',
+    });
+
+    const { captions, fragments } = session.observations.getSnapshot();
+    expect(fragments.map((fragment) => fragment.id)).toEqual([
+      'item_a',
+      'item_b',
+    ]);
+    expect(
+      captions.map(({ role, text, final }) => ({ role, text, final })),
+    ).toEqual([
+      { role: 'assistant', text: 'Pulling that up.', final: true },
+      { role: 'assistant', text: 'Anything else?', final: false },
+    ]);
+    await session.disconnect();
+  });
+});
+
 // ============================================================================
 // Superseded connect abandonment
 // ============================================================================
