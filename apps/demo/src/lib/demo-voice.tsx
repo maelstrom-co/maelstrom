@@ -6,7 +6,6 @@ import type {
 } from '@maelstrom-co/react-realtime';
 import {
   GreetingCoordinator,
-  type GreetingRunContext,
   type RealtimeInstance,
   type RealtimeProviderAdapter,
   RealtimeSession,
@@ -78,33 +77,6 @@ type Factory = (
   sessionId: ReturnType<Orchestrator['getConfig']>['sessionId'],
 ) => RealtimeProviderAdapter;
 
-class DemoGreetingCoordinator extends GreetingCoordinator {
-  constructor(private readonly memory: RealtimeSessionMemory) {
-    super();
-  }
-
-  override run(context: GreetingRunContext) {
-    return super.run({
-      ...context,
-      adapter: {
-        connect: (options) => context.adapter.connect(options),
-        disconnect: () => context.adapter.disconnect(),
-        getAudioStreams: () => context.adapter.getAudioStreams(),
-        sendToolResult: (id, result) =>
-          context.adapter.sendToolResult(id, result),
-        injectGrounding: (text) => context.adapter.injectGrounding(text),
-        on: (handler) => context.adapter.on(handler),
-        activateAudio: () => context.adapter.activateAudio(),
-        speakAssistantText: (args) => {
-          // A provider switch must retain the attempt before interrupted playback settles.
-          this.memory.claimIntroduction();
-          return context.adapter.speakAssistantText(args);
-        },
-      },
-    });
-  }
-}
-
 export class DemoVoiceOwner {
   readonly diagnostics = new VoiceDiagnostics();
   readonly memory: RealtimeSessionMemory;
@@ -131,7 +103,7 @@ export class DemoVoiceOwner {
     private readonly greeting: string,
   ) {
     this.memory = new RealtimeSessionMemory(orchestrator.getConfig().sessionId);
-    this.coordinator = new DemoGreetingCoordinator(this.memory);
+    this.coordinator = new GreetingCoordinator();
     this.adapter = factory(this.provider, this.memory.sessionId);
     this.session = this.createSession();
     this.observe();
@@ -361,8 +333,6 @@ export class DemoVoiceOwner {
         await session.disconnect();
         return;
       }
-      if (this.memory.getSnapshot().introductionAttempted)
-        this.coordinator.skip(this.memory.sessionId);
       for (const release of this.releases) release();
       this.provider = provider;
       this.providerInstanceId = providerInstanceId;

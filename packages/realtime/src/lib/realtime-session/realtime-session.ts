@@ -513,14 +513,8 @@ export class RealtimeSession implements VoiceSession {
       this.#greetingAdapter = this.#adapter;
       greetingController = new AbortController();
       this.#greetingController = greetingController;
-      const snapshot = this.#greeting.coordinator.getSnapshot(this.#sessionId);
-      if (snapshot.lifecycle === 'terminal') {
-        this.#setGreetingState(
-          snapshot.reason === 'skipped' ? 'skipped' : 'settled',
-        );
-      } else {
-        this.#setGreetingState('preparing');
-      }
+      const dormant = this.#dormantGreetingState();
+      this.#setGreetingState(dormant === 'pending' ? 'preparing' : dormant);
       if (epoch !== this.#connectEpoch) return;
     }
 
@@ -772,11 +766,14 @@ export class RealtimeSession implements VoiceSession {
     epoch: number,
   ): Promise<void> {
     if (!this.#greeting || !this.#greetingAdapter) return;
-    const disposition = await this.#greeting.coordinator.run({
+    const coordinator = this.#greeting.coordinator;
+    const disposition = await coordinator.run({
       sessionId: this.#sessionId,
       text: this.#greeting.text,
       instance: this.#instance,
-      adapter: this.#greetingAdapter,
+      adapter: claimingIntroductionBeforeSpeech(this.#greetingAdapter, () =>
+        this.#claimIntroductionForGreeting(coordinator),
+      ),
       signal: controller.signal,
       emitTranscript: (text) => this.#emitGreetingTranscript(text),
     });
@@ -792,9 +789,34 @@ export class RealtimeSession implements VoiceSession {
   /** Derives the constructor-visible state without adopting or running coordinator work. */
   #initialGreetingState(): GreetingState {
     if (!this.#greeting) return 'not_configured';
+    return this.#dormantGreetingState();
+  }
+
+  /**
+   * Reads retained greeting proof. An introduction that another opening
+   * claimed in this memory, such as a generated opening before a provider
+   * switch, is terminal for the fixed greeting. A claim won by this
+   * greeting's own coordinator leaves retries to that coordinator's proof.
+   */
+  #dormantGreetingState(): 'pending' | 'settled' | 'skipped' {
+    if (!this.#greeting) return 'settled';
     const snapshot = this.#greeting.coordinator.getSnapshot(this.#sessionId);
-    if (snapshot.lifecycle === 'pending') return 'pending';
-    return snapshot.reason === 'skipped' ? 'skipped' : 'settled';
+    if (snapshot.lifecycle === 'terminal')
+      return snapshot.reason === 'skipped' ? 'skipped' : 'settled';
+    const claimedElsewhere =
+      this.memory.getSnapshot().introductionAttempted &&
+      fixedGreetingClaims.get(this.memory) !== this.#greeting.coordinator;
+    return claimedElsewhere ? 'settled' : 'pending';
+  }
+
+  /** Claims the introduction right before fixed-greeting speech is sent. */
+  #claimIntroductionForGreeting(coordinator: GreetingCoordinator): boolean {
+    if (this.memory.claimIntroduction()) {
+      fixedGreetingClaims.set(this.memory, coordinator);
+      this.#events.publish({ type: 'opening.claimed' });
+      return true;
+    }
+    return fixedGreetingClaims.get(this.memory) === coordinator;
   }
 
   /** Retains the current generation's retryable or terminal presentation result. */
@@ -816,14 +838,7 @@ export class RealtimeSession implements VoiceSession {
   /** Restores retryable or terminal dormant state from durable coordinator proof after any teardown outcome. */
   #resetGreetingAfterConnectionEnd(): void {
     if (!this.#greeting) return;
-    const snapshot = this.#greeting.coordinator.getSnapshot(this.#sessionId);
-    this.#setGreetingState(
-      snapshot.lifecycle === 'pending'
-        ? 'pending'
-        : snapshot.reason === 'skipped'
-          ? 'skipped'
-          : 'settled',
-    );
+    this.#setGreetingState(this.#dormantGreetingState());
   }
 
   #emitGreetingTranscript(text: string): void {
@@ -1539,6 +1554,35 @@ export class RealtimeSession implements VoiceSession {
   #publishTiming(label: string, startedAt: number): void {
     this.#events.publish({ type: 'timing', label, ms: Date.now() - startedAt });
   }
+}
+
+// Introduction claims won by a fixed greeting, keyed by the shared memory and
+// naming the coordinator whose proof governs that greeting's retries. Both
+// outlive any one session, so the record cannot live on a session.
+const fixedGreetingClaims = new WeakMap<
+  RealtimeSessionMemory,
+  GreetingCoordinator
+>();
+
+/**
+ * Wraps a greeting adapter so the introduction is claimed before any provider
+ * send. A lost claim reports `not_started`, which proves no send began.
+ */
+function claimingIntroductionBeforeSpeech(
+  adapter: RealtimeGreetingAdapter,
+  claim: () => boolean,
+): RealtimeGreetingAdapter {
+  return {
+    connect: (options) => adapter.connect(options),
+    disconnect: () => adapter.disconnect(),
+    getAudioStreams: () => adapter.getAudioStreams(),
+    sendToolResult: (id, result) => adapter.sendToolResult(id, result),
+    injectGrounding: (text) => adapter.injectGrounding(text),
+    on: (handler) => adapter.on(handler),
+    activateAudio: () => adapter.activateAudio(),
+    speakAssistantText: async (args) =>
+      claim() ? adapter.speakAssistantText(args) : 'not_started',
+  };
 }
 
 const LIFECYCLE_EVENT_TYPES = {

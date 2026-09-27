@@ -29,7 +29,7 @@ export interface VoiceRecoveryOutcome {
 
 /** Bounded in-memory recovery evidence. Fragments are observations, never final turns or proof of audibility. */
 export interface VoiceRecoverySnapshot {
-  /** Whether a generated opening was attempted, including ambiguous failures. */
+  /** Whether a generated opening or fixed greeting was attempted, including ambiguous failures. */
   readonly introductionAttempted: boolean;
   /** Most recent eight observed fragments, with connection-local timing. */
   readonly fragments: readonly VoiceRecoveryFragment[];
