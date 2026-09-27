@@ -2,6 +2,7 @@ import type {
   TranscriptEntry,
   UIStructuralSnapshot,
   Unsubscribe,
+  VoiceConnectionState,
   VoiceObservationSource,
   VoiceSession,
   VoiceSessionState,
@@ -42,9 +43,17 @@ import type {
 } from './realtime-session.types.js';
 import {
   RealtimeSessionMemory,
+  recoveryMemorySubscriber,
   type VoiceRecoveryOutcome,
 } from './realtime-session-memory.js';
-import { VoiceObservationStore } from './voice-observation-store.js';
+import {
+  SessionEventBus,
+  type ToolLaterOutcomeType,
+} from './session-event-bus.js';
+import {
+  observationStoreSubscriber,
+  VoiceObservationStore,
+} from './voice-observation-store.js';
 
 // Single source of truth for tool names — the `tools` array passed to the
 // adapter and the dispatch table below are both keyed off this union, so a
@@ -232,12 +241,26 @@ function defaultSummarize(
  */
 export class RealtimeSession implements VoiceSession {
   readonly #observations: VoiceObservationStore;
+  readonly #events: SessionEventBus;
+  readonly #releaseMemory: Unsubscribe;
+  #disposed = false;
+  // Connection-only view of the lifecycle, kept apart from #state, which also
+  // carries turn phases reported by the adapter.
+  #connection: VoiceConnectionState = 'disconnected';
+  #generation = 0;
+  // Intents of update_ui requests this session submitted, so outcome events
+  // carry them without reading memory back.
+  readonly #outcomeIntents = new Map<ToolCallId, string>();
   readonly #conversationInstructions: string | undefined;
   #groundingRevision = 0;
   #groundingKey: string | undefined;
   #subscriptions: ConnectionSubscriptions | undefined;
   #lastConnectEpoch = 0;
-  /** Session-owned recovery evidence, retained independently of provider delivery. */
+  /**
+   * Recovery evidence retained independently of provider delivery. It may be
+   * shared with other sessions of the same Maelstrom session identity and
+   * outlives this one until {@link RealtimeSession.dispose}.
+   */
   readonly memory: RealtimeSessionMemory;
   readonly #generatedOpening: string | undefined;
   readonly #adapter: RealtimeProviderAdapter;
@@ -311,6 +334,17 @@ export class RealtimeSession implements VoiceSession {
       options.transcript,
       options.instance.applicationWork,
     );
+    this.#logger = new Logger(options.debug ?? false, 'RealtimeSession');
+    this.#events = new SessionEventBus((error, event) => {
+      this.#logger.warn('session event subscriber failed', event.type, error);
+    });
+    this.#events.subscribe(observationStoreSubscriber(this.#observations));
+    this.#releaseMemory = this.#events.subscribe(
+      recoveryMemorySubscriber(
+        this.memory,
+        options.transcript?.maxFragmentChars,
+      ),
+    );
     this.#conversationInstructions = options.conversationInstructions;
     this.#adapter = options.adapter;
     this.#instance = options.instance;
@@ -319,7 +353,6 @@ export class RealtimeSession implements VoiceSession {
     this.#summarizeGrounding =
       options.summarize ?? ((snapshot) => defaultSummarize(snapshot, true));
     this.#onEvent = options.onEvent ?? (() => {});
-    this.#logger = new Logger(options.debug ?? false, 'RealtimeSession');
     this.#greeting = options.greeting;
     this.#greetingState = this.#initialGreetingState();
     this.#pushGrounding = groundedDebounce((snapshot: UIStructuralSnapshot) => {
@@ -344,6 +377,9 @@ export class RealtimeSession implements VoiceSession {
    * consumes the attempt because the provider may already have received it.
    * No intended text becomes a transcript
    * or Engine history entry. Configured generatedOpening uses this same claim.
+   * The claim is the one direct write into memory: it is a compare-and-set whose
+   * answer gates the request, so it cannot be an event. `opening.claimed` is
+   * published only after the claim is won.
    */
   async requestGeneratedOpening(instructions: string): Promise<boolean> {
     const epoch = this.#connectEpoch;
@@ -352,10 +388,11 @@ export class RealtimeSession implements VoiceSession {
       !opening ||
       (opening.readiness && !opening.readiness.getSnapshot()) ||
       this.#greeting ||
-      this.#observations.getSnapshot().connection !== 'connected'
+      this.#connection !== 'connected'
     )
       return false;
     if (!this.memory.claimIntroduction()) return false;
+    this.#events.publish({ type: 'opening.claimed' });
     if (epoch !== this.#connectEpoch) return false;
     await opening.request(instructions);
     return true;
@@ -424,8 +461,10 @@ export class RealtimeSession implements VoiceSession {
    * synchronous disconnect from either notification stops before audio
    * activation, adapter subscription, or provider connect. Audio activation
    * still occurs synchronously inside this call, before the first await.
+   * Rejects once the session is disposed.
    */
   async connect(): Promise<void> {
+    if (this.#disposed) throw new Error('RealtimeSession is disposed');
     // Re-entry guard: connect() is only meaningful from a dormant session.
     // From any live state (connecting/connected and the derived voice-activity
     // states) a second connect() would stack a second set of subscriptions on
@@ -470,7 +509,7 @@ export class RealtimeSession implements VoiceSession {
 
     this.#setState('connecting');
     if (epoch !== this.#connectEpoch) return;
-    this.#observations.begin();
+    const generation = this.#startGeneration(connectionId);
     if (epoch !== this.#connectEpoch) return;
 
     try {
@@ -483,17 +522,24 @@ export class RealtimeSession implements VoiceSession {
       subscriptions.observations = this.#adapter.observations?.subscribe(
         (event) => {
           if (epoch !== this.#connectEpoch) return;
-          const connection = this.#observations.getSnapshot().connection;
-          if (connection !== 'connecting' && connection !== 'connected') return;
-          if (event.type === 'media') this.#observations.media(event.media);
-          else {
-            this.#observations.fragment(event.fragment);
-            const retained = this.#observations
-              .getSnapshot()
-              .fragments.find((fragment) => fragment.id === event.fragment.id);
-            if (epoch === this.#connectEpoch && retained)
-              this.memory.observe(retained, connectionId);
-          }
+          if (
+            this.#connection !== 'connecting' &&
+            this.#connection !== 'connected'
+          )
+            return;
+          if (event.type === 'media')
+            this.#events.publish({
+              type: 'media',
+              generation,
+              media: event.media,
+            });
+          else
+            this.#events.publish({
+              type: 'transcript.fragment',
+              generation,
+              connectionId,
+              fragment: event.fragment,
+            });
         },
       );
       if (epoch !== this.#connectEpoch) {
@@ -637,9 +683,24 @@ export class RealtimeSession implements VoiceSession {
     return operation;
   }
 
+  /**
+   * Retires this session for good. It starts {@link RealtimeSession.disconnect},
+   * then detaches the shared memory, so requests that settle later no longer
+   * write recovery evidence from a retired session. Later `connect()` calls
+   * reject. Resolves or rejects with the disconnect; repeated calls are safe.
+   */
+  dispose(): Promise<void> {
+    const ending = this.disconnect();
+    if (!this.#disposed) {
+      this.#disposed = true;
+      this.#releaseMemory();
+    }
+    return ending;
+  }
+
   async #performDisconnect(): Promise<void> {
     this.#connectEpoch++;
-    this.#observations.connection('disconnecting');
+    this.#setConnection('disconnecting');
     const errors = this.#cleanupConnection();
     try {
       await this.#adapter.disconnect();
@@ -821,11 +882,31 @@ export class RealtimeSession implements VoiceSession {
   #setState(next: VoiceSessionState): void {
     const epoch = this.#connectEpoch;
     this.#state = next;
-    if (next === 'idle') this.#observations.connection('disconnected');
-    else if (next === 'error') this.#observations.connection('error');
-    else if (next === 'connected') this.#observations.connection('connected');
+    if (next === 'idle') this.#setConnection('disconnected');
+    else if (next === 'error') this.#setConnection('error');
+    else if (next === 'connected') this.#setConnection('connected');
     if (epoch !== this.#connectEpoch || this.#state !== next) return;
     for (const handler of this.#stateHandlers) handler(next);
+  }
+
+  #startGeneration(connectionId: string): number {
+    this.#generation += 1;
+    this.#connection = 'connecting';
+    this.#events.publish({
+      type: 'session.started',
+      generation: this.#generation,
+      connectionId,
+    });
+    return this.#generation;
+  }
+
+  #setConnection(next: Exclude<VoiceConnectionState, 'connecting'>): void {
+    if (next === this.#connection) return;
+    this.#connection = next;
+    this.#events.publish({
+      type: LIFECYCLE_EVENT_TYPES[next],
+      generation: this.#generation,
+    });
   }
 
   /**
@@ -957,6 +1038,7 @@ export class RealtimeSession implements VoiceSession {
           'The application result could not be confirmed. Do not retry automatically.',
       });
     }
+    this.#outcomeIntents.delete(call.callId);
 
     this.#emit({
       type: 'tool_result',
@@ -997,7 +1079,13 @@ export class RealtimeSession implements VoiceSession {
     }
 
     this.#logger.debug('update_ui: submitting intent', intent);
-    this.memory.outcome({ id: callId, intent, status: 'submitted' });
+    this.#outcomeIntents.set(callId, intent);
+    this.#events.publish({
+      type: 'tool.submitted',
+      callId,
+      intent,
+      retry: false,
+    });
     if (epoch !== this.#connectEpoch) {
       this.#recordOutcome(callId, 'not_submitted');
       return false;
@@ -1142,14 +1230,23 @@ export class RealtimeSession implements VoiceSession {
     status: VoiceRecoveryOutcome['status'],
     summary?: string,
   ): void {
-    const prior = this.memory.find(id);
-    if (prior)
-      this.memory.outcome({
-        id,
-        intent: prior.intent,
-        status,
-        ...(summary === undefined ? {} : { summary }),
+    const intent = this.#outcomeIntents.get(id);
+    if (intent === undefined) return;
+    if (status === 'submitted') {
+      this.#events.publish({
+        type: 'tool.submitted',
+        callId: id,
+        intent,
+        retry: true,
       });
+      return;
+    }
+    this.#events.publish({
+      type: OUTCOME_EVENT_TYPES[status],
+      callId: id,
+      intent,
+      ...(summary === undefined ? {} : { summary }),
+    });
   }
 
   async #deliverToolResult(
@@ -1480,3 +1577,21 @@ export class RealtimeSession implements VoiceSession {
     }
   }
 }
+
+const LIFECYCLE_EVENT_TYPES = {
+  connected: 'session.connected',
+  disconnecting: 'session.disconnecting',
+  disconnected: 'session.disconnected',
+  error: 'session.error',
+} as const;
+
+const OUTCOME_EVENT_TYPES: Record<
+  Exclude<VoiceRecoveryOutcome['status'], 'submitted'>,
+  ToolLaterOutcomeType
+> = {
+  queued: 'tool.queued',
+  completed: 'tool.completed',
+  failed: 'tool.failed',
+  unknown: 'tool.unconfirmed',
+  not_submitted: 'tool.not_submitted',
+};

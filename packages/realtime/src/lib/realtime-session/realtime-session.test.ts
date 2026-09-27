@@ -3860,6 +3860,96 @@ describe('RealtimeSession — observation and recovery equivalence', () => {
       randomUUID.mockRestore();
     }
   });
+
+  it('stops a disposed session from feeding the memory it shares with its replacement', async () => {
+    const memory = new RealtimeSessionMemory(testSessionId);
+    const retiredAdapter = makeMockAdapter();
+    const retiredInstance = makeMockInstance(emptySnapshot);
+    const retired = new RealtimeSession({
+      adapter: retiredAdapter,
+      instance: retiredInstance,
+      sessionId: testSessionId,
+      memory,
+    });
+    await retired.connect();
+    retiredAdapter.emitToolCall({
+      callId: 'retired-call',
+      name: 'update_ui',
+      argumentsJson: JSON.stringify({ intent: 'show labs' }),
+    });
+    await flushMicrotasks();
+    expect(memory.find(ToolCallId('retired-call'))?.status).toBe('submitted');
+
+    await retired.dispose();
+    await retired.dispose();
+    retiredInstance.settle();
+    await flushMicrotasks();
+
+    expect(memory.find(ToolCallId('retired-call'))?.status).toBe('submitted');
+    await expect(retired.connect()).rejects.toThrow('disposed');
+
+    const replacementAdapter = makeMockAdapter();
+    const replacementInstance = makeMockInstance(emptySnapshot);
+    const replacement = new RealtimeSession({
+      adapter: replacementAdapter,
+      instance: replacementInstance,
+      sessionId: testSessionId,
+      memory,
+    });
+    await replacement.connect();
+    replacementAdapter.emitToolCall({
+      callId: 'replacement-call',
+      name: 'update_ui',
+      argumentsJson: JSON.stringify({ intent: 'show weather' }),
+    });
+    await flushMicrotasks();
+    replacementInstance.settle();
+    await flushMicrotasks();
+
+    expect(memory.getSnapshot().outcomes).toEqual([
+      {
+        id: ToolCallId('retired-call'),
+        intent: 'show labs',
+        status: 'submitted',
+      },
+      {
+        id: ToolCallId('replacement-call'),
+        intent: 'show weather',
+        status: 'completed',
+        summary: 'The screen is empty.',
+      },
+    ]);
+    await replacement.dispose();
+  });
+
+  it('keeps feeding shared memory after a plain disconnect, because submitted work can finish after voice ends', async () => {
+    const { session, adapter, instance } = makeHarness();
+    await session.connect();
+    adapter.emitToolCall({
+      callId: 'late-call',
+      name: 'update_ui',
+      argumentsJson: JSON.stringify({ intent: 'show labs' }),
+    });
+    await flushMicrotasks();
+
+    await session.disconnect();
+    instance.settle();
+    await flushMicrotasks();
+
+    expect(session.memory.find(ToolCallId('late-call'))?.status).toBe(
+      'completed',
+    );
+  });
+
+  it('settles the observation snapshot as disconnected when disposed', async () => {
+    const { session } = makeHarness();
+    await session.connect();
+
+    await session.dispose();
+
+    expect(session.state).toBe('idle');
+    expect(session.observations.getSnapshot().connection).toBe('disconnected');
+  });
 });
 
 const firstUserFragment: TimedTranscriptFragment = {
