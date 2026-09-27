@@ -76,7 +76,7 @@ before any deployment. The fixed greeting TTS route
 be treated as production abuse protection.
 
 **Greeting TTS troubleshooting.** If the caption appears but there is no audio,
-confirm the browser allowed microphone/autoplay after the orb click, check that
+confirm the browser allowed microphone/autoplay after clicking the voice orb, check that
 `POST /api/demo-greeting-tts` returned `audio/wav`, and verify `OPENAI_API_KEY`
 can call `/v1/audio/speech`. A second greeting after reconnect within the same
 session is a bug; a second upstream OpenAI TTS call after a successful cache fill

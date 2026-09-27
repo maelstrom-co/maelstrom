@@ -175,7 +175,7 @@ type UpdateReason =
 
 ### Vessel instance snapshots
 
-Each currently-mounted vessel is described as a snapshot:
+Each vessel instance that is currently mounted is represented by a snapshot:
 
 ```ts
 interface VesselInstanceSnapshot {

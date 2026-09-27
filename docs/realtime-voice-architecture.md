@@ -231,8 +231,8 @@ treats the result as terminal so reconnecting or recreating the provider session
 cannot duplicate speech. A failure before provider send begins remains retriable
 by a later connection generation. A new session greets again.
 
-Activation sits inside the initiating gesture on purpose. `RealtimeSession.connect()`
-calls `adapter.activateAudio()` synchronously within the click so Web Audio unlock
+When the user clicks the voice orb, `RealtimeSession.connect()` calls
+`adapter.activateAudio()` synchronously in the click handler so Web Audio unlock
 work begins before any async handshake. Failures after a successful provider-item
 send settle as `accepted` (terminal); only pre-send failures return `not_started`.
 The keyless demo uses the same boundary when the first browser key is saved: it
@@ -363,10 +363,10 @@ Verify before you trust. Run these steps in order.
    visible before interaction. Delay Engine readiness, save the first browser
    key (or click the orb for an existing session), and confirm
    that the compact “Connecting…” / “Preparing greeting…” treatment remains
-   visible for the whole
-   wait with no invented timeout; Stop voice must remain usable. Restore Engine
+   visible for the whole wait with no invented timeout; Stop voice must remain
+   usable. Grant microphone permission if prompted. Restore Engine
    readiness and confirm that the label becomes “Listening” only after greeting
-   presentation settles. One click grants the mic, unlocks Web Audio, and
+   presentation settles. Confirm that the save or orb click unlocks Web Audio and
    produces exactly one assistant caption matching the greeting text and one
    audible TTS playback. Network shows bodyless same-origin
    `POST /api/demo-greeting-tts` with `Sec-Fetch-Site: same-origin`. In DevTools,

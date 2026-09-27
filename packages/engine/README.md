@@ -73,7 +73,7 @@ interface Engine {
 
 - **Uniform identity.** Every message is tagged with the same `sessionId` and `id`, so correlation, dedup, and audit work the same way across variants and across future message kinds.
 - **Wire format = engine format.** Connectors, transports, and server dispatch code are pure passthrough — they serialize and deserialize envelopes but never add, rename, or inject fields. The JSON on the wire is the `EngineMessage` the engine sees.
-- **Client constructs, intermediaries pass through.** The client edge (React provider, voice session loop, HTTP caller) calls the protocol factory functions and produces a fully-formed envelope. Nothing downstream mutates it.
+- **Client constructs, intermediaries pass through.** The client edge (React provider, voice session loop, HTTP caller) calls the protocol factory functions and produces an envelope with all required fields. Nothing downstream mutates it.
 
 ### Message variants
 
@@ -110,7 +110,7 @@ const injection = AssistantInjectionMessage({
 });
 ```
 
-The engine's `handle()` accepts only fully-formed envelopes — there are no partial-input overloads. Always use the factories.
+The engine's `handle()` requires envelopes with all required fields. It has no partial-input overloads. Always use the factories.
 
 ---
 
@@ -308,7 +308,7 @@ Action-level problems (`SkippedAction`, exposed via `parseExecutionPlan`) are fi
 - The configured `layoutMode` is unsupported (programmer error).
 - A provider error / cancellation / history error occurred upstream (see `Errors` below).
 
-Everything else returns `Ok(EngineOutput)` with a possibly-degraded response. Consumers do not see the recovery path — they see either a usable response or a hard error.
+Everything else returns `Ok(EngineOutput)`. The response may omit invalid layout entries or actions. Consumers do not see the recovery path — they see either a usable response or a hard error.
 
 ### Engine-internal diagnostics
 

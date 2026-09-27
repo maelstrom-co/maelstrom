@@ -9,7 +9,7 @@ The industry has largely converged on two common approaches to that problem.
 
 ## Two common approaches
 
-**Bolt a chat box onto every app.** The UI stays fixed; the LLM answers in text or fires a few predefined tools. This works well when the interaction is genuinely conversational, but the model never gets to *use* the interface — it can only describe what the user could click. As the number of things a user might want to do grows, walls of text replace working software and human reading speed becomes the bottleneck.
+**Bolt a chat box onto every app.** The UI stays fixed; the LLM answers in text or fires a few predefined tools. This works well when the interaction is genuinely conversational, but the model never gets to *use* the interface — it can only describe the available actions, such as which buttons the user could click. As the number of things a user might want to do grows, walls of text replace working software and human reading speed becomes the bottleneck.
 
 **Let the model generate the interface.** Generative UI invents components from a prompt, trading a team's existing component library for on-the-fly generation. That's fine for a single, simple answer, but every widget is a one-shot — no shared state, no layout system, no way to reason about whether two things fit on screen together. Coordinating more than one component at a time is where this approach runs into trouble.
 
@@ -25,7 +25,7 @@ Three commitments separate Maelstrom from free-form generative UI:
 
 Those three together are the bet: *if you give the model a closed world of well-typed components and a discrete surface to place them on, it can orchestrate UIs reliably enough to put in front of users.*
 
-## Why state machines and a discrete layout surface?
+## Benefits of state machines and a discrete layout surface
 
 Both choices look opinionated. Both are load-bearing.
 

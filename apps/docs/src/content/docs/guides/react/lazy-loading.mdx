@@ -13,7 +13,7 @@ A vessel's component only matters once the engine decides to place it. This guid
 
 ## Why lazy-load
 
-Every vessel you pass to `createMaelstrom()` is a candidate the engine may or may not place on the Chart. With eager registration, each vessel's component code ships in your initial bundle whether or not it ever renders. Lazy loading splits the component into its own chunk that the browser fetches only on first mount, so an app with many large or rarely-shown vessels keeps its initial download small and pays for a vessel's code only when the engine actually uses it.
+Every vessel you pass to `createMaelstrom()` is a candidate the engine may or may not place on the Chart. With eager registration, each vessel's component code ships in your initial bundle whether or not it ever renders. Lazy loading splits the component into its own chunk that the browser fetches only on first mount, so an app with many large or rarely shown vessels keeps its initial download small and pays for a vessel's code only when the engine actually uses it.
 
 ## The lazy overload
 
