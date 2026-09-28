@@ -53,7 +53,7 @@ async function run(
 }
 
 /** A budget small enough to split these fixtures over several calls. */
-const SPLIT_BYTES = 2000;
+const SPLIT_BYTES = 2200;
 
 function requestBytes(payload: Payload): number {
   return new TextEncoder().encode(JSON.stringify(payload)).length;
@@ -120,6 +120,23 @@ describe('actionsBatchedPerInstance', () => {
       'param/calendar-main/2/day:addEvent/title',
       'param/calendar-main/2/day:addEvent/time',
     ]);
+  });
+
+  test('tells slot 2 that showing the instance is no action and one request counts once', async () => {
+    const { calls } = await run(
+      selectionOf('show me the calendar and add standup', CALENDAR_ONLY),
+      answering({}),
+    );
+    const second = calls[0]?.questions['calendar-main/2'];
+    expect(second?.instructions).toContain(
+      'asking to show, open or bring up calendar-main is not one, and one request is never counted twice',
+    );
+    expect(second?.instructions).toContain(
+      'Choose an option only when the intent requests two of them on calendar-main, or asks for the same one twice; otherwise choose none.',
+    );
+    expect(second?.criteria.none).toBe(
+      'The latest intent requests at most one view change or content edit on calendar-main, besides perhaps showing it.',
+    );
   });
 
   test('offers one slot-2 option per premise view, shared by first actions that end there', async () => {

@@ -251,14 +251,14 @@ function instanceQuestions(
     },
   );
   questions[slotId(instance, 2)] = choice(
-    `Choose the second action the latest intent requests on ${instanceId}, after its first one. Each option assumes the view the first action leaves it in. ${VIEW_RULE} Choose none when it requests at most one action on ${instanceId}.`,
+    `Choose the second action the latest intent requests on ${instanceId}, after its first one. Each option assumes the view the first action leaves it in. ${VIEW_RULE} Count only the view changes and content edits the intent requests on ${instanceId}: asking to show, open or bring up ${instanceId} is not one, and one request is never counted twice. Choose an option only when the intent requests two of them on ${instanceId}, or asks for the same one twice; otherwise choose none.`,
     {
       ...slotCriteria(
         second,
         (target) =>
           `If its first action leaves it in its ${target.variant} view: `,
       ),
-      none: `The latest intent requests at most one action on ${instanceId}.`,
+      none: `The latest intent requests at most one view change or content edit on ${instanceId}, besides perhaps showing it.`,
       unsupported: `A second requested action on ${instanceId} cannot be performed with these actions.`,
     },
   );
