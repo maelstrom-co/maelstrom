@@ -10,7 +10,7 @@ const sidebarStyles = readFileSync(
   'utf8',
 );
 const evaluationGuide = readFileSync(
-  new URL('../../pages/agents/evaluations/index.astro', import.meta.url),
+  new URL('../../content/docs/agents/evaluations.mdx', import.meta.url),
   'utf8',
 );
 const evaluationReadme = readFileSync(
@@ -35,12 +35,67 @@ describe('AGENTS sidebar navigation', () => {
     expect(config.match(/link: '\/agents\/evaluations\/'/g)).toHaveLength(1);
   });
 
-  it('points readers to the existing evaluation README source instead of an unpublished route', () => {
+  it('keeps the guide at its existing route and links readers to the evaluation source', () => {
+    expect(evaluationGuide).toContain('slug: agents/evaluations');
     expect(evaluationGuide).toContain(
-      '<code>apps/docs/prompts/evaluation/README.md</code>',
+      '`apps/docs/prompts/evaluation/README.md`',
     );
-    expect(evaluationGuide).not.toContain('href="/prompts/evaluation/"');
     expect(evaluationReadme).toContain('# Prompt evaluation CLI');
+  });
+
+  it('documents registered cases, real runner flags, and headings for the page table of contents', () => {
+    for (const heading of [
+      '## What an evaluation can tell you',
+      '## Choose a case',
+      '## Run a read-only evaluation',
+      '## Run an implementation trial',
+      '## Read the report',
+      '## Compare prompt and skill conditions',
+      '## Troubleshooting and limits',
+    ])
+      expect(evaluationGuide).toContain(heading);
+
+    for (const caseId of [
+      'modeling-read-only',
+      'react-inventory',
+      'debugging-read-only',
+      'onboarding-implementation',
+      'react-conversion',
+    ])
+      expect(evaluationGuide).toContain(`\`${caseId}\``);
+
+    expect(evaluationGuide).toContain('--runner opencode');
+    expect(evaluationGuide).toContain('--runner claude');
+    expect(evaluationGuide).toContain('--candidate-root');
+    expect(evaluationGuide).toContain(
+      '--authorize-coding operator-approved --tools enabled',
+    );
+    expect(evaluationGuide).toContain(
+      'Planned; no CLI switch currently suppresses the prompt.',
+    );
+  });
+
+  it('builds the workspace SDK before trial preparation and distinguishes registered inventory runs from prepared copies', () => {
+    const sdkBuild = evaluationGuide.indexOf(
+      'bunx nx run-many --target build \\\n  --projects=@maelstrom-co/protocol,@maelstrom-co/connectors,@maelstrom-co/client,@maelstrom-co/react',
+    );
+    const prepareTrials = evaluationGuide.indexOf(
+      'bun apps/docs/prompts/acceptance/prepare-trials.mjs "$PWD"',
+    );
+    expect(sdkBuild).toBeGreaterThanOrEqual(0);
+    expect(prepareTrials).toBeGreaterThan(sdkBuild);
+    expect(evaluationGuide).toContain(
+      "packs the SDK artifacts built in the workspace's `dist` directories",
+    );
+    expect(evaluationGuide).toContain(
+      'It does not build the SDK packages for you.',
+    );
+    expect(evaluationGuide).toContain(
+      'makes its own fresh temporary copy of the registered `migration-react` fixture and removes that copy after the run',
+    );
+    expect(evaluationGuide).toContain(
+      'The preparation helper also creates a paired `$TRIAL_ROOT/migration-inventory` project',
+    );
   });
 
   it('uses the shared section-header treatment without bespoke prompt-link prominence', () => {

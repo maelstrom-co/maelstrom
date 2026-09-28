@@ -1,0 +1,162 @@
+---
+title: Testing prompts and skills
+description: Run a prompt evaluation, choose a task, and interpret the evidence it collects.
+slug: agents/evaluations
+---
+
+A prompt can sound precise and still miss a case that matters. A skill can describe the right practice without changing what an agent does. To find out whether guidance helps, run it against a task with a known starting point, preserve the result, and inspect what the checks actually measured.
+
+This guide walks through the five registered tasks, running read-only and implementation trials, and comparing prompt or skill changes. The examples use OpenCode and Claude Code; each requires that CLI to be installed and authenticated already.
+
+## What an evaluation can tell you
+
+An evaluation runs one registered task against one fresh copy of its fixture. The runner receives the task and its canonical prompt, then the evaluator records process and transport status, checks the result against objective criteria, and writes a private report. For implementation tasks, objective checks run against the candidate after the agent finishes; they do not run the agent themselves.
+
+A **task** says what to do and what not to do. A **prompt** is the canonical, versioned guidance supplied alongside the task. A **skill** is reusable guidance that an agent may be able to discover or use; making a skill available does not mean the agent found it or followed it.
+
+The normal flow is:
+
+1. Select a registered case and start from its unchanged fixture.
+2. The evaluator makes a fresh copy for the run and combines the task with the canonical prompt.
+3. The chosen CLI runs with the supplied input.
+4. The evaluator records process evidence and runs objective checks; semantic review remains separate.
+
+Known-good and deliberately broken calibration fixtures serve a different purpose: they test whether the grader accepts and rejects the expected candidate changes. They are not agent responses and do not show that a prompt works. The current registered cases all use the canonical-prompt path. Automatic task-only or skill-availability comparisons, old/new summaries, and release thresholds are not implemented.
+
+## Choose a case
+
+Each case uses a fixed starting fixture. Read-only cases get a temporary copy for each run. Implementation cases use a prepared disposable trial project; prepare a new trial root before another agent run rather than reusing a candidate that a previous agent could have changed.
+
+### `modeling-read-only`
+
+- **Starts with:** `src/Queue.tsx` from the modeling fixture; the report includes the source as case context.
+- **Task:** Inventory the support queue, decide whether it belongs in one Vessel, and propose a bounded contract. Do not edit files.
+- **Checks:** Final response/process status, evidence JSON shape and exact fixture quotes, and zero file changes. These checks can establish that claims cite supplied source, not that the proposal is correct.
+- **Still needs semantic review:** Whether the observations support the proposed capability and whether the suggested states and Actions are appropriate.
+
+### `react-inventory`
+
+- **Starts with:** `src/SearchPanel.tsx` and `src/search.ts` from the `migration-react` fixture.
+- **Task:** Inspect the existing controlled SearchPanel and propose or reject a bounded pilot. Do not implement it.
+- **Checks:** Evidence JSON and quote validity, source path, and no fixture changes.
+- **Still needs semantic review:** Whether the account of controlled input, disabled empty or whitespace submission, pending/error/success UI, and application-owned `searchTickets` handler is accurate and the proposal stays within those boundaries.
+
+### `debugging-read-only`
+
+- **Starts with:** The synthetic `report.md` in the debugging fixture.
+- **Task:** Diagnose from recorded evidence without editing. Keep `req-browser-17` and `req-server-42` separate unless the report links them.
+- **Checks:** Evidence shape and source quotes, and zero file changes.
+- **Still needs semantic review:** Whether the response distinguishes the browser refusal from the server timeout, avoids inventing a shared cause, and recommends a bounded next diagnostic.
+
+### `onboarding-implementation`
+
+- **Starts with:** A prepared copy of the onboarding React application and the local Maelstrom SDK.
+- **Task:** Integrate the existing support-ticket queue as a selectable capability. Preserve its heading, explanatory paragraph, and initial T-104/T-105 rows. Do not add search or network behavior, edit the simulated connector, or claim live Engine behavior.
+- **Checks:** Protected-file integrity, allowed application changes, SDK typecheck, visible UI, and an SDK-rendered Vessel with visible nonzero Chart geometry in a browser.
+- **Still needs semantic review:** Whether the integration is the smallest suitable fit for the app and follows the task's intent. The browser uses a simulated connector, not a live Engine.
+
+### `react-conversion`
+
+- **Starts with:** A prepared copy of the same `migration-react` source used by `react-inventory`. In particular, `SearchPanel.tsx` and `search.ts` begin byte-for-byte the same.
+- **Task:** Implement the approved conversion of SearchPanel into one developer-authored Vessel. Preserve the existing UI and call the existing app-owned `searchTickets` handler. Do not add network behavior or change grader support files.
+- **Checks:** Protected-file integrity and change allowlist, SDK typecheck, evaluator-owned React behavior tests, and browser evidence for a registered Vessel in a visible Chart.
+- **Still needs semantic review:** Whether the conversion preserves the app's intended behavior beyond those asserted states and wiring.
+
+Inventory and conversion deliberately start from the **same SearchPanel** but grant different write authority: `react-inventory` is read-only; `react-conversion` authorizes a bounded implementation. Choosing the inventory case does not implicitly grant permission to edit.
+
+## Prerequisites
+
+Run commands from a Maelstrom repository checkout with Bun and workspace dependencies installed. The implementation-trial preparation also needs Node.js/npm, `tar`, and `jj` available: the helper packs SDK packages, unpacks them, and records the source revision. Install and authenticate the selected CLI yourself: `opencode` for OpenCode or `claude` for Claude Code. The evaluator does not install CLIs, log in, or edit your configuration. No separate SDK project setup is needed for read-only cases; they use supplied fixture context, not an installed app.
+
+Choose an output directory outside the checkout. It contains raw CLI output and a manifest, so keep it private. The examples below run the same read-only modeling case with either runner; use one, not both with the same output path.
+
+## Run a read-only evaluation
+
+From the repository root, run either command:
+
+```sh
+bun run --cwd apps/docs prompts:evaluate \
+  --case modeling-read-only --runner opencode \
+  --output /private/tmp/maelstrom-modeling-opencode
+```
+
+```sh
+bun run --cwd apps/docs prompts:evaluate \
+  --case modeling-read-only --runner claude \
+  --output /private/tmp/maelstrom-modeling-claude
+```
+
+The evaluator passes the case input to the runner and creates a fresh read-only fixture copy. Managed runners request tools disabled for this case. That setting is not proof of tool obedience: inherited CLI configuration may still apply, and the report marks tool use/repository inspection as `unrun`. The evaluator also checks whether files changed in its fixture copy.
+
+For another read-only case, replace `modeling-read-only` with `react-inventory` or `debugging-read-only`. Do not add coding authorization or enable tools for a read-only case.
+
+## Run an implementation trial
+
+Implementation runs need a fresh prepared project, explicit approval to run coding tools on the trusted host, and tools enabled. Build the workspace SDK first, then prepare the disposable apps. The package names below are the Nx project IDs from their package manifests:
+
+```sh
+bunx nx run-many --target build \
+  --projects=@maelstrom-co/protocol,@maelstrom-co/connectors,@maelstrom-co/client,@maelstrom-co/react \
+  --skip-nx-cache
+```
+
+Now prepare the disposable projects:
+
+```sh
+bun apps/docs/prompts/acceptance/prepare-trials.mjs "$PWD"
+```
+
+The helper prints `TRIAL_ROOT=...` along with other preparation logs. Read the printed line and set `TRIAL_ROOT` to that exact private path in your shell; do not capture all helper stdout as the root because it contains logs. Preparation packs the SDK artifacts built in the workspace's `dist` directories, then installs dependencies and builds/typechecks the prepared application baselines before you start an agent. It does not build the SDK packages for you. Keep the trial root outside the checkout and make a new one for every run.
+
+These examples assume you have set `TRIAL_ROOT` from the helper's printed output. Run one case with one CLI, and choose a new private output directory:
+
+```sh
+bun run --cwd apps/docs prompts:evaluate \
+  --case onboarding-implementation --runner opencode \
+  --candidate-root "$TRIAL_ROOT/onboarding" \
+  --authorize-coding operator-approved --tools enabled \
+  --output /private/tmp/maelstrom-onboarding-opencode
+```
+
+```sh
+bun run --cwd apps/docs prompts:evaluate \
+  --case react-conversion --runner claude \
+  --candidate-root "$TRIAL_ROOT/migration-conversion" \
+  --authorize-coding operator-approved --tools enabled \
+  --output /private/tmp/maelstrom-conversion-claude
+```
+
+`operator-approved` is an explicit acknowledgement that the CLI may run coding tools. It does not create filesystem confinement. `--candidate-root` must be the prepared project's actual path, never the repository checkout or an earlier agent's edited candidate. The preparation helper also creates a paired `$TRIAL_ROOT/migration-inventory` project for manual inspection or trials. The registered `react-inventory` evaluation command does not use that prepared directory: it makes its own fresh temporary copy of the registered `migration-react` fixture and removes that copy after the run. The inventory case is read-only; do not use the conversion project for an inventory run if you want an untouched prepared baseline.
+
+## Read the report
+
+The output directory contains `run-*/manifest.json`, `run-*/stdout.jsonl`, and `run-*/stderr.txt`. Keep all three private; raw output can contain sensitive text. The manifest records case, prompt/task hashes, runner and process status, criteria, changed files, and the trust boundary. It reports model or provider identity as `unknown` unless the runner exposed it.
+
+Read the `criteria` array by criterion ID and status (`passed`, `failed`, or `unrun`), along with each criterion's evidence. An exit code of zero only says the process exited successfully; it does not mean the response is semantically right. A CLI authentication or spawn failure is a runner/setup problem, not evidence that a prompt is bad. Likewise, a read-only `tool-use-and-repository-inspection: unrun` is not proof that the agent obeyed a no-tools rule.
+
+For an evidence case, the evaluator may report `structured-evidence-links: passed` when each JSON claim cites an allowed fixture file with an exact quote. That is an illustrative description of what the criterion means, not a benchmark result. The report still marks semantic review `unrun` until a reviewer judges whether those claims are correct. Implementation reports also separate typecheck, protected-file, behavior, and browser criteria; passing those checks does not establish live Engine or provider behavior.
+
+## Compare prompt and skill conditions
+
+Run and preserve a baseline before changing prompt or skill guidance. After a change, repeat the case on a fresh fixture or prepared project with the same CLI, model/profile, permissions, tool settings, budget, and grader. Keep the original output; compare criteria and semantic review, and repeat runs when you need to understand run-to-run variation. Change one factor at a time: keeping the CLI and model the same is important when isolating a prompt change. Retain bug scenarios as regression cases; do not weaken checks to make a changed prompt look better.
+
+The four useful comparison conditions are a conceptual plan, not four modes available in the current CLI:
+
+| Condition | What the agent receives | Status |
+| --- | --- | --- |
+| Task only | Task, without canonical prompt or supplied skill | Planned; no CLI switch currently suppresses the prompt. |
+| Task + canonical prompt | Current registered evaluation input | Current mode for all five cases. |
+| Task + available skill | Task plus skill made available, without canonical prompt | Planned; skill discovery/use is not measured automatically. |
+| Task + canonical prompt + available skill | Current input plus a skill made available | Planned; no automatic skill comparison or enforcement. |
+
+A skill being available is not evidence it was discovered or used. Explicitly supplying a skill would test following supplied text, not discovery; forcing its use would be a different question again. The current harness does not automate these conditions, collect repeat-variance summaries, or define release thresholds. Report only evidence you actually collected.
+
+## Troubleshooting and limits
+
+- **CLI spawn or authentication error:** Check that the selected CLI is installed and authenticated in your own environment. Treat this as a run failure, not a prompt score.
+- **Missing trial files or dependency errors:** Confirm the helper completed, use the exact printed `TRIAL_ROOT`, and select the matching prepared case directory. Prepare a new root rather than reusing edited candidate files.
+- **Failed process or transport criterion:** Inspect the private manifest and stderr for a timeout, malformed/incomplete runner output, or CLI error before interpreting any response criteria.
+- **Failed candidate criterion:** Read its evidence and grader command summary. The candidate grader runs local checks; it does not repair the candidate or start another agent.
+- **Report says semantic review is `unrun`:** That is expected until an independent reviewer checks the task-specific rubric.
+
+A temporary working directory is not an OS sandbox. Tool-enabled implementation trials execute on the trusted host; approve them only for disposable prepared projects. The local simulated connector supports SDK/browser checks but is not a live Engine, provider, or voice integration. For detailed adapter and grader behavior, see `apps/docs/prompts/evaluation/README.md` in the repository. You can also browse the [canonical prompt library](/agents/prompts/) and [skills library](/agents/skills/).
