@@ -224,7 +224,7 @@ function instanceQuestions(
       withParameters(
         1,
         { label: definition.name, variant, definition },
-        `For the first action on ${instanceId}, ${definition.name}`,
+        `For the first action the latest intent requests on ${instanceId}, ${definition.name}`,
       ),
     );
   const premises = [...new Set([...first.values()].map(after))];
@@ -240,7 +240,7 @@ function instanceQuestions(
             variant: premise,
             definition,
           },
-          `For the second action on ${instanceId}, ${definition.name} in its ${premise} view`,
+          `For the second action the latest intent requests on ${instanceId}, ${definition.name} in its ${premise} view`,
         ),
       );
   const thirdPremises = [...new Set([...second.values()].map(after))];

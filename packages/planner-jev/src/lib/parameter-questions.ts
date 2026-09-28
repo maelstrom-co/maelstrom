@@ -62,7 +62,7 @@ export function parameterQuestions(
     });
     const selectionRule =
       enumerated.length > 0
-        ? 'Choose the listed value the request clearly refers to, even when the wording differs. Accept clear short names, aliases, abbreviations and contextual references when they identify a single listed option. Use the listed value. Do not guess when several options fit or none clearly matches.'
+        ? 'Choose the listed value the latest intent clearly refers to, even when the wording differs. Accept clear short names, aliases, abbreviations and descriptions of what it is, such as the kind of place, when they identify a single listed option. Use history only to resolve a reference back to an earlier message, such as "there", "the same place" or "again"; a value named only in history is not requested now. Use the listed value. Do not guess when several options fit or none clearly matches.'
         : 'Pick an option only when it is itself the value, for example a city name, never a phrase that describes, names indirectly or points to the value.';
     const question = `${lead}, choose the value of ${parameter.name} (${parameter.type}): ${parameter.description}. ${selectionRule}`;
     questions[id] = choice(
@@ -86,7 +86,7 @@ export function parameterQuestions(
         ),
         stated_elsewhere:
           enumerated.length > 0
-            ? 'The request gives a value that no listed option clearly matches, or that several listed options could match.'
+            ? 'The latest intent gives a value that no listed option clearly matches, or that several listed options could match.'
             : 'The request refers to the value indirectly (a landmark, event, "the capital of X", a relative description) or states it in a form none of the options match exactly.',
         not_stated: 'The request does not give a value.',
         ...(parameter.required === false && {

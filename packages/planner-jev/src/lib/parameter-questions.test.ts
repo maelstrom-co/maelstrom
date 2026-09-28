@@ -58,13 +58,13 @@ describe('parameterQuestions', () => {
       readonly question: string;
     };
     expect(instructions.question).toContain(
-      'Choose the listed value the request clearly refers to, even when the wording differs.',
+      'Choose the listed value the latest intent clearly refers to, even when the wording differs.',
     );
     expect(instructions.question).not.toContain('itself the value');
     expect(
       destination?.type === 'choice' && destination.criteria.stated_elsewhere,
     ).toBe(
-      'The request gives a value that no listed option clearly matches, or that several listed options could match.',
+      'The latest intent gives a value that no listed option clearly matches, or that several listed options could match.',
     );
   });
 

@@ -360,7 +360,7 @@ describe('jevActions', () => {
       v0: '"Buy milk"',
       v1: '"Send invoice"',
       stated_elsewhere:
-        'The request gives a value that no listed option clearly matches, or that several listed options could match.',
+        'The latest intent gives a value that no listed option clearly matches, or that several listed options could match.',
       not_stated: 'The request does not give a value.',
     });
   });
