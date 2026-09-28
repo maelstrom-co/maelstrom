@@ -1,7 +1,6 @@
 import {
   type CancellationError,
   cancellationError,
-  finalVariants,
   type LLMContextMessage,
   type PlannerCandidate,
   type ProviderError,
