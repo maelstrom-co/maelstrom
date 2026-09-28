@@ -6,6 +6,7 @@ import {
   type PlannerCandidate,
   type ProviderError,
   providerError,
+  type SimulationError,
   type StageContext,
 } from '@maelstrom-co/engine';
 import {
@@ -21,7 +22,6 @@ import {
 } from '@maelstrom-co/protocol';
 import { chat } from '@tanstack/ai';
 import { z } from 'zod';
-
 import {
   type Completion,
   outputSchema,
@@ -33,7 +33,6 @@ import {
   declaredVariants,
 } from '../declared-variants.js';
 import { deferAt } from '../defer.js';
-import type { SimulationError } from '../final-variants.js';
 import { layoutFits } from '../layout-fit.js';
 import { intentText, recentHistory } from '../questions.js';
 import type {

@@ -1,7 +1,6 @@
+import { finalVariants } from '@maelstrom-co/engine';
 import { isErr, ok, type VesselInstanceSnapshot } from '@maelstrom-co/protocol';
-
 import { deferAt } from '../defer.js';
-import { finalVariants } from '../final-variants.js';
 import { layoutChoices } from '../layouts.js';
 import type { LayoutStage } from '../stages/stage-types.js';
 

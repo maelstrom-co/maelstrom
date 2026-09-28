@@ -1,0 +1,463 @@
+import {
+  createEngine,
+  type Logger,
+  type Planner,
+  type PlannerCandidate,
+  type PlanningInput,
+  type Retryable,
+  type Stage,
+} from '@maelstrom-co/engine';
+import {
+  type ActionExecution,
+  ChartRequestMessage,
+  isOk,
+  type MaelstromResponse,
+  MessageId,
+  SessionId,
+  type VesselInstanceSnapshot,
+} from '@maelstrom-co/protocol';
+import type { AnyTextAdapter } from '@tanstack/ai';
+import type { RegisteredArm } from './arms.js';
+import {
+  GRADER_VERSION,
+  type GraderCall,
+  type GraderRecord,
+  gradeResponse,
+} from './grader.js';
+import {
+  createRecorder,
+  type StageRecord,
+  type StageReplacements,
+} from './instrument.js';
+import {
+  extendOwned,
+  type Judge,
+  type Phase,
+  type PlannerEvalPlugin,
+} from './plugin.js';
+import {
+  type ReplaySource,
+  replayedStages,
+  replayStage,
+  verifyReplay,
+  verifyReplayShape,
+  writeStageFile,
+} from './replay.js';
+import type { Scenario, Suite } from './scenarios.js';
+import { type ArrangedScore, scoreResponse } from './score.js';
+import { type LlmCall, type LlmRole, withUsage } from './usage-adapter.js';
+import { VERBALIZER_VERSION } from './verbalize-tree.js';
+
+/**
+ * One turn of one arm, as `records.json` keeps it. A staged arm's plugin
+ * adds its own fields through `recordTurn`, which the index signature
+ * admits; the named fields are the runner's own, and the runner throws when
+ * a plugin names one.
+ */
+export interface RunRecord {
+  readonly [field: string]: unknown;
+  readonly scenarioId: string;
+  readonly suite: Suite;
+  /** The arm's registry name. */
+  readonly arm: string;
+  /** `baseline` for a baseline arm, else the arm's `kind` or its plugin's name. */
+  readonly kind: string;
+  readonly repeat: number;
+  /** Wall time of `engine.handle` for the turn. */
+  readonly turnMs: number;
+  readonly userMessage?: string;
+  readonly error?: { readonly tag: string; readonly message: string };
+  /** The scenario expects a deferral; excluded from every arm's overall pass rate. */
+  readonly expectedDeferral: boolean;
+  /** The scenario declares arrangement rules. */
+  readonly arrangementRules: boolean;
+  /** The scenario's spatial tag, when it has one. */
+  readonly spatial?: boolean;
+  /** Whether the scenario expects any action, when it states its actions. */
+  readonly expectsActions?: boolean;
+  /** Overall score of the shipped response (planned scenarios only). */
+  readonly score?: ArrangedScore;
+  /** Staged arms only: whether it deferred at the expected phase (expected-deferral scenarios). */
+  readonly deferredAsExpected?: boolean;
+  readonly deferral?: {
+    readonly stage: string;
+    readonly reason: string;
+    readonly provider: boolean;
+  };
+  readonly fallbackCalls?: number;
+  readonly stages?: readonly Omit<StageRecord, 'input' | 'output'>[];
+  /** Every LLM call of the turn, by role. */
+  readonly llmCalls?: readonly LlmCall[];
+  readonly tree?: readonly unknown[];
+  /** The shipped execution plan; absent from records written before the grader. */
+  readonly executionPlan?: readonly ActionExecution[];
+  /** Every retained instance the shipped layout declares; absent from records written before the grader. */
+  readonly instances?: readonly VesselInstanceSnapshot[];
+  /** The judge's verdict on the shipped response (`--grader`, planned scenarios only), with its own calls. */
+  readonly grader?: GraderRecord;
+}
+
+/** The fields of {@link RunRecord} the runner owns; no plugin's `recordTurn` may set one. */
+export const RUN_RECORD_FIELDS = [
+  'scenarioId',
+  'suite',
+  'arm',
+  'kind',
+  'repeat',
+  'turnMs',
+  'userMessage',
+  'error',
+  'expectedDeferral',
+  'arrangementRules',
+  'spatial',
+  'expectsActions',
+  'score',
+  'deferredAsExpected',
+  'deferral',
+  'fallbackCalls',
+  'stages',
+  'llmCalls',
+  'tree',
+  'executionPlan',
+  'instances',
+  'grader',
+] as const satisfies readonly (keyof RunRecord)[];
+
+/** What {@link runEval} runs: the scenarios, the arms and how, and where the results go. */
+export interface EvalOptions {
+  readonly scenarios: readonly Scenario[];
+  /** Run in this order for every scenario and repeat. */
+  readonly arms: readonly RegisteredArm[];
+  readonly repeats: number;
+  /** Text adapter behind every LLM role; each role gets its own recording wrapper. */
+  readonly adapter: AnyTextAdapter;
+  /** The planner staged arms fall back to, on the `fallback` role's adapter. */
+  readonly fallback: (
+    adapter: AnyTextAdapter,
+  ) => Stage<Retryable<PlanningInput>, PlannerCandidate>;
+  readonly logger?: Logger;
+  /** Called after every turn, for progress output. */
+  readonly onRecord?: (record: RunRecord) => void;
+  /** Output directory; each staged turn's stage records are written under `<out>/stages/<arm>/`. */
+  readonly out?: string;
+  /** Grades every planned shipped response after the turn's latency is measured. */
+  readonly judge?: Judge;
+  /** The phase through which every staged arm replays a recorded run instead of running live. */
+  readonly replay?: {
+    readonly source: ReplaySource;
+    readonly through: string;
+  };
+}
+
+const silent: Logger = { debug() {}, info() {}, warn() {}, error() {} };
+
+/**
+ * Runs every scenario `repeats` times through each arm and scores the
+ * shipped response. Every arm plans through `createEngine` with history off
+ * and `retry: false`, so the arms differ only in their pipelines.
+ *
+ * @throws {Error} Before any turn runs, when the plugin of a staged arm
+ *   maps no stage to a scenario's `deferStage` phase (see
+ *   {@link unmappedPhases}), or when `options.replay` did not record every
+ *   scenario and repeat from the same request and history, or lacks fields
+ *   an arm reads from a replayed stage.
+ * @throws {Error} When a plugin's `recordTurn` sets a field the runner owns.
+ */
+export async function runEval(options: EvalOptions): Promise<RunRecord[]> {
+  const unmapped = unmappedPhases(options.arms, options.scenarios);
+  if (unmapped.length > 0) throw new Error(unmapped.join('\n'));
+  if (options.replay) {
+    verifyReplay(options.replay.source, options.scenarios, options.repeats);
+    verifyReplayShape(
+      options.replay.source,
+      options.scenarios,
+      options.repeats,
+      options.replay.through,
+      options.arms.filter(isStaged),
+    );
+  }
+  const { judge } = options;
+  const records: RunRecord[] = [];
+  for (const scenario of options.scenarios)
+    for (let repeat = 1; repeat <= options.repeats; repeat++)
+      for (const registered of options.arms) {
+        const turn = await runTurn(options, registered, scenario, repeat);
+        const record =
+          judge && turn.response
+            ? {
+                ...turn.record,
+                grader: await grade(
+                  judge,
+                  scenario,
+                  turn.response,
+                  options.logger ?? silent,
+                ),
+              }
+            : turn.record;
+        records.push(record);
+        options.onRecord?.(record);
+      }
+  return records;
+}
+
+/**
+ * One line per staged arm and scenario whose expected deferral phase the
+ * arm's plugin maps to no stage; such a turn could never count as deferred
+ * at the expected phase. Empty when every expectation can be judged.
+ */
+export function unmappedPhases(
+  arms: readonly RegisteredArm[],
+  scenarios: readonly Scenario[],
+): readonly string[] {
+  const problems: string[] = [];
+  const plugins = [
+    ...new Set(arms.filter(isStaged).map(({ plugin }) => plugin)),
+  ];
+  for (const plugin of plugins)
+    for (const scenario of scenarios) {
+      const phase = scenario.expected.deferStage;
+      if (phase !== undefined && plugin.phases?.[phase] === undefined)
+        problems.push(
+          `plugin ${plugin.name} maps no stage to phase ${phase}, which scenario ${scenario.id} expects to defer at`,
+        );
+    }
+  return problems;
+}
+
+/**
+ * Grades one shipped response: `grader/not_tiling` for a non-tiling
+ * layout, or `grader/exception: <message>` for any exception the judge or
+ * the grading itself raises, logged with the error and keeping the judge
+ * calls made before it. The grader is secondary and must never abort a run
+ * or change a turn's primary result.
+ */
+export async function grade(
+  judge: Judge,
+  scenario: Scenario,
+  response: MaelstromResponse,
+  logger: Logger,
+): Promise<GraderRecord> {
+  const { layout } = response;
+  if (layout.type !== 'tiling')
+    return {
+      graderVersion: GRADER_VERSION,
+      verbalizerVersion: VERBALIZER_VERSION,
+      failure: 'grader/not_tiling',
+      calls: [],
+    };
+  const calls: GraderCall[] = [];
+  try {
+    return await gradeResponse(
+      judge,
+      {
+        request: scenario.request,
+        response: {
+          userMessage: response.userMessage,
+          executionPlan: response.executionPlan,
+          tree: layout.tree,
+          instances: layout.instances,
+        },
+      },
+      { logger },
+      calls,
+    );
+  } catch (error) {
+    logger.error('grader threw', { scenario: scenario.id, error });
+    return {
+      graderVersion: GRADER_VERSION,
+      verbalizerVersion: VERBALIZER_VERSION,
+      failure: `grader/exception: ${describeError(error)}`,
+      calls,
+    };
+  }
+}
+
+function describeError(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  return error.cause === undefined
+    ? error.message
+    : `${error.message} (cause: ${describeError(error.cause)})`;
+}
+
+function isStaged({ arm }: RegisteredArm): boolean {
+  return arm.baseline !== true;
+}
+
+/** A turn's record, and the planned response to grade when it shipped one. */
+async function runTurn(
+  options: EvalOptions,
+  registered: RegisteredArm,
+  scenario: Scenario,
+  repeat: number,
+): Promise<{ record: RunRecord; response?: MaelstromResponse }> {
+  const { arm, plugin } = registered;
+  const staged = isStaged(registered);
+  const llmCalls: LlmCall[] = [];
+  const adapter = (role: LlmRole) =>
+    withUsage(options.adapter, role, (call) => llmCalls.push(call));
+  const replay = staged ? options.replay : undefined;
+  const replacements: StageReplacements = replay
+    ? Object.fromEntries(
+        replayedStages(plugin, replay.through).map((name) => [
+          name,
+          replayStage(name, replay.source.turn(scenario.id, repeat)),
+        ]),
+      )
+    : {};
+  const recorder = createRecorder(replacements);
+  let fallbackCalls = 0;
+  const fallback = options.fallback(adapter('fallback'));
+  const counted: Stage<Retryable<PlanningInput>, PlannerCandidate> = (
+    input,
+    ctx,
+  ) => {
+    fallbackCalls += 1;
+    return fallback(input, ctx);
+  };
+  const planner = arm.build({
+    adapter,
+    fallback: counted,
+    instrument: recorder.instrument,
+    onCall: recorder.onCall,
+  });
+  const turn = await handle(options, scenario, repeat, arm.name, planner);
+  const owned: RunRecord = {
+    ...base(scenario, repeat, registered, turn),
+    llmCalls,
+    ...(staged &&
+      stagedFields(scenario, plugin, recorder.stages, fallbackCalls)),
+    ...(turn.response &&
+      scenario.expected.status === 'planned' && {
+        score: scoreResponse(scenario, turn.response),
+      }),
+  };
+  const extension =
+    staged && plugin.recordTurn?.(scenario, recorder.stages, recorder.calls);
+  const record: RunRecord = extension
+    ? extendOwned(owned, extension, {
+        plugin: plugin.name,
+        where: 'a run record',
+        reserved: RUN_RECORD_FIELDS,
+      })
+    : owned;
+  if (staged && options.out !== undefined)
+    await writeStageFile(options.out, {
+      arm: arm.name,
+      scenarioId: scenario.id,
+      repeat,
+      stages: recorder.stages,
+    });
+  return {
+    record,
+    ...(turn.response &&
+      scenario.expected.status === 'planned' && { response: turn.response }),
+  };
+}
+
+function stagedFields(
+  scenario: Scenario,
+  plugin: PlannerEvalPlugin,
+  stages: readonly StageRecord[],
+  fallbackCalls: number,
+): Partial<RunRecord> {
+  const deferredRecord = stages.find((record) => record.outcome === 'deferred');
+  const deferral = deferredRecord?.reason
+    ? {
+        stage: deferredRecord.stage,
+        reason: deferredRecord.reason,
+        provider:
+          deferredRecord.reason.split('/')[1]?.startsWith('provider_') ?? false,
+      }
+    : undefined;
+  const phase: Phase | undefined = scenario.expected.deferStage;
+  const expectedStage =
+    phase === undefined ? undefined : plugin.phases?.[phase];
+  return {
+    ...(scenario.expected.status === 'deferred' && {
+      deferredAsExpected:
+        deferral !== undefined &&
+        (scenario.expected.deferStage === undefined ||
+          deferral.stage === expectedStage),
+    }),
+    ...(deferral && { deferral }),
+    fallbackCalls,
+    stages: stages.map(({ input: _input, output: _output, ...rest }) => rest),
+  };
+}
+
+interface Turn {
+  readonly ms: number;
+  readonly response?: MaelstromResponse;
+  readonly error?: { readonly tag: string; readonly message: string };
+}
+
+async function handle(
+  options: EvalOptions,
+  scenario: Scenario,
+  repeat: number,
+  arm: string,
+  planner: Planner,
+): Promise<Turn> {
+  const withHistory: Planner = (input, ctx) =>
+    planner(
+      scenario.history ? { ...input, history: scenario.history } : input,
+      ctx,
+    );
+  const engine = createEngine({
+    planner: withHistory,
+    retry: false,
+    logger: options.logger ?? silent,
+  });
+  const started = performance.now();
+  const result = await engine.handle(
+    ChartRequestMessage({
+      sessionId: SessionId(`eval-${arm}`),
+      id: MessageId(`${scenario.id}-${arm}-${repeat}`),
+      request: scenario.request,
+    }),
+  );
+  const ms = performance.now() - started;
+  if (isOk(result) && result.value.type === 'chart_response')
+    return { ms, response: result.value.response };
+  if (isOk(result))
+    return {
+      ms,
+      error: { tag: 'UnexpectedOutput', message: result.value.type },
+    };
+  return {
+    ms,
+    error: { tag: result.error._tag, message: result.error.message },
+  };
+}
+
+function base(
+  scenario: Scenario,
+  repeat: number,
+  { arm, plugin }: RegisteredArm,
+  turn: Turn,
+): RunRecord {
+  return {
+    scenarioId: scenario.id,
+    suite: scenario.suite,
+    arm: arm.name,
+    kind: arm.baseline ? 'baseline' : (arm.kind ?? plugin.name),
+    repeat,
+    turnMs: turn.ms,
+    expectedDeferral: scenario.expected.status === 'deferred',
+    arrangementRules: scenario.expected.arrangement !== undefined,
+    ...(scenario.spatial !== undefined && { spatial: scenario.spatial }),
+    ...(scenario.expected.actions !== undefined && {
+      expectsActions: scenario.expected.actions.length > 0,
+    }),
+    ...(turn.response && {
+      userMessage: turn.response.userMessage,
+      tree:
+        turn.response.layout.type === 'tiling' ? turn.response.layout.tree : [],
+      executionPlan: turn.response.executionPlan,
+      ...(turn.response.layout.type === 'tiling' && {
+        instances: turn.response.layout.instances,
+      }),
+    }),
+    ...(turn.error && { error: turn.error }),
+  };
+}

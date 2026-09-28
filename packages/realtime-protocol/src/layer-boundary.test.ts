@@ -236,9 +236,9 @@ describe('package layering — manifest graph', () => {
   test('discovers private library packages and leaves apps out', () => {
     // A private package under packages/ is a library like any other; only
     // the composition roots outside packages/ sit outside the invariant.
-    expect(
-      packagesByName.get('@maelstrom-co/planner-eval')?.pkgJson.private,
-    ).toBe(true);
+    expect(packagesByName.get('@maelstrom-co/evals')?.pkgJson.private).toBe(
+      true,
+    );
     expect(packagesByName.has('@maelstrom-co/demo')).toBe(false);
   });
 

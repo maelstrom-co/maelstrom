@@ -1,4 +1,5 @@
 import type { Stage, StageContext } from '@maelstrom-co/engine';
+import { finalVariants } from '@maelstrom-co/engine';
 import {
   type ChartRequest,
   type InstanceId,
@@ -9,9 +10,7 @@ import {
   tilingLeafToken,
   type VesselInstanceSnapshot,
 } from '@maelstrom-co/protocol';
-
 import { deferAt } from '../defer.js';
-import { finalVariants } from '../final-variants.js';
 import { layoutFits } from '../layout-fit.js';
 import {
   type Answer,

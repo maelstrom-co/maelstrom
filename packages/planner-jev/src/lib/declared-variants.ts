@@ -1,4 +1,9 @@
 import {
+  finalVariants,
+  legalActions,
+  type SimulationError,
+} from '@maelstrom-co/engine';
+import {
   type InstanceId,
   isErr,
   ok,
@@ -9,11 +14,6 @@ import {
   type VesselId,
 } from '@maelstrom-co/protocol';
 
-import {
-  finalVariants,
-  legalActions,
-  type SimulationError,
-} from './final-variants.js';
 import type { PlannedAction } from './types.js';
 
 interface RetainedInstance {

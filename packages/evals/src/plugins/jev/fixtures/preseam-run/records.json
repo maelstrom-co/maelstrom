@@ -1,0 +1,824 @@
+[
+  {
+    "scenarioId": "preserve",
+    "suite": "development",
+    "arm": "baseline",
+    "kind": "baseline",
+    "repeat": 1,
+    "turnMs": 3244.4317079999996,
+    "expectedDeferral": false,
+    "arrangementRules": true,
+    "spatial": false,
+    "expectsActions": false,
+    "userMessage": "Understood — I’ll leave the board exactl",
+    "tree": ["V:1,1,1", "ID:calendar-main", "ID:weather-main", "ID:tasks-main"],
+    "executionPlan": [],
+    "instances": [
+      {
+        "instanceId": "calendar-main",
+        "vesselId": "calendar",
+        "variant": "month"
+      }
+    ],
+    "llmCalls": [
+      {
+        "role": "planner",
+        "latencyMs": 3224.5424999999996,
+        "usage": {
+          "inputTokens": 5363,
+          "outputTokens": 197,
+          "totalTokens": 5560
+        }
+      }
+    ],
+    "score": {
+      "pass": true,
+      "failures": [],
+      "arrangement": {
+        "pass": true,
+        "failures": []
+      }
+    }
+  },
+  {
+    "scenarioId": "preserve",
+    "suite": "development",
+    "arm": "jev-gated-per-instance-preset-or-llm-inline",
+    "kind": "jev",
+    "repeat": 1,
+    "turnMs": 1917.9143330000006,
+    "expectedDeferral": false,
+    "arrangementRules": true,
+    "spatial": false,
+    "expectsActions": false,
+    "userMessage": "The board will remain exactly as it is.",
+    "tree": ["V:1,1,1", "ID:calendar-main", "ID:weather-main", "ID:tasks-main"],
+    "executionPlan": [],
+    "instances": [
+      {
+        "instanceId": "calendar-main",
+        "vesselId": "calendar",
+        "variant": "month"
+      }
+    ],
+    "llmCalls": [
+      {
+        "role": "complete",
+        "latencyMs": 1190.2662910000008,
+        "usage": {
+          "inputTokens": 237,
+          "outputTokens": 22,
+          "totalTokens": 259
+        }
+      }
+    ],
+    "fallbackCalls": 0,
+    "stageScores": {
+      "selection": {
+        "pass": true,
+        "failures": []
+      },
+      "actions": {
+        "pass": true,
+        "failures": []
+      },
+      "layout": {
+        "pass": true,
+        "failures": [],
+        "arrangement": {
+          "pass": true,
+          "failures": []
+        }
+      }
+    },
+    "stages": [
+      {
+        "stage": "jevSelect",
+        "ms": 351.37904100000014,
+        "outcome": "ok"
+      },
+      {
+        "stage": "jevActions",
+        "ms": 0.9714579999999842,
+        "outcome": "ok"
+      },
+      {
+        "stage": "jevLayout",
+        "ms": 368.13495800000055,
+        "outcome": "ok"
+      },
+      {
+        "stage": "llmComplete",
+        "ms": 1196.4833750000007,
+        "outcome": "ok"
+      }
+    ],
+    "stageOutputs": {
+      "jevSelect": {
+        "gates": {
+          "needsActions": {
+            "answer": "no",
+            "probability": 0.06,
+            "confidence": 0.88
+          },
+          "generatedContent": {
+            "answer": "no",
+            "probability": 0.06,
+            "confidence": 0.88
+          },
+          "spatial": {
+            "answer": "no",
+            "probability": 0.08,
+            "confidence": 0.84
+          }
+        }
+      },
+      "jevActions": {},
+      "jevLayout": {}
+    },
+    "jevCalls": [
+      {
+        "stage": "jevSelect",
+        "questionIds": [],
+        "latencyMs": 350.45045799999934,
+        "outcome": "ok",
+        "usage": {
+          "inputTokens": 8207,
+          "outputTokens": 870
+        },
+        "answers": []
+      },
+      {
+        "stage": "jevLayout",
+        "questionIds": [],
+        "latencyMs": 362.7416659999999,
+        "outcome": "ok",
+        "usage": {
+          "inputTokens": 936,
+          "outputTokens": 155
+        },
+        "answers": []
+      }
+    ],
+    "answers": [
+      {
+        "stage": "jevSelect",
+        "question": "gate/needsActions",
+        "choice": "no",
+        "probability": 0.94,
+        "confidence": 0.88
+      },
+      {
+        "stage": "jevSelect",
+        "question": "gate/generatedContent",
+        "choice": "no",
+        "probability": 0.94,
+        "confidence": 0.88
+      },
+      {
+        "stage": "jevSelect",
+        "question": "gate/spatial",
+        "choice": "no",
+        "probability": 0.92,
+        "confidence": 0.84
+      }
+    ],
+    "minConfidence": 0.52,
+    "fill": {
+      "slots": 0,
+      "filled": 0
+    },
+    "score": {
+      "pass": true,
+      "failures": [],
+      "arrangement": {
+        "pass": true,
+        "failures": []
+      }
+    }
+  },
+  {
+    "scenarioId": "remove",
+    "suite": "development",
+    "arm": "baseline",
+    "kind": "baseline",
+    "repeat": 1,
+    "turnMs": 2872.4282919999678,
+    "expectedDeferral": false,
+    "arrangementRules": false,
+    "expectsActions": false,
+    "userMessage": "I’ve removed the tasks panel and kept yo",
+    "tree": ["V", "ID:calendar-main", "ID:weather-main"],
+    "executionPlan": [],
+    "instances": [
+      {
+        "instanceId": "calendar-main",
+        "vesselId": "calendar",
+        "variant": "month"
+      }
+    ],
+    "llmCalls": [
+      {
+        "role": "planner",
+        "latencyMs": 2867.945291000011,
+        "usage": {
+          "inputTokens": 5359,
+          "outputTokens": 191,
+          "totalTokens": 5550
+        }
+      }
+    ],
+    "score": {
+      "pass": false,
+      "failures": [
+        "Retained instances: expected [\"calendar-main\",\"journal-main\",\"map-main\",\"tasks-main\",\"weather-main\"], received [\"calendar-main\",\"journal-main\",\"map-main\",\"weather-main\"]"
+      ]
+    }
+  },
+  {
+    "scenarioId": "remove",
+    "suite": "development",
+    "arm": "jev-gated-per-instance-preset-or-llm-inline",
+    "kind": "jev",
+    "repeat": 1,
+    "turnMs": 3562.4836670000223,
+    "expectedDeferral": false,
+    "arrangementRules": false,
+    "expectsActions": false,
+    "userMessage": "Removed the tasks panel and kept your ca",
+    "tree": ["V", "ID:calendar-main", "ID:weather-main"],
+    "executionPlan": [],
+    "instances": [
+      {
+        "instanceId": "calendar-main",
+        "vesselId": "calendar",
+        "variant": "month"
+      }
+    ],
+    "llmCalls": [
+      {
+        "role": "fallback",
+        "latencyMs": 2966.3511250000447,
+        "usage": {
+          "inputTokens": 5359,
+          "outputTokens": 192,
+          "totalTokens": 5551
+        }
+      }
+    ],
+    "deferral": {
+      "stage": "jevSelect",
+      "reason": "jevSelect/scope_ambiguous",
+      "provider": false
+    },
+    "fallbackCalls": 1,
+    "stageScores": {},
+    "stages": [
+      {
+        "stage": "jevSelect",
+        "ms": 587.4605410000077,
+        "outcome": "deferred",
+        "reason": "jevSelect/scope_ambiguous"
+      }
+    ],
+    "stageOutputs": {},
+    "jevCalls": [
+      {
+        "stage": "jevSelect",
+        "questionIds": [],
+        "latencyMs": 584.8824580000364,
+        "outcome": "ok",
+        "usage": {
+          "inputTokens": 8203,
+          "outputTokens": 872
+        },
+        "answers": []
+      }
+    ],
+    "answers": [
+      {
+        "stage": "jevSelect",
+        "question": "gate/needsActions",
+        "choice": "yes",
+        "probability": 0.59,
+        "confidence": 0.17999999999999994
+      },
+      {
+        "stage": "jevSelect",
+        "question": "gate/generatedContent",
+        "choice": "no",
+        "probability": 0.9299999999999999,
+        "confidence": 0.86
+      },
+      {
+        "stage": "jevSelect",
+        "question": "gate/spatial",
+        "choice": "no",
+        "probability": 0.91,
+        "confidence": 0.8200000000000001
+      }
+    ],
+    "score": {
+      "pass": false,
+      "failures": [
+        "Retained instances: expected [\"calendar-main\",\"journal-main\",\"map-main\",\"tasks-main\",\"weather-main\"], received [\"calendar-main\",\"journal-main\",\"map-main\",\"weather-main\"]"
+      ]
+    }
+  },
+  {
+    "scenarioId": "focus",
+    "suite": "development",
+    "arm": "baseline",
+    "kind": "baseline",
+    "repeat": 1,
+    "turnMs": 4230.025582999922,
+    "expectedDeferral": false,
+    "arrangementRules": true,
+    "spatial": true,
+    "expectsActions": false,
+    "userMessage": "I’ve given the calendar two-thirds of th",
+    "tree": [
+      "V:2,1",
+      "ID:calendar-main",
+      "H",
+      "ID:weather-main",
+      "ID:tasks-main"
+    ],
+    "executionPlan": [],
+    "instances": [
+      {
+        "instanceId": "calendar-main",
+        "vesselId": "calendar",
+        "variant": "month"
+      }
+    ],
+    "llmCalls": [
+      {
+        "role": "planner",
+        "latencyMs": 4225.787499999977,
+        "usage": {
+          "inputTokens": 5372,
+          "outputTokens": 239,
+          "totalTokens": 5611
+        }
+      }
+    ],
+    "score": {
+      "pass": true,
+      "failures": [],
+      "arrangement": {
+        "pass": true,
+        "failures": []
+      }
+    }
+  },
+  {
+    "scenarioId": "focus",
+    "suite": "development",
+    "arm": "jev-gated-per-instance-preset-or-llm-inline",
+    "kind": "jev",
+    "repeat": 1,
+    "turnMs": 4224.376583999954,
+    "expectedDeferral": false,
+    "arrangementRules": true,
+    "spatial": true,
+    "expectsActions": false,
+    "userMessage": "Calendar gets two thirds of the board, w",
+    "tree": [
+      "V:2,1",
+      "ID:calendar-main",
+      "H",
+      "ID:weather-main",
+      "ID:tasks-main"
+    ],
+    "executionPlan": [],
+    "instances": [
+      {
+        "instanceId": "calendar-main",
+        "vesselId": "calendar",
+        "variant": "month"
+      }
+    ],
+    "llmCalls": [
+      {
+        "role": "complete",
+        "latencyMs": 3504.2545420000097,
+        "usage": {
+          "inputTokens": 580,
+          "outputTokens": 168,
+          "totalTokens": 748
+        }
+      }
+    ],
+    "fallbackCalls": 0,
+    "stageScores": {
+      "selection": {
+        "pass": true,
+        "failures": []
+      },
+      "actions": {
+        "pass": true,
+        "failures": []
+      }
+    },
+    "stages": [
+      {
+        "stage": "jevSelect",
+        "ms": 406.8873329999624,
+        "outcome": "ok"
+      },
+      {
+        "stage": "jevActions",
+        "ms": 0.10970799997448921,
+        "outcome": "ok"
+      },
+      {
+        "stage": "jevLayout",
+        "ms": 307.9894590000622,
+        "outcome": "ok"
+      },
+      {
+        "stage": "llmComplete",
+        "ms": 3508.775833999971,
+        "outcome": "ok"
+      }
+    ],
+    "stageOutputs": {
+      "jevSelect": {
+        "gates": {
+          "needsActions": {
+            "answer": "no",
+            "probability": 0.11,
+            "confidence": 0.78
+          },
+          "generatedContent": {
+            "answer": "no",
+            "probability": 0.11,
+            "confidence": 0.78
+          },
+          "spatial": {
+            "answer": "yes",
+            "probability": 0.96,
+            "confidence": 0.9199999999999999
+          }
+        }
+      },
+      "jevActions": {},
+      "jevLayout": {}
+    },
+    "jevCalls": [
+      {
+        "stage": "jevSelect",
+        "questionIds": [],
+        "latencyMs": 405.6016669999808,
+        "outcome": "ok",
+        "usage": {
+          "inputTokens": 8216,
+          "outputTokens": 870
+        },
+        "answers": []
+      },
+      {
+        "stage": "jevLayout",
+        "questionIds": [],
+        "latencyMs": 305.7659579999745,
+        "outcome": "ok",
+        "usage": {
+          "inputTokens": 945,
+          "outputTokens": 157
+        },
+        "answers": []
+      }
+    ],
+    "answers": [
+      {
+        "stage": "jevSelect",
+        "question": "gate/needsActions",
+        "choice": "no",
+        "probability": 0.89,
+        "confidence": 0.78
+      },
+      {
+        "stage": "jevSelect",
+        "question": "gate/generatedContent",
+        "choice": "no",
+        "probability": 0.89,
+        "confidence": 0.78
+      },
+      {
+        "stage": "jevSelect",
+        "question": "gate/spatial",
+        "choice": "yes",
+        "probability": 0.96,
+        "confidence": 0.9199999999999999
+      }
+    ],
+    "minConfidence": 0.3600000000000001,
+    "fill": {
+      "slots": 0,
+      "filled": 0
+    },
+    "score": {
+      "pass": true,
+      "failures": [],
+      "arrangement": {
+        "pass": true,
+        "failures": []
+      }
+    }
+  },
+  {
+    "scenarioId": "generate-content",
+    "suite": "development",
+    "arm": "baseline",
+    "kind": "baseline",
+    "repeat": 1,
+    "turnMs": 7118.628125000047,
+    "expectedDeferral": true,
+    "arrangementRules": false,
+    "userMessage": "I’ll create a new journal entry titled “",
+    "tree": ["ID:journal-main"],
+    "executionPlan": [
+      {
+        "instanceId": "journal-main",
+        "action": "createEntry",
+        "params": {
+          "title": "Sea Poem"
+        }
+      },
+      {
+        "instanceId": "journal-main",
+        "action": "writeContent",
+        "params": {
+          "text": "The sea unthreads the morning light,\nAnd lays it softly on the shore;\nEach wave returns from blue-green night\nTo whisper what it knew before.\n\nThe gulls stitch circles through the air,\nThe tide pulls silver through the sand;\nSalt wind lifts my thoughts somewhere\nBeyond the edge of any land.\n\nAnd when the evening folds to gray,\nThe horizon keeps its endless vow:\nThe sea will take the dark away\nAnd teach the dawn to rise somehow."
+        }
+      }
+    ],
+    "instances": [
+      {
+        "instanceId": "calendar-main",
+        "vesselId": "calendar",
+        "variant": "month"
+      }
+    ],
+    "llmCalls": [
+      {
+        "role": "planner",
+        "latencyMs": 7110.960500000045,
+        "usage": {
+          "inputTokens": 5366,
+          "outputTokens": 455,
+          "totalTokens": 5821
+        }
+      }
+    ]
+  },
+  {
+    "scenarioId": "generate-content",
+    "suite": "development",
+    "arm": "jev-gated-per-instance-preset-or-llm-inline",
+    "kind": "jev",
+    "repeat": 1,
+    "turnMs": 6836.056749999989,
+    "expectedDeferral": true,
+    "arrangementRules": false,
+    "userMessage": "I’ll create a new journal entry titled “",
+    "tree": ["ID:journal-main"],
+    "executionPlan": [
+      {
+        "instanceId": "journal-main",
+        "action": "createEntry",
+        "params": {
+          "title": "Sea Poem"
+        }
+      },
+      {
+        "instanceId": "journal-main",
+        "action": "writeContent",
+        "params": {
+          "text": "The sea keeps secrets in its shining blue,\nWhere silver waves meet skies of endless hue.\nIt gathers moonlight, folds it into foam,\nAnd carries distant dreams toward home.\n\nThe gulls stitch white designs across the air,\nWhile salt and wind move softly everywhere.\nBeneath the tide, old stories rise and fall—\nThe sea remembers, listens, holds them all."
+        }
+      }
+    ],
+    "instances": [
+      {
+        "instanceId": "calendar-main",
+        "vesselId": "calendar",
+        "variant": "month"
+      }
+    ],
+    "llmCalls": [
+      {
+        "role": "fallback",
+        "latencyMs": 6472.79137500003,
+        "usage": {
+          "inputTokens": 5366,
+          "outputTokens": 471,
+          "totalTokens": 5837
+        }
+      }
+    ],
+    "deferredAsExpected": true,
+    "deferral": {
+      "stage": "jevSelect",
+      "reason": "jevSelect/scope_unsupported",
+      "provider": false
+    },
+    "fallbackCalls": 1,
+    "stageScores": {},
+    "stages": [
+      {
+        "stage": "jevSelect",
+        "ms": 357.1104589998722,
+        "outcome": "deferred",
+        "reason": "jevSelect/scope_unsupported"
+      }
+    ],
+    "stageOutputs": {},
+    "jevCalls": [
+      {
+        "stage": "jevSelect",
+        "questionIds": [],
+        "latencyMs": 356.39562499988824,
+        "outcome": "ok",
+        "usage": {
+          "inputTokens": 8210,
+          "outputTokens": 873
+        },
+        "answers": []
+      }
+    ],
+    "answers": [
+      {
+        "stage": "jevSelect",
+        "question": "gate/needsActions",
+        "choice": "yes",
+        "probability": 0.94,
+        "confidence": 0.8799999999999999
+      },
+      {
+        "stage": "jevSelect",
+        "question": "gate/generatedContent",
+        "choice": "yes",
+        "probability": 0.89,
+        "confidence": 0.78
+      },
+      {
+        "stage": "jevSelect",
+        "question": "gate/spatial",
+        "choice": "no",
+        "probability": 0.51,
+        "confidence": 0.020000000000000018
+      }
+    ]
+  },
+  {
+    "scenarioId": "small-chart",
+    "suite": "development",
+    "arm": "baseline",
+    "kind": "baseline",
+    "repeat": 1,
+    "turnMs": 3643.2724589998834,
+    "expectedDeferral": true,
+    "arrangementRules": false,
+    "spatial": true,
+    "userMessage": "Calendar, weather, and tasks are already",
+    "tree": ["V:1,1,1", "ID:calendar-main", "ID:weather-main", "ID:tasks-main"],
+    "executionPlan": [],
+    "instances": [
+      {
+        "instanceId": "calendar-main",
+        "vesselId": "calendar",
+        "variant": "month"
+      }
+    ],
+    "llmCalls": [
+      {
+        "role": "planner",
+        "latencyMs": 3640.64274999965,
+        "usage": {
+          "inputTokens": 5366,
+          "outputTokens": 211,
+          "totalTokens": 5577
+        }
+      }
+    ]
+  },
+  {
+    "scenarioId": "small-chart",
+    "suite": "development",
+    "arm": "jev-gated-per-instance-preset-or-llm-inline",
+    "kind": "jev",
+    "repeat": 1,
+    "turnMs": 2971.6939579998143,
+    "expectedDeferral": true,
+    "arrangementRules": false,
+    "spatial": true,
+    "userMessage": "Calendar, weather, and tasks are now arr",
+    "tree": ["V:1,1,1", "ID:calendar-main", "ID:weather-main", "ID:tasks-main"],
+    "executionPlan": [],
+    "instances": [
+      {
+        "instanceId": "calendar-main",
+        "vesselId": "calendar",
+        "variant": "month"
+      }
+    ],
+    "llmCalls": [
+      {
+        "role": "fallback",
+        "latencyMs": 2624.8033749996684,
+        "usage": {
+          "inputTokens": 5366,
+          "outputTokens": 203,
+          "totalTokens": 5569
+        }
+      }
+    ],
+    "deferredAsExpected": true,
+    "deferral": {
+      "stage": "jevLayout",
+      "reason": "jevLayout/no_feasible_layout",
+      "provider": false
+    },
+    "fallbackCalls": 1,
+    "stageScores": {},
+    "stages": [
+      {
+        "stage": "jevSelect",
+        "ms": 339.8868330004625,
+        "outcome": "ok"
+      },
+      {
+        "stage": "jevActions",
+        "ms": 0.2118750000372529,
+        "outcome": "ok"
+      },
+      {
+        "stage": "jevLayout",
+        "ms": 0.5379169997759163,
+        "outcome": "deferred",
+        "reason": "jevLayout/no_feasible_layout"
+      }
+    ],
+    "stageOutputs": {
+      "jevSelect": {
+        "gates": {
+          "needsActions": {
+            "answer": "no",
+            "probability": 0.15,
+            "confidence": 0.7
+          },
+          "generatedContent": {
+            "answer": "no",
+            "probability": 0.14,
+            "confidence": 0.72
+          },
+          "spatial": {
+            "answer": "yes",
+            "probability": 0.69,
+            "confidence": 0.3799999999999999
+          }
+        }
+      },
+      "jevActions": {}
+    },
+    "jevCalls": [
+      {
+        "stage": "jevSelect",
+        "questionIds": [],
+        "latencyMs": 339.18591600004584,
+        "outcome": "ok",
+        "usage": {
+          "inputTokens": 8209,
+          "outputTokens": 870
+        },
+        "answers": []
+      }
+    ],
+    "answers": [
+      {
+        "stage": "jevSelect",
+        "question": "gate/needsActions",
+        "choice": "no",
+        "probability": 0.85,
+        "confidence": 0.7
+      },
+      {
+        "stage": "jevSelect",
+        "question": "gate/generatedContent",
+        "choice": "no",
+        "probability": 0.86,
+        "confidence": 0.72
+      },
+      {
+        "stage": "jevSelect",
+        "question": "gate/spatial",
+        "choice": "yes",
+        "probability": 0.69,
+        "confidence": 0.3799999999999999
+      }
+    ],
+    "minConfidence": 0.91
+  }
+]

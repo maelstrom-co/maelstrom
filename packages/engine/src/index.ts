@@ -71,6 +71,12 @@ export { deferred, enumSnapshotFor, isDeferred } from './lib/planner/stage.js';
 export { withFallback } from './lib/planner/with-fallback.js';
 export type { WithRetryOptions } from './lib/planner/with-retry.js';
 export { withRetry } from './lib/planner/with-retry.js';
+// Execution plan replay
+export type { SimulationError } from './lib/response/execution-plan/final-variants.js';
+export {
+  finalVariants,
+  legalActions,
+} from './lib/response/execution-plan/final-variants.js';
 // Update reasons
 export { isResizeOnlyBatch } from './lib/update-reasons.js';
 // Validation

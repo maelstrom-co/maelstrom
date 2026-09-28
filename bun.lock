@@ -242,8 +242,8 @@
         "zod": "catalog:",
       },
     },
-    "packages/planner-eval": {
-      "name": "@maelstrom-co/planner-eval",
+    "packages/evals": {
+      "name": "@maelstrom-co/evals",
       "version": "0.1.0-alpha.4",
       "dependencies": {
         "@maelstrom-co/engine": "0.1.0-alpha.4",
@@ -1308,7 +1308,7 @@
 
     "@maelstrom-co/engine": ["@maelstrom-co/engine@workspace:packages/engine"],
 
-    "@maelstrom-co/planner-eval": ["@maelstrom-co/planner-eval@workspace:packages/planner-eval"],
+    "@maelstrom-co/evals": ["@maelstrom-co/evals@workspace:packages/evals"],
 
     "@maelstrom-co/planner-jev": ["@maelstrom-co/planner-jev@workspace:packages/planner-jev"],
 

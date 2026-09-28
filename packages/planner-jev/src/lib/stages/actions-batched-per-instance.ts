@@ -1,12 +1,11 @@
+import { finalVariants, legalActions } from '@maelstrom-co/engine';
 import {
   isErr,
   ok,
   type VariantName,
   type VesselAction,
 } from '@maelstrom-co/protocol';
-
 import { deferAt } from '../defer.js';
-import { finalVariants, legalActions } from '../final-variants.js';
 import {
   bindParameterChoices,
   enumSnapshotOf,
