@@ -8,6 +8,7 @@ import {
 
 import type { StageName } from '../src/lib/defer.js';
 import { demoVessels } from './fixtures/demo-vessels.js';
+import type { ArrangementRule } from './predicates.js';
 
 export type Suite = 'development' | 'holdout';
 
@@ -30,8 +31,10 @@ export interface Expectation {
   readonly deferStage?: StageName;
   readonly visible?: readonly string[];
   readonly retained?: readonly string[];
-  /** Recorded in the report, not scored. */
+  /** A reference tree the arrangement rules accept; not scored. */
   readonly tree?: readonly (string | null)[];
+  /** Rules the shipped tree must satisfy, whichever arm or fallback wrote it. */
+  readonly arrangement?: readonly ArrangementRule[];
   readonly actions?: readonly ExpectedAction[];
   /** Values the POC should ask the user for, its actions dropped. */
   readonly asks?: readonly ExpectedAsk[];
@@ -45,6 +48,13 @@ export interface Scenario {
   /** Prior conversation handed to the planner. */
   readonly history?: readonly LLMContextMessage[];
   readonly expected: Expectation;
+  /**
+   * Whether the request asks for an arrangement (`true`) or is a control
+   * that should leave the arrangement alone (`false`), for counting a
+   * spatial gate's false positives and negatives. Untagged scenarios are
+   * not counted.
+   */
+  readonly spatial?: boolean;
 }
 
 interface InputOptions {
@@ -65,16 +75,341 @@ const BASE_TREE = [
 const BASE_VISIBLE = ['calendar-main', 'weather-main', 'tasks-main'];
 const BASE_RETAINED = [...BASE_VISIBLE, 'map-main', 'journal-main'];
 
-const development: Scenario[] = [
+const PAIR_TREE = ['V', 'ID:calendar-main', 'ID:map-main'];
+const TRIO_TREE = [
+  'V:1,1,1',
+  'ID:calendar-main',
+  'ID:weather-main',
+  'ID:map-main',
+];
+const TRIO_VISIBLE = ['calendar-main', 'weather-main', 'map-main'];
+
+/** Explicit arrangement requests; any arm, fallback included, may satisfy them. */
+const arrangements: Scenario[] = [
   planned(
-    'preserve',
-    'Keep the current board',
-    'Leave the board exactly as it is.',
+    'swap',
+    'Swap two widgets',
+    'Swap the calendar and the map.',
+    {
+      visible: ['calendar-main', 'map-main'],
+      actions: [],
+      tree: ['V', 'ID:map-main', 'ID:calendar-main'],
+      arrangement: [{ kind: 'leftOf', a: 'map-main', b: 'calendar-main' }],
+    },
+    { tree: PAIR_TREE },
+  ),
+  planned(
+    'big-right',
+    'A big instance on the right',
+    'Show the map on the right taking most of the screen, with the calendar on the left in a smaller column.',
+    {
+      visible: ['calendar-main', 'map-main'],
+      actions: [],
+      tree: ['V:1,2', 'ID:calendar-main', 'ID:map-main'],
+      arrangement: [
+        { kind: 'leftOf', a: 'calendar-main', b: 'map-main' },
+        { kind: 'dominant', id: 'map-main', minShare: 0.55 },
+      ],
+    },
+    { tree: PAIR_TREE },
+  ),
+  planned(
+    'top-and-pair',
+    'A full-width row above a split',
+    'Put the calendar full width at the top, and beneath it the weather and the map side by side, all the same height.',
+    {
+      visible: TRIO_VISIBLE,
+      actions: [],
+      tree: ['H', 'ID:calendar-main', 'V', 'ID:weather-main', 'ID:map-main'],
+      arrangement: [
+        { kind: 'spansFullWidth', id: 'calendar-main' },
+        { kind: 'above', a: 'calendar-main', b: 'weather-main' },
+        { kind: 'above', a: 'calendar-main', b: 'map-main' },
+        { kind: 'sideBySide', ids: ['weather-main', 'map-main'] },
+        // Equal heights make the full-width row twice the area of each half.
+        {
+          kind: 'weightRatio',
+          a: 'calendar-main',
+          b: 'weather-main',
+          min: 1.6,
+          max: 2.5,
+        },
+      ],
+    },
+    { tree: TRIO_TREE },
+  ),
+  planned(
+    'bottom-strip',
+    'A thin strip along an edge',
+    'Make the weather a thin strip along the bottom, with the calendar and map above it.',
+    {
+      visible: TRIO_VISIBLE,
+      actions: [],
+      tree: [
+        'H:3,1',
+        'V',
+        'ID:calendar-main',
+        'ID:map-main',
+        'ID:weather-main',
+      ],
+      arrangement: [
+        { kind: 'spansFullWidth', id: 'weather-main' },
+        { kind: 'below', a: 'weather-main', b: 'calendar-main' },
+        { kind: 'below', a: 'weather-main', b: 'map-main' },
+        {
+          kind: 'weightRatio',
+          a: 'weather-main',
+          b: 'calendar-main',
+          min: 0,
+          max: 0.75,
+        },
+        {
+          kind: 'weightRatio',
+          a: 'weather-main',
+          b: 'map-main',
+          min: 0,
+          max: 0.75,
+        },
+      ],
+    },
+    { tree: TRIO_TREE },
+  ),
+  planned(
+    'reorder-end',
+    'Move one widget to the end of the row',
+    'Move the calendar to the end of the row, after the tasks.',
     {
       visible: BASE_VISIBLE,
       actions: [],
-      tree: BASE_TREE,
+      tree: ['V:1,1,1', 'ID:weather-main', 'ID:tasks-main', 'ID:calendar-main'],
+      arrangement: [
+        {
+          kind: 'order',
+          ids: ['weather-main', 'tasks-main', 'calendar-main'],
+          axis: 'x',
+        },
+        {
+          kind: 'sideBySide',
+          ids: ['weather-main', 'tasks-main', 'calendar-main'],
+        },
+      ],
     },
+  ),
+  planned(
+    'reverse-order',
+    'Reverse the row',
+    'Reverse the order of the widgets.',
+    {
+      visible: BASE_VISIBLE,
+      actions: [],
+      tree: ['V:1,1,1', 'ID:tasks-main', 'ID:weather-main', 'ID:calendar-main'],
+      arrangement: [
+        {
+          kind: 'order',
+          ids: ['tasks-main', 'weather-main', 'calendar-main'],
+          axis: 'x',
+        },
+      ],
+    },
+  ),
+  planned(
+    'two-columns-left',
+    'Two columns with a dominant left one',
+    'Arrange two columns: a wide left column with the tasks, and a narrower right column with the calendar above the weather.',
+    {
+      visible: BASE_VISIBLE,
+      actions: [],
+      tree: [
+        'V:3,2',
+        'ID:tasks-main',
+        'H',
+        'ID:calendar-main',
+        'ID:weather-main',
+      ],
+      arrangement: [
+        { kind: 'leftOf', a: 'tasks-main', b: 'calendar-main' },
+        { kind: 'leftOf', a: 'tasks-main', b: 'weather-main' },
+        { kind: 'spansFullHeight', id: 'tasks-main' },
+        { kind: 'above', a: 'calendar-main', b: 'weather-main' },
+        { kind: 'dominant', id: 'tasks-main', minShare: 0.5 },
+      ],
+    },
+  ),
+  planned(
+    'grid-2x2',
+    'A two by two grid',
+    'Show the calendar, weather, tasks and map in a 2x2 grid: calendar and weather on top, tasks and map below.',
+    {
+      visible: [...BASE_VISIBLE, 'map-main'],
+      actions: [],
+      tree: [
+        'H',
+        'V',
+        'ID:calendar-main',
+        'ID:weather-main',
+        'V',
+        'ID:tasks-main',
+        'ID:map-main',
+      ],
+      arrangement: [
+        { kind: 'sideBySide', ids: ['calendar-main', 'weather-main'] },
+        { kind: 'sideBySide', ids: ['tasks-main', 'map-main'] },
+        { kind: 'order', ids: ['calendar-main', 'tasks-main'], axis: 'y' },
+        { kind: 'order', ids: ['calendar-main', 'map-main'], axis: 'y' },
+        { kind: 'order', ids: ['weather-main', 'tasks-main'], axis: 'y' },
+        { kind: 'order', ids: ['weather-main', 'map-main'], axis: 'y' },
+        ...equalAreas('calendar-main', [
+          'weather-main',
+          'tasks-main',
+          'map-main',
+        ]),
+      ],
+    },
+  ),
+  planned(
+    'weather-under-calendar',
+    'Put one widget under another',
+    'Put the weather under the calendar.',
+    {
+      visible: BASE_VISIBLE,
+      actions: [],
+      tree: [
+        'V:1,1',
+        'H',
+        'ID:calendar-main',
+        'ID:weather-main',
+        'ID:tasks-main',
+      ],
+      arrangement: [{ kind: 'below', a: 'weather-main', b: 'calendar-main' }],
+    },
+  ),
+  planned(
+    'map-full-width-bottom',
+    'A full-width widget along the bottom',
+    'Show the map full width along the bottom, under the other widgets.',
+    {
+      visible: [...BASE_VISIBLE, 'map-main'],
+      actions: [],
+      tree: [
+        'H',
+        'V:1,1,1',
+        'ID:calendar-main',
+        'ID:weather-main',
+        'ID:tasks-main',
+        'ID:map-main',
+      ],
+      arrangement: [
+        { kind: 'spansFullWidth', id: 'map-main' },
+        { kind: 'below', a: 'map-main', b: 'calendar-main' },
+        { kind: 'below', a: 'map-main', b: 'weather-main' },
+        { kind: 'below', a: 'map-main', b: 'tasks-main' },
+      ],
+    },
+  ),
+  planned(
+    'preserve-resize',
+    'Keep a custom arrangement through a resize',
+    'Keep this arrangement exactly as it is.',
+    unchanged({ visible: BASE_VISIBLE, actions: [] }),
+    {
+      tree: [
+        'V:2,1',
+        'ID:calendar-main',
+        'H',
+        'ID:weather-main',
+        'ID:tasks-main',
+      ],
+      resizeFrom: { columns: 24, rows: 18 },
+    },
+  ),
+].map(spatial);
+
+/** Requests that should leave the arrangement alone: content edits, view changes and an added widget. */
+const controls: Scenario[] = [
+  planned(
+    'ctl-add-task',
+    'A content edit keeps the layout',
+    'Add a task called "Call the bank".',
+    unchanged({ visible: BASE_VISIBLE, actions: [addTask('Call the bank')] }),
+  ),
+  planned(
+    'ctl-set-location',
+    'A setting change keeps the layout',
+    'Set the weather location to "Lisbon".',
+    unchanged({
+      visible: BASE_VISIBLE,
+      actions: [setLocation('weather-main', 'Lisbon')],
+    }),
+  ),
+  planned(
+    'ctl-calendar-week',
+    'A view change keeps the layout',
+    'Switch the calendar to the week view.',
+    unchanged({
+      visible: BASE_VISIBLE,
+      actions: [{ instanceId: 'calendar-main', action: 'showWeek' }],
+    }),
+  ),
+  planned(
+    'ctl-weather-hourly',
+    'Another view change keeps the layout',
+    'Show the hourly forecast in the weather widget.',
+    unchanged({
+      visible: BASE_VISIBLE,
+      actions: [{ instanceId: 'weather-main', action: 'showHourly' }],
+    }),
+  ),
+  planned(
+    'ctl-add-event',
+    'An event with a time keeps the layout',
+    'Add "Lunch with Ana" to today’s calendar at "12:30".',
+    unchanged({
+      visible: BASE_VISIBLE,
+      actions: [
+        {
+          instanceId: 'calendar-main',
+          action: 'addEvent',
+          params: { title: 'Lunch with Ana', time: '12:30' },
+        },
+      ],
+    }),
+  ),
+  planned(
+    'ctl-also-journal',
+    'Adding a widget keeps the board balanced',
+    'Also show my journal.',
+    {
+      visible: [...BASE_VISIBLE, 'journal-main'],
+      retained: BASE_RETAINED,
+      actions: [],
+      tree: [
+        'V:1,1,1,1',
+        'ID:calendar-main',
+        'ID:weather-main',
+        'ID:tasks-main',
+        'ID:journal-main',
+      ],
+      arrangement: balanced('calendar-main', [
+        'weather-main',
+        'tasks-main',
+        'journal-main',
+      ]),
+    },
+  ),
+].map(control);
+
+const development: Scenario[] = [
+  control(
+    planned(
+      'preserve',
+      'Keep the current board',
+      'Leave the board exactly as it is.',
+      unchanged({
+        visible: BASE_VISIBLE,
+        actions: [],
+        tree: BASE_TREE,
+      }),
+    ),
   ),
   planned(
     'show-hidden',
@@ -96,18 +431,23 @@ const development: Scenario[] = [
       actions: [],
     },
   ),
-  planned(
-    'replace-side-by-side',
-    'Naming the whole screen hides the rest',
-    'Show me the weather in Warsaw and the calendar in week view side by side.',
-    {
-      visible: ['calendar-main', 'weather-main'],
-      retained: BASE_RETAINED,
-      actions: [
-        setLocation('weather-main', 'Warsaw'),
-        { instanceId: 'calendar-main', action: 'showWeek' },
-      ],
-    },
+  spatial(
+    planned(
+      'replace-side-by-side',
+      'Naming the whole screen hides the rest',
+      'Show me the weather in Warsaw and the calendar in week view side by side.',
+      {
+        visible: ['calendar-main', 'weather-main'],
+        retained: BASE_RETAINED,
+        actions: [
+          setLocation('weather-main', 'Warsaw'),
+          { instanceId: 'calendar-main', action: 'showWeek' },
+        ],
+        arrangement: [
+          { kind: 'sideBySide', ids: ['calendar-main', 'weather-main'] },
+        ],
+      },
+    ),
   ),
   planned(
     'additive-show',
@@ -134,31 +474,53 @@ const development: Scenario[] = [
       actions: [],
     },
   ),
-  planned(
-    'focus',
-    'Give the calendar more space',
-    'Give the calendar two thirds of the board. Stack weather and tasks on the right.',
-    {
-      visible: BASE_VISIBLE,
-      actions: [],
-      tree: [
-        'V:2,1',
-        'ID:calendar-main',
-        'H',
-        'ID:weather-main',
-        'ID:tasks-main',
-      ],
-    },
+  spatial(
+    planned(
+      'focus',
+      'Give the calendar more space',
+      'Give the calendar two thirds of the board. Stack weather and tasks on the right.',
+      {
+        visible: BASE_VISIBLE,
+        actions: [],
+        tree: [
+          'V:2,1',
+          'ID:calendar-main',
+          'H',
+          'ID:weather-main',
+          'ID:tasks-main',
+        ],
+        arrangement: [
+          { kind: 'leftOf', a: 'calendar-main', b: 'weather-main' },
+          { kind: 'leftOf', a: 'calendar-main', b: 'tasks-main' },
+          { kind: 'stacked', ids: ['weather-main', 'tasks-main'] },
+          { kind: 'dominant', id: 'calendar-main', minShare: 0.6 },
+        ],
+      },
+    ),
   ),
-  planned(
-    'column',
-    'Stack the visible widgets',
-    'Stack the visible widgets vertically in equal rows.',
-    {
-      visible: BASE_VISIBLE,
-      actions: [],
-      tree: ['H:1,1,1', 'ID:calendar-main', 'ID:weather-main', 'ID:tasks-main'],
-    },
+  spatial(
+    planned(
+      'column',
+      'Stack the visible widgets',
+      'Stack the visible widgets vertically in equal rows.',
+      {
+        visible: BASE_VISIBLE,
+        actions: [],
+        tree: [
+          'H:1,1,1',
+          'ID:calendar-main',
+          'ID:weather-main',
+          'ID:tasks-main',
+        ],
+        arrangement: [
+          {
+            kind: 'stacked',
+            ids: ['calendar-main', 'weather-main', 'tasks-main'],
+          },
+          ...equalAreas('calendar-main', ['weather-main', 'tasks-main']),
+        ],
+      },
+    ),
   ),
   planned(
     'variant',
@@ -226,18 +588,23 @@ const development: Scenario[] = [
       actions: [setLocation('weather-jev-1', 'Paris')],
     },
   ),
-  planned(
-    'compare',
-    'Compare two weather locations',
-    'Show only two weather widgets side by side: "Tokyo" on the left and "Paris" on the right. Reuse the existing weather widget for Tokyo.',
-    {
-      visible: ['weather-main', 'weather-jev-1'],
-      tree: ['V', 'ID:weather-main', 'ID:weather-jev-1'],
-      actions: [
-        setLocation('weather-main', 'Tokyo'),
-        setLocation('weather-jev-1', 'Paris'),
-      ],
-    },
+  spatial(
+    planned(
+      'compare',
+      'Compare two weather locations',
+      'Show only two weather widgets side by side: "Tokyo" on the left and "Paris" on the right. Reuse the existing weather widget for Tokyo.',
+      {
+        visible: ['weather-main', 'weather-jev-1'],
+        tree: ['V', 'ID:weather-main', 'ID:weather-jev-1'],
+        actions: [
+          setLocation('weather-main', 'Tokyo'),
+          setLocation('weather-jev-1', 'Paris'),
+        ],
+        arrangement: [
+          { kind: 'leftOf', a: 'weather-main', b: 'weather-jev-1' },
+        ],
+      },
+    ),
   ),
   planned(
     'task',
@@ -283,41 +650,17 @@ const development: Scenario[] = [
     'Delete that one.',
     'jevSelect',
   ),
-  deferred(
-    'small-chart',
-    'No layout gives every widget its minimum size',
-    'Put calendar, weather, and tasks side by side.',
-    'jevLayout',
-    { columns: 10, rows: 6 },
+  spatial(
+    deferred(
+      'small-chart',
+      'No layout gives every widget its minimum size',
+      'Put calendar, weather, and tasks side by side.',
+      'jevLayout',
+      { columns: 10, rows: 6 },
+    ),
   ),
-  deferred(
-    'swap',
-    'Reorder cannot be expressed by the layout menu',
-    'Swap the calendar and the map.',
-    undefined,
-    { tree: ['V', 'ID:calendar-main', 'ID:map-main'] },
-  ),
-  deferred(
-    'big-right',
-    'Big instance on the right is outside the layout menu',
-    'Show the map on the right taking most of the screen, with the calendar on the left in a smaller column.',
-    undefined,
-    { tree: ['V', 'ID:calendar-main', 'ID:map-main'] },
-  ),
-  deferred(
-    'top-and-pair',
-    'Row-then-split layout is outside the layout menu',
-    'Put the calendar full width at the top, and beneath it the weather and the map side by side, all the same height.',
-    undefined,
-    { tree: ['V:1,1,1', 'ID:calendar-main', 'ID:weather-main', 'ID:map-main'] },
-  ),
-  deferred(
-    'bottom-strip',
-    'A thin edge strip is outside the layout menu',
-    'Make the weather a thin strip along the bottom, with the calendar and map above it.',
-    undefined,
-    { tree: ['V:1,1,1', 'ID:calendar-main', 'ID:weather-main', 'ID:map-main'] },
-  ),
+  ...arrangements,
+  ...controls,
   {
     id: 'resize',
     suite: 'development',
@@ -372,15 +715,17 @@ const development: Scenario[] = [
 ];
 
 const holdout: Scenario[] = [
-  planned(
-    'hold-preserve',
-    'Leave the workspace untouched',
-    'Everything looks right. Keep it this way.',
-    {
-      visible: BASE_VISIBLE,
-      retained: BASE_RETAINED,
-      actions: [],
-    },
+  control(
+    planned(
+      'hold-preserve',
+      'Leave the workspace untouched',
+      'Everything looks right. Keep it this way.',
+      unchanged({
+        visible: BASE_VISIBLE,
+        retained: BASE_RETAINED,
+        actions: [],
+      }),
+    ),
   ),
   planned(
     'hold-hide',
@@ -468,29 +813,44 @@ const holdout: Scenario[] = [
       actions: [setLocation('weather-jev-1', 'Oslo')],
     },
   ),
-  planned(
-    'hold-comparison',
-    'Configure two named comparison subjects',
-    'Show only two weather panels side by side. Set the existing one on the left to "Oslo" and create one on the right for "Rome".',
-    {
-      visible: ['weather-main', 'weather-jev-1'],
-      tree: ['V', 'ID:weather-main', 'ID:weather-jev-1'],
-      actions: [
-        setLocation('weather-main', 'Oslo'),
-        setLocation('weather-jev-1', 'Rome'),
-      ],
-    },
+  spatial(
+    planned(
+      'hold-comparison',
+      'Configure two named comparison subjects',
+      'Show only two weather panels side by side. Set the existing one on the left to "Oslo" and create one on the right for "Rome".',
+      {
+        visible: ['weather-main', 'weather-jev-1'],
+        tree: ['V', 'ID:weather-main', 'ID:weather-jev-1'],
+        actions: [
+          setLocation('weather-main', 'Oslo'),
+          setLocation('weather-jev-1', 'Rome'),
+        ],
+        arrangement: [
+          { kind: 'leftOf', a: 'weather-main', b: 'weather-jev-1' },
+        ],
+      },
+    ),
   ),
-  planned(
-    'hold-stack',
-    'Rearrange two visible widgets on a tall Chart',
-    'Keep exactly these visible widgets, but put them in equal rows from top to bottom.',
-    {
-      visible: ['calendar-main', 'tasks-main'],
-      tree: ['H', 'ID:calendar-main', 'ID:tasks-main'],
-      actions: [],
-    },
-    { tree: ['V', 'ID:calendar-main', 'ID:tasks-main'], columns: 10, rows: 30 },
+  spatial(
+    planned(
+      'hold-stack',
+      'Rearrange two visible widgets on a tall Chart',
+      'Keep exactly these visible widgets, but put them in equal rows from top to bottom.',
+      {
+        visible: ['calendar-main', 'tasks-main'],
+        tree: ['H', 'ID:calendar-main', 'ID:tasks-main'],
+        actions: [],
+        arrangement: [
+          { kind: 'stacked', ids: ['calendar-main', 'tasks-main'] },
+          ...equalAreas('calendar-main', ['tasks-main']),
+        ],
+      },
+      {
+        tree: ['V', 'ID:calendar-main', 'ID:tasks-main'],
+        columns: 10,
+        rows: 30,
+      },
+    ),
   ),
   planned(
     'hold-three-writes',
@@ -531,6 +891,121 @@ const holdout: Scenario[] = [
     'Delete the one I was thinking of.',
     'jevSelect',
   ),
+  ...[
+    planned(
+      'hold-arr-swap',
+      'Trade places between two widgets',
+      'Swap the weather and the tasks.',
+      {
+        visible: BASE_VISIBLE,
+        actions: [],
+        tree: [
+          'V:1,1,1',
+          'ID:calendar-main',
+          'ID:tasks-main',
+          'ID:weather-main',
+        ],
+        arrangement: [
+          {
+            kind: 'order',
+            ids: ['calendar-main', 'tasks-main', 'weather-main'],
+            axis: 'x',
+          },
+        ],
+      },
+    ),
+    planned(
+      'hold-arr-sidebar',
+      'A narrow sidebar beside a stacked pair',
+      'Put the tasks in a narrow column on the left, with the calendar above the weather on the right.',
+      {
+        visible: BASE_VISIBLE,
+        actions: [],
+        tree: [
+          'V:1,2',
+          'ID:tasks-main',
+          'H',
+          'ID:calendar-main',
+          'ID:weather-main',
+        ],
+        arrangement: [
+          { kind: 'leftOf', a: 'tasks-main', b: 'calendar-main' },
+          { kind: 'leftOf', a: 'tasks-main', b: 'weather-main' },
+          { kind: 'spansFullHeight', id: 'tasks-main' },
+          { kind: 'above', a: 'calendar-main', b: 'weather-main' },
+        ],
+      },
+    ),
+    planned(
+      'hold-arr-banner',
+      'A banner across the top',
+      'Show the map as a wide banner across the top, with the other widgets underneath.',
+      {
+        visible: [...BASE_VISIBLE, 'map-main'],
+        actions: [],
+        tree: [
+          'H:1,2',
+          'ID:map-main',
+          'V:1,1,1',
+          'ID:calendar-main',
+          'ID:weather-main',
+          'ID:tasks-main',
+        ],
+        arrangement: [
+          { kind: 'spansFullWidth', id: 'map-main' },
+          { kind: 'above', a: 'map-main', b: 'calendar-main' },
+          { kind: 'above', a: 'map-main', b: 'weather-main' },
+          { kind: 'above', a: 'map-main', b: 'tasks-main' },
+        ],
+      },
+    ),
+    planned(
+      'hold-arr-focus',
+      'One widget takes most of the board',
+      'Make the calendar the main focus, taking up most of the screen.',
+      {
+        visible: BASE_VISIBLE,
+        actions: [],
+        tree: [
+          'V:2,1',
+          'ID:calendar-main',
+          'H',
+          'ID:weather-main',
+          'ID:tasks-main',
+        ],
+        arrangement: [{ kind: 'dominant', id: 'calendar-main', minShare: 0.5 }],
+      },
+    ),
+  ].map(spatial),
+  ...[
+    planned(
+      'hold-ctl-task',
+      'Add a task without touching the layout',
+      'Put "Renew passport" on my task list.',
+      unchanged({
+        visible: BASE_VISIBLE,
+        actions: [addTask('Renew passport')],
+      }),
+    ),
+    planned(
+      'hold-ctl-weekly',
+      'Change the forecast view without touching the layout',
+      'Switch the forecast to the weekly view.',
+      unchanged({
+        visible: BASE_VISIBLE,
+        actions: [{ instanceId: 'weather-main', action: 'showWeekly' }],
+      }),
+    ),
+    planned(
+      'hold-ctl-location',
+      'Change the forecast city without touching the layout',
+      'Change the forecast city to "Madrid".',
+      unchanged({
+        visible: BASE_VISIBLE,
+        actions: [setLocation('weather-main', 'Madrid')],
+      }),
+    ),
+  ].map(control),
 ];
 
 const parameterCases: Scenario[] = [
@@ -661,14 +1136,60 @@ function request(intent: string, options: InputOptions = {}): ChartRequest {
     context: {
       layoutMode: 'tiling',
       chartDimensions: current,
-      updateReasons: options.resizeFrom
-        ? [{ type: 'chart_resize', previous: options.resizeFrom, current }]
-        : [{ type: 'user_intent', intent }],
+      updateReasons: [
+        ...(options.resizeFrom
+          ? [{ type: 'chart_resize', previous: options.resizeFrom, current }]
+          : []),
+        ...(intent.length > 0 || !options.resizeFrom
+          ? [{ type: 'user_intent', intent }]
+          : []),
+      ],
     },
     instances,
     vessels,
     layout: { type: 'tiling', tree: options.tree ?? BASE_TREE, instances },
   });
+}
+
+function spatial(scenario: Scenario): Scenario {
+  return { ...scenario, spatial: true };
+}
+
+function control(scenario: Scenario): Scenario {
+  return { ...scenario, spatial: false };
+}
+
+function unchanged(
+  expected: Omit<Expectation, 'status' | 'arrangement'>,
+): Omit<Expectation, 'status'> {
+  return { ...expected, arrangement: [{ kind: 'unchangedTree' }] };
+}
+
+function equalAreas(
+  reference: string,
+  others: readonly string[],
+): readonly ArrangementRule[] {
+  return others.map((id) => ({
+    kind: 'weightRatio',
+    a: id,
+    b: reference,
+    min: 0.8,
+    max: 1.25,
+  }));
+}
+
+/** No instance in `others` gets more than twice the area of `reference`, nor less than half. */
+function balanced(
+  reference: string,
+  others: readonly string[],
+): readonly ArrangementRule[] {
+  return others.map((id) => ({
+    kind: 'weightRatio',
+    a: id,
+    b: reference,
+    min: 0.5,
+    max: 2,
+  }));
 }
 
 function setLocation(instanceId: string, location: string): ExpectedAction {

@@ -2,6 +2,8 @@ import {
   getVisibleInstanceIds,
   type MaelstromResponse,
   type TilingLayout,
+  type TilingNode,
+  tilingLeafInstanceId,
 } from '@maelstrom-co/protocol';
 
 import type {
@@ -9,11 +11,17 @@ import type {
   JevLayoutPlan,
   JevSelection,
 } from '../src/lib/types.js';
+import { checkArrangement } from './predicates.js';
 import type { ExpectedAction, Scenario } from './scenarios.js';
 
 export interface Score {
   readonly pass: boolean;
   readonly failures: readonly string[];
+}
+
+/** A score whose failures include the arrangement rules' failures, when the scenario declares any. */
+export interface ArrangedScore extends Score {
+  readonly arrangement?: Score;
 }
 
 /**
@@ -26,11 +34,17 @@ export interface Score {
 export function scoreResponse(
   scenario: Scenario,
   response: MaelstromResponse,
-): Score {
+): ArrangedScore {
   const { expected, request } = scenario;
+  if (response.layout.type !== 'tiling') {
+    const failures = ['Response layout is not tiling'];
+    return {
+      pass: false,
+      failures,
+      ...(expected.arrangement && { arrangement: { pass: false, failures } }),
+    };
+  }
   const failures: string[] = [];
-  if (response.layout.type !== 'tiling')
-    return { pass: false, failures: ['Response layout is not tiling'] };
   const rename = matchNewIds(scenario, response.layout);
   const ids = (values: Iterable<string>) =>
     [...values].map((id) => rename.get(id) ?? id).sort();
@@ -67,7 +81,20 @@ export function scoreResponse(
         `Variant of ${existing.instanceId} changed to ${declared.variant} without an action`,
       );
   }
-  return { pass: failures.length === 0, failures };
+  const arrangement = arrange(
+    scenario,
+    response.layout.tree.map((token) => {
+      const id = tilingLeafInstanceId(token);
+      const renamed = id === null ? undefined : rename.get(id);
+      return renamed === undefined ? token : (`ID:${renamed}` as TilingNode);
+    }),
+    failures,
+  );
+  return {
+    pass: failures.length === 0,
+    failures,
+    ...(arrangement && { arrangement }),
+  };
 }
 
 /** Selection stage: visible and retained sets from jevSelect's output. */
@@ -142,26 +169,48 @@ export function scoreActions(
   return { pass: failures.length === 0, failures };
 }
 
-/** Layout stage, scored loosely: the tree's leaves are the expected visible set. */
+/**
+ * Layout stage: the tree's leaves are the expected visible set, and the tree
+ * satisfies the scenario's arrangement rules.
+ */
 export function scoreLayout(
   scenario: Scenario,
-  layout: JevLayoutPlan,
-): Score | undefined {
-  if (!scenario.expected.visible) return undefined;
+  layout: Pick<JevLayoutPlan, 'tree'>,
+): ArrangedScore | undefined {
+  const { visible, arrangement: rules } = scenario.expected;
+  if (!visible && !rules) return undefined;
   const failures: string[] = [];
-  compare(
+  if (visible)
+    compare(
+      failures,
+      'Tree leaves',
+      [
+        ...getVisibleInstanceIds({
+          type: 'tiling',
+          tree: layout.tree,
+          instances: [],
+        }),
+      ].sort(),
+      [...visible].sort(),
+    );
+  const arrangement = arrange(scenario, layout.tree, failures);
+  return {
+    pass: failures.length === 0,
     failures,
-    'Tree leaves',
-    [
-      ...getVisibleInstanceIds({
-        type: 'tiling',
-        tree: layout.tree,
-        instances: [],
-      }),
-    ].sort(),
-    [...scenario.expected.visible].sort(),
-  );
-  return { pass: failures.length === 0, failures };
+    ...(arrangement && { arrangement }),
+  };
+}
+
+function arrange(
+  scenario: Scenario,
+  tree: readonly TilingNode[],
+  failures: string[],
+): Score | undefined {
+  const rules = scenario.expected.arrangement;
+  if (!rules) return undefined;
+  const score = checkArrangement(rules, { request: scenario.request, tree });
+  failures.push(...score.failures.map((failure) => `Arrangement ${failure}`));
+  return score;
 }
 
 function expectedRetained(scenario: Scenario): readonly string[] {

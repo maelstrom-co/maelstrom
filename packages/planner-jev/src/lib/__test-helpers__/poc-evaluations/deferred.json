@@ -1,0 +1,582 @@
+{
+  "evaluations": [
+    {
+      "model": "jev-test",
+      "state": {
+        "intent": [
+          {
+            "type": "user_intent",
+            "intent": "hide the tasks"
+          }
+        ],
+        "history": [],
+        "chartDimensions": {
+          "rows": 18,
+          "columns": 30
+        },
+        "currentLayout": [
+          "V:1,1,1",
+          "ID:calendar-main",
+          "ID:weather-main",
+          "ID:tasks-main"
+        ],
+        "instances": [
+          {
+            "instanceId": "calendar-main",
+            "vesselId": "calendar",
+            "variant": "month",
+            "visible": true
+          },
+          {
+            "instanceId": "weather-main",
+            "vesselId": "weather",
+            "variant": "current",
+            "visible": true
+          },
+          {
+            "instanceId": "tasks-main",
+            "vesselId": "tasks",
+            "variant": "list",
+            "visible": true
+          },
+          {
+            "instanceId": "map-main",
+            "vesselId": "map",
+            "variant": "overview",
+            "visible": false
+          },
+          {
+            "instanceId": "journal-main",
+            "vesselId": "journal",
+            "variant": "list",
+            "visible": false
+          }
+        ],
+        "vessels": [
+          {
+            "id": "calendar",
+            "name": "Calendar",
+            "description": "Calendar with month, week and day views",
+            "defaultVariant": "month",
+            "variants": {
+              "month": {
+                "props": {},
+                "minSize": {
+                  "width": 4,
+                  "height": 4
+                },
+                "actions": [
+                  {
+                    "name": "showWeek",
+                    "description": "Switch to week view",
+                    "transitionsTo": "week",
+                    "idempotent": false
+                  },
+                  {
+                    "name": "addEvent",
+                    "description": "Add an event to today's schedule",
+                    "parameters": [
+                      {
+                        "name": "title",
+                        "type": "string",
+                        "description": "Event title"
+                      },
+                      {
+                        "name": "time",
+                        "type": "string",
+                        "description": "Time like 9:00 or 14:30"
+                      }
+                    ],
+                    "transitionsTo": "day",
+                    "idempotent": false
+                  }
+                ]
+              },
+              "week": {
+                "props": {},
+                "minSize": {
+                  "width": 6,
+                  "height": 3
+                },
+                "actions": [
+                  {
+                    "name": "showMonth",
+                    "description": "Switch back to month view",
+                    "transitionsTo": "month",
+                    "idempotent": false
+                  },
+                  {
+                    "name": "addEvent",
+                    "description": "Add an event to today's schedule",
+                    "parameters": [
+                      {
+                        "name": "title",
+                        "type": "string",
+                        "description": "Event title"
+                      },
+                      {
+                        "name": "time",
+                        "type": "string",
+                        "description": "Time like 9:00 or 14:30"
+                      }
+                    ],
+                    "idempotent": false
+                  }
+                ]
+              },
+              "day": {
+                "props": {},
+                "minSize": {
+                  "width": 4,
+                  "height": 4
+                },
+                "actions": [
+                  {
+                    "name": "showMonth",
+                    "description": "Switch to month view",
+                    "transitionsTo": "month",
+                    "idempotent": false
+                  },
+                  {
+                    "name": "addEvent",
+                    "description": "Add an event to today's schedule",
+                    "parameters": [
+                      {
+                        "name": "title",
+                        "type": "string",
+                        "description": "Event title"
+                      },
+                      {
+                        "name": "time",
+                        "type": "string",
+                        "description": "Time like 9:00 or 14:30"
+                      }
+                    ],
+                    "idempotent": false
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "id": "weather",
+            "name": "Weather",
+            "description": "Current conditions or a weekly forecast",
+            "defaultVariant": "current",
+            "variants": {
+              "current": {
+                "props": {},
+                "minSize": {
+                  "width": 6,
+                  "height": 4
+                },
+                "actions": [
+                  {
+                    "name": "setLocation",
+                    "description": "Load weather for a place",
+                    "parameters": [
+                      {
+                        "name": "location",
+                        "type": "string",
+                        "description": "City or place to request weather for"
+                      }
+                    ],
+                    "idempotent": false
+                  },
+                  {
+                    "name": "showWeekly",
+                    "description": "Show the weekly forecast",
+                    "transitionsTo": "weekly",
+                    "idempotent": false
+                  }
+                ]
+              },
+              "weekly": {
+                "props": {},
+                "minSize": {
+                  "width": 8,
+                  "height": 3
+                },
+                "actions": [
+                  {
+                    "name": "setLocation",
+                    "description": "Load weather for a place",
+                    "parameters": [
+                      {
+                        "name": "location",
+                        "type": "string",
+                        "description": "City or place to request weather for"
+                      }
+                    ],
+                    "idempotent": false
+                  },
+                  {
+                    "name": "showCurrent",
+                    "description": "Show current conditions",
+                    "transitionsTo": "current",
+                    "idempotent": false
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "id": "tasks",
+            "name": "Tasks",
+            "description": "Task list",
+            "defaultVariant": "list",
+            "variants": {
+              "list": {
+                "props": {},
+                "minSize": {
+                  "width": 3,
+                  "height": 3
+                },
+                "actions": [
+                  {
+                    "name": "addTask",
+                    "description": "Add a new task",
+                    "parameters": [
+                      {
+                        "name": "title",
+                        "type": "string",
+                        "description": "Task title"
+                      },
+                      {
+                        "name": "urgent",
+                        "type": "boolean",
+                        "description": "Whether the task is urgent",
+                        "required": false
+                      }
+                    ],
+                    "idempotent": false
+                  },
+                  {
+                    "name": "checkTask",
+                    "description": "Mark a task as complete",
+                    "parameters": [
+                      {
+                        "name": "title",
+                        "type": "string",
+                        "description": "Title of the task to check",
+                        "enum": [
+                          "Buy milk",
+                          "Send invoice",
+                          7,
+                          null
+                        ]
+                      }
+                    ],
+                    "idempotent": false
+                  },
+                  {
+                    "name": "setLimit",
+                    "description": "Limit how many tasks are shown",
+                    "parameters": [
+                      {
+                        "name": "count",
+                        "type": "number",
+                        "description": "How many tasks to show"
+                      }
+                    ],
+                    "idempotent": false
+                  },
+                  {
+                    "name": "importTasks",
+                    "description": "Import tasks from a structured payload",
+                    "parameters": [
+                      {
+                        "name": "payload",
+                        "type": "object",
+                        "description": "Tasks to import"
+                      }
+                    ],
+                    "idempotent": false
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "id": "map",
+            "name": "Map",
+            "description": "Saved places and routes",
+            "defaultVariant": "overview",
+            "variants": {
+              "overview": {
+                "props": {},
+                "minSize": {
+                  "width": 4,
+                  "height": 4
+                },
+                "actions": [
+                  {
+                    "name": "showRoute",
+                    "description": "Show driving directions to a destination",
+                    "parameters": [
+                      {
+                        "name": "destination",
+                        "type": "string",
+                        "description": "Name of the destination location",
+                        "enum": [
+                          "Studio Vortex HQ",
+                          "Central Station"
+                        ]
+                      }
+                    ],
+                    "transitionsTo": "route",
+                    "idempotent": false
+                  }
+                ]
+              },
+              "route": {
+                "props": {},
+                "minSize": {
+                  "width": 6,
+                  "height": 4
+                },
+                "actions": [
+                  {
+                    "name": "showOverview",
+                    "description": "Show all saved places",
+                    "transitionsTo": "overview",
+                    "idempotent": false
+                  },
+                  {
+                    "name": "showRoute",
+                    "description": "Show driving directions to a destination",
+                    "parameters": [
+                      {
+                        "name": "destination",
+                        "type": "string",
+                        "description": "Name of the destination location",
+                        "enum": [
+                          "Studio Vortex HQ",
+                          "Central Station"
+                        ]
+                      }
+                    ],
+                    "idempotent": false
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "id": "journal",
+            "name": "Journal",
+            "description": "Journal entries",
+            "defaultVariant": "list",
+            "variants": {
+              "list": {
+                "props": {},
+                "minSize": {
+                  "width": 3,
+                  "height": 3
+                },
+                "actions": [
+                  {
+                    "name": "openEntry",
+                    "description": "Open an existing entry by title",
+                    "parameters": [
+                      {
+                        "name": "title",
+                        "type": "string",
+                        "description": "Title of the entry to open"
+                      }
+                    ],
+                    "transitionsTo": "entry",
+                    "idempotent": false
+                  }
+                ]
+              },
+              "entry": {
+                "props": {},
+                "minSize": {
+                  "width": 16,
+                  "height": 12
+                },
+                "actions": [
+                  {
+                    "name": "backToList",
+                    "description": "Return to the entries list",
+                    "transitionsTo": "list",
+                    "idempotent": false
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "questions": {
+        "scope": {
+          "type": "choice",
+          "instructions": "Can the complete latest intent be satisfied using these vessels, their views and their registered actions? Showing, hiding, removing, replacing, arranging or configuring widgets is supported. A chart resize with no other request is supported. Do not partially satisfy an unsupported compound request.",
+          "criteria": {
+            "supported": "The complete request is clear and supported.",
+            "unsupported": "A requested capability, generated content, or required target is unavailable.",
+            "ambiguous": "The intended target or operation is genuinely unclear."
+          }
+        },
+        "view/calendar-main": {
+          "type": "choice",
+          "instructions": "Decide what happens to calendar-main, currently visible in its month view. When the latest intent describes the whole screen, for example \"show me X and Y side by side\", \"just X\" or \"only X\", hide every visible instance it does not name or need. When it adds to or edits the screen, for example \"also show X\", \"add X\" or \"set the weather to Warsaw\", leave unrelated instances as they are: keep a visible one, leave a hidden one hidden. View changes and content edits are planned later through actions, so keep an instance whose view or content should change.",
+          "criteria": {
+            "keep": "Keep it visible: the request names or needs it, or only adds to or edits the screen. Its view or content may still change through actions.",
+            "hide": "Hide it, retaining its state: the request hides or removes it, or describes a screen without it.",
+            "delete": "Explicitly delete this instance and its state."
+          }
+        },
+        "view/weather-main": {
+          "type": "choice",
+          "instructions": "Decide what happens to weather-main, currently visible in its current view. When the latest intent describes the whole screen, for example \"show me X and Y side by side\", \"just X\" or \"only X\", hide every visible instance it does not name or need. When it adds to or edits the screen, for example \"also show X\", \"add X\" or \"set the weather to Warsaw\", leave unrelated instances as they are: keep a visible one, leave a hidden one hidden. View changes and content edits are planned later through actions, so keep an instance whose view or content should change.",
+          "criteria": {
+            "keep": "Keep it visible: the request names or needs it, or only adds to or edits the screen. Its view or content may still change through actions.",
+            "hide": "Hide it, retaining its state: the request hides or removes it, or describes a screen without it.",
+            "delete": "Explicitly delete this instance and its state."
+          }
+        },
+        "view/tasks-main": {
+          "type": "choice",
+          "instructions": "Decide what happens to tasks-main, currently visible in its list view. When the latest intent describes the whole screen, for example \"show me X and Y side by side\", \"just X\" or \"only X\", hide every visible instance it does not name or need. When it adds to or edits the screen, for example \"also show X\", \"add X\" or \"set the weather to Warsaw\", leave unrelated instances as they are: keep a visible one, leave a hidden one hidden. View changes and content edits are planned later through actions, so keep an instance whose view or content should change.",
+          "criteria": {
+            "keep": "Keep it visible: the request names or needs it, or only adds to or edits the screen. Its view or content may still change through actions.",
+            "hide": "Hide it, retaining its state: the request hides or removes it, or describes a screen without it.",
+            "delete": "Explicitly delete this instance and its state."
+          }
+        },
+        "view/map-main": {
+          "type": "choice",
+          "instructions": "Decide what happens to map-main, currently hidden in its overview view. When the latest intent describes the whole screen, for example \"show me X and Y side by side\", \"just X\" or \"only X\", hide every visible instance it does not name or need. When it adds to or edits the screen, for example \"also show X\", \"add X\" or \"set the weather to Warsaw\", leave unrelated instances as they are: keep a visible one, leave a hidden one hidden. View changes and content edits are planned later through actions, so keep an instance whose view or content should change.",
+          "criteria": {
+            "keep": "Show it: the instance and its state become visible again.",
+            "hide": "Leave it hidden, retaining its state.",
+            "delete": "Explicitly delete this instance and its state."
+          }
+        },
+        "view/journal-main": {
+          "type": "choice",
+          "instructions": "Decide what happens to journal-main, currently hidden in its list view. When the latest intent describes the whole screen, for example \"show me X and Y side by side\", \"just X\" or \"only X\", hide every visible instance it does not name or need. When it adds to or edits the screen, for example \"also show X\", \"add X\" or \"set the weather to Warsaw\", leave unrelated instances as they are: keep a visible one, leave a hidden one hidden. View changes and content edits are planned later through actions, so keep an instance whose view or content should change.",
+          "criteria": {
+            "keep": "Show it: the instance and its state become visible again.",
+            "hide": "Leave it hidden, retaining its state.",
+            "delete": "Explicitly delete this instance and its state."
+          }
+        },
+        "new/calendar": {
+          "type": "choice",
+          "instructions": "Select the NEW Calendar instances the latest intent needs. There are 1 existing instances of this type; showing or reusing one of them is not a new instance. Choose none for a type that was not requested. Layout rows or columns are not copies.",
+          "criteria": {
+            "none": "No new Calendar. This type was not requested, or an existing instance satisfies the request.",
+            "one/month": "Create ONE Calendar starting in its month view (the default view for ordinary display requests).",
+            "pair/month/month": "Create TWO Calendar instances, starting in month and month. Only for an explicit request for two new copies of this type.",
+            "pair/month/week": "Create TWO Calendar instances, starting in month and week. Only for an explicit request for two new copies of this type.",
+            "pair/month/day": "Create TWO Calendar instances, starting in month and day. Only for an explicit request for two new copies of this type.",
+            "one/week": "Create ONE Calendar starting in its week view.",
+            "pair/week/month": "Create TWO Calendar instances, starting in week and month. Only for an explicit request for two new copies of this type.",
+            "pair/week/week": "Create TWO Calendar instances, starting in week and week. Only for an explicit request for two new copies of this type.",
+            "pair/week/day": "Create TWO Calendar instances, starting in week and day. Only for an explicit request for two new copies of this type.",
+            "one/day": "Create ONE Calendar starting in its day view.",
+            "pair/day/month": "Create TWO Calendar instances, starting in day and month. Only for an explicit request for two new copies of this type.",
+            "pair/day/week": "Create TWO Calendar instances, starting in day and week. Only for an explicit request for two new copies of this type.",
+            "pair/day/day": "Create TWO Calendar instances, starting in day and day. Only for an explicit request for two new copies of this type."
+          }
+        },
+        "new/weather": {
+          "type": "choice",
+          "instructions": "Select the NEW Weather instances the latest intent needs. There are 1 existing instances of this type; showing or reusing one of them is not a new instance. Choose none for a type that was not requested. Layout rows or columns are not copies.",
+          "criteria": {
+            "none": "No new Weather. This type was not requested, or an existing instance satisfies the request.",
+            "one/current": "Create ONE Weather starting in its current view (the default view for ordinary display requests).",
+            "pair/current/current": "Create TWO Weather instances, starting in current and current. Only for an explicit request for two new copies of this type.",
+            "pair/current/weekly": "Create TWO Weather instances, starting in current and weekly. Only for an explicit request for two new copies of this type.",
+            "one/weekly": "Create ONE Weather starting in its weekly view.",
+            "pair/weekly/current": "Create TWO Weather instances, starting in weekly and current. Only for an explicit request for two new copies of this type.",
+            "pair/weekly/weekly": "Create TWO Weather instances, starting in weekly and weekly. Only for an explicit request for two new copies of this type."
+          }
+        },
+        "new/tasks": {
+          "type": "choice",
+          "instructions": "Select the NEW Tasks instances the latest intent needs. There are 1 existing instances of this type; showing or reusing one of them is not a new instance. Choose none for a type that was not requested. Layout rows or columns are not copies.",
+          "criteria": {
+            "none": "No new Tasks. This type was not requested, or an existing instance satisfies the request.",
+            "one/list": "Create ONE Tasks starting in its list view (the default view for ordinary display requests).",
+            "pair/list/list": "Create TWO Tasks instances, starting in list and list. Only for an explicit request for two new copies of this type."
+          }
+        },
+        "new/map": {
+          "type": "choice",
+          "instructions": "Select the NEW Map instances the latest intent needs. There are 1 existing instances of this type; showing or reusing one of them is not a new instance. Choose none for a type that was not requested. Layout rows or columns are not copies.",
+          "criteria": {
+            "none": "No new Map. This type was not requested, or an existing instance satisfies the request.",
+            "one/overview": "Create ONE Map starting in its overview view (the default view for ordinary display requests).",
+            "pair/overview/overview": "Create TWO Map instances, starting in overview and overview. Only for an explicit request for two new copies of this type.",
+            "pair/overview/route": "Create TWO Map instances, starting in overview and route. Only for an explicit request for two new copies of this type.",
+            "one/route": "Create ONE Map starting in its route view.",
+            "pair/route/overview": "Create TWO Map instances, starting in route and overview. Only for an explicit request for two new copies of this type.",
+            "pair/route/route": "Create TWO Map instances, starting in route and route. Only for an explicit request for two new copies of this type."
+          }
+        },
+        "new/journal": {
+          "type": "choice",
+          "instructions": "Select the NEW Journal instances the latest intent needs. There are 1 existing instances of this type; showing or reusing one of them is not a new instance. Choose none for a type that was not requested. Layout rows or columns are not copies.",
+          "criteria": {
+            "none": "No new Journal. This type was not requested, or an existing instance satisfies the request.",
+            "one/list": "Create ONE Journal starting in its list view (the default view for ordinary display requests).",
+            "pair/list/list": "Create TWO Journal instances, starting in list and list. Only for an explicit request for two new copies of this type.",
+            "pair/list/entry": "Create TWO Journal instances, starting in list and entry. Only for an explicit request for two new copies of this type.",
+            "one/entry": "Create ONE Journal starting in its entry view.",
+            "pair/entry/list": "Create TWO Journal instances, starting in entry and list. Only for an explicit request for two new copies of this type.",
+            "pair/entry/entry": "Create TWO Journal instances, starting in entry and entry. Only for an explicit request for two new copies of this type."
+          }
+        }
+      }
+    }
+  ],
+  "completions": [],
+  "fallbackCalls": 1,
+  "response": {
+    "type": "maelstrom_response",
+    "requestId": "poc-deferred",
+    "userMessage": "from the fallback",
+    "rationale": "fallback",
+    "executionPlan": [],
+    "layout": {
+      "type": "tiling",
+      "tree": [
+        "V:1,1,1",
+        "ID:calendar-main",
+        "ID:weather-main",
+        "ID:tasks-main"
+      ],
+      "instances": [
+        {
+          "instanceId": "calendar-main",
+          "vesselId": "calendar",
+          "variant": "month"
+        },
+        {
+          "instanceId": "weather-main",
+          "vesselId": "weather",
+          "variant": "current"
+        },
+        {
+          "instanceId": "tasks-main",
+          "vesselId": "tasks",
+          "variant": "list"
+        },
+        {
+          "instanceId": "map-main",
+          "vesselId": "map",
+          "variant": "overview"
+        },
+        {
+          "instanceId": "journal-main",
+          "vesselId": "journal",
+          "variant": "list"
+        }
+      ]
+    }
+  }
+}

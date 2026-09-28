@@ -101,31 +101,42 @@ Every deferral logs `jev.defer` at info with `{ stage, reason, question }`, and 
 
 ## Evaluating
 
-`eval/` holds a live runner that compares this planner with the LLM baseline on the same scenarios: the 40 tiling scenarios of the Jev prototype (24 development, 16 holdout), keep-versus-replace cases, arrangement cases that assert deferral because the layout menu cannot express them (swap, big instance on the right, mixed row-and-split, edge strip), plus parameter cases that separate `stated_elsewhere` from `not_stated`. Both arms run through `createEngine` with history off and `retry: false`; the baseline is the same once-retried `llmPlanner` the POC falls back to, so the only difference between the arms is the Jev pipeline. Scores use the shipped (validated and healed) response.
+`eval/` holds a live runner that compares named planners (arms, registered in `eval/arms.ts`) on the same scenarios: the tiling scenarios of the Jev prototype, keep-versus-replace cases, parameter cases that separate `stated_elsewhere` from `not_stated`, explicit arrangement requests scored by arrangement rules (swap, big instance on the right, mixed row-and-split, edge strip, reorder, a 2x2 grid and more, tagged `spatial: true`) and non-spatial controls that should leave the arrangement alone (content edits, view changes, an added widget, tagged `spatial: false`). Any arm may satisfy an arrangement rule, the Jev arms' fallback included; the fallback columns show who did. Every arm runs through `createEngine` with history off and `retry: false`; the baseline is the same once-retried `llmPlanner` the Jev arms fall back to, so the arms differ only in their pipelines. Scores use the shipped (validated and healed) response.
 
 ```sh
 OPENAI_API_KEY=... TYPESAFE_API_KEY=... JEV_MODEL=jev-1.13.0 \
-  bunx nx run @maelstrom-co/planner-jev:eval -- --suite all --arm both --repeats 3
+  bunx nx run @maelstrom-co/planner-jev:eval -- --suite all --arm baseline --arm jev-poc --repeats 3
 ```
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
 | `--suite` | `all` | `development`, `holdout` or `all`. |
-| `--arm` | `both` | `baseline`, `jev` or `both`. |
+| `--arm` | `baseline`, `jev-poc` | A named arm from `eval/arms.ts`; repeat the flag for several. Columns follow the order given, and a repeated name runs once. `jev` is an alias of `jev-poc`. `jev-ungated-stepwise` composes the stage library in `src/lib/stages-experimental/`: ungated select, stepwise actions, the menu layout and the completion call. |
 | `--repeats` | `3` | Runs per scenario and arm. |
 | `--case` | every case | A scenario id; repeat the flag for several. |
 | `--model` | the demo's default | OpenAI model for the baseline, `llmComplete` and the fallback. |
 | `--out` | `tmp/planner-jev-eval/<timestamp>` | Output directory (`tmp` is gitignored). |
+| `--verbose` | off | Logs the Engine and every Jev call to the console. |
+| `--replay-from` | none | A previous run's output directory to replay upstream stages from. Needs `--replay-through`. |
+| `--replay-through` | none | `select`, `actions` or `layout`: every Jev arm replays the stages up to and including this one from the recorded run, and runs the rest live. |
+| `--replay-arm` | `jev-poc` | The arm of the recorded run whose stages are replayed. |
 
 Without `OPENAI_API_KEY`, `TYPESAFE_API_KEY` or `JEV_MODEL` the runner writes `status.json` naming the missing variables and exits with code 2. Live runs are not part of `nx test`; the offline tests use a scripted TypeSafe transport and a mocked `chat()`.
 
+Each Jev turn writes its stages' inputs and outputs to `<out>/stages/<arm>/<scenarioId>-<repeat>.json`. Replay reads them back: a replayed stage returns the recorded output (or the same deferral), so the stage after it runs on identical upstream results. Jev and LLM replies are not deterministic, so replay isolates one stage; it never stands in for an end-to-end result. A turn with no recorded stage fails with an error naming the stage and turn.
+
 ### Reading the report
 
-`report.md` puts the arms side by side for each suite (`records.json` has every turn, `summary.json` the numbers):
+`report.md` puts the arms side by side for each suite, one column per arm in the order given (`records.json` has every turn, `summary.json` the numbers and the run's settings, including `replay` when stages were replayed). `paired.md` lists every scenario and repeat where the arms disagree on pass, with each arm's failures.
 
-- **Overall pass**: shipped responses with the expected visible and retained instances, the expected ordered actions and parameters, and no existing instance whose variant changed without an action. New instances match by Vessel and order, so the baseline's own ids score fairly. Scenarios where the POC is expected to defer are left out of both arms and reported as **Expected deferrals at the right stage** for the POC.
-- **Selection / Actions / Layout accuracy** (POC only): each stage's own output against the expectation. Selection compares the visible and retained sets, actions compare the ordered actions, bound parameters and asks (a `stated_elsewhere` slot counts when the expectation has a value for it), layout compares the tree's leaves with the visible set; the tree itself is recorded, not scored.
-- **Fallback rate** (POC only): turns that re-planned with the fallback, by deferring stage, with `provider_*` failures counted separately.
+- **Overall pass**: shipped responses with the expected visible and retained instances, the expected ordered actions and parameters, the scenario's arrangement rules, and no existing instance whose variant changed without an action. New instances match by Vessel and order, so the baseline's own ids score fairly. Scenarios where the POC is expected to defer are left out of every arm and reported as **Expected deferrals at the right stage** for the Jev arms.
+- **Arrangement pass**: the shipped tree against the scenario's arrangement rules (`eval/predicates.ts`: order, left of, above, dominant share, full width or height, side by side, stacked, unchanged tree, area ratio), whichever arm or fallback wrote the tree. The denominator is every planned turn whose scenario declares rules; a turn that errored, shipped no response or shipped a non-tiling layout counts as a failure.
+- **Decisive turns** (Jev arms): planned turns no stage deferred, their pass rate, and wins and losses against the baseline on the same scenario and repeat.
+- **Selection / Actions / Layout accuracy** (Jev arms): each stage's own output against the expectation. Selection compares the visible and retained sets, actions compare the ordered actions, bound parameters and asks (a `stated_elsewhere` slot counts when the expectation has a value for it), layout compares the tree's leaves with the visible set and checks the arrangement rules.
+- **Fallbacks** (Jev arms): the fallback rate, then one row per `<stage>/<code>` deferral reason.
 - **llmComplete fill rate**: filled `stated_elsewhere` slots over all such slots; a `param_unfilled` deferral counts all of its turn's slots as unfilled.
-- **Latency**: p50 and p95 of the whole turn, each stage and each Jev call.
-- **Tokens**: Jev usage from its replies. LLM tokens are reported as unavailable: `@tanstack/ai`'s non-streaming structured `chat()` does not surface usage to the planner.
+- **Spatial gate**: filled once a Jev arm has a spatial gate; until then the row shows how many turns are tagged spatial and how many are non-spatial controls.
+- **Latency**: p50 and p95 of the whole turn, each live stage (replayed stages show `replayed`), each Jev call and each LLM call by role.
+- **Tokens**: Jev usage from its replies, in total and per turn, and OpenAI usage per role (`planner`, `fallback`, `complete`), recorded by wrapping the text adapter.
+
+`records.json` also carries every answer of the turn's live Jev calls with its confidence (deferred stages included; replayed stages make no calls) and the lowest confidence among the answers the completed stages consumed, replayed stages included. It is recorded, not enforced.

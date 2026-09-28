@@ -9,7 +9,7 @@ import {
 } from '@maelstrom-co/protocol';
 
 import { makeRequest } from './__test-helpers__/fixtures.js';
-import { layoutFits, splitTree } from './layout-fit.js';
+import { layoutFits, splitTree, treeRects } from './layout-fit.js';
 
 const view = (id: string, vesselId: string, variant: string) => ({
   instanceId: InstanceId(id),
@@ -104,5 +104,66 @@ describe('layoutFits', () => {
         weather,
       ]),
     ).toBe(true);
+  });
+});
+
+describe('treeRects', () => {
+  const request = makeRequest('arrange', { columns: 12, rows: 6 });
+
+  test('places each leaf in chart units, splits left to right and top to bottom', () => {
+    expect(
+      treeRects(request, [
+        'V:2,1',
+        'ID:calendar-main',
+        'H',
+        'ID:weather-main',
+        'ID:tasks-main',
+      ] as TilingNode[]),
+    ).toEqual([
+      {
+        instanceId: InstanceId('calendar-main'),
+        x: 0,
+        y: 0,
+        width: 8,
+        height: 6,
+      },
+      {
+        instanceId: InstanceId('weather-main'),
+        x: 8,
+        y: 0,
+        width: 4,
+        height: 3,
+      },
+      { instanceId: InstanceId('tasks-main'), x: 8, y: 3, width: 4, height: 3 },
+    ]);
+  });
+
+  test('null leaves take space without a rect', () => {
+    expect(
+      treeRects(request, ['H:1,2', null, 'ID:weather-main'] as TilingNode[]),
+    ).toEqual([
+      {
+        instanceId: InstanceId('weather-main'),
+        x: 0,
+        y: 2,
+        width: 12,
+        height: 4,
+      },
+    ]);
+  });
+
+  test('rejects malformed trees', () => {
+    expect(treeRects(request, ['V', 'ID:calendar-main'] as TilingNode[])).toBe(
+      undefined,
+    );
+    expect(
+      treeRects(request, [
+        'ID:calendar-main',
+        'ID:weather-main',
+      ] as TilingNode[]),
+    ).toBe(undefined);
+    expect(treeRects(request, ['nonsense'] as unknown as TilingNode[])).toBe(
+      undefined,
+    );
   });
 });

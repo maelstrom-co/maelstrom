@@ -215,6 +215,30 @@ describe('createTypeSafeClient', () => {
     expect(typeof call?.data?.latencyMs).toBe('number');
   });
 
+  test('onCall carries the validated answers with their probabilities', async () => {
+    const { ask, recorded, logger } = setup(() => ({
+      choices: { 'view/weather-main': 'hide' },
+      confidence: 0.7,
+    }));
+    const result = await ask('jevSelect', evaluation, ctx(logger));
+    expect(recorded[0]?.answers).toEqual({
+      scope: {
+        choice: 'supported',
+        confidence: 0.7,
+        probabilities: { supported: 1, unsupported: 0, ambiguous: 0 },
+      },
+      'view/weather-main': {
+        choice: 'hide',
+        confidence: 0.7,
+        probabilities: { keep: 0, hide: 1, delete: 0 },
+      },
+    });
+    expect(isOk(result) && result.value.answers.scope).toEqual({
+      choice: 'supported',
+      confidence: 0.7,
+    });
+  });
+
   test('logs the raw reply only when logReplies is on', async () => {
     const script: Script = () => ({
       choices: { 'view/weather-main': 'hide' },
@@ -309,6 +333,7 @@ describe('createTypeSafeClient', () => {
       reason: `jevActions/${code}`,
     });
     expect(recorded[0]?.outcome).toBe(code);
+    expect(recorded[0]?.answers).toBe(undefined);
     expect(JSON.stringify(entries)).not.toContain(KEY);
   });
 

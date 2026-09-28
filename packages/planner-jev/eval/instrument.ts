@@ -9,11 +9,15 @@ export interface StageRecord {
   readonly stage: StageName;
   readonly ms: number;
   readonly outcome: 'ok' | 'deferred' | 'error';
+  /** The stage's input, on every outcome. */
+  readonly input?: unknown;
   /** The stage's output, when it produced one. */
   readonly output?: unknown;
   /** The deferral reason, `<stage>/<code>`. */
   readonly reason?: string;
   readonly errorTag?: string;
+  /** The stage replayed a recorded result instead of running. */
+  readonly replayed?: boolean;
 }
 
 export interface TurnRecorder {
@@ -25,31 +29,56 @@ export interface TurnRecorder {
   readonly calls: JevCall[];
 }
 
-/** Records each stage's output, wall time and deferral, and each Jev call. */
-export function createRecorder(): TurnRecorder {
+/** Stages to run in place of the planner's own, by name. */
+export type StageReplacements = Readonly<
+  Partial<Record<StageName, Stage<unknown, unknown>>>
+>;
+
+/**
+ * Records each stage's input, output, wall time and deferral, and each Jev
+ * call. A stage named in `replacements` runs the replacement instead and is
+ * recorded as replayed.
+ */
+export function createRecorder(
+  replacements: StageReplacements = {},
+): TurnRecorder {
   const stages: StageRecord[] = [];
   const calls: JevCall[] = [];
   const instrument: Instrument =
-    <In, Out>(name: StageName, stage: Stage<In, Out>): Stage<In, Out> =>
+    <In, Out>(name: StageName, live: Stage<In, Out>): Stage<In, Out> =>
     async (input, ctx) => {
+      const replacement = replacements[name];
+      const stage = (replacement ?? live) as Stage<In, Out>;
+      const replayed = replacement !== undefined && { replayed: true };
       const started = performance.now();
       const result = await stage(input, ctx);
       const ms = performance.now() - started;
       if (!isErr(result))
-        stages.push({ stage: name, ms, outcome: 'ok', output: result.value });
+        stages.push({
+          stage: name,
+          ms,
+          outcome: 'ok',
+          input,
+          output: result.value,
+          ...replayed,
+        });
       else if (isDeferred(result.error))
         stages.push({
           stage: name,
           ms,
           outcome: 'deferred',
+          input,
           reason: result.error.reason,
+          ...replayed,
         });
       else
         stages.push({
           stage: name,
           ms,
           outcome: 'error',
+          input,
           errorTag: result.error._tag,
+          ...replayed,
         });
       return result;
     };

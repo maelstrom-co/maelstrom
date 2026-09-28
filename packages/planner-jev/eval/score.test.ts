@@ -2,8 +2,13 @@ import { describe, expect, test } from 'bun:test';
 
 import type { MaelstromResponse } from '@maelstrom-co/protocol';
 
-import { type Scenario, scenarios } from './scenarios.js';
-import { scoreActions, scoreResponse, scoreSelection } from './score.js';
+import { type Expectation, type Scenario, scenarios } from './scenarios.js';
+import {
+  scoreActions,
+  scoreLayout,
+  scoreResponse,
+  scoreSelection,
+} from './score.js';
 
 function scenario(id: string): Scenario {
   const found = scenarios.find((candidate) => candidate.id === id);
@@ -216,5 +221,136 @@ describe('stage scores', () => {
     expect(
       scoreActions(addTask, { actions: [], asks: [] } as never)?.pass,
     ).toBe(false);
+  });
+});
+
+describe('arrangement rules', () => {
+  const preserve = scenario('preserve');
+  const base: Scenario = {
+    ...preserve,
+    expected: { ...preserve.expected, arrangement: undefined },
+  };
+  const arranged = (rules: Expectation['arrangement']): Scenario => ({
+    ...base,
+    expected: { ...base.expected, arrangement: rules },
+  });
+  const swapped = [
+    'V:1,1,1',
+    'ID:tasks-main',
+    'ID:weather-main',
+    'ID:calendar-main',
+  ];
+
+  test('a rule-less scenario scores as before, without an arrangement score', () => {
+    const score = scoreResponse(base, response(base));
+    expect(score.arrangement).toBe(undefined);
+    expect(score).toEqual({ pass: true, failures: [] });
+  });
+
+  test('passing rules keep the response passing and report the arrangement', () => {
+    const score = scoreResponse(
+      arranged([
+        { kind: 'leftOf', a: 'calendar-main', b: 'weather-main' },
+        { kind: 'unchangedTree' },
+      ]),
+      response(base),
+    );
+    expect(score).toEqual({
+      pass: true,
+      failures: [],
+      arrangement: { pass: true, failures: [] },
+    });
+  });
+
+  test('each failed rule is listed and fails the response', () => {
+    const score = scoreResponse(
+      arranged([
+        { kind: 'leftOf', a: 'calendar-main', b: 'weather-main' },
+        { kind: 'unchangedTree' },
+        { kind: 'order', ids: ['weather-main', 'tasks-main'], axis: 'x' },
+      ]),
+      response(base, { tree: swapped }),
+    );
+    expect(score.pass).toBe(false);
+    expect(score.arrangement?.failures).toHaveLength(3);
+    expect(score.failures).toHaveLength(3);
+    expect(score.failures[0]).toStartWith(
+      'Arrangement leftOf(calendar-main, weather-main): calendar-main spans x=20..30',
+    );
+    expect(score.failures[1]).toStartWith(
+      'Arrangement unchangedTree(): expected',
+    );
+  });
+
+  test('rules name the expected ids of instances a planner created', () => {
+    const create = scenario('create-configure');
+    const withRule: Scenario = {
+      ...create,
+      expected: {
+        ...create.expected,
+        arrangement: [{ kind: 'rightOf', a: 'weather-jev-1', b: 'tasks-main' }],
+      },
+    };
+    const score = scoreResponse(
+      withRule,
+      response(create, {
+        tree: [
+          'V:1,1,1,1',
+          'ID:calendar-main',
+          'ID:weather-main',
+          'ID:tasks-main',
+          'ID:weather-2',
+        ],
+        extra: [
+          { instanceId: 'weather-2', vesselId: 'weather', variant: 'current' },
+        ],
+        actions: [
+          {
+            instanceId: 'weather-2',
+            action: 'setLocation',
+            params: { location: 'Paris' },
+          },
+        ],
+      }),
+    );
+    expect(score.arrangement).toEqual({ pass: true, failures: [] });
+    expect(score.pass).toBe(true);
+  });
+
+  test('a non-tiling response fails the rules it could not be checked against', () => {
+    const rules = arranged([{ kind: 'unchangedTree' }]);
+    const grid = {
+      ...response(rules),
+      layout: { type: 'grid', positions: [], instances: [] },
+    } as unknown as MaelstromResponse;
+    expect(scoreResponse(rules, grid)).toEqual({
+      pass: false,
+      failures: ['Response layout is not tiling'],
+      arrangement: { pass: false, failures: ['Response layout is not tiling'] },
+    });
+    expect(scoreResponse(base, grid)).toEqual({
+      pass: false,
+      failures: ['Response layout is not tiling'],
+    });
+  });
+
+  test('the layout stage is scored on its tree too', () => {
+    const rules = arranged([{ kind: 'unchangedTree' }]);
+    const plan = (tree: readonly string[]) =>
+      ({ tree, layoutId: 'x', answers: [] }) as never;
+    expect(scoreLayout(rules, plan(swapped))?.failures).toEqual([
+      expect.stringMatching(/^Arrangement unchangedTree\(\): expected/),
+    ]);
+    expect(
+      scoreLayout(
+        rules,
+        plan([
+          'V:1,1,1',
+          'ID:calendar-main',
+          'ID:weather-main',
+          'ID:tasks-main',
+        ]),
+      )?.pass,
+    ).toBe(true);
   });
 });

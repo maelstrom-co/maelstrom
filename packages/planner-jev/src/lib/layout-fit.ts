@@ -1,6 +1,7 @@
 import {
   type ChartRequest,
   formatTilingSplitToken,
+  type InstanceId,
   MAX_SPLIT_CHILDREN,
   parseTilingSplitToken,
   type TilingNode,
@@ -26,6 +27,15 @@ export function splitTree(
   ];
 }
 
+/** A leaf's region on the Chart, in grid units from the top-left corner. */
+export interface LeafRect {
+  readonly instanceId: InstanceId;
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+}
+
 /**
  * Whether `tree` places exactly the `visible` instances, each once, in a
  * region at least its variant's `minSize` on the request's Chart.
@@ -36,44 +46,82 @@ export function layoutFits(
   visible: readonly VesselInstanceSnapshot[],
 ): boolean {
   if (tree.length === 0) return visible.length === 0;
+  const rects = treeRects(request, tree);
+  if (rects === undefined) return false;
   const byId = new Map(
     visible.map((instance) => [instance.instanceId, instance]),
   );
-  const remaining = [
+  const seen = new Set<string>();
+  for (const rect of rects) {
+    const instance = byId.get(rect.instanceId);
+    if (!instance || seen.has(instance.instanceId)) return false;
+    const minimum = request.vessels.find((v) => v.id === instance.vesselId)
+      ?.variants[instance.variant]?.minSize;
+    if (
+      !minimum ||
+      rect.width + 1e-9 < minimum.width ||
+      rect.height + 1e-9 < minimum.height
+    )
+      return false;
+    seen.add(instance.instanceId);
+  }
+  return seen.size === visible.length;
+}
+
+/**
+ * The region of every leaf of `tree` on the request's Chart, in tree order.
+ * `V` splits divide the width left to right, `H` splits the height top to
+ * bottom; null leaves take their share without a rect. `undefined` when the
+ * tree is malformed: a repaired split token, a token that is neither a split
+ * nor a leaf, too few children for a split, or tokens after the root closes.
+ */
+export function treeRects(
+  request: ChartRequest,
+  tree: readonly TilingNode[],
+): readonly LeafRect[] | undefined {
+  const remaining: Omit<LeafRect, 'instanceId'>[] = [
     {
+      x: 0,
+      y: 0,
       width: request.context.chartDimensions.columns,
       height: request.context.chartDimensions.rows,
     },
   ];
-  const seen = new Set<string>();
+  const rects: LeafRect[] = [];
   for (const token of tree) {
     const space = remaining.pop();
-    if (!space) return false;
+    if (!space) return undefined;
     const branch = parseTilingSplitToken(token);
     if (branch) {
-      if (branch.repaired) return false;
+      if (branch.repaired) return undefined;
       const total = branch.weights.reduce((sum, weight) => sum + weight, 0);
-      for (let index = branch.weights.length - 1; index >= 0; index--) {
-        const fraction = branch.weights[index] / total;
-        remaining.push({
-          width: space.width * (branch.axis === 'V' ? fraction : 1),
-          height: space.height * (branch.axis === 'H' ? fraction : 1),
-        });
+      const children: Omit<LeafRect, 'instanceId'>[] = [];
+      let offset = 0;
+      for (const weight of branch.weights) {
+        const fraction = weight / total;
+        children.push(
+          branch.axis === 'V'
+            ? {
+                x: space.x + space.width * offset,
+                y: space.y,
+                width: space.width * fraction,
+                height: space.height,
+              }
+            : {
+                x: space.x,
+                y: space.y + space.height * offset,
+                width: space.width,
+                height: space.height * fraction,
+              },
+        );
+        offset += fraction;
       }
+      remaining.push(...children.reverse());
     } else if (token !== null) {
-      const id = tilingLeafInstanceId(token);
-      const instance = id === null ? undefined : byId.get(id);
-      if (!instance || seen.has(instance.instanceId)) return false;
-      const minimum = request.vessels.find((v) => v.id === instance.vesselId)
-        ?.variants[instance.variant]?.minSize;
-      if (
-        !minimum ||
-        space.width + 1e-9 < minimum.width ||
-        space.height + 1e-9 < minimum.height
-      )
-        return false;
-      seen.add(instance.instanceId);
+      const instanceId = tilingLeafInstanceId(token);
+      if (instanceId === null) return undefined;
+      rects.push({ instanceId, ...space });
     }
   }
-  return remaining.length === 0 && seen.size === visible.length;
+  return remaining.length === 0 ? rects : undefined;
 }

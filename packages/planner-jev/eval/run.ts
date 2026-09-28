@@ -1,13 +1,11 @@
 import {
   createEngine,
   type Logger,
-  llmPlanner,
   type Planner,
   type PlannerCandidate,
   type PlanningInput,
   type Retryable,
   type Stage,
-  withRetry,
 } from '@maelstrom-co/engine';
 import {
   ChartRequestMessage,
@@ -15,48 +13,71 @@ import {
   type MaelstromResponse,
   MessageId,
   SessionId,
+  type TilingNode,
 } from '@maelstrom-co/protocol';
 import type { AnyTextAdapter } from '@tanstack/ai';
 
 import type { StageName } from '../src/lib/defer.js';
-import { buildJevPlanner, FALLBACK_RETRIES } from '../src/lib/jev-planner.js';
+import type { LayoutSource } from '../src/lib/stages-experimental/types.js';
 import type {
+  AnswerRecord,
   JevActionPlan,
-  JevLayoutPlan,
   JevSelection,
 } from '../src/lib/types.js';
 import type { JevCall } from '../src/lib/typesafe-client.js';
-import { createRecorder, type StageRecord } from './instrument.js';
+import { type Arm, type ArmKind, demoLlmPlanner } from './arms.js';
+import {
+  createRecorder,
+  type StageRecord,
+  type StageReplacements,
+} from './instrument.js';
+import {
+  type ReplaySource,
+  replayStage,
+  verifyReplay,
+  writeStageFile,
+} from './replay.js';
 import type { Scenario, Suite } from './scenarios.js';
 import {
+  type ArrangedScore,
   type Score,
   scoreActions,
   scoreLayout,
   scoreResponse,
   scoreSelection,
 } from './score.js';
+import { type LlmCall, type LlmRole, withUsage } from './usage-adapter.js';
 
-export type Arm = 'baseline' | 'jev';
-
-/** The demo's system rules (apps/demo/src/server/engine-config.ts), so both arms prompt the LLM like the demo. */
-export const SYSTEM_RULES = `
-- Try to always keep at least one vessel visible on the chart
-- Give each vessel adequate space for its content`;
+/** One Jev answer from a validated reply, flattened for the records. */
+export interface RecordedAnswer {
+  readonly stage: StageName;
+  readonly question: string;
+  readonly choice: string;
+  /** The chosen option's probability, when the reply carries probabilities. */
+  readonly probability?: number;
+  readonly confidence: number;
+}
 
 export interface RunRecord {
   readonly scenarioId: string;
   readonly suite: Suite;
-  readonly arm: Arm;
+  /** The arm's registry name. */
+  readonly arm: string;
+  readonly kind: ArmKind;
   readonly repeat: number;
   /** Wall time of `engine.handle` for the turn. */
   readonly turnMs: number;
   readonly userMessage?: string;
   readonly error?: { readonly tag: string; readonly message: string };
-  /** The scenario expects the POC to defer; excluded from both arms' overall pass rate. */
+  /** The scenario expects the POC to defer; excluded from every arm's overall pass rate. */
   readonly expectedDeferral: boolean;
+  /** The scenario declares arrangement rules. */
+  readonly arrangementRules: boolean;
+  /** The scenario's spatial tag, when it has one. */
+  readonly spatial?: boolean;
   /** Overall score of the shipped response (planned scenarios only). */
-  readonly score?: Score;
-  /** POC only: whether it deferred at the expected stage (expected-deferral scenarios). */
+  readonly score?: ArrangedScore;
+  /** Jev arms only: whether it deferred at the expected stage (expected-deferral scenarios). */
   readonly deferredAsExpected?: boolean;
   readonly deferral?: {
     readonly stage: StageName;
@@ -67,11 +88,23 @@ export interface RunRecord {
   readonly stageScores?: {
     readonly selection?: Score;
     readonly actions?: Score;
-    readonly layout?: Score;
+    readonly layout?: ArrangedScore;
   };
-  readonly stages?: readonly Omit<StageRecord, 'output'>[];
+  readonly stages?: readonly Omit<StageRecord, 'input' | 'output'>[];
   readonly stageOutputs?: Readonly<Record<string, unknown>>;
   readonly jevCalls?: readonly JevCall[];
+  /**
+   * Every answer of every validated live Jev reply, deferred stages
+   * included. Replayed stages make no calls, so their answers are absent.
+   */
+  readonly answers?: readonly RecordedAnswer[];
+  /**
+   * Lowest confidence among the answers the completed stages consumed,
+   * replayed stages included; recorded, not enforced.
+   */
+  readonly minConfidence?: number;
+  /** Every LLM call of the turn, by role. */
+  readonly llmCalls?: readonly LlmCall[];
   /** `stated_elsewhere` slots the actions stage left for the LLM, and how many it filled. */
   readonly fill?: { readonly slots: number; readonly filled: number };
   readonly tree?: readonly unknown[];
@@ -79,9 +112,10 @@ export interface RunRecord {
 
 export interface EvalOptions {
   readonly scenarios: readonly Scenario[];
+  /** Run in this order for every scenario and repeat. */
   readonly arms: readonly Arm[];
   readonly repeats: number;
-  /** Text adapter for the baseline, `llmComplete` and the fallback. */
+  /** Text adapter behind every LLM role; each role gets its own recording wrapper. */
   readonly adapter: AnyTextAdapter;
   readonly typesafe: {
     readonly apiKey: string;
@@ -92,65 +126,62 @@ export interface EvalOptions {
   readonly logger?: Logger;
   /** Called after every turn, for progress output. */
   readonly onRecord?: (record: RunRecord) => void;
+  /** Output directory; each Jev turn's stage records are written under `<out>/stages/<arm>/`. */
+  readonly out?: string;
+  /** Stages every Jev arm replays from a recorded run instead of running live. */
+  readonly replay?: {
+    readonly source: ReplaySource;
+    readonly stages: readonly StageName[];
+  };
 }
 
 const silent: Logger = { debug() {}, info() {}, warn() {}, error() {} };
 
 /**
  * Runs every scenario `repeats` times through each arm and scores the
- * shipped response. Both arms plan through `createEngine` with history off
- * and `retry: false`: the baseline is the same once-retried `llmPlanner` the
- * POC falls back to, so the only difference between arms is the Jev
- * pipeline.
+ * shipped response. Every arm plans through `createEngine` with history off
+ * and `retry: false`: the baseline is the same once-retried LLM planner the
+ * Jev arms fall back to, so the arms differ only in their pipelines.
+ *
+ * @throws {Error} Before any turn runs, when `options.replay` did not record
+ *   every scenario and repeat from the same request and history.
  */
 export async function runEval(options: EvalOptions): Promise<RunRecord[]> {
+  if (options.replay)
+    verifyReplay(options.replay.source, options.scenarios, options.repeats);
   const records: RunRecord[] = [];
   for (const scenario of options.scenarios)
     for (let repeat = 1; repeat <= options.repeats; repeat++)
       for (const arm of options.arms) {
-        const record =
-          arm === 'baseline'
-            ? await runBaseline(options, scenario, repeat)
-            : await runJev(options, scenario, repeat);
+        const record = await runTurn(options, arm, scenario, repeat);
         records.push(record);
         options.onRecord?.(record);
       }
   return records;
 }
 
-function fallbackPlanner(adapter: AnyTextAdapter) {
-  return llmPlanner({
-    adapter,
-    prompt: { system: { rules: { append: SYSTEM_RULES } } },
-  });
-}
-
-async function runBaseline(
+async function runTurn(
   options: EvalOptions,
+  arm: Arm,
   scenario: Scenario,
   repeat: number,
 ): Promise<RunRecord> {
-  const planner = withRetry(fallbackPlanner(options.adapter), {
-    max: FALLBACK_RETRIES,
-  });
-  const turn = await handle(options, scenario, repeat, 'baseline', planner);
-  return {
-    ...base(scenario, repeat, 'baseline', turn),
-    ...(turn.response &&
-      scenario.expected.status === 'planned' && {
-        score: scoreResponse(scenario, turn.response),
-      }),
-  };
-}
-
-async function runJev(
-  options: EvalOptions,
-  scenario: Scenario,
-  repeat: number,
-): Promise<RunRecord> {
-  const recorder = createRecorder();
+  const jev = arm.kind !== 'baseline';
+  const llmCalls: LlmCall[] = [];
+  const adapter = (role: LlmRole) =>
+    withUsage(options.adapter, role, (call) => llmCalls.push(call));
+  const replay = jev ? options.replay : undefined;
+  const replacements: StageReplacements = replay
+    ? Object.fromEntries(
+        replay.stages.map((name) => [
+          name,
+          replayStage(name, replay.source.turn(scenario.id, repeat)),
+        ]),
+      )
+    : {};
+  const recorder = createRecorder(replacements);
   let fallbackCalls = 0;
-  const fallback = fallbackPlanner(options.adapter);
+  const fallback = demoLlmPlanner(adapter('fallback'));
   const counted: Stage<Retryable<PlanningInput>, PlannerCandidate> = (
     input,
     ctx,
@@ -158,23 +189,44 @@ async function runJev(
     fallbackCalls += 1;
     return fallback(input, ctx);
   };
-  const planner = buildJevPlanner(
-    {
-      typesafe: { ...options.typesafe, onCall: recorder.onCall },
-      adapter: options.adapter,
-      fallback: counted,
-    },
-    recorder.instrument,
-  );
-  const turn = await handle(options, scenario, repeat, 'jev', planner);
+  const planner = arm.build({
+    typesafe: { ...options.typesafe, onCall: recorder.onCall },
+    adapter,
+    fallback: counted,
+    instrument: recorder.instrument,
+  });
+  const turn = await handle(options, scenario, repeat, arm.name, planner);
+  const record = {
+    ...base(scenario, repeat, arm, turn),
+    llmCalls,
+    ...(jev && jevFields(scenario, recorder, fallbackCalls)),
+    ...(turn.response &&
+      scenario.expected.status === 'planned' && {
+        score: scoreResponse(scenario, turn.response),
+      }),
+  };
+  if (jev && options.out !== undefined)
+    await writeStageFile(options.out, {
+      arm: arm.name,
+      scenarioId: scenario.id,
+      repeat,
+      stages: recorder.stages,
+    });
+  return record;
+}
 
+function jevFields(
+  scenario: Scenario,
+  recorder: ReturnType<typeof createRecorder>,
+  fallbackCalls: number,
+): Partial<RunRecord> {
   const outputOf = <T>(stage: StageName) =>
     recorder.stages.find(
       (record) => record.stage === stage && record.outcome === 'ok',
     )?.output as T | undefined;
   const selection = outputOf<JevSelection>('jevSelect');
   const actions = outputOf<JevActionPlan>('jevActions');
-  const layout = outputOf<JevLayoutPlan>('jevLayout');
+  const layout = outputOf<LayoutOutput>('jevLayout');
   const deferredRecord = recorder.stages.find(
     (record) => record.outcome === 'deferred',
   );
@@ -186,14 +238,14 @@ async function runJev(
           deferredRecord.reason.split('/')[1]?.startsWith('provider_') ?? false,
       }
     : undefined;
-  const expectedDeferral = scenario.expected.status === 'deferred';
   const fill = actions && fillOf(actions, recorder.stages);
-
+  const consumed: AnswerRecord[] = [
+    ...(selection?.answers ?? []),
+    ...(actions?.answers ?? []),
+    ...(layout?.answers ?? []),
+  ];
   return {
-    ...base(scenario, repeat, 'jev', turn),
-    ...(turn.response &&
-      !expectedDeferral && { score: scoreResponse(scenario, turn.response) }),
-    ...(expectedDeferral && {
+    ...(scenario.expected.status === 'deferred' && {
       deferredAsExpected:
         deferral !== undefined &&
         (scenario.expected.deferStage === undefined ||
@@ -204,9 +256,13 @@ async function runJev(
     stageScores: {
       ...(selection && { selection: scoreSelection(scenario, selection) }),
       ...(actions && { actions: scoreActions(scenario, actions) }),
-      ...(layout && { layout: scoreLayout(scenario, layout) }),
+      ...(layout?.tree && {
+        layout: scoreLayout(scenario, { tree: layout.tree }),
+      }),
     },
-    stages: recorder.stages.map(({ output: _output, ...rest }) => rest),
+    stages: recorder.stages.map(
+      ({ input: _input, output: _output, ...rest }) => rest,
+    ),
     stageOutputs: {
       ...(selection && {
         jevSelect: {
@@ -223,6 +279,7 @@ async function runJev(
       }),
       ...(layout && {
         jevLayout: {
+          ...(layout.source && { source: layout.source }),
           layoutId: layout.layoutId,
           tree: layout.tree,
           answers: layout.answers,
@@ -230,8 +287,37 @@ async function runJev(
       }),
     },
     jevCalls: recorder.calls,
+    answers: recorder.calls.flatMap(flattenAnswers),
+    ...(consumed.length > 0 && {
+      minConfidence: Math.min(...consumed.map((answer) => answer.confidence)),
+    }),
     ...(fill && { fill }),
   };
+}
+
+/**
+ * What a layout stage returns: the POC's plan, or a stage-library decision
+ * that carries its `source` and leaves `tree` undefined to hand the layout
+ * to the completion call.
+ */
+interface LayoutOutput {
+  readonly source?: LayoutSource;
+  readonly layoutId?: string;
+  readonly tree?: readonly TilingNode[];
+  readonly answers: readonly AnswerRecord[];
+}
+
+function flattenAnswers(call: JevCall): RecordedAnswer[] {
+  return Object.entries(call.answers ?? {}).map(([question, answer]) => {
+    const probability = answer.probabilities?.[answer.choice];
+    return {
+      stage: call.stage,
+      question,
+      choice: answer.choice,
+      ...(probability !== undefined && { probability }),
+      confidence: answer.confidence,
+    };
+  });
 }
 
 interface Turn {
@@ -244,7 +330,7 @@ async function handle(
   options: EvalOptions,
   scenario: Scenario,
   repeat: number,
-  arm: Arm,
+  arm: string,
   planner: Planner,
 ): Promise<Turn> {
   const withHistory: Planner = (input, ctx) =>
@@ -288,10 +374,13 @@ function base(
   return {
     scenarioId: scenario.id,
     suite: scenario.suite,
-    arm,
+    arm: arm.name,
+    kind: arm.kind,
     repeat,
     turnMs: turn.ms,
     expectedDeferral: scenario.expected.status === 'deferred',
+    arrangementRules: scenario.expected.arrangement !== undefined,
+    ...(scenario.spatial !== undefined && { spatial: scenario.spatial }),
     ...(turn.response && {
       userMessage: turn.response.userMessage,
       tree:
