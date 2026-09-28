@@ -8,6 +8,7 @@ import {
 import { demoVessels } from './fixtures/demo-vessels.js';
 import type { Phase } from './plugin.js';
 import type { ArrangementRule } from './predicates.js';
+import { actionsDemoFixScenarios } from './scenarios/actions-demo-fixes.js';
 import { gateScenarios } from './scenarios/gates.js';
 import { layoutDemoFixScenarios } from './scenarios/layout-demo-fixes.js';
 
@@ -2355,6 +2356,12 @@ export const scenarios: readonly Scenario[] = [
     STUDIO_ROUTE_TURN,
   }),
   ...layoutDemoFixScenarios({ planned, deferred, spatial }),
+  ...actionsDemoFixScenarios({
+    planned,
+    routeAfter,
+    STUDIO_ROUTE_TURN,
+    BASE_VISIBLE,
+  }),
 ];
 
 /** Scenarios of `suite` (`all` for every one). */
