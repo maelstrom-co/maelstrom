@@ -89,6 +89,7 @@ function gatedPlan(request: ChartRequest) {
       needsActions: gate('no'),
       generatedContent: gate('no'),
       spatial: gate('yes'),
+      dependsOnScreen: gate('no'),
     },
   } satisfies GatedActionPlan;
 }
@@ -155,7 +156,12 @@ describe('layoutComposedPairsGateAndDefer', () => {
         instances: [...base.selection.instances, ...extra],
       },
       minConfidence: 1,
-      gates: { needsActions: gate, generatedContent: gate, spatial: gate },
+      gates: {
+        needsActions: gate,
+        generatedContent: gate,
+        spatial: gate,
+        dependsOnScreen: gate,
+      },
     };
     const scripted = scriptedAsk(() => ({ choices: {} }));
     const result = await layoutComposedPairsGateAndDefer(scripted.ask)(
@@ -534,6 +540,7 @@ describe('spatial gate', () => {
         needsActions: gate('no'),
         generatedContent: gate('no'),
         spatial,
+        dependsOnScreen: gate('no'),
       },
     };
     return run(request, () => notStated, plan);

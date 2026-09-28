@@ -19,6 +19,8 @@ export interface SelectionGates {
   readonly needsActions?: GateAnswer;
   readonly generatedContent?: GateAnswer;
   readonly spatial?: GateAnswer;
+  /** Whether a value the request needs can only be read from what a widget currently shows. */
+  readonly dependsOnScreen?: GateAnswer;
 }
 
 /** A selection, optionally carrying the select stage's gate answers. */
