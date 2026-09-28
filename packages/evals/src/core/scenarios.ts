@@ -9,6 +9,7 @@ import { demoVessels } from './fixtures/demo-vessels.js';
 import type { Phase } from './plugin.js';
 import type { ArrangementRule } from './predicates.js';
 import { gateScenarios } from './scenarios/gates.js';
+import { layoutDemoFixScenarios } from './scenarios/layout-demo-fixes.js';
 
 export type Suite = 'development' | 'holdout';
 
@@ -29,6 +30,14 @@ export interface Expectation {
   readonly status: 'planned' | 'deferred';
   /** For `deferred`: the phase that should defer (`select`, `actions`, `layout`), as each plugin maps it to a stage. Omitted: any stage. */
   readonly deferStage?: Phase;
+  /**
+   * For `deferred`: why the scenario expects its deferral, for stage evals
+   * that check the reason. `no_layout_fits` when no arrangement of the
+   * visible Instances fits the Chart, `arrangement_not_stated` when the
+   * request asks for an arrangement that the planner's own layout questions
+   * cannot express, so they leave the board as it is. Omitted: any cause.
+   */
+  readonly deferCause?: 'no_layout_fits' | 'arrangement_not_stated';
   readonly visible?: readonly string[];
   readonly retained?: readonly string[];
   /** A reference tree the arrangement rules accept; not scored. */
@@ -2344,6 +2353,7 @@ export const scenarios: readonly Scenario[] = [
     BASE_VISIBLE,
     STUDIO_ROUTE_TURN,
   }),
+  ...layoutDemoFixScenarios({ planned, deferred, spatial }),
 ];
 
 /** Scenarios of `suite` (`all` for every one). */
@@ -2358,7 +2368,7 @@ export function selectScenarios(
   );
 }
 
-/** A development scenario the planner should plan, from `intent` on the board `options` builds. */
+/** A development scenario expecting a plan that meets `expected`, on the demo board changed by `options`. */
 export function planned(
   id: string,
   title: string,
@@ -2375,7 +2385,7 @@ export function planned(
   };
 }
 
-/** A development scenario the planner should defer, at `deferStage` when given. */
+/** A development scenario expecting a deferral, from `deferStage` when given, on the demo board changed by `options`. */
 export function deferred(
   id: string,
   title: string,

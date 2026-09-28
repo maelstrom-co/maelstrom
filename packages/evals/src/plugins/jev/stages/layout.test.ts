@@ -168,6 +168,16 @@ describe('layout stage eval', () => {
     expect(records[1].reason).toBe('jevLayout/no_feasible_layout');
   });
 
+  test('fails a scenario whose stated arrangement no answer expresses when the stage ships a tree', async () => {
+    const { records } = await run(
+      ['grid-without-quadrants'],
+      ['composed-pairs'],
+      pairsAll('left_of'),
+    );
+    expect(records[0]?.expectedDeferral).toBe('jevLayout/spatial_not_stated');
+    expect(records[0]?.outcome).not.toBe('pass');
+  });
+
   test('feeds the recorded live spatial signal per scenario and repeat, and gold where none was recorded', async () => {
     const signal = recordedSpatialSignal(
       [
