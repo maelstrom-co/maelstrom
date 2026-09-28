@@ -9,6 +9,7 @@ import {
   makeRequest,
   makeResizeRequest,
   plain,
+  vessels,
 } from '../__test-helpers__/fixtures.js';
 import {
   type Payload,
@@ -186,6 +187,80 @@ describe('actionsBatchedPerInstance', () => {
         params: { title: 'standup' },
         pending: [expect.objectContaining({ name: 'time' })],
       } as never,
+    ]);
+  });
+
+  test('drops a second slot that repeats an idempotent first action', async () => {
+    const idempotentRoute = vessels.map((vessel) =>
+      vessel.id !== 'map'
+        ? vessel
+        : {
+            ...vessel,
+            variants: Object.fromEntries(
+              Object.entries(vessel.variants).map(([name, variant]) => [
+                name,
+                {
+                  ...variant,
+                  actions: variant.actions.map((action) =>
+                    action.name === 'showRoute'
+                      ? { ...action, idempotent: true }
+                      : action,
+                  ),
+                },
+              ]),
+            ),
+          },
+    );
+    const { result } = await run(
+      keepAll(
+        makeRequest('show me the map and a route to the studio', {
+          vessels: idempotentRoute,
+        }),
+        [],
+        { ...CALENDAR_ONLY, 'calendar-main': 'delete', 'map-main': 'keep' },
+      ),
+      answering({
+        'map-main/1': 'showRoute',
+        'map-main/2': 'route:showRoute',
+        'param/map-main/1/showRoute/destination': 'stated_elsewhere',
+        'param/map-main/2/route:showRoute/destination': 'stated_elsewhere',
+      }),
+    );
+    expect(planned(result).actions).toEqual([
+      {
+        instanceId: 'map-main',
+        action: 'showRoute',
+        params: {},
+        pending: [expect.objectContaining({ name: 'destination' })],
+      } as never,
+    ]);
+  });
+
+  test('keeps a second slot that repeats an action that is not idempotent', async () => {
+    const { result } = await run(
+      selectionOf('add "Buy milk" twice', {
+        ...CALENDAR_ONLY,
+        'calendar-main': 'delete',
+        'tasks-main': 'keep',
+      }),
+      answering({
+        'tasks-main/1': 'addTask',
+        'tasks-main/2': 'list:addTask',
+        'param/tasks-main/1/addTask/title': 'v0',
+        'param/tasks-main/2/list:addTask/title': 'v0',
+        'param/tasks-main/1/addTask/urgent': 'omit',
+        'param/tasks-main/2/list:addTask/urgent': 'omit',
+      }),
+    );
+    expect(planned(result).actions).toEqual([
+      expect.objectContaining({
+        action: 'addTask',
+        params: { title: 'Buy milk' },
+      }),
+      expect.objectContaining({
+        action: 'addTask',
+        params: { title: 'Buy milk' },
+      }),
     ]);
   });
 

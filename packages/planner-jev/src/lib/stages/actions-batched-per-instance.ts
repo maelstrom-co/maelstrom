@@ -134,6 +134,9 @@ export function actionsBatchedPerInstance(
         return deferAt(ctx, STAGE, 'answer_missing', slotId(instance, 2));
       if (secondTarget.variant !== after(firstTarget))
         return deferAt(ctx, STAGE, 'premise_mismatch', slotId(instance, 2));
+      // Running an idempotent action again changes nothing the first run
+      // did not, so a repeat is one request answered twice, not two.
+      if (repeatsIdempotent(firstTarget, secondTarget)) continue;
       walked.push({ instance, target: secondTarget });
 
       const third = readAnswer(reply.value, slotId(instance, 3), STAGE, ctx);
@@ -295,6 +298,13 @@ function slotCriteria(
 
 function describe(definition: VesselAction): string {
   return `${definition.name}. ${definition.description}${definition.transitionsTo ? ` Switches it to its ${definition.transitionsTo} view.` : ''}`;
+}
+
+function repeatsIdempotent(first: SlotTarget, second: SlotTarget): boolean {
+  return (
+    second.definition.name === first.definition.name &&
+    first.definition.idempotent === true
+  );
 }
 
 function after(target: Omit<SlotTarget, 'slots'>): VariantName {
