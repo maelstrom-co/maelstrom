@@ -4,14 +4,14 @@ USER root
 WORKDIR /work/maelstrom
 # Match the installed browser version instead of installing @latest or mounting
 # macOS node_modules. The base image currently pins playwright-core to 1.58.2.
-RUN node -e 'const fs = require("node:fs"); const v = require("/work/e2e/node_modules/playwright-core/package.json").version; fs.writeFileSync("package.json", JSON.stringify({private:true,type:"module",devDependencies:{"@playwright/test":v}},null,2));' \
+RUN node -e 'const fs = require("node:fs"); const v = require("/work/e2e/node_modules/playwright-core/package.json").version; fs.writeFileSync("package.json", JSON.stringify({private:true,type:"module",devDependencies:{"@playwright/test":v,"tsx":"^4.20.6"}},null,2));' \
     && npm install --ignore-scripts --no-audit --no-fund \
     && chown -R pwuser:pwuser /work/maelstrom
 
 COPY --chown=pwuser:pwuser . ./
 
 USER pwuser
-RUN node --test forward.test.mjs tests/evidence.unit.test.mjs
+RUN node_modules/.bin/tsx --test forward.node-test.ts tests/evidence.unit.node-test.ts
 
 ENV TTS2MIC_BIN=/usr/local/bin/tts2mic-mcp \
     MAELSTROM_BASE_URL=http://localhost:3000 \
@@ -21,4 +21,4 @@ ENV TTS2MIC_BIN=/usr/local/bin/tts2mic-mcp \
 
 # Use an absolute path: the inherited entrypoint was relative to /work.
 ENTRYPOINT ["bash", "/work/scripts/with-audio.sh"]
-CMD ["node", "/work/maelstrom/docker-run-tests.mjs"]
+CMD ["/work/maelstrom/node_modules/.bin/tsx", "/work/maelstrom/docker-run-tests.ts"]
