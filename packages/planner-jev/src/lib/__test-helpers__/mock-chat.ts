@@ -1,25 +1,27 @@
 import { mock } from 'bun:test';
 
-import type { AnyTextAdapter } from '@tanstack/ai';
-import type { z } from 'zod';
+import {
+  type ChatCall,
+  type ChatFunction,
+  installMockChat as installChatMock,
+} from './chat-mock.js';
 
-/** The options `chat()` receives, as far as tests inspect them. */
-export interface ChatCall {
-  readonly messages: readonly {
-    readonly role: string;
-    readonly content: string;
-  }[];
-  readonly systemPrompts: readonly string[];
-  readonly outputSchema: z.ZodObject<z.ZodRawShape>;
-  readonly abortController: AbortController;
+export { type ChatCall, dummyAdapter } from './chat-mock.js';
+
+/**
+ * Stands in for `@tanstack/ai`'s `chat` once {@link installMockChat} has run,
+ * the way the engine's own tests mock it.
+ */
+export const mockChat = mock<ChatFunction>();
+
+/**
+ * Replaces `@tanstack/ai`'s `chat` with {@link mockChat} for the rest of the
+ * process, bindings already imported included. Call it at the top of every
+ * test file that relies on the mock; importing this module installs nothing.
+ */
+export function installMockChat(): typeof mockChat {
+  return installChatMock(mock, mockChat);
 }
-
-/** Stands in for `@tanstack/ai`'s `chat`, the way the engine's own tests mock it. */
-export const mockChat = mock<(options: ChatCall) => Promise<unknown>>();
-
-mock.module('@tanstack/ai', () => ({
-  chat: (options: ChatCall) => mockChat(options),
-}));
 
 /** The options of the `index`th mocked `chat()` call. */
 export function chatCall(index = 0): ChatCall {
@@ -32,16 +34,3 @@ export function chatCall(index = 0): ChatCall {
 export function chatPrompt(index = 0): string {
   return chatCall(index).messages.at(-1)?.content ?? '';
 }
-
-// AnyTextAdapter's phantom type field has no runtime shape.
-export const dummyAdapter = {
-  kind: 'text',
-  name: 'dummy',
-  model: 'dummy-model',
-  chatStream: () => {
-    throw new Error('dummyAdapter.chatStream is not callable in tests');
-  },
-  structuredOutput: () => {
-    throw new Error('dummyAdapter.structuredOutput is not callable in tests');
-  },
-} as unknown as AnyTextAdapter;

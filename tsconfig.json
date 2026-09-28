@@ -37,6 +37,9 @@
       "path": "./packages/planner-llm"
     },
     {
+      "path": "./packages/planner-eval"
+    },
+    {
       "path": "./packages/realtime"
     },
     {

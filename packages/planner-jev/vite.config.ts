@@ -8,6 +8,8 @@ export default defineConfig({
   plugins: [
     dts({
       entryRoot: 'src',
+      beforeWriteFile: (filePath) =>
+        filePath.endsWith('.json.d.ts') ? false : undefined,
       tsconfigPath: path.join(__dirname, 'tsconfig.lib.json'),
     }),
   ],
@@ -17,9 +19,12 @@ export default defineConfig({
     reportCompressedSize: true,
     commonjsOptions: { transformMixedEsModules: true },
     lib: {
-      entry: 'src/index.ts',
+      entry: {
+        index: 'src/index.ts',
+        _internal: 'src/_internal.ts',
+        _testing: 'src/_testing.ts',
+      },
       name: '@maelstrom-co/planner-jev',
-      fileName: 'index',
       formats: ['es' as const],
     },
     rolldownOptions: {
@@ -27,6 +32,7 @@ export default defineConfig({
         '@maelstrom-co/engine',
         '@maelstrom-co/protocol',
         '@tanstack/ai',
+        /^node:/,
         'zod',
       ],
     },

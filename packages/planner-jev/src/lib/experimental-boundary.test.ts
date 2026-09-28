@@ -15,6 +15,9 @@ const EXPERIMENTAL_DIRS = ['stages-experimental', 'planners-experimental'].map(
   (name) => join(import.meta.dir, name),
 );
 
+// The _internal entry re-exports experimental builders on purpose.
+const INTERNAL_BARREL = join(SRC, '_internal.ts');
+
 const IMPORT_SPECIFIER =
   /(?:\bfrom\s*|\bimport\s*\(\s*|^\s*import\s+)['"]([^'"]+)['"]/gm;
 
@@ -25,7 +28,8 @@ describe('experimental boundary', () => {
 
   test('chosen code imports nothing from an experimental folder', () => {
     const chosen = sourceFiles(SRC).filter(
-      (file) => !isExperimental(file) && !isTestCode(file),
+      (file) =>
+        !isExperimental(file) && !isTestCode(file) && file !== INTERNAL_BARREL,
     );
     expect(chosen.length).toBeGreaterThan(0);
     const violations = chosen.flatMap((file) =>

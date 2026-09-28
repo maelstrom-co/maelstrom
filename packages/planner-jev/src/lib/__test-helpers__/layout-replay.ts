@@ -1,5 +1,3 @@
-import { readFile } from 'node:fs/promises';
-
 import {
   ChartRequestSchema,
   InstanceId,
@@ -11,13 +9,15 @@ import {
   VariantName,
   VesselId,
 } from '@maelstrom-co/protocol';
-
-import { demoVessels } from '../../../eval/fixtures/demo-vessels.js';
 import type { Answer } from '../questions.js';
 import { GATE_THRESHOLD } from '../stages/select-gated.js';
 import type { GateAnswer, GatedActionPlan } from '../stages/stage-types.js';
 import type { SelectedInstance } from '../types.js';
 import type { Ask } from '../typesafe-client.js';
+import { demoVessels } from './demo-vessels.js';
+import demoTurnsJson from './layout-replay-fixtures/demo-turns.json' with {
+  type: 'json',
+};
 
 /** One recorded Jev answer, trimmed to what the layout stage reads; options with probability 0 are left out. */
 export interface ReplayAnswer {
@@ -36,25 +36,11 @@ export interface ReplayAnswer {
 /** Recorded answers by question id, as one layout call returned them. */
 export type ReplayAnswers = Readonly<Record<string, ReplayAnswer>>;
 
-/** A layout stage-eval turn recorded against a scenario's gold input. */
-export interface StageEvalReplayTurn {
-  /** `<run>/<scenarioId>#<repeat>`, the run being `combined`, `combined-holdout` or `gold`. */
-  readonly key: string;
-  /** The id of the scenario in `eval/scenarios.ts` whose gold input the turn ran on. */
-  readonly scenarioId: string;
-  /** Which repeat of the scenario the turn was, from 1. */
-  readonly repeat: number;
-  /** The tree the stage shipped, or `null` when it deferred. */
-  readonly recordedTree: readonly TilingNode[] | null;
-  /** The answers of the turn's layout call. */
-  readonly answers: ReplayAnswers;
-}
-
 /** An Instance of a logged demo turn, as the layout stage saw it. */
 export interface DemoReplayInstance {
   /** The Instance's id. */
   readonly instanceId: string;
-  /** The id of the Vessel in `eval/fixtures/demo-vessels.ts` the Instance renders. */
+  /** The id of the Vessel in `demo-vessels.ts` the Instance renders. */
   readonly vesselId: string;
   /** The variant the layout stage sized the Instance with. */
   readonly variant: string;
@@ -84,18 +70,9 @@ export interface DemoReplayTurn {
   readonly answers: ReplayAnswers;
 }
 
-/** Every recorded layout stage-eval turn. */
-export async function loadStageEvalTurns(): Promise<
-  readonly StageEvalReplayTurn[]
-> {
-  return (await readFixture(
-    'stage-eval-turns.json',
-  )) as readonly StageEvalReplayTurn[];
-}
-
 /** Every logged demo layout turn, in log and turn order. */
 export async function loadDemoTurns(): Promise<readonly DemoReplayTurn[]> {
-  return (await readFixture('demo-turns.json')) as readonly DemoReplayTurn[];
+  return demoTurnsJson as unknown as readonly DemoReplayTurn[];
 }
 
 /** The logged demo turn with `key`, such as `log2:10`. */
@@ -168,17 +145,7 @@ export function demoTurnPlan(turn: DemoReplayTurn): GatedActionPlan {
   };
 }
 
-const FIXTURES = new URL('./layout-replay-fixtures/', import.meta.url);
-
 const NO: GateAnswer = { answer: 'no', probability: 0, confidence: 1 };
-
-async function readFixture(name: string): Promise<unknown[]> {
-  const parsed: unknown = JSON.parse(
-    await readFile(new URL(name, FIXTURES), 'utf8'),
-  );
-  if (!Array.isArray(parsed)) throw new Error(`${name} holds no list of turns`);
-  return parsed;
-}
 
 function snapshot(
   instance: DemoReplayInstance,

@@ -23,7 +23,11 @@ import {
 
 import { conversation } from '../__test-helpers__/actions-fixtures.js';
 import { makeRequest, plain, spyLogger } from '../__test-helpers__/fixtures.js';
-import { dummyAdapter, mockChat } from '../__test-helpers__/mock-chat.js';
+import {
+  dummyAdapter,
+  installMockChat,
+  mockChat,
+} from '../__test-helpers__/mock-chat.js';
 import { fallbackCandidate } from '../__test-helpers__/poc-fixtures.js';
 import {
   type Script,
@@ -36,6 +40,8 @@ import type { LayoutStage } from '../stages/stage-types.js';
 import { actionsStepwise } from '../stages-experimental/actions-stepwise.js';
 import { layoutPreset } from '../stages-experimental/layout-preset.js';
 import { selectUngated } from '../stages-experimental/select-ungated.js';
+
+installMockChat();
 
 afterEach(() => mockChat.mockReset());
 
