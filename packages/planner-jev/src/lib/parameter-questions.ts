@@ -58,8 +58,12 @@ export function parameterQuestions(
         ...(enumerated.length > 0 && { enum: enumerated }),
       },
     });
+    const selectionRule =
+      enumerated.length > 0
+        ? 'Choose the listed value the request clearly refers to, even when the wording differs. Accept clear short names, aliases, abbreviations and contextual references when they identify a single listed option. Use the listed value. Do not guess when several options fit or none clearly matches.'
+        : 'Pick an option only when it is itself the value, for example a city name, never a phrase that describes, names indirectly or points to the value.';
     questions[id] = choice(
-      `${lead}, choose the value of ${parameter.name} (${parameter.type}): ${parameter.description}. Pick an option only when it is itself the value, for example a city name, never a phrase that describes, names indirectly or points to the value.`,
+      `${lead}, choose the value of ${parameter.name} (${parameter.type}): ${parameter.description}. ${selectionRule}`,
       {
         ...Object.fromEntries(
           candidates.map((value, index) => [
@@ -68,7 +72,9 @@ export function parameterQuestions(
           ]),
         ),
         stated_elsewhere:
-          'The request refers to the value indirectly (a landmark, event, "the capital of X", a relative description) or states it in a form none of the options match exactly.',
+          enumerated.length > 0
+            ? 'The request gives a value that no listed option clearly matches, or that several listed options could match.'
+            : 'The request refers to the value indirectly (a landmark, event, "the capital of X", a relative description) or states it in a form none of the options match exactly.',
         not_stated: 'The request does not give a value.',
         ...(parameter.required === false && {
           omit: 'This optional parameter was not requested.',

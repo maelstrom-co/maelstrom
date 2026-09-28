@@ -37,6 +37,50 @@ describe('parameterQuestions', () => {
       'omit',
     ]);
   });
+
+  test('lets an enumerated parameter match a listed value by a short name or reference', () => {
+    const { questions } = parameterQuestions(
+      [
+        {
+          name: 'destination',
+          type: 'string',
+          description: 'Destination',
+          enum: ['Home', 'Studio Vortex HQ'],
+        },
+      ],
+      'param/0',
+      'For action 1, showRoute on map-main',
+      'route to the studio',
+      undefined,
+    );
+    const destination = questions['param/0/destination'];
+    expect(destination?.instructions).toContain(
+      'Choose the listed value the request clearly refers to, even when the wording differs.',
+    );
+    expect(destination?.instructions).not.toContain('itself the value');
+    expect(
+      destination?.type === 'choice' && destination.criteria.stated_elsewhere,
+    ).toBe(
+      'The request gives a value that no listed option clearly matches, or that several listed options could match.',
+    );
+  });
+
+  test('keeps a free-form parameter to a span that is itself the value', () => {
+    const { questions } = parameterQuestions(
+      parameters,
+      'param/0',
+      'For action 1, setLocation on weather-main',
+      'weather in the city where the Eiffel Tower stands',
+      undefined,
+    );
+    const location = questions['param/0/location'];
+    expect(location?.instructions).toContain(
+      'Pick an option only when it is itself the value',
+    );
+    expect(
+      location?.type === 'choice' && location.criteria.stated_elsewhere,
+    ).toContain('refers to the value indirectly');
+  });
 });
 
 describe('bindParameterChoices', () => {
