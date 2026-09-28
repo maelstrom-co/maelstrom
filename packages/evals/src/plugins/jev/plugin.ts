@@ -1,5 +1,6 @@
 import {
   type JevCall,
+  STAGE_NAME,
   STAGE_NAMES,
   type StageName,
   type TypeSafeClientOptions,
@@ -10,15 +11,16 @@ import { registerStageEval } from '../../core/stage-eval.js';
 import { type JevArm, jevArms, type ReplayShape } from './arms.js';
 import { type JevRunRecord, jevTurnFields } from './record.js';
 import { jevRows, jevSummary } from './report.js';
+import { actionsModuleWith } from './stages/actions.js';
 import { layoutModuleWith } from './stages/layout.js';
 import { createTypeSafeJudge } from './typesafe-judge.js';
 import { typesafeSettings } from './typesafe-settings.js';
 
 /** The stage each planner-neutral phase maps to in the Jev pipeline. */
 export const JEV_PHASES = {
-  select: 'jevSelect',
-  actions: 'jevActions',
-  layout: 'jevLayout',
+  select: STAGE_NAME.jevSelect,
+  actions: STAGE_NAME.jevActions,
+  layout: STAGE_NAME.jevLayout,
 } as const satisfies Readonly<Record<Phase, StageName>>;
 
 /** What {@link jevPluginWith} takes: TypeSafe settings, for tests that script the transport. */
@@ -30,7 +32,7 @@ export interface JevPluginOptions {
 /**
  * The Jev planner family as an eval plugin: the POC and the stage-library
  * arms, replay by stage, the Jev fields of the records and the report, the
- * TypeSafe judge and the layout stage eval.
+ * TypeSafe judge and the actions and layout stage evals.
  */
 export function jevPluginWith(
   options: JevPluginOptions = {},
@@ -44,7 +46,7 @@ export function jevPluginWith(
     aliases: { jev: 'jev-poc' },
     stageOrder: STAGE_NAMES,
     phases: JEV_PHASES,
-    completionStage: 'llmComplete',
+    completionStage: STAGE_NAME.llmComplete,
     meta: () => ({ jevModel: typesafe().model }),
     verifyReplay: (record, arm) =>
       shapeProblems(replayShapeOf(arms, arm.name), record),
@@ -52,7 +54,10 @@ export function jevPluginWith(
     summarizeArm: (records) => jevSummary(records as readonly JevRunRecord[]),
     reportRows: jevRows,
     judge: createTypeSafeJudge(typesafe),
-    stageModules: [registerStageEval(layoutModuleWith({ typesafe }))],
+    stageModules: [
+      registerStageEval(actionsModuleWith({ typesafe })),
+      registerStageEval(layoutModuleWith({ typesafe })),
+    ],
   };
 }
 
@@ -81,9 +86,15 @@ export function shapeProblems(
   };
   const problems: string[] = [];
   if (shape === 'poc') return problems;
-  if (record.stage === 'jevActions' && typeof output.minConfidence !== 'number')
+  if (
+    record.stage === STAGE_NAME.jevActions &&
+    typeof output.minConfidence !== 'number'
+  )
     problems.push('has no minConfidence');
-  if (record.stage !== 'jevSelect' && record.stage !== 'jevActions')
+  if (
+    record.stage !== STAGE_NAME.jevSelect &&
+    record.stage !== STAGE_NAME.jevActions
+  )
     return problems;
   if (shape === 'ungated' && output.gates !== undefined)
     problems.push('carries gates this ungated arm would act on');

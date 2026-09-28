@@ -2,7 +2,7 @@ import { afterEach, expect, mock, test } from 'bun:test';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { pipeline, withFallback, withRetry } from '@maelstrom-co/engine';
+import { named, pipeline, withFallback, withRetry } from '@maelstrom-co/engine';
 import {
   actionsStepwise,
   completeLayoutInline,
@@ -10,6 +10,7 @@ import {
   type JevCall,
   type LayoutStage,
   layoutPreset,
+  STAGE_NAME,
   selectUngated,
 } from '@maelstrom-co/planner-jev/_internal';
 import {
@@ -482,10 +483,10 @@ const handOffArm = (typesafe: TypeSafeSettings): JevArm => ({
     };
     return withFallback(
       pipeline(
-        deps.instrument('jevSelect', selectUngated(jev.ask)),
-        deps.instrument('jevActions', actionsStepwise(jev.ask)),
-        deps.instrument('jevLayout', handOff),
-        deps.instrument('llmComplete', completeLayoutInline(jev.llm)),
+        named(STAGE_NAME.jevSelect, selectUngated(jev.ask)),
+        named(STAGE_NAME.jevActions, actionsStepwise(jev.ask)),
+        named(STAGE_NAME.jevLayout, handOff),
+        named(STAGE_NAME.llmComplete, completeLayoutInline(jev.llm)),
       ),
       withRetry(jev.fallback, { max: FALLBACK_RETRIES }),
     );

@@ -3,6 +3,7 @@ import { err, isErr, ok } from '@maelstrom-co/protocol';
 
 import { cancellationError } from '../errors.js';
 import type { PlannerCandidate } from './candidate.js';
+import { stageName } from './instrument.js';
 import type { Planner, PlanningInput, Stage, StageError } from './stage.js';
 
 /**
@@ -11,7 +12,10 @@ import type { Planner, PlanningInput, Stage, StageError } from './stage.js';
  * {@link PlannerCandidate}, and every adjacent pair must agree on the type in
  * between; a mismatch is a compile error at the offending argument.
  *
- * Every stage receives the same {@link StageContext}. The first `Err`
+ * Every stage receives the same {@link StageContext}, and runs wrapped by
+ * its {@link StageContext.instrument}: once per request, just before it
+ * runs, under the name given with {@link named} or `stage-<index>`. The
+ * first `Err`
  * (a `Deferred` or an `EngineError`) stops the pipeline and is returned
  * unchanged. If the request's signal aborts while a stage is running, the
  * next stage does not start and the pipeline returns a `CancellationError`.
@@ -101,7 +105,14 @@ export function pipeline(...stages: readonly Stage<never, unknown>[]): Planner {
           ),
         );
       }
-      const result: Result<unknown, StageError> = await stage(value, ctx);
+      const instrumented = ctx.instrument.stage(
+        stageName(stage) ?? `stage-${index}`,
+        stage,
+      );
+      const result: Result<unknown, StageError> = await instrumented(
+        value,
+        ctx,
+      );
       if (isErr(result)) return result;
       value = result.value;
     }

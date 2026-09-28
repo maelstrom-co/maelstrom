@@ -101,6 +101,17 @@ export function createTypeSafeClient(options: TypeSafeClientOptions): Ask {
           outputTokens: usage.outputTokens,
         }),
       });
+      ctx.instrument.event('jev.call', {
+        'gen_ai.request.model': config.model,
+        ...(usage && {
+          'gen_ai.usage.input_tokens': usage.inputTokens,
+          'gen_ai.usage.output_tokens': usage.outputTokens,
+        }),
+        'maelstrom.stage': stage,
+        'maelstrom.outcome': outcome,
+        'maelstrom.latency_ms': latencyMs,
+        'maelstrom.question_ids': questionIds.join(','),
+      });
       config.onCall?.({
         stage,
         questionIds,

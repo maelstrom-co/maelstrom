@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 
 import {
   isDeferred,
+  noopInstrument,
   type PlanningInput,
   type StageContext,
 } from '@maelstrom-co/engine';
@@ -273,6 +274,7 @@ function contextFor(origin: PlanningInput): StageContext {
   return {
     origin,
     logger: SILENT,
+    instrument: noopInstrument,
     validate: () => {
       throw new Error('the layout stage validates no candidate');
     },

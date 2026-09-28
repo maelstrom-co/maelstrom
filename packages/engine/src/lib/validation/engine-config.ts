@@ -4,6 +4,7 @@ import type { EngineConfig } from '../config.js';
 import type { LLMContextMessage } from '../history/history-manager.js';
 import type { HistoryEntry, HistoryStore } from '../history/history-store.js';
 import type { Logger } from '../logger.js';
+import type { Instrument } from '../planner/instrument.js';
 import type { Planner } from '../planner/stage.js';
 import { formatValidationIssues } from './format-validation-issues.js';
 
@@ -40,6 +41,15 @@ const historyStoreSchema = z
   })
   .loose();
 
+// Loose for the same reason as the logger: telemetry bridges carry their own
+// state beside the two methods the engine calls.
+const instrumentSchema = z
+  .object({
+    stage: functionSchema<Instrument['stage']>(),
+    event: functionSchema<Instrument['event']>(),
+  })
+  .loose();
+
 const historySchema = z
   .object({
     maxEntries: z.number().int().positive().optional(),
@@ -64,6 +74,7 @@ const engineConfigSchema = z
     planner: functionSchema<Planner>(),
     logger: loggerSchema.optional(),
     history: historySchema.optional(),
+    instrument: instrumentSchema.optional(),
     retry: retrySchema.optional(),
   })
   .strict();
@@ -86,6 +97,11 @@ const _loggerFwd: NonNullable<
 > extends NonNullable<EngineConfig['logger']>
   ? true
   : false = true;
+const _instrumentFwd: NonNullable<
+  _InferredEngineConfig['instrument']
+> extends NonNullable<EngineConfig['instrument']>
+  ? true
+  : false = true;
 const _retryFwd: NonNullable<
   _InferredEngineConfig['retry']
 > extends NonNullable<EngineConfig['retry']>
@@ -100,6 +116,7 @@ void [
   _configKeysSubsetInferred,
   _inferredKeysSubsetConfig,
   _loggerFwd,
+  _instrumentFwd,
   _retryFwd,
   _retryBwd,
 ];

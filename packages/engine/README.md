@@ -125,6 +125,8 @@ interface EngineConfig {
   logger?: Logger;
   /** Opt-in conversation history (see below). */
   history?: HistoryConfig;
+  /** Telemetry seam for planner stages (see Instrumentation). Default: noopInstrument. */
+  instrument?: Instrument;
   /** Retry policy wrapped around `planner` (see Retry). Default: { max: 1 }. `false` runs the planner once. */
   retry?: { max: number } | false;
 }
@@ -255,7 +257,7 @@ If every attempt produces `recommend === true`, the **last** attempt's response 
 
 ## Planners and stages
 
-`EngineConfig.planner` is a `Stage<PlanningInput, PlannerCandidate>` — a function from the request (plus context: signal, logger, the original request, and a `validate` callback) to a candidate response or a failure. `llmPlanner` from `@maelstrom-co/planner-llm` is the stage most consumers need, but the same `Stage` shape composes:
+`EngineConfig.planner` is a `Stage<PlanningInput, PlannerCandidate>`: a function from the request (plus context: signal, logger, instrument, the original request, and a `validate` callback) to a candidate response or a failure. `llmPlanner` from `@maelstrom-co/planner-llm` is the stage most consumers need, but the same `Stage` shape composes:
 
 - **`pipeline(...stages)`** chains stages so each one's output feeds the next, typed end to end (up to nine stages). The first `Err` — a `Deferred` or an `EngineError` — stops the chain.
 - **`withFallback(primary, fallback)`** runs `fallback` only when `primary` returns a `Deferred` (a stage abstaining from the request via `deferred(reason)`, checked with `isDeferred`). A real `EngineError` from `primary` is never masked.
@@ -272,6 +274,33 @@ const planner = withFallback(
   llmPlanner({ adapter }),
 );
 ```
+
+### Instrumentation
+
+`EngineConfig.instrument` is the telemetry seam of the planner, and every stage receives it as `StageContext.instrument`. It has two methods:
+
+- **`stage(name, stage)`** wraps one stage of a `pipeline`, once per request, just before the stage runs. Return the stage itself, a stage that calls through to it (to time or trace it), or a different stage (for example one that replays a recorded output). `name` is the one given with `named(name, stage)`, or `stage-<index>` for an unnamed stage. `stageName(stage)` reads it back.
+- **`event(name, attributes)`** reports something that happened inside a stage, such as a model call. Attributes are a flat bag of strings, numbers and booleans. Provider call sites use the OpenTelemetry GenAI keys (`gen_ai.request.model`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`); Maelstrom-specific keys start with `maelstrom.`.
+
+The default, `noopInstrument`, returns every stage unchanged and ignores every event. A logging implementation takes a few lines:
+
+```ts
+import { createEngine, type Instrument } from '@maelstrom-co/engine';
+
+const loggingInstrument: Instrument = {
+  stage: (name, stage) => async (input, ctx) => {
+    const started = performance.now();
+    const result = await stage(input, ctx);
+    ctx.logger.info('stage', { name, latencyMs: performance.now() - started });
+    return result;
+  },
+  event: (name, attributes) => console.info(name, attributes),
+};
+
+const engine = createEngine({ planner, instrument: loggingInstrument });
+```
+
+`withRetry` re-runs its stage as a whole, so a retried pipeline reports its stages again.
 
 ---
 

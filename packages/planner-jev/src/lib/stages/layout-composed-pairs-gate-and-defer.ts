@@ -10,7 +10,7 @@ import {
   tilingLeafToken,
   type VesselInstanceSnapshot,
 } from '@maelstrom-co/protocol';
-import { deferAt } from '../defer.js';
+import { deferAt, STAGE_NAME } from '../defer.js';
 import { layoutFits } from '../layout-fit.js';
 import {
   type Answer,
@@ -355,7 +355,7 @@ export function layoutComposedPairsGateAndDefer(
   };
 }
 
-const STAGE = 'jevLayout';
+const STAGE = STAGE_NAME.jevLayout;
 
 /** How many of the top-scored trees are checked for fit. */
 const CANDIDATES = 3;

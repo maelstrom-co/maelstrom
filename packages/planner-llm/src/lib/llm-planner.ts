@@ -85,6 +85,11 @@ export type LlmPlannerInput = Retryable<
  * `CancellationError`) when the call fails; each is logged. The candidate is
  * returned unvalidated.
  *
+ * Each model call is reported to `ctx.instrument` as an `llm.call` event
+ * with `gen_ai.request.model` (the adapter's model), `maelstrom.outcome`
+ * (`ok`, `error` or `cancelled`) and `maelstrom.latency_ms`. Token usage is
+ * not reported: `chat()` exposes it only to middleware.
+ *
  * @throws {Error} If `options` is invalid or a system-prompt customizer is
  *   misconfigured. System prompts are built once here, so the error surfaces
  *   at construction. The message starts with `Invalid LlmPlannerOptions:`
@@ -146,6 +151,7 @@ export function llmPlanner(
       originalPrompts.set(request, { hints, prompt: userPrompt });
     }
 
+    const started = performance.now();
     const result = await callLLM(
       adapter,
       systemPrompts[mode],
@@ -157,6 +163,15 @@ export function llmPlanner(
       signal,
       modelOptions,
     );
+    ctx.instrument.event('llm.call', {
+      'gen_ai.request.model': adapter.model,
+      'maelstrom.outcome': isErr(result)
+        ? result.error._tag === 'CancellationError'
+          ? 'cancelled'
+          : 'error'
+        : 'ok',
+      'maelstrom.latency_ms': performance.now() - started,
+    });
     if (isErr(result)) {
       logLLMCallError(logger, messageId, result.error);
       return result;

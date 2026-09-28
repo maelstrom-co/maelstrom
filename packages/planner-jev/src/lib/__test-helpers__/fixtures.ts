@@ -1,6 +1,8 @@
 import {
+  type Instrument,
   isDeferred,
   type Logger,
+  noopInstrument,
   type PlannerCandidate,
   type PlanningInput,
   type StageContext,
@@ -409,6 +411,7 @@ export function makeContext(
   input: PlanningInput,
   overrides: {
     readonly logger?: Logger;
+    readonly instrument?: Instrument;
     readonly signal?: AbortSignal;
     readonly validate?: ValidateCandidate;
   } = {},
@@ -416,6 +419,7 @@ export function makeContext(
   return {
     origin: input,
     logger: overrides.logger ?? silentLogger,
+    instrument: overrides.instrument ?? noopInstrument,
     signal: overrides.signal,
     validate: overrides.validate ?? acceptAll,
   };

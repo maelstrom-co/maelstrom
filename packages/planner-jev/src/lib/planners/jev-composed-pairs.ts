@@ -1,6 +1,6 @@
 import type { Planner } from '@maelstrom-co/engine';
 
-import type { Instrument, JevPlannerOptions } from '../jev-planner.js';
+import type { JevPlannerOptions } from '../jev-planner.js';
 import { logTurns } from '../log-turn.js';
 import { actionsBatchedPerInstance } from '../stages/actions-batched-per-instance.js';
 import { completeLayoutInline } from '../stages/complete-layout-inline.js';
@@ -13,12 +13,9 @@ import { buildJevStagePlanner } from './jev-stage-planner.js';
  * The stage-library planner with gated select, per-instance batched
  * actions, the composed pairs gate-and-defer layout and the completion
  * call, with the LLM fallback. {@link jevComposedPairsPlanner} is this
- * without instrumentation.
+ * built from the public options.
  */
-export function buildJevComposedPairsPlanner(
-  deps: JevDeps,
-  instrument: Instrument = (_name, stage) => stage,
-): Planner {
+export function buildJevComposedPairsPlanner(deps: JevDeps): Planner {
   return buildJevStagePlanner(
     {
       select: selectGated,
@@ -27,7 +24,6 @@ export function buildJevComposedPairsPlanner(
       complete: completeLayoutInline,
     },
     deps,
-    instrument,
   );
 }
 

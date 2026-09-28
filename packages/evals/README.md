@@ -6,13 +6,13 @@ Two evals live here: the full-planner eval runs whole planners through `createEn
 
 ## Plugins
 
-`src/core/` never imports a planner package: it takes every planner-specific piece from a `PlannerEvalPlugin` (`src/core/plugin.ts`). Two plugins are registered today: `src/plugins/llm/plugin.ts` (the `baseline` arm on `@maelstrom-co/planner-llm`, and the fallback planner the staged arms run on a deferral) and `src/plugins/jev/plugin.ts` (the eleven Jev arms, the Jev fields of the records and the report, the TypeSafe judge and the layout stage eval).
+`src/core/` never imports a planner package: it takes every planner-specific piece from a `PlannerEvalPlugin` (`src/core/plugin.ts`). Two plugins are registered today: `src/plugins/llm/plugin.ts` (the `baseline` arm on `@maelstrom-co/planner-llm`, and the fallback planner the staged arms run on a deferral) and `src/plugins/jev/plugin.ts` (the eleven Jev arms, the Jev fields of the records and the report, the TypeSafe judge and the actions and layout stage evals).
 
 A plugin declares:
 
 | Field | Meaning |
 | --- | --- |
-| `name`, `arms` | Arms by unique name. An arm has a `build(deps)` that returns a `Planner`, wrapping every stage it wants recorded in `deps.instrument(name, stage)` and reporting its provider calls to `deps.onCall`. `baseline: true` marks a reference arm: no stages, no replay, paired against by the others. `requiredEnv` lists the variables the arm needs; `kind` labels its records (the plugin's name when absent). |
+| `name`, `arms` | Arms by unique name. An arm has a `build(deps)` that returns a `Planner`, naming every pipeline stage it wants recorded with the engine's `named(name, stage)` (the runner records and replays them through the Engine's `instrument`) and reporting its provider calls to `deps.onCall`. `baseline: true` marks a reference arm: no stages, no replay, paired against by the others. `requiredEnv` lists the variables the arm needs; `kind` labels its records (the plugin's name when absent). |
 | `defaultArms`, `aliases` | What `--arm` runs when absent, and other names it accepts. |
 | `stageOrder`, `phases`, `completionStage` | The pipeline's stage names in order, the stage each planner-neutral phase (`select`, `actions`, `layout`) maps to, and the stage whose candidate the Engine heals and ships, which grader validation reads for records that predate the shipped plan (without it those records are skipped). The scenarios' `deferStage` expectations and `--replay-through` name phases, never stages, so they hold for every plugin. The arm registry refuses a plugin that maps an unknown phase, or a phase or `completionStage` to a stage outside `stageOrder`, and the runner refuses, before any turn, a scenario whose `deferStage` the plugin of a selected staged arm does not map. |
 | `fallback(adapter)` | The planner staged arms fall back to; the CLI takes the first plugin that offers one. |
@@ -57,7 +57,7 @@ Each staged turn writes its stages' inputs and outputs to `<out>/stages/<arm>/<s
 
 ### Stage evals
 
-`src/core/stage-eval.ts` tests one pipeline stage on its own, so a stage can be tuned in minutes before a full-planner run. It calls the stage function directly on the input a scenario's expectation implies: no planner, no Engine, no replay and no LLM. Only the layout stage is covered so far. Use it while changing a stage's questions, options or code; use the full-planner eval above for the final comparison of whole planners, since a stage that scores well alone can still lose to the completion call or the fallback.
+`src/core/stage-eval.ts` tests one pipeline stage on its own, so a stage can be tuned in minutes before a full-planner run. It calls the stage function directly on the input a scenario's expectation implies: no planner, no Engine, no replay and no LLM. The actions and layout stages are covered so far. Use it while changing a stage's questions, options or code; use the full-planner eval above for the final comparison of whole planners, since a stage that scores well alone can still lose to the completion call or the fallback.
 
 ```sh
 # from the workspace root, so Bun loads .env (TYPESAFE_API_KEY and JEV_MODEL; no OpenAI key is needed)
@@ -66,7 +66,7 @@ bun --conditions=@maelstrom-co/source packages/evals/src/eval-stages/cli.ts --st
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
-| `--stage` | required | The stage to test: `layout`. |
+| `--stage` | required | The stage to test: `actions` or `layout`. |
 | `--variant` | every variant of the stage | Repeat the flag for several; columns follow the order given. Layout variants: `preset` (the preset choice with placement descriptions), `preset-or-llm` and `composed-pairs` (the composed pairs planner's layout stage), listed in `LAYOUT_STAGES`, `src/plugins/jev/stages/layout.ts`. Each is built as the matching arm in `src/plugins/jev/arms.ts` builds its layout stage. |
 | `--suite` | `development` | `development`, `holdout` or `all`. |
 | `--repeats` | `3` | Runs per scenario and variant. |
@@ -85,6 +85,12 @@ The layout stage gets gold inputs from `src/plugins/jev/gold-inputs.ts`: the exp
 - **deferred** or **error**: the stage deferred (a provider failure, an answer missing) or failed.
 
 `records.json` keeps every turn with its outcome, failures, the decision (source, tree, answers), and under `calls` every Jev call with its raw answers, probabilities, usage, latency and the state the stage sent, for debugging prompts. `meta.json` holds the run's settings. `report.md` has one column per variant: turns run, the pass rate with hand-offs and deferrals counted as failures, the pass rate over the turns that wrote a tree, hand-off rate, deferrals and errors, not-applicable scenarios, Jev calls per turn, Jev call latency p50 and p95, stage latency, Jev tokens per turn, and one row per deferral reason. For the composed pairs variant a further table shows the gating routes (turns and calls), hand-off causes, the chosen candidate's rank, size fallbacks, the pair answers compared with the scenario's reference tree (wrong, not stated, wrong in the returned tree, the reference among the top candidates), direction answers, size rule failures and size answer confidence. The reference tree is the scenario's `tree`, or the current tree when the scenario expects it unchanged. A per-scenario table lists passes over turns run for every variant, with hand-offs (`h`), deferrals (`d`) and errors (`e`), so a regression on one scenario stands out.
+
+The actions stage gets the expected selection alone from `goldSelection` in `src/plugins/jev/gold-inputs.ts`, with every gate (`needsActions` yes when the scenario expects an action, an ask or a parameter with no listed match). Its variants, in `ACTIONS_STAGES` in `src/plugins/jev/stages/actions.ts`, are `stepwise` (the POC's one call per step) and `batched-per-instance` (the composed pairs planner's one call over every instance). A scenario that states no actions, asks or `noListedMatch` parameters is not applicable. A plan passes when Jev bound every expected action and parameter itself; a plan that is right only because the completion call would fill a `stated_elsewhere` value is **handed off**, since the stage left the value to the LLM. For a scenario with `noListedMatch` parameters the plan passes unless it binds one of them or repeats its action. Every turn records the actions planned more often than the scenario expects them and the actions it does not expect, and the report adds a table of both per variant and per scenario.
+
+```sh
+bun --conditions=@maelstrom-co/source packages/evals/src/eval-stages/cli.ts --stage actions --suite development --repeats 5 --out tmp/evals/<name>
+```
 
 A new stage joins by implementing `StageEvalModule` (`src/core/stage-eval.ts`: its variants over the deps `makeDeps` builds, how a scenario forms its input, how an output is judged, any CLI flags, and any extra report sections) and listing it in its plugin's `stageModules`.
 

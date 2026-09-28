@@ -9,6 +9,8 @@ import {
 } from '../__test-helpers__/stage-context.js';
 import { cancellationError, providerError } from '../errors.js';
 import type { PlannerCandidate } from './candidate.js';
+import type { Instrument } from './instrument.js';
+import { named } from './instrument.js';
 import { pipeline } from './pipeline.js';
 import type { PlanningInput, Stage, StageContext } from './stage.js';
 import { deferred } from './stage.js';
@@ -152,5 +154,109 @@ describe('pipeline', () => {
     )(makePlanningInput(), makeStageContext());
 
     expect(isOk(result) && result.value.userMessage).toBe('after 7 steps');
+  });
+
+  describe('instrumentation', () => {
+    function spyInstrument(): { instrument: Instrument; names: string[] } {
+      const names: string[] = [];
+      return {
+        names,
+        instrument: {
+          stage: (name, stage) => {
+            names.push(name);
+            return stage;
+          },
+          event: () => undefined,
+        },
+      };
+    }
+
+    test('wraps each stage in order under its name, or its index when unnamed', async () => {
+      const { instrument, names } = spyInstrument();
+      const planner = pipeline(
+        named('select', async (_input: PlanningInput) => ok(1)),
+        async (n: number) => ok(n + 1),
+        named('layout', async (n: number) =>
+          ok(buildGridResponse({ userMessage: `n=${n}` })),
+        ),
+      );
+
+      const result = await planner(
+        makePlanningInput(),
+        makeStageContext({ instrument }),
+      );
+
+      expect(isOk(result) && result.value.userMessage).toBe('n=2');
+      expect(names).toEqual(['select', 'stage-1', 'layout']);
+    });
+
+    test('wraps the stages again on every request', async () => {
+      const { instrument, names } = spyInstrument();
+      const planner = pipeline(
+        named('only', async (_input: PlanningInput) => ok(candidate)),
+      );
+      const ctx = makeStageContext({ instrument });
+
+      await planner(makePlanningInput(), ctx);
+      await planner(makePlanningInput(), ctx);
+
+      expect(names).toEqual(['only', 'only']);
+    });
+
+    test('runs the stage the instrument returns instead of the original', async () => {
+      let originalCalls = 0;
+      const replayed = buildGridResponse({ userMessage: 'replayed' });
+      const replaying: Instrument = {
+        stage: <In, Out>(name: string, stage: Stage<In, Out>) =>
+          name === 'layout'
+            ? ((async () => ok(replayed)) as unknown as Stage<In, Out>)
+            : stage,
+        event: () => undefined,
+      };
+      const planner = pipeline(
+        async (_input: PlanningInput) => ok('selection'),
+        named('layout', async (_input: string) => {
+          originalCalls += 1;
+          return ok(candidate);
+        }),
+      );
+
+      const result = await planner(
+        makePlanningInput(),
+        makeStageContext({ instrument: replaying }),
+      );
+
+      expect(isOk(result) && result.value).toBe(replayed);
+      expect(originalCalls).toBe(0);
+    });
+
+    test('the default instrument leaves results identical', async () => {
+      const planner = pipeline(
+        named('select', async (_input: PlanningInput) => ok('selection')),
+        async (_input: string) => ok(candidate),
+      );
+
+      const result = await planner(makePlanningInput(), makeStageContext());
+
+      expect(isOk(result) && result.value).toBe(candidate);
+    });
+
+    test('cancellation between stages still short-circuits', async () => {
+      const { instrument, names } = spyInstrument();
+      const controller = new AbortController();
+      const result = await pipeline(
+        named('select', async (_input: PlanningInput) => {
+          controller.abort('user left');
+          return ok('selection');
+        }),
+        named('layout', async (_input: string) => ok(candidate)),
+      )(
+        makePlanningInput(),
+        makeStageContext({ instrument, signal: controller.signal }),
+      );
+
+      expect(isErr(result) && result.error._tag).toBe('CancellationError');
+      expect(names).toEqual(['select']);
+    });
   });
 });

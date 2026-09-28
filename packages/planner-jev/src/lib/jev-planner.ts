@@ -1,4 +1,5 @@
 import {
+  named,
   type Planner,
   type PlannerCandidate,
   type PlanningInput,
@@ -9,8 +10,7 @@ import {
   withRetry,
 } from '@maelstrom-co/engine';
 import type { AnyTextAdapter } from '@tanstack/ai';
-
-import type { StageName } from './defer.js';
+import { STAGE_NAME } from './defer.js';
 import { logTurns } from './log-turn.js';
 import { jevActions } from './stages/jev-actions.js';
 import { jevLayout } from './stages/jev-layout.js';
@@ -60,21 +60,15 @@ export interface JevPlannerOptions {
   readonly fallback: Stage<Retryable<PlanningInput>, PlannerCandidate>;
 }
 
-/** Wraps each stage of the composition, for instrumentation. */
-export type Instrument = <In, Out>(
-  name: StageName,
-  stage: Stage<In, Out>,
-) => Stage<In, Out>;
-
 /**
- * Builds the composition with an instrumentation hook and the TypeSafe
- * client's call hook. {@link jevPlanner} is this without instrumentation.
+ * Builds the composition from TypeSafe client options, which may carry the
+ * client's call hook. Stages are named for `StageContext.instrument`.
+ * {@link jevPlanner} is this with the public options.
  */
 export function buildJevPlanner(
   options: Omit<JevPlannerOptions, 'typesafe'> & {
     readonly typesafe: TypeSafeClientOptions;
   },
-  instrument: Instrument = (_name, stage) => stage,
 ): Planner {
   if (typeof options.fallback !== 'function')
     throw new Error('Invalid JevPlannerOptions: fallback must be a stage');
@@ -83,11 +77,11 @@ export function buildJevPlanner(
   const ask = createTypeSafeClient(options.typesafe);
   return withFallback(
     pipeline(
-      instrument('jevSelect', jevSelect(ask)),
-      instrument('jevActions', jevActions(ask)),
-      instrument('jevLayout', jevLayout(ask)),
-      instrument(
-        'llmComplete',
+      named(STAGE_NAME.jevSelect, jevSelect(ask)),
+      named(STAGE_NAME.jevActions, jevActions(ask)),
+      named(STAGE_NAME.jevLayout, jevLayout(ask)),
+      named(
+        STAGE_NAME.llmComplete,
         llmComplete({
           adapter: options.adapter,
           ...(options.modelOptions !== undefined && {

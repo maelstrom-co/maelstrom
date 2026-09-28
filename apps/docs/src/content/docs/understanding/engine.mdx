@@ -130,7 +130,7 @@ import { llmPlanner } from '@maelstrom-co/planner-llm';
 
 const engine = createEngine({
   planner: llmPlanner({ adapter: geminiText('gemini-2.0-flash') }),
-  // logger, history store, retry policy — all optional.
+  // logger, history store, instrument, retry policy: all optional.
 });
 ```
 
@@ -138,6 +138,17 @@ The pluggable surfaces are intentionally small:
 
 - **`planner`** — produces the candidate response for every `chart_request`. `llmPlanner({ adapter, prompt?, modelOptions? })` from [`@maelstrom-co/planner-llm`](https://github.com/maelstrom-co/maelstrom/blob/main/packages/planner-llm/README.md) makes a single structured-output LLM call per attempt; `adapter` swaps the provider (Gemini, OpenAI, Anthropic, your own via TanStack AI), and `prompt` replaces, prepends, appends, or transforms individual prompt sections. `pipeline`, `withFallback`, and `withRetry` compose more than one stage into a planner — see the [engine README](https://github.com/maelstrom-co/maelstrom/blob/main/packages/engine/README.md#planners-and-stages).
 - **`history`** — opt-in conversation history with a store you supply (Redis, Postgres, SQLite). The reference engine ships an in-memory store for tests but never as a default.
+- **`instrument`** is the telemetry seam, defaulting to `noopInstrument`, which does nothing. `pipeline` wraps every stage with `instrument.stage(name, stage)` once per request, and stages report model calls and other events with `instrument.event(name, attributes)`, a flat attribute bag keyed by OpenTelemetry GenAI names where they apply. A logging implementation is five lines:
+
+  ```ts title="A logging instrument"
+  const instrument: Instrument = {
+    stage: (name, stage) => async (input, ctx) => {
+      ctx.logger.info('stage', { name });
+      return stage(input, ctx);
+    },
+    event: (name, attributes) => console.info(name, attributes),
+  };
+  ```
 - **`retry`** — `{ max }` re-runs the planner while healing recommends a retry; `false` runs it exactly once.
 - **`logger`** — any object with `debug` / `info` / `warn` / `error` works.
 

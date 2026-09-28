@@ -204,6 +204,7 @@ export function createEngine(config: EngineConfig): Engine {
     planner: configuredPlanner,
     logger,
     history: historyConfig,
+    instrument,
     retry,
   } = resolveConfig(validated);
   const planner: Planner =
@@ -272,6 +273,7 @@ export function createEngine(config: EngineConfig): Engine {
     const ctx: StageContext = {
       signal,
       logger,
+      instrument,
       origin: input,
       validate,
       enumSnapshot,

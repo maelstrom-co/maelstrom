@@ -1,4 +1,4 @@
-import type { StageContext } from '@maelstrom-co/engine';
+import { noopInstrument, type StageContext } from '@maelstrom-co/engine';
 import {
   createTypeSafeClient,
   type Evaluation,
@@ -34,8 +34,11 @@ export function createTypeSafeJudge(typesafe: TypeSafeSettings): Judge {
           ]),
         ),
       };
-      // The client reads only the logger and signal; the judge runs outside any pipeline.
-      const result = await ask('grader', evaluation, ctx as StageContext);
+      // The client reads only the logger, signal and instrument; the judge runs outside any pipeline.
+      const result = await ask('grader', evaluation, {
+        ...ctx,
+        instrument: noopInstrument,
+      } as StageContext);
       if (isErr(result))
         return {
           failure:

@@ -7,6 +7,7 @@ test('_internal exposes the runtime values @maelstrom-co/evals composes', () => 
   expect(Object.keys(evalApi).sort()).toEqual(
     [
       'demoVessels',
+      'STAGE_NAME',
       'STAGE_NAMES',
       'buildJevPlanner',
       'FALLBACK_RETRIES',

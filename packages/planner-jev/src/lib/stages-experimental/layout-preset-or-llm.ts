@@ -1,6 +1,6 @@
 import { finalVariants } from '@maelstrom-co/engine';
 import { isErr, ok, type VesselInstanceSnapshot } from '@maelstrom-co/protocol';
-import { deferAt } from '../defer.js';
+import { deferAt, STAGE_NAME } from '../defer.js';
 import { layoutChoices } from '../layouts.js';
 import { choice, noul, readAnswer, recentHistory } from '../questions.js';
 import type { LayoutStage } from '../stages/stage-types.js';
@@ -8,7 +8,7 @@ import type { AnswerRecord } from '../types.js';
 import type { Ask } from '../typesafe-client.js';
 import { layoutKeepOrDefault } from './layout-keep-or-default.js';
 
-const STAGE = 'jevLayout';
+const STAGE = STAGE_NAME.jevLayout;
 
 /**
  * One Jev call asking whether the request wants a different arrangement

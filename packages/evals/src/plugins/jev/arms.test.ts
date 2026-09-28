@@ -84,7 +84,6 @@ describe('the Jev arms', () => {
       fallback: async () => {
         throw new Error('not called');
       },
-      instrument: (_name, stage) => stage,
       onCall: () => {},
     };
     const arms = jevArms(

@@ -1,4 +1,5 @@
 import {
+  named,
   type Planner,
   type PlanningInput,
   pipeline,
@@ -7,8 +8,8 @@ import {
   withRetry,
 } from '@maelstrom-co/engine';
 import { isErr, ok } from '@maelstrom-co/protocol';
-
-import { FALLBACK_RETRIES, type Instrument } from '../jev-planner.js';
+import { STAGE_NAME } from '../defer.js';
+import { FALLBACK_RETRIES } from '../jev-planner.js';
 import type { CompletionLlm, JevDeps } from '../stages/stage-deps.js';
 import type {
   ActionPlan2,
@@ -44,22 +45,21 @@ export interface JevStages<Selected extends Selection2> {
 /**
  * A stage-library planner from one factory per slot: select, actions,
  * layout and completion, with the LLM fallback. Stages keep the POC's
- * names, so `instrument` records and replays them alike.
+ * names for `StageContext.instrument`, so it records and replays them alike.
  */
 export function buildJevStagePlanner<Selected extends Selection2>(
   stages: JevStages<Selected>,
   deps: JevDeps,
-  instrument: Instrument = (_name, stage) => stage,
 ): Planner {
   return withFallback(
     pipeline(
-      instrument('jevSelect', stages.select(deps.ask)),
-      instrument(
-        'jevActions',
+      named(STAGE_NAME.jevSelect, stages.select(deps.ask)),
+      named(
+        STAGE_NAME.jevActions,
         keepingGates<Selected>(stages.actions(deps.ask)),
       ),
-      instrument('jevLayout', stages.layout(deps.ask)),
-      instrument('llmComplete', stages.complete(deps.llm)),
+      named(STAGE_NAME.jevLayout, stages.layout(deps.ask)),
+      named(STAGE_NAME.llmComplete, stages.complete(deps.llm)),
     ),
     withRetry(deps.fallback, { max: FALLBACK_RETRIES }),
   );

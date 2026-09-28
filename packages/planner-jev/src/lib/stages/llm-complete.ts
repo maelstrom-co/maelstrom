@@ -18,11 +18,11 @@ import {
   type Slot,
 } from '../completion-schema.js';
 import { declaredVariants } from '../declared-variants.js';
-import { deferAt } from '../defer.js';
+import { deferAt, STAGE_NAME } from '../defer.js';
 import { intentText, recentHistory } from '../questions.js';
 import type { JevLayoutPlan, ParameterAsk, PlannedAction } from '../types.js';
 
-const STAGE = 'llmComplete';
+const STAGE = STAGE_NAME.llmComplete;
 
 const SYSTEM_PROMPT = `You write the reply of a dashboard assistant after its planner already decided what to change.
 - Describe only what was decided, in one or two short, friendly sentences that read well aloud.

@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
+import type { Instrument, InstrumentAttributes } from '@maelstrom-co/engine';
 import { isErr, isOk } from '@maelstrom-co/protocol';
 
 import {
@@ -515,6 +516,71 @@ describe('createTypeSafeClient', () => {
       outputTokens: 2,
     });
     expect(typeof call?.data?.latencyMs).toBe('number');
+  });
+
+  test('reports each call to the stage instrument with the GenAI and Maelstrom keys', async () => {
+    const { ask, logger } = setup(() => ({
+      choices: { 'view/weather-main': 'hide' },
+    }));
+    const events: { name: string; attributes: InstrumentAttributes }[] = [];
+    const instrument: Instrument = {
+      stage: (_name, stage) => stage,
+      event: (name, attributes) => events.push({ name, attributes }),
+    };
+    const input = makeInput(makeRequest('hide the weather'));
+
+    await ask(
+      'jevSelect',
+      evaluation,
+      makeContext(input, { logger, instrument }),
+    );
+
+    expect(events).toHaveLength(1);
+    expect(events[0]?.name).toBe('jev.call');
+    const attributes = events[0]?.attributes ?? {};
+    expect(attributes).toMatchObject({
+      'gen_ai.request.model': TEST_MODEL,
+      'gen_ai.usage.input_tokens': 11,
+      'gen_ai.usage.output_tokens': 2,
+      'maelstrom.stage': 'jevSelect',
+      'maelstrom.outcome': 'ok',
+      'maelstrom.question_ids': 'scope,view/weather-main',
+    });
+    expect(typeof attributes['maelstrom.latency_ms']).toBe('number');
+    expect(Object.keys(attributes).sort()).toEqual(
+      [
+        'gen_ai.request.model',
+        'gen_ai.usage.input_tokens',
+        'gen_ai.usage.output_tokens',
+        'maelstrom.latency_ms',
+        'maelstrom.outcome',
+        'maelstrom.question_ids',
+        'maelstrom.stage',
+      ].sort(),
+    );
+  });
+
+  test('a failed call reports no token usage to the instrument', async () => {
+    const { ask, logger } = setup(() => ({ status: 500 }));
+    const events: InstrumentAttributes[] = [];
+    const instrument: Instrument = {
+      stage: (_name, stage) => stage,
+      event: (_name, attributes) => events.push(attributes),
+    };
+    const input = makeInput(makeRequest('hide the weather'));
+
+    await ask(
+      'jevActions',
+      evaluation,
+      makeContext(input, { logger, instrument }),
+    );
+
+    expect(events[0]).toMatchObject({
+      'maelstrom.stage': 'jevActions',
+      'maelstrom.outcome': 'provider_http',
+    });
+    expect(events[0]).not.toHaveProperty('gen_ai.usage.input_tokens');
+    expect(events[0]).not.toHaveProperty('gen_ai.usage.output_tokens');
   });
 
   test('onCall carries the validated answers with their probabilities', async () => {

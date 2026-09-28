@@ -7,6 +7,7 @@ import {
   silentLogger,
 } from '../__test-helpers__/fixtures.js';
 import { createInMemoryStore } from '../history/in-memory-store.js';
+import { noopInstrument } from '../planner/instrument.js';
 import type { Planner } from '../planner/stage.js';
 import { validateEngineConfig } from './engine-config.js';
 
@@ -26,6 +27,7 @@ describe('validateEngineConfig', () => {
       planner: stubPlanner,
       logger: silentLogger,
       history: { store: createInMemoryStore() },
+      instrument: noopInstrument,
       retry: { max: 2 },
     };
     const result = validateEngineConfig(config);
@@ -96,6 +98,46 @@ describe('validateEngineConfig', () => {
     expect(loggerWithExtras.level).toBe('info');
     expect(loggerWithExtras.silent).toBe(false);
     expect(loggerWithExtras.transports).toEqual([]);
+  });
+
+  describe('instrument', () => {
+    test('is optional', () => {
+      const result = validateEngineConfig({ planner: stubPlanner });
+      expect(result.instrument).toBeUndefined();
+    });
+
+    test('keeps the configured instance and its extra fields', () => {
+      const bridge = { ...noopInstrument, exporter: 'otlp' };
+      const result = validateEngineConfig({
+        planner: stubPlanner,
+        instrument: bridge,
+      });
+      expect(result.instrument).toBe(bridge);
+    });
+
+    test.each([
+      ['a function', () => undefined],
+      ['a string', 'otel'],
+      ['null', null],
+    ])('rejects %s', (_case, instrument) => {
+      expect(() =>
+        validateEngineConfig({
+          planner: stubPlanner,
+          instrument: invalid<typeof noopInstrument>(instrument),
+        }),
+      ).toThrow(/instrument/);
+    });
+
+    test('rejects an object missing event', () => {
+      expect(() =>
+        validateEngineConfig({
+          planner: stubPlanner,
+          instrument: invalid<typeof noopInstrument>({
+            stage: noopInstrument.stage,
+          }),
+        }),
+      ).toThrow(/instrument\.event/);
+    });
   });
 
   describe('retry', () => {

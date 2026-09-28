@@ -1,7 +1,7 @@
 import type { PlanningInput, Stage } from '@maelstrom-co/engine';
 import { isErr, isOk, ok } from '@maelstrom-co/protocol';
 
-import { deferAt } from '../defer.js';
+import { deferAt, STAGE_NAME } from '../defer.js';
 import { noul, type Question, type Reply, readAnswer } from '../questions.js';
 import type { Ask } from '../typesafe-client.js';
 import { jevSelect } from './jev-select.js';
@@ -11,7 +11,7 @@ import type {
   SelectionGates,
 } from './stage-types.js';
 
-const STAGE = 'jevSelect';
+const STAGE = STAGE_NAME.jevSelect;
 
 /** A gate answers yes at or above this probability of yes. */
 export const GATE_THRESHOLD = 0.5;

@@ -1,4 +1,10 @@
-import type { Logger, PlanningInput, StageContext } from '@maelstrom-co/engine';
+import {
+  type Instrument,
+  type Logger,
+  noopInstrument,
+  type PlanningInput,
+  type StageContext,
+} from '@maelstrom-co/engine';
 import {
   type ChartRequest,
   ChartRequestSchema,
@@ -71,10 +77,14 @@ export const silentLogger: Logger = {
   error() {},
 };
 
-export function makeContext(input: PlanningInput): StageContext {
+export function makeContext(
+  input: PlanningInput,
+  instrument: Instrument = noopInstrument,
+): StageContext {
   return {
     origin: input,
     logger: silentLogger,
+    instrument,
     validate: () => {
       throw new Error('the core tests validate no candidate');
     },

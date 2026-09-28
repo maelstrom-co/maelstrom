@@ -1,5 +1,6 @@
 import {
   deferred,
+  named,
   type PlannerCandidate,
   type PlanningInput,
   pipeline,
@@ -106,10 +107,7 @@ export function fakePluginWith(
         return ok(script.candidate(input));
       };
       return withFallback(
-        pipeline(
-          deps.instrument('pick', pick),
-          deps.instrument('write', write),
-        ),
+        pipeline(named('pick', pick), named('write', write)),
         deps.fallback,
       );
     },

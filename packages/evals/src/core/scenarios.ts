@@ -37,6 +37,13 @@ export interface Expectation {
   readonly actions?: readonly ExpectedAction[];
   /** Values the POC should ask the user for, its actions dropped. */
   readonly asks?: readonly ExpectedAsk[];
+  /**
+   * Parameters whose value the request names so that no listed option
+   * clearly matches it, or several could: a planner must not bind one to a
+   * listed option on its own. Leaving it to a later stage, asking for it or
+   * deferring all count.
+   */
+  readonly noListedMatch?: readonly ExpectedAsk[];
 }
 
 export interface Scenario {
@@ -957,6 +964,57 @@ const development: Scenario[] = [
         },
       ],
     },
+  ),
+  planned(
+    'enum-route-unlisted',
+    'A map destination no saved place matches',
+    'Show me the route to the airport on the map.',
+    {
+      visible: [...BASE_VISIBLE, 'map-main'],
+      noListedMatch: [
+        {
+          instanceId: 'map-main',
+          action: 'showRoute',
+          parameter: 'destination',
+        },
+      ],
+    },
+  ),
+  planned(
+    'enum-route-unclear',
+    'A map destination the request does not pin down',
+    'Show me the map with a route to my favourite place.',
+    {
+      visible: [...BASE_VISIBLE, 'map-main'],
+      noListedMatch: [
+        {
+          instanceId: 'map-main',
+          action: 'showRoute',
+          parameter: 'destination',
+        },
+      ],
+    },
+  ),
+  planned(
+    'show-then-route',
+    'Showing the map is not a second route',
+    'Show me the map and display a route to Studio Vortex HQ.',
+    {
+      visible: [...BASE_VISIBLE, 'map-main'],
+      actions: [
+        {
+          instanceId: 'map-main',
+          action: 'showRoute',
+          params: { destination: 'Studio Vortex HQ' },
+        },
+      ],
+    },
+  ),
+  planned(
+    'show-then-add-task',
+    'Showing the tasks is not a second task',
+    'Show me my tasks and add "Call the plumber".',
+    { visible: BASE_VISIBLE, actions: [addTask('Call the plumber')] },
   ),
   planned(
     'quoted-location',
