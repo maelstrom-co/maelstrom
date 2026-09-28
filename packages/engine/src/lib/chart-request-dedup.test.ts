@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, mock, test } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 
 import type { ChartRequest } from '@maelstrom-co/protocol';
 import {
@@ -7,32 +7,27 @@ import {
   isErr,
   isOk,
   MessageId,
+  ok,
   SessionId,
 } from '@maelstrom-co/protocol';
 import { defer } from './__test-helpers__/defer.js';
 import {
   buildGridResponse,
-  dummyAdapter,
   makeGridRequest,
   silentLogger,
 } from './__test-helpers__/fixtures.js';
+import {
+  blockingPlanner,
+  scriptedPlanner,
+} from './__test-helpers__/stub-planner.js';
 import type { DedupHistoryBinding } from './chart-request-dedup.js';
 import { createChartRequestDedup } from './chart-request-dedup.js';
 import { createEngine } from './engine.js';
 import type { HistoryStore } from './history/history-store.js';
 import { createInMemoryStore } from './history/in-memory-store.js';
 import type { Logger } from './logger.js';
-import { llmPlanner } from './planner/llm-planner.js';
-
-// ---------------------------------------------------------------------------
-// Mock TanStack AI chat()
-// ---------------------------------------------------------------------------
-
-const mockChat = mock<(...args: unknown[]) => Promise<unknown>>();
-
-mock.module('@tanstack/ai', () => ({
-  chat: (...args: unknown[]) => mockChat(...args),
-}));
+import type { PlannerCandidate } from './planner/candidate.js';
+import type { Planner } from './planner/stage.js';
 
 const gridLLMResponse = buildGridResponse();
 
@@ -45,10 +40,6 @@ const toChartRequestMessage = (
   id: MessageId = DEFAULT_MESSAGE_ID,
 ): ChartRequestMessage => ChartRequestMessage({ sessionId, id, request });
 
-afterEach(() => {
-  mockChat.mockReset();
-});
-
 // ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
@@ -58,6 +49,7 @@ afterEach(() => {
 const IDEMPOTENCY_HISTORY = { maxEntries: 10, maxChars: 1_000 } as const;
 
 const setupIdempotencyEngine = (
+  planner: Planner,
   overrides: {
     store?: HistoryStore;
     maxEntries?: number;
@@ -67,7 +59,7 @@ const setupIdempotencyEngine = (
 ) => {
   const store = overrides.store ?? createInMemoryStore();
   const engine = createEngine({
-    planner: llmPlanner({ adapter: dummyAdapter }),
+    planner,
     logger: overrides.logger ?? silentLogger,
     history: {
       maxEntries: overrides.maxEntries ?? IDEMPOTENCY_HISTORY.maxEntries,
@@ -76,6 +68,18 @@ const setupIdempotencyEngine = (
     },
   });
   return { engine, store };
+};
+
+/** Wraps a planner with an invocation counter. */
+const countingPlanner = (
+  inner: Planner,
+): { readonly planner: Planner; readonly calls: () => number } => {
+  let count = 0;
+  const planner: Planner = async (input, ctx) => {
+    count += 1;
+    return inner(input, ctx);
+  };
+  return { planner, calls: () => count };
 };
 
 // Capturing logger that records every emission so tests can assert on the
@@ -116,9 +120,10 @@ const captureLogger = (): {
 
 describe('engine.handle — chart_request idempotency', () => {
   test('replays the stored response on a sequential duplicate without invoking the LLM', async () => {
-    mockChat.mockResolvedValueOnce(gridLLMResponse);
-
-    const { engine } = setupIdempotencyEngine();
+    const { planner, calls } = countingPlanner(
+      scriptedPlanner([gridLLMResponse]),
+    );
+    const { engine } = setupIdempotencyEngine(planner);
     const request = makeGridRequest();
 
     const first = await engine.handle(toChartRequestMessage(request));
@@ -128,31 +133,21 @@ describe('engine.handle — chart_request idempotency', () => {
     expect(isOk(second)).toBe(true);
     if (!isOk(first) || !isOk(second)) return;
     expect(second.value).toEqual(first.value);
-    expect(mockChat).toHaveBeenCalledTimes(1);
+    expect(calls()).toBe(1);
   });
 
   test('collapses concurrent duplicates onto a single LLM call (in-flight dedup)', async () => {
-    const gate = defer<typeof gridLLMResponse>();
-    const llmCalled = defer<void>();
-    // Single mockImplementationOnce => only the leader's call awaits the
-    // gate. If a second call slipped through, the next mock invocation
-    // would have no implementation and resolve undefined — the engine
-    // would fail downstream and the call-count assertion would still
-    // catch the regression. llmCalled lets the test wait until the
-    // leader is actually parked inside callLLM (i.e. registered in the
-    // in-flight map and past its getLLMContext / getResponseById awaits)
-    // before issuing the follower — observing an event instead of
-    // guessing a microtask count.
-    mockChat.mockImplementationOnce(() => {
-      llmCalled.resolve();
-      return gate.promise;
-    });
+    const gate = defer<PlannerCandidate>();
+    // The planner parks on `gate` — only the leader ever reaches it. If a
+    // second call slipped through, `calls()` would report it.
+    const { planner: blocking, entered } = blockingPlanner(gate);
+    const { planner, calls } = countingPlanner(blocking);
 
-    const { engine } = setupIdempotencyEngine();
+    const { engine } = setupIdempotencyEngine(planner);
     const request = makeGridRequest();
 
     const leader = engine.handle(toChartRequestMessage(request));
-    await llmCalled.promise;
+    await entered;
     const follower = engine.handle(toChartRequestMessage(request));
 
     gate.resolve(gridLLMResponse);
@@ -162,99 +157,98 @@ describe('engine.handle — chart_request idempotency', () => {
     expect(isOk(b)).toBe(true);
     if (!isOk(a) || !isOk(b)) return;
     expect(b.value).toEqual(a.value);
-    expect(mockChat).toHaveBeenCalledTimes(1);
+    expect(calls()).toBe(1);
   });
 
   test('leader cancellation surfaces to followers awaiting the same in-flight entry', async () => {
     // The leader's signal aborting must surface CancellationError to the
     // leader; the follower (with its own, unaborted signal) must observe
-    // the same Err via the in-flight shared promise. We simulate the
-    // adapter's reaction to abort the way the existing "aborts during
-    // chat()" test does (engine.test.ts top): the mock rejects with
-    // AbortError, callLLM's catch handler then sees signal.aborted=true
-    // and returns CancellationError.
-    const leaderAbort = new AbortController();
-    const llmCalled = defer<void>();
-    mockChat.mockImplementationOnce(() => {
-      llmCalled.resolve();
-      return new Promise((_resolve, reject) => {
-        leaderAbort.signal.addEventListener(
-          'abort',
-          () => reject(new DOMException('Aborted', 'AbortError')),
-          { once: true },
-        );
-      });
-    });
+    // the same Err via the in-flight shared promise. `blockingPlanner`
+    // rejects with an AbortError once the context signal it was called
+    // with aborts.
+    const gate = defer<PlannerCandidate>();
+    const { planner: blocking, entered } = blockingPlanner(gate);
+    try {
+      const { planner, calls } = countingPlanner(blocking);
 
-    const { engine } = setupIdempotencyEngine();
-    const request = makeGridRequest();
+      const { engine } = setupIdempotencyEngine(planner);
+      const request = makeGridRequest();
 
-    const leader = engine.handle(
-      toChartRequestMessage(request),
-      leaderAbort.signal,
-    );
-    // Wait until the LLM has actually been invoked — only then is the
-    // leader registered in the in-flight map AND parked inside callLLM.
-    await llmCalled.promise;
-    const followerAbort = new AbortController();
-    const follower = engine.handle(
-      toChartRequestMessage(request),
-      followerAbort.signal,
-    );
+      const leaderAbort = new AbortController();
+      const leader = engine.handle(
+        toChartRequestMessage(request),
+        leaderAbort.signal,
+      );
+      // Wait until the leader is registered in the in-flight map AND parked
+      // inside the planner.
+      await entered;
+      const followerAbort = new AbortController();
+      const follower = engine.handle(
+        toChartRequestMessage(request),
+        followerAbort.signal,
+      );
 
-    leaderAbort.abort('leader decided to cancel');
+      leaderAbort.abort('leader decided to cancel');
 
-    const [leaderResult, followerResult] = await Promise.all([
-      leader,
-      follower,
-    ]);
-    expect(isErr(leaderResult)).toBe(true);
-    expect(isErr(followerResult)).toBe(true);
-    if (!isErr(leaderResult) || !isErr(followerResult)) return;
-    expect(leaderResult.error._tag).toBe('CancellationError');
-    expect(followerResult.error._tag).toBe('CancellationError');
-    expect(mockChat).toHaveBeenCalledTimes(1);
+      const [leaderResult, followerResult] = await Promise.all([
+        leader,
+        follower,
+      ]);
+      expect(isErr(leaderResult)).toBe(true);
+      expect(isErr(followerResult)).toBe(true);
+      if (!isErr(leaderResult) || !isErr(followerResult)) return;
+      expect(leaderResult.error._tag).toBe('CancellationError');
+      expect(followerResult.error._tag).toBe('CancellationError');
+      expect(calls()).toBe(1);
+    } finally {
+      gate.resolve(gridLLMResponse);
+    }
   });
 
   test('follower aborting its own signal does not cancel the leader', async () => {
-    const gate = defer<typeof gridLLMResponse>();
-    const llmCalled = defer<void>();
-    mockChat.mockImplementationOnce(() => {
-      llmCalled.resolve();
-      return gate.promise;
-    });
+    const gate = defer<PlannerCandidate>();
+    const { planner: blocking, entered } = blockingPlanner(gate);
+    try {
+      const { planner, calls } = countingPlanner(blocking);
 
-    const { engine } = setupIdempotencyEngine();
-    const request = makeGridRequest();
+      const { engine } = setupIdempotencyEngine(planner);
+      const request = makeGridRequest();
 
-    const leader = engine.handle(toChartRequestMessage(request));
-    await llmCalled.promise;
+      const leader = engine.handle(toChartRequestMessage(request));
+      await entered;
 
-    const followerAbort = new AbortController();
-    const follower = engine.handle(
-      toChartRequestMessage(request),
-      followerAbort.signal,
-    );
+      const followerAbort = new AbortController();
+      const follower = engine.handle(
+        toChartRequestMessage(request),
+        followerAbort.signal,
+      );
 
-    followerAbort.abort('follower decided not to wait');
+      followerAbort.abort('follower decided not to wait');
 
-    const followerResult = await follower;
-    expect(isErr(followerResult)).toBe(true);
-    if (!isErr(followerResult)) return;
-    expect(followerResult.error._tag).toBe('CancellationError');
+      const followerResult = await follower;
+      expect(isErr(followerResult)).toBe(true);
+      if (!isErr(followerResult)) return;
+      expect(followerResult.error._tag).toBe('CancellationError');
 
-    // Leader must still be fulfillable — the LLM call is still pending.
-    gate.resolve(gridLLMResponse);
-    const leaderResult = await leader;
-    expect(isOk(leaderResult)).toBe(true);
-    expect(mockChat).toHaveBeenCalledTimes(1);
+      // Leader must still be fulfillable — the planner call is still pending.
+      gate.resolve(gridLLMResponse);
+      const leaderResult = await leader;
+      expect(isOk(leaderResult)).toBe(true);
+      expect(calls()).toBe(1);
+    } finally {
+      gate.resolve(gridLLMResponse);
+    }
   });
 
   test('a duplicate after a failure reaches the LLM again (failures are not persisted)', async () => {
-    mockChat.mockRejectedValueOnce(new Error('transient provider hiccup'));
-    mockChat.mockResolvedValueOnce(gridLLMResponse);
+    let attempt = 0;
+    const planner: Planner = async (input, ctx) => {
+      attempt += 1;
+      if (attempt === 1) throw new Error('transient provider hiccup');
+      return scriptedPlanner([gridLLMResponse])(input, ctx);
+    };
 
-    const { engine } = setupIdempotencyEngine();
+    const { engine } = setupIdempotencyEngine(planner);
     const request = makeGridRequest();
 
     const first = await engine.handle(toChartRequestMessage(request));
@@ -263,14 +257,16 @@ describe('engine.handle — chart_request idempotency', () => {
     const second = await engine.handle(toChartRequestMessage(request));
     expect(isOk(second)).toBe(true);
 
-    expect(mockChat).toHaveBeenCalledTimes(2);
+    expect(attempt).toBe(2);
   });
 
   test('truncation eviction makes the response replay miss → fresh LLM call', async () => {
-    mockChat.mockResolvedValue(gridLLMResponse);
+    const { planner, calls } = countingPlanner(
+      scriptedPlanner([gridLLMResponse, gridLLMResponse, gridLLMResponse]),
+    );
 
     // maxEntries=1 means recording the second turn truncates the first.
-    const { engine } = setupIdempotencyEngine({ maxEntries: 1 });
+    const { engine } = setupIdempotencyEngine(planner, { maxEntries: 1 });
     const request = makeGridRequest();
     const idA = MessageId('id-a');
     const idB = MessageId('id-b');
@@ -286,23 +282,25 @@ describe('engine.handle — chart_request idempotency', () => {
       toChartRequestMessage(request, DEFAULT_SESSION_ID, idA),
     );
 
-    expect(mockChat).toHaveBeenCalledTimes(3);
+    expect(calls()).toBe(3);
   });
 
   test('engines without historyConfig do not deduplicate chart_requests', async () => {
-    mockChat.mockResolvedValue(gridLLMResponse);
+    const { planner, calls } = countingPlanner(
+      scriptedPlanner([gridLLMResponse, gridLLMResponse]),
+    );
 
     // Explicitly bypassing setupIdempotencyEngine — this test pins the
     // no-history path, which the helper cannot express by construction.
     const engine = createEngine({
-      planner: llmPlanner({ adapter: dummyAdapter }),
+      planner,
       logger: silentLogger,
     });
     const request = makeGridRequest();
     await engine.handle(toChartRequestMessage(request));
     await engine.handle(toChartRequestMessage(request));
 
-    expect(mockChat).toHaveBeenCalledTimes(2);
+    expect(calls()).toBe(2);
   });
 
   test('does not collide across sessions sharing the same messageId', async () => {
@@ -316,20 +314,28 @@ describe('engine.handle — chart_request idempotency', () => {
     const sessionA = SessionId('session-A');
     const sessionB = SessionId('session-B');
 
-    const aGate = defer<typeof gridLLMResponse>();
-    const bGate = defer<typeof gridLLMResponse>();
-    const aResponse: typeof gridLLMResponse = {
+    const aGate = defer<PlannerCandidate>();
+    const bGate = defer<PlannerCandidate>();
+    const aResponse: PlannerCandidate = {
       ...gridLLMResponse,
       userMessage: 'response for A',
     };
-    const bResponse: typeof gridLLMResponse = {
+    const bResponse: PlannerCandidate = {
       ...gridLLMResponse,
       userMessage: 'response for B',
     };
-    mockChat.mockImplementationOnce(() => aGate.promise);
-    mockChat.mockImplementationOnce(() => bGate.promise);
+    // Each call is routed to the next gate in order, one per session's
+    // leader.
+    const gates = [aGate, bGate];
+    let index = 0;
+    const planner: Planner = async () => {
+      const gate = gates[index];
+      index += 1;
+      if (gate === undefined) throw new Error('planner called more than twice');
+      return ok(await gate.promise);
+    };
 
-    const { engine } = setupIdempotencyEngine();
+    const { engine } = setupIdempotencyEngine(planner);
     const request = makeGridRequest();
 
     const aPromise = engine.handle(
@@ -350,7 +356,7 @@ describe('engine.handle — chart_request idempotency', () => {
       return;
     expect(a.value.response.userMessage).toBe('response for A');
     expect(b.value.response.userMessage).toBe('response for B');
-    expect(mockChat).toHaveBeenCalledTimes(2);
+    expect(index).toBe(2);
   });
 
   test('follower with a pre-aborted signal short-circuits to CancellationError without subscribing to the leader', async () => {
@@ -360,33 +366,34 @@ describe('engine.handle — chart_request idempotency', () => {
     // where the fast-path is removed and the follower observes the
     // leader's eventual Ok value instead of its own pre-existing
     // CancellationError.
-    const gate = defer<typeof gridLLMResponse>();
-    const llmCalled = defer<void>();
-    mockChat.mockImplementationOnce(() => {
-      llmCalled.resolve();
-      return gate.promise;
-    });
+    const gate = defer<PlannerCandidate>();
+    const { planner: blocking, entered } = blockingPlanner(gate);
+    try {
+      const { planner, calls } = countingPlanner(blocking);
 
-    const { engine } = setupIdempotencyEngine();
-    const request = makeGridRequest();
-    const leader = engine.handle(toChartRequestMessage(request));
-    await llmCalled.promise;
+      const { engine } = setupIdempotencyEngine(planner);
+      const request = makeGridRequest();
+      const leader = engine.handle(toChartRequestMessage(request));
+      await entered;
 
-    const followerAbort = new AbortController();
-    followerAbort.abort('follower never wanted to wait');
-    const followerResult = await engine.handle(
-      toChartRequestMessage(request),
-      followerAbort.signal,
-    );
+      const followerAbort = new AbortController();
+      followerAbort.abort('follower never wanted to wait');
+      const followerResult = await engine.handle(
+        toChartRequestMessage(request),
+        followerAbort.signal,
+      );
 
-    expect(isErr(followerResult)).toBe(true);
-    if (!isErr(followerResult)) return;
-    expect(followerResult.error._tag).toBe('CancellationError');
+      expect(isErr(followerResult)).toBe(true);
+      if (!isErr(followerResult)) return;
+      expect(followerResult.error._tag).toBe('CancellationError');
 
-    gate.resolve(gridLLMResponse);
-    const leaderResult = await leader;
-    expect(isOk(leaderResult)).toBe(true);
-    expect(mockChat).toHaveBeenCalledTimes(1);
+      gate.resolve(gridLLMResponse);
+      const leaderResult = await leader;
+      expect(isOk(leaderResult)).toBe(true);
+      expect(calls()).toBe(1);
+    } finally {
+      gate.resolve(gridLLMResponse);
+    }
   });
 
   test('follower arriving in the post-LLM / pre-recordTurn window still hits the in-flight entry', async () => {
@@ -408,9 +415,11 @@ describe('engine.handle — chart_request idempotency', () => {
         return inner.append(sessionId, entry);
       },
     };
-    mockChat.mockResolvedValueOnce(gridLLMResponse);
+    const { planner, calls } = countingPlanner(
+      scriptedPlanner([gridLLMResponse]),
+    );
 
-    const { engine } = setupIdempotencyEngine({ store: wrappedStore });
+    const { engine } = setupIdempotencyEngine(planner, { store: wrappedStore });
     const request = makeGridRequest();
 
     const leader = engine.handle(toChartRequestMessage(request));
@@ -426,7 +435,7 @@ describe('engine.handle — chart_request idempotency', () => {
     expect(isOk(b)).toBe(true);
     if (!isOk(a) || !isOk(b)) return;
     expect(b.value).toEqual(a.value);
-    expect(mockChat).toHaveBeenCalledTimes(1);
+    expect(calls()).toBe(1);
   });
 
   test('recordTurn failing during the in-flight window still serves both leader and follower', async () => {
@@ -444,9 +453,11 @@ describe('engine.handle — chart_request idempotency', () => {
         throw new Error('store write blew up');
       },
     };
-    mockChat.mockResolvedValueOnce(gridLLMResponse);
+    const { planner, calls } = countingPlanner(
+      scriptedPlanner([gridLLMResponse]),
+    );
 
-    const { engine } = setupIdempotencyEngine({ store: wrappedStore });
+    const { engine } = setupIdempotencyEngine(planner, { store: wrappedStore });
     const request = makeGridRequest();
 
     const leader = engine.handle(toChartRequestMessage(request));
@@ -459,7 +470,7 @@ describe('engine.handle — chart_request idempotency', () => {
     expect(isOk(b)).toBe(true);
     if (!isOk(a) || !isOk(b)) return;
     expect(b.value).toEqual(a.value);
-    expect(mockChat).toHaveBeenCalledTimes(1);
+    expect(calls()).toBe(1);
   });
 
   test('chart_request whose id collides with a prior injection processes fresh, warns, and does not record', async () => {
@@ -470,10 +481,12 @@ describe('engine.handle — chart_request idempotency', () => {
     // dedup), and the consumer (this module) emits the kind-mismatch
     // warning. Captures the warn directly so a regression that drops the
     // logger.warn call regresses observability silently otherwise.
-    mockChat.mockResolvedValue(gridLLMResponse);
+    const { planner, calls } = countingPlanner(
+      scriptedPlanner([gridLLMResponse, gridLLMResponse]),
+    );
 
     const { logger, logs } = captureLogger();
-    const { engine, store } = setupIdempotencyEngine({ logger });
+    const { engine, store } = setupIdempotencyEngine(planner, { logger });
     const sessionId = SessionId('shared-slot-session');
     const sharedId = MessageId('collide');
     await engine.handle(
@@ -488,7 +501,7 @@ describe('engine.handle — chart_request idempotency', () => {
       toChartRequestMessage(makeGridRequest(), sessionId, sharedId),
     );
     expect(isOk(first)).toBe(true);
-    expect(mockChat).toHaveBeenCalledTimes(1);
+    expect(calls()).toBe(1);
 
     // A subsequent duplicate also misses both layers — the injection
     // permanently occupies the id slot, so cache replay stays a miss.
@@ -496,7 +509,7 @@ describe('engine.handle — chart_request idempotency', () => {
       toChartRequestMessage(makeGridRequest(), sessionId, sharedId),
     );
     expect(isOk(second)).toBe(true);
-    expect(mockChat).toHaveBeenCalledTimes(2);
+    expect(calls()).toBe(2);
 
     // Store still holds exactly one entry (the injection); the chart
     // turns never persisted because append's existing-id dedup returned
@@ -528,7 +541,9 @@ describe('engine.handle — chart_request idempotency', () => {
     // path — the user still gets their response. A regression that
     // re-tagged the catch as `return err(...)` would silently fail every
     // chart_request whose store hiccupped on the read path.
-    mockChat.mockResolvedValueOnce(gridLLMResponse);
+    const { planner, calls } = countingPlanner(
+      scriptedPlanner([gridLLMResponse]),
+    );
     const cause = new Error('lookup blew up');
     const wrappedStore: HistoryStore = {
       ...createInMemoryStore(),
@@ -538,14 +553,17 @@ describe('engine.handle — chart_request idempotency', () => {
     };
 
     const { logger, logs } = captureLogger();
-    const { engine } = setupIdempotencyEngine({ store: wrappedStore, logger });
+    const { engine } = setupIdempotencyEngine(planner, {
+      store: wrappedStore,
+      logger,
+    });
 
     const result = await engine.handle(
       toChartRequestMessage(makeGridRequest()),
     );
 
     expect(isOk(result)).toBe(true);
-    expect(mockChat).toHaveBeenCalledTimes(1);
+    expect(calls()).toBe(1);
 
     const lookupErrors = logs.filter(
       (l) =>
@@ -573,10 +591,13 @@ describe('engine.handle — chart_request idempotency', () => {
         throw cause;
       },
     };
-    mockChat.mockResolvedValueOnce(gridLLMResponse);
+    const planner = scriptedPlanner([gridLLMResponse]);
 
     const { logger, logs } = captureLogger();
-    const { engine } = setupIdempotencyEngine({ store: wrappedStore, logger });
+    const { engine } = setupIdempotencyEngine(planner, {
+      store: wrappedStore,
+      logger,
+    });
 
     const result = await engine.handle(
       toChartRequestMessage(makeGridRequest()),
