@@ -54,15 +54,57 @@ describe('parameterQuestions', () => {
       undefined,
     );
     const destination = questions['param/0/destination'];
-    expect(destination?.instructions).toContain(
+    const instructions = destination?.instructions as {
+      readonly question: string;
+    };
+    expect(instructions.question).toContain(
       'Choose the listed value the request clearly refers to, even when the wording differs.',
     );
-    expect(destination?.instructions).not.toContain('itself the value');
+    expect(instructions.question).not.toContain('itself the value');
     expect(
       destination?.type === 'choice' && destination.criteria.stated_elsewhere,
     ).toBe(
       'The request gives a value that no listed option clearly matches, or that several listed options could match.',
     );
+  });
+
+  test('carries the enumerated parameter definition with its listed values in the question', () => {
+    const { questions } = parameterQuestions(
+      [
+        {
+          name: 'destination',
+          type: 'string',
+          description: 'Destination',
+          enum: ['Home', 'Studio Vortex HQ'],
+        },
+      ],
+      'param/0',
+      'For action 1, showRoute on map-main',
+      'route to the studio',
+      undefined,
+    );
+    expect(questions['param/0/destination']?.instructions).toEqual({
+      question: expect.stringMatching(
+        /^For action 1, showRoute on map-main, choose the value of destination \(string\): Destination\. /,
+      ),
+      parameter: {
+        name: 'destination',
+        type: 'string',
+        description: 'Destination',
+        enum: ['Home', 'Studio Vortex HQ'],
+      },
+    });
+  });
+
+  test('asks a free-form parameter in plain text', () => {
+    const { questions } = parameterQuestions(
+      parameters,
+      'param/0',
+      'For action 1, setLocation on weather-main',
+      'weather in Oslo',
+      undefined,
+    );
+    expect(typeof questions['param/0/location']?.instructions).toBe('string');
   });
 
   test('keeps a free-form parameter to a span that is itself the value', () => {

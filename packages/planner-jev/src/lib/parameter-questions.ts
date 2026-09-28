@@ -5,7 +5,7 @@ import type {
 import type { ActionParameter, ChartRequest } from '@maelstrom-co/protocol';
 
 import { enumValues, parameterCandidates } from './parameters.js';
-import { choice, type Question } from './questions.js';
+import { choice, type JsonValue, type Question } from './questions.js';
 import type { PendingParameter } from './types.js';
 
 /** One parameter question: its id, the candidate each `v<n>` option stands for, and how the LLM would fill it. */
@@ -32,7 +32,9 @@ export interface BoundParameters {
  * One question per parameter, with ids `<prefix>/<name>`: a candidate
  * value, `stated_elsewhere`, `not_stated`, and `omit` for an optional one.
  * `lead` names the action, for example `For action 1, setLocation on
- * weather-main`.
+ * weather-main`. An enumerated parameter's question also carries the
+ * parameter's definition with its listed values, since the request state
+ * may not include the action definition.
  */
 export function parameterQuestions(
   parameters: readonly ActionParameter[],
@@ -62,8 +64,19 @@ export function parameterQuestions(
       enumerated.length > 0
         ? 'Choose the listed value the request clearly refers to, even when the wording differs. Accept clear short names, aliases, abbreviations and contextual references when they identify a single listed option. Use the listed value. Do not guess when several options fit or none clearly matches.'
         : 'Pick an option only when it is itself the value, for example a city name, never a phrase that describes, names indirectly or points to the value.';
+    const question = `${lead}, choose the value of ${parameter.name} (${parameter.type}): ${parameter.description}. ${selectionRule}`;
     questions[id] = choice(
-      `${lead}, choose the value of ${parameter.name} (${parameter.type}): ${parameter.description}. ${selectionRule}`,
+      enumerated.length > 0
+        ? {
+            question,
+            parameter: {
+              name: parameter.name,
+              type: parameter.type,
+              description: parameter.description,
+              enum: enumerated as readonly JsonValue[],
+            },
+          }
+        : question,
       {
         ...Object.fromEntries(
           candidates.map((value, index) => [
