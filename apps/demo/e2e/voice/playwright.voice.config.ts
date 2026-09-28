@@ -3,7 +3,7 @@ import { defineConfig } from '@playwright/test';
 // Run against an already-started, voice-enabled local/test Maelstrom app.
 // This deliberately does not reuse the hosted launch-readiness stand-in server.
 export default defineConfig({
-  testDir: './e2e/voice',
+  testDir: './tests',
   testMatch: '**/*.live.e2e.ts',
   workers: 1,
   fullyParallel: false,
