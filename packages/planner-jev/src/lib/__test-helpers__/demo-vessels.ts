@@ -59,6 +59,7 @@ const DEFINITIONS: readonly unknown[] = [
           },
           {
             name: 'moveEvent',
+            idempotent: true,
             description:
               "Reschedule an event on today's schedule to a new time",
             parameters: [
@@ -125,6 +126,7 @@ const DEFINITIONS: readonly unknown[] = [
           },
           {
             name: 'moveEvent',
+            idempotent: true,
             description:
               "Reschedule an event on today's schedule to a new time",
             parameters: [
@@ -190,6 +192,7 @@ const DEFINITIONS: readonly unknown[] = [
           },
           {
             name: 'moveEvent',
+            idempotent: true,
             description:
               "Reschedule an event on today's schedule to a new time",
             parameters: [

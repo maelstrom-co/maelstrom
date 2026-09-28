@@ -28,6 +28,7 @@ const EVENT_ACTIONS = [
   },
   {
     name: 'moveEvent',
+    idempotent: true,
     description: "Reschedule an event on today's schedule to a new time",
     parameters: [
       {
