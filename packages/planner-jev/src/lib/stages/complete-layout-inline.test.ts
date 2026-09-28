@@ -23,7 +23,11 @@ import {
   installMockChat,
   mockChat,
 } from '../__test-helpers__/mock-chat.js';
-import type { JevLayoutPlan, PendingParameter } from '../types.js';
+import type {
+  JevLayoutPlan,
+  PendingParameter,
+  PlannedAction,
+} from '../types.js';
 import { completeLayoutInline } from './complete-layout-inline.js';
 import { llmComplete } from './llm-complete.js';
 import type { LayoutDecision } from './stage-types.js';
@@ -249,7 +253,7 @@ describe('completeLayoutInline repeated actions', () => {
   };
 
   async function runLogged(
-    actions: Parameters<typeof completionPlan>[1]['actions'],
+    actions: readonly PlannedAction[],
     params: Record<string, unknown>,
   ) {
     const layoutPlan = completionPlan(makeRequest('add buy milk'), { actions });
