@@ -186,7 +186,9 @@ export type ComposedPairsDecision = LayoutDecision & {
  * layout plus a strip along one edge" can be built. It scores every
  * candidate by the log probability of the relations and the top-level
  * direction it implies (see `rankLayoutCandidates`): "not stated" votes
- * for the current tree's relation, or, when the direction answer changes
+ * for the current tree's relation (so a request that states nothing keeps
+ * the board, unless the `spatial` gate said yes; see below), or, when the
+ * direction answer changes
  * the current top split and is meant for the whole board, for the
  * relation along that direction in the current order. The direction is
  * read as meant for one widget or group, and keeps the current relations,
@@ -208,7 +210,13 @@ export type ComposedPairsDecision = LayoutDecision & {
  * just because it fits without resizing. When nothing fits, or a single
  * visible Instance does not fit, the stage defers
  * with `jevLayout/no_feasible_layout` so the fallback planner answers the
- * turn. More than {@link MAX_PAIRS_INSTANCES} visible Instances hand the
+ * turn. When the `spatial` gate said yes, every pair's and the direction's
+ * most probable answer is not stated, and the picked tree is token for
+ * token the current one, the stage defers with
+ * `jevLayout/spatial_not_stated`: the request asks for an arrangement the
+ * pair questions cannot express, such as a whole-board grid, and shipping
+ * the unchanged board would ignore it. A size-only request still ships,
+ * since its size answers change the weights. More than {@link MAX_PAIRS_INSTANCES} visible Instances hand the
  * layout to the completion stage (`source: 'llm'`, no tree, no call).
  */
 export function layoutComposedPairsGateAndDefer(
@@ -343,6 +351,12 @@ export function layoutComposedPairsGateAndDefer(
     if (picked === undefined)
       return deferAt(ctx, STAGE, 'no_feasible_layout', 'layout');
     const { tree, ...sizedHow } = picked;
+    if (
+      plan.gates.spatial.answer === 'yes' &&
+      statesNoArrangement(pairAnswers, direction) &&
+      sameTokens(tree, currentTree)
+    )
+      return deferAt(ctx, STAGE, 'spatial_not_stated', 'layout');
     return ok({
       plan,
       source: 'jev',
@@ -367,6 +381,36 @@ const DIRECTION_QUESTION = 'direction';
 
 /** The probability of yes at which a size counts as stated within its row or column. */
 const STATED_PROBABILITY = 0.5;
+
+function statesNoArrangement(
+  pairAnswers: readonly RecordedPair[],
+  direction: RecordedChoice,
+): boolean {
+  return [...pairAnswers.map(({ answer }) => answer), direction].every(
+    ({ probabilities }) => mostLikely(probabilities) === NOT_STATED,
+  );
+}
+
+function mostLikely(probabilities: OptionProbabilities): string | undefined {
+  let best: string | undefined;
+  let bestProbability = Number.NEGATIVE_INFINITY;
+  for (const [option, probability] of Object.entries(probabilities))
+    if (probability > bestProbability) {
+      best = option;
+      bestProbability = probability;
+    }
+  return best;
+}
+
+function sameTokens(
+  tree: readonly TilingNode[],
+  other: readonly TilingNode[],
+): boolean {
+  return (
+    tree.length === other.length &&
+    tree.every((token, index) => token === other[index])
+  );
+}
 
 function sharesById(
   ids: readonly InstanceId[],
