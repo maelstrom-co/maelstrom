@@ -77,6 +77,7 @@ import {
   createInMemoryStore,
   type HistoryEntry,
   type Logger,
+  llmPlanner,
 } from '@maelstrom-co/engine';
 import {
   ActionName,
@@ -482,10 +483,12 @@ for (let trial = 0; trial < config.trials; trial += 1) {
   }
 
   const engine = createEngine({
-    adapter: createAdapter(),
-    maxRetries: TRIAL_MAX_RETRIES,
+    planner: llmPlanner({
+      adapter: createAdapter(),
+      prompt: { system: { rules: { append: SYSTEM_RULES } } },
+    }),
+    retry: { max: TRIAL_MAX_RETRIES },
     history: { store, maxEntries: 20 },
-    prompt: { system: { rules: { append: SYSTEM_RULES } } },
     logger,
   });
 

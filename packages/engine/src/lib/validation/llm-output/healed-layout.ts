@@ -166,14 +166,23 @@ export interface HealedTilingLayout {
 
 export type HealedLayout = HealedGridLayout | HealedTilingLayout;
 
+/**
+ * How badly healing degraded a candidate, from `'none'` (nothing changed) to
+ * `'unrecoverable'` (the layout came out empty although the request had
+ * instances). `'low'` means only cosmetic repairs; `'medium'` means healing
+ * dropped layout entries or refused actions but something still renders.
+ * The Engine also uses it to pick the level of its heal and retry log lines.
+ */
 export type RetrySeverity = 'none' | 'low' | 'medium' | 'unrecoverable';
 
 /**
- * Discriminated union over the only valid `severity × recommend` pairs. The
- * impossible combinations (`{severity:'none', recommend:true}` and
- * `{severity:'unrecoverable', recommend:false}`) are unconstructable. The
- * recommendation predicate lives in `deriveRetryHint`; the type alone
- * prevents drift.
+ * The Engine's verdict on a healed candidate: its `severity`
+ * ({@link RetrySeverity}) and whether the Engine `recommend`s asking the
+ * planner for another attempt. A retry is recommended when the candidate
+ * would leave the user looking at a no-op: an empty layout although the
+ * request had instances, or every proposed action refused for a reason the
+ * planner can fix. Only the valid pairs are representable: nothing to report
+ * never recommends a retry, and an unrecoverable result always does.
  */
 export type RetryHint =
   | { readonly severity: 'none'; readonly recommend: false }

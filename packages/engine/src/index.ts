@@ -1,5 +1,10 @@
 // Engine
 
+// Action parameter enums
+export type {
+  ActionParameterEnumSnapshot,
+  NormalizedActionParameterEnumValue,
+} from './lib/action-parameter-enum.js';
 // Config
 export type { EngineConfig } from './lib/config.js';
 export { resolveConfig } from './lib/config.js';
@@ -43,6 +48,33 @@ export { createInMemoryStore } from './lib/history/in-memory-store.js';
 // Logger
 export type { Logger } from './lib/logger.js';
 export { consoleLogger } from './lib/logger.js';
+export type {
+  EngineDiagnostics,
+  PlannerCandidate,
+  ValidatedCandidate,
+} from './lib/planner/candidate.js';
+// Planner stages
+export type {
+  LlmPlannerInput,
+  LlmPlannerOptions,
+} from './lib/planner/llm-planner.js';
+export { llmPlanner } from './lib/planner/llm-planner.js';
+export { pipeline } from './lib/planner/pipeline.js';
+export type {
+  Deferred,
+  Planner,
+  PlanningInput,
+  Retryable,
+  RetryFeedback,
+  Stage,
+  StageContext,
+  StageError,
+  ValidateCandidate,
+} from './lib/planner/stage.js';
+export { deferred, isDeferred } from './lib/planner/stage.js';
+export { withFallback } from './lib/planner/with-fallback.js';
+export type { WithRetryOptions } from './lib/planner/with-retry.js';
+export { withRetry } from './lib/planner/with-retry.js';
 // Prompt builder
 export type {
   PromptOptions,
@@ -65,3 +97,8 @@ export type {
   UserSectionOverrides,
 } from './lib/prompt/sections.js';
 export { SystemSection, UserSection } from './lib/prompt/sections.js';
+// Response diagnostics
+export type {
+  RetryHint,
+  RetrySeverity,
+} from './lib/validation/llm-output/healed-layout.js';

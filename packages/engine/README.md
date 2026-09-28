@@ -21,10 +21,10 @@ import {
   SessionId,
   isOk,
 } from '@maelstrom-co/protocol';
-import { createEngine } from '@maelstrom-co/engine';
+import { createEngine, llmPlanner } from '@maelstrom-co/engine';
 
 const engine = createEngine({
-  adapter: geminiText('gemini-2.0-flash'),
+  planner: llmPlanner({ adapter: geminiText('gemini-2.0-flash') }),
 });
 
 const session = SessionId();
@@ -118,18 +118,38 @@ The engine's `handle()` requires envelopes with all required fields. It has no p
 
 ```ts
 interface EngineConfig {
-  /** TanStack AI text adapter. Required. */
-  adapter: AnyTextAdapter;
+  /** Produces the candidate response for every chart_request. Required. */
+  planner: Planner;
   /** Logger (defaults to consoleLogger). */
   logger?: Logger;
-  /** Section-based prompt customization. */
-  prompt?: PromptOptions;
   /** Opt-in conversation history (see below). */
   history?: HistoryConfig;
-  /** Max retries when heal recommends another attempt (see Retry). Default: 1. Set to 0 to disable. */
-  maxRetries?: number;
+  /** Retry policy wrapped around `planner` (see Retry). Default: { max: 1 }. `false` runs the planner once. */
+  retry?: { max: number } | false;
 }
 ```
+
+`planner` is a `Stage<PlanningInput, PlannerCandidate>` — most consumers reach for `llmPlanner`, which makes a single structured-output LLM call per attempt:
+
+```ts
+interface LlmPlannerOptions {
+  /** TanStack AI text adapter. Required. */
+  adapter: AnyTextAdapter;
+  /** Section-based prompt customization. */
+  prompt?: PromptOptions;
+  /** Provider-specific options forwarded verbatim to every `chat()` call. */
+  modelOptions?: Record<string, unknown>;
+}
+```
+
+```ts
+import { geminiText } from '@tanstack/ai-gemini';
+import { llmPlanner } from '@maelstrom-co/engine';
+
+const planner = llmPlanner({ adapter: geminiText('gemini-2.0-flash') });
+```
+
+See [Planners and stages](#planners-and-stages) below for composing more than one LLM call, or non-LLM steps, into a planner.
 
 ### History
 
@@ -155,10 +175,10 @@ interface HistoryConfig<TMeta = unknown> {
 `store` has no default. Local dev and tests pass `createInMemoryStore()` explicitly:
 
 ```ts
-import { createEngine, createInMemoryStore } from '@maelstrom-co/engine';
+import { createEngine, createInMemoryStore, llmPlanner } from '@maelstrom-co/engine';
 
 const engine = createEngine({
-  adapter: /* ... */,
+  planner: llmPlanner({ adapter: /* ... */ }),
   history: {
     store: createInMemoryStore(),
     maxEntries: 50,
@@ -184,7 +204,7 @@ interface TurnMeta {
 }
 
 const engine = createEngine({
-  adapter: /* ... */,
+  planner: llmPlanner({ adapter: /* ... */ }),
   history: {
     store: createInMemoryStore(),
     maxEntries: 50,
@@ -214,7 +234,9 @@ Consecutive `assistant_message` injections produce consecutive `role: 'assistant
 
 ### Retry
 
-The retry layer reads heal's `retryHint.recommend` signal and re-prompts only when the response would otherwise leave the user staring at a no-op (empty rendered layout when instances were requested, or every proposed action skipped for a fixable reason). Default: `1` retry (initial attempt plus one retry — two total LLM calls in the worst case).
+The Engine wraps the configured `planner` in `withRetry(planner, config.retry)` unless `config.retry` is `false`. `withRetry` reads heal's `retryHint.recommend` signal and re-runs the planner only when the response would otherwise leave the user staring at a no-op (empty rendered layout when instances were requested, or every proposed action skipped for a fixable reason). Default: `{ max: 1 }` (initial attempt plus one retry — two total planner runs in the worst case).
+
+`retry: false` runs the planner exactly once, with no engine-level retry — the right choice for a planner (or a stage inside one) that already retries its own steps, since a second engine-level retry would multiply on top of the planner's own.
 
 The trigger is *exclusively* `retryHint.recommend === true` on a healed response. Errors short-circuit immediately:
 
@@ -241,9 +263,30 @@ Original request:
 
 If every attempt produces `recommend === true`, the **last** attempt's response ships as-is — heal guarantees it is renderable, so the user sees a degraded UI rather than a blocked turn. The `Retries exhausted` log line is severity-routed via `logAtSeverity` (`info` for `low`/`none`, `warn` for `medium`, `error` for `unrecoverable`) and carries the final `retrySeverity` and diagnostic counts.
 
-> **State drift visibility.** `state_drift` skipped actions are dropped from the response's execution plan and logged at error level by the simulator (`Vessel state drift: …, dropping action`), but they are NOT surfaced through the `Result` channel — `diagnostics` is engine-internal and stripped before the response crosses the engine boundary. Operators see drift in logs; programmatic callers do not. If you need branch-on-drift behaviour from outside the engine, route through your logger / alerting pipeline.
+> **State drift visibility.** `state_drift` skipped actions are dropped from the response's execution plan and logged at error level by the simulator (`Vessel state drift: …, dropping action`), but they are NOT surfaced through the `Result` channel — detailed diagnostics stay internal; planner stages receive only `retryHint` (plus per-kind `counts`) and sanitized `feedback` text, so drift is visible in logs and feedback prose, not as data. Operators see drift in logs; programmatic callers cannot branch on it. If you need branch-on-drift behaviour from outside the engine, route through your logger / alerting pipeline.
 
-`maxRetries` is a non-negative integer. Set to `0` to disable retries entirely while keeping the layer wired (the `recommend` predicate still evaluates and the diagnostic summary still emits via the `Response healed` log line) — useful for deterministic test harnesses, replay scenarios, and consumers that own their own retry policy.
+`retry.max` is a non-negative integer. `retry: false` (or `{ max: 0 }`) runs the planner once; the Engine still heals and validates the candidate and emits the `Response healed` log line either way. Use `retry: false` for deterministic test harnesses, replay scenarios, and planners that own their own retry policy.
+
+---
+
+## Planners and stages
+
+`EngineConfig.planner` is a `Stage<PlanningInput, PlannerCandidate>` — a function from the request (plus context: signal, logger, the original request, and a `validate` callback) to a candidate response or a failure. `llmPlanner` is the stage most consumers need, but the same `Stage` shape composes:
+
+- **`pipeline(...stages)`** chains stages so each one's output feeds the next, typed end to end (up to nine stages). The first `Err` — a `Deferred` or an `EngineError` — stops the chain.
+- **`withFallback(primary, fallback)`** runs `fallback` only when `primary` returns a `Deferred` (a stage abstaining from the request via `deferred(reason)`, checked with `isDeferred`). A real `EngineError` from `primary` is never masked.
+- **`withRetry(stage, { max })`** is the same combinator the Engine applies by default around `EngineConfig.planner`. It wraps a stage that produces a `PlannerCandidate` (typically the last stage of a pipeline) and retries it when healing recommends a retry. When you place it yourself, set `retry: false` on the Engine so the retries do not multiply.
+
+A `Deferred` that reaches the top of the configured planner with nothing to recover it becomes `Err(ValidationError)` on field `'planner'` — the Engine cannot ship a response without a candidate.
+
+```ts
+import { llmPlanner, pipeline, withFallback } from '@maelstrom-co/engine';
+
+const planner = withFallback(
+  pipeline(selectVessels, arrangeLayout),
+  llmPlanner({ adapter }),
+);
+```
 
 ---
 
@@ -312,10 +355,11 @@ Everything else returns `Ok(EngineOutput)`. The response may omit invalid layout
 
 ### Engine-internal diagnostics
 
-Internally the response carries a `diagnostics` block describing exactly what was healed, what was skipped, and how degraded the result is. This is stripped from the public response before it crosses the engine boundary; it powers retry-layer decisioning and observability. Layout drops and action skips are independent — neither short-circuits the other, and a single response can carry both. The engine emits a single `'Response healed'` log when any drop or warning fires, severity-routed via `logAtSeverity` (`info` for `low`/`none`, `warn` for `medium`, `error` for `unrecoverable`) so blank-UI responses cross default `warn`-threshold paging filters.
+Internally the response carries a `diagnostics` block describing exactly what was healed, what was skipped, and how degraded the result is. This is stripped from the public response before it crosses the engine boundary; it powers retry-layer decisioning and observability. Planner stages see only the public `EngineDiagnostics` summary (`retryHint`, per-kind `counts`, and sanitized `feedback` text); the per-entry records below stay internal. Layout drops and action skips are independent — neither short-circuits the other, and a single response can carry both. The engine emits a single `'Response healed'` log when any drop or warning fires, severity-routed via `logAtSeverity` (`info` for `low`/`none`, `warn` for `medium`, `error` for `unrecoverable`) so blank-UI responses cross default `warn`-threshold paging filters.
 
 ```ts
-interface EngineDiagnostics {
+// Engine-internal records; not exported.
+interface HealRecords {
   /** Per-action drops with structured detail (params parse failure, unknown instance, …). */
   readonly skippedActions: readonly SkippedAction[];
   /** Per-layout-entry drops (overflow, orphan, tree pruning …). */

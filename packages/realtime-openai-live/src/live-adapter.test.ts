@@ -4,7 +4,7 @@ import {
   Orchestrator,
   RequestInFlightError,
 } from '@maelstrom-co/client';
-import { createEngine } from '@maelstrom-co/engine';
+import { createEngine, type PlannerCandidate } from '@maelstrom-co/engine';
 import {
   InstanceId,
   ok,
@@ -27,8 +27,6 @@ import {
 } from './live-adapter.js';
 
 const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
-const chat = mock<(...args: unknown[]) => Promise<unknown>>();
-mock.module('@tanstack/ai', () => ({ chat }));
 function deferred<T>() {
   let resolve!: (value: T) => void;
   let reject!: (reason: unknown) => void;
@@ -1526,29 +1524,19 @@ for (const endVoice of [false, true]) {
     const action = deferred<void>();
     let actionStarted = false;
     let calls = 0;
-    chat.mockResolvedValue({
-      userMessage: 'Engine applied labs',
-      rationale: 'fixture',
-      layout: {
-        tree: ['ID:labs'],
-        instances: [
-          { instanceId: 'labs', vesselId: 'labs', variant: 'default' },
-        ],
-      },
-      executionPlan: [{ instanceId: 'labs', action: 'load' }],
-    });
     const engine = createEngine({
-      adapter: {
-        kind: 'text',
-        name: 'test',
-        model: 'test',
-        chatStream() {
-          throw new Error('mocked chat boundary');
-        },
-        structuredOutput() {
-          throw new Error('mocked chat boundary');
-        },
-      } as unknown as Parameters<typeof createEngine>[0]['adapter'],
+      planner: async () =>
+        ok({
+          userMessage: 'Engine applied labs',
+          rationale: 'fixture',
+          layout: {
+            tree: ['ID:labs'],
+            instances: [
+              { instanceId: 'labs', vesselId: 'labs', variant: 'default' },
+            ],
+          },
+          executionPlan: [{ instanceId: 'labs', action: 'load' }],
+        } as unknown as PlannerCandidate),
     });
     const connector: EngineConnector = {
       capabilities: { voice: false, streaming: false, stateful: false },

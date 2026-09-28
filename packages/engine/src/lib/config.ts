@@ -1,18 +1,20 @@
-import type { AnyTextAdapter } from '@tanstack/ai';
-
 import type { HistoryConfig } from './history/history-manager.js';
 import type { Logger } from './logger.js';
 import { consoleLogger } from './logger.js';
-import type { PromptOptions } from './prompt/prompt-builder.js';
+import type { Planner } from './planner/stage.js';
+import type { WithRetryOptions } from './planner/with-retry.js';
 
 /** Dependencies and optional policies used to construct an Engine. */
 export interface EngineConfig {
-  /** TanStack AI text adapter (e.g. geminiText('gemini-2.0-flash'), openaiText('gpt-4o')) */
-  readonly adapter: AnyTextAdapter;
-  /** Optional logger (defaults to consoleLogger) */
+  /**
+   * Produces the candidate response for every `chart_request`. Start from
+   * `llmPlanner({ adapter })`, or compose stages with `pipeline` and
+   * `withFallback`. The Engine heals and validates whatever the planner
+   * returns against the request the client sent.
+   */
+  readonly planner: Planner;
+  /** Optional logger (defaults to consoleLogger). Stages receive it as `StageContext.logger`. */
   readonly logger?: Logger;
-  /** Section-based prompt customization */
-  readonly prompt?: PromptOptions;
   /**
    * Optional history configuration. When omitted, chart_request turns still
    * process normally but nothing is recorded, and assistant_message messages
@@ -21,45 +23,42 @@ export interface EngineConfig {
    */
   readonly history?: HistoryConfig;
   /**
-   * Maximum number of retry attempts after the heal layer flags
-   * `retryHint.recommend === true`. Non-negative integer; default `1`.
-   * Set to `0` to disable retries (the layer stays wired for observability).
-   * See the README's Retry section for the full policy.
+   * Retry policy the Engine wraps around {@link EngineConfig.planner} with
+   * `withRetry`. `{ max }` re-runs the planner up to `max` times while
+   * healing recommends a retry (`max` is a non-negative integer). `false`
+   * (or `{ max: 0 }`) runs the planner once; the Engine still heals and
+   * validates the candidate. Use `false` for planners that retry their own
+   * steps. Default `{ max: 1 }`. See the README's Retry section for the full
+   * policy.
    */
-  readonly maxRetries?: number;
-  /**
-   * Provider-specific options forwarded verbatim to every `chat()` call
-   * (e.g. `{ max_output_tokens: 16384 }` for an OpenAI adapter). The engine
-   * is provider-agnostic, so this is an untyped passthrough — consult the
-   * configured adapter's provider-options type for the accepted shape.
-   */
-  readonly modelOptions?: Record<string, unknown>;
+  readonly retry?: WithRetryOptions | false;
 }
 
+/** {@link EngineConfig} with every default applied. */
 export interface ResolvedEngineConfig {
-  readonly adapter: AnyTextAdapter;
+  /** The configured planner, not yet wrapped in the retry policy. */
+  readonly planner: Planner;
+  /** The configured logger, or {@link consoleLogger}. */
   readonly logger: Logger;
-  readonly prompt: PromptOptions;
+  /** The configured history, or `undefined` when history is off. */
   readonly history: HistoryConfig | undefined;
-  readonly maxRetries: number;
-  readonly modelOptions: Record<string, unknown> | undefined;
+  /** The configured retry policy, or `{ max: 1 }`. */
+  readonly retry: WithRetryOptions | false;
 }
 
-const DEFAULT_MAX_RETRIES = 1;
+const DEFAULT_RETRY: WithRetryOptions = { max: 1 };
 
 /**
  * Applies Engine defaults without cloning configured dependencies.
  *
- * The logger defaults to {@link consoleLogger}, prompt options to an empty
- * object, and `maxRetries` to `1`; history and model options remain optional.
+ * The logger defaults to {@link consoleLogger} and `retry` to `{ max: 1 }`;
+ * history remains optional.
  */
 export function resolveConfig(config: EngineConfig): ResolvedEngineConfig {
   return {
-    adapter: config.adapter,
+    planner: config.planner,
     logger: config.logger ?? consoleLogger,
-    prompt: config.prompt ?? {},
     history: config.history,
-    maxRetries: config.maxRetries ?? DEFAULT_MAX_RETRIES,
-    modelOptions: config.modelOptions,
+    retry: config.retry ?? DEFAULT_RETRY,
   };
 }

@@ -38,14 +38,21 @@ vi.mock('cloudflare:workers', () => ({
   ) {}
 };
 
-// createEngineMock must be created via vi.hoisted: vitest hoists vi.mock
-// factories above the rest of the module, so a plain outer `const`
-// referenced from inside the factory would be read before its own
+// createEngineMock and llmPlannerMock must be created via vi.hoisted: vitest
+// hoists vi.mock factories above the rest of the module, so a plain outer
+// `const` referenced from inside the factory would be read before its own
 // initializer runs.
 const createEngineMock = vi.hoisted(() => vi.fn());
+// The real llmPlanner returns an opaque Stage function, so a config's
+// `planner` field can no longer be inspected for the adapter it was built
+// from. Returning the options verbatim instead keeps `planner` a stand-in
+// for "what llmPlanner was called with", which is what the API key tests
+// below need to reach into.
+const llmPlannerMock = vi.hoisted(() => vi.fn((options: unknown) => options));
 vi.mock('@maelstrom-co/engine', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@maelstrom-co/engine')>()),
   createEngine: createEngineMock,
+  llmPlanner: llmPlannerMock,
 }));
 vi.mock('@tanstack/ai-openai', () => ({
   // Surfaces the key the adapter was built with, which is the thing under
@@ -443,7 +450,8 @@ describe('SessionDO', () => {
     expect(createEngineMock).toHaveBeenCalledTimes(1);
     const adapterKeys = createEngineMock.mock.calls.map(
       (c) =>
-        (c[0] as { adapter: { __testApiKey: string } }).adapter.__testApiKey,
+        (c[0] as { planner: { adapter: { __testApiKey: string } } }).planner
+          .adapter.__testApiKey,
     );
     expect(adapterKeys.every((k) => k === B_KEY)).toBe(true);
   });

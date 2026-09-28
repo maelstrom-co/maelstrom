@@ -3,19 +3,12 @@ import type {
   ChartResponseOutput,
   EngineMessage,
   EngineOutput,
-  LayoutMode,
   MessageId,
   Result,
   SessionHistoryEntry,
   SessionId,
 } from '@maelstrom-co/protocol';
-import {
-  err,
-  GridResponseSchema,
-  isErr,
-  ok,
-  TilingResponseSchema,
-} from '@maelstrom-co/protocol';
+import { err, isErr, ok } from '@maelstrom-co/protocol';
 import type { ActionParameterEnumSnapshot } from './action-parameter-enum.js';
 import { buildActionParameterEnumSnapshot } from './action-parameter-enum.js';
 import { assertNever } from './assert-never.js';
@@ -23,25 +16,32 @@ import { createChartRequestDedup } from './chart-request-dedup.js';
 import type { EngineConfig } from './config.js';
 import { resolveConfig } from './config.js';
 import type { EngineError } from './errors.js';
-import { historyError, validationError } from './errors.js';
+import { cancellationError, historyError, validationError } from './errors.js';
 import type { HistoryManager } from './history/history-manager.js';
 import { createHistoryManager } from './history/history-manager.js';
 import type { HistoryEntry } from './history/history-store.js';
 import { loadHistoryContext } from './history/load-history-context.js';
 import { toSessionHistoryEntry } from './history/wire-projection.js';
 import type { Logger } from './logger.js';
-import { callLLM } from './pipeline/call-llm.js';
-import { callWithRetry } from './pipeline/retry.js';
-import {
-  buildSystemPrompt,
-  buildUserPromptWithSnapshot,
-} from './prompt/prompt-builder.js';
+import type {
+  FullValidatedCandidate,
+  PlannerCandidate,
+} from './planner/candidate.js';
+import type {
+  Planner,
+  PlanningInput,
+  StageContext,
+  StageError,
+} from './planner/stage.js';
+import { isDeferred, unhandledDeferralError } from './planner/stage.js';
+import type { CandidateValidator } from './planner/validate-candidate.js';
+import { createCandidateValidator } from './planner/validate-candidate.js';
+import { withRetry } from './planner/with-retry.js';
 import type {
   SkippedAction,
   SkippedActionIdentity,
 } from './response/execution-plan/index.js';
 import { skippedActionIdentity } from './response/execution-plan/index.js';
-import { processResponse } from './response/response-processor.js';
 import { logAtSeverity } from './severity-router.js';
 import { validateEngineConfig } from './validation/engine-config.js';
 import {
@@ -66,14 +66,15 @@ import {
  * `HistoryManager` serializes `recordTurn` and the truncation step of
  * `addAssistantMessage` and `clear`; in-process only — multi-instance
  * deployments must close that gap externally, see the README's Concurrency
- * section. The LLM call itself is NOT mutex-protected — concurrent
- * `chart_request`s on the same session race their LLM reads/calls; the
- * in-flight dedup Map only collapses identical `(sessionId, messageId)`
- * duplicates, not different requests.
+ * section. The planner call itself is NOT mutex-protected — concurrent
+ * `chart_request`s on the same session race their history reads and
+ * planner calls; the in-flight dedup Map only collapses identical
+ * `(sessionId, messageId)` duplicates, not different requests.
  *
- * Stateless at the request level: a `chart_request` flows prompt → LLM →
- * response-processor → optional retry → history record without retained
- * inter-call state beyond what the configured `HistoryStore` persists.
+ * Stateless at the request level: a `chart_request` flows history load →
+ * planner (optionally retried) → response-processor → history record
+ * without retained inter-call state beyond what the configured
+ * `HistoryStore` persists.
  *
  * Both safeguards are process-local: multi-instance deployments need
  * deployment-level coordination for history mutations and for identical
@@ -83,38 +84,47 @@ export interface Engine {
   /**
    * Routes on `message.type`:
    *
-   * - `chart_request` → builds a prompt from request + prior history,
-   *   invokes the LLM, heals the response (drops broken pieces, returns a
-   *   renderable layout), optionally retries when heal recommends, and
-   *   records the turn. Returns `Ok(chart_response)` for any renderable
-   *   outcome (including healed-with-drops).
+   * - `chart_request` → hands the request and prior history to the
+   *   configured planner, heals its candidate against the request (drops
+   *   broken pieces, returns a renderable layout), retries per
+   *   `EngineConfig.retry` when heal recommends, and records the turn.
+   *   Returns `Ok(chart_response)` for any renderable outcome (including
+   *   healed-with-drops).
    * - `assistant_message` → persists developer-supplied content into
-   *   session history. Does NOT invoke the LLM. Returns
+   *   session history. Does NOT invoke the planner. Returns
    *   `Ok(assistant_message_result)` with `outcome: 'inserted' | 'deduped'`.
    *
    * `Err` is reserved for genuinely unrecoverable conditions (provider
-   * fault, cancellation, prompt-build failure, history error, missing
-   * `userMessage`). Layout problems heal into diagnostics rather than
-   * surfacing here — see {@link EngineDiagnostics} (engine-internal,
-   * stripped before crossing the boundary).
+   * fault, cancellation, prompt-build failure, invalid Action parameter
+   * definitions in the Vessel catalog (field `'vessels'`), history error,
+   * missing `userMessage`, a planner that deferred with no fallback or
+   * threw).
+   * Layout problems heal into diagnostics rather than surfacing here — see
+   * {@link EngineDiagnostics} (planner stages see only a summary:
+   * `retryHint`, `counts` and rendered `feedback`; detailed records stay
+   * internal and are stripped before the response crosses the Engine
+   * boundary).
    *
-   * `signal` cancels mid-flight: a pre-aborted signal short-circuits to
-   * `CancellationError` without invoking the LLM; an abort during the LLM
-   * call is mapped to `CancellationError` via the adapter.
+   * `signal` cancels mid-flight: it reaches every planner stage as
+   * `StageContext.signal`. With `llmPlanner`, a pre-aborted signal
+   * short-circuits to `CancellationError` without invoking the LLM, and an
+   * abort during the LLM call is mapped to `CancellationError` via the
+   * adapter. A stage that throws after the signal aborted also yields
+   * `CancellationError`.
    *
    * **Idempotency.** When `history` is configured on {@link EngineConfig},
    * two duplicate `chart_request` envelopes sharing the same `(sessionId,
-   * id)` collapse onto a single LLM call: a duplicate that arrives after
+   * id)` collapse onto a single planner run: a duplicate that arrives after
    * the original completed replays the stored `chart_response` from
    * history; a duplicate that arrives mid-flight awaits the leader's
    * promise. Failures are not persisted — the next duplicate after a
-   * failure reaches the LLM as a fresh request. Eviction is bounded by
+   * failure reaches the planner as a fresh request. Eviction is bounded by
    * `HistoryManager` truncation only. Without `history` configured, no
-   * dedup happens and every request reaches the LLM.
+   * dedup happens and every request reaches the planner.
    *
    * **Cancellation note for idempotency followers.** A follower (second
    * concurrent caller) that aborts its own `signal` resolves its own await
-   * with `Err(CancellationError)`; the leader's LLM call continues. If the
+   * with `Err(CancellationError)`; the leader's planner run continues. If the
    * leader's signal aborts, the leader's promise resolves with
    * `Err(CancellationError)` under the engine contract — an unguarded
    * pipeline throw escapes as `Err(historyError.leaderPipeline)` instead
@@ -160,100 +170,82 @@ export interface Engine {
 /**
  * Construct an Engine from the given config.
  *
+ * Every `chart_request` runs through `config.planner`, wrapped in
+ * `withRetry(planner, config.retry)` unless `config.retry` is `false`. The
+ * Engine loads history, hands the planner a {@link PlanningInput} and a
+ * {@link StageContext}, then heals and validates the returned candidate
+ * against the request the client sent, whatever the planner did to its own
+ * copy of it. A planner never rejects `handle`: a thrown stage becomes an
+ * `Err`, and a `Deferred` nothing recovered becomes
+ * `Err(ValidationError)` on field `'planner'`.
+ *
  * Unlike `Engine.handle`, which surfaces runtime failures through
  * `Result<…, EngineError>`, this factory validates `config` synchronously
  * and **throws** on invalid input. Invalid config is a programmer error,
  * not a runtime condition — consumers outside TypeScript (or calling with
  * unknown input) should wrap in `try`/`catch`.
  *
- * @throws {Error} If `config` fails Zod validation, or if a system-prompt
- *   customizer (`config.prompt.system`) is misconfigured (function on an
- *   unknown key, or a customizer that itself throws). System prompts are
- *   derived once at factory time, so misconfiguration surfaces here rather
- *   than degrading every `chart_request` into a `Result` err. The message
- *   is prefixed with `Invalid EngineConfig:` and the original error is
- *   attached as `cause`.
+ * @throws {Error} If `config` fails Zod validation. The message is prefixed
+ *   with `Invalid EngineConfig:` and the original error is attached as
+ *   `cause`.
+ *
+ * @example
+ * ```ts
+ * const engine = createEngine({
+ *   planner: llmPlanner({ adapter: openaiText('gpt-4o') }),
+ *   retry: { max: 2 },
+ * });
+ * ```
  */
 export function createEngine(config: EngineConfig): Engine {
   const validated = validateEngineConfig(config);
   const {
-    adapter,
+    planner: configuredPlanner,
     logger,
-    prompt: promptOptions,
     history: historyConfig,
-    maxRetries,
-    modelOptions,
+    retry,
   } = resolveConfig(validated);
+  const planner: Planner =
+    retry === false
+      ? configuredPlanner
+      : withRetry<PlanningInput>(configuredPlanner, retry);
   const history: HistoryManager | undefined = historyConfig
     ? createHistoryManager(historyConfig)
     : undefined;
-
-  // System prompts depend only on engine config, so derive them once at
-  // factory time and look them up by layoutMode per request. Customizer
-  // errors are wrapped in the same `Invalid EngineConfig:` shape the Zod
-  // path uses so a single try/catch around `createEngine` catches both.
-  let systemPrompts: Record<LayoutMode, string>;
-  try {
-    systemPrompts = {
-      grid: buildSystemPrompt('grid', promptOptions),
-      tiling: buildSystemPrompt('tiling', promptOptions),
-    };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Invalid EngineConfig: prompt.system: ${message}`, {
-      cause: error,
-    });
-  }
 
   const runChartRequest = async (
     message: ChartRequestMessage,
     signal?: AbortSignal,
   ): Promise<Result<ChartResponseOutput, EngineError>> => {
     const { request } = message;
-    const mode = request.context.layoutMode;
     logger.debug('Processing chart_request', {
       messageId: message.id,
       sessionId: message.sessionId,
-      layoutMode: mode,
+      layoutMode: request.context.layoutMode,
     });
 
-    const systemPrompt = systemPrompts[mode];
-
     // Snapshot construction rejects ambiguous or over-limit Action parameter
-    // definitions. Prompt construction can also throw when a consumer-supplied
-    // user-section customizer is misconfigured or itself throws. Surface both
-    // as an Err before adapter invocation instead of breaking the
-    // Promise<Result> contract.
-    let userPrompt: string;
+    // definitions in the Vessel catalog. Surface that as an Err before the
+    // planner runs instead of breaking the Promise<Result> contract.
     let enumSnapshot: ActionParameterEnumSnapshot;
     try {
       enumSnapshot = buildActionParameterEnumSnapshot(request.vessels);
-      userPrompt = buildUserPromptWithSnapshot(
-        request,
-        enumSnapshot,
-        promptOptions,
-        logger,
-      );
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
-      logger.error('Failed to build user prompt', error, {
+      logger.error('Failed to build Action parameter enum snapshot', error, {
         messageId: message.id,
       });
-      return err(validationError(errorMessage, 'prompt', error));
+      return err(validationError(errorMessage, 'vessels', error));
     }
 
-    const outputSchema =
-      mode === 'grid' ? GridResponseSchema : TilingResponseSchema;
-
-    // Prior conversation is what lets the LLM reason across turns.
-    // Empty when history isn't configured — callLLM treats that case the
-    // same as a fresh first turn. A throw from a remote-backed store
-    // (Redis blip, Postgres timeout, deserialization error) would
-    // otherwise reject the returned promise and break the documented
-    // `Promise<Result<…>>` contract — surface it as a HistoryError so
-    // callers see the same Err shape they see for assistant_message
-    // persistence failures.
+    // Prior conversation is what lets the planner reason across turns.
+    // Empty when history isn't configured, which planners treat the same as
+    // a fresh first turn. A throw from a remote-backed store (Redis blip,
+    // Postgres timeout, deserialization error) would otherwise reject the
+    // returned promise and break the documented `Promise<Result<…>>`
+    // contract — surface it as a HistoryError so callers see the same Err
+    // shape they see for assistant_message persistence failures.
     const historyContext = await loadHistoryContext(
       history,
       message.sessionId,
@@ -264,79 +256,38 @@ export function createEngine(config: EngineConfig): Engine {
       return historyContext;
     }
 
-    const runOnce = async (
-      attemptUserPrompt: string,
-      attemptSignal?: AbortSignal,
-    ) => {
-      const llmResult = await callLLM(
-        adapter,
-        systemPrompt,
-        attemptUserPrompt,
-        outputSchema,
-        historyContext.value,
-        attemptSignal,
-        modelOptions,
-      );
-      if (isErr(llmResult)) {
-        logEngineError(logger, message.id, llmResult.error);
-        return llmResult;
-      }
-      logger.debug('LLM response received', { messageId: message.id });
-      // `processResponse` calls heal helpers and `assertNever` defaults that
-      // throw on engine-internal contract violations (broken pruner invariant,
-      // unknown discriminator arm). Without this catch those throws become
-      // unhandled rejections at the engine boundary, breaking the documented
-      // `Promise<Result<...>>` contract. Catch synchronously, log with the
-      // structured-error slot, and return an Err so callWithRetry can surface
-      // it through the same path as any other fatal `EngineError`.
-      try {
-        const processed = processResponse({
-          llmOutput: llmResult.value,
-          request,
-          enumSnapshot,
-          messageId: message.id,
-          logger,
-        });
-        if (isErr(processed)) {
-          logger.error('Failed to process LLM response', processed.error, {
-            messageId: message.id,
-          });
-        }
-        return processed;
-      } catch (error) {
-        logger.error(
-          'Engine invariant violation while processing LLM response',
-          error,
-          { messageId: message.id },
-        );
-        return err(
-          validationError(
-            error instanceof Error ? error.message : String(error),
-            'response',
-            error,
-          ),
-        );
-      }
+    const input: PlanningInput = {
+      messageId: message.id,
+      sessionId: message.sessionId,
+      request,
+      history: historyContext.value,
+    };
+    const validate = createCandidateValidator({
+      request,
+      enumSnapshot,
+      messageId: message.id,
+      logger,
+    });
+    const ctx: StageContext = {
+      signal,
+      logger,
+      origin: input,
+      validate,
+      enumSnapshot,
     };
 
-    const retried = await callWithRetry({
-      runOnce,
-      originalUserPrompt: userPrompt,
-      maxRetries,
-      logger,
-      signal,
-    });
-    if (isErr(retried)) {
-      return retried;
+    const planned = await runPlanner(planner, input, ctx, validate);
+    if (isErr(planned)) {
+      return planned;
     }
 
     // Strip engine-internal diagnostics before crossing the engine boundary.
     // Anything healed silently here is the only operator-visible signal that
-    // the LLM produced bad output, so emit a single summary log line — drops
-    // and warnings would otherwise be invisible to observability. Severity
+    // the planner produced bad output, so emit a single summary log line —
+    // drops and warnings would otherwise be invisible to observability. Severity
     // drives the level so blank-UI responses (`unrecoverable`) cross default
     // `warn`-threshold paging filters.
-    const { diagnostics, ...response } = retried.value;
+    const { diagnostics, ...response } = planned.value;
     if (
       diagnostics.skippedActions.length > 0 ||
       diagnostics.droppedLayoutEntries.length > 0 ||
@@ -380,8 +331,8 @@ export function createEngine(config: EngineConfig): Engine {
       // Wire-format validation runs first. Smart constructors enforce envelope
       // invariants on programmatic construction (timestamp finite, brand
       // non-empty), but wire-deserialized envelopes bypass those constructors.
-      // Reject malformed input here so downstream stages (history, prompt
-      // build, LLM call) can trust the shape.
+      // Reject malformed input here so downstream stages (history, planner)
+      // can trust the shape.
       const validated = validateEngineMessage(rawMessage);
       if (isErr(validated)) {
         logValidationFailure(logger, rawMessage, validated.error);
@@ -487,19 +438,115 @@ export function createEngine(config: EngineConfig): Engine {
   };
 }
 
-function logEngineError(
+/**
+ * Runs the planner and validates its candidate against the original request
+ * without letting either reject. A stage error passes through unchanged
+ * after one `Planner failed` line, so a custom stage that does not log its
+ * own failures still leaves a trace; a value that is not a `Result` becomes
+ * `Err(ValidationError)` on field `'planner'`. Validation is cached per candidate, so a candidate a stage
+ * already validated through `ctx.validate` (for example inside `withRetry`)
+ * is not healed twice.
+ */
+async function runPlanner(
+  planner: Planner,
+  input: PlanningInput,
+  ctx: StageContext,
+  validate: CandidateValidator,
+): Promise<Result<FullValidatedCandidate, EngineError>> {
+  try {
+    const planned: unknown = await planner(input, ctx);
+    if (!isStageResult(planned)) {
+      const failure = validationError(
+        'planner returned a value that is not a Result<PlannerCandidate, StageError>',
+        'planner',
+      );
+      ctx.logger.error(
+        'Planner returned a value that is not a Result',
+        failure,
+        { messageId: input.messageId },
+      );
+      return err(failure);
+    }
+    if (isErr(planned)) {
+      const { error } = planned;
+      if (!isDeferred(error)) {
+        logPlannerFailure(ctx.logger, input.messageId, error);
+        return err(error);
+      }
+      ctx.logger.warn('Planner deferred and nothing recovered the deferral', {
+        messageId: input.messageId,
+        reason: error.reason,
+      });
+      return err(unhandledDeferralError(error));
+    }
+    return validate(planned.value);
+  } catch (error) {
+    return err(plannerThrowError(error, input.messageId, ctx));
+  }
+}
+
+// A JS stage, or one with a forgotten return, can resolve anything; checking
+// here keeps a broken contract from surfacing as an unrelated TypeError or
+// escaping handle() as an error value without a _tag.
+function isStageResult(
+  value: unknown,
+): value is Result<PlannerCandidate, StageError> {
+  if (typeof value !== 'object' || value === null) return false;
+  if (!('ok' in value) || typeof value.ok !== 'boolean') return false;
+  if (value.ok) return 'value' in value;
+  if (!('error' in value)) return false;
+  const { error } = value;
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    '_tag' in error &&
+    typeof error._tag === 'string'
+  );
+}
+
+// Custom stages may not log their own failures; one line per request keeps
+// them from failing silently. Cancellation is expected traffic, not a fault.
+function logPlannerFailure(
   logger: Logger,
   messageId: MessageId,
   error: EngineError,
 ): void {
+  const ctx = { messageId, errorTag: error._tag };
   if (error._tag === 'CancellationError') {
-    logger.info('Request cancelled', { messageId, reason: error.reason });
+    logger.debug('Planner failed', ctx);
     return;
   }
-  // 3-arg form: structured EngineError into the dedicated error slot so
-  // _tag, stack, and per-variant context (cause / raw / timeoutMs) reach
-  // structured loggers; correlation fields stay in the data slot.
-  logger.error('LLM call failed', error, { messageId, errorTag: error._tag });
+  logger.warn('Planner failed', ctx);
+}
+
+/**
+ * Maps a stage that broke the never-reject contract to an `EngineError`. A
+ * throw under an aborted request signal is a cancellation; anything else,
+ * including an `AbortError` from a stage's own timeout or controller, is a
+ * planner failure.
+ */
+function plannerThrowError(
+  error: unknown,
+  messageId: MessageId,
+  { signal, logger }: { signal?: AbortSignal; logger: Logger },
+): EngineError {
+  if (signal?.aborted) {
+    logger.info('Request cancelled', {
+      messageId,
+      reason: signal.reason,
+      thrown: error,
+    });
+    return cancellationError(
+      `Request cancelled: ${signal.reason ?? 'unknown reason'}`,
+      signal.reason,
+    );
+  }
+  logger.error('Planner threw', error, { messageId });
+  return validationError(
+    error instanceof Error ? error.message : String(error),
+    'planner',
+    error,
+  );
 }
 
 /**

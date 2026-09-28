@@ -1,5 +1,6 @@
 import type {
   GridResponse,
+  MessageId,
   Result,
   TilingResponse,
 } from '@maelstrom-co/protocol';
@@ -9,32 +10,24 @@ import {
   ok,
   type TilingResponseSchema,
 } from '@maelstrom-co/protocol';
+import type { AnyTextAdapter } from '@tanstack/ai';
 import { chat } from '@tanstack/ai';
 
-import type { EngineConfig } from '../config.js';
 import type { EngineError } from '../errors.js';
 import { cancellationError, providerError } from '../errors.js';
 import type { LLMContextMessage } from '../history/history-manager.js';
-
-// ---------------------------------------------------------------------------
-// LLM output type
-// ---------------------------------------------------------------------------
-
-export type LLMOutput = GridResponse | TilingResponse;
-
-// ---------------------------------------------------------------------------
-// LLM call — self-contained so process() stays linear
-// ---------------------------------------------------------------------------
+import type { Logger } from '../logger.js';
+import type { PlannerCandidate } from './candidate.js';
 
 export async function callLLM(
-  adapter: EngineConfig['adapter'],
+  adapter: AnyTextAdapter,
   systemPrompt: string,
   userPrompt: string,
   outputSchema: typeof GridResponseSchema | typeof TilingResponseSchema,
   historyMessages: readonly LLMContextMessage[],
   signal?: AbortSignal,
-  modelOptions?: EngineConfig['modelOptions'],
-): Promise<Result<LLMOutput, EngineError>> {
+  modelOptions?: Record<string, unknown>,
+): Promise<Result<PlannerCandidate, EngineError>> {
   const controller = new AbortController();
   const effectiveSignal = signal
     ? AbortSignal.any([signal, controller.signal])
@@ -64,7 +57,7 @@ export async function callLLM(
     // do run during parse, so the value IS branded. Cast to align the type
     // with the runtime contract. The branding-at-parse contract is asserted
     // by the `schema branding` suite in `packages/protocol/src/lib/request.test.ts`.
-    return ok(output as LLMOutput);
+    return ok(output as GridResponse | TilingResponse);
   } catch (error) {
     // Canonical AbortError — unambiguous cancellation
     if (error instanceof DOMException && error.name === 'AbortError') {
@@ -93,4 +86,19 @@ export async function callLLM(
       ),
     );
   }
+}
+
+export function logLLMCallError(
+  logger: Logger,
+  messageId: MessageId,
+  error: EngineError,
+): void {
+  if (error._tag === 'CancellationError') {
+    logger.info('Request cancelled', { messageId, reason: error.reason });
+    return;
+  }
+  // 3-arg form: structured EngineError into the dedicated error slot so
+  // _tag, stack, and per-variant context (cause / raw / timeoutMs) reach
+  // structured loggers; correlation fields stay in the data slot.
+  logger.error('LLM call failed', error, { messageId, errorTag: error._tag });
 }

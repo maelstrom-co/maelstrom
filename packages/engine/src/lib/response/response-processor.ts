@@ -3,7 +3,6 @@ import type {
   GridLayout,
   GridPosition,
   GridResponse,
-  MaelstromResponse,
   MessageId,
   Result,
   TilingInstance,
@@ -18,13 +17,16 @@ import type { ActionParameterEnumSnapshot } from '../action-parameter-enum.js';
 import type { EngineError } from '../errors.js';
 import { parseError, validationError } from '../errors.js';
 import type { Logger } from '../logger.js';
-import type { LLMOutput } from '../pipeline/call-llm.js';
 import type {
-  DroppedLayoutEntry,
+  DiagnosticRecords,
+  FullDiagnostics,
+  FullValidatedCandidate,
+  PlannerCandidate,
+} from '../planner/candidate.js';
+import { renderRetryDiagnostics } from '../planner/retry-diagnostics.js';
+import type {
   HealedLayout,
   HealedTilingInstance,
-  LayoutWarning,
-  RetryHint,
 } from '../validation/llm-output/healed-layout.js';
 import {
   healGridLayout,
@@ -34,33 +36,14 @@ import {
   deriveRetryHint,
   layoutEntryCount,
 } from '../validation/llm-output/retry-hint.js';
-import type { SkippedAction } from './execution-plan/index.js';
 import {
   classifyExecutionTurn,
   parseExecutionPlan,
 } from './execution-plan/index.js';
 import { buildGridLayout, buildTilingLayout } from './layout/index.js';
 
-/**
- * Stripped from the response before it crosses the engine boundary.
- */
-export interface EngineDiagnostics {
-  readonly skippedActions: readonly SkippedAction[];
-  readonly droppedLayoutEntries: readonly DroppedLayoutEntry[];
-  readonly warnings: readonly LayoutWarning[];
-  readonly retryHint: RetryHint;
-}
-
-/**
- * `diagnostics` is stripped at the engine boundary; the public response is
- * just `MaelstromResponse`.
- */
-export type InternalResponse = MaelstromResponse & {
-  readonly diagnostics: EngineDiagnostics;
-};
-
 export interface ProcessResponseInput {
-  readonly llmOutput: LLMOutput;
+  readonly llmOutput: PlannerCandidate;
   readonly request: ChartRequest;
   /** Exact normalized enum values displayed for this Engine request. */
   readonly enumSnapshot: ActionParameterEnumSnapshot;
@@ -75,13 +58,14 @@ export function processResponse({
   enumSnapshot,
   messageId,
   logger,
-}: ProcessResponseInput): Result<InternalResponse, EngineError> {
+}: ProcessResponseInput): Result<FullValidatedCandidate, EngineError> {
   if (!llmOutput.userMessage?.trim()) {
     return err(parseError('LLM response missing userMessage', 'userMessage'));
   }
 
-  // `layoutMode` is the upstream discriminator: the schema that produced
-  // `llmOutput` matches `request.context.layoutMode`, so these casts are
+  // `layoutMode` is the upstream discriminator: the candidate validator
+  // checks `llmOutput` against the response schema for
+  // `request.context.layoutMode` before calling this, so these casts are
   // type-safe narrowings. The narrowing lives here at the dispatch site
   // (rather than in a helper) so the discriminator → branch correspondence
   // is locally legible; each cast is paired with the case that justifies it.
@@ -163,13 +147,31 @@ export function processResponse({
     rationale: llmOutput.rationale,
     executionPlan,
     layout,
-    diagnostics: {
+    diagnostics: buildDiagnostics({
       skippedActions,
       droppedLayoutEntries: healed.droppedEntries,
       warnings: healed.warnings,
       retryHint,
-    },
+    }),
   });
+}
+
+/** Derives the stage-facing summary (counts and rendered feedback) once. */
+export function buildDiagnostics(records: DiagnosticRecords): FullDiagnostics {
+  const { skippedActions, droppedLayoutEntries, warnings } = records;
+  return {
+    ...records,
+    counts: {
+      skippedActions: skippedActions.length,
+      droppedLayoutEntries: droppedLayoutEntries.length,
+      warnings: warnings.length,
+    },
+    feedback: renderRetryDiagnostics(
+      droppedLayoutEntries,
+      skippedActions,
+      warnings,
+    ),
+  };
 }
 
 // Existing instances win on conflict — the LLM declaring a different
