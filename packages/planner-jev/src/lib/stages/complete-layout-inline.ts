@@ -11,14 +11,12 @@ import {
 import {
   type ChartRequest,
   err,
-  type InstanceId,
   isErr,
   MAX_SPLIT_CHILDREN,
   MAX_SPLIT_WEIGHT,
   ok,
   type Result,
   type TilingNode,
-  type VariantName,
   type VesselInstanceSnapshot,
 } from '@maelstrom-co/protocol';
 import { chat } from '@tanstack/ai';
@@ -30,8 +28,12 @@ import {
   parseFill,
   type Slot,
 } from '../completion-schema.js';
+import {
+  type DeclaredVariants,
+  declaredVariants,
+} from '../declared-variants.js';
 import { deferAt } from '../defer.js';
-import { finalVariants, type SimulationError } from '../final-variants.js';
+import type { SimulationError } from '../final-variants.js';
 import { layoutFits } from '../layout-fit.js';
 import { intentText, recentHistory } from '../questions.js';
 import type {
@@ -87,7 +89,7 @@ export function completeLayoutInline(llm: CompletionLlm): CompleteStage {
 }
 
 /**
- * Slots to fill, the retained instances, the finalized variant map and
+ * Slots to fill, the retained instances, their declared variants and
  * whether the decision hands the layout tree off. Shared by every
  * completion call built over one {@link LayoutDecision}, so a stage that
  * splits the completion into several calls still derives them once.
@@ -95,10 +97,7 @@ export function completeLayoutInline(llm: CompletionLlm): CompleteStage {
 export interface CompletionPrep {
   readonly slots: readonly Slot[];
   readonly retained: readonly SelectedInstance[];
-  readonly variants: Result<
-    ReadonlyMap<InstanceId, VariantName>,
-    SimulationError
-  >;
+  readonly declared: Result<DeclaredVariants, SimulationError>;
   readonly visible: readonly VesselInstanceSnapshot[];
   readonly handOff: boolean;
 }
@@ -116,20 +115,21 @@ export function prepareCompletion(decision: LayoutDecision): CompletionPrep {
   const retained = plan.selection.instances.filter(
     (instance) => instance.decision !== 'delete',
   );
-  const variants = finalVariants(retained, plan.actions, request.vessels);
+  const declared = declaredVariants(retained, plan.actions, request.vessels);
   const visible: VesselInstanceSnapshot[] = retained
     .filter((instance) => instance.visible)
     .map((instance) => ({
       instanceId: instance.instanceId,
       vesselId: instance.vesselId,
-      variant: isErr(variants)
+      variant: isErr(declared)
         ? instance.variant
-        : (variants.value.get(instance.instanceId) ?? instance.variant),
+        : (declared.value.variants.get(instance.instanceId) ??
+          instance.variant),
     }));
   return {
     slots,
     retained,
-    variants,
+    declared,
     visible,
     handOff: decision.tree === undefined,
   };
@@ -164,7 +164,7 @@ export function assembleCandidate(
 ): Result<PlannerCandidate, Deferred> {
   const { plan } = decision;
   const { request } = plan.selection.input;
-  const { slots, retained, variants, visible, handOff } = prep;
+  const { slots, retained, declared, visible, handOff } = prep;
 
   const filled = new Map<Slot, unknown>();
   for (const slot of slots) {
@@ -179,7 +179,7 @@ export function assembleCandidate(
     filled.set(slot, value);
   }
 
-  if (isErr(variants)) return deferAt(ctx, STAGE, 'simulation_failed');
+  if (isErr(declared)) return deferAt(ctx, STAGE, 'simulation_failed');
 
   if (invalidTree(request, tree, handOff, visible))
     return deferAt(ctx, STAGE, 'invalid_layout', 'layout');
@@ -187,7 +187,7 @@ export function assembleCandidate(
   const candidate: PlannerCandidate = {
     userMessage: completion.userMessage,
     rationale: rationale(decision),
-    executionPlan: plan.actions.map((action) => {
+    executionPlan: declared.value.actions.map((action) => {
       const params: Record<string, unknown> = { ...action.params };
       for (const slot of slots)
         if (slot.action === action)
@@ -202,12 +202,10 @@ export function assembleCandidate(
     }),
     layout: {
       tree: tree as readonly TilingNode[],
-      // New instances seed the Engine's action simulation from this
-      // declaration, so they keep the variant they are created in.
-      instances: retained.map(({ instanceId, vesselId, variant, fresh }) => ({
+      instances: retained.map(({ instanceId, vesselId, variant }) => ({
         instanceId,
         vesselId,
-        variant: fresh ? variant : (variants.value.get(instanceId) ?? variant),
+        variant: declared.value.variants.get(instanceId) ?? variant,
       })),
     },
   };
