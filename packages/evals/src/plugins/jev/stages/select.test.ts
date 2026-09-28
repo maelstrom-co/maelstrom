@@ -7,7 +7,7 @@ import {
   TEST_MODEL,
 } from '@maelstrom-co/planner-jev/_testing';
 import { isOk, ok } from '@maelstrom-co/protocol';
-import { selectScenarios } from '../../../core/scenarios.js';
+import { type Scenario, selectScenarios } from '../../../core/scenarios.js';
 import {
   runStageEval,
   type StageTurnRecord,
@@ -31,6 +31,14 @@ async function run(
   script: Script,
   droppedAnswer?: string,
 ) {
+  return runOn(selectScenarios('all', ids), script, droppedAnswer);
+}
+
+async function runOn(
+  scenarios: readonly Scenario[],
+  script: Script,
+  droppedAnswer?: string,
+) {
   const transport = scriptedFetch(script);
   const scripted = selectModuleWith({
     typesafe: typesafeSettings({
@@ -50,7 +58,7 @@ async function run(
           },
         };
   const records = (await runStageEval(module, {
-    scenarios: selectScenarios('all', ids),
+    scenarios,
     variants: ['gated'],
     repeats: 1,
   })) as StageTurnRecord<SelectTurnDetail>[];
@@ -85,6 +93,7 @@ describe('select stage eval', () => {
       needsActions: 'no',
       generatedContent: 'no',
       spatial: 'yes',
+      dependsOnScreen: 'no',
     });
     expect(record?.detail?.gates.needsActions).toMatchObject({
       answer: 'yes',
@@ -118,6 +127,7 @@ describe('select stage eval', () => {
       'needsActions',
       'generatedContent',
       'spatial',
+      'dependsOnScreen',
     ]);
   });
 
@@ -131,13 +141,33 @@ describe('select stage eval', () => {
   });
 
   test('ignores an expected gate the planner does not ask', async () => {
-    const { records } = await run(
-      ['journal-key-points-of-todays-plan'],
-      conversation({ gates: { ...QUIET_GATES, 'gate/spatial': 0.1 } }),
+    const [journal] = selectScenarios('all', [
+      'journal-key-points-of-todays-plan',
+    ]);
+    if (journal === undefined) throw new Error('scenario missing');
+    const withUnaskedGate: Scenario = {
+      ...journal,
+      expected: {
+        ...journal.expected,
+        expectedGates: { ...journal.expected.expectedGates, unasked: 'yes' },
+      },
+    };
+    const { records } = await runOn(
+      [withUnaskedGate],
+      conversation({
+        gates: {
+          ...QUIET_GATES,
+          'gate/spatial': 0.1,
+          'gate/dependsOnScreen': 0.9,
+        },
+      }),
     );
     const [record] = records;
     expect(record?.outcome).toBe('pass');
-    expect(record?.detail?.expected).toEqual({ generatedContent: 'no' });
+    expect(record?.detail?.expected).toEqual({
+      generatedContent: 'no',
+      dependsOnScreen: 'yes',
+    });
   });
 
   test('records a provider failure as an error, not a deferral', async () => {
@@ -169,6 +199,7 @@ describe('select stage eval', () => {
       'needsActions',
       'generatedContent',
       'spatial',
+      'dependsOnScreen',
     ]);
   });
 

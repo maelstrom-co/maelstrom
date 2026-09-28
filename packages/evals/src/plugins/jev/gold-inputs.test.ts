@@ -224,6 +224,7 @@ describe('goldGates', () => {
           needsActions: gate((scenario.expected.actions?.length ?? 0) > 0),
           generatedContent: gate(false),
           spatial: gate(scenario.spatial === true),
+          dependsOnScreen: gate(false),
         },
       } as never);
   });

@@ -74,6 +74,7 @@ describe('the Jev plugin', () => {
       needsActions: gate,
       generatedContent: gate,
       spatial: gate,
+      dependsOnScreen: gate,
     };
     expect(
       jevPlugin.verifyReplay?.(

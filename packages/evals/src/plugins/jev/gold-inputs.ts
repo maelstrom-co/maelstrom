@@ -113,6 +113,7 @@ export function layoutDeferralGoldInputs(
           needsActions: gate(false),
           generatedContent: gate(false),
           spatial: gate(scenario.spatial === true),
+          dependsOnScreen: gate(false),
         }
       : undefined;
   const select: Stage<PlanningInput, Selection2> = async (input) =>
@@ -132,8 +133,9 @@ export function layoutDeferralGoldInputs(
  * The gates a gated select stage would answer for `scenario` if it
  * answered right: an explicit `expectedGates` entry, else `needsActions`
  * yes when any action is expected, `generatedContent` no and `spatial`
- * from the scenario's tag. `needsActions` counts expected actions only,
- * not asks or unlisted parameters, unlike {@link expectedGateAnswers}.
+ * from the scenario's tag, `dependsOnScreen` no. `needsActions` counts
+ * expected actions only, not asks or unlisted parameters, unlike
+ * {@link expectedGateAnswers}.
  */
 export function goldGates(scenario: Scenario): Required<SelectionGates> {
   const explicit = scenario.expected.expectedGates ?? {};
@@ -145,6 +147,7 @@ export function goldGates(scenario: Scenario): Required<SelectionGates> {
     ),
     generatedContent: gateOr(expected.generatedContent, false),
     spatial: gateOr(expected.spatial, scenario.spatial === true),
+    dependsOnScreen: gateOr(expected.dependsOnScreen, false),
   };
 }
 
@@ -155,7 +158,7 @@ export function goldGates(scenario: Scenario): Required<SelectionGates> {
  * `needsActions` is yes when a planned scenario expects an action, an ask
  * or a parameter with no listed match, and no when it states its actions
  * and all are empty; `spatial` follows the spatial tag; `generatedContent`
- * is no for a planned scenario.
+ * and `dependsOnScreen` are no for a planned scenario.
  */
 export function expectedGateAnswers(
   scenario: Scenario,
@@ -170,6 +173,7 @@ export function expectedGateAnswers(
     if (expectsWork) derived.needsActions = 'yes';
     else if (expected.actions !== undefined) derived.needsActions = 'no';
     derived.generatedContent = 'no';
+    derived.dependsOnScreen = 'no';
   }
   if (scenario.spatial !== undefined)
     derived.spatial = scenario.spatial ? 'yes' : 'no';
