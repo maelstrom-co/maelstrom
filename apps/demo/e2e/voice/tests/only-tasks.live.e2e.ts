@@ -1,9 +1,9 @@
-import { expect, test } from '@playwright/test';
 import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
+import { expect, test } from '@playwright/test';
+import { CALENDAR_WORD, observeProtocol, TASK_WORD } from './evidence.ts';
 import { nonSilentMs, recordReplies, replyWav } from './reply-recorder';
-import { CALENDAR_WORD, TASK_WORD, observeProtocol } from './evidence.mjs';
 
 const exec = promisify(execFile);
 const input = fileURLToPath(
