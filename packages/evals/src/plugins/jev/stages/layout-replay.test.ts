@@ -61,12 +61,6 @@ const HOLDOUT_BANNER_OVER_ROW = [
 const INTENDED_TREE_CHANGES: Readonly<
   Record<string, readonly TilingNode[] | null>
 > = {
-  'log1:1': null,
-  'log1:2': null,
-  'log1:3': null,
-  'log2:1': null,
-  'log2:2': null,
-  'log2:3': null,
   'log1:25': ['H:1,3', 'ID:map-jev-1', 'ID:journal-main'] as TilingNode[],
   'log2:10': [
     'H:3,1',

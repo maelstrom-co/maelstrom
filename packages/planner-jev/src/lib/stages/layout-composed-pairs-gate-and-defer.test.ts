@@ -602,6 +602,23 @@ describe('spatial gate', () => {
     expect(deferralOf(result)).toBe('jevLayout/spatial_not_stated');
   });
 
+  test('keeps the current tree on a resize with no request text, even when the spatial gate says yes and every answer is not stated', async () => {
+    const request = makeRequest(
+      [
+        {
+          type: 'chart_resize',
+          previous: { columns: 12, rows: 8 },
+          current: { columns: 30, rows: 18 },
+        },
+      ],
+      { tree: SIDE_BY_SIDE },
+    );
+    const { result } = await runResult(() => notStated, gatedPlan(request));
+    expect(deferralOf(result)).toBeUndefined();
+    if (!isOk(result)) throw new Error('expected a layout decision');
+    expect(result.value.tree).toEqual(SIDE_BY_SIDE);
+  });
+
   test('keeps the current tree when the spatial gate says no and every answer is not stated', async () => {
     const { decision } = await runWithSpatial(confidentNo);
     expect(decision.tree).toEqual(SIDE_BY_SIDE);

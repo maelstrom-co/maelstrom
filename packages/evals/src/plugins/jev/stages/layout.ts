@@ -106,8 +106,8 @@ export const EXPECTED_LAYOUT_DEFERRAL = 'jevLayout/no_feasible_layout';
 /**
  * The deferral reason a scenario that expects the layout stage to defer
  * with `deferCause: 'arrangement_not_stated'` expects: the spatial gate
- * said yes, yet no pair or direction answer stated an arrangement and the
- * picked tree is the current one.
+ * said yes on a request with intent text, yet no pair or direction answer
+ * stated an arrangement and the picked tree is the current one.
  */
 export const EXPECTED_UNSTATED_LAYOUT_DEFERRAL = 'jevLayout/spatial_not_stated';
 

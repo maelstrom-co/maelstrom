@@ -210,13 +210,16 @@ export type ComposedPairsDecision = LayoutDecision & {
  * just because it fits without resizing. When nothing fits, or a single
  * visible Instance does not fit, the stage defers
  * with `jevLayout/no_feasible_layout` so the fallback planner answers the
- * turn. When the `spatial` gate said yes, every pair's and the direction's
- * most probable answer is not stated, and the picked tree is token for
- * token the current one, the stage defers with
+ * turn. When the `spatial` gate said yes on a request with user intent
+ * text, every pair's and the direction's most probable answer is not
+ * stated, and the picked tree is token for token the current one, the
+ * stage defers with
  * `jevLayout/spatial_not_stated`: the request asks for an arrangement the
  * pair questions cannot express, such as a whole-board grid, and shipping
  * the unchanged board would ignore it. A size-only request still ships,
- * since its size answers change the weights. More than {@link MAX_PAIRS_INSTANCES} visible Instances hand the
+ * since its size answers change the weights, and so does a Chart resize
+ * with no intent text, which asks for no arrangement even when the gate
+ * reads the resize as spatial. More than {@link MAX_PAIRS_INSTANCES} visible Instances hand the
  * layout to the completion stage (`source: 'llm'`, no tree, no call).
  */
 export function layoutComposedPairsGateAndDefer(
@@ -353,6 +356,7 @@ export function layoutComposedPairsGateAndDefer(
     const { tree, ...sizedHow } = picked;
     if (
       plan.gates.spatial.answer === 'yes' &&
+      intentText(request).trim() !== '' &&
       statesNoArrangement(pairAnswers, direction) &&
       sameTokens(tree, currentTree)
     )
