@@ -3,11 +3,15 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import type { PlannerCandidate, ValidateCandidate } from '@maelstrom-co/engine';
 import {
   ActionName,
+  type ChartRequest,
   err,
   InstanceId,
   isOk,
   MessageId,
   ok,
+  VariantName,
+  type Vessel,
+  VesselId,
 } from '@maelstrom-co/protocol';
 
 import {
@@ -18,6 +22,7 @@ import {
   makeRequest,
   plain,
   spyLogger,
+  vessels,
 } from '../__test-helpers__/fixtures.js';
 import {
   completionPlan,
@@ -29,7 +34,11 @@ import {
   dummyAdapter,
   mockChat,
 } from '../__test-helpers__/mock-chat.js';
-import type { JevLayoutPlan, PendingParameter } from '../types.js';
+import type {
+  JevLayoutPlan,
+  PendingParameter,
+  PlannedAction,
+} from '../types.js';
 import { llmComplete } from './llm-complete.js';
 
 afterEach(() => mockChat.mockReset());
@@ -51,6 +60,73 @@ async function run(
   });
   const result = await llmComplete({ adapter: dummyAdapter })(layoutPlan, ctx);
   return { result, entries };
+}
+
+/** A layout plan over `request` that also creates `instanceId` of `vesselId` in `variant`. */
+function creating(
+  request: ChartRequest,
+  created: { instanceId: string; vesselId: string; variant: string },
+  actions: readonly PlannedAction[],
+): JevLayoutPlan {
+  const base = completionPlan(request, { actions });
+  const { selection } = base.plan;
+  return {
+    ...base,
+    plan: {
+      ...base.plan,
+      selection: {
+        ...selection,
+        instances: [
+          ...selection.instances,
+          {
+            instanceId: InstanceId(created.instanceId),
+            vesselId: VesselId(created.vesselId),
+            variant: VariantName(created.variant),
+            visible: true,
+            fresh: true,
+            decision: 'create',
+          },
+        ],
+      },
+    },
+  };
+}
+
+/** The fixture catalog with a map `focusLocation` that moves to a `compact` view offering no `focusLocation`. */
+function withCompactMap(): readonly Vessel[] {
+  const focusLocation = {
+    name: ActionName('focusLocation'),
+    description: 'Focus a saved place',
+    idempotent: false,
+    parameters: [
+      { name: 'name', type: 'string' as const, description: 'Place name' },
+    ],
+    transitionsTo: VariantName('compact'),
+  };
+  return vessels.map((vessel) => {
+    const overview = vessel.variants[VariantName('overview')];
+    if (vessel.id !== 'map' || overview === undefined) return vessel;
+    return {
+      ...vessel,
+      variants: {
+        ...vessel.variants,
+        overview: {
+          ...overview,
+          actions: [...overview.actions, focusLocation],
+        },
+        compact: { ...overview, actions: [] },
+      },
+    };
+  });
+}
+
+function declaredVariant(
+  candidate: ReturnType<typeof candidateOf>,
+  instanceId: string,
+): string | undefined {
+  return candidate.layout.instances.find(
+    (instance) => instance.instanceId === instanceId,
+  )?.variant;
 }
 
 function candidateOf(result: Awaited<ReturnType<typeof run>>['result']) {
@@ -275,6 +351,79 @@ describe('llmComplete', () => {
     expect(candidate.rationale).toContain('Planned by Jev.');
     expect(candidate.rationale).toContain('openEntry on journal-main');
     expect(candidate.rationale).toContain('Deleted: tasks-main');
+  });
+
+  test('a new map with a route is declared in route and keeps showRoute', async () => {
+    mockChat.mockResolvedValue({ userMessage: 'Added a map.' });
+    const { result } = await run(
+      creating(
+        makeRequest('show me a map with a route to Central Station'),
+        { instanceId: 'map-new', vesselId: 'map', variant: 'overview' },
+        [planned('map-new/showRoute', { destination: 'Central Station' })],
+      ),
+    );
+    const candidate = candidateOf(result);
+    expect(declaredVariant(candidate, 'map-new')).toBe('route');
+    expect(candidate.executionPlan).toEqual([
+      {
+        instanceId: 'map-new',
+        action: 'showRoute',
+        paramsJson: '{"destination":"Central Station"}',
+      },
+    ]);
+  });
+
+  test('a new calendar switched to week is declared in week without the switch', async () => {
+    mockChat.mockResolvedValue({ userMessage: 'Added a week calendar.' });
+    const { result } = await run(
+      creating(
+        makeRequest('add a calendar for this week and the weekly forecast'),
+        { instanceId: 'calendar-new', vesselId: 'calendar', variant: 'month' },
+        [planned('calendar-new/showWeek'), planned('weather-main/showWeekly')],
+      ),
+    );
+    const candidate = candidateOf(result);
+    expect(declaredVariant(candidate, 'calendar-new')).toBe('week');
+    expect(declaredVariant(candidate, 'weather-main')).toBe('weekly');
+    expect(candidate.executionPlan).toEqual([
+      { instanceId: 'weather-main', action: 'showWeekly' },
+    ]);
+  });
+
+  test('a new instance keeps its created variant and actions when a parameterized action is not offered in the final variant', async () => {
+    mockChat.mockResolvedValue({ userMessage: 'Added a map.' });
+    const { result } = await run(
+      creating(
+        makeRequest('add a map focused on the office', {
+          vessels: withCompactMap(),
+        }),
+        { instanceId: 'map-new', vesselId: 'map', variant: 'overview' },
+        [planned('map-new/focusLocation', { name: 'Office' })],
+      ),
+    );
+    const candidate = candidateOf(result);
+    expect(declaredVariant(candidate, 'map-new')).toBe('overview');
+    expect(candidate.executionPlan).toEqual([
+      {
+        instanceId: 'map-new',
+        action: 'focusLocation',
+        paramsJson: '{"name":"Office"}',
+      },
+    ]);
+  });
+
+  test('an existing instance is declared in its final variant and keeps its switch', async () => {
+    mockChat.mockResolvedValue({ userMessage: 'Showing the week.' });
+    const { result } = await run(
+      completionPlan(makeRequest('show this week'), {
+        actions: [planned('calendar-main/showWeek')],
+      }),
+    );
+    const candidate = candidateOf(result);
+    expect(declaredVariant(candidate, 'calendar-main')).toBe('week');
+    expect(candidate.executionPlan).toEqual([
+      { instanceId: 'calendar-main', action: 'showWeek' },
+    ]);
   });
 
   test('a validation error defers invalid_candidate', async () => {

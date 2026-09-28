@@ -307,6 +307,61 @@ describe('jevPlanner through createEngine', () => {
     ]);
   });
 
+  test('a new map with a route ships in the route variant with showRoute', async () => {
+    mockChat.mockResolvedValue({ userMessage: 'Added a map with the route.' });
+    const request = makeRequest(
+      'show me a map with a route to Central Station',
+    );
+    const { result, fallback } = await run(
+      request,
+      talk({
+        select: { 'new/map': 'one/overview' },
+        actions: [
+          {
+            pick: 'map-jev-1/showRoute',
+            params: { destination: { value: 'Central Station' } },
+          },
+        ],
+        layout: (payload) =>
+          Object.keys(payload.questions.layout?.criteria ?? {})[0] ?? '',
+      }),
+    );
+    const response = shipped(result);
+    expect(fallback.inputs).toHaveLength(0);
+    expect(
+      response.layout.instances.find((i) => i.instanceId === 'map-jev-1')
+        ?.variant,
+    ).toBe('route');
+    expect(response.executionPlan).toEqual([
+      {
+        instanceId: 'map-jev-1',
+        action: 'showRoute',
+        params: { destination: 'Central Station' },
+      },
+    ]);
+  });
+
+  test('a new calendar switched to week ships in the week variant without the switch', async () => {
+    mockChat.mockResolvedValue({ userMessage: 'Added a week calendar.' });
+    const request = makeRequest('add another calendar showing this week');
+    const { result, fallback } = await run(
+      request,
+      talk({
+        select: { 'new/calendar': 'one/month' },
+        actions: [{ pick: 'calendar-jev-1/showWeek' }],
+        layout: (payload) =>
+          Object.keys(payload.questions.layout?.criteria ?? {})[0] ?? '',
+      }),
+    );
+    const response = shipped(result);
+    expect(fallback.inputs).toHaveLength(0);
+    expect(
+      response.layout.instances.find((i) => i.instanceId === 'calendar-jev-1')
+        ?.variant,
+    ).toBe('week');
+    expect(response.executionPlan).toEqual([]);
+  });
+
   test('a provider timeout reaches the fallback', async () => {
     const { result, fallback, entries } = await run(
       makeRequest('hide the tasks'),

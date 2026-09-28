@@ -11,9 +11,8 @@ import {
 import { err, isErr, ok, type Result } from '@maelstrom-co/protocol';
 import { type AnyTextAdapter, chat } from '@tanstack/ai';
 import { z } from 'zod';
-
+import { declaredVariants } from '../declared-variants.js';
 import { deferAt } from '../defer.js';
-import { finalVariants } from '../final-variants.js';
 import { intentText, recentHistory } from '../questions.js';
 import type {
   JevLayoutPlan,
@@ -48,13 +47,13 @@ export interface Slot {
 /**
  * Turns the Jev decisions into a candidate: one small LLM call writes the
  * `userMessage` and fills `stated_elsewhere` parameters, code builds the
- * layout, execution plan and rationale. The layout declares each existing
- * instance in the variant the planned actions leave it in: clients apply a
- * transition from the layout, not from an Engine-issued action. The
- * candidate then goes through
- * `ctx.validate`; a validation error or a recommended retry defers, so a
- * flawed Jev plan falls back instead of shipping healed. Provider failures
- * and cancellation are real errors: the fallback uses the same provider.
+ * layout, execution plan and rationale. The layout declares instances in
+ * the variants {@link declaredVariants} settles on, which also drops the
+ * view switches a new instance no longer needs. The candidate then goes
+ * through `ctx.validate`; a validation error or a recommended retry defers,
+ * so a flawed Jev plan falls back instead of shipping healed. Provider
+ * failures and cancellation are real errors: the fallback uses the same
+ * provider.
  */
 export function llmComplete(
   options: LlmCompleteOptions,
@@ -96,17 +95,17 @@ export function llmComplete(
     const retained = plan.selection.instances.filter(
       (instance) => instance.decision !== 'delete',
     );
-    const variants = finalVariants(
+    const declared = declaredVariants(
       retained,
       plan.actions,
       input.request.vessels,
     );
-    if (isErr(variants)) return deferAt(ctx, STAGE, 'simulation_failed');
+    if (isErr(declared)) return deferAt(ctx, STAGE, 'simulation_failed');
 
     const candidate: PlannerCandidate = {
       userMessage: completion.value.userMessage,
       rationale: rationale(layoutPlan),
-      executionPlan: plan.actions.map((action) => {
+      executionPlan: declared.value.actions.map((action) => {
         const params: Record<string, unknown> = { ...action.params };
         for (const slot of slots)
           if (slot.action === action)
@@ -121,14 +120,10 @@ export function llmComplete(
       }),
       layout: {
         tree: layoutPlan.tree,
-        // New instances seed the Engine's action simulation from this
-        // declaration, so they keep the variant they are created in.
-        instances: retained.map(({ instanceId, vesselId, variant, fresh }) => ({
+        instances: retained.map(({ instanceId, vesselId, variant }) => ({
           instanceId,
           vesselId,
-          variant: fresh
-            ? variant
-            : (variants.value.get(instanceId) ?? variant),
+          variant: declared.value.variants.get(instanceId) ?? variant,
         })),
       },
     };
