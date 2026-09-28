@@ -3,12 +3,14 @@ import { describe, expect, test } from 'bun:test';
 import { isOk } from '@maelstrom-co/protocol';
 
 import { conversation, keepAll } from '../__test-helpers__/actions-fixtures.js';
+import { demoVessels } from '../__test-helpers__/demo-vessels.js';
 import {
   deferralOf,
   makeContext,
   makeRequest,
   makeResizeRequest,
   plain,
+  spyLogger,
   vessels,
 } from '../__test-helpers__/fixtures.js';
 import {
@@ -46,11 +48,47 @@ async function run(
   options: ActionsBatchedPerInstanceOptions = {},
 ) {
   const { ask, calls } = scriptedAsk(script);
+  const { logger, entries } = spyLogger();
   const result = await actionsBatchedPerInstance(ask, options)(
     selection,
-    makeContext(selection.input),
+    makeContext(selection.input, { logger }),
   );
-  return { result, calls };
+  return { result, calls, logs: entries };
+}
+
+function logged(
+  logs: Awaited<ReturnType<typeof run>>['logs'],
+  msg: string,
+): unknown[] {
+  return logs.filter((entry) => entry.msg === msg).map((entry) => entry.data);
+}
+
+const MAP_ONLY = {
+  ...CALENDAR_ONLY,
+  'calendar-main': 'delete',
+  'map-main': 'keep',
+} as const;
+
+const TASKS_ONLY = {
+  ...CALENDAR_ONLY,
+  'calendar-main': 'delete',
+  'tasks-main': 'keep',
+} as const;
+
+function mapSelection(intent: string, variant: string): Selection2 {
+  return keepAll(
+    makeRequest(intent, { variants: { map: variant } }),
+    [],
+    MAP_ONLY,
+  );
+}
+
+function demoCalendarSelection(intent: string): Selection2 {
+  return keepAll(
+    makeRequest(intent, { vessels: demoVessels }),
+    [],
+    CALENDAR_ONLY,
+  );
 }
 
 /** A budget small enough to split these fixtures over several calls. */
@@ -190,59 +228,56 @@ describe('actionsBatchedPerInstance', () => {
     ]);
   });
 
-  test('drops a second slot that repeats an idempotent first action', async () => {
-    const idempotentRoute = vessels.map((vessel) =>
-      vessel.id !== 'map'
-        ? vessel
-        : {
-            ...vessel,
-            variants: Object.fromEntries(
-              Object.entries(vessel.variants).map(([name, variant]) => [
-                name,
-                {
-                  ...variant,
-                  actions: variant.actions.map((action) =>
-                    action.name === 'showRoute'
-                      ? { ...action, idempotent: true }
-                      : action,
-                  ),
-                },
-              ]),
-            ),
-          },
-    );
-    const { result } = await run(
-      keepAll(
-        makeRequest('show me the map and a route to the studio', {
-          vessels: idempotentRoute,
-        }),
-        [],
-        { ...CALENDAR_ONLY, 'calendar-main': 'delete', 'map-main': 'keep' },
-      ),
+  test('drops a second moveEvent whose bound parameters repeat the first', async () => {
+    const { result, logs } = await run(
+      demoCalendarSelection('move "Gym" to "8:00" twice'),
       answering({
-        'map-main/1': 'showRoute',
-        'map-main/2': 'route:showRoute',
-        'param/map-main/1/showRoute/destination': 'stated_elsewhere',
-        'param/map-main/2/route:showRoute/destination': 'stated_elsewhere',
+        'calendar-main/1': 'moveEvent',
+        'calendar-main/2': 'day:moveEvent',
+        'param/calendar-main/1/moveEvent/title': 'v0',
+        'param/calendar-main/1/moveEvent/time': 'v1',
+        'param/calendar-main/2/day:moveEvent/title': 'v0',
+        'param/calendar-main/2/day:moveEvent/time': 'v1',
       }),
     );
     expect(planned(result).actions).toEqual([
-      {
-        instanceId: 'map-main',
-        action: 'showRoute',
-        params: {},
-        pending: [expect.objectContaining({ name: 'destination' })],
-      } as never,
+      expect.objectContaining({
+        action: 'moveEvent',
+        params: { title: 'Gym', time: '8:00' },
+      }),
+    ]);
+    expect(logged(logs, 'jev.duplicate_action_dropped')).toHaveLength(1);
+  });
+
+  test('keeps two moveEvent calls for two different events', async () => {
+    const { result } = await run(
+      demoCalendarSelection(
+        'move "Gym" to "8:00" and "Design review" to "11:00"',
+      ),
+      answering({
+        'calendar-main/1': 'moveEvent',
+        'calendar-main/2': 'day:moveEvent',
+        'param/calendar-main/1/moveEvent/title': 'v0',
+        'param/calendar-main/1/moveEvent/time': 'v1',
+        'param/calendar-main/2/day:moveEvent/title': 'v2',
+        'param/calendar-main/2/day:moveEvent/time': 'v3',
+      }),
+    );
+    expect(planned(result).actions).toEqual([
+      expect.objectContaining({
+        action: 'moveEvent',
+        params: { title: 'Gym', time: '8:00' },
+      }),
+      expect.objectContaining({
+        action: 'moveEvent',
+        params: { title: 'Design review', time: '11:00' },
+      }),
     ]);
   });
 
-  test('keeps a second slot that repeats an action that is not idempotent', async () => {
-    const { result } = await run(
-      selectionOf('add "Buy milk" twice', {
-        ...CALENDAR_ONLY,
-        'calendar-main': 'delete',
-        'tasks-main': 'keep',
-      }),
+  test('drops a second action whose name and bound parameters repeat an earlier one, regardless of the idempotent flag', async () => {
+    const { result, logs } = await run(
+      selectionOf('add "Buy milk" twice', TASKS_ONLY),
       answering({
         'tasks-main/1': 'addTask',
         'tasks-main/2': 'list:addTask',
@@ -257,11 +292,208 @@ describe('actionsBatchedPerInstance', () => {
         action: 'addTask',
         params: { title: 'Buy milk' },
       }),
+    ]);
+    expect(logged(logs, 'jev.duplicate_action_dropped')).toEqual([
       expect.objectContaining({
+        instanceId: 'tasks-main',
         action: 'addTask',
         params: { title: 'Buy milk' },
       }),
     ]);
+  });
+
+  test('keeps two actions with the same name and different bound parameters', async () => {
+    const { result } = await run(
+      selectionOf('add "Buy milk" and "Send invoice"', TASKS_ONLY),
+      answering({
+        'tasks-main/1': 'addTask',
+        'tasks-main/2': 'list:addTask',
+        'param/tasks-main/1/addTask/title': 'v0',
+        'param/tasks-main/2/list:addTask/title': 'v1',
+        'param/tasks-main/1/addTask/urgent': 'omit',
+        'param/tasks-main/2/list:addTask/urgent': 'omit',
+      }),
+    );
+    expect(planned(result).actions.map((action) => action.params)).toEqual([
+      { title: 'Buy milk' },
+      { title: 'Send invoice' },
+    ]);
+  });
+
+  test('drops a repeated parameterless action', async () => {
+    const parameterlessRoute = vessels.map((vessel) =>
+      vessel.id !== 'map'
+        ? vessel
+        : {
+            ...vessel,
+            variants: Object.fromEntries(
+              Object.entries(vessel.variants).map(([name, variant]) => [
+                name,
+                {
+                  ...variant,
+                  actions: variant.actions.map((action) =>
+                    action.name === 'showRoute'
+                      ? { ...action, parameters: [] }
+                      : action,
+                  ),
+                },
+              ]),
+            ),
+          },
+    );
+    const { result } = await run(
+      keepAll(
+        makeRequest('show the route, and show it again', {
+          vessels: parameterlessRoute,
+          variants: { map: 'route' },
+        }),
+        [],
+        MAP_ONLY,
+      ),
+      answering({
+        'map-main/1': 'showRoute',
+        'map-main/2': 'route:showRoute',
+      }),
+    );
+    expect(planned(result).actions).toEqual([
+      {
+        instanceId: 'map-main',
+        action: 'showRoute',
+        params: {},
+        pending: [],
+      } as never,
+    ]);
+  });
+
+  test.each([
+    ['the second', 'v0', 'stated_elsewhere'],
+    ['the first', 'stated_elsewhere', 'v0'],
+    ['both', 'stated_elsewhere', 'stated_elsewhere'],
+  ])('keeps a repeated action when a parameter is still pending on %s slot', async (_name, first, second) => {
+    const { result, logs } = await run(
+      selectionOf('add "Buy milk" twice', TASKS_ONLY),
+      answering({
+        'tasks-main/1': 'addTask',
+        'tasks-main/2': 'list:addTask',
+        'param/tasks-main/1/addTask/title': first,
+        'param/tasks-main/2/list:addTask/title': second,
+        'param/tasks-main/1/addTask/urgent': 'omit',
+        'param/tasks-main/2/list:addTask/urgent': 'omit',
+      }),
+    );
+    expect(planned(result).actions.map((action) => action.action)).toEqual([
+      'addTask',
+      'addTask',
+    ]);
+    expect(logged(logs, 'jev.duplicate_action_dropped')).toEqual([]);
+  });
+
+  test('asks once for a parameter two slots of the same action both leave unanswered', async () => {
+    const { result } = await run(
+      selectionOf('add a task, and another', TASKS_ONLY),
+      answering({
+        'tasks-main/1': 'addTask',
+        'tasks-main/2': 'list:addTask',
+        'param/tasks-main/1/addTask/urgent': 'omit',
+        'param/tasks-main/2/list:addTask/urgent': 'omit',
+      }),
+    );
+    expect(planned(result)).toMatchObject({
+      actions: [],
+      asks: [
+        {
+          instanceId: 'tasks-main',
+          action: 'addTask',
+          parameter: { name: 'title' },
+        },
+      ],
+    });
+    expect(planned(result).asks).toHaveLength(1);
+  });
+
+  test('promotes a second slot whose premise is the current view when the first slot answers none', async () => {
+    const { result, logs } = await run(
+      mapSelection('route there again', 'route'),
+      answering({
+        'map-main/1': 'none',
+        'map-main/2': 'route:showRoute',
+        'param/map-main/2/route:showRoute/destination': 'v0',
+      }),
+    );
+    expect(planned(result).actions).toEqual([
+      {
+        instanceId: 'map-main',
+        action: 'showRoute',
+        params: { destination: 'Studio Vortex HQ' },
+        pending: [],
+      } as never,
+    ]);
+    expect(logged(logs, 'jev.slot_promoted')).toEqual([
+      expect.objectContaining({
+        instanceId: 'map-main',
+        action: 'showRoute',
+        premise: 'route',
+        current: 'route',
+        via: 'premise',
+      }),
+    ]);
+  });
+
+  test("promotes the current view's action of the same name when the premise view differs", async () => {
+    const { result, logs } = await run(
+      mapSelection('take me there again', 'overview'),
+      answering({
+        'map-main/1': 'none',
+        'map-main/2': 'route:showRoute',
+        'param/map-main/1/showRoute/destination': 'v0',
+        'param/map-main/2/route:showRoute/destination': 'v1',
+      }),
+    );
+    expect(planned(result).actions).toEqual([
+      {
+        instanceId: 'map-main',
+        action: 'showRoute',
+        params: { destination: 'Studio Vortex HQ' },
+        pending: [],
+      } as never,
+    ]);
+    expect(logged(logs, 'jev.slot_promoted')).toEqual([
+      expect.objectContaining({
+        instanceId: 'map-main',
+        action: 'showRoute',
+        premise: 'route',
+        current: 'overview',
+        via: 'same_name',
+      }),
+    ]);
+  });
+
+  test('defers as a premise mismatch when the promoted action is not legal in the current view', async () => {
+    const { result, logs } = await run(
+      mapSelection('back to the overview', 'overview'),
+      answering({
+        'map-main/1': 'none',
+        'map-main/2': 'route:showOverview',
+      }),
+    );
+    expect(deferralOf(result)).toBe('jevActions/premise_mismatch');
+    expect(logged(logs, 'jev.slot_discarded')).toEqual([
+      expect.objectContaining({
+        instanceId: 'map-main',
+        action: 'showOverview',
+        premise: 'route',
+        current: 'overview',
+      }),
+    ]);
+  });
+
+  test('plans nothing when both the first and second slots answer none', async () => {
+    const { result, logs } = await run(
+      mapSelection('nothing to do', 'route'),
+      answering({ 'map-main/1': 'none', 'map-main/2': 'none' }),
+    );
+    expect(planned(result)).toEqual({ actions: [], asks: [] });
+    expect(logged(logs, 'jev.slot_promoted')).toEqual([]);
   });
 
   test('defers a slot-2 answer whose premise does not match slot 1', async () => {
@@ -304,10 +536,10 @@ describe('actionsBatchedPerInstance', () => {
     expect(deferralOf(result)).toBe('jevActions/action_limit');
   });
 
-  test('ignores slot 2 when slot 1 is none and defers unsupported', async () => {
+  test('plans nothing when slot 1 is none and slot 2 is unsupported, and defers an unsupported slot 1', async () => {
     const quiet = await run(
       selectionOf('nothing', CALENDAR_ONLY),
-      answering({ 'calendar-main/2': 'week:addEvent' }),
+      answering({ 'calendar-main/2': 'unsupported' }),
     );
     expect(planned(quiet.result)).toEqual({ actions: [], asks: [] });
     const unsupported = await run(

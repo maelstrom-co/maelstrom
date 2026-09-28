@@ -240,3 +240,77 @@ describe('completeLayoutInline layout summary', () => {
     );
   });
 });
+
+describe('completeLayoutInline repeated actions', () => {
+  const TITLE: PendingParameter = {
+    name: 'title',
+    type: 'string',
+    description: 'Task title',
+  };
+
+  async function runLogged(
+    actions: Parameters<typeof completionPlan>[1]['actions'],
+    params: Record<string, unknown>,
+  ) {
+    const layoutPlan = completionPlan(makeRequest('add buy milk'), { actions });
+    mockChat.mockResolvedValue({ userMessage: 'Added.', params });
+    const { logger, entries } = spyLogger();
+    const result = await completeLayoutInline({ adapter: dummyAdapter })(
+      decisionOf(layoutPlan),
+      makeContext(layoutPlan.plan.selection.input, { logger }),
+    );
+    if (!isOk(result)) throw new Error(`deferred: ${deferralOf(result)}`);
+    return {
+      steps: plain(result.value.executionPlan),
+      dropped: entries.filter((e) => e.msg === 'jev.duplicate_action_dropped'),
+    };
+  }
+
+  test('drops a later action whose filled parameters equal an earlier one', async () => {
+    const { steps, dropped } = await runLogged(
+      [
+        planned('tasks-main/addTask', {}, [TITLE]),
+        planned('tasks-main/addTask', {}, [TITLE]),
+      ],
+      { p0: 'Buy milk', p1: 'Buy milk' },
+    );
+    expect(steps).toEqual([
+      {
+        instanceId: 'tasks-main',
+        action: 'addTask',
+        paramsJson: '{"title":"Buy milk"}',
+      },
+    ]);
+    expect(dropped.map((entry) => entry.data)).toEqual([
+      expect.objectContaining({
+        instanceId: 'tasks-main',
+        action: 'addTask',
+        params: { title: 'Buy milk' },
+      }),
+    ]);
+  });
+
+  test('keeps both actions when the filled values differ', async () => {
+    const { steps, dropped } = await runLogged(
+      [
+        planned('tasks-main/addTask', {}, [TITLE]),
+        planned('tasks-main/addTask', {}, [TITLE]),
+      ],
+      { p0: 'Buy milk', p1: 'Send invoice' },
+    );
+    expect(steps).toHaveLength(2);
+    expect(dropped).toEqual([]);
+  });
+
+  test('keeps both actions when one has an extra parameter', async () => {
+    const { steps, dropped } = await runLogged(
+      [
+        planned('tasks-main/addTask', {}, [TITLE]),
+        planned('tasks-main/addTask', { urgent: true }, [TITLE]),
+      ],
+      { p0: 'Buy milk', p1: 'Buy milk' },
+    );
+    expect(steps).toHaveLength(2);
+    expect(dropped).toEqual([]);
+  });
+});
