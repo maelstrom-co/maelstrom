@@ -12,6 +12,7 @@ import type {
 import { createCandidateValidator } from '../planner/validate-candidate.js';
 import { makeGridRequest, silentLogger } from './fixtures.js';
 
+/** One call recorded by a `spyLogger` logger. */
 export interface SpyEntry {
   readonly level: 'debug' | 'info' | 'warn' | 'error';
   readonly msg: string;
@@ -19,6 +20,10 @@ export interface SpyEntry {
   readonly ctx?: Record<string, unknown>;
 }
 
+/**
+ * Creates a logger that records every call, in call order, into the returned
+ * `entries` array.
+ */
 export function spyLogger(): { logger: Logger; entries: SpyEntry[] } {
   const entries: SpyEntry[] = [];
   const logger: Logger = {
@@ -31,6 +36,11 @@ export function spyLogger(): { logger: Logger; entries: SpyEntry[] } {
   return { logger, entries };
 }
 
+/**
+ * Builds the `PlanningInput` the Engine hands a planner for `request`, with
+ * fixed message and session ids and an empty history. Defaults to
+ * `makeGridRequest()`.
+ */
 export function makePlanningInput(
   request: ChartRequest = makeGridRequest(),
 ): PlanningInput {

@@ -200,6 +200,7 @@
     "@maelstrom-co/connectors": "workspace:*",
     "@maelstrom-co/engine": "workspace:*",
     "@maelstrom-co/planner-jev": "workspace:*",
+    "@maelstrom-co/planner-llm": "workspace:*",
     "@maelstrom-co/protocol": "workspace:*",
     "@maelstrom-co/react": "workspace:*",
     "@maelstrom-co/react-realtime": "workspace:*",

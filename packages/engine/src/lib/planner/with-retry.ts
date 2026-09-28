@@ -35,7 +35,8 @@ export interface WithRetryOptions {
  *
  * @example
  * ```ts
- * const planner = withRetry(llmPlanner({ adapter }), { max: 1 });
+ * // `modelPlanner` is any `Planner`, for example one that calls a model.
+ * const planner = withRetry(modelPlanner, { max: 1 });
  * ```
  */
 export function withRetry<In>(

@@ -2,7 +2,6 @@ import { describe, expect, test } from 'bun:test';
 import type { ChartRequest, UpdateReason } from '@maelstrom-co/protocol';
 import { InstanceId } from '@maelstrom-co/protocol';
 import { makeGridRequest } from './__test-helpers__/fixtures.js';
-import { buildUpdateTriggersSection } from './prompt/request-serializer.js';
 import { classifyExecutionTurn } from './response/execution-plan/turn.js';
 import { isResizeOnlyBatch } from './update-reasons.js';
 
@@ -56,15 +55,12 @@ describe('isResizeOnlyBatch', () => {
   });
 });
 
-describe('resize-only agreement between prompt and execution turn', () => {
-  test('the prompt instruction appears exactly when the guard arms', () => {
+describe('resize-only agreement between the predicate and the execution turn', () => {
+  test('the execution turn is resize-only exactly when the predicate says so', () => {
     for (const reasons of batches) {
       const armed =
         classifyExecutionTurn(requestWith(reasons)).kind === 'resize_only';
-      const instructed = buildUpdateTriggersSection(reasons).includes(
-        'Return an empty executionPlan',
-      );
-      expect(instructed).toBe(armed);
+      expect(armed).toBe(isResizeOnlyBatch(reasons));
     }
   });
 });

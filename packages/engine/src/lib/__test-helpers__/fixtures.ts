@@ -20,31 +20,17 @@ import {
   VariantName,
   VesselId,
 } from '@maelstrom-co/protocol';
-import type { AnyTextAdapter } from '@tanstack/ai';
 
 import type { Logger } from '../logger.js';
 import type { SkippedAction } from '../response/execution-plan/index.js';
 
+/** Logger that discards every entry. */
 export const silentLogger: Logger = {
   debug: () => {},
   info: () => {},
   warn: () => {},
   error: () => {},
 };
-
-// AnyTextAdapter's phantom `~types` field has no runtime shape, so
-// `satisfies` can't reproduce it — the double-cast is the only option.
-export const dummyAdapter = {
-  kind: 'text',
-  name: 'dummy',
-  model: 'dummy-model',
-  chatStream: () => {
-    throw new Error('dummyAdapter.chatStream not callable in tests');
-  },
-  structuredOutput: () => {
-    throw new Error('dummyAdapter.structuredOutput not callable in tests');
-  },
-} as unknown as AnyTextAdapter;
 
 /**
  * Negative-path schema-test helper. Wraps the `as unknown as T` double-cast
@@ -53,60 +39,29 @@ export const dummyAdapter = {
  */
 export const invalid = <T>(v: unknown): T => v as T;
 
-interface ChatCallShape {
-  readonly messages: ReadonlyArray<{
-    readonly role: 'user' | 'assistant' | 'system';
-    readonly content: string;
-  }>;
-}
-
-/**
- * Pulls the most recent `role: 'user'` message content out of the mocked
- * `chat()` call at index `callIndex`. Throws on shape mismatch so a future
- * adapter signature drift fails the test type-check instead of slipping
- * through string-shape assertions.
- */
-export function getLastUserMessage(
-  mockChat: { readonly mock: { readonly calls: ReadonlyArray<unknown[]> } },
-  callIndex: number,
-): string {
-  const callArgs = mockChat.mock.calls[callIndex]?.[0] as
-    | ChatCallShape
-    | undefined;
-  if (!callArgs?.messages) {
-    throw new Error(
-      `getLastUserMessage: call ${callIndex} has no messages array`,
-    );
-  }
-  const userMessages = callArgs.messages.filter((m) => m.role === 'user');
-  const last = userMessages[userMessages.length - 1];
-  if (!last) {
-    throw new Error(
-      `getLastUserMessage: call ${callIndex} has no user-role message`,
-    );
-  }
-  return last.content;
-}
-
 /**
  * Author-shape overrides for `ChartRequest` test fixtures. Accepts raw
  * strings for branded slots; the `build*` helpers below brand each field
  * through its smart constructor, so fixtures stay free of `as` escape hatches
  * and empty-string inputs fail fast at construction.
  */
-export type AuthorVesselAction = {
+type AuthorVesselAction = {
   readonly name: string;
   readonly description: string;
   readonly parameters?: ReadonlyArray<unknown>;
   readonly transitionsTo?: string;
   readonly idempotent?: boolean;
 };
-export type AuthorVesselVariant = {
+type AuthorVesselVariant = {
   readonly description?: string;
   readonly props: Readonly<Record<string, unknown>>;
   readonly minSize: { readonly width: number; readonly height: number };
   readonly actions: ReadonlyArray<AuthorVesselAction>;
 };
+/**
+ * Raw-string author shape of a `Vessel`: ids, variant keys, action names and
+ * `transitionsTo` are plain strings that `makeVessel` brands.
+ */
 export type AuthorVessel = {
   readonly id: string;
   readonly name: string;
@@ -244,6 +199,11 @@ const applyOverrides = (
         layout: overrides.layout ? brandLayout(overrides.layout) : base.layout,
       };
 
+/**
+ * Builds a grid-mode `ChartRequest` holding one `calendar-main` instance of a
+ * two-variant `calendar` Vessel on a 12x8 chart. Each override replaces its
+ * whole field and is branded through the smart constructors.
+ */
 export function makeGridRequest(
   overrides?: ChartRequestAuthorOverrides,
 ): ChartRequest {
@@ -311,6 +271,11 @@ export function makeGridRequest(
   );
 }
 
+/**
+ * Builds a tiling-mode `ChartRequest` holding one `calendar-main` instance of
+ * a single-variant `calendar` Vessel on a 12x8 chart. Each override replaces
+ * its whole field and is branded through the smart constructors.
+ */
 export function makeTilingRequest(
   overrides?: ChartRequestAuthorOverrides,
 ): ChartRequest {
@@ -360,21 +325,6 @@ export function makeTilingRequest(
   );
 }
 
-/**
- * Builds a single branded `VesselInstanceSnapshot` from raw-string overrides.
- * Empty-string ids fail fast via the smart constructors rather than slipping
- * through an erased cast.
- */
-export function buildVesselInstanceSnapshot(
-  overrides: Partial<AuthorInstanceSnapshot> = {},
-): VesselInstanceSnapshot {
-  return brandSnapshot({
-    instanceId: overrides.instanceId ?? 'test-instance',
-    vesselId: overrides.vesselId ?? 'test-vessel',
-    variant: overrides.variant ?? 'default',
-  });
-}
-
 // ---------------------------------------------------------------------------
 // LLM-output response builders. The mock LLM returns the wire-shape
 // `GridResponse` / `TilingResponse` whose ID slots are branded by the
@@ -383,7 +333,7 @@ export function buildVesselInstanceSnapshot(
 // escape hatches and empty-string inputs fail at construction.
 // ---------------------------------------------------------------------------
 
-export type AuthorActionExecution = {
+type AuthorActionExecution = {
   readonly instanceId: string;
   readonly action: string;
   readonly paramsJson?: string;
@@ -479,7 +429,7 @@ export function buildGridResponse(
 // author shape per arm so diagnostics assertions stay free of `as` casts.
 // ---------------------------------------------------------------------------
 
-export type AuthorSkippedAction =
+type AuthorSkippedAction =
   | {
       readonly reason: 'unknown_instance';
       readonly instanceId: string;

@@ -1,6 +1,5 @@
+import type { Logger } from '@maelstrom-co/engine';
 import type { ChartDimensions, GridPosition } from '@maelstrom-co/protocol';
-
-import type { Logger } from '../logger.js';
 
 export type Island = Omit<GridPosition, 'instanceId'>;
 

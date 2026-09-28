@@ -32,7 +32,7 @@ Maelstrom is designed as a layered architecture with clear separation of concern
                                   │
 ┌─────────────────────────────────┴───────────────────────────────┐
 │                     Maelstrom Engine                            │
-│  @maelstrom-co/engine - LLM decision logic                             │
+│  @maelstrom-co/engine - planner seam, validation, orchestration        │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -312,7 +312,7 @@ LLMProvider
 
 ### Prompt Engineering
 
-The engine constructs prompts that include:
+The reference LLM planner (`@maelstrom-co/planner-llm`) constructs prompts that include:
 
 1. **System context**: What Maelstrom is and what the LLM should do
 2. **Available Vessels**: All registered Vessels with variants and available actions
@@ -396,7 +396,8 @@ BROWSER   client ◀── realtime ◀── realtime-openai
              ▲                 ◀── realtime-livekit ──▶ realtime-vad
           react ◀── react-realtime
 
-SERVER    engine ◀── planner-jev    realtime-openai-server    realtime-livekit-server
+SERVER    engine ◀── planner-llm    realtime-openai-server    realtime-livekit-server
+                 ◀── planner-jev
 
 WORKER    realtime-livekit-agent
 ```
@@ -406,7 +407,8 @@ WORKER    realtime-livekit-agent
 - **protocol**: Foundation - types and message contract shared by all
 - **realtime-protocol**: the realtime contract leaf — token-grant types, mint-failure taxonomy, wire topics. Depends on nothing but `protocol` and `zod`, so a minter can import it without pulling in a browser SDK
 - **client**: Framework-agnostic client, can be used anywhere
-- **engine**: Server-side only, has LLM provider dependencies
+- **engine**: Server-side only; planner seam, validation and orchestration, with no LLM provider dependency
+- **planner-llm**: the reference LLM planner (`llmPlanner` and the prompt builder) on the engine's planner seam; owns the `@tanstack/ai` dependency the engine dropped. Depends on `engine` and `protocol`; the engine never depends on it
 - **planner-jev**: experimental server-only planner that composes Jev (TypeSafe) stages on the engine's planner seam. Depends on `engine` and `protocol`; the engine never depends on it
 - **react** / **react-realtime**: React-specific bindings, optional
 - **realtime**: browser-side realtime voice core; talks to the provider directly with ephemeral tokens, feeds intents into the client

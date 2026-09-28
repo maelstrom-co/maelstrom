@@ -14,9 +14,10 @@ import { isDeferred } from './stage.js';
  *
  * @example
  * ```ts
+ * // `modelPlanner` is any `Planner`, for example one that calls a model.
  * const planner = withFallback(
  *   pipeline(selectVessels, arrangeLayout),
- *   llmPlanner({ adapter }),
+ *   modelPlanner,
  * );
  * ```
  */

@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'bun:test';
-import { MAX_SPLIT_CHILDREN, MAX_SPLIT_WEIGHT } from '@maelstrom-co/protocol';
 import {
   makeGridRequest,
   makeTilingRequest,
-} from '../__test-helpers__/fixtures.js';
+} from '@maelstrom-co/engine/_testing';
+import { MAX_SPLIT_CHILDREN, MAX_SPLIT_WEIGHT } from '@maelstrom-co/protocol';
 import {
   buildPrompt,
   buildSystemPrompt,

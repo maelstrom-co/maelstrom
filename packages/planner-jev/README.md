@@ -2,7 +2,7 @@
 
 Experimental, server-only Maelstrom planner built on TypeSafe's Jev model. Jev answers typed multiple-choice questions quickly and cheaply but writes no text, so this planner hands it the multiple-choice-shaped decisions and keeps one small LLM call for the reply.
 
-The package is demo-only. It serves the local demo (`MAELSTROM_PLANNER=jev`, or `jev-composed-pairs` for the experimental planner below) and the comparison eval. The hosted demo keeps the plain `llmPlanner`.
+The package is demo-only. It serves the local demo (`MAELSTROM_PLANNER=jev`, or `jev-composed-pairs` for the experimental planner below) and the comparison eval. The hosted demo keeps the plain `llmPlanner` from `@maelstrom-co/planner-llm`.
 
 ## What it does
 
@@ -23,7 +23,8 @@ withFallback(
 Any deferral re-plans the whole request with `fallback`.
 
 ```ts
-import { createEngine, llmPlanner } from '@maelstrom-co/engine';
+import { createEngine } from '@maelstrom-co/engine';
+import { llmPlanner } from '@maelstrom-co/planner-llm';
 import { jevPlanner } from '@maelstrom-co/planner-jev';
 
 const engine = createEngine({
@@ -203,7 +204,7 @@ Every deferral logs `jev.defer` at info with `{ stage, reason, question }`, and 
 
 ## Evaluating
 
-`eval/` holds a live runner that compares named planners (arms, registered in `eval/arms.ts`) on the same scenarios: the tiling scenarios of the Jev prototype, keep-versus-replace cases, parameter cases that separate `stated_elsewhere` from `not_stated`, explicit arrangement requests scored by arrangement rules (swap, big instance on the right, mixed row-and-split, edge strip, reorder, a 2x2 grid and more, tagged `spatial: true`) and non-spatial controls that should leave the arrangement alone (content edits, view changes, an added widget, tagged `spatial: false`). Any arm may satisfy an arrangement rule, the Jev arms' fallback included; the fallback columns show who did. Every arm runs through `createEngine` with history off and `retry: false`; the baseline is the same once-retried `llmPlanner` the Jev arms fall back to, so the arms differ only in their pipelines. Scores use the shipped (validated and healed) response.
+`eval/` holds a live runner that compares named planners (arms, registered in `eval/arms.ts`) on the same scenarios: the tiling scenarios of the Jev prototype, keep-versus-replace cases, parameter cases that separate `stated_elsewhere` from `not_stated`, explicit arrangement requests scored by arrangement rules (swap, big instance on the right, mixed row-and-split, edge strip, reorder, a 2x2 grid and more, tagged `spatial: true`) and non-spatial controls that should leave the arrangement alone (content edits, view changes, an added widget, tagged `spatial: false`). Any arm may satisfy an arrangement rule, the Jev arms' fallback included; the fallback columns show who did. Every arm runs through `createEngine` with history off and `retry: false`; the baseline is the same once-retried `llmPlanner` (from `@maelstrom-co/planner-llm`) the Jev arms fall back to, so the arms differ only in their pipelines. Scores use the shipped (validated and healed) response.
 
 ```sh
 OPENAI_API_KEY=... TYPESAFE_API_KEY=... JEV_MODEL=jev-1.13.0 \

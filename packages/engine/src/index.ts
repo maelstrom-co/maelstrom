@@ -5,6 +5,7 @@ export type {
   ActionParameterEnumSnapshot,
   NormalizedActionParameterEnumValue,
 } from './lib/action-parameter-enum.js';
+export { buildActionParameterEnumSnapshot } from './lib/action-parameter-enum.js';
 // Config
 export type { EngineConfig } from './lib/config.js';
 export { resolveConfig } from './lib/config.js';
@@ -54,11 +55,6 @@ export type {
   ValidatedCandidate,
 } from './lib/planner/candidate.js';
 // Planner stages
-export type {
-  LlmPlannerInput,
-  LlmPlannerOptions,
-} from './lib/planner/llm-planner.js';
-export { llmPlanner } from './lib/planner/llm-planner.js';
 export { pipeline } from './lib/planner/pipeline.js';
 export type {
   Deferred,
@@ -71,32 +67,14 @@ export type {
   StageError,
   ValidateCandidate,
 } from './lib/planner/stage.js';
-export { deferred, isDeferred } from './lib/planner/stage.js';
+export { deferred, enumSnapshotFor, isDeferred } from './lib/planner/stage.js';
 export { withFallback } from './lib/planner/with-fallback.js';
 export type { WithRetryOptions } from './lib/planner/with-retry.js';
 export { withRetry } from './lib/planner/with-retry.js';
-// Prompt builder
-export type {
-  PromptOptions,
-  PromptResult,
-  PromptVars,
-} from './lib/prompt/prompt-builder.js';
-export {
-  buildPrompt,
-  buildSystemPrompt,
-  buildUserPrompt,
-} from './lib/prompt/prompt-builder.js';
-// Prompt sections — types and constants
-export type {
-  PromptSection,
-  SectionCustomizer,
-  SectionExtension,
-  SystemSectionKey,
-  SystemSectionOverrides,
-  UserSectionKey,
-  UserSectionOverrides,
-} from './lib/prompt/sections.js';
-export { SystemSection, UserSection } from './lib/prompt/sections.js';
+// Update reasons
+export { isResizeOnlyBatch } from './lib/update-reasons.js';
+// Validation
+export { formatValidationIssues } from './lib/validation/format-validation-issues.js';
 // Response diagnostics
 export type {
   RetryHint,

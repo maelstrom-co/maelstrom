@@ -1,6 +1,5 @@
+import type { ActionParameterEnumSnapshot, Logger } from '@maelstrom-co/engine';
 import type { ChartRequest, LayoutMode } from '@maelstrom-co/protocol';
-import type { ActionParameterEnumSnapshot } from '../action-parameter-enum.js';
-import type { Logger } from '../logger.js';
 import {
   buildDefaultUserSections,
   buildDefaultUserSectionsWithSnapshot,
@@ -26,7 +25,7 @@ export interface PromptVars {
   readonly [key: string]: string | undefined;
 }
 
-/** Section-level customization for Engine system and user prompts. */
+/** Section-level customization for the planner's system and user prompts. */
 export interface PromptOptions {
   /** Variables substituted into built-in defaults before overrides are applied. */
   readonly vars?: PromptVars;
@@ -123,9 +122,10 @@ export function buildSystemPrompt(
  * Per-call work — depends on the request's vessels, instances, layout, and
  * update reasons, so the result can't be precomputed.
  *
- * This standalone API constructs its own enum snapshot. The Engine instead
- * calls the internal snapshot-aware path so prompt literals and validation
- * reuse the exact candidates captured once for that request.
+ * This standalone API constructs its own enum snapshot. `llmPlanner` instead
+ * reuses the enum snapshot the Engine captured for the request
+ * (`StageContext.enumSnapshot`), so prompt literals and validation share the
+ * exact candidates.
  *
  * @throws {Error} If Action parameter definitions are ambiguous or exceed the
  *   enum-candidate ceiling, or if a `user` customizer is invalid (function
@@ -149,7 +149,7 @@ export function buildUserPrompt(
   return joinSections(buildUserSections(request, options, logger));
 }
 
-/** @internal Reuses an Engine request's immutable enum snapshot. */
+/** @internal Reuses the immutable enum snapshot the Engine captured for a request. */
 export function buildUserPromptWithSnapshot(
   request: ChartRequest,
   enumSnapshot: ActionParameterEnumSnapshot,

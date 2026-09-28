@@ -1,13 +1,13 @@
 import { describe, expect, test } from 'bun:test';
-import type { ChartRequest } from '@maelstrom-co/protocol';
-import { InstanceId } from '@maelstrom-co/protocol';
-import type { AuthorVessel } from '../__test-helpers__/fixtures.js';
+import type { Logger } from '@maelstrom-co/engine';
+import { buildActionParameterEnumSnapshot } from '@maelstrom-co/engine';
+import type { AuthorVessel } from '@maelstrom-co/engine/_testing';
 import {
   makeGridRequest,
   makeTilingRequest,
-} from '../__test-helpers__/fixtures.js';
-import { buildActionParameterEnumSnapshot } from '../action-parameter-enum.js';
-import type { Logger } from '../logger.js';
+} from '@maelstrom-co/engine/_testing';
+import type { ChartRequest } from '@maelstrom-co/protocol';
+import { InstanceId } from '@maelstrom-co/protocol';
 import {
   buildDefaultUserSections,
   buildGridChartState,

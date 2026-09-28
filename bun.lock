@@ -61,6 +61,7 @@
         "@maelstrom-co/connectors": "workspace:*",
         "@maelstrom-co/engine": "workspace:*",
         "@maelstrom-co/planner-jev": "workspace:*",
+        "@maelstrom-co/planner-llm": "workspace:*",
         "@maelstrom-co/protocol": "workspace:*",
         "@maelstrom-co/react": "workspace:*",
         "@maelstrom-co/react-realtime": "workspace:*",
@@ -238,7 +239,6 @@
       "version": "0.1.0-alpha.4",
       "dependencies": {
         "@maelstrom-co/protocol": "0.1.0-alpha.4",
-        "@tanstack/ai": "catalog:",
         "zod": "catalog:",
       },
     },
@@ -252,7 +252,18 @@
         "zod": "catalog:",
       },
       "devDependencies": {
+        "@maelstrom-co/planner-llm": "0.1.0-alpha.4",
         "@tanstack/ai-openai": "catalog:",
+      },
+    },
+    "packages/planner-llm": {
+      "name": "@maelstrom-co/planner-llm",
+      "version": "0.1.0-alpha.4",
+      "dependencies": {
+        "@maelstrom-co/engine": "0.1.0-alpha.4",
+        "@maelstrom-co/protocol": "0.1.0-alpha.4",
+        "@tanstack/ai": "catalog:",
+        "zod": "catalog:",
       },
     },
     "packages/protocol": {
@@ -1289,6 +1300,8 @@
     "@maelstrom-co/engine": ["@maelstrom-co/engine@workspace:packages/engine"],
 
     "@maelstrom-co/planner-jev": ["@maelstrom-co/planner-jev@workspace:packages/planner-jev"],
+
+    "@maelstrom-co/planner-llm": ["@maelstrom-co/planner-llm@workspace:packages/planner-llm"],
 
     "@maelstrom-co/platform-infra": ["@maelstrom-co/platform-infra@workspace:infra/platform"],
 

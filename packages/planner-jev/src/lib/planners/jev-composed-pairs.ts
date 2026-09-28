@@ -59,6 +59,8 @@ export function buildJevComposedPairsPlanner(
  *
  * @example
  * ```ts
+ * import { llmPlanner } from '@maelstrom-co/planner-llm';
+ *
  * const engine = createEngine({
  *   planner: jevComposedPairsPlanner({
  *     typesafe: { apiKey: process.env.TYPESAFE_API_KEY, model: 'jev-1.13.0' },

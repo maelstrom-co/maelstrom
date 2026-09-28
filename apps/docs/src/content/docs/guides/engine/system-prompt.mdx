@@ -1,13 +1,14 @@
 ---
 title: Customize the system prompt
-description: How to replace, extend, or transform the Engine's prompt sections without forking the prompt builder.
+description: How to replace, extend, or transform llmPlanner's prompt sections without forking the prompt builder.
 ---
 
 import { Aside, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
 
 Prompt customization changes the instructions sent to the model; it does not bypass protocol schemas, layout validation, healing, or retry behavior. Treat it as a behavior layer on top of the same structured-output contract.
 
-The Engine builds its prompt from **named sections**. You can override any
+The reference LLM planner (`llmPlanner` from `@maelstrom-co/planner-llm`) builds
+its prompt from **named sections**. You can override any
 section by name without touching the others — the prompt-builder owns
 joining, ordering, and template-variable substitution.
 
@@ -17,11 +18,12 @@ This page covers the section catalogue, the four customizer forms
 ## Before you start
 
 - A wired engine (see [Use a custom LLM provider](/guides/engine/custom-llm-providers)).
+- An installed `@maelstrom-co/planner-llm` package.
 - Familiarity with the engine's job — see [The Engine](/understanding/engine).
 
 ## The sections
 
-The engine builds two halves of every prompt from a set of named sections.
+`llmPlanner` builds two halves of every prompt from a set of named sections.
 Customizations target a key by name. The current set is:
 
 | Half     | Key              | What it contains                                                |
@@ -35,12 +37,12 @@ Customizations target a key by name. The current set is:
 | `user`   | `chartState`     | The current chart state (instances, layout snapshot).           |
 | `user`   | `updateTriggers` | Why this turn is happening (user intent, action results, etc.). |
 
-`SystemSection` and `UserSection` are exported from `@maelstrom-co/engine` if
+`SystemSection` and `UserSection` are exported from `@maelstrom-co/planner-llm` if
 you want the string constants instead of typing the keys — useful when you
 want autocomplete on section names:
 
 ```ts
-import { SystemSection } from '@maelstrom-co/engine';
+import { SystemSection } from '@maelstrom-co/planner-llm';
 
 prompt: { system: { [SystemSection.RULES]: { append: '...' } } };
 ```
@@ -68,7 +70,8 @@ section keys (anything outside the table above), only `string` and
     half (`system` / `user`) and then by section name.
 
     ```ts title="src/server/engine.ts"
-    import { createEngine, llmPlanner } from '@maelstrom-co/engine';
+    import { createEngine } from '@maelstrom-co/engine';
+    import { llmPlanner } from '@maelstrom-co/planner-llm';
     import { geminiText } from '@tanstack/ai-gemini';
 
     export const engine = createEngine({
@@ -237,12 +240,11 @@ Two practical consequences:
 
 ## Verify
 
-The fastest check is a log line on first call. The engine exposes
-`buildPrompt`, `buildSystemPrompt`, and `buildUserPrompt` from
-`@maelstrom-co/engine` for tests and dry runs:
+The fastest check is a log line on first call. `@maelstrom-co/planner-llm` exposes
+`buildPrompt`, `buildSystemPrompt`, and `buildUserPrompt` for tests and dry runs:
 
 ```ts title="scripts/preview-prompt.ts"
-import { buildSystemPrompt } from '@maelstrom-co/engine';
+import { buildSystemPrompt } from '@maelstrom-co/planner-llm';
 
 const systemPrompt = buildSystemPrompt('grid', {
   vars: { assistantName: 'Aria' },

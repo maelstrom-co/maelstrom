@@ -52,6 +52,9 @@ const llmPlannerMock = vi.hoisted(() => vi.fn((options: unknown) => options));
 vi.mock('@maelstrom-co/engine', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@maelstrom-co/engine')>()),
   createEngine: createEngineMock,
+}));
+vi.mock('@maelstrom-co/planner-llm', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@maelstrom-co/planner-llm')>()),
   llmPlanner: llmPlannerMock,
 }));
 vi.mock('@tanstack/ai-openai', () => ({
