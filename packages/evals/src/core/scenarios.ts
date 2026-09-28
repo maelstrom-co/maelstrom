@@ -8,6 +8,7 @@ import {
 import { demoVessels } from './fixtures/demo-vessels.js';
 import type { Phase } from './plugin.js';
 import type { ArrangementRule } from './predicates.js';
+import { gateScenarios } from './scenarios/gates.js';
 
 export type Suite = 'development' | 'holdout';
 
@@ -44,6 +45,11 @@ export interface Expectation {
    * deferring all count.
    */
   readonly noListedMatch?: readonly ExpectedAsk[];
+  /**
+   * Gate name to the answer a gated select stage should give. Plugins
+   * judge the gates they know and ignore the rest.
+   */
+  readonly expectedGates?: Readonly<Record<string, 'yes' | 'no'>>;
 }
 
 export interface Scenario {
@@ -63,12 +69,18 @@ export interface Scenario {
   readonly spatial?: boolean;
 }
 
-interface InputOptions {
+/** How {@link request} builds a scenario's Chart request. */
+export interface InputOptions {
+  /** The current tiling tree; calendar, weather and tasks side by side when absent. Required with `instances`. */
   readonly tree?: readonly (string | null)[];
+  /** Variant per Vessel id; each Vessel's default when absent. */
   readonly variants?: Readonly<Record<string, string>>;
   readonly columns?: number;
   readonly rows?: number;
+  /** The Vessel catalog; the demo Vessels when absent. */
   readonly vessels?: readonly Vessel[];
+  /** Vessel ids, one Instance `<id>-main` each; the five demo Vessels when absent. */
+  readonly instances?: readonly string[];
   readonly resizeFrom?: { readonly columns: number; readonly rows: number };
 }
 
@@ -78,7 +90,9 @@ const BASE_TREE = [
   'ID:weather-main',
   'ID:tasks-main',
 ];
-const BASE_VISIBLE = ['calendar-main', 'weather-main', 'tasks-main'];
+/** The Instances the demo board's default tree shows. */
+export const BASE_VISIBLE = ['calendar-main', 'weather-main', 'tasks-main'];
+const DEMO_INSTANCES = ['calendar', 'weather', 'tasks', 'map', 'journal'];
 const BASE_RETAINED = [...BASE_VISIBLE, 'map-main', 'journal-main'];
 
 const PAIR_TREE = ['V', 'ID:calendar-main', 'ID:map-main'];
@@ -90,7 +104,8 @@ const TRIO_TREE = [
 ];
 const TRIO_VISIBLE = ['calendar-main', 'weather-main', 'map-main'];
 
-const STUDIO_ROUTE_TURN: readonly LLMContextMessage[] = [
+/** An earlier turn that routed the map to Studio Vortex HQ. */
+export const STUDIO_ROUTE_TURN: readonly LLMContextMessage[] = [
   {
     role: 'user',
     content: 'Show me the route to Studio Vortex HQ on the map.',
@@ -2315,6 +2330,16 @@ export const scenarios: readonly Scenario[] = [
     suite: 'development' as const,
   })),
   ...holdout.map((scenario) => ({ ...scenario, suite: 'holdout' as const })),
+  ...gateScenarios({
+    planned,
+    deferred,
+    routeAfter,
+    spatial,
+    control,
+    addTask,
+    BASE_VISIBLE,
+    STUDIO_ROUTE_TURN,
+  }),
 ];
 
 /** Scenarios of `suite` (`all` for every one). */
@@ -2329,7 +2354,8 @@ export function selectScenarios(
   );
 }
 
-function planned(
+/** A development scenario the planner should plan, from `intent` on the board `options` builds. */
+export function planned(
   id: string,
   title: string,
   intent: string,
@@ -2345,7 +2371,8 @@ function planned(
   };
 }
 
-function deferred(
+/** A development scenario the planner should defer, at `deferStage` when given. */
+export function deferred(
   id: string,
   title: string,
   intent: string,
@@ -2361,19 +2388,30 @@ function deferred(
   };
 }
 
-function request(intent: string, options: InputOptions = {}): ChartRequest {
+/**
+ * The Chart request of a scenario whose latest intent is `intent`.
+ *
+ * @throws {Error} On an Instance whose Vessel the catalog lacks, or on
+ * `instances` without a `tree`.
+ */
+export function request(
+  intent: string,
+  options: InputOptions = {},
+): ChartRequest {
   const vessels = options.vessels ?? demoVessels;
-  const instances = ['calendar', 'weather', 'tasks', 'map', 'journal'].map(
-    (id) => {
-      const vessel = vessels.find((v) => v.id === id);
-      if (!vessel) throw new Error(`unknown fixture Vessel ${id}`);
-      return {
-        instanceId: `${id}-main`,
-        vesselId: id,
-        variant: options.variants?.[id] ?? vessel.defaultVariant,
-      };
-    },
-  );
+  if (options.instances !== undefined && options.tree === undefined)
+    throw new Error(
+      'a request naming its Instances needs a tree, since the default tree names demo Instances',
+    );
+  const instances = (options.instances ?? DEMO_INSTANCES).map((id) => {
+    const vessel = vessels.find((v) => v.id === id);
+    if (!vessel) throw new Error(`unknown fixture Vessel ${id}`);
+    return {
+      instanceId: `${id}-main`,
+      vesselId: id,
+      variant: options.variants?.[id] ?? vessel.defaultVariant,
+    };
+  });
   const current = { columns: options.columns ?? 30, rows: options.rows ?? 18 };
   return ChartRequestSchema.parse({
     type: 'chart_request',
@@ -2399,7 +2437,7 @@ function request(intent: string, options: InputOptions = {}): ChartRequest {
  * A route request made after earlier turns in `history`, with the map in
  * `mapVariant`: the plan routes to `destination`.
  */
-function routeAfter(
+export function routeAfter(
   id: string,
   title: string,
   intent: string,
@@ -2428,11 +2466,13 @@ function routeAfter(
   };
 }
 
-function spatial(scenario: Scenario): Scenario {
+/** `scenario` tagged as a request that asks for an arrangement. */
+export function spatial(scenario: Scenario): Scenario {
   return { ...scenario, spatial: true };
 }
 
-function control(scenario: Scenario): Scenario {
+/** `scenario` tagged as a control that should leave the arrangement alone. */
+export function control(scenario: Scenario): Scenario {
   return { ...scenario, spatial: false };
 }
 
@@ -2478,7 +2518,8 @@ function setLocation(instanceId: string, location: string): ExpectedAction {
   return { instanceId, action: 'setLocation', params: { location } };
 }
 
-function addTask(title: string): ExpectedAction {
+/** The expected `addTask` on the demo tasks Instance. */
+export function addTask(title: string): ExpectedAction {
   return { instanceId: 'tasks-main', action: 'addTask', params: { title } };
 }
 

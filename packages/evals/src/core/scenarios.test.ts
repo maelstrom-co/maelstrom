@@ -1,9 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 
-import type { TilingNode } from '@maelstrom-co/protocol';
+import { type TilingNode, VesselSchema } from '@maelstrom-co/protocol';
 
+import { workspaceVessels } from './fixtures/workspace-vessels.js';
 import { checkArrangement } from './predicates.js';
-import { scenarios, selectScenarios } from './scenarios.js';
+import { request, scenarios, selectScenarios } from './scenarios.js';
 
 describe('scenarios', () => {
   test('ids are unique', () => {
@@ -132,5 +133,53 @@ describe('scenarios', () => {
       expect(
         development.find((scenario) => scenario.id === id)?.expected.status,
       ).toBe('planned');
+  });
+});
+
+describe('request', () => {
+  test('builds the demo board by default, as every existing scenario does', () => {
+    const [swap] = selectScenarios('all', ['swap']);
+    expect(
+      request('Swap the calendar and the map.', {
+        tree: ['V', 'ID:calendar-main', 'ID:map-main'],
+      }),
+    ).toEqual(swap?.request as never);
+  });
+
+  test('builds one Instance per named Vessel on another vessel set', () => {
+    const built = request('Show the contacts.', {
+      instances: ['player', 'watchlist', 'contacts'],
+      vessels: workspaceVessels,
+      tree: ['V', 'ID:player-main', 'ID:watchlist-main'],
+    });
+    expect(built.instances).toEqual([
+      {
+        instanceId: 'player-main',
+        vesselId: 'player',
+        variant: 'nowPlaying',
+      },
+      { instanceId: 'watchlist-main', vesselId: 'watchlist', variant: 'list' },
+      { instanceId: 'contacts-main', vesselId: 'contacts', variant: 'list' },
+    ] as never);
+    expect(built.vessels).toEqual(workspaceVessels as never);
+  });
+
+  test('refuses named Instances without a tree, since the default tree names demo ones', () => {
+    expect(() =>
+      request('Show the contacts.', {
+        instances: ['player', 'watchlist', 'contacts'],
+        vessels: workspaceVessels,
+      }),
+    ).toThrow();
+  });
+
+  test('every workspace Vessel parses', () => {
+    expect(workspaceVessels.map((vessel) => String(vessel.id))).toEqual([
+      'player',
+      'watchlist',
+      'contacts',
+    ]);
+    for (const vessel of workspaceVessels)
+      expect(VesselSchema.safeParse(vessel).success).toBe(true);
   });
 });
