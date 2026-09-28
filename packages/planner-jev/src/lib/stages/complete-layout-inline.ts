@@ -40,6 +40,7 @@ import type {
   PlannedAction,
   SelectedInstance,
 } from '../types.js';
+import { actionKey, keepFirstOfEachKey } from './duplicate-actions.js';
 import type { CompletionLlm } from './stage-deps.js';
 import type { CompleteStage, LayoutDecision } from './stage-types.js';
 
@@ -150,7 +151,9 @@ export function invalidTree(
 
 /**
  * Fills pending parameters from `completion`, checks the simulated variants
- * and `tree`, then builds, validates and returns the candidate. The tail
+ * and `tree`, then builds, validates and returns the candidate. An action
+ * whose instance, name and filled parameters repeat an earlier one's is
+ * left out of the execution plan. The tail
  * every completion call shares once it has a message and a tree, whether
  * both came from one call or from separate calls run in parallel.
  */
@@ -183,22 +186,34 @@ export function assembleCandidate(
   if (invalidTree(request, tree, handOff, visible))
     return deferAt(ctx, STAGE, 'invalid_layout', 'layout');
 
+  const resolved = declared.value.actions.map((action) => {
+    const params: Record<string, unknown> = { ...action.params };
+    for (const slot of slots)
+      if (slot.action === action)
+        params[slot.parameter.name] = filled.get(slot);
+    return { action, params };
+  });
+  const unique = keepFirstOfEachKey(resolved, ({ action, params }) =>
+    actionKey(action.instanceId, action.action, params),
+  );
+  for (const { action, params } of unique.dropped)
+    ctx.logger.info('jev.duplicate_action_dropped', {
+      stage: STAGE,
+      instanceId: action.instanceId,
+      action: action.action,
+      params,
+    });
+
   const candidate: PlannerCandidate = {
     userMessage: completion.userMessage,
     rationale: rationale(decision),
-    executionPlan: declared.value.actions.map((action) => {
-      const params: Record<string, unknown> = { ...action.params };
-      for (const slot of slots)
-        if (slot.action === action)
-          params[slot.parameter.name] = filled.get(slot);
-      return {
-        instanceId: action.instanceId,
-        action: action.action,
-        ...(Object.keys(params).length > 0 && {
-          paramsJson: JSON.stringify(params),
-        }),
-      };
-    }),
+    executionPlan: unique.kept.map(({ action, params }) => ({
+      instanceId: action.instanceId,
+      action: action.action,
+      ...(Object.keys(params).length > 0 && {
+        paramsJson: JSON.stringify(params),
+      }),
+    })),
     layout: {
       tree: tree as readonly TilingNode[],
       instances: retained.map(({ instanceId, vesselId, variant }) => ({

@@ -1,7 +1,13 @@
-import { finalVariants, legalActions } from '@maelstrom-co/engine';
+import {
+  type Deferred,
+  finalVariants,
+  legalActions,
+  type StageContext,
+} from '@maelstrom-co/engine';
 import {
   isErr,
   ok,
+  type Result,
   type VariantName,
   type VesselAction,
 } from '@maelstrom-co/protocol';
@@ -28,6 +34,7 @@ import type {
 } from '../types.js';
 import type { Ask } from '../typesafe-client.js';
 import { actionPlanOf } from './action-plan.js';
+import { actionKey, keepFirstOfEachKey } from './duplicate-actions.js';
 import { askInChunks, type FanOutOptions } from './fan-out.js';
 import { MAX_ACTIONS } from './jev-actions.js';
 import type { ActionsStage, Selection2 } from './stage-types.js';
@@ -43,7 +50,14 @@ export type ActionsBatchedPerInstanceOptions = FanOutOptions;
  * and the parameters of every action any slot could pick asked alongside.
  * Code walks each instance's slots and keeps a second answer only when its
  * premise matches the first answer; a mismatch defers
- * `premise_mismatch`. A third slot is asked and never planned: an answer
+ * `premise_mismatch`. When the first slot answers none and the second names
+ * an action, that action is promoted to the instance's only one: as asked
+ * when its premise is the current view, else as the current view's action
+ * of the same name bound from its first-slot parameters, else the stage
+ * defers `premise_mismatch`. A later action repeating an earlier one's
+ * instance, name and bound parameters is dropped; one with a pending
+ * parameter is kept for the completion step to compare once filled, and a
+ * parameter two actions leave unanswered is asked once. A third slot is asked and never planned: an answer
  * naming an action defers `action_limit` rather than shipping the first two
  * actions as if that were the whole request, and the call record keeps every
  * third-slot answer for measurement. Actions keep their order within an
@@ -115,7 +129,21 @@ export function actionsBatchedPerInstance(
       const { instance } = plan;
       const first = read(slotId(instance, 1));
       if (isErr(first)) return first;
-      if (first.value.choice === 'none') continue;
+      if (first.value.choice === 'none') {
+        const second = readAnswer(reply.value, slotId(instance, 2), STAGE, ctx);
+        if (isErr(second)) return second;
+        const { choice } = second.value;
+        if (choice === 'none' || choice === 'unsupported') continue;
+        answers.push({
+          stage: STAGE,
+          question: slotId(instance, 2),
+          ...second.value,
+        });
+        const promoted = promoteSecondSlot(plan, choice, ctx);
+        if (isErr(promoted)) return promoted;
+        walked.push({ instance, target: promoted.value });
+        continue;
+      }
       if (first.value.choice === 'unsupported')
         return deferAt(ctx, STAGE, 'action_unsupported', slotId(instance, 1));
       const firstTarget = plan.first.get(first.value.choice);
@@ -133,9 +161,6 @@ export function actionsBatchedPerInstance(
         return deferAt(ctx, STAGE, 'answer_missing', slotId(instance, 2));
       if (secondTarget.variant !== after(firstTarget))
         return deferAt(ctx, STAGE, 'premise_mismatch', slotId(instance, 2));
-      // Running an idempotent action again changes nothing the first run
-      // did not, so a repeat is one request answered twice, not two.
-      if (repeatsIdempotent(firstTarget, secondTarget)) continue;
       walked.push({ instance, target: secondTarget });
 
       const third = readAnswer(reply.value, slotId(instance, 3), STAGE, ctx);
@@ -143,7 +168,6 @@ export function actionsBatchedPerInstance(
       if (third.value.choice !== 'none' && third.value.choice !== 'unsupported')
         return deferAt(ctx, STAGE, 'action_limit', slotId(instance, 3));
     }
-    if (walked.length > MAX_ACTIONS) return deferAt(ctx, STAGE, 'action_limit');
 
     const choices: Record<string, string> = {};
     for (const { target } of walked)
@@ -152,28 +176,43 @@ export function actionsBatchedPerInstance(
         if (isErr(answer)) return answer;
         choices[slot.id] = answer.value.choice;
       }
+    const bound = walked.map(({ instance, target }) => ({
+      instanceId: instance.instanceId,
+      action: target.definition.name,
+      ...bindParameterChoices(target.slots, choices),
+    }));
+    // An entry with a pending or missing parameter has no key yet: its
+    // values are only known once filled, where the completion step compares.
+    const unique = keepFirstOfEachKey(bound, (entry) =>
+      entry.pending.length === 0 && entry.missing.length === 0
+        ? actionKey(entry.instanceId, entry.action, entry.params)
+        : undefined,
+    );
+    for (const { instanceId, action, params } of unique.dropped)
+      ctx.logger.info('jev.duplicate_action_dropped', {
+        stage: STAGE,
+        instanceId,
+        action,
+        params,
+      });
+    if (unique.kept.length > MAX_ACTIONS)
+      return deferAt(ctx, STAGE, 'action_limit');
+
     const actions: PlannedAction[] = [];
     const asks: ParameterAsk[] = [];
-    for (const { instance, target } of walked) {
-      const bound = bindParameterChoices(target.slots, choices);
-      const planned = {
-        instanceId: instance.instanceId,
-        action: target.definition.name,
-      };
-      if (bound.missing.length === 0)
-        actions.push({
-          ...planned,
-          params: bound.params,
-          pending: bound.pending,
-        });
+    for (const { instanceId, action, params, pending, missing } of unique.kept)
+      if (missing.length === 0)
+        actions.push({ instanceId, action, params, pending });
       else
         asks.push(
-          ...bound.missing.map((parameter) => ({ ...planned, parameter })),
+          ...missing.map((parameter) => ({ instanceId, action, parameter })),
         );
-    }
     if (isErr(finalVariants(retained, actions, request.vessels)))
       return deferAt(ctx, STAGE, 'simulation_failed');
-    return ok(actionPlanOf(selection, actions, asks, answers));
+    const uniqueAsks = keepFirstOfEachKey(asks, (entry) =>
+      JSON.stringify([entry.instanceId, entry.action, entry.parameter.name]),
+    ).kept;
+    return ok(actionPlanOf(selection, actions, uniqueAsks, answers));
   };
 }
 
@@ -299,11 +338,35 @@ function describe(definition: VesselAction): string {
   return `${definition.name}. ${definition.description}${definition.transitionsTo ? ` Switches it to its ${definition.transitionsTo} view.` : ''}`;
 }
 
-function repeatsIdempotent(first: SlotTarget, second: SlotTarget): boolean {
-  return (
-    second.definition.name === first.definition.name &&
-    first.definition.idempotent === true
-  );
+function promoteSecondSlot(
+  plan: InstancePlan,
+  choice: string,
+  ctx: StageContext,
+): Result<SlotTarget, Deferred> {
+  const { instance } = plan;
+  const target = plan.second.get(choice);
+  if (!target)
+    return deferAt(ctx, STAGE, 'answer_missing', slotId(instance, 2));
+  const found = {
+    stage: STAGE,
+    instanceId: instance.instanceId,
+    action: target.definition.name,
+    premise: target.variant,
+    current: instance.variant,
+  };
+  if (target.variant === instance.variant) {
+    ctx.logger.info('jev.slot_promoted', { ...found, via: 'premise' });
+    return ok(target);
+  }
+  // A target from another view carries that view's parameter definitions,
+  // so the current view's action is bound from its own first-slot answers.
+  const sameName = plan.first.get(target.definition.name);
+  if (sameName) {
+    ctx.logger.info('jev.slot_promoted', { ...found, via: 'same_name' });
+    return ok(sameName);
+  }
+  ctx.logger.info('jev.slot_discarded', found);
+  return deferAt(ctx, STAGE, 'premise_mismatch', slotId(instance, 2));
 }
 
 function after(target: Omit<SlotTarget, 'slots'>): VariantName {
