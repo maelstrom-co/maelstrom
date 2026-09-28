@@ -922,6 +922,36 @@ const development: Scenario[] = [
     },
   ),
   planned(
+    'enum-route-short-name',
+    'Select a saved map destination by a short name',
+    'Show me the map and display a route from home to the studio.',
+    {
+      visible: [...BASE_VISIBLE, 'map-main'],
+      actions: [
+        {
+          instanceId: 'map-main',
+          action: 'showRoute',
+          params: { destination: 'Studio Vortex HQ' },
+        },
+      ],
+    },
+  ),
+  planned(
+    'enum-route-description',
+    'Select a saved map destination by what it is',
+    'Show me the route to the coffee place on the map.',
+    {
+      visible: [...BASE_VISIBLE, 'map-main'],
+      actions: [
+        {
+          instanceId: 'map-main',
+          action: 'showRoute',
+          params: { destination: 'Ritual Coffee' },
+        },
+      ],
+    },
+  ),
+  planned(
     'quoted-location',
     'Copy a quoted location',
     'Set the weather location to "Tokyo".',
