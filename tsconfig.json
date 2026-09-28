@@ -31,6 +31,9 @@
       "path": "./packages/engine"
     },
     {
+      "path": "./packages/planner-jev"
+    },
+    {
       "path": "./packages/realtime"
     },
     {

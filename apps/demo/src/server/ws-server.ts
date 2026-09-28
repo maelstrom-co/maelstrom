@@ -1,8 +1,10 @@
 /// <reference types="bun" />
 /**
  * Text-only WebSocket engine server for local dev. It uses one shared engine
- * keyed by OPENAI_API_KEY when configured; otherwise each connection accepts
- * the browser's memory-only key through playground.hello and owns its engine.
+ * built from the environment (see `./local-planner`): the LLM planner keyed by
+ * OPENAI_API_KEY, or the Jev planner with MAELSTROM_PLANNER=jev. Without a
+ * server key the LLM profile accepts the browser's memory-only key through
+ * playground.hello and each connection owns its engine.
  *
  * Speaks the same handleEnvelope/encodeEnvelope loop from @maelstrom-co/engine
  * and @maelstrom-co/protocol as the hosted transport (`src/worker/session-do.ts`),
@@ -11,9 +13,9 @@
 import { HEARTBEAT_PONG_FRAME } from '@maelstrom-co/connectors';
 import type { Engine } from '@maelstrom-co/engine';
 import { dispatchFrame } from './dispatch';
-import { createPlaygroundEngine } from './engine-config';
-import { createDemoOpenaiChat, engineMetadataFrame } from './engine-model';
-import { createRedactingLogger, redactSecrets } from './redact';
+import { engineMetadataFrame } from './engine-model';
+import { buildLocalEngine, buildSharedEngine } from './local-planner';
+import { redactSecrets } from './redact';
 
 const PORT = Number(process.env.WS_PORT ?? 3001);
 
@@ -45,54 +47,6 @@ export function truncateCloseReason(reason: string, maxBytes = 123): string {
   return '';
 }
 
-export interface SharedEngineResult {
-  readonly engine: Engine | null;
-  readonly initError: string | null;
-}
-
-/**
- * Builds the shared local-dev engine, redacting `apiKey` out of both the
- * returned init-error string and the console warning if construction fails.
- *
- * This is defence in depth, not a demonstrated leak: the try below wraps
- * only synchronous construction (`new OpenAI(config)` plus zod config
- * validation), and neither one echoes the key back into its error message
- * today. The realistic 401 key-echo happens later, inside `engine.handle()`,
- * which returns an `Err` rather than throwing here — see dispatch.ts.
- * Redacting anyway means a future construction-time failure that DOES carry
- * the key can't reach this log line or the `engine.error` reply it seeds.
- */
-export function buildSharedEngine(apiKey: string): SharedEngineResult {
-  try {
-    // Same redacting logger as hosted: OpenAI 401s can echo the key into
-    // provider errors, and the Engine logs those via logger.error before any
-    // outbound wire scrub runs. Local holds a long-lived OPENAI_API_KEY.
-    return {
-      engine: createPlaygroundEngine({
-        adapter: createDemoOpenaiChat(apiKey),
-        logger: createRedactingLogger(apiKey),
-      }),
-      initError: null,
-    };
-  } catch (err) {
-    const rawMessage = err instanceof Error ? err.message : String(err);
-    const initError = redactSecrets(rawMessage, apiKey);
-    console.warn(
-      `[demo ws] engine unavailable: ${initError}\n` +
-        '  Check the configured or browser-supplied OpenAI key. The socket ' +
-        'still connects, but chart requests need a valid key.',
-    );
-    return { engine: null, initError };
-  }
-}
-
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY?.trim() ?? '';
-const HAS_SERVER_API_KEY = OPENAI_API_KEY.length > 0;
-const { engine: sharedEngine, initError: sharedEngineInitError } =
-  HAS_SERVER_API_KEY
-    ? buildSharedEngine(OPENAI_API_KEY)
-    : { engine: null, initError: 'No server OpenAI key configured.' };
-
 export interface SocketData {
   helloReceived: boolean;
   reportMetadata?: boolean;
@@ -104,8 +58,8 @@ export interface SocketData {
 export interface WebSocketHandlerDeps {
   readonly sharedEngine: Engine | null;
   readonly sharedEngineInitError: string | null;
-  /** Defense in depth if a secret reaches an outbound reply. */
-  readonly apiKey?: string;
+  /** Server-held secrets, scrubbed from every outbound reply as defense in depth. */
+  readonly secrets?: readonly string[];
 }
 
 /**
@@ -117,7 +71,7 @@ export interface WebSocketHandlerDeps {
 export function createWebSocketHandlers(
   deps: WebSocketHandlerDeps,
 ): Bun.WebSocketHandler<SocketData> {
-  const { sharedEngine, sharedEngineInitError, apiKey } = deps;
+  const { sharedEngine, sharedEngineInitError, secrets = [] } = deps;
 
   return {
     open(ws) {
@@ -142,7 +96,10 @@ export function createWebSocketHandlers(
           ws.send(HEARTBEAT_PONG_FRAME);
           return;
         case 'hello': {
-          const built = buildSharedEngine(result.frame.apiKey);
+          const built = buildSharedEngine(result.frame.apiKey, [
+            ...secrets,
+            result.frame.apiKey,
+          ]);
           ws.data.browserApiKey = result.frame.apiKey;
           ws.data.browserEngine = built.engine;
           ws.data.browserEngineInitError = built.initError;
@@ -161,7 +118,12 @@ export function createWebSocketHandlers(
           ws.close(result.code, truncateCloseReason(result.reason));
           return;
         case 'reply':
-          ws.send(redactSecrets(result.wire, browserApiKey ?? apiKey));
+          ws.send(
+            redactSecrets(result.wire, [
+              ...secrets,
+              ...(browserApiKey ? [browserApiKey] : []),
+            ]),
+          );
           return;
         case 'none':
           return;
@@ -170,16 +132,16 @@ export function createWebSocketHandlers(
   };
 }
 
-const webSocketHandlers = createWebSocketHandlers({
-  sharedEngine,
-  sharedEngineInitError,
-  apiKey: OPENAI_API_KEY,
-});
-
-// Guarded so importing this module (e.g. from a test) builds the handlers
-// above without binding a real port — Bun.serve is the only part of this
-// file that needs the Bun runtime to actually be running as the entrypoint.
+// Guarded so importing this module (e.g. from a test) builds nothing and
+// binds no port: the engine and Bun.serve exist only when this file is the
+// entrypoint.
 if (import.meta.main) {
+  const local = buildLocalEngine(process.env);
+  const webSocketHandlers = createWebSocketHandlers({
+    sharedEngine: local.engine,
+    sharedEngineInitError: local.initError,
+    secrets: local.secrets,
+  });
   const server = Bun.serve<SocketData>({
     port: PORT,
     fetch(req, srv) {
@@ -192,7 +154,7 @@ if (import.meta.main) {
       if (pathname === '/ws') {
         return srv.upgrade(req, {
           data: {
-            helloReceived: HAS_SERVER_API_KEY,
+            helloReceived: local.helloReceived,
             reportMetadata:
               new URL(req.url).searchParams.get('diagnostics') === '1',
           },

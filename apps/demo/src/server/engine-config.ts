@@ -19,6 +19,7 @@ import {
   type Engine,
   llmPlanner,
 } from '@maelstrom-co/engine';
+import { jevPlanner, type TypeSafeOptions } from '@maelstrom-co/planner-jev';
 
 type LlmPlannerOptions = Parameters<typeof llmPlanner>[0];
 
@@ -63,6 +64,44 @@ export function createPlaygroundEngine(
         : { modelOptions: options.modelOptions }),
     }),
     retry: { max: MAX_RETRIES },
+    history: {
+      store: createInMemoryStore(),
+      maxEntries: HISTORY_MAX_ENTRIES,
+    },
+    ...(options.logger === undefined ? {} : { logger: options.logger }),
+  });
+}
+
+export interface JevPlaygroundEngineOptions extends PlaygroundEngineOptions {
+  /** TypeSafe key and pinned Jev model. Local server only. */
+  readonly typesafe: TypeSafeOptions;
+}
+
+/**
+ * The local `MAELSTROM_PLANNER=jev` engine: Jev plans, and any deferral
+ * re-plans with the same `llmPlanner` the default engine uses. The engine
+ * runs with `retry: false` because the Jev pipeline validates its own
+ * candidate; `jevPlanner` retries the fallback once itself.
+ */
+export function createJevPlaygroundEngine(
+  options: JevPlaygroundEngineOptions,
+): Engine {
+  const modelOptions =
+    options.modelOptions === undefined
+      ? {}
+      : { modelOptions: options.modelOptions };
+  return createEngine({
+    planner: jevPlanner({
+      typesafe: options.typesafe,
+      adapter: options.adapter,
+      ...modelOptions,
+      fallback: llmPlanner({
+        adapter: options.adapter,
+        prompt: { system: { rules: { append: SYSTEM_RULES } } },
+        ...modelOptions,
+      }),
+    }),
+    retry: false,
     history: {
       store: createInMemoryStore(),
       maxEntries: HISTORY_MAX_ENTRIES,

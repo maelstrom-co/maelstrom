@@ -22,8 +22,8 @@ vi.mock('@maelstrom-co/engine', async (importOriginal) => ({
   createEngine: createEngineMock,
 }));
 
+import { buildSharedEngine } from './local-planner';
 import {
-  buildSharedEngine,
   createWebSocketHandlers,
   type SocketData,
   truncateCloseReason,
@@ -332,7 +332,7 @@ describe('buildSharedEngine redaction', () => {
     const handlers = createWebSocketHandlers({
       sharedEngine: null,
       sharedEngineInitError: `upstream rejected key ${SENTINEL_KEY}`,
-      apiKey: SENTINEL_KEY,
+      secrets: [SENTINEL_KEY],
     });
 
     const ws = makeFakeWs();
