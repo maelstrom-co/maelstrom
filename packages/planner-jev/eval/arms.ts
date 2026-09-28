@@ -8,18 +8,32 @@ import {
   withRetry,
 } from '@maelstrom-co/engine';
 import type { AnyTextAdapter } from '@tanstack/ai';
-
 import {
   buildJevPlanner,
   FALLBACK_RETRIES,
   type Instrument,
 } from '../src/lib/jev-planner.js';
-import { buildJevUngatedStepwisePlanner } from '../src/lib/planners/jev-ungated-stepwise.js';
+import { buildJevComposedPairsPlanner } from '../src/lib/planners/jev-composed-pairs.js';
 import {
-  createJevDeps,
-  type JevDeps,
-} from '../src/lib/stages-experimental/deps.js';
+  buildJevStagePlanner,
+  type JevStages,
+} from '../src/lib/planners/jev-stage-planner.js';
+import { buildJevGatedBatchedPlanner } from '../src/lib/planners-experimental/jev-gated-batched.js';
+import { buildJevGatedStepwisePlanner } from '../src/lib/planners-experimental/jev-gated-stepwise.js';
+import { buildJevUngatedBatchedPlanner } from '../src/lib/planners-experimental/jev-ungated-batched.js';
+import { buildJevUngatedBatchedPerInstancePlanner } from '../src/lib/planners-experimental/jev-ungated-batched-per-instance.js';
+import { buildJevUngatedStepwisePlanner } from '../src/lib/planners-experimental/jev-ungated-stepwise.js';
+import { actionsBatchedPerInstance } from '../src/lib/stages/actions-batched-per-instance.js';
+import { completeLayoutInline } from '../src/lib/stages/complete-layout-inline.js';
+import { selectGated } from '../src/lib/stages/select-gated.js';
+import { createJevDeps, type JevDeps } from '../src/lib/stages/stage-deps.js';
+import type { Selection2 } from '../src/lib/stages/stage-types.js';
+import { completeLayoutParallel } from '../src/lib/stages-experimental/complete-layout-parallel.js';
+import { layoutPreset } from '../src/lib/stages-experimental/layout-preset.js';
+import { layoutPresetOrLlm } from '../src/lib/stages-experimental/layout-preset-or-llm.js';
+import { selectUngated } from '../src/lib/stages-experimental/select-ungated.js';
 import type { TypeSafeClientOptions } from '../src/lib/typesafe-client.js';
+import type { ReplayShape } from './replay.js';
 import type { LlmRole } from './usage-adapter.js';
 
 /** `baseline` is the LLM planner, `jev-poc` the frozen POC, `jev` any later Jev planner. */
@@ -41,6 +55,8 @@ export interface Arm {
   readonly name: string;
   readonly kind: ArmKind;
   readonly build: (deps: ArmDeps) => Planner;
+  /** What the arm reads from replayed stage outputs; `poc` when absent. */
+  readonly replayShape?: ReplayShape;
 }
 
 /** The demo's system rules (apps/demo/src/server/engine-config.ts), so every arm prompts the LLM like the demo. */
@@ -48,9 +64,13 @@ export const SYSTEM_RULES = `
 - Try to always keep at least one vessel visible on the chart
 - Give each vessel adequate space for its content`;
 
-/** Every arm the runner knows, by name. */
-export const arms: Readonly<Record<string, Arm>> = {
-  baseline: {
+const GATED_PER_INSTANCE = {
+  select: selectGated,
+  actions: actionsBatchedPerInstance,
+} as const;
+
+const ARMS: readonly Arm[] = [
+  {
     name: 'baseline',
     kind: 'baseline',
     build: (deps) =>
@@ -58,7 +78,7 @@ export const arms: Readonly<Record<string, Arm>> = {
         max: FALLBACK_RETRIES,
       }),
   },
-  'jev-poc': {
+  {
     name: 'jev-poc',
     kind: 'jev-poc',
     build: (deps) =>
@@ -71,13 +91,78 @@ export const arms: Readonly<Record<string, Arm>> = {
         deps.instrument,
       ),
   },
-  'jev-ungated-stepwise': {
-    name: 'jev-ungated-stepwise',
-    kind: 'jev',
-    build: (deps) =>
-      buildJevUngatedStepwisePlanner(jevDeps(deps), deps.instrument),
-  },
-};
+  stageLibraryArm(
+    'jev-ungated-stepwise-preset-inline',
+    'ungated',
+    buildJevUngatedStepwisePlanner,
+  ),
+  stageLibraryArm(
+    'jev-ungated-batched-preset-inline',
+    'ungated',
+    buildJevUngatedBatchedPlanner,
+  ),
+  stageLibraryArm(
+    'jev-ungated-per-instance-preset-inline',
+    'ungated',
+    buildJevUngatedBatchedPerInstancePlanner,
+  ),
+  stageLibraryArm(
+    'jev-gated-stepwise-preset-inline',
+    'gated',
+    buildJevGatedStepwisePlanner,
+  ),
+  stageLibraryArm(
+    'jev-gated-batched-preset-inline',
+    'gated',
+    buildJevGatedBatchedPlanner,
+  ),
+  stagePlannerArm('jev-gated-per-instance-preset-inline', 'gated', {
+    ...GATED_PER_INSTANCE,
+    layout: (ask) => layoutPreset(ask, { describe: 'placements' }),
+    complete: completeLayoutInline,
+  }),
+  stagePlannerArm('jev-gated-per-instance-preset-or-llm-inline', 'gated', {
+    ...GATED_PER_INSTANCE,
+    layout: layoutPresetOrLlm,
+    complete: completeLayoutInline,
+  }),
+  stagePlannerArm('jev-gated-per-instance-preset-or-llm-parallel', 'gated', {
+    ...GATED_PER_INSTANCE,
+    layout: layoutPresetOrLlm,
+    complete: completeLayoutParallel,
+  }),
+  stageLibraryArm(
+    'jev-gated-per-instance-composed-pairs-gate-and-defer-inline',
+    'gated',
+    buildJevComposedPairsPlanner,
+  ),
+  stagePlannerArm('jev-ungated-per-instance-preset-or-llm-inline', 'ungated', {
+    select: selectUngated,
+    actions: actionsBatchedPerInstance,
+    layout: layoutPresetOrLlm,
+    complete: completeLayoutInline,
+  }),
+];
+
+/** Every arm the runner knows, by name. */
+export const arms: Readonly<Record<string, Arm>> = armRegistry(ARMS);
+
+/**
+ * Indexes `list` by name.
+ *
+ * @throws {Error} When two arms share a name.
+ */
+export function armRegistry(
+  list: readonly Arm[],
+): Readonly<Record<string, Arm>> {
+  const registry: Record<string, Arm> = {};
+  for (const arm of list) {
+    if (Object.hasOwn(registry, arm.name))
+      throw new Error(`arm ${arm.name} is registered twice`);
+    registry[arm.name] = arm;
+  }
+  return registry;
+}
 
 /** Arms run when `--arm` is not given. */
 export const DEFAULT_ARMS: readonly string[] = ['baseline', 'jev-poc'];
@@ -118,6 +203,29 @@ export function jevDeps(deps: ArmDeps): JevDeps {
     adapter: deps.adapter('complete'),
     fallback: deps.fallback,
   });
+}
+
+function stageLibraryArm(
+  name: string,
+  replayShape: ReplayShape,
+  build: (deps: JevDeps, instrument: Instrument) => Planner,
+): Arm {
+  return {
+    name,
+    kind: 'jev',
+    replayShape,
+    build: (deps) => build(jevDeps(deps), deps.instrument),
+  };
+}
+
+function stagePlannerArm<Selected extends Selection2>(
+  name: string,
+  replayShape: ReplayShape,
+  stages: JevStages<Selected>,
+): Arm {
+  return stageLibraryArm(name, replayShape, (deps, instrument) =>
+    buildJevStagePlanner(stages, deps, instrument),
+  );
 }
 
 function known(): string {

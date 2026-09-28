@@ -3,6 +3,8 @@ import { join } from 'node:path';
 
 import { STAGE_NAMES } from '../src/lib/defer.js';
 import type { ArmKind } from './arms.js';
+import { GRADER_DIMENSIONS, type GraderDimension } from './grader.js';
+import { type GraderValidation, graderGate } from './grader-validate.js';
 import type { RunRecord } from './run.js';
 import type { Suite } from './scenarios.js';
 import { LLM_ROLES, type LlmCall } from './usage-adapter.js';
@@ -26,6 +28,36 @@ export interface TokenTotals {
   readonly withoutUsage: number;
 }
 
+/** How often a yes/no gate answered wrongly. */
+export interface GateErrors {
+  /** Yes where the answer should be no, over turns whose answer should be no. */
+  readonly falsePositives: Ratio;
+  /** No where the answer should be yes, over turns whose answer should be yes. */
+  readonly falseNegatives: Ratio;
+}
+
+/** The grader's verdicts on one arm's planned turns; secondary to the rule-based pass. */
+export interface GraderSummary {
+  /** Planned turns the grader scored. */
+  readonly graded: number;
+  /** Planned turns whose grading failed; they count in no mean. */
+  readonly failed: number;
+  /** Mean normalised score per dimension; `undefined` without a graded turn. */
+  readonly mean: Readonly<Record<GraderDimension, number | undefined>>;
+  /**
+   * Mean of this arm's score minus the baseline's on the same scenario and
+   * repeat, over the pairs where both were graded. Absent for the baseline.
+   */
+  readonly versusBaseline?: Readonly<
+    Record<
+      GraderDimension,
+      { readonly mean: number | undefined; readonly pairs: number }
+    >
+  >;
+  /** The grader's own TypeSafe usage, never part of the arm's planner cost. */
+  readonly tokens: TokenTotals;
+}
+
 export interface ArmSummary {
   readonly arm: string;
   readonly kind: ArmKind;
@@ -41,6 +73,17 @@ export interface ArmSummary {
   readonly errors: number;
   /** Turns tagged spatial and non-spatial controls, the denominators of a spatial gate's error rates. */
   readonly spatial: { readonly spatial: number; readonly controls: number };
+  /**
+   * Gate errors over the turns whose live select call answered the gate:
+   * `needsActions` against whether the scenario expects actions, `spatial`
+   * against its spatial tag. Absent when no turn answered a gate.
+   */
+  readonly gates?: {
+    readonly needsActions: GateErrors;
+    readonly spatial: GateErrors;
+  };
+  /** Turns that ran or replayed a `jevLayout` stage, over planned turns whose scenario declares arrangement rules. */
+  readonly arrangementReachedLayout?: Ratio;
   /**
    * Jev arms only: planned turns no stage deferred, their pass rate, and
    * wins and losses against the baseline on the same scenario and repeat.
@@ -73,6 +116,8 @@ export interface ArmSummary {
   readonly fill?: Ratio;
   /** Stages replayed from a recorded run; their latency is left out. */
   readonly replayed: readonly string[];
+  /** Present when any of the arm's turns was graded. */
+  readonly grader?: GraderSummary;
   readonly latency: {
     readonly turn: Percentiles;
     /** Live stage runs only. */
@@ -102,7 +147,10 @@ export function percentile(
   return sorted[Math.min(rank, sorted.length) - 1];
 }
 
-/** One summary per arm and suite present, plus `all` per arm, arms in the order records name them. */
+/**
+ * One summary per arm and suite present, plus `all` per arm, arms in the
+ * order records name them.
+ */
 export function summarize(records: readonly RunRecord[]): ArmSummary[] {
   const summaries: ArmSummary[] = [];
   const arms = [...new Set(records.map((record) => record.arm))];
@@ -128,16 +176,25 @@ export function summarize(records: readonly RunRecord[]): ArmSummary[] {
   return summaries;
 }
 
-/** A Markdown report with the arms side by side, per suite. */
+/**
+ * A Markdown report with the arms side by side, per suite. When any turn
+ * was graded, the grader's rows appear only if `graderValidation` passes
+ * {@link graderGate}; otherwise one line says the grader is unvalidated.
+ */
 export function renderMarkdown(
   summaries: readonly ArmSummary[],
   meta: Readonly<Record<string, unknown>>,
+  graderValidation?: GraderValidation,
 ): string {
   const lines = ['# planner-jev eval', ''];
   for (const [key, value] of Object.entries(meta))
     lines.push(
       `- ${key}: ${typeof value === 'object' ? JSON.stringify(value) : String(value)}`,
     );
+  const gate = summaries.some((summary) => summary.grader !== undefined)
+    ? graderGate(graderValidation)
+    : undefined;
+  if (gate) lines.push('', gate.line);
   const suites = [...new Set(summaries.map((summary) => summary.suite))];
   for (const suite of suites) {
     const rows = summaries.filter((summary) => summary.suite === suite);
@@ -179,10 +236,16 @@ export function renderMarkdown(
         s.fallbacks ? String(s.fallbacks.byReason[reason] ?? 0) : 'n/a',
       );
     row('llmComplete fill rate', (s) => (s.fill ? ratio(s.fill) : 'n/a'));
-    row(
-      'Spatial gate false positives / negatives',
-      (s) =>
-        `n/a (${s.spatial.spatial} spatial, ${s.spatial.controls} controls)`,
+    row('needsActions gate false positives / negatives', (s) =>
+      s.gates ? gateErrors(s.gates.needsActions) : 'n/a',
+    );
+    row('Spatial gate false positives / negatives', (s) =>
+      s.gates
+        ? gateErrors(s.gates.spatial)
+        : `n/a (${s.spatial.spatial} spatial, ${s.spatial.controls} controls)`,
+    );
+    row('Arrangement turns reaching jevLayout', (s) =>
+      s.arrangementReachedLayout ? ratio(s.arrangementReachedLayout) : 'n/a',
     );
     row('Replayed stages', (s) =>
       s.replayed.length > 0 ? s.replayed.join(', ') : 'none',
@@ -207,6 +270,9 @@ export function renderMarkdown(
     row('Jev calls / input / output tokens', (s) =>
       s.tokens.jev ? totals(s.tokens.jev) : 'n/a',
     );
+    row('Jev calls per turn', (s) =>
+      s.tokens.jev ? (s.tokens.jev.calls / s.runs).toFixed(2) : 'n/a',
+    );
     row('Jev tokens per turn (input / output)', (s) =>
       s.tokens.jev
         ? `${s.tokens.jev.perTurn.input.toFixed(1)} / ${s.tokens.jev.perTurn.output.toFixed(1)}`
@@ -224,6 +290,30 @@ export function renderMarkdown(
           },
         ),
       );
+    if (gate?.validated) {
+      for (const dimension of GRADER_DIMENSIONS) {
+        row(`Grader ${dimension} mean`, (s) =>
+          fixed(s.grader?.mean[dimension]),
+        );
+        row(`Grader ${dimension} vs baseline (paired)`, (s) => {
+          const paired = s.grader?.versusBaseline?.[dimension];
+          return paired?.mean === undefined
+            ? 'n/a'
+            : `${paired.mean >= 0 ? '+' : ''}${paired.mean.toFixed(3)} (${paired.pairs})`;
+        });
+      }
+      row('Grader failures', (s) =>
+        s.grader
+          ? ratio({
+              count: s.grader.failed,
+              total: s.grader.graded + s.grader.failed,
+            })
+          : 'n/a',
+      );
+      row('Grader calls / input / output tokens', (s) =>
+        s.grader ? totals(s.grader.tokens) : 'n/a',
+      );
+    }
   }
   return `${lines.join('\n')}\n`;
 }
@@ -262,20 +352,35 @@ export function renderPaired(records: readonly RunRecord[]): string {
   return `${lines.join('\n')}\n`;
 }
 
-/** Writes `records.json`, `summary.json`, `report.md` and `paired.md` to `out`. */
+/**
+ * Writes `records.json`, `summary.json`, `report.md` and `paired.md` to
+ * `out`; `graderValidation` decides whether the grader's rows appear.
+ */
 export async function writeReport(
   out: string,
   records: readonly RunRecord[],
   meta: Readonly<Record<string, unknown>>,
+  graderValidation?: GraderValidation,
 ): Promise<ArmSummary[]> {
   const summaries = summarize(records);
   await mkdir(out, { recursive: true });
   await writeFile(join(out, 'records.json'), JSON.stringify(records, null, 2));
   await writeFile(
     join(out, 'summary.json'),
-    JSON.stringify({ meta, summaries }, null, 2),
+    JSON.stringify(
+      {
+        meta,
+        summaries,
+        ...(graderValidation && { graderValidation }),
+      },
+      null,
+      2,
+    ),
   );
-  await writeFile(join(out, 'report.md'), renderMarkdown(summaries, meta));
+  await writeFile(
+    join(out, 'report.md'),
+    renderMarkdown(summaries, meta, graderValidation),
+  );
   await writeFile(join(out, 'paired.md'), renderPaired(records));
   return summaries;
 }
@@ -321,6 +426,11 @@ function summarizeArm(
       ),
     ],
   };
+  const grader = graderSummary(
+    planned,
+    kind === 'baseline' ? undefined : baselines,
+  );
+  if (grader) Object.assign(common, { grader });
   const llm = {
     llmCall: Object.fromEntries(
       LLM_ROLES.flatMap((role) => {
@@ -395,8 +505,16 @@ function summarizeArm(
       ),
     );
   const jev = sum(calls);
+  const gates = gateSummary(records);
   return {
     ...common,
+    ...(gates && { gates }),
+    arrangementReachedLayout: {
+      count: ruled.filter((record) =>
+        (record.stages ?? []).some((entry) => entry.stage === 'jevLayout'),
+      ).length,
+      total: ruled.length,
+    },
     decisive: { pass: passed(decisive), wins, losses, paired },
     expectedDeferrals: {
       count: expected.filter((record) => record.deferredAsExpected).length,
@@ -441,6 +559,97 @@ function summarizeArm(
       llm: llm.tokens,
     },
   };
+}
+
+function graderSummary(
+  planned: readonly RunRecord[],
+  baselines: readonly RunRecord[] | undefined,
+): GraderSummary | undefined {
+  const attempted = planned.filter((record) => record.grader !== undefined);
+  if (attempted.length === 0) return undefined;
+  const graded = attempted.filter((record) => record.grader?.dimensions);
+  const scoreOf = (record: RunRecord, dimension: GraderDimension) =>
+    record.grader?.dimensions?.[dimension].score;
+  const meanOf = (values: readonly number[]) =>
+    values.length === 0
+      ? undefined
+      : values.reduce((total, value) => total + value, 0) / values.length;
+  const perDimension = <T>(value: (dimension: GraderDimension) => T) =>
+    Object.fromEntries(
+      GRADER_DIMENSIONS.map((dimension) => [dimension, value(dimension)]),
+    ) as Record<GraderDimension, T>;
+  const mean = perDimension((dimension) =>
+    meanOf(graded.flatMap((record) => scoreOf(record, dimension) ?? [])),
+  );
+  const versusBaseline =
+    baselines &&
+    perDimension((dimension) => {
+      const differences = graded.flatMap((record) => {
+        const own = scoreOf(record, dimension);
+        const other = baselines.find(
+          (candidate) =>
+            candidate.scenarioId === record.scenarioId &&
+            candidate.repeat === record.repeat,
+        );
+        const theirs = other && scoreOf(other, dimension);
+        return own === undefined || theirs === undefined ? [] : [own - theirs];
+      });
+      return { mean: meanOf(differences), pairs: differences.length };
+    });
+  return {
+    graded: graded.length,
+    failed: attempted.length - graded.length,
+    mean,
+    ...(versusBaseline && { versusBaseline }),
+    tokens: sum(attempted.flatMap((record) => record.grader?.calls ?? [])),
+  };
+}
+
+function fixed(value: number | undefined): string {
+  return value === undefined ? 'n/a' : value.toFixed(3);
+}
+
+function gateSummary(
+  records: readonly RunRecord[],
+): ArmSummary['gates'] | undefined {
+  const answered = (question: string) =>
+    records.flatMap((record) => {
+      const answer = record.answers?.find(
+        (entry) => entry.stage === 'jevSelect' && entry.question === question,
+      );
+      return answer ? [{ record, yes: answer.choice === 'yes' }] : [];
+    });
+  const needsActions = answered('gate/needsActions');
+  const spatial = answered('gate/spatial');
+  if (needsActions.length === 0 && spatial.length === 0) return undefined;
+  return {
+    needsActions: errorsOf(needsActions, (record) => record.expectsActions),
+    spatial: errorsOf(spatial, (record) => record.spatial),
+  };
+}
+
+function errorsOf(
+  answers: readonly { readonly record: RunRecord; readonly yes: boolean }[],
+  truth: (record: RunRecord) => boolean | undefined,
+): GateErrors {
+  const where = (expected: boolean) =>
+    answers.filter(({ record }) => truth(record) === expected);
+  const negatives = where(false);
+  const positives = where(true);
+  return {
+    falsePositives: {
+      count: negatives.filter((answer) => answer.yes).length,
+      total: negatives.length,
+    },
+    falseNegatives: {
+      count: positives.filter((answer) => !answer.yes).length,
+      total: positives.length,
+    },
+  };
+}
+
+function gateErrors({ falsePositives, falseNegatives }: GateErrors): string {
+  return `${ratio(falsePositives)} / ${ratio(falseNegatives)}`;
 }
 
 function llmTotals(

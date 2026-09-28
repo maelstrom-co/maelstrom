@@ -360,7 +360,7 @@ describe('jevActions', () => {
       v0: '"Buy milk"',
       v1: '"Send invoice"',
       stated_elsewhere:
-        'The request refers to the value indirectly (a landmark, event, "the capital of X", a relative description) or states it in a form none of the options match exactly.',
+        'The latest intent gives a value that no listed option clearly matches, or that several listed options could match.',
       not_stated: 'The request does not give a value.',
     });
   });

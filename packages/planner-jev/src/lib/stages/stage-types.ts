@@ -24,12 +24,22 @@ export interface SelectionGates {
 /** A selection, optionally carrying the select stage's gate answers. */
 export type Selection2 = JevSelection & { readonly gates?: SelectionGates };
 
+/** A selection from a select stage that always asks every gate. */
+export type GatedSelection = Selection2 & {
+  readonly gates: Required<SelectionGates>;
+};
+
 /** An action plan with its lowest answer confidence, forwarding its input's gates. */
 export type ActionPlan2 = JevActionPlan & {
   readonly selection: Selection2;
   /** Lowest confidence among the answers this stage consumed; 1 when it consumed none. */
   readonly minConfidence: number;
   readonly gates?: SelectionGates;
+};
+
+/** An action plan whose gates were all asked, ready for a stage that routes on them alone. */
+export type GatedActionPlan = ActionPlan2 & {
+  readonly gates: Required<NonNullable<Selection2['gates']>>;
 };
 
 /** Where a {@link LayoutDecision} came from. */
@@ -44,6 +54,11 @@ export interface LayoutDecision {
   readonly source: LayoutSource;
   readonly layoutId?: string;
   readonly tree?: readonly TilingNode[];
+  /**
+   * What `tree` does to the current layout, in words for the reply. When
+   * set, the completion stage states it in place of `layoutId`.
+   */
+  readonly layoutSummary?: string;
   readonly answers: readonly AnswerRecord[];
 }
 

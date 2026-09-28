@@ -9,8 +9,8 @@ import {
   runPocCase,
 } from '../__test-helpers__/poc-fixtures.js';
 import { jevPlanner } from '../jev-planner.js';
-import { buildJevUngatedStepwisePlanner } from '../planners/jev-ungated-stepwise.js';
-import { createJevDeps } from '../stages-experimental/deps.js';
+import { buildJevUngatedStepwisePlanner } from '../planners-experimental/jev-ungated-stepwise.js';
+import { createJevDeps } from './stage-deps.js';
 
 const SNAPSHOT_DIR = join(
   import.meta.dir,

@@ -4,18 +4,68 @@ import type { AnyTextAdapter } from '@tanstack/ai';
 
 import { dummyAdapter } from '../src/lib/__test-helpers__/mock-chat.js';
 import { TEST_MODEL } from '../src/lib/__test-helpers__/scripted-fetch.js';
-import { type ArmDeps, arms, DEFAULT_ARMS, resolveArms } from './arms.js';
+import {
+  type Arm,
+  type ArmDeps,
+  armRegistry,
+  arms,
+  DEFAULT_ARMS,
+  resolveArms,
+} from './arms.js';
 import type { LlmRole } from './usage-adapter.js';
 
 describe('arm registry', () => {
   test('holds the baseline and the frozen POC by name', () => {
     expect(arms.baseline).toMatchObject({ name: 'baseline', kind: 'baseline' });
     expect(arms['jev-poc']).toMatchObject({ name: 'jev-poc', kind: 'jev-poc' });
-    expect(arms['jev-ungated-stepwise']).toMatchObject({
-      name: 'jev-ungated-stepwise',
+    expect(arms['jev-ungated-stepwise-preset-inline']).toMatchObject({
+      name: 'jev-ungated-stepwise-preset-inline',
       kind: 'jev',
     });
     expect(DEFAULT_ARMS).toEqual(['baseline', 'jev-poc']);
+  });
+
+  test('holds every actions, layout and complete stage variant, each under its own name', () => {
+    expect(Object.keys(arms)).toEqual([
+      'baseline',
+      'jev-poc',
+      'jev-ungated-stepwise-preset-inline',
+      'jev-ungated-batched-preset-inline',
+      'jev-ungated-per-instance-preset-inline',
+      'jev-gated-stepwise-preset-inline',
+      'jev-gated-batched-preset-inline',
+      'jev-gated-per-instance-preset-inline',
+      'jev-gated-per-instance-preset-or-llm-inline',
+      'jev-gated-per-instance-preset-or-llm-parallel',
+      'jev-gated-per-instance-composed-pairs-gate-and-defer-inline',
+      'jev-ungated-per-instance-preset-or-llm-inline',
+    ]);
+    for (const [name, arm] of Object.entries(arms)) expect(arm.name).toBe(name);
+    expect(
+      Object.fromEntries(
+        Object.values(arms).map((arm) => [arm.name, arm.replayShape ?? 'poc']),
+      ),
+    ).toEqual({
+      baseline: 'poc',
+      'jev-poc': 'poc',
+      'jev-ungated-stepwise-preset-inline': 'ungated',
+      'jev-ungated-batched-preset-inline': 'ungated',
+      'jev-ungated-per-instance-preset-inline': 'ungated',
+      'jev-gated-stepwise-preset-inline': 'gated',
+      'jev-gated-batched-preset-inline': 'gated',
+      'jev-gated-per-instance-preset-inline': 'gated',
+      'jev-gated-per-instance-preset-or-llm-inline': 'gated',
+      'jev-gated-per-instance-preset-or-llm-parallel': 'gated',
+      'jev-gated-per-instance-composed-pairs-gate-and-defer-inline': 'gated',
+      'jev-ungated-per-instance-preset-or-llm-inline': 'ungated',
+    });
+  });
+
+  test('refuses two arms with one name', () => {
+    const arm = arms.baseline as Arm;
+    expect(() => armRegistry([arm, { ...arm }])).toThrow(
+      'arm baseline is registered twice',
+    );
   });
 
   test('resolves exact names in the order given', () => {
@@ -38,7 +88,7 @@ describe('arm registry', () => {
 
   test('rejects an unknown name, listing the known ones', () => {
     expect(() => resolveArms(['baseline', 'jev2'])).toThrow(
-      'unknown arm jev2; known arms: baseline, jev-poc (alias jev), jev-ungated-stepwise',
+      'unknown arm jev2; known arms: baseline, jev-poc (alias jev), jev-ungated-stepwise-preset-inline, jev-ungated-batched-preset-inline, jev-ungated-per-instance-preset-inline, jev-gated-stepwise-preset-inline, jev-gated-batched-preset-inline, jev-gated-per-instance-preset-inline, jev-gated-per-instance-preset-or-llm-inline, jev-gated-per-instance-preset-or-llm-parallel, jev-gated-per-instance-composed-pairs-gate-and-defer-inline, jev-ungated-per-instance-preset-or-llm-inline',
     );
     expect(() => resolveArms([])).toThrow('at least one arm');
   });
@@ -56,9 +106,13 @@ describe('arm registry', () => {
       },
       instrument: (_name, stage) => stage,
     };
-    expect(typeof arms.baseline?.build(deps)).toBe('function');
-    expect(typeof arms['jev-poc']?.build(deps)).toBe('function');
-    expect(typeof arms['jev-ungated-stepwise']?.build(deps)).toBe('function');
-    expect(roles).toEqual(['planner', 'complete', 'complete']);
+    for (const arm of Object.values(arms))
+      expect(typeof arm.build(deps)).toBe('function');
+    expect(roles).toEqual([
+      'planner',
+      ...Object.keys(arms)
+        .slice(1)
+        .map((): LlmRole => 'complete'),
+    ]);
   });
 });

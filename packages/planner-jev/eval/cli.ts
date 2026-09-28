@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 
@@ -6,6 +6,10 @@ import { consoleLogger } from '@maelstrom-co/engine';
 import { createOpenaiChat, type OpenAIChatModel } from '@tanstack/ai-openai';
 
 import { DEFAULT_ARMS, resolveArms } from './arms.js';
+import {
+  type GraderValidation,
+  isGraderValidation,
+} from './grader-validate.js';
 import {
   loadReplay,
   REPLAY_THROUGH,
@@ -31,7 +35,9 @@ const { values } = parseArgs({
     verbose: { type: 'boolean', default: false },
     'replay-from': { type: 'string' },
     'replay-through': { type: 'string' },
-    'replay-arm': { type: 'string', default: 'jev-poc' },
+    'replay-arm': { type: 'string' },
+    grader: { type: 'boolean', default: false },
+    'grader-validation': { type: 'string' },
   },
 });
 
@@ -48,8 +54,14 @@ const replayThrough =
   values['replay-through'] === undefined
     ? undefined
     : oneOf(values['replay-through'], REPLAY_THROUGH, 'replay-through');
-if ((replayFrom === undefined) !== (replayThrough === undefined))
-  fail('--replay-from and --replay-through go together');
+const replayArm = values['replay-arm'];
+if (
+  (replayFrom === undefined) !== (replayThrough === undefined) ||
+  (replayFrom === undefined) !== (replayArm === undefined)
+)
+  fail(
+    '--replay-from, --replay-through and --replay-arm go together: name the recorded arm to replay',
+  );
 if (replayFrom !== undefined && arms.every((arm) => arm.kind === 'baseline'))
   fail('--replay-from needs at least one Jev arm');
 const repeats = Number(values.repeats);
@@ -93,9 +105,13 @@ let replay:
       readonly meta: { from: string; through: string; arm: string };
     }
   | undefined;
-if (replayFrom !== undefined && replayThrough !== undefined) {
+if (
+  replayFrom !== undefined &&
+  replayThrough !== undefined &&
+  replayArm !== undefined
+) {
   const from = resolve(replayFrom);
-  const arm = values['replay-arm'];
+  const arm = replayArm;
   try {
     replay = {
       source: await loadReplay(from, arm),
@@ -104,6 +120,26 @@ if (replayFrom !== undefined && replayThrough !== undefined) {
   } catch (error) {
     fail(error instanceof Error ? error.message : String(error));
   }
+}
+
+const graderValidationPath = values['grader-validation'];
+if (graderValidationPath !== undefined && !values.grader)
+  fail('--grader-validation needs --grader');
+let graderValidation: GraderValidation | undefined;
+if (graderValidationPath !== undefined) {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(await readFile(resolve(graderValidationPath), 'utf8'));
+  } catch (error) {
+    fail(
+      `--grader-validation ${graderValidationPath}: ${error instanceof Error ? error.message : error}`,
+    );
+  }
+  if (!isGraderValidation(raw))
+    fail(
+      `--grader-validation ${graderValidationPath}: not a well-formed grader validation`,
+    );
+  graderValidation = raw;
 }
 
 const model = values.model;
@@ -117,6 +153,7 @@ const records = await runEval({
   adapter: createOpenaiChat(model as OpenAIChatModel, env.OPENAI_API_KEY),
   typesafe: { apiKey: env.TYPESAFE_API_KEY, model: env.JEV_MODEL },
   out,
+  grader: values.grader,
   ...(values.verbose && { logger: consoleLogger }),
   ...(replay &&
     replayThrough && {
@@ -137,19 +174,29 @@ const records = await runEval({
             : record.score?.pass
               ? 'pass'
               : 'fail'
-      }${record.deferral ? ` (fallback: ${record.deferral.reason})` : ''}`,
+      }${record.deferral ? ` (fallback: ${record.deferral.reason})` : ''}${
+        record.grader?.failure
+          ? ` (grader failed: ${record.grader.failure})`
+          : ''
+      }`,
     ),
 });
-await writeReport(out, records, {
-  suite,
-  arms: arms.map((arm) => arm.name).join(', '),
-  repeats,
-  scenarios: scenarios.length,
-  llmModel: model,
-  jevModel: env.JEV_MODEL,
-  date: new Date().toISOString(),
-  ...(replay && { replay: replay.meta }),
-});
+await writeReport(
+  out,
+  records,
+  {
+    suite,
+    arms: arms.map((arm) => arm.name).join(', '),
+    repeats,
+    scenarios: scenarios.length,
+    llmModel: model,
+    jevModel: env.JEV_MODEL,
+    date: new Date().toISOString(),
+    ...(replay && { replay: replay.meta }),
+    ...(values.grader && { grader: graderValidationPath ?? 'not validated' }),
+  },
+  graderValidation,
+);
 console.log(`Report written to ${out}/report.md`);
 
 function oneOf<T extends string>(

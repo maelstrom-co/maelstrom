@@ -19,7 +19,11 @@ import {
   type Engine,
   llmPlanner,
 } from '@maelstrom-co/engine';
-import { jevPlanner, type TypeSafeOptions } from '@maelstrom-co/planner-jev';
+import {
+  jevComposedPairsPlanner,
+  jevPlanner,
+  type TypeSafeOptions,
+} from '@maelstrom-co/planner-jev';
 
 type LlmPlannerOptions = Parameters<typeof llmPlanner>[0];
 
@@ -72,16 +76,26 @@ export function createPlaygroundEngine(
   });
 }
 
+/**
+ * The Jev planners `MAELSTROM_PLANNER` selects: `jev` is the frozen POC,
+ * `jev-composed-pairs` the experimental planner that composes the layout
+ * from Jev's answers about pairs of instances.
+ */
+export type JevPlannerName = 'jev' | 'jev-composed-pairs';
+
 export interface JevPlaygroundEngineOptions extends PlaygroundEngineOptions {
+  /** Which Jev planner plans. Defaults to `jev`. */
+  readonly planner?: JevPlannerName;
   /** TypeSafe key and pinned Jev model. Local server only. */
   readonly typesafe: TypeSafeOptions;
 }
 
 /**
- * The local `MAELSTROM_PLANNER=jev` engine: Jev plans, and any deferral
- * re-plans with the same `llmPlanner` the default engine uses. The engine
- * runs with `retry: false` because the Jev pipeline validates its own
- * candidate; `jevPlanner` retries the fallback once itself.
+ * The local Jev engine (`MAELSTROM_PLANNER=jev` or `jev-composed-pairs`):
+ * Jev plans, and any deferral re-plans with the same `llmPlanner` the
+ * default engine uses. The engine runs with `retry: false` because the Jev
+ * pipeline validates its own candidate; both Jev planners retry the
+ * fallback once themselves.
  */
 export function createJevPlaygroundEngine(
   options: JevPlaygroundEngineOptions,
@@ -90,8 +104,12 @@ export function createJevPlaygroundEngine(
     options.modelOptions === undefined
       ? {}
       : { modelOptions: options.modelOptions };
+  const planner =
+    options.planner === 'jev-composed-pairs'
+      ? jevComposedPairsPlanner
+      : jevPlanner;
   return createEngine({
-    planner: jevPlanner({
+    planner: planner({
       typesafe: options.typesafe,
       adapter: options.adapter,
       ...modelOptions,

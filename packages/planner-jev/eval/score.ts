@@ -1,11 +1,13 @@
 import {
   getVisibleInstanceIds,
+  isErr,
   type MaelstromResponse,
   type TilingLayout,
   type TilingNode,
   tilingLeafInstanceId,
 } from '@maelstrom-co/protocol';
 
+import { finalVariants } from '../src/lib/final-variants.js';
 import type {
   JevActionPlan,
   JevLayoutPlan,
@@ -27,15 +29,16 @@ export interface ArrangedScore extends Score {
 /**
  * Scores a shipped (validated and healed) response: visible and retained
  * sets, ordered actions with parsed parameters, and the variant invariant
- * (an existing instance's declared variant never changes; variants change
- * only through transition actions). New instance ids are matched to the
- * expected ones by Vessel and order, so a planner's own ids score fairly.
+ * (an existing instance's declared variant is the one the shipped execution
+ * plan leaves it in, simulated with the engine's own rule). New instance ids
+ * are matched to the expected ones by Vessel and order, so a planner's own
+ * ids score fairly.
  */
 export function scoreResponse(
   scenario: Scenario,
   response: MaelstromResponse,
 ): ArrangedScore {
-  const { expected, request } = scenario;
+  const { expected } = scenario;
   if (response.layout.type !== 'tiling') {
     const failures = ['Response layout is not tiling'];
     return {
@@ -72,15 +75,7 @@ export function scoreResponse(
       })),
       expected.actions,
     );
-  for (const existing of request.instances) {
-    const declared = response.layout.instances.find(
-      (instance) => instance.instanceId === existing.instanceId,
-    );
-    if (declared && declared.variant !== existing.variant)
-      failures.push(
-        `Variant of ${existing.instanceId} changed to ${declared.variant} without an action`,
-      );
-  }
+  compareVariants(failures, scenario, response.layout, response.executionPlan);
   const arrangement = arrange(
     scenario,
     response.layout.tree.map((token) => {
@@ -213,7 +208,45 @@ function arrange(
   return score;
 }
 
-function expectedRetained(scenario: Scenario): readonly string[] {
+function compareVariants(
+  failures: string[],
+  scenario: Scenario,
+  layout: TilingLayout,
+  executionPlan: MaelstromResponse['executionPlan'],
+): void {
+  const { request } = scenario;
+  const existing = new Set<string>(
+    request.instances.map((instance) => instance.instanceId),
+  );
+  const simulated = finalVariants(
+    request.instances,
+    executionPlan.filter((step) => existing.has(step.instanceId)),
+    request.vessels,
+  );
+  if (isErr(simulated)) {
+    const { kind, step } = simulated.error;
+    failures.push(
+      `Execution plan does not simulate: ${step.action} on ${step.instanceId} (${kind})`,
+    );
+    return;
+  }
+  for (const instance of request.instances) {
+    const declared = layout.instances.find(
+      (candidate) => candidate.instanceId === instance.instanceId,
+    );
+    const wanted = simulated.value.get(instance.instanceId) ?? instance.variant;
+    if (declared && declared.variant !== wanted)
+      failures.push(
+        `Variant of ${instance.instanceId} is ${declared.variant}, but the execution plan leaves it ${wanted}`,
+      );
+  }
+}
+
+/**
+ * The Instances a scenario expects retained: its stated set, or every
+ * current, visible and acted-on Instance when it states none.
+ */
+export function expectedRetained(scenario: Scenario): readonly string[] {
   const { expected, request } = scenario;
   return (
     expected.retained ?? [

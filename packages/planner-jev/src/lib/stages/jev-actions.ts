@@ -15,13 +15,16 @@ import {
 
 import { deferAt } from '../defer.js';
 import { finalVariants, legalActions } from '../final-variants.js';
-import { enumValues, parameterCandidates } from '../parameters.js';
+import {
+  bindParameterChoices,
+  enumSnapshotOf,
+  parameterQuestions,
+} from '../parameter-questions.js';
 import {
   type ConfidencePolicy,
   choice,
   intentText,
   isResizeOnly,
-  type Question,
   readAnswer,
   recentHistory,
 } from '../questions.js';
@@ -197,44 +200,13 @@ async function bindParameters(
     });
   if (parameters.length === 0) return planned({}, []);
 
-  const snapshot =
-    request.vessels === ctx.origin.request.vessels
-      ? ctx.enumSnapshot
-      : undefined;
-  const intent = intentText(request);
-  const questions: Record<string, Question> = {};
-  const values = new Map<string, readonly unknown[]>();
-  const described = new Map<string, PendingParameter>();
-  for (const parameter of parameters) {
-    const id = `param/${step}/${parameter.name}`;
-    const enumerated = enumValues(parameter, snapshot);
-    const candidates = parameterCandidates(parameter, intent, enumerated);
-    values.set(id, candidates);
-    described.set(id, {
-      name: parameter.name,
-      type: parameter.type,
-      description: parameter.description,
-      ...(enumerated.length > 0 && { enum: enumerated }),
-    });
-    questions[id] = choice(
-      `For action ${step + 1}, ${chosen.definition.name} on ${chosen.instance.instanceId}, choose the value of ${parameter.name} (${parameter.type}): ${parameter.description}. Pick an option only when it is itself the value, for example a city name, never a phrase that describes, names indirectly or points to the value.`,
-      {
-        ...Object.fromEntries(
-          candidates.map((value, index) => [
-            `v${index}`,
-            JSON.stringify(value),
-          ]),
-        ),
-        stated_elsewhere:
-          'The request refers to the value indirectly (a landmark, event, "the capital of X", a relative description) or states it in a form none of the options match exactly.',
-        not_stated: 'The request does not give a value.',
-        ...(parameter.required === false && {
-          omit: 'This optional parameter was not requested.',
-        }),
-      },
-    );
-  }
-
+  const { slots, questions } = parameterQuestions(
+    parameters,
+    `param/${step}`,
+    `For action ${step + 1}, ${chosen.definition.name} on ${chosen.instance.instanceId}`,
+    intentText(request),
+    enumSnapshotOf(request, ctx),
+  );
   const reply = await ask(
     STAGE,
     {
@@ -258,33 +230,19 @@ async function bindParameters(
   );
   if (isErr(reply)) return err(reply.error);
 
-  const params: Record<string, unknown> = {};
-  const pending: PendingParameter[] = [];
-  const missing: ParameterAsk[] = [];
-  for (const parameter of parameters) {
-    const id = `param/${step}/${parameter.name}`;
-    const answer = readAnswer(reply.value, id, STAGE, ctx, policy);
+  const choices: Record<string, string> = {};
+  for (const slot of slots) {
+    const answer = readAnswer(reply.value, slot.id, STAGE, ctx, policy);
     if (isErr(answer)) return answer;
-    answers.push({ stage: STAGE, question: id, ...answer.value });
-    const slot = described.get(id) as PendingParameter;
-    switch (answer.value.choice) {
-      case 'omit':
-        break;
-      case 'stated_elsewhere':
-        pending.push(slot);
-        break;
-      case 'not_stated':
-        missing.push({
-          instanceId: chosen.instance.instanceId,
-          action: chosen.definition.name,
-          parameter: slot,
-        });
-        break;
-      default:
-        params[parameter.name] =
-          values.get(id)?.[Number(answer.value.choice.slice(1))];
-    }
+    answers.push({ stage: STAGE, question: slot.id, ...answer.value });
+    choices[slot.id] = answer.value.choice;
   }
+  const bound = bindParameterChoices(slots, choices);
+  const missing: ParameterAsk[] = bound.missing.map((parameter) => ({
+    instanceId: chosen.instance.instanceId,
+    action: chosen.definition.name,
+    parameter,
+  }));
   if (missing.length > 0) {
     ctx.logger.info('jev.action_dropped', {
       stage: STAGE,
@@ -294,5 +252,5 @@ async function bindParameters(
     });
     return ok({ kind: 'dropped', asks: missing });
   }
-  return planned(params, pending);
+  return planned(bound.params, bound.pending);
 }

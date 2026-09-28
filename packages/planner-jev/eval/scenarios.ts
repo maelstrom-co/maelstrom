@@ -84,6 +84,14 @@ const TRIO_TREE = [
 ];
 const TRIO_VISIBLE = ['calendar-main', 'weather-main', 'map-main'];
 
+const STUDIO_ROUTE_TURN: readonly LLMContextMessage[] = [
+  {
+    role: 'user',
+    content: 'Show me the route to Studio Vortex HQ on the map.',
+  },
+  { role: 'assistant', content: 'The route is set to Studio Vortex HQ.' },
+];
+
 /** Explicit arrangement requests; any arm, fallback included, may satisfy them. */
 const arrangements: Scenario[] = [
   planned(
@@ -156,6 +164,7 @@ const arrangements: Scenario[] = [
         { kind: 'spansFullWidth', id: 'weather-main' },
         { kind: 'below', a: 'weather-main', b: 'calendar-main' },
         { kind: 'below', a: 'weather-main', b: 'map-main' },
+        { kind: 'sideBySide', ids: ['calendar-main', 'map-main'] },
         {
           kind: 'weightRatio',
           a: 'weather-main',
@@ -173,6 +182,218 @@ const arrangements: Scenario[] = [
       ],
     },
     { tree: TRIO_TREE },
+  ),
+  planned(
+    'bottom-strip-keep-row',
+    'A thin strip along the bottom of a row',
+    'Make the weather a thin strip along the bottom.',
+    {
+      visible: TRIO_VISIBLE,
+      actions: [],
+      tree: [
+        'H:3,1',
+        'V',
+        'ID:calendar-main',
+        'ID:map-main',
+        'ID:weather-main',
+      ],
+      arrangement: [
+        { kind: 'spansFullWidth', id: 'weather-main' },
+        { kind: 'below', a: 'weather-main', b: 'calendar-main' },
+        { kind: 'below', a: 'weather-main', b: 'map-main' },
+        { kind: 'leftOf', a: 'calendar-main', b: 'map-main' },
+        {
+          kind: 'weightRatio',
+          a: 'weather-main',
+          b: 'calendar-main',
+          min: 0,
+          max: 0.75,
+        },
+      ],
+    },
+    { tree: TRIO_TREE },
+  ),
+  planned(
+    'bottom-strip-four-nested',
+    'A thin strip along the bottom of a nested layout',
+    'Make the weather a thin strip along the bottom.',
+    {
+      visible: ['calendar-main', 'tasks-main', 'map-main', 'weather-main'],
+      actions: [],
+      tree: [
+        'H:3,1',
+        'V:2,1',
+        'H',
+        'ID:calendar-main',
+        'ID:tasks-main',
+        'ID:map-main',
+        'ID:weather-main',
+      ],
+      arrangement: [
+        { kind: 'spansFullWidth', id: 'weather-main' },
+        { kind: 'below', a: 'weather-main', b: 'calendar-main' },
+        { kind: 'below', a: 'weather-main', b: 'tasks-main' },
+        { kind: 'below', a: 'weather-main', b: 'map-main' },
+        { kind: 'above', a: 'calendar-main', b: 'tasks-main' },
+        { kind: 'leftOf', a: 'calendar-main', b: 'map-main' },
+        { kind: 'leftOf', a: 'tasks-main', b: 'map-main' },
+        {
+          kind: 'weightRatio',
+          a: 'weather-main',
+          b: 'calendar-main',
+          min: 0,
+          max: 1,
+        },
+      ],
+    },
+    {
+      tree: ['V:2,1', 'H', 'ID:calendar-main', 'ID:tasks-main', 'ID:map-main'],
+      columns: 36,
+      rows: 16,
+      variants: { calendar: 'day' },
+    },
+  ),
+  planned(
+    'half-of-left-column-nested',
+    'Half of a nested column',
+    'Give the tasks half of the left column.',
+    {
+      visible: ['calendar-main', 'tasks-main', 'map-main', 'weather-main'],
+      actions: [],
+      tree: [
+        'H:3,1',
+        'V',
+        'H',
+        'ID:calendar-main',
+        'ID:tasks-main',
+        'ID:map-main',
+        'ID:weather-main',
+      ],
+      arrangement: [
+        { kind: 'stacked', ids: ['calendar-main', 'tasks-main'] },
+        { kind: 'leftOf', a: 'calendar-main', b: 'map-main' },
+        { kind: 'leftOf', a: 'tasks-main', b: 'map-main' },
+        { kind: 'spansFullWidth', id: 'weather-main' },
+        {
+          kind: 'weightRatio',
+          a: 'tasks-main',
+          b: 'calendar-main',
+          min: 0.8,
+          max: 1.25,
+        },
+      ],
+    },
+    {
+      tree: [
+        'H:4,1',
+        'V',
+        'H',
+        'ID:calendar-main',
+        'ID:tasks-main',
+        'ID:map-main',
+        'ID:weather-main',
+      ],
+      columns: 36,
+      rows: 16,
+      variants: { calendar: 'day' },
+    },
+  ),
+  planned(
+    'full-height-column-keep-row',
+    'A full-height column beside a kept row',
+    'Move the calendar into a full-height column on the left while keeping the top row layout as it is.',
+    {
+      visible: [
+        'calendar-main',
+        'tasks-main',
+        'journal-main',
+        'map-main',
+        'weather-main',
+      ],
+      actions: [],
+      tree: [
+        'V:1,3',
+        'ID:calendar-main',
+        'H:3,1',
+        'V:2,1,2',
+        'ID:tasks-main',
+        'ID:journal-main',
+        'ID:map-main',
+        'ID:weather-main',
+      ],
+      arrangement: [
+        { kind: 'spansFullHeight', id: 'calendar-main' },
+        { kind: 'sideBySide', ids: ['tasks-main', 'journal-main', 'map-main'] },
+        { kind: 'below', a: 'weather-main', b: 'tasks-main' },
+        { kind: 'below', a: 'weather-main', b: 'journal-main' },
+        { kind: 'below', a: 'weather-main', b: 'map-main' },
+      ],
+    },
+    {
+      tree: [
+        'H:3,1',
+        'V:2,2,1,2',
+        'ID:calendar-main',
+        'ID:tasks-main',
+        'ID:journal-main',
+        'ID:map-main',
+        'ID:weather-main',
+      ],
+      columns: 36,
+      rows: 16,
+      variants: { calendar: 'day' },
+    },
+  ),
+  planned(
+    'narrow-column-pair',
+    'A narrow column of two',
+    'Put the calendar and tasks in a narrow column.',
+    {
+      visible: [
+        'calendar-main',
+        'tasks-main',
+        'journal-main',
+        'map-main',
+        'weather-main',
+      ],
+      actions: [],
+      tree: [
+        'V:1,2,2',
+        'H',
+        'ID:calendar-main',
+        'ID:tasks-main',
+        'ID:journal-main',
+        'H',
+        'ID:map-main',
+        'ID:weather-main',
+      ],
+      arrangement: [
+        { kind: 'stacked', ids: ['calendar-main', 'tasks-main'] },
+        { kind: 'leftOf', a: 'calendar-main', b: 'map-main' },
+        // No rule reads a width share: a calendar sharing a column as wide as the journal's has half its area.
+        {
+          kind: 'weightRatio',
+          a: 'calendar-main',
+          b: 'journal-main',
+          min: 0,
+          max: 0.4,
+        },
+      ],
+    },
+    {
+      tree: [
+        'V:3,2,2,4',
+        'ID:calendar-main',
+        'ID:tasks-main',
+        'ID:journal-main',
+        'H',
+        'ID:map-main',
+        'ID:weather-main',
+      ],
+      columns: 36,
+      rows: 16,
+      variants: { calendar: 'day' },
+    },
   ),
   planned(
     'reorder-end',
@@ -320,6 +541,168 @@ const arrangements: Scenario[] = [
         'ID:tasks-main',
       ],
       resizeFrom: { columns: 24, rows: 18 },
+    },
+  ),
+  // Composed-stage-only arrangements: each nests a split that no
+  // `layoutPreset` menu option offers, so only a composed layout stage (or a
+  // hand-off to the LLM) can produce them.
+  planned(
+    'narrow-pair-stacked-triple',
+    'A narrow left pair beside a stacked right triple',
+    'Put the calendar and tasks in a narrow column on the left. On the right, stack the map, weather and journal, and give the journal half the height.',
+    {
+      visible: [...BASE_VISIBLE, 'map-main', 'journal-main'],
+      actions: [],
+      tree: [
+        'V:1,4',
+        'H',
+        'ID:calendar-main',
+        'ID:tasks-main',
+        'H:1,1,2',
+        'ID:map-main',
+        'ID:weather-main',
+        'ID:journal-main',
+      ],
+      arrangement: [
+        { kind: 'stacked', ids: ['calendar-main', 'tasks-main'] },
+        {
+          kind: 'stacked',
+          ids: ['map-main', 'weather-main', 'journal-main'],
+        },
+        // Only two cross-stack pairs share rows for any split of the two
+        // stacks' weights, not only the reference proportions: the
+        // top-of-left and top-of-right always both start at y=0, and the
+        // bottom-of-left and bottom-of-right always both end at the Chart's
+        // bottom edge. The middle-right item (weather) has no such
+        // guarantee, so it is left unchecked by `leftOf`.
+        { kind: 'leftOf', a: 'calendar-main', b: 'map-main' },
+        { kind: 'leftOf', a: 'tasks-main', b: 'journal-main' },
+        {
+          kind: 'order',
+          ids: ['map-main', 'weather-main', 'journal-main'],
+          axis: 'y',
+        },
+        {
+          kind: 'weightRatio',
+          a: 'journal-main',
+          b: 'map-main',
+          min: 1.6,
+          max: 2.5,
+        },
+        {
+          kind: 'weightRatio',
+          a: 'journal-main',
+          b: 'weather-main',
+          min: 1.6,
+          max: 2.5,
+        },
+        {
+          kind: 'weightRatio',
+          a: 'calendar-main',
+          b: 'map-main',
+          min: 0,
+          max: 0.75,
+        },
+      ],
+    },
+    {
+      tree: [
+        'V:1,1,1,1,1',
+        'ID:calendar-main',
+        'ID:tasks-main',
+        'ID:map-main',
+        'ID:weather-main',
+        'ID:journal-main',
+      ],
+    },
+  ),
+  planned(
+    'journal-half-of-right-column',
+    'A stated proportion within an existing column',
+    'Make the journal take half of the right column.',
+    {
+      visible: ['calendar-main', 'map-main', 'weather-main', 'journal-main'],
+      actions: [],
+      tree: [
+        'V',
+        'ID:calendar-main',
+        'H:1,1,2',
+        'ID:map-main',
+        'ID:weather-main',
+        'ID:journal-main',
+      ],
+      arrangement: [
+        { kind: 'leftOf', a: 'calendar-main', b: 'journal-main' },
+        {
+          kind: 'stacked',
+          ids: ['map-main', 'weather-main', 'journal-main'],
+        },
+        {
+          kind: 'order',
+          ids: ['map-main', 'weather-main', 'journal-main'],
+          axis: 'y',
+        },
+        {
+          kind: 'weightRatio',
+          a: 'journal-main',
+          b: 'map-main',
+          min: 1.6,
+          max: 2.5,
+        },
+        {
+          kind: 'weightRatio',
+          a: 'journal-main',
+          b: 'weather-main',
+          min: 1.6,
+          max: 2.5,
+        },
+        { kind: 'spansFullHeight', id: 'calendar-main' },
+      ],
+    },
+    {
+      tree: [
+        'V',
+        'ID:calendar-main',
+        'H:1,1,1',
+        'ID:map-main',
+        'ID:weather-main',
+        'ID:journal-main',
+      ],
+    },
+  ),
+  planned(
+    'edge-columns-nested-middle',
+    'Two edge columns flanking a stacked middle pair',
+    'Weather on the left, calendar above tasks in the middle, map on the right.',
+    {
+      visible: [...BASE_VISIBLE, 'map-main'],
+      actions: [],
+      tree: [
+        'V:1,1,1',
+        'ID:weather-main',
+        'H',
+        'ID:calendar-main',
+        'ID:tasks-main',
+        'ID:map-main',
+      ],
+      arrangement: [
+        { kind: 'leftOf', a: 'weather-main', b: 'calendar-main' },
+        { kind: 'leftOf', a: 'weather-main', b: 'tasks-main' },
+        { kind: 'leftOf', a: 'calendar-main', b: 'map-main' },
+        { kind: 'leftOf', a: 'tasks-main', b: 'map-main' },
+        { kind: 'above', a: 'calendar-main', b: 'tasks-main' },
+        { kind: 'spansFullHeight', id: 'weather-main' },
+        { kind: 'spansFullHeight', id: 'map-main' },
+      ],
+    },
+    {
+      tree: [
+        'V:1,1,1,1',
+        'ID:calendar-main',
+        'ID:weather-main',
+        'ID:tasks-main',
+        'ID:map-main',
+      ],
     },
   ),
 ].map(spatial);
@@ -547,6 +930,36 @@ const development: Scenario[] = [
     },
   ),
   planned(
+    'enum-route-short-name',
+    'Select a saved map destination by a short name',
+    'Show me the map and display a route from home to the studio.',
+    {
+      visible: [...BASE_VISIBLE, 'map-main'],
+      actions: [
+        {
+          instanceId: 'map-main',
+          action: 'showRoute',
+          params: { destination: 'Studio Vortex HQ' },
+        },
+      ],
+    },
+  ),
+  planned(
+    'enum-route-description',
+    'Select a saved map destination by what it is',
+    'Show me the route to the coffee place on the map.',
+    {
+      visible: [...BASE_VISIBLE, 'map-main'],
+      actions: [
+        {
+          instanceId: 'map-main',
+          action: 'showRoute',
+          params: { destination: 'Ritual Coffee' },
+        },
+      ],
+    },
+  ),
+  planned(
     'quoted-location',
     'Copy a quoted location',
     'Set the weather location to "Tokyo".',
@@ -691,6 +1104,60 @@ const development: Scenario[] = [
       actions: [{ instanceId: 'weather-main', action: 'showWeekly' }],
     },
   },
+  routeAfter(
+    'history-route-gym-after-studio',
+    'Route to the place the latest request names, not an earlier one',
+    'Now show me the route to the gym.',
+    STUDIO_ROUTE_TURN,
+    'Mission High Fitness',
+  ),
+  routeAfter(
+    'history-route-studio-after-gym',
+    'Route to the studio after a route to the gym',
+    'Now show me the route to the studio.',
+    [
+      { role: 'user', content: 'Show me the route to the gym on the map.' },
+      {
+        role: 'assistant',
+        content: 'The route is set to Mission High Fitness.',
+      },
+    ],
+    'Studio Vortex HQ',
+  ),
+  routeAfter(
+    'history-route-gym-voice-paraphrase',
+    'Route to the gym after a studio turn, as the voice agent words it',
+    'Show the map and display a route to the gym by using the saved destination "Mission High Fitness". If an origin is needed but not configurable, use the default origin and just show the route to Mission High Fitness.',
+    [
+      {
+        role: 'user',
+        content:
+          'Show the map and display a route to the studio, using the saved destination "Studio Vortex HQ". If possible, route from Home; if origin cannot be specified, use the default routing origin and just show the route to Studio Vortex HQ.',
+      },
+      {
+        role: 'assistant',
+        content:
+          'The map is on the right, and the route is set to Studio Vortex HQ using the default origin.',
+      },
+    ],
+    'Mission High Fitness',
+    'overview',
+  ),
+  routeAfter(
+    'history-route-back-reference',
+    'Resolve a destination the latest request refers back to',
+    'Show me the route there again.',
+    [
+      ...STUDIO_ROUTE_TURN,
+      { role: 'user', content: 'Now show all my saved places on the map.' },
+      {
+        role: 'assistant',
+        content: 'The map now shows all your saved places.',
+      },
+    ],
+    'Studio Vortex HQ',
+    'overview',
+  ),
   planned(
     'runtime-enum',
     'Select an existing task from runtime options',
@@ -1006,6 +1473,731 @@ const holdout: Scenario[] = [
       }),
     ),
   ].map(control),
+  ...[
+    planned(
+      'hold-inner-third-of-column',
+      'Resize one widget to a third of its column',
+      'Give the calendar only a third of the right-hand column and let the tasks fill the rest.',
+      {
+        visible: ['map-main', 'calendar-main', 'tasks-main'],
+        actions: [],
+        tree: [
+          'V:1,1',
+          'ID:map-main',
+          'H:1,2',
+          'ID:calendar-main',
+          'ID:tasks-main',
+        ],
+        arrangement: [
+          { kind: 'spansFullHeight', id: 'map-main' },
+          { kind: 'leftOf', a: 'map-main', b: 'calendar-main' },
+          { kind: 'leftOf', a: 'map-main', b: 'tasks-main' },
+          { kind: 'above', a: 'calendar-main', b: 'tasks-main' },
+          { kind: 'stacked', ids: ['calendar-main', 'tasks-main'] },
+          ratioNear('calendar-main', 'tasks-main', 1 / 2),
+        ],
+      },
+      {
+        tree: [
+          'V:1,1',
+          'ID:map-main',
+          'H:1,1',
+          'ID:calendar-main',
+          'ID:tasks-main',
+        ],
+      },
+    ),
+    planned(
+      'hold-inner-two-thirds-of-row',
+      'Move one widget to a strip and size one within the row above',
+      'Put the map along the bottom as a full-width strip. In the row above it, the calendar should take two thirds of the row, with the weather and the tasks sharing the rest.',
+      {
+        visible: [...BASE_VISIBLE, 'map-main'],
+        actions: [],
+        tree: [
+          'H:2,1',
+          'V:4,1,1',
+          'ID:calendar-main',
+          'ID:weather-main',
+          'ID:tasks-main',
+          'ID:map-main',
+        ],
+        arrangement: [
+          { kind: 'spansFullWidth', id: 'map-main' },
+          { kind: 'above', a: 'calendar-main', b: 'map-main' },
+          { kind: 'above', a: 'weather-main', b: 'map-main' },
+          { kind: 'above', a: 'tasks-main', b: 'map-main' },
+          {
+            kind: 'sideBySide',
+            ids: ['calendar-main', 'weather-main', 'tasks-main'],
+          },
+          ratioNear('calendar-main', 'weather-main', 4),
+          ratioNear('calendar-main', 'tasks-main', 4),
+        ],
+      },
+    ),
+    planned(
+      'hold-inner-twice-as-tall',
+      'Make one widget twice as tall as its column neighbours',
+      'In the left column, make the tasks twice as tall as each of the other two.',
+      {
+        visible: [...BASE_VISIBLE, 'map-main'],
+        actions: [],
+        tree: [
+          'V:1,1',
+          'H:1,1,2',
+          'ID:calendar-main',
+          'ID:weather-main',
+          'ID:tasks-main',
+          'ID:map-main',
+        ],
+        arrangement: [
+          { kind: 'spansFullHeight', id: 'map-main' },
+          { kind: 'leftOf', a: 'tasks-main', b: 'map-main' },
+          {
+            kind: 'order',
+            ids: ['calendar-main', 'weather-main', 'tasks-main'],
+            axis: 'y',
+          },
+          {
+            kind: 'stacked',
+            ids: ['calendar-main', 'weather-main', 'tasks-main'],
+          },
+          ratioNear('tasks-main', 'calendar-main', 2),
+          ratioNear('tasks-main', 'weather-main', 2),
+        ],
+      },
+      {
+        tree: [
+          'V:1,1',
+          'H:1,1,1',
+          'ID:calendar-main',
+          'ID:weather-main',
+          'ID:tasks-main',
+          'ID:map-main',
+        ],
+      },
+    ),
+    planned(
+      'hold-inner-smaller-of-pair',
+      'Regroup into a banner over a pair and shrink one of the pair',
+      'Put the calendar across the top, with the weather and the tasks side by side underneath it. Make the weather the smaller of those two.',
+      {
+        visible: BASE_VISIBLE,
+        actions: [],
+        tree: [
+          'H',
+          'ID:calendar-main',
+          'V:1,2',
+          'ID:weather-main',
+          'ID:tasks-main',
+        ],
+        arrangement: [
+          { kind: 'spansFullWidth', id: 'calendar-main' },
+          { kind: 'above', a: 'calendar-main', b: 'weather-main' },
+          { kind: 'above', a: 'calendar-main', b: 'tasks-main' },
+          { kind: 'sideBySide', ids: ['weather-main', 'tasks-main'] },
+          {
+            kind: 'weightRatio',
+            a: 'weather-main',
+            b: 'tasks-main',
+            min: 0,
+            max: 0.75,
+          },
+        ],
+      },
+    ),
+    planned(
+      'hold-inner-quarter-of-column',
+      'Shrink one widget to a quarter of its column',
+      'Shrink the weather to a quarter of the right column; the calendar and the tasks can split what is left.',
+      {
+        visible: [...BASE_VISIBLE, 'map-main'],
+        actions: [],
+        tree: [
+          'V:2,1',
+          'ID:map-main',
+          'H:3,2,3',
+          'ID:calendar-main',
+          'ID:weather-main',
+          'ID:tasks-main',
+        ],
+        arrangement: [
+          { kind: 'spansFullHeight', id: 'map-main' },
+          { kind: 'leftOf', a: 'map-main', b: 'calendar-main' },
+          { kind: 'leftOf', a: 'map-main', b: 'weather-main' },
+          { kind: 'leftOf', a: 'map-main', b: 'tasks-main' },
+          {
+            kind: 'order',
+            ids: ['calendar-main', 'weather-main', 'tasks-main'],
+            axis: 'y',
+          },
+          {
+            kind: 'stacked',
+            ids: ['calendar-main', 'weather-main', 'tasks-main'],
+          },
+          ratioNear('weather-main', 'calendar-main', 2 / 3),
+          ratioNear('weather-main', 'tasks-main', 2 / 3),
+        ],
+      },
+      {
+        tree: [
+          'V:2,1',
+          'ID:map-main',
+          'H:1,1,1',
+          'ID:calendar-main',
+          'ID:weather-main',
+          'ID:tasks-main',
+        ],
+      },
+    ),
+    planned(
+      'hold-inner-most-of-column',
+      'Rebuild the board with one widget taking most of a column',
+      'Show only the map, the journal and the calendar. Put the map on the left half, and on the right stack the journal above the calendar, with the journal taking up most of that column.',
+      {
+        visible: ['map-main', 'journal-main', 'calendar-main'],
+        actions: [],
+        tree: [
+          'V:1,1',
+          'ID:map-main',
+          'H:3,1',
+          'ID:journal-main',
+          'ID:calendar-main',
+        ],
+        arrangement: [
+          { kind: 'spansFullHeight', id: 'map-main' },
+          { kind: 'leftOf', a: 'map-main', b: 'journal-main' },
+          { kind: 'leftOf', a: 'map-main', b: 'calendar-main' },
+          { kind: 'above', a: 'journal-main', b: 'calendar-main' },
+          { kind: 'stacked', ids: ['journal-main', 'calendar-main'] },
+          {
+            kind: 'weightRatio',
+            a: 'journal-main',
+            b: 'calendar-main',
+            min: 1.5,
+            max: 9,
+          },
+        ],
+      },
+    ),
+    planned(
+      'hold-inner-control-board-size',
+      'Size a widget against the whole board, leaving its neighbours even',
+      'Make the map take two thirds of the screen width, keeping the calendar and the tasks stacked on the right.',
+      {
+        visible: ['map-main', 'calendar-main', 'tasks-main'],
+        actions: [],
+        tree: [
+          'V:2,1',
+          'ID:map-main',
+          'H',
+          'ID:calendar-main',
+          'ID:tasks-main',
+        ],
+        arrangement: [
+          { kind: 'spansFullHeight', id: 'map-main' },
+          { kind: 'leftOf', a: 'map-main', b: 'calendar-main' },
+          { kind: 'leftOf', a: 'map-main', b: 'tasks-main' },
+          { kind: 'above', a: 'calendar-main', b: 'tasks-main' },
+          { kind: 'stacked', ids: ['calendar-main', 'tasks-main'] },
+          ratioNear('map-main', 'calendar-main', 4),
+          ...equalAreas('calendar-main', ['tasks-main']),
+        ],
+      },
+      { tree: ['V', 'ID:map-main', 'H', 'ID:calendar-main', 'ID:tasks-main'] },
+    ),
+    planned(
+      'hold-inner-control-column-no-size',
+      'Group two widgets in a column without stating a size',
+      'Move the weather and the tasks into one column on the right, the weather above the tasks, with the calendar on the left.',
+      {
+        visible: BASE_VISIBLE,
+        actions: [],
+        tree: [
+          'V',
+          'ID:calendar-main',
+          'H',
+          'ID:weather-main',
+          'ID:tasks-main',
+        ],
+        arrangement: [
+          { kind: 'leftOf', a: 'calendar-main', b: 'weather-main' },
+          { kind: 'leftOf', a: 'calendar-main', b: 'tasks-main' },
+          { kind: 'above', a: 'weather-main', b: 'tasks-main' },
+          { kind: 'stacked', ids: ['weather-main', 'tasks-main'] },
+          ...equalAreas('weather-main', ['tasks-main']),
+        ],
+      },
+    ),
+  ].map(spatial),
+  ...[
+    planned(
+      'hold-fresh-half-of-left-column',
+      'The bottom widget takes half of its column',
+      'Let the tasks at the bottom of the left column take up half of that column.',
+      {
+        visible: ['calendar-main', 'weather-main', 'tasks-main', 'map-main'],
+        actions: [],
+        tree: [
+          'V:1,1',
+          'H:1,1,2',
+          'ID:calendar-main',
+          'ID:weather-main',
+          'ID:tasks-main',
+          'ID:map-main',
+        ],
+        arrangement: [
+          {
+            kind: 'order',
+            ids: ['calendar-main', 'weather-main', 'tasks-main'],
+            axis: 'y',
+          },
+          {
+            kind: 'stacked',
+            ids: ['calendar-main', 'weather-main', 'tasks-main'],
+          },
+          { kind: 'spansFullHeight', id: 'map-main' },
+          { kind: 'leftOf', a: 'tasks-main', b: 'map-main' },
+          ratioNear('tasks-main', 'calendar-main', 2),
+          ratioNear('tasks-main', 'weather-main', 2),
+        ],
+      },
+      {
+        tree: [
+          'V:1,1',
+          'H:1,1,1',
+          'ID:calendar-main',
+          'ID:weather-main',
+          'ID:tasks-main',
+          'ID:map-main',
+        ],
+        columns: 32,
+        rows: 24,
+      },
+    ),
+    planned(
+      'hold-fresh-middle-twice-as-wide',
+      'The middle of the top row twice as wide as its neighbours',
+      'In the top row, make the calendar in the middle twice as wide as the widgets on either side of it.',
+      {
+        visible: ['weather-main', 'calendar-main', 'tasks-main', 'map-main'],
+        actions: [],
+        tree: [
+          'H:1,1',
+          'V:1,2,1',
+          'ID:weather-main',
+          'ID:calendar-main',
+          'ID:tasks-main',
+          'ID:map-main',
+        ],
+        arrangement: [
+          {
+            kind: 'order',
+            ids: ['weather-main', 'calendar-main', 'tasks-main'],
+            axis: 'x',
+          },
+          {
+            kind: 'sideBySide',
+            ids: ['weather-main', 'calendar-main', 'tasks-main'],
+          },
+          { kind: 'spansFullWidth', id: 'map-main' },
+          { kind: 'above', a: 'calendar-main', b: 'map-main' },
+          ratioNear('calendar-main', 'weather-main', 2),
+          ratioNear('calendar-main', 'tasks-main', 2),
+        ],
+      },
+      {
+        tree: [
+          'H:1,1',
+          'V:1,1,1',
+          'ID:weather-main',
+          'ID:calendar-main',
+          'ID:tasks-main',
+          'ID:map-main',
+        ],
+        columns: 36,
+        rows: 20,
+      },
+    ),
+    planned(
+      'hold-fresh-a-bit-smaller-than-neighbour',
+      'One widget of a stacked pair a bit smaller than the other',
+      'Make the journal a bit smaller than the weather sitting above it.',
+      {
+        visible: ['map-main', 'weather-main', 'journal-main'],
+        actions: [],
+        tree: [
+          'V:2,1',
+          'ID:map-main',
+          'H:3,2',
+          'ID:weather-main',
+          'ID:journal-main',
+        ],
+        arrangement: [
+          { kind: 'above', a: 'weather-main', b: 'journal-main' },
+          { kind: 'spansFullHeight', id: 'map-main' },
+          { kind: 'leftOf', a: 'map-main', b: 'weather-main' },
+          { kind: 'leftOf', a: 'map-main', b: 'journal-main' },
+          {
+            kind: 'weightRatio',
+            a: 'journal-main',
+            b: 'weather-main',
+            min: 0.4,
+            max: 0.9,
+          },
+        ],
+      },
+      {
+        tree: [
+          'V:2,1',
+          'ID:map-main',
+          'H:1,1',
+          'ID:weather-main',
+          'ID:journal-main',
+        ],
+        columns: 30,
+        rows: 20,
+      },
+    ),
+    planned(
+      'hold-fresh-quarter-after-move-to-top',
+      'Move a widget to the top of its column and give it a quarter',
+      "Move the journal to the top of the right-hand column and give it a quarter of that column's height; the other two can share what is left.",
+      {
+        visible: ['map-main', 'calendar-main', 'tasks-main', 'journal-main'],
+        actions: [],
+        tree: [
+          'V:1,1',
+          'ID:map-main',
+          'H:2,3,3',
+          'ID:journal-main',
+          'ID:calendar-main',
+          'ID:tasks-main',
+        ],
+        arrangement: [
+          {
+            kind: 'order',
+            ids: ['journal-main', 'calendar-main', 'tasks-main'],
+            axis: 'y',
+          },
+          {
+            kind: 'stacked',
+            ids: ['journal-main', 'calendar-main', 'tasks-main'],
+          },
+          { kind: 'spansFullHeight', id: 'map-main' },
+          { kind: 'leftOf', a: 'map-main', b: 'journal-main' },
+          ratioNear('journal-main', 'calendar-main', 2 / 3),
+          ratioNear('journal-main', 'tasks-main', 2 / 3),
+          ratioNear('calendar-main', 'tasks-main', 1),
+        ],
+      },
+      {
+        tree: [
+          'V:1,1',
+          'ID:map-main',
+          'H:1,1,1',
+          'ID:calendar-main',
+          'ID:tasks-main',
+          'ID:journal-main',
+        ],
+        columns: 28,
+        rows: 24,
+      },
+    ),
+    planned(
+      'hold-fresh-keep-column-trade-others',
+      'Trade two widgets and keep a stacked column untouched',
+      "Trade the positions of the weather and the map, but don't touch the calendar and journal stacked on the left.",
+      {
+        visible: ['calendar-main', 'journal-main', 'weather-main', 'map-main'],
+        actions: [],
+        tree: [
+          'V:1,1,1',
+          'H:1,1',
+          'ID:calendar-main',
+          'ID:journal-main',
+          'ID:map-main',
+          'ID:weather-main',
+        ],
+        arrangement: [
+          { kind: 'stacked', ids: ['calendar-main', 'journal-main'] },
+          { kind: 'above', a: 'calendar-main', b: 'journal-main' },
+          {
+            kind: 'order',
+            ids: ['calendar-main', 'map-main', 'weather-main'],
+            axis: 'x',
+          },
+          {
+            kind: 'order',
+            ids: ['journal-main', 'map-main', 'weather-main'],
+            axis: 'x',
+          },
+        ],
+      },
+      {
+        tree: [
+          'V:1,1,1',
+          'H:1,1',
+          'ID:calendar-main',
+          'ID:journal-main',
+          'ID:weather-main',
+          'ID:map-main',
+        ],
+        columns: 40,
+        rows: 20,
+      },
+    ),
+    planned(
+      'hold-fresh-keep-row-move-single',
+      'Move one widget to a full-height side column and keep a row together',
+      'Move the calendar into a full-height column on the left. The top row stays as it is.',
+      {
+        visible: [
+          'weather-main',
+          'tasks-main',
+          'journal-main',
+          'calendar-main',
+        ],
+        actions: [],
+        tree: [
+          'V:1,3',
+          'ID:calendar-main',
+          'V:1,1,1',
+          'ID:weather-main',
+          'ID:tasks-main',
+          'ID:journal-main',
+        ],
+        arrangement: [
+          { kind: 'spansFullHeight', id: 'calendar-main' },
+          { kind: 'leftOf', a: 'calendar-main', b: 'weather-main' },
+          {
+            kind: 'sideBySide',
+            ids: ['weather-main', 'tasks-main', 'journal-main'],
+          },
+          {
+            kind: 'order',
+            ids: ['weather-main', 'tasks-main', 'journal-main'],
+            axis: 'x',
+          },
+        ],
+      },
+      {
+        tree: [
+          'H:1,1',
+          'V:1,1,1',
+          'ID:weather-main',
+          'ID:tasks-main',
+          'ID:journal-main',
+          'ID:calendar-main',
+        ],
+        columns: 36,
+        rows: 16,
+      },
+    ),
+    planned(
+      'hold-fresh-keep-column-show-hidden',
+      'Show a hidden widget beside a column that stays untouched',
+      'Bring the journal back and put it below the map. Leave the column on the right alone.',
+      {
+        visible: [
+          'map-main',
+          'journal-main',
+          'calendar-main',
+          'weather-main',
+          'tasks-main',
+        ],
+        actions: [],
+        tree: [
+          'V:1,1',
+          'H:1,1',
+          'ID:map-main',
+          'ID:journal-main',
+          'H:1,1,1',
+          'ID:calendar-main',
+          'ID:weather-main',
+          'ID:tasks-main',
+        ],
+        arrangement: [
+          { kind: 'above', a: 'map-main', b: 'journal-main' },
+          {
+            kind: 'stacked',
+            ids: ['calendar-main', 'weather-main', 'tasks-main'],
+          },
+          {
+            kind: 'order',
+            ids: ['calendar-main', 'weather-main', 'tasks-main'],
+            axis: 'y',
+          },
+          { kind: 'leftOf', a: 'map-main', b: 'calendar-main' },
+          { kind: 'leftOf', a: 'journal-main', b: 'tasks-main' },
+        ],
+      },
+      {
+        tree: [
+          'V:1,1',
+          'ID:map-main',
+          'H:1,1,1',
+          'ID:calendar-main',
+          'ID:weather-main',
+          'ID:tasks-main',
+        ],
+      },
+    ),
+    planned(
+      'hold-fresh-all-in-one-row',
+      'A grid lined up into one row',
+      'Line every widget up in a single row, left to right.',
+      {
+        visible: ['calendar-main', 'map-main', 'tasks-main', 'weather-main'],
+        actions: [],
+        tree: [
+          'V:1,1,1,1',
+          'ID:calendar-main',
+          'ID:map-main',
+          'ID:tasks-main',
+          'ID:weather-main',
+        ],
+        arrangement: [
+          {
+            kind: 'sideBySide',
+            ids: ['calendar-main', 'map-main', 'tasks-main', 'weather-main'],
+          },
+          { kind: 'spansFullHeight', id: 'calendar-main' },
+          { kind: 'spansFullHeight', id: 'map-main' },
+          { kind: 'spansFullHeight', id: 'tasks-main' },
+          { kind: 'spansFullHeight', id: 'weather-main' },
+        ],
+      },
+      {
+        tree: [
+          'H:1,1',
+          'V:1,1',
+          'ID:calendar-main',
+          'ID:map-main',
+          'V:1,1',
+          'ID:tasks-main',
+          'ID:weather-main',
+        ],
+        columns: 40,
+        rows: 18,
+      },
+    ),
+    planned(
+      'hold-fresh-all-in-one-column',
+      'A row stacked into one column',
+      'Stack all of them in one column, one on top of the other.',
+      {
+        visible: ['weather-main', 'journal-main', 'tasks-main'],
+        actions: [],
+        tree: [
+          'H:1,1,1',
+          'ID:weather-main',
+          'ID:journal-main',
+          'ID:tasks-main',
+        ],
+        arrangement: [
+          {
+            kind: 'stacked',
+            ids: ['weather-main', 'journal-main', 'tasks-main'],
+          },
+          { kind: 'spansFullWidth', id: 'weather-main' },
+          { kind: 'spansFullWidth', id: 'journal-main' },
+          { kind: 'spansFullWidth', id: 'tasks-main' },
+        ],
+      },
+      {
+        tree: [
+          'V:1,1,1',
+          'ID:weather-main',
+          'ID:journal-main',
+          'ID:tasks-main',
+        ],
+        columns: 24,
+        rows: 30,
+      },
+    ),
+    planned(
+      'hold-fresh-control-move-column-no-size',
+      'Move a stacked column without stating an inner size',
+      'Put the column with the calendar, weather and tasks on the right side of the map.',
+      {
+        visible: ['calendar-main', 'weather-main', 'tasks-main', 'map-main'],
+        actions: [],
+        tree: [
+          'V:1,1',
+          'ID:map-main',
+          'H:1,1,1',
+          'ID:calendar-main',
+          'ID:weather-main',
+          'ID:tasks-main',
+        ],
+        arrangement: [
+          { kind: 'spansFullHeight', id: 'map-main' },
+          { kind: 'leftOf', a: 'map-main', b: 'calendar-main' },
+          { kind: 'leftOf', a: 'map-main', b: 'tasks-main' },
+          {
+            kind: 'order',
+            ids: ['calendar-main', 'weather-main', 'tasks-main'],
+            axis: 'y',
+          },
+          ...equalAreas('calendar-main', ['weather-main', 'tasks-main']),
+        ],
+      },
+      {
+        tree: [
+          'V:1,1',
+          'H:1,1,1',
+          'ID:calendar-main',
+          'ID:weather-main',
+          'ID:tasks-main',
+          'ID:map-main',
+        ],
+        columns: 34,
+        rows: 24,
+      },
+    ),
+    planned(
+      'hold-fresh-control-board-share-only',
+      'A board-level share for one widget above a row',
+      "Give the map about two thirds of the screen's height.",
+      {
+        visible: ['map-main', 'calendar-main', 'weather-main', 'tasks-main'],
+        actions: [],
+        tree: [
+          'H:2,1',
+          'ID:map-main',
+          'V:1,1,1',
+          'ID:calendar-main',
+          'ID:weather-main',
+          'ID:tasks-main',
+        ],
+        arrangement: [
+          { kind: 'spansFullWidth', id: 'map-main' },
+          { kind: 'dominant', id: 'map-main', minShare: 0.55 },
+          { kind: 'above', a: 'map-main', b: 'weather-main' },
+          {
+            kind: 'order',
+            ids: ['calendar-main', 'weather-main', 'tasks-main'],
+            axis: 'x',
+          },
+          ...equalAreas('calendar-main', ['weather-main', 'tasks-main']),
+        ],
+      },
+      {
+        tree: [
+          'H:1,1',
+          'ID:map-main',
+          'V:1,1,1',
+          'ID:calendar-main',
+          'ID:weather-main',
+          'ID:tasks-main',
+        ],
+        columns: 36,
+        rows: 24,
+      },
+    ),
+  ].map(spatial),
 ];
 
 const parameterCases: Scenario[] = [
@@ -1151,6 +2343,39 @@ function request(intent: string, options: InputOptions = {}): ChartRequest {
   });
 }
 
+/**
+ * A route request made after earlier turns in `history`, with the map in
+ * `mapVariant`: the plan routes to `destination`.
+ */
+function routeAfter(
+  id: string,
+  title: string,
+  intent: string,
+  history: readonly LLMContextMessage[],
+  destination: string,
+  mapVariant = 'route',
+): Scenario {
+  return {
+    ...planned(
+      id,
+      title,
+      intent,
+      {
+        visible: [...BASE_VISIBLE, 'map-main'],
+        actions: [
+          {
+            instanceId: 'map-main',
+            action: 'showRoute',
+            params: { destination },
+          },
+        ],
+      },
+      { variants: { map: mapVariant } },
+    ),
+    history,
+  };
+}
+
 function spatial(scenario: Scenario): Scenario {
   return { ...scenario, spatial: true };
 }
@@ -1190,6 +2415,11 @@ function balanced(
     min: 0.5,
     max: 2,
   }));
+}
+
+/** The area of `a` over the area of `b` within a quarter of `target`: 0.8 to 1.25 times it. */
+function ratioNear(a: string, b: string, target: number): ArrangementRule {
+  return { kind: 'weightRatio', a, b, min: target * 0.8, max: target * 1.25 };
 }
 
 function setLocation(instanceId: string, location: string): ExpectedAction {

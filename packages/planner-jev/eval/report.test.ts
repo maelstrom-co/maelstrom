@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
+import { GRADER_VERSION } from './grader.js';
+import type { GraderValidation } from './grader-validate.js';
 import {
   percentile,
   renderMarkdown,
@@ -7,6 +9,7 @@ import {
   summarize,
 } from './report.js';
 import type { RunRecord } from './run.js';
+import { VERBALIZER_VERSION } from './verbalize-tree.js';
 
 const pass = { pass: true, failures: [] };
 const fail = { pass: false, failures: ['x'] };
@@ -276,6 +279,73 @@ describe('summarize', () => {
   });
 });
 
+describe('gate errors', () => {
+  const gate = (question: string, choice: 'yes' | 'no') => ({
+    stage: 'jevSelect' as const,
+    question,
+    choice,
+    confidence: 0.5,
+  });
+  const records: RunRecord[] = [
+    record({
+      scenarioId: 'edit',
+      expectsActions: true,
+      spatial: false,
+      answers: [gate('gate/needsActions', 'no'), gate('gate/spatial', 'yes')],
+    }),
+    record({
+      scenarioId: 'swap',
+      expectsActions: false,
+      spatial: true,
+      arrangementRules: true,
+      stages: [{ stage: 'jevLayout', ms: 5, outcome: 'ok' }],
+      answers: [gate('gate/needsActions', 'no'), gate('gate/spatial', 'yes')],
+    }),
+    record({
+      scenarioId: 'big-right',
+      expectsActions: false,
+      spatial: true,
+      arrangementRules: true,
+      stages: [{ stage: 'jevActions', ms: 5, outcome: 'deferred' }],
+      answers: [gate('gate/needsActions', 'yes'), gate('gate/spatial', 'no')],
+    }),
+    record({ scenarioId: 'untagged' }),
+  ];
+  const [summary] = summarize(records);
+
+  test('counts false positives and negatives against the scenario tags', () => {
+    expect(summary?.gates).toEqual({
+      needsActions: {
+        falsePositives: { count: 1, total: 2 },
+        falseNegatives: { count: 1, total: 1 },
+      },
+      spatial: {
+        falsePositives: { count: 1, total: 1 },
+        falseNegatives: { count: 1, total: 2 },
+      },
+    });
+    expect(summary?.arrangementReachedLayout).toEqual({ count: 1, total: 2 });
+  });
+
+  test('renders the gate rows and Jev calls per turn', () => {
+    const markdown = renderMarkdown(summarize(records), {});
+    expect(markdown).toContain(
+      '| needsActions gate false positives / negatives | 1/2 (50.0%) / 1/1 (100.0%) |',
+    );
+    expect(markdown).toContain(
+      '| Spatial gate false positives / negatives | 1/1 (100.0%) / 1/2 (50.0%) |',
+    );
+    expect(markdown).toContain(
+      '| Arrangement turns reaching jevLayout | 1/2 (50.0%) |',
+    );
+    expect(markdown).toContain('| Jev calls per turn | 0.00 |');
+  });
+
+  test('has no gate errors without gate answers', () => {
+    expect(summarize([record({})])[0]?.gates).toBe(undefined);
+  });
+});
+
 describe('renderPaired', () => {
   test('lists every scenario where arms disagree on pass, with failures', () => {
     const paired = renderPaired([
@@ -312,5 +382,130 @@ describe('renderPaired', () => {
     expect(renderPaired([record({ score: pass })])).toContain(
       'No scenario where arms disagree',
     );
+  });
+});
+
+describe('grader', () => {
+  function graded(
+    requestSatisfied: number,
+    arrangementMatch: number,
+  ): RunRecord['grader'] {
+    return {
+      graderVersion: GRADER_VERSION,
+      verbalizerVersion: VERBALIZER_VERSION,
+      dimensions: {
+        request_satisfied: {
+          score: requestSatisfied,
+          samples: [requestSatisfied * 4],
+        },
+        arrangement_match: {
+          score: arrangementMatch,
+          samples: [arrangementMatch * 4],
+        },
+      },
+      calls: [
+        {
+          latencyMs: 50,
+          outcome: 'ok',
+          usage: { inputTokens: 300, outputTokens: 4 },
+        },
+      ],
+    };
+  }
+  const failed: RunRecord['grader'] = {
+    graderVersion: GRADER_VERSION,
+    verbalizerVersion: VERBALIZER_VERSION,
+    failure: 'grader/provider_http',
+    calls: [{ latencyMs: 5000, outcome: 'provider_timeout' }],
+  };
+  const records: RunRecord[] = [
+    baseline({ scenarioId: 'a', grader: graded(0.5, 0.25) }),
+    baseline({ scenarioId: 'b', grader: graded(1, 1) }),
+    record({ scenarioId: 'a', grader: graded(1, 0.75) }),
+    record({ scenarioId: 'b', grader: graded(0.75, 1) }),
+    record({ scenarioId: 'c', grader: failed }),
+    record({
+      scenarioId: 'd',
+      expectedDeferral: true,
+      grader: graded(0, 0),
+    }),
+  ];
+  const summaries = summarize(records).filter(
+    (summary) => summary.suite === 'development',
+  );
+  const [baselineSummary, jevSummary] = summaries;
+
+  test('averages each dimension over planned turns and pairs it with the baseline', () => {
+    expect(jevSummary?.grader).toEqual({
+      graded: 2,
+      failed: 1,
+      mean: { request_satisfied: 0.875, arrangement_match: 0.875 },
+      versusBaseline: {
+        request_satisfied: { mean: 0.125, pairs: 2 },
+        arrangement_match: { mean: 0.25, pairs: 2 },
+      },
+      tokens: { calls: 3, input: 600, output: 8, withoutUsage: 1 },
+    });
+    expect(baselineSummary?.grader?.mean).toEqual({
+      request_satisfied: 0.75,
+      arrangement_match: 0.625,
+    });
+    expect(baselineSummary?.grader?.versusBaseline).toBe(undefined);
+  });
+
+  test('keeps grader usage out of the arm’s Jev tokens', () => {
+    expect(jevSummary?.tokens.jev?.calls).toBe(0);
+  });
+
+  test('has no grader summary when no turn was graded', () => {
+    expect(summarize([record({})])[0]?.grader).toBe(undefined);
+  });
+
+  const passing: GraderValidation = {
+    graderVersion: GRADER_VERSION,
+    verbalizerVersion: VERBALIZER_VERSION,
+    labels: { total: 18, matched: 18 },
+    rho: { request_satisfied: 0.82, arrangement_match: 0.75 },
+    gateRho: 0.75,
+    meanAbsoluteError: { request_satisfied: 0.1, arrangement_match: 0.2 },
+    agreement: { agree: 45, total: 50 },
+    passed: true,
+  };
+
+  test('shows the grader rows only when validation passed', () => {
+    const markdown = renderMarkdown(summaries, {}, passing);
+    expect(markdown).toContain('grader: validated (rho=0.75, agreement=90.0%)');
+    expect(markdown).toContain(
+      '| Grader request_satisfied mean | 0.750 | 0.875 |',
+    );
+    expect(markdown).toContain(
+      '| Grader arrangement_match vs baseline (paired) | n/a | +0.250 (2) |',
+    );
+    expect(markdown).toContain(
+      '| Grader failures | 0/2 (0.0%) | 1/3 (33.3%) |',
+    );
+    expect(markdown).toContain(
+      '| Grader calls / input / output tokens | 2 / 600 / 8 | 3 / 600 / 8 (1 without usage) |',
+    );
+  });
+
+  test('prints the unvalidated line instead of grader rows when validation failed or did not run', () => {
+    for (const validation of [
+      { ...passing, passed: false, agreement: { agree: 40, total: 50 } },
+      undefined,
+    ]) {
+      const markdown = renderMarkdown(summaries, {}, validation);
+      expect(markdown).not.toContain('Grader request_satisfied');
+      expect(markdown).not.toContain('Grader calls');
+      expect(markdown).toContain(
+        validation
+          ? 'grader: unvalidated (rho=0.75, agreement=80.0%)'
+          : 'grader: unvalidated (rho=n/a, agreement=n/a)',
+      );
+    }
+  });
+
+  test('says nothing about the grader in a run without it', () => {
+    expect(renderMarkdown(summarize([record({})]), {})).not.toContain('grader');
   });
 });

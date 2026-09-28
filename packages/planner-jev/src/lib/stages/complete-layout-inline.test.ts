@@ -22,10 +22,10 @@ import {
   dummyAdapter,
   mockChat,
 } from '../__test-helpers__/mock-chat.js';
-import { llmComplete } from '../stages/llm-complete.js';
 import type { JevLayoutPlan, PendingParameter } from '../types.js';
-import { completeWithLayout } from './complete.js';
-import type { LayoutDecision } from './types.js';
+import { completeLayoutInline } from './complete-layout-inline.js';
+import { llmComplete } from './llm-complete.js';
+import type { LayoutDecision } from './stage-types.js';
 
 afterEach(() => mockChat.mockReset());
 
@@ -56,7 +56,7 @@ async function run(
   decision: LayoutDecision,
   overrides: { validate?: ValidateCandidate; signal?: AbortSignal } = {},
 ) {
-  return completeWithLayout({ adapter: dummyAdapter })(
+  return completeLayoutInline({ adapter: dummyAdapter })(
     decision,
     makeContext(decision.plan.selection.input, overrides),
   );
@@ -67,7 +67,7 @@ const hidden = () =>
     decisions: { 'tasks-main': 'hide' },
   });
 
-describe('completeWithLayout', () => {
+describe('completeLayoutInline', () => {
   test('with a tree, sends the llmComplete call and ships its candidate', async () => {
     const layoutPlan = completionPlan(
       makeRequest('weather for the capital of Japan'),
@@ -209,13 +209,31 @@ describe('completeWithLayout', () => {
       actions: [planned('weather-main/setLocation', {}, [LOCATION])],
     });
     const { logger, entries } = spyLogger();
-    const result = await completeWithLayout({ adapter: dummyAdapter })(
+    const result = await completeLayoutInline({ adapter: dummyAdapter })(
       decisionOf(layoutPlan),
       makeContext(layoutPlan.plan.selection.input, { logger }),
     );
     expect(deferralOf(result)).toBe('llmComplete/param_unfilled');
     expect(entries.find((e) => e.msg === 'jev.defer')?.data?.question).toBe(
       'weather-main/setLocation/location',
+    );
+  });
+});
+
+describe('completeLayoutInline layout summary', () => {
+  test('the prompt and rationale state the layout summary when the stage gives one', async () => {
+    const layoutPlan = hidden();
+    mockChat.mockResolvedValue({ userMessage: 'Done.', params: {} });
+    const result = await run({
+      ...decisionOf(layoutPlan),
+      layoutSummary: 'changed. Before: a on the left. Now: b on the left',
+    });
+    expect(chatPrompt()).toContain(
+      '- Layout: changed. Before: a on the left. Now: b on the left',
+    );
+    if (!isOk(result)) throw new Error(`deferred: ${deferralOf(result)}`);
+    expect(result.value.rationale).toContain(
+      'Layout: changed. Before: a on the left. Now: b on the left',
     );
   });
 });

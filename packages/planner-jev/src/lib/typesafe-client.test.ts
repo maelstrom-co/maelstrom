@@ -16,7 +16,13 @@ import {
   scriptedFetch,
   TEST_MODEL,
 } from './__test-helpers__/scripted-fetch.js';
-import { choice, type Evaluation, MAX_CHOICES } from './questions.js';
+import {
+  choice,
+  type Evaluation,
+  MAX_CHOICES,
+  noul,
+  score,
+} from './questions.js';
 import {
   type CallOutcome,
   createTypeSafeClient,
@@ -86,6 +92,18 @@ describe('validateReply', () => {
       confidence: 0.8,
     });
     expect(reply?.usage).toEqual({ inputTokens: 11, outputTokens: 2 });
+  });
+
+  test('keeps every option probability on a choice answer, out of its spread and JSON', () => {
+    const answer = validateReply(valid(), evaluation, TEST_MODEL)?.answers[
+      'view/weather-main'
+    ];
+    expect(answer?.probabilities).toEqual({ keep: 0, hide: 1, delete: 0 });
+    expect({ ...answer }).toEqual({ choice: 'hide', confidence: 0.8 });
+    expect(JSON.parse(JSON.stringify(answer))).toEqual({
+      choice: 'hide',
+      confidence: 0.8,
+    });
   });
 
   test.each([
@@ -184,6 +202,290 @@ describe('validateReply', () => {
     expect(validateReply(mutate(valid()), evaluation, TEST_MODEL)).toBe(
       undefined,
     );
+  });
+});
+
+describe('validateReply with noul questions', () => {
+  const gated: Evaluation = {
+    state: { intent: 'set the weather to Warsaw' },
+    questions: {
+      scope: choice('Is it supported?', {
+        supported: 'yes',
+        unsupported: 'no',
+      }),
+      needsActions: noul('Does it need actions?'),
+    },
+  };
+  const gatedPayload: Payload = JSON.parse(
+    JSON.stringify({ model: TEST_MODEL, ...gated }),
+  );
+  const reply = (probability: number) =>
+    buildReply(gatedPayload, {}, 0.9, TEST_MODEL, {
+      needsActions: probability,
+    });
+
+  test('reads a noul answer as a yes/no choice carrying its probability', () => {
+    expect(validateReply(reply(0.75), gated, TEST_MODEL)?.answers).toEqual({
+      scope: { choice: 'supported', confidence: 0.9 },
+      needsActions: { choice: 'yes', confidence: 0.5, probability: 0.75 },
+    });
+    expect(
+      validateReply(reply(0.1), gated, TEST_MODEL)?.answers.needsActions,
+    ).toEqual({ choice: 'no', confidence: 0.8, probability: 0.1 });
+    expect(
+      validateReply(reply(0.5), gated, TEST_MODEL)?.answers.needsActions,
+    ).toEqual({ choice: 'yes', confidence: 0, probability: 0.5 });
+  });
+
+  test.each([
+    ['a noul outside [0, 1]', { type: 'noul', noul: 1.2 }],
+    ['a missing noul value', { type: 'noul' }],
+    [
+      'a choice answer to a noul question',
+      {
+        type: 'choice',
+        choice: 'yes',
+        confidence: 1,
+        probabilities: { yes: 1 },
+      },
+    ],
+  ])('rejects %s', (_name, answer) => {
+    const raw = reply(0.8);
+    expect(
+      validateReply(
+        { ...raw, answers: { ...raw.answers, needsActions: answer } },
+        gated,
+        TEST_MODEL,
+      ),
+    ).toBe(undefined);
+  });
+
+  test('rejects a noul answer to a choice question', () => {
+    const raw = reply(0.8);
+    expect(
+      validateReply(
+        {
+          ...raw,
+          answers: { ...raw.answers, scope: { type: 'noul', noul: 0.9 } },
+        },
+        gated,
+        TEST_MODEL,
+      ),
+    ).toBe(undefined);
+  });
+
+  test('onCall reports a noul answer with yes and no probabilities', async () => {
+    const { ask, recorded, logger } = setup(() => ({
+      choices: {},
+      nouls: { needsActions: 0.25 },
+    }));
+    await ask('jevSelect', gated, ctx(logger));
+    expect(recorded[0]?.answers?.needsActions).toEqual({
+      choice: 'no',
+      confidence: 0.5,
+      probability: 0.25,
+      probabilities: { yes: 0.25, no: 0.75 },
+    });
+  });
+});
+
+describe('validateReply with score questions', () => {
+  const LEVELS = ['Nothing happened', 'Some of it happened', 'All of it'];
+  const graded: Evaluation = {
+    state: { intent: 'hide the weather' },
+    questions: {
+      scope: choice('Is it supported?', {
+        supported: 'yes',
+        unsupported: 'no',
+      }),
+      satisfied: score('Did the response do what was asked?', LEVELS),
+    },
+  };
+  const gradedPayload: Payload = JSON.parse(
+    JSON.stringify({ model: TEST_MODEL, ...graded }),
+  );
+  const scoreAnswer = {
+    type: 'score',
+    score: 1.43,
+    confidence: 0.35,
+    legend: { '0': LEVELS[0], '1': LEVELS[1], '2': LEVELS[2] },
+    probabilities: { '0': 0, '1': 0.57, '2': 0.43 },
+  };
+  const raw = (answer: unknown = scoreAnswer) => {
+    const built = buildReply(gradedPayload, {}, 0.9);
+    return { ...built, answers: { ...built.answers, satisfied: answer } };
+  };
+
+  test('sends the levels as the ordered criteria array', async () => {
+    const { ask, calls, logger } = setup(() => ({ choices: {} }));
+    await ask('jevSelect', graded, ctx(logger));
+    expect(calls[0]?.questions.satisfied as unknown).toEqual({
+      type: 'score',
+      instructions: 'Did the response do what was asked?',
+      criteria: LEVELS,
+    });
+  });
+
+  test('reads a score answer with its fractional score and per-level probabilities', () => {
+    expect(validateReply(raw(), graded, TEST_MODEL)?.answers).toEqual({
+      scope: { choice: 'supported', confidence: 0.9 },
+      satisfied: {
+        choice: '1',
+        confidence: 0.35,
+        score: 1.43,
+        probabilities: { '0': 0, '1': 0.57, '2': 0.43 },
+      },
+    });
+  });
+
+  test('picks the lower level on a tie for the most probable level', () => {
+    const tied = {
+      ...scoreAnswer,
+      score: 0.5,
+      probabilities: { '0': 0.5, '1': 0.5, '2': 0 },
+    };
+    expect(
+      validateReply(raw(tied), graded, TEST_MODEL)?.answers.satisfied?.choice,
+    ).toBe('0');
+  });
+
+  test('accepts probabilities that sum to one within 0.02', () => {
+    const near = {
+      ...scoreAnswer,
+      probabilities: { '0': 0.01, '1': 0.57, '2': 0.43 },
+    };
+    expect(validateReply(raw(near), graded, TEST_MODEL)).not.toBe(undefined);
+  });
+
+  test('accepts the end points of the score range', () => {
+    for (const [value, level] of [
+      [0, '0'],
+      [2, '2'],
+    ] as const) {
+      const probabilities = { '0': 0, '1': 0, '2': 0, [level]: 1 };
+      expect(
+        validateReply(
+          raw({ ...scoreAnswer, score: value, probabilities }),
+          graded,
+          TEST_MODEL,
+        )?.answers.satisfied?.score,
+      ).toBe(value);
+    }
+  });
+
+  test.each([
+    [
+      'probabilities that sum well under one',
+      { ...scoreAnswer, probabilities: { '0': 0, '1': 0.5, '2': 0.43 } },
+    ],
+    [
+      'probabilities that sum well over one',
+      { ...scoreAnswer, probabilities: { '0': 0.1, '1': 0.57, '2': 0.43 } },
+    ],
+    [
+      'a probability outside [0, 1]',
+      { ...scoreAnswer, probabilities: { '0': -0.2, '1': 0.77, '2': 0.43 } },
+    ],
+    [
+      'probabilities missing a level',
+      { ...scoreAnswer, probabilities: { '1': 0.57, '2': 0.43 } },
+    ],
+    [
+      'probabilities over an extra level',
+      {
+        ...scoreAnswer,
+        probabilities: { '0': 0, '1': 0.57, '2': 0.43, '3': 0 },
+      },
+    ],
+    [
+      'levels echoed out of order',
+      {
+        ...scoreAnswer,
+        legend: { '0': LEVELS[1], '1': LEVELS[0], '2': LEVELS[2] },
+      },
+    ],
+    [
+      'a level echoed with different text',
+      {
+        ...scoreAnswer,
+        legend: { '0': LEVELS[0], '1': 'Half of it', '2': LEVELS[2] },
+      },
+    ],
+    [
+      'a legend missing a level',
+      { ...scoreAnswer, legend: { '0': LEVELS[0], '1': LEVELS[1] } },
+    ],
+    [
+      'a legend with an extra level',
+      {
+        ...scoreAnswer,
+        legend: { '0': LEVELS[0], '1': LEVELS[1], '2': LEVELS[2], '3': 'x' },
+      },
+    ],
+    ['a missing legend', { ...scoreAnswer, legend: undefined }],
+    ['a score below zero', { ...scoreAnswer, score: -0.1 }],
+    ['a score above the top level', { ...scoreAnswer, score: 2.1 }],
+    ['a non-numeric score', { ...scoreAnswer, score: '1.43' }],
+    ['a confidence outside [0, 1]', { ...scoreAnswer, confidence: 1.2 }],
+    ['a noul answer to a score question', { type: 'noul', noul: 0.4 }],
+    [
+      'a choice answer to a score question',
+      {
+        type: 'choice',
+        choice: '1',
+        confidence: 0.35,
+        probabilities: { '0': 0, '1': 0.57, '2': 0.43 },
+      },
+    ],
+  ])('rejects %s', (_name, answer) => {
+    expect(validateReply(raw(answer), graded, TEST_MODEL)).toBe(undefined);
+  });
+
+  test('rejects a score answer to a choice question', () => {
+    const built = raw();
+    expect(
+      validateReply(
+        { ...built, answers: { ...built.answers, scope: scoreAnswer } },
+        graded,
+        TEST_MODEL,
+      ),
+    ).toBe(undefined);
+  });
+
+  test('onCall and the reply both carry the score answer', async () => {
+    const { ask, recorded, logger } = setup(() => ({
+      choices: {},
+      confidence: 0.6,
+      scores: { satisfied: 2 },
+    }));
+    const result = await ask('jevSelect', graded, ctx(logger));
+    const expected = {
+      choice: '2',
+      confidence: 0.6,
+      score: 2,
+      probabilities: { '0': 0, '1': 0, '2': 1 },
+    };
+    expect(recorded[0]?.answers?.satisfied).toEqual(expected);
+    expect(isOk(result) && result.value.answers.satisfied).toEqual(expected);
+  });
+});
+
+describe('the grader caller label', () => {
+  test('reports calls and deferrals under grader, not a stage', async () => {
+    const ok = setup(() => ({ choices: {} }));
+    await ok.ask('grader', evaluation, ctx(ok.logger));
+    expect(ok.recorded[0]).toMatchObject({ stage: 'grader', outcome: 'ok' });
+
+    const failing = setup(() => ({ status: 503 }));
+    const result = await failing.ask('grader', evaluation, ctx(failing.logger));
+    expect(isErr(result) && result.error).toEqual({
+      _tag: 'Deferred',
+      reason: 'grader/provider_http',
+    });
+    expect(failing.recorded[0]).toMatchObject({
+      stage: 'grader',
+      outcome: 'provider_http',
+    });
   });
 });
 

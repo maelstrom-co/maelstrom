@@ -7,8 +7,8 @@ import { actionPlan } from '../__test-helpers__/layout-fixtures.js';
 import type { Script } from '../__test-helpers__/scripted-fetch.js';
 import { runPair } from '../__test-helpers__/stage-pair.js';
 import { jevLayout } from '../stages/jev-layout.js';
-import { menuLayout } from './layout-menu.js';
-import type { ActionPlan2 } from './types.js';
+import type { ActionPlan2 } from '../stages/stage-types.js';
+import { layoutPreset } from './layout-preset.js';
 
 function planOf(
   request: ChartRequest,
@@ -18,10 +18,10 @@ function planOf(
 }
 
 function pair(plan: ActionPlan2, script: Script) {
-  return runPair(jevLayout, menuLayout, plan, plan.selection.input, script);
+  return runPair(jevLayout, layoutPreset, plan, plan.selection.input, script);
 }
 
-describe('menuLayout', () => {
+describe('layoutPreset', () => {
   test('sends the POC layout call and wraps its choice as a Jev decision', async () => {
     const plan = planOf(makeRequest('open the Monday entry'), [
       'journal-main/openEntry',
@@ -55,5 +55,24 @@ describe('menuLayout', () => {
     expect(poc.result).toMatchObject({
       error: { reason: 'jevLayout/layout_unavailable' },
     });
+  });
+
+  test('with placements, describes each layout by its Instances and positions', async () => {
+    const plan = planOf(makeRequest('arrange'));
+    const { poc, next } = await runPair(
+      jevLayout,
+      (ask) => layoutPreset(ask, { describe: 'placements' }),
+      plan,
+      plan.selection.input,
+      () => ({ choices: {}, confidence: 1 }),
+    );
+    const pocCriteria = poc.calls[0]?.questions.layout?.criteria ?? {};
+    const nextCriteria = next.calls[0]?.questions.layout?.criteria ?? {};
+    expect(nextCriteria.preserve).toBeDefined();
+    expect(nextCriteria.preserve).not.toEqual(pocCriteria.preserve);
+    for (const instance of ['calendar-main', 'weather-main', 'tasks-main'])
+      expect(nextCriteria.preserve).toContain(instance);
+    if (!isOk(next.result)) throw new Error('expected a layout');
+    expect(next.result.value.source).toBe('jev');
   });
 });

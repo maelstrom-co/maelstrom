@@ -1,6 +1,7 @@
 import {
   type CancellationError,
   cancellationError,
+  type Deferred,
   type LLMContextMessage,
   type PlannerCandidate,
   type ProviderError,
@@ -8,6 +9,7 @@ import {
   type StageContext,
 } from '@maelstrom-co/engine';
 import {
+  type ChartRequest,
   err,
   isErr,
   MAX_SPLIT_CHILDREN,
@@ -26,13 +28,21 @@ import {
   parseFill,
   type Slot,
 } from '../completion-schema.js';
+import {
+  type DeclaredVariants,
+  declaredVariants,
+} from '../declared-variants.js';
 import { deferAt } from '../defer.js';
-import { finalVariants } from '../final-variants.js';
+import type { SimulationError } from '../final-variants.js';
 import { layoutFits } from '../layout-fit.js';
 import { intentText, recentHistory } from '../questions.js';
-import type { ParameterAsk, PlannedAction } from '../types.js';
-import type { CompletionLlm } from './deps.js';
-import type { CompleteStage, LayoutDecision } from './types.js';
+import type {
+  ParameterAsk,
+  PlannedAction,
+  SelectedInstance,
+} from '../types.js';
+import type { CompletionLlm } from './stage-deps.js';
+import type { CompleteStage, LayoutDecision } from './stage-types.js';
 
 const STAGE = 'llmComplete';
 
@@ -55,106 +65,160 @@ type HandOffCompletion = Completion & {
  * exactly the visible instances, each at least at its minimum size, or the
  * stage defers with `invalid_layout`.
  */
-export function completeWithLayout(llm: CompletionLlm): CompleteStage {
+export function completeLayoutInline(llm: CompletionLlm): CompleteStage {
   return async (decision, ctx) => {
-    const { plan } = decision;
-    const input = plan.selection.input;
-    const { request } = input;
-    const slots: Slot[] = plan.actions
-      .flatMap((action) =>
-        action.pending.map((parameter) => ({ action, parameter })),
-      )
-      .map((slot, index) => ({ ...slot, key: `p${index}` }));
+    const prep = prepareCompletion(decision);
+    const { slots, visible, handOff } = prep;
 
-    const retained = plan.selection.instances.filter(
-      (instance) => instance.decision !== 'delete',
-    );
-    const variants = finalVariants(retained, plan.actions, request.vessels);
-    const visible: VesselInstanceSnapshot[] = retained
-      .filter((instance) => instance.visible)
-      .map((instance) => ({
-        instanceId: instance.instanceId,
-        vesselId: instance.vesselId,
-        variant: isErr(variants)
-          ? instance.variant
-          : (variants.value.get(instance.instanceId) ?? instance.variant),
-      }));
-    const handOff = decision.tree === undefined;
-
-    const completion = await complete(
+    const completion = await callLlm<Completion>(
       llm,
       buildPrompt(decision, slots, handOff ? visible : undefined),
       outputSchema(slots, handOff ? { layout: LAYOUT_SCHEMA } : {}),
-      input.history,
+      decision.plan.selection.input.history,
       ctx,
     );
     if (isErr(completion)) return completion;
-
-    const filled = new Map<Slot, unknown>();
-    for (const slot of slots) {
-      const value = parseFill(
-        slot.parameter,
-        completion.value.params?.[slot.key],
-      );
-      if (value === undefined)
-        return deferAt(
-          ctx,
-          STAGE,
-          'param_unfilled',
-          `${slot.action.instanceId}/${slot.action.action}/${slot.parameter.name}`,
-        );
-      filled.set(slot, value);
-    }
-
-    if (isErr(variants)) return deferAt(ctx, STAGE, 'simulation_failed');
 
     const tree =
       decision.tree ??
       ((completion.value as HandOffCompletion).layout?.tree as
         | readonly TilingNode[]
         | undefined);
-    if (tree === undefined || (handOff && !layoutFits(request, tree, visible)))
-      return deferAt(ctx, STAGE, 'invalid_layout', 'layout');
-
-    const candidate: PlannerCandidate = {
-      userMessage: completion.value.userMessage,
-      rationale: rationale(decision),
-      executionPlan: plan.actions.map((action) => {
-        const params: Record<string, unknown> = { ...action.params };
-        for (const slot of slots)
-          if (slot.action === action)
-            params[slot.parameter.name] = filled.get(slot);
-        return {
-          instanceId: action.instanceId,
-          action: action.action,
-          ...(Object.keys(params).length > 0 && {
-            paramsJson: JSON.stringify(params),
-          }),
-        };
-      }),
-      layout: {
-        tree,
-        // New instances seed the Engine's action simulation from this
-        // declaration, so they keep the variant they are created in.
-        instances: retained.map(({ instanceId, vesselId, variant, fresh }) => ({
-          instanceId,
-          vesselId,
-          variant: fresh
-            ? variant
-            : (variants.value.get(instanceId) ?? variant),
-        })),
-      },
-    };
-
-    const report = ctx.validate(candidate);
-    if (isErr(report)) return deferAt(ctx, STAGE, 'invalid_candidate');
-    if (report.value.diagnostics.retryHint.recommend)
-      return deferAt(ctx, STAGE, 'retry_recommended');
-    return ok(candidate);
+    return assembleCandidate(ctx, decision, completion.value, prep, tree);
   };
 }
 
-const LAYOUT_SCHEMA = z.object({
+/**
+ * Slots to fill, the retained instances, their declared variants and
+ * whether the decision hands the layout tree off. Shared by every
+ * completion call built over one {@link LayoutDecision}, so a stage that
+ * splits the completion into several calls still derives them once.
+ */
+export interface CompletionPrep {
+  readonly slots: readonly Slot[];
+  readonly retained: readonly SelectedInstance[];
+  readonly declared: Result<DeclaredVariants, SimulationError>;
+  readonly visible: readonly VesselInstanceSnapshot[];
+  readonly handOff: boolean;
+}
+
+/** Derives {@link CompletionPrep} from `decision`. */
+export function prepareCompletion(decision: LayoutDecision): CompletionPrep {
+  const { plan } = decision;
+  const { request } = plan.selection.input;
+  const slots: Slot[] = plan.actions
+    .flatMap((action) =>
+      action.pending.map((parameter) => ({ action, parameter })),
+    )
+    .map((slot, index) => ({ ...slot, key: `p${index}` }));
+
+  const retained = plan.selection.instances.filter(
+    (instance) => instance.decision !== 'delete',
+  );
+  const declared = declaredVariants(retained, plan.actions, request.vessels);
+  const visible: VesselInstanceSnapshot[] = retained
+    .filter((instance) => instance.visible)
+    .map((instance) => ({
+      instanceId: instance.instanceId,
+      vesselId: instance.vesselId,
+      variant: isErr(declared)
+        ? instance.variant
+        : (declared.value.variants.get(instance.instanceId) ??
+          instance.variant),
+    }));
+  return {
+    slots,
+    retained,
+    declared,
+    visible,
+    handOff: decision.tree === undefined,
+  };
+}
+
+/**
+ * Whether `tree` cannot ship: missing outright, or on a hand-off, not
+ * placing exactly the `visible` instances each at least at its minimum
+ * size on the request's Chart.
+ */
+export function invalidTree(
+  request: ChartRequest,
+  tree: readonly TilingNode[] | undefined,
+  handOff: boolean,
+  visible: readonly VesselInstanceSnapshot[],
+): boolean {
+  return tree === undefined || (handOff && !layoutFits(request, tree, visible));
+}
+
+/**
+ * Fills pending parameters from `completion`, checks the simulated variants
+ * and `tree`, then builds, validates and returns the candidate. The tail
+ * every completion call shares once it has a message and a tree, whether
+ * both came from one call or from separate calls run in parallel.
+ */
+export function assembleCandidate(
+  ctx: StageContext,
+  decision: LayoutDecision,
+  completion: Completion,
+  prep: CompletionPrep,
+  tree: readonly TilingNode[] | undefined,
+): Result<PlannerCandidate, Deferred> {
+  const { plan } = decision;
+  const { request } = plan.selection.input;
+  const { slots, retained, declared, visible, handOff } = prep;
+
+  const filled = new Map<Slot, unknown>();
+  for (const slot of slots) {
+    const value = parseFill(slot.parameter, completion.params?.[slot.key]);
+    if (value === undefined)
+      return deferAt(
+        ctx,
+        STAGE,
+        'param_unfilled',
+        `${slot.action.instanceId}/${slot.action.action}/${slot.parameter.name}`,
+      );
+    filled.set(slot, value);
+  }
+
+  if (isErr(declared)) return deferAt(ctx, STAGE, 'simulation_failed');
+
+  if (invalidTree(request, tree, handOff, visible))
+    return deferAt(ctx, STAGE, 'invalid_layout', 'layout');
+
+  const candidate: PlannerCandidate = {
+    userMessage: completion.userMessage,
+    rationale: rationale(decision),
+    executionPlan: declared.value.actions.map((action) => {
+      const params: Record<string, unknown> = { ...action.params };
+      for (const slot of slots)
+        if (slot.action === action)
+          params[slot.parameter.name] = filled.get(slot);
+      return {
+        instanceId: action.instanceId,
+        action: action.action,
+        ...(Object.keys(params).length > 0 && {
+          paramsJson: JSON.stringify(params),
+        }),
+      };
+    }),
+    layout: {
+      tree: tree as readonly TilingNode[],
+      instances: retained.map(({ instanceId, vesselId, variant }) => ({
+        instanceId,
+        vesselId,
+        variant: declared.value.variants.get(instanceId) ?? variant,
+      })),
+    },
+  };
+
+  const report = ctx.validate(candidate);
+  if (isErr(report)) return deferAt(ctx, STAGE, 'invalid_candidate');
+  if (report.value.diagnostics.retryHint.recommend)
+    return deferAt(ctx, STAGE, 'retry_recommended');
+  return ok(candidate);
+}
+
+/** The schema of a layout-writing call's output: the tree, and nothing else. */
+export const LAYOUT_SCHEMA = z.object({
   tree: z
     .array(z.string().nullable())
     .describe(
@@ -162,13 +226,19 @@ const LAYOUT_SCHEMA = z.object({
     ),
 });
 
-async function complete(
+/**
+ * Runs one structured-output call over `llm`, honoring `ctx.signal` and
+ * turning an already-cancelled signal, a mid-flight abort or a provider
+ * failure into a {@link CancellationError} or {@link ProviderError} result
+ * instead of a thrown error.
+ */
+export async function callLlm<T>(
   llm: CompletionLlm,
   prompt: string,
-  schema: z.ZodType<Completion>,
+  schema: z.ZodType<T>,
   history: readonly LLMContextMessage[],
   ctx: StageContext,
-): Promise<Result<Completion, CancellationError | ProviderError>> {
+): Promise<Result<T, CancellationError | ProviderError>> {
   const { signal, logger } = ctx;
   const messageId = ctx.origin.messageId;
   if (signal?.aborted) {
@@ -195,7 +265,7 @@ async function complete(
         modelOptions: llm.modelOptions,
       }),
     });
-    return ok(output as Completion);
+    return ok(output as T);
   } catch (error) {
     if (signal?.aborted) {
       logger.info('Request cancelled', { messageId, reason: signal.reason });
@@ -222,6 +292,27 @@ function buildPrompt(
   slots: readonly Slot[],
   handOffInstances: readonly VesselInstanceSnapshot[] | undefined,
 ): string {
+  const label = handOffInstances
+    ? 'you write it, see Layout to write'
+    : layoutLabel(decision);
+  const base = buildMessagePrompt(decision, slots, label);
+  return handOffInstances
+    ? [base, '', ...layoutSection(decision, handOffInstances)].join('\n')
+    : base;
+}
+
+/**
+ * The message-only portion of the completion prompt: request, decisions,
+ * slots to fill and asks. `layoutLabelText` is what the decisions section
+ * says under "Layout:", so a caller that writes the tree with a separate
+ * call can describe it in its own words instead of pointing at a "Layout to
+ * write" section this prompt does not carry.
+ */
+export function buildMessagePrompt(
+  decision: LayoutDecision,
+  slots: readonly Slot[],
+  layoutLabelText: string,
+): string {
   const { plan } = decision;
   const { request } = plan.selection.input;
   const intent = intentText(request);
@@ -232,12 +323,7 @@ function buildPrompt(
       : 'No new words from the user: the chart was resized.',
     '',
     '## Decided',
-    ...decisions(
-      decision,
-      handOffInstances
-        ? 'you write it, see Layout to write'
-        : layoutLabel(decision),
-    ),
+    ...decisions(decision, layoutLabelText),
   ];
   if (slots.length > 0)
     lines.push(
@@ -253,8 +339,6 @@ function buildPrompt(
       'Ask the user for these values; do not claim these actions ran.',
       ...plan.asks.map(describeAsk),
     );
-  if (handOffInstances)
-    lines.push('', ...layoutSection(decision, handOffInstances));
   return lines.join('\n');
 }
 
@@ -344,7 +428,9 @@ function rationale(decision: LayoutDecision): string {
   return parts.join(' ');
 }
 
-function layoutLabel(decision: LayoutDecision): string {
+/** What "Layout:" says in the decisions section and the rationale. */
+export function layoutLabel(decision: LayoutDecision): string {
+  if (decision.layoutSummary !== undefined) return decision.layoutSummary;
   if (decision.layoutId !== undefined) return decision.layoutId;
   return decision.tree === undefined ? 'written by the LLM' : decision.source;
 }
