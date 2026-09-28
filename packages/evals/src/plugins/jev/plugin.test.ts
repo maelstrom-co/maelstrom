@@ -29,18 +29,25 @@ describe('the Jev plugin', () => {
     expect(jevPlugin.stageOrder).toContain('llmComplete');
   });
 
-  test('offers the actions and layout stage evals under --stage', () => {
+  test('offers the select, actions and layout stage evals under --stage', () => {
     expect(jevPlugin.stageModules?.map((module) => module.name)).toEqual([
+      'select',
       'actions',
       'layout',
     ]);
     expect(jevPlugin.stageModules?.[0]).toMatchObject({
+      stage: 'jevSelect',
+      provider: 'Jev',
+      requiredEnv: ['TYPESAFE_API_KEY', 'JEV_MODEL'],
+      variants: ['gated'],
+    });
+    expect(jevPlugin.stageModules?.[1]).toMatchObject({
       stage: 'jevActions',
       provider: 'Jev',
       requiredEnv: ['TYPESAFE_API_KEY', 'JEV_MODEL'],
       variants: ['stepwise', 'batched-per-instance'],
     });
-    expect(jevPlugin.stageModules?.[1]).toMatchObject({
+    expect(jevPlugin.stageModules?.[2]).toMatchObject({
       stage: 'jevLayout',
       provider: 'Jev',
       requiredEnv: ['TYPESAFE_API_KEY', 'JEV_MODEL'],
@@ -62,6 +69,25 @@ describe('the Jev plugin', () => {
     expect(jevPlugin.verifyReplay?.(record, gated)).toEqual([
       'has no complete gates',
     ]);
+    const gate = { answer: 'no', probability: 0, confidence: 1 };
+    const complete = {
+      needsActions: gate,
+      generatedContent: gate,
+      spatial: gate,
+    };
+    expect(
+      jevPlugin.verifyReplay?.(
+        { ...record, output: { gates: complete } },
+        gated,
+      ),
+    ).toEqual([]);
+    const { spatial: _spatial, ...missingSpatial } = complete;
+    expect(
+      jevPlugin.verifyReplay?.(
+        { ...record, output: { gates: missingSpatial } },
+        gated,
+      ),
+    ).toEqual(['has no complete gates']);
     expect(() =>
       jevPlugin.verifyReplay?.(record, { ...gated, name: 'not-a-jev-arm' }),
     ).toThrow(
