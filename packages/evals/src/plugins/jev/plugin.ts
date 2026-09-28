@@ -11,6 +11,7 @@ import { registerStageEval } from '../../core/stage-eval.js';
 import { type JevArm, jevArms, type ReplayShape } from './arms.js';
 import { type JevRunRecord, jevTurnFields } from './record.js';
 import { jevRows, jevSummary } from './report.js';
+import { actionsModuleWith } from './stages/actions.js';
 import { layoutModuleWith } from './stages/layout.js';
 import { createTypeSafeJudge } from './typesafe-judge.js';
 import { typesafeSettings } from './typesafe-settings.js';
@@ -31,7 +32,7 @@ export interface JevPluginOptions {
 /**
  * The Jev planner family as an eval plugin: the POC and the stage-library
  * arms, replay by stage, the Jev fields of the records and the report, the
- * TypeSafe judge and the layout stage eval.
+ * TypeSafe judge and the actions and layout stage evals.
  */
 export function jevPluginWith(
   options: JevPluginOptions = {},
@@ -53,7 +54,10 @@ export function jevPluginWith(
     summarizeArm: (records) => jevSummary(records as readonly JevRunRecord[]),
     reportRows: jevRows,
     judge: createTypeSafeJudge(typesafe),
-    stageModules: [registerStageEval(layoutModuleWith({ typesafe }))],
+    stageModules: [
+      registerStageEval(actionsModuleWith({ typesafe })),
+      registerStageEval(layoutModuleWith({ typesafe })),
+    ],
   };
 }
 

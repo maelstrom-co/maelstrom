@@ -29,11 +29,18 @@ describe('the Jev plugin', () => {
     expect(jevPlugin.stageOrder).toContain('llmComplete');
   });
 
-  test('offers the layout stage eval under --stage layout', () => {
+  test('offers the actions and layout stage evals under --stage', () => {
     expect(jevPlugin.stageModules?.map((module) => module.name)).toEqual([
+      'actions',
       'layout',
     ]);
     expect(jevPlugin.stageModules?.[0]).toMatchObject({
+      stage: 'jevActions',
+      provider: 'Jev',
+      requiredEnv: ['TYPESAFE_API_KEY', 'JEV_MODEL'],
+      variants: ['stepwise', 'batched-per-instance'],
+    });
+    expect(jevPlugin.stageModules?.[1]).toMatchObject({
       stage: 'jevLayout',
       provider: 'Jev',
       requiredEnv: ['TYPESAFE_API_KEY', 'JEV_MODEL'],

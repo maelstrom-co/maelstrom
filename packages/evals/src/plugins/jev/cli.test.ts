@@ -90,7 +90,15 @@ describe('the stage eval command line over the Jev modules', () => {
       'nope',
     ]);
     expect(exitCode).toBe(1);
-    expect(stderr).toContain('--stage must be one of layout');
+    expect(stderr).toContain('--stage must be one of actions, layout');
+  }, 30_000);
+
+  test('the actions stage needs the TypeSafe keys', async () => {
+    const skipped = await cli('src/eval-stages/cli.ts', ['--stage', 'actions']);
+    expect(skipped.exitCode).toBe(2);
+    expect(skipped.stderr).toContain(
+      'stage eval skipped: missing TYPESAFE_API_KEY, JEV_MODEL',
+    );
   }, 30_000);
 
   test('the layout stage needs the TypeSafe keys and validates its own flags', async () => {

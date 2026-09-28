@@ -137,6 +137,41 @@ export function goldGates(scenario: Scenario): Required<SelectionGates> {
   };
 }
 
+/** The selection a scenario's expectation implies, or why the expectation cannot form it. */
+export type GoldSelection =
+  | {
+      readonly applicable: true;
+      readonly selection: (input: PlanningInput) => Selection2;
+    }
+  | { readonly applicable: false; readonly reason: string };
+
+/**
+ * The expected selection alone, for testing the actions stage on perfect
+ * inputs: every gate, with `needsActions` yes when the scenario expects an
+ * action, an ask, or a parameter with no listed match. Not applicable to
+ * an expected deferral, an expectation without a visible set, or a new
+ * Instance id that names no Vessel.
+ */
+export function goldSelection(scenario: Scenario): GoldSelection {
+  const { expected } = scenario;
+  if (expected.status !== 'planned')
+    return { applicable: false, reason: 'expects a deferral' };
+  if (expected.visible === undefined)
+    return { applicable: false, reason: 'states no visible set' };
+  const instances = goldInstances(scenario);
+  if (typeof instances === 'string')
+    return { applicable: false, reason: instances };
+  const needsActions =
+    (expected.actions?.length ?? 0) > 0 ||
+    (expected.asks?.length ?? 0) > 0 ||
+    (expected.noListedMatch?.length ?? 0) > 0;
+  const gates = { ...goldGates(scenario), needsActions: gate(needsActions) };
+  return {
+    applicable: true,
+    selection: (input) => ({ input, instances, answers: [], gates }),
+  };
+}
+
 function gate(yes: boolean): GateAnswer {
   return {
     answer: yes ? 'yes' : 'no',
