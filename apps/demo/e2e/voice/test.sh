@@ -29,9 +29,6 @@ docker cp \
 docker rm voice-devtools-prepare
 
 
-
-afplay "$FIXTURES/only-tasks.wav"
-
 docker run --name maelstrom-voice-run \
   --init \
   --shm-size=1g \
