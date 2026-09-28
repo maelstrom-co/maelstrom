@@ -119,8 +119,9 @@ describe('readGateAnswers', () => {
   test('reads the same answers the stage records', async () => {
     const { next } = await pair('set the weather to Oslo', { gates: GATES });
     const result = readGateAnswers(gateReply(GATES), makeContext(input));
+    expect(isOk(next.result)).toBe(true);
     expect(isOk(result) && result.value).toEqual(
-      isOk(next.result) ? next.result.value.gates : undefined,
+      isOk(next.result) && next.result.value.gates,
     );
   });
 
