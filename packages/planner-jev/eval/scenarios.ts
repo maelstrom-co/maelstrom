@@ -84,6 +84,14 @@ const TRIO_TREE = [
 ];
 const TRIO_VISIBLE = ['calendar-main', 'weather-main', 'map-main'];
 
+const STUDIO_ROUTE_TURN: readonly LLMContextMessage[] = [
+  {
+    role: 'user',
+    content: 'Show me the route to Studio Vortex HQ on the map.',
+  },
+  { role: 'assistant', content: 'The route is set to Studio Vortex HQ.' },
+];
+
 /** Explicit arrangement requests; any arm, fallback included, may satisfy them. */
 const arrangements: Scenario[] = [
   planned(
@@ -1096,6 +1104,60 @@ const development: Scenario[] = [
       actions: [{ instanceId: 'weather-main', action: 'showWeekly' }],
     },
   },
+  routeAfter(
+    'history-route-gym-after-studio',
+    'Route to the place the latest request names, not an earlier one',
+    'Now show me the route to the gym.',
+    STUDIO_ROUTE_TURN,
+    'Mission High Fitness',
+  ),
+  routeAfter(
+    'history-route-studio-after-gym',
+    'Route to the studio after a route to the gym',
+    'Now show me the route to the studio.',
+    [
+      { role: 'user', content: 'Show me the route to the gym on the map.' },
+      {
+        role: 'assistant',
+        content: 'The route is set to Mission High Fitness.',
+      },
+    ],
+    'Studio Vortex HQ',
+  ),
+  routeAfter(
+    'history-route-gym-voice-paraphrase',
+    'Route to the gym after a studio turn, as the voice agent words it',
+    'Show the map and display a route to the gym by using the saved destination "Mission High Fitness". If an origin is needed but not configurable, use the default origin and just show the route to Mission High Fitness.',
+    [
+      {
+        role: 'user',
+        content:
+          'Show the map and display a route to the studio, using the saved destination "Studio Vortex HQ". If possible, route from Home; if origin cannot be specified, use the default routing origin and just show the route to Studio Vortex HQ.',
+      },
+      {
+        role: 'assistant',
+        content:
+          'The map is on the right, and the route is set to Studio Vortex HQ using the default origin.',
+      },
+    ],
+    'Mission High Fitness',
+    'overview',
+  ),
+  routeAfter(
+    'history-route-back-reference',
+    'Resolve a destination the latest request refers back to',
+    'Show me the route there again.',
+    [
+      ...STUDIO_ROUTE_TURN,
+      { role: 'user', content: 'Now show all my saved places on the map.' },
+      {
+        role: 'assistant',
+        content: 'The map now shows all your saved places.',
+      },
+    ],
+    'Studio Vortex HQ',
+    'overview',
+  ),
   planned(
     'runtime-enum',
     'Select an existing task from runtime options',
@@ -2279,6 +2341,39 @@ function request(intent: string, options: InputOptions = {}): ChartRequest {
     vessels,
     layout: { type: 'tiling', tree: options.tree ?? BASE_TREE, instances },
   });
+}
+
+/**
+ * A route request made after earlier turns in `history`, with the map in
+ * `mapVariant`: the plan routes to `destination`.
+ */
+function routeAfter(
+  id: string,
+  title: string,
+  intent: string,
+  history: readonly LLMContextMessage[],
+  destination: string,
+  mapVariant = 'route',
+): Scenario {
+  return {
+    ...planned(
+      id,
+      title,
+      intent,
+      {
+        visible: [...BASE_VISIBLE, 'map-main'],
+        actions: [
+          {
+            instanceId: 'map-main',
+            action: 'showRoute',
+            params: { destination },
+          },
+        ],
+      },
+      { variants: { map: mapVariant } },
+    ),
+    history,
+  };
 }
 
 function spatial(scenario: Scenario): Scenario {
