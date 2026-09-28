@@ -88,23 +88,17 @@ describe('actions stage eval', () => {
   });
 
   test('fails and reports an action planned twice on one instance', async () => {
-    const { records } = await run(
-      ['show-then-route'],
-      ['batched-per-instance'],
-      {
-        actions: [
-          ...(ROUTE_TO_STUDIO.actions ?? []),
-          ...(ROUTE_TO_STUDIO.actions ?? []),
-        ],
-      },
-    );
+    const { records } = await run(['show-then-route'], ['stepwise'], {
+      actions: [
+        ...(ROUTE_TO_STUDIO.actions ?? []),
+        ...(ROUTE_TO_STUDIO.actions ?? []),
+      ],
+    });
     const [record] = records;
     expect(record.outcome).toBe('fail');
     expect(record.detail?.repeated).toEqual(['map-main.showRoute']);
     expect(record.detail?.unexpected).toEqual([]);
-    const section = renderRepeatedActionsSection(records, [
-      'batched-per-instance',
-    ]);
+    const section = renderRepeatedActionsSection(records, ['stepwise']);
     expect(section).toContain('| Turns repeating an action | 1/1 (100%) |');
     expect(section).toContain('| show-then-route | r 1/1, u 0/1 |');
   });
