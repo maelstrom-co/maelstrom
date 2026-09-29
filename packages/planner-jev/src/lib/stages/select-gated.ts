@@ -27,8 +27,8 @@ export const GATE_THRESHOLD = 0.5;
 /**
  * `needsActions` answers yes at or above this probability of yes. It sits
  * below {@link GATE_THRESHOLD} because a false no silently drops the
- * actions the user asked for, while a false yes only costs one actions
- * call that can still answer none.
+ * actions the user asked for, while a false yes only runs the actions
+ * stage, which can still plan none.
  */
 export const NEEDS_ACTIONS_THRESHOLD = 0.3;
 
@@ -47,7 +47,8 @@ const GATE_QUESTIONS: Readonly<Record<keyof SelectionGates, Question>> = {
   ),
 };
 
-const GATE_THRESHOLDS: Readonly<Record<keyof SelectionGates, number>> = {
+/** The probability of yes at or above which each gate answers yes. */
+export const GATE_THRESHOLDS: Readonly<Record<keyof SelectionGates, number>> = {
   needsActions: NEEDS_ACTIONS_THRESHOLD,
   generatedContent: GATE_THRESHOLD,
   spatial: GATE_THRESHOLD,
@@ -64,10 +65,12 @@ export const SELECTION_GATES: readonly (keyof SelectionGates)[] = Object.keys(
  * `needsActions`, `generatedContent`, `spatial` and `dependsOnScreen`.
  * `needsActions` answers yes from {@link NEEDS_ACTIONS_THRESHOLD}, the
  * others from {@link GATE_THRESHOLD}. Generated content defers
- * `scope_unsupported`; otherwise a value that can only be read off the
- * screen defers `screen_content_unavailable`, since the request carries no
- * widget content. `needsActions` and `spatial` travel on the selection for
- * later stages.
+ * `scope_unsupported`; otherwise a request for content the user already
+ * has in a widget, summarised, copied, counted or turned into new content,
+ * defers `screen_content_unavailable`, since the request carries no widget
+ * content. View changes and text the user states do not count. Otherwise
+ * every gate answer travels on the selection's `gates`; later stages read
+ * `needsActions` and `spatial`.
  */
 export function selectGated(ask: Ask): Stage<PlanningInput, GatedSelection> {
   return async (input, ctx) => {
@@ -91,6 +94,18 @@ export function selectGated(ask: Ask): Stage<PlanningInput, GatedSelection> {
     const gates = readGateAnswers(reply, ctx);
     if (isErr(gates)) return gates;
     const complete = gates.value;
+    ctx.logger.info('jev.gates', {
+      stage: STAGE,
+      ...Object.fromEntries(
+        SELECTION_GATES.map((gate) => [
+          gate,
+          {
+            answer: complete[gate].answer,
+            probability: complete[gate].probability,
+          },
+        ]),
+      ),
+    });
     if (complete.generatedContent.answer === 'yes')
       return deferAt(
         ctx,

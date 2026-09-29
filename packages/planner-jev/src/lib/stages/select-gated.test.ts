@@ -120,6 +120,17 @@ describe('selectGated', () => {
         question: 'gate/dependsOnScreen',
       },
     });
+    expect(entries).toContainEqual({
+      level: 'info',
+      msg: 'jev.gates',
+      data: {
+        stage: 'jevSelect',
+        needsActions: { answer: 'yes', probability: 0.9 },
+        generatedContent: { answer: 'no', probability: 0.1 },
+        spatial: { answer: 'no', probability: 0.25 },
+        dependsOnScreen: { answer: 'yes', probability: 0.8 },
+      },
+    });
   });
 
   test('defers as unsupported when both generated content and screen content answer yes', async () => {

@@ -37,6 +37,8 @@ test('_internal exposes the runtime values @maelstrom-co/evals composes', () => 
       'treeDirection',
       'treeRelation',
       'GATE_THRESHOLD',
+      'GATE_THRESHOLDS',
+      'NEEDS_ACTIONS_THRESHOLD',
       'readGateAnswers',
       'SELECTION_GATES',
       'selectGated',

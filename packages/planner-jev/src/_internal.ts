@@ -51,6 +51,8 @@ export {
 } from './lib/stages/layout-composed-pairs-tree.js';
 export {
   GATE_THRESHOLD,
+  GATE_THRESHOLDS,
+  NEEDS_ACTIONS_THRESHOLD,
   readGateAnswers,
   SELECTION_GATES,
   selectGated,

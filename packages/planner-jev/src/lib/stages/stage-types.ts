@@ -16,10 +16,24 @@ export interface GateAnswer {
 
 /** Gate answers a select stage may attach to its selection. */
 export interface SelectionGates {
+  /** Whether the request changes what a widget shows or edits its content, so the actions stage runs. */
   readonly needsActions?: GateAnswer;
+  /**
+   * Whether the request wants an answer written in the reply, or live
+   * outside data no action could take as a parameter; a yes defers the
+   * gated select stage.
+   */
   readonly generatedContent?: GateAnswer;
+  /** Whether the request states where something goes or how large it is. */
   readonly spatial?: GateAnswer;
-  /** Whether a value the request needs can only be read from what a widget currently shows. */
+  /**
+   * Whether the request wants content the user already has in a widget,
+   * such as today's schedule, the task list, a chart being viewed or an
+   * open record, summarised, copied, counted or turned into new content.
+   * A view change, showing, hiding or arranging widgets, and text or
+   * places the user states do not count. A yes defers the gated select
+   * stage.
+   */
   readonly dependsOnScreen?: GateAnswer;
 }
 
