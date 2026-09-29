@@ -6,18 +6,19 @@ import {
   type PlannerCandidate,
   type ProviderError,
   providerError,
-  type SimulationError,
   type StageContext,
 } from '@maelstrom-co/engine';
 import {
   type ChartRequest,
   err,
+  type InstanceId,
   isErr,
   MAX_SPLIT_CHILDREN,
   MAX_SPLIT_WEIGHT,
   ok,
   type Result,
   type TilingNode,
+  type VariantName,
   type VesselInstanceSnapshot,
 } from '@maelstrom-co/protocol';
 import { chat } from '@tanstack/ai';
@@ -28,10 +29,7 @@ import {
   parseFill,
   type Slot,
 } from '../completion-schema.js';
-import {
-  type DeclaredVariants,
-  declaredVariants,
-} from '../declared-variants.js';
+import { declaredVariants } from '../declared-variants.js';
 import { deferAt, STAGE_NAME } from '../defer.js';
 import { layoutFits } from '../layout-fit.js';
 import { intentText, recentHistory } from '../questions.js';
@@ -89,15 +87,15 @@ export function completeLayoutInline(llm: CompletionLlm): CompleteStage {
 }
 
 /**
- * Slots to fill, the retained instances, their declared variants and
- * whether the decision hands the layout tree off. Shared by every
+ * Slots to fill, the retained instances, the visible ones in the variants
+ * the planned actions leave them in, and whether the decision hands the
+ * layout tree off. Shared by every
  * completion call built over one {@link LayoutDecision}, so a stage that
  * splits the completion into several calls still derives them once.
  */
 export interface CompletionPrep {
   readonly slots: readonly Slot[];
   readonly retained: readonly SelectedInstance[];
-  readonly declared: Result<DeclaredVariants, SimulationError>;
   readonly visible: readonly VesselInstanceSnapshot[];
   readonly handOff: boolean;
 }
@@ -129,7 +127,6 @@ export function prepareCompletion(decision: LayoutDecision): CompletionPrep {
   return {
     slots,
     retained,
-    declared,
     visible,
     handOff: decision.tree === undefined,
   };
@@ -150,12 +147,12 @@ export function invalidTree(
 }
 
 /**
- * Fills pending parameters from `completion`, checks the simulated variants
- * and `tree`, then builds, validates and returns the candidate. An action
- * whose instance, name and filled parameters repeat an earlier one's is
- * left out of the execution plan. The tail
- * every completion call shares once it has a message and a tree, whether
- * both came from one call or from separate calls run in parallel.
+ * The tail every completion call shares once it has a message and a tree,
+ * whether both came from one call or from separate calls run in parallel.
+ * Fills pending parameters from `completion`, leaves out an action whose
+ * instance, name and filled parameters repeat an earlier one's, simulates
+ * the variants of the actions kept, checks `tree` against them, then
+ * builds, validates and returns the candidate.
  */
 export function assembleCandidate(
   ctx: StageContext,
@@ -166,7 +163,7 @@ export function assembleCandidate(
 ): Result<PlannerCandidate, Deferred> {
   const { plan } = decision;
   const { request } = plan.selection.input;
-  const { slots, retained, declared, visible, handOff } = prep;
+  const { slots, retained, visible, handOff } = prep;
 
   const filled = new Map<Slot, unknown>();
   for (const slot of slots) {
@@ -181,12 +178,7 @@ export function assembleCandidate(
     filled.set(slot, value);
   }
 
-  if (isErr(declared)) return deferAt(ctx, STAGE, 'simulation_failed');
-
-  if (invalidTree(request, tree, handOff, visible))
-    return deferAt(ctx, STAGE, 'invalid_layout', 'layout');
-
-  const resolved = declared.value.actions.map((action) => {
+  const resolved = plan.actions.map((action) => {
     const params: Record<string, unknown> = { ...action.params };
     for (const slot of slots)
       if (slot.action === action)
@@ -204,22 +196,43 @@ export function assembleCandidate(
       params,
     });
 
+  const declared = declaredVariants(
+    retained,
+    unique.kept.map(({ action }) => action),
+    request.vessels,
+  );
+  if (isErr(declared)) return deferAt(ctx, STAGE, 'simulation_failed');
+  const variantOf = (instance: {
+    readonly instanceId: InstanceId;
+    readonly variant: VariantName;
+  }) => declared.value.variants.get(instance.instanceId) ?? instance.variant;
+
+  const shown = visible.map((view) => ({ ...view, variant: variantOf(view) }));
+  if (invalidTree(request, tree, handOff, shown))
+    return deferAt(ctx, STAGE, 'invalid_layout', 'layout');
+
+  const paramsOf = new Map(
+    unique.kept.map(({ action, params }) => [action, params]),
+  );
   const candidate: PlannerCandidate = {
     userMessage: completion.userMessage,
     rationale: rationale(decision),
-    executionPlan: unique.kept.map(({ action, params }) => ({
-      instanceId: action.instanceId,
-      action: action.action,
-      ...(Object.keys(params).length > 0 && {
-        paramsJson: JSON.stringify(params),
-      }),
-    })),
+    executionPlan: declared.value.actions.map((action) => {
+      const params = paramsOf.get(action) ?? action.params;
+      return {
+        instanceId: action.instanceId,
+        action: action.action,
+        ...(Object.keys(params).length > 0 && {
+          paramsJson: JSON.stringify(params),
+        }),
+      };
+    }),
     layout: {
       tree: tree as readonly TilingNode[],
       instances: retained.map(({ instanceId, vesselId, variant }) => ({
         instanceId,
         vesselId,
-        variant: declared.value.variants.get(instanceId) ?? variant,
+        variant: variantOf({ instanceId, variant }),
       })),
     },
   };
