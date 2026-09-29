@@ -50,12 +50,12 @@ export type ActionsBatchedPerInstanceOptions = FanOutOptions;
  * the second slot's options labelled with the view the first leaves it in,
  * and the parameters of every action any slot could pick asked alongside.
  * Code walks each instance's slots and keeps a second answer only when its
- * premise matches the first answer; a mismatch defers
- * `premise_mismatch`. When the first slot answers none and the second names
- * an action, that action is promoted to the instance's only one: as asked
- * when its premise is the current view, else as the current view's action
- * of the same name bound from its first-slot parameters, else the stage
- * defers `premise_mismatch`; an `unsupported` second slot defers
+ * premise matches the first answer; a mismatch defers `premise_mismatch`.
+ * When the first slot answers none and the second names an action, that
+ * action is promoted to the instance's only one: as asked when its premise
+ * is the current view, else as the current view's action of the same name
+ * bound from its first-slot parameters, else the stage defers
+ * `premise_mismatch`; an `unsupported` second slot defers
  * `action_unsupported` either way. A later action repeating an earlier one's
  * instance, name and bound parameters is dropped before the action limit is
  * counted; one with a pending parameter is kept for the completion step to
@@ -64,12 +64,11 @@ export type ActionsBatchedPerInstanceOptions = FanOutOptions;
  * answer naming an action, after two actions or a promoted one, defers
  * `action_limit` rather than shipping the actions before it as if that were
  * the whole request, and the call record keeps every third-slot answer for
- * measurement. Actions keep their order within an
- * instance, not across instances. The questions are split over as few
- * concurrent calls as the byte budget of {@link askInChunks} allows, since
- * one call over all of them can exceed what TypeSafe accepts. A resize-only
- * request, or a `needsActions` gate answering no, plans no actions and makes
- * no call.
+ * measurement. Actions keep their order within an instance, not across
+ * instances. The questions are split over as few concurrent calls as the
+ * byte budget of {@link askInChunks} allows, since one call over all of them
+ * can exceed what TypeSafe accepts. A resize-only request, or a
+ * `needsActions` gate answering no, plans no actions and makes no call.
  */
 export function actionsBatchedPerInstance(
   ask: Ask,
