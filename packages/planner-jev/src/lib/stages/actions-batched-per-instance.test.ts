@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { isOk } from '@maelstrom-co/protocol';
+import { isOk, type Vessel, VesselSchema } from '@maelstrom-co/protocol';
 
 import { conversation, keepAll } from '../__test-helpers__/actions-fixtures.js';
 import { demoVessels } from '../__test-helpers__/demo-vessels.js';
@@ -78,6 +78,40 @@ const TASKS_ONLY = {
 function mapSelection(intent: string, variant: string): Selection2 {
   return keepAll(
     makeRequest(intent, { variants: { map: variant } }),
+    [],
+    MAP_ONLY,
+  );
+}
+
+/** The map fixture in its overview view, its route view's showRoute overridden. */
+function divergentShowRouteSelection(
+  intent: string,
+  showRoute: Record<string, unknown>,
+): Selection2 {
+  const catalog: Vessel[] = vessels.map((vessel) =>
+    vessel.id === 'map'
+      ? VesselSchema.parse({
+          ...vessel,
+          variants: Object.fromEntries(
+            Object.entries(vessel.variants).map(([name, variant]) => [
+              name,
+              name === 'route'
+                ? {
+                    ...variant,
+                    actions: variant.actions.map((action) =>
+                      action.name === 'showRoute'
+                        ? { ...action, ...showRoute }
+                        : action,
+                    ),
+                  }
+                : variant,
+            ]),
+          ),
+        })
+      : vessel,
+  );
+  return keepAll(
+    makeRequest(intent, { variants: { map: 'overview' }, vessels: catalog }),
     [],
     MAP_ONLY,
   );
@@ -542,6 +576,44 @@ describe('actionsBatchedPerInstance', () => {
         via: 'same_name',
       }),
     ]);
+  });
+
+  test("defers as a premise mismatch when the current view's same-named action takes other parameters", async () => {
+    const { result, logs } = await run(
+      divergentShowRouteSelection('take me there again', {
+        parameters: [
+          {
+            name: 'origin',
+            type: 'string',
+            description: 'Where the route starts',
+            required: true,
+          },
+        ],
+      }),
+      answering({
+        'map-main/1': 'none',
+        'map-main/2': 'route:showRoute',
+        'param/map-main/1/showRoute/destination': 'v0',
+      }),
+    );
+    expect(deferralOf(result)).toBe('jevActions/premise_mismatch');
+    expect(logged(logs, 'jev.slot_promoted')).toEqual([]);
+  });
+
+  test("defers as a premise mismatch when the current view's same-named action leaves it in another view", async () => {
+    const { result, logs } = await run(
+      divergentShowRouteSelection('take me there again', {
+        transitionsTo: 'overview',
+      }),
+      answering({
+        'map-main/1': 'none',
+        'map-main/2': 'route:showRoute',
+        'param/map-main/1/showRoute/destination': 'v0',
+        'param/map-main/2/route:showRoute/destination': 'v0',
+      }),
+    );
+    expect(deferralOf(result)).toBe('jevActions/premise_mismatch');
+    expect(logged(logs, 'jev.slot_promoted')).toEqual([]);
   });
 
   test('defers as a premise mismatch when the promoted action is not legal in the current view', async () => {

@@ -366,12 +366,38 @@ function promoteSecondSlot(
   // A target from another view carries that view's parameter definitions,
   // so the current view's action is bound from its own first-slot answers.
   const sameName = plan.first.get(target.definition.name);
-  if (sameName) {
+  if (sameName && sameEffect(sameName, target)) {
     ctx.logger.info('jev.slot_promoted', { ...found, via: 'same_name' });
     return ok(sameName);
   }
   ctx.logger.info('jev.slot_discarded', found);
   return deferAt(ctx, STAGE, 'premise_mismatch', slotId(instance, 2));
+}
+
+function sameEffect(
+  current: Omit<SlotTarget, 'slots'>,
+  chosen: Omit<SlotTarget, 'slots'>,
+): boolean {
+  return (
+    after(current) === after(chosen) &&
+    current.definition.idempotent === chosen.definition.idempotent &&
+    parameterShape(current.definition) === parameterShape(chosen.definition)
+  );
+}
+
+// Descriptions only word the question; they do not change what runs.
+function parameterShape(definition: VesselAction): string {
+  return JSON.stringify(
+    (definition.parameters ?? [])
+      .map(({ name, type, required, defaultValue, enum: candidates }) => [
+        name,
+        type,
+        required ?? false,
+        defaultValue,
+        candidates,
+      ])
+      .sort(([a], [b]) => String(a).localeCompare(String(b))),
+  );
 }
 
 function thirdSlotLimit(
