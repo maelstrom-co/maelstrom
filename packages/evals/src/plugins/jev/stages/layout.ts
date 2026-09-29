@@ -106,8 +106,9 @@ export const EXPECTED_LAYOUT_DEFERRAL = 'jevLayout/no_feasible_layout';
 /**
  * The deferral reason a scenario that expects the layout stage to defer
  * with `deferCause: 'arrangement_not_stated'` expects: the spatial gate
- * said yes on a request with intent text, yet no pair or direction answer
- * stated an arrangement and the picked tree is the current one.
+ * said yes on a request with intent text, yet no answer stated an
+ * arrangement or a size and the picked tree places the Instances as the
+ * current one does.
  */
 export const EXPECTED_UNSTATED_LAYOUT_DEFERRAL = 'jevLayout/spatial_not_stated';
 
@@ -142,7 +143,7 @@ export type LayoutModule = StageEvalModule<
  * a layout deferral passes only on {@link EXPECTED_UNSTATED_LAYOUT_DEFERRAL}
  * when its `deferCause` is `arrangement_not_stated`, and otherwise only on
  * {@link EXPECTED_LAYOUT_DEFERRAL}. The preset variants never give the
- * first reason.
+ * first reason, so they never pass those scenarios.
  */
 export function layoutModuleWith(
   options: LayoutModuleOptions = {},

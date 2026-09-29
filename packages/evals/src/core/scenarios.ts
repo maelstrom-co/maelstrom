@@ -31,13 +31,14 @@ export interface Expectation {
   /** For `deferred`: the phase that should defer (`select`, `actions`, `layout`), as each plugin maps it to a stage. Omitted: any stage. */
   readonly deferStage?: Phase;
   /**
-   * For `deferred`: why the scenario expects its deferral, for stage evals
-   * that check the reason. `no_layout_fits` when no arrangement of the
-   * visible Instances fits the Chart, `arrangement_not_stated` when the
-   * request asks for an arrangement that the planner's own layout questions
-   * cannot express, so they leave the board as it is. Omitted: any cause.
+   * For `deferred` at the `layout` phase: why the scenario expects the
+   * layout to defer, for stage evals that check the reason.
+   * `arrangement_not_stated` when the request asks for an arrangement that
+   * the planner's own layout questions cannot express, so they leave the
+   * board as it is. Omitted: no arrangement of the visible Instances fits
+   * the Chart.
    */
-  readonly deferCause?: 'no_layout_fits' | 'arrangement_not_stated';
+  readonly deferCause?: 'arrangement_not_stated';
   readonly visible?: readonly string[];
   readonly retained?: readonly string[];
   /** A reference tree the arrangement rules accept; not scored. */

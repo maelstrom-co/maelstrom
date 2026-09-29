@@ -8,10 +8,10 @@ export interface LayoutDemoFixBuilders {
 }
 
 /**
- * Arrangement requests found in a demo session: a whole-board grid that
- * names no widget's place, which pair questions cannot express and so
- * should defer rather than leave the board unchanged, and a size-only
- * request that states no arrangement yet must still be planned.
+ * Arrangement requests: a whole-board grid that names no widget's place,
+ * which pair questions cannot express and so should defer rather than
+ * leave the board unchanged, and a size-only request that moves no widget
+ * yet must still be planned.
  */
 export function layoutDemoFixScenarios({
   planned,

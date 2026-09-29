@@ -181,6 +181,7 @@ describe('layout stage eval', () => {
       ['preset-or-llm', 'jevLayout/spatial_not_stated'],
       ['composed-pairs', 'jevLayout/spatial_not_stated'],
     ]);
+    expect(records[0]?.outcome).toBe('fail');
     expect(records[1]).toMatchObject({
       outcome: 'pass',
       reason: 'jevLayout/spatial_not_stated',
@@ -194,7 +195,7 @@ describe('layout stage eval', () => {
       pairsAll('left_of'),
     );
     expect(records[0]?.expectedDeferral).toBe('jevLayout/spatial_not_stated');
-    expect(records[0]?.outcome).not.toBe('pass');
+    expect(records[0]?.outcome).toBe('fail');
   });
 
   test('feeds the recorded live spatial signal per scenario and repeat, and gold where none was recorded', async () => {
