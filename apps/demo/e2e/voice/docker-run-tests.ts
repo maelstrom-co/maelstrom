@@ -3,9 +3,13 @@ import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { checkPort, forwardPort } from './forward.ts';
+import { resolveRunnerTarget } from './runner-target.ts';
 
 const root = dirname(fileURLToPath(import.meta.url));
+const target = resolveRunnerTarget(process.env.MAELSTROM_BASE_URL);
 const upstream = process.env.MAELSTROM_HOST || 'host.docker.internal';
+const appPort = Number(process.env.MAELSTROM_APP_PORT ?? 3000);
+const wsPort = Number(process.env.MAELSTROM_WS_PORT ?? 3001);
 const forwards: Awaited<ReturnType<typeof forwardPort>>[] = [];
 let child: ReturnType<typeof spawn> | undefined;
 let signalCode: number | undefined;
@@ -24,37 +28,71 @@ process.on('SIGINT', sigint);
 process.on('SIGTERM', sigterm);
 
 try {
-  await access(join(root, 'e2e/voice/audio/only-tasks.wav')).catch(() => {
+  const requiredFixtures = ['only-tasks', 'put-it-back', 'open-calendar'];
+  const missingFixtures: string[] = [];
+  for (const fixture of requiredFixtures) {
+    try {
+      await access(join(root, 'audio', `${fixture}.wav`));
+    } catch {
+      missingFixtures.push(`${fixture}.wav`);
+    }
+  }
+  if (missingFixtures.length)
     throw new Error(
-      'Missing only-tasks.wav. Mount your prepared fixture directory at /work/maelstrom/e2e/voice/audio (read-only).',
+      `Missing prepared voice fixtures: ${missingFixtures.join(', ')}. Mount all fixtures at /work/maelstrom/audio (read-only).`,
     );
-  });
   if (!process.env.PULSE_SERVER)
     throw new Error(
       'Private PulseAudio is missing; retain the image entrypoint.',
     );
-  for (const port of [3000, 3001]) {
-    if (signalCode) throw new Error('Interrupted');
-    await checkPort(upstream, port);
-    forwards.push(await forwardPort({ host: upstream, targetPort: port }));
-    // Chromium may resolve localhost to IPv6 before IPv4. Both remain loopback-only.
-    try {
+  if (target.mode === 'local') {
+    for (const [localPort, targetPort] of [
+      [3000, appPort],
+      [3001, wsPort],
+    ]) {
+      if (signalCode) throw new Error('Interrupted');
+      await checkPort(upstream, targetPort);
       forwards.push(
-        await forwardPort({ host: upstream, targetPort: port, bind: '::1' }),
+        await forwardPort({
+          host: upstream,
+          targetPort,
+          listenPort: localPort,
+        }),
       );
-    } catch (error) {
-      if (
-        !(error instanceof Error) ||
-        !['EAFNOSUPPORT', 'EADDRNOTAVAIL'].includes(
-          (error as NodeJS.ErrnoException).code ?? '',
+      // Chromium may resolve localhost to IPv6 before IPv4. Both remain loopback-only.
+      try {
+        forwards.push(
+          await forwardPort({
+            host: upstream,
+            targetPort,
+            listenPort: localPort,
+            bind: '::1',
+          }),
+        );
+      } catch (error) {
+        if (
+          !(error instanceof Error) ||
+          !['EAFNOSUPPORT', 'EADDRNOTAVAIL'].includes(
+            (error as NodeJS.ErrnoException).code ?? '',
+          )
         )
-      )
-        throw error;
+          throw error;
+      }
     }
   }
-  const response = await fetch('http://localhost:3000/', {
-    signal: AbortSignal.timeout(15000),
-  });
+  let response: Response;
+  try {
+    response = await fetch(
+      target.mode === 'local' ? target.browserURL : target.readinessURL,
+      { signal: AbortSignal.timeout(15000) },
+    );
+  } catch {
+    throw new Error(
+      target.mode === 'local'
+        ? 'Maelstrom HTTP readiness request failed.'
+        : 'Configured target HTTP readiness request failed.',
+    );
+  }
   await response.body?.cancel();
   if (!response.ok)
     throw new Error(`Maelstrom HTTP readiness failed: ${response.status}`);
@@ -72,8 +110,10 @@ try {
         node: process.version,
         architecture: process.arch,
         playwright: pkg.version,
-        upstream,
-        browserURL: 'http://localhost:3000',
+        mode: target.mode,
+        ...(target.mode === 'local' ? { upstream } : {}),
+        browserURL:
+          target.mode === 'local' ? target.browserURL : target.metadataURL,
         checkedAt: new Date().toISOString(),
       },
       null,
@@ -81,10 +121,10 @@ try {
     ),
   );
   console.log(
-    'Host app reachable; running Chromium, microphone injection and reply recording in Docker.',
+    `${target.mode === 'local' ? 'Host app' : 'Configured target'} reachable; running Chromium, microphone injection and reply recording in Docker.`,
   );
   if (signalCode) throw new Error('Interrupted');
-  child = spawn(
+  const playwright = spawn(
     process.execPath,
     [
       join(root, 'node_modules/@playwright/test/cli.js'),
@@ -99,16 +139,19 @@ try {
     {
       cwd: root,
       stdio: 'inherit',
-      env: { ...process.env, MAELSTROM_BASE_URL: 'http://localhost:3000' },
+      env: { ...process.env, MAELSTROM_BASE_URL: target.browserURL },
     },
   );
+  child = playwright;
   const code = await new Promise<number>((resolve, reject) => {
-    child.once('error', reject);
-    child.once('close', (code, signal) => resolve(code ?? (signal ? 1 : 0)));
+    playwright.once('error', reject);
+    playwright.once('close', (code, signal) =>
+      resolve(code ?? (signal ? 1 : 0)),
+    );
   });
   process.exitCode = signalCode || code;
 } catch (error) {
-  console.error(error.message);
+  console.error(error instanceof Error ? error.message : String(error));
   process.exitCode = signalCode || 1;
 } finally {
   if (stopTimer) clearTimeout(stopTimer);

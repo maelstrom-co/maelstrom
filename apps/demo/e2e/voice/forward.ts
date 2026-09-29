@@ -17,7 +17,7 @@ export async function forwardPort({
   onError = (error) => console.error(`Forward ${listenPort}: ${error.message}`),
 }: ForwardPortOptions) {
   const sockets = new Set<net.Socket>();
-  function track(socket) {
+  function track(socket: net.Socket) {
     sockets.add(socket);
     socket.once('close', () => sockets.delete(socket));
     return socket;
@@ -33,7 +33,7 @@ export async function forwardPort({
     outgoing.once('connect', () => clearTimeout(timer));
     outgoing.once('close', () => clearTimeout(timer));
     incoming.on('error', () => outgoing.destroy());
-    outgoing.on('error', (error) => {
+    outgoing.on('error', (error: Error) => {
       onError(error);
       incoming.destroy();
     });

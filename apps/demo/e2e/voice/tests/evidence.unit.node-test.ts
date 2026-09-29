@@ -57,6 +57,7 @@ test('does not match unrelated partial words or an empty caption', () => {
 
 test('projects leaf tokens and instance IDs without retaining private payloads', () => {
   const data = projectChartRequest(makeFrame());
+  assert.ok(data);
   assert.deepEqual(data.tree, ['V', 'ID:calendar-main', 'ID:tasks-main']);
   assert.deepEqual(data.declaredInstanceIds, ['calendar-main', 'tasks-main']);
   const json = JSON.stringify(data);
@@ -81,10 +82,9 @@ test('ignores auth, non-chart, malformed, and oversized messages', () => {
 test('does not reinterpret a double-prefixed leaf before saving diagnostics', () => {
   const frame = JSON.parse(makeFrame());
   frame.request.layout.tree[1] = 'ID:ID:calendar-main';
-  assert.equal(
-    projectChartRequest(JSON.stringify(frame)).tree[1],
-    'ID:ID:calendar-main',
-  );
+  const projection = projectChartRequest(JSON.stringify(frame));
+  assert.ok(projection);
+  assert.equal(projection.tree?.[1], 'ID:ID:calendar-main');
 });
 
 test('reports the actual protocol rejection and retains the original failed step', () => {

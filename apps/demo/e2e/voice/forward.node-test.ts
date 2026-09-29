@@ -5,12 +5,18 @@ import net from 'node:net';
 import { test } from 'node:test';
 import { checkPort, forwardPort } from './forward.ts';
 
-async function listen(server) {
+async function listen(server: net.Server | http.Server) {
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
-  return server.address().port;
+  const address = server.address();
+  if (!address || typeof address === 'string')
+    throw new Error('Test server did not bind to a TCP port.');
+  return address.port;
 }
-const close = (server) => new Promise((resolve) => server.close(resolve));
+const close = (server: net.Server | http.Server) =>
+  new Promise<void>((resolve, reject) =>
+    server.close((error) => (error ? reject(error) : resolve())),
+  );
 
 test('forwards bytes in both directions and closes active connections', {
   timeout: 5000,

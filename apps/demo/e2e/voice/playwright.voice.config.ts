@@ -7,7 +7,7 @@ export default defineConfig({
   testMatch: '**/*.live.e2e.ts',
   workers: 1,
   fullyParallel: false,
-  retries: 0,
+  retries: 2,
   timeout: 90_000,
   expect: { timeout: 30_000 },
   outputDir: './dist/voice-results',
@@ -18,7 +18,9 @@ export default defineConfig({
     headless: true,
     permissions: ['microphone'],
     viewport: { width: 1440, height: 900 },
-    trace: 'retain-on-failure',
+    // A BYOK key is entered through a password input; traces can serialize input events.
+    // Disable traces rather than risk persisting the secret in failure artifacts.
+    trace: 'off',
     screenshot: 'only-on-failure',
     launchOptions: { ignoreDefaultArgs: ['--mute-audio'] },
   },

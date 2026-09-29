@@ -1,1 +1,1 @@
-Close the calendar and leave only the existing tasks panel.
+Keep the tasks panel visible. Close the calendar.

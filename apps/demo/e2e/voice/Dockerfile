@@ -11,10 +11,11 @@ RUN node -e 'const fs = require("node:fs"); const v = require("/work/e2e/node_mo
 COPY --chown=pwuser:pwuser . ./
 
 USER pwuser
-RUN node_modules/.bin/tsx --test forward.node-test.ts tests/evidence.unit.node-test.ts
+RUN node_modules/.bin/tsx --test forward.node-test.ts runner-target.node-test.ts tests/evidence.unit.node-test.ts tests/reply-recorder.unit.node-test.ts \
+    && node_modules/.bin/playwright test --config playwright.voice.config.ts tests/key-bootstrap.live.e2e.ts --reporter=line
 
 ENV TTS2MIC_BIN=/usr/local/bin/tts2mic-mcp \
-    MAELSTROM_BASE_URL=http://localhost:3000 \
+    MAELSTROM_BASE_URL="" \
     ARTIFACT_DIR=/work/artifacts/audio \
     PLAYWRIGHT_HTML_OPEN=never \
     PLAYWRIGHT_HTML_OUTPUT_DIR=/work/artifacts/report
