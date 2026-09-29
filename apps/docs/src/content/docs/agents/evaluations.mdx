@@ -21,7 +21,7 @@ The normal flow is:
 3. The chosen CLI runs with the supplied input.
 4. The evaluator records process evidence and runs objective checks; semantic review remains separate.
 
-Known-good and deliberately broken calibration fixtures serve a different purpose: they test whether the grader accepts and rejects the expected candidate changes. They are not agent responses and do not show that a prompt works. The current registered cases all use the canonical-prompt path. Automatic task-only or skill-availability comparisons, old/new summaries, and release thresholds are not implemented.
+Known-good and deliberately broken calibration fixtures serve a different purpose: they test whether the grader accepts and rejects the expected candidate changes. They are not agent responses and do not show that a prompt works. Separate curated examples for onboarding, migration, and debugging include helpful and plausible-but-unhelpful responses, each with independent procedure-selection and usefulness scores, rationales, and fixture evidence references. The aggregator validates labels and evidence references; it does not assess the responses or prove that a live agent chose a useful procedure. These authored assessments are calibration examples, not live-agent results. Live semantic review remains `unrun` until an independent reviewer assesses an actual response. Keep structural validation separate from behavioral assessment. The current registered cases all use the canonical-prompt path. Automatic task-only or skill-availability comparisons, old/new summaries, and release thresholds are not implemented.
 
 ## Choose a case
 

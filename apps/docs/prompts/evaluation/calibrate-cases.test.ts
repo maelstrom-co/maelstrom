@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, test } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import {
   cp,
   mkdtemp,
@@ -66,6 +66,28 @@ describe('prepared calibration preflight', () => {
   });
   afterAll(async () => {
     if (root) await rm(root, { recursive: true, force: true });
+  });
+
+  test('hidden-ticket-row calibration fixture changes only queue visibility', async () => {
+    const good = await readFile(
+      join(import.meta.dir, 'fixtures/calibration/onboarding-good/src/App.tsx'),
+      'utf8',
+    );
+    const hidden = await readFile(
+      join(
+        import.meta.dir,
+        'fixtures/calibration/onboarding-hidden-ticket-rows/src/App.tsx',
+      ),
+      'utf8',
+    );
+    expect(hidden).toBe(
+      good.replace(
+        '<ul aria-label="Support ticket queue">',
+        '<ul aria-label="Support ticket queue" style={{ display: \'none\' }}>',
+      ),
+    );
+    expect(hidden).toContain('<h1>Support workspace</h1>');
+    expect(hidden).toContain('style={{ height: 480 }}');
   });
 
   test('renamed-ID calibration fixtures differ from known-good fixtures only in Vessel and instance IDs', async () => {

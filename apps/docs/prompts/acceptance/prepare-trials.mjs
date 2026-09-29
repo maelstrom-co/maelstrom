@@ -350,6 +350,21 @@ export async function prepareTrials(rootArg, parentArg = tmpdir()) {
       `${await readFile(join(trialRoot, 'runtime-versions.txt'), 'utf8')}\n${listing}\n`,
     );
   }
+  const vendorChecksums = [];
+  for (const name of sdkPackages) {
+    const archive = join(
+      trialRoot,
+      'vendor',
+      `maelstrom-co-${name}-${sdkVersion}.tgz`,
+    );
+    vendorChecksums.push(
+      `${await sha256(archive)}  vendor/maelstrom-co-${name}-${sdkVersion}.tgz`,
+    );
+  }
+  await writeFile(
+    join(trialRoot, 'sdk-vendor-archives.sha256'),
+    `${vendorChecksums.join('\n')}\n`,
+  );
   const sdkChecksums = [];
   for (const name of sdkPackages)
     for (const file of ['package.json', 'src/index.ts', 'dist/index.js']) {
@@ -377,6 +392,9 @@ export async function prepareTrials(rootArg, parentArg = tmpdir()) {
   console.log(`WORKSPACE_SOURCE_REVISION=${revision}`);
   console.log(
     `MODEL_FIXTURE=${join(trialRoot, 'modeling/src/Queue.tsx')} DEBUG_REPORT=${join(trialRoot, 'debugging/report.md')}`,
+  );
+  console.log(
+    await readFile(join(trialRoot, 'sdk-vendor-archives.sha256'), 'utf8'),
   );
   console.log(
     await readFile(join(trialRoot, 'migration-baseline.sha256'), 'utf8'),

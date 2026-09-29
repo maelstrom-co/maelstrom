@@ -1,7 +1,6 @@
 import { spawn } from 'node:child_process';
-import { access, rm, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { createServer } from 'node:net';
-import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { chromium } from '@playwright/test';
 
@@ -15,31 +14,6 @@ if (
   );
   process.exit(2);
 }
-const observerPath = join(candidateRoot, 'src/evaluation-observer.ts');
-try {
-  await access(observerPath);
-  throw new Error('Candidate pre-created the reserved evaluator observer path');
-} catch (error) {
-  if (error.code !== 'ENOENT') throw error;
-}
-await writeFile(
-  observerPath,
-  `import { Orchestrator } from '@maelstrom-co/client';
-const evaluatorWindow = window as Window & { __maelstromEvaluatorSdk?: unknown[] };
-evaluatorWindow.__maelstromEvaluatorSdk ??= [];
-const originalConnect = Orchestrator.prototype.connect;
-Orchestrator.prototype.connect = function (...args) {
-  const state = this.commandProcessor.store.state;
-  evaluatorWindow.__maelstromEvaluatorSdk.push({
-    vesselIds: this.vesselManager.getAll().map((vessel) => vessel.id),
-    instances: Array.from(state.instances, ([instanceId, instance]) => ({ instanceId, vesselId: instance.vesselId })),
-    layout: state.layout,
-  });
-  return originalConnect.apply(this, args);
-};
-`,
-  { flag: 'wx', mode: 0o600 },
-);
 const port = await freePort();
 const vite = spawn(
   `${candidateRoot}/node_modules/.bin/vite`,
@@ -86,6 +60,26 @@ try {
     }),
   );
   stage = 'install-index-observer-route';
+  const clientEntry = createRequire(`${candidateRoot}/package.json`).resolve(
+    '@maelstrom-co/client',
+  );
+  await page.route(
+    `http://127.0.0.1:${port}/src/evaluation-observer.ts`,
+    async (route) => {
+      await route.fulfill({
+        contentType: 'application/javascript',
+        body: `import { Orchestrator } from '/@fs${clientEntry}';
+const evaluatorWindow = window;
+evaluatorWindow.__maelstromEvaluatorSdk ??= [];
+const originalConnect = Orchestrator.prototype.connect;
+Orchestrator.prototype.connect = function (...args) {
+  const state = this.commandProcessor.store.state;
+  evaluatorWindow.__maelstromEvaluatorSdk.push({ vesselIds: this.vesselManager.getAll().map((vessel) => vessel.id), instances: Array.from(state.instances, ([instanceId, instance]) => ({ instanceId, vesselId: instance.vesselId })), layout: state.layout });
+  return originalConnect.apply(this, args);
+};`,
+      });
+    },
+  );
   await page.route(`http://127.0.0.1:${port}/`, async (route) => {
     const response = await route.fetch();
     const html = await response.text();
@@ -221,7 +215,16 @@ try {
           'Export is missing a column — Waiting',
         ];
         for (const [index, expectedRow] of expectedRows.entries()) {
-          if ((await rows.nth(index).innerText()).trim() !== expectedRow)
+          const row = rows.nth(index);
+          const rowBox = await row.boundingBox();
+          if (
+            !(await row.isVisible()) ||
+            !rowBox ||
+            rowBox.width <= 0 ||
+            rowBox.height <= 0
+          )
+            throw new Error(`ticket row ${index + 1} is not visibly rendered`);
+          if ((await row.innerText()).trim() !== expectedRow)
             throw new Error(`ticket row ${index + 1} content/status changed`);
         }
       } else {
@@ -254,6 +257,10 @@ try {
   if (!selectedCandidate)
     throw new Error(
       `No registered, rendered Vessel instance satisfied the case UI and geometry: ${candidateFailures.join('; ')}`,
+    );
+  if (failedRequests.length)
+    throw new Error(
+      `Browser app had failed requests: ${failedRequests.map(({ url, failure }) => `${url}: ${failure ?? 'unknown failure'}`).join('; ')}`,
     );
   console.log(
     JSON.stringify({
@@ -299,7 +306,6 @@ try {
   );
   process.exitCode = 1;
 } finally {
-  await rm(observerPath, { force: true });
   await browser?.close();
   if (vite.exitCode === null) {
     try {

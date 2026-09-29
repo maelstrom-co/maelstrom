@@ -86,6 +86,7 @@ export async function calibrateCases(
     for (const name of [
       'onboarding-good',
       'onboarding-renamed-ids',
+      'onboarding-hidden-ticket-rows',
       'onboarding-collapsed',
       'onboarding-invisible',
       'onboarding-unregistered',
@@ -229,6 +230,7 @@ async function runGeneratedArtifactRebuildProbe(
         ...(result.spawnError ? { spawnError: result.spawnError } : {}),
         summary:
           `${result.stderr.slice(-1000)}${result.stdout.slice(-1000)}`.trim(),
+        outputTruncated: result.outputTruncated,
       });
     }
     const afterChecks = await snapshotCandidate(root);
@@ -489,6 +491,7 @@ if (import.meta.main) {
     ['onboarding-renamed-ids', 'sdk-typecheck', 'passed'],
     ['onboarding-renamed-ids', 'browser-chart-vessel', 'passed'],
     ['onboarding-renamed-ids', 'application-change-allowlist', 'passed'],
+    ['onboarding-hidden-ticket-rows', 'browser-chart-vessel', 'failed'],
     ['onboarding-collapsed', 'browser-chart-vessel', 'failed'],
     ['onboarding-invisible', 'browser-chart-vessel', 'failed'],
     ['onboarding-unregistered', 'browser-chart-vessel', 'failed'],

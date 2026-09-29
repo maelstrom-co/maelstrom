@@ -93,6 +93,26 @@ async function waitForFile(path: string): Promise<void> {
 }
 
 describe('registered behavioral cases', () => {
+  test('rejects candidate/output overlap and read-only candidates before creating output', async () => {
+    const candidate = join(root, 'candidate');
+    await mkdir(candidate, { recursive: true });
+    await expect(
+      evaluateCase('onboarding-implementation', {
+        ...genericOptions(),
+        output: join(candidate, 'out'),
+        candidateRoot: candidate,
+        executionAuthorization: 'operator-approved',
+      }),
+    ).rejects.toThrow('Output directory must not overlap');
+    await expect(
+      evaluateCase('modeling-read-only', {
+        ...genericOptions(),
+        output: join(root, 'readonly-out'),
+        candidateRoot: candidate,
+      }),
+    ).rejects.toThrow('Read-only cases cannot use a candidateRoot');
+    await expect(readdir(root)).resolves.not.toContain('readonly-out');
+  });
   test('registers five cases with canonical prompt ids and explicit execution modes', () => {
     expect(Object.keys(caseRegistry).sort()).toEqual([
       'debugging-read-only',
@@ -120,6 +140,7 @@ describe('registered behavioral cases', () => {
       expect(
         built.fixtureFiles.every((file) => file.sha256.length === 64),
       ).toBe(true);
+      expect(built.inputSha256).toMatch(/^[a-f0-9]{64}$/);
       expect(built.input).toContain(caseRegistry[id].task);
       expect(built.input).toContain(
         'Evidence output contract (exact JSON schema; no extra keys)',
@@ -814,6 +835,7 @@ const fs = await import('node:fs'); fs.writeFileSync('added.txt', 'new'); fs.wri
           cancelled: false,
           durationMs: 321,
           summary: `${'x'.repeat(2500)}\\nBrowser geometry and SDK registration observed`,
+          outputTruncated: true,
         },
       ],
       changedPaths: [],
@@ -823,6 +845,7 @@ const fs = await import('node:fs'); fs.writeFileSync('added.txt', 'new'); fs.wri
     expect(evidence.commands[0]?.processEvidence).toContain(
       'Browser geometry and SDK registration observed',
     );
+    expect(evidence.commands[0]?.outputTruncated).toBe(true);
     expect(evidence.commands[0]).toMatchObject({
       argv: ['node', 'browser-case.mjs'],
       status: 'completed',
@@ -1078,7 +1101,7 @@ const fs = await import('node:fs'); fs.writeFileSync('added.txt', 'new'); fs.wri
     expect(summary.manifest.runner.command).toEqual([fakePi, ...literalArgs]);
   });
 
-  test('CLI runs an explicitly authorized generic implementation command without imposing managed tool policy', async () => {
+  test('CLI rejects implementation candidates that do not match trusted prepared sources', async () => {
     const candidateRoot = join(root, 'authorized-candidate');
     await mkdir(join(candidateRoot, 'src'), { recursive: true });
     await writeFile(
@@ -1115,22 +1138,11 @@ process.stdin.resume(); process.stdin.on('end', () => { console.log('generic imp
       cwd: root,
       timeoutMs: 10_000,
     });
-    expect(result.exitCode).toBe(0);
-    const summary = JSON.parse(result.stdout) as {
-      manifest: { runner: { tools: { requested: string }; command: string[] } };
-      criteria: { id: string; status: string }[];
-    };
-    expect(summary.manifest.runner.tools.requested).toBe('unknown');
-    expect(summary.manifest.runner.command).toEqual([
-      fakePi,
-      'literal command argument',
-    ]);
-    expect(
-      summary.criteria.find(({ id }) => id === 'process-success')?.status,
-    ).toBe('passed');
-    expect(
-      await readFile(join(candidateRoot, 'src/Feature.tsx'), 'utf8'),
-    ).toContain('Authorized');
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain('Prepared trial');
+    await expect(
+      readFile(join(candidateRoot, 'src/Feature.tsx'), 'utf8'),
+    ).rejects.toThrow();
   });
 
   test('CLI tool flags reject conflicting values and the Pi-only alias on other runners before setup', async () => {

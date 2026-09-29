@@ -146,6 +146,7 @@ export async function buildCaseInput(caseId: CaseId): Promise<{
   input: string;
   prompt: { id: string; version: string; sha256: string };
   task: { text: string; sha256: string };
+  inputSha256: string;
   fixtureFiles: {
     path: string;
     source: string;
@@ -206,6 +207,7 @@ export async function buildCaseInput(caseId: CaseId): Promise<{
       sha256: sha256(prompt.body),
     },
     task: { text: task, sha256: sha256(task) },
+    inputSha256: sha256(`${promptBody}\n\nEvaluation task:\n${task}${excerpt}`),
     fixtureFiles: files,
   };
 }

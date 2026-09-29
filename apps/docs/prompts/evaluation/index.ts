@@ -250,6 +250,19 @@ export async function evaluateCase(
   },
 ): Promise<RunResult> {
   const definition = caseRegistry[caseId];
+  const requestedOutput = await canonicalizePath(resolve(options.output));
+  if (options.candidateRoot) {
+    const candidate = await realpath(options.candidateRoot);
+    if (
+      isWithin(candidate, requestedOutput) ||
+      isWithin(requestedOutput, candidate)
+    )
+      throw new Error(
+        'Output directory must not overlap the candidate project',
+      );
+  }
+  if (definition.mode === 'read-only' && options.candidateRoot)
+    throw new Error('Read-only cases cannot use a candidateRoot');
   const toolAccess = normalizeToolAccess(options);
   if (definition.mode === 'implementation' && !options.executionAuthorization)
     throw new Error(
@@ -310,6 +323,14 @@ export async function evaluateCase(
   let transportStatus: string | undefined;
   try {
     if (ownsScratch) await copyTree(source, cwd);
+    if (options.candidateRoot) {
+      const { verifyPreparedSources } = await import('./calibrate-cases');
+      if (
+        caseId === 'onboarding-implementation' ||
+        caseId === 'react-conversion'
+      )
+        await verifyPreparedSources(caseId, cwd);
+    }
     before = options.baseline ?? (await snapshot(cwd));
     processResult = await runCommand({
       command: command.invocation,
@@ -337,6 +358,8 @@ export async function evaluateCase(
         outputLimit: 4096,
         signal: options.signal,
       });
+      if (versionResult.cancelled)
+        processResult = { ...processResult, cancelled: true };
       runnerVersion =
         versionResult.exitCode === 0 &&
         !versionResult.timedOut &&
@@ -372,7 +395,7 @@ export async function evaluateCase(
   const applicationOutput =
     options.runner === 'command' ? proc.stdout : (extracted?.text ?? '');
   const candidateGrade =
-    definition.mode === 'implementation' && before
+    definition.mode === 'implementation' && before && !proc.cancelled
       ? await gradeCandidate(caseId, {
           candidateRoot: cwd,
           baseline: before,
@@ -459,6 +482,7 @@ export async function evaluateCase(
       caseId,
       prompt: context.prompt,
       task: context.task,
+      runnerInputSha256: context.inputSha256,
       fixture: {
         path: `prompts/acceptance/fixtures/${definition.fixture}`,
         files: context.fixtureFiles.map(({ path, sha256 }) => ({
@@ -568,6 +592,7 @@ export interface CandidateGrade {
     durationMs: number;
     spawnError?: string;
     summary: string;
+    outputTruncated: boolean;
   }[];
   changedPaths: FileChange[];
   evidence: string[];
@@ -588,6 +613,7 @@ export function candidateGraderEvidence(grade: CandidateGrade) {
         durationMs,
         spawnError,
         summary,
+        outputTruncated,
       }) => ({
         argv,
         status,
@@ -597,6 +623,7 @@ export function candidateGraderEvidence(grade: CandidateGrade) {
         durationMs,
         spawnError: spawnError ?? null,
         processEvidence: summary.slice(-2000),
+        outputTruncated,
       }),
     ),
     changedPaths: grade.changedPaths,
@@ -648,6 +675,7 @@ export async function gradeCandidate(
       ...(result.spawnError ? { spawnError: result.spawnError } : {}),
       summary:
         `${result.stderr.slice(-1000)}${result.stdout.slice(-1000)}`.trim(),
+      outputTruncated: result.outputTruncated,
     });
     const passed =
       result.exitCode === 0 &&
@@ -1397,15 +1425,21 @@ class BoundedCapture {
   constructor(readonly limit: number) {}
 
   add(chunk: Buffer): void {
-    const remaining = this.limit - this.#length;
-    if (remaining <= 0) {
-      this.truncated ||= chunk.length > 0;
-      return;
+    this.#chunks.push(Buffer.from(chunk));
+    this.#length += chunk.length;
+    while (this.#length > this.limit && this.#chunks.length) {
+      this.truncated = true;
+      const excess = this.#length - this.limit;
+      const first = this.#chunks[0];
+      if (!first) break;
+      if (first.length <= excess) {
+        this.#chunks.shift();
+        this.#length -= first.length;
+      } else {
+        this.#chunks[0] = first.subarray(excess);
+        this.#length -= excess;
+      }
     }
-    const accepted = chunk.subarray(0, remaining);
-    this.#chunks.push(Buffer.from(accepted));
-    this.#length += accepted.length;
-    this.truncated ||= accepted.length < chunk.length;
   }
 
   text(): string {
@@ -1754,6 +1788,22 @@ function sha256(value: string | Buffer): string {
   return createHash('sha256').update(value).digest('hex');
 }
 
+async function canonicalizePath(path: string): Promise<string> {
+  let existing = path;
+  const suffix: string[] = [];
+  while (true) {
+    try {
+      return resolve(await realpath(existing), ...suffix.reverse());
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      const parent = dirname(existing);
+      if (parent === existing) throw error;
+      suffix.push(relative(parent, existing));
+      existing = parent;
+    }
+  }
+}
+
 function isWithin(parent: string, child: string): boolean {
   const path = relative(parent, child);
   return (
@@ -1902,27 +1952,27 @@ if (import.meta.main) {
     const controller = new AbortController();
     process.once('SIGINT', () => controller.abort());
     process.once('SIGTERM', () => controller.abort());
-    const baselinePromise = candidateRoot
-      ? snapshotCandidate(candidateRoot)
-      : Promise.resolve(undefined);
-    const evaluation = baselinePromise.then((baseline) =>
-      evaluateCase(caseId as CaseId, {
-        output,
-        runner,
-        ...(runner === 'command' && executable
-          ? { command: { executable, args: commandArgs } }
-          : {}),
-        signal: controller.signal,
-        ...(candidateRoot ? { candidateRoot, baseline } : {}),
-        ...(authorization ? { executionAuthorization: authorization } : {}),
-        ...(toolAccess ? { toolAccess } : {}),
-      }),
-    );
+    const evaluation = evaluateCase(caseId as CaseId, {
+      output,
+      runner,
+      ...(runner === 'command' && executable
+        ? { command: { executable, args: commandArgs } }
+        : {}),
+      signal: controller.signal,
+      ...(candidateRoot ? { candidateRoot } : {}),
+      ...(authorization ? { executionAuthorization: authorization } : {}),
+      ...(toolAccess ? { toolAccess } : {}),
+    });
     evaluation
       .then((result) => {
         const { stdout: _stdout, stderr: _stderr, ...summary } = result;
         console.log(JSON.stringify(summary, null, 2));
-        if (result.criteria.some((criterion) => criterion.status === 'failed'))
+        if (
+          result.criteria.some((criterion) => criterion.status === 'failed') ||
+          (result.manifest.candidateGrader &&
+            (result.manifest.candidateGrader as { harnessStatus?: string })
+              .harnessStatus === 'blocked')
+        )
           process.exitCode = 1;
       })
       .catch((error: unknown) => {
