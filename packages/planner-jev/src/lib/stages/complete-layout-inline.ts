@@ -89,9 +89,9 @@ export function completeLayoutInline(llm: CompletionLlm): CompleteStage {
 /**
  * Slots to fill, the retained instances, the visible ones in the variants
  * the planned actions leave them in, and whether the decision hands the
- * layout tree off. Shared by every
- * completion call built over one {@link LayoutDecision}, so a stage that
- * splits the completion into several calls still derives them once.
+ * layout tree off. Shared by every completion call built over one
+ * {@link LayoutDecision}, so a stage that splits the completion into
+ * several calls still derives them once.
  */
 export interface CompletionPrep {
   readonly slots: readonly Slot[];
