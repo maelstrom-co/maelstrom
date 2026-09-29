@@ -1,5 +1,10 @@
-import type { PlanningInput, Stage } from '@maelstrom-co/engine';
-import { isErr, isOk, ok } from '@maelstrom-co/protocol';
+import type {
+  Deferred,
+  PlanningInput,
+  Stage,
+  StageContext,
+} from '@maelstrom-co/engine';
+import { isErr, isOk, ok, type Result } from '@maelstrom-co/protocol';
 
 import { deferAt, STAGE_NAME } from '../defer.js';
 import { noul, type Question, type Reply, readAnswer } from '../questions.js';
@@ -28,7 +33,10 @@ const GATE_QUESTIONS: Readonly<Record<keyof SelectionGates, Question>> = {
   ),
 };
 
-const GATES = Object.keys(GATE_QUESTIONS) as (keyof SelectionGates)[];
+/** The gates {@link selectGated} asks, in the order it asks them. */
+export const SELECTION_GATES: readonly (keyof SelectionGates)[] = Object.keys(
+  GATE_QUESTIONS,
+) as (keyof SelectionGates)[];
 
 /**
  * The POC's selection plus three gates asked in the same call:
@@ -55,18 +63,9 @@ export function selectGated(ask: Ask): Stage<PlanningInput, GatedSelection> {
     if (isErr(selected)) return selected;
     if (reply === undefined) return deferAt(ctx, STAGE, 'answer_missing');
 
-    const gates: Partial<Record<keyof SelectionGates, GateAnswer>> = {};
-    for (const gate of GATES) {
-      const answer = readAnswer(reply, gateId(gate), STAGE, ctx);
-      if (isErr(answer)) return answer;
-      const probability = answer.value.probability ?? 0;
-      gates[gate] = {
-        answer: probability >= GATE_THRESHOLD ? 'yes' : 'no',
-        probability,
-        confidence: answer.value.confidence,
-      };
-    }
-    const complete = gates as Required<SelectionGates>;
+    const gates = readGateAnswers(reply, ctx);
+    if (isErr(gates)) return gates;
+    const complete = gates.value;
     if (complete.generatedContent.answer === 'yes')
       return deferAt(
         ctx,
@@ -78,9 +77,31 @@ export function selectGated(ask: Ask): Stage<PlanningInput, GatedSelection> {
   };
 }
 
+/**
+ * Every gate answer in `reply`, a gate answering yes at or above
+ * {@link GATE_THRESHOLD}. Defers `answer_missing` when a gate has no answer.
+ */
+export function readGateAnswers(
+  reply: Reply,
+  ctx: StageContext,
+): Result<Required<SelectionGates>, Deferred> {
+  const gates: Partial<Record<keyof SelectionGates, GateAnswer>> = {};
+  for (const gate of SELECTION_GATES) {
+    const answer = readAnswer(reply, gateId(gate), STAGE, ctx);
+    if (isErr(answer)) return answer;
+    const probability = answer.value.probability ?? 0;
+    gates[gate] = {
+      answer: probability >= GATE_THRESHOLD ? 'yes' : 'no',
+      probability,
+      confidence: answer.value.confidence,
+    };
+  }
+  return ok(gates as Required<SelectionGates>);
+}
+
 function gateQuestions(): Record<string, Question> {
   return Object.fromEntries(
-    GATES.map((gate) => [gateId(gate), GATE_QUESTIONS[gate]]),
+    SELECTION_GATES.map((gate) => [gateId(gate), GATE_QUESTIONS[gate]]),
   );
 }
 

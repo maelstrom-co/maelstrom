@@ -128,13 +128,52 @@ export function layoutDeferralGoldInputs(
   };
 }
 
-/** The gates a gated select stage would answer for `scenario` if it answered right. */
+/**
+ * The gates a gated select stage would answer for `scenario` if it
+ * answered right: an explicit `expectedGates` entry, else `needsActions`
+ * yes when any action is expected, `generatedContent` no and `spatial`
+ * from the scenario's tag. `needsActions` counts expected actions only,
+ * not asks or unlisted parameters, unlike {@link expectedGateAnswers}.
+ */
 export function goldGates(scenario: Scenario): Required<SelectionGates> {
+  const explicit = scenario.expected.expectedGates ?? {};
+  const expected = expectedGateAnswers(scenario);
   return {
-    needsActions: gate((scenario.expected.actions?.length ?? 0) > 0),
-    generatedContent: gate(false),
-    spatial: gate(scenario.spatial === true),
+    needsActions: gateOr(
+      explicit.needsActions,
+      (scenario.expected.actions?.length ?? 0) > 0,
+    ),
+    generatedContent: gateOr(expected.generatedContent, false),
+    spatial: gateOr(expected.spatial, scenario.spatial === true),
   };
+}
+
+/**
+ * The answer a gated select stage should give per gate for `scenario`,
+ * leaving out every gate the scenario does not settle. An explicit
+ * `expectedGates` entry wins, for any gate name. Otherwise
+ * `needsActions` is yes when a planned scenario expects an action, an ask
+ * or a parameter with no listed match, and no when it states its actions
+ * and all are empty; `spatial` follows the spatial tag; `generatedContent`
+ * is no for a planned scenario.
+ */
+export function expectedGateAnswers(
+  scenario: Scenario,
+): Readonly<Record<string, 'yes' | 'no'>> {
+  const { expected } = scenario;
+  const derived: Record<string, 'yes' | 'no'> = {};
+  if (expected.status === 'planned') {
+    const expectsWork =
+      (expected.actions?.length ?? 0) > 0 ||
+      (expected.asks?.length ?? 0) > 0 ||
+      (expected.noListedMatch?.length ?? 0) > 0;
+    if (expectsWork) derived.needsActions = 'yes';
+    else if (expected.actions !== undefined) derived.needsActions = 'no';
+    derived.generatedContent = 'no';
+  }
+  if (scenario.spatial !== undefined)
+    derived.spatial = scenario.spatial ? 'yes' : 'no';
+  return { ...derived, ...expected.expectedGates };
 }
 
 /** The selection a scenario's expectation implies, or why the expectation cannot form it. */
@@ -170,6 +209,13 @@ export function goldSelection(scenario: Scenario): GoldSelection {
     applicable: true,
     selection: (input) => ({ input, instances, answers: [], gates }),
   };
+}
+
+function gateOr(
+  answer: 'yes' | 'no' | undefined,
+  fallback: boolean,
+): GateAnswer {
+  return gate(answer === undefined ? fallback : answer === 'yes');
 }
 
 function gate(yes: boolean): GateAnswer {

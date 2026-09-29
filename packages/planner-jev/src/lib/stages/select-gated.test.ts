@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
 import { isOk } from '@maelstrom-co/protocol';
-
 import {
   type Conversation,
   conversation,
@@ -14,8 +13,14 @@ import {
 } from '../__test-helpers__/fixtures.js';
 import { scriptedAsk } from '../__test-helpers__/scripted-fetch.js';
 import { runPair } from '../__test-helpers__/stage-pair.js';
+import type { Reply } from '../questions.js';
 import { selectUngated } from '../stages-experimental/select-ungated.js';
-import { GATE_THRESHOLD, selectGated } from './select-gated.js';
+import {
+  GATE_THRESHOLD,
+  readGateAnswers,
+  SELECTION_GATES,
+  selectGated,
+} from './select-gated.js';
 
 const GATES = {
   'gate/needsActions': 0.9,
@@ -107,6 +112,62 @@ describe('selectGated', () => {
     expect(calls).toEqual([]);
   });
 });
+
+describe('readGateAnswers', () => {
+  const input = makeInput(makeRequest('set the weather to Oslo'));
+
+  test('reads the same answers the stage records', async () => {
+    const { next } = await pair('set the weather to Oslo', { gates: GATES });
+    const result = readGateAnswers(gateReply(GATES), makeContext(input));
+    expect(isOk(next.result)).toBe(true);
+    expect(isOk(result) && result.value).toEqual(
+      isOk(next.result) && next.result.value.gates,
+    );
+  });
+
+  test('answers yes at the threshold and no just below it', () => {
+    const result = readGateAnswers(
+      gateReply({
+        ...GATES,
+        'gate/needsActions': GATE_THRESHOLD,
+        'gate/spatial': GATE_THRESHOLD - 0.01,
+      }),
+      makeContext(input),
+    );
+    expect(isOk(result) && result.value.needsActions.answer).toBe('yes');
+    expect(isOk(result) && result.value.spatial.answer).toBe('no');
+  });
+
+  test('defers when a gate has no answer', () => {
+    const { 'gate/spatial': _spatial, ...partial } = GATES;
+    const result = readGateAnswers(gateReply(partial), makeContext(input));
+    expect(deferralOf(result)).toBe('jevSelect/answer_missing');
+  });
+
+  test('names every gate the stage asks, in order', () => {
+    expect(SELECTION_GATES).toEqual([
+      'needsActions',
+      'generatedContent',
+      'spatial',
+    ]);
+  });
+});
+
+function gateReply(probabilities: Readonly<Record<string, number>>): Reply {
+  return {
+    answers: Object.fromEntries(
+      Object.entries(probabilities).map(([id, probability]) => [
+        id,
+        {
+          choice: probability >= 0.5 ? 'yes' : 'no',
+          confidence: Math.abs(probability - 0.5) * 2,
+          probability,
+        },
+      ]),
+    ),
+    usage: { inputTokens: 0, outputTokens: 0 },
+  };
+}
 
 function withoutGates(value: object): object {
   const { gates: _gates, ...rest } = value as { gates?: unknown };

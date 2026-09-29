@@ -57,7 +57,7 @@ Each staged turn writes its stages' inputs and outputs to `<out>/stages/<arm>/<s
 
 ### Stage evals
 
-`src/core/stage-eval.ts` tests one pipeline stage on its own, so a stage can be tuned in minutes before a full-planner run. It calls the stage function directly on the input a scenario's expectation implies: no planner, no Engine, no replay and no LLM. The actions and layout stages are covered so far. Use it while changing a stage's questions, options or code; use the full-planner eval above for the final comparison of whole planners, since a stage that scores well alone can still lose to the completion call or the fallback.
+`src/core/stage-eval.ts` tests one pipeline stage on its own, so a stage can be tuned in minutes before a full-planner run. It calls the stage function directly on the input a scenario's expectation implies: no planner, no Engine, no replay and no LLM. The select, actions and layout stages are covered so far. Use it while changing a stage's questions, options or code; use the full-planner eval above for the final comparison of whole planners, since a stage that scores well alone can still lose to the completion call or the fallback.
 
 ```sh
 # from the workspace root, so Bun loads .env (TYPESAFE_API_KEY and JEV_MODEL; no OpenAI key is needed)
@@ -66,7 +66,7 @@ bun --conditions=@maelstrom-co/source packages/evals/src/eval-stages/cli.ts --st
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
-| `--stage` | required | The stage to test: `actions` or `layout`. |
+| `--stage` | required | The stage to test: `select`, `actions` or `layout`. |
 | `--variant` | every variant of the stage | Repeat the flag for several; columns follow the order given. Layout variants: `preset` (the preset choice with placement descriptions), `preset-or-llm` and `composed-pairs` (the composed pairs planner's layout stage), listed in `LAYOUT_STAGES`, `src/plugins/jev/stages/layout.ts`. Each is built as the matching arm in `src/plugins/jev/arms.ts` builds its layout stage. |
 | `--suite` | `development` | `development`, `holdout` or `all`. |
 | `--repeats` | `3` | Runs per scenario and variant. |
@@ -93,6 +93,18 @@ bun --conditions=@maelstrom-co/source packages/evals/src/eval-stages/cli.ts --st
 ```
 
 A new stage joins by implementing `StageEvalModule` (`src/core/stage-eval.ts`: its variants over the deps `makeDeps` builds, how a scenario forms its input, how an output is judged, any CLI flags, and any extra report sections) and listing it in its plugin's `stageModules`.
+
+#### Select stage
+
+The select stage eval judges the gates of the composed pairs planner's select stage (`selectGated`). It runs on each scenario's own planning input, since the gates are the stage's answer to the request itself; there is no gold input. Its one variant, `gated`, runs `selectGated` and reads the gate answers from the stage's reply with `readGateAnswers`, the function the stage decides with, so a turn where the stage answered the gates and then deferred (a `generatedContent` yes, an ambiguous scope) is still judged and records the deferral reason. A deferral whose reply carries no gate answers is recorded as that deferral, unjudged. A provider failure, an over-cap question or a missing answer is recorded as an error, so a provider outage shows in the error count.
+
+The expected answer per gate comes from `expectedGateAnswers` in `src/plugins/jev/gold-inputs.ts`: a scenario's explicit `expectedGates` entry wins; otherwise `needsActions` is yes when a planned scenario expects an action, an ask or a parameter with no listed match and no when it states its actions and all are empty, `spatial` follows the spatial tag, and `generatedContent` is no for a planned scenario. Gates the planner does not ask are ignored, and a scenario with no expected answer for any asked gate is not applicable. A turn passes when every judged gate matches and fails with one failure per wrong gate, naming the expected answer, the answer and its probability of yes. `records.json` keeps every gate's answer, probability and confidence, the expected answers and the deferral reason. `report.md` adds a table of judged turns, false positives (yes where no was expected) and false negatives per variant and gate, then every miss with its scenario, suite, repeat and probability, sorted by gate, expected answer and probability, so the effect of another threshold can be read off.
+
+The gate scenarios live in `src/core/scenarios/gates.ts`, on the demo board and on a second board of non-demo Vessels (`src/core/fixtures/workspace-vessels.ts`: a music player, a stock watchlist and CRM contacts), so gate wording is not tuned to the five demo widgets alone.
+
+```sh
+bun --conditions=@maelstrom-co/source packages/evals/src/eval-stages/cli.ts --stage select --variant gated --suite development --repeats 3 --out tmp/evals/<name>
+```
 
 ### Reading the report
 
