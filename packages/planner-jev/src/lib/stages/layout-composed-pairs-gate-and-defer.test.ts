@@ -647,6 +647,81 @@ describe('spatial gate', () => {
     ]);
   });
 
+  test('ships the current tree when the spatial gate says yes and a pair states a relation the current board already has', async () => {
+    const { plan } = spatialPlan(gate('yes'));
+    const { result } = await runResult(
+      () => ({
+        ...notStated,
+        choices: {
+          ...notStated.choices,
+          'pair/calendar-main/weather-main': 'left_of',
+        },
+      }),
+      plan,
+    );
+    expect(deferralOf(result)).toBeUndefined();
+    if (!isOk(result)) throw new Error('expected a layout decision');
+    expect(result.value.tree).toEqual(SIDE_BY_SIDE);
+  });
+
+  test('ships the current tree when the spatial gate says yes and the direction states the current top split', async () => {
+    const { plan } = spatialPlan(gate('yes'));
+    const { result } = await runResult(
+      () => ({
+        ...notStated,
+        choices: { ...notStated.choices, direction: 'side_by_side' },
+      }),
+      plan,
+    );
+    expect(deferralOf(result)).toBeUndefined();
+    if (!isOk(result)) throw new Error('expected a layout decision');
+    expect(result.value.tree).toEqual(SIDE_BY_SIDE);
+  });
+
+  test('ships the planned actions with the current tree when the spatial gate says yes and every answer is not stated', async () => {
+    const { request, plan } = spatialPlan(gate('yes'));
+    const withAction: GatedActionPlan = {
+      ...plan,
+      ...actionPlan(request, ['weather-main/setLocation']),
+    };
+    const { result } = await runResult(() => notStated, withAction);
+    expect(deferralOf(result)).toBeUndefined();
+    if (!isOk(result)) throw new Error('expected a layout decision');
+    expect(result.value.tree).toEqual(SIDE_BY_SIDE);
+  });
+
+  test('defers as spatial not stated when the current tree writes equal weights differently', async () => {
+    const request = makeRequest('Arrange everything in a 2x2 grid.', {
+      tree: ['V:2,2,2', ...SIDE_BY_SIDE.slice(1)] as TilingNode[],
+    });
+    const { result } = await runResult(() => notStated, gatedPlan(request));
+    expect(deferralOf(result)).toBe('jevLayout/spatial_not_stated');
+  });
+
+  test('ships when the spatial gate says yes, every answer is not stated and a size is stated within a row or column', async () => {
+    const { plan } = spatialPlan(gate('yes'));
+    const { result } = await runResult(
+      () => ({
+        ...notStated,
+        nouls: { 'size_stated_in_group/weather-main': 0.9 },
+        scores: { 'fraction_in_group/weather-main': 4 },
+      }),
+      plan,
+    );
+    expect(deferralOf(result)).toBeUndefined();
+  });
+
+  test('ships the tree without a hidden Instance when the spatial gate says yes and every answer is not stated', async () => {
+    const { plan } = spatialPlan(gate('yes'), { 'tasks-main': 'hide' });
+    const { result } = await runResult(() => notStated, plan);
+    expect(deferralOf(result)).toBeUndefined();
+    if (!isOk(result)) throw new Error('expected a layout decision');
+    expect(result.value.tree?.slice(1)).toEqual([
+      'ID:calendar-main',
+      'ID:weather-main',
+    ]);
+  });
+
   test('ships a resized tree when the spatial gate says yes, every answer is not stated and the size answers change the weights', async () => {
     const { plan } = spatialPlan(gate('yes'));
     const { result } = await runResult(

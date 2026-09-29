@@ -2,7 +2,7 @@ import type { Stage, StageContext } from '@maelstrom-co/engine';
 import { finalVariants } from '@maelstrom-co/engine';
 import {
   type ChartRequest,
-  type InstanceId,
+  InstanceId,
   isErr,
   ok,
   type TilingNode,
@@ -34,6 +34,8 @@ import {
   keptLayoutTreeAtMinimum,
   type LayoutCandidate,
   rankLayoutCandidates,
+  shapeKey,
+  shapeOfTree,
 } from './layout-composed-pairs-kept-layouts.js';
 import {
   FRACTION_LEVELS,
@@ -187,40 +189,43 @@ export type ComposedPairsDecision = LayoutDecision & {
  * candidate by the log probability of the relations and the top-level
  * direction it implies (see `rankLayoutCandidates`): "not stated" votes
  * for the current tree's relation (so a request that states nothing keeps
- * the board, unless the `spatial` gate said yes; see below), or, when the
- * direction answer changes
- * the current top split and is meant for the whole board, for the
+ * the board, apart from the deferral below), or, when the direction answer
+ * changes the current top split and is meant for the whole board, for the
  * relation along that direction in the current order. The direction is
  * read as meant for one widget or group, and keeps the current relations,
  * when a visible Instance is new to the tree or a pair states a relation
- * across the direction (see `relationScores`). On a tie an enumerated
- * tree ranks first. In an enumerated
- * tree, splits along the top axis are weighted by the whole-Chart size
- * answers; inside a row or column, members with a stated fraction get it
- * and the others split the rest by their whole-Chart shares (see
- * `partFractionShares`). A kept tree keeps the current weights of the
- * splits it copies, apart from stated fractions, and sizes its new splits
- * by the size answers (see `keptLayoutTree`). The top
- * three trees are tried in rank order (see `pickSizedTree`): a tree that
- * fits as sized is returned (`source: 'jev'`); one that does not gives way
- * to a lower tree of the three that fits as sized and scores within
- * `AS_SIZED_SCORE_MARGIN` of it, and otherwise is returned with every
- * share below its Instance's minimum raised to it, or else with equal
- * weights, before the next tree is tried. So a far worse tree never ships
- * just because it fits without resizing. When nothing fits, or a single
- * visible Instance does not fit, the stage defers
- * with `jevLayout/no_feasible_layout` so the fallback planner answers the
- * turn. When the `spatial` gate said yes on a request with user intent
- * text, every pair's and the direction's most probable answer is not
- * stated, and the picked tree is token for token the current one, the
- * stage defers with
- * `jevLayout/spatial_not_stated`: the request asks for an arrangement the
+ * across the direction (see `relationScores`). On a tie an enumerated tree
+ * ranks first. In an enumerated tree, splits along the top axis are
+ * weighted by the whole-Chart size answers; inside a row or column,
+ * members with a stated fraction get it and the others split the rest by
+ * their whole-Chart shares (see `partFractionShares`). A kept tree keeps
+ * the current weights of the splits it copies, apart from stated
+ * fractions, and sizes its new splits by the size answers (see
+ * `keptLayoutTree`). The top three trees are tried in rank order (see
+ * `pickSizedTree`): a tree that fits as sized is returned
+ * (`source: 'jev'`); one that does not gives way to a lower tree of the
+ * three that fits as sized and scores within `AS_SIZED_SCORE_MARGIN` of
+ * it, and otherwise is returned with every share below its Instance's
+ * minimum raised to it, or else with equal weights, before the next tree
+ * is tried. So a far worse tree never ships just because it fits without
+ * resizing. When nothing fits, or a single visible Instance does not fit,
+ * the stage defers with `jevLayout/no_feasible_layout` so the fallback
+ * planner answers the turn.
+ *
+ * The stage defers with `jevLayout/spatial_not_stated` when the `spatial`
+ * gate said yes on a request with user intent text, the plan has no
+ * action, the answers state no arrangement (every pair's and the
+ * direction's answer is not stated) and no size (every Instance gets the
+ * same whole-Chart size level and none a stated fraction of its row or
+ * column), and the picked tree places the Instances as the current tree
+ * does, whatever its weights. Such a request asks for an arrangement the
  * pair questions cannot express, such as a whole-board grid, and shipping
- * the unchanged board would ignore it. A size-only request still ships,
- * since its size answers change the weights, and so does a Chart resize
- * with no intent text, which asks for no arrangement even when the gate
- * reads the resize as spatial. More than {@link MAX_PAIRS_INSTANCES} visible Instances hand the
- * layout to the completion stage (`source: 'llm'`, no tree, no call).
+ * the unchanged board would ignore it. A request that states a size ships,
+ * and so does a Chart resize with no intent text, which asks for no
+ * arrangement even when the gate reads the resize as spatial.
+ *
+ * More than {@link MAX_PAIRS_INSTANCES} visible Instances hand the layout
+ * to the completion stage (`source: 'llm'`, no tree, no call).
  */
 export function layoutComposedPairsGateAndDefer(
   ask: Ask,
@@ -357,8 +362,10 @@ export function layoutComposedPairsGateAndDefer(
     if (
       plan.gates.spatial.answer === 'yes' &&
       intentText(request).trim() !== '' &&
+      plan.actions.length === 0 &&
       statesNoArrangement(pairAnswers, direction) &&
-      sameTokens(tree, currentTree)
+      statesNoSize(sizes, groupFractions) &&
+      sameStructure(tree, currentTree)
     )
       return deferAt(ctx, STAGE, 'spatial_not_stated', 'layout');
     return ok({
@@ -391,29 +398,36 @@ function statesNoArrangement(
   direction: RecordedChoice,
 ): boolean {
   return [...pairAnswers.map(({ answer }) => answer), direction].every(
-    ({ probabilities }) => mostLikely(probabilities) === NOT_STATED,
+    ({ choice }) => choice === NOT_STATED,
   );
 }
 
-function mostLikely(probabilities: OptionProbabilities): string | undefined {
-  let best: string | undefined;
-  let bestProbability = Number.NEGATIVE_INFINITY;
-  for (const [option, probability] of Object.entries(probabilities))
-    if (probability > bestProbability) {
-      best = option;
-      bestProbability = probability;
-    }
-  return best;
+function statesNoSize(
+  sizes: Readonly<Record<string, RecordedSize>>,
+  groupFractions: Readonly<Record<string, RecordedGroupFraction>>,
+): boolean {
+  const levels = new Set(Object.values(sizes).map(({ level }) => level));
+  return (
+    levels.size <= 1 &&
+    Object.values(groupFractions).every(
+      ({ stated }) => stated < STATED_PROBABILITY,
+    )
+  );
 }
 
-function sameTokens(
+function sameStructure(
   tree: readonly TilingNode[],
   other: readonly TilingNode[],
 ): boolean {
-  return (
-    tree.length === other.length &&
-    tree.every((token, index) => token === other[index])
-  );
+  const ids = [...tree, ...other].flatMap((token) => {
+    const id = tilingLeafInstanceId(token);
+    return id === null ? [] : [InstanceId(id)];
+  });
+  const keyOf = (nodes: readonly TilingNode[]) => {
+    const shape = shapeOfTree(nodes, ids);
+    return shape === undefined ? '' : shapeKey(shape);
+  };
+  return keyOf(tree) === keyOf(other);
 }
 
 function sharesById(
