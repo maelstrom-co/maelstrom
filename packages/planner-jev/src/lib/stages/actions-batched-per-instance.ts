@@ -23,6 +23,7 @@ import {
   intentText,
   isResizeOnly,
   type Question,
+  type Reply,
   readAnswer,
   recentHistory,
 } from '../questions.js';
@@ -54,13 +55,16 @@ export type ActionsBatchedPerInstanceOptions = FanOutOptions;
  * an action, that action is promoted to the instance's only one: as asked
  * when its premise is the current view, else as the current view's action
  * of the same name bound from its first-slot parameters, else the stage
- * defers `premise_mismatch`. A later action repeating an earlier one's
- * instance, name and bound parameters is dropped; one with a pending
- * parameter is kept for the completion step to compare once filled, and a
- * parameter two actions leave unanswered is asked once. A third slot is asked and never planned: an answer
- * naming an action defers `action_limit` rather than shipping the first two
- * actions as if that were the whole request, and the call record keeps every
- * third-slot answer for measurement. Actions keep their order within an
+ * defers `premise_mismatch`; an `unsupported` second slot defers
+ * `action_unsupported` either way. A later action repeating an earlier one's
+ * instance, name and bound parameters is dropped before the action limit is
+ * counted; one with a pending parameter is kept for the completion step to
+ * compare once filled, and a parameter an action and its repeat leave
+ * unanswered is asked once. A third slot is asked and never planned: an
+ * answer naming an action, after two actions or a promoted one, defers
+ * `action_limit` rather than shipping the actions before it as if that were
+ * the whole request, and the call record keeps every third-slot answer for
+ * measurement. Actions keep their order within an
  * instance, not across instances. The questions are split over as few
  * concurrent calls as the byte budget of {@link askInChunks} allows, since
  * one call over all of them can exceed what TypeSafe accepts. A resize-only
@@ -130,18 +134,16 @@ export function actionsBatchedPerInstance(
       const first = read(slotId(instance, 1));
       if (isErr(first)) return first;
       if (first.value.choice === 'none') {
-        const second = readAnswer(reply.value, slotId(instance, 2), STAGE, ctx);
+        const second = read(slotId(instance, 2));
         if (isErr(second)) return second;
-        const { choice } = second.value;
-        if (choice === 'none' || choice === 'unsupported') continue;
-        answers.push({
-          stage: STAGE,
-          question: slotId(instance, 2),
-          ...second.value,
-        });
-        const promoted = promoteSecondSlot(plan, choice, ctx);
+        if (second.value.choice === 'none') continue;
+        if (second.value.choice === 'unsupported')
+          return deferAt(ctx, STAGE, 'action_unsupported', slotId(instance, 2));
+        const promoted = promoteSecondSlot(plan, second.value.choice, ctx);
         if (isErr(promoted)) return promoted;
         walked.push({ instance, target: promoted.value });
+        const limit = thirdSlotLimit(reply.value, instance, ctx);
+        if (isErr(limit)) return limit;
         continue;
       }
       if (first.value.choice === 'unsupported')
@@ -163,10 +165,8 @@ export function actionsBatchedPerInstance(
         return deferAt(ctx, STAGE, 'premise_mismatch', slotId(instance, 2));
       walked.push({ instance, target: secondTarget });
 
-      const third = readAnswer(reply.value, slotId(instance, 3), STAGE, ctx);
-      if (isErr(third)) return third;
-      if (third.value.choice !== 'none' && third.value.choice !== 'unsupported')
-        return deferAt(ctx, STAGE, 'action_limit', slotId(instance, 3));
+      const limit = thirdSlotLimit(reply.value, instance, ctx);
+      if (isErr(limit)) return limit;
     }
 
     const choices: Record<string, string> = {};
@@ -181,8 +181,9 @@ export function actionsBatchedPerInstance(
       action: target.definition.name,
       ...bindParameterChoices(target.slots, choices),
     }));
-    // An entry with a pending or missing parameter has no key yet: its
-    // values are only known once filled, where the completion step compares.
+    // A pending parameter's value is only known once the completion step
+    // fills it, and that step compares then. An entry with a missing
+    // parameter becomes an ask, and asks are compared below.
     const unique = keepFirstOfEachKey(bound, (entry) =>
       entry.pending.length === 0 && entry.missing.length === 0
         ? actionKey(entry.instanceId, entry.action, entry.params)
@@ -199,19 +200,24 @@ export function actionsBatchedPerInstance(
       return deferAt(ctx, STAGE, 'action_limit');
 
     const actions: PlannedAction[] = [];
-    const asks: ParameterAsk[] = [];
+    const asks: { ask: ParameterAsk; key: string }[] = [];
     for (const { instanceId, action, params, pending, missing } of unique.kept)
       if (missing.length === 0)
         actions.push({ instanceId, action, params, pending });
       else
-        asks.push(
-          ...missing.map((parameter) => ({ instanceId, action, parameter })),
-        );
+        for (const parameter of missing)
+          asks.push({
+            ask: { instanceId, action, parameter },
+            key: JSON.stringify([
+              actionKey(instanceId, action, params),
+              parameter.name,
+            ]),
+          });
     if (isErr(finalVariants(retained, actions, request.vessels)))
       return deferAt(ctx, STAGE, 'simulation_failed');
-    const uniqueAsks = keepFirstOfEachKey(asks, (entry) =>
-      JSON.stringify([entry.instanceId, entry.action, entry.parameter.name]),
-    ).kept;
+    const uniqueAsks = keepFirstOfEachKey(asks, (entry) => entry.key).kept.map(
+      (entry) => entry.ask,
+    );
     return ok(actionPlanOf(selection, actions, uniqueAsks, answers));
   };
 }
@@ -367,6 +373,18 @@ function promoteSecondSlot(
   }
   ctx.logger.info('jev.slot_discarded', found);
   return deferAt(ctx, STAGE, 'premise_mismatch', slotId(instance, 2));
+}
+
+function thirdSlotLimit(
+  reply: Reply,
+  instance: SelectedInstance,
+  ctx: StageContext,
+): Result<void, Deferred> {
+  const third = readAnswer(reply, slotId(instance, 3), STAGE, ctx);
+  if (isErr(third)) return third;
+  if (third.value.choice !== 'none' && third.value.choice !== 'unsupported')
+    return deferAt(ctx, STAGE, 'action_limit', slotId(instance, 3));
+  return ok(undefined);
 }
 
 function after(target: Omit<SlotTarget, 'slots'>): VariantName {

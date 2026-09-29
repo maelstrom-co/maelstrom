@@ -411,6 +411,82 @@ describe('actionsBatchedPerInstance', () => {
     expect(planned(result).asks).toHaveLength(1);
   });
 
+  test('asks separately for a parameter two different moveEvent calls leave unanswered', async () => {
+    const { result } = await run(
+      demoCalendarSelection('move "Gym" and "Design review"'),
+      answering({
+        'calendar-main/1': 'moveEvent',
+        'calendar-main/2': 'day:moveEvent',
+        'param/calendar-main/1/moveEvent/title': 'v0',
+        'param/calendar-main/2/day:moveEvent/title': 'v1',
+      }),
+    );
+    expect(planned(result).asks).toEqual([
+      expect.objectContaining({
+        action: 'moveEvent',
+        parameter: expect.objectContaining({ name: 'time' }),
+      }),
+      expect.objectContaining({
+        action: 'moveEvent',
+        parameter: expect.objectContaining({ name: 'time' }),
+      }),
+    ]);
+  });
+
+  test('asks once for a parameter a repeated moveEvent call leaves unanswered', async () => {
+    const { result } = await run(
+      demoCalendarSelection('move "Gym", move "Gym"'),
+      answering({
+        'calendar-main/1': 'moveEvent',
+        'calendar-main/2': 'day:moveEvent',
+        'param/calendar-main/1/moveEvent/title': 'v0',
+        'param/calendar-main/2/day:moveEvent/title': 'v0',
+      }),
+    );
+    expect(planned(result).asks).toEqual([
+      expect.objectContaining({
+        action: 'moveEvent',
+        parameter: expect.objectContaining({ name: 'time' }),
+      }),
+    ]);
+  });
+
+  test('asks separately for a parameter name two actions or two instances share', async () => {
+    const actions = await run(
+      demoCalendarSelection('add "Gym" and move "Gym"'),
+      answering({
+        'calendar-main/1': 'addEvent',
+        'calendar-main/2': 'day:moveEvent',
+        'param/calendar-main/1/addEvent/title': 'v0',
+        'param/calendar-main/2/day:moveEvent/title': 'v0',
+      }),
+    );
+    expect(
+      planned(actions.result).asks.map(
+        (ask) => (ask as { action: string }).action,
+      ),
+    ).toEqual(['addEvent', 'moveEvent']);
+    const instances = await run(
+      selectionOf('add an event and a task', {
+        ...CALENDAR_ONLY,
+        'tasks-main': 'keep',
+      }),
+      answering({
+        'calendar-main/1': 'addEvent',
+        'tasks-main/1': 'addTask',
+        'param/tasks-main/1/addTask/urgent': 'omit',
+      }),
+    );
+    expect(
+      planned(instances.result)
+        .asks.filter(
+          (ask) =>
+            (ask as { parameter: { name: string } }).parameter.name === 'title',
+        )
+        .map((ask) => (ask as { instanceId: string }).instanceId),
+    ).toEqual(['calendar-main', 'tasks-main']);
+  });
+
   test('promotes a second slot whose premise is the current view when the first slot answers none', async () => {
     const { result, logs } = await run(
       mapSelection('route there again', 'route'),
@@ -494,6 +570,22 @@ describe('actionsBatchedPerInstance', () => {
     );
     expect(planned(result)).toEqual({ actions: [], asks: [] });
     expect(logged(logs, 'jev.slot_promoted')).toEqual([]);
+    expect(
+      isOk(result) && result.value.answers.map((answer) => answer.question),
+    ).toEqual(['map-main/1', 'map-main/2']);
+  });
+
+  test('defers the action limit when a third slot names an action after a promotion', async () => {
+    const { result } = await run(
+      mapSelection('route there again, then the overview', 'route'),
+      answering({
+        'map-main/1': 'none',
+        'map-main/2': 'route:showRoute',
+        'map-main/3': 'route:showOverview',
+        'param/map-main/2/route:showRoute/destination': 'v0',
+      }),
+    );
+    expect(deferralOf(result)).toBe('jevActions/action_limit');
   });
 
   test('defers a slot-2 answer whose premise does not match slot 1', async () => {
@@ -536,12 +628,12 @@ describe('actionsBatchedPerInstance', () => {
     expect(deferralOf(result)).toBe('jevActions/action_limit');
   });
 
-  test('plans nothing when slot 1 is none and slot 2 is unsupported, and defers an unsupported slot 1', async () => {
-    const quiet = await run(
+  test('defers an unsupported slot 2 behind a none slot 1, and an unsupported slot 1', async () => {
+    const second = await run(
       selectionOf('nothing', CALENDAR_ONLY),
       answering({ 'calendar-main/2': 'unsupported' }),
     );
-    expect(planned(quiet.result)).toEqual({ actions: [], asks: [] });
+    expect(deferralOf(second.result)).toBe('jevActions/action_unsupported');
     const unsupported = await run(
       selectionOf('fly', CALENDAR_ONLY),
       answering({ 'calendar-main/1': 'unsupported' }),
@@ -584,6 +676,33 @@ describe('actionsBatchedPerInstance', () => {
       }),
     );
     expect(deferralOf(result)).toBe('jevActions/action_limit');
+  });
+
+  test('counts the action limit after repeated actions are dropped', async () => {
+    const { result, logs } = await run(
+      selectionOf('week then month, add "Buy milk" twice, route there twice'),
+      answering({
+        'calendar-main/1': 'showWeek',
+        'calendar-main/2': 'week:showMonth',
+        'tasks-main/1': 'addTask',
+        'tasks-main/2': 'list:addTask',
+        'param/tasks-main/1/addTask/title': 'v0',
+        'param/tasks-main/2/list:addTask/title': 'v0',
+        'param/tasks-main/1/addTask/urgent': 'omit',
+        'param/tasks-main/2/list:addTask/urgent': 'omit',
+        'map-main/1': 'showRoute',
+        'map-main/2': 'route:showRoute',
+        'param/map-main/1/showRoute/destination': 'v0',
+        'param/map-main/2/route:showRoute/destination': 'v0',
+      }),
+    );
+    expect(planned(result).actions.map((action) => action.action)).toEqual([
+      'showWeek',
+      'showMonth',
+      'addTask',
+      'showRoute',
+    ]);
+    expect(logged(logs, 'jev.duplicate_action_dropped')).toHaveLength(2);
   });
 
   test('keeps each instance in order, instances in selection order', async () => {
