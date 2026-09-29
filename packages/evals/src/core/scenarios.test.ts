@@ -12,6 +12,14 @@ describe('scenarios', () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
+  test('holdout ids, and only they, start hold-', () => {
+    const mismatched = scenarios.filter(
+      (scenario) =>
+        scenario.id.startsWith('hold-') !== (scenario.suite === 'holdout'),
+    );
+    expect(mismatched.map((scenario) => scenario.id)).toEqual([]);
+  });
+
   test('every recorded tree satisfies its own arrangement rules', () => {
     const failures = scenarios.flatMap((scenario) => {
       const rules = scenario.expected.arrangement;

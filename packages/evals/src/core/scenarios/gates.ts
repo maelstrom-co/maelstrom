@@ -31,8 +31,9 @@ export interface GateScenarioBuilders {
  * contacts, plus full-planner scenarios for prompts that dropped a
  * requested action or deferred too broadly. Each carries a complete
  * expectation and, where the gate it is about cannot be derived from the
- * expectation, its `expectedGates`. Development ids start `gate-`,
- * holdout ids `hold-gate-`.
+ * expectation, its `expectedGates`. Holdout ids start `hold-gate-`;
+ * the gate scenarios in development start `gate-`, and the full-planner
+ * scenarios keep descriptive ids.
  */
 export function gateScenarios(
   build: GateScenarioBuilders,

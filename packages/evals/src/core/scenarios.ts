@@ -2322,7 +2322,11 @@ const parameterCases: Scenario[] = [
   ),
 ];
 
-/** Every scenario: the ported development and holdout suites plus the parameter cases, which join development. */
+/**
+ * Every scenario: the ported development and holdout suites, the
+ * parameter cases, which join development, and the gate scenarios,
+ * which carry their own suite.
+ */
 export const scenarios: readonly Scenario[] = [
   ...development,
   ...parameterCases.map((scenario) => ({

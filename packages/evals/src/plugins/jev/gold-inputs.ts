@@ -132,9 +132,8 @@ export function layoutDeferralGoldInputs(
  * The gates a gated select stage would answer for `scenario` if it
  * answered right: an explicit `expectedGates` entry, else `needsActions`
  * yes when any action is expected, `generatedContent` no and `spatial`
- * from the scenario's tag. `needsActions` ignores expected asks here, so
- * the layout stage's gold inputs stay as they were; `goldSelection`
- * counts them.
+ * from the scenario's tag. `needsActions` counts expected actions only,
+ * not asks or unlisted parameters, unlike {@link expectedGateAnswers}.
  */
 export function goldGates(scenario: Scenario): Required<SelectionGates> {
   const explicit = scenario.expected.expectedGates ?? {};
