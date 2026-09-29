@@ -1,4 +1,8 @@
-import { STAGE_NAME, STAGE_NAMES } from '@maelstrom-co/planner-jev/_internal';
+import {
+  GATE_THRESHOLDS,
+  STAGE_NAME,
+  STAGE_NAMES,
+} from '@maelstrom-co/planner-jev/_internal';
 import type { ArmSummaryExtension, ReportRow } from '../../core/plugin.js';
 import {
   type ArmSummary,
@@ -10,7 +14,7 @@ import {
   totals,
 } from '../../core/report.js';
 import { PLANNER_RATIO, type Ratio, ratio } from '../../core/stats.js';
-import type { JevRunRecord } from './record.js';
+import type { JevRunRecord, RecordedAnswer } from './record.js';
 
 /** How often a yes/no gate answered wrongly. */
 export interface GateErrors {
@@ -23,7 +27,8 @@ export interface GateErrors {
 /** The fields the Jev plugin adds to a Jev arm's summary. */
 export type JevSummaryFields = {
   /**
-   * Gate errors over the turns whose live select call answered the gate:
+   * Gate errors over the turns whose live select call answered the gate,
+   * each gate answering yes from the select stage's own threshold:
    * `needsActions` against whether the scenario expects actions, `spatial`
    * against its spatial tag. Absent when no turn answered a gate.
    */
@@ -215,21 +220,31 @@ export function jevRows(): readonly ReportRow[] {
 function gateSummary(
   records: readonly JevRunRecord[],
 ): JevSummaryFields['gates'] | undefined {
-  const answered = (question: string) =>
+  const answered = (gate: 'needsActions' | 'spatial') =>
     records.flatMap((record) => {
       const answer = record.answers?.find(
         (entry) =>
-          entry.stage === STAGE_NAME.jevSelect && entry.question === question,
+          entry.stage === STAGE_NAME.jevSelect &&
+          entry.question === `gate/${gate}`,
       );
-      return answer ? [{ record, yes: answer.choice === 'yes' }] : [];
+      return answer
+        ? [{ record, yes: answersYes(answer, GATE_THRESHOLDS[gate]) }]
+        : [];
     });
-  const needsActions = answered('gate/needsActions');
-  const spatial = answered('gate/spatial');
+  const needsActions = answered('needsActions');
+  const spatial = answered('spatial');
   if (needsActions.length === 0 && spatial.length === 0) return undefined;
   return {
     needsActions: errorsOf(needsActions, (record) => record.expectsActions),
     spatial: errorsOf(spatial, (record) => record.spatial),
   };
+}
+
+function answersYes(answer: RecordedAnswer, threshold: number): boolean {
+  if (answer.probability === undefined) return answer.choice === 'yes';
+  const probabilityOfYes =
+    answer.choice === 'yes' ? answer.probability : 1 - answer.probability;
+  return probabilityOfYes >= threshold;
 }
 
 function errorsOf(

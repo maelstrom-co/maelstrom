@@ -9,7 +9,12 @@ import { jevPlugin } from './plugin.js';
 describe('replay into the Jev arms', () => {
   const [swap] = selectScenarios('development', ['swap']) as [Scenario];
   const gate = { answer: 'no', probability: 0.1, confidence: 0.8 };
-  const gates = { needsActions: gate, generatedContent: gate, spatial: gate };
+  const gates = {
+    needsActions: gate,
+    generatedContent: gate,
+    spatial: gate,
+    dependsOnScreen: gate,
+  };
   const pocTurn: StageRecord[] = [
     { stage: 'jevSelect', ms: 1, outcome: 'ok', output: { instances: [] } },
     { stage: 'jevActions', ms: 1, outcome: 'ok', output: { actions: [] } },

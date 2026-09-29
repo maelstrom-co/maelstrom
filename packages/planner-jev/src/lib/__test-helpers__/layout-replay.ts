@@ -123,6 +123,7 @@ export function demoTurnPlan(turn: DemoReplayTurn): GatedActionPlan {
     needsActions: NO,
     generatedContent: NO,
     spatial: gateAnswer(turn.spatialProbability),
+    dependsOnScreen: NO,
   };
   const selection = {
     input: {

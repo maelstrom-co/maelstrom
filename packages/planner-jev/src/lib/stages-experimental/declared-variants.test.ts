@@ -183,6 +183,7 @@ function creating(scenario: Scenario, spatial: 'yes' | 'no'): GatedActionPlan {
       needsActions: gate('yes'),
       generatedContent: gate('no'),
       spatial: gate(spatial),
+      dependsOnScreen: gate('no'),
     },
   };
 }
