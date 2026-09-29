@@ -1,6 +1,8 @@
 import {
   isDeferred,
   type PlanningInput,
+  parseError,
+  providerError,
   type Stage,
 } from '@maelstrom-co/engine';
 import {
@@ -13,7 +15,7 @@ import {
   STAGE_NAME,
   selectGated,
 } from '@maelstrom-co/planner-jev/_internal';
-import { isErr, isOk, ok } from '@maelstrom-co/protocol';
+import { err, isErr, isOk, ok } from '@maelstrom-co/protocol';
 import type { Scenario } from '../../../core/scenarios.js';
 import type {
   Judgement,
@@ -80,8 +82,11 @@ export interface SelectModuleOptions {
  * passes when every gate with an expected answer (see
  * `expectedGateAnswers`) answered it; gates the planner does not ask are
  * ignored, and a scenario with no expected answer for any asked gate is
- * not applicable. A stage deferral after the gates were answered is
- * recorded, not judged; a provider or parse failure is an error.
+ * not applicable. A turn where the stage answered the gates and then
+ * deferred is still judged and records the deferral reason; a deferral
+ * whose reply carries no gate answers is recorded as that deferral,
+ * unjudged. A provider failure, an over-cap question or a missing answer
+ * is an error, never a deferral.
  */
 export function selectModuleWith(
   options: SelectModuleOptions = {},
@@ -192,7 +197,7 @@ export function renderGateErrorsSection(
   if (misses.length > 0)
     lines.push(
       '',
-      'Every miss, by gate and probability of yes.',
+      'Every miss, by gate, expected answer and probability of yes.',
       '',
       '| Scenario | Suite | Variant | Repeat | Gate | Expected | Probability |',
       '| --- | --- | --- | --- | --- | --- | --- |',
@@ -222,10 +227,17 @@ function gatedReading(ask: Ask): Stage<PlanningInput, GateReading> {
     };
     const selected = await selectGated(keepReply)(input, ctx);
     if (isOk(selected)) return ok({ gates: selected.value.gates });
-    if (reply === undefined || !isDeferred(selected.error)) return selected;
+    if (!isDeferred(selected.error)) return selected;
+    const { reason } = selected.error;
+    const code = reason.slice(reason.indexOf('/') + 1);
+    if (code === 'answer_missing')
+      return err(parseError(reason, JSON.stringify(reply ?? null)));
+    if (code === 'option_cap' || code.startsWith('provider_'))
+      return err(providerError(reason, undefined));
+    if (reply === undefined) return selected;
     const gates = readGateAnswers(reply, ctx);
-    if (isErr(gates)) return gates;
-    return ok({ gates: gates.value, deferral: selected.error.reason });
+    if (isErr(gates)) return selected;
+    return ok({ gates: gates.value, deferral: reason });
   };
 }
 

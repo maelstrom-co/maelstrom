@@ -1,10 +1,12 @@
 import { describe, expect, test } from 'bun:test';
+import type { Ask } from '@maelstrom-co/planner-jev/_internal';
 import {
   conversation,
   type Script,
   scriptedFetch,
   TEST_MODEL,
 } from '@maelstrom-co/planner-jev/_testing';
+import { isOk, ok } from '@maelstrom-co/protocol';
 import { selectScenarios } from '../../../core/scenarios.js';
 import {
   runStageEval,
@@ -13,6 +15,7 @@ import {
 import { typesafeSettings } from '../typesafe-settings.js';
 import {
   renderGateErrorsSection,
+  type SelectModule,
   type SelectTurnDetail,
   selectModuleWith,
 } from './select.js';
@@ -23,21 +26,44 @@ const QUIET_GATES = {
   'gate/spatial': 0.9,
 };
 
-async function run(ids: readonly string[], script: Script) {
+async function run(
+  ids: readonly string[],
+  script: Script,
+  droppedAnswer?: string,
+) {
   const transport = scriptedFetch(script);
-  const module = selectModuleWith({
+  const scripted = selectModuleWith({
     typesafe: typesafeSettings({
       apiKey: 'typesafe-test-key',
       model: TEST_MODEL,
       fetch: transport.fetch,
     }),
   });
+  const module: SelectModule =
+    droppedAnswer === undefined
+      ? scripted
+      : {
+          ...scripted,
+          makeDeps: (onCall) => {
+            const { ask } = scripted.makeDeps(onCall);
+            return { ask: withoutAnswer(ask, droppedAnswer) };
+          },
+        };
   const records = (await runStageEval(module, {
     scenarios: selectScenarios('all', ids),
     variants: ['gated'],
     repeats: 1,
   })) as StageTurnRecord<SelectTurnDetail>[];
   return { records, payloads: transport.calls };
+}
+
+function withoutAnswer(ask: Ask, id: string): Ask {
+  return async (stage, evaluation, ctx) => {
+    const result = await ask(stage, evaluation, ctx);
+    if (!isOk(result)) return result;
+    const { [id]: _, ...answers } = result.value.answers;
+    return ok({ ...result.value, answers });
+  };
 }
 
 describe('select stage eval', () => {
@@ -114,11 +140,66 @@ describe('select stage eval', () => {
     expect(record?.detail?.expected).toEqual({ generatedContent: 'no' });
   });
 
-  test('records a provider failure as the deferral it is, not a judged turn', async () => {
+  test('records a provider failure as an error, not a deferral', async () => {
     const { records } = await run(['swap'], () => ({ status: 500 }));
-    expect(records[0]?.outcome).toBe('deferred');
-    expect(records[0]?.reason).toBe('jevSelect/provider_http');
+    expect(records[0]?.outcome).toBe('error');
+    expect(records[0]?.reason).toBe('ProviderError: jevSelect/provider_http');
     expect(records[0]?.detail).toBeUndefined();
+  });
+
+  test('records a reply missing a gate answer as an error', async () => {
+    const { records } = await run(
+      ['swap'],
+      conversation({ gates: QUIET_GATES }),
+      'gate/spatial',
+    );
+    expect(records[0]?.outcome).toBe('error');
+    expect(records[0]?.reason).toBe('ParseError: jevSelect/answer_missing');
+  });
+
+  test('judges the gates of a turn the selection deferred before any gate was read', async () => {
+    const { records } = await run(
+      ['swap'],
+      conversation({ select: { scope: 'ambiguous' }, gates: QUIET_GATES }),
+    );
+    const [record] = records;
+    expect(record?.outcome).toBe('pass');
+    expect(record?.detail?.deferral).toBe('jevSelect/scope_ambiguous');
+    expect(Object.keys(record?.detail?.gates ?? {})).toEqual([
+      'needsActions',
+      'generatedContent',
+      'spatial',
+    ]);
+  });
+
+  test('keeps the selection deferral when its reply lacks a gate answer', async () => {
+    const { records } = await run(
+      ['swap'],
+      conversation({ select: { scope: 'ambiguous' }, gates: QUIET_GATES }),
+      'gate/spatial',
+    );
+    expect(records[0]?.outcome).toBe('deferred');
+    expect(records[0]?.reason).toBe('jevSelect/scope_ambiguous');
+    expect(records[0]?.detail).toBeUndefined();
+  });
+
+  test('lists the misses of one gate by rising probability', async () => {
+    const high = await run(
+      ['swap'],
+      conversation({ gates: { ...QUIET_GATES, 'gate/needsActions': 0.9 } }),
+    );
+    const low = await run(
+      ['swap'],
+      conversation({ gates: { ...QUIET_GATES, 'gate/needsActions': 0.6 } }),
+    );
+    const section = renderGateErrorsSection(
+      [...high.records, ...low.records],
+      ['gated'],
+    );
+    const lowRow = section.indexOf('| needsActions | no | 0.60 |');
+    const highRow = section.indexOf('| needsActions | no | 0.90 |');
+    expect(lowRow).toBeGreaterThan(-1);
+    expect(highRow).toBeGreaterThan(lowRow);
   });
 
   test('reports false positives and negatives per gate, and every miss', async () => {
