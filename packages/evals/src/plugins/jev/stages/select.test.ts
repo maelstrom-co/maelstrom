@@ -131,6 +131,29 @@ describe('select stage eval', () => {
     ]);
   });
 
+  test('judges the gates of a turn the stage deferred for screen content, recording the deferral', async () => {
+    const { records } = await run(
+      ['swap'],
+      conversation({
+        gates: { ...QUIET_GATES, 'gate/dependsOnScreen': 0.9 },
+      }),
+    );
+    const [record] = records;
+    expect(record?.outcome).toBe('fail');
+    expect(record?.failures).toEqual([
+      'dependsOnScreen: expected no, answered yes (p=0.90)',
+    ]);
+    expect(record?.detail?.deferral).toBe(
+      'jevSelect/screen_content_unavailable',
+    );
+    expect(Object.keys(record?.detail?.gates ?? {})).toEqual([
+      'needsActions',
+      'generatedContent',
+      'spatial',
+      'dependsOnScreen',
+    ]);
+  });
+
   test('is not applicable to a scenario with no expected answer for any gate', async () => {
     const { records, payloads } = await run(
       ['ambiguous'],

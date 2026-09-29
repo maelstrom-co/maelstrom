@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'bun:test';
-import type {
-  ActionPlan2,
-  Selection2,
+import {
+  type ActionPlan2,
+  SELECTION_GATES,
+  type Selection2,
 } from '@maelstrom-co/planner-jev/_internal';
 import { makeContext, makeInput } from '@maelstrom-co/planner-jev/_testing';
 import { isOk } from '@maelstrom-co/protocol';
@@ -237,5 +238,14 @@ describe('goldGates', () => {
         expected: { ...base.expected, expectedGates: { needsActions: 'yes' } },
       }).needsActions.answer,
     ).toBe('yes');
+  });
+
+  test('names only gates the gated select stage asks', () => {
+    const unknown = scenarios.flatMap((candidate) =>
+      Object.keys(candidate.expected.expectedGates ?? {})
+        .filter((key) => !(SELECTION_GATES as readonly string[]).includes(key))
+        .map((key) => `${candidate.id}: ${key}`),
+    );
+    expect(unknown).toEqual([]);
   });
 });

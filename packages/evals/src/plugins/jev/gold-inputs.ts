@@ -35,13 +35,14 @@ export type GoldInputs =
 /**
  * Replacements for `jevSelect` and `jevActions` that return the scenario's
  * expected selection and action plan, so the layout stage sees perfect
- * inputs. `shape` decides the gates: a `gated` arm gets all three, with
+ * inputs. `shape` decides the gates: a `gated` arm gets all four, with
  * `needsActions` yes when any action is expected, `generatedContent` no
- * (a yes defers before layout) and `spatial` yes only for a scenario tagged
- * spatial; other shapes get none. Not applicable to an expected deferral,
- * an expectation without a visible set or actions, a new Instance id that
- * names no Vessel, or an action whose required parameter has no expected
- * value.
+ * (a yes defers before layout), `dependsOnScreen` no (a yes defers before
+ * layout, as `generatedContent` is) and `spatial` yes only for a scenario
+ * tagged spatial; other shapes get none. Not applicable to an expected
+ * deferral, an expectation without a visible set or actions, a new
+ * Instance id that names no Vessel, or an action whose required parameter
+ * has no expected value.
  */
 export function goldInputs(
   scenario: Scenario,
@@ -132,9 +133,9 @@ export function layoutDeferralGoldInputs(
 /**
  * The gates a gated select stage would answer for `scenario` if it
  * answered right: an explicit `expectedGates` entry, else `needsActions`
- * yes when any action is expected, `generatedContent` no and `spatial`
- * from the scenario's tag, `dependsOnScreen` no. `needsActions` counts
- * expected actions only, not asks or unlisted parameters, unlike
+ * yes when any action is expected, `generatedContent` and `dependsOnScreen`
+ * no, and `spatial` from the scenario's tag. `needsActions` counts expected
+ * actions only, not asks or unlisted parameters, unlike
  * {@link expectedGateAnswers}.
  */
 export function goldGates(scenario: Scenario): Required<SelectionGates> {

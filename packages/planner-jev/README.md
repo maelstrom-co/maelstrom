@@ -172,8 +172,9 @@ Every deferral logs `jev.defer` at info with `{ stage, reason, question }`, and 
 | Reason | Meaning |
 | --- | --- |
 | `jevSelect/grid_mode` | The request is in grid mode. |
-| `jevSelect/scope_unsupported` | Jev judged the request unsupported. |
+| `jevSelect/scope_unsupported` | Jev judged the request unsupported, or, for the gated select stage, the `generatedContent` gate answered yes. When both gates answer yes, `scope_unsupported` wins over `screen_content_unavailable`. |
 | `jevSelect/scope_ambiguous` | Jev judged the request ambiguous. |
+| `jevSelect/screen_content_unavailable` | Gated select only: the `dependsOnScreen` gate judged the request needs content the user already has in a widget, which the request does not carry. |
 | `jevActions/action_unsupported` | A requested action is not available. |
 | `jevActions/action_limit` | Jev chose a fifth action. |
 | `jevActions/simulation_failed`, `jevLayout/simulation_failed` | A planned action is not valid for its instance's simulated variant. |
