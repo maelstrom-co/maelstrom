@@ -30,6 +30,14 @@ test('summarizes median and p95 for available captured-audio samples', () => {
   assert.match(summary.unsupported.responseLatency, /human VAD/);
 });
 
+test('averages the middle samples for an even-count median', () => {
+  assert.equal(
+    summarizeVoiceBenchmark([10, 30].map(record)).assistantCapturedAudioActiveMs
+      .median,
+    20,
+  );
+});
+
 test('uses null percentiles for no samples', () => {
   assert.deepEqual(summarizeVoiceBenchmark([]).assistantCapturedAudioActiveMs, {
     median: null,

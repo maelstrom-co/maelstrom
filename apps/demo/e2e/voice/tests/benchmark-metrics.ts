@@ -21,11 +21,18 @@ export function summarizeVoiceBenchmark(
     .sort((a, b) => a - b);
   const percentile = (rank: number) =>
     values.length === 0 ? null : values[Math.ceil(rank * values.length) - 1];
+  const middle = Math.floor(values.length / 2);
+  const lowerMiddle = values[middle - (values.length % 2 === 0 ? 1 : 0)];
+  const upperMiddle = values[middle];
+  const median =
+    lowerMiddle === undefined || upperMiddle === undefined
+      ? null
+      : (lowerMiddle + upperMiddle) / 2;
   return {
     sampleCount: records.length,
     failures,
     assistantCapturedAudioActiveMs: {
-      median: percentile(0.5),
+      median,
       p95: percentile(0.95),
     },
     unsupported: {
