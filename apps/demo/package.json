@@ -84,6 +84,17 @@
           "build-hosted"
         ]
       },
+      "voice-e2e": {
+        "executor": "nx:run-commands",
+        "cache": false,
+        "parallelism": false,
+        "metadata": {
+          "description": "Runs the Dockerized voice end-to-end suite"
+        },
+        "options": {
+          "command": "bun apps/demo/e2e/voice/run-tests.ts"
+        }
+      },
       "e2e-ci": {
         "dependsOn": [
           "...",
