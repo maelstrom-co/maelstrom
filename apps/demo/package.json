@@ -95,6 +95,17 @@
           "command": "bun apps/demo/e2e/voice/run-tests.ts"
         }
       },
+      "voice-benchmark": {
+        "executor": "nx:run-commands",
+        "cache": false,
+        "parallelism": false,
+        "metadata": {
+          "description": "Runs the fixed-scenario voice benchmark in the audio container"
+        },
+        "options": {
+          "command": "bun apps/demo/e2e/voice/run-tests.ts --benchmark"
+        }
+      },
       "e2e-ci": {
         "dependsOn": [
           "...",

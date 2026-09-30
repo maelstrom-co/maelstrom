@@ -18,6 +18,8 @@ const voiceRoot = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(voiceRoot, '../../../..');
 const artifactRoot = join(repositoryRoot, 'apps/demo/dist/docker-voice');
 const reportPath = join(artifactRoot, 'report/index.html');
+const benchmark = process.argv.includes('--benchmark');
+const benchmarkRepetitions = process.env.VOICE_BENCHMARK_REPETITIONS ?? '1';
 const voiceDevtoolsImage = 'ghcr.io/maelstrom-co/voice-devtools:0.1.0';
 const fixtures = ['only-tasks', 'put-it-back', 'open-calendar'] as const;
 const forwardedRunnerEnvironment = [
@@ -188,6 +190,17 @@ async function main(): Promise<number> {
   const fixtureDirectory = await mkdtemp(
     join(tmpdir(), 'maelstrom-voice-audio-'),
   );
+  if (
+    benchmark &&
+    (!/^[1-3]$/.test(benchmarkRepetitions) ||
+      Number(benchmarkRepetitions) < 1 ||
+      Number(benchmarkRepetitions) > 3)
+  ) {
+    await rm(fixtureDirectory, { recursive: true, force: true });
+    throw new Error(
+      'VOICE_BENCHMARK_REPETITIONS must be an integer from 1 to 3.',
+    );
+  }
 
   let imageBuilt = false;
   let runnerCreationAttempted = false;
@@ -217,7 +230,18 @@ async function main(): Promise<number> {
       '--init',
       '--shm-size=1g',
     ];
-    for (const name of forwardedRunnerEnvironment) {
+    const runnerEnvironment = benchmark
+      ? [
+          'MAELSTROM_APP_PORT',
+          'MAELSTROM_WS_PORT',
+          'MAELSTROM_HOST',
+          'VOICE_BENCHMARK_REPETITIONS',
+          ...(process.env.MAELSTROM_E2E_OPENAI_API_KEY
+            ? ['MAELSTROM_E2E_OPENAI_API_KEY']
+            : []),
+        ]
+      : forwardedRunnerEnvironment;
+    for (const name of runnerEnvironment) {
       if (process.env[name] !== undefined) createArgs.push('--env', name);
     }
     if (process.env.MAELSTROM_BASE_URL?.trim()) {
@@ -229,6 +253,12 @@ async function main(): Promise<number> {
       image,
     );
     runnerCreationAttempted = true;
+    if (benchmark)
+      createArgs.push(
+        '/work/maelstrom/node_modules/.bin/tsx',
+        '/work/maelstrom/docker-run-tests.ts',
+        '--benchmark',
+      );
     await runDocker(createArgs, { quiet: true });
     runnerCreated = true;
 

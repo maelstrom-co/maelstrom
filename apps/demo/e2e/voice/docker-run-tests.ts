@@ -124,17 +124,25 @@ try {
     `${target.mode === 'local' ? 'Host app' : 'Configured target'} reachable; running Chromium, microphone injection and reply recording in Docker.`,
   );
   if (signalCode) throw new Error('Interrupted');
+  const benchmark = process.argv.includes('--benchmark');
   const playwright = spawn(
     process.execPath,
     [
       join(root, 'node_modules/@playwright/test/cli.js'),
       'test',
       '--config',
-      join(root, 'playwright.voice.config.ts'),
+      join(
+        root,
+        benchmark
+          ? 'playwright.benchmark.config.ts'
+          : 'playwright.voice.config.ts',
+      ),
       '--output',
-      '/work/artifacts/playwright',
+      benchmark
+        ? '/work/artifacts/benchmark-results'
+        : '/work/artifacts/playwright',
       '--reporter=line,html',
-      ...process.argv.slice(2),
+      ...process.argv.slice(2).filter((argument) => argument !== '--benchmark'),
     ],
     {
       cwd: root,
