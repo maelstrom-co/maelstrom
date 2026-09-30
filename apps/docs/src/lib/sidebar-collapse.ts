@@ -24,6 +24,8 @@ export const HAS_SIDEBAR_ATTRIBUTE = 'data-has-sidebar';
  */
 export const ANIMATING_ATTRIBUTE = 'data-sidebar-animating';
 
+const READY_ATTRIBUTE = 'data-sidebar-collapse-ready';
+
 /**
  * Longer than sidebar.css's 0.2s transition, so a dropped or cancelled
  * transitionend (e.g. the pane's `display` changes mid-animation) cannot
@@ -169,5 +171,9 @@ export function initSidebarCollapse(): void {
   // The swap detaches the pane, so its transitionend can never fire; without
   // this the module holds a detached node until the fallback timeout runs.
   document.addEventListener('astro:before-swap', clearAnimationMarker);
-  document.addEventListener('astro:after-swap', applyStoredState);
+  document.addEventListener('astro:after-swap', () => {
+    applyStoredState();
+    document.documentElement.setAttribute(READY_ATTRIBUTE, 'true');
+  });
+  document.documentElement.setAttribute(READY_ATTRIBUTE, 'true');
 }

@@ -29,6 +29,10 @@ const expectationSchema = z.object({
   authorUrl: z.string().trim().min(1),
 });
 
+function childEnv(overrides: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return { ...process.env, ...overrides, NODE_OPTIONS: '' };
+}
+
 /**
  * Copies the extra-post fixture and its distinct local image into an existing temporary app.
  * Overwrites those two fixture paths on repeated calls; unlike inject, retains all other posts.
@@ -130,6 +134,8 @@ export async function withBlogBuild<T>(
         execFileSync(
           'node',
           [
+            '--disable-sigusr1',
+            '--inspect-port=0',
             join(app, 'node_modules/astro/bin/astro.mjs'),
             'build',
             ...(site ? ['--site', site] : []),
@@ -138,7 +144,7 @@ export async function withBlogBuild<T>(
             cwd: root,
             timeout: 120_000,
             maxBuffer: 10 * 1024 * 1024,
-            env: { ...process.env, ASTRO_TELEMETRY_DISABLED: '1' },
+            env: childEnv({ ASTRO_TELEMETRY_DISABLED: '1' }),
             stdio: 'pipe',
           },
         );
@@ -155,6 +161,8 @@ export async function withBlogBuild<T>(
         const server = spawn(
           'node',
           [
+            '--disable-sigusr1',
+            '--inspect-port=0',
             join(app, 'node_modules/astro/bin/astro.mjs'),
             'dev',
             '--host',
@@ -164,11 +172,10 @@ export async function withBlogBuild<T>(
           ],
           {
             cwd: root,
-            env: {
-              ...process.env,
+            env: childEnv({
               ASTRO_TELEMETRY_DISABLED: '1',
               ASTRO_DEV_BACKGROUND: '0',
-            },
+            }),
             stdio: ['ignore', 'pipe', 'pipe'],
           },
         );

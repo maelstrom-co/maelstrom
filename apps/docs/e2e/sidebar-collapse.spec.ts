@@ -5,14 +5,19 @@ import { expect, type Page, test } from '@playwright/test';
 const PAGE = '/getting-started/introduction/';
 const SIDEBAR = '#starlight__sidebar';
 const HTML = 'html';
-const SIDEBAR_COLLAPSE_READY = 'html[data-sidebar-collapse-ready="true"]';
+const READY = 'data-sidebar-collapse-ready';
+
+async function waitForSidebarReady(page: Page) {
+  await expect(page.locator(HTML)).toHaveAttribute(READY, 'true');
+}
 
 async function gotoPage(page: Page, path = PAGE) {
   await page.goto(path);
-  await page.locator(SIDEBAR_COLLAPSE_READY).waitFor();
+  await waitForSidebarReady(page);
 }
 
 async function collapse(page: Page) {
+  await waitForSidebarReady(page);
   await page.locator('[data-sidebar-toggle="collapse"]').click();
   await expect(page.locator(HTML)).toHaveAttribute(
     'data-sidebar-collapsed',

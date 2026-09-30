@@ -1,7 +1,4 @@
-import {
-  type ExecFileSyncOptionsWithStringEncoding,
-  execFileSync,
-} from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { workspaceRoot } from 'nx/src/utils/workspace-root';
 
 type AuthorIdentity = { name: string; email: string };
@@ -26,6 +23,25 @@ const releaseAuthorOverrides = new Map<string, AuthorCorrection>([
   ['135ced15cfaa7391a3cb6570620ba261f1a0221b', nachoCorrection],
 ]);
 
+function resolveFullCommitHash(hash: string): string | undefined {
+  for (const [command, args] of [
+    ['git', ['rev-parse', '--verify', '--end-of-options', `${hash}^{commit}`]],
+    ['jj', ['log', '-r', hash, '--no-graph', '-T', 'commit_id']],
+  ] as const) {
+    try {
+      const resolved = execFileSync(command, args, {
+        cwd: workspaceRoot,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }).trim();
+      if (/^[a-f0-9]{40}$/.test(resolved)) return resolved;
+    } catch {
+      // Try the other supported VCS before declining the correction.
+    }
+  }
+  return undefined;
+}
+
 /** Corrects documented squash identities only on their original commits. */
 export function findReleaseAuthorOverride(
   hash: string | undefined,
@@ -40,31 +56,7 @@ export function findReleaseAuthorOverride(
   );
   if (!candidate) return undefined;
 
-  let fullHash = hash;
-  if (hash.length < 40) {
-    const options: ExecFileSyncOptionsWithStringEncoding = {
-      cwd: workspaceRoot,
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    };
-    try {
-      fullHash = execFileSync(
-        'git',
-        ['rev-parse', '--verify', '--end-of-options', `${hash}^{commit}`],
-        options,
-      ).trim();
-    } catch {
-      try {
-        fullHash = execFileSync(
-          'jj',
-          ['log', '-r', hash, '--no-graph', '-T', 'commit_id'],
-          options,
-        ).trim();
-      } catch {
-        return undefined;
-      }
-    }
-  }
+  const fullHash = hash.length === 40 ? hash : resolveFullCommitHash(hash);
   if (fullHash !== candidate[0]) return undefined;
   return candidate[1].correctedAuthor;
 }
