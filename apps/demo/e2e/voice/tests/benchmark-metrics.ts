@@ -1,43 +1,65 @@
+import type { AudioTimelineMeasurement } from './shared-audio-timeline.ts';
+
 export type VoiceBenchmarkRecord = {
   readonly scenario: string;
   readonly repetition: number;
   readonly assistantCapturedAudioActiveMs: number;
   readonly measurements: {
-    readonly responseLatency: string;
-    readonly bargeIn: string;
-    readonly assistantTranscriptWordCount: string;
-    readonly assistantSpeechWpm: string;
+    readonly bargeIn: 'unsupported';
+    readonly assistantTranscriptWordCount: 'unsupported';
+    readonly assistantSpeechWpm: 'unsupported';
   };
 };
 
 export function summarizeVoiceBenchmark(
   records: readonly VoiceBenchmarkRecord[],
+  responseLatency: AudioTimelineMeasurement,
   failures = 0,
 ) {
-  const values = records
+  const activeAudio = records
     .map((record) => record.assistantCapturedAudioActiveMs)
     .sort((a, b) => a - b);
-  const percentile = (rank: number) =>
+  const latencyValues = responseLatency.turns
+    .filter((turn) => turn.status === 'measured')
+    .map((turn) => turn.latencyMs)
+    .filter((value): value is number => value !== null)
+    .sort((a, b) => a - b);
+  const percentile = (values: readonly number[], rank: number) =>
     values.length === 0 ? null : values[Math.ceil(rank * values.length) - 1];
-  const middle = Math.floor(values.length / 2);
-  const lowerMiddle = values[middle - (values.length % 2 === 0 ? 1 : 0)];
-  const upperMiddle = values[middle];
-  const median =
-    lowerMiddle === undefined || upperMiddle === undefined
-      ? null
-      : (lowerMiddle + upperMiddle) / 2;
+  const median = (values: readonly number[]) => {
+    if (values.length === 0) return null;
+    const middle = Math.floor(values.length / 2);
+    const center = values[middle];
+    if (center === undefined) return null;
+    if (values.length % 2 !== 0) return center;
+    const lower = values[middle - 1];
+    return lower === undefined ? null : (lower + center) / 2;
+  };
   return {
     sampleCount: records.length,
     failures,
     assistantCapturedAudioActiveMs: {
-      median,
-      p95: percentile(0.95),
+      median: median(activeAudio),
+      p95: percentile(activeAudio, 0.95),
+    },
+    responseLatencyMs: {
+      sampleCount: latencyValues.length,
+      median: median(latencyValues),
+      p95: percentile(latencyValues, 0.95),
     },
     unsupported: {
       responseLatency:
-        'Unavailable: human VAD segment end timestamps are not exposed to Playwright.',
+        responseLatency.status === 'measured'
+          ? null
+          : responseLatency.turns
+              .filter((turn) => turn.status === 'unsupported')
+              .map((turn) => turn.reason)
+              .filter((reason): reason is string => reason !== undefined)
+              .join('; ') ||
+            responseLatency.reason ||
+            'Some or all human turns were unsupported.',
       bargeIn:
-        'Unavailable: timestamped human interruption and assistant audio-stop boundaries are not exposed to Playwright.',
+        'Unavailable: this benchmark does not identify a reliable interruption boundary in the human and assistant waveforms.',
       assistantTranscriptWordCount:
         'Unavailable: UI captions are not a reliable transcript measurement API.',
       assistantSpeechWpm:
