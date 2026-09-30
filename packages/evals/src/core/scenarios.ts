@@ -8,6 +8,7 @@ import {
 import { demoVessels } from './fixtures/demo-vessels.js';
 import type { Phase } from './plugin.js';
 import type { ArrangementRule } from './predicates.js';
+import { actionsDemoFixScenarios } from './scenarios/actions-demo-fixes.js';
 import { gateScenarios } from './scenarios/gates.js';
 import { layoutDemoFixScenarios } from './scenarios/layout-demo-fixes.js';
 
@@ -85,12 +86,15 @@ export interface InputOptions {
   readonly tree?: readonly (string | null)[];
   /** Variant per Vessel id; each Vessel's default when absent. */
   readonly variants?: Readonly<Record<string, string>>;
+  /** The Chart grid width in columns; 30 when absent. */
   readonly columns?: number;
+  /** The Chart grid height in rows; 18 when absent. */
   readonly rows?: number;
   /** The Vessel catalog; the demo Vessels when absent. */
   readonly vessels?: readonly Vessel[];
   /** Vessel ids, one Instance `<id>-main` each; the five demo Vessels when absent. */
   readonly instances?: readonly string[];
+  /** The prior grid size a `chart_resize` turn starts from; adds a `chart_resize` update reason ahead of the intent when given. */
   readonly resizeFrom?: { readonly columns: number; readonly rows: number };
 }
 
@@ -2355,6 +2359,12 @@ export const scenarios: readonly Scenario[] = [
     STUDIO_ROUTE_TURN,
   }),
   ...layoutDemoFixScenarios({ planned, deferred, spatial }),
+  ...actionsDemoFixScenarios({
+    planned,
+    routeAfter,
+    STUDIO_ROUTE_TURN,
+    BASE_VISIBLE,
+  }),
 ];
 
 /** Scenarios of `suite` (`all` for every one). */

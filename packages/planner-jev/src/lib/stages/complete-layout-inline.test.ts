@@ -23,7 +23,11 @@ import {
   installMockChat,
   mockChat,
 } from '../__test-helpers__/mock-chat.js';
-import type { JevLayoutPlan, PendingParameter } from '../types.js';
+import type {
+  JevLayoutPlan,
+  PendingParameter,
+  PlannedAction,
+} from '../types.js';
 import { completeLayoutInline } from './complete-layout-inline.js';
 import { llmComplete } from './llm-complete.js';
 import type { LayoutDecision } from './stage-types.js';
@@ -238,5 +242,121 @@ describe('completeLayoutInline layout summary', () => {
     expect(result.value.rationale).toContain(
       'Layout: changed. Before: a on the left. Now: b on the left',
     );
+  });
+});
+
+describe('completeLayoutInline repeated actions', () => {
+  const TITLE: PendingParameter = {
+    name: 'title',
+    type: 'string',
+    description: 'Task title',
+  };
+
+  async function runLogged(
+    actions: readonly PlannedAction[],
+    params: Record<string, unknown>,
+  ) {
+    const layoutPlan = completionPlan(makeRequest('add buy milk'), { actions });
+    mockChat.mockResolvedValue({ userMessage: 'Added.', params });
+    const { logger, entries } = spyLogger();
+    const result = await completeLayoutInline({ adapter: dummyAdapter })(
+      decisionOf(layoutPlan),
+      makeContext(layoutPlan.plan.selection.input, { logger }),
+    );
+    if (!isOk(result)) throw new Error(`deferred: ${deferralOf(result)}`);
+    return {
+      steps: plain(result.value.executionPlan),
+      layout: plain(result.value.layout),
+      dropped: entries.filter((e) => e.msg === 'jev.duplicate_action_dropped'),
+    };
+  }
+
+  test('drops a pending action that fills to the value of an earlier bound one', async () => {
+    const { steps, dropped } = await runLogged(
+      [
+        planned('tasks-main/addTask', { title: 'Buy milk' }, []),
+        planned('tasks-main/addTask', {}, [TITLE]),
+      ],
+      { p0: 'Buy milk' },
+    );
+    expect(steps).toEqual([
+      {
+        instanceId: 'tasks-main',
+        action: 'addTask',
+        paramsJson: '{"title":"Buy milk"}',
+      },
+    ]);
+    expect(dropped).toHaveLength(1);
+  });
+
+  test('declares the variants the actions left after dropping repeats leave', async () => {
+    const { steps, layout } = await runLogged(
+      [
+        planned('calendar-main/showWeek'),
+        planned('calendar-main/showMonth'),
+        planned('calendar-main/showWeek'),
+      ],
+      {},
+    );
+    expect(steps).toEqual([
+      expect.objectContaining({ action: 'showWeek' }),
+      expect.objectContaining({ action: 'showMonth' }),
+    ]);
+    expect(layout).toMatchObject({
+      instances: expect.arrayContaining([
+        expect.objectContaining({
+          instanceId: 'calendar-main',
+          variant: 'month',
+        }),
+      ]),
+    });
+  });
+
+  test('drops a later action whose filled parameters equal an earlier one', async () => {
+    const { steps, dropped } = await runLogged(
+      [
+        planned('tasks-main/addTask', {}, [TITLE]),
+        planned('tasks-main/addTask', {}, [TITLE]),
+      ],
+      { p0: 'Buy milk', p1: 'Buy milk' },
+    );
+    expect(steps).toEqual([
+      {
+        instanceId: 'tasks-main',
+        action: 'addTask',
+        paramsJson: '{"title":"Buy milk"}',
+      },
+    ]);
+    expect(dropped.map((entry) => entry.data)).toEqual([
+      expect.objectContaining({
+        instanceId: 'tasks-main',
+        action: 'addTask',
+        params: { title: 'Buy milk' },
+      }),
+    ]);
+  });
+
+  test('keeps both actions when the filled values differ', async () => {
+    const { steps, dropped } = await runLogged(
+      [
+        planned('tasks-main/addTask', {}, [TITLE]),
+        planned('tasks-main/addTask', {}, [TITLE]),
+      ],
+      { p0: 'Buy milk', p1: 'Send invoice' },
+    );
+    expect(steps).toHaveLength(2);
+    expect(dropped).toEqual([]);
+  });
+
+  test('keeps both actions when one has an extra parameter', async () => {
+    const { steps, dropped } = await runLogged(
+      [
+        planned('tasks-main/addTask', {}, [TITLE]),
+        planned('tasks-main/addTask', { urgent: true }, [TITLE]),
+      ],
+      { p0: 'Buy milk', p1: 'Buy milk' },
+    );
+    expect(steps).toHaveLength(2);
+    expect(dropped).toEqual([]);
   });
 });
