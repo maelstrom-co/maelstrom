@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import type { JevCall } from '@maelstrom-co/planner-jev/_internal';
 import { layoutComposedPairsGateAndDefer } from '@maelstrom-co/planner-jev/_internal';
 import {
+  type Payload,
   type Script,
   scriptedFetch,
   TEST_MODEL,
@@ -168,6 +169,35 @@ describe('layout stage eval', () => {
     expect(records[1].reason).toBe('jevLayout/no_feasible_layout');
   });
 
+  test('scores a scenario whose stated arrangement no answer expresses: only deferring as spatial not stated passes', async () => {
+    const { records } = await run(
+      ['grid-without-quadrants'],
+      ['preset-or-llm', 'composed-pairs'],
+      nothingStated,
+    );
+    expect(
+      records.map((record) => [record.variant, record.expectedDeferral]),
+    ).toEqual([
+      ['preset-or-llm', 'jevLayout/spatial_not_stated'],
+      ['composed-pairs', 'jevLayout/spatial_not_stated'],
+    ]);
+    expect(records[0]?.outcome).toBe('fail');
+    expect(records[1]).toMatchObject({
+      outcome: 'pass',
+      reason: 'jevLayout/spatial_not_stated',
+    });
+  });
+
+  test('fails a scenario whose stated arrangement no answer expresses when the stage ships a tree', async () => {
+    const { records } = await run(
+      ['grid-without-quadrants'],
+      ['composed-pairs'],
+      pairsAll('left_of'),
+    );
+    expect(records[0]?.expectedDeferral).toBe('jevLayout/spatial_not_stated');
+    expect(records[0]?.outcome).toBe('fail');
+  });
+
   test('feeds the recorded live spatial signal per scenario and repeat, and gold where none was recorded', async () => {
     const signal = recordedSpatialSignal(
       [
@@ -289,4 +319,12 @@ function pairsAll(choice: string): Script {
         .map((id) => [id, 2]),
     ),
   });
+}
+
+/** Answers every pair and the direction not stated, and every size as an equal share. */
+function nothingStated(payload: Payload): ReturnType<Script> {
+  const step = pairsAll('not_stated')(payload, 0);
+  return typeof step === 'object' && 'choices' in step
+    ? { ...step, choices: { ...step.choices, direction: 'not_stated' } }
+    : step;
 }
