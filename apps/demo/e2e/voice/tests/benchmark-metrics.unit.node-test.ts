@@ -9,8 +9,6 @@ const record = (
   scenario: 'fixed-audio',
   repetition,
   assistantCapturedAudioActiveMs,
-  captureOffsetStartMs: 0,
-  captureOffsetEndMs: 0,
   measurements: {
     responseLatency: 'unsupported',
     bargeIn: 'unsupported',

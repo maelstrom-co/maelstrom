@@ -1,7 +1,10 @@
 import { spawn } from 'node:child_process';
 
 /** Linux/PulseAudio observer. It never routes playback into the microphone. */
-export function recordReplies(source = 'tts2mic_rx.monitor') {
+export function recordReplies(
+  source = 'tts2mic_rx.monitor',
+  maxDurationMs = 125_000,
+) {
   const child = spawn(
     'parec',
     [
@@ -22,8 +25,10 @@ export function recordReplies(source = 'tts2mic_rx.monitor') {
 
   child.stdout.on('data', (chunk: Buffer) => {
     bytes += chunk.length;
-    if (bytes > 48_000 * 2 * 125) {
-      problem ??= new Error('Reply recording exceeded its 125-second limit');
+    if (bytes > 48_000 * 2 * (maxDurationMs / 1000)) {
+      problem ??= new Error(
+        `Reply recording exceeded its ${maxDurationMs / 1000}-second limit`,
+      );
       child.kill('SIGTERM');
       return;
     }

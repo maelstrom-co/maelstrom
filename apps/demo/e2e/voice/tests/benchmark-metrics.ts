@@ -2,8 +2,6 @@ export type VoiceBenchmarkRecord = {
   readonly scenario: string;
   readonly repetition: number;
   readonly assistantCapturedAudioActiveMs: number;
-  readonly captureOffsetStartMs: number;
-  readonly captureOffsetEndMs: number;
   readonly measurements: {
     readonly responseLatency: string;
     readonly bargeIn: string;

@@ -20,16 +20,19 @@ const scenarios = ['only-tasks', 'open-calendar', 'put-it-back'] as const;
 const fixture = (name: string) =>
   fileURLToPath(new URL(`../audio/${name}.wav`, import.meta.url));
 
-function repetitions() {
-  const value = Number(process.env.VOICE_BENCHMARK_REPETITIONS ?? '1');
-  if (!Number.isInteger(value) || value < 1 || value > 100)
-    throw new Error(
-      'VOICE_BENCHMARK_REPETITIONS must be an integer from 1 to 100',
-    );
-  return value;
-}
+const maxRepetitions = 3;
+const perScenarioBudgetMs = 80_000;
+const setupBudgetMs = 60_000;
 
 test('voice benchmark: fixed audio scenarios', async ({ page }, testInfo) => {
+  const count = Number(process.env.VOICE_BENCHMARK_REPETITIONS ?? '1');
+  if (!Number.isInteger(count) || count < 1 || count > maxRepetitions)
+    throw new Error(
+      `VOICE_BENCHMARK_REPETITIONS must be an integer from 1 to ${maxRepetitions}`,
+    );
+  const recordingBudgetMs =
+    setupBudgetMs + count * scenarios.length * perScenarioBudgetMs;
+  testInfo.setTimeout(recordingBudgetMs + 15_000);
   const binary = process.env.TTS2MIC_BIN;
   if (!binary)
     throw new Error('Set TTS2MIC_BIN to the compiled tts2mic-mcp executable');
@@ -54,7 +57,7 @@ test('voice benchmark: fixed audio scenarios', async ({ page }, testInfo) => {
   await expect(voiceOrb).toHaveCount(1, { timeout: 30_000 });
   await expect(page.getByTestId('captions')).toBeVisible();
 
-  const capture = recordReplies();
+  const capture = recordReplies('tts2mic_rx.monitor', recordingBudgetMs);
   const records: VoiceBenchmarkRecord[] = [];
   let failures = 0;
   try {
@@ -82,7 +85,6 @@ test('voice benchmark: fixed audio scenarios', async ({ page }, testInfo) => {
     const assistant = page
       .getByTestId('captions')
       .locator('[data-role="assistant"]');
-    const count = repetitions();
     for (let repetition = 1; repetition <= count; repetition++) {
       for (const scenario of scenarios) {
         const before = await assistant.allTextContents();
@@ -120,23 +122,24 @@ test('voice benchmark: fixed audio scenarios', async ({ page }, testInfo) => {
           .toBe(true);
         await expect
           .poll(
-            () => {
+            async () => {
               capture.check();
+              const state = await voiceOrb.getAttribute('data-state');
               const audio = capture.pcm(start);
-              return nonSilentMs(audio) >= 150 && silentTailMs(audio) >= 600;
+              return (
+                ['connected', 'listening'].includes(state ?? '') &&
+                nonSilentMs(audio) >= 150 &&
+                silentTailMs(audio) >= 1_000
+              );
             },
             { timeout: 30_000 },
           )
           .toBe(true);
-        const end = capture.pcm().length;
+        const turnAudio = capture.pcm(start);
         records.push({
           scenario,
           repetition,
-          assistantCapturedAudioActiveMs: nonSilentMs(
-            capture.pcm(start).subarray(0, end - start),
-          ),
-          captureOffsetStartMs: Math.round(start / 96),
-          captureOffsetEndMs: Math.round(end / 96),
+          assistantCapturedAudioActiveMs: nonSilentMs(turnAudio),
           measurements: {
             responseLatency: 'unsupported',
             bargeIn: 'unsupported',
@@ -152,14 +155,15 @@ test('voice benchmark: fixed audio scenarios', async ({ page }, testInfo) => {
   } finally {
     const output = {
       benchmark: 'playwright-voice',
-      repetitions: process.env.VOICE_BENCHMARK_REPETITIONS ?? '1',
+      repetitions: count,
       context: {
         baseURL: new URL(baseURL).origin,
         browser: 'chromium',
         operatingSystem: process.platform,
-        capture:
-          'continuous PulseAudio monitor, offsets from capture start (not first human input)',
+        capture: 'continuous assistant-output PulseAudio monitor',
         audioThresholdRms: 0.01,
+        turnBoundary:
+          'voice UI returned to connected/listening with at least 1 second below the audio threshold; brief pauses can still make the boundary ambiguous',
       },
       summary: summarizeVoiceBenchmark(records, failures),
       records,
