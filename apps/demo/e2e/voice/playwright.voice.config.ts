@@ -1,5 +1,7 @@
 import { defineConfig } from '@playwright/test';
 
+process.env.PLAYWRIGHT_NO_COPY_PROMPT = '1';
+
 // Run against an already-started, voice-enabled local/test Maelstrom app.
 // This deliberately does not reuse the hosted launch-readiness stand-in server.
 export default defineConfig({

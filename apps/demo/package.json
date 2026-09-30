@@ -165,7 +165,8 @@
       "typecheck": {
         "dependsOn": [
           "build",
-          "infra-typecheck"
+          "infra-typecheck",
+          "voice-typecheck"
         ],
         "inputs": [
           "production",
@@ -184,6 +185,28 @@
           "{projectRoot}/out-tsc/vitest/**/*.d.ts",
           "{projectRoot}/out-tsc/vitest/**/*.d.ts.map",
           "{projectRoot}/out-tsc/vitest/tsconfig.spec.tsbuildinfo"
+        ]
+      },
+      "voice-typecheck": {
+        "executor": "nx:run-commands",
+        "options": {
+          "command": "tsc --noEmit -p e2e/voice/tsconfig.json",
+          "cwd": "{projectRoot}"
+        },
+        "cache": true,
+        "inputs": [
+          "production",
+          "^production",
+          "{projectRoot}/e2e/voice/**/*.ts",
+          "{projectRoot}/e2e/voice/tsconfig.json",
+          "{workspaceRoot}/tsconfig.base.json",
+          "{workspaceRoot}/package.json",
+          "{workspaceRoot}/bun.lock",
+          {
+            "externalDependencies": [
+              "typescript"
+            ]
+          }
         ]
       },
       "infra-typecheck": {

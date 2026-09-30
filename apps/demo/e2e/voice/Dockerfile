@@ -18,6 +18,7 @@ ENV TTS2MIC_BIN=/usr/local/bin/tts2mic-mcp \
     MAELSTROM_BASE_URL="" \
     ARTIFACT_DIR=/work/artifacts/audio \
     PLAYWRIGHT_HTML_OPEN=never \
+    PLAYWRIGHT_NO_COPY_PROMPT=1 \
     PLAYWRIGHT_HTML_OUTPUT_DIR=/work/artifacts/report
 
 # Use an absolute path: the inherited entrypoint was relative to /work.

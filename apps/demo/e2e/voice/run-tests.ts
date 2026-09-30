@@ -190,6 +190,7 @@ async function main(): Promise<number> {
   );
 
   let imageBuilt = false;
+  let runnerCreationAttempted = false;
   let runnerCreated = false;
   let testStatus = 0;
   let artifactStatus = 0;
@@ -227,6 +228,7 @@ async function main(): Promise<number> {
       mount(fixtureDirectory, '/work/maelstrom/audio', true),
       image,
     );
+    runnerCreationAttempted = true;
     await runDocker(createArgs, { quiet: true });
     runnerCreated = true;
 
@@ -249,6 +251,8 @@ async function main(): Promise<number> {
         process.stderr.write(`${redact(message)}\n`);
         artifactStatus = 1;
       }
+    }
+    if (runnerCreationAttempted) {
       await runDocker(['rm', '--force', runnerName], {
         allowFailure: true,
         quiet: true,

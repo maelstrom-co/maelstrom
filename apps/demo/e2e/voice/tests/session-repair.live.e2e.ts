@@ -148,6 +148,9 @@ async function runTwoTurnRepair(
       { timeout: 30_000 },
     );
     protocol.assertHealthy('voice startup');
+    await expect(
+      page.locator('[role="status"][aria-live="polite"]'),
+    ).toHaveText('Listening', { timeout: 30_000 });
     await expect
       .poll(() => {
         audio.check();

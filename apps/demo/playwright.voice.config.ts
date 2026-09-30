@@ -1,5 +1,7 @@
 import { defineConfig } from '@playwright/test';
 
+process.env.PLAYWRIGHT_NO_COPY_PROMPT = '1';
+
 export default defineConfig({
   testDir: './e2e/voice',
   testMatch: '**/*.live.e2e.ts',
@@ -21,7 +23,7 @@ export default defineConfig({
     permissions: ['microphone'],
     viewport: { width: 1440, height: 900 },
 
-    trace: 'retain-on-failure',
+    trace: 'off',
     screenshot: 'only-on-failure',
 
     launchOptions: {
