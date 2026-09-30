@@ -25,10 +25,9 @@ export type BrowserAudioTimelineSnapshot = {
 export async function installSharedAudioTimeline(): Promise<void> {
   const target = window as Window & {
     __voiceAudioTimeline?: {
-      readonly ready: Promise<void>;
+      waitForReady(): Promise<void>;
       snapshot(): Promise<BrowserAudioTimelineSnapshot>;
       testAttachMicrophone(stream: MediaStream): Promise<void>;
-      testAttachAssistant(element: HTMLMediaElement): Promise<void>;
     };
   };
   if (target.__voiceAudioTimeline) return;
@@ -414,12 +413,34 @@ export async function installSharedAudioTimeline(): Promise<void> {
     },
   });
 
+  const waitForReady = () =>
+    new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(
+        () =>
+          reject(
+            new Error(
+              'Shared audio timeline readiness timed out before both tracks connected',
+            ),
+          ),
+        1000,
+      );
+      ready.then(
+        () => {
+          clearTimeout(timer);
+          resolve();
+        },
+        (error: unknown) => {
+          clearTimeout(timer);
+          reject(error);
+        },
+      );
+    });
+
   target.__voiceAudioTimeline = {
-    ready,
+    waitForReady,
     testAttachMicrophone: attachMicrophone,
-    testAttachAssistant: attachAssistant,
     async snapshot() {
-      await ready;
+      await waitForReady();
       await new Promise<void>((resolve, reject) => {
         const timer = setTimeout(
           () => reject(new Error('Shared audio timeline flush timed out')),

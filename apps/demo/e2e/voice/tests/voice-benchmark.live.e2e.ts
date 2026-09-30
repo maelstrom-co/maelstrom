@@ -180,12 +180,12 @@ test('voice benchmark: fixed audio scenarios', async ({ page }, testInfo) => {
     await page.evaluate(async () => {
       const timeline = (
         window as Window & {
-          __voiceAudioTimeline?: { readonly ready: Promise<void> };
+          __voiceAudioTimeline?: { waitForReady(): Promise<void> };
         }
       ).__voiceAudioTimeline;
       if (!timeline)
         throw new Error('Shared audio timeline hook was not installed');
-      await timeline.ready;
+      await timeline.waitForReady();
     });
 
     const assistant = page

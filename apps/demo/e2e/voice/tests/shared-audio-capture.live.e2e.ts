@@ -78,6 +78,7 @@ function estimateTone(
 test('shared AudioWorklet retains distinct microphone/output tones through repeated and explicit flushes', async ({
   page,
 }, testInfo) => {
+  testInfo.setTimeout(20_000);
   await page.goto('/');
   await page.evaluate(installSharedAudioTimeline);
   await page.evaluate(() => {
@@ -95,9 +96,8 @@ test('shared AudioWorklet retains distinct microphone/output tones through repea
         silentKeepAlive.connect(producer.destination);
         const target = window as Window & {
           __voiceAudioTimeline?: {
-            readonly ready: Promise<void>;
+            waitForReady(): Promise<void>;
             testAttachMicrophone(stream: MediaStream): Promise<void>;
-            testAttachAssistant(element: HTMLMediaElement): Promise<void>;
           };
           __captureTestReady?: boolean;
           __captureTestError?: string;
@@ -148,14 +148,25 @@ test('shared AudioWorklet retains distinct microphone/output tones through repea
         writeTag(36, 'data');
         assistantHeader.setUint32(40, assistantPcm.length, true);
         assistantWav.set(assistantPcm, 44);
-        const audio = document.createElement('audio');
-        audio.src = URL.createObjectURL(
+        const sourceAudio = document.createElement('audio');
+        sourceAudio.src = URL.createObjectURL(
           new Blob([assistantWav], { type: 'audio/wav' }),
         );
+        document.body.append(sourceAudio);
+        await sourceAudio.play();
+        const assistantStream = (
+          sourceAudio as HTMLAudioElement & { captureStream(): MediaStream }
+        ).captureStream();
+        if (assistantStream.getAudioTracks().length === 0)
+          throw new Error(
+            'Assistant source audio exposed no MediaStream track',
+          );
+        const audio = document.createElement('audio');
+        audio.autoplay = true;
         document.body.append(audio);
-        await timeline.testAttachAssistant(audio);
+        audio.srcObject = assistantStream;
         await audio.play();
-        await timeline.ready;
+        await timeline.waitForReady();
         const firstAt = producer.currentTime + 0.25;
         const addToneBursts = (
           destination: AudioNode,
@@ -285,4 +296,68 @@ test('shared AudioWorklet retains distinct microphone/output tones through repea
     Math.abs(assistantTone - 880) < 100,
     `assistant tone measured ${assistantTone} Hz`,
   );
+});
+
+test('bounds snapshot readiness when the assistant stream never attaches', async ({
+  page,
+}, testInfo) => {
+  testInfo.setTimeout(10_000);
+  await page.goto('/');
+  await page.evaluate(installSharedAudioTimeline);
+  await page.evaluate(() => {
+    const button = document.createElement('button');
+    button.textContent = 'Start microphone-only capture';
+    document.body.append(button);
+    button.addEventListener('click', () => {
+      void (async () => {
+        const producer = new AudioContext({ sampleRate: 48_000 });
+        await producer.resume();
+        const target = window as Window & {
+          __voiceAudioTimeline?: {
+            testAttachMicrophone(stream: MediaStream): Promise<void>;
+            snapshot(): Promise<BrowserAudioTimelineSnapshot>;
+          };
+          __readinessResult?: { elapsedMs: number; message: string };
+        };
+        if (!target.__voiceAudioTimeline)
+          throw new Error('Shared audio timeline hook was not installed');
+        const microphone = producer.createMediaStreamDestination();
+        await target.__voiceAudioTimeline.testAttachMicrophone(
+          microphone.stream,
+        );
+        const start = performance.now();
+        try {
+          await target.__voiceAudioTimeline.snapshot();
+          throw new Error('Snapshot unexpectedly succeeded without assistant');
+        } catch (error) {
+          target.__readinessResult = {
+            elapsedMs: performance.now() - start,
+            message: String(error),
+          };
+        } finally {
+          await producer.close();
+        }
+      })();
+    });
+  });
+  await page
+    .getByRole('button', { name: 'Start microphone-only capture' })
+    .click();
+  await page.waitForFunction(
+    () =>
+      (window as Window & { __readinessResult?: unknown }).__readinessResult !==
+      undefined,
+    { timeout: 5_000 },
+  );
+  const result = await page.evaluate(
+    () =>
+      (
+        window as Window & {
+          __readinessResult?: { elapsedMs: number; message: string };
+        }
+      ).__readinessResult,
+  );
+  assert.ok(result);
+  assert.match(result.message, /readiness timed out/);
+  assert.ok(result.elapsedMs < 2_500, `timeout took ${result.elapsedMs} ms`);
 });
