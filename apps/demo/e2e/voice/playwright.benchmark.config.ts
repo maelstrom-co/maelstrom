@@ -2,7 +2,10 @@ import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests',
-  testMatch: '**/voice-benchmark.live.e2e.ts',
+  testMatch: [
+    '**/voice-benchmark.live.e2e.ts',
+    '**/shared-audio-capture.live.e2e.ts',
+  ],
   workers: 1,
   fullyParallel: false,
   retries: 0,
