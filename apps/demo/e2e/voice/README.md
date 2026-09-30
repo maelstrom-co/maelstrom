@@ -1,5 +1,13 @@
 # Demo voice end-to-end tests
 
+Run the standalone benchmark on Linux with `TTS2MIC_BIN` and `PULSE_SERVER` set (normally supplied by the voice-devtools container), using its separate Playwright configuration and no test retries:
+
+```sh
+bunx playwright test --config apps/demo/e2e/voice/playwright.benchmark.config.ts
+```
+
+The app must already be running; prepare the fixed WAV fixtures as for the voice E2E suite. Set `VOICE_BENCHMARK_REPETITIONS` to a positive integer (default `1`) to repeat the fixed scenarios explicitly. The JSON and continuous session WAV are attached to the Playwright run. Captured active-audio duration is threshold-based non-silence, not VAD-ground-truth speech duration. Human-input-anchored latency, barge-in overlap, reliable transcript word count, and WPM are explicitly unsupported until timestamped role-attributed events are exposed to the runner; the audio offsets are relative to capture start only.
+
 From the workspace root, run `bunx nx run @maelstrom-co/demo:voice-e2e`. Its TypeScript runner prepares three speech fixtures, launches the serial Chromium voice scenarios in the voice-devtools container, collects the HTML report and diagnostics under `apps/demo/dist/docker-voice`, and opens `report/index.html` on macOS. The Nx target is uncached and non-parallel. Docker orchestration uses the installed Docker CLI through Node's `child_process` API, so no Docker SDK dependency is required; the runner preserves a failing test exit status after collecting and opening the report.
 
 By default, tests target the local app at `http://localhost:3000` (or the documented `MAELSTROM_HOST` forwarding host); start the local server-key demo with `bun --cwd apps/demo run dev`. Unset or empty `MAELSTROM_BASE_URL` selects this local mode, preserving `MAELSTROM_APP_PORT`/`MAELSTROM_WS_PORT` forwarding and local readiness checks. To target a hosted deployment instead, set `MAELSTROM_BASE_URL` to its HTTP(S) URL, for example `MAELSTROM_BASE_URL=https://demo.maelstrom-ai.co/ bunx nx run @maelstrom-co/demo:voice-e2e`. Remote mode checks that URL and uses it as Playwright's browser base URL; it does not inspect or forward local app ports. No API key is needed for local server-key mode. If ports 3000/3001 belong to another checkout, run this checkout's servers separately, without stopping that checkout:

@@ -1,36 +1,38 @@
-import { describe, expect, it } from 'vitest';
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
 import { summarizeVoiceBenchmark } from './benchmark-metrics.ts';
 
-describe('voice benchmark summary', () => {
-  it('reports median and p95 for available captured-audio samples', () => {
-    const summary = summarizeVoiceBenchmark(
-      [10, 30, 20].map((assistantCapturedAudioActiveMs, repetition) => ({
-        scenario: 'fixed-audio',
-        repetition,
-        assistantCapturedAudioActiveMs,
-        captureOffsetStartMs: 0,
-        captureOffsetEndMs: 0,
-        measurements: {
-          responseLatency: 'unsupported',
-          bargeIn: 'unsupported',
-          assistantTranscriptWordCount: 'unsupported',
-          assistantSpeechWpm: 'unsupported',
-        },
-      })),
-    );
-    expect(summary.sampleCount).toBe(3);
-    expect(summary.assistantCapturedAudioActiveMs).toEqual({
-      median: 20,
-      p95: 30,
-    });
-    expect(summary.failures).toBe(0);
-    expect(summary.unsupported.responseLatency).toContain('human VAD');
-  });
+const record = (
+  assistantCapturedAudioActiveMs: number,
+  repetition: number,
+) => ({
+  scenario: 'fixed-audio',
+  repetition,
+  assistantCapturedAudioActiveMs,
+  captureOffsetStartMs: 0,
+  captureOffsetEndMs: 0,
+  measurements: {
+    responseLatency: 'unsupported',
+    bargeIn: 'unsupported',
+    assistantTranscriptWordCount: 'unsupported',
+    assistantSpeechWpm: 'unsupported',
+  },
+});
 
-  it('uses null percentiles for no samples', () => {
-    expect(summarizeVoiceBenchmark([]).assistantCapturedAudioActiveMs).toEqual({
-      median: null,
-      p95: null,
-    });
+test('summarizes median and p95 for available captured-audio samples', () => {
+  const summary = summarizeVoiceBenchmark([10, 30, 20].map(record));
+  assert.equal(summary.sampleCount, 3);
+  assert.deepEqual(summary.assistantCapturedAudioActiveMs, {
+    median: 20,
+    p95: 30,
+  });
+  assert.equal(summary.failures, 0);
+  assert.match(summary.unsupported.responseLatency, /human VAD/);
+});
+
+test('uses null percentiles for no samples', () => {
+  assert.deepEqual(summarizeVoiceBenchmark([]).assistantCapturedAudioActiveMs, {
+    median: null,
+    p95: null,
   });
 });
