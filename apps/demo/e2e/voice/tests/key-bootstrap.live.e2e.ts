@@ -81,6 +81,7 @@ test('launches the interactive demo from a key-required landing page', async ({
       document.querySelector('#save').addEventListener('click', () => {
         document.querySelector('[role="dialog"]').hidden = true;
         document.querySelector('[role="status"]').remove();
+        document.querySelector('#start').remove();
         document.body.dataset.voiceReady = 'yes';
       });
     </script>
@@ -90,6 +91,55 @@ test('launches the interactive demo from a key-required landing page', async ({
 
   await expect(page.locator('body')).toHaveAttribute('data-voice-ready', 'yes');
   await expect(page.getByRole('status')).toHaveCount(0);
+});
+
+test('bootstraps a visible keyless landing CTA without a status role', async ({
+  page,
+}) => {
+  await page.setContent(`
+    <button id="start">Start interactive demo</button>
+    <div role="dialog" hidden>
+      <label for="playground-api-key">API key</label>
+      <input id="playground-api-key" type="password" />
+      <button id="save">Save</button>
+    </div>
+    <script>
+      document.querySelector('#start').addEventListener('click', () => {
+        document.querySelector('[role="dialog"]').hidden = false;
+      });
+      document.querySelector('#save').addEventListener('click', () => {
+        document.body.dataset.submitted = 'yes';
+        document.querySelector('[role="dialog"]').hidden = true;
+        document.querySelector('#start').remove();
+      });
+    </script>
+  `);
+
+  await startVoiceDemoFromKeylessLanding(page, nonSecretInput);
+
+  await expect(page.locator('body')).toHaveAttribute('data-submitted', 'yes');
+  await expect(page.getByRole('status')).toHaveCount(0);
+});
+
+test('fails specifically when the status-less keyless landing remains after save', async ({
+  page,
+}) => {
+  await page.setContent(`
+    <button id="start">Start interactive demo</button>
+    <div role="dialog" hidden>
+      <input id="playground-api-key" type="password" />
+      <button id="save">Save</button>
+    </div>
+    <script>
+      document.querySelector('#start').addEventListener('click', () => {
+        document.querySelector('[role="dialog"]').hidden = false;
+      });
+    </script>
+  `);
+
+  await expect(
+    startVoiceDemoFromKeylessLanding(page, nonSecretInput),
+  ).rejects.toThrow('page remains on the keyless landing');
 });
 
 test('submits an already-open fullscreen key drawer without clicking its covered opener', async ({
@@ -111,6 +161,7 @@ test('submits an already-open fullscreen key drawer without clicking its covered
         document.body.dataset.submitted = 'yes';
         document.querySelector('[role="status"]').remove();
         document.querySelector('[role="dialog"]').remove();
+        document.querySelector('#start').remove();
       });
     </script>
   `);
