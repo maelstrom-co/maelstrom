@@ -1,4 +1,4 @@
-import { execFile, spawnSync } from 'node:child_process';
+import { execFile, spawn, spawnSync } from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -15,10 +15,10 @@ import {
   type VoiceBenchmarkRecord,
 } from './benchmark-metrics.ts';
 import {
-  assistantCompletionQuietIntervalMs,
   canStartNextFullScenarioInput,
-  fullScenarioPostSpeechBufferMs,
+  monitorFullScenarioLeadIn,
   tts2micPlaybackLeadInMs,
+  waitForAssistantResponseCompletion,
   waitForNextFullScenarioInput,
 } from './inter-turn-schedule.ts';
 import { startVoiceDemoFromKeylessLanding } from './key-bootstrap.ts';
@@ -29,6 +29,7 @@ import {
 } from './playback-observability.ts';
 import { nonSilentMs, recordReplies, silentTailMs } from './reply-recorder.ts';
 import {
+  type AssistantAudioActivity,
   type BrowserAudioTimelineSnapshot,
   installSharedAudioTimeline,
 } from './shared-audio-capture.ts';
@@ -61,6 +62,77 @@ import {
 const exec = promisify(execFile);
 const fixture = (name: string) =>
   fileURLToPath(new URL(`../audio/${name}.wav`, import.meta.url));
+
+function startFixturePlayback(binary: string, audioFixture: string) {
+  const child = spawn(
+    binary,
+    [
+      'play',
+      '--target',
+      'pipewire',
+      '--delay',
+      `${tts2micPlaybackLeadInMs / 1_000}s`,
+      '--file',
+      audioFixture,
+    ],
+    { stdio: ['ignore', 'pipe', 'ignore'] },
+  );
+  const stdoutChunks: Buffer[] = [];
+  let stdoutBytes = 0;
+  let stdoutExceededLimit = false;
+  let spawnError: Error | undefined;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const closed = new Promise<{
+    readonly code: number | null;
+    readonly signal: NodeJS.Signals | null;
+    readonly closedAtMs: number;
+  }>((resolve) => {
+    child.once('error', (error) => {
+      spawnError = error;
+    });
+    child.once('close', (code, signal) => {
+      if (timeout) clearTimeout(timeout);
+      resolve({ code, signal, closedAtMs: performance.now() });
+    });
+  });
+  child.stdout.on('data', (chunk: Buffer) => {
+    stdoutBytes += chunk.length;
+    if (stdoutBytes > 1024 * 1024) {
+      stdoutExceededLimit = true;
+      child.kill('SIGTERM');
+      return;
+    }
+    stdoutChunks.push(chunk);
+  });
+  timeout = setTimeout(() => child.kill('SIGTERM'), 20_000);
+  timeout.unref();
+
+  return {
+    closed,
+    async stopAndWait() {
+      if (child.exitCode === null && child.signalCode === null)
+        child.kill('SIGTERM');
+      const forceKill = setTimeout(() => child.kill('SIGKILL'), 1_000);
+      forceKill.unref();
+      try {
+        return await closed;
+      } finally {
+        clearTimeout(forceKill);
+      }
+    },
+    async completedStdout() {
+      const result = await closed;
+      if (spawnError) throw spawnError;
+      if (stdoutExceededLimit)
+        throw new Error('tts2mic playback output exceeded its size limit');
+      if (result.code !== 0)
+        throw new Error(
+          `tts2mic playback exited (${result.code ?? result.signal})`,
+        );
+      return Buffer.concat(stdoutChunks).toString('utf8');
+    },
+  };
+}
 
 const perScenarioBudgetMs = 80_000;
 const setupBudgetMs = 60_000;
@@ -253,12 +325,11 @@ test.describe('voice benchmark', () => {
         .getByTestId('captions')
         .locator('[data-role="assistant"]');
       for (let repetition = 1; repetition <= count; repetition++) {
-        for (const [scenarioIndex, scenario] of scenarios.entries()) {
+        for (const scenario of scenarios) {
           failurePhase = 'assistant-caption';
           captionChanged = false;
-          const before = await assistant.allTextContents();
-          const start = capture.pcm().length;
-          scenarioAudioStart = start;
+          let before: string[];
+          let start: number;
           const sourceMetadata = getPcm16WavMetadata(
             await readFile(fixture(scenario)),
           );
@@ -266,68 +337,111 @@ test.describe('voice benchmark', () => {
             page.evaluate(async () => {
               const audioTimeline = (
                 window as Window & {
-                  __voiceAudioTimeline?: { mark(): Promise<number> };
+                  __voiceAudioTimeline?: {
+                    mark(): Promise<number>;
+                    assistantMonitor(
+                      fromFrame: number,
+                    ): Promise<AssistantAudioActivity>;
+                  };
                 }
               ).__voiceAudioTimeline;
               if (!audioTimeline)
                 throw new Error('Shared audio timeline hook was not installed');
               return audioTimeline.mark();
             });
-          const assistantSilentTailMs = () => {
+          const assistantMonitor = (fromFrame: number) =>
+            page.evaluate(async (monitorFromFrame) => {
+              const audioTimeline = (
+                window as Window & {
+                  __voiceAudioTimeline?: {
+                    assistantMonitor(
+                      frame: number,
+                    ): Promise<AssistantAudioActivity>;
+                  };
+                }
+              ).__voiceAudioTimeline;
+              if (!audioTimeline)
+                throw new Error('Shared audio timeline hook was not installed');
+              return audioTimeline.assistantMonitor(monitorFromFrame);
+            }, fromFrame);
+          const assistantSilentTailMs = async () => {
             capture.check();
-            const requiredQuietMs =
-              assistantCompletionQuietIntervalMs +
-              fullScenarioPostSpeechBufferMs;
-            return silentTailMs(
-              capture.pcmTail(0, requiredQuietMs * 96),
-            );
+            return (await assistantMonitor(0)).silentTailMs;
           };
+          const previousSourceEnd = previousSourceEndMs;
+          const monitorBeforeNextInput =
+            !selection.singleTurn && previousSourceEnd !== null;
           let timeline: number;
-          if (!selection.singleTurn && previousSourceEndMs !== null) {
-            while (true) {
-              await waitForNextFullScenarioInput({
-                previousSourceEndMs,
-                nowMs: () => performance.now(),
-                silentTailMs: assistantSilentTailMs,
-                sleep: (milliseconds) =>
-                  new Promise<void>((resolve) =>
-                    setTimeout(resolve, milliseconds),
-                  ),
-              });
-              const marker = await markPlaybackStart();
-              if (
-                canStartNextFullScenarioInput({
-                  previousSourceEndMs,
-                  nowMs: performance.now(),
-                  assistantSilentTailMs: assistantSilentTailMs(),
-                })
-              ) {
-                timeline = marker;
-                break;
+          let playbackStartedAt: number;
+          let stdout: string | undefined;
+          while (true) {
+            if (monitorBeforeNextInput && previousSourceEnd !== null) {
+              while (true) {
+                await waitForNextFullScenarioInput({
+                  previousSourceEndMs: previousSourceEnd,
+                  nowMs: () => performance.now(),
+                  silentTailMs: assistantSilentTailMs,
+                  sleep: (milliseconds) =>
+                    new Promise<void>((resolve) =>
+                      setTimeout(resolve, milliseconds),
+                    ),
+                });
+                const marker = await markPlaybackStart();
+                if (
+                  canStartNextFullScenarioInput({
+                    previousSourceEndMs: previousSourceEnd,
+                    nowMs: performance.now(),
+                    assistantSilentTailMs: await assistantSilentTailMs(),
+                  })
+                ) {
+                  before = await assistant.allTextContents();
+                  start = capture.pcm().length;
+                  scenarioAudioStart = start;
+                  timeline = marker;
+                  break;
+                }
+              }
+            } else {
+              before = await assistant.allTextContents();
+              start = capture.pcm().length;
+              scenarioAudioStart = start;
+              timeline = await markPlaybackStart();
+            }
+
+            playbackStartedAt = performance.now();
+            const playbackProcess = startFixturePlayback(
+              binary,
+              fixture(scenario),
+            );
+            if (monitorBeforeNextInput) {
+              try {
+                await monitorFullScenarioLeadIn({
+                  playbackStartedAtMs: playbackStartedAt,
+                  nowMs: () => performance.now(),
+                  assistantSilentTailMs,
+                  sleep: (milliseconds) =>
+                    new Promise<void>((resolve) =>
+                      setTimeout(resolve, milliseconds),
+                    ),
+                  stopAndWait: async () => {
+                    const stopped = await playbackProcess.stopAndWait();
+                    return {
+                      terminated: true,
+                      closedAtMs: stopped.closedAtMs,
+                      sourceNotStarted: false,
+                    };
+                  },
+                });
+              } catch (error) {
+                await playbackProcess.stopAndWait();
+                throw error;
               }
             }
-          } else {
-            timeline = await markPlaybackStart();
+            stdout = await playbackProcess.completedStdout();
+            break;
           }
-          const playbackStartedAt = performance.now();
-          const { stdout } = await exec(
-            binary,
-            [
-              'play',
-              '--target',
-              'pipewire',
-              '--delay',
-              `${tts2micPlaybackLeadInMs / 1_000}s`,
-              '--file',
-              fixture(scenario),
-            ],
-            {
-              timeout: 20_000,
-              encoding: 'utf8',
-              killSignal: 'SIGTERM',
-              maxBuffer: 1024 * 1024,
-            },
-          );
+          if (stdout === undefined)
+            throw new Error('Playback ended without a completed result');
           const playbackCompletedAt = performance.now();
           previousSourceEndMs = playbackCompletedAt;
           const playback = parseCompletedPlayback(stdout);
@@ -355,27 +469,42 @@ test.describe('voice benchmark', () => {
             )
             .toBe(true);
           failurePhase = 'assistant-output-audio';
-          await expect
-            .poll(
-              () => {
-                capture.check();
-                return capture.nonSilentMsSince(start) >= 150;
-              },
-              { timeout: 30_000 },
-            )
-            .toBe(true);
-          const hasNextFixture =
-            repetition < count || scenarioIndex < scenarios.length - 1;
-          if (selection.singleTurn || !hasNextFixture) {
+          if (selection.singleTurn) {
             await expect
               .poll(
-                () => {
+                async () => {
                   capture.check();
-                  return silentTailMs(capture.pcm(start)) >= 1_000;
+                  const state = await voiceOrb.getAttribute('data-state');
+                  const audio = capture.pcm(start);
+                  return (
+                    ['connected', 'listening'].includes(state ?? '') &&
+                    nonSilentMs(audio) >= 150 &&
+                    silentTailMs(audio) >= 1_000
+                  );
                 },
                 { timeout: 30_000 },
               )
               .toBe(true);
+          } else {
+            await expect
+              .poll(
+                async () => {
+                  capture.check();
+                  return (await assistantMonitor(timeline)).activeMs >= 150;
+                },
+                { timeout: 30_000 },
+              )
+              .toBe(true);
+            await waitForAssistantResponseCompletion({
+              activity: async () => {
+                capture.check();
+                return assistantMonitor(timeline);
+              },
+              sleep: (milliseconds) =>
+                new Promise<void>((resolve) =>
+                  setTimeout(resolve, milliseconds),
+                ),
+            });
           }
           const turnAudio = capture.pcm(start);
           records.push({
@@ -646,9 +775,9 @@ test.describe('voice benchmark', () => {
           assistantOnsetThreshold: 0.01,
           assistantOnsetQuietMergeMs: 10,
           physicalOutputCapture:
-            'separate continuous PulseAudio monitor below, retained only for assistant active-audio duration; not used for response latency',
+            'separate continuous PulseAudio monitor below, retained for active-audio diagnostics; it is not used to gate full-scenario fixture scheduling',
           turnBoundary:
-            'voice UI and monitor silence are used only to orchestrate scenario completion; neither is used to derive latency',
+            'single-turn completion retains its voice UI and physical-monitor condition; full-scenario scheduling uses only the captured assistant WebRTC track; neither is used to derive response latency',
           timelineCaptureFailed,
           singleTurnDiagnostic: selection.singleTurn
             ? {

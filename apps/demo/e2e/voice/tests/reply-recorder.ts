@@ -17,9 +17,6 @@ export function recordReplies(
     { stdio: ['ignore', 'pipe', 'pipe'] },
   );
   const chunks: Buffer[] = [];
-  const activeFrameOffsets: number[] = [];
-  let processedFrameBytes = 0;
-  let incompleteFrame = Buffer.alloc(0);
   let bytes = 0,
     stderr = '',
     closed = false,
@@ -28,22 +25,6 @@ export function recordReplies(
 
   child.stdout.on('data', (chunk: Buffer) => {
     bytes += chunk.length;
-    const frameData =
-      incompleteFrame.length > 0
-        ? Buffer.concat([incompleteFrame, chunk])
-        : chunk;
-    const completeBytes = frameData.length - (frameData.length % 960);
-    for (let offset = 0; offset < completeBytes; offset += 960) {
-      let energy = 0;
-      for (let sample = 0; sample < 480; sample++) {
-        const value = frameData.readInt16LE(offset + sample * 2) / 32768;
-        energy += value * value;
-      }
-      if (Math.sqrt(energy / 480) > 0.01)
-        activeFrameOffsets.push(processedFrameBytes + offset);
-    }
-    processedFrameBytes += completeBytes;
-    incompleteFrame = frameData.subarray(completeBytes);
     if (bytes > 48_000 * 2 * (maxDurationMs / 1000)) {
       problem ??= new Error(
         `Reply recording exceeded its ${maxDurationMs / 1000}-second limit`,
@@ -81,35 +62,6 @@ export function recordReplies(
         throw new Error('PCM offset must be nonnegative and sample-aligned');
       const data = Buffer.concat(chunks);
       return data.subarray(offset, data.length - (data.length % 2));
-    },
-    nonSilentMsSince(offset: number) {
-      if (offset < 0 || offset % 2)
-        throw new Error('PCM offset must be nonnegative and sample-aligned');
-      let activeFrames = 0;
-      for (const frameOffset of activeFrameOffsets) {
-        if (frameOffset >= offset) activeFrames++;
-      }
-      return activeFrames * 10;
-    },
-    pcmTail(offset: number, maxBytes: number) {
-      if (offset < 0 || offset % 2)
-        throw new Error('PCM offset must be nonnegative and sample-aligned');
-      if (!Number.isSafeInteger(maxBytes) || maxBytes < 0)
-        throw new Error('PCM tail length must be a nonnegative safe integer');
-      const alignedMaxBytes = maxBytes - (maxBytes % 2);
-      const end = bytes - (bytes % 2);
-      const start = Math.max(offset, end - alignedMaxBytes);
-      const pieces: Buffer[] = [];
-      let chunkOffset = 0;
-      for (const chunk of chunks) {
-        const chunkEnd = chunkOffset + chunk.length;
-        const sliceStart = Math.max(start, chunkOffset);
-        const sliceEnd = Math.min(end, chunkEnd);
-        if (sliceStart < sliceEnd)
-          pieces.push(chunk.subarray(sliceStart - chunkOffset, sliceEnd - chunkOffset));
-        chunkOffset = chunkEnd;
-      }
-      return Buffer.concat(pieces);
     },
     diagnostics() {
       return stderr;

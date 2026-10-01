@@ -1,3 +1,8 @@
+export type AssistantAudioActivity = {
+  readonly activeMs: number;
+  readonly silentTailMs: number;
+};
+
 export type BrowserAudioTimelineSnapshot = {
   readonly sampleRate: number;
   readonly inputChannels: number;
@@ -29,6 +34,7 @@ export async function installSharedAudioTimeline(): Promise<void> {
       waitForReady(): Promise<void>;
       snapshot(): Promise<BrowserAudioTimelineSnapshot>;
       mark(): Promise<number>;
+      assistantMonitor(fromFrame: number): Promise<AssistantAudioActivity>;
       testAttachMicrophone(stream: MediaStream): Promise<void>;
     };
   };
@@ -82,6 +88,11 @@ export async function installSharedAudioTimeline(): Promise<void> {
   let flushResolver: (() => void) | undefined;
   let nextMarker = 0;
   const markerResolvers = new Map<number, (frame: number) => void>();
+  let nextAssistantMonitorRequest = 0;
+  const assistantMonitorResolvers = new Map<
+    number,
+    (activity: AssistantAudioActivity) => void
+  >();
   const playbackMarkers: number[] = [];
 
   const workletSource = `
@@ -94,6 +105,11 @@ export async function installSharedAudioTimeline(): Promise<void> {
         this.microphoneConnected = false;
         this.capacity = sampleRate;
         this.lastQuantumEnd = undefined;
+        this.assistantLevelEnergy = 0;
+        this.assistantLevelFrames = 0;
+        this.assistantActiveFrames = [];
+        this.lastAssistantActiveFrame = undefined;
+        this.monitorCurrentFrame = 0;
         this.reset();
         this.port.onmessage = ({data}) => {
           if (data === 'arm') this.armed = true;
@@ -102,6 +118,18 @@ export async function installSharedAudioTimeline(): Promise<void> {
           if (data === 'flush') {
             this.flush();
             this.port.postMessage({flushed: true});
+          }
+          if (data && typeof data.assistantMonitorRequest === 'number') {
+            let activeMs = 0;
+            for (const frame of this.assistantActiveFrames)
+              if (frame > data.fromFrame) activeMs += 10;
+            this.port.postMessage({
+              assistantMonitorResponse: data.assistantMonitorRequest,
+              activeMs,
+              currentFrame: this.monitorCurrentFrame,
+              lastAssistantActiveFrame: this.lastAssistantActiveFrame ?? null,
+            });
+            return;
           }
           if (data && typeof data.marker === 'number')
             this.port.postMessage({marker: data.marker, frame: currentFrame});
@@ -154,6 +182,7 @@ export async function installSharedAudioTimeline(): Promise<void> {
         const left = output[0];
         const right = output[1];
         const frames = left?.length || 128;
+        this.monitorCurrentFrame = currentFrame + frames;
         if (left) left.fill(0);
         if (right) right.fill(0);
         if (!this.armed) {
@@ -224,6 +253,24 @@ export async function installSharedAudioTimeline(): Promise<void> {
           } else if (assistantLeft && right) {
             right[i] = assistantLeft[i];
           }
+          const assistantLeftSample = assistantLeft?.[i] ?? 0;
+          const assistantRightSample =
+            assistantRight?.[i] ?? assistantLeftSample;
+          this.assistantLevelEnergy += assistantRight
+            ? (assistantLeftSample * assistantLeftSample +
+                assistantRightSample * assistantRightSample) /
+              2
+            : assistantLeftSample * assistantLeftSample;
+          this.assistantLevelFrames++;
+          if (this.assistantLevelFrames === 480) {
+            if (Math.sqrt(this.assistantLevelEnergy / 480) > 0.01) {
+              const activeFrame = currentFrame + i + 1;
+              this.assistantActiveFrames.push(activeFrame);
+              this.lastAssistantActiveFrame = activeFrame;
+            }
+            this.assistantLevelEnergy = 0;
+            this.assistantLevelFrames = 0;
+          }
           this.used++;
           if (this.used === this.capacity) this.flush();
         }
@@ -273,6 +320,25 @@ export async function installSharedAudioTimeline(): Promise<void> {
           resolveWarmed = resolve;
         });
         recorder.port.onmessage = ({ data }) => {
+          if (typeof data.assistantMonitorResponse === 'number') {
+            const resolveMonitor = assistantMonitorResolvers.get(
+              data.assistantMonitorResponse,
+            );
+            if (resolveMonitor) {
+              assistantMonitorResolvers.delete(data.assistantMonitorResponse);
+              resolveMonitor({
+                activeMs: data.activeMs,
+                silentTailMs:
+                  data.lastAssistantActiveFrame === null
+                    ? 0
+                    : Math.max(
+                        0,
+                        data.currentFrame - data.lastAssistantActiveFrame,
+                      ) / 48,
+              });
+            }
+            return;
+          }
           if (data.warmed) {
             resolveWarmed();
             return;
@@ -526,6 +592,31 @@ export async function installSharedAudioTimeline(): Promise<void> {
       });
       playbackMarkers.push(frame);
       return frame;
+    },
+    /** Measures the captured assistant WebRTC track, excluding physical output audio. */
+    async assistantMonitor(fromFrame: number) {
+      await waitForReady();
+      if (!Number.isSafeInteger(fromFrame) || fromFrame < 0)
+        throw new Error(
+          'Assistant monitor frame must be a nonnegative integer',
+        );
+      const worklet = recorder;
+      if (!worklet) throw new Error('Shared AudioWorklet is unavailable');
+      const id = ++nextAssistantMonitorRequest;
+      return new Promise<AssistantAudioActivity>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          assistantMonitorResolvers.delete(id);
+          reject(new Error('Assistant audio monitor query timed out'));
+        }, 1_000);
+        assistantMonitorResolvers.set(id, (activity) => {
+          clearTimeout(timer);
+          resolve(activity);
+        });
+        worklet.port.postMessage({
+          assistantMonitorRequest: id,
+          fromFrame,
+        });
+      });
     },
     async snapshot() {
       await waitForReady();

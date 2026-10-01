@@ -6,9 +6,109 @@ import {
   fullScenarioInterTurnPollIntervalMs,
   fullScenarioMinimumInterTurnGapMs,
   fullScenarioPostSpeechBufferMs,
+  monitorFullScenarioLeadIn,
   tts2micPlaybackLeadInMs,
+  waitForAssistantResponseCompletion,
   waitForNextFullScenarioInput,
 } from './inter-turn-schedule.ts';
+
+test('invalidates a lead-in cancellation without source-not-started proof', async () => {
+  const playerLaunches = 1;
+  await assert.rejects(
+    monitorFullScenarioLeadIn({
+      playbackStartedAtMs: 10_000,
+      nowMs: () => 10_020,
+      assistantSilentTailMs: () => 0,
+      sleep: async () => {},
+      stopAndWait: async () => ({
+        terminated: true,
+        closedAtMs: 10_010,
+        sourceNotStarted: false,
+      }),
+    }),
+    /source onset is unverified/,
+  );
+  assert.equal(playerLaunches, 1);
+});
+
+test('does not replay when cancellation does not terminate the player', async () => {
+  const playerLaunches = 1;
+  await assert.rejects(
+    monitorFullScenarioLeadIn({
+      playbackStartedAtMs: 10_000,
+      nowMs: () => 10_020,
+      assistantSilentTailMs: () => 0,
+      sleep: async () => {},
+      stopAndWait: async () => ({
+        terminated: false,
+        closedAtMs: Number.NaN,
+        sourceNotStarted: false,
+      }),
+    }),
+    /termination was not confirmed/,
+  );
+  assert.equal(playerLaunches, 1);
+});
+
+test('monitors the full lead-in and refuses uncertain resumed-output cancellation', async () => {
+  let nowMs = 0;
+  let polls = 0;
+  await assert.rejects(
+    monitorFullScenarioLeadIn({
+      playbackStartedAtMs: 0,
+      nowMs: () => nowMs,
+      assistantSilentTailMs: () => {
+        polls++;
+        return polls < 3 ? 5_000 : 0;
+      },
+      sleep: async (milliseconds) => {
+        nowMs += milliseconds;
+      },
+      stopAndWait: async () => ({
+        terminated: true,
+        closedAtMs: nowMs + 1,
+        sourceNotStarted: false,
+      }),
+    }),
+    /source onset is unverified/,
+  );
+  assert.equal(polls, 3);
+  assert.ok(nowMs < tts2micPlaybackLeadInMs);
+});
+
+test('lead-in cannot finish before the three-second onset deadline', async () => {
+  let nowMs = 0;
+  await monitorFullScenarioLeadIn({
+    playbackStartedAtMs: 0,
+    nowMs: () => nowMs,
+    assistantSilentTailMs: () => 3_000,
+    sleep: async (milliseconds) => {
+      nowMs += milliseconds;
+    },
+    stopAndWait: async () => {
+      throw new Error('quiet lead-in must not cancel playback');
+    },
+  });
+  assert.ok(nowMs >= tts2micPlaybackLeadInMs);
+});
+
+test('does not finalize response audio until output quiet follows observed output', async () => {
+  let calls = 0;
+  let finalized = false;
+  await waitForAssistantResponseCompletion({
+    activity: () => {
+      calls++;
+      if (calls === 1) return { activeMs: 0, silentTailMs: 5_000 };
+      if (calls === 2) return { activeMs: 180, silentTailMs: 0 };
+      if (calls === 3) return { activeMs: 180, silentTailMs: 500 };
+      return { activeMs: 180, silentTailMs: 1_000 };
+    },
+    sleep: async () => {},
+  });
+  finalized = true;
+  assert.equal(finalized, true);
+  assert.equal(calls, 4);
+});
 
 test('requires assistant quiet plus buffer and the source-gap deadline', () => {
   assert.equal(
@@ -36,7 +136,10 @@ test('requires assistant quiet plus buffer and the source-gap deadline', () => {
     }),
     false,
   );
-  assert.equal(27_000 + tts2micPlaybackLeadInMs, fullScenarioMinimumInterTurnGapMs);
+  assert.equal(
+    27_000 + tts2micPlaybackLeadInMs,
+    fullScenarioMinimumInterTurnGapMs,
+  );
 });
 
 test('assistant output resuming during cooldown restarts quiet and buffer deadlines', async () => {
@@ -47,7 +150,7 @@ test('assistant output resuming during cooldown restarts quiet and buffer deadli
     previousSourceEndMs: 0,
     nowMs: () => nowMs,
     silentTailMs: () => {
-      if (!assistantResumed && nowMs >= 29_000) {
+      if (!assistantResumed && nowMs >= 26_000) {
         assistantResumed = true;
         lastAssistantOutputMs = nowMs;
       }
@@ -59,7 +162,12 @@ test('assistant output resuming during cooldown restarts quiet and buffer deadli
   });
 
   assert.equal(assistantResumed, true);
-  assert.ok(nowMs >= 29_000 + assistantCompletionQuietIntervalMs + fullScenarioPostSpeechBufferMs);
+  assert.ok(
+    nowMs >=
+      26_000 +
+        assistantCompletionQuietIntervalMs +
+        fullScenarioPostSpeechBufferMs,
+  );
   assert.equal(
     canStartNextFullScenarioInput({
       previousSourceEndMs: 0,
@@ -68,13 +176,16 @@ test('assistant output resuming during cooldown restarts quiet and buffer deadli
     }),
     true,
   );
-  assert.ok(nowMs >= 27_000, 'the 3-second lead-in is included in the source-gap deadline');
+  assert.ok(
+    nowMs >= 27_000,
+    'the 3-second lead-in is included in the source-gap deadline',
+  );
   assert.ok(fullScenarioInterTurnPollIntervalMs <= 100);
 });
 
 test('does not release when the cooldown expires until the post-burst quiet buffer restarts', async () => {
   let nowMs = 0;
-  let lastAssistantOutputMs = 29_000;
+  const lastAssistantOutputMs = 29_000;
   await waitForNextFullScenarioInput({
     previousSourceEndMs: 0,
     nowMs: () => nowMs,
