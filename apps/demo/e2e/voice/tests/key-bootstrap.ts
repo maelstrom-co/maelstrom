@@ -84,17 +84,25 @@ export async function startVoiceDemoFromKeylessLanding(
   const keyRequired = page.getByRole('status', {
     name: /connection status: key required/i,
   });
-  if (!(await keyRequired.isVisible().catch(() => false))) return;
+  const keyInput = page.locator('#playground-api-key');
+  const keyDialog = page.getByRole('dialog').filter({ has: keyInput });
+  const drawerAlreadyOpen =
+    (await keyInput.isVisible().catch(() => false)) ||
+    (await keyDialog.isVisible().catch(() => false));
+  const keyIsRequired = await keyRequired.isVisible().catch(() => false);
+  if (!keyIsRequired && !drawerAlreadyOpen) return;
 
-  const startButton = page.getByRole('button', {
-    name: 'Start interactive demo',
-    exact: true,
-  });
-  if ((await startButton.count()) !== 1 || !(await startButton.isVisible()))
-    throw new Error(
-      'Voice benchmark found the key-required landing page without its Start interactive demo action.',
-    );
-  await startButton.click();
+  if (!drawerAlreadyOpen) {
+    const startButton = page.getByRole('button', {
+      name: 'Start interactive demo',
+      exact: true,
+    });
+    if ((await startButton.count()) !== 1 || !(await startButton.isVisible()))
+      throw new Error(
+        'Voice benchmark found the key-required landing page without its Start interactive demo action.',
+      );
+    await startButton.click();
+  }
 
   if (!apiKey)
     throw new Error(

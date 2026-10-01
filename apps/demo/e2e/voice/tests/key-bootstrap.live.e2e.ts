@@ -92,6 +92,38 @@ test('launches the interactive demo from a key-required landing page', async ({
   await expect(page.getByRole('status')).toHaveCount(0);
 });
 
+test('submits an already-open fullscreen key drawer without clicking its covered opener', async ({
+  page,
+}) => {
+  await page.setContent(`
+    <button id="start">Start interactive demo</button>
+    <div role="dialog" aria-modal="true" style="position: fixed; inset: 0; z-index: 10; background: white">
+      <div role="status" aria-label="Connection status: key required">Key required</div>
+      <label for="playground-api-key">API key</label>
+      <input id="playground-api-key" type="password" />
+      <button id="save">Save</button>
+    </div>
+    <script>
+      document.querySelector('#start').addEventListener('click', () => {
+        document.body.dataset.openerClicked = 'yes';
+      });
+      document.querySelector('#save').addEventListener('click', () => {
+        document.body.dataset.submitted = 'yes';
+        document.querySelector('[role="status"]').remove();
+        document.querySelector('[role="dialog"]').remove();
+      });
+    </script>
+  `);
+
+  await startVoiceDemoFromKeylessLanding(page, nonSecretInput);
+
+  await expect(page.locator('body')).toHaveAttribute('data-submitted', 'yes');
+  await expect(page.locator('body')).not.toHaveAttribute(
+    'data-opener-clicked',
+    'yes',
+  );
+});
+
 test('preserves an already voice-ready page without requiring a key', async ({
   page,
 }) => {
