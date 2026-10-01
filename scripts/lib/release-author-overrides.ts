@@ -1,4 +1,7 @@
-import { execFileSync } from 'node:child_process';
+import {
+  type ExecFileSyncOptionsWithStringEncoding,
+  execFileSync,
+} from 'node:child_process';
 import { workspaceRoot } from 'nx/src/utils/workspace-root';
 
 type AuthorIdentity = { name: string; email: string };
@@ -39,18 +42,27 @@ export function findReleaseAuthorOverride(
 
   let fullHash = hash;
   if (hash.length < 40) {
+    const options: ExecFileSyncOptionsWithStringEncoding = {
+      cwd: workspaceRoot,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    };
     try {
       fullHash = execFileSync(
         'git',
         ['rev-parse', '--verify', '--end-of-options', `${hash}^{commit}`],
-        {
-          cwd: workspaceRoot,
-          encoding: 'utf8',
-          stdio: ['ignore', 'pipe', 'pipe'],
-        },
+        options,
       ).trim();
     } catch {
-      return undefined;
+      try {
+        fullHash = execFileSync(
+          'jj',
+          ['log', '-r', hash, '--no-graph', '-T', 'commit_id'],
+          options,
+        ).trim();
+      } catch {
+        return undefined;
+      }
     }
   }
   if (fullHash !== candidate[0]) return undefined;

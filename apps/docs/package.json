@@ -3,6 +3,12 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
+  "scripts": {
+    "prompts:check": "bun tools/prompts/check.ts",
+    "skills:install": "bun tools/skills/cli.ts install",
+    "skills:update": "bun tools/skills/cli.ts update",
+    "skills:remove": "bun tools/skills/cli.ts remove"
+  },
   "dependencies": {
     "@astrojs/react": "catalog:",
     "@astrojs/sitemap": "catalog:",
@@ -35,13 +41,19 @@
     "@tailwindcss/vite": "catalog:",
     "@testing-library/react": "^16.1.0",
     "@types/jsdom": "^21.1.7",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^24.0.0",
+    "@types/semver": "^7.7.1",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "alchemy": "2.0.0-beta.73",
     "astro-mermaid": "^2.1.0",
     "effect": "catalog:",
+    "fflate": "^0.8.3",
     "jsdom": "catalog:",
     "mermaid": "^11.15.0",
+    "js-yaml": "^4.3.0",
+    "semver": "^7.7.4",
     "starlight-llms-txt": "^0.11.0",
     "starlight-typedoc": "^0.23.0",
     "tailwindcss": "catalog:",
@@ -75,6 +87,15 @@
           "{projectRoot}/astro.config.ts",
           "{projectRoot}/src/**/*",
           "{projectRoot}/public/**/*",
+          "{projectRoot}/prompts/**/*",
+          "{projectRoot}/skills/**/*",
+          "{projectRoot}/tools/prompts/**/*",
+          "{projectRoot}/tools/skills/**/*",
+          "{workspaceRoot}/docs/realtime-voice-architecture.md",
+          "{workspaceRoot}/docs/architecture.md",
+          "{workspaceRoot}/docs/adr/0001-realtime-providers-come-in-two-kinds.md",
+          "{workspaceRoot}/docs/adr/0002-credential-custody-is-a-dependency-edge.md",
+          "{workspaceRoot}/docs/adr/0003-turn-taking-is-provider-neutral.md",
           {
             "externalDependencies": [
               "astro"
@@ -115,6 +136,10 @@
           "{projectRoot}/astro.config.ts",
           "{projectRoot}/src/**/*",
           "{projectRoot}/public/**/*",
+          "{projectRoot}/prompts/**/*",
+          "{projectRoot}/skills/**/*",
+          "{projectRoot}/tools/prompts/**/*",
+          "{projectRoot}/tools/skills/**/*",
           {
             "externalDependencies": [
               "astro"
@@ -147,8 +172,29 @@
           "^build"
         ]
       },
+      "prompts-check": {
+        "executor": "nx:run-commands",
+        "cache": true,
+        "inputs": [
+          "{projectRoot}/prompts/library/**/*",
+          "{projectRoot}/tools/prompts/**/*",
+          "{workspaceRoot}/bun.lock"
+        ],
+        "options": {
+          "cwd": "{projectRoot}",
+          "command": "bun run prompts:check"
+        }
+      },
       "test": {
-        "command": "bun test src",
+        "command": "bun test src tools/prompts tools/skills",
+        "inputs": [
+          "default",
+          "{workspaceRoot}/docs/realtime-voice-architecture.md",
+          "{workspaceRoot}/docs/architecture.md",
+          "{workspaceRoot}/docs/adr/0001-realtime-providers-come-in-two-kinds.md",
+          "{workspaceRoot}/docs/adr/0002-credential-custody-is-a-dependency-edge.md",
+          "{workspaceRoot}/docs/adr/0003-turn-taking-is-provider-neutral.md"
+        ],
         "options": {
           "cwd": "{projectRoot}"
         }

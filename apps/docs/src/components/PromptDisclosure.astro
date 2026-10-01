@@ -1,0 +1,60 @@
+---
+import { getCollection } from 'astro:content';
+import { type PromptEntry, promptLabel } from '../lib/prompt-presentation';
+import PromptIconButton from './PromptIconButton.astro';
+import PromptSource from './PromptSource.astro';
+
+interface Props {
+  id: string;
+}
+
+const { id } = Astro.props;
+const entries = (await getCollection('prompts')) as PromptEntry[];
+const entry = entries.find((candidate) => candidate.id === id);
+if (!entry) throw new Error(`Unknown canonical prompt: ${id}`);
+const label = promptLabel(id);
+const encodedBody = Buffer.from(entry.data.body, 'utf8').toString('base64');
+---
+<details
+  class="prompt-disclosure"
+  data-prompt-root
+  data-prompt-body={encodedBody}
+>
+  <summary>
+    {label}
+    <PromptIconButton action="copy" label={label} />
+  </summary>
+  <section aria-label={`${label} canonical prompt source`}>
+    <PromptSource
+      heading={label}
+      label={label}
+      body={entry.data.body}
+      showHeader={false}
+    />
+  </section>
+</details>
+<script>
+  import { initPromptControls } from '../lib/prompt-controls';
+
+  const decodePromptBody = (encoded: string): string =>
+    new TextDecoder().decode(
+      Uint8Array.from(atob(encoded), (char) => char.charCodeAt(0)),
+    );
+
+  const initDisclosures = () => {
+    document.querySelectorAll<HTMLElement>('.prompt-disclosure[data-prompt-root]').forEach((root) => {
+      initPromptControls(root, {
+        body: decodePromptBody(root.dataset.promptBody ?? ''),
+        filename: 'prompt.md',
+      });
+    });
+  };
+
+  initDisclosures();
+  document.addEventListener('astro:page-load', initDisclosures);
+</script>
+<style>
+  .prompt-disclosure { margin-top: .75rem; }
+  .prompt-disclosure summary { cursor: pointer; font-weight: 600; }
+  .prompt-disclosure:not([open]) summary :global([data-copy-prompt]) { display: none; }
+</style>

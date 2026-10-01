@@ -1,0 +1,83 @@
+---
+import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro';
+import { resolveDocsSourceRef } from '../../../lib/docs-source-links.js';
+
+const sourceRef = resolveDocsSourceRef(process.env);
+const sourceTree = `https://github.com/maelstrom-co/maelstrom/tree/${sourceRef}/apps/docs/skills`;
+const sourceFile = `https://github.com/maelstrom-co/maelstrom/blob/${sourceRef}/apps/docs/skills/README.md`;
+---
+<StarlightPage
+  frontmatter={{
+    title: 'Agent skills',
+    description: 'Portable Maelstrom lead skills and their conditional references.',
+  }}
+>
+  <div class="skill-index">
+    <nav aria-label="Breadcrumb">
+      <a href="/agents/prompts/">Agent prompts</a> / Agent skills
+    </nav>
+    <header>
+      <p class="eyebrow">AGENT SKILLS</p>
+      <h1>Portable workflow skills</h1>
+      <p>
+        Choose one lead skill for a task. It owns the workflow and points to
+        supporting references only when they apply. Skills do not assemble or
+        change standalone prompt bodies.
+      </p>
+    </header>
+    <section aria-labelledby="obtain-heading">
+      <h2 id="obtain-heading">Install in this project</h2>
+      <p>
+        Download the complete, revision-matched bundle generated from this docs
+        build. It includes the installable <code>maelstrom</code> entry skill,
+        task procedures, and exact canonical voice architecture/ADR Markdown.
+        Install location depends on the coding agent: OpenCode discovers
+        project skills under <code>.agents/skills/</code>; Claude Code discovers
+        them under <code>.claude/skills/</code>. Do not assume one location is
+        discovered by every Agent Skills-compatible tool. Check the selected
+        tool's skill discovery documentation and use its project-scoped path.
+      </p>
+      <ol>
+        <li><a href="/agents/skills/bundle.zip" download="maelstrom-agent-skills.zip">Download the complete skills bundle</a>.</li>
+        <li>Extract the ZIP's <code>apps/docs/skills/</code> contents into the selected tool's project-scoped skills directory (for example, <code>.agents/skills/</code> for OpenCode or <code>.claude/skills/</code> for Claude Code), preserving paths and the complete <code>references/</code> tree.</li>
+        <li>Ask your coding agent to load/use <code>maelstrom</code>; it routes the task to one procedure and checks installed package versions. For Claude Code, keep the complete tree in <code>.claude/skills/</code> or symlink each skill directory there; preserve the bundled shared references alongside the skills.</li>
+      </ol>
+      <p>
+        For checkouts of this repository, use <code>bun run --cwd apps/docs
+        skills:install</code> to install or <code>skills:update</code> to refresh,
+        and <code>skills:remove</code> to remove only installer-managed files.
+        Manual ZIP installs can be updated by extracting a newer complete bundle
+        over the existing Maelstrom files; remove only the Maelstrom skill
+        directories and references no other skill uses. Do not remove the whole
+        project-scoped skills directory.
+      </p>
+      <p>
+        SDK and skill updates are independent. Update an
+        <code>@maelstrom-co/*</code> dependency with your package manager for API
+        changes; its package-owned guide is distributed under
+        <code>node_modules/@maelstrom-co/&lt;package&gt;/skills/</code> and is
+        version-matched to that SDK release. Updating the skill bundle does not
+        update SDK dependencies. GitHub links below are for source browsing
+        only and may refer to a mutable branch when build revision metadata is
+        unavailable.
+      </p>
+      <ul>
+        <li><a href={sourceTree}>Browse the GitHub skills source tree</a></li>
+        <li><a href={sourceFile}>Browse the README source</a></li>
+      </ul>
+    </section>
+    <p class="prompt-link">
+      Looking for a standalone instruction instead? Browse the
+      <a href="/agents/prompts/">canonical prompt library</a>.
+    </p>
+  </div>
+</StarlightPage>
+<style>
+  .skill-index { max-width: 58rem; margin: 0 auto; }
+  nav, .eyebrow { color: var(--sl-color-gray-2); font-size: .9rem; }
+  header { margin: 2rem 0; max-width: 46rem; }
+  .eyebrow { letter-spacing: .12em; font-weight: 700; }
+  section { padding: 1.25rem; border: 1px solid var(--sl-color-gray-5); border-radius: .75rem; background: var(--sl-color-bg); }
+  li { margin: .6rem 0; }
+  .prompt-link { margin-top: 2rem; }
+</style>

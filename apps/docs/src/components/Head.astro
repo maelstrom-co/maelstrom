@@ -29,6 +29,7 @@ const { head } = Astro.locals.starlightRoute;
 
   initTocPath();
   initSidebarCollapse();
+  document.documentElement.setAttribute('data-sidebar-collapse-ready', 'true');
 
   document.addEventListener('astro:before-swap', cleanupTocPath);
   document.addEventListener('astro:after-swap', () => {

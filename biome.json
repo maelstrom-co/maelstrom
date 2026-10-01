@@ -11,6 +11,7 @@
       "**",
       "!**/routeTree.gen.ts",
       "!**/dist",
+      "!apps/*/dist/.playwright/.last-run.json",
       "!**/*.css",
       "!**/drizzle/migrations"
     ]

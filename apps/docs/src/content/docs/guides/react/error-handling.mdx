@@ -4,8 +4,15 @@ description: How to handle errors in Maelstrom React applications.
 ---
 
 import { Aside } from '@astrojs/starlight/components';
+import PromptDisclosure from '../../../../components/PromptDisclosure.astro';
 
 Maelstrom surfaces failures through a small, deliberate set of channels. This guide shows you where each kind of error lands and how to build UI around it.
+
+<Aside type="tip" title="Use with a coding agent">
+  To investigate a concrete issue, use the [Maelstrom debugging prompt](/agents/prompts/maelstrom-debugging/) with the symptom and redacted evidence. It is for diagnosis from repository and runtime evidence before changing code; it does not authorize a fix by itself. For narrowly scoped event reporting, use the [observability prompt](/agents/prompts/maelstrom-observability/); it requires event and payload evidence from the installed SDK.
+  <PromptDisclosure id="maelstrom-debugging" />
+  <PromptDisclosure id="maelstrom-observability" />
+</Aside>
 
 <Aside type="note">
   **Before you start:** this guide builds on the `greetingVessel` and `<m.Provider connector={...}>` setup from [Creating Vessels](/guides/react/creating-vessels/). The React package surfaces plain `Error` objects; there is no public error-type taxonomy to match on, so handle errors by *where* they come from, not by class.

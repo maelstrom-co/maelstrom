@@ -148,13 +148,19 @@
         "@tailwindcss/vite": "catalog:",
         "@testing-library/react": "^16.1.0",
         "@types/jsdom": "^21.1.7",
+        "@types/js-yaml": "^4.0.9",
+        "@types/node": "^24.0.0",
         "@types/react": "catalog:",
         "@types/react-dom": "catalog:",
+        "@types/semver": "^7.7.1",
         "alchemy": "2.0.0-beta.73",
         "astro-mermaid": "^2.1.0",
         "effect": "catalog:",
+        "fflate": "^0.8.3",
+        "js-yaml": "^4.3.0",
         "jsdom": "catalog:",
         "mermaid": "^11.15.0",
+        "semver": "^7.7.4",
         "starlight-llms-txt": "^0.11.0",
         "starlight-typedoc": "^0.23.0",
         "tailwindcss": "catalog:",
@@ -2109,6 +2115,7 @@
     "@types/istanbul-reports": ["@types/istanbul-reports@3.0.4", "", { "dependencies": { "@types/istanbul-lib-report": "*" } }, "sha512-pk2B1NWalF9toCRu6gjBzR69syFjP4Od8WRAX+0mmf9lAjCRicLOWc+ZrxZHx/0XRjotgkF9t6iaMJ+aXcOdZQ=="],
 
     "@types/js-yaml": ["@types/js-yaml@4.0.9", "", {}, "sha512-k4MGaQl5TGo/iipqb2UDG2UwjXziSWkh0uysQelTlJpX1qGlpUZYm8PnO4DxG1qBomtJUdYJ6qR6xdIah10JLg=="],
+    "@types/semver": ["@types/semver@7.8.0", "", {}, "sha512-1mAINjtQCXXeLkJ9ehXkwOcBpqtLxiVtKhpUf83DdRNdQKV0iXZpaHYqRr7nj+wvxuJzoAmAwXI+sCNMv1CzLQ=="],
 
     "@types/jsdom": ["@types/jsdom@21.1.7", "", { "dependencies": { "@types/node": "*", "@types/tough-cookie": "*", "parse5": "^7.0.0" } }, "sha512-yOriVnggzrnQ3a9OKOCxaVuSug3w3/SbOj5i7VwXWZEyUNl3bLF9V3MfxGbZKuwqJOQyRfqXyROBB1CoZLFWzA=="],
 

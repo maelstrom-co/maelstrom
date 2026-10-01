@@ -486,6 +486,13 @@ export default defineConfig({
           ],
         },
         {
+          label: 'AGENTS',
+          items: [
+            { label: 'Prompts library', link: '/agents/prompts/' },
+            { label: 'SKILL', link: '/agents/skills/' },
+          ],
+        },
+        {
           label: 'Community',
           items: [
             { slug: 'community/contributing' },
