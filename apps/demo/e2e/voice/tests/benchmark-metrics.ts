@@ -3,6 +3,18 @@ import type { AudioTimelineMeasurement } from './shared-audio-timeline.ts';
 export type VoiceBenchmarkRecord = {
   readonly scenario: string;
   readonly repetition: number;
+  readonly fixture?: {
+    readonly sampleRate: number;
+    readonly channels: number;
+    readonly frameCount: number;
+    readonly durationMs: number;
+  };
+  readonly playback?: {
+    readonly status: 'completed';
+    readonly elapsedMs: number;
+    readonly workletStartFrame: number;
+    readonly workletEndFrame: number;
+  };
   readonly assistantCapturedAudioActiveMs: number;
   readonly measurements: {
     readonly bargeIn: 'unsupported';

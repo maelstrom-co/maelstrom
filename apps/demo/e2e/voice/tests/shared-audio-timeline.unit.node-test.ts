@@ -4,6 +4,7 @@ import { summarizeVoiceBenchmark } from './benchmark-metrics.ts';
 import {
   computeAudioTimelineMeasurement,
   mergeHumanSpeechSegments,
+  singleCommandSpeechEnvelope,
 } from './shared-audio-timeline.ts';
 
 function pcm16(samples: readonly number[], channels = 1): Buffer {
@@ -15,6 +16,19 @@ function pcm16(samples: readonly number[], channels = 1): Buffer {
   }
   assert.equal(samples.length % channels, 0);
   return bytes;
+}
+
+function silentPcm16(frames: number): Buffer {
+  return Buffer.alloc(frames * 2);
+}
+
+function addAssistantBurst(
+  pcm: Buffer,
+  startSample: number,
+  endSample: number,
+): void {
+  for (let sample = startSample; sample < endSample; sample++)
+    pcm.writeInt16LE(12_000, sample * 2);
 }
 
 function fixture() {
@@ -51,6 +65,225 @@ test('uses the first zero-padded VAD sample as t0 and converts a same-clock samp
       latencyMs: 40,
     },
   ]);
+});
+
+test('associates each 90-second VAD window independently instead of guessing after a missing reply', () => {
+  const sampleRate = 48_000;
+  const frames = sampleRate * 90;
+  const speechSegments = [
+    { startSample: 248_832, endSample: 367_104 },
+    { startSample: 597_504, endSample: 615_936 },
+    { startSample: 658_944, endSample: 700_000 },
+    { startSample: 1_000_000, endSample: 1_040_000 },
+    { startSample: 1_400_000, endSample: 1_440_000 },
+    { startSample: 1_800_000, endSample: 1_840_000 },
+    { startSample: 2_200_000, endSample: 2_240_000 },
+    { startSample: 2_600_000, endSample: 2_640_000 },
+    { startSample: 3_000_000, endSample: 3_040_000 },
+    { startSample: 3_400_000, endSample: 3_440_000 },
+  ];
+  const inputPcm16 = silentPcm16(frames);
+  const assistantPcm16 = silentPcm16(frames);
+  addAssistantBurst(assistantPcm16, 457_421, 458_021);
+  for (const segment of speechSegments.slice(2))
+    addAssistantBurst(
+      assistantPcm16,
+      segment.endSample + 50_000,
+      segment.endSample + 50_600,
+    );
+
+  const result = computeAudioTimelineMeasurement({
+    inputPcm16,
+    inputChannels: 1,
+    assistantPcm16,
+    assistantChannels: 1,
+    sampleRate,
+    speechSegments,
+    missingBlocks: 0,
+  });
+
+  assert.equal(result.status, 'partial');
+  assert.equal(result.turns.length, 10);
+  assert.deepEqual(
+    result.turns.map((turn) => turn.status),
+    ['measured', 'unsupported', ...new Array(8).fill('measured')],
+  );
+  assert.equal(result.turns[0]?.assistantOnsetSample, 457_421);
+  assert.equal(result.turns[0]?.latencySamples, 90_317);
+  assert.equal(result.turns[0]?.latencyMs, 1_881.6041666666667);
+  assert.equal(result.turns[1]?.assistantOnsetSample, null);
+  assert.equal(result.turns[1]?.latencySamples, null);
+  const laterOnsets = result.turns
+    .slice(2)
+    .map((turn) => turn.assistantOnsetSample);
+  assert.equal(new Set(laterOnsets).size, 8);
+  assert.deepEqual(
+    laterOnsets,
+    speechSegments.slice(2).map((segment) => segment.endSample + 50_000),
+  );
+  assert.equal(
+    result.turns.filter((turn) => turn.status === 'measured').length,
+    9,
+  );
+});
+
+test('a crossing onset invalidates its own VAD window without blocking later independent windows', () => {
+  const sampleRate = 48_000;
+  const frames = sampleRate * 90;
+  const speechSegments = [
+    { startSample: 100_000, endSample: 120_000 },
+    { startSample: 300_000, endSample: 320_000 },
+    { startSample: 500_000, endSample: 520_000 },
+    { startSample: 700_000, endSample: 720_000 },
+  ];
+  const assistantPcm16 = silentPcm16(frames);
+  addAssistantBurst(assistantPcm16, 200_000, 200_600);
+  addAssistantBurst(assistantPcm16, 400_000, 500_100);
+  addAssistantBurst(assistantPcm16, 800_000, 800_600);
+  const result = computeAudioTimelineMeasurement({
+    inputPcm16: silentPcm16(frames),
+    inputChannels: 1,
+    assistantPcm16,
+    assistantChannels: 1,
+    sampleRate,
+    speechSegments,
+    missingBlocks: 0,
+  });
+
+  assert.deepEqual(
+    result.turns.map((turn) => turn.status),
+    ['measured', 'unsupported', 'unsupported', 'measured'],
+  );
+  assert.match(
+    result.turns[1]?.reason ?? '',
+    /overlaps the next human VAD turn/,
+  );
+  assert.equal(result.turns[3]?.assistantOnsetSample, 800_000);
+});
+
+test('leaves later independently bounded VAD windows unsupported when no assistant onset exists', () => {
+  const sampleRate = 48_000;
+  const frames = sampleRate * 90;
+  const speechSegments = [
+    { startSample: 100_000, endSample: 120_000 },
+    { startSample: 300_000, endSample: 320_000 },
+    { startSample: 500_000, endSample: 520_000 },
+  ];
+  const assistantPcm16 = silentPcm16(frames);
+  addAssistantBurst(assistantPcm16, 200_000, 200_600);
+  const result = computeAudioTimelineMeasurement({
+    inputPcm16: silentPcm16(frames),
+    inputChannels: 1,
+    assistantPcm16,
+    assistantChannels: 1,
+    sampleRate,
+    speechSegments,
+    missingBlocks: 0,
+  });
+
+  assert.deepEqual(
+    result.turns.map((turn) => turn.status),
+    ['measured', 'unsupported', 'unsupported'],
+  );
+  assert.ok(
+    result.turns.slice(1).every((turn) => turn.latencySamples === null),
+  );
+});
+
+test('treats three raw VAD islands from one single-turn playback as one command envelope', () => {
+  const rawSegments = [
+    { startSample: 100, endSample: 150 },
+    { startSample: 800, endSample: 850 },
+    { startSample: 1_500, endSample: 1_600 },
+  ];
+  assert.deepEqual(singleCommandSpeechEnvelope(rawSegments), [
+    { startSample: 100, endSample: 1_600 },
+  ]);
+});
+
+test('measures single-command latency from the final raw VAD end', () => {
+  const rawSegments = [
+    { startSample: 100, endSample: 150 },
+    { startSample: 800, endSample: 850 },
+    { startSample: 1_500, endSample: 1_600 },
+  ];
+  const assistant = silentPcm16(2_000);
+  addAssistantBurst(assistant, 1_700, 1_730);
+  const [command] = singleCommandSpeechEnvelope(rawSegments);
+  assert.ok(command);
+  const result = computeAudioTimelineMeasurement({
+    inputPcm16: silentPcm16(2_000),
+    inputChannels: 1,
+    assistantPcm16: assistant,
+    assistantChannels: 1,
+    sampleRate: 1_000,
+    speechSegments: [command],
+    missingBlocks: 0,
+  });
+  assert.equal(result.status, 'measured');
+  assert.equal(result.turns.length, 1);
+  assert.equal(result.turns[0]?.vadEndSample, 1_600);
+  assert.equal(result.turns[0]?.latencySamples, 100);
+});
+
+test('rejects assistant activity before the command starts only in single-turn diagnostics', () => {
+  const assistant = silentPcm16(2_000);
+  addAssistantBurst(assistant, 20, 50);
+  addAssistantBurst(assistant, 1_700, 1_730);
+  const [command] = singleCommandSpeechEnvelope([
+    { startSample: 100, endSample: 150 },
+    { startSample: 800, endSample: 850 },
+    { startSample: 1_500, endSample: 1_600 },
+  ]);
+  assert.ok(command);
+  const args = {
+    inputPcm16: silentPcm16(2_000),
+    inputChannels: 1,
+    assistantPcm16: assistant,
+    assistantChannels: 1,
+    sampleRate: 1_000,
+    speechSegments: [command],
+    missingBlocks: 0,
+  };
+
+  const ordinaryMeasurement = computeAudioTimelineMeasurement(args);
+  assert.equal(ordinaryMeasurement.status, 'measured');
+  assert.equal(ordinaryMeasurement.turns[0]?.latencySamples, 100);
+
+  const singleTurnMeasurement = computeAudioTimelineMeasurement({
+    ...args,
+    rejectAssistantOnsetBeforeSpeechEnd: true,
+  });
+  assert.equal(singleTurnMeasurement.status, 'unsupported');
+  assert.equal(singleTurnMeasurement.turns[0]?.latencySamples, null);
+  assert.match(
+    singleTurnMeasurement.turns[0]?.reason ?? '',
+    /began before the human command speech ended/,
+  );
+});
+
+test('does not measure a single-command onset in a VAD island gap before final end', () => {
+  const rawSegments = [
+    { startSample: 100, endSample: 150 },
+    { startSample: 800, endSample: 850 },
+    { startSample: 1_500, endSample: 1_600 },
+  ];
+  const assistant = silentPcm16(2_000);
+  addAssistantBurst(assistant, 1_200, 1_230);
+  const [command] = singleCommandSpeechEnvelope(rawSegments);
+  assert.ok(command);
+  const result = computeAudioTimelineMeasurement({
+    inputPcm16: silentPcm16(2_000),
+    inputChannels: 1,
+    assistantPcm16: assistant,
+    assistantChannels: 1,
+    sampleRate: 1_000,
+    speechSegments: [command],
+    missingBlocks: 0,
+  });
+  assert.equal(result.status, 'unsupported');
+  assert.equal(result.turns[0]?.latencySamples, null);
+  assert.match(result.turns[0]?.reason ?? '', /overlapped/);
 });
 
 test('merges short VAD pauses into a human turn without losing sample offsets', () => {

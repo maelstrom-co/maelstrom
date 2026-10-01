@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { selectVoiceBenchmark } from './benchmark-selection.ts';
 import { resolveTtsCacheDir } from './tts-cache-dir.ts';
 
 process.umask(0o077);
@@ -23,7 +24,11 @@ const repositoryRoot = resolve(voiceRoot, '../../../..');
 const artifactRoot = join(repositoryRoot, 'apps/demo/dist/docker-voice');
 const reportPath = join(artifactRoot, 'report/index.html');
 const benchmark = process.argv.includes('--benchmark');
-const benchmarkRepetitions = process.env.VOICE_BENCHMARK_REPETITIONS ?? '1';
+if (benchmark)
+  selectVoiceBenchmark({
+    singleTurn: process.env.VOICE_BENCHMARK_SINGLE_TURN,
+    repetitions: process.env.VOICE_BENCHMARK_REPETITIONS,
+  });
 const voiceDevtoolsImage = 'ghcr.io/maelstrom-co/voice-devtools:0.1.0';
 const fixtures = ['only-tasks', 'put-it-back', 'open-calendar'] as const;
 const forwardedRunnerEnvironment = [
@@ -203,17 +208,6 @@ async function main(): Promise<number> {
   const fixtureDirectory = await mkdtemp(
     join(tmpdir(), 'maelstrom-voice-audio-'),
   );
-  if (
-    benchmark &&
-    (!/^[1-3]$/.test(benchmarkRepetitions) ||
-      Number(benchmarkRepetitions) < 1 ||
-      Number(benchmarkRepetitions) > 3)
-  ) {
-    await rm(fixtureDirectory, { recursive: true, force: true });
-    throw new Error(
-      'VOICE_BENCHMARK_REPETITIONS must be an integer from 1 to 3.',
-    );
-  }
 
   let imageBuilt = false;
   let runnerCreationAttempted = false;
@@ -249,6 +243,7 @@ async function main(): Promise<number> {
           'MAELSTROM_WS_PORT',
           'MAELSTROM_HOST',
           'VOICE_BENCHMARK_REPETITIONS',
+          'VOICE_BENCHMARK_SINGLE_TURN',
           ...(process.env.MAELSTROM_E2E_OPENAI_API_KEY
             ? ['MAELSTROM_E2E_OPENAI_API_KEY']
             : []),

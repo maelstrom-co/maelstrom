@@ -6,6 +6,7 @@ export type BrowserAudioTimelineSnapshot = {
   readonly endFrame: number;
   readonly blockCount: number;
   readonly missingBlocks: number;
+  readonly playbackMarkers?: readonly number[];
   readonly missingBlockReasons: {
     readonly frameGaps: number;
     readonly inputFormatChanges: number;
@@ -27,6 +28,7 @@ export async function installSharedAudioTimeline(): Promise<void> {
     __voiceAudioTimeline?: {
       waitForReady(): Promise<void>;
       snapshot(): Promise<BrowserAudioTimelineSnapshot>;
+      mark(): Promise<number>;
       testAttachMicrophone(stream: MediaStream): Promise<void>;
     };
   };
@@ -78,6 +80,9 @@ export async function installSharedAudioTimeline(): Promise<void> {
   let inputChannelWidth = 0;
   let assistantChannelWidth = 0;
   let flushResolver: (() => void) | undefined;
+  let nextMarker = 0;
+  const markerResolvers = new Map<number, (frame: number) => void>();
+  const playbackMarkers: number[] = [];
 
   const workletSource = `
     class SharedTimelineRecorder extends AudioWorkletProcessor {
@@ -98,6 +103,8 @@ export async function installSharedAudioTimeline(): Promise<void> {
             this.flush();
             this.port.postMessage({flushed: true});
           }
+          if (data && typeof data.marker === 'number')
+            this.port.postMessage({marker: data.marker, frame: currentFrame});
         };
       }
       reset() {
@@ -273,6 +280,17 @@ export async function installSharedAudioTimeline(): Promise<void> {
           if (data.flushed) {
             flushResolver?.();
             flushResolver = undefined;
+            return;
+          }
+          if (
+            typeof data.marker === 'number' &&
+            typeof data.frame === 'number'
+          ) {
+            const resolveMarker = markerResolvers.get(data.marker);
+            if (resolveMarker) {
+              markerResolvers.delete(data.marker);
+              resolveMarker(data.frame);
+            }
             return;
           }
           if (problem) return;
@@ -490,6 +508,25 @@ export async function installSharedAudioTimeline(): Promise<void> {
   target.__voiceAudioTimeline = {
     waitForReady,
     testAttachMicrophone: attachMicrophone,
+    async mark() {
+      await waitForReady();
+      const worklet = recorder;
+      if (!worklet) throw new Error('Shared AudioWorklet is unavailable');
+      const id = ++nextMarker;
+      const frame = await new Promise<number>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          markerResolvers.delete(id);
+          reject(new Error('AudioWorklet playback marker timed out'));
+        }, 1_000);
+        markerResolvers.set(id, (value) => {
+          clearTimeout(timer);
+          resolve(value);
+        });
+        worklet.port.postMessage({ marker: id });
+      });
+      playbackMarkers.push(frame);
+      return frame;
+    },
     async snapshot() {
       await waitForReady();
       await new Promise<void>((resolve, reject) => {
@@ -535,6 +572,7 @@ export async function installSharedAudioTimeline(): Promise<void> {
         endFrame,
         blockCount: blocks.length,
         missingBlocks,
+        playbackMarkers: [...playbackMarkers],
         missingBlockReasons: { ...missingBlockReasons },
         inputWavBase64: encodeWav(
           blocks,

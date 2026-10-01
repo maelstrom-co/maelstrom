@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { selectVoiceBenchmark } from './benchmark-selection.ts';
 import { checkPort, forwardPort } from './forward.ts';
 import { resolveRunnerTarget } from './runner-target.ts';
 
@@ -28,6 +29,14 @@ const sigint = () => shutdown('SIGINT');
 const sigterm = () => shutdown('SIGTERM');
 process.on('SIGINT', sigint);
 process.on('SIGTERM', sigterm);
+
+const benchmark = process.argv.includes('--benchmark');
+const benchmarkSelection = benchmark
+  ? selectVoiceBenchmark({
+      singleTurn: process.env.VOICE_BENCHMARK_SINGLE_TURN,
+      repetitions: process.env.VOICE_BENCHMARK_REPETITIONS,
+    })
+  : undefined;
 
 try {
   const requiredFixtures = ['only-tasks', 'put-it-back', 'open-calendar'];
@@ -114,6 +123,17 @@ try {
         playwright: pkg.version,
         mode: target.mode,
         ...(target.mode === 'local' ? { upstream } : {}),
+        ...(benchmarkSelection
+          ? {
+              benchmark: {
+                mode: benchmarkSelection.singleTurn
+                  ? 'single-turn'
+                  : 'full-scenario-suite',
+                repetitions: benchmarkSelection.repetitions,
+                selectedScenario: benchmarkSelection.selectedScenario,
+              },
+            }
+          : {}),
         browserURL:
           target.mode === 'local' ? target.browserURL : target.metadataURL,
         checkedAt: new Date().toISOString(),
@@ -126,7 +146,6 @@ try {
     `${target.mode === 'local' ? 'Host app' : 'Configured target'} reachable; running Chromium, microphone injection and reply recording in Docker.`,
   );
   if (signalCode) throw new Error('Interrupted');
-  const benchmark = process.argv.includes('--benchmark');
   const playwright = spawn(
     process.execPath,
     [

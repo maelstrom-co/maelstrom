@@ -44,6 +44,28 @@ type AudioActivity = {
   readonly endSample: number;
 };
 
+export function singleCommandSpeechEnvelope(
+  segments: readonly SpeechSegment[],
+): SpeechSegment[] {
+  if (segments.length === 0) return [];
+  let previousEnd = -1;
+  for (const segment of segments) {
+    if (
+      !Number.isInteger(segment.startSample) ||
+      !Number.isInteger(segment.endSample) ||
+      segment.startSample < previousEnd ||
+      segment.startSample < 0 ||
+      segment.endSample <= segment.startSample
+    )
+      throw new Error('Invalid or unordered raw VAD segments');
+    previousEnd = segment.endSample;
+  }
+  const first = segments[0];
+  const last = segments.at(-1);
+  if (!first || !last) return [];
+  return [{ startSample: first.startSample, endSample: last.endSample }];
+}
+
 export function mergeHumanSpeechSegments(
   segments: readonly SpeechSegment[],
   sampleRate: number,
@@ -78,6 +100,7 @@ export function computeAudioTimelineMeasurement(args: {
   readonly sampleRate: number;
   readonly speechSegments: readonly SpeechSegment[];
   readonly missingBlocks: number;
+  readonly rejectAssistantOnsetBeforeSpeechEnd?: boolean;
   readonly assistantThreshold?: number;
   readonly quietSamplesAtLeast?: number;
 }): AudioTimelineMeasurement {
@@ -89,6 +112,7 @@ export function computeAudioTimelineMeasurement(args: {
     sampleRate,
     speechSegments,
     missingBlocks,
+    rejectAssistantOnsetBeforeSpeechEnd = false,
     assistantThreshold = assistantSampleThreshold,
     quietSamplesAtLeast = Math.round(
       (sampleRate * assistantQuietSamplesAtLeastMs) / 1000,
@@ -129,7 +153,6 @@ export function computeAudioTimelineMeasurement(args: {
     quietSamplesAtLeast,
   );
 
-  let unansweredPreviousTurn = false;
   const turns = speechSegments.map(
     (segment, index): AudioTimelineTurnMeasurement => {
       const nextSegment = speechSegments[index + 1];
@@ -139,11 +162,6 @@ export function computeAudioTimelineMeasurement(args: {
         vadEndSample: segment.endSample,
         vadEndOffsetFromT0Samples: segment.endSample - t0Sample,
       };
-      if (unansweredPreviousTurn)
-        return unsupportedTurn(
-          common,
-          'A prior human turn had no bounded assistant onset; later reply association is ambiguous.',
-        );
       if (
         !Number.isInteger(segment.startSample) ||
         !Number.isInteger(segment.endSample) ||
@@ -157,13 +175,23 @@ export function computeAudioTimelineMeasurement(args: {
           'Invalid or overlapping human VAD window.',
         );
 
+      if (
+        rejectAssistantOnsetBeforeSpeechEnd &&
+        assistantActivity.some(
+          (activity) => activity.startSample < segment.endSample,
+        )
+      )
+        return unsupportedTurn(
+          common,
+          'Assistant audio began before the human command speech ended.',
+        );
+
       const overlap = assistantActivity.find(
         (activity) =>
           activity.startSample < segment.endSample &&
           activity.endSample > segment.startSample,
       );
       if (overlap) {
-        unansweredPreviousTurn = true;
         return unsupportedTurn(
           common,
           'Assistant audio overlapped the human VAD turn.',
@@ -176,14 +204,12 @@ export function computeAudioTimelineMeasurement(args: {
           activity.startSample < windowEnd,
       );
       if (!candidate) {
-        unansweredPreviousTurn = true;
         return unsupportedTurn(
           common,
           'No assistant onset occurred before the next human VAD turn or capture end.',
         );
       }
       if (candidate.endSample > windowEnd) {
-        unansweredPreviousTurn = true;
         return unsupportedTurn(
           common,
           'Assistant audio overlaps the next human VAD turn.',

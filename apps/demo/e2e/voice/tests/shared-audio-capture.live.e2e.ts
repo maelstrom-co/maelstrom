@@ -113,6 +113,7 @@ test('shared AudioWorklet retains distinct microphone/output tones through repea
         const target = window as Window & {
           __voiceAudioTimeline?: {
             waitForReady(): Promise<void>;
+            mark(): Promise<number>;
             testAttachMicrophone(stream: MediaStream): Promise<void>;
           };
           __captureTestReady?: boolean;
@@ -194,6 +195,19 @@ test('shared AudioWorklet retains distinct microphone/output tones through repea
     if (win.__captureTestError) throw new Error(win.__captureTestError);
     return win.__captureTestReady === true;
   });
+  const markerFrames = await page.evaluate(async () => {
+    const timeline = (
+      window as Window & {
+        __voiceAudioTimeline?: { mark(): Promise<number> };
+      }
+    ).__voiceAudioTimeline;
+    if (!timeline)
+      throw new Error('Shared audio timeline hook was not installed');
+    const first = await timeline.mark();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const second = await timeline.mark();
+    return [first, second] as const;
+  });
   await page.waitForTimeout(2_500);
   const snapshot = await page.evaluate(async () => {
     const timeline = (
@@ -220,6 +234,10 @@ test('shared AudioWorklet retains distinct microphone/output tones through repea
   const microphone = wavPcm(microphoneWav);
   const assistant = wavPcm(assistantWav);
   assert.equal(snapshot.sampleRate, 48_000);
+  assert.deepEqual(snapshot.playbackMarkers, markerFrames);
+  assert.ok(markerFrames[0] >= snapshot.startFrame);
+  assert.ok(markerFrames[1] > markerFrames[0]);
+  assert.ok(markerFrames[1] <= snapshot.endFrame);
   assert.equal(microphone.sampleRate, snapshot.sampleRate);
   assert.equal(assistant.sampleRate, snapshot.sampleRate);
   assert.equal(
