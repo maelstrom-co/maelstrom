@@ -21,10 +21,10 @@ export default defineConfig({
     headless: true,
     permissions: ['microphone'],
     viewport: { width: 1440, height: 900 },
-    // A BYOK key is entered through a password input; traces can serialize input events.
-    // Disable traces rather than risk persisting the secret in failure artifacts.
+    // Credentialed voice pages must not emit browser recordings or screenshots.
     trace: 'off',
-    screenshot: 'only-on-failure',
+    screenshot: 'off',
+    video: 'off',
     launchOptions: { ignoreDefaultArgs: ['--mute-audio'] },
   },
 });

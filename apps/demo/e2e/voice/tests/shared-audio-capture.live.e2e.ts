@@ -1,7 +1,21 @@
 import assert from 'node:assert/strict';
-import { test } from '@playwright/test';
+import { type Page, test } from '@playwright/test';
 import type { BrowserAudioTimelineSnapshot } from './shared-audio-capture.ts';
 import { installSharedAudioTimeline } from './shared-audio-capture.ts';
+
+async function prepareAudioPage(
+  page: Page,
+  onRouteHit: () => void = () => {},
+): Promise<void> {
+  await page.route('http://localhost/**', async (route) => {
+    onRouteHit();
+    await route.fulfill({
+      contentType: 'text/html',
+      body: '<!doctype html><html><body></body></html>',
+    });
+  });
+  await page.goto('http://localhost/');
+}
 
 function wavPcm(wav: Buffer) {
   assert.equal(wav.toString('ascii', 0, 4), 'RIFF');
@@ -79,7 +93,8 @@ test('shared AudioWorklet retains distinct microphone/output tones through repea
   page,
 }, testInfo) => {
   testInfo.setTimeout(20_000);
-  await page.goto('/');
+  let routeHits = 0;
+  await prepareAudioPage(page, () => routeHits++);
   await page.evaluate(installSharedAudioTimeline);
   await page.evaluate(() => {
     const button = document.createElement('button');
@@ -152,6 +167,24 @@ test('shared AudioWorklet retains distinct microphone/output tones through repea
       });
     });
   });
+  const fixtureDiagnostics = await page.evaluate(() => ({
+    title: document.title,
+    readyState: document.readyState,
+    secureContext: window.isSecureContext,
+    path: window.location.pathname,
+    audioWorkletNodeAvailable: typeof AudioWorkletNode === 'function',
+    microphoneApiAvailable: Boolean(navigator.mediaDevices?.getUserMedia),
+    startButtonCount: [...document.querySelectorAll('button')].filter(
+      (button) => button.textContent?.trim() === 'Start deterministic audio',
+    ).length,
+    bodyText: document.body.innerText.slice(0, 500),
+  }));
+  await testInfo.attach('audio-fixture-diagnostics.json', {
+    body: JSON.stringify({ routeHits, ...fixtureDiagnostics }, null, 2),
+    contentType: 'application/json',
+  });
+  assert.equal(routeHits, 1, 'the deterministic localhost route was served');
+  assert.equal(fixtureDiagnostics.startButtonCount, 1);
   await page.getByRole('button', { name: 'Start deterministic audio' }).click();
   await page.waitForFunction(() => {
     const win = window as Window & {
@@ -244,11 +277,162 @@ test('shared AudioWorklet retains distinct microphone/output tones through repea
   );
 });
 
+test('shared audio timeline snapshots aligned tones after source tracks and context stop', async ({
+  page,
+}, testInfo) => {
+  testInfo.setTimeout(15_000);
+  await prepareAudioPage(page);
+  await page.evaluate(installSharedAudioTimeline);
+  await page.evaluate(() => {
+    const button = document.createElement('button');
+    button.textContent = 'Start teardown capture';
+    document.body.append(button);
+    button.addEventListener('click', () => {
+      void (async () => {
+        const producer = new AudioContext({ sampleRate: 48_000 });
+        await producer.resume();
+        const microphone = producer.createMediaStreamDestination();
+        const assistant = producer.createMediaStreamDestination();
+        const keepAlive = producer.createGain();
+        keepAlive.gain.value = 0;
+        keepAlive.connect(producer.destination);
+        const timeline = (
+          window as Window & {
+            __voiceAudioTimeline?: {
+              testAttachMicrophone(stream: MediaStream): Promise<void>;
+              waitForReady(): Promise<void>;
+            };
+            __stopTeardownCapture?: () => Promise<void>;
+            __teardownCaptureReady?: boolean;
+            __teardownCaptureError?: string;
+          }
+        ).__voiceAudioTimeline;
+        if (!timeline)
+          throw new Error('Shared audio timeline hook was not installed');
+        await timeline.testAttachMicrophone(microphone.stream);
+        const audio = document.createElement('audio');
+        document.body.append(audio);
+        audio.srcObject = assistant.stream;
+        await audio.play();
+        await timeline.waitForReady();
+        const addTone = (destination: AudioNode, frequency: number) => {
+          const buffer = producer.createBuffer(
+            1,
+            producer.sampleRate * 2,
+            producer.sampleRate,
+          );
+          const samples = buffer.getChannelData(0);
+          for (let frame = 0; frame < samples.length; frame++) {
+            const time = frame / producer.sampleRate;
+            const active =
+              (time >= 0.2 && time < 0.45) || (time >= 1.1 && time < 1.35);
+            if (active)
+              samples[frame] = 0.35 * Math.sin(2 * Math.PI * frequency * time);
+          }
+          const source = producer.createBufferSource();
+          source.buffer = buffer;
+          source.connect(destination);
+          source.connect(keepAlive);
+          source.start();
+        };
+        addTone(microphone, 440);
+        addTone(assistant, 880);
+        (
+          window as Window & {
+            __stopTeardownCapture?: () => Promise<void>;
+          }
+        ).__stopTeardownCapture = async () => {
+          audio.pause();
+          audio.srcObject = null;
+          for (const track of microphone.stream.getTracks()) track.stop();
+          for (const track of assistant.stream.getTracks()) track.stop();
+          await producer.close();
+        };
+        (
+          window as Window & { __teardownCaptureReady?: boolean }
+        ).__teardownCaptureReady = true;
+      })().catch((error: unknown) => {
+        (
+          window as Window & { __teardownCaptureError?: string }
+        ).__teardownCaptureError = String(error);
+      });
+    });
+  });
+  await page.getByRole('button', { name: 'Start teardown capture' }).click();
+  await page.waitForFunction(() => {
+    const win = window as Window & {
+      __teardownCaptureReady?: boolean;
+      __teardownCaptureError?: string;
+    };
+    if (win.__teardownCaptureError) throw new Error(win.__teardownCaptureError);
+    return win.__teardownCaptureReady === true;
+  });
+  await page.waitForTimeout(2_500);
+  await page.evaluate(async () => {
+    const stop = (
+      window as Window & { __stopTeardownCapture?: () => Promise<void> }
+    ).__stopTeardownCapture;
+    if (!stop) throw new Error('Teardown callback was not installed');
+    await stop();
+  });
+  await page.waitForTimeout(100);
+  const snapshot = await page.evaluate(async () => {
+    const timeline = (
+      window as Window & {
+        __voiceAudioTimeline?: {
+          snapshot(): Promise<BrowserAudioTimelineSnapshot>;
+        };
+      }
+    ).__voiceAudioTimeline;
+    if (!timeline)
+      throw new Error('Shared audio timeline hook was not installed');
+    return timeline.snapshot();
+  });
+  const input = Buffer.from(snapshot.inputWavBase64, 'base64');
+  const assistant = Buffer.from(snapshot.assistantWavBase64, 'base64');
+  const inputInfo = wavPcm(input);
+  const assistantInfo = wavPcm(assistant);
+  const report = {
+    missingBlocks: snapshot.missingBlocks,
+    missingBlockReasons: snapshot.missingBlockReasons,
+    sampleRate: snapshot.sampleRate,
+    startFrame: snapshot.startFrame,
+    endFrame: snapshot.endFrame,
+    inputFrames: inputInfo.pcm.length / (2 * inputInfo.channels),
+    assistantFrames: assistantInfo.pcm.length / (2 * assistantInfo.channels),
+    inputToneBursts: countToneBursts(
+      inputInfo.pcm,
+      inputInfo.channels,
+      inputInfo.sampleRate,
+    ),
+    assistantToneBursts: countToneBursts(
+      assistantInfo.pcm,
+      assistantInfo.channels,
+      assistantInfo.sampleRate,
+    ),
+  };
+  await testInfo.attach('teardown-snapshot-probe.json', {
+    body: JSON.stringify(report, null, 2),
+    contentType: 'application/json',
+  });
+  console.log(`Teardown snapshot probe: ${JSON.stringify(report)}`);
+  assert.equal(report.sampleRate, 48_000);
+  assert.equal(
+    report.missingBlocks,
+    0,
+    JSON.stringify(report.missingBlockReasons),
+  );
+  assert.equal(report.inputFrames, report.endFrame - report.startFrame);
+  assert.equal(report.assistantFrames, report.inputFrames);
+  assert.ok(report.inputToneBursts >= 2);
+  assert.ok(report.assistantToneBursts >= 2);
+});
+
 test('bounds snapshot readiness when the assistant stream never attaches', async ({
   page,
 }, testInfo) => {
   testInfo.setTimeout(10_000);
-  await page.goto('/');
+  await prepareAudioPage(page);
   await page.evaluate(installSharedAudioTimeline);
   await page.evaluate(() => {
     const button = document.createElement('button');

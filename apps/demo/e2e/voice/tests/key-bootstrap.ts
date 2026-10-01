@@ -81,6 +81,39 @@ export async function startVoiceDemoFromKeylessLanding(
   page: Page,
   apiKey: string | undefined,
 ) {
+  await page
+    .waitForFunction(
+      () => {
+        const isVisible = (element: Element | null) => {
+          if (!element) return false;
+          const style = getComputedStyle(element);
+          const bounds = element.getBoundingClientRect();
+          return (
+            style.visibility !== 'hidden' &&
+            style.display !== 'none' &&
+            bounds.width > 0 &&
+            bounds.height > 0
+          );
+        };
+        const startButton = [...document.querySelectorAll('button')].find(
+          (button) => button.textContent?.trim() === 'Start interactive demo',
+        );
+        return (
+          isVisible(startButton ?? null) ||
+          isVisible(document.querySelector('button.voice-orb')) ||
+          isVisible(document.querySelector('#playground-api-key')) ||
+          isVisible(
+            document.querySelector(
+              '[role="status"][aria-label*="connection status: key required" i]',
+            ),
+          )
+        );
+      },
+      undefined,
+      { timeout: 10_000 },
+    )
+    .catch(() => undefined);
+
   const keyRequired = page.getByRole('status', {
     name: /connection status: key required/i,
   });
@@ -97,7 +130,13 @@ export async function startVoiceDemoFromKeylessLanding(
   const startButtonVisible =
     (await startButton.count()) === 1 &&
     (await startButton.isVisible().catch(() => false));
-  if (!keyIsRequired && !drawerAlreadyOpen && !startButtonVisible) return;
+  if (!keyIsRequired && !drawerAlreadyOpen && !startButtonVisible) {
+    const voiceOrb = page.locator('button.voice-orb');
+    if ((await voiceOrb.count()) === 1 && (await voiceOrb.isVisible())) return;
+    throw new Error(
+      'Voice benchmark found neither a ready voice orb nor a recognized keyless landing page.',
+    );
+  }
 
   if (!drawerAlreadyOpen) {
     if (!startButtonVisible)

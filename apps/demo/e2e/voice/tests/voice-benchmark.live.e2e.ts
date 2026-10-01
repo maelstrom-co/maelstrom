@@ -25,6 +25,11 @@ import {
   vadPadding,
   vadThreshold,
 } from './shared-audio-timeline.ts';
+import {
+  attachVoiceBenchmarkFailureStatus,
+  installAssistantCaptionMutationObserver,
+  type VoiceBenchmarkFailurePhase,
+} from './voice-benchmark-status.ts';
 
 const exec = promisify(execFile);
 const scenarios = ['only-tasks', 'open-calendar', 'put-it-back'] as const;
@@ -133,15 +138,26 @@ test('voice benchmark: fixed audio scenarios', async ({ page }, testInfo) => {
 
   const baseURL = process.env.MAELSTROM_BASE_URL || 'http://localhost:3000';
   await page.addInitScript(installSharedAudioTimeline);
-  await page.goto(initialNavigationURL(baseURL));
-  await startVoiceDemoFromKeylessLanding(
-    page,
-    process.env.MAELSTROM_E2E_OPENAI_API_KEY,
-  );
   const voiceOrb = page.locator('button.voice-orb');
-  await expect(voiceOrb).toHaveCount(1, { timeout: 30_000 });
-  await expect(page.getByTestId('captions')).toBeVisible();
+  try {
+    await page.goto(initialNavigationURL(baseURL));
+    await startVoiceDemoFromKeylessLanding(
+      page,
+      process.env.MAELSTROM_E2E_OPENAI_API_KEY,
+    );
+    await expect(voiceOrb).toHaveCount(1, { timeout: 30_000 });
+    await expect(page.getByTestId('captions')).toBeVisible();
+  } catch (error) {
+    await attachVoiceBenchmarkFailureStatus(page, testInfo, {
+      failurePhase: 'bootstrap',
+      captionChanged: false,
+      assistantOutputAudioActive: false,
+      assistantOutputAudioSampleCount: 0,
+    }).catch(() => {});
+    throw error;
+  }
 
+  await installAssistantCaptionMutationObserver(page);
   const capture = recordReplies('tts2mic_rx.monitor', recordingBudgetMs);
   const records: VoiceBenchmarkRecord[] = [];
   let failures = 0;
@@ -149,7 +165,10 @@ test('voice benchmark: fixed audio scenarios', async ({ page }, testInfo) => {
   let responseLatency = unsupportedLatency(
     'Shared browser audio timeline was not captured.',
   );
-  let timelineError: string | undefined;
+  let timelineCaptureFailed = false;
+  let failurePhase: VoiceBenchmarkFailurePhase = 'realtime-connection';
+  let captionChanged = false;
+  let scenarioAudioStart = 0;
   try {
     if (
       ['idle', 'error'].includes(
@@ -187,8 +206,11 @@ test('voice benchmark: fixed audio scenarios', async ({ page }, testInfo) => {
       .locator('[data-role="assistant"]');
     for (let repetition = 1; repetition <= count; repetition++) {
       for (const scenario of scenarios) {
+        failurePhase = 'assistant-caption';
+        captionChanged = false;
         const before = await assistant.allTextContents();
         const start = capture.pcm().length;
+        scenarioAudioStart = start;
         const { stdout } = await exec(
           binary,
           [
@@ -212,14 +234,15 @@ test('voice benchmark: fixed audio scenarios', async ({ page }, testInfo) => {
           .poll(
             async () => {
               const now = await assistant.allTextContents();
-              return (
+              captionChanged =
                 now.length !== before.length ||
-                now.some((text, i) => text !== before[i])
-              );
+                now.some((text, i) => text !== before[i]);
+              return captionChanged;
             },
             { timeout: 30_000 },
           )
           .toBe(true);
+        failurePhase = 'assistant-output-audio';
         await expect
           .poll(
             async () => {
@@ -250,6 +273,19 @@ test('voice benchmark: fixed audio scenarios', async ({ page }, testInfo) => {
     }
   } catch (error) {
     failures++;
+    let assistantOutputAudioActive = false;
+    let assistantOutputAudioSampleCount = 0;
+    try {
+      const outputPcm = capture.pcm(scenarioAudioStart);
+      assistantOutputAudioActive = nonSilentMs(outputPcm) >= 150;
+      assistantOutputAudioSampleCount = outputPcm.length / 2;
+    } catch {}
+    await attachVoiceBenchmarkFailureStatus(page, testInfo, {
+      failurePhase,
+      captionChanged,
+      assistantOutputAudioActive,
+      assistantOutputAudioSampleCount,
+    }).catch(() => {});
     throw error;
   } finally {
     try {
@@ -343,10 +379,10 @@ test('voice benchmark: fixed audio scenarios', async ({ page }, testInfo) => {
           await rm(directory, { recursive: true, force: true });
         }
       }
-    } catch (error) {
-      timelineError = error instanceof Error ? error.message : String(error);
+    } catch {
+      timelineCaptureFailed = true;
       responseLatency = unsupportedLatency(
-        `Shared audio capture or VAD failed: ${timelineError}`,
+        'Shared audio capture or VAD failed.',
       );
     }
 
@@ -390,7 +426,7 @@ test('voice benchmark: fixed audio scenarios', async ({ page }, testInfo) => {
           'separate continuous PulseAudio monitor below, retained only for assistant active-audio duration; not used for response latency',
         turnBoundary:
           'voice UI and monitor silence are used only to orchestrate scenario completion; neither is used to derive latency',
-        timelineError: timelineError ?? null,
+        timelineCaptureFailed,
       },
       responseLatency,
       summary: summarizeVoiceBenchmark(records, responseLatency, failures),
@@ -405,9 +441,5 @@ test('voice benchmark: fixed audio scenarios', async ({ page }, testInfo) => {
       .click({ timeout: 1500 })
       .catch(() => {});
     await capture.stop();
-    await testInfo.attach('voice-benchmark-recorder.log', {
-      body: capture.diagnostics(),
-      contentType: 'text/plain',
-    });
   }
 });

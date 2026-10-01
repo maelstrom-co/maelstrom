@@ -110,3 +110,4 @@ graphify-out
 
 # voice e2e artifacts
 apps/demo/e2e/voice/audio
+test_with_credentials.sh

@@ -84,6 +84,7 @@ export async function installSharedAudioTimeline(): Promise<void> {
       constructor() {
         super();
         this.armed = false;
+        this.warmupQuanta = 0;
         this.assistantConnected = false;
         this.microphoneConnected = false;
         this.capacity = sampleRate;
@@ -148,7 +149,11 @@ export async function installSharedAudioTimeline(): Promise<void> {
         const frames = left?.length || 128;
         if (left) left.fill(0);
         if (right) right.fill(0);
-        if (!this.armed) return true;
+        if (!this.armed) {
+          this.warmupQuanta++;
+          if (this.warmupQuanta === 8) this.port.postMessage({ warmed: true });
+          return true;
+        }
         const micLeft = microphone[0];
         const micRight = microphone[1];
         const assistantLeft = assistant[0];
@@ -256,8 +261,15 @@ export async function installSharedAudioTimeline(): Promise<void> {
             channelCountMode: 'max',
           },
         );
-        recorder.connect(context.destination);
+        let resolveWarmed!: () => void;
+        const warmed = new Promise<void>((resolve) => {
+          resolveWarmed = resolve;
+        });
         recorder.port.onmessage = ({ data }) => {
+          if (data.warmed) {
+            resolveWarmed();
+            return;
+          }
           if (data.flushed) {
             flushResolver?.();
             flushResolver = undefined;
@@ -320,6 +332,21 @@ export async function installSharedAudioTimeline(): Promise<void> {
               'Shared audio timeline exceeded its ten-minute limit',
             );
         };
+        recorder.connect(audioContext.destination);
+        await Promise.race([
+          warmed,
+          new Promise<never>((_, reject) =>
+            setTimeout(
+              () =>
+                reject(
+                  new Error(
+                    'Shared AudioWorklet did not warm up before capture',
+                  ),
+                ),
+              1_000,
+            ),
+          ),
+        ]);
         if (microphoneSourceConnected)
           recorder.port.postMessage('microphone-connected');
         if (assistantSourceConnected)

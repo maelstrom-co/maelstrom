@@ -20,7 +20,8 @@ export default defineConfig({
     permissions: ['microphone'],
     viewport: { width: 1440, height: 900 },
     trace: 'off',
-    screenshot: 'only-on-failure',
+    screenshot: 'off',
+    video: 'off',
     launchOptions: { ignoreDefaultArgs: ['--mute-audio'] },
   },
 });

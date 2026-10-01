@@ -2,8 +2,10 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import {
   access,
+  chmod,
   mkdir,
   mkdtemp,
+  readdir,
   readFile,
   rm,
   writeFile,
@@ -13,6 +15,8 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { resolveTtsCacheDir } from './tts-cache-dir.ts';
+
+process.umask(0o077);
 
 const voiceRoot = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(voiceRoot, '../../../..');
@@ -156,6 +160,15 @@ async function prepareFixtures(
   }
 }
 
+async function makeArtifactTreePrivate(path: string): Promise<void> {
+  for (const entry of await readdir(path, { withFileTypes: true })) {
+    const child = join(path, entry.name);
+    if (entry.isDirectory()) await makeArtifactTreePrivate(child);
+    else if (entry.isFile()) await chmod(child, 0o600);
+  }
+  await chmod(path, 0o700);
+}
+
 async function collectArtifacts(runnerName: string): Promise<number> {
   let status = 0;
   const copy = await runDocker(
@@ -281,6 +294,11 @@ async function main(): Promise<number> {
         process.stderr.write(`${redact(message)}\n`);
         artifactStatus = 1;
       }
+    }
+    try {
+      await makeArtifactTreePrivate(artifactRoot);
+    } catch {
+      if (artifactStatus === 0) artifactStatus = 1;
     }
     if (runnerCreationAttempted) {
       await runDocker(['rm', '--force', runnerName], {

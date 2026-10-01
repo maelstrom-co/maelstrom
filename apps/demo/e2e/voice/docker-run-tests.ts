@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url';
 import { checkPort, forwardPort } from './forward.ts';
 import { resolveRunnerTarget } from './runner-target.ts';
 
+process.umask(0o077);
+
 const root = dirname(fileURLToPath(import.meta.url));
 const target = resolveRunnerTarget(process.env.MAELSTROM_BASE_URL);
 const upstream = process.env.MAELSTROM_HOST || 'host.docker.internal';
