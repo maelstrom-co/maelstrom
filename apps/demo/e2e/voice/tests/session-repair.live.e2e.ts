@@ -5,12 +5,12 @@ import { test as base, expect, type Page } from '@playwright/test';
 import { initialNavigationURL } from '../runner-target.ts';
 import { observeProtocol } from './evidence.ts';
 import { enterAndSubmitApiKey, hasKeyEntryControl } from './key-bootstrap.ts';
+import { nonSilentMs, recordReplies, silentTailMs } from './reply-recorder';
+import { sessionAudioArtifacts } from './session-audio-artifacts.ts';
 import {
-  nonSilentMs,
-  recordReplies,
-  replyWav,
-  silentTailMs,
-} from './reply-recorder';
+  type BrowserAudioTimelineSnapshot,
+  installSharedAudioTimeline,
+} from './shared-audio-capture.ts';
 
 const exec = promisify(execFile);
 const fixture = (name: string) =>
@@ -29,13 +29,6 @@ type VoiceWorkerFixtures = {
   };
 };
 
-type RecordedTurn = {
-  readonly name: string;
-  readonly input: string;
-  readonly start: number;
-  end?: number;
-};
-
 const test = base.extend<VoiceTestFixtures, VoiceWorkerFixtures>({
   voiceConfig: [
     async ({ browser: _browser }, use) => {
@@ -51,6 +44,7 @@ const test = base.extend<VoiceTestFixtures, VoiceWorkerFixtures>({
     const page = await context.newPage();
     const protocol = observeProtocol(page);
     try {
+      await page.addInitScript(installSharedAudioTimeline);
       await page.goto(initialNavigationURL(voiceConfig.baseURL));
       const keyInput = page.locator('#playground-api-key');
       const calendar = page.locator('[data-instance-id="calendar-main"]');
@@ -136,7 +130,6 @@ async function runTwoTurnRepair(
     .getByTestId('captions')
     .locator('[data-role="assistant"]');
   const audio = recordReplies();
-  const turns: RecordedTurn[] = [];
   try {
     const voiceOrb = page.locator('button.voice-orb');
     const initialVoiceState = await voiceOrb.getAttribute('data-state');
@@ -175,12 +168,7 @@ async function runTwoTurnRepair(
         await page.waitForTimeout(500);
       }
       const assistantBefore = await assistant.allTextContents();
-      const turn: RecordedTurn = {
-        name,
-        input,
-        start: audio.pcm().length,
-      };
-      turns.push(turn);
+      const turnStart = audio.pcm().length;
       let stdout: string;
       try {
         ({ stdout } = await exec(
@@ -213,11 +201,10 @@ async function runTwoTurnRepair(
       await expect
         .poll(() => {
           audio.check();
-          const turnPcm = audio.pcm(turn.start);
+          const turnPcm = audio.pcm(turnStart);
           return nonSilentMs(turnPcm) >= 150 && silentTailMs(turnPcm) >= 600;
         })
         .toBe(true);
-      turn.end = audio.pcm().length;
       if (name === 'only-tasks') {
         const evidence = JSON.stringify({
           user: await user.allTextContents(),
@@ -253,6 +240,16 @@ async function runTwoTurnRepair(
         /^(?:connected|listening)$/,
       );
     }
+    await page.evaluate(async () => {
+      const timeline = (
+        window as Window & {
+          __voiceAudioTimeline?: { waitForReady(): Promise<void> };
+        }
+      ).__voiceAudioTimeline;
+      if (!timeline)
+        throw new Error('Shared session audio capture was not installed');
+      await timeline.waitForReady();
+    });
     protocol.assertHealthy('completed two-turn scenario');
   } catch (error) {
     protocol.assertHealthy('failed test step', error);
@@ -298,30 +295,48 @@ async function runTwoTurnRepair(
       .click({ timeout: 1500 })
       .catch(() => {});
     await preserve(() => audio.stop());
-    for (const [turnIndex, turn] of turns.entries()) {
-      const inputIndex = turnIndex * 2;
-      const outputIndex = inputIndex + 1;
-      await preserve(async () =>
-        test.info().attach(`${turn.name}-input-${inputIndex}.wav`, {
-          path: turn.input,
-          contentType: 'audio/wav',
+    try {
+      const snapshot = await page.evaluate(async () => {
+        const timeline = (
+          window as Window & {
+            __voiceAudioTimeline?: {
+              snapshot(): Promise<BrowserAudioTimelineSnapshot>;
+            };
+          }
+        ).__voiceAudioTimeline;
+        if (!timeline)
+          throw new Error('Shared session audio capture was not installed');
+        return timeline.snapshot();
+      });
+      const artifacts = sessionAudioArtifacts(snapshot);
+      expect(artifacts).toHaveLength(2);
+      for (const artifact of artifacts)
+        await test.info().attach(artifact.name, {
+          body: artifact.body,
+          contentType: artifact.contentType,
+        });
+    } catch (error) {
+      await preserve(() =>
+        test.info().attach('session-audio-limitation.json', {
+          body: JSON.stringify(
+            {
+              scenario: 'two-turn session audio capture',
+              limitation:
+                error instanceof Error ? error.message : String(error),
+            },
+            null,
+            2,
+          ),
+          contentType: 'application/json',
         }),
       );
-      await preserve(async () => {
-        const captured = audio.pcm(turn.start);
-        const end = turn.end ?? audio.pcm().length;
-        await test.info().attach(`${turn.name}-output-${outputIndex}.wav`, {
-          body: replyWav(captured.subarray(0, end - turn.start)),
-          contentType: 'audio/wav',
-        });
-      });
+      expect
+        .soft(
+          false,
+          `Unable to attach aligned complete-session audio WAVs: ${error instanceof Error ? error.message : String(error)}`,
+        )
+        .toBe(true);
     }
-    await preserve(async () =>
-      test.info().attach('capture-session.wav', {
-        body: replyWav(audio.pcm()),
-        contentType: 'audio/wav',
-      }),
-    );
     await preserve(async () =>
       test.info().attach('recorder.log', {
         body: audio.diagnostics(),
