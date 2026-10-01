@@ -76,3 +76,34 @@ export async function enterAndSubmitApiKey(page: Page, key: string) {
   if ((await saveButton.count()) !== 1) throw new Error(missingEntryMessage);
   await saveButton.click();
 }
+
+export async function startVoiceDemoFromKeylessLanding(
+  page: Page,
+  apiKey: string | undefined,
+) {
+  const keyRequired = page.getByRole('status', {
+    name: /connection status: key required/i,
+  });
+  if (!(await keyRequired.isVisible().catch(() => false))) return;
+
+  const startButton = page.getByRole('button', {
+    name: 'Start interactive demo',
+    exact: true,
+  });
+  if ((await startButton.count()) !== 1 || !(await startButton.isVisible()))
+    throw new Error(
+      'Voice benchmark found the key-required landing page without its Start interactive demo action.',
+    );
+  await startButton.click();
+
+  if (!apiKey)
+    throw new Error(
+      'BYOK voice benchmark requires MAELSTROM_E2E_OPENAI_API_KEY',
+    );
+  await enterAndSubmitApiKey(page, apiKey);
+
+  if (await keyRequired.isVisible().catch(() => false))
+    throw new Error(
+      'Voice benchmark API-key bootstrap completed but the page still requires a key.',
+    );
+}

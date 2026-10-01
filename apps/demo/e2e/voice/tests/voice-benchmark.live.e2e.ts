@@ -10,7 +10,7 @@ import {
   summarizeVoiceBenchmark,
   type VoiceBenchmarkRecord,
 } from './benchmark-metrics.ts';
-import { enterAndSubmitApiKey, hasKeyEntryControl } from './key-bootstrap.ts';
+import { startVoiceDemoFromKeylessLanding } from './key-bootstrap.ts';
 import { nonSilentMs, recordReplies, silentTailMs } from './reply-recorder.ts';
 import {
   type BrowserAudioTimelineSnapshot,
@@ -134,16 +134,10 @@ test('voice benchmark: fixed audio scenarios', async ({ page }, testInfo) => {
   const baseURL = process.env.MAELSTROM_BASE_URL || 'http://localhost:3000';
   await page.addInitScript(installSharedAudioTimeline);
   await page.goto(initialNavigationURL(baseURL));
-  const keyInput = page.locator('#playground-api-key');
-  const apiKey = process.env.MAELSTROM_E2E_OPENAI_API_KEY;
-  const keyControl = await hasKeyEntryControl(page);
-  if ((await keyInput.isVisible().catch(() => false)) || keyControl) {
-    if (!apiKey)
-      throw new Error(
-        'BYOK voice benchmark requires MAELSTROM_E2E_OPENAI_API_KEY',
-      );
-    await enterAndSubmitApiKey(page, apiKey);
-  }
+  await startVoiceDemoFromKeylessLanding(
+    page,
+    process.env.MAELSTROM_E2E_OPENAI_API_KEY,
+  );
   const voiceOrb = page.locator('button.voice-orb');
   await expect(voiceOrb).toHaveCount(1, { timeout: 30_000 });
   await expect(page.getByTestId('captions')).toBeVisible();
