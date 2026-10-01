@@ -1,5 +1,28 @@
 # Demo voice end-to-end tests
 
+## Reusing browser mechanics
+
+Voice suites use the local driver for navigation, observations, browser evaluation/snapshots, shared-audio hooks, protocol evidence, and bounded subprocess cleanup while keeping scenario setup and benchmark policy in the suite:
+
+```ts
+import { test } from './voice-test-fixture.ts';
+
+test('voice scenario', async ({ page, voiceDriver }) => {
+  await voiceDriver.navigate(process.env.MAELSTROM_BASE_URL);
+  const before = voiceDriver.cursor();
+  // Scenario-specific key setup and actions stay in the consumer.
+  await page.getByRole('button', { name: 'Start voice' }).click();
+  await voiceDriver.waitForObservation(
+    (event) => event.type === 'voice-state',
+    { after: before, timeoutMs: 10_000, signal: voiceDriver.signal },
+  );
+  const snapshot = await voiceDriver.snapshot();
+  voiceDriver.assertHealthy('scenario setup');
+});
+```
+
+Observations identify the run/page, carry monotonically increasing sequence numbers, and retain separate Node-monotonic and browser-performance clock domains. The bounded buffer exposes overflow and rejects expired cursors rather than silently skipping events. The Playwright fixture records evidence and disposes its browser instrumentation automatically; `navigate(baseURL, false)` skips AudioWorklet capture when unnecessary. Use `startVoiceProcess` for playback commands that must be cancelled with the driver lifecycle; termination escalates from SIGTERM to SIGKILL.
+
 Run the standalone benchmark on Linux with `TTS2MIC_BIN` and `PULSE_SERVER` set (normally supplied by the voice-devtools container), using its separate Playwright configuration and no test retries:
 
 ```sh

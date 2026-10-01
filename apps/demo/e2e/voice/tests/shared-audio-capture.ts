@@ -36,7 +36,14 @@ export async function installSharedAudioTimeline(): Promise<void> {
       mark(): Promise<number>;
       assistantMonitor(fromFrame: number): Promise<AssistantAudioActivity>;
       testAttachMicrophone(stream: MediaStream): Promise<void>;
+      dispose?(): Promise<void>;
     };
+    __voiceTestObserve?: (event: {
+      readonly type: string;
+      readonly source: string;
+      readonly clock: number;
+      readonly payload?: unknown;
+    }) => Promise<void>;
   };
   if (target.__voiceAudioTimeline) return;
 
@@ -46,6 +53,7 @@ export async function installSharedAudioTimeline(): Promise<void> {
     resolveReady = resolve;
     rejectReady = reject;
   });
+  void ready.catch(() => {});
   const blocks: {
     readonly frame: number;
     readonly length: number;
@@ -58,12 +66,15 @@ export async function installSharedAudioTimeline(): Promise<void> {
     readonly inputPresent: boolean;
     readonly assistantPresent: boolean;
   }[] = [];
+  let disposed = false;
   let context: AudioContext | undefined;
   let recorder: AudioWorkletNode | undefined;
   let graphPromise: Promise<void> | undefined;
   let microphoneSourceConnected = false;
   let assistantSourceConnected = false;
   let assistantAttachPromise: Promise<void> | undefined;
+  const pendingAcquisitions = new Set<Promise<MediaStream>>();
+  const mutedState = new Map<HTMLMediaElement, boolean>();
   let captureArmed = false;
   let capturedSamples = 0;
   let problem: Error | undefined;
@@ -94,6 +105,18 @@ export async function installSharedAudioTimeline(): Promise<void> {
     (activity: AssistantAudioActivity) => void
   >();
   const playbackMarkers: number[] = [];
+  const reportFailure = (reason: string) => {
+    if (problem) return;
+    problem = new Error(reason);
+    void target
+      .__voiceTestObserve?.({
+        type: 'audio-capture-failure',
+        source: 'shared-audio-timeline',
+        clock: performance.now(),
+        payload: { reason },
+      })
+      .catch(() => {});
+  };
 
   const workletSource = `
     class SharedTimelineRecorder extends AudioWorkletProcessor {
@@ -281,6 +304,7 @@ export async function installSharedAudioTimeline(): Promise<void> {
   `;
 
   const ensureGraph = async () => {
+    if (disposed) throw new Error('Shared audio timeline was disposed');
     if (problem) throw problem;
     if (recorder) return;
     if (graphPromise) return graphPromise;
@@ -292,6 +316,7 @@ export async function installSharedAudioTimeline(): Promise<void> {
         });
         context = audioContext;
         await audioContext.resume();
+        if (disposed) throw new Error('Shared audio timeline was disposed');
         if (audioContext.sampleRate !== 48_000)
           throw new Error(
             `Shared audio clock sample rate is ${audioContext.sampleRate}, expected 48000`,
@@ -304,6 +329,7 @@ export async function installSharedAudioTimeline(): Promise<void> {
         } finally {
           URL.revokeObjectURL(module);
         }
+        if (disposed) throw new Error('Shared audio timeline was disposed');
         recorder = new AudioWorkletNode(
           audioContext,
           'maelstrom-shared-audio-timeline',
@@ -412,9 +438,7 @@ export async function installSharedAudioTimeline(): Promise<void> {
           blocks.push(data);
           capturedSamples += data.length;
           if (capturedSamples > audioContext.sampleRate * 600)
-            problem = new Error(
-              'Shared audio timeline exceeded its ten-minute limit',
-            );
+            reportFailure('capture-exceeded-ten-minute-limit');
         };
         recorder.connect(audioContext.destination);
         await Promise.race([
@@ -431,20 +455,28 @@ export async function installSharedAudioTimeline(): Promise<void> {
             ),
           ),
         ]);
+        if (disposed) throw new Error('Shared audio timeline was disposed');
         if (microphoneSourceConnected)
           recorder.port.postMessage('microphone-connected');
         if (assistantSourceConnected)
           recorder.port.postMessage('assistant-connected');
-      } catch (error) {
-        problem = error instanceof Error ? error : new Error(String(error));
-        rejectReady(problem);
-        throw problem;
+      } catch (_error) {
+        reportFailure(
+          disposed
+            ? 'capture-disposed-during-initialization'
+            : 'audio-context-initialization-failed',
+        );
+        if (context && context.state !== 'closed')
+          await context.close().catch(() => {});
+        rejectReady(problem ?? new Error('Shared audio timeline failed'));
+        throw problem ?? new Error('Shared audio timeline failed');
       }
     })();
     return graphPromise;
   };
 
   const readyIfAttached = () => {
+    if (disposed) return;
     if (
       microphoneSourceConnected &&
       assistantSourceConnected &&
@@ -457,14 +489,31 @@ export async function installSharedAudioTimeline(): Promise<void> {
       }
       recorder.port.postMessage('arm');
       resolveReady();
+      void target
+        .__voiceTestObserve?.({
+          type: 'audio-capture-ready',
+          source: 'shared-audio-timeline',
+          clock: performance.now(),
+          payload: { sampleRate: context?.sampleRate ?? 0 },
+        })
+        .catch(() => {});
     }
   };
 
   const attachMicrophone = async (stream: MediaStream) => {
+    if (disposed) return;
     const track = stream.getAudioTracks()[0];
-    if (!track) throw new Error('getUserMedia returned no audio track');
-    await ensureGraph();
-    if (microphoneSourceConnected) return;
+    if (!track) {
+      reportFailure('microphone-audio-track-unavailable');
+      throw new Error('getUserMedia returned no audio track');
+    }
+    try {
+      await ensureGraph();
+    } catch (error) {
+      if (disposed) return;
+      throw error;
+    }
+    if (disposed || microphoneSourceConnected) return;
     const audioContext = context;
     const worklet = recorder;
     if (!audioContext || !worklet)
@@ -482,17 +531,18 @@ export async function installSharedAudioTimeline(): Promise<void> {
     element: HTMLMediaElement,
     stream: MediaStream,
   ): Promise<void> => {
-    if (assistantSourceConnected) return Promise.resolve();
+    if (disposed || assistantSourceConnected) return Promise.resolve();
     if (assistantAttachPromise) return assistantAttachPromise;
     assistantAttachPromise = (async () => {
       await ensureGraph();
-      if (assistantSourceConnected) return;
+      if (disposed || assistantSourceConnected) return;
       const audioContext = context;
       const worklet = recorder;
       if (!audioContext || !worklet)
         throw new Error('Shared assistant capture graph did not initialize');
       const source = audioContext.createMediaStreamSource(stream);
       source.connect(worklet, 0, 1);
+      mutedState.set(element, element.muted);
       element.muted = true;
       assistantSourceConnected = true;
       worklet.port.postMessage('assistant-connected');
@@ -505,9 +555,16 @@ export async function installSharedAudioTimeline(): Promise<void> {
     navigator.mediaDevices,
   );
   navigator.mediaDevices.getUserMedia = async (...args) => {
-    const stream = await originalGetUserMedia(...args);
-    await attachMicrophone(stream);
-    return stream;
+    const acquisition = originalGetUserMedia(...args).then(async (stream) => {
+      if (!disposed) await attachMicrophone(stream);
+      return stream;
+    });
+    pendingAcquisitions.add(acquisition);
+    void acquisition.then(
+      () => pendingAcquisitions.delete(acquisition),
+      () => pendingAcquisitions.delete(acquisition),
+    );
+    return acquisition;
   };
 
   const srcObjectDescriptor = Object.getOwnPropertyDescriptor(
@@ -527,9 +584,9 @@ export async function installSharedAudioTimeline(): Promise<void> {
     )
       return nativePlay.call(this);
     return attachAssistant(this, this.srcObject as MediaStream)
-      .catch((error: unknown) => {
-        problem = error instanceof Error ? error : new Error(String(error));
-        rejectReady(problem);
+      .catch((_error: unknown) => {
+        reportFailure('assistant-track-attachment-failed');
+        rejectReady(problem ?? new Error('Assistant track attachment failed'));
       })
       .then(() => nativePlay.call(this));
   };
@@ -540,9 +597,11 @@ export async function installSharedAudioTimeline(): Promise<void> {
     set(value: MediaProvider | null) {
       nativeSrcObjectSetter.call(this, value);
       if (this instanceof HTMLAudioElement && value instanceof MediaStream) {
-        void attachAssistant(this, value).catch((error) => {
-          problem = error instanceof Error ? error : new Error(String(error));
-          rejectReady(problem);
+        void attachAssistant(this, value).catch((_error) => {
+          reportFailure('assistant-track-attachment-failed');
+          rejectReady(
+            problem ?? new Error('Assistant track attachment failed'),
+          );
         });
       }
     },
@@ -617,6 +676,36 @@ export async function installSharedAudioTimeline(): Promise<void> {
           fromFrame,
         });
       });
+    },
+    async dispose() {
+      if (disposed) return;
+      disposed = true;
+      target.__voiceAudioTimeline = undefined;
+      rejectReady(new Error('Shared audio timeline was disposed'));
+      for (const [element, wasMuted] of mutedState) element.muted = wasMuted;
+      mutedState.clear();
+      Reflect.deleteProperty(navigator.mediaDevices, 'getUserMedia');
+      HTMLMediaElement.prototype.play = nativePlay;
+      Object.defineProperty(
+        HTMLMediaElement.prototype,
+        'srcObject',
+        srcObjectDescriptor,
+      );
+      recorder?.disconnect();
+      await Promise.race([
+        Promise.allSettled([
+          ...pendingAcquisitions,
+          ...(graphPromise ? [graphPromise] : []),
+        ]),
+        new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, 1_000);
+          timer.unref?.();
+        }),
+      ]);
+      if (context && context.state !== 'closed')
+        await context.close().catch(() => {});
+      markerResolvers.clear();
+      assistantMonitorResolvers.clear();
     },
     async snapshot() {
       await waitForReady();

@@ -56,6 +56,7 @@ export function projectChartRequest(payload: unknown) {
 
 export function observeProtocol(page: Page) {
   const failures: Array<{ elapsedMs: number; message: string }> = [];
+  let totalFailures = 0;
   const requests: Array<{
     elapsedMs: number;
     messageId: string | null;
@@ -65,6 +66,7 @@ export function observeProtocol(page: Page) {
     declaredInstanceIds: (string | null)[];
     currentInstanceIds: (string | null)[];
   }> = [];
+  let totalRequests = 0;
   const sockets = new Map<
     WebSocket,
     (event: { payload: string | Buffer }) => void
@@ -73,12 +75,10 @@ export function observeProtocol(page: Page) {
   const at = () => Math.round(performance.now() - started);
   const onConsole = (message: ConsoleMessage) => {
     const value = message.text();
-    if (
-      message.type() === 'error' &&
-      PROTOCOL_FAILURE.test(value) &&
-      failures.length < LIMIT
-    ) {
-      failures.push({ elapsedMs: at(), message: value.slice(0, 1600) });
+    if (message.type() === 'error' && PROTOCOL_FAILURE.test(value)) {
+      totalFailures++;
+      if (failures.length < LIMIT)
+        failures.push({ elapsedMs: at(), message: value.slice(0, 1600) });
     }
   };
   const onSocket = (socket: WebSocket) => {
@@ -91,8 +91,11 @@ export function observeProtocol(page: Page) {
     if (url.pathname !== '/ws') return;
     const onFrame = (event: { payload: string | Buffer }) => {
       const request = projectChartRequest(event.payload);
-      if (request && requests.length < LIMIT)
-        requests.push({ elapsedMs: at(), ...request });
+      if (request) {
+        totalRequests++;
+        if (requests.length < LIMIT)
+          requests.push({ elapsedMs: at(), ...request });
+      }
     };
     sockets.set(socket, onFrame);
     socket.on('framesent', onFrame);
@@ -111,7 +114,16 @@ export function observeProtocol(page: Page) {
       }
     },
     snapshot() {
-      return { failures: [...failures], requests: [...requests] };
+      return {
+        failures: [...failures],
+        requests: [...requests],
+        limits: { failures: LIMIT, requests: LIMIT },
+        dropped: {
+          failures: Math.max(0, totalFailures - failures.length),
+          requests: Math.max(0, totalRequests - requests.length),
+        },
+        totals: { failures: totalFailures, requests: totalRequests },
+      };
     },
     dispose() {
       page.off('console', onConsole);

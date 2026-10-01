@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { type Page, test } from '@playwright/test';
 import type { BrowserAudioTimelineSnapshot } from './shared-audio-capture.ts';
 import { installSharedAudioTimeline } from './shared-audio-capture.ts';
+import { createVoiceTestDriver } from './voice-test-driver.ts';
 
 async function prepareAudioPage(
   page: Page,
@@ -88,6 +89,198 @@ function estimateTone(
   }
   return (crossings * sampleRate) / (2 * windowFrames);
 }
+
+test('voice driver bridges fast browser observations and removes browser hooks on disposal', async ({
+  page,
+}) => {
+  await prepareAudioPage(page);
+  await page.addInitScript(() => {
+    const target = window as Window & {
+      __nativeAudioPlay?: typeof HTMLMediaElement.prototype.play;
+      __nativeGetUserMedia?: typeof navigator.mediaDevices.getUserMedia;
+      __nativeSrcObject?: PropertyDescriptor | undefined;
+    };
+    target.__nativeAudioPlay = HTMLMediaElement.prototype.play;
+    target.__nativeGetUserMedia = navigator.mediaDevices.getUserMedia;
+    target.__nativeSrcObject = Object.getOwnPropertyDescriptor(
+      HTMLMediaElement.prototype,
+      'srcObject',
+    );
+  });
+  const driver = createVoiceTestDriver(page);
+  const cursor = driver.cursor();
+  try {
+    await driver.navigate('http://localhost/', true);
+    await driver.waitForObservation((event) => event.type === 'bridge-ready', {
+      after: cursor,
+    });
+    const beforeMutation = driver.cursor();
+    await driver.evaluate('create deterministic voice UI', () => {
+      const orb = document.createElement('button');
+      orb.className = 'voice-orb';
+      orb.setAttribute('data-state', 'idle');
+      document.body.append(orb);
+      const status = document.createElement('div');
+      status.setAttribute('role', 'status');
+      status.textContent = 'Listening';
+      document.body.append(status);
+      const captions = document.createElement('div');
+      captions.dataset.testid = 'captions';
+      const assistant = document.createElement('div');
+      assistant.dataset.role = 'assistant';
+      assistant.textContent = 'private transcript';
+      captions.append(assistant);
+      document.body.append(captions);
+      orb.setAttribute('data-state', 'listening');
+      status.textContent = 'Connected';
+      assistant.textContent = 'private transcript';
+    });
+    const captionCreated = await driver.waitForObservation(
+      (event) => event.type === 'captions',
+      { after: beforeMutation },
+    );
+    const captionMutationCursor = driver.cursor();
+    await driver.evaluate('mutate existing caption text node', () => {
+      const text = document.querySelector(
+        '[data-role="assistant"]',
+      )?.firstChild;
+      if (!text) throw new Error('Expected an existing caption text node');
+      text.nodeValue = 'changed transcript';
+    });
+    const captionMutation = await driver.waitForObservation(
+      (event) => event.type === 'captions',
+      { after: captionMutationCursor },
+    );
+    assert.ok(captionMutation.sequence > captionCreated.sequence);
+    const observed = await driver.waitForObservation(
+      (event) => event.type === 'voice-state',
+      { after: beforeMutation },
+    );
+    assert.equal(observed.identity.pageId, driver.pageId);
+    assert.equal(observed.clock.domain, 'browser-performance');
+    const evidence = JSON.stringify(await driver.evidence());
+    assert.doesNotMatch(evidence, /private transcript|changed transcript/);
+    const instrumented = await page.evaluate(() => {
+      const target = window as Window & {
+        __nativeAudioPlay?: typeof HTMLMediaElement.prototype.play;
+        __nativeGetUserMedia?: typeof navigator.mediaDevices.getUserMedia;
+        __nativeSrcObject?: PropertyDescriptor | undefined;
+      };
+      return {
+        timelineInstalled: Boolean(
+          (window as Window & { __voiceAudioTimeline?: unknown })
+            .__voiceAudioTimeline,
+        ),
+        audioPlayPatched:
+          HTMLMediaElement.prototype.play !== target.__nativeAudioPlay,
+        getUserMediaPatched:
+          navigator.mediaDevices.getUserMedia !== target.__nativeGetUserMedia,
+      };
+    });
+    assert.deepEqual(instrumented, {
+      timelineInstalled: true,
+      audioPlayPatched: true,
+      getUserMediaPatched: true,
+    });
+    const pending = driver.waitForObservation(() => false);
+    const pendingRejection = assert.rejects(pending, /aborted|disposed/);
+    await driver.dispose();
+    await pendingRejection;
+    const restored = await page.evaluate(() => {
+      const target = window as Window & {
+        __nativeAudioPlay?: typeof HTMLMediaElement.prototype.play;
+        __nativeGetUserMedia?: typeof navigator.mediaDevices.getUserMedia;
+        __nativeSrcObject?: PropertyDescriptor | undefined;
+      };
+      return {
+        timelineRemoved: !(
+          window as Window & { __voiceAudioTimeline?: unknown }
+        ).__voiceAudioTimeline,
+        audioPlayRestored:
+          HTMLMediaElement.prototype.play === target.__nativeAudioPlay,
+        getUserMediaRestored:
+          navigator.mediaDevices.getUserMedia === target.__nativeGetUserMedia,
+        srcObjectRestored:
+          Object.getOwnPropertyDescriptor(
+            HTMLMediaElement.prototype,
+            'srcObject',
+          )?.set === target.__nativeSrcObject?.set,
+      };
+    });
+    assert.deepEqual(restored, {
+      timelineRemoved: true,
+      audioPlayRestored: true,
+      getUserMediaRestored: true,
+      srcObjectRestored: true,
+    });
+  } finally {
+    await driver.dispose();
+  }
+});
+
+test('patched microphone acquisition settles after disposal without recreating capture resources', async ({
+  page,
+}) => {
+  await prepareAudioPage(page);
+  await page.addInitScript(() => {
+    const target = window as Window & {
+      __voiceAudioContextCount?: number;
+      __voiceReleaseMicrophone?: (stream: MediaStream) => void;
+      __voicePendingMicrophone?: Promise<MediaStream>;
+    };
+    let release!: (stream: MediaStream) => void;
+    const pending = new Promise<MediaStream>((resolve) => {
+      release = resolve;
+    });
+    target.__voiceReleaseMicrophone = release;
+    target.__voiceAudioContextCount = 0;
+    const NativeAudioContext = window.AudioContext;
+    window.AudioContext = new Proxy(NativeAudioContext, {
+      construct(audioContextConstructor, args, newTarget) {
+        target.__voiceAudioContextCount =
+          (target.__voiceAudioContextCount ?? 0) + 1;
+        return Reflect.construct(audioContextConstructor, args, newTarget);
+      },
+    });
+    Object.defineProperty(navigator.mediaDevices, 'getUserMedia', {
+      configurable: true,
+      value: () => pending,
+    });
+  });
+
+  const driver = createVoiceTestDriver(page);
+  try {
+    await driver.navigate('http://localhost/', true);
+    await page.evaluate(() => {
+      const target = window as Window & {
+        __voicePendingMicrophone?: Promise<MediaStream>;
+      };
+      target.__voicePendingMicrophone = navigator.mediaDevices.getUserMedia({
+        audio: true,
+      });
+    });
+    await driver.dispose();
+    const result = await page.evaluate(async () => {
+      const target = window as Window & {
+        __voiceAudioContextCount?: number;
+        __voiceReleaseMicrophone?: (stream: MediaStream) => void;
+        __voicePendingMicrophone?: Promise<MediaStream>;
+      };
+      target.__voiceReleaseMicrophone?.(new MediaStream());
+      const stream = await target.__voicePendingMicrophone;
+      return {
+        returnedStream: stream instanceof MediaStream,
+        audioContextsCreated: target.__voiceAudioContextCount,
+      };
+    });
+    assert.deepEqual(result, {
+      returnedStream: true,
+      audioContextsCreated: 0,
+    });
+  } finally {
+    await driver.dispose();
+  }
+});
 
 test('shared AudioWorklet retains distinct microphone/output tones through repeated and explicit flushes', async ({
   page,

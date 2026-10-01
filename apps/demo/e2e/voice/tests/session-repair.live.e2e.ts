@@ -1,24 +1,18 @@
-import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { promisify } from 'node:util';
 import { test as base, expect, type Page } from '@playwright/test';
-import { initialNavigationURL } from '../runner-target.ts';
-import { observeProtocol } from './evidence.ts';
 import { enterAndSubmitApiKey, hasKeyEntryControl } from './key-bootstrap.ts';
 import { nonSilentMs, recordReplies, silentTailMs } from './reply-recorder';
 import { sessionAudioArtifacts } from './session-audio-artifacts.ts';
-import {
-  type BrowserAudioTimelineSnapshot,
-  installSharedAudioTimeline,
-} from './shared-audio-capture.ts';
+import { createVoiceTestDriver } from './voice-test-driver.ts';
 
-const exec = promisify(execFile);
 const fixture = (name: string) =>
   fileURLToPath(new URL(`../audio/${name}.wav`, import.meta.url));
+
 type VoiceTestFixtures = {
   readonly voice: {
     readonly page: Page;
-    readonly protocol: ReturnType<typeof observeProtocol>;
+    readonly protocol: ReturnType<typeof createVoiceTestDriver>['protocol'];
+    readonly driver: ReturnType<typeof createVoiceTestDriver>;
   };
 };
 
@@ -42,10 +36,10 @@ const test = base.extend<VoiceTestFixtures, VoiceWorkerFixtures>({
   voice: async ({ browser, voiceConfig }, use, testInfo) => {
     const context = await browser.newContext({ permissions: ['microphone'] });
     const page = await context.newPage();
-    const protocol = observeProtocol(page);
+    const driver = createVoiceTestDriver(page);
+    const protocol = driver.protocol;
     try {
-      await page.addInitScript(installSharedAudioTimeline);
-      await page.goto(initialNavigationURL(voiceConfig.baseURL));
+      await driver.navigate(voiceConfig.baseURL);
       const keyInput = page.locator('#playground-api-key');
       const calendar = page.locator('[data-instance-id="calendar-main"]');
       const tasks = page.locator('[data-instance-id="tasks-main"]');
@@ -94,17 +88,22 @@ const test = base.extend<VoiceTestFixtures, VoiceWorkerFixtures>({
       await expect(voiceControl).toBeVisible({ timeout: 30_000 });
 
       protocol.assertHealthy('fresh page navigation and key setup');
-      await use({ page, protocol });
+      await use({ page, protocol, driver });
     } finally {
       try {
+        const evidence = await driver.evidence();
+        await testInfo.attach('voice-driver-final-evidence.json', {
+          body: JSON.stringify(evidence, null, 2),
+          contentType: 'application/json',
+        });
         await testInfo.attach('protocol-evidence.json', {
-          body: JSON.stringify(protocol.snapshot(), null, 2),
+          body: JSON.stringify(evidence.protocol, null, 2),
           contentType: 'application/json',
         });
       } catch {
-        console.error('Unable to attach protocol evidence.');
+        console.error('Unable to attach voice driver evidence.');
       }
-      protocol.dispose();
+      await driver.dispose();
       await context.close();
     }
   },
@@ -112,7 +111,7 @@ const test = base.extend<VoiceTestFixtures, VoiceWorkerFixtures>({
 
 async function runTwoTurnRepair(
   page: Page,
-  protocol: ReturnType<typeof observeProtocol>,
+  driver: ReturnType<typeof createVoiceTestDriver>,
   secondInput: string,
 ) {
   const binary = process.env.TTS2MIC_BIN;
@@ -123,6 +122,7 @@ async function runTwoTurnRepair(
       'Run this test through tts2mic scripts/with-audio.sh on Linux/PulseAudio',
     );
 
+  const protocol = driver.protocol;
   const calendar = page.locator('[data-instance-id="calendar-main"]');
   const tasks = page.locator('[data-instance-id="tasks-main"]');
   const user = page.getByTestId('captions').locator('[data-role="user"]');
@@ -167,25 +167,29 @@ async function runTwoTurnRepair(
         });
         await page.waitForTimeout(500);
       }
+      const observationCursor = driver.cursor();
       const assistantBefore = await assistant.allTextContents();
       const turnStart = audio.pcm().length;
       let stdout: string;
       try {
-        ({ stdout } = await exec(
-          binary,
-          ['play', '--target', 'pipewire', '--delay', '3s', '--file', input],
-          {
-            timeout: 20_000,
-            encoding: 'utf8',
-            killSignal: 'SIGTERM',
-            maxBuffer: 1024 * 1024,
-          },
-        ));
+        stdout = await driver.action(`playback:${name}`, async () => {
+          const playback = driver.startPlayback(binary, input, {
+            delayMs: 3_000,
+            timeoutMs: 20_000,
+            maxOutputBytes: 1024 * 1024,
+          });
+          return (await playback.completed()).stdout;
+        });
       } finally {
         if (manual) await page.keyboard.up('Space');
       }
       expect(JSON.parse(stdout).status).toBe('completed');
       protocol.assertHealthy(`${name} fixture injection`);
+      await driver.waitForObservation((event) => event.type === 'captions', {
+        after: observationCursor,
+        timeoutMs: 30_000,
+        signal: driver.signal,
+      });
       await expect
         .poll(
           async () => {
@@ -240,16 +244,7 @@ async function runTwoTurnRepair(
         /^(?:connected|listening)$/,
       );
     }
-    await page.evaluate(async () => {
-      const timeline = (
-        window as Window & {
-          __voiceAudioTimeline?: { waitForReady(): Promise<void> };
-        }
-      ).__voiceAudioTimeline;
-      if (!timeline)
-        throw new Error('Shared session audio capture was not installed');
-      await timeline.waitForReady();
-    });
+    await driver.waitForAudioReady();
     protocol.assertHealthy('completed two-turn scenario');
   } catch (error) {
     protocol.assertHealthy('failed test step', error);
@@ -265,6 +260,12 @@ async function runTwoTurnRepair(
         );
       }
     };
+    await preserve(async () =>
+      test.info().attach('voice-driver-before-cleanup.json', {
+        body: JSON.stringify(await driver.evidence(), null, 2),
+        contentType: 'application/json',
+      }),
+    );
     await preserve(async () =>
       test.info().attach('before-cleanup.png', {
         body: await page.screenshot(),
@@ -296,18 +297,7 @@ async function runTwoTurnRepair(
       .catch(() => {});
     await preserve(() => audio.stop());
     try {
-      const snapshot = await page.evaluate(async () => {
-        const timeline = (
-          window as Window & {
-            __voiceAudioTimeline?: {
-              snapshot(): Promise<BrowserAudioTimelineSnapshot>;
-            };
-          }
-        ).__voiceAudioTimeline;
-        if (!timeline)
-          throw new Error('Shared session audio capture was not installed');
-        return timeline.snapshot();
-      });
+      const snapshot = await driver.snapshotAudio();
       const artifacts = sessionAudioArtifacts(snapshot);
       expect(artifacts).toHaveLength(2);
       for (const artifact of artifacts)
@@ -349,11 +339,11 @@ async function runTwoTurnRepair(
 test('calendar repair by putting it back shares one voice conversation', async ({
   voice,
 }) => {
-  await runTwoTurnRepair(voice.page, voice.protocol, 'put-it-back');
+  await runTwoTurnRepair(voice.page, voice.driver, 'put-it-back');
 });
 
 test('calendar repair by explicitly opening it shares one voice conversation', async ({
   voice,
 }) => {
-  await runTwoTurnRepair(voice.page, voice.protocol, 'open-calendar');
+  await runTwoTurnRepair(voice.page, voice.driver, 'open-calendar');
 });

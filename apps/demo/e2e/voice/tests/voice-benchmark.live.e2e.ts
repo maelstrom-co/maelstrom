@@ -1,15 +1,14 @@
-import { execFile, spawn, spawnSync } from 'node:child_process';
+import { execFile, spawnSync } from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { expect, test } from '@playwright/test';
+import { expect } from '@playwright/test';
 import {
   selectVoiceBenchmark,
   singleTurnDiagnosticRetries,
 } from '../benchmark-selection.ts';
-import { initialNavigationURL } from '../runner-target.ts';
 import {
   summarizeVoiceBenchmark,
   type VoiceBenchmarkRecord,
@@ -28,11 +27,7 @@ import {
   serializePlaybackObservation,
 } from './playback-observability.ts';
 import { nonSilentMs, recordReplies, silentTailMs } from './reply-recorder.ts';
-import {
-  type AssistantAudioActivity,
-  type BrowserAudioTimelineSnapshot,
-  installSharedAudioTimeline,
-} from './shared-audio-capture.ts';
+import type { BrowserAudioTimelineSnapshot } from './shared-audio-capture.ts';
 import {
   type AudioTimelineMeasurement,
   computeAudioTimelineMeasurement,
@@ -58,81 +53,11 @@ import {
   installAssistantCaptionMutationObserver,
   type VoiceBenchmarkFailurePhase,
 } from './voice-benchmark-status.ts';
+import { test } from './voice-test-fixture.ts';
 
 const exec = promisify(execFile);
 const fixture = (name: string) =>
   fileURLToPath(new URL(`../audio/${name}.wav`, import.meta.url));
-
-function startFixturePlayback(binary: string, audioFixture: string) {
-  const child = spawn(
-    binary,
-    [
-      'play',
-      '--target',
-      'pipewire',
-      '--delay',
-      `${tts2micPlaybackLeadInMs / 1_000}s`,
-      '--file',
-      audioFixture,
-    ],
-    { stdio: ['ignore', 'pipe', 'ignore'] },
-  );
-  const stdoutChunks: Buffer[] = [];
-  let stdoutBytes = 0;
-  let stdoutExceededLimit = false;
-  let spawnError: Error | undefined;
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  const closed = new Promise<{
-    readonly code: number | null;
-    readonly signal: NodeJS.Signals | null;
-    readonly closedAtMs: number;
-  }>((resolve) => {
-    child.once('error', (error) => {
-      spawnError = error;
-    });
-    child.once('close', (code, signal) => {
-      if (timeout) clearTimeout(timeout);
-      resolve({ code, signal, closedAtMs: performance.now() });
-    });
-  });
-  child.stdout.on('data', (chunk: Buffer) => {
-    stdoutBytes += chunk.length;
-    if (stdoutBytes > 1024 * 1024) {
-      stdoutExceededLimit = true;
-      child.kill('SIGTERM');
-      return;
-    }
-    stdoutChunks.push(chunk);
-  });
-  timeout = setTimeout(() => child.kill('SIGTERM'), 20_000);
-  timeout.unref();
-
-  return {
-    closed,
-    async stopAndWait() {
-      if (child.exitCode === null && child.signalCode === null)
-        child.kill('SIGTERM');
-      const forceKill = setTimeout(() => child.kill('SIGKILL'), 1_000);
-      forceKill.unref();
-      try {
-        return await closed;
-      } finally {
-        clearTimeout(forceKill);
-      }
-    },
-    async completedStdout() {
-      const result = await closed;
-      if (spawnError) throw spawnError;
-      if (stdoutExceededLimit)
-        throw new Error('tts2mic playback output exceeded its size limit');
-      if (result.code !== 0)
-        throw new Error(
-          `tts2mic playback exited (${result.code ?? result.signal})`,
-        );
-      return Buffer.concat(stdoutChunks).toString('utf8');
-    },
-  };
-}
 
 const perScenarioBudgetMs = 80_000;
 const setupBudgetMs = 60_000;
@@ -178,7 +103,7 @@ test.describe('voice benchmark', () => {
     ),
   });
 
-  test('fixed audio scenarios', async ({ page }, testInfo) => {
+  test('fixed audio scenarios', async ({ page, voiceDriver }, testInfo) => {
     const selection = selectVoiceBenchmark({
       singleTurn: process.env.VOICE_BENCHMARK_SINGLE_TURN,
       repetitions: process.env.VOICE_BENCHMARK_REPETITIONS,
@@ -249,14 +174,14 @@ test.describe('voice benchmark', () => {
     };
 
     const baseURL = process.env.MAELSTROM_BASE_URL || 'http://localhost:3000';
-    await page.addInitScript(installSharedAudioTimeline);
     const voiceOrb = page.locator('button.voice-orb');
     try {
-      await page.goto(initialNavigationURL(baseURL));
+      await voiceDriver.navigate(baseURL);
       await startVoiceDemoFromKeylessLanding(
         page,
         process.env.MAELSTROM_E2E_OPENAI_API_KEY,
       );
+      voiceDriver.assertHealthy('voice benchmark bootstrap');
       await expect(voiceOrb).toHaveCount(1, { timeout: 30_000 });
       await expect(page.getByTestId('captions')).toBeVisible();
     } catch (error) {
@@ -266,6 +191,7 @@ test.describe('voice benchmark', () => {
         assistantOutputAudioActive: false,
         assistantOutputAudioSampleCount: 0,
       }).catch(() => {});
+      voiceDriver.assertHealthy('voice benchmark bootstrap', error);
       throw error;
     }
 
@@ -310,16 +236,7 @@ test.describe('voice benchmark', () => {
       await expect
         .poll(() => nonSilentMs(capture.pcm().subarray(-24_000)))
         .toBe(0);
-      await page.evaluate(async () => {
-        const timeline = (
-          window as Window & {
-            __voiceAudioTimeline?: { waitForReady(): Promise<void> };
-          }
-        ).__voiceAudioTimeline;
-        if (!timeline)
-          throw new Error('Shared audio timeline hook was not installed');
-        await timeline.waitForReady();
-      });
+      await voiceDriver.waitForAudioReady();
 
       const assistant = page
         .getByTestId('captions')
@@ -333,37 +250,9 @@ test.describe('voice benchmark', () => {
           const sourceMetadata = getPcm16WavMetadata(
             await readFile(fixture(scenario)),
           );
-          const markPlaybackStart = () =>
-            page.evaluate(async () => {
-              const audioTimeline = (
-                window as Window & {
-                  __voiceAudioTimeline?: {
-                    mark(): Promise<number>;
-                    assistantMonitor(
-                      fromFrame: number,
-                    ): Promise<AssistantAudioActivity>;
-                  };
-                }
-              ).__voiceAudioTimeline;
-              if (!audioTimeline)
-                throw new Error('Shared audio timeline hook was not installed');
-              return audioTimeline.mark();
-            });
+          const markPlaybackStart = () => voiceDriver.markPlaybackStart();
           const assistantMonitor = (fromFrame: number) =>
-            page.evaluate(async (monitorFromFrame) => {
-              const audioTimeline = (
-                window as Window & {
-                  __voiceAudioTimeline?: {
-                    assistantMonitor(
-                      frame: number,
-                    ): Promise<AssistantAudioActivity>;
-                  };
-                }
-              ).__voiceAudioTimeline;
-              if (!audioTimeline)
-                throw new Error('Shared audio timeline hook was not installed');
-              return audioTimeline.assistantMonitor(monitorFromFrame);
-            }, fromFrame);
+            voiceDriver.assistantActivity(fromFrame);
           const assistantSilentTailMs = async () => {
             capture.check();
             return (await assistantMonitor(0)).silentTailMs;
@@ -409,9 +298,14 @@ test.describe('voice benchmark', () => {
             }
 
             playbackStartedAt = performance.now();
-            const playbackProcess = startFixturePlayback(
+            const playbackProcess = voiceDriver.startPlayback(
               binary,
               fixture(scenario),
+              {
+                delayMs: tts2micPlaybackLeadInMs,
+                timeoutMs: 20_000,
+                maxOutputBytes: 1024 * 1024,
+              },
             );
             if (monitorBeforeNextInput) {
               try {
@@ -437,7 +331,7 @@ test.describe('voice benchmark', () => {
                 throw error;
               }
             }
-            stdout = await playbackProcess.completedStdout();
+            stdout = (await playbackProcess.completed()).stdout;
             break;
           }
           if (stdout === undefined)
@@ -446,16 +340,19 @@ test.describe('voice benchmark', () => {
           previousSourceEndMs = playbackCompletedAt;
           const playback = parseCompletedPlayback(stdout);
           const playbackElapsedMs = playbackCompletedAt - playbackStartedAt;
-          const workletEndFrame = await page.evaluate(async () => {
-            const audioTimeline = (
-              window as Window & {
-                __voiceAudioTimeline?: { mark(): Promise<number> };
-              }
-            ).__voiceAudioTimeline;
-            if (!audioTimeline)
-              throw new Error('Shared audio timeline hook was not installed');
-            return audioTimeline.mark();
-          });
+          const workletEndFrame = await voiceDriver.evaluate(
+            'audio:worklet-end',
+            async () => {
+              const timeline = (
+                window as Window & {
+                  __voiceAudioTimeline?: { mark(): Promise<number> };
+                }
+              ).__voiceAudioTimeline;
+              if (!timeline)
+                throw new Error('Shared audio timeline hook was not installed');
+              return timeline.mark();
+            },
+          );
           await expect
             .poll(
               async () => {
@@ -526,6 +423,7 @@ test.describe('voice benchmark', () => {
           });
         }
       }
+      voiceDriver.assertHealthy('voice benchmark scenarios completed');
     } catch (error) {
       let assistantOutputAudioActive = false;
       let assistantOutputAudioSampleCount = 0;
@@ -544,18 +442,7 @@ test.describe('voice benchmark', () => {
       attemptError = error;
     } finally {
       try {
-        audioTimeline = await page.evaluate(async () => {
-          const timeline = (
-            window as Window & {
-              __voiceAudioTimeline?: {
-                snapshot(): Promise<BrowserAudioTimelineSnapshot>;
-              };
-            }
-          ).__voiceAudioTimeline;
-          if (!timeline)
-            throw new Error('Shared audio timeline hook was not installed');
-          return await timeline.snapshot();
-        });
+        audioTimeline = await voiceDriver.snapshotAudio();
         const inputWav = Buffer.from(audioTimeline.inputWavBase64, 'base64');
         const assistantWav = Buffer.from(
           audioTimeline.assistantWavBase64,
@@ -797,6 +684,12 @@ test.describe('voice benchmark', () => {
         summary: summarizeVoiceBenchmark(records, responseLatency, failures),
         records,
       };
+      await testInfo
+        .attach('voice-driver-before-cleanup.json', {
+          body: JSON.stringify(await voiceDriver.evidence(), null, 2),
+          contentType: 'application/json',
+        })
+        .catch(() => {});
       await attachReportAndCleanup(
         output,
         async (report) =>
