@@ -55,6 +55,7 @@ export async function installSharedAudioTimeline(): Promise<void> {
   let graphPromise: Promise<void> | undefined;
   let microphoneSourceConnected = false;
   let assistantSourceConnected = false;
+  let assistantAttachPromise: Promise<void> | undefined;
   let captureArmed = false;
   let capturedSamples = 0;
   let problem: Error | undefined;
@@ -366,18 +367,27 @@ export async function installSharedAudioTimeline(): Promise<void> {
     readyIfAttached();
   };
 
-  const attachAssistant = async (element: HTMLMediaElement) => {
-    await ensureGraph();
-    if (assistantSourceConnected) return;
-    const audioContext = context;
-    const worklet = recorder;
-    if (!audioContext || !worklet)
-      throw new Error('Shared assistant capture graph did not initialize');
-    const source = audioContext.createMediaElementSource(element);
-    source.connect(worklet, 0, 1);
-    assistantSourceConnected = true;
-    worklet.port.postMessage('assistant-connected');
-    readyIfAttached();
+  const attachAssistant = (
+    element: HTMLMediaElement,
+    stream: MediaStream,
+  ): Promise<void> => {
+    if (assistantSourceConnected) return Promise.resolve();
+    if (assistantAttachPromise) return assistantAttachPromise;
+    assistantAttachPromise = (async () => {
+      await ensureGraph();
+      if (assistantSourceConnected) return;
+      const audioContext = context;
+      const worklet = recorder;
+      if (!audioContext || !worklet)
+        throw new Error('Shared assistant capture graph did not initialize');
+      const source = audioContext.createMediaStreamSource(stream);
+      source.connect(worklet, 0, 1);
+      element.muted = true;
+      assistantSourceConnected = true;
+      worklet.port.postMessage('assistant-connected');
+      readyIfAttached();
+    })();
+    return assistantAttachPromise;
   };
 
   const originalGetUserMedia = navigator.mediaDevices.getUserMedia.bind(
@@ -398,6 +408,20 @@ export async function installSharedAudioTimeline(): Promise<void> {
     throw new Error(
       'Cannot instrument HTMLMediaElement.srcObject for the shared audio clock',
     );
+  const nativePlay = HTMLMediaElement.prototype.play;
+  HTMLMediaElement.prototype.play = function () {
+    if (
+      !(this instanceof HTMLAudioElement) ||
+      !(this.srcObject instanceof MediaStream)
+    )
+      return nativePlay.call(this);
+    return attachAssistant(this, this.srcObject as MediaStream)
+      .catch((error: unknown) => {
+        problem = error instanceof Error ? error : new Error(String(error));
+        rejectReady(problem);
+      })
+      .then(() => nativePlay.call(this));
+  };
   Object.defineProperty(HTMLMediaElement.prototype, 'srcObject', {
     configurable: srcObjectDescriptor.configurable,
     enumerable: srcObjectDescriptor.enumerable,
@@ -405,7 +429,7 @@ export async function installSharedAudioTimeline(): Promise<void> {
     set(value: MediaProvider | null) {
       nativeSrcObjectSetter.call(this, value);
       if (this instanceof HTMLAudioElement && value instanceof MediaStream) {
-        void attachAssistant(this).catch((error) => {
+        void attachAssistant(this, value).catch((error) => {
           problem = error instanceof Error ? error : new Error(String(error));
           rejectReady(problem);
         });

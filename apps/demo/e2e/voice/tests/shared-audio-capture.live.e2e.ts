@@ -91,6 +91,7 @@ test('shared AudioWorklet retains distinct microphone/output tones through repea
         const producer = new AudioContext({ sampleRate: 48_000 });
         await producer.resume();
         const microphone = producer.createMediaStreamDestination();
+        const assistant = producer.createMediaStreamDestination();
         const silentKeepAlive = producer.createGain();
         silentKeepAlive.gain.value = 0;
         silentKeepAlive.connect(producer.destination);
@@ -106,65 +107,9 @@ test('shared AudioWorklet retains distinct microphone/output tones through repea
         if (!timeline)
           throw new Error('Shared audio timeline hook was not installed');
         await timeline.testAttachMicrophone(microphone.stream);
-        const assistantFrames = producer.sampleRate * 2;
-        const assistantPcm = new Uint8Array(assistantFrames * 2);
-        const assistantSamples = new DataView(assistantPcm.buffer);
-        for (let frame = 0; frame < assistantFrames; frame++) {
-          const time = frame / producer.sampleRate;
-          const burst = [0.6, 1.5].find(
-            (offset) => time >= offset && time < offset + 0.25,
-          );
-          if (burst === undefined) continue;
-          const withinBurst = time - burst;
-          const edge = Math.min(
-            1,
-            withinBurst / 0.01,
-            (0.25 - withinBurst) / 0.01,
-          );
-          assistantSamples.setInt16(
-            frame * 2,
-            Math.round(
-              0.35 * edge * Math.sin(2 * Math.PI * 880 * withinBurst) * 32767,
-            ),
-            true,
-          );
-        }
-        const assistantWav = new Uint8Array(44 + assistantPcm.length);
-        const assistantHeader = new DataView(assistantWav.buffer);
-        const writeTag = (offset: number, text: string) => {
-          for (let i = 0; i < text.length; i++)
-            assistantWav[offset + i] = text.charCodeAt(i);
-        };
-        writeTag(0, 'RIFF');
-        assistantHeader.setUint32(4, assistantWav.length - 8, true);
-        writeTag(8, 'WAVEfmt ');
-        assistantHeader.setUint32(16, 16, true);
-        assistantHeader.setUint16(20, 1, true);
-        assistantHeader.setUint16(22, 1, true);
-        assistantHeader.setUint32(24, producer.sampleRate, true);
-        assistantHeader.setUint32(28, producer.sampleRate * 2, true);
-        assistantHeader.setUint16(32, 2, true);
-        assistantHeader.setUint16(34, 16, true);
-        writeTag(36, 'data');
-        assistantHeader.setUint32(40, assistantPcm.length, true);
-        assistantWav.set(assistantPcm, 44);
-        const sourceAudio = document.createElement('audio');
-        sourceAudio.src = URL.createObjectURL(
-          new Blob([assistantWav], { type: 'audio/wav' }),
-        );
-        document.body.append(sourceAudio);
-        await sourceAudio.play();
-        const assistantStream = (
-          sourceAudio as HTMLAudioElement & { captureStream(): MediaStream }
-        ).captureStream();
-        if (assistantStream.getAudioTracks().length === 0)
-          throw new Error(
-            'Assistant source audio exposed no MediaStream track',
-          );
         const audio = document.createElement('audio');
-        audio.autoplay = true;
         document.body.append(audio);
-        audio.srcObject = assistantStream;
+        audio.srcObject = assistant.stream;
         await audio.play();
         await timeline.waitForReady();
         const firstAt = producer.currentTime + 0.25;
@@ -198,6 +143,7 @@ test('shared AudioWorklet retains distinct microphone/output tones through repea
           source.start(firstAt);
         };
         addToneBursts(microphone, 440, [0.2, 1.1]);
+        addToneBursts(assistant, 880, [0.6, 1.5]);
         target.__captureTestReady = true;
       })().catch((error: unknown) => {
         (

@@ -364,7 +364,7 @@ test('voice benchmark: fixed audio scenarios', async ({ page }, testInfo) => {
         browser: 'chromium',
         operatingSystem: process.platform,
         latencyCapture:
-          'actual injected microphone and assistant media-element output in one 48 kHz browser AudioContext/AudioWorklet; assistant point is browser-rendered audio, not physical-speaker loopback',
+          'actual injected getUserMedia microphone and the assistant WebRTC MediaStream assigned to the app HTMLAudioElement enter one 48 kHz browser AudioContext/AudioWorklet; native element output is muted and the shared graph renders the stream exactly once before the physical speaker sink',
         audioTimelineFiles: {
           humanInput: 'voice-benchmark-human-input-audioworklet.wav',
           assistantRenderedOutput:
