@@ -552,8 +552,10 @@ test.describe('voice benchmark', () => {
             await rm(directory, { recursive: true, force: true });
           }
         }
-      } catch {
+      } catch (error) {
         timelineCaptureFailed = true;
+        attemptFailed = true;
+        attemptError ??= error;
         responseLatency = unsupportedLatency(
           'Shared audio capture or VAD failed.',
         );

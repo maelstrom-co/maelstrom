@@ -1,5 +1,7 @@
 import { defineConfig } from '@playwright/test';
 
+process.umask(0o077);
+
 export default defineConfig({
   testDir: './tests',
   testMatch: [

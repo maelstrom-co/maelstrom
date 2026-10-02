@@ -170,7 +170,7 @@ function installObservationBridge(config: { sessionId: string }): void {
     const targets = new Set(mutations.map((mutation) => mutation.target));
     if (voice && targets.has(voice))
       emit('voice-state', 'voice-orb', {
-        state: voice?.getAttribute('data-state') ?? null,
+        state: voice.getAttribute('data-state') ?? null,
       });
     if (
       mutations.some((mutation) =>
@@ -871,7 +871,7 @@ export function createVoiceTestDriver(
         await this.evaluate('audio:wait-ready', async () => {
           const timeline = (window as BrowserBridgeWindow).__voiceAudioTimeline;
           if (!timeline) throw new Error('Shared audio capture is unavailable');
-          await (timeline as { waitForReady(): Promise<void> }).waitForReady();
+          await timeline.waitForReady();
         });
       } catch (error) {
         publish(
