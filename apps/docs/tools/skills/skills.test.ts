@@ -79,7 +79,7 @@ describe('portable agent skill bundle', () => {
       expect(metadata.license).toBe('MIT');
       expect(metadata.metadata).toEqual({
         author: 'Maelstrom',
-        version: '0.1.0',
+        version: directoryName === 'maelstrom' ? '0.1.1' : '0.1.0',
       });
     }
 

@@ -1,20 +1,25 @@
 ---
 id: maelstrom-project-onboarding
-prompt_version: 0.1.0
+prompt_version: 0.1.1
 compatibility:
   sdk:
     "@maelstrom-co/react": "0.1.0-alpha.4"
 ---
 
-Integrate Maelstrom into the existing React application for this goal:
+Inspect the existing React application and plan a bounded Maelstrom integration
+for this goal:
 
 [PRODUCT GOAL]
 
 Repository root: [PATH]
 
-Implement the smallest bounded integration that achieves the goal. Inspect before
-editing. Do not stop for another approval unless inspection reveals a material
-scope, product, or architecture decision the request did not authorize.
+Requested authority: [PLAN ONLY | IMPLEMENT THE BOUNDED INTEGRATION]
+
+If authority is omitted or the placeholder is unchanged, use PLAN ONLY.
+For PLAN ONLY, make no edits or installations. Report the selected pilot and
+verification plan, then stop. For IMPLEMENT THE BOUNDED INTEGRATION, inspect first
+and implement the smallest useful pilot. Ask only when inspection reveals a
+material decision outside the authorized goal.
 
 ## Inspect and select
 
@@ -35,10 +40,10 @@ scope, product, or architecture decision the request did not authorize.
    Use APIs present in the installed version's source/types/docs, not illustrative
    or remembered APIs.
 
-## Implement
+## Implement only when authorized
 
-After inspection, implement the bounded integration: define/register only the
-selected developer-owned Vessel(s), preserve existing UI and routing where
+For IMPLEMENT THE BOUNDED INTEGRATION, define/register only the
+selected developer-owned Vessels, preserve existing UI and routing where
 practical, and add the smallest intent entry point needed for the goal. For React,
 prefer the installed `@maelstrom-co/react` APIs where the architecture allows.
 Keep the Connector focused on transport and application authentication in its
@@ -55,10 +60,11 @@ record that live Engine verification needs separately configured infrastructure.
 
 ## Verify and report
 
-Run the relevant project typecheck, tests, and lint/format checks. Verify the
+For an implemented change, run the relevant project typecheck, tests, and lint/format checks. Verify the
 bounded UI integration and intent path using the available documented test setup;
 report live Engine verification separately. Inspect the final diff for accidental
-secrets and unrelated changes.
+secrets and unrelated changes. For PLAN ONLY, distinguish proposed checks from
+checks actually run and state that no files changed.
 
 Return:
 - observed architecture and installed package versions;

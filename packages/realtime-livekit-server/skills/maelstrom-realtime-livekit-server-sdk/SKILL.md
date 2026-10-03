@@ -23,3 +23,6 @@ Confirm every symbol against this installed package's public exports and
 declarations. Preserve its documented runtime and dependency boundaries; do not
 move behavior owned by adjacent packages or the consuming application into this
 package.
+
+When accepting a mint request, read
+[common tasks](references/common-tasks.md) for trusted room scope and route controls.

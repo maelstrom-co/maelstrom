@@ -23,3 +23,6 @@ Confirm every symbol against this installed package's public exports and
 declarations. Preserve its documented runtime and dependency boundaries; do not
 move behavior owned by adjacent packages or the consuming application into this
 package.
+
+When defining a Vessel or accepting untrusted definitions, read
+[common tasks](references/common-tasks.md) for validation and branded identities.

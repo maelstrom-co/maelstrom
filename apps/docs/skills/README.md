@@ -8,7 +8,16 @@ Install the complete bundle in the selected tool's project-scoped skill director
 
 ### Install, discover, update, and remove
 
-The [Agent Skills page](https://docs.maelstrom-ai.co/agents/skills/) provides the complete revision-matched ZIP. Install its `apps/docs/skills/` contents in the selected tool's project-scoped skill location; for example, OpenCode uses `.agents/skills/` and Claude Code uses `.claude/skills/`. Discovery locations vary by tool; do not assume `.agents/skills/` is universal. Preserve paths and the complete `references/` tree. Invoke the `maelstrom` entry skill using that tool's skill loader. No global install or SDK install is required.
+Start with [Build with an agent](https://docs.maelstrom-ai.co/agents/skills/) for installation, the task catalog, a safe first request, and troubleshooting. Install the generated complete bundle through the pinned Vercel Skills tool from your application directory. For Pi:
+
+```sh
+bunx skills@1.7.0 add https://docs.maelstrom-ai.co/agents/skills/bundle.zip --skill '*' --agent pi --copy
+bunx skills@1.7.0 list --agent pi
+```
+
+Replace `pi` with `opencode` or `claude-code` for those tools. Pi uses `.pi/skills/`, OpenCode uses `.agents/skills/`, and Claude Code uses `.claude/skills/`. Restart or reload the coding agent and ask it to read the installed `maelstrom` entry skill. An installer listing is not proof of activation or correct application. No global install, SDK install, or provider key is required for a planning task.
+
+For manual installation, extract the ZIP's `apps/docs/skills/` contents into the selected tool's project skill directory. Preserve the complete tree. Use whole generated procedure directories for individual copies; authored GitHub files do not include the build projections.
 
 For an existing checkout of this repository, `bun run --cwd apps/docs skills:install` downloads and installs the bundle; run the same command with `skills:update` after obtaining a newer docs build. `bun run --cwd apps/docs skills:remove` removes only files recorded by that installer and leaves unrelated skill files intact. For a downloaded ZIP/manual installation, re-extract the newer complete bundle into the same tool-specific skills directory to update; remove the Maelstrom-owned skill directories and `references/` only when no other installed skill uses those references. Do not delete the entire skills directory. SDK updates are independent: update the desired `@maelstrom-co/*` dependency with the project's package manager, then reload the package-owned guide under `node_modules/@maelstrom-co/<package>/skills/`; do not update an SDK merely to update skills, or vice versa.
 
@@ -37,6 +46,8 @@ For an installation managed by Vercel Skills, rerun the same `add` command to re
 For a mixed request, use the lead matching its primary outcome; that skill may point to relevant references. These are task-selection conventions, not automated orchestration. When no task clearly matches, use the relevant standalone prompt or ask the user to narrow the task rather than loading several competing leads.
 
 ## Bundle inventory
+
+Package-owned SDK guides include conditional task recipes under each guide's own `references/` directory. Those recipes use the owning installed manifest as the version authority. Their code examples are compile-checked against published declarations; live Engine, microphone, and provider checks remain separate. Use Intent from the consumer workspace to list/load installed package guides. Intent setup writes permissions and agent instructions, so review it before confirming.
 
 The bundle starts from every Markdown file below this directory. This is the authored inventory; the build also generates procedure-local reference files and rewrites the distributed skill links:
 

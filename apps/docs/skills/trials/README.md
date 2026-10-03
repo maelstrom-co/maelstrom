@@ -20,4 +20,34 @@ metadata, install/update/remove behavior in an empty temporary project, and
 expected routing text. They do not establish that an agent follows a procedure
 correctly. Behavioral acceptance requires running each task input with a named
 agent/model/runtime and inspecting its output and resulting project diff. Those
-model-driven trials were not executed as part of this implementation.
+model-driven trials need separate execution and output review.
+
+## Cold-start discovery checks
+
+From a repository checkout on macOS with Pi already authenticated, run:
+
+```sh
+bun run --cwd apps/docs skills:acceptance
+```
+
+The optional runner installs all eight built workflow skills into fresh Pi
+consumer projects. It uses normal project discovery, not explicit `--skill`
+registration. Requests describe onboarding, migration, and optional voice without
+naming a skill. The fixtures have no installed SDK; these checks cover workflow
+selection and planning without fabricated API evidence, not SDK integration.
+
+The runner verifies the startup catalog, successful workflow/reference reads,
+matching task selection, and unchanged filesystem state. It blocks mutation tools
+before execution and protects existing credential files with a macOS write-deny
+sandbox. Authentication refresh is not authorized; authenticate separately if the
+read-only readiness check fails. Timeouts terminate the spawned process group.
+
+Logs and answers stay in a private temporary evidence directory. No credential
+values are copied into the project or printed. Results deliberately label
+application review as pending: inspect each answer for capability evidence,
+missing SDK/version claims, ownership, rollback, undecided provider/deployment,
+and honest unrun/live-check reporting before calling the behavior verified.
+
+Use `MAELSTROM_SKILLS_MODEL=provider/model` to choose another available Pi model.
+The default is `openai-codex/gpt-6.1-sol`. This is a tool-scoped acceptance check,
+not a general OS sandbox or proof of universal agent activation.

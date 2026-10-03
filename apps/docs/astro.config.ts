@@ -386,6 +386,7 @@ export default defineConfig({
           items: [
             { slug: 'getting-started/introduction' },
             { slug: 'getting-started/quick-start' },
+            { label: 'Build with an agent', link: '/agents/skills/' },
             { slug: 'getting-started/core-concepts' },
             { slug: 'getting-started/installation' },
           ],
@@ -486,10 +487,10 @@ export default defineConfig({
           ],
         },
         {
-          label: 'AGENTS',
+          label: 'Coding agents',
           items: [
             { label: 'Prompts library', link: '/agents/prompts/' },
-            { label: 'SKILL', link: '/agents/skills/' },
+            { label: 'Agent skills', link: '/agents/skills/' },
             {
               label: 'Testing prompts and skills',
               link: '/agents/evaluations/',
