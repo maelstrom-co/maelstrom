@@ -391,6 +391,7 @@ export async function evaluateCase(
       );
   }
   const proc = processResult ?? emptyProcessResult(inspectionError);
+  proc.cancelled ||= options.signal?.aborted === true;
   const extracted = extractCommandText(command, proc);
   const applicationOutput =
     options.runner === 'command' ? proc.stdout : (extracted?.text ?? '');
@@ -400,8 +401,10 @@ export async function evaluateCase(
           candidateRoot: cwd,
           baseline: before,
           timeoutMs: options.timeoutMs,
+          signal: options.signal,
         })
       : undefined;
+  proc.cancelled ||= options.signal?.aborted === true;
   const criteria =
     candidateGrade?.criteria ??
     gradeCaseEvidence(
@@ -637,6 +640,7 @@ export async function gradeCandidate(
     candidateRoot: string;
     baseline: Map<string, string>;
     timeoutMs?: number;
+    signal?: AbortSignal;
   },
 ): Promise<CandidateGrade> {
   if (caseRegistry[caseId].mode !== 'implementation')
@@ -653,12 +657,23 @@ export async function gradeCandidate(
     spec: CommandSpec,
     id: string,
   ): Promise<boolean> => {
+    if (options.signal?.aborted) {
+      harnessStatus = 'blocked';
+      criteria.push({
+        id,
+        status: 'unrun',
+        evidence: 'Candidate grading was cancelled before this check started.',
+      });
+      return false;
+    }
     const result = await runCommand({
       command: spec,
       input: '',
       cwd: candidateRoot,
       timeoutMs: options.timeoutMs,
+      signal: options.signal,
     });
+    if (result.cancelled) harnessStatus = 'blocked';
     commands.push({
       command: [spec.executable, ...spec.args],
       status: result.spawnError
@@ -686,7 +701,7 @@ export async function gradeCandidate(
     criteria.push({
       id,
       status: passed ? 'passed' : 'failed',
-      evidence: `exit=${result.exitCode}; timeout=${result.timedOut}; spawnError=${result.spawnError ?? 'none'}`,
+      evidence: `exit=${result.exitCode}; timeout=${result.timedOut}; cancelled=${result.cancelled}; spawnError=${result.spawnError ?? 'none'}`,
     });
     return passed;
   };
@@ -821,7 +836,13 @@ export async function gradeCandidate(
     'sdk-typecheck',
   );
   let behaviorPassed = false;
-  if (caseId === 'react-conversion') {
+  if (options.signal?.aborted) {
+    criteria.push({
+      id: 'trusted-ui-behavior',
+      status: 'unrun',
+      evidence: 'Candidate grading was cancelled before behavior checks.',
+    });
+  } else if (caseId === 'react-conversion') {
     const trustedDir = join(candidateRoot, '.evaluation-grade');
     try {
       await lstat(trustedDir);
@@ -865,6 +886,7 @@ export async function gradeCandidate(
   }
   if (
     harnessStatus === 'ready' &&
+    !options.signal?.aborted &&
     typecheckPassed &&
     (caseId !== 'react-conversion' || behaviorPassed)
   ) {

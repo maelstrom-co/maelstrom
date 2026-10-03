@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import {
   chmod,
+  cp,
   mkdir,
   mkdtemp,
   readdir,
@@ -12,6 +13,7 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { expectedPreparedManifest } from './calibrate-cases';
 import {
   buildCaseInput,
   type CaseId,
@@ -93,6 +95,87 @@ async function waitForFile(path: string): Promise<void> {
 }
 
 describe('registered behavioral cases', () => {
+  for (const stage of ['typecheck', 'behavior'] as const) {
+    test(`cancelling ${stage} stops grading and preserves the cancellation in the report`, async () => {
+      const candidateRoot = join(root, 'conversion');
+      await cp(
+        join(import.meta.dir, '../acceptance/fixtures/migration-react'),
+        candidateRoot,
+        { recursive: true },
+      );
+      const manifest = JSON.parse(
+        await readFile(join(candidateRoot, 'package.json.fixture'), 'utf8'),
+      );
+      await rm(join(candidateRoot, 'package.json.fixture'));
+      await writeFile(
+        join(candidateRoot, 'package.json'),
+        `${JSON.stringify(expectedPreparedManifest(manifest), null, 2)}\n`,
+      );
+      const bin = join(candidateRoot, 'node_modules/.bin');
+      await mkdir(bin, { recursive: true });
+      const started = join(root, 'grader.pid');
+      const laterCheck = join(root, 'behavior-started');
+      const hangingGrader = `#!/usr/bin/env node\nconst fs = require('node:fs'); fs.writeFileSync(${JSON.stringify(started)}, String(process.pid)); setInterval(() => {}, 1000);`;
+      await writeFile(
+        join(bin, 'tsc'),
+        stage === 'typecheck'
+          ? hangingGrader
+          : '#!/usr/bin/env node\nprocess.exit(0);',
+        { mode: 0o700 },
+      );
+      await writeFile(
+        join(bin, 'vitest'),
+        stage === 'behavior'
+          ? hangingGrader
+          : `#!/usr/bin/env node\nrequire('node:fs').writeFileSync(${JSON.stringify(laterCheck)}, 'started'); process.exit(1);`,
+        { mode: 0o700 },
+      );
+      await fake(
+        "process.stdin.resume(); process.stdin.on('end', () => console.log('done'));",
+      );
+      const controller = new AbortController();
+      const evaluation = evaluateCase('react-conversion', {
+        ...genericOptions(),
+        candidateRoot,
+        executionAuthorization: 'operator-approved',
+        signal: controller.signal,
+        timeoutMs: 1500,
+      });
+      try {
+        await waitForFile(started);
+        controller.abort();
+        const result = await evaluation;
+        expect(result.status).toBe('cancelled');
+        expect(result.cancelled).toBe(true);
+        expect(result.manifest.candidateGrader).toMatchObject({
+          harnessStatus: 'blocked',
+          commands:
+            stage === 'typecheck'
+              ? [{ cancelled: true }]
+              : [{ cancelled: false }, { cancelled: true }],
+        });
+        expect(
+          result.criteria.find(({ id }) => id === 'trusted-ui-behavior')
+            ?.status,
+        ).toBe(stage === 'typecheck' ? 'unrun' : 'failed');
+        expect(
+          result.criteria.find(({ id }) => id === 'browser-chart-vessel')
+            ?.status,
+        ).toBe('unrun');
+        await expect(
+          stat(join(candidateRoot, '.evaluation-grade')),
+        ).rejects.toThrow();
+        await expect(stat(laterCheck)).rejects.toThrow();
+        expect(isProcessAlive(Number(await readFile(started, 'utf8')))).toBe(
+          false,
+        );
+      } finally {
+        controller.abort();
+        await evaluation;
+      }
+    });
+  }
+
   test('rejects candidate/output overlap and read-only candidates before creating output', async () => {
     const candidate = join(root, 'candidate');
     await mkdir(candidate, { recursive: true });

@@ -1,8 +1,6 @@
-import { spawn } from 'node:child_process';
-import { createRequire } from 'node:module';
 import { createServer } from 'node:net';
-import { setTimeout as sleep } from 'node:timers/promises';
 import { chromium } from '@playwright/test';
+import { createLogger, createServer as createViteServer } from 'vite';
 
 const [candidateRoot, caseId] = process.argv.slice(2);
 if (
@@ -15,22 +13,15 @@ if (
   process.exit(2);
 }
 const port = await freePort();
-const vite = spawn(
-  `${candidateRoot}/node_modules/.bin/vite`,
-  ['--host', '127.0.0.1', '--port', String(port), '--strictPort'],
-  {
-    cwd: candidateRoot,
-    stdio: ['ignore', 'pipe', 'pipe'],
-    detached: process.platform !== 'win32',
-  },
-);
 let serverOutput = '';
-vite.stdout.setEncoding('utf8').on('data', (chunk) => {
-  serverOutput += chunk;
-});
-vite.stderr.setEncoding('utf8').on('data', (chunk) => {
-  serverOutput += chunk;
-});
+const logger = createLogger('silent');
+for (const level of ['info', 'warn', 'error'])
+  logger[level] = (message) => {
+    serverOutput = `${serverOutput}\n${message}`.slice(-6000);
+  };
+const observerId = '\0virtual:maelstrom-evaluation-observer';
+const observerUrl = '/@id/__x00__virtual:maelstrom-evaluation-observer';
+let vite;
 let browser;
 let page;
 let stage = 'wait-vite-server';
@@ -38,7 +29,52 @@ const pageErrors = [];
 const consoleErrors = [];
 const failedRequests = [];
 try {
-  await waitForServer(`http://127.0.0.1:${port}/`, vite, () => serverOutput);
+  vite = await createViteServer({
+    root: candidateRoot,
+    customLogger: logger,
+    server: { host: '127.0.0.1', port, strictPort: true },
+    // Prebundle both entrypoints together so the observer shares the app's SDK.
+    optimizeDeps: { include: ['@maelstrom-co/client'] },
+    plugins: [
+      {
+        name: 'maelstrom-evaluation-observer',
+        resolveId(id) {
+          if (
+            id === observerId ||
+            id === 'virtual:maelstrom-evaluation-observer'
+          )
+            return observerId;
+        },
+        load(id) {
+          if (id !== observerId) return;
+          return `import { Orchestrator } from '@maelstrom-co/client';
+const evaluatorWindow = window;
+evaluatorWindow.__maelstromEvaluatorSdk ??= [];
+const originalConnect = Orchestrator.prototype.connect;
+Orchestrator.prototype.connect = function (...args) {
+  const state = this.commandProcessor.store.state;
+  evaluatorWindow.__maelstromEvaluatorSdk.push({ vesselIds: this.vesselManager.getAll().map((vessel) => vessel.id), instances: Array.from(state.instances, ([instanceId, instance]) => ({ instanceId, vesselId: instance.vesselId })), layout: state.layout });
+  return originalConnect.apply(this, args);
+};`;
+        },
+        transformIndexHtml: {
+          order: 'pre',
+          handler(html) {
+            const entry = '<script type="module" src="/src/main.tsx"></script>';
+            if (!html.includes(entry))
+              throw new Error(
+                'Could not find fixture app entry in served index.html',
+              );
+            return html.replace(
+              entry,
+              `<script type="module" src="${observerUrl}"></script>${entry}`,
+            );
+          },
+        },
+      },
+    ],
+  });
+  await vite.listen();
   stage = 'launch-browser';
   browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({
@@ -59,41 +95,6 @@ try {
       failure: request.failure()?.errorText,
     }),
   );
-  stage = 'install-index-observer-route';
-  const clientEntry = createRequire(`${candidateRoot}/package.json`).resolve(
-    '@maelstrom-co/client',
-  );
-  await page.route(
-    `http://127.0.0.1:${port}/src/evaluation-observer.ts`,
-    async (route) => {
-      await route.fulfill({
-        contentType: 'application/javascript',
-        body: `import { Orchestrator } from '/@fs${clientEntry}';
-const evaluatorWindow = window;
-evaluatorWindow.__maelstromEvaluatorSdk ??= [];
-const originalConnect = Orchestrator.prototype.connect;
-Orchestrator.prototype.connect = function (...args) {
-  const state = this.commandProcessor.store.state;
-  evaluatorWindow.__maelstromEvaluatorSdk.push({ vesselIds: this.vesselManager.getAll().map((vessel) => vessel.id), instances: Array.from(state.instances, ([instanceId, instance]) => ({ instanceId, vesselId: instance.vesselId })), layout: state.layout });
-  return originalConnect.apply(this, args);
-};`,
-      });
-    },
-  );
-  await page.route(`http://127.0.0.1:${port}/`, async (route) => {
-    const response = await route.fetch();
-    const html = await response.text();
-    const entry = '<script type="module" src="/src/main.tsx"></script>';
-    if (!html.includes(entry))
-      throw new Error('Could not find fixture app entry in served index.html');
-    await route.fulfill({
-      response,
-      body: html.replace(
-        entry,
-        `<script type="module" src="/src/evaluation-observer.ts"></script>${entry}`,
-      ),
-    });
-  });
   stage = 'navigate-app';
   await page.goto(`http://127.0.0.1:${port}/`, {
     waitUntil: 'networkidle',
@@ -104,6 +105,7 @@ Orchestrator.prototype.connect = function (...args) {
     () =>
       Array.isArray(window.__maelstromEvaluatorSdk) &&
       window.__maelstromEvaluatorSdk.length > 0,
+    undefined,
     { timeout: 10_000 },
   );
   stage = 'wait-rendered-sdk-instance-marker';
@@ -124,6 +126,7 @@ Orchestrator.prototype.connect = function (...args) {
         );
       });
     },
+    undefined,
     { timeout: 10_000 },
   );
   stage = 'validate-sdk-registration-instance';
@@ -282,7 +285,7 @@ Orchestrator.prototype.connect = function (...args) {
           url: location.href,
           readyState: document.readyState,
           observerScriptPresent: Array.from(document.scripts).some((script) =>
-            script.src.includes('/src/evaluation-observer.ts'),
+            script.src.includes('maelstrom-evaluation-observer'),
           ),
           sdkObservationCount: window.__maelstromEvaluatorSdk?.length ?? 0,
           instanceCount: document.querySelectorAll('[data-instance-id]').length,
@@ -295,8 +298,7 @@ Orchestrator.prototype.connect = function (...args) {
   console.error(
     `[browser-diagnostics] ${JSON.stringify({
       stage,
-      viteExitCode: vite.exitCode,
-      viteSignal: vite.signalCode,
+      serverListening: vite?.httpServer?.listening ?? false,
       serverOutput: serverOutput.slice(-6000),
       pageErrors: pageErrors.slice(-8),
       consoleErrors: consoleErrors.slice(-8),
@@ -307,24 +309,7 @@ Orchestrator.prototype.connect = function (...args) {
   process.exitCode = 1;
 } finally {
   await browser?.close();
-  if (vite.exitCode === null) {
-    try {
-      if (vite.pid && process.platform !== 'win32')
-        process.kill(-vite.pid, 'SIGTERM');
-      else vite.kill('SIGTERM');
-    } catch {}
-    await Promise.race([
-      new Promise((resolve) => vite.once('close', resolve)),
-      sleep(1_000),
-    ]);
-    if (vite.exitCode === null) {
-      try {
-        if (vite.pid && process.platform !== 'win32')
-          process.kill(-vite.pid, 'SIGKILL');
-        else vite.kill('SIGKILL');
-      } catch {}
-    }
-  }
+  await vite?.close();
 }
 
 async function freePort() {
@@ -340,22 +325,4 @@ async function freePort() {
     server.close((error) => (error ? reject(error) : resolve())),
   );
   return port;
-}
-async function waitForServer(url, child, output) {
-  const deadline = Date.now() + 20_000;
-  let lastError;
-  while (Date.now() < deadline) {
-    if (child.exitCode !== null)
-      throw new Error(`Vite exited early (${child.exitCode}): ${output()}`);
-    try {
-      const response = await fetch(url);
-      if (response.ok) return;
-    } catch (error) {
-      lastError = error;
-    }
-    await sleep(100);
-  }
-  throw new Error(
-    `Vite failed to become ready: ${String(lastError)} ${output()}`,
-  );
 }
