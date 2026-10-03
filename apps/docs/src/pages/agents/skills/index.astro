@@ -66,6 +66,30 @@ const sourceFile = `https://github.com/maelstrom-co/maelstrom/blob/${sourceRef}/
         <li><a href={sourceFile}>Browse the README source</a></li>
       </ul>
     </section>
+    <section aria-labelledby="individual-heading">
+      <h2 id="individual-heading">Install one procedure</h2>
+      <p>
+        Each procedure in the generated bundle includes its required local
+        references. With Bun installed, run this from your application directory
+        to install the debugging procedure through
+        <a href="https://github.com/vercel-labs/skills">Vercel Skills</a>:
+      </p>
+      <pre><code>bunx skills@1.7.0 add https://docs.maelstrom-ai.co/agents/skills/bundle.zip --skill maelstrom-debugging</code></pre>
+      <p>
+        Choose your coding agent and project scope when prompted, then ask it to
+        use <code>maelstrom-debugging</code>. Replace the skill name to select
+        another procedure. For a manual install, copy that procedure's entire
+        directory from the extracted bundle. Its references resolve without the
+        other skills or the shared sibling <code>references/</code> directory.
+        Voice includes its canonical architecture and ADRs.
+      </p>
+      <p>
+        Rerun the same install command to refresh the procedure. Use
+        <code>bunx skills@1.7.0 remove maelstrom-debugging</code> to remove it
+        through the same installer. Install from the generated bundle; the
+        GitHub source tree contains the shared authoring layout.
+      </p>
+    </section>
     <p class="prompt-link">
       For guidance on comparing task, prompt, and skill conditions, see
       <a href="/agents/evaluations/">testing prompts and skills</a>.
@@ -82,6 +106,7 @@ const sourceFile = `https://github.com/maelstrom-co/maelstrom/blob/${sourceRef}/
   header { margin: 2rem 0; max-width: 46rem; }
   .eyebrow { letter-spacing: .12em; font-weight: 700; }
   section { padding: 1.25rem; border: 1px solid var(--sl-color-gray-5); border-radius: .75rem; background: var(--sl-color-bg); }
+  pre { max-width: 100%; overflow-x: auto; }
   li { margin: .6rem 0; }
   .prompt-link { margin-top: 2rem; }
 </style>
