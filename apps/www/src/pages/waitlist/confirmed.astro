@@ -106,7 +106,7 @@ if (!hasReceipt) {
     WAITLIST_TURNSTILE_ACTION,
   } from '@maelstrom-co/platform-infra/waitlist-contract';
   import { WAITLIST_TURNSTILE_SITE_KEY } from '../../data/turnstile-site-key';
-  import { captureWaitlistEvent } from '../../lib/posthog';
+  import { captureWebsiteEvent } from '../../lib/posthog';
 
   interface ResendTurnstileApi {
     render(
@@ -309,9 +309,9 @@ if (!hasReceipt) {
   // server chose to render, not by client state.
   const invite = document.querySelector('[data-waitlist-discord-invite]');
   if (invite) {
-    captureWaitlistEvent('waitlist_confirmation_page_viewed');
+    captureWebsiteEvent('waitlist_confirmation_page_viewed');
     invite.addEventListener('click', () => {
-      captureWaitlistEvent('waitlist_discord_invite_clicked', {
+      captureWebsiteEvent('waitlist_discord_invite_clicked', {
         source: 'confirmed_page',
       });
     });

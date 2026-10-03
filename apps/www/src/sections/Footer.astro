@@ -1,11 +1,11 @@
 ---
+import BetaDiscordLink from '../components/BetaDiscordLink.astro';
 import MaelstromLogo from '../components/MaelstromLogo.astro';
 import { navLinks, socialLinks } from '../data/navigation';
 
 const productLinks = [
   { label: 'How it works', href: '/#how' },
   { label: 'Demo', href: '/#demo' },
-  { label: 'Private Beta', href: '/#waitlist' },
 ];
 
 const resourceLinks = navLinks.filter((link) => link.href.startsWith('http'));
@@ -34,6 +34,7 @@ const resourceLinks = navLinks.filter((link) => link.href.startsWith('http'));
       </div>
       <div>
         <div class="footer-col-h">Community</div>
+        <BetaDiscordLink source="footer_community">Discord</BetaDiscordLink>
         {socialLinks.map((link) => (
           <a href={link.href} target="_blank" rel="noopener noreferrer">
             {link.label}

@@ -1432,7 +1432,17 @@ section {
   gap: 40px;
   align-items: center;
 }
+.beta-discord-cta {
+  justify-self: end;
+  justify-content: center;
+  max-width: 100%;
+  white-space: normal;
+  text-align: center;
+}
 @media (max-width: 820px) {
+  .beta-discord-cta {
+    justify-self: stretch;
+  }
   .waitlist-inner {
     grid-template-columns: 1fr;
     gap: 24px;

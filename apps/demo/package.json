@@ -227,6 +227,7 @@
     "lucide-react": "^1.24.0",
     "maplibre-gl": "^5.24.0",
     "nanoid": "catalog:",
+    "posthog-js": "^1.435.8",
     "react": "catalog:",
     "react-dom": "catalog:",
     "tailwind-merge": "^3.5.0",
