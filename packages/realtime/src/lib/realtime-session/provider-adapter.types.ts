@@ -70,7 +70,7 @@ export interface TurnModeEvent {
 
 /**
  * Legacy events a `RealtimeProviderAdapter` emits toward `RealtimeSession`.
- * Continuous media and timestamped fragments use the optional
+ * Continuous media and timestamped fragments use the separate
  * {@link AdapterVoiceObservations} channel, preserving exhaustive consumers.
  */
 export type RealtimeAdapterEvent =
@@ -196,8 +196,13 @@ export interface RealtimeTransportAdapter<Options = AdapterConnectOptions> {
 
 /** A transport with the implemented Maelstrom tool and grounding integration. */
 export interface RealtimeProviderAdapter extends RealtimeTransportAdapter {
-  /** Optional continuous observations, separate from the legacy exhaustive event union. */
-  readonly observations?: AdapterVoiceObservations;
+  /**
+   * Continuous transcript and media evidence, separate from the legacy
+   * exhaustive event union. Every adapter defines the feed; each event kind
+   * within it is optional, and media an adapter never reports stays `unknown`.
+   * Providers without media timestamps can use `TranscriptObservationFeed`.
+   */
+  readonly observations: AdapterVoiceObservations;
   /** Optional natural-opening request; it does not satisfy the fixed-text greeting contract. */
   readonly generatedOpening?: AdapterGeneratedOpening;
   /** Optional quiet recovery update for application outcomes that settle after reconnect. Never replays tools. */
@@ -250,7 +255,7 @@ export type AdapterVoiceObservation =
       readonly fragment: TimedTranscriptFragment;
     };
 
-/** Optional adapter channel, subscribed before connection setup and released on teardown. */
+/** Adapter evidence channel, subscribed before connection setup and released on teardown. */
 export interface AdapterVoiceObservations {
   /** Observes current-generation provider evidence; adapters must fence stale transport callbacks. */
   subscribe(handler: (event: AdapterVoiceObservation) => void): Unsubscribe;

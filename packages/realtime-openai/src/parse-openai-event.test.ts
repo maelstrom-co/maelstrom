@@ -2,7 +2,10 @@ import { describe, expect, it } from 'bun:test';
 
 import { ToolCallId } from '@maelstrom-co/protocol';
 
-import { parseOpenAIServerEvent } from './parse-openai-event.js';
+import {
+  parseOpenAIServerEvent,
+  parseOpenAITranscriptItem,
+} from './parse-openai-event.js';
 
 describe('parseOpenAIServerEvent — tool calls', () => {
   it('maps a function_call event to a tool_call adapter event', () => {
@@ -165,5 +168,55 @@ describe('parseOpenAIServerEvent — unknown / malformed input', () => {
   it('returns null when type is missing or not a string', () => {
     expect(parseOpenAIServerEvent({})).toBeNull();
     expect(parseOpenAIServerEvent({ type: 42 })).toBeNull();
+  });
+});
+
+describe('parseOpenAITranscriptItem', () => {
+  it('keeps the item id of a streamed delta', () => {
+    expect(
+      parseOpenAITranscriptItem({
+        type: 'response.output_audio_transcript.delta',
+        item_id: 'item_1',
+        delta: 'Pulling',
+      }),
+    ).toEqual({
+      itemId: 'item_1',
+      role: 'assistant',
+      text: 'Pulling',
+      final: false,
+    });
+  });
+
+  it('keeps the item id and full text of a completed user transcription', () => {
+    expect(
+      parseOpenAITranscriptItem({
+        type: 'conversation.item.input_audio_transcription.completed',
+        item_id: 'item_2',
+        transcript: 'Show my labs.',
+      }),
+    ).toEqual({
+      itemId: 'item_2',
+      role: 'user',
+      text: 'Show my labs.',
+      final: true,
+    });
+  });
+
+  it('returns null without a usable item id or for non-transcript events', () => {
+    const delta = {
+      type: 'response.output_audio_transcript.delta',
+      delta: 'x',
+    };
+    expect(parseOpenAITranscriptItem(delta)).toBeNull();
+    expect(parseOpenAITranscriptItem({ ...delta, item_id: '' })).toBeNull();
+    expect(
+      parseOpenAITranscriptItem({ ...delta, item_id: 'i'.repeat(257) }),
+    ).toBeNull();
+    expect(
+      parseOpenAITranscriptItem({
+        type: 'input_audio_buffer.speech_started',
+        item_id: 'item_3',
+      }),
+    ).toBeNull();
   });
 });

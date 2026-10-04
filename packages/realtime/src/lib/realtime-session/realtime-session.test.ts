@@ -604,6 +604,7 @@ function makeMockAdapter(): MockAdapter {
   const lastAudioStreams: AdapterAudioStreams = {};
 
   return {
+    observations: { subscribe: () => () => {} },
     toolResults,
     groundingCalls,
     connectOptions,

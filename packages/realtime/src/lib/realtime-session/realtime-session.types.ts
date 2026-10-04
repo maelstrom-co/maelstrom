@@ -193,7 +193,11 @@ export interface RealtimeSessionOptions {
 export interface ContinuousTranscriptOptions {
   /** Maximum retained fragments, a positive safe integer. Defaults to 256. */
   readonly maxFragments?: number;
-  /** Maximum characters per fragment, a positive safe integer. Oversized fragments are rejected, never truncated. Defaults to 16384. */
+  /**
+   * Maximum characters per fragment, a positive safe integer. Defaults to 16384.
+   * Oversized text is rejected, never truncated. Valid completion metadata can
+   * still finish an already retained partial caption without replacing its text.
+   */
   readonly maxFragmentChars?: number;
   /** Maximum gap between same-speaker fragments in a display group, finite and at least zero. Defaults to 1000 milliseconds. */
   readonly groupGapMs?: number;

@@ -11,7 +11,11 @@ import type {
   RealtimeToolSpec,
   ToolResult,
 } from '@maelstrom-co/realtime';
-import { ConnectRaceGuard, RealtimeVoiceError } from '@maelstrom-co/realtime';
+import {
+  ConnectRaceGuard,
+  RealtimeVoiceError,
+  TranscriptObservationFeed,
+} from '@maelstrom-co/realtime';
 import type {
   OpenAIBuiltInVoice,
   OpenAITokenGrant,
@@ -34,6 +38,7 @@ import {
   asString,
   isRecord,
   parseOpenAIServerEvent,
+  parseOpenAITranscriptItem,
 } from './parse-openai-event.js';
 import { WebRtcPlayoutDiagnostics } from './playout-diagnostics.js';
 import { ResponseArbiter } from './response-arbiter.js';
@@ -189,6 +194,15 @@ export class OpenAIAdapter
   readonly #greetingPresentation: GreetingPresentation;
   readonly #playoutDiagnostics: WebRtcPlayoutDiagnostics | undefined;
   readonly #handlers = new Set<(event: RealtimeAdapterEvent) => void>();
+  readonly #transcripts = new TranscriptObservationFeed();
+
+  /**
+   * Transcript fragments on a local receipt-time timeline, one per provider
+   * conversation item. The item's final event revises its fragment with the
+   * full text. The fixed greeting appears as one final assistant fragment when
+   * its playback starts. Media evidence is not reported.
+   */
+  readonly observations = this.#transcripts;
 
   #pc: RTCPeerConnection | undefined;
   #dc: RTCDataChannel | undefined;
@@ -533,7 +547,15 @@ export class OpenAIAdapter
     readonly signal: AbortSignal;
     readonly onPlaybackStart?: () => void;
   }): Promise<GreetingSpeechResult> {
-    return this.#greetingPresentation.speak(args);
+    const generation = this.#connectionGeneration;
+    return this.#greetingPresentation.speak({
+      ...args,
+      onPlaybackStart: () => {
+        if (generation === this.#connectionGeneration && !args.signal.aborted)
+          this.#transcripts.complete(args.id, 'assistant', args.text);
+        args.onPlaybackStart?.();
+      },
+    });
   }
 
   #wireConnectionEvents(connection: RTCPeerConnection): void {
@@ -863,6 +885,7 @@ export class OpenAIAdapter
    */
   #startConnectionGeneration(): void {
     this.#connectionGeneration += 1;
+    this.#transcripts.restart();
     this.#arbiter?.close();
     this.#arbiter = this.#newArbiter();
   }
@@ -1051,6 +1074,8 @@ export class OpenAIAdapter
         this.#logger.debug('parsed →', event.type);
       }
       this.#emit(event);
+      if (generation === this.#connectionGeneration)
+        this.#observeTranscript(parsed);
     } else {
       if (lifecycleCategory === undefined && !isInputTranscriptDelta) {
         this.#logger.debug(
@@ -1062,6 +1087,14 @@ export class OpenAIAdapter
         this.#logger.warn('unexpected realtime event type');
       }
     }
+  }
+
+  #observeTranscript(parsed: unknown): void {
+    const item = parseOpenAITranscriptItem(parsed);
+    if (!item) return;
+    if (item.final)
+      this.#transcripts.complete(item.itemId, item.role, item.text);
+    else this.#transcripts.append(item.itemId, item.role, item.text);
   }
 
   #newArbiter(): ResponseArbiter {
