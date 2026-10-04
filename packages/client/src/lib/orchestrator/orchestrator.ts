@@ -824,6 +824,11 @@ export class Orchestrator {
   // Disposal
   // ==========================================================================
 
+  /**
+   * Retire scheduled updates and request error reporting before transport shutdown.
+   * Coalesced flushes resolve to `null` because their response cannot be applied.
+   * In-flight intents still settle with their transport outcome.
+   */
   async dispose(): Promise<void> {
     if (this.#isDisposed) return;
 
@@ -835,12 +840,13 @@ export class Orchestrator {
     this.#unsubPush?.();
     this.#unsubPush = null;
 
+    this.#updateCoordinator.dispose();
+    this.#requestCoordinator.resolveFlushPromises(null);
+    this.#requestCoordinator.dispose();
     await this.#connectionManager.dispose();
     this.#chartManager.dispose();
     this.#vesselManager.dispose();
-    this.#updateCoordinator.dispose();
     this.#commandProcessor.dispose();
-    this.#requestCoordinator.dispose();
     this.#pendingMutations = [];
   }
 
