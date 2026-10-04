@@ -5514,6 +5514,94 @@ describe('GreetingCoordinator × OpenAIAdapter — cross-layer ordering', () => 
 });
 
 describe('OpenAIAdapter: transcript observations', () => {
+  it('does not carry a retired transcript into a session started by its callback', async () => {
+    const adapter = new OpenAIAdapter({ mintToken: async () => fakeToken });
+    const original = new RealtimeSession({
+      adapter,
+      instance: makeInertInstance(),
+      sessionId: SessionId('original'),
+    });
+    const connecting = original.connect();
+    const channel = await latestDataChannel();
+    channel.triggerOpen();
+    await connecting;
+    const replacement = new RealtimeSession({
+      adapter,
+      instance: makeInertInstance(),
+      sessionId: SessionId('replacement'),
+    });
+    let ending: Promise<void> | undefined;
+    let restarting: Promise<void> | undefined;
+    const release = adapter.on((event) => {
+      if (event.type !== 'transcript') return;
+      release();
+      ending = original.dispose();
+      restarting = replacement.connect();
+    });
+    channel.receive({
+      type: 'response.output_audio_transcript.done',
+      item_id: 'retired',
+      transcript: 'Old connection',
+    });
+    await ending;
+    const nextChannel = await latestDataChannel(channel);
+    nextChannel.triggerOpen();
+    await restarting;
+
+    expect(replacement.observations.getSnapshot().captions).toEqual([]);
+    expect(replacement.memory.getSnapshot().fragments).toEqual([]);
+    await replacement.dispose();
+  });
+
+  it.each([
+    undefined,
+    12,
+  ])('finishes an accepted caption when later text exceeds the fragment limit %s', async (maxFragmentChars) => {
+    const adapter = new OpenAIAdapter({ mintToken: async () => fakeToken });
+    const session = new RealtimeSession({
+      adapter,
+      instance: makeInertInstance(),
+      sessionId: SessionId('bounded-caption'),
+      transcript: { maxFragmentChars },
+    });
+    const connecting = session.connect();
+    const channel = await latestDataChannel();
+    channel.triggerOpen();
+    await connecting;
+    const accepted = 'x'.repeat(maxFragmentChars ?? 16384);
+    channel.receive({
+      type: 'response.output_audio_transcript.delta',
+      item_id: 'long',
+      delta: accepted,
+    });
+    channel.receive({
+      type: 'response.output_audio_transcript.delta',
+      item_id: 'long',
+      delta: ' more',
+    });
+    channel.receive({
+      type: 'response.output_audio_transcript.done',
+      item_id: 'long',
+      transcript: `${accepted} more`,
+    });
+    channel.receive({
+      type: 'response.output_audio_transcript.done',
+      item_id: 'next',
+      transcript: 'Done.',
+    });
+
+    expect(
+      session.observations.getSnapshot().captions.map(({ text, final }) => ({
+        text,
+        final,
+      })),
+    ).toEqual([
+      { text: accepted, final: true },
+      { text: 'Done.', final: true },
+    ]);
+    await session.dispose();
+  });
+
   function observe(adapter: OpenAIAdapter) {
     const fragments: TimedTranscriptFragment[] = [];
     adapter.observations.subscribe((event) => {

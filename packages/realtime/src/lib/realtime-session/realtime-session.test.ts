@@ -3942,6 +3942,32 @@ describe('RealtimeSession observation and recovery equivalence', () => {
     );
   });
 
+  it('does not repeat provider teardown or lifecycle notifications after disposal settles', async () => {
+    const { session, adapter } = makeHarness();
+    await session.connect();
+
+    await session.dispose();
+    const snapshot = session.observations.getSnapshot();
+
+    await session.dispose();
+    expect(session.observations.getSnapshot()).toBe(snapshot);
+    expect(adapter.disconnectCalls).toBe(1);
+  });
+
+  it('preserves a failed disposal result without retrying provider teardown', async () => {
+    const { session, adapter } = makeHarness();
+    await session.connect();
+    const failure = new Error('provider teardown failed');
+    adapter.failNextDisconnect(failure);
+
+    await expect(session.dispose()).rejects.toBe(failure);
+    const snapshot = session.observations.getSnapshot();
+    await expect(session.dispose()).rejects.toBe(failure);
+
+    expect(session.observations.getSnapshot()).toBe(snapshot);
+    expect(adapter.disconnectCalls).toBe(1);
+  });
+
   it('settles the observation snapshot as disconnected when disposed', async () => {
     const { session } = makeHarness();
     await session.connect();

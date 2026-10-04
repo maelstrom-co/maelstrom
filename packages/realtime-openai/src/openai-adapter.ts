@@ -1074,7 +1074,8 @@ export class OpenAIAdapter
         this.#logger.debug('parsed →', event.type);
       }
       this.#emit(event);
-      this.#observeTranscript(parsed);
+      if (generation === this.#connectionGeneration)
+        this.#observeTranscript(parsed);
     } else {
       if (lifecycleCategory === undefined && !isInputTranscriptDelta) {
         this.#logger.debug(
