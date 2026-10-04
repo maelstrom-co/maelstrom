@@ -12,6 +12,26 @@ import { join } from 'node:path';
 
 const evidence = mkdtemp(join(tmpdir(), 'maelstrom-eval-process-'));
 const nodePath = realpath(Bun.which('node') ?? '/usr/bin/node');
+async function boundedWait<T>(
+  pending: Promise<T>,
+  timeoutMs: number,
+  message: string,
+) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      pending,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(message)),
+          Math.max(0, timeoutMs),
+        );
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 export async function migrationProcessEvidenceDirectory() {
   return evidence;
 }
@@ -36,6 +56,14 @@ export async function runMigrationProcess(
     { cwd, env, detached: true, stdout: 'ignore', stderr: 'ignore' },
   );
   const identity = { supervisorPid: worker.pid, pgid: worker.pid };
+  const supervisorDeadline = performance.now() + timeoutMs + 3000;
+  const waitForSupervisor = <T>(pending: Promise<T>) =>
+    boundedWait(
+      pending,
+      supervisorDeadline - performance.now(),
+      'Migration supervisor completion deadline exceeded',
+    );
+  const helperPids = new Set<number>();
   let cleanup: Promise<boolean> | undefined;
   const terminate = () => {
     cleanup ??= (async () => {
@@ -47,35 +75,49 @@ export async function runMigrationProcess(
         ],
         { env, stdout: 'ignore', stderr: 'ignore' },
       );
-      const timer = setTimeout(() => {
+      helperPids.add(killer.pid);
+      try {
+        const code = await boundedWait(
+          killer.exited,
+          2500,
+          'Cleanup helper completion deadline exceeded',
+        );
+        helperPids.delete(killer.pid);
+        return code === 0;
+      } catch {
         try {
           killer.kill('SIGKILL');
         } catch {}
-      }, 2500);
-      try {
-        return (await killer.exited) === 0;
-      } finally {
-        clearTimeout(timer);
+        try {
+          await boundedWait(
+            killer.exited,
+            250,
+            'Cleanup helper termination deadline exceeded',
+          );
+          helperPids.delete(killer.pid);
+        } catch {}
+        return false;
       }
     })();
     return cleanup;
   };
-  const guard = setTimeout(() => {
-    void terminate().catch(() => {});
-  }, timeoutMs + 3000);
   let failed = false;
   let failure: unknown;
   try {
-    await appendFile(
-      ledger,
-      `${JSON.stringify({ ...identity, phase: 'supervisor-started' })}\n`,
-      { mode: 0o600 },
+    await waitForSupervisor(
+      appendFile(
+        ledger,
+        `${JSON.stringify({ ...identity, phase: 'supervisor-started' })}\n`,
+        { mode: 0o600 },
+      ),
     );
-    const code = await worker.exited;
-    const info = await stat(statusPath);
+    const code = await waitForSupervisor(worker.exited);
+    const info = await waitForSupervisor(stat(statusPath));
     if (!info.isFile() || info.size > 4096)
       throw new Error('Invalid process result');
-    const result = JSON.parse(await readFile(statusPath, 'utf8'));
+    const result = JSON.parse(
+      await waitForSupervisor(readFile(statusPath, 'utf8')),
+    );
     if (
       result.supervisorPid !== worker.pid ||
       !Number.isSafeInteger(result.pid) ||
@@ -92,28 +134,45 @@ export async function runMigrationProcess(
   } catch (error) {
     failed = true;
     failure = error;
-  } finally {
-    clearTimeout(guard);
   }
   let complete = false;
   try {
     complete = await terminate();
-  } catch {}
+    if (complete)
+      await boundedWait(
+        worker.exited,
+        1000,
+        'Migration supervisor reap deadline exceeded',
+      );
+  } catch {
+    complete = false;
+  }
   if (!complete) {
-    await writeFile(`${statusPath}.identity`, JSON.stringify(identity), {
-      mode: 0o600,
-    }).catch(() => {});
+    const retained = {
+      ...identity,
+      ...(helperPids.size ? { cleanupHelperPids: [...helperPids] } : {}),
+    };
+    await boundedWait(
+      writeFile(`${statusPath}.identity`, JSON.stringify(retained), {
+        mode: 0o600,
+      }),
+      1000,
+      'Process identity retention deadline exceeded',
+    ).catch(() => {});
     throw new Error(
-      `Migration process cleanup uncertain; retained supervisorPid=${identity.supervisorPid} pgid=${identity.pgid} status=${statusPath}`,
+      `Migration process cleanup uncertain; retained supervisorPid=${identity.supervisorPid} pgid=${identity.pgid} helperPids=${[...helperPids].join(',')} status=${statusPath}`,
       { cause: failure },
     );
   }
-  await worker.exited;
   try {
-    await appendFile(
-      ledger,
-      `${JSON.stringify({ ...identity, phase: 'cleanup', cleanup: 'complete' })}\n`,
-      { mode: 0o600 },
+    await boundedWait(
+      appendFile(
+        ledger,
+        `${JSON.stringify({ ...identity, phase: 'cleanup', cleanup: 'complete' })}\n`,
+        { mode: 0o600 },
+      ),
+      1000,
+      'Process cleanup publication deadline exceeded',
     );
   } catch (cause) {
     throw new Error(
@@ -121,12 +180,17 @@ export async function runMigrationProcess(
       { cause },
     );
   }
-  await rm(statusPath, { force: true });
+  await boundedWait(
+    rm(statusPath, { force: true }),
+    1000,
+    'Process status removal deadline exceeded',
+  );
   if (failed) throw failure;
 }
 
 export async function cloneMigrationTree(source: string, target: string) {
-  const ledger = join(await evidence, 'copies.jsonl');
+  const privateRoot = await evidence;
+  const ledger = join(privateRoot, 'copies.jsonl');
   const child = Bun.spawn(
     [
       '/bin/cp',
@@ -136,30 +200,66 @@ export async function cloneMigrationTree(source: string, target: string) {
     ],
     { env: { PATH: '/usr/bin:/bin' }, stdout: 'ignore', stderr: 'ignore' },
   );
-  const deadline = setTimeout(() => {
-    try {
-      child.kill('SIGKILL');
-    } catch {}
-  }, 30_000);
+  const identity = { pid: child.pid };
+  const deadline = performance.now() + 30_000;
+  const waitForCopy = <T>(pending: Promise<T>) =>
+    boundedWait(
+      pending,
+      deadline - performance.now(),
+      'Migration copy completion deadline exceeded',
+    );
+  let failed = false;
+  let failure: unknown;
   try {
-    await appendFile(
-      ledger,
-      `${JSON.stringify({ pid: child.pid, phase: 'copy-started' })}\n`,
-      { mode: 0o600 },
+    await waitForCopy(
+      appendFile(
+        ledger,
+        `${JSON.stringify({ pid: child.pid, phase: 'copy-started' })}\n`,
+        { mode: 0o600 },
+      ),
     );
-    const code = await child.exited;
-    await appendFile(
-      ledger,
-      `${JSON.stringify({ pid: child.pid, phase: 'copy-finished', code })}\n`,
-      { mode: 0o600 },
-    );
+    const code = await waitForCopy(child.exited);
     if (code !== 0)
       throw new Error('Migration copy failed or exceeded its deadline');
-  } finally {
+  } catch (error) {
+    failed = true;
+    failure = error;
+  }
+  if (child.exitCode === null) {
     try {
       child.kill('SIGKILL');
     } catch {}
-    await child.exited;
-    clearTimeout(deadline);
   }
+  let code: number;
+  try {
+    code = await boundedWait(
+      child.exited,
+      1000,
+      'Migration copy cleanup deadline exceeded',
+    );
+  } catch (cause) {
+    const identityPath = join(
+      privateRoot,
+      `${crypto.randomUUID()}.copy.identity`,
+    );
+    await boundedWait(
+      writeFile(identityPath, JSON.stringify(identity), { mode: 0o600 }),
+      1000,
+      'Copy identity retention deadline exceeded',
+    ).catch(() => {});
+    throw new Error(
+      `Migration copy cleanup uncertain; retained pid=${identity.pid} identity=${identityPath}`,
+      { cause },
+    );
+  }
+  await boundedWait(
+    appendFile(
+      ledger,
+      `${JSON.stringify({ ...identity, phase: 'copy-finished', code, cleanup: 'complete' })}\n`,
+      { mode: 0o600 },
+    ),
+    1000,
+    'Copy cleanup publication deadline exceeded',
+  );
+  if (failed) throw failure;
 }

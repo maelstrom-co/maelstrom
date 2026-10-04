@@ -311,7 +311,8 @@ export function piEvidence(text: string, binding?: PiBinding) {
               )
             : []),
         ];
-        if (startup.some(exposed)) guideExposure = true;
+        if (startup.some(exposed) || exposed(startup.join('\n')))
+          guideExposure = true;
         if (
           !normal(contentText(message.content)) &&
           !validStartupSections(message.sections)

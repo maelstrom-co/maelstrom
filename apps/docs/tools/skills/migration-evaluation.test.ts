@@ -295,6 +295,42 @@ test('sealed treatment fingerprints reject contaminated baselines in both Pi sta
       ).toBe(false);
     }
   }
+  for (const guide of Object.values(baselineBinding.exposureGuides)) {
+    for (const system of [
+      {
+        role: 'system',
+        content: '',
+        sections: { ...sections, preamble: guide.heading, docs: guide.content },
+      },
+      {
+        role: 'system',
+        content: guide.heading,
+        sections: { ...sections, docs: guide.content },
+      },
+      {
+        role: 'system',
+        content: guide.content,
+        sections: { ...sections, preamble: guide.heading },
+      },
+    ]) {
+      const contaminated = evidence(system);
+      expect(contaminated.traceBound).toBe(true);
+      expect(contaminated.guideExposure).toBe(true);
+      expect(contaminated.activated).toBe(false);
+      expect(contaminated.sdkGuidesReceived).toEqual([]);
+      expect(
+        compareMigration(
+          {
+            ...contaminated,
+            passed: true,
+            reviewApproved: true,
+            reviewHash: 'reviewed-pair',
+          },
+          treatment,
+        ).eligible,
+      ).toBe(false);
+    }
+  }
   for (const system of [
     {
       role: 'system',
