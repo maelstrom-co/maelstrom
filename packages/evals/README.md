@@ -53,11 +53,11 @@ OPENAI_API_KEY=... TYPESAFE_API_KEY=... JEV_MODEL=jev-1.13.0 \
 
 Without a variable the run needs (`OPENAI_API_KEY` always; the Jev arms also need `TYPESAFE_API_KEY` and `JEV_MODEL`, and so does `--grader`) the runner writes `status.json` naming the missing variables and exits with code 2. Live runs are not part of `nx test`; the offline tests use a scripted TypeSafe transport and a mocked `chat()`.
 
-Each staged turn writes its stages' inputs and outputs to `<out>/stages/<arm>/<scenarioId>-<repeat>.json`. Replay reads them back: a replayed stage returns the recorded output (or the same deferral), so the stage after it runs on identical upstream results. Jev and LLM replies are not deterministic, so replay isolates one stage; it never stands in for an end-to-end result. A turn with no recorded stage fails with an error naming the stage and turn. Before any call, the runner also refuses a recording that lacks what an arm's plugin says it reads from a replayed stage: stage-library arms read `minConfidence` from a replayed action plan, gated arms read every gate from a replayed selection and action plan, and ungated arms refuse a recording that carries gates, since their actions stage would act on them. Replay gated arms from a gated arm's run and ungated arms from an ungated one.
+Each staged turn writes its stages' inputs and outputs to `<out>/stages/<arm>/<scenarioId>-<repeat>.json`. Replay reads them back: a replayed stage returns the recorded output (or the same deferral), so the stage after it runs on identical upstream results. Jev and LLM replies are not deterministic, so replay isolates one stage; it never stands in for an end-to-end result. A turn with no recorded stage fails with an error naming the stage and turn. Before any call, the runner also refuses a recording that lacks what an arm's plugin says it reads from a replayed stage: stage-library arms read `minConfidence` from a replayed action plan, gated arms read every gate from a replayed selection and action plan, so a run recorded before the select stage asked a gate (such as `dependsOnScreen`) no longer replays into a gated arm and is refused as having no complete gates, and ungated arms refuse a recording that carries gates, since their actions stage would act on them. Replay gated arms from a gated arm's run and ungated arms from an ungated one.
 
 ### Stage evals
 
-`src/core/stage-eval.ts` tests one pipeline stage on its own, so a stage can be tuned in minutes before a full-planner run. It calls the stage function directly on the input a scenario's expectation implies: no planner, no Engine, no replay and no LLM. The actions and layout stages are covered so far. Use it while changing a stage's questions, options or code; use the full-planner eval above for the final comparison of whole planners, since a stage that scores well alone can still lose to the completion call or the fallback.
+`src/core/stage-eval.ts` tests one pipeline stage on its own, so a stage can be tuned in minutes before a full-planner run. It calls the stage function directly on the input a scenario's expectation implies: no planner, no Engine, no replay and no LLM. The select, actions and layout stages are covered so far. Use it while changing a stage's questions, options or code; use the full-planner eval above for the final comparison of whole planners, since a stage that scores well alone can still lose to the completion call or the fallback.
 
 ```sh
 # from the workspace root, so Bun loads .env (TYPESAFE_API_KEY and JEV_MODEL; no OpenAI key is needed)
@@ -66,7 +66,7 @@ bun --conditions=@maelstrom-co/source packages/evals/src/eval-stages/cli.ts --st
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
-| `--stage` | required | The stage to test: `actions` or `layout`. |
+| `--stage` | required | The stage to test: `select`, `actions` or `layout`. |
 | `--variant` | every variant of the stage | Repeat the flag for several; columns follow the order given. Layout variants: `preset` (the preset choice with placement descriptions), `preset-or-llm` and `composed-pairs` (the composed pairs planner's layout stage), listed in `LAYOUT_STAGES`, `src/plugins/jev/stages/layout.ts`. Each is built as the matching arm in `src/plugins/jev/arms.ts` builds its layout stage. |
 | `--suite` | `development` | `development`, `holdout` or `all`. |
 | `--repeats` | `3` | Runs per scenario and variant. |
@@ -78,7 +78,7 @@ bun --conditions=@maelstrom-co/source packages/evals/src/eval-stages/cli.ts --st
 | `--spatial-records` | none | Layout only. The `records.json` of a full planner eval to read the spatial gates from. Needs `--spatial-signal recorded-live`. |
 | `--spatial-records-arm` | `jev-gated-per-instance-composed-pairs-gate-and-defer-inline` | Layout only. The arm of `--spatial-records` whose gates are read; it must be a registered Jev arm. Needs `--spatial-signal recorded-live`. The run fails before any turn when that arm recorded no spatial gate in the file, or none for the selected scenarios and repeats, rather than running every turn on gold. |
 
-The layout stage gets gold inputs from `src/plugins/jev/gold-inputs.ts`: the expected selection and action plan, with every gate (`spatial` yes only for scenarios tagged `spatial: true`). A scenario that cannot form them (it expects a deferral, or states no visible set or actions) is recorded once per variant as not applicable and does not run. Each turn ends in one outcome:
+The layout stage gets gold inputs from `src/plugins/jev/gold-inputs.ts`: the expected selection and action plan, with every gate (`spatial` yes only for scenarios tagged `spatial: true`). A scenario that cannot form them (it expects a deferral, or states no visible set or actions) is recorded once per variant as not applicable and does not run. A scenario that expects the layout stage itself to defer runs instead on the board as it is (`layoutDeferralGoldInputs`) and passes only on the expected reason: `jevLayout/spatial_not_stated` when its `deferCause` is `arrangement_not_stated` (the request asks for an arrangement the pair questions cannot express, so they leave the board unchanged), and `jevLayout/no_feasible_layout` otherwise. The preset variants never give the first reason, so they never pass those scenarios. Each turn ends in one outcome:
 
 - **pass** or **fail**: the decision wrote a tree, scored with `scoreLayout` (the tree's leaves against the expected visible set, then the arrangement rules of `src/core/predicates.ts`, including `unchangedTree`) and a fit check (every visible Instance once, within the Chart, at its variant's minimum size).
 - **handed off**: the decision has no tree, so the completion call would write the layout; neither pass nor fail.
@@ -94,6 +94,18 @@ bun --conditions=@maelstrom-co/source packages/evals/src/eval-stages/cli.ts --st
 
 A new stage joins by implementing `StageEvalModule` (`src/core/stage-eval.ts`: its variants over the deps `makeDeps` builds, how a scenario forms its input, how an output is judged, any CLI flags, and any extra report sections) and listing it in its plugin's `stageModules`.
 
+#### Select stage
+
+The select stage eval judges the gates of the composed pairs planner's select stage (`selectGated`). It runs on each scenario's own planning input, since the gates are the stage's answer to the request itself; there is no gold input. Its one variant, `gated`, runs `selectGated` and reads the gate answers from the stage's reply with `readGateAnswers`, the function the stage decides with, so a turn where the stage answered the gates and then deferred (a `generatedContent` or `dependsOnScreen` yes, an ambiguous scope) is still judged and records the deferral reason. A deferral whose reply carries no gate answers is recorded as that deferral, unjudged. A provider failure, an over-cap question or a missing answer is recorded as an error, so a provider outage shows in the error count.
+
+The expected answer per gate comes from `expectedGateAnswers` in `src/plugins/jev/gold-inputs.ts`: a scenario's explicit `expectedGates` entry wins; otherwise `needsActions` is yes when a planned scenario expects an action, an ask or a parameter with no listed match and no when it states its actions and all are empty, `spatial` follows the spatial tag, and `generatedContent` and `dependsOnScreen` are no for a planned scenario. Gates the planner does not ask are ignored, and a scenario with no expected answer for any asked gate is not applicable. A turn passes when every judged gate matches and fails with one failure per wrong gate, naming the expected answer, the answer and its probability of yes. `records.json` keeps every gate's answer, probability and confidence, the expected answers and the deferral reason. `report.md` adds a table of judged turns, false positives (yes where no was expected) and false negatives per variant and gate, then every miss with its scenario, suite, repeat and probability, sorted by gate, expected answer and probability, so the effect of another threshold can be read off.
+
+The gate scenarios live in `src/core/scenarios/gates.ts`, on the demo board and on a second board of non-demo Vessels (`src/core/fixtures/workspace-vessels.ts`: a music player, a stock watchlist and CRM contacts), so gate wording is not tuned to the five demo widgets alone.
+
+```sh
+bun --conditions=@maelstrom-co/source packages/evals/src/eval-stages/cli.ts --stage select --variant gated --suite development --repeats 3 --out tmp/evals/<name>
+```
+
 ### Reading the report
 
 `report.md` puts the arms side by side for each suite, one column per arm in the order given (`records.json` has every turn, `summary.json` the numbers and the run's settings, including `replay` when stages were replayed). `paired.md` lists every scenario and repeat where the arms disagree on pass, with each arm's failures.
@@ -104,7 +116,7 @@ A new stage joins by implementing `StageEvalModule` (`src/core/stage-eval.ts`: i
 - **Selection / Actions / Layout accuracy** (Jev arms): each stage's own output against the expectation. Selection compares the visible and retained sets, actions compare the ordered actions, bound parameters and asks (a `stated_elsewhere` slot counts when the expectation has a value for it), layout compares the tree's leaves with the visible set and checks the arrangement rules.
 - **Fallbacks** (Jev arms): the fallback rate, then one row per `<stage>/<code>` deferral reason.
 - **llmComplete fill rate**: filled `stated_elsewhere` slots over all such slots; a `param_unfilled` deferral counts all of its turn's slots as unfilled.
-- **Gates**: for arms whose select stage asks gates, false positives and negatives over the turns whose live select call answered them: `needsActions` against whether the scenario expects any action, `spatial` against its spatial tag. Without gate answers the spatial row shows how many turns are tagged spatial and how many are non-spatial controls.
+- **Gates**: for arms whose select stage asks gates, false positives and negatives over the turns whose live select call answered them, each gate answering yes from the select stage's own threshold: `needsActions` against whether the scenario expects any action, `spatial` against its spatial tag. Without gate answers the spatial row shows how many turns are tagged spatial and how many are non-spatial controls.
 - **Arrangement turns reaching jevLayout**: planned turns with arrangement rules whose layout stage ran or was replayed, rather than an earlier stage deferring.
 - **Jev calls per turn**: TypeSafe calls over all turns of the arm.
 - **Latency**: p50 and p95 of the whole turn, each live stage (replayed stages show `replayed`), each Jev call and each LLM call by role.

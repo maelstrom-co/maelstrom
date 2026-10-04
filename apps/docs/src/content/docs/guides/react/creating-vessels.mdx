@@ -4,11 +4,20 @@ description: How to define and register Vessel components.
 ---
 
 import { Aside } from '@astrojs/starlight/components';
+import PromptDisclosure from '../../../../components/PromptDisclosure.astro';
 
 A Vessel is Maelstrom's representation of a UI component — a definition that wraps your React component and gives the Engine a typed manifest of its Variants, sizes, and Actions. This guide shows you how to author one, from definition to render.
 
 <Aside type="note">
   **Before you start:** complete the [React quickstart](/getting-started/quick-start/) so you have a working `createMaelstrom()` setup. For a conceptual overview of how Vessels fit into the framework, see [Core concepts](/getting-started/core-concepts/).
+</Aside>
+
+<Aside type="tip" title="Use with a coding agent">
+  For a focused exercise, give an agent the [Vessel modeling prompt](/agents/prompts/maelstrom-vessel-modeling/) and point it at an existing capability. It is intended to preserve that capability's product behavior while shaping it as a Vessel. If you are assessing a broader React integration, the [React inventory prompt](/agents/prompts/maelstrom-react-inventory/) is read-only and proposes a plan; the separate [React conversion prompt](/agents/prompts/maelstrom-react-conversion/) is for implementing an already approved plan, not for granting new scope.
+  The [Vessel modeling skill](/agents/skills/) is the reusable workflow for this task; the bundle also includes a React migration lead skill.
+  <PromptDisclosure id="maelstrom-vessel-modeling" />
+  <PromptDisclosure id="maelstrom-react-inventory" />
+  <PromptDisclosure id="maelstrom-react-conversion" />
 </Aside>
 
 ## What you'll wire up

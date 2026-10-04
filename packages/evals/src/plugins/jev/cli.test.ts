@@ -90,7 +90,7 @@ describe('the stage eval command line over the Jev modules', () => {
       'nope',
     ]);
     expect(exitCode).toBe(1);
-    expect(stderr).toContain('--stage must be one of actions, layout');
+    expect(stderr).toContain('--stage must be one of select, actions, layout');
   }, 30_000);
 
   test('the actions stage needs the TypeSafe keys', async () => {

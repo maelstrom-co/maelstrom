@@ -1,0 +1,108 @@
+---
+import { getCollection } from 'astro:content';
+import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro';
+import PromptIconButton from '../../../components/PromptIconButton.astro';
+import PromptSource from '../../../components/PromptSource.astro';
+import {
+  type PromptEntry,
+  promptLabel,
+  promptRoutes,
+} from '../../../lib/prompt-presentation';
+
+export async function getStaticPaths(): Promise<
+  { params: { id: string }; props: { entry: PromptEntry } }[]
+> {
+  const prompts = (await getCollection('prompts')) as PromptEntry[];
+  return promptRoutes(prompts);
+}
+
+const { entry } = Astro.props as { entry: PromptEntry };
+const { id, data } = entry;
+const filename = `${id}-v${data.metadata.prompt_version}.md`;
+const encodedBody = Buffer.from(data.body, 'utf8').toString('base64');
+const base = import.meta.env.BASE_URL;
+const description = `Current canonical prompt ${id}, version ${data.metadata.prompt_version}.`;
+---
+<StarlightPage frontmatter={{ title: promptLabel(id), description }}>
+  <div
+    class="prompt-detail"
+    data-prompt-root
+    data-prompt-body={encodedBody}
+    data-prompt-filename={filename}
+  >
+    <nav aria-label="Breadcrumb">
+      <a href={`${base}agents/prompts/`}>Agent prompts</a> / {promptLabel(id)}
+    </nav>
+    <header>
+      <p class="eyebrow">CURRENT PROMPT</p>
+      <p>
+        Copy or download the canonical Markdown body. Frontmatter and page
+        metadata are not included.
+      </p>
+    </header>
+    <section aria-labelledby="prompt-details">
+      <h2 id="prompt-details">Prompt details</h2>
+      <dl class="metadata">
+        <div>
+          <dt>Prompt version</dt>
+          <dd>{data.metadata.prompt_version}</dd>
+        </div>
+        <div>
+          <dt>SDK compatibility</dt>
+          <dd>
+            {
+              Object.entries(data.metadata.compatibility.sdk).map(
+                ([name, range]) => (
+                  <span><code>{name}</code> <code>{range}</code></span>
+                ),
+              )
+            }
+          </dd>
+        </div>
+      </dl>
+    </section>
+    <section aria-labelledby="prompt-body-heading">
+      <h2 id="prompt-body-heading">Prompt body</h2>
+      <article aria-label="Canonical Markdown source">
+        <PromptSource heading={promptLabel(id)} label={promptLabel(id)} body={data.body}>
+          <PromptIconButton slot="actions" action="download" label={promptLabel(id)} />
+        </PromptSource>
+      </article>
+    </section>
+  </div>
+</StarlightPage>
+<script>
+  import { initPromptControls } from '../../../lib/prompt-controls';
+
+  const root = document.querySelector<HTMLElement>('[data-prompt-root]');
+  if (root) {
+    const body = new TextDecoder().decode(
+      Uint8Array.from(atob(root.dataset.promptBody ?? ''), (char) =>
+        char.charCodeAt(0),
+      ),
+    );
+    initPromptControls(root, {
+      body,
+      filename: root.dataset.promptFilename ?? 'prompt.md',
+    });
+  }
+</script>
+<style>
+  .prompt-detail { max-width: 64rem; margin: 0 auto; }
+  nav, .eyebrow { color: var(--sl-color-gray-2); font-size: .9rem; }
+  header { margin: 2rem 0; max-width: 46rem; }
+  h2 { font-size: 1.25rem; }
+  .eyebrow { letter-spacing: .12em; font-weight: 700; }
+  .metadata { display: grid; gap: .75rem; margin: 0 0 2rem; }
+  .metadata div { display: grid; grid-template-columns: minmax(9rem, .3fr) 1fr; gap: 1rem; padding: .75rem 1rem; border: 1px solid var(--sl-color-gray-5); border-radius: .5rem; background: var(--sl-color-bg); }
+  dt { font-weight: 650; }
+  dd { margin: 0; overflow-wrap: anywhere; }
+  dd span { display: block; }
+  article { margin-top: 1rem; }
+  article :global(.prompt-source) { padding: 1rem; border: 1px solid var(--sl-color-gray-5); border-radius: .5rem; background: var(--sl-color-bg); }
+  article :global(pre) { max-height: 60vh; margin-bottom: 0; }
+  [data-prompt-status] { min-height: 1.6em; }
+  @media (max-width: 36rem) {
+    .metadata div { grid-template-columns: 1fr; gap: .2rem; }
+  }
+</style>

@@ -234,6 +234,35 @@ describe('gate errors', () => {
     expect(markdown).toContain('| Jev calls per turn | 0.00 |');
   });
 
+  test('decides each gate from its own threshold, not the raw pick', () => {
+    const answered = (
+      question: string,
+      choice: 'yes' | 'no',
+      probability: number,
+    ) => ({ ...gate(question, choice), probability });
+    const summary = jevOf([
+      record({
+        scenarioId: 'route',
+        expectsActions: true,
+        spatial: true,
+        answers: [
+          answered('gate/needsActions', 'no', 0.6),
+          answered('gate/spatial', 'no', 0.6),
+        ],
+      }),
+    ]);
+    expect(summary?.gates).toEqual({
+      needsActions: {
+        falsePositives: { count: 0, total: 0 },
+        falseNegatives: { count: 0, total: 1 },
+      },
+      spatial: {
+        falsePositives: { count: 0, total: 0 },
+        falseNegatives: { count: 1, total: 1 },
+      },
+    });
+  });
+
   test('has no gate errors without gate answers', () => {
     expect(jevOf([record({})])?.gates).toBe(undefined);
   });

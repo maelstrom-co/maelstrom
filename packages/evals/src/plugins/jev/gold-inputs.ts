@@ -35,13 +35,14 @@ export type GoldInputs =
 /**
  * Replacements for `jevSelect` and `jevActions` that return the scenario's
  * expected selection and action plan, so the layout stage sees perfect
- * inputs. `shape` decides the gates: a `gated` arm gets all three, with
+ * inputs. `shape` decides the gates: a `gated` arm gets all four, with
  * `needsActions` yes when any action is expected, `generatedContent` no
- * (a yes defers before layout) and `spatial` yes only for a scenario tagged
- * spatial; other shapes get none. Not applicable to an expected deferral,
- * an expectation without a visible set or actions, a new Instance id that
- * names no Vessel, or an action whose required parameter has no expected
- * value.
+ * (a yes defers before layout), `dependsOnScreen` no (a yes defers before
+ * layout, as `generatedContent` is) and `spatial` yes only for a scenario
+ * tagged spatial; other shapes get none. Not applicable to an expected
+ * deferral, an expectation without a visible set or actions, a new
+ * Instance id that names no Vessel, or an action whose required parameter
+ * has no expected value.
  */
 export function goldInputs(
   scenario: Scenario,
@@ -113,6 +114,7 @@ export function layoutDeferralGoldInputs(
           needsActions: gate(false),
           generatedContent: gate(false),
           spatial: gate(scenario.spatial === true),
+          dependsOnScreen: gate(false),
         }
       : undefined;
   const select: Stage<PlanningInput, Selection2> = async (input) =>
@@ -128,13 +130,55 @@ export function layoutDeferralGoldInputs(
   };
 }
 
-/** The gates a gated select stage would answer for `scenario` if it answered right. */
+/**
+ * The gates a gated select stage would answer for `scenario` if it
+ * answered right: an explicit `expectedGates` entry, else `needsActions`
+ * yes when any action is expected, `generatedContent` and `dependsOnScreen`
+ * no, and `spatial` from the scenario's tag. `needsActions` counts expected
+ * actions only, not asks or unlisted parameters, unlike
+ * {@link expectedGateAnswers}.
+ */
 export function goldGates(scenario: Scenario): Required<SelectionGates> {
+  const explicit = scenario.expected.expectedGates ?? {};
+  const expected = expectedGateAnswers(scenario);
   return {
-    needsActions: gate((scenario.expected.actions?.length ?? 0) > 0),
-    generatedContent: gate(false),
-    spatial: gate(scenario.spatial === true),
+    needsActions: gateOr(
+      explicit.needsActions,
+      (scenario.expected.actions?.length ?? 0) > 0,
+    ),
+    generatedContent: gateOr(expected.generatedContent, false),
+    spatial: gateOr(expected.spatial, scenario.spatial === true),
+    dependsOnScreen: gateOr(expected.dependsOnScreen, false),
   };
+}
+
+/**
+ * The answer a gated select stage should give per gate for `scenario`,
+ * leaving out every gate the scenario does not settle. An explicit
+ * `expectedGates` entry wins, for any gate name. Otherwise
+ * `needsActions` is yes when a planned scenario expects an action, an ask
+ * or a parameter with no listed match, and no when it states its actions
+ * and all are empty; `spatial` follows the spatial tag; `generatedContent`
+ * and `dependsOnScreen` are no for a planned scenario.
+ */
+export function expectedGateAnswers(
+  scenario: Scenario,
+): Readonly<Record<string, 'yes' | 'no'>> {
+  const { expected } = scenario;
+  const derived: Record<string, 'yes' | 'no'> = {};
+  if (expected.status === 'planned') {
+    const expectsWork =
+      (expected.actions?.length ?? 0) > 0 ||
+      (expected.asks?.length ?? 0) > 0 ||
+      (expected.noListedMatch?.length ?? 0) > 0;
+    if (expectsWork) derived.needsActions = 'yes';
+    else if (expected.actions !== undefined) derived.needsActions = 'no';
+    derived.generatedContent = 'no';
+    derived.dependsOnScreen = 'no';
+  }
+  if (scenario.spatial !== undefined)
+    derived.spatial = scenario.spatial ? 'yes' : 'no';
+  return { ...derived, ...expected.expectedGates };
 }
 
 /** The selection a scenario's expectation implies, or why the expectation cannot form it. */
@@ -170,6 +214,13 @@ export function goldSelection(scenario: Scenario): GoldSelection {
     applicable: true,
     selection: (input) => ({ input, instances, answers: [], gates }),
   };
+}
+
+function gateOr(
+  answer: 'yes' | 'no' | undefined,
+  fallback: boolean,
+): GateAnswer {
+  return gate(answer === undefined ? fallback : answer === 'yes');
 }
 
 function gate(yes: boolean): GateAnswer {

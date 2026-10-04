@@ -1,12 +1,22 @@
 import { describe, expect, test } from 'bun:test';
-import type {
-  ActionPlan2,
-  Selection2,
+import {
+  type ActionPlan2,
+  SELECTION_GATES,
+  type Selection2,
 } from '@maelstrom-co/planner-jev/_internal';
 import { makeContext, makeInput } from '@maelstrom-co/planner-jev/_testing';
 import { isOk } from '@maelstrom-co/protocol';
-import { type Scenario, selectScenarios } from '../../core/scenarios.js';
-import { goldInputs, layoutDeferralGoldInputs } from './gold-inputs.js';
+import {
+  type Scenario,
+  scenarios,
+  selectScenarios,
+} from '../../core/scenarios.js';
+import {
+  expectedGateAnswers,
+  goldGates,
+  goldInputs,
+  layoutDeferralGoldInputs,
+} from './gold-inputs.js';
 
 function scenario(id: string): Scenario {
   const [found] = selectScenarios('all', [id]);
@@ -148,5 +158,94 @@ describe('layoutDeferralGoldInputs', () => {
       applicable: false,
       reason: 'expects no layout stage deferral',
     });
+  });
+});
+
+describe('expectedGateAnswers', () => {
+  function withExpected(
+    id: string,
+    expected: Partial<Scenario['expected']>,
+  ): Scenario {
+    const base = scenario(id);
+    return { ...base, expected: { ...base.expected, ...expected } };
+  }
+
+  test('prefers an explicit entry over a derived one', () => {
+    expect(
+      expectedGateAnswers(
+        withExpected('enum-route', {
+          expectedGates: { needsActions: 'no', dependsOnScreen: 'yes' },
+        }),
+      ),
+    ).toMatchObject({ needsActions: 'no', dependsOnScreen: 'yes' });
+  });
+
+  test('derives needsActions from expected actions, asks and parameters with no listed match', () => {
+    expect(expectedGateAnswers(scenario('enum-route')).needsActions).toBe(
+      'yes',
+    );
+    expect(expectedGateAnswers(scenario('ns-add-task')).needsActions).toBe(
+      'yes',
+    );
+    expect(
+      expectedGateAnswers(scenario('enum-route-unlisted')).needsActions,
+    ).toBe('yes');
+    expect(expectedGateAnswers(scenario('swap')).needsActions).toBe('no');
+  });
+
+  test('derives spatial from the tag and generatedContent from a planned expectation', () => {
+    expect(expectedGateAnswers(scenario('swap'))).toMatchObject({
+      spatial: 'yes',
+      generatedContent: 'no',
+    });
+    expect(expectedGateAnswers(scenario('enum-route')).spatial).toBeUndefined();
+  });
+
+  test('leaves out every gate it cannot know', () => {
+    expect(expectedGateAnswers(scenario('ambiguous'))).toEqual({});
+    expect(
+      expectedGateAnswers(withExpected('swap', { actions: undefined })),
+    ).not.toHaveProperty('needsActions');
+  });
+});
+
+describe('goldGates', () => {
+  test('answers every existing scenario as before', () => {
+    const gate = (yes: boolean) => ({
+      answer: yes ? 'yes' : 'no',
+      probability: yes ? 1 : 0,
+      confidence: 1,
+    });
+    for (const scenario of scenarios.filter(
+      (candidate) => candidate.expected.expectedGates === undefined,
+    ))
+      expect({ id: scenario.id, gates: goldGates(scenario) }).toEqual({
+        id: scenario.id,
+        gates: {
+          needsActions: gate((scenario.expected.actions?.length ?? 0) > 0),
+          generatedContent: gate(false),
+          spatial: gate(scenario.spatial === true),
+          dependsOnScreen: gate(false),
+        },
+      } as never);
+  });
+
+  test('takes an explicit expected answer', () => {
+    const base = scenario('swap');
+    expect(
+      goldGates({
+        ...base,
+        expected: { ...base.expected, expectedGates: { needsActions: 'yes' } },
+      }).needsActions.answer,
+    ).toBe('yes');
+  });
+
+  test('names only gates the gated select stage asks', () => {
+    const unknown = scenarios.flatMap((candidate) =>
+      Object.keys(candidate.expected.expectedGates ?? {})
+        .filter((key) => !(SELECTION_GATES as readonly string[]).includes(key))
+        .map((key) => `${candidate.id}: ${key}`),
+    );
+    expect(unknown).toEqual([]);
   });
 });

@@ -1,5 +1,6 @@
 import {
   type JevCall,
+  SELECTION_GATES,
   STAGE_NAME,
   STAGE_NAMES,
   type StageName,
@@ -13,6 +14,7 @@ import { type JevRunRecord, jevTurnFields } from './record.js';
 import { jevRows, jevSummary } from './report.js';
 import { actionsModuleWith } from './stages/actions.js';
 import { layoutModuleWith } from './stages/layout.js';
+import { selectModuleWith } from './stages/select.js';
 import { createTypeSafeJudge } from './typesafe-judge.js';
 import { typesafeSettings } from './typesafe-settings.js';
 
@@ -32,7 +34,7 @@ export interface JevPluginOptions {
 /**
  * The Jev planner family as an eval plugin: the POC and the stage-library
  * arms, replay by stage, the Jev fields of the records and the report, the
- * TypeSafe judge and the actions and layout stage evals.
+ * TypeSafe judge and the select, actions and layout stage evals.
  */
 export function jevPluginWith(
   options: JevPluginOptions = {},
@@ -55,6 +57,7 @@ export function jevPluginWith(
     reportRows: jevRows,
     judge: createTypeSafeJudge(typesafe),
     stageModules: [
+      registerStageEval(selectModuleWith({ typesafe })),
       registerStageEval(actionsModuleWith({ typesafe })),
       registerStageEval(layoutModuleWith({ typesafe })),
     ],
@@ -63,8 +66,6 @@ export function jevPluginWith(
 
 /** The Jev plugin on the TypeSafe settings from the environment. */
 export const jevPlugin: PlannerEvalPlugin<JevCall, StageName> = jevPluginWith();
-
-const GATES = ['needsActions', 'generatedContent', 'spatial'] as const;
 
 function replayShapeOf(arms: readonly JevArm[], name: string): ReplayShape {
   const arm = arms.find((candidate) => candidate.name === name);
@@ -98,7 +99,10 @@ export function shapeProblems(
     return problems;
   if (shape === 'ungated' && output.gates !== undefined)
     problems.push('carries gates this ungated arm would act on');
-  if (shape === 'gated' && !GATES.every((gate) => isGate(output.gates?.[gate])))
+  if (
+    shape === 'gated' &&
+    !SELECTION_GATES.every((gate) => isGate(output.gates?.[gate]))
+  )
     problems.push('has no complete gates');
   return problems;
 }

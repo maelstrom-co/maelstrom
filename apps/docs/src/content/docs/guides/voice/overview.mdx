@@ -4,6 +4,7 @@ description: Choose between Maelstrom's two voice modes and find the guide that 
 ---
 
 import { CardGrid, LinkCard } from '@astrojs/starlight/components';
+import PromptDisclosure from '../../../../components/PromptDisclosure.astro';
 
 Voice lets people speak to a Maelstrom interface, and lets the interface speak back.
 
@@ -44,6 +45,12 @@ Each package runs in exactly one place. That is what keeps `OPENAI_API_KEY`, Liv
 | [`@maelstrom-co/realtime-livekit`](/reference/realtime-livekit/readme/)                                    | Browser | LiveKit room transport and turn control                 |
 | [`@maelstrom-co/realtime-livekit-server`](/reference/realtime-livekit-server/readme/)                      | Server  | Sign a short-lived grant for one LiveKit room           |
 | [`@maelstrom-co/realtime-livekit-agent`](/reference/realtime-livekit-agent/readme/)                        | Worker  | Run Deepgram STT and Cartesia TTS, with no LLM          |
+
+## Work with a coding agent
+
+Voice remains an optional input to the Engine's normal intent flow. When voice is part of the product goal, use the [voice integration prompt](/agents/prompts/maelstrom-voice-integration/) for a standalone task or select the optional voice lead skill from the [portable skill bundle](/agents/skills/). The workflow keeps provider-specific behavior and the browser/server/worker boundaries explicit.
+
+<PromptDisclosure id="maelstrom-voice-integration" />
 
 ## Next steps
 

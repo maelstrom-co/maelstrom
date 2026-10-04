@@ -53,6 +53,7 @@
   },
   "files": [
     "dist",
+    "skills",
     "!**/*.tsbuildinfo"
   ],
   "repository": {

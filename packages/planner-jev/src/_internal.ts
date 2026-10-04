@@ -49,7 +49,14 @@ export {
   treeDirection,
   treeRelation,
 } from './lib/stages/layout-composed-pairs-tree.js';
-export { GATE_THRESHOLD, selectGated } from './lib/stages/select-gated.js';
+export {
+  GATE_THRESHOLD,
+  GATE_THRESHOLDS,
+  NEEDS_ACTIONS_THRESHOLD,
+  readGateAnswers,
+  SELECTION_GATES,
+  selectGated,
+} from './lib/stages/select-gated.js';
 export { createJevDeps, type JevDeps } from './lib/stages/stage-deps.js';
 export type {
   ActionPlan2,

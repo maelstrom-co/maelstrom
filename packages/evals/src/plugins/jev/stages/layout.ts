@@ -100,8 +100,17 @@ export const LAYOUT_VARIANTS: Readonly<
   ]),
 );
 
-/** The deferral reason a scenario that expects the layout stage to defer expects. */
+/** The deferral reason a scenario that expects the layout stage to defer expects, unless it states `deferCause: 'arrangement_not_stated'`. */
 export const EXPECTED_LAYOUT_DEFERRAL = 'jevLayout/no_feasible_layout';
+
+/**
+ * The deferral reason a scenario that expects the layout stage to defer
+ * with `deferCause: 'arrangement_not_stated'` expects: the spatial gate
+ * said yes on a request with intent text, yet no answer stated an
+ * arrangement or a size and the picked tree places the Instances as the
+ * current one does.
+ */
+export const EXPECTED_UNSTATED_LAYOUT_DEFERRAL = 'jevLayout/spatial_not_stated';
 
 /** Where {@link layoutModuleWith} takes the stage's client and spatial gate from. */
 export interface LayoutModuleOptions {
@@ -131,7 +140,10 @@ export type LayoutModule = StageEvalModule<
  * tree passes when the tree's leaves are the expected visible set, the
  * arrangement rules hold and the tree fits the Chart and every minimum
  * size; a decision without a tree is handed off. A scenario that expects
- * a layout deferral passes only on {@link EXPECTED_LAYOUT_DEFERRAL}.
+ * a layout deferral passes only on {@link EXPECTED_UNSTATED_LAYOUT_DEFERRAL}
+ * when its `deferCause` is `arrangement_not_stated`, and otherwise only on
+ * {@link EXPECTED_LAYOUT_DEFERRAL}. The preset variants never give the
+ * first reason, so they never pass those scenarios.
  */
 export function layoutModuleWith(
   options: LayoutModuleOptions = {},
@@ -235,7 +247,11 @@ export function layoutModuleWith(
       },
     }),
     expectedDeferral: (scenario) =>
-      expectsLayoutDeferral(scenario) ? EXPECTED_LAYOUT_DEFERRAL : undefined,
+      expectsLayoutDeferral(scenario)
+        ? scenario.expected.deferCause === 'arrangement_not_stated'
+          ? EXPECTED_UNSTATED_LAYOUT_DEFERRAL
+          : EXPECTED_LAYOUT_DEFERRAL
+        : undefined,
     judge: judgeLayout,
     reportSections: (records, variants) =>
       [
