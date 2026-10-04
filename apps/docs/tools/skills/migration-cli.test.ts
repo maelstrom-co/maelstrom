@@ -108,46 +108,50 @@ test('source-text assertions remain unreviewed even when the automatic counterfa
   }
 }, 90_000);
 
-test('counterfactual hangs are bounded and cleaned without claiming a regression', async () => {
-  const app = join(base, 'treatment/src/OrdersApp.tsx');
-  const regression = join(base, 'treatment/src/migration.test.tsx');
-  await writeFile(app, positiveApp);
-  const restoreBaseline = await isolateTreatment();
-  try {
-    await writeFile(
-      regression,
-      integrationRegression.replace(
-        '  expect(connector.connect)',
-        '  if (connector.connect.mock.calls.length === 0) for (;;) { Math.sqrt(4); }\n  expect(connector.connect)',
-      ),
-    );
-    const hanging = await evaluateMigration(
-      base,
-      seal,
-      true,
-      [],
-      false,
-      30_000,
-      2_000,
-    );
-    expect(hanging.results[1].tests).toBe(true);
-    expect(hanging.results[1].regression.status).toBe('timeout');
-    expect([undefined, 'termination-permission-denied']).toContain(
-      hanging.results[1].regression.detail,
-    );
-    expect(hanging.results[1].regression.assertionRegressions).toEqual([]);
-    expect(hanging.results[1].passed).toBe(false);
-    expect(
-      (await readdir(join(base, 'protected'))).filter((path) =>
-        path.includes('counterfactual'),
-      ),
-    ).toEqual([]);
-  } finally {
-    await writeFile(app, negativeApp);
-    await unlink(regression);
-    await restoreBaseline();
-  }
-}, 120_000);
+for (let attempt = 0; attempt < 2; attempt++) {
+  test(`counterfactual hangs are bounded and cleaned without claiming a regression: attempt ${attempt + 1}`, async () => {
+    const app = join(base, 'treatment/src/OrdersApp.tsx');
+    const regression = join(base, 'treatment/src/migration.test.tsx');
+    await writeFile(app, positiveApp);
+    const restoreBaseline = await isolateTreatment();
+    try {
+      await writeFile(
+        regression,
+        integrationRegression.replace(
+          '  expect(connector.connect)',
+          '  if (connector.connect.mock.calls.length === 0) for (;;) { Math.sqrt(4); }\n  expect(connector.connect)',
+        ),
+      );
+      const before = await migrationSnapshot(join(base, 'treatment'));
+      const hanging = await evaluateMigration(
+        base,
+        seal,
+        true,
+        [],
+        false,
+        30_000,
+        2_000,
+      );
+      expect(hanging.results[1].tests).toBe(true);
+      expect(hanging.results[1].regression.status).toBe('timeout');
+      expect([undefined, 'termination-permission-denied']).toContain(
+        hanging.results[1].regression.detail,
+      );
+      expect(hanging.results[1].regression.assertionRegressions).toEqual([]);
+      expect(hanging.results[1].passed).toBe(false);
+      expect(
+        (await readdir(join(base, 'protected'))).filter((path) =>
+          path.includes('counterfactual'),
+        ),
+      ).toEqual([]);
+      expect(await migrationSnapshot(join(base, 'treatment'))).toEqual(before);
+    } finally {
+      await writeFile(app, negativeApp);
+      await unlink(regression);
+      await restoreBaseline();
+    }
+  }, 120_000);
+}
 
 test('the prepared contract rejects evaluation without explicit untrusted-code consent', async () => {
   await expect(evaluateMigration(base, seal, false)).rejects.toThrow(

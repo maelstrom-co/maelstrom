@@ -153,6 +153,19 @@ no baseline guide exposure, and treatment delivery of both the migration workflo
 and the installed React SDK guide. Uncached input, output, cache-read, and
 cache-write differences remain separate; token differences are not billing.
 
+Baseline exposure checks inspect plain system content and structured startup
+sections against the sealed treatment guide fingerprints and skill catalog
+identities. Ordinary SDK package-name mentions do not establish guide exposure.
+
+Each native supervisor starts a separate process group. The caller retains its
+group ID before publishing any ledger entry. Commands inherit that group, so a
+supervisor crash or publication failure does not erase the cleanup target.
+Cleanup kills that retained group and checks its absence within a bounded wait.
+If verification fails, evaluation fails and preserves status and numeric identity
+evidence. Inspect only those retained IDs; do not delete that evidence until
+cleanup is verified. Code that creates another session can escape this group;
+the runner is not a sandbox.
+
 Evaluation executes submitted code. The explicit `--unsafe-execute` flag is
 consent to that execution, not an isolation mechanism. Use a disposable,
 externally isolated environment without secrets or live-service access. This

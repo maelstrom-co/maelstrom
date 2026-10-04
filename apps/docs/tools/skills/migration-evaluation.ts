@@ -126,6 +126,8 @@ export type PiBinding = {
     string,
     { heading: string; content: string; kind: 'migration' | 'sdk' }
   >;
+  /** Sealed treatment fingerprints detect exposure without authorizing baseline receipts. */
+  exposureGuides?: PiBinding['guides'];
 };
 
 function validStartupSections(sections: unknown): boolean {
@@ -198,6 +200,20 @@ export function piEvidence(text: string, binding?: PiBinding) {
         .join('\n');
     };
     const normal = (value: string) => value.replaceAll('\r\n', '\n').trim();
+    const exposed = (text: string) => {
+      const delivered = normal(text);
+      return (
+        /(?:^|[^\w-])maelstrom-react-(?:migration|sdk)(?=$|[^\w-])/.test(
+          delivered,
+        ) ||
+        Object.values(binding?.exposureGuides ?? binding?.guides ?? {}).some(
+          (guide) =>
+            guide.content.length > 20 &&
+            delivered.includes(normal(guide.heading)) &&
+            delivered.includes(normal(guide.content)),
+        )
+      );
+    };
     const reads = new Map<string, string>();
     const receipts = new Set<string>();
     let guideExposure = false;
@@ -241,6 +257,7 @@ export function piEvidence(text: string, binding?: PiBinding) {
       const path = reads.get(id);
       const expected = path ? binding.guides[path] : undefined;
       const delivered = normal(contentText(result?.content));
+      if (exposed(delivered)) guideExposure = true;
       if (
         path &&
         expected &&
@@ -283,11 +300,18 @@ export function piEvidence(text: string, binding?: PiBinding) {
         continue;
       }
       if (message.role === 'system') {
-        if (
-          typeof message.sections?.skills === 'string' &&
-          /maelstrom-react-(?:migration|sdk)/.test(message.sections.skills)
-        )
-          guideExposure = true;
+        const sections = message.sections;
+        const startup = [
+          contentText(message.content),
+          ...(sections &&
+          typeof sections === 'object' &&
+          !Array.isArray(sections)
+            ? Object.values(sections).filter(
+                (value): value is string => typeof value === 'string',
+              )
+            : []),
+        ];
+        if (startup.some(exposed)) guideExposure = true;
         if (
           !normal(contentText(message.content)) &&
           !validStartupSections(message.sections)

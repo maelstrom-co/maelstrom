@@ -5,6 +5,7 @@ import {
   mkdtemp,
   readFile,
   realpath,
+  rename,
   rm,
   symlink,
   writeFile,
@@ -16,6 +17,217 @@ import {
   migrationProcessEvidenceDirectory,
   runMigrationProcess,
 } from './migration-process';
+
+test('a genuine supervisor SIGKILL cannot orphan its retained group', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'migration-supervisor-crash-'));
+  const pidFile = join(root, 'child.pid');
+  try {
+    const program =
+      'const cp=require("node:child_process"),fs=require("node:fs");const child=cp.spawn(process.execPath,["-e","setInterval(()=>{},1000)"],{stdio:"ignore"});fs.writeFileSync(process.argv[1],String(child.pid));process.kill(process.ppid,"SIGKILL");setInterval(()=>{},1000)';
+    await expect(
+      runMigrationProcess(
+        root,
+        [
+          await realpath(Bun.which('node') ?? '/usr/bin/node'),
+          '-e',
+          program,
+          pidFile,
+        ],
+        { PATH: '/usr/bin:/bin', HOME: root },
+        1000,
+      ),
+    ).rejects.toThrow('completion');
+    const pid = Number(await readFile(pidFile, 'utf8'));
+    expect(() => process.kill(pid, 0)).toThrow();
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}, 6000);
+
+test('a parent ledger write error still kills and verifies its retained group', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'migration-ledger-error-'));
+  const ledger = join(
+    await migrationProcessEvidenceDirectory(),
+    'processes.jsonl',
+  );
+  const backup = `${ledger}.backup`;
+  await rename(ledger, backup).catch(() => {});
+  await mkdir(ledger);
+  try {
+    let message = '';
+    try {
+      await runMigrationProcess(
+        root,
+        [
+          await realpath(Bun.which('node') ?? '/usr/bin/node'),
+          '-e',
+          'setInterval(()=>{},1000)',
+        ],
+        { PATH: '/usr/bin:/bin', HOME: root },
+        1000,
+      );
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toContain('after verified cleanup');
+    const pgid = Number(message.match(/pgid=(\d+)/)?.[1]);
+    expect(pgid).toBeGreaterThan(0);
+    expect(() => process.kill(-pgid, 0)).toThrow();
+  } finally {
+    await rm(ledger, { recursive: true });
+    await rename(backup, ledger).catch(() => {});
+    await rm(root, { recursive: true, force: true });
+  }
+}, 6000);
+
+test('the native worker kills its group when its initial publication throws', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'migration-worker-publication-'));
+  await mkdir(join(root, 'processes.jsonl'));
+  const worker = Bun.spawn(
+    [
+      await realpath(Bun.which('node') ?? '/usr/bin/node'),
+      join(import.meta.dir, 'migration-process-worker.mjs'),
+      join(root, 'status.json'),
+      JSON.stringify({
+        cwd: root,
+        args: [
+          await realpath(Bun.which('node') ?? '/usr/bin/node'),
+          '-e',
+          'setInterval(()=>{},1000)',
+        ],
+        timeoutMs: 1000,
+      }),
+    ],
+    {
+      detached: true,
+      env: { PATH: '/usr/bin:/bin', HOME: root },
+      stdout: 'ignore',
+      stderr: 'ignore',
+    },
+  );
+  const guard = setTimeout(() => {
+    try {
+      process.kill(-worker.pid, 'SIGKILL');
+    } catch {}
+  }, 3000);
+  try {
+    expect(await worker.exited).not.toBe(0);
+    const status = JSON.parse(
+      await readFile(join(root, 'status.json'), 'utf8'),
+    );
+    expect(status.pgid).toBe(worker.pid);
+    const until = performance.now() + 1500;
+    while (performance.now() < until) {
+      try {
+        process.kill(-worker.pid, 0);
+      } catch {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    expect(() => process.kill(-worker.pid, 0)).toThrow();
+    expect(() => process.kill(status.pid, 0)).toThrow();
+  } finally {
+    clearTimeout(guard);
+    try {
+      process.kill(-worker.pid, 'SIGKILL');
+    } catch {}
+    await rm(root, { recursive: true, force: true });
+  }
+}, 6000);
+
+test('repeated native deadlines are timeouts, never successful or missing reports', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'migration-repeated-deadline-'));
+  try {
+    for (let attempt = 0; attempt < 4; attempt++) {
+      await expect(
+        runMigrationProcess(
+          root,
+          [
+            await realpath(Bun.which('node') ?? '/usr/bin/node'),
+            '-e',
+            'setInterval(()=>{},1000)',
+          ],
+          { PATH: '/usr/bin:/bin', HOME: root },
+          100,
+        ),
+      ).rejects.toThrow('timed out');
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}, 6000);
+
+test('uncertain cleanup retains identity and status instead of reporting success', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'migration-uncertain-cleanup-'));
+  const preload = join(root, 'stop-cleanup.cjs');
+  await writeFile(
+    preload,
+    'if (process.argv[1]?.endsWith("migration-process-cleanup.mjs")) process.kill(process.pid,"SIGSTOP");',
+  );
+  let pgid = 0;
+  try {
+    let message = '';
+    try {
+      await runMigrationProcess(
+        root,
+        [
+          await realpath(Bun.which('node') ?? '/usr/bin/node'),
+          '-e',
+          'process.exit(0)',
+        ],
+        {
+          PATH: '/usr/bin:/bin',
+          HOME: root,
+          NODE_OPTIONS: `--require=${preload}`,
+        },
+        1000,
+      );
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toContain('cleanup uncertain');
+    pgid = Number(message.match(/pgid=(\d+)/)?.[1]);
+    const statusPath = message.match(/status=(.+)$/)?.[1];
+    expect(pgid).toBeGreaterThan(0);
+    expect(statusPath).toBeDefined();
+    const identity = JSON.parse(
+      await readFile(`${statusPath}.identity`, 'utf8'),
+    );
+    expect(identity).toEqual({ supervisorPid: pgid, pgid });
+    expect(JSON.parse(await readFile(statusPath!, 'utf8')).phase).toBe(
+      'finished',
+    );
+  } finally {
+    if (pgid > 0) {
+      const cleanup = Bun.spawn(
+        [
+          await realpath(Bun.which('node') ?? '/usr/bin/node'),
+          join(import.meta.dir, 'migration-process-cleanup.mjs'),
+          String(pgid),
+        ],
+        { env: { PATH: '/usr/bin:/bin' }, stdout: 'ignore', stderr: 'ignore' },
+      );
+      expect(await cleanup.exited).toBe(0);
+    }
+    await rm(root, { recursive: true, force: true });
+  }
+}, 6000);
+
+test('a nonzero command exit remains a failure rather than a deadline', async () => {
+  await expect(
+    runMigrationProcess(
+      import.meta.dir,
+      [
+        await realpath(Bun.which('node') ?? '/usr/bin/node'),
+        '-e',
+        'process.exit(2)',
+      ],
+      { PATH: '/usr/bin:/bin' },
+      1000,
+    ),
+  ).rejects.toThrow('Migration process failed');
+});
 
 test('the isolated supervisor completes normally under browser test preloads', async () => {
   const root = await mkdtemp(join(tmpdir(), 'migration-native-process-'));

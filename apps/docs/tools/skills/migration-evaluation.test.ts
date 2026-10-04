@@ -223,6 +223,116 @@ function trace(
 const lines = (rows: unknown[]) =>
   rows.map((row) => JSON.stringify(row)).join('\n');
 
+test('sealed treatment fingerprints reject contaminated baselines in both Pi startup formats', () => {
+  const baselineBinding = {
+    cwd: '/consumer/baseline',
+    prompt: binding.prompt,
+    guides: {},
+    exposureGuides: {
+      ...binding.guides,
+      '/consumer/treatment/react/SKILL.md': {
+        heading: '# Maelstrom React SDK',
+        content: 'This guide is published inside its owning package.',
+        kind: 'sdk' as const,
+      },
+    },
+  };
+  const baselineRows = trace(
+    baselineBinding.cwd,
+    binding.prompt,
+    'baseline-12345678',
+  ).filter((row) => !row.type.startsWith('tool_'));
+  const evidence = (system: unknown) =>
+    piEvidence(
+      lines([
+        ...baselineRows.slice(0, 2),
+        { type: 'message_end', message: system },
+        ...baselineRows.slice(2),
+        { type: 'agent_settled' },
+      ]),
+      baselineBinding,
+    );
+  const treatment = {
+    ...piEvidence(lines(trace()), binding),
+    passed: true,
+    reviewApproved: true,
+    reviewHash: 'reviewed-pair',
+    sdkGuidesReceived: [
+      'node_modules/@maelstrom-co/react/skills/maelstrom-react-sdk/SKILL.md',
+    ],
+  };
+  const sections = {
+    preamble: 'Coding assistant.',
+    skills: 'Ordinary tools.',
+    cwd: baselineBinding.cwd,
+  };
+  for (const text of [
+    '# Migration\nPreserve the legacy order behavior.',
+    '# Maelstrom React SDK\nThis guide is published inside its owning package.',
+    '<skill name="maelstrom-react-migration">Procedure</skill>',
+    '<skill name="maelstrom-react-sdk">API guide</skill>',
+  ]) {
+    for (const system of [
+      { role: 'system', content: text },
+      { role: 'system', content: [{ type: 'text', text }] },
+      { role: 'system', content: '', sections: { ...sections, skills: text } },
+      { role: 'system', content: '', sections: { ...sections, docs: text } },
+    ]) {
+      const contaminated = evidence(system);
+      expect(contaminated.traceBound).toBe(true);
+      expect(contaminated.guideExposure).toBe(true);
+      expect(contaminated.activated).toBe(false);
+      expect(
+        compareMigration(
+          {
+            ...contaminated,
+            passed: true,
+            reviewApproved: true,
+            reviewHash: 'reviewed-pair',
+          },
+          treatment,
+        ).eligible,
+      ).toBe(false);
+    }
+  }
+  for (const system of [
+    {
+      role: 'system',
+      content:
+        'Use React and the @maelstrom-co/react SDK. # Maelstrom React SDK',
+    },
+    {
+      role: 'system',
+      content: '',
+      sections: {
+        ...sections,
+        docs: 'Use React and the @maelstrom-co/react SDK.',
+      },
+    },
+  ]) {
+    const clean = evidence(system);
+    expect(clean.traceBound).toBe(true);
+    expect(clean.guideExposure).toBe(false);
+    expect(
+      compareMigration(
+        {
+          ...clean,
+          passed: true,
+          reviewApproved: true,
+          reviewHash: 'reviewed-pair',
+        },
+        treatment,
+      ).eligible,
+    ).toBe(true);
+  }
+  const delivered = piEvidence(
+    lines(trace(baselineBinding.cwd)),
+    baselineBinding,
+  );
+  expect(delivered.guideExposure).toBe(true);
+  expect(delivered.activated).toBe(false);
+});
+
 test('Pi startup sections are valid authority without a duplicate system body', () => {
   const sections = {
     preamble: 'Coding assistant.',

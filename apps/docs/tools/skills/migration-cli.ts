@@ -793,6 +793,7 @@ export async function evaluateMigration(
           cwd: join(base, arm),
           prompt,
           guides: prepared.guideEvidence[arm],
+          exposureGuides: prepared.guideEvidence.treatment,
         });
       } catch {
         trace = { ...piEvidence(''), traceStatus: 'invalid' };
