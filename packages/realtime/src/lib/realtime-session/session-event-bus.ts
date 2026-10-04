@@ -123,9 +123,10 @@ export interface ToolCalledEvent {
 }
 
 /**
- * The answer to a tool call went back to the provider. It is not published
- * when a disconnect or reconnect started between the call's arrival and its
- * dispatch.
+ * Local handling of a tool call finished. Provider delivery is best-effort:
+ * this event can follow a failed or skipped send and does not confirm receipt.
+ * It is not published when a disconnect or reconnect starts between the call's
+ * arrival and its dispatch.
  */
 export interface ToolResultEvent {
   /** Discriminant. */
@@ -134,7 +135,7 @@ export interface ToolResultEvent {
   readonly callId: ToolCallId;
   /** Whether the tool succeeded; for `update_ui`, whether the change rendered. */
   readonly ok: boolean;
-  /** Client-clock milliseconds from the call's arrival to its answer. */
+  /** Client-clock milliseconds from arrival until local handling finishes. */
   readonly latencyMs: number;
 }
 
