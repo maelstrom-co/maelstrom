@@ -10,25 +10,37 @@ are the test input; record the actual repository revision separately when runnin
 
 1. Start from the workspace revision under evaluation. Never edit canonical
    prompt sources or tracked fixture inputs during a trial.
-2. Build five independent scratch project directories outside the checkout using
-   the app-owned setup script. It copies local workspace SDK build outputs into
-   per-project tarballs, installs dependencies into each scratch project, and
-   runs baseline checks before printing ready scenario paths:
+2. Prepare independent scratch case directories outside the checkout using
+   the app-owned setup script. Application sources, package configuration,
+   simulated connector, SDK probes, and baseline test are tracked as files under
+   `fixtures/`; the migration package manifest is named `package.json.fixture`
+   to avoid Nx treating the test input as a workspace project. Staging copies
+   it to `package.json`. `prepareFixtures(root, trialRoot)` copies these sources
+   without packaging an SDK, installing dependencies, or running checks. Modeling,
+   debugging, and React inventory can therefore be staged as source-only cases.
+   The full CLI also performs SDK setup and baseline checks for onboarding and
+   both migration projects. The conversion and inventory directories are
+   checked byte-identical before SDK setup:
 
    ```sh
-   bash apps/docs/prompts/acceptance/prepare-trials.sh "$PWD" /tmp
+   node apps/docs/prompts/acceptance/prepare-trials.mjs "$PWD" /tmp
    ```
 
    The exact Maelstrom package sources are the checkout's `packages/{react,
    client,protocol,connectors}` built output at the recorded checkout revision;
-   package version metadata is `0.1.0-alpha.4`. The script resolves their
-   `catalog:` dependencies using versions from the tracked `bun.lock`, packs
-   them locally, and installs those tarballs and lock-resolved React/Vite/test
-   dependencies privately in each disposable `node_modules`. It does not link
-   scratch projects to shared workspace `node_modules` or editable package
-   directories, access provider services, or copy secrets. Record the printed
-   full workspace revision, each generated lockfile, installed versions, and the
-   hashes emitted for paired migration input files. A read-only inventory and
+   package version metadata is `0.1.0-alpha.4`. The script rewrites the expected
+   SDK `catalog:` runtime dependencies to explicit pinned versions
+   (`@tanstack/react-store` 0.9.3, `@tanstack/store` 0.9.3, `nanoid` 5.1.16,
+   and `zod` 4.4.3), packs them locally, and installs those tarballs and pinned
+   React/Vite/test dependencies privately in the two SDK-backed project types
+   (onboarding and migration).
+   The generated Bun lockfiles capture the resolved dependency trees. It does
+   not link scratch projects to shared workspace `node_modules` or editable
+   package directories, access provider services, or copy secrets. Record the
+   printed source revision (the parent of the working copy, not a claim that
+   dirty working-tree package bytes are identified by that revision), each
+   generated lockfile, installed versions, SDK source/build hashes, and hashes
+   emitted for paired migration input files. A read-only inventory and
    authorized conversion project begin from the same SearchPanel/search source
    bytes; no Vessel implementation is seeded.
 3. Use the exact task inputs below with the named scenario:
@@ -86,6 +98,14 @@ it never contacts an Engine. Live Engine behavior is not asserted by any fixture
 An optional external-service check must be separately authorized, use a disposable
 non-production environment, and record infrastructure setup and redacted evidence;
 never place credentials or tokens in a fixture or record.
+
+## Comparing prompt and skill conditions
+
+Each registered task uses the same fresh, unsolved task fixture. Calibration's known-good and deliberately broken projects test the grader; they are not candidate answers shown to an agent. A task is always present. The canonical prompt is optional context, and skills are optional available procedures—not evidence that an agent discovered or used them. The four conceptual conditions are task only, task plus canonical prompt, task plus skills, and task plus both. A forced skill run tests following supplied guidance; it does not test skill discovery.
+
+A fair comparison holds fixture, model/CLI/settings, permissions, budget, and grader constant. Independent repeats can compare reliability, elapsed time, tokens, or cost only when measured; no condition guarantees improvement. When changing a prompt or skill, preserve the baseline result, rerun on fresh copies, retain concrete failures as regression cases, and do not tune only known cases or weaken checks to improve a score. Version/schema guards establish contract validity, not behavioral quality. Objective evidence checks are distinct from pending semantic review; the simulated connector is not a live Engine/provider.
+
+The current harness has five canonical-prompt cases and objective grading. It does not yet provide an automatic prompt/skill A/B matrix, repeated old/new summaries, or release thresholds. Deliberately suppressing a skill is a separate baseline condition; CLI skill discovery is not automatically toggled by this harness.
 
 ## Fixture inputs
 
