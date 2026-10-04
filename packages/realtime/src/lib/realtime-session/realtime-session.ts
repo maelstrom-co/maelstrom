@@ -244,6 +244,7 @@ export class RealtimeSession implements VoiceSession {
   readonly #events: SessionEventBus;
   readonly #releaseMemory: Unsubscribe;
   #disposed = false;
+  #disposal: Promise<void> | undefined;
   // Connection-only view of the lifecycle, kept apart from #state, which also
   // carries turn phases reported by the adapter.
   #connection: VoiceConnectionState = 'disconnected';
@@ -687,10 +688,13 @@ export class RealtimeSession implements VoiceSession {
    * Retires this session for good. It starts {@link RealtimeSession.disconnect},
    * then detaches the shared memory, so requests that settle later no longer
    * write recovery evidence from a retired session. Later `connect()` calls
-   * reject. Resolves or rejects with the disconnect; repeated calls are safe.
+   * reject. Repeated calls retain the first disconnect's result, including a
+   * rejection, without repeating provider teardown or lifecycle notifications.
    */
   dispose(): Promise<void> {
+    if (this.#disposal) return this.#disposal;
     const ending = this.disconnect();
+    this.#disposal = ending;
     if (!this.#disposed) {
       this.#disposed = true;
       this.#releaseMemory();
