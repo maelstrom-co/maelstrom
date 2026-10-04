@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { demoVoiceSession } from '../lib/demo-voice';
 import { liveErrorMessage } from '../lib/live-exchange';
 import { m } from '../lib/maelstrom';
 import { getVoiceErrorStatusLabel } from './voice-error-copy';
@@ -64,7 +65,7 @@ export function VoiceControl({ showOrb = true }: VoiceControlProps = {}) {
     turnMode,
     turnModeError,
     skipGreeting,
-    owner,
+    session,
     provider,
     connect,
     disconnect,
@@ -184,8 +185,9 @@ export function VoiceControl({ showOrb = true }: VoiceControlProps = {}) {
             className="status-pill min-h-11 rounded-full px-3 text-xs"
             disabled={!isConnected || switching}
             onClick={() => {
-              if (owner.adapter instanceof OpenAILiveAdapter)
-                void owner.adapter.activateAudio().catch(() => {});
+              const adapter = demoVoiceSession(session)?.adapter;
+              if (adapter instanceof OpenAILiveAdapter)
+                void adapter.activateAudio().catch(() => {});
             }}
           >
             Enable playback

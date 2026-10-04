@@ -1,12 +1,15 @@
 import { Circle, Download, Square, Trash2 } from 'lucide-react';
 import { useMemo, useSyncExternalStore } from 'react';
+import { demoVoiceSession } from '../lib/demo-voice';
 import { diagnosticCapture } from '../lib/diagnostic-capture';
 import { m } from '../lib/maelstrom';
 import { DiagnosticEvents } from './diagnostic-events';
 
 export function DiagnosticCapturePanel() {
-  const { owner, provider } = m.useVoice();
+  const { session, provider } = m.useVoice();
   const { snapshot } = m.useVoiceObservations();
+  const providerInstanceId =
+    demoVoiceSession(session)?.providerInstanceId ?? 'unobserved';
   const mode = snapshot.connection === 'connected' ? provider : 'typed';
   return (
     <CapturePanel
@@ -18,12 +21,12 @@ export function DiagnosticCapturePanel() {
         start: () => {
           diagnosticCapture.start(
             mode,
-            owner.memory.sessionId,
-            owner.providerInstanceId,
+            session.memory.sessionId,
+            providerInstanceId,
           );
           diagnosticCapture.observations(
-            owner.session.observations.getSnapshot(),
-            { provider, providerInstanceId: owner.providerInstanceId },
+            session.observations.getSnapshot(),
+            { provider, providerInstanceId },
             true,
           );
         },

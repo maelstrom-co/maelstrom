@@ -69,9 +69,14 @@
         }
       },
       "test": {
-        "command": "bun test",
+        "executor": "nx:run-commands",
         "options": {
-          "cwd": "{projectRoot}"
+          "cwd": "{projectRoot}",
+          "parallel": false,
+          "commands": [
+            "bun test",
+            "bun test --conditions=@maelstrom-co/source ./src/lib/use-voice-lifecycle.test.isolated.tsx"
+          ]
         }
       }
     }

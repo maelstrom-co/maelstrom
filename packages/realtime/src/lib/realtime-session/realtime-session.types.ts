@@ -172,6 +172,12 @@ export interface RealtimeSessionOptions {
    * Optional one-shot spoken greeting. The coordinator is owned by the
    * maelstrom-realtime layer (one per Orchestrator) so session recreation
    * reuses retained proofs. Never constructed inside {@link RealtimeSession}.
+   *
+   * The greeting shares the once-per-memory introduction with
+   * `generatedOpening`: it claims the memory right before speech is sent, and
+   * an introduction another opening already claimed in the same memory, for
+   * example before a provider switch, settles it without speaking. Retries
+   * after its own `not_started` attempts still follow the coordinator.
    */
   readonly greeting?: {
     readonly text: string;

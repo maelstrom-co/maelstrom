@@ -1,9 +1,8 @@
-import type { SessionId } from '@maelstrom-co/protocol';
+import { SessionId } from '@maelstrom-co/protocol';
 import type {
-  CreateAdapterContext,
-  MaelstromRealtimeOptions,
+  MaelstromRealtimeBaseOptions,
+  MaelstromRealtimeOpeningOptions,
 } from '@maelstrom-co/react-realtime';
-import type { RealtimeProviderAdapter } from '@maelstrom-co/realtime';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { makeValidWavBytes } from './__tests__/wav-fixtures';
 import {
@@ -16,11 +15,14 @@ import { clearPlaygroundKey, setPlaygroundKey } from './playground-key-store';
 import type { DemoVoiceProvider } from './voice-provider';
 import { selectVoiceProvider } from './voice-provider';
 
+type DemoRealtimeOptions = MaelstromRealtimeBaseOptions<DemoVoiceProvider> &
+  MaelstromRealtimeOpeningOptions<DemoVoiceProvider>;
+
 const state = vi.hoisted(() => ({
   extension: {},
   orchestrationExtension: {},
   installedExtensions: [] as unknown[],
-  realtimeOptions: undefined as MaelstromRealtimeOptions | undefined,
+  realtimeOptions: undefined as DemoRealtimeOptions | undefined,
   liveKitAdapterOptions: [] as unknown[],
   openAIAdapterOptions: [] as unknown[],
   openAIAdapterInstances: [] as Array<{ activateAudioCalls: number }>,
@@ -38,25 +40,10 @@ vi.mock('@maelstrom-co/react', async (importOriginal) => ({
     return maelstrom;
   },
 }));
-vi.mock('./demo-voice', () => ({
-  demoVoice: (
-    factory: (
-      provider: DemoVoiceProvider,
-      sessionId: SessionId,
-    ) => RealtimeProviderAdapter,
-    greeting: string,
-  ) => {
-    state.realtimeOptions = {
-      greeting: { text: greeting },
-      createAdapter: ({ sessionId }) =>
-        factory(
-          import.meta.env.VITE_VOICE_PROVIDER === 'livekit' &&
-            import.meta.env.VITE_HOSTED !== '1'
-            ? 'livekit'
-            : 'realtime',
-          sessionId,
-        ),
-    };
+vi.mock('@maelstrom-co/react-realtime', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@maelstrom-co/react-realtime')>()),
+  maelstromRealtime: (options: DemoRealtimeOptions) => {
+    state.realtimeOptions = options;
     return state.extension;
   },
 }));
@@ -110,13 +97,17 @@ it('does not claim inert Live audio preparation succeeded when saving the first 
   expect(providerModule.prepareBrowserOpenAIVoice()).toBe(false);
 });
 
-function createAdapter(provider: 'livekit' | 'openai') {
-  vi.stubEnv('VITE_VOICE_PROVIDER', provider);
+function realtimeOptions(): DemoRealtimeOptions {
   const options = state.realtimeOptions;
   if (!options) throw new Error('expected realtime options to be captured');
-  return options.createAdapter({
-    sessionId: 'session-1',
-  } as CreateAdapterContext);
+  return options;
+}
+
+function createAdapter(provider: 'livekit' | 'openai') {
+  return realtimeOptions().createAdapter({
+    sessionId: SessionId('session-1'),
+    provider: provider === 'livekit' ? 'livekit' : 'realtime',
+  });
 }
 
 type OpenAIOptions = {
@@ -242,7 +233,21 @@ describe('demo voice provider wiring', () => {
   });
 
   it('passes the demo greeting to maelstromRealtime', () => {
-    expect(state.realtimeOptions?.greeting).toEqual({ text: DEMO_GREETING });
+    const sessionId = SessionId('session-1');
+    for (const provider of ['realtime', 'livekit'] as const)
+      expect(realtimeOptions().opening({ sessionId, provider })).toEqual({
+        greeting: { text: DEMO_GREETING },
+      });
+    expect(
+      realtimeOptions().opening({ sessionId, provider: 'live' }),
+    ).toMatchObject({
+      generatedOpening: { instructions: expect.stringContaining('Maelstrom') },
+    });
+    expect(realtimeOptions().providers).toEqual([
+      'live',
+      'realtime',
+      'livekit',
+    ]);
     // Greeting must not disturb either provider's adapter construction.
     createAdapter('openai');
     createAdapter('livekit');

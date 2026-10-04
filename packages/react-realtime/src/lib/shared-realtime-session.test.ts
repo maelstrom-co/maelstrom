@@ -1,12 +1,258 @@
 import { expect, test } from 'bun:test';
 import { SessionId } from '@maelstrom-co/protocol';
-import { SharedRealtimeSessionRegistry } from './shared-realtime-session.js';
+import type {
+  GreetingCoordinator,
+  RealtimeSession,
+  RealtimeSessionMemory,
+} from '@maelstrom-co/realtime';
+import {
+  type SharedRealtimeSessionBuild,
+  SharedRealtimeSessionRegistry,
+} from './shared-realtime-session.js';
 
 const flush = async () =>
   await new Promise<void>((resolve) => queueMicrotask(resolve));
 
+type Factory = (
+  coordinator: GreetingCoordinator,
+  memory: RealtimeSessionMemory,
+  provider: string,
+) => RealtimeSession;
+
+/** Registry whose next build uses the factory of the latest getOrCreate call. */
+function createRegistry(initialProvider = 'first') {
+  let factory: Factory = () => {
+    throw new Error('no factory');
+  };
+  const registry = new SharedRealtimeSessionRegistry<string>({
+    initialProvider: () => initialProvider,
+    build: ({ coordinator, memory, provider }) => ({
+      session: factory(coordinator, memory, provider),
+    }),
+  });
+  return Object.assign(registry, {
+    getOrCreate(orchestrator: never, next: Factory) {
+      factory = next;
+      return registry.read(orchestrator).entry;
+    },
+  });
+}
+
+interface FakeSession {
+  readonly provider: string;
+  connects: number;
+  disconnects: number;
+  disconnect(): Promise<void>;
+  connect(): Promise<void>;
+}
+
+function switchingSetup() {
+  const orchestrator = { getConfig: () => ({ sessionId: 'session' }) } as never;
+  const built: FakeSession[] = [];
+  const released: string[] = [];
+  let disconnectGate: Promise<void> | undefined;
+  let failBuild: Error | undefined;
+  const registry = new SharedRealtimeSessionRegistry<string>({
+    initialProvider: () => 'live',
+    build: ({ provider, memory, coordinator }): SharedRealtimeSessionBuild => {
+      if (failBuild) throw failBuild;
+      const session: FakeSession & {
+        memory: RealtimeSessionMemory;
+        coordinator: GreetingCoordinator;
+      } = {
+        provider,
+        memory,
+        coordinator,
+        connects: 0,
+        disconnects: 0,
+        connect: async () => {
+          session.connects += 1;
+        },
+        disconnect: async () => {
+          session.disconnects += 1;
+          if (disconnectGate) await disconnectGate;
+        },
+      };
+      built.push(session);
+      return {
+        session: session as never,
+        release: () => released.push(provider),
+      };
+    },
+  });
+  return {
+    registry,
+    orchestrator,
+    built,
+    released,
+    gateDisconnect: () => {
+      let open!: () => void;
+      disconnectGate = new Promise<void>((resolve) => {
+        open = resolve;
+      });
+      return () => {
+        disconnectGate = undefined;
+        open();
+      };
+    },
+    failBuild: (error: Error | undefined) => {
+      failBuild = error;
+    },
+  };
+}
+
+test('switches after disconnecting, keeps memory and coordinator, then releases the old wiring', async () => {
+  const state = switchingSetup();
+  const first = state.registry.read(state.orchestrator);
+  const retain = state.registry.retain(state.orchestrator, first.entry);
+  const notified: boolean[] = [];
+  state.registry.subscribe(state.orchestrator, () =>
+    notified.push(state.registry.read(state.orchestrator).switching),
+  );
+  const open = state.gateDisconnect();
+  const switching = state.registry.switchProvider(
+    state.orchestrator,
+    'realtime',
+  );
+  expect(state.registry.read(state.orchestrator).switching).toBe(true);
+  await flush();
+  expect(state.built).toHaveLength(1);
+  expect(state.released).toEqual([]);
+  open();
+  await switching;
+  const next = state.registry.read(state.orchestrator);
+  expect(next.provider).toBe('realtime');
+  expect(next.switching).toBe(false);
+  expect(next.entry).not.toBe(first.entry);
+  expect(state.built.map((session) => session.provider)).toEqual([
+    'live',
+    'realtime',
+  ]);
+  expect(state.built[0]?.disconnects).toBe(1);
+  expect(state.released).toEqual(['live']);
+  const [old, replacement] = state.built as unknown as Array<{
+    memory: unknown;
+    coordinator: unknown;
+  }>;
+  expect(replacement?.memory).toBe(old?.memory);
+  expect(replacement?.coordinator).toBe(old?.coordinator);
+  expect(notified).toEqual([true, false]);
+  const retainNext = state.registry.retain(state.orchestrator, next.entry);
+  retain();
+  await flush();
+  expect(state.released).toEqual(['live']);
+  retainNext();
+  await flush();
+  await flush();
+  expect(state.released).toEqual(['live', 'realtime']);
+});
+
+test('refuses connect while switching and shares a pending switch to the same provider', async () => {
+  const state = switchingSetup();
+  state.registry.read(state.orchestrator);
+  const open = state.gateDisconnect();
+  const first = state.registry.switchProvider(state.orchestrator, 'realtime');
+  expect(state.registry.switchProvider(state.orchestrator, 'realtime')).toBe(
+    first,
+  );
+  await state.registry.connect(state.orchestrator);
+  expect(state.built[0]?.connects).toBe(0);
+  open();
+  await first;
+  await state.registry.connect(state.orchestrator);
+  expect(state.built[1]?.connects).toBe(1);
+  await expect(
+    state.registry.switchProvider(state.orchestrator, 'realtime'),
+  ).resolves.toBeUndefined();
+  expect(state.built).toHaveLength(2);
+});
+
+test('a switch requested while the old session starts disconnecting shares the pending promise', async () => {
+  const state = switchingSetup();
+  const current = state.registry.read(state.orchestrator).entry
+    .session as unknown as FakeSession;
+  let nested: Promise<void> | undefined;
+  let switchingSeen: boolean | undefined;
+  const disconnect = current.disconnect;
+  current.disconnect = () => {
+    switchingSeen = state.registry.read(state.orchestrator).switching;
+    nested = state.registry.switchProvider(state.orchestrator, 'realtime');
+    return disconnect();
+  };
+  const switching = state.registry.switchProvider(
+    state.orchestrator,
+    'realtime',
+  );
+  expect(nested).toBe(switching);
+  expect(switchingSeen).toBe(true);
+  await switching;
+  expect(state.built).toHaveLength(2);
+});
+
+test('drops a superseded switch and builds only the latest provider', async () => {
+  const state = switchingSetup();
+  state.registry.read(state.orchestrator);
+  const open = state.gateDisconnect();
+  const superseded = state.registry.switchProvider(
+    state.orchestrator,
+    'realtime',
+  );
+  const latest = state.registry.switchProvider(state.orchestrator, 'livekit');
+  open();
+  await Promise.all([superseded, latest]);
+  expect(state.built.map((session) => session.provider)).toEqual([
+    'live',
+    'livekit',
+  ]);
+  expect(state.registry.read(state.orchestrator).provider).toBe('livekit');
+});
+
+test('keeps the current session when building the replacement throws', async () => {
+  const state = switchingSetup();
+  const before = state.registry.read(state.orchestrator);
+  state.failBuild(new Error('fixture build failure'));
+  await expect(
+    state.registry.switchProvider(state.orchestrator, 'realtime'),
+  ).rejects.toThrow('fixture build failure');
+  const after = state.registry.read(state.orchestrator);
+  expect(after.entry).toBe(before.entry);
+  expect(after.provider).toBe('live');
+  expect(after.switching).toBe(false);
+  expect(state.released).toEqual([]);
+  state.failBuild(undefined);
+  await state.registry.switchProvider(state.orchestrator, 'realtime');
+  expect(state.registry.read(state.orchestrator).provider).toBe('realtime');
+});
+
+test('remembers the selected provider across retirement and releases wiring after disconnect', async () => {
+  const state = switchingSetup();
+  const first = state.registry.read(state.orchestrator);
+  await state.registry.switchProvider(state.orchestrator, 'realtime');
+  const second = state.registry.read(state.orchestrator);
+  state.registry.retain(state.orchestrator, second.entry)();
+  state.registry.retain(state.orchestrator, first.entry)();
+  await flush();
+  await flush();
+  expect(state.released).toEqual(['live', 'realtime']);
+  const remounted = state.registry.read(state.orchestrator);
+  expect(remounted.entry).not.toBe(second.entry);
+  expect(remounted.provider).toBe('realtime');
+  expect(state.built.at(-1)?.provider).toBe('realtime');
+});
+
+test('only remembers a switch requested while no session is live', async () => {
+  const state = switchingSetup();
+  const first = state.registry.read(state.orchestrator);
+  state.registry.retain(state.orchestrator, first.entry)();
+  await flush();
+  await state.registry.switchProvider(state.orchestrator, 'livekit');
+  expect(state.built).toHaveLength(1);
+  expect(state.registry.read(state.orchestrator).provider).toBe('livekit');
+  expect(state.built.at(-1)?.provider).toBe('livekit');
+});
+
 function setup() {
-  const registry = new SharedRealtimeSessionRegistry();
+  const registry = createRegistry();
   const orchestrator = { getConfig: () => ({ sessionId: 'session' }) } as never;
   let disconnects = 0;
   let reject = false;
@@ -54,7 +300,7 @@ test('shares a live entry and release is idempotent', () => {
 });
 
 test('provider and session retirement retains generated introduction proof for one application identity', async () => {
-  const registry = new SharedRealtimeSessionRegistry();
+  const registry = createRegistry();
   const sessionId = SessionId('native');
   const orchestrator = { getConfig: () => ({ sessionId }) } as never;
   let attempts = 0;
@@ -174,7 +420,7 @@ test('retains presented and suppressed terminal proof across recreation', async 
 });
 
 test('evicts the zero-consumer entry before disconnect starts', async () => {
-  const registry = new SharedRealtimeSessionRegistry();
+  const registry = createRegistry();
   const orchestrator = { getConfig: () => ({ sessionId: 'session' }) } as never;
   let duringDisconnect: unknown;
   const factory = () =>
@@ -190,7 +436,7 @@ test('evicts the zero-consumer entry before disconnect starts', async () => {
 });
 
 test('pending old disconnect rejection cannot affect its replacement', async () => {
-  const registry = new SharedRealtimeSessionRegistry();
+  const registry = createRegistry();
   const orchestrator = { getConfig: () => ({ sessionId: 'session' }) } as never;
   let rejectOld!: (error: Error) => void;
   let factories = 0;
@@ -219,7 +465,7 @@ test('pending old disconnect rejection cannot affect its replacement', async () 
 });
 
 test('pending old disconnect completion cannot affect its replacement', async () => {
-  const registry = new SharedRealtimeSessionRegistry();
+  const registry = createRegistry();
   const orchestrator = { getConfig: () => ({ sessionId: 'session' }) } as never;
   let resolveOld!: () => void;
   let factories = 0;
@@ -247,7 +493,7 @@ test('pending old disconnect completion cannot affect its replacement', async ()
 });
 
 test('different orchestrators retain independent entries and coordinators', () => {
-  const registry = new SharedRealtimeSessionRegistry();
+  const registry = createRegistry();
   const a = { getConfig: () => ({ sessionId: 'a' }) } as never;
   const b = { getConfig: () => ({ sessionId: 'b' }) } as never;
   let aCoordinator: unknown;

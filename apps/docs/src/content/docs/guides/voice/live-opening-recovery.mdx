@@ -50,6 +50,37 @@ new application session starts independent memory. Do not configure both
 `greeting` and `generatedOpening`; the constructor rejects that combination.
 OpenAI Realtime and LiveKit retain their fixed, verbatim `greeting` behavior.
 
+## Switch providers without a second introduction
+
+To offer Live next to a fixed-greeting provider, list the providers and choose
+the opening per provider with `opening`. It replaces `greeting` and
+`generatedOpening`, which cannot be combined with it:
+
+```ts title="src/voice.ts"
+export const voice = maelstromRealtime({
+  providers: ['live', 'realtime'],
+  createAdapter: ({ provider, sessionId }) =>
+    provider === 'live'
+      ? createLiveAdapter()
+      : createRealtimeAdapter(sessionId),
+  opening: ({ provider }) =>
+    provider === 'live'
+      ? { generatedOpening: { instructions: 'In English, introduce yourself.' } }
+      : { greeting: { text: 'Hello! How can I help?' } },
+});
+```
+
+Call `useVoice().switchProvider(provider)` to change provider at runtime. The
+extension disconnects the current session and builds the next one with the same
+memory, so the introduction happens once per application session in either
+direction: a fixed greeting claims the memory before it speaks, and a Live
+introduction settles a later fixed greeting without speaking. `switching` is
+true while the switch runs, and `connect()` does nothing until it ends. Attach
+per-session wiring, such as diagnostics, with `onSession`; its cleanup runs when
+the session is replaced or retired.
+
+## How the Live adapter opens
+
 The Live adapter sends a native `session.instructions.append` after readiness.
 It keeps microphone input active while waiting, including silence. It does not
 use separate speech synthesis or wait for an opening-completed event.

@@ -88,6 +88,18 @@ export class FakeRealtimeSession {
   greetingEmitted = false;
   readonly #stateHandlers = new Set<(s: VoiceSessionState) => void>();
   readonly #transcriptHandlers = new Set<(t: TranscriptEntry) => void>();
+  readonly #otherHandlers = new Set<unknown>();
+  greetingState = 'not_configured' as const;
+  turnMode = 'automatic' as const;
+  turnModeError: unknown = undefined;
+  turnControl = undefined;
+  skipGreeting(): void {}
+  get memory() {
+    return {
+      sessionId: (this.options as { sessionId?: string } | undefined)
+        ?.sessionId,
+    };
+  }
 
   constructor(readonly options: unknown) {
     FakeRealtimeSession.instances.push(this);
@@ -120,9 +132,16 @@ export class FakeRealtimeSession {
     this.emitState('idle');
   }
 
-  on(event: 'state' | 'transcript', handler: never): () => void {
+  on(
+    event: 'state' | 'transcript' | 'greeting_state' | 'turn_mode',
+    handler: never,
+  ): () => void {
     const set =
-      event === 'state' ? this.#stateHandlers : this.#transcriptHandlers;
+      event === 'state'
+        ? this.#stateHandlers
+        : event === 'transcript'
+          ? this.#transcriptHandlers
+          : this.#otherHandlers;
     set.add(handler);
     return () => set.delete(handler);
   }

@@ -4420,3 +4420,144 @@ const secondConnectionFragment: TimedTranscriptFragment = {
   startMs: 0,
   endMs: 300,
 };
+
+describe('RealtimeSession one introduction per session memory', () => {
+  function generatedOpeningAdapter(requests: string[]): MockAdapter {
+    const adapter = makeMockAdapter();
+    Object.assign(adapter, {
+      generatedOpening: {
+        request: async (instructions: string) => {
+          requests.push(instructions);
+        },
+      },
+    });
+    return adapter;
+  }
+
+  it('claims the memory before fixed-greeting speech so a later generated opening is refused', async () => {
+    const memory = new RealtimeSessionMemory(testSessionId);
+    const adapter = makeGreetingAdapter();
+    let claimedBeforeSpeech: boolean | undefined;
+    const speak = adapter.speakAssistantText;
+    adapter.speakAssistantText = (args) => {
+      claimedBeforeSpeech = memory.getSnapshot().introductionAttempted;
+      return speak(args);
+    };
+    const fixed = new RealtimeSession({
+      adapter,
+      instance: makeMockInstance(emptySnapshot),
+      sessionId: testSessionId,
+      memory,
+      greeting: { text: 'Hello.', coordinator: new GreetingCoordinator() },
+    });
+    const events: SessionEvent['type'][] = [];
+    fixed.events.subscribe((event) => events.push(event.type));
+    await fixed.connect();
+    await flushMicrotasks();
+    expect(adapter.speakCalls).toHaveLength(1);
+    expect(claimedBeforeSpeech).toBe(true);
+    expect(events).toContain('opening.claimed');
+    await fixed.disconnect();
+
+    const requests: string[] = [];
+    const live = new RealtimeSession({
+      adapter: generatedOpeningAdapter(requests),
+      instance: makeMockInstance(emptySnapshot),
+      sessionId: testSessionId,
+      memory,
+      generatedOpening: { instructions: 'Introduce yourself.' },
+    });
+    await live.connect();
+    await flushMicrotasks();
+    expect(requests).toEqual([]);
+    await live.disconnect();
+  });
+
+  it('settles the fixed greeting without speaking after a generated opening claimed the memory', async () => {
+    const memory = new RealtimeSessionMemory(testSessionId);
+    const requests: string[] = [];
+    const live = new RealtimeSession({
+      adapter: generatedOpeningAdapter(requests),
+      instance: makeMockInstance(emptySnapshot),
+      sessionId: testSessionId,
+      memory,
+      generatedOpening: { instructions: 'Introduce yourself.' },
+    });
+    await live.connect();
+    await flushMicrotasks();
+    expect(requests).toEqual(['Introduce yourself.']);
+    await live.disconnect();
+
+    const adapter = makeGreetingAdapter();
+    const instance = makeMockInstance(emptySnapshot);
+    const fixed = new RealtimeSession({
+      adapter,
+      instance,
+      sessionId: testSessionId,
+      memory,
+      greeting: { text: 'Hello.', coordinator: new GreetingCoordinator() },
+    });
+    expect(fixed.greetingState).toBe('settled');
+    const states: GreetingState[] = [];
+    fixed.on('greeting_state', (state) => states.push(state));
+    await fixed.connect();
+    await flushMicrotasks();
+    expect(states).not.toContain('preparing');
+    expect(fixed.greetingState).toBe('settled');
+    expect(adapter.speakCalls).toEqual([]);
+    expect(instance.acknowledged).toEqual([]);
+    await fixed.disconnect();
+    expect(fixed.greetingState).toBe('settled');
+  });
+
+  it('keeps retrying a not_started fixed greeting across recreation with its own coordinator', async () => {
+    const memory = new RealtimeSessionMemory(testSessionId);
+    const coordinator = new GreetingCoordinator();
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      const adapter = makeGreetingAdapter();
+      adapter.setSpeakResult('not_started');
+      const session = new RealtimeSession({
+        adapter,
+        instance: makeMockInstance(emptySnapshot),
+        sessionId: testSessionId,
+        memory,
+        greeting: { text: 'Hello.', coordinator },
+      });
+      expect(session.greetingState).toBe('pending');
+      await session.connect();
+      await flushMicrotasks();
+      expect(adapter.speakCalls).toHaveLength(1);
+      await session.disconnect();
+    }
+    expect(memory.getSnapshot().introductionAttempted).toBe(true);
+  });
+
+  it('treats a claim won by another greeting coordinator as terminal', async () => {
+    const memory = new RealtimeSessionMemory(testSessionId);
+    const first = makeGreetingAdapter();
+    const firstSession = new RealtimeSession({
+      adapter: first,
+      instance: makeMockInstance(emptySnapshot),
+      sessionId: testSessionId,
+      memory,
+      greeting: { text: 'Hello.', coordinator: new GreetingCoordinator() },
+    });
+    await firstSession.connect();
+    await flushMicrotasks();
+    await firstSession.disconnect();
+    const second = makeGreetingAdapter();
+    const secondSession = new RealtimeSession({
+      adapter: second,
+      instance: makeMockInstance(emptySnapshot),
+      sessionId: testSessionId,
+      memory,
+      greeting: { text: 'Hello.', coordinator: new GreetingCoordinator() },
+    });
+    await secondSession.connect();
+    await flushMicrotasks();
+    expect(first.speakCalls).toHaveLength(1);
+    expect(second.speakCalls).toEqual([]);
+    expect(secondSession.greetingState).toBe('settled');
+    await secondSession.disconnect();
+  });
+});

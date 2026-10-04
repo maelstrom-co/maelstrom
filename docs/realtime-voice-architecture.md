@@ -218,7 +218,10 @@ must stamp its own receipt time.
 This section describes retained fixed greetings. Live uses a separate generated
 opening. Its session-owned memory claims one introduction attempt before provider
 send, including ambiguous failures. The shared React registry retains that memory
-across provider-session recreation under the same Orchestrator. Only observed
+across provider-session recreation under the same Orchestrator, including a
+runtime provider switch. A fixed greeting claims the same memory before it
+speaks and treats an introduction claimed by another opening as terminal, so a
+switch between Live and a fixed-greeting provider never introduces twice. Only observed
 transcript excerpts enter recovery context; requested wording never enters Engine
 history or captions. Native append acknowledgment does not prove model consumption
 or audible completion. See the [Live opening and recovery guide](https://docs.maelstrom-ai.co/guides/voice/live-opening-recovery/).
@@ -409,8 +412,11 @@ scheduling, cancellation, and output-clear policy. Greeting presentation owns
 the provider assistant-history handoff and local Web Audio playback. The
 microphone publication gate owns the exact prior `enabled` value for every
 unique microphone track while that presentation is active. The shared React
-session registry owns per-Orchestrator session lifetime and retains the greeting
-coordinator across provider-session recreation.
+session registry owns per-Orchestrator session lifetime, retains the greeting
+coordinator across provider-session recreation, and is the only place that
+builds sessions: `useVoice().switchProvider()` asks it to disconnect the current
+session, build the next adapter and session, and release the old session's
+`onSession` wiring.
 
 These seams preserve Engine acknowledgement → provider handoff → synthesis →
 provider playout-start caption ordering, existing privacy constraints, and LiveKit

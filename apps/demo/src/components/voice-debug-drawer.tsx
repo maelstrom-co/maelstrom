@@ -1,11 +1,15 @@
 import { OpenAILiveAdapter } from '@maelstrom-co/realtime-openai-live';
 import { Activity, Bug, Fingerprint, Radio, X } from 'lucide-react';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { demoVoiceSession } from '../lib/demo-voice';
 import { diagnosticCapture } from '../lib/diagnostic-capture';
 import { engineMetadata } from '../lib/engine-metadata';
 import { m } from '../lib/maelstrom';
 import { DEFAULT_REALTIME_MODEL } from '../lib/realtime-model';
-import { projectLiveTransport } from '../lib/voice-diagnostics';
+import {
+  projectLiveTransport,
+  VoiceDiagnostics,
+} from '../lib/voice-diagnostics';
 import { LIVE_BACKEND_MODEL, LIVE_MODEL } from '../lib/voice-provider';
 import { DiagnosticCapturePanel } from './diagnostic-capture-panel';
 import { DiagnosticEvents } from './diagnostic-events';
@@ -40,17 +44,19 @@ export function VoiceDebugDrawer() {
     engineMetadata.getSnapshot,
     engineMetadata.getSnapshot,
   );
-  const { owner, provider } = m.useVoice();
+  const { session, provider } = m.useVoice();
   const { snapshot } = m.useVoiceObservations();
+  const voice = demoVoiceSession(session);
+  const diagnostics = voice?.diagnostics ?? NO_DIAGNOSTICS;
   const timeline = useSyncExternalStore(
-    owner.diagnostics.subscribe,
-    owner.diagnostics.getSnapshot,
-    owner.diagnostics.getSnapshot,
+    diagnostics.subscribe,
+    diagnostics.getSnapshot,
+    diagnostics.getSnapshot,
   );
   const history = useSyncExternalStore(
-    owner.diagnostics.subscribe,
-    owner.diagnostics.getTransportHistory,
-    owner.diagnostics.getTransportHistory,
+    diagnostics.subscribe,
+    diagnostics.getTransportHistory,
+    diagnostics.getTransportHistory,
   );
   const capture = useSyncExternalStore(
     diagnosticCapture.subscribe,
@@ -64,8 +70,8 @@ export function VoiceDebugDrawer() {
   const trigger = useRef<HTMLButtonElement>(null);
   const [, refreshTransport] = useState(0);
   const transport =
-    owner.adapter instanceof OpenAILiveAdapter
-      ? projectLiveTransport(owner.adapter.getTransportSnapshot())
+    voice?.adapter instanceof OpenAILiveAdapter
+      ? projectLiveTransport(voice.adapter.getTransportSnapshot())
       : undefined;
   useEffect(() => {
     if (!open) return;
@@ -250,8 +256,11 @@ export function VoiceDebugDrawer() {
               <summary>Session identifiers</summary>
               <Facts
                 values={[
-                  ['Application session', owner.memory.sessionId],
-                  ['Provider instance', owner.providerInstanceId],
+                  ['Application session', session.memory.sessionId],
+                  [
+                    'Provider instance',
+                    voice?.providerInstanceId ?? 'Not reported',
+                  ],
                   ['Provider session', transport?.sessionId ?? 'Not reported'],
                 ]}
               />
@@ -321,3 +330,5 @@ export function VoiceDebugDrawer() {
     </>
   );
 }
+
+const NO_DIAGNOSTICS = new VoiceDiagnostics();

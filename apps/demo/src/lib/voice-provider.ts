@@ -3,6 +3,12 @@ import { isHosted } from './hosted-mode';
 
 export type DemoVoiceProvider = 'realtime' | 'live' | 'livekit';
 
+export const DEMO_VOICE_PROVIDERS: readonly DemoVoiceProvider[] = [
+  'live',
+  'realtime',
+  'livekit',
+];
+
 const configuredProvider = import.meta.env.VITE_VOICE_PROVIDER;
 
 export const voiceProviderStore = new Store<{ provider: DemoVoiceProvider }>({
