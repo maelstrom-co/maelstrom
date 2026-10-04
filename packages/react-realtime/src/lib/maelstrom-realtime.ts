@@ -57,7 +57,11 @@ export interface MaelstromRealtimeOptions {
   readonly summarize?: SummarizeFn;
   /** Debounce window for latest-wins grounding pushes. */
   readonly groundingDebounceMs?: number;
-  /** Observes provider-neutral sidechannel events. Turn-mode diagnostics are excluded. */
+  /**
+   * Observes the stable, additive-only sidechannel stream of every session:
+   * tool calls and results, transcripts and `update_ui` timings. Turn-mode
+   * diagnostics are excluded.
+   */
   readonly onEvent?: (event: SidechannelEvent) => void;
   /** Enables verbose tracing in the underlying session. */
   readonly debug?: boolean;
