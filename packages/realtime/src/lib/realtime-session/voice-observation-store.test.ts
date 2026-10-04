@@ -4,7 +4,11 @@ import type {
   VoiceApplicationWork,
   VoiceMediaObservation,
 } from '@maelstrom-co/client';
-import { VoiceObservationStore } from './voice-observation-store.js';
+import { ToolCallId } from '@maelstrom-co/protocol';
+import {
+  observationStoreSubscriber,
+  VoiceObservationStore,
+} from './voice-observation-store.js';
 
 function fragment(
   id: string,
@@ -327,5 +331,63 @@ describe('continuous voice observations', () => {
     notifyHost?.();
     expect(notifications).toBe(1);
     release();
+  });
+
+  it('folds session events into the same snapshot that direct calls produce', () => {
+    const subscribed = new VoiceObservationStore();
+    const direct = new VoiceObservationStore();
+    const handle = observationStoreSubscriber(subscribed);
+
+    handle({ type: 'session.started', generation: 1, connectionId: 'c1' });
+    direct.begin();
+    handle({ type: 'session.connected', generation: 1 });
+    direct.connection('connected');
+    handle({
+      type: 'transcript.fragment',
+      generation: 1,
+      connectionId: 'c1',
+      fragment: fragment('a', 'hello', 0),
+    });
+    direct.fragment(fragment('a', 'hello', 0));
+    handle({ type: 'media', generation: 1, media: { microphone: 'active' } });
+    direct.media({ microphone: 'active' });
+    expect(subscribed.getSnapshot()).toEqual(direct.getSnapshot());
+
+    handle({ type: 'session.error', generation: 1 });
+    direct.connection('error');
+    expect(subscribed.getSnapshot()).toEqual(direct.getSnapshot());
+    handle({ type: 'session.started', generation: 2, connectionId: 'c2' });
+    direct.begin();
+    handle({ type: 'session.disconnecting', generation: 2 });
+    direct.connection('disconnecting');
+    handle({ type: 'session.disconnected', generation: 2 });
+    direct.connection('disconnected');
+    expect(subscribed.getSnapshot()).toEqual(direct.getSnapshot());
+  });
+
+  it('ignores tool outcomes and the opening claim', () => {
+    const store = new VoiceObservationStore();
+    const handle = observationStoreSubscriber(store);
+    const snapshot = store.getSnapshot();
+    let notifications = 0;
+    store.subscribe(() => {
+      notifications += 1;
+    });
+
+    handle({
+      type: 'tool.submitted',
+      callId: ToolCallId('call-1'),
+      intent: 'show labs',
+      retry: false,
+    });
+    handle({
+      type: 'tool.completed',
+      callId: ToolCallId('call-1'),
+      intent: 'show labs',
+    });
+    handle({ type: 'opening.claimed' });
+
+    expect(store.getSnapshot()).toBe(snapshot);
+    expect(notifications).toBe(0);
   });
 });

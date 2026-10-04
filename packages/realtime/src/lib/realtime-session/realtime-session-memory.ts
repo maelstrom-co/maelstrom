@@ -1,5 +1,13 @@
 import type { TimedTranscriptFragment } from '@maelstrom-co/client';
 import type { SessionId, ToolCallId } from '@maelstrom-co/protocol';
+import type {
+  SessionEventHandler,
+  ToolLaterOutcomeType,
+} from './session-event-bus.js';
+import {
+  DEFAULT_MAX_FRAGMENT_CHARS,
+  isValidFragment,
+} from './transcript-fragment-validation.js';
 
 /** Evidence about a voice UI request, independent of provider delivery. */
 export interface VoiceRecoveryOutcome {
@@ -137,3 +145,60 @@ export class RealtimeSessionMemory {
     }
   }
 }
+
+/**
+ * Records one session's events into shared recovery memory. Memory outlives
+ * sessions, so the owning session must release this subscription when it is
+ * disposed. Fragments are validated here with the same rule as the
+ * observation store. A first submission inserts an outcome record; every later
+ * outcome, including a retried submission, updates the record only while it
+ * is still retained, so an evicted request never reappears. The opening claim
+ * is a direct compare-and-set on memory, so `opening.claimed` needs no work.
+ */
+export function recoveryMemorySubscriber(
+  memory: RealtimeSessionMemory,
+  maxFragmentChars: number = DEFAULT_MAX_FRAGMENT_CHARS,
+): SessionEventHandler {
+  return (event) => {
+    switch (event.type) {
+      case 'transcript.fragment':
+        if (isValidFragment(event.fragment, maxFragmentChars))
+          memory.observe(event.fragment, event.connectionId);
+        return;
+      case 'tool.submitted':
+        if (event.retry && !memory.find(event.callId)) return;
+        memory.outcome({
+          id: event.callId,
+          intent: event.intent,
+          status: 'submitted',
+        });
+        return;
+      case 'tool.queued':
+      case 'tool.completed':
+      case 'tool.failed':
+      case 'tool.unconfirmed':
+      case 'tool.not_submitted':
+        if (!memory.find(event.callId)) return;
+        memory.outcome({
+          id: event.callId,
+          intent: event.intent,
+          status: RECOVERY_STATUS_BY_OUTCOME[event.type],
+          ...(event.summary === undefined ? {} : { summary: event.summary }),
+        });
+        return;
+      default:
+        return;
+    }
+  };
+}
+
+const RECOVERY_STATUS_BY_OUTCOME: Record<
+  ToolLaterOutcomeType,
+  Exclude<VoiceRecoveryOutcome['status'], 'submitted'>
+> = {
+  'tool.queued': 'queued',
+  'tool.completed': 'completed',
+  'tool.failed': 'failed',
+  'tool.unconfirmed': 'unknown',
+  'tool.not_submitted': 'not_submitted',
+};
