@@ -185,7 +185,25 @@ export class VoiceObservationStore implements VoiceObservationSource {
   }
 
   fragment(fragment: TimedTranscriptFragment): boolean {
-    if (!isValidFragment(fragment, this.#maxFragmentChars)) return false;
+    if (!isValidFragment(fragment, this.#maxFragmentChars)) {
+      if (
+        fragment.text.length <= this.#maxFragmentChars ||
+        fragment.final !== true ||
+        !isValidFragment(fragment, Number.POSITIVE_INFINITY)
+      )
+        return false;
+      const retained = this.#snapshot.fragments.find(
+        (entry) =>
+          entry.id === fragment.id &&
+          entry.role === fragment.role &&
+          entry.speakerId === fragment.speakerId &&
+          entry.startMs === fragment.startMs,
+      );
+      if (!retained || retained.final || fragment.endMs < retained.endMs)
+        return false;
+      // Reject oversized text while preserving the observed utterance boundary.
+      fragment = { ...retained, endMs: fragment.endMs, final: true };
+    }
     const fragments = this.#snapshot.fragments.filter(
       (old) => old.id !== fragment.id,
     );

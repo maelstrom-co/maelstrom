@@ -239,6 +239,7 @@ function makeFakeAdapter(
   overrides?: Partial<RealtimeProviderAdapter>,
 ): RealtimeProviderAdapter {
   return {
+    observations: { subscribe: () => () => {} },
     connect: async () => {},
     disconnect: async () => {},
     getAudioStreams: () => ({}),

@@ -18,6 +18,7 @@ import { selectVoiceProvider } from './voice-provider';
 
 class Adapter implements RealtimeProviderAdapter {
   listeners = new Set<(event: RealtimeAdapterEvent) => void>();
+  observations = { subscribe: () => () => {} };
   starts = 0;
   openings = 0;
   results: ToolResult[] = [];

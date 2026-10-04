@@ -1,4 +1,4 @@
-import type { TranscriptEntry } from '@maelstrom-co/client';
+import type { VoiceCaption } from '@maelstrom-co/client';
 import { useEffect, useState } from 'react';
 import { cn } from '../lib/cn';
 import { m } from '../lib/maelstrom';
@@ -11,50 +11,48 @@ interface FadingCaption {
   readonly faded: boolean;
 }
 
-// Continuous groups are reconstructed on unrelated fragment updates. Legacy
-// entries instead use their receipt object as identity because they have no ID.
+// Caption groups are rebuilt on unrelated fragment updates, so identity is the
+// caption ID within its generation, never the object.
 function useFadingCaption(
-  entry: (TranscriptEntry & { readonly id?: string }) | undefined,
+  caption: VoiceCaption | undefined,
   generation: number,
 ): FadingCaption | undefined {
   const [faded, setFaded] = useState(false);
-  const identity = entry?.id ?? entry;
-  const text = entry?.text;
-  const final = entry?.final;
-  const captionGeneration = entry?.id === undefined ? undefined : generation;
+  const identity = caption?.id;
+  const text = caption?.text;
+  const final = caption?.final;
 
   useEffect(() => {
     setFaded(false);
     if (!final) return;
     const timeoutId = setTimeout(() => setFaded(true), FADE_DELAY_MS);
     return () => clearTimeout(timeoutId);
-  }, [identity, text, final, captionGeneration]);
+  }, [identity, text, final, generation]);
 
-  if (!entry) return undefined;
-  return { text: entry.text, faded };
+  if (!caption) return undefined;
+  return { text: caption.text, faded };
 }
 
 /**
  * Live voice captions in the footer chrome, above the orb and intent input.
- * Streaming fragments render as they arrive; a finalized line stays put for
- * a few seconds and then fades rather than disappearing abruptly.
+ * Every provider feeds the session's observation store, so captions read only
+ * its latest caption per role. Streaming fragments render as they arrive; a
+ * finalized line stays put for a few seconds and then fades rather than
+ * disappearing abruptly.
  *
  * Always mounts a fixed-height band so showing or hiding captions cannot
  * resize the chart (and fire engine `chart_resize`). Lines clamp at two rows,
  * stack on narrow screens, and use the full row when only one speaker is shown.
  */
 export function Captions() {
-  const { state, userTranscript, assistantTranscript } = m.useVoice();
+  const { state } = m.useVoice();
   const { snapshot } = m.useVoiceObservations();
   const assistant = useFadingCaption(
-    snapshot.captions
-      .filter((caption) => caption.role === 'assistant')
-      .at(-1) ?? assistantTranscript,
+    snapshot.captions.filter((caption) => caption.role === 'assistant').at(-1),
     snapshot.generation,
   );
   const user = useFadingCaption(
-    snapshot.captions.filter((caption) => caption.role === 'user').at(-1) ??
-      userTranscript,
+    snapshot.captions.filter((caption) => caption.role === 'user').at(-1),
     snapshot.generation,
   );
 

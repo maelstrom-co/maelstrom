@@ -87,6 +87,7 @@ class DemoGreetingCoordinator extends GreetingCoordinator {
     return super.run({
       ...context,
       adapter: {
+        observations: context.adapter.observations,
         connect: (options) => context.adapter.connect(options),
         disconnect: () => context.adapter.disconnect(),
         getAudioStreams: () => context.adapter.getAudioStreams(),

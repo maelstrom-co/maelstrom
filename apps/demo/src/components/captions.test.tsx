@@ -61,12 +61,12 @@ describe('Captions', () => {
   it.each([
     'user',
     'assistant',
-  ] as const)('keeps the old %s receipt faded across reconnect until a fresh receipt arrives', async (role) => {
+  ] as const)('drops the old %s caption on reconnect and shows a fresh one unfaded', async (role) => {
     vi.useFakeTimers();
     const { container, session } = renderCaptions();
     await act(async () => {
       session.emitState('connected');
-      session.emitTranscript({ role, text: 'Same words', final: true });
+      session.emitCaption({ role, text: 'Same words', final: true });
     });
     await act(async () => {
       vi.advanceTimersByTime(3500);
@@ -87,11 +87,23 @@ describe('Captions', () => {
       });
       session.emitState('connected');
     });
-    expect(faded()).toBe('true');
+    expect(container.querySelector(`[data-role="${role}"]`)).toBeNull();
     await act(async () => {
-      session.emitTranscript({ role, text: 'Same words', final: true });
+      session.emitCaption({ role, text: 'Same words', final: true });
     });
     expect(faded()).toBe('false');
+  });
+
+  it('renders captions only from the observation store, not legacy transcripts', async () => {
+    const { container, session } = renderCaptions();
+    await act(async () => {
+      session.emitState('listening');
+      session.emitTranscript({ role: 'assistant', text: 'On it', final: true });
+      session.emitTranscript({ role: 'user', text: 'show labs', final: true });
+    });
+
+    expect(container.querySelector('[data-role="assistant"]')).toBeNull();
+    expect(container.querySelector('[data-role="user"]')).toBeNull();
   });
   it('keeps an unchanged finalized caption faded while another speaker changes, but revives revised text or identity', async () => {
     vi.useFakeTimers();
@@ -195,8 +207,8 @@ describe('Captions', () => {
     const { container, session } = renderCaptions();
     await act(async () => {
       session.emitState('listening');
-      session.emitTranscript({ role: 'assistant', text: '', final: false });
-      session.emitTranscript({ role: 'user', text: '   ', final: true });
+      session.emitCaption({ role: 'assistant', text: '', final: false });
+      session.emitCaption({ role: 'user', text: '   ', final: true });
     });
     expect(container.querySelector('[data-role="assistant"]')).toBeNull();
     expect(container.querySelector('[data-role="user"]')).toBeNull();
@@ -206,7 +218,7 @@ describe('Captions', () => {
     const { container, session } = renderCaptions();
     await act(async () => {
       session.emitState('listening');
-      session.emitTranscript({
+      session.emitCaption({
         role: 'assistant',
         text: 'Opening the weather vessel and moving tasks to the right column for the morning review',
         final: false,
@@ -222,7 +234,7 @@ describe('Captions', () => {
     const { container, session } = renderCaptions();
     await act(async () => {
       session.emitState('listening');
-      session.emitTranscript({ role: 'assistant', text: 'On ', final: false });
+      session.emitCaption({ role: 'assistant', text: 'On ', final: false });
     });
 
     let line = must(container.querySelector('[data-role="assistant"]'));
@@ -231,7 +243,7 @@ describe('Captions', () => {
     expect(line.querySelector('.caption-dot')).not.toBeNull();
 
     await act(async () => {
-      session.emitTranscript({ role: 'assistant', text: 'it', final: false });
+      session.emitCaption({ role: 'assistant', text: 'it', final: false });
     });
 
     line = must(container.querySelector('[data-role="assistant"]'));
@@ -242,7 +254,7 @@ describe('Captions', () => {
     const { container, session } = renderCaptions();
     await act(async () => {
       session.emitState('listening');
-      session.emitTranscript({ role: 'user', text: 'show labs', final: true });
+      session.emitCaption({ role: 'user', text: 'show labs', final: true });
     });
 
     const line = must(container.querySelector('[data-role="user"]'));
@@ -257,7 +269,7 @@ describe('Captions', () => {
     const { container, session } = renderCaptions();
     await act(async () => {
       session.emitState('listening');
-      session.emitTranscript({ role: 'user', text: 'show labs', final: true });
+      session.emitCaption({ role: 'user', text: 'show labs', final: true });
     });
 
     expect(container.querySelector('[data-role="assistant"]')).toBeNull();
@@ -270,12 +282,12 @@ describe('Captions', () => {
     const { container, session } = renderCaptions();
     await act(async () => {
       session.emitState('listening');
-      session.emitTranscript({
+      session.emitCaption({
         role: 'assistant',
         text: 'On it',
         final: false,
       });
-      session.emitTranscript({ role: 'user', text: 'show labs', final: true });
+      session.emitCaption({ role: 'user', text: 'show labs', final: true });
     });
 
     const root = must(container.querySelector('[data-testid="captions"]'));
@@ -291,7 +303,7 @@ describe('Captions', () => {
     const { container, session } = renderCaptions();
     await act(async () => {
       session.emitState('listening');
-      session.emitTranscript({
+      session.emitCaption({
         role: 'assistant',
         text: 'On it',
         final: false,
@@ -311,7 +323,7 @@ describe('Captions', () => {
 
     await act(async () => {
       session.emitState('listening');
-      session.emitTranscript({ role: 'user', text: 'show labs', final: true });
+      session.emitCaption({ role: 'user', text: 'show labs', final: true });
     });
 
     let line = must(container.querySelector('[data-role="user"]'));
@@ -338,7 +350,7 @@ describe('Captions', () => {
 
     await act(async () => {
       session.emitState('listening');
-      session.emitTranscript({ role: 'user', text: 'show labs', final: true });
+      session.emitCaption({ role: 'user', text: 'show labs', final: true });
     });
     await act(async () => {
       vi.advanceTimersByTime(3500);
@@ -350,7 +362,7 @@ describe('Captions', () => {
     ).toBe('true');
 
     await act(async () => {
-      session.emitTranscript({ role: 'user', text: 'and ', final: false });
+      session.emitCaption({ role: 'user', text: 'and ', final: false });
     });
     expect(
       must(container.querySelector('[data-role="user"]')).getAttribute(
@@ -363,7 +375,7 @@ describe('Captions', () => {
     const { container, session } = renderCaptions();
     await act(async () => {
       session.emitState('listening');
-      session.emitTranscript({ role: 'assistant', text: 'done', final: true });
+      session.emitCaption({ role: 'assistant', text: 'done', final: true });
     });
     expect(container.querySelector('[data-role="assistant"]')).not.toBeNull();
 

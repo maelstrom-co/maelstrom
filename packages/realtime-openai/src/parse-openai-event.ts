@@ -112,3 +112,31 @@ export function parseOpenAIServerEvent(
       return null;
   }
 }
+
+/** A transcript event together with the conversation item it belongs to. */
+export interface OpenAITranscriptItem {
+  /** Provider conversation item id, stable across that item's deltas and its final event. */
+  readonly itemId: string;
+  /** Who spoke the transcribed audio. */
+  readonly role: 'user' | 'assistant';
+  /** A delta, or the item's full transcript when `final`. */
+  readonly text: string;
+  /** Whether this is the item's completing event carrying its full text. */
+  readonly final: boolean;
+}
+
+/**
+ * Maps a raw transcript event like {@link parseOpenAIServerEvent} does, but
+ * keeps the `item_id` that the legacy transcript event drops. Returns `null`
+ * for non-transcript events and for transcripts without a usable item id.
+ */
+export function parseOpenAITranscriptItem(
+  raw: unknown,
+): OpenAITranscriptItem | null {
+  const event = parseOpenAIServerEvent(raw);
+  if (event?.type !== 'transcript' || !isRecord(raw)) return null;
+  const itemId = asString(raw.item_id);
+  if (itemId === undefined || itemId.length === 0 || itemId.length > 256)
+    return null;
+  return { itemId, role: event.role, text: event.text, final: event.final };
+}

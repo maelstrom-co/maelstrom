@@ -43,6 +43,17 @@ function legacyEvent(event: RealtimeAdapterEvent): void {
 }
 
 const adapter: RealtimeProviderAdapter = {
+  observations: { subscribe: () => () => {} },
+  connect: async () => {},
+  disconnect: async () => {},
+  getAudioStreams: () => ({}),
+  sendToolResult: async () => {},
+  injectGrounding: () => {},
+  on: () => () => {},
+};
+// Every adapter must define its observations feed, even one that reports nothing.
+// @ts-expect-error observations is required
+const adapterWithoutObservations: RealtimeProviderAdapter = {
   connect: async () => {},
   disconnect: async () => {},
   getAudioStreams: () => ({}),
@@ -57,4 +68,11 @@ const transcript: TranscriptEntry = {
 };
 declare const realtime: RealtimeSession;
 const session: VoiceSession = realtime;
-void [legacyState, legacyEvent, adapter, transcript, session];
+void [
+  legacyState,
+  legacyEvent,
+  adapter,
+  adapterWithoutObservations,
+  transcript,
+  session,
+];
