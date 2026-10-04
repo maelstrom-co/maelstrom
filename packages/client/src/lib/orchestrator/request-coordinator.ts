@@ -99,6 +99,10 @@ export class RequestCoordinator {
     this.#connector = next;
   }
 
+  /**
+   * Send a request and preserve its transport outcome for the caller.
+   * Failures received after disposal no longer report a live request error.
+   */
   async send(message: ChartRequestMessage): Promise<MaelstromResponse> {
     if (this.#isDisposed) throw new Error('RequestCoordinator is disposed');
     const requestId = message.id;
@@ -127,12 +131,14 @@ export class RequestCoordinator {
       return response;
     } catch (err) {
       const error = toError(err);
-      this.#logger.error(`Request ${requestId} failed: ${error.message}`);
+      if (!this.#isDisposed) {
+        this.#logger.error(`Request ${requestId} failed: ${error.message}`);
 
-      this.#emitter.emit('error', {
-        error,
-        timestamp: performance.now(),
-      });
+        this.#emitter.emit('error', {
+          error,
+          timestamp: performance.now(),
+        });
+      }
 
       throw error;
     } finally {
@@ -186,6 +192,11 @@ export class RequestCoordinator {
     this.#flushResolvers = [];
   }
 
+  /**
+   * Retire request error reporting and reject queued flush promises.
+   * Outstanding sends still settle with their transport outcome; this method
+   * does not disconnect the transport.
+   */
   dispose(): void {
     if (this.#isDisposed) return;
 

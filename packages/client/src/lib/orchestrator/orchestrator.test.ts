@@ -1480,6 +1480,91 @@ describe('Orchestrator', () => {
       expect(result).toBeNull();
     });
 
+    it('retires request error reporting before disconnect cancels an in-flight intent', async () => {
+      const connector = createDisconnectRejectingConnector();
+      const { orchestrator } = createTestOrchestrator(connector);
+      const errorLog = spyOn(console, 'error').mockImplementation(() => {});
+      const requestError = mock(() => {});
+      orchestrator.requestCoordinator.events.on('error', requestError);
+      try {
+        await orchestrator.connect();
+        const pending = track(orchestrator.processIntent('show chart'));
+        orchestrator.scheduleUpdate({
+          type: 'vessel_mutation',
+          instanceId: InstanceId('i-1'),
+          changes: 'queued behind the cancelled intent',
+        });
+        const queued = track(orchestrator.flushUpdates());
+
+        await orchestrator.dispose();
+        await flushMicrotasks();
+
+        expect(connector.disconnect).toHaveBeenCalledTimes(1);
+        expect(pending()).toMatchObject({
+          state: 'rejected',
+          error: new Error('Disconnected'),
+        });
+        expect(queued()).toEqual({ state: 'resolved', value: null });
+        expect(requestError).not.toHaveBeenCalled();
+        expect(errorLog).not.toHaveBeenCalled();
+      } finally {
+        await orchestrator.dispose();
+        errorLog.mockRestore();
+      }
+    });
+
+    it('settles coalesced flushes while asynchronous transport shutdown is still pending', async () => {
+      let rejectRequest!: (error: Error) => void;
+      let releaseDisconnect: (() => void) | undefined;
+      let disposal: Promise<void> | undefined;
+      const cancelled = new Error('Disconnected');
+      const connector = createMockConnector({
+        process: () =>
+          new Promise<MaelstromResponse>((_, reject) => {
+            rejectRequest = reject;
+          }),
+        disconnect: () =>
+          new Promise<void>((resolve) => {
+            releaseDisconnect = () => {
+              rejectRequest(cancelled);
+              resolve();
+            };
+          }),
+      });
+      const { orchestrator } = createTestOrchestrator(connector);
+      const errorLog = spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        await orchestrator.connect();
+        const pending = track(orchestrator.processIntent('show chart'));
+        orchestrator.scheduleUpdate({
+          type: 'vessel_mutation',
+          instanceId: InstanceId('i-1'),
+          changes: 'waiting for a response that will not be applied',
+        });
+        const queued = track(orchestrator.flushUpdates());
+
+        disposal = orchestrator.dispose();
+        const shutdown = track(disposal);
+        await flushMicrotasks();
+
+        expect(shutdown()).toEqual({ state: 'pending' });
+        expect(queued()).toEqual({ state: 'resolved', value: null });
+        expect(pending()).toEqual({ state: 'pending' });
+
+        releaseDisconnect?.();
+        await disposal;
+        await flushMicrotasks();
+
+        expect(pending()).toEqual({ state: 'rejected', error: cancelled });
+        expect(errorLog).not.toHaveBeenCalled();
+      } finally {
+        disposal ??= orchestrator.dispose();
+        releaseDisconnect?.();
+        await disposal;
+        errorLog.mockRestore();
+      }
+    });
+
     it('discards a response that resolves after dispose instead of throwing', async () => {
       let releaseResponse!: (response: MaelstromResponse) => void;
       const connector = createMockConnector({

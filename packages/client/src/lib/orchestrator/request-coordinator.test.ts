@@ -1,8 +1,9 @@
-import { describe, expect, it, mock } from 'bun:test';
+import { afterEach, describe, expect, it, mock, spyOn } from 'bun:test';
 
 import {
   type ChartRequest,
   ChartRequestMessage,
+  type MaelstromResponse,
   MessageId,
   SessionId,
 } from '@maelstrom-co/protocol';
@@ -66,6 +67,7 @@ function createMockRequest(id = MessageId('req-1')): ChartRequestMessage {
 // ============================================================================
 
 describe('RequestCoordinator', () => {
+  afterEach(() => mock.restore());
   describe('send', () => {
     it('should call connector.process and return response', async () => {
       const mockResponse = createMockResponse(
@@ -135,6 +137,7 @@ describe('RequestCoordinator', () => {
     });
 
     it('should emit error event on failure and re-throw', async () => {
+      const errorLog = spyOn(console, 'error').mockImplementation(() => {});
       const connector = createMockConnector({
         process: mock(() => Promise.reject(new Error('engine down'))),
       });
@@ -151,6 +154,10 @@ describe('RequestCoordinator', () => {
 
       expect(errors).toHaveLength(1);
       expect(errors[0].error.message).toBe('engine down');
+      expect(errorLog).toHaveBeenCalledWith(
+        '[RequestCoordinator]',
+        expect.stringContaining('engine down'),
+      );
       expect(coordinator.isProcessing).toBe(false);
 
       coordinator.dispose();
@@ -281,6 +288,59 @@ describe('RequestCoordinator', () => {
   });
 
   describe('dispose', () => {
+    it('preserves a late transport rejection without logging it as a live request failure', async () => {
+      let rejectRequest!: (error: Error) => void;
+      const connector = createMockConnector({
+        process: mock(
+          () =>
+            new Promise<MaelstromResponse>((_, reject) => {
+              rejectRequest = reject;
+            }),
+        ),
+      });
+      const coordinator = new RequestCoordinator(connector);
+      const errorLog = spyOn(console, 'error').mockImplementation(() => {});
+      const cancelled = new Error('Disconnected');
+      const pending = coordinator
+        .send(createMockRequest())
+        .catch((error: unknown) => error);
+
+      coordinator.dispose();
+      rejectRequest(cancelled);
+
+      expect(await pending).toBe(cancelled);
+      expect(errorLog).not.toHaveBeenCalled();
+      expect(coordinator.isProcessing).toBe(false);
+      await expect(coordinator.send(createMockRequest())).rejects.toThrow(
+        'RequestCoordinator is disposed',
+      );
+      expect(connector.process).toHaveBeenCalledTimes(1);
+    });
+
+    it('reports the same disconnection error while the coordinator is still live', async () => {
+      const disconnected = new Error('Disconnected');
+      const connector = createMockConnector({
+        process: () => Promise.reject(disconnected),
+      });
+      const coordinator = new RequestCoordinator(connector);
+      const errorLog = spyOn(console, 'error').mockImplementation(() => {});
+      const reported = mock(() => {});
+      coordinator.events.on('error', reported);
+
+      await expect(coordinator.send(createMockRequest())).rejects.toBe(
+        disconnected,
+      );
+      expect(reported).toHaveBeenCalledWith({
+        error: disconnected,
+        timestamp: expect.any(Number),
+      });
+      expect(errorLog).toHaveBeenCalledWith(
+        '[RequestCoordinator]',
+        expect.stringContaining('Disconnected'),
+      );
+      coordinator.dispose();
+    });
+
     it('should reject pending flush promises on dispose', async () => {
       const connector = createMockConnector();
       const coordinator = new RequestCoordinator(connector);
