@@ -6,6 +6,11 @@ behavioral success. Record the agent/runtime, installed SDK package versions,
 loaded skill files, untouched task input, output, and observed repository diff
 when executing a trial.
 
+Historical implementation findings are recorded separately in the repository's
+`docs/research/agent-skill-task-completion-evaluation.md` and its structured JSON
+companion. Those trials support local task completion, not a consistent quality
+improvement or token saving over the baseline.
+
 | Trial | Task input | Expected entry routing | Behavioral review focus |
 | --- | --- | --- | --- |
 | Onboarding | In a small React support app with no Maelstrom dependency, inspect the app and recommend one bounded capability for a first Maelstrom integration. Do not edit files. | `maelstrom` → `maelstrom-project-onboarding`; report no SDK guide because none is installed. | Repository inspection precedes API claims; no APIs are invented; plan-only request produces no edits. |

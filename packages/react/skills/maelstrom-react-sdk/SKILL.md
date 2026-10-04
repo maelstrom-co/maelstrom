@@ -24,5 +24,6 @@ because that type exists. Keep framework-independent lifecycle and connection
 logic in its owning SDK package; application data, authorization, and side
 effects remain application-owned.
 
-When registering a Vessel, wiring Provider/Chart, or diagnosing bootstrap errors,
-read [common tasks](references/common-tasks.md) before choosing the integration.
+When registering a Vessel, wiring Provider/Chart, seeding a tiling first screen,
+testing Chart in a DOM, or diagnosing bootstrap errors, read
+[common tasks](references/common-tasks.md) before choosing the integration.
