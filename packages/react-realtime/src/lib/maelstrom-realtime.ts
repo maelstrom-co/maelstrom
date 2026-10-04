@@ -105,7 +105,7 @@ export interface MaelstromRealtimeBaseOptions<Provider = undefined> {
    * Voice providers this extension can switch between, for example
    * `['live', 'realtime']`. The list types
    * {@link UseVoiceResult.switchProvider}, which rejects any other value.
-   * Omit it for a single-provider extension.
+   * An empty list throws `RangeError`. Omit it for a single-provider extension.
    */
   readonly providers?: readonly Provider[];
   /**
@@ -113,6 +113,8 @@ export interface MaelstromRealtimeBaseOptions<Provider = undefined> {
    * entry of `providers`. A function is read lazily, when that first session
    * is built. Afterwards the extension remembers the last chosen provider per
    * Orchestrator, so a remount keeps it.
+   * When `providers` is set, the selection must belong to that list; an unknown
+   * value throws `RangeError` before the first adapter is built.
    */
   readonly initialProvider?: Provider | (() => Provider);
   /** Conversation-only instructions for providers with a separate managed tool backend. */
@@ -133,7 +135,7 @@ export interface MaelstromRealtimeBaseOptions<Provider = undefined> {
    * {@link RealtimeSession.events}, to each session the extension builds. It
    * runs once per session, synchronously while the session is built, which
    * can happen during render, so it must not update React state directly.
-   * The returned cleanup runs after the session has disconnected, when a
+   * An optional returned cleanup runs after the session has disconnected, when a
    * provider switch replaces it or its last consumer unmounts. Subscriptions
    * the cleanup leaves in place keep observing the retired session, which
    * still reports requests that settle late. Throwing aborts the build.
@@ -141,7 +143,8 @@ export interface MaelstromRealtimeBaseOptions<Provider = undefined> {
   readonly onSession?: (
     session: RealtimeSession,
     context: RealtimeSessionContext<Provider>,
-  ) => (() => void) | undefined;
+    // biome-ignore lint/suspicious/noConfusingVoidType: Optional cleanup must accept callbacks with no return statement.
+  ) => (() => void) | void;
   /** Overrides the deterministic structural-summary fallback. */
   readonly summarize?: SummarizeFn;
   /** Debounce window for latest-wins grounding pushes. */
@@ -358,10 +361,27 @@ type RealtimeExtension<Provider> = MaelstromExtension<{
  */
 export function maelstromRealtime<
   Provider extends string | undefined = undefined,
+>(
+  options: MaelstromRealtimeOptions<NoInfer<Provider>> & {
+    readonly providers?: readonly Provider[];
+  },
+): RealtimeExtension<Provider>;
+/** Infers a single provider from its initial selection when no provider list is supplied. */
+export function maelstromRealtime<
+  Provider extends string | undefined = undefined,
+>(
+  options: MaelstromRealtimeOptions<Provider> & {
+    readonly providers?: undefined;
+  },
+): RealtimeExtension<Provider>;
+export function maelstromRealtime<
+  Provider extends string | undefined = undefined,
 >(options: MaelstromRealtimeOptions<Provider>): RealtimeExtension<Provider> {
   if (options.opening && (options.greeting || options.generatedOpening))
     throw new Error('Choose opening, or greeting and generatedOpening');
   const { providers } = options;
+  if (providers?.length === 0)
+    throw new RangeError('providers must contain at least one provider');
   const sessions = new SharedRealtimeSessionRegistry<Provider>({
     initialProvider: () =>
       resolveInitialProvider(options.initialProvider, providers),
@@ -460,8 +480,14 @@ export function maelstromRealtime<
         () => sessions.connect(orchestrator),
         [orchestrator],
       );
-      const disconnect = useCallback(() => session.disconnect(), [session]);
-      const skipGreeting = useCallback(() => session.skipGreeting(), [session]);
+      const disconnect = useCallback(
+        () => sessions.disconnect(orchestrator),
+        [orchestrator],
+      );
+      const skipGreeting = useCallback(
+        () => sessions.skipGreeting(orchestrator),
+        [orchestrator],
+      );
       const switchProvider = useCallback(
         (next: Provider): Promise<void> => {
           if (providers && !providers.includes(next))
@@ -504,8 +530,13 @@ function resolveInitialProvider<Provider>(
   initial: Provider | (() => Provider) | undefined,
   providers: readonly Provider[] | undefined,
 ): Provider {
-  if (typeof initial === 'function') return (initial as () => Provider)();
-  return (initial ?? providers?.[0]) as Provider;
+  const provider =
+    typeof initial === 'function'
+      ? (initial as () => Provider)()
+      : (initial ?? providers?.[0]);
+  if (providers && !providers.includes(provider as Provider))
+    throw new RangeError(`Unknown voice provider: ${String(provider)}`);
+  return provider as Provider;
 }
 
 function buildSession<Provider>(
@@ -557,7 +588,10 @@ function buildSession<Provider>(
       instanceId: crypto.randomUUID(),
       adapter,
     });
-    return { session, release };
+    return {
+      session,
+      release: typeof release === 'function' ? release : undefined,
+    };
   } catch (error) {
     releaseAdapter(adapter);
     throw error;

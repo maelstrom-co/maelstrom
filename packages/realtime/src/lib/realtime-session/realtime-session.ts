@@ -1573,6 +1573,7 @@ function claimingIntroductionBeforeSpeech(
   claim: () => boolean,
 ): RealtimeGreetingAdapter {
   return {
+    observations: adapter.observations,
     connect: (options) => adapter.connect(options),
     disconnect: () => adapter.disconnect(),
     getAudioStreams: () => adapter.getAudioStreams(),

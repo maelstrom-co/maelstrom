@@ -55,6 +55,7 @@ interface PendingSwitch<Provider> {
 
 interface Slot<Provider> {
   readonly coordinator: GreetingCoordinator;
+  consumers: number;
   memory: RealtimeSessionMemory | undefined;
   provider: Provider;
   entry: Entry<Provider> | undefined;
@@ -105,14 +106,19 @@ export class SharedRealtimeSessionRegistry<Provider> {
     orchestrator: Orchestrator,
     entry: SharedRealtimeSessionEntry,
   ): () => void {
+    const slot = this.#slot(orchestrator);
     const owned = entry as Entry<Provider>;
+    slot.consumers += 1;
     owned.consumers += 1;
     let released = false;
     return () => {
       if (released) return;
       released = true;
       owned.consumers = Math.max(0, owned.consumers - 1);
+      slot.consumers = Math.max(0, slot.consumers - 1);
       this.#queueRetirement(orchestrator, owned);
+      if (slot.consumers === 0 && slot.entry && slot.entry !== owned)
+        this.#queueRetirement(orchestrator, slot.entry);
     };
   }
 
@@ -120,6 +126,19 @@ export class SharedRealtimeSessionRegistry<Provider> {
   connect(orchestrator: Orchestrator): Promise<void> {
     if (this.#slot(orchestrator).pendingSwitch) return Promise.resolve();
     return this.read(orchestrator).entry.session.connect();
+  }
+
+  /** Disconnects the current entry without creating a session after retirement. */
+  disconnect(orchestrator: Orchestrator): Promise<void> {
+    return (
+      this.#slots.get(orchestrator)?.entry?.session.disconnect() ??
+      Promise.resolve()
+    );
+  }
+
+  /** Skips the current entry's greeting without recreating a retired session. */
+  skipGreeting(orchestrator: Orchestrator): void {
+    this.#slots.get(orchestrator)?.entry?.session.skipGreeting();
   }
 
   /**
@@ -221,6 +240,7 @@ export class SharedRealtimeSessionRegistry<Provider> {
     if (!slot) {
       slot = {
         coordinator: new GreetingCoordinator(),
+        consumers: 0,
         memory: undefined,
         provider: this.#options.initialProvider(),
         entry: undefined,
@@ -243,9 +263,14 @@ export class SharedRealtimeSessionRegistry<Provider> {
     entry.retirementQueued = true;
     queueMicrotask(() => {
       entry.retirementQueued = false;
-      if (entry.phase !== 'live' || entry.consumers > 0) return;
-      entry.phase = 'retired';
       const slot = this.#slots.get(orchestrator);
+      if (
+        entry.phase !== 'live' ||
+        entry.consumers > 0 ||
+        (slot?.entry === entry && slot.consumers > 0)
+      )
+        return;
+      entry.phase = 'retired';
       if (slot?.entry === entry) {
         slot.entry = undefined;
         slot.view = undefined;

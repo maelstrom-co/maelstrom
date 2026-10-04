@@ -1,12 +1,40 @@
 import type { RealtimeProviderAdapter } from '@maelstrom-co/realtime';
 
-import type { UseVoiceResult } from '../index.js';
+import type { MaelstromRealtimeOptions, UseVoiceResult } from '../index.js';
 import { maelstromRealtime } from '../index.js';
 
 declare const adapter: RealtimeProviderAdapter;
 
+declare const configuredOptions: MaelstromRealtimeOptions<'live' | 'realtime'>;
+const configuredExtension = maelstromRealtime(configuredOptions);
+declare const configuredVoice: ReturnType<
+  ReturnType<typeof configuredExtension>['useVoice']
+>;
+void configuredVoice.switchProvider('realtime');
+// @ts-expect-error An options variable still preserves its provider union.
+void configuredVoice.switchProvider('livekit');
+
+maelstromRealtime({
+  initialProvider: 'live',
+  createAdapter: ({ provider }) => {
+    const known: 'live' = provider;
+    void known;
+    return adapter;
+  },
+});
+
+maelstromRealtime({
+  initialProvider: () => 'live',
+  createAdapter: ({ provider }) => {
+    const known: 'live' = provider;
+    void known;
+    return adapter;
+  },
+});
+
 maelstromRealtime({
   providers: ['live', 'realtime'],
+  initialProvider: () => 'live',
   createAdapter: ({ provider }) => {
     const known: 'live' | 'realtime' = provider;
     void known;
@@ -19,8 +47,21 @@ maelstromRealtime({
   onSession: (_session, { instanceId, adapter: built }) => {
     void instanceId;
     void built;
-    return undefined;
   },
+});
+
+// @ts-expect-error The initial selection cannot widen the provider list.
+maelstromRealtime({
+  providers: ['live', 'realtime'],
+  initialProvider: 'typo',
+  createAdapter: () => adapter,
+});
+
+// @ts-expect-error Lazy initial selection must also stay within the list.
+maelstromRealtime({
+  providers: ['live', 'realtime'],
+  initialProvider: () => 'typo',
+  createAdapter: () => adapter,
 });
 
 // @ts-expect-error opening decides the greeting; the fixed options are excluded.

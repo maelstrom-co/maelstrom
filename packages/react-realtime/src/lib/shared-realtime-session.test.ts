@@ -137,9 +137,14 @@ test('switches after disconnecting, keeps memory and coordinator, then releases 
   expect(replacement?.memory).toBe(old?.memory);
   expect(replacement?.coordinator).toBe(old?.coordinator);
   expect(notified).toEqual([true, false]);
+  const retainNext = state.registry.retain(state.orchestrator, next.entry);
   retain();
   await flush();
   expect(state.released).toEqual(['live']);
+  retainNext();
+  await flush();
+  await flush();
+  expect(state.released).toEqual(['live', 'realtime']);
 });
 
 test('refuses connect while switching and shares a pending switch to the same provider', async () => {
