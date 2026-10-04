@@ -34,12 +34,13 @@ const headings = [
 
     <section aria-labelledby="install-heading">
       <h2 id="install-heading">Install the complete bundle</h2>
-      <p>Run one command from your application's root directory. Choose your coding agent below. These commands install all eight skills in project scope, not globally.</p>
+      <p>Run one command from your application's root directory. Choose your coding agent below. The commands select all eight skills.</p>
+      <p>Choose Project at the installation scope prompt.</p>
       <p>Use Bun, or replace <code>bunx</code> with <code>npx</code> when using Node.js. Review the skill source and confirm the installer prompt.</p>
       {skillAgents.map((agent) => (
         <div class="agent-install">
           <h3>{agent.name}</h3>
-          <pre data-install-agent={agent.id}><code>{`bunx ${skillInstaller} add ${skillBundleUrl} --skill '*' --agent ${agent.id} --copy`}</code></pre>
+          <pre data-bundle-command hidden data-install-agent={agent.id}><code>{`bunx ${skillInstaller} add ${skillBundleUrl} --skill '*' --agent ${agent.id} --copy`}</code></pre>
           <p>Project location: <code>{agent.directory}</code></p>
         </div>
       ))}
@@ -49,6 +50,7 @@ const headings = [
         <p><a href="/agents/skills/bundle.zip" download="maelstrom-agent-skills.zip">Download the complete skills bundle</a>. Extract the contents of <code>apps/docs/skills/</code> into your agent's project skills directory.</p>
         <p>For only debugging, replace <code>--skill '*'</code> with <code>--skill maelstrom maelstrom-debugging</code>. Keep the entry skill so the same starting request still works. Copy whole directories for a manual installation.</p>
       </details>
+      <noscript><p>Use the manual ZIP download to install this build's skills when JavaScript is disabled.</p></noscript>
     </section>
 
     <section aria-labelledby="verify-heading">
@@ -83,8 +85,8 @@ const headings = [
             <p>Installation: included in the complete bundle above.</p>
             <details>
               <summary>Install only this procedure and the entry skill</summary>
-              <pre><code>{`bunx ${skillInstaller} add ${skillBundleUrl} --skill maelstrom ${task.id} --agent pi --copy`}</code></pre>
-              <p>Replace <code>pi</code> with your selected agent target.</p>
+              <pre data-bundle-command hidden><code>{`bunx ${skillInstaller} add ${skillBundleUrl} --skill maelstrom ${task.id} --agent pi --copy`}</code></pre>
+              <p>Replace <code>pi</code> with your selected agent target. Choose Project at the scope prompt.</p>
             </details>
             <pre><code>{task.request}</code></pre>
             <p>Expected evidence: {task.evidence}</p>
@@ -132,6 +134,21 @@ const headings = [
     <p class="source-links">For source browsing only: <a href={sourceTree}>skills tree</a> and <a href={sourceFile}>maintainer README</a>.</p>
   </div>
 </StarlightPage>
+<script>
+  import { skillBundleUrl } from '../../../lib/skill-onboarding';
+
+  const initBundleCommands = () => {
+    const servedBundle = new URL('/agents/skills/bundle.zip', location.origin).href;
+    for (const pre of document.querySelectorAll<HTMLElement>('[data-bundle-command]')) {
+      const code = pre.querySelector('code');
+      if (!code?.textContent) continue;
+      code.textContent = code.textContent.replace(skillBundleUrl, servedBundle);
+      pre.hidden = false;
+    }
+  };
+  initBundleCommands();
+  document.addEventListener('astro:page-load', initBundleCommands);
+</script>
 <style>
   .skill-index { max-width: 58rem; }
   section { margin-top: 2rem; }

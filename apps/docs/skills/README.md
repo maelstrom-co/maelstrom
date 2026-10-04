@@ -15,6 +15,10 @@ bunx skills@1.7.0 add https://docs.maelstrom-ai.co/agents/skills/bundle.zip --sk
 bunx skills@1.7.0 list --agent pi
 ```
 
+Choose **Project** at the installation scope prompt. Global installation uses a
+different directory and is not the project installation described here. In a PR
+preview, copy the commands from the preview page to use that build's bundle.
+
 Replace `pi` with `opencode` or `claude-code` for those tools. Pi uses `.pi/skills/`, OpenCode uses `.agents/skills/`, and Claude Code uses `.claude/skills/`. Restart or reload the coding agent and ask it to read the installed `maelstrom` entry skill. An installer listing is not proof of activation or correct application. No global install, SDK install, or provider key is required for a planning task.
 
 For manual installation, extract the ZIP's `apps/docs/skills/` contents into the selected tool's project skill directory. Preserve the complete tree. Use whole generated procedure directories for individual copies; authored GitHub files do not include the build projections.
