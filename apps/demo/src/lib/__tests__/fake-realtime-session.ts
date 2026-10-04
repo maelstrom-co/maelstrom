@@ -4,6 +4,7 @@ import type {
   VoiceObservationSnapshot,
   VoiceSessionState,
 } from '@maelstrom-co/client';
+import type { SessionEvent } from '@maelstrom-co/realtime';
 
 export const EMPTY_VOICE_OBSERVATIONS: VoiceObservationSnapshot = {
   generation: 0,
@@ -35,6 +36,15 @@ export class FakeRealtimeSession {
       this.observationHandlers.add(handler);
       return () => {
         this.observationHandlers.delete(handler);
+      };
+    },
+  };
+  private eventHandlers = new Set<(event: SessionEvent) => void>();
+  events = {
+    subscribe: (handler: (event: SessionEvent) => void) => {
+      this.eventHandlers.add(handler);
+      return () => {
+        this.eventHandlers.delete(handler);
       };
     },
   };

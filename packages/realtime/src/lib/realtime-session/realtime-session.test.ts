@@ -44,6 +44,7 @@ import type {
   SubmitIntentResult,
 } from './realtime-session.types.js';
 import { RealtimeSessionMemory } from './realtime-session-memory.js';
+import type { SessionEvent } from './session-event-bus.js';
 import { VoiceObservationStore } from './voice-observation-store.js';
 
 function flushMicrotasks(): Promise<void> {
@@ -2396,6 +2397,257 @@ describe('RealtimeSession — sidechannel events', () => {
       expect(result.sessionId).toBe(testSessionId);
     }
   });
+
+  it('emits the same sidechannel stream for every tool, timing and transcript', async () => {
+    let now = 1_000;
+    const clock = spyOn(Date, 'now').mockImplementation(() => now);
+    try {
+      const { session, adapter, instance, events } = makeHarness(
+        emptySnapshot,
+        emptyCapabilitySnapshot,
+        { userMessage: 'Showing labs.' },
+      );
+      await session.connect();
+      adapter.emitTranscript({ role: 'user', text: 'show', final: false });
+      adapter.emitTranscript({ role: 'user', text: 'show labs', final: true });
+      now = 1_010;
+      adapter.emitToolCall({
+        callId: 'state-1',
+        name: 'get_ui_state',
+        argumentsJson: '{}',
+      });
+      await flushMicrotasks();
+      now = 1_020;
+      adapter.emitToolCall({
+        callId: 'capabilities-1',
+        name: 'get_capabilities',
+        argumentsJson: '{}',
+      });
+      await flushMicrotasks();
+      now = 1_030;
+      adapter.emitToolCall({
+        callId: 'unknown-1',
+        name: 'open_door',
+        argumentsJson: '{"door":"front"}',
+      });
+      await flushMicrotasks();
+      now = 1_040;
+      adapter.emitToolCall({
+        callId: 'malformed-1',
+        name: 'update_ui',
+        argumentsJson: 'not json',
+      });
+      await flushMicrotasks();
+      now = 1_100;
+      adapter.emitToolCall({
+        callId: 'update-1',
+        name: 'update_ui',
+        argumentsJson: '{"intent":"show labs"}',
+      });
+      await flushMicrotasks();
+      now = 1_250;
+      instance.settle();
+      await flushMicrotasks();
+      now = 1_300;
+      Object.assign(instance, {
+        submitIntent: async () => {
+          throw new Error('transport closed');
+        },
+      });
+      adapter.emitToolCall({
+        callId: 'update-2',
+        name: 'update_ui',
+        argumentsJson: '{"intent":"show weather"}',
+      });
+      await flushMicrotasks();
+
+      const base = { sessionId: testSessionId };
+      expect(events).toEqual([
+        {
+          ...base,
+          type: 'transcript',
+          at: 1_000,
+          role: 'user',
+          text: 'show',
+          final: false,
+        },
+        {
+          ...base,
+          type: 'transcript',
+          at: 1_000,
+          role: 'user',
+          text: 'show labs',
+          final: true,
+        },
+        {
+          ...base,
+          type: 'tool_call',
+          at: 1_010,
+          name: 'get_ui_state',
+          callId: ToolCallId('state-1'),
+          argumentsJson: '{}',
+        },
+        {
+          ...base,
+          type: 'tool_result',
+          at: 1_010,
+          callId: ToolCallId('state-1'),
+          ok: true,
+          latencyMs: 0,
+        },
+        {
+          ...base,
+          type: 'tool_call',
+          at: 1_020,
+          name: 'get_capabilities',
+          callId: ToolCallId('capabilities-1'),
+          argumentsJson: '{}',
+        },
+        {
+          ...base,
+          type: 'tool_result',
+          at: 1_020,
+          callId: ToolCallId('capabilities-1'),
+          ok: true,
+          latencyMs: 0,
+        },
+        {
+          ...base,
+          type: 'tool_call',
+          at: 1_030,
+          name: 'open_door',
+          callId: ToolCallId('unknown-1'),
+          argumentsJson: '{"door":"front"}',
+        },
+        {
+          ...base,
+          type: 'tool_result',
+          at: 1_030,
+          callId: ToolCallId('unknown-1'),
+          ok: false,
+          latencyMs: 0,
+        },
+        {
+          ...base,
+          type: 'tool_call',
+          at: 1_040,
+          name: 'update_ui',
+          callId: ToolCallId('malformed-1'),
+          argumentsJson: 'not json',
+        },
+        {
+          ...base,
+          type: 'tool_result',
+          at: 1_040,
+          callId: ToolCallId('malformed-1'),
+          ok: false,
+          latencyMs: 0,
+        },
+        {
+          ...base,
+          type: 'tool_call',
+          at: 1_100,
+          name: 'update_ui',
+          callId: ToolCallId('update-1'),
+          argumentsJson: '{"intent":"show labs"}',
+        },
+        {
+          ...base,
+          type: 'timing',
+          at: 1_250,
+          label: 'update_ui.render',
+          ms: 150,
+        },
+        {
+          ...base,
+          type: 'tool_result',
+          at: 1_250,
+          callId: ToolCallId('update-1'),
+          ok: true,
+          latencyMs: 150,
+        },
+        {
+          ...base,
+          type: 'tool_call',
+          at: 1_300,
+          name: 'update_ui',
+          callId: ToolCallId('update-2'),
+          argumentsJson: '{"intent":"show weather"}',
+        },
+        {
+          ...base,
+          type: 'timing',
+          at: 1_300,
+          label: 'update_ui.error',
+          ms: 0,
+        },
+        {
+          ...base,
+          type: 'tool_result',
+          at: 1_300,
+          callId: ToolCallId('update-2'),
+          ok: false,
+          latencyMs: 0,
+        },
+      ]);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it('emits the fixed greeting line onto the sidechannel when its playback starts', async () => {
+    const adapter = makeGreetingAdapter();
+    const events: SidechannelEvent[] = [];
+    const session = new RealtimeSession({
+      adapter,
+      instance: makeMockInstance(emptySnapshot),
+      sessionId: testSessionId,
+      onEvent: (event) => events.push(event),
+      greeting: {
+        text: 'Welcome back.',
+        coordinator: new GreetingCoordinator(),
+      },
+    });
+
+    await session.connect();
+    await flushMicrotasks();
+
+    expect(events).toEqual([
+      {
+        type: 'transcript',
+        sessionId: testSessionId,
+        at: expect.any(Number),
+        role: 'assistant',
+        text: 'Welcome back.',
+        final: true,
+      },
+    ]);
+  });
+
+  it('skips tool_result when a reconnect starts before the call is dispatched', async () => {
+    const adapter = makeMockAdapter();
+    const events: SidechannelEvent[] = [];
+    const session: RealtimeSession = new RealtimeSession({
+      adapter,
+      instance: makeMockInstance(emptySnapshot),
+      sessionId: testSessionId,
+      onEvent: (event) => {
+        events.push(event);
+        if (event.type === 'tool_call') void session.disconnect();
+      },
+    });
+    await session.connect();
+
+    adapter.emitToolCall({
+      callId: 'dropped-1',
+      name: 'get_ui_state',
+      argumentsJson: '{}',
+    });
+    await flushMicrotasks();
+
+    expect(events.map((event) => event.type)).toEqual(['tool_call']);
+    expect(adapter.toolResults).toEqual([]);
+  });
 });
 
 // ============================================================================
@@ -3734,6 +3986,144 @@ describe('RealtimeSession — greeting lifecycle', () => {
 // ============================================================================
 // Observation and recovery equivalence
 // ============================================================================
+
+describe('RealtimeSession tool events on the session event stream', () => {
+  function recordTools(session: RealtimeSession): SessionEvent[] {
+    const seen: SessionEvent[] = [];
+    session.events.subscribe((event) => {
+      if (event.type.startsWith('tool.')) seen.push(event);
+    });
+    return seen;
+  }
+
+  it('brackets update_ui recovery outcomes between tool.called and tool.result', async () => {
+    const { session, adapter, instance } = makeHarness();
+    const seen = recordTools(session);
+    await session.connect();
+
+    adapter.emitToolCall({
+      callId: 'update-1',
+      name: 'update_ui',
+      argumentsJson: '{"intent":"show labs"}',
+    });
+    await flushMicrotasks();
+    instance.settle();
+    await flushMicrotasks();
+
+    const callId = ToolCallId('update-1');
+    expect(seen).toEqual([
+      {
+        type: 'tool.called',
+        callId,
+        name: 'update_ui',
+        argumentsJson: '{"intent":"show labs"}',
+      },
+      { type: 'tool.submitted', callId, intent: 'show labs', retry: false },
+      {
+        type: 'tool.completed',
+        callId,
+        intent: 'show labs',
+        summary: 'The screen is empty.',
+      },
+      { type: 'tool.result', callId, ok: true, latencyMs: expect.any(Number) },
+    ]);
+  });
+
+  it('publishes only tool.called and tool.result for get_ui_state and unknown tools', async () => {
+    const { session, adapter } = makeHarness();
+    const seen = recordTools(session);
+    await session.connect();
+
+    adapter.emitToolCall({
+      callId: 'state-1',
+      name: 'get_ui_state',
+      argumentsJson: '{}',
+    });
+    await flushMicrotasks();
+    adapter.emitToolCall({
+      callId: 'unknown-1',
+      name: 'open_door',
+      argumentsJson: '{}',
+    });
+    await flushMicrotasks();
+
+    expect(
+      seen.map((event) => [
+        event.type,
+        'callId' in event ? event.callId : undefined,
+      ]),
+    ).toEqual([
+      ['tool.called', ToolCallId('state-1')],
+      ['tool.result', ToolCallId('state-1')],
+      ['tool.called', ToolCallId('unknown-1')],
+      ['tool.result', ToolCallId('unknown-1')],
+    ]);
+    expect(seen.at(-1)).toMatchObject({ ok: false });
+  });
+
+  it('skips tool.result when a subscriber disconnects on tool.called', async () => {
+    const { session, adapter } = makeHarness();
+    const seen = recordTools(session);
+    session.events.subscribe((event) => {
+      if (event.type === 'tool.called') void session.disconnect();
+    });
+    await session.connect();
+
+    adapter.emitToolCall({
+      callId: 'dropped-1',
+      name: 'get_ui_state',
+      argumentsJson: '{}',
+    });
+    await flushMicrotasks();
+
+    expect(seen.map((event) => event.type)).toEqual(['tool.called']);
+    expect(adapter.toolResults).toEqual([]);
+  });
+
+  it('keeps delivering to other subscribers when the onEvent observer throws', async () => {
+    const adapter = makeMockAdapter();
+    const session = new RealtimeSession({
+      adapter,
+      instance: makeMockInstance(emptySnapshot),
+      sessionId: testSessionId,
+      onEvent: () => {
+        throw new Error('observer failed');
+      },
+    });
+    const seen = recordTools(session);
+    await session.connect();
+
+    adapter.emitToolCall({
+      callId: 'state-1',
+      name: 'get_ui_state',
+      argumentsJson: '{}',
+    });
+    await flushMicrotasks();
+
+    expect(seen.map((event) => event.type)).toEqual([
+      'tool.called',
+      'tool.result',
+    ]);
+    expect(adapter.toolResults).toHaveLength(1);
+  });
+
+  it('stops delivery after the subscriber releases', async () => {
+    const { session, adapter } = makeHarness();
+    const seen: string[] = [];
+    const release = session.events.subscribe((event) => seen.push(event.type));
+    await session.connect();
+    release();
+
+    adapter.emitToolCall({
+      callId: 'state-1',
+      name: 'get_ui_state',
+      argumentsJson: '{}',
+    });
+    await flushMicrotasks();
+
+    expect(seen).toEqual(['session.started', 'session.connected']);
+  });
+});
 
 describe('RealtimeSession observation and recovery equivalence', () => {
   it('produces the observation snapshot and recovery memory that direct store and memory calls produce', async () => {

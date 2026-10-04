@@ -159,6 +159,12 @@ export interface RealtimeSessionOptions {
   /** Debounce window for latest-wins grounding pushes. Defaults to 1000ms. */
   readonly groundingDebounceMs?: number;
   readonly summarize?: SummarizeFn;
+  /**
+   * Observes the stable, additive-only {@link SidechannelEvent} stream: tool
+   * calls and results, legacy and greeting transcripts, and `update_ui`
+   * timings. It is served by a subscriber on the session's event stream, so a
+   * throwing observer is isolated and logged. Turn-mode changes are excluded.
+   */
   readonly onEvent?: (event: SidechannelEvent) => void;
   /** Enable verbose debug tracing (default false). */
   readonly debug?: boolean;

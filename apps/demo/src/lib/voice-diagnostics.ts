@@ -1,4 +1,4 @@
-import type { SidechannelEvent } from '@maelstrom-co/protocol';
+import type { SessionEvent } from '@maelstrom-co/realtime';
 import type { LiveTransportSnapshot } from '@maelstrom-co/realtime-openai-live';
 import type { DemoVoiceProvider } from './voice-provider';
 
@@ -132,8 +132,23 @@ export class VoiceDiagnostics {
     ];
     for (const listener of this.listeners) listener();
   }
-  onEvent = (event: SidechannelEvent, identity: VoiceEventIdentity = {}) => {
-    if (event.type === 'tool_call') {
+  onSessionEvent = (event: SessionEvent, identity: VoiceEventIdentity = {}) => {
+    if (
+      event.type === 'session.started' ||
+      event.type === 'session.connected' ||
+      event.type === 'session.disconnecting' ||
+      event.type === 'session.disconnected' ||
+      event.type === 'session.error'
+    ) {
+      this.record({
+        at: Date.now(),
+        kind: 'voice_state',
+        provider: identity.provider,
+        providerInstanceId: identity.providerInstanceId,
+        generation: event.generation,
+        state: CONNECTION_STATES[event.type],
+      });
+    } else if (event.type === 'tool.called') {
       const tool =
         event.name === 'update_ui' ||
         event.name === 'get_ui_state' ||
@@ -141,13 +156,13 @@ export class VoiceDiagnostics {
           ? event.name
           : undefined;
       this.record({
-        at: event.at,
-        kind: event.type,
+        at: Date.now(),
+        kind: 'tool_call',
         id: event.callId,
         tool,
         ...identity,
       });
-    } else if (event.type === 'tool_result') {
+    } else if (event.type === 'tool.result') {
       const id = diagnosticId(event.callId);
       const call = id
         ? this.entries
@@ -161,8 +176,8 @@ export class VoiceDiagnostics {
             )
         : undefined;
       this.record({
-        at: event.at,
-        kind: event.type,
+        at: Date.now(),
+        kind: 'tool_result',
         provider: identity.provider,
         providerInstanceId: identity.providerInstanceId,
         generation: call?.generation,
@@ -186,3 +201,11 @@ export function projectLiveTransport(snapshot: LiveTransportSnapshot) {
     playback: snapshot.playback,
   };
 }
+
+const CONNECTION_STATES = {
+  'session.started': 'connecting',
+  'session.connected': 'connected',
+  'session.disconnecting': 'disconnecting',
+  'session.disconnected': 'disconnected',
+  'session.error': 'error',
+} as const;

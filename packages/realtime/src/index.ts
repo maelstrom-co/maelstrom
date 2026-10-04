@@ -56,6 +56,25 @@ export type {
   VoiceRecoverySnapshot,
 } from './lib/realtime-session/realtime-session-memory.js';
 export { RealtimeSessionMemory } from './lib/realtime-session/realtime-session-memory.js';
+export type {
+  MediaEvent,
+  OpeningClaimedEvent,
+  SessionEvent,
+  SessionEventHandler,
+  SessionEventSource,
+  SessionLifecycleEvent,
+  SessionStartedEvent,
+  TimingEvent,
+  ToolCallEvent,
+  ToolCalledEvent,
+  ToolLaterOutcomeEvent,
+  ToolLaterOutcomeType,
+  ToolOutcomeEvent,
+  ToolResultEvent,
+  ToolSubmittedEvent,
+  TranscriptEntryEvent,
+  TranscriptFragmentEvent,
+} from './lib/realtime-session/session-event-bus.js';
 export type { RealtimeVoiceErrorCode } from './lib/realtime-voice-error.js';
 export { RealtimeVoiceError } from './lib/realtime-voice-error.js';
 export type { TranscriptObservationFeedOptions } from './lib/transcript-observation-feed.js';

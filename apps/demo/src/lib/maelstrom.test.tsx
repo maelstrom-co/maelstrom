@@ -19,6 +19,7 @@ class FakeRealtimeSession {
     getSnapshot: () => EMPTY_VOICE_OBSERVATIONS,
     subscribe: () => () => {},
   };
+  events = { subscribe: () => () => {} };
   constructor(readonly options: unknown) {
     FakeRealtimeSession.instances.push(this);
   }

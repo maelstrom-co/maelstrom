@@ -1,5 +1,5 @@
-import { SessionId, ToolCallId } from '@maelstrom-co/protocol';
-import { expect, it } from 'vitest';
+import { ToolCallId } from '@maelstrom-co/protocol';
+import { expect, it, vi } from 'vitest';
 import { projectLiveTransport, VoiceDiagnostics } from './voice-diagnostics';
 
 it('does not retain unbounded or content-shaped provider session identifiers', () => {
@@ -55,35 +55,20 @@ it('does not retain unbounded or content-shaped provider session identifiers', (
 
 it('keeps late tool outcomes on their measured generation rather than the replacement generation', () => {
   const diagnostics = new VoiceDiagnostics();
-  const sessionId = SessionId();
   const callId = ToolCallId('call-1');
-  diagnostics.onEvent(
-    {
-      type: 'tool_call',
-      at: 1,
-      sessionId,
-      callId,
-      name: 'update_ui',
-      argumentsJson: '{}',
-    },
+  diagnostics.onSessionEvent(
+    { type: 'tool.called', callId, name: 'update_ui', argumentsJson: '{}' },
     { provider: 'live', providerInstanceId: 'adapter-1', generation: 1 },
   );
-  diagnostics.onEvent(
-    { type: 'tool_result', at: 2, sessionId, callId, ok: true, latencyMs: 100 },
+  diagnostics.onSessionEvent(
+    { type: 'tool.result', callId, ok: true, latencyMs: 100 },
     { provider: 'live', providerInstanceId: 'adapter-1', generation: 2 },
   );
   expect(diagnostics.getSnapshot()[1]?.generation).toBe(1);
   for (let index = 0; index < 100; index++)
     diagnostics.record({ at: index + 3, kind: 'engine_started' });
-  diagnostics.onEvent(
-    {
-      type: 'tool_result',
-      at: 103,
-      sessionId,
-      callId,
-      ok: true,
-      latencyMs: 200,
-    },
+  diagnostics.onSessionEvent(
+    { type: 'tool.result', callId, ok: true, latencyMs: 200 },
     { provider: 'live', providerInstanceId: 'adapter-1', generation: 2 },
   );
   expect(diagnostics.getSnapshot().at(-1)?.generation).toBeUndefined();
@@ -91,32 +76,49 @@ it('keeps late tool outcomes on their measured generation rather than the replac
 
 it('projects metadata before retention and excludes transcript, tool payloads, and native final configuration', () => {
   const diagnostics = new VoiceDiagnostics();
-  const sessionId = SessionId();
   const callId = ToolCallId('fixture-call');
-  diagnostics.onEvent({
-    type: 'transcript',
-    at: 1,
-    sessionId,
+  const clock = vi.spyOn(Date, 'now');
+  clock.mockReturnValue(1);
+  diagnostics.onSessionEvent({
+    type: 'transcript.entry',
     role: 'user',
     text: 'private-transcript',
     final: false,
   });
-  diagnostics.onEvent({
-    type: 'tool_call',
-    at: 2,
-    sessionId,
+  diagnostics.onSessionEvent({
+    type: 'transcript.fragment',
+    generation: 1,
+    connectionId: 'fixture-connection',
+    fragment: {
+      id: 'fixture-fragment',
+      role: 'user',
+      speakerId: 'user',
+      text: 'private-fragment',
+      startMs: 0,
+      endMs: 100,
+    },
+  });
+  clock.mockReturnValue(2);
+  diagnostics.onSessionEvent({
+    type: 'tool.called',
     callId,
     name: 'update_ui',
     argumentsJson: '{"intent":"private-intent"}',
   });
-  diagnostics.onEvent({
-    type: 'tool_result',
-    at: 3,
-    sessionId,
+  diagnostics.onSessionEvent({
+    type: 'tool.submitted',
+    callId,
+    intent: 'private-intent',
+    retry: false,
+  });
+  clock.mockReturnValue(3);
+  diagnostics.onSessionEvent({
+    type: 'tool.result',
     callId,
     ok: true,
     latencyMs: 25,
   });
+  clock.mockRestore();
   expect(diagnostics.getSnapshot()).toEqual([
     {
       entryId: expect.any(String),
@@ -163,4 +165,55 @@ it('bounds the timeline while retaining matching tool IDs and measured durations
     });
   expect(diagnostics.getSnapshot()).toHaveLength(100);
   expect(diagnostics.getSnapshot()[0]?.id).toBe('request-50');
+});
+
+it('records each connection lifecycle fact with its own generation', () => {
+  const diagnostics = new VoiceDiagnostics();
+  const identity = {
+    provider: 'live',
+    providerInstanceId: 'adapter-1',
+  } as const;
+  diagnostics.onSessionEvent(
+    { type: 'session.started', generation: 1, connectionId: 'c1' },
+    identity,
+  );
+  diagnostics.onSessionEvent(
+    { type: 'session.connected', generation: 1 },
+    identity,
+  );
+  diagnostics.onSessionEvent(
+    { type: 'session.error', generation: 1 },
+    identity,
+  );
+  diagnostics.onSessionEvent(
+    { type: 'session.started', generation: 2, connectionId: 'c2' },
+    identity,
+  );
+  diagnostics.onSessionEvent(
+    { type: 'session.disconnecting', generation: 2 },
+    identity,
+  );
+  diagnostics.onSessionEvent(
+    { type: 'session.disconnected', generation: 2 },
+    identity,
+  );
+  diagnostics.onSessionEvent(
+    { type: 'media', generation: 2, media: { microphone: 'active' } },
+    identity,
+  );
+  diagnostics.onSessionEvent({ type: 'opening.claimed' }, identity);
+
+  expect(
+    diagnostics
+      .getSnapshot()
+      .map((entry) => [entry.kind, entry.state, entry.generation]),
+  ).toEqual([
+    ['voice_state', 'connecting', 1],
+    ['voice_state', 'connected', 1],
+    ['voice_state', 'error', 1],
+    ['voice_state', 'connecting', 2],
+    ['voice_state', 'disconnecting', 2],
+    ['voice_state', 'disconnected', 2],
+  ]);
+  expect(diagnostics.getSnapshot()[0]).toMatchObject(identity);
 });

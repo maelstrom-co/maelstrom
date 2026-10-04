@@ -173,18 +173,6 @@ export class DemoVoiceOwner {
       instance: bridge(this.orchestrator),
       sessionId: this.memory.sessionId,
       memory: this.memory,
-      onEvent: (event) => {
-        diagnosticCapture.sidechannel(event, {
-          provider,
-          providerInstanceId,
-          generation: session.observations.getSnapshot().generation,
-        });
-        this.diagnostics.onEvent(event, {
-          provider,
-          providerInstanceId,
-          generation: session.observations.getSnapshot().generation,
-        });
-      },
       ...(provider === 'live'
         ? this.coordinator.getSnapshot(this.memory.sessionId).lifecycle !==
           'terminal'
@@ -196,6 +184,23 @@ export class DemoVoiceOwner {
             }
           : {}
         : { greeting: { text: this.greeting, coordinator: this.coordinator } }),
+    });
+    // Tool events stay recorded for the session's whole life: an update can
+    // settle after End voice or a provider switch released the lifecycle view.
+    let generation = 0;
+    session.events.subscribe((event) => {
+      if (event.type === 'session.started') generation = event.generation;
+      diagnosticCapture.sessionEvent(event, {
+        provider,
+        providerInstanceId,
+        generation,
+      });
+      if (event.type === 'tool.called' || event.type === 'tool.result')
+        this.diagnostics.onSessionEvent(event, {
+          provider,
+          providerInstanceId,
+          generation,
+        });
     });
     return session;
   }
@@ -216,25 +221,20 @@ export class DemoVoiceOwner {
     const session = this.session;
     const provider = this.provider;
     const providerInstanceId = this.providerInstanceId;
-    let observedGeneration = session.observations.getSnapshot().generation;
-    let observedConnection = session.observations.getSnapshot().connection;
+    let generation = 0;
     this.releases = [
-      session.observations.subscribe(() => {
-        const next = session.observations.getSnapshot();
-        diagnosticCapture.observations(next, { provider, providerInstanceId });
-        const changed =
-          next.generation !== observedGeneration ||
-          next.connection !== observedConnection;
-        observedGeneration = next.generation;
-        observedConnection = next.connection;
-        if (changed)
-          this.diagnostics.record({
-            at: Date.now(),
-            kind: 'voice_state',
+      session.observations.subscribe(() =>
+        diagnosticCapture.observations(session.observations.getSnapshot(), {
+          provider,
+          providerInstanceId,
+        }),
+      ),
+      session.events.subscribe((event) => {
+        if (event.type === 'session.started') generation = event.generation;
+        if (event.type !== 'tool.called' && event.type !== 'tool.result')
+          this.diagnostics.onSessionEvent(event, {
             provider,
             providerInstanceId,
-            generation: next.generation,
-            state: next.connection,
           });
       }),
       this.session.on('state', (state) => {
@@ -252,7 +252,7 @@ export class DemoVoiceOwner {
             provider,
             providerInstanceId,
             state,
-            generation: this.session.observations.getSnapshot().generation,
+            generation,
             status:
               cause instanceof LiveTransportError ? cause.status : undefined,
           });
