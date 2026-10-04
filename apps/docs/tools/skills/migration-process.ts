@@ -36,6 +36,13 @@ export async function migrationProcessEvidenceDirectory() {
   return evidence;
 }
 
+export class MigrationCommandFailure extends Error {
+  constructor() {
+    super('Migration process failed');
+    this.name = 'MigrationCommandFailure';
+  }
+}
+
 export async function runMigrationProcess(
   cwd: string,
   args: string[],
@@ -129,8 +136,18 @@ export async function runMigrationProcess(
       throw new Error('Invalid process identity or completion');
     if (result.outcome === 'timeout')
       throw new Error('Trial timed out; isolated supervisor deadline');
-    if (result.outcome !== 'passed')
-      throw new Error('Migration process failed');
+    if (result.outcome === 'failed') {
+      if (
+        Number.isSafeInteger(result.code) &&
+        result.code > 0 &&
+        result.signal === null
+      )
+        throw new MigrationCommandFailure();
+      throw new Error('Migration process interrupted or failed to start');
+    }
+    if (result.outcome !== 'passed') throw new Error('Invalid process outcome');
+    if (result.code !== 0 || result.signal !== null)
+      throw new Error('Invalid successful process completion');
   } catch (error) {
     failed = true;
     failure = error;

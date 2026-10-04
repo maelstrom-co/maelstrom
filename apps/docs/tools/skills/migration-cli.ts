@@ -28,6 +28,7 @@ import {
 import { oracleCriteria, oracleSource } from './migration-oracle';
 import {
   cloneMigrationTree,
+  MigrationCommandFailure,
   migrationProcessEvidenceDirectory,
   runMigrationProcess,
 } from './migration-process';
@@ -58,15 +59,21 @@ const env = (cwd: string): NodeJS.ProcessEnv => ({
   CI: '1',
   NO_COLOR: '1',
 });
+const submissionSource = await readFile(
+  new URL('./migration-submission-worker.mjs', import.meta.url),
+  'utf8',
+);
+const migrationPrompt = `${prompt}\nAfter your final edits and checks, run \`node migration-submission.mjs\` as your last tool operation. Then give your final answer without further tool calls. The receipt binds this attempt to its submitted source.\n`;
 const contractHash = digest(
   [
-    'isolated-processes-and-external-behavioral-review-v3',
+    'isolated-processes-and-source-receipts-v4',
     oracleSource,
     positiveApp,
     negativeApp,
     ordersSource,
     originalTest,
-    prompt,
+    migrationPrompt,
+    submissionSource,
     setupSource,
     config,
     JSON.stringify(tsconfig),
@@ -206,6 +213,7 @@ export async function prepareMigration(output: string) {
   const installed = join(evidence, 'installed');
   await materialize(join(template, 'node_modules'), installed);
   const arms = ['baseline', 'treatment'] as const;
+  const attemptId = crypto.randomUUID();
   for (const arm of arms) {
     const consumer = join(base, arm);
     await materialize(template, consumer);
@@ -236,7 +244,15 @@ export async function prepareMigration(output: string) {
         await writeFile(dest, contents);
       }
     }
-    await writeFile(join(consumer, 'PROMPT.md'), prompt);
+    await writeFile(join(consumer, 'PROMPT.md'), migrationPrompt);
+    await writeFile(
+      join(consumer, 'migration-submission.mjs'),
+      submissionSource,
+    );
+    await writeFile(
+      join(consumer, 'migration-attempt.json'),
+      JSON.stringify({ version: 1, id: attemptId }),
+    );
   }
   await writeFile(join(evidence, 'oracle.test.tsx'), oracleSource);
   await writeFile(join(evidence, 'reference.tsx'), positiveApp);
@@ -261,23 +277,23 @@ export async function prepareMigration(output: string) {
     guideEvidence[arm] = {};
     for (const path of Object.keys(snapshots[arm]).filter(
       (path) =>
-        path === '.agents/skills/maelstrom-react-migration/SKILL.md' ||
+        /^\.agents\/skills\/[\w-]+\/SKILL\.md$/.test(path) ||
         /\/skills\/maelstrom-[\w-]+-sdk\/SKILL\.md$/.test(path),
     )) {
       const text = await boundedText(join(base, arm, path));
       const heading = text.match(/^# [^\n]+/m)?.[0];
-      const content = heading
-        ? text
-            .slice(text.indexOf(heading) + heading.length)
-            .split('\n')
-            .find((line) => line.length > 30 && !line.startsWith('#'))
-        : undefined;
+      const content = text.replaceAll('\r\n', '\n').trim();
       if (!heading || !content)
         throw new Error('Guide receipt contract is missing expected prose');
       guideEvidence[arm][join(base, arm, path)] = {
         heading,
         content,
-        kind: path.startsWith('.agents/') ? 'migration' : 'sdk',
+        kind:
+          path === '.agents/skills/maelstrom-react-migration/SKILL.md'
+            ? 'migration'
+            : path.startsWith('.agents/')
+              ? 'workflow'
+              : 'sdk',
       };
     }
   }
@@ -289,7 +305,8 @@ export async function prepareMigration(output: string) {
       'matchedRuntimeHash freezes the initial public runtime, declarations, ordinary documents, configuration, tests, and consumer source; SDK guide files are excluded',
   };
   const prepared = {
-    version: 3,
+    version: 4,
+    attemptId,
     contractHash,
     guideEvidence,
     provenance,
@@ -309,7 +326,7 @@ export async function prepareMigration(output: string) {
     JSON.stringify(preflight, null, 2),
   );
   return {
-    version: 3,
+    version: 4,
     provenance,
     base,
     seal,
@@ -333,7 +350,7 @@ async function verifyPrepared(base: string, seal: string) {
   if (digest(text) !== seal) throw new Error('Prepared seal mismatch');
   const prepared = await json(path);
   if (
-    prepared.version !== 3 ||
+    prepared.version !== 4 ||
     prepared.contractHash !== contractHash ||
     prepared.oracle !== digest(oracleSource) ||
     prepared.reference !== digest(positiveApp)
@@ -431,6 +448,12 @@ async function counterfactualRegression(
         return {
           status: 'timeout',
           assertionRegressions: [],
+        };
+      if (!(error instanceof MigrationCommandFailure))
+        return {
+          status: 'tool-failure',
+          assertionRegressions: [],
+          detail: 'process-infrastructure-failure',
         };
       failed = true;
     }
@@ -560,7 +583,8 @@ async function checks(
     (path) => snapshot[path] !== original[path],
   );
   const unexpected = Object.keys(snapshot).filter(
-    (path) => !original[path] && !/^src\/[\w.-]+(?:\.test)?\.tsx?$/.test(path),
+    (path) =>
+      !original[path] && !/^src\/(?:[\w-]+\/)*[\w.-]+\.tsx?$/.test(path),
   );
   const immutable = changed.filter((path) => path !== 'src/OrdersApp.tsx');
   if (immutable.length || unexpected.length)
@@ -588,14 +612,20 @@ async function checks(
     `${arm}-${reference ? 'reference' : 'execution'}-${crypto.randomUUID()}`,
   );
   await materialize(source, execution);
+  const oracleExecution = join(
+    base,
+    'protected',
+    `${arm}-oracle-${crypto.randomUUID()}`,
+  );
+  await materialize(source, oracleExecution);
   if (reference)
-    await writeFile(join(execution, 'src/OrdersApp.tsx'), positiveApp);
-  await writeFile(join(execution, 'oracle.test.tsx'), oracleSource);
+    for (const directory of [execution, oracleExecution])
+      await writeFile(join(directory, 'src/OrdersApp.tsx'), positiveApp);
   // Resolve only fixed trusted tools. Never read or run consumer package scripts.
   const executionChecks: string[] = [];
-  const run = async (args: string[]) => {
+  const run = async (args: string[], cwd = execution) => {
     try {
-      await command(execution, args, timeoutMs);
+      await command(cwd, args, timeoutMs);
       executionChecks.push('passed');
       return true;
     } catch (error) {
@@ -674,18 +704,30 @@ async function checks(
       );
     }
   } catch {}
-  const reportPath = join(execution, 'oracle-report.json');
-  const oracleProcess = await run([
-    nodeExecutable,
-    vitestExecutable,
-    'run',
-    '--config',
-    join(execution, 'vitest.config.ts'),
-    'oracle.test.tsx',
-    '--reporter=json',
-    '--outputFile',
-    reportPath,
-  ]);
+  await writeFile(join(oracleExecution, 'oracle.test.tsx'), oracleSource);
+  const reportPath = join(oracleExecution, 'oracle-report.json');
+  const oracleBefore = await migrationSnapshot(join(oracleExecution, 'src'));
+  const oracleProcess = await run(
+    [
+      nodeExecutable,
+      vitestExecutable,
+      'run',
+      '--config',
+      join(oracleExecution, 'vitest.config.ts'),
+      'oracle.test.tsx',
+      '--reporter=json',
+      '--outputFile',
+      reportPath,
+    ],
+    oracleExecution,
+  );
+  const oraclePreserved =
+    (await boundedText(join(oracleExecution, 'oracle.test.tsx'))) ===
+      oracleSource &&
+    (await boundedText(join(oracleExecution, 'vitest.config.ts'))) === config &&
+    (await boundedText(join(oracleExecution, 'setup.ts'))) === setupSource &&
+    JSON.stringify(await migrationSnapshot(join(oracleExecution, 'src'))) ===
+      JSON.stringify(oracleBefore);
   let functionalOutcomes: Record<string, boolean> | null = null;
   try {
     const report = await json(reportPath);
@@ -709,6 +751,7 @@ async function checks(
   }
   const functional =
     oracleProcess &&
+    oraclePreserved &&
     functionalOutcomes !== null &&
     Object.values(functionalOutcomes).every(Boolean);
   const regression: RegressionOutcome =
@@ -725,6 +768,7 @@ async function checks(
       : { status: 'not-run', assertionRegressions: [] };
   const after = await migrationSnapshot(source);
   await rm(execution, { recursive: true, force: true });
+  await rm(oracleExecution, { recursive: true, force: true });
   return {
     hashes,
     functionalOutcomes,
@@ -791,9 +835,13 @@ export async function evaluateMigration(
       try {
         trace = piEvidence(await boundedText(traces[index]), {
           cwd: join(base, arm),
-          prompt,
+          prompt: migrationPrompt,
           guides: prepared.guideEvidence[arm],
           exposureGuides: prepared.guideEvidence.treatment,
+          submission: {
+            attemptId: prepared.attemptId,
+            sourceHash: result.hashes.submittedSource,
+          },
         });
       } catch {
         trace = { ...piEvidence(''), traceStatus: 'invalid' };
@@ -843,7 +891,7 @@ export async function evaluateMigration(
     !results[0].functional &&
     results[1].passed;
   return {
-    version: 3,
+    version: 4,
     provenance: prepared.provenance,
     seal,
     oracleHash: prepared.oracle,

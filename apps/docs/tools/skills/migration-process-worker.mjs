@@ -20,12 +20,12 @@ const publish = (phase, extra = {}) => {
     mode: 0o600,
   });
 };
-function complete(outcome) {
+function complete(outcome, completion = {}) {
   if (finished) return;
   finished = true;
   clearTimeout(deadline);
   try {
-    publish('finished', { outcome });
+    publish('finished', { outcome, ...completion });
     // The caller retains this group independently and verifies its removal.
     process.exit(0);
   } catch {
@@ -41,7 +41,12 @@ try {
     stdio: 'ignore',
   });
   child.once('error', () => complete('failed'));
-  child.once('exit', (code) => complete(code === 0 ? 'passed' : 'failed'));
+  child.once('exit', (code, signal) =>
+    complete(code === 0 && signal === null ? 'passed' : 'failed', {
+      code,
+      signal,
+    }),
+  );
   deadline = setTimeout(() => complete('timeout'), timeoutMs);
   publish('started');
 } catch {

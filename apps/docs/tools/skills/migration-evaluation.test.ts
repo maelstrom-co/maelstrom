@@ -129,6 +129,7 @@ test('comparison requires equal successful quality, matched models, measured usa
     guideExposure: false,
     reviewApproved: true,
     reviewHash: 'reviewed-pair',
+    submissionBound: true,
   };
   const treatment = {
     ...baseline,
@@ -139,6 +140,14 @@ test('comparison requires equal successful quality, matched models, measured usa
     ],
   };
   expect(compareMigration(baseline, treatment).eligible).toBe(true);
+  expect(
+    compareMigration({ ...baseline, submissionBound: false }, treatment)
+      .eligible,
+  ).toBe(false);
+  expect(
+    compareMigration(baseline, { ...treatment, submissionBound: false })
+      .eligible,
+  ).toBe(false);
   expect(
     compareMigration(baseline, { ...treatment, model: 'two/small' }).eligible,
   ).toBe(false);
@@ -223,6 +232,143 @@ function trace(
 const lines = (rows: unknown[]) =>
   rows.map((row) => JSON.stringify(row)).join('\n');
 
+test('a treatment entry-router catalog cannot qualify as an uncontaminated baseline', () => {
+  const rows = trace().filter((row) => !row.type.startsWith('tool_'));
+  rows.splice(2, 0, {
+    type: 'message_end',
+    message: {
+      role: 'system',
+      content: '<skills><name>maelstrom</name></skills>',
+    },
+  } as (typeof rows)[number]);
+  const result = piEvidence(lines(rows), {
+    ...binding,
+    guides: {},
+    exposureGuides: {
+      '/consumer/treatment/.agents/skills/maelstrom/SKILL.md': {
+        heading: '# Maelstrom task router',
+        content: 'Choose exactly one task procedure for the requested outcome.',
+        kind: 'workflow',
+      },
+    },
+  });
+  expect(result.guideExposure).toBe(true);
+});
+
+test('guide delivery after the completed answer cannot influence that submission', () => {
+  const rows = trace();
+  const lateReads = rows.splice(3, 2);
+  rows.splice(rows.length - 1, 0, ...lateReads);
+  const result = piEvidence(lines(rows), binding);
+  expect(result.activated).toBe(false);
+  expect(result.traceBound).toBe(false);
+});
+
+test('attribute-style catalogs expose every sealed treatment workflow, not only React guides', () => {
+  for (const name of ['maelstrom', 'maelstrom-observability']) {
+    const rows: unknown[] = trace().filter(
+      (row) => !row.type.startsWith('tool_'),
+    );
+    rows.splice(2, 0, {
+      type: 'message_end',
+      message: {
+        role: 'system',
+        content: `<skill name="${name}">Workflow catalog entry</skill>`,
+      },
+    });
+    const result = piEvidence(lines(rows), {
+      ...binding,
+      guides: {},
+      exposureGuides: {
+        [`/consumer/treatment/.agents/skills/${name}/SKILL.md`]: {
+          heading: '# Workflow',
+          content: 'Use the appropriate bounded workflow for this task.',
+          kind: 'workflow',
+        },
+      },
+    });
+    expect(result.guideExposure).toBe(true);
+  }
+});
+
+test('a completed trace cannot authorize a different source submission after review', () => {
+  const sourceHash = 'a'.repeat(64);
+  const submission = { attemptId: 'attempt-12345678', sourceHash };
+  const rows: unknown[] = trace();
+  rows.splice(
+    rows.length - 2,
+    0,
+    {
+      type: 'tool_execution_start',
+      toolName: 'bash',
+      toolCallId: 'source-receipt',
+      args: { command: 'node migration-submission.mjs' },
+    },
+    {
+      type: 'tool_execution_end',
+      toolCallId: 'source-receipt',
+      isError: false,
+      result: {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              type: 'maelstrom_migration_submission',
+              version: 1,
+              ...submission,
+            }),
+          },
+        ],
+      },
+    },
+  );
+  expect(
+    piEvidence(lines(rows), { ...binding, submission }).submissionBound,
+  ).toBe(true);
+  const stale = piEvidence(lines(rows), {
+    ...binding,
+    submission: { ...submission, sourceHash: 'b'.repeat(64) },
+  });
+  expect(stale.submissionBound).toBe(false);
+  expect(stale.traceBound).toBe(false);
+  expect(
+    piEvidence(lines(trace()), { ...binding, submission }).submissionBound,
+  ).toBe(false);
+  const laterTool = [
+    ...rows.slice(0, -2),
+    {
+      type: 'tool_execution_start',
+      toolName: 'read',
+      toolCallId: 'after-receipt',
+      args: { path: 'src/OrdersApp.tsx' },
+    },
+    ...rows.slice(-2),
+  ];
+  expect(
+    piEvidence(lines(laterTool), { ...binding, submission }).traceBound,
+  ).toBe(false);
+  expect(
+    piEvidence(lines(rows), {
+      ...binding,
+      submission: { ...submission, attemptId: 'another-attempt' },
+    }).traceBound,
+  ).toBe(false);
+});
+
+test('partial instructions contaminate the baseline without granting treatment receipts', () => {
+  const guides = {
+    '/consumer/treatment/guide/SKILL.md': {
+      heading: '# Migration',
+      content:
+        '# Migration\nPreserve the legacy order behavior.\n\nKeep all application authorization and side effects application-owned.',
+      kind: 'migration' as const,
+    },
+  };
+  const incomplete = piEvidence(lines(trace()), { ...binding, guides });
+  expect(incomplete.guideExposure).toBe(true);
+  expect(incomplete.activated).toBe(false);
+});
+
 test('sealed treatment fingerprints reject contaminated baselines in both Pi startup formats', () => {
   const baselineBinding = {
     cwd: '/consumer/baseline',
@@ -257,6 +403,7 @@ test('sealed treatment fingerprints reject contaminated baselines in both Pi sta
     passed: true,
     reviewApproved: true,
     reviewHash: 'reviewed-pair',
+    submissionBound: true,
     sdkGuidesReceived: [
       'node_modules/@maelstrom-co/react/skills/maelstrom-react-sdk/SKILL.md',
     ],
@@ -289,6 +436,7 @@ test('sealed treatment fingerprints reject contaminated baselines in both Pi sta
             passed: true,
             reviewApproved: true,
             reviewHash: 'reviewed-pair',
+            submissionBound: true,
           },
           treatment,
         ).eligible,
@@ -325,6 +473,7 @@ test('sealed treatment fingerprints reject contaminated baselines in both Pi sta
             passed: true,
             reviewApproved: true,
             reviewHash: 'reviewed-pair',
+            submissionBound: true,
           },
           treatment,
         ).eligible,
@@ -356,6 +505,7 @@ test('sealed treatment fingerprints reject contaminated baselines in both Pi sta
           passed: true,
           reviewApproved: true,
           reviewHash: 'reviewed-pair',
+          submissionBound: true,
         },
         treatment,
       ).eligible,
@@ -518,12 +668,14 @@ test('only one completed session for the prepared cwd and exact task can authori
     passed: true,
     reviewApproved: true,
     reviewHash: 'reviewed-pair',
+    submissionBound: true,
   };
   const treatment = {
     ...good,
     passed: true,
     reviewApproved: true,
     reviewHash: 'reviewed-pair',
+    submissionBound: true,
     sdkGuidesReceived: [
       'node_modules/@maelstrom-co/react/skills/maelstrom-react-sdk/SKILL.md',
     ],
@@ -555,6 +707,7 @@ test('only one completed session for the prepared cwd and exact task can authori
       passed: true,
       reviewApproved: true,
       reviewHash: 'reviewed-pair',
+      submissionBound: true,
       sdkGuidesReceived: [
         'node_modules/@maelstrom-co/react/skills/maelstrom-react-sdk/SKILL.md',
       ],

@@ -7,6 +7,18 @@ The prototype prepares matched consumers, seals an independent oracle, records
 quality and token evidence, and requires external behavioral review. Its unsafe
 execution flag provides no filesystem or network isolation.
 
+The version 4 contract requires a final source-hash receipt in each Pi trace.
+The prepared local helper records the preparation identity and hashes the
+submitted source. Evaluation matches that receipt to the independently reviewed
+submission. Old traces and changed source remain ineligible. This is recorded
+provenance, not authentication of the transcript or an OS isolation mechanism.
+
+The follow-up separates consumer tests from oracle execution, rejects
+infrastructure failures as counterfactual evidence, accepts safe nested source
+files, requires full guide delivery, detects entry-router exposure, and rejects
+post-answer reads. The operator protocol is in the
+[trial guide](../../apps/docs/skills/trials/README.md#repository-migration-evaluator).
+
 The two review findings are resolved by deterministic regressions:
 
 - The caller retains the supervisor's process group before any file publication.
@@ -42,8 +54,9 @@ after late exits. A copy-publication fault also verifies that failed termination
 cannot leave its cleanup wait pending indefinitely.
 
 Counterfactual timeouts require the native supervisor's explicit deadline
-outcome. Nonzero command exits and publication failures remain failures;
-missing reports are not relabeled as timeouts. Each hang attempt restores its
+outcome, or a Vitest report with an explicit test timeout. Other nonzero command
+exits and publication failures remain failures; missing reports are not
+relabeled as timeouts. Each hang attempt restores its
 consumer fixture after evaluation and checks that evaluation left it unchanged.
 
 Historical raw traces are unavailable. Pi format support is verified with

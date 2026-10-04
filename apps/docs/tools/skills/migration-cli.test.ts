@@ -1,8 +1,10 @@
-import { afterAll, beforeAll, expect, test } from 'bun:test';
+import { afterAll, beforeAll, expect, spyOn, test } from 'bun:test';
 import {
+  mkdir,
   mkdtemp,
   readdir,
   readFile,
+  rename,
   rm,
   symlink,
   unlink,
@@ -11,14 +13,17 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { evaluateMigration, prepareMigration } from './migration-cli';
-import { migrationSnapshot } from './migration-evaluation';
+import { migrationSnapshot, piEvidence } from './migration-evaluation';
 import { negativeApp, positiveApp } from './migration-fixture';
+import { oracleCriteria } from './migration-oracle';
+import { migrationProcessEvidenceDirectory } from './migration-process';
 
 let base: string;
 let seal: string;
 beforeAll(async () => {
   base = join(await mkdtemp(join(tmpdir(), 'migration-cli-')), 'prepared');
   const prepared = await prepareMigration(base);
+  base = prepared.base;
   seal = prepared.seal;
   expect(prepared.selfCheckVerified).toBe(true);
 }, 240_000);
@@ -40,6 +45,78 @@ it('the migration must connect the supplied transport instead of silently using 
 });
 `;
 
+test('prepared guide receipts require the complete instructions rather than one introductory line', async () => {
+  const prepared = JSON.parse(
+    await readFile(join(base, 'protected/prepared.json'), 'utf8'),
+  );
+  const path = join(
+    base,
+    'treatment/.agents/skills/maelstrom-react-migration/SKILL.md',
+  );
+  const text = await readFile(path, 'utf8');
+  const heading = text.match(/^# .+$/m)?.[0];
+  const introduction = text
+    .slice(text.indexOf(heading!) + heading!.length)
+    .split('\n')
+    .find((line) => line.length > 30 && !line.startsWith('#'));
+  const evidence = piEvidence(
+    [
+      {
+        type: 'tool_execution_start',
+        toolName: 'read',
+        toolCallId: 'partial',
+        args: { path },
+      },
+      {
+        type: 'tool_execution_end',
+        toolCallId: 'partial',
+        isError: false,
+        result: {
+          content: [{ type: 'text', text: `${heading}\n${introduction}` }],
+        },
+      },
+    ]
+      .map((row) => JSON.stringify(row))
+      .join('\n'),
+    {
+      cwd: join(base, 'treatment'),
+      prompt: '',
+      guides: prepared.guideEvidence.treatment,
+    },
+  );
+  expect(evidence.activated).toBe(false);
+  expect(prepared.guideEvidence.treatment[path].content).toBe(text.trim());
+});
+
+test('the sealed local receipt hashes exactly the submitted source and changes after an edit', async () => {
+  const cwd = join(base, 'treatment');
+  const receipt = async () => {
+    const child = Bun.spawn([Bun.which('node')!, 'migration-submission.mjs'], {
+      cwd,
+      env: { PATH: '/usr/bin:/bin' },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    const text = await new Response(child.stdout).text();
+    expect(await child.exited).toBe(0);
+    return JSON.parse(text);
+  };
+  const before = await receipt();
+  const restoreBaseline = await isolateTreatment();
+  const app = join(cwd, 'src/OrdersApp.tsx');
+  try {
+    const result = await evaluateMigration(base, seal, true);
+    expect(before.sourceHash).toBe(result.results[1].hashes.submittedSource);
+    await writeFile(app, positiveApp);
+    const after = await receipt();
+    expect(after.sourceHash).not.toBe(before.sourceHash);
+    expect(after.attemptId).toBe(before.attemptId);
+  } finally {
+    await writeFile(app, negativeApp);
+    await restoreBaseline();
+  }
+}, 90_000);
+
 async function isolateTreatment() {
   const path = join(base, 'baseline/src/orders.test.ts');
   const original = await readFile(path);
@@ -48,6 +125,133 @@ async function isolateTreatment() {
     'throw new Error("unused arm must fail integrity before execution");',
   );
   return () => writeFile(path, original);
+}
+
+test('source organization does not invalidate an otherwise preserved submission', async () => {
+  const directory = join(base, 'treatment/src/components');
+  await mkdir(directory);
+  await writeFile(
+    join(directory, 'helper.ts'),
+    'export const harmless = true;\n',
+  );
+  const restoreBaseline = await isolateTreatment();
+  try {
+    const result = await evaluateMigration(base, seal, true);
+    expect(result.results[1].unexpected).toEqual([]);
+    expect(result.results[1].preserved).toBe(true);
+    expect(result.results[1].typecheck).toBe(true);
+  } finally {
+    await rm(directory, { recursive: true });
+    await restoreBaseline();
+  }
+}, 90_000);
+
+test('submitted tests cannot replace the independent oracle to pass the missing integration', async () => {
+  const testPath = join(base, 'treatment/src/substitution.test.ts');
+  const fakeOracle = `import { expect, it } from 'vitest';\n${oracleCriteria
+    .map(
+      (name) => `it(${JSON.stringify(name)}, () => expect(true).toBe(true));`,
+    )
+    .join('\n')}`;
+  await writeFile(
+    testPath,
+    `import { writeFileSync } from 'node:fs';
+import { expect, it } from 'vitest';
+it('consumer test side effects stay outside the oracle', () => {
+  writeFileSync('oracle.test.tsx', ${JSON.stringify(fakeOracle)});
+  expect(true).toBe(true);
+});\n`,
+  );
+  const restoreBaseline = await isolateTreatment();
+  try {
+    const before = await migrationSnapshot(join(base, 'treatment'));
+    const result = await evaluateMigration(base, seal, true);
+    expect(result.results[1].tests).toBe(true);
+    expect(result.results[1].functional).toBe(false);
+    expect(await migrationSnapshot(join(base, 'treatment'))).toEqual(before);
+  } finally {
+    await unlink(testPath);
+    await restoreBaseline();
+  }
+}, 90_000);
+
+for (const fault of ['cleanup', 'publication', 'signal'] as const) {
+  test(`a ${fault} failure cannot qualify as a detected capability regression`, async () => {
+    const app = join(base, 'treatment/src/OrdersApp.tsx');
+    const regression = join(base, 'treatment/src/migration.test.tsx');
+    await writeFile(app, positiveApp);
+    await writeFile(regression, integrationRegression);
+    const restoreBaseline = await isolateTreatment();
+    const ledger = join(
+      await migrationProcessEvidenceDirectory(),
+      'processes.jsonl',
+    );
+    const backup = `${ledger}.test-backup`;
+    let ledgerReplaced = false;
+    let group: number | undefined;
+    const originalSpawn = Bun.spawn;
+    const spawn = spyOn(Bun, 'spawn').mockImplementation((...args) => {
+      const first = args[0];
+      const command = Array.isArray(first) ? first : first.cmd;
+      const counterfactual =
+        command[1]?.endsWith('/migration-process-worker.mjs') &&
+        JSON.parse(command[3]).cwd.includes('treatment-counterfactual-');
+      let child: ReturnType<typeof Bun.spawn>;
+      if (fault === 'signal' && counterfactual) {
+        const settings = JSON.parse(command[3]);
+        settings.args = [
+          settings.args[0],
+          '--input-type=commonjs',
+          '-e',
+          'require("node:child_process").spawnSync(process.execPath,process.argv.slice(1),{stdio:"ignore"});process.kill(process.pid,"SIGKILL");',
+          ...settings.args.slice(1),
+        ];
+        child = originalSpawn(
+          [...command.slice(0, 3), JSON.stringify(settings)],
+          args[1],
+        );
+      } else child = originalSpawn(...args);
+      if (
+        command[1]?.endsWith('/migration-process-worker.mjs') &&
+        JSON.parse(command[3]).cwd.includes('treatment-counterfactual-')
+      )
+        group = child.pid;
+      if (
+        fault !== 'signal' &&
+        command[1]?.endsWith('/migration-process-cleanup.mjs') &&
+        Number(command[2]) === group
+      ) {
+        const exited = child.exited.then(async (code) => {
+          if (fault === 'cleanup') return 2;
+          await rename(ledger, backup);
+          await mkdir(ledger);
+          ledgerReplaced = true;
+          return code;
+        });
+        return new Proxy(child, {
+          get: (target, key) =>
+            key === 'exited' ? exited : Reflect.get(target, key),
+        });
+      }
+      return child;
+    });
+    try {
+      const result = await evaluateMigration(base, seal, true);
+      expect(group).toBeDefined();
+      expect(result.results[1].functional).toBe(true);
+      expect(result.results[1].regression.status).toBe('tool-failure');
+      expect(result.results[1].automatedPassed).toBe(false);
+    } finally {
+      spawn.mockRestore();
+      if (ledgerReplaced) {
+        await rm(ledger, { recursive: true });
+        await rename(backup, ledger);
+      }
+      await writeFile(app, negativeApp);
+      await unlink(regression);
+      await restoreBaseline();
+    }
+  }, 120_000);
 }
 
 test('added tests must detect the original missing capability; tautologies do not count', async () => {

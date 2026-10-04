@@ -124,10 +124,11 @@ export type PiBinding = {
   prompt: string;
   guides: Record<
     string,
-    { heading: string; content: string; kind: 'migration' | 'sdk' }
+    { heading: string; content: string; kind: 'migration' | 'sdk' | 'workflow' }
   >;
   /** Sealed treatment fingerprints detect exposure without authorizing baseline receipts. */
   exposureGuides?: PiBinding['guides'];
+  submission?: { attemptId: string; sourceHash: string };
 };
 
 function validStartupSections(sections: unknown): boolean {
@@ -166,6 +167,7 @@ export function piEvidence(text: string, binding?: PiBinding) {
     sessionId: null as string | null,
     traceStatus: 'unbound',
     guideExposure: false,
+    submissionBound: false,
   };
   try {
     const usage = parsePiUsage(text);
@@ -206,15 +208,42 @@ export function piEvidence(text: string, binding?: PiBinding) {
         /(?:^|[^\w-])maelstrom-react-(?:migration|sdk)(?=$|[^\w-])/.test(
           delivered,
         ) ||
+        Object.keys(binding?.exposureGuides ?? binding?.guides ?? {}).some(
+          (path) => {
+            const name = path.match(
+              /\/\.agents\/skills\/([\w-]+)\/SKILL\.md$/,
+            )?.[1];
+            return (
+              name !== undefined &&
+              new RegExp(
+                `<name>\\s*${name}\\s*</name>|<skill\\b[^>]*\\sname\\s*=\\s*["']${name}["']`,
+              ).test(delivered)
+            );
+          },
+        ) ||
         Object.values(binding?.exposureGuides ?? binding?.guides ?? {}).some(
-          (guide) =>
-            guide.content.length > 20 &&
-            delivered.includes(normal(guide.heading)) &&
-            delivered.includes(normal(guide.content)),
+          (guide) => {
+            const headingOffset = guide.content.indexOf(guide.heading);
+            const body =
+              headingOffset < 0
+                ? guide.content
+                : guide.content.slice(headingOffset + guide.heading.length);
+            const prose = body
+              .split('\n')
+              .find((line) => line.length > 30 && !line.startsWith('#'));
+            return (
+              guide.content.length > 20 &&
+              delivered.includes(normal(guide.heading)) &&
+              (delivered.includes(normal(guide.content)) ||
+                (prose !== undefined && delivered.includes(normal(prose))))
+            );
+          },
         )
       );
     };
     const reads = new Map<string, string>();
+    const submissionCalls = new Set<string>();
+    let submissionBound = false;
     const receipts = new Set<string>();
     let guideExposure = false;
     const entryIds = new Set<string>();
@@ -222,10 +251,12 @@ export function piEvidence(text: string, binding?: PiBinding) {
     let userCount = 0;
     let starts = 0;
     let ends = 0;
+    let settled = false;
     let final:
       | { role?: string; stopReason?: string; content?: unknown }
       | undefined;
     const registerRead = (id: unknown, path: unknown) => {
+      if (submissionBound) valid = false;
       if (
         typeof id !== 'string' ||
         typeof path !== 'string' ||
@@ -242,11 +273,17 @@ export function piEvidence(text: string, binding?: PiBinding) {
       if (reads.has(id) && reads.get(id) !== absolute) valid = false;
       reads.set(id, absolute);
     };
+    const registerSubmission = (id: unknown, command: unknown) => {
+      if (submissionBound) valid = false;
+      if (typeof id === 'string' && command === 'node migration-submission.mjs')
+        submissionCalls.add(id);
+    };
     const receive = (
       id: unknown,
       result: { isError?: unknown; content?: unknown } | undefined,
       isError: unknown,
     ) => {
+      if (submissionBound && !submissionCalls.has(String(id))) valid = false;
       if (
         typeof id !== 'string' ||
         isError !== false ||
@@ -257,6 +294,25 @@ export function piEvidence(text: string, binding?: PiBinding) {
       const path = reads.get(id);
       const expected = path ? binding.guides[path] : undefined;
       const delivered = normal(contentText(result?.content));
+      if (submissionCalls.has(id)) {
+        try {
+          const receipt = JSON.parse(delivered);
+          const expected = binding.submission;
+          if (
+            !expected ||
+            receipt.type !== 'maelstrom_migration_submission' ||
+            receipt.version !== 1 ||
+            receipt.attemptId !== expected.attemptId ||
+            receipt.sourceHash !== expected.sourceHash ||
+            !/^[a-f0-9]{64}$/.test(receipt.sourceHash)
+          ) {
+            valid = false;
+          } else submissionBound = true;
+        } catch {
+          valid = false;
+        }
+        return;
+      }
       if (exposed(delivered)) guideExposure = true;
       if (
         path &&
@@ -270,6 +326,10 @@ export function piEvidence(text: string, binding?: PiBinding) {
       }
     };
     for (const row of rows) {
+      if (settled && row.type.startsWith('tool_execution_')) {
+        valid = false;
+        continue;
+      }
       if (row.type === 'agent_start') starts++;
       if (row.type === 'agent_end') ends++;
       if (row.type === 'message') {
@@ -289,6 +349,11 @@ export function piEvidence(text: string, binding?: PiBinding) {
       }
       if (row.type === 'tool_execution_start' && row.toolName === 'read')
         registerRead(row.toolCallId, row.args?.path);
+      if (row.type === 'tool_execution_start') {
+        if (submissionBound) valid = false;
+        if (row.toolName === 'bash')
+          registerSubmission(row.toolCallId, row.args?.command);
+      }
       if (row.type === 'tool_execution_end')
         receive(row.toolCallId, row.result, row.isError);
       if (!['message', 'message_end'].includes(row.type)) continue;
@@ -296,6 +361,10 @@ export function piEvidence(text: string, binding?: PiBinding) {
       if (ends) valid = false;
       const message = row.message;
       if (!message || typeof message !== 'object') {
+        valid = false;
+        continue;
+      }
+      if (settled && message.role !== 'system') {
         valid = false;
         continue;
       }
@@ -339,6 +408,14 @@ export function piEvidence(text: string, binding?: PiBinding) {
       }
       if (message.role === 'assistant') {
         if (
+          message.stopReason === 'stop' &&
+          (!Array.isArray(message.content) ||
+            !message.content.some(
+              (item: { type?: unknown }) => item?.type === 'toolCall',
+            ))
+        )
+          settled = true;
+        if (
           typeof message.model === 'string' &&
           /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$/.test(message.model) &&
           typeof message.provider === 'string' &&
@@ -352,11 +429,17 @@ export function piEvidence(text: string, binding?: PiBinding) {
           for (const item of message.content)
             if (item?.type === 'toolCall' && item.name === 'read')
               registerRead(item.id, item.arguments?.path);
+            else if (item?.type === 'toolCall') {
+              if (submissionBound) valid = false;
+              if (item.name === 'bash')
+                registerSubmission(item.id, item.arguments?.command);
+            }
       }
       if (message.role === 'toolResult')
         receive(message.toolCallId, message, message.isError);
     }
     const streamed = formats.has('message_end');
+    if (binding?.submission && !submissionBound) valid = false;
     valid &&=
       formats.size === 1 &&
       userCount === 1 &&
@@ -397,6 +480,7 @@ export function piEvidence(text: string, binding?: PiBinding) {
         : null,
       traceStatus: valid ? 'bound' : 'unbound',
       guideExposure,
+      submissionBound,
     };
   } catch {
     return { ...empty, traceStatus: 'invalid' };
@@ -414,6 +498,7 @@ export type MigrationCompareInput = {
   guideExposure?: boolean;
   reviewApproved?: boolean;
   reviewHash?: string | null;
+  submissionBound?: boolean;
 };
 
 export function compareMigration(
@@ -424,6 +509,8 @@ export function compareMigration(
     baseline.model &&
       baseline.traceBound &&
       treatment.traceBound &&
+      baseline.submissionBound &&
+      treatment.submissionBound &&
       baseline.sessionId &&
       treatment.sessionId &&
       baseline.sessionId !== treatment.sessionId &&

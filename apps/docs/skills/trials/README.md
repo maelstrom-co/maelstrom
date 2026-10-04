@@ -116,6 +116,15 @@ from a different task cannot establish a comparable attempt. The evaluator also
 checks added regression tests against the original missing integration; a passing
 assertion that does not detect that missing behavior is insufficient.
 
+After the final edits and checks, run `node migration-submission.mjs` from the
+consumer as the last tool operation. The prepared helper emits a receipt with
+the sealed preparation identity and a hash of every submitted source file.
+Finish the answer without further tools. Evaluation requires that successful
+receipt before the final answer and matches it to `hashes.submittedSource`.
+Missing receipts, changed source, or later tool activity make the trace unbound.
+Version 3 preparations and old traces without this receipt cannot authorize a
+version 4 comparison; prepare a new pair. The helper does not launch an agent.
+
 Counterfactual assertion failures are provisional evidence. A source-text check
 can fail against the original app without testing behavior. An independent
 reviewer must inspect both submissions and their added tests before approving a
@@ -152,6 +161,17 @@ is not echoed. Comparisons additionally require completed task-bound traces,
 no baseline guide exposure, and treatment delivery of both the migration workflow
 and the installed React SDK guide. Uncached input, output, cache-read, and
 cache-write differences remain separate; token differences are not billing.
+
+Guide receipts require the complete normalized `SKILL.md` contents. Reading only
+a heading or introductory paragraph does not establish delivery. Baseline
+exposure still includes partial instruction fingerprints and all treatment
+workflow catalog identities, including the entry router.
+
+Consumer tests and the independent oracle execute in separate frozen copies.
+The evaluator checks the oracle, configuration, setup, and source for changes
+before accepting functional results. Counterfactual assertion detection requires
+an ordinary nonzero test exit with verified cleanup; cleanup and publication
+failures remain tool failures, even when an assertion report exists.
 
 Baseline exposure checks inspect plain system content and structured startup
 sections against the sealed treatment guide fingerprints and skill catalog
