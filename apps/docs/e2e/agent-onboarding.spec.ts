@@ -41,10 +41,12 @@ test('the install and task commands stay usable on a narrow screen', async ({
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/agents/skills/');
-  await expect(page.locator('[data-install-agent="pi"]')).toBeVisible();
-  expect(
-    await page.evaluate(
-      () => document.documentElement.scrollWidth <= window.innerWidth,
-    ),
-  ).toBe(true);
+  await expect(async () => {
+    await expect(page.locator('[data-install-agent="pi"]')).toBeVisible();
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth,
+      ),
+    ).toBe(true);
+  }).toPass({ timeout: 5000 });
 });

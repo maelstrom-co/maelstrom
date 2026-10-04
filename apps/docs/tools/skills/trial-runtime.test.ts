@@ -16,7 +16,47 @@ import {
   trialSnapshot,
 } from './trial-runtime';
 
-test('a timed-out trial terminates its process group rather than leaving a child alive', async () => {
+function terminatedLinuxProcess(stat: string): boolean {
+  const state = stat
+    .slice(stat.lastIndexOf(')') + 1)
+    .trimStart()
+    .split(/\s+/)[0];
+  return state === 'Z' || state === 'X';
+}
+
+async function childTerminated(pid: number): Promise<boolean> {
+  if (process.platform === 'linux') {
+    try {
+      // Linux may retain an orphan's zombie PID after execution has stopped.
+      return terminatedLinuxProcess(
+        await readFile(`/proc/${pid}/stat`, 'utf8'),
+      );
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return true;
+      throw error;
+    }
+  }
+  try {
+    process.kill(pid, 0);
+    return false;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ESRCH') return true;
+    throw error;
+  }
+}
+
+test('termination checks accept zombies but reject running, sleeping, and stopped processes', () => {
+  for (const state of ['Z', 'X'])
+    expect(terminatedLinuxProcess(`42 (fixture (child)) ${state} 1 2 3`)).toBe(
+      true,
+    );
+  for (const state of ['R', 'S', 'D', 'T'])
+    expect(terminatedLinuxProcess(`42 (fixture (child)) ${state} 1 2 3`)).toBe(
+      false,
+    );
+});
+
+test('a timed-out trial stops its child from executing even when Linux has not reaped its PID', async () => {
   const root = await mkdtemp(join(tmpdir(), 'trial-process-'));
   try {
     const pidPath = join(root, 'child.pid');
@@ -24,9 +64,9 @@ test('a timed-out trial terminates its process group rather than leaving a child
       runTrialProcess(
         root,
         [
-          process.execPath,
+          Bun.which('node') ?? '/usr/bin/node',
           '-e',
-          'const child=Bun.spawn([process.execPath,"-e","setInterval(()=>{},1000)"],{stdout:"ignore",stderr:"ignore"});require("node:fs").writeFileSync(process.argv[1],String(child.pid));setInterval(()=>{},1000)',
+          'const child=require("node:child_process").spawn(process.execPath,["-e","setInterval(()=>{},1000)"],{stdio:"ignore"});require("node:fs").writeFileSync(process.argv[1],String(child.pid));setInterval(()=>{},1000)',
           pidPath,
         ],
         process.env,
@@ -36,7 +76,11 @@ test('a timed-out trial terminates its process group rather than leaving a child
       ),
     ).rejects.toThrow('timed out');
     const pid = Number(await readFile(pidPath, 'utf8'));
-    expect(() => process.kill(pid, 0)).toThrow();
+    expect(Number.isSafeInteger(pid) && pid > 0).toBe(true);
+    const deadline = Date.now() + 2000;
+    while (!(await childTerminated(pid)) && Date.now() < deadline)
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(await childTerminated(pid)).toBe(true);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

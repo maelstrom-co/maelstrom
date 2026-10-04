@@ -31,14 +31,15 @@ export async function runTrialProcess(
     detached: true,
     stdio: ['ignore', outputFd, errorFd],
   });
+  const groupId = child.pid;
   closeSync(outputFd);
   closeSync(errorFd);
   let expired = false;
   let escalation: ReturnType<typeof setTimeout> | undefined;
   const stopGroup = (signal: NodeJS.Signals) => {
-    if (!child.pid) return;
+    if (!groupId || groupId < 2) return;
     try {
-      process.kill(-child.pid, signal);
+      process.kill(-groupId, signal);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
     }
