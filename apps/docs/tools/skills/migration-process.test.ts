@@ -250,7 +250,7 @@ test('a genuine supervisor SIGKILL cannot orphan its retained group', async () =
   }
 }, 6000);
 
-test('a parent ledger write error still kills and verifies its retained group', async () => {
+test('a ledger failure cannot leave a running group or discard uncertain identity', async () => {
   const root = await mkdtemp(join(tmpdir(), 'migration-ledger-error-'));
   const ledger = join(
     await migrationProcessEvidenceDirectory(),
@@ -259,6 +259,15 @@ test('a parent ledger write error still kills and verifies its retained group', 
   const backup = `${ledger}.backup`;
   await rename(ledger, backup).catch(() => {});
   await mkdir(ledger);
+  let pgid: number | undefined;
+  const cleanupGroup = () => {
+    if (!pgid || !Number.isSafeInteger(pgid)) return;
+    try {
+      process.kill(-pgid, 'SIGKILL');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
+    }
+  };
   try {
     let message = '';
     try {
@@ -275,14 +284,37 @@ test('a parent ledger write error still kills and verifies its retained group', 
     } catch (error) {
       message = (error as Error).message;
     }
-    expect(message).toContain('after verified cleanup');
-    const pgid = Number(message.match(/pgid=(\d+)/)?.[1]);
+    expect(
+      message.includes('after verified cleanup') ||
+        message.startsWith('Migration process cleanup uncertain;'),
+    ).toBe(true);
+    pgid = Number(message.match(/pgid=(\d+)/)?.[1]);
     expect(pgid).toBeGreaterThan(0);
+    if (message.startsWith('Migration process cleanup uncertain;')) {
+      const status = message.match(/status=(.+)$/)?.[1];
+      expect(status).toBeDefined();
+      const identity = JSON.parse(await readFile(`${status}.identity`, 'utf8'));
+      expect(identity.pgid).toBe(pgid);
+    }
+    const deadline = performance.now() + 1500;
+    while (performance.now() < deadline) {
+      try {
+        process.kill(-pgid, 0);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ESRCH') break;
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
     expect(() => process.kill(-pgid, 0)).toThrow();
   } finally {
-    await rm(ledger, { recursive: true });
-    await rename(backup, ledger).catch(() => {});
-    await rm(root, { recursive: true, force: true });
+    try {
+      cleanupGroup();
+    } finally {
+      await rm(ledger, { recursive: true });
+      await rename(backup, ledger).catch(() => {});
+      await rm(root, { recursive: true, force: true });
+    }
   }
 }, 6000);
 

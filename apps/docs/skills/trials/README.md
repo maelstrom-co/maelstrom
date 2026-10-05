@@ -92,6 +92,8 @@ pair without launching a model or reading credentials. Use it from a repository
 checkout after installing dependencies and building the React SDK and its
 dependencies. It is not included as executable tooling in the downloadable skills
 bundle. Preparation can fetch public dependencies.
+Downloads have a 90-second deadline. The download cache stays outside the
+consumers and does not become sealed submission evidence.
 
 Command shapes from the workspace root follow. Replace the bracketed arguments
 with your paths and the seal returned by preparation:

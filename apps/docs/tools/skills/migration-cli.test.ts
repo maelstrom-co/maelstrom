@@ -45,6 +45,19 @@ it('the migration must connect the supplied transport instead of silently using 
 });
 `;
 
+test('dependency download caches are not copied into sealed source consumers', async () => {
+  const prepared = JSON.parse(
+    await readFile(join(base, 'protected/prepared.json'), 'utf8'),
+  );
+  for (const arm of ['baseline', 'treatment']) {
+    expect(
+      Object.keys(prepared.snapshots[arm]).filter((path) =>
+        path.startsWith('.bun/'),
+      ),
+    ).toEqual([]);
+  }
+});
+
 test('prepared guide receipts require the complete instructions rather than one introductory line', async () => {
   const prepared = JSON.parse(
     await readFile(join(base, 'protected/prepared.json'), 'utf8'),
@@ -175,7 +188,66 @@ it('consumer test side effects stay outside the oracle', () => {
   }
 }, 90_000);
 
-for (const fault of ['cleanup', 'publication', 'signal'] as const) {
+test('consumer tests cannot substitute source in a sibling oracle copy', async () => {
+  const path = join(base, 'treatment/src/sibling-substitution.test.ts');
+  await writeFile(
+    path,
+    `import { readdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { expect, it } from 'vitest';
+it('consumer side effects must not change the independent input', () => {
+  if (process.cwd().includes('counterfactual')) { expect(true).toBe(false); return; }
+  for (const entry of readdirSync('..'))
+    if (entry.startsWith('treatment-oracle-'))
+      writeFileSync(join('..', entry, 'src/OrdersApp.tsx'), ${JSON.stringify(positiveApp)});
+  expect(true).toBe(true);
+});\n`,
+  );
+  const restoreBaseline = await isolateTreatment();
+  try {
+    const result = await evaluateMigration(base, seal, true);
+    expect(result.results[1].tests).toBe(true);
+    expect(result.results[1].preserved).toBe(true);
+    expect(result.results[1].functional).toBe(false);
+    expect(result.results[1].automatedPassed).toBe(false);
+  } finally {
+    await unlink(path);
+    await restoreBaseline();
+  }
+}, 120_000);
+
+test('an oracle-side deletion fails the check and removes every execution copy', async () => {
+  const app = join(base, 'treatment/src/OrdersApp.tsx');
+  await writeFile(
+    app,
+    `import { unlinkSync } from 'node:fs';
+if (process.cwd().includes('treatment-oracle-')) unlinkSync('oracle.test.tsx');
+${positiveApp}`,
+  );
+  const restoreBaseline = await isolateTreatment();
+  try {
+    const result = await evaluateMigration(base, seal, true);
+    expect(result.results[1].functional).toBe(false);
+    expect(result.results[1].automatedPassed).toBe(false);
+    expect(
+      (await readdir(join(base, 'protected'))).filter(
+        (path) =>
+          path.startsWith('treatment-execution-') ||
+          path.startsWith('treatment-oracle-'),
+      ),
+    ).toEqual([]);
+  } finally {
+    await writeFile(app, negativeApp);
+    await restoreBaseline();
+  }
+}, 90_000);
+
+for (const fault of [
+  'cleanup',
+  'publication',
+  'signal',
+  'consumer-cleanup',
+] as const) {
   test(`a ${fault} failure cannot qualify as a detected capability regression`, async () => {
     const app = join(base, 'treatment/src/OrdersApp.tsx');
     const regression = join(base, 'treatment/src/migration.test.tsx');
@@ -196,6 +268,10 @@ for (const fault of ['cleanup', 'publication', 'signal'] as const) {
       const counterfactual =
         command[1]?.endsWith('/migration-process-worker.mjs') &&
         JSON.parse(command[3]).cwd.includes('treatment-counterfactual-');
+      const consumer =
+        command[1]?.endsWith('/migration-process-worker.mjs') &&
+        JSON.parse(command[3]).cwd.includes('treatment-execution-') &&
+        JSON.parse(command[3]).args.includes('--exclude');
       let child: ReturnType<typeof Bun.spawn>;
       if (fault === 'signal' && counterfactual) {
         const settings = JSON.parse(command[3]);
@@ -211,10 +287,7 @@ for (const fault of ['cleanup', 'publication', 'signal'] as const) {
           args[1],
         );
       } else child = originalSpawn(...args);
-      if (
-        command[1]?.endsWith('/migration-process-worker.mjs') &&
-        JSON.parse(command[3]).cwd.includes('treatment-counterfactual-')
-      )
+      if (fault === 'consumer-cleanup' ? consumer : counterfactual)
         group = child.pid;
       if (
         fault !== 'signal' &&
@@ -222,7 +295,7 @@ for (const fault of ['cleanup', 'publication', 'signal'] as const) {
         Number(command[2]) === group
       ) {
         const exited = child.exited.then(async (code) => {
-          if (fault === 'cleanup') return 2;
+          if (fault === 'cleanup' || fault === 'consumer-cleanup') return 2;
           await rename(ledger, backup);
           await mkdir(ledger);
           ledgerReplaced = true;
@@ -236,6 +309,19 @@ for (const fault of ['cleanup', 'publication', 'signal'] as const) {
       return child;
     });
     try {
+      if (fault === 'consumer-cleanup') {
+        await expect(evaluateMigration(base, seal, true)).rejects.toThrow(
+          'cleanup uncertain',
+        );
+        expect(
+          (await readdir(join(base, 'protected'))).filter(
+            (path) =>
+              path.startsWith('treatment-execution-') ||
+              path.startsWith('treatment-oracle-'),
+          ),
+        ).toEqual([]);
+        return;
+      }
       const result = await evaluateMigration(base, seal, true);
       expect(group).toBeDefined();
       expect(result.results[1].functional).toBe(true);

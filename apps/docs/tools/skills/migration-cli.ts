@@ -55,6 +55,7 @@ const tsconfig = {
 const env = (cwd: string): NodeJS.ProcessEnv => ({
   PATH: '/usr/bin:/bin:/usr/sbin:/sbin',
   HOME: cwd,
+  BUN_INSTALL_CACHE_DIR: join(dirname(cwd), 'dependency-cache'),
   TMPDIR: cwd,
   CI: '1',
   NO_COLOR: '1',
@@ -208,7 +209,7 @@ export async function prepareMigration(output: string) {
   await command(
     template,
     [process.execPath, 'install', '--ignore-scripts'],
-    240_000,
+    90_000,
   );
   const installed = join(evidence, 'installed');
   await materialize(join(template, 'node_modules'), installed);
@@ -611,185 +612,213 @@ async function checks(
     'protected',
     `${arm}-${reference ? 'reference' : 'execution'}-${crypto.randomUUID()}`,
   );
-  await materialize(source, execution);
   const oracleExecution = join(
     base,
     'protected',
     `${arm}-oracle-${crypto.randomUUID()}`,
   );
-  await materialize(source, oracleExecution);
-  if (reference)
-    for (const directory of [execution, oracleExecution])
-      await writeFile(join(directory, 'src/OrdersApp.tsx'), positiveApp);
-  // Resolve only fixed trusted tools. Never read or run consumer package scripts.
-  const executionChecks: string[] = [];
-  const run = async (args: string[], cwd = execution) => {
-    try {
-      await command(cwd, args, timeoutMs);
-      executionChecks.push('passed');
-      return true;
-    } catch (error) {
-      executionChecks.push(processTimedOut(error) ? 'timeout' : 'failed');
-      return false;
-    }
-  };
-  const nodeExecutable = await realpath(Bun.which('node') ?? '/usr/bin/node');
-  const vitestExecutable = await safeBin('vitest');
-  const typecheck = await run([
-    nodeExecutable,
-    await safeBin('tsc'),
-    '--noEmit',
-    '-p',
-    join(execution, 'tsconfig.json'),
-  ]);
-  const lint = await run([
-    nodeExecutable,
-    await safeBin('biome'),
-    'check',
-    'src',
-  ]);
-  const testReport = join(execution, 'test-report.json');
-  const testProcess = await run([
-    nodeExecutable,
-    vitestExecutable,
-    'run',
-    '--config',
-    join(execution, 'vitest.config.ts'),
-    '--exclude',
-    'oracle.test.tsx',
-    '--reporter=json',
-    '--outputFile',
-    testReport,
-  ]);
-  let tests = false;
-  const addedRegressionTests = Object.keys(snapshot).filter(
-    (path) => !original[path] && /\.test\.tsx?$/.test(path),
-  );
-  let executedRegressionTests: string[] = [];
-  const passedAssertions: Record<string, Set<string>> = {};
   try {
-    const report = await json(testReport);
-    tests =
-      testProcess &&
-      report.success === true &&
-      Number.isSafeInteger(report.numTotalTests) &&
-      report.numTotalTests > 0;
-    if (tests && Array.isArray(report.testResults))
-      executedRegressionTests = addedRegressionTests.filter((path) =>
-        report.testResults.some(
-          (result: {
-            name?: string;
-            assertionResults?: Array<{ status?: string }>;
-          }) =>
-            result?.name === join(execution, path) &&
-            Array.isArray(result.assertionResults) &&
-            result.assertionResults.some(
-              (assertion) => assertion?.status === 'passed',
-            ),
-        ),
-      );
-    for (const path of executedRegressionTests) {
-      const result = report.testResults.find(
-        (result: { name?: string }) => result?.name === join(execution, path),
-      );
-      passedAssertions[path] = new Set(
-        result.assertionResults
-          .filter(
-            (assertion: { fullName?: string; status?: string }) =>
-              assertion.status === 'passed' &&
-              typeof assertion.fullName === 'string' &&
-              assertion.fullName.length < 4096,
-          )
-          .map((assertion: { fullName: string }) => assertion.fullName),
-      );
-    }
-  } catch {}
-  await writeFile(join(oracleExecution, 'oracle.test.tsx'), oracleSource);
-  const reportPath = join(oracleExecution, 'oracle-report.json');
-  const oracleBefore = await migrationSnapshot(join(oracleExecution, 'src'));
-  const oracleProcess = await run(
-    [
+    await materialize(source, execution);
+    if (reference)
+      await writeFile(join(execution, 'src/OrdersApp.tsx'), positiveApp);
+    // Resolve only fixed trusted tools. Never read or run consumer package scripts.
+    const executionChecks: string[] = [];
+    const run = async (args: string[], cwd = execution) => {
+      try {
+        await command(cwd, args, timeoutMs);
+        executionChecks.push('passed');
+        return true;
+      } catch (error) {
+        if (
+          !(error instanceof MigrationCommandFailure) &&
+          !processTimedOut(error)
+        )
+          throw error;
+        executionChecks.push(processTimedOut(error) ? 'timeout' : 'failed');
+        return false;
+      }
+    };
+    const nodeExecutable = await realpath(Bun.which('node') ?? '/usr/bin/node');
+    const vitestExecutable = await safeBin('vitest');
+    const typecheck = await run([
+      nodeExecutable,
+      await safeBin('tsc'),
+      '--noEmit',
+      '-p',
+      join(execution, 'tsconfig.json'),
+    ]);
+    const lint = await run([
+      nodeExecutable,
+      await safeBin('biome'),
+      'check',
+      'src',
+    ]);
+    const testReport = join(execution, 'test-report.json');
+    const testProcess = await run([
       nodeExecutable,
       vitestExecutable,
       'run',
       '--config',
-      join(oracleExecution, 'vitest.config.ts'),
+      join(execution, 'vitest.config.ts'),
+      '--exclude',
       'oracle.test.tsx',
       '--reporter=json',
       '--outputFile',
-      reportPath,
-    ],
-    oracleExecution,
-  );
-  const oraclePreserved =
-    (await boundedText(join(oracleExecution, 'oracle.test.tsx'))) ===
-      oracleSource &&
-    (await boundedText(join(oracleExecution, 'vitest.config.ts'))) === config &&
-    (await boundedText(join(oracleExecution, 'setup.ts'))) === setupSource &&
-    JSON.stringify(await migrationSnapshot(join(oracleExecution, 'src'))) ===
-      JSON.stringify(oracleBefore);
-  let functionalOutcomes: Record<string, boolean> | null = null;
-  try {
-    const report = await json(reportPath);
-    const assertions = Array.isArray(report.testResults)
-      ? report.testResults.flatMap((item: { assertionResults?: unknown[] }) =>
-          Array.isArray(item?.assertionResults) ? item.assertionResults : [],
-        )
-      : [];
-    if (assertions.length === oracleCriteria.length)
-      functionalOutcomes = Object.fromEntries(
-        oracleCriteria.map((name) => [
-          name,
-          assertions.filter(
-            (item: { fullName?: string; status?: string }) =>
-              item?.fullName === name && item.status === 'passed',
-          ).length === 1,
-        ]),
-      );
-  } catch {
-    /* Never print untrusted test diagnostics. */
-  }
-  const functional =
-    oracleProcess &&
-    oraclePreserved &&
-    functionalOutcomes !== null &&
-    Object.values(functionalOutcomes).every(Boolean);
-  const regression: RegressionOutcome =
-    !skipCounterfactual && tests
-      ? await counterfactualRegression(
-          source,
-          base,
-          arm,
-          passedAssertions,
-          counterfactualTimeoutMs,
+      testReport,
+    ]);
+    let tests = false;
+    const addedRegressionTests = Object.keys(snapshot).filter(
+      (path) => !original[path] && /\.test\.tsx?$/.test(path),
+    );
+    let executedRegressionTests: string[] = [];
+    const passedAssertions: Record<string, Set<string>> = {};
+    try {
+      const report = await json(testReport);
+      tests =
+        testProcess &&
+        report.success === true &&
+        Number.isSafeInteger(report.numTotalTests) &&
+        report.numTotalTests > 0;
+      if (tests && Array.isArray(report.testResults))
+        executedRegressionTests = addedRegressionTests.filter((path) =>
+          report.testResults.some(
+            (result: {
+              name?: string;
+              assertionResults?: Array<{ status?: string }>;
+            }) =>
+              result?.name === join(execution, path) &&
+              Array.isArray(result.assertionResults) &&
+              result.assertionResults.some(
+                (assertion) => assertion?.status === 'passed',
+              ),
+          ),
+        );
+      for (const path of executedRegressionTests) {
+        const result = report.testResults.find(
+          (result: { name?: string }) => result?.name === join(execution, path),
+        );
+        passedAssertions[path] = new Set(
+          result.assertionResults
+            .filter(
+              (assertion: { fullName?: string; status?: string }) =>
+                assertion.status === 'passed' &&
+                typeof assertion.fullName === 'string' &&
+                assertion.fullName.length < 4096,
+            )
+            .map((assertion: { fullName: string }) => assertion.fullName),
+        );
+      }
+    } catch {}
+    await materialize(source, oracleExecution);
+    const freshCopy =
+      JSON.stringify(await migrationSnapshot(oracleExecution)) ===
+      JSON.stringify(snapshot);
+    if (reference)
+      await writeFile(join(oracleExecution, 'src/OrdersApp.tsx'), positiveApp);
+    await writeFile(join(oracleExecution, 'oracle.test.tsx'), oracleSource);
+    const reportPath = join(oracleExecution, 'oracle-report.json');
+    const oracleBefore = await migrationSnapshot(join(oracleExecution, 'src'));
+    const oracleProcess =
+      freshCopy &&
+      (await run(
+        [
           nodeExecutable,
           vitestExecutable,
-        )
-      : { status: 'not-run', assertionRegressions: [] };
-  const after = await migrationSnapshot(source);
-  await rm(execution, { recursive: true, force: true });
-  await rm(oracleExecution, { recursive: true, force: true });
-  return {
-    hashes,
-    functionalOutcomes,
-    executionChecks: Object.fromEntries(
-      ['typecheck', 'lint', 'tests', 'functional'].map((name, index) => [
-        name,
-        executionChecks[index],
-      ]),
-    ),
-    preserved: JSON.stringify(snapshot) === JSON.stringify(after),
-    functional,
-    typecheck,
-    lint,
-    tests,
-    addedRegressionTests,
-    executedRegressionTests,
-    regression,
-    changed,
-    immutable,
-    unexpected,
-  };
+          'run',
+          '--config',
+          join(oracleExecution, 'vitest.config.ts'),
+          'oracle.test.tsx',
+          '--reporter=json',
+          '--outputFile',
+          reportPath,
+        ],
+        oracleExecution,
+      ));
+    if (!freshCopy) executionChecks.push('failed');
+    let oraclePreserved = false;
+    try {
+      oraclePreserved =
+        (await boundedText(join(oracleExecution, 'oracle.test.tsx'))) ===
+          oracleSource &&
+        (await boundedText(join(oracleExecution, 'vitest.config.ts'))) ===
+          config &&
+        (await boundedText(join(oracleExecution, 'setup.ts'))) ===
+          setupSource &&
+        JSON.stringify(
+          await migrationSnapshot(join(oracleExecution, 'src')),
+        ) === JSON.stringify(oracleBefore);
+    } catch {
+      oraclePreserved = false;
+    }
+    let functionalOutcomes: Record<string, boolean> | null = null;
+    try {
+      const report = await json(reportPath);
+      const assertions = Array.isArray(report.testResults)
+        ? report.testResults.flatMap(
+            (item: { assertionResults?: unknown[] }) =>
+              Array.isArray(item?.assertionResults)
+                ? item.assertionResults
+                : [],
+          )
+        : [];
+      if (assertions.length === oracleCriteria.length)
+        functionalOutcomes = Object.fromEntries(
+          oracleCriteria.map((name) => [
+            name,
+            assertions.filter(
+              (item: { fullName?: string; status?: string }) =>
+                item?.fullName === name && item.status === 'passed',
+            ).length === 1,
+          ]),
+        );
+    } catch {
+      /* Never print untrusted test diagnostics. */
+    }
+    const functional =
+      oracleProcess &&
+      oraclePreserved &&
+      functionalOutcomes !== null &&
+      Object.values(functionalOutcomes).every(Boolean);
+    const regression: RegressionOutcome =
+      !skipCounterfactual && tests
+        ? await counterfactualRegression(
+            source,
+            base,
+            arm,
+            passedAssertions,
+            counterfactualTimeoutMs,
+            nodeExecutable,
+            vitestExecutable,
+          )
+        : { status: 'not-run', assertionRegressions: [] };
+    const after = await migrationSnapshot(source);
+    return {
+      hashes,
+      functionalOutcomes,
+      executionChecks: Object.fromEntries(
+        ['typecheck', 'lint', 'tests', 'functional'].map((name, index) => [
+          name,
+          executionChecks[index],
+        ]),
+      ),
+      preserved: JSON.stringify(snapshot) === JSON.stringify(after),
+      functional,
+      typecheck,
+      lint,
+      tests,
+      addedRegressionTests,
+      executedRegressionTests,
+      regression,
+      changed,
+      immutable,
+      unexpected,
+    };
+  } finally {
+    await Promise.all([
+      rm(execution, { recursive: true, force: true }),
+      rm(oracleExecution, { recursive: true, force: true }),
+    ]);
+  }
 }
 
 export async function evaluateMigration(
