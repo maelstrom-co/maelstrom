@@ -1,0 +1,511 @@
+<!doctype html>
+<html lang="en" data-theme="dark"><head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>A clearer first task</title>
+  <script>
+    // Resolve theme before first paint to avoid a flash. Order:
+    //   1. explicit user choice in localStorage
+    //   2. otherwise, system prefers-color-scheme
+    (function () {
+      var stored = null;
+      try {
+        stored = localStorage.getItem('pr-walkthrough-theme');
+      } catch (_) {
+        /* private mode or disabled storage */
+      }
+      var theme = stored;
+      if (theme !== 'light' && theme !== 'dark') {
+        theme =
+          window.matchMedia &&
+          window.matchMedia('(prefers-color-scheme: dark)').matches
+            ? 'dark'
+            : 'light';
+      }
+      document.documentElement.setAttribute('data-theme', theme);
+    })();
+  </script>
+  <style>
+    :root {
+      --ink: #1a1a1a;
+      --ink-soft: #4a4a4a;
+      --ink-mute: #767676;
+      --paper: #fbfaf6;
+      --paper-card: #ffffff;
+      --rule: #e6e2d6;
+      --accent: #8a3a1a;
+      --code-bg: #f3efe4;
+      --code-ink: #2a2a2a;
+    }
+    :root[data-theme="dark"] {
+      --ink: #e8e3d8;
+      --ink-soft: #b8b0a0;
+      --ink-mute: #8d8576;
+      --paper: #1a1714;
+      --paper-card: #221e1a;
+      --rule: #36312a;
+      --accent: #d77a4a;
+      --code-bg: #25211c;
+      --code-ink: #d8d3c8;
+    }
+    html {
+      background: var(--paper);
+      transition: background 0.2s ease;
+    }
+    body { transition: color 0.2s ease; }
+    body {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 4rem 1.5rem 6rem;
+      color: var(--ink);
+      font: 17px/1.7 'Charter', 'Iowan Old Style', Georgia, 'Times New Roman', serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    header {
+      border-bottom: 1px solid var(--rule);
+      padding-bottom: 2rem;
+      margin-bottom: 3rem;
+    }
+    header .eyebrow {
+      font-family: -apple-system, system-ui, sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--ink-mute);
+      margin: 0 0 0.5rem;
+    }
+    header h1 {
+      font-size: 2rem;
+      font-weight: 700;
+      line-height: 1.2;
+      margin: 0 0 0.75rem;
+      letter-spacing: -0.01em;
+    }
+    header .dek {
+      font-size: 1.15rem;
+      line-height: 1.5;
+      color: var(--ink-soft);
+      margin: 0;
+    }
+    header .meta {
+      font-family: -apple-system, system-ui, sans-serif;
+      font-size: 13px;
+      color: var(--ink-mute);
+      margin-top: 1.25rem;
+    }
+    h2 {
+      font-size: 1.4rem;
+      font-weight: 700;
+      margin: 3rem 0 1rem;
+      letter-spacing: -0.005em;
+    }
+    h2 .num {
+      color: var(--accent);
+      font-size: 0.95rem;
+      letter-spacing: 0.1em;
+      display: block;
+      font-weight: 600;
+      margin-bottom: 0.25rem;
+    }
+    h3 {
+      font-size: 1.1rem;
+      font-weight: 700;
+      margin: 2rem 0 0.5rem;
+      color: var(--ink);
+    }
+    p { margin: 0 0 1.1rem; }
+    a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+    a:hover { text-decoration-thickness: 2px; }
+    code {
+      font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+      font-size: 0.88em;
+      background: var(--code-bg);
+      color: var(--code-ink);
+      padding: 1px 5px;
+      border-radius: 3px;
+    }
+    pre {
+      background: var(--code-bg);
+      border-radius: 6px;
+      padding: 1rem 1.1rem;
+      overflow-x: auto;
+      margin: 1.3rem 0;
+      font-size: 0.84em;
+      line-height: 1.55;
+    }
+    pre code {
+      background: transparent;
+      padding: 0;
+      font-size: 1em;
+    }
+    /* Fallback only: shown when mermaid.min.js is missing or a diagram fails
+       to render, so the raw source stays visible — styled like any other
+       code block rather than as a diagram canvas. */
+    pre.mermaid {
+      background: var(--code-bg);
+      color: var(--code-ink);
+      border: 1px solid var(--rule);
+      overflow-x: auto;
+    }
+    /* Rendered diagrams: mermaid draws each one twice (light + dark theme
+       variables) and only the variant matching data-theme is shown, so the
+       toggle swaps instantly with no re-render. */
+    .mermaid-fig {
+      margin: 1.3rem 0;
+      text-align: center;
+      overflow-x: auto;
+    }
+    .mermaid-fig svg {
+      display: block;
+      margin: 0 auto;
+      height: auto;
+    }
+    .mermaid-fig:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 4px;
+    }
+    .mermaid-dark { display: none; }
+    :root[data-theme="dark"] .mermaid-light { display: none; }
+    :root[data-theme="dark"] .mermaid-dark { display: block; }
+    /* Shiki emits its own inline background-color plus --shiki-dark /
+       --shiki-dark-bg custom properties for its second theme; flip to those
+       under our own dark mode instead of duplicating shiki's light-mode
+       inline styles here. */
+    :root[data-theme="dark"] pre.shiki,
+    :root[data-theme="dark"] pre.shiki span {
+      color: var(--shiki-dark) !important;
+      background-color: var(--shiki-dark-bg) !important;
+    }
+    .code-figure { margin: 1.3rem 0; }
+    .code-figure pre { margin: 0.4rem 0 0; }
+    .code-figure figcaption {
+      font-family: -apple-system, system-ui, sans-serif;
+      font-size: 12px;
+      color: var(--ink-mute);
+    }
+    blockquote {
+      border-left: 3px solid var(--accent);
+      margin: 1.3rem 0;
+      padding: 0.1rem 0 0.1rem 1.1rem;
+      color: var(--ink-soft);
+      font-style: italic;
+    }
+    blockquote p:last-child { margin-bottom: 0; }
+    .callout {
+      background: var(--paper-card);
+      border: 1px solid var(--rule);
+      border-radius: 6px;
+      padding: 1rem 1.2rem;
+      margin: 1.5rem 0;
+      font-size: 0.95em;
+    }
+    .callout strong { color: var(--accent); }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 1.3rem 0;
+      font-size: 0.92em;
+    }
+    th, td {
+      border-bottom: 1px solid var(--rule);
+      padding: 0.6rem 0.6rem;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      font-family: -apple-system, system-ui, sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.04em;
+      color: var(--ink-mute);
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    hr.section {
+      border: 0;
+      border-top: 1px solid var(--rule);
+      margin: 3.5rem 0;
+    }
+    footer {
+      margin-top: 4rem;
+      padding-top: 2rem;
+      border-top: 1px solid var(--rule);
+      color: var(--ink-mute);
+      font-family: -apple-system, system-ui, sans-serif;
+      font-size: 13px;
+    }
+    .lead::first-letter {
+      font-size: 3.2rem;
+      float: left;
+      line-height: 0.85;
+      padding: 0.35rem 0.5rem 0 0;
+      font-weight: 700;
+      color: var(--accent);
+    }
+    .theme-toggle {
+      position: fixed;
+      top: 1rem;
+      right: 1rem;
+      z-index: 100;
+      background: var(--paper-card);
+      color: var(--ink-mute);
+      border: 1px solid var(--rule);
+      border-radius: 999px;
+      padding: 0.4rem 0.85rem;
+      font: 11px/1 -apple-system, system-ui, sans-serif;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: color 0.15s ease, border-color 0.15s ease,
+        background 0.15s ease;
+    }
+    .theme-toggle:hover {
+      color: var(--ink);
+      border-color: var(--ink-mute);
+    }
+    .theme-toggle:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+    .theme-toggle .toggle-dot {
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      margin-right: 0.45rem;
+      vertical-align: middle;
+      transform: translateY(-1px);
+    }
+    .pw-audiobar {
+      margin-top: 1.5rem;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    .pw-playall {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: var(--paper-card);
+      color: var(--ink-soft);
+      border: 1px solid var(--rule);
+      border-radius: 999px;
+      padding: 0.45rem 0.95rem;
+      font: 12px/1 -apple-system, system-ui, sans-serif;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: color 0.15s ease, border-color 0.15s ease;
+    }
+    .pw-playall:hover { color: var(--ink); border-color: var(--ink-mute); }
+    .pw-playall:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .pw-playall-icon { color: var(--accent); font-size: 0.9em; line-height: 1; }
+    .pw-playall.is-playing .pw-playall-icon { color: var(--ink-mute); }
+    .pw-player { margin: 0.35rem 0 1.4rem; }
+    .pw-audio { width: 100%; height: 34px; }
+    .pw-intro { display: none; }
+    @media (prefers-reduced-motion: reduce) {
+      html, body, .theme-toggle { transition: none; }
+    }
+  </style>
+<style id="walkthrough-artifact-layout">table{width:100%;table-layout:fixed}td,th{overflow-wrap:anywhere}table code{white-space:normal;overflow-wrap:anywhere}</style>
+</head>
+<body>
+
+<button class="theme-toggle" type="button" aria-label="Toggle color theme" aria-pressed="true">
+  <span class="toggle-dot" aria-hidden="true"></span><span class="toggle-label">dark</span>
+</button>
+
+<header>
+  <p class="eyebrow">PR #249 · documentation · onboarding</p>
+  <h1>A clearer first task</h1>
+  <p class="dek">Portable workflows lead into release-matched SDK recipes without turning a planning request into permission to change an application.</p>
+  <p class="meta">feat(docs): improve skill onboarding and SDK recipes</p>
+  
+</header>
+
+<h2 id="pw-sec-1"><span class="num">1 · The setting</span>The skills already existed</h2>
+<p class="lead">Maelstrom already shipped an entry skill, seven workflow procedures, and package-owned SDK guides. Its documentation build produced a revision-matched ZIP. The missing piece was a clear route from obtaining those files to requesting a useful, bounded task.</p><p>The two kinds of guidance answer different questions. A workflow helps you inspect an application, select a capability, and plan verification. An SDK guide supplies API facts for the particular package release installed in that application. This change keeps those responsibilities separate rather than introducing another framework or installer.</p><p>This walkthrough covers <a href="https://github.com/maelstrom-co/maelstrom/pull/249">PR #249</a> at <code>64db8797</code>, relative to <code>4fe3ee96</code>. The separate migration evaluator belongs to <a href="https://github.com/maelstrom-co/maelstrom/pull/250">PR #250</a>.</p>
+
+<h2 id="pw-sec-2"><span class="num">2 · The gap</span>Planning and permission did not line up</h2>
+<p>Quick Start presented onboarding as a planning task, while the copied prompt instructed implementation. The router also directed missing procedures to be installed before continuing. Those instructions could turn a request to inspect an application into changes the user had not approved.</p><p>The revised prompt makes authority explicit. An omitted or unchanged authority placeholder means planning only. The implementation path starts only after a bounded goal is authorized.</p><figure class="code-figure"><figcaption><code>apps/docs/prompts/library/maelstrom-project-onboarding.md</code></figcaption><pre class="shiki shiki-themes vitesse-light vitesse-dark" style="background-color:#ffffff;--shiki-dark-bg:#121212;color:#393a34;--shiki-dark:#dbd7caee" tabindex="0"><code><span class="line"><span style="color:#393A34;--shiki-dark:#DBD7CAEE">Requested authority: [PLAN ONLY | IMPLEMENT THE BOUNDED INTEGRATION]</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#393A34;--shiki-dark:#DBD7CAEE">If authority is omitted or the placeholder is unchanged, use PLAN ONLY.</span></span>
+<span class="line"><span style="color:#393A34;--shiki-dark:#DBD7CAEE">For PLAN ONLY, make no edits or installations. Report the selected pilot and</span></span>
+<span class="line"><span style="color:#393A34;--shiki-dark:#DBD7CAEE">verification plan, then stop. For IMPLEMENT THE BOUNDED INTEGRATION, inspect first</span></span>
+<span class="line"><span style="color:#393A34;--shiki-dark:#DBD7CAEE">and implement the smallest useful pilot. Ask only when inspection reveals a</span></span>
+<span class="line"><span style="color:#393A34;--shiki-dark:#DBD7CAEE">material decision outside the authorized goal.</span></span></code></pre></figure><p>The important boundary is the default. A planning request can identify a pilot and verification steps without installing packages or editing application files. The router applies the same distinction when a procedure is missing.</p>
+
+<h2 id="pw-sec-3"><span class="num">3 · The mechanic</span>Workflow ownership and API ownership</h2>
+<p>The entry router selects one procedure by the primary outcome. The procedure then consults only the references needed for that task. Loading every workflow would obscure which one owns the process, so the starting path remains narrow.</p><div class="mermaid-fig" tabindex="0" role="group" aria-label="Diagram 1"><div class="mermaid-variant mermaid-light"><svg id="mmd-0-light" width="100%" xmlns="http://www.w3.org/2000/svg" class="flowchart" style="max-width: none; width: 562.496px;" viewBox="0 0 562.49609375 864.5625" role="graphics-document document" aria-roledescription="flowchart-v2"><style>#mmd-0-light{font-family:-apple-system,system-ui,sans-serif;font-size:14px;fill:#1a1a1a;}@keyframes edge-animation-frame{from{stroke-dashoffset:0;}}@keyframes dash{to{stroke-dashoffset:0;}}#mmd-0-light .edge-animation-slow{stroke-dasharray:9,5!important;stroke-dashoffset:900;animation:dash 50s linear infinite;stroke-linecap:round;}#mmd-0-light .edge-animation-fast{stroke-dasharray:9,5!important;stroke-dashoffset:900;animation:dash 20s linear infinite;stroke-linecap:round;}#mmd-0-light .error-icon{fill:hsl(224, 38.4615384615%, 97.3529411765%);}#mmd-0-light .error-text{fill:rgb(9.346153846, 7.9615384614, 4.1538461538);stroke:rgb(9.346153846, 7.9615384614, 4.1538461538);}#mmd-0-light .edge-thickness-normal{stroke-width:1px;}#mmd-0-light .edge-thickness-thick{stroke-width:3.5px;}#mmd-0-light .edge-pattern-solid{stroke-dasharray:0;}#mmd-0-light .edge-thickness-invisible{stroke-width:0;fill:none;}#mmd-0-light .edge-pattern-dashed{stroke-dasharray:3;}#mmd-0-light .edge-pattern-dotted{stroke-dasharray:2;}#mmd-0-light .marker{fill:#767676;stroke:#767676;}#mmd-0-light .marker.cross{stroke:#767676;}#mmd-0-light svg{font-family:-apple-system,system-ui,sans-serif;font-size:14px;}#mmd-0-light p{margin:0;}#mmd-0-light .label{font-family:-apple-system,system-ui,sans-serif;color:#1a1a1a;}#mmd-0-light .cluster-label text{fill:rgb(9.346153846, 7.9615384614, 4.1538461538);}#mmd-0-light .cluster-label span{color:rgb(9.346153846, 7.9615384614, 4.1538461538);}#mmd-0-light .cluster-label span p{background-color:transparent;}#mmd-0-light .label text,#mmd-0-light span{fill:#1a1a1a;color:#1a1a1a;}#mmd-0-light .node rect,#mmd-0-light .node circle,#mmd-0-light .node ellipse,#mmd-0-light .node polygon,#mmd-0-light .node path{fill:#f3efe4;stroke:#8a3a1a;stroke-width:1px;}#mmd-0-light .rough-node .label text,#mmd-0-light .node .label text,#mmd-0-light .image-shape .label,#mmd-0-light .icon-shape .label{text-anchor:middle;}#mmd-0-light .node .katex path{fill:#000;stroke:#000;stroke-width:1px;}#mmd-0-light .rough-node .label,#mmd-0-light .node .label,#mmd-0-light .image-shape .label,#mmd-0-light .icon-shape .label{text-align:center;}#mmd-0-light .node.clickable{cursor:pointer;}#mmd-0-light .root .anchor path{fill:#767676!important;stroke-width:0;stroke:#767676;}#mmd-0-light .arrowheadPath{fill:#040509;}#mmd-0-light .edgePath .path{stroke:#767676;stroke-width:1px;}#mmd-0-light .flowchart-link{stroke:#767676;fill:none;}#mmd-0-light .edgeLabel{background-color:#fbfaf6;text-align:center;}#mmd-0-light .edgeLabel p{background-color:#fbfaf6;}#mmd-0-light .edgeLabel rect{opacity:0.5;background-color:#fbfaf6;fill:#fbfaf6;}#mmd-0-light .labelBkg{background-color:rgba(251, 250, 246, 0.5);}#mmd-0-light .cluster rect{fill:#ffffff;stroke:#e6e2d6;stroke-width:1px;}#mmd-0-light .cluster text{fill:rgb(9.346153846, 7.9615384614, 4.1538461538);}#mmd-0-light .cluster span{color:rgb(9.346153846, 7.9615384614, 4.1538461538);}#mmd-0-light div.mermaidTooltip{position:absolute;text-align:center;max-width:200px;padding:2px;font-family:-apple-system,system-ui,sans-serif;font-size:12px;background:hsl(224, 38.4615384615%, 97.3529411765%);border:1px solid hsl(224, 0%, 87.3529411765%);border-radius:2px;pointer-events:none;z-index:100;}#mmd-0-light .flowchartTitleText{text-anchor:middle;font-size:18px;fill:#1a1a1a;}#mmd-0-light rect.text{fill:none;stroke-width:0;}#mmd-0-light .icon-shape,#mmd-0-light .image-shape{background-color:#fbfaf6;text-align:center;}#mmd-0-light .icon-shape p,#mmd-0-light .image-shape p{background-color:#fbfaf6;padding:2px;}#mmd-0-light .icon-shape .label rect,#mmd-0-light .image-shape .label rect{opacity:0.5;background-color:#fbfaf6;fill:#fbfaf6;}#mmd-0-light .label-icon{display:inline-block;height:1em;overflow:visible;vertical-align:-0.125em;}#mmd-0-light .node .label-icon path{fill:currentColor;stroke:revert;stroke-width:revert;}#mmd-0-light .node .neo-node{stroke:#8a3a1a;}#mmd-0-light [data-look="neo"].node rect,#mmd-0-light [data-look="neo"].cluster rect,#mmd-0-light [data-look="neo"].node polygon{stroke:url(#mmd-0-light-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#mmd-0-light [data-look="neo"].swimlane.cluster rect{filter:none;}#mmd-0-light [data-look="neo"].node path{stroke:url(#mmd-0-light-gradient);stroke-width:1px;}#mmd-0-light [data-look="neo"].node .outer-path{filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#mmd-0-light [data-look="neo"].node .neo-line path{stroke:#8a3a1a;filter:none;}#mmd-0-light [data-look="neo"].node circle{stroke:url(#mmd-0-light-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#mmd-0-light [data-look="neo"].node circle .state-start{fill:#000000;}#mmd-0-light [data-look="neo"].icon-shape .icon{fill:url(#mmd-0-light-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#mmd-0-light [data-look="neo"].icon-shape .icon-neo path{stroke:url(#mmd-0-light-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#mmd-0-light :root{--mermaid-font-family:"trebuchet ms",verdana,arial,sans-serif;}</style><g><marker id="mmd-0-light_flowchart-v2-pointEnd" class="marker flowchart-v2" viewBox="0 0 10 10" refX="5" refY="5" markerUnits="userSpaceOnUse" markerWidth="8" markerHeight="8" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"></path></marker><marker id="mmd-0-light_flowchart-v2-pointStart" class="marker flowchart-v2" viewBox="0 0 10 10" refX="4.5" refY="5" markerUnits="userSpaceOnUse" markerWidth="8" markerHeight="8" orient="auto"><path d="M 0 5 L 10 10 L 10 0 z" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"></path></marker><marker id="mmd-0-light_flowchart-v2-pointEnd-margin" class="marker flowchart-v2" viewBox="0 0 11.5 14" refX="11.5" refY="7" markerUnits="userSpaceOnUse" markerWidth="10.5" markerHeight="14" orient="auto"><path d="M 0 0 L 11.5 7 L 0 14 z" class="arrowMarkerPath" style="stroke-width: 0; stroke-dasharray: 1, 0;"></path></marker><marker id="mmd-0-light_flowchart-v2-pointStart-margin" class="marker flowchart-v2" viewBox="0 0 11.5 14" refX="1" refY="7" markerUnits="userSpaceOnUse" markerWidth="11.5" markerHeight="14" orient="auto"><polygon points="0,7 11.5,14 11.5,0" class="arrowMarkerPath" style="stroke-width: 0; stroke-dasharray: 1, 0;"></polygon></marker><marker id="mmd-0-light_flowchart-v2-circleEnd" class="marker flowchart-v2" viewBox="0 0 10 10" refX="11" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"></circle></marker><marker id="mmd-0-light_flowchart-v2-circleStart" class="marker flowchart-v2" viewBox="0 0 10 10" refX="-1" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"></circle></marker><marker id="mmd-0-light_flowchart-v2-circleEnd-margin" class="marker flowchart-v2" viewBox="0 0 10 10" refY="5" refX="12.25" markerUnits="userSpaceOnUse" markerWidth="14" markerHeight="14" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 0; stroke-dasharray: 1, 0;"></circle></marker><marker id="mmd-0-light_flowchart-v2-circleStart-margin" class="marker flowchart-v2" viewBox="0 0 10 10" refX="-2" refY="5" markerUnits="userSpaceOnUse" markerWidth="14" markerHeight="14" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 0; stroke-dasharray: 1, 0;"></circle></marker><marker id="mmd-0-light_flowchart-v2-crossEnd" class="marker cross flowchart-v2" viewBox="0 0 11 11" refX="12" refY="5.2" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><path d="M 1,1 l 9,9 M 10,1 l -9,9" class="arrowMarkerPath" style="stroke-width: 2; stroke-dasharray: 1, 0;"></path></marker><marker id="mmd-0-light_flowchart-v2-crossStart" class="marker cross flowchart-v2" viewBox="0 0 11 11" refX="-1" refY="5.2" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><path d="M 1,1 l 9,9 M 10,1 l -9,9" class="arrowMarkerPath" style="stroke-width: 2; stroke-dasharray: 1, 0;"></path></marker><marker id="mmd-0-light_flowchart-v2-crossEnd-margin" class="marker cross flowchart-v2" viewBox="0 0 15 15" refX="17.7" refY="7.5" markerUnits="userSpaceOnUse" markerWidth="12" markerHeight="12" orient="auto"><path d="M 1,1 L 14,14 M 1,14 L 14,1" class="arrowMarkerPath" style="stroke-width: 2.5;"></path></marker><marker id="mmd-0-light_flowchart-v2-crossStart-margin" class="marker cross flowchart-v2" viewBox="0 0 15 15" refX="-3.5" refY="7.5" markerUnits="userSpaceOnUse" markerWidth="12" markerHeight="12" orient="auto"><path d="M 1,1 L 14,14 M 1,14 L 14,1" class="arrowMarkerPath" style="stroke-width: 2.5; stroke-dasharray: 1, 0;"></path></marker><g class="root"><g class="clusters"></g><g class="edgePaths"><path d="M194.023,80L194.023,84.167C194.023,88.333,194.023,96.667,194.023,104.333C194.023,112,194.023,119,194.023,122.5L194.023,126" id="mmd-0-light-L_A_B_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_A_B_0" data-points="W3sieCI6MTk0LjAyMzQzNzUsInkiOjgwfSx7IngiOjE5NC4wMjM0Mzc1LCJ5IjoxMDV9LHsieCI6MTk0LjAyMzQzNzUsInkiOjEzMH1d" data-look="classic" marker-end="url(#mmd-0-light_flowchart-v2-pointEnd)"></path><path d="M194.023,181L194.023,185.167C194.023,189.333,194.023,197.667,194.023,205.333C194.023,213,194.023,220,194.023,223.5L194.023,227" id="mmd-0-light-L_B_C_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_B_C_0" data-points="W3sieCI6MTk0LjAyMzQzNzUsInkiOjE4MX0seyJ4IjoxOTQuMDIzNDM3NSwieSI6MjA2fSx7IngiOjE5NC4wMjM0Mzc1LCJ5IjoyMzF9XQ==" data-look="classic" marker-end="url(#mmd-0-light_flowchart-v2-pointEnd)"></path><path d="M194.023,282L194.023,286.167C194.023,290.333,194.023,298.667,194.023,306.333C194.023,314,194.023,321,194.023,324.5L194.023,328" id="mmd-0-light-L_C_D_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_C_D_0" data-points="W3sieCI6MTk0LjAyMzQzNzUsInkiOjI4Mn0seyJ4IjoxOTQuMDIzNDM3NSwieSI6MzA3fSx7IngiOjE5NC4wMjM0Mzc1LCJ5IjozMzJ9XQ==" data-look="classic" marker-end="url(#mmd-0-light_flowchart-v2-pointEnd)"></path><path d="M155.378,460.214L144.715,472.572C134.052,484.929,112.725,509.644,102.062,534.977C91.398,560.31,91.398,586.26,91.398,599.236L91.398,612.211" id="mmd-0-light-L_D_E_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_D_E_0" data-points="W3sieCI6MTU1LjM3ODQ3OTEwOTM2NTYzLCJ5Ijo0NjAuMjE0NDE2NjA5MzY1Nn0seyJ4Ijo5MS4zOTg0Mzc1LCJ5Ijo1MzQuMzU5Mzc1fSx7IngiOjkxLjM5ODQzNzUsInkiOjYxNi4yMTA5Mzc1fV0=" data-look="classic" marker-end="url(#mmd-0-light_flowchart-v2-pointEnd)"></path><path d="M232.668,460.214L243.332,472.572C253.995,484.929,275.322,509.644,285.985,527.252C296.648,544.859,296.648,555.359,296.648,560.609L296.648,565.859" id="mmd-0-light-L_D_F_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_D_F_0" data-points="W3sieCI6MjMyLjY2ODM5NTg5MDYzNDM3LCJ5Ijo0NjAuMjE0NDE2NjA5MzY1Nn0seyJ4IjoyOTYuNjQ4NDM3NSwieSI6NTM0LjM1OTM3NX0seyJ4IjoyOTYuNjQ4NDM3NSwieSI6NTY5Ljg1OTM3NX1d" data-look="classic" marker-end="url(#mmd-0-light_flowchart-v2-pointEnd)"></path><path d="M255.248,672.162L237.823,684.979C220.399,697.796,185.549,723.429,168.124,741.496C150.699,759.563,150.699,770.063,150.699,775.313L150.699,780.563" id="mmd-0-light-L_F_G_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_F_G_0" data-points="W3sieCI6MjU1LjI0ODMzMDYzNDU5MDIsInkiOjY3Mi4xNjIzOTMxMzQ1OTAyfSx7IngiOjE1MC42OTkyMTg3NSwieSI6NzQ5LjA2MjV9LHsieCI6MTUwLjY5OTIxODc1LCJ5Ijo3ODQuNTYyNX1d" data-look="classic" marker-end="url(#mmd-0-light_flowchart-v2-pointEnd)"></path><path d="M338.049,672.162L355.473,684.979C372.898,697.796,407.748,723.429,425.173,743.246C442.598,763.063,442.598,777.063,442.598,784.063L442.598,791.063" id="mmd-0-light-L_F_H_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_F_H_0" data-points="W3sieCI6MzM4LjA0ODU0NDM2NTQwOTg0LCJ5Ijo2NzIuMTYyMzkzMTM0NTkwMn0seyJ4Ijo0NDIuNTk3NjU2MjUsInkiOjc0OS4wNjI1fSx7IngiOjQ0Mi41OTc2NTYyNSwieSI6Nzk1LjA2MjV9XQ==" data-look="classic" marker-end="url(#mmd-0-light_flowchart-v2-pointEnd)"></path></g><g class="edgeLabels"><g class="edgeLabel"><g class="label" data-id="L_A_B_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g><g class="edgeLabel"><g class="label" data-id="L_B_C_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g><g class="edgeLabel"><g class="label" data-id="L_C_D_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g><g class="edgeLabel" transform="translate(91.3984375, 534.359375)"><g class="label" data-id="L_D_E_0" transform="translate(-9.1875, -10.5)"><foreignObject width="18.375" height="21"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"><p>No</p></span></div></foreignObject></g></g><g class="edgeLabel" transform="translate(296.6484375, 534.359375)"><g class="label" data-id="L_D_F_0" transform="translate(-11.4453125, -10.5)"><foreignObject width="22.890625" height="21"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"><p>Yes</p></span></div></foreignObject></g></g><g class="edgeLabel" transform="translate(150.69921875, 749.0625)"><g class="label" data-id="L_F_G_0" transform="translate(-11.4453125, -10.5)"><foreignObject width="22.890625" height="21"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"><p>Yes</p></span></div></foreignObject></g></g><g class="edgeLabel" transform="translate(442.59765625, 749.0625)"><g class="label" data-id="L_F_H_0" transform="translate(-9.1875, -10.5)"><foreignObject width="18.375" height="21"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"><p>No</p></span></div></foreignObject></g></g></g><g class="nodes"><g class="node default" id="mmd-0-light-flowchart-A-0" data-look="classic" transform="translate(194.0234375, 44)"><rect class="basic label-container" style="" x="-130" y="-36" width="260" height="72"></rect><g class="label" style="" transform="translate(-100, -21)"><rect></rect><foreignObject width="200" height="42"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>Requested outcome and authority</p></span></div></foreignObject></g></g><g class="node default" id="mmd-0-light-flowchart-B-1" data-look="classic" transform="translate(194.0234375, 155.5)"><rect class="basic label-container" style="" x="-68.3125" y="-25.5" width="136.625" height="51"></rect><g class="label" style="" transform="translate(-38.3125, -10.5)"><rect></rect><foreignObject width="76.625" height="21"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="nodeLabel"><p>Entry router</p></span></div></foreignObject></g></g><g class="node default" id="mmd-0-light-flowchart-C-3" data-look="classic" transform="translate(194.0234375, 256.5)"><rect class="basic label-container" style="" x="-109.21875" y="-25.5" width="218.4375" height="51"></rect><g class="label" style="" transform="translate(-79.21875, -10.5)"><rect></rect><foreignObject width="158.4375" height="21"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="nodeLabel"><p>One workflow procedure</p></span></div></foreignObject></g></g><g class="node default" id="mmd-0-light-flowchart-D-5" data-look="classic" transform="translate(194.0234375, 415.4296875)"><polygon points="83.4296875,0 166.859375,-83.4296875 83.4296875,-166.859375 0,-83.4296875" class="label-container" transform="translate(-82.9296875, 83.4296875)"></polygon><g class="label" style="" transform="translate(-57.9296875, -10.5)"><rect></rect><foreignObject width="115.859375" height="21"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="nodeLabel"><p>API work needed?</p></span></div></foreignObject></g></g><g class="node default" id="mmd-0-light-flowchart-E-7" data-look="classic" transform="translate(91.3984375, 641.7109375)"><rect class="basic label-container" style="" x="-83.3984375" y="-25.5" width="166.796875" height="51"></rect><g class="label" style="" transform="translate(-53.3984375, -10.5)"><rect></rect><foreignObject width="106.796875" height="21"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="nodeLabel"><p>Inspect and plan</p></span></div></foreignObject></g></g><g class="node default" id="mmd-0-light-flowchart-F-9" data-look="classic" transform="translate(296.6484375, 641.7109375)"><polygon points="71.8515625,0 143.703125,-71.8515625 71.8515625,-143.703125 0,-71.8515625" class="label-container" transform="translate(-71.3515625, 71.8515625)"></polygon><g class="label" style="" transform="translate(-46.3515625, -10.5)"><rect></rect><foreignObject width="92.703125" height="21"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="nodeLabel"><p>SDK installed?</p></span></div></foreignObject></g></g><g class="node default" id="mmd-0-light-flowchart-G-11" data-look="classic" transform="translate(150.69921875, 820.5625)"><rect class="basic label-container" style="" x="-130" y="-36" width="260" height="72"></rect><g class="label" style="" transform="translate(-100, -21)"><rect></rect><foreignObject width="200" height="42"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>Installed package guide and exports</p></span></div></foreignObject></g></g><g class="node default" id="mmd-0-light-flowchart-H-13" data-look="classic" transform="translate(442.59765625, 820.5625)"><rect class="basic label-container" style="" x="-111.8984375" y="-25.5" width="223.796875" height="51"></rect><g class="label" style="" transform="translate(-81.8984375, -10.5)"><rect></rect><foreignObject width="163.796875" height="21"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="nodeLabel"><p>Plan with API gaps stated</p></span></div></foreignObject></g></g></g></g></g><defs><filter id="mmd-0-light-drop-shadow" height="130%" width="130%"><feDropShadow dx="4" dy="4" stdDeviation="0" flood-opacity="0.06" flood-color="#000000"></feDropShadow></filter></defs><defs><filter id="mmd-0-light-drop-shadow-small" height="150%" width="150%"><feDropShadow dx="2" dy="2" stdDeviation="0" flood-opacity="0.06" flood-color="#000000"></feDropShadow></filter></defs><linearGradient id="mmd-0-light-gradient" gradientUnits="objectBoundingBox" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#8a3a1a" stop-opacity="1"></stop><stop offset="100%" stop-color="hsl(-76, 0%, 82.3529411765%)" stop-opacity="1"></stop></linearGradient></svg></div><div class="mermaid-variant mermaid-dark"><svg id="mmd-0-dark" width="100%" xmlns="http://www.w3.org/2000/svg" class="flowchart" style="max-width: none; width: 562.496px;" viewBox="0 0 562.49609375 864.5625" role="graphics-document document" aria-roledescription="flowchart-v2"><style>#mmd-0-dark{font-family:-apple-system,system-ui,sans-serif;font-size:14px;fill:#e8e3d8;}@keyframes edge-animation-frame{from{stroke-dashoffset:0;}}@keyframes dash{to{stroke-dashoffset:0;}}#mmd-0-dark .edge-animation-slow{stroke-dasharray:9,5!important;stroke-dashoffset:900;animation:dash 50s linear infinite;stroke-linecap:round;}#mmd-0-dark .edge-animation-fast{stroke-dasharray:9,5!important;stroke-dashoffset:900;animation:dash 20s linear infinite;stroke-linecap:round;}#mmd-0-dark .error-icon{fill:hsl(213.3333333333, 13.8461538462%, 17.7450980392%);}#mmd-0-dark .error-text{fill:rgb(216.0153846154, 210.4461538462, 203.4846153846);stroke:rgb(216.0153846154, 210.4461538462, 203.4846153846);}#mmd-0-dark .edge-thickness-normal{stroke-width:1px;}#mmd-0-dark .edge-thickness-thick{stroke-width:3.5px;}#mmd-0-dark .edge-pattern-solid{stroke-dasharray:0;}#mmd-0-dark .edge-thickness-invisible{stroke-width:0;fill:none;}#mmd-0-dark .edge-pattern-dashed{stroke-dasharray:3;}#mmd-0-dark .edge-pattern-dotted{stroke-dasharray:2;}#mmd-0-dark .marker{fill:#8d8576;stroke:#8d8576;}#mmd-0-dark .marker.cross{stroke:#8d8576;}#mmd-0-dark svg{font-family:-apple-system,system-ui,sans-serif;font-size:14px;}#mmd-0-dark p{margin:0;}#mmd-0-dark .label{font-family:-apple-system,system-ui,sans-serif;color:#e8e3d8;}#mmd-0-dark .cluster-label text{fill:rgb(216.0153846154, 210.4461538462, 203.4846153846);}#mmd-0-dark .cluster-label span{color:rgb(216.0153846154, 210.4461538462, 203.4846153846);}#mmd-0-dark .cluster-label span p{background-color:transparent;}#mmd-0-dark .label text,#mmd-0-dark span{fill:#e8e3d8;color:#e8e3d8;}#mmd-0-dark .node rect,#mmd-0-dark .node circle,#mmd-0-dark .node ellipse,#mmd-0-dark .node polygon,#mmd-0-dark .node path{fill:#25211c;stroke:#d77a4a;stroke-width:1px;}#mmd-0-dark .rough-node .label text,#mmd-0-dark .node .label text,#mmd-0-dark .image-shape .label,#mmd-0-dark .icon-shape .label{text-anchor:middle;}#mmd-0-dark .node .katex path{fill:#000;stroke:#000;stroke-width:1px;}#mmd-0-dark .rough-node .label,#mmd-0-dark .node .label,#mmd-0-dark .image-shape .label,#mmd-0-dark .icon-shape .label{text-align:center;}#mmd-0-dark .node.clickable{cursor:pointer;}#mmd-0-dark .root .anchor path{fill:#8d8576!important;stroke-width:0;stroke:#8d8576;}#mmd-0-dark .arrowheadPath{fill:#e5e8eb;}#mmd-0-dark .edgePath .path{stroke:#8d8576;stroke-width:1px;}#mmd-0-dark .flowchart-link{stroke:#8d8576;fill:none;}#mmd-0-dark .edgeLabel{background-color:#1a1714;text-align:center;}#mmd-0-dark .edgeLabel p{background-color:#1a1714;}#mmd-0-dark .edgeLabel rect{opacity:0.5;background-color:#1a1714;fill:#1a1714;}#mmd-0-dark .labelBkg{background-color:rgba(26, 23, 20, 0.5);}#mmd-0-dark .cluster rect{fill:#221e1a;stroke:#36312a;stroke-width:1px;}#mmd-0-dark .cluster text{fill:rgb(216.0153846154, 210.4461538462, 203.4846153846);}#mmd-0-dark .cluster span{color:rgb(216.0153846154, 210.4461538462, 203.4846153846);}#mmd-0-dark div.mermaidTooltip{position:absolute;text-align:center;max-width:200px;padding:2px;font-family:-apple-system,system-ui,sans-serif;font-size:12px;background:hsl(213.3333333333, 13.8461538462%, 17.7450980392%);border:1px solid hsl(213.3333333333, 0%, 7.7450980392%);border-radius:2px;pointer-events:none;z-index:100;}#mmd-0-dark .flowchartTitleText{text-anchor:middle;font-size:18px;fill:#e8e3d8;}#mmd-0-dark rect.text{fill:none;stroke-width:0;}#mmd-0-dark .icon-shape,#mmd-0-dark .image-shape{background-color:#1a1714;text-align:center;}#mmd-0-dark .icon-shape p,#mmd-0-dark .image-shape p{background-color:#1a1714;padding:2px;}#mmd-0-dark .icon-shape .label rect,#mmd-0-dark .image-shape .label rect{opacity:0.5;background-color:#1a1714;fill:#1a1714;}#mmd-0-dark .label-icon{display:inline-block;height:1em;overflow:visible;vertical-align:-0.125em;}#mmd-0-dark .node .label-icon path{fill:currentColor;stroke:revert;stroke-width:revert;}#mmd-0-dark .node .neo-node{stroke:#d77a4a;}#mmd-0-dark [data-look="neo"].node rect,#mmd-0-dark [data-look="neo"].cluster rect,#mmd-0-dark [data-look="neo"].node polygon{stroke:url(#mmd-0-dark-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#mmd-0-dark [data-look="neo"].swimlane.cluster rect{filter:none;}#mmd-0-dark [data-look="neo"].node path{stroke:url(#mmd-0-dark-gradient);stroke-width:1px;}#mmd-0-dark [data-look="neo"].node .outer-path{filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#mmd-0-dark [data-look="neo"].node .neo-line path{stroke:#d77a4a;filter:none;}#mmd-0-dark [data-look="neo"].node circle{stroke:url(#mmd-0-dark-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#mmd-0-dark [data-look="neo"].node circle .state-start{fill:#000000;}#mmd-0-dark [data-look="neo"].icon-shape .icon{fill:url(#mmd-0-dark-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#mmd-0-dark [data-look="neo"].icon-shape .icon-neo path{stroke:url(#mmd-0-dark-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#mmd-0-dark :root{--mermaid-font-family:"trebuchet ms",verdana,arial,sans-serif;}</style><g><marker id="mmd-0-dark_flowchart-v2-pointEnd" class="marker flowchart-v2" viewBox="0 0 10 10" refX="5" refY="5" markerUnits="userSpaceOnUse" markerWidth="8" markerHeight="8" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"></path></marker><marker id="mmd-0-dark_flowchart-v2-pointStart" class="marker flowchart-v2" viewBox="0 0 10 10" refX="4.5" refY="5" markerUnits="userSpaceOnUse" markerWidth="8" markerHeight="8" orient="auto"><path d="M 0 5 L 10 10 L 10 0 z" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"></path></marker><marker id="mmd-0-dark_flowchart-v2-pointEnd-margin" class="marker flowchart-v2" viewBox="0 0 11.5 14" refX="11.5" refY="7" markerUnits="userSpaceOnUse" markerWidth="10.5" markerHeight="14" orient="auto"><path d="M 0 0 L 11.5 7 L 0 14 z" class="arrowMarkerPath" style="stroke-width: 0; stroke-dasharray: 1, 0;"></path></marker><marker id="mmd-0-dark_flowchart-v2-pointStart-margin" class="marker flowchart-v2" viewBox="0 0 11.5 14" refX="1" refY="7" markerUnits="userSpaceOnUse" markerWidth="11.5" markerHeight="14" orient="auto"><polygon points="0,7 11.5,14 11.5,0" class="arrowMarkerPath" style="stroke-width: 0; stroke-dasharray: 1, 0;"></polygon></marker><marker id="mmd-0-dark_flowchart-v2-circleEnd" class="marker flowchart-v2" viewBox="0 0 10 10" refX="11" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"></circle></marker><marker id="mmd-0-dark_flowchart-v2-circleStart" class="marker flowchart-v2" viewBox="0 0 10 10" refX="-1" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"></circle></marker><marker id="mmd-0-dark_flowchart-v2-circleEnd-margin" class="marker flowchart-v2" viewBox="0 0 10 10" refY="5" refX="12.25" markerUnits="userSpaceOnUse" markerWidth="14" markerHeight="14" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 0; stroke-dasharray: 1, 0;"></circle></marker><marker id="mmd-0-dark_flowchart-v2-circleStart-margin" class="marker flowchart-v2" viewBox="0 0 10 10" refX="-2" refY="5" markerUnits="userSpaceOnUse" markerWidth="14" markerHeight="14" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 0; stroke-dasharray: 1, 0;"></circle></marker><marker id="mmd-0-dark_flowchart-v2-crossEnd" class="marker cross flowchart-v2" viewBox="0 0 11 11" refX="12" refY="5.2" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><path d="M 1,1 l 9,9 M 10,1 l -9,9" class="arrowMarkerPath" style="stroke-width: 2; stroke-dasharray: 1, 0;"></path></marker><marker id="mmd-0-dark_flowchart-v2-crossStart" class="marker cross flowchart-v2" viewBox="0 0 11 11" refX="-1" refY="5.2" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><path d="M 1,1 l 9,9 M 10,1 l -9,9" class="arrowMarkerPath" style="stroke-width: 2; stroke-dasharray: 1, 0;"></path></marker><marker id="mmd-0-dark_flowchart-v2-crossEnd-margin" class="marker cross flowchart-v2" viewBox="0 0 15 15" refX="17.7" refY="7.5" markerUnits="userSpaceOnUse" markerWidth="12" markerHeight="12" orient="auto"><path d="M 1,1 L 14,14 M 1,14 L 14,1" class="arrowMarkerPath" style="stroke-width: 2.5;"></path></marker><marker id="mmd-0-dark_flowchart-v2-crossStart-margin" class="marker cross flowchart-v2" viewBox="0 0 15 15" refX="-3.5" refY="7.5" markerUnits="userSpaceOnUse" markerWidth="12" markerHeight="12" orient="auto"><path d="M 1,1 L 14,14 M 1,14 L 14,1" class="arrowMarkerPath" style="stroke-width: 2.5; stroke-dasharray: 1, 0;"></path></marker><g class="root"><g class="clusters"></g><g class="edgePaths"><path d="M194.023,80L194.023,84.167C194.023,88.333,194.023,96.667,194.023,104.333C194.023,112,194.023,119,194.023,122.5L194.023,126" id="mmd-0-dark-L_A_B_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_A_B_0" data-points="W3sieCI6MTk0LjAyMzQzNzUsInkiOjgwfSx7IngiOjE5NC4wMjM0Mzc1LCJ5IjoxMDV9LHsieCI6MTk0LjAyMzQzNzUsInkiOjEzMH1d" data-look="classic" marker-end="url(#mmd-0-dark_flowchart-v2-pointEnd)"></path><path d="M194.023,181L194.023,185.167C194.023,189.333,194.023,197.667,194.023,205.333C194.023,213,194.023,220,194.023,223.5L194.023,227" id="mmd-0-dark-L_B_C_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_B_C_0" data-points="W3sieCI6MTk0LjAyMzQzNzUsInkiOjE4MX0seyJ4IjoxOTQuMDIzNDM3NSwieSI6MjA2fSx7IngiOjE5NC4wMjM0Mzc1LCJ5IjoyMzF9XQ==" data-look="classic" marker-end="url(#mmd-0-dark_flowchart-v2-pointEnd)"></path><path d="M194.023,282L194.023,286.167C194.023,290.333,194.023,298.667,194.023,306.333C194.023,314,194.023,321,194.023,324.5L194.023,328" id="mmd-0-dark-L_C_D_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_C_D_0" data-points="W3sieCI6MTk0LjAyMzQzNzUsInkiOjI4Mn0seyJ4IjoxOTQuMDIzNDM3NSwieSI6MzA3fSx7IngiOjE5NC4wMjM0Mzc1LCJ5IjozMzJ9XQ==" data-look="classic" marker-end="url(#mmd-0-dark_flowchart-v2-pointEnd)"></path><path d="M155.378,460.214L144.715,472.572C134.052,484.929,112.725,509.644,102.062,534.977C91.398,560.31,91.398,586.26,91.398,599.236L91.398,612.211" id="mmd-0-dark-L_D_E_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_D_E_0" data-points="W3sieCI6MTU1LjM3ODQ3OTEwOTM2NTYzLCJ5Ijo0NjAuMjE0NDE2NjA5MzY1Nn0seyJ4Ijo5MS4zOTg0Mzc1LCJ5Ijo1MzQuMzU5Mzc1fSx7IngiOjkxLjM5ODQzNzUsInkiOjYxNi4yMTA5Mzc1fV0=" data-look="classic" marker-end="url(#mmd-0-dark_flowchart-v2-pointEnd)"></path><path d="M232.668,460.214L243.332,472.572C253.995,484.929,275.322,509.644,285.985,527.252C296.648,544.859,296.648,555.359,296.648,560.609L296.648,565.859" id="mmd-0-dark-L_D_F_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_D_F_0" data-points="W3sieCI6MjMyLjY2ODM5NTg5MDYzNDM3LCJ5Ijo0NjAuMjE0NDE2NjA5MzY1Nn0seyJ4IjoyOTYuNjQ4NDM3NSwieSI6NTM0LjM1OTM3NX0seyJ4IjoyOTYuNjQ4NDM3NSwieSI6NTY5Ljg1OTM3NX1d" data-look="classic" marker-end="url(#mmd-0-dark_flowchart-v2-pointEnd)"></path><path d="M255.248,672.162L237.823,684.979C220.399,697.796,185.549,723.429,168.124,741.496C150.699,759.563,150.699,770.063,150.699,775.313L150.699,780.563" id="mmd-0-dark-L_F_G_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_F_G_0" data-points="W3sieCI6MjU1LjI0ODMzMDYzNDU5MDIsInkiOjY3Mi4xNjIzOTMxMzQ1OTAyfSx7IngiOjE1MC42OTkyMTg3NSwieSI6NzQ5LjA2MjV9LHsieCI6MTUwLjY5OTIxODc1LCJ5Ijo3ODQuNTYyNX1d" data-look="classic" marker-end="url(#mmd-0-dark_flowchart-v2-pointEnd)"></path><path d="M338.049,672.162L355.473,684.979C372.898,697.796,407.748,723.429,425.173,743.246C442.598,763.063,442.598,777.063,442.598,784.063L442.598,791.063" id="mmd-0-dark-L_F_H_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_F_H_0" data-points="W3sieCI6MzM4LjA0ODU0NDM2NTQwOTg0LCJ5Ijo2NzIuMTYyMzkzMTM0NTkwMn0seyJ4Ijo0NDIuNTk3NjU2MjUsInkiOjc0OS4wNjI1fSx7IngiOjQ0Mi41OTc2NTYyNSwieSI6Nzk1LjA2MjV9XQ==" data-look="classic" marker-end="url(#mmd-0-dark_flowchart-v2-pointEnd)"></path></g><g class="edgeLabels"><g class="edgeLabel"><g class="label" data-id="L_A_B_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g><g class="edgeLabel"><g class="label" data-id="L_B_C_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g><g class="edgeLabel"><g class="label" data-id="L_C_D_0" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g><g class="edgeLabel" transform="translate(91.3984375, 534.359375)"><g class="label" data-id="L_D_E_0" transform="translate(-9.1875, -10.5)"><foreignObject width="18.375" height="21"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"><p>No</p></span></div></foreignObject></g></g><g class="edgeLabel" transform="translate(296.6484375, 534.359375)"><g class="label" data-id="L_D_F_0" transform="translate(-11.4453125, -10.5)"><foreignObject width="22.890625" height="21"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"><p>Yes</p></span></div></foreignObject></g></g><g class="edgeLabel" transform="translate(150.69921875, 749.0625)"><g class="label" data-id="L_F_G_0" transform="translate(-11.4453125, -10.5)"><foreignObject width="22.890625" height="21"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"><p>Yes</p></span></div></foreignObject></g></g><g class="edgeLabel" transform="translate(442.59765625, 749.0625)"><g class="label" data-id="L_F_H_0" transform="translate(-9.1875, -10.5)"><foreignObject width="18.375" height="21"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"><p>No</p></span></div></foreignObject></g></g></g><g class="nodes"><g class="node default" id="mmd-0-dark-flowchart-A-0" data-look="classic" transform="translate(194.0234375, 44)"><rect class="basic label-container" style="" x="-130" y="-36" width="260" height="72"></rect><g class="label" style="" transform="translate(-100, -21)"><rect></rect><foreignObject width="200" height="42"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>Requested outcome and authority</p></span></div></foreignObject></g></g><g class="node default" id="mmd-0-dark-flowchart-B-1" data-look="classic" transform="translate(194.0234375, 155.5)"><rect class="basic label-container" style="" x="-68.3125" y="-25.5" width="136.625" height="51"></rect><g class="label" style="" transform="translate(-38.3125, -10.5)"><rect></rect><foreignObject width="76.625" height="21"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="nodeLabel"><p>Entry router</p></span></div></foreignObject></g></g><g class="node default" id="mmd-0-dark-flowchart-C-3" data-look="classic" transform="translate(194.0234375, 256.5)"><rect class="basic label-container" style="" x="-109.21875" y="-25.5" width="218.4375" height="51"></rect><g class="label" style="" transform="translate(-79.21875, -10.5)"><rect></rect><foreignObject width="158.4375" height="21"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="nodeLabel"><p>One workflow procedure</p></span></div></foreignObject></g></g><g class="node default" id="mmd-0-dark-flowchart-D-5" data-look="classic" transform="translate(194.0234375, 415.4296875)"><polygon points="83.4296875,0 166.859375,-83.4296875 83.4296875,-166.859375 0,-83.4296875" class="label-container" transform="translate(-82.9296875, 83.4296875)"></polygon><g class="label" style="" transform="translate(-57.9296875, -10.5)"><rect></rect><foreignObject width="115.859375" height="21"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="nodeLabel"><p>API work needed?</p></span></div></foreignObject></g></g><g class="node default" id="mmd-0-dark-flowchart-E-7" data-look="classic" transform="translate(91.3984375, 641.7109375)"><rect class="basic label-container" style="" x="-83.3984375" y="-25.5" width="166.796875" height="51"></rect><g class="label" style="" transform="translate(-53.3984375, -10.5)"><rect></rect><foreignObject width="106.796875" height="21"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="nodeLabel"><p>Inspect and plan</p></span></div></foreignObject></g></g><g class="node default" id="mmd-0-dark-flowchart-F-9" data-look="classic" transform="translate(296.6484375, 641.7109375)"><polygon points="71.8515625,0 143.703125,-71.8515625 71.8515625,-143.703125 0,-71.8515625" class="label-container" transform="translate(-71.3515625, 71.8515625)"></polygon><g class="label" style="" transform="translate(-46.3515625, -10.5)"><rect></rect><foreignObject width="92.703125" height="21"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="nodeLabel"><p>SDK installed?</p></span></div></foreignObject></g></g><g class="node default" id="mmd-0-dark-flowchart-G-11" data-look="classic" transform="translate(150.69921875, 820.5625)"><rect class="basic label-container" style="" x="-130" y="-36" width="260" height="72"></rect><g class="label" style="" transform="translate(-100, -21)"><rect></rect><foreignObject width="200" height="42"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>Installed package guide and exports</p></span></div></foreignObject></g></g><g class="node default" id="mmd-0-dark-flowchart-H-13" data-look="classic" transform="translate(442.59765625, 820.5625)"><rect class="basic label-container" style="" x="-111.8984375" y="-25.5" width="223.796875" height="51"></rect><g class="label" style="" transform="translate(-81.8984375, -10.5)"><rect></rect><foreignObject width="163.796875" height="21"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="nodeLabel"><p>Plan with API gaps stated</p></span></div></foreignObject></g></g></g></g></g><defs><filter id="mmd-0-dark-drop-shadow" height="130%" width="130%"><feDropShadow dx="4" dy="4" stdDeviation="0" flood-opacity="0.06" flood-color="#000000"></feDropShadow></filter></defs><defs><filter id="mmd-0-dark-drop-shadow-small" height="150%" width="150%"><feDropShadow dx="2" dy="2" stdDeviation="0" flood-opacity="0.06" flood-color="#000000"></feDropShadow></filter></defs><linearGradient id="mmd-0-dark-gradient" gradientUnits="objectBoundingBox" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#d77a4a" stop-opacity="1"></stop><stop offset="100%" stop-color="hsl(-86.6666666667, 0%, 2.7450980392%)" stop-opacity="1"></stop></linearGradient></svg></div></div><p>API-specific work takes a second path through the installed package. The owning <code>package.json</code> supplies the version authority; the workflow bundle does not promise that its examples match every SDK release. If no SDK exists yet, repository inspection and planning can continue, while API details remain unverified.</p><p>Fourteen package guides gain local task recipes, verification advice, and troubleshooting. The React recipes include branded Instance identifiers for tiling seeds and bounded DOM tests. These are guidance changes, not production SDK API changes.</p>
+
+<h2 id="pw-sec-4"><span class="num">4 · What we built</span>A complete first-use path</h2>
+<p>The documentation page connects installation, discovery, task selection, SDK guidance, and maintenance. It offers three supported installation targets and seven starter requests, each paired with expected evidence. The first request asks for a plan; a separate request grants bounded implementation authority.</p><p>Installation remains interactive. The pinned installer can choose Project or Global scope, so the instructions explicitly tell you to choose Project. Listing installed files proves presence, not successful loading or correct application. The page asks you to confirm discovery before relying on the workflow.</p><p>Preview builds must install their own bundle. The page therefore fills command URLs from the origin being viewed, and repeats that initialization when client navigation restores the page.</p><figure class="code-figure"><figcaption><code>apps/docs/src/pages/agents/skills/index.astro</code></figcaption><pre class="shiki shiki-themes vitesse-light vitesse-dark" style="background-color:#ffffff;--shiki-dark-bg:#121212;color:#393a34;--shiki-dark:#dbd7caee" tabindex="0"><code><span class="line"><span style="color:#AB5959;--shiki-dark:#CB7676">  const </span><span style="color:#59873A;--shiki-dark:#80A665">initBundleCommands</span><span style="color:#999999;--shiki-dark:#666666"> =</span><span style="color:#999999;--shiki-dark:#666666"> ()</span><span style="color:#999999;--shiki-dark:#666666"> =&gt;</span><span style="color:#999999;--shiki-dark:#666666"> {</span></span>
+<span class="line"><span style="color:#AB5959;--shiki-dark:#CB7676">    const </span><span style="color:#B07D48;--shiki-dark:#BD976A">servedBundle</span><span style="color:#999999;--shiki-dark:#666666"> =</span><span style="color:#AB5959;--shiki-dark:#CB7676"> new </span><span style="color:#59873A;--shiki-dark:#80A665">URL</span><span style="color:#999999;--shiki-dark:#666666">(</span><span style="color:#B5695977;--shiki-dark:#C98A7D77">'</span><span style="color:#B56959;--shiki-dark:#C98A7D">/agents/skills/bundle.zip</span><span style="color:#B5695977;--shiki-dark:#C98A7D77">'</span><span style="color:#999999;--shiki-dark:#666666">,</span><span style="color:#B07D48;--shiki-dark:#BD976A"> location</span><span style="color:#999999;--shiki-dark:#666666">.</span><span style="color:#B07D48;--shiki-dark:#BD976A">origin</span><span style="color:#999999;--shiki-dark:#666666">).</span><span style="color:#B07D48;--shiki-dark:#BD976A">href</span><span style="color:#999999;--shiki-dark:#666666">;</span></span>
+<span class="line"><span style="color:#1E754F;--shiki-dark:#4D9375">    for</span><span style="color:#999999;--shiki-dark:#666666"> (</span><span style="color:#AB5959;--shiki-dark:#CB7676">const </span><span style="color:#B07D48;--shiki-dark:#BD976A">pre</span><span style="color:#AB5959;--shiki-dark:#CB7676"> of </span><span style="color:#B07D48;--shiki-dark:#BD976A">document</span><span style="color:#999999;--shiki-dark:#666666">.</span><span style="color:#59873A;--shiki-dark:#80A665">querySelectorAll</span><span style="color:#999999;--shiki-dark:#666666">&lt;</span><span style="color:#2E8F82;--shiki-dark:#5DA994">HTMLElement</span><span style="color:#999999;--shiki-dark:#666666">&gt;(</span><span style="color:#B5695977;--shiki-dark:#C98A7D77">'</span><span style="color:#B56959;--shiki-dark:#C98A7D">[data-bundle-command]</span><span style="color:#B5695977;--shiki-dark:#C98A7D77">'</span><span style="color:#999999;--shiki-dark:#666666">))</span><span style="color:#999999;--shiki-dark:#666666"> {</span></span>
+<span class="line"><span style="color:#AB5959;--shiki-dark:#CB7676">      const </span><span style="color:#B07D48;--shiki-dark:#BD976A">code</span><span style="color:#999999;--shiki-dark:#666666"> =</span><span style="color:#B07D48;--shiki-dark:#BD976A"> pre</span><span style="color:#999999;--shiki-dark:#666666">.</span><span style="color:#59873A;--shiki-dark:#80A665">querySelector</span><span style="color:#999999;--shiki-dark:#666666">(</span><span style="color:#B5695977;--shiki-dark:#C98A7D77">'</span><span style="color:#B56959;--shiki-dark:#C98A7D">code</span><span style="color:#B5695977;--shiki-dark:#C98A7D77">'</span><span style="color:#999999;--shiki-dark:#666666">);</span></span>
+<span class="line"><span style="color:#1E754F;--shiki-dark:#4D9375">      if</span><span style="color:#999999;--shiki-dark:#666666"> (</span><span style="color:#AB5959;--shiki-dark:#CB7676">!</span><span style="color:#B07D48;--shiki-dark:#BD976A">code</span><span style="color:#999999;--shiki-dark:#666666">?.</span><span style="color:#B07D48;--shiki-dark:#BD976A">textContent</span><span style="color:#999999;--shiki-dark:#666666">)</span><span style="color:#1E754F;--shiki-dark:#4D9375"> continue</span><span style="color:#999999;--shiki-dark:#666666">;</span></span>
+<span class="line"><span style="color:#B07D48;--shiki-dark:#BD976A">      code</span><span style="color:#999999;--shiki-dark:#666666">.</span><span style="color:#B07D48;--shiki-dark:#BD976A">textContent</span><span style="color:#999999;--shiki-dark:#666666"> =</span><span style="color:#B07D48;--shiki-dark:#BD976A"> code</span><span style="color:#999999;--shiki-dark:#666666">.</span><span style="color:#B07D48;--shiki-dark:#BD976A">textContent</span><span style="color:#999999;--shiki-dark:#666666">.</span><span style="color:#59873A;--shiki-dark:#80A665">replace</span><span style="color:#999999;--shiki-dark:#666666">(</span><span style="color:#B07D48;--shiki-dark:#BD976A">skillBundleUrl</span><span style="color:#999999;--shiki-dark:#666666">,</span><span style="color:#B07D48;--shiki-dark:#BD976A"> servedBundle</span><span style="color:#999999;--shiki-dark:#666666">);</span></span>
+<span class="line"><span style="color:#B07D48;--shiki-dark:#BD976A">      pre</span><span style="color:#999999;--shiki-dark:#666666">.</span><span style="color:#B07D48;--shiki-dark:#BD976A">hidden</span><span style="color:#999999;--shiki-dark:#666666"> =</span><span style="color:#1E754F;--shiki-dark:#4D9375"> false</span><span style="color:#999999;--shiki-dark:#666666">;</span></span>
+<span class="line"><span style="color:#999999;--shiki-dark:#666666">    }</span></span>
+<span class="line"><span style="color:#999999;--shiki-dark:#666666">  };</span></span>
+<span class="line"><span style="color:#59873A;--shiki-dark:#80A665">  initBundleCommands</span><span style="color:#999999;--shiki-dark:#666666">();</span></span>
+<span class="line"><span style="color:#B07D48;--shiki-dark:#BD976A">  document</span><span style="color:#999999;--shiki-dark:#666666">.</span><span style="color:#59873A;--shiki-dark:#80A665">addEventListener</span><span style="color:#999999;--shiki-dark:#666666">(</span><span style="color:#B5695977;--shiki-dark:#C98A7D77">'</span><span style="color:#B56959;--shiki-dark:#C98A7D">astro:page-load</span><span style="color:#B5695977;--shiki-dark:#C98A7D77">'</span><span style="color:#999999;--shiki-dark:#666666">,</span><span style="color:#B07D48;--shiki-dark:#BD976A"> initBundleCommands</span><span style="color:#999999;--shiki-dark:#666666">);</span></span></code></pre></figure><p>The command blocks stay hidden until that URL is ready. A manual ZIP download remains available when JavaScript is disabled. This avoids presenting a production-bundle command as a preview-build installation.</p>
+
+<h2 id="pw-sec-5"><span class="num">5 · Portable references</span>A procedure carries the files it needs</h2>
+<p>Individual installation exposed another boundary. The authored repository shares reference files between procedures, but an installer may copy only one procedure directory. A relative link into a missing sibling then fails, even though its <code>SKILL.md</code> is present.</p><p>The bundler follows relative Markdown links transitively. It copies reachable resources into the procedure's generated directory and rewrites their links, retaining fragments. Missing resources, escaping paths, and conflicting destinations stop the build.</p><figure class="code-figure"><figcaption><code>apps/docs/tools/skills/bundle.ts</code></figcaption><pre class="shiki shiki-themes vitesse-light vitesse-dark" style="background-color:#ffffff;--shiki-dark-bg:#121212;color:#393a34;--shiki-dark:#dbd7caee" tabindex="0"><code><span class="line"><span style="color:#1E754F;--shiki-dark:#4D9375">        if</span><span style="color:#999999;--shiki-dark:#666666"> (</span><span style="color:#AB5959;--shiki-dark:#CB7676">!</span><span style="color:#B07D48;--shiki-dark:#BD976A">files</span><span style="color:#999999;--shiki-dark:#666666">[</span><span style="color:#B07D48;--shiki-dark:#BD976A">dependency</span><span style="color:#999999;--shiki-dark:#666666">])</span><span style="color:#999999;--shiki-dark:#666666"> {</span></span>
+<span class="line"><span style="color:#1E754F;--shiki-dark:#4D9375">          throw</span><span style="color:#AB5959;--shiki-dark:#CB7676"> new</span><span style="color:#59873A;--shiki-dark:#80A665"> Error</span><span style="color:#999999;--shiki-dark:#666666">(</span></span>
+<span class="line"><span style="color:#B5695977;--shiki-dark:#C98A7D77">            `</span><span style="color:#B56959;--shiki-dark:#C98A7D">Missing skill reference: </span><span style="color:#1E754F;--shiki-dark:#4D9375">${</span><span style="color:#B56959;--shiki-dark:#C98A7D">sourcePath</span><span style="color:#1E754F;--shiki-dark:#4D9375">}</span><span style="color:#B56959;--shiki-dark:#C98A7D"> -&gt; </span><span style="color:#1E754F;--shiki-dark:#4D9375">${</span><span style="color:#B56959;--shiki-dark:#C98A7D">target</span><span style="color:#1E754F;--shiki-dark:#4D9375">}</span><span style="color:#B5695977;--shiki-dark:#C98A7D77">`</span><span style="color:#999999;--shiki-dark:#666666">,</span></span>
+<span class="line"><span style="color:#999999;--shiki-dark:#666666">          );</span></span>
+<span class="line"><span style="color:#999999;--shiki-dark:#666666">        }</span></span>
+<span class="line"><span style="color:#B07D48;--shiki-dark:#BD976A">        pending</span><span style="color:#999999;--shiki-dark:#666666">.</span><span style="color:#59873A;--shiki-dark:#80A665">push</span><span style="color:#999999;--shiki-dark:#666666">(</span><span style="color:#B07D48;--shiki-dark:#BD976A">dependency</span><span style="color:#999999;--shiki-dark:#666666">);</span></span>
+<span class="line"><span style="color:#AB5959;--shiki-dark:#CB7676">        const </span><span style="color:#B07D48;--shiki-dark:#BD976A">localPath</span><span style="color:#999999;--shiki-dark:#666666"> =</span><span style="color:#59873A;--shiki-dark:#80A665"> destinationFor</span><span style="color:#999999;--shiki-dark:#666666">(</span><span style="color:#B07D48;--shiki-dark:#BD976A">dependency</span><span style="color:#999999;--shiki-dark:#666666">);</span></span>
+<span class="line"><span style="color:#1E754F;--shiki-dark:#4D9375">        if</span><span style="color:#999999;--shiki-dark:#666666"> (</span></span>
+<span class="line"><span style="color:#B07D48;--shiki-dark:#BD976A">          posix</span><span style="color:#999999;--shiki-dark:#666666">.</span><span style="color:#59873A;--shiki-dark:#80A665">normalize</span><span style="color:#999999;--shiki-dark:#666666">(</span></span>
+<span class="line"><span style="color:#B07D48;--shiki-dark:#BD976A">            posix</span><span style="color:#999999;--shiki-dark:#666666">.</span><span style="color:#59873A;--shiki-dark:#80A665">join</span><span style="color:#999999;--shiki-dark:#666666">(</span><span style="color:#B07D48;--shiki-dark:#BD976A">posix</span><span style="color:#999999;--shiki-dark:#666666">.</span><span style="color:#59873A;--shiki-dark:#80A665">dirname</span><span style="color:#999999;--shiki-dark:#666666">(</span><span style="color:#B07D48;--shiki-dark:#BD976A">destination</span><span style="color:#999999;--shiki-dark:#666666">),</span><span style="color:#B07D48;--shiki-dark:#BD976A"> targetPath</span><span style="color:#999999;--shiki-dark:#666666">),</span></span>
+<span class="line"><span style="color:#999999;--shiki-dark:#666666">          )</span><span style="color:#AB5959;--shiki-dark:#CB7676"> ===</span><span style="color:#B07D48;--shiki-dark:#BD976A"> localPath</span></span>
+<span class="line"><span style="color:#999999;--shiki-dark:#666666">        )</span><span style="color:#999999;--shiki-dark:#666666"> {</span></span>
+<span class="line"><span style="color:#1E754F;--shiki-dark:#4D9375">          return</span><span style="color:#B07D48;--shiki-dark:#BD976A"> link</span><span style="color:#999999;--shiki-dark:#666666">;</span></span>
+<span class="line"><span style="color:#999999;--shiki-dark:#666666">        }</span></span>
+<span class="line"><span style="color:#AB5959;--shiki-dark:#CB7676">        const </span><span style="color:#B07D48;--shiki-dark:#BD976A">localTarget</span><span style="color:#999999;--shiki-dark:#666666"> =</span></span>
+<span class="line"><span style="color:#B07D48;--shiki-dark:#BD976A">          posix</span><span style="color:#999999;--shiki-dark:#666666">.</span><span style="color:#59873A;--shiki-dark:#80A665">relative</span><span style="color:#999999;--shiki-dark:#666666">(</span><span style="color:#B07D48;--shiki-dark:#BD976A">posix</span><span style="color:#999999;--shiki-dark:#666666">.</span><span style="color:#59873A;--shiki-dark:#80A665">dirname</span><span style="color:#999999;--shiki-dark:#666666">(</span><span style="color:#B07D48;--shiki-dark:#BD976A">destination</span><span style="color:#999999;--shiki-dark:#666666">),</span><span style="color:#B07D48;--shiki-dark:#BD976A"> localPath</span><span style="color:#999999;--shiki-dark:#666666">)</span><span style="color:#AB5959;--shiki-dark:#CB7676"> + </span><span style="color:#B07D48;--shiki-dark:#BD976A">fragment</span><span style="color:#999999;--shiki-dark:#666666">;</span></span></code></pre></figure><p>The worklist is what makes this a dependency closure rather than a single-file copy. A referenced file can point to another reference, and that second file must travel too. Canonical voice architecture and decision records enter the generated bundle through the same mechanism.</p><p>This is why the installation instructions use the generated ZIP rather than the authored GitHub tree. Package-owned API recipes remain inside their SDK packages and update with those releases.</p>
+
+<h2 id="pw-sec-6"><span class="num">6 · The diff</span>Where the journey lives</h2>
+<p>The page and catalog carry the first-use story. The bundler owns resource projection. SDK packages own their release-matched examples. Tests and research records keep those promises separate from broader claims about model performance.</p><table><thead><tr><th>File or group</th><th>Role</th></tr></thead><tbody><tr><td><code>README.md</code>, Quick Start, sidebar configuration and tests</td><td>Place the first-use path beside existing getting-started material.</td></tr><tr><td><code>apps/docs/src/pages/agents/skills/index.astro</code></td><td>Connect installation and discovery to bounded planning and implementation.</td></tr><tr><td><code>apps/docs/src/lib/skill-onboarding.ts</code> (new)</td><td>Give each starter task one request and an evidence expectation.</td></tr><tr><td>The onboarding prompt, router, and skills README</td><td>Make permission and installed-version ownership explicit.</td></tr><tr><td><code>bundle.ts</code> and its new filesystem tests</td><td>Produce self-contained procedure directories from shared authored resources.</td></tr><tr><td>Fourteen package <code>common-tasks.md</code> files (new), with guide entry-point updates</td><td>Keep practical construction and verification advice beside the owning SDK release.</td></tr><tr><td><code>sdk-examples.test.ts</code>, onboarding authority tests, and browser cases (new)</td><td>Protect recipe compilation, planning defaults, command origins, and navigation behavior.</td></tr><tr><td><code>acceptance.ts</code>, trial guard and runtime helpers with tests (new)</td><td>Check optional read-only discovery in fresh consumers without replacing application review.</td></tr><tr><td>Research records (new), trial README, prompt architecture, and docs target configuration</td><td>Document boundaries and connect the tooling to normal verification.</td></tr></tbody></table>
+
+<h2 id="pw-sec-7"><span class="num">7 · The limits</span>What the checks can establish</h2>
+<p>Bundle tests exercise real reference trees, including transitive links and conflicts. Recipe tests compile examples against built public declarations. Browser cases check the visible first-use path, same-origin commands after navigation, and narrow-screen layout. The optional acceptance runner checks discovery and read-only selection, while leaving correct application for review.</p><p>Those checks do not establish live Engine planning, microphone behavior, or provider integration. Hosted installation remains unverified. Automatic skill selection also depends on the selected tool; an installer listing is not activation.</p><p>The historical task comparisons remain exploratory. Their sample and combined treatments do not establish a consistent quality advantage or token savings. A later harness restart removed the private raw traces and snapshots, so the curated summary cannot supply independently reproducible evidence.</p>
+
+<h2 id="pw-sec-8"><span class="num">8 · The short version</span>Start with one task and explicit authority</h2>
+<p>PR #249 makes existing Maelstrom guidance easier to install, discover, and use without broadening a planning request. Generated procedure directories carry their references; installed packages remain the API authority. The result is a clearer first-use path, not a demonstrated quality or token-saving benefit.</p>
+
+<footer>
+  <p>PR #249 · snapshot 64db87970db40c2120989bf34d5ab374c4790299</p>
+</footer>
+
+<script>
+  (function () {
+    var html = document.documentElement;
+    var btn = document.querySelector('.theme-toggle');
+    var label = btn.querySelector('.toggle-label');
+
+    function render() {
+      var current = html.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+      label.textContent = current;
+      btn.setAttribute('aria-pressed', current === 'dark' ? 'true' : 'false');
+    }
+
+    render();
+
+    btn.addEventListener('click', function () {
+      var next = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+      html.setAttribute('data-theme', next);
+      try {
+        localStorage.setItem('pr-walkthrough-theme', next);
+      } catch (_) {
+        /* storage unavailable — toggle still works in-session */
+      }
+      render();
+    });
+
+    // Follow system changes only if the user hasn't made an explicit choice.
+    if (window.matchMedia) {
+      window
+        .matchMedia('(prefers-color-scheme: dark)')
+        .addEventListener('change', function (e) {
+          var stored = null;
+          try { stored = localStorage.getItem('pr-walkthrough-theme'); } catch (_) {}
+          if (stored !== 'light' && stored !== 'dark') {
+            html.setAttribute('data-theme', e.matches ? 'dark' : 'light');
+            render();
+          }
+        });
+    }
+  })();
+</script>
+
+<script>
+  // Narration read-along. No-ops when the walkthrough has no audio (the
+  // "Play narration" control and clips are simply absent).
+  (function () {
+    var btn = document.querySelector('.pw-playall');
+    var seq = Array.prototype.slice.call(document.querySelectorAll('.pw-audio'));
+    if (!btn || !seq.length) return;
+
+    var label = btn.querySelector('.pw-playall-label');
+    var icon = btn.querySelector('.pw-playall-icon');
+    var reduce =
+      window.matchMedia &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var chaining = false; // true only while "Play narration" is driving
+    var idx = -1;         // index of the clip currently playing
+
+    function setPlaying(on) {
+      btn.classList.toggle('is-playing', on);
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+      if (label) label.textContent = on ? 'Stop narration' : 'Play narration';
+      if (icon) icon.textContent = on ? '■' : '▶';
+    }
+
+    function scrollToClip(a) {
+      var target = a.getAttribute('data-scroll');
+      var behavior = reduce ? 'auto' : 'smooth';
+      if (target === 'top') {
+        window.scrollTo({ top: 0, behavior: behavior });
+      } else if (target) {
+        var el = document.querySelector(target);
+        if (el) el.scrollIntoView({ behavior: behavior, block: 'start' });
+      }
+    }
+
+    function stop() {
+      chaining = false;
+      if (idx >= 0 && seq[idx] && !seq[idx].paused) seq[idx].pause();
+      setPlaying(false);
+    }
+
+    function playAt(i) {
+      if (i < 0 || i >= seq.length) { stop(); return; }
+      idx = i;
+      scrollToClip(seq[i]);
+      var p = seq[i].play();
+      if (p && typeof p.catch === 'function') p.catch(function () { stop(); });
+    }
+
+    seq.forEach(function (a, i) {
+      // Only one clip audible at a time.
+      a.addEventListener('play', function () {
+        seq.forEach(function (b) { if (b !== a && !b.paused) b.pause(); });
+        idx = i;
+        setPlaying(true);
+      });
+      a.addEventListener('ended', function () {
+        if (chaining) playAt(i + 1);
+        else if (idx === i) setPlaying(false);
+      });
+      // A genuine mid-clip pause (user hit the native control) ends the chain
+      // and resets the button. Ignore the pause that rides along with natural
+      // end-of-clip — the chain advances via 'ended', and that pause can fire
+      // a tick before a.ended flips true, which would otherwise kill the chain.
+      a.addEventListener('pause', function () {
+        if (a.ended || (isFinite(a.duration) && a.currentTime >= a.duration - 0.1)) return;
+        if (idx === i) { chaining = false; setPlaying(false); }
+      });
+    });
+
+    btn.addEventListener('click', function () {
+      if (btn.classList.contains('is-playing')) {
+        stop();
+      } else {
+        chaining = true;
+        playAt(idx < 0 ? 0 : idx);
+      }
+    });
+  })();
+</script>
+
+
+
+
+
+</body></html>

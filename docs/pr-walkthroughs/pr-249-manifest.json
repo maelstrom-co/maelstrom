@@ -1,0 +1,73 @@
+{
+  "title": "A clearer first task",
+  "eyebrow": "PR #249 · documentation · onboarding",
+  "dek": "Portable workflows lead into release-matched SDK recipes without turning a planning request into permission to change an application.",
+  "meta": "feat(docs): improve skill onboarding and SDK recipes",
+  "footer": "PR #249 · snapshot 64db87970db40c2120989bf34d5ab374c4790299",
+  "sections": [
+    {
+      "eyebrow": "The setting",
+      "title": "The skills already existed",
+      "content": "<p class=\"lead\">Maelstrom already shipped an entry skill, seven workflow procedures, and package-owned SDK guides. Its documentation build produced a revision-matched ZIP. The missing piece was a clear route from obtaining those files to requesting a useful, bounded task.</p><p>The two kinds of guidance answer different questions. A workflow helps you inspect an application, select a capability, and plan verification. An SDK guide supplies API facts for the particular package release installed in that application. This change keeps those responsibilities separate rather than introducing another framework or installer.</p><p>This walkthrough covers <a href=\"https://github.com/maelstrom-co/maelstrom/pull/249\">PR #249</a> at <code>64db8797</code>, relative to <code>4fe3ee96</code>. The separate migration evaluator belongs to <a href=\"https://github.com/maelstrom-co/maelstrom/pull/250\">PR #250</a>.</p>"
+    },
+    {
+      "eyebrow": "The gap",
+      "title": "Planning and permission did not line up",
+      "content": "<p>Quick Start presented onboarding as a planning task, while the copied prompt instructed implementation. The router also directed missing procedures to be installed before continuing. Those instructions could turn a request to inspect an application into changes the user had not approved.</p><p>The revised prompt makes authority explicit. An omitted or unchanged authority placeholder means planning only. The implementation path starts only after a bounded goal is authorized.</p>{{CODE:0}}<p>The important boundary is the default. A planning request can identify a pilot and verification steps without installing packages or editing application files. The router applies the same distinction when a procedure is missing.</p>",
+      "code": [
+        {
+          "lang": "markdown",
+          "file": "apps/docs/prompts/library/maelstrom-project-onboarding.md",
+          "source": "Requested authority: [PLAN ONLY | IMPLEMENT THE BOUNDED INTEGRATION]\n\nIf authority is omitted or the placeholder is unchanged, use PLAN ONLY.\nFor PLAN ONLY, make no edits or installations. Report the selected pilot and\nverification plan, then stop. For IMPLEMENT THE BOUNDED INTEGRATION, inspect first\nand implement the smallest useful pilot. Ask only when inspection reveals a\nmaterial decision outside the authorized goal."
+        }
+      ]
+    },
+    {
+      "eyebrow": "The mechanic",
+      "title": "Workflow ownership and API ownership",
+      "content": "<p>The entry router selects one procedure by the primary outcome. The procedure then consults only the references needed for that task. Loading every workflow would obscure which one owns the process, so the starting path remains narrow.</p>{{DIAGRAM:0}}<p>API-specific work takes a second path through the installed package. The owning <code>package.json</code> supplies the version authority; the workflow bundle does not promise that its examples match every SDK release. If no SDK exists yet, repository inspection and planning can continue, while API details remain unverified.</p><p>Fourteen package guides gain local task recipes, verification advice, and troubleshooting. The React recipes include branded Instance identifiers for tiling seeds and bounded DOM tests. These are guidance changes, not production SDK API changes.</p>",
+      "diagrams": [
+        "flowchart TD\n  A[Requested outcome and authority] --> B[Entry router]\n  B --> C[One workflow procedure]\n  C --> D{API work needed?}\n  D -->|No| E[Inspect and plan]\n  D -->|Yes| F{SDK installed?}\n  F -->|Yes| G[Installed package guide and exports]\n  F -->|No| H[Plan with API gaps stated]"
+      ]
+    },
+    {
+      "eyebrow": "What we built",
+      "title": "A complete first-use path",
+      "content": "<p>The documentation page connects installation, discovery, task selection, SDK guidance, and maintenance. It offers three supported installation targets and seven starter requests, each paired with expected evidence. The first request asks for a plan; a separate request grants bounded implementation authority.</p><p>Installation remains interactive. The pinned installer can choose Project or Global scope, so the instructions explicitly tell you to choose Project. Listing installed files proves presence, not successful loading or correct application. The page asks you to confirm discovery before relying on the workflow.</p><p>Preview builds must install their own bundle. The page therefore fills command URLs from the origin being viewed, and repeats that initialization when client navigation restores the page.</p>{{CODE:0}}<p>The command blocks stay hidden until that URL is ready. A manual ZIP download remains available when JavaScript is disabled. This avoids presenting a production-bundle command as a preview-build installation.</p>",
+      "code": [
+        {
+          "lang": "ts",
+          "file": "apps/docs/src/pages/agents/skills/index.astro",
+          "source": "  const initBundleCommands = () => {\n    const servedBundle = new URL('/agents/skills/bundle.zip', location.origin).href;\n    for (const pre of document.querySelectorAll<HTMLElement>('[data-bundle-command]')) {\n      const code = pre.querySelector('code');\n      if (!code?.textContent) continue;\n      code.textContent = code.textContent.replace(skillBundleUrl, servedBundle);\n      pre.hidden = false;\n    }\n  };\n  initBundleCommands();\n  document.addEventListener('astro:page-load', initBundleCommands);"
+        }
+      ]
+    },
+    {
+      "eyebrow": "Portable references",
+      "title": "A procedure carries the files it needs",
+      "content": "<p>Individual installation exposed another boundary. The authored repository shares reference files between procedures, but an installer may copy only one procedure directory. A relative link into a missing sibling then fails, even though its <code>SKILL.md</code> is present.</p><p>The bundler follows relative Markdown links transitively. It copies reachable resources into the procedure's generated directory and rewrites their links, retaining fragments. Missing resources, escaping paths, and conflicting destinations stop the build.</p>{{CODE:0}}<p>The worklist is what makes this a dependency closure rather than a single-file copy. A referenced file can point to another reference, and that second file must travel too. Canonical voice architecture and decision records enter the generated bundle through the same mechanism.</p><p>This is why the installation instructions use the generated ZIP rather than the authored GitHub tree. Package-owned API recipes remain inside their SDK packages and update with those releases.</p>",
+      "code": [
+        {
+          "lang": "ts",
+          "file": "apps/docs/tools/skills/bundle.ts",
+          "source": "        if (!files[dependency]) {\n          throw new Error(\n            `Missing skill reference: ${sourcePath} -> ${target}`,\n          );\n        }\n        pending.push(dependency);\n        const localPath = destinationFor(dependency);\n        if (\n          posix.normalize(\n            posix.join(posix.dirname(destination), targetPath),\n          ) === localPath\n        ) {\n          return link;\n        }\n        const localTarget =\n          posix.relative(posix.dirname(destination), localPath) + fragment;"
+        }
+      ]
+    },
+    {
+      "eyebrow": "The diff",
+      "title": "Where the journey lives",
+      "content": "<p>The page and catalog carry the first-use story. The bundler owns resource projection. SDK packages own their release-matched examples. Tests and research records keep those promises separate from broader claims about model performance.</p><table><thead><tr><th>File or group</th><th>Role</th></tr></thead><tbody><tr><td><code>README.md</code>, Quick Start, sidebar configuration and tests</td><td>Place the first-use path beside existing getting-started material.</td></tr><tr><td><code>apps/docs/src/pages/agents/skills/index.astro</code></td><td>Connect installation and discovery to bounded planning and implementation.</td></tr><tr><td><code>apps/docs/src/lib/skill-onboarding.ts</code> (new)</td><td>Give each starter task one request and an evidence expectation.</td></tr><tr><td>The onboarding prompt, router, and skills README</td><td>Make permission and installed-version ownership explicit.</td></tr><tr><td><code>bundle.ts</code> and its new filesystem tests</td><td>Produce self-contained procedure directories from shared authored resources.</td></tr><tr><td>Fourteen package <code>common-tasks.md</code> files (new), with guide entry-point updates</td><td>Keep practical construction and verification advice beside the owning SDK release.</td></tr><tr><td><code>sdk-examples.test.ts</code>, onboarding authority tests, and browser cases (new)</td><td>Protect recipe compilation, planning defaults, command origins, and navigation behavior.</td></tr><tr><td><code>acceptance.ts</code>, trial guard and runtime helpers with tests (new)</td><td>Check optional read-only discovery in fresh consumers without replacing application review.</td></tr><tr><td>Research records (new), trial README, prompt architecture, and docs target configuration</td><td>Document boundaries and connect the tooling to normal verification.</td></tr></tbody></table>"
+    },
+    {
+      "eyebrow": "The limits",
+      "title": "What the checks can establish",
+      "content": "<p>Bundle tests exercise real reference trees, including transitive links and conflicts. Recipe tests compile examples against built public declarations. Browser cases check the visible first-use path, same-origin commands after navigation, and narrow-screen layout. The optional acceptance runner checks discovery and read-only selection, while leaving correct application for review.</p><p>Those checks do not establish live Engine planning, microphone behavior, or provider integration. Hosted installation remains unverified. Automatic skill selection also depends on the selected tool; an installer listing is not activation.</p><p>The historical task comparisons remain exploratory. Their sample and combined treatments do not establish a consistent quality advantage or token savings. A later harness restart removed the private raw traces and snapshots, so the curated summary cannot supply independently reproducible evidence.</p>"
+    },
+    {
+      "eyebrow": "The short version",
+      "title": "Start with one task and explicit authority",
+      "content": "<p>PR #249 makes existing Maelstrom guidance easier to install, discover, and use without broadening a planning request. Generated procedure directories carry their references; installed packages remain the API authority. The result is a clearer first-use path, not a demonstrated quality or token-saving benefit.</p>"
+    }
+  ]
+}

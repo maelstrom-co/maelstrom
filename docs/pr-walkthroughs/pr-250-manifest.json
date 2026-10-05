@@ -1,0 +1,81 @@
+{
+  "title": "Evidence before comparison",
+  "eyebrow": "PR #250 · offline tooling · migration evaluation",
+  "dek": "A paired migration evaluator checks frozen implementations and their evidence before it compares task-bound token counts.",
+  "meta": "test(docs): add offline migration comparisons",
+  "footer": "PR #250 · snapshot e132b850d9eb3997a4c1cf8529efb69424c51780",
+  "sections": [
+    {
+      "eyebrow": "The setting",
+      "title": "There was already an evaluation workflow",
+      "content": "<p class=\"lead\">Maelstrom already had prompt fixtures, SDK type checks, React behavior tests, browser checks, and read-only discovery trials. Those tools established different kinds of evidence. They did not establish a repeatable comparison between implementations produced with and without skill guidance.</p><p>The historical trials showed why that distinction matters. A migration control replaced the supplied Connector, the application's dependency for communicating with Maelstrom, yet passed its functional checks. Manual review caught a boundary the oracle had not checked. The original private evidence later disappeared, leaving a curated summary rather than a reproducible benchmark.</p><p>This walkthrough covers <a href=\"https://github.com/maelstrom-co/maelstrom/pull/250\">PR #250</a> at <code>e132b850</code>, relative to the <code>64db8797</code> head of <a href=\"https://github.com/maelstrom-co/maelstrom/pull/249\">PR #249</a>. It describes the new paired evaluator, not another copy of the onboarding change.</p>"
+    },
+    {
+      "eyebrow": "The gap",
+      "title": "A passing sample is not a fair comparison",
+      "content": "<p>Compilation can accept code that substitutes the wrong Connector. An added test can pass by asserting a constant or checking source spelling. A completed trace can describe an older submission at the same directory. Counting tokens before resolving those differences compares unlike work.</p><p>The evaluator therefore separates functional checks, ordinary quality gates, evidence validation, and independent approval. Missing usage remains unavailable. None of these stages becomes proof that skills improve quality or reduce costs simply because the tooling runs successfully.</p>"
+    },
+    {
+      "eyebrow": "The mechanic",
+      "title": "Freeze two consumers and one independent contract",
+      "content": "<p>Preparation creates a baseline and a treatment with the same task, public SDK runtime, declarations, ordinary documentation, configuration, and starting application. Only the treatment receives workflow and SDK guides. A seal binds their snapshots, a private positive reference, the oracle, and the preparation identity.</p>{{DIAGRAM:0}}<p>The starting application must fail functional checks because the integration is missing. The private reference must pass those same checks. Seven criteria exercise the supplied Connector and filtering, application-owned authorization and mutations, uncertain cancellation, and rollback across enabled and legacy paths.</p><p>The operator must keep the protected directory outside the external participants' access. Dependency download caches also stay outside the consumer trees, so download state does not become submitted-source evidence. Preparation does not launch a model.</p>",
+      "diagrams": [
+        "flowchart TD\n  A[Task and public SDK inputs] --> B[Preparation seal]\n  B --> C[Baseline without guides]\n  B --> D[Treatment with guides]\n  B --> E[Protected oracle and positive reference]\n  E --> F[Negative must fail]\n  E --> G[Reference must pass]\n  C --> H[External implementation]\n  D --> I[External implementation]"
+      ]
+    },
+    {
+      "eyebrow": "What we built",
+      "title": "Keep consumer side effects away from the oracle",
+      "content": "<p>Submitted tests run executable code. Reusing their directory for the oracle lets a test replace the supposedly independent check. Creating the oracle directory too early also lets that test modify a sibling copy before its original state is recorded.</p><p>The evaluator waits for consumer checks and verified cleanup before creating a fresh oracle copy. Its complete snapshot must match the submitted snapshot before the trusted oracle is written.</p>{{CODE:0}}<p>A mismatch prevents oracle execution. After the oracle runs, preservation checks cover its source, configuration, setup, and submitted files. Missing or changed executable evidence fails the functional check. A <code>finally</code> block removes both execution copies, including on failure.</p><p>Added tests receive a second challenge: they run against the original missing integration. A matching assertion failure establishes provisional detection, not behavioral relevance. Source-text checks can pass that mechanical challenge, so independent review still decides whether both submissions and their tests exercise the intended behavior.</p>",
+      "code": [
+        {
+          "lang": "ts",
+          "file": "apps/docs/tools/skills/migration-cli.ts",
+          "source": "    await materialize(source, oracleExecution);\n    const freshCopy =\n      JSON.stringify(await migrationSnapshot(oracleExecution)) ===\n      JSON.stringify(snapshot);\n    if (reference)\n      await writeFile(join(oracleExecution, 'src/OrdersApp.tsx'), positiveApp);\n    await writeFile(join(oracleExecution, 'oracle.test.tsx'), oracleSource);\n    const reportPath = join(oracleExecution, 'oracle-report.json');\n    const oracleBefore = await migrationSnapshot(join(oracleExecution, 'src'));"
+        }
+      ]
+    },
+    {
+      "eyebrow": "Process outcomes",
+      "title": "An interrupted test is not detected behavior",
+      "content": "<p>An assertion report alone cannot establish a regression. A signal, publication error, or uncertain cleanup may leave that report behind even though the command did not finish normally. The evaluator permits provisional detection only for an ordinary nonzero exit after cleanup verification.</p>{{CODE:0}}<p>The supervisor retains its process-group identity before publishing evidence. Cleanup sends a signal and verifies that group absence within a bound. If verification is uncertain, the operation fails and retains numeric identities. Uncertain consumer cleanup aborts evaluation before another oracle starts.</p><p>These controls manage known processes, not hostile-code isolation. Code can create another session and escape the group. The operator still needs an externally isolated, disposable environment without secrets or live-service access.</p>",
+      "code": [
+        {
+          "lang": "ts",
+          "file": "apps/docs/tools/skills/migration-process.ts",
+          "source": "    if (result.outcome === 'timeout')\n      throw new Error('Trial timed out; isolated supervisor deadline');\n    if (result.outcome === 'failed') {\n      if (\n        Number.isSafeInteger(result.code) &&\n        result.code > 0 &&\n        result.signal === null\n      )\n        throw new MigrationCommandFailure();\n      throw new Error('Migration process interrupted or failed to start');\n    }\n    if (result.outcome !== 'passed') throw new Error('Invalid process outcome');\n    if (result.code !== 0 || result.signal !== null)\n      throw new Error('Invalid successful process completion');"
+        }
+      ]
+    },
+    {
+      "eyebrow": "Evidence binding",
+      "title": "Match the trace to the reviewed source",
+      "content": "<p>Version 4 requires each attempt to run a sealed local helper as its last tool operation. The helper emits the preparation identity and a hash of every submitted source file. The trace parser requires that successful receipt before the final answer and compares it with the source hash being reviewed.</p>{{CODE:0}}<p>Changing source after recording a trace breaks that match. Missing receipts and later tool activity also make the trace ineligible. Old preparations and receipt-less traces cannot authorize a version 4 comparison; they require a newly prepared pair.</p><p>Instruction evidence has its own boundary. Treatment must receive complete normalized migration and installed React SDK guides. Baseline instruction fingerprints or any sealed workflow catalog exposure, including the entry router, disqualify the comparison. Reads after the final answer cannot manufacture activation.</p>{{DIAGRAM:0}}<p>Only distinct completed sessions for the same task and provider/model, passing quality gates, matching source receipts, and approved source hashes reach token comparison. Uncached input, output, cache reads, and cache writes remain separate. The differences are reported token counts, not verified billing.</p>",
+      "code": [
+        {
+          "lang": "ts",
+          "file": "apps/docs/tools/skills/migration-evaluation.ts",
+          "source": "          const receipt = JSON.parse(delivered);\n          const expected = binding.submission;\n          if (\n            !expected ||\n            receipt.type !== 'maelstrom_migration_submission' ||\n            receipt.version !== 1 ||\n            receipt.attemptId !== expected.attemptId ||\n            receipt.sourceHash !== expected.sourceHash ||\n            !/^[a-f0-9]{64}$/.test(receipt.sourceHash)\n          ) {\n            valid = false;\n          } else submissionBound = true;"
+        }
+      ],
+      "diagrams": [
+        "flowchart TD\n  A[Completed task-bound traces] --> B{Quality gates pass?}\n  B -->|Yes| C{Source receipts match?}\n  C -->|Yes| D{Guide evidence is comparable?}\n  D -->|Yes| E{Independent approval matches?}\n  E -->|Yes| F{Complete reported usage?}\n  F -->|Yes| G[Separate token differences]\n  B -->|No| H[Comparison unavailable]\n  C -->|No| H\n  D -->|No| H\n  E -->|No| H\n  F -->|No| H"
+      ]
+    },
+    {
+      "eyebrow": "The diff",
+      "title": "Each module owns an evidence boundary",
+      "content": "<p>The new tooling remains inside the documentation workspace. Its modules separate preparation, behavior, trace validation, approval, and process lifecycle rather than changing production SDK APIs.</p><table><thead><tr><th>File or group</th><th>Role</th></tr></thead><tbody><tr><td><code>apps/docs/tools/skills/migration-cli.ts</code> (new)</td><td>Coordinate sealed preparation, checks, copied execution, approval, and comparison.</td></tr><tr><td><code>migration-fixture.ts</code> and <code>migration-oracle.ts</code> (new)</td><td>Define the missing integration, private reference, and seven behavioral criteria.</td></tr><tr><td><code>migration-evaluation.ts</code> and <code>migration-submission-worker.mjs</code> (new)</td><td>Bind snapshot hashes, guide delivery, completed traces, receipts, and usage.</td></tr><tr><td><code>migration-review.ts</code> (new)</td><td>Validate human behavioral attestations against the preparation and both source hashes.</td></tr><tr><td><code>migration-process.ts</code> and its worker and cleanup scripts (new)</td><td>Bound known-process lifecycle and preserve uncertain identity.</td></tr><tr><td>Five <code>migration-*.test.ts</code> files (new)</td><td>Challenge tampering, source mutation, meaningless tests, malformed evidence, and cleanup faults.</td></tr><tr><td>Docs package command and trial README</td><td>Expose the operator workflow and its explicit execution consent.</td></tr><tr><td><code>docs/research/migration-evaluation-method.md</code> (new)</td><td>Record the method and limits on interpreting deterministic checks.</td></tr><tr><td>The existing browser grader</td><td>Preserve its rejection reason explicitly when stack formatting omits it.</td></tr></tbody></table>"
+    },
+    {
+      "eyebrow": "The limits",
+      "title": "Recorded provenance is not authentication",
+      "content": "<p>The source receipt links reported source bytes to a trace. It does not authenticate the transcript. The review file is a human attestation, not reviewer authentication. Both boundaries remain explicit instead of treating a matching JSON file as proof of trust.</p><p>The author reports 366 passing docs tests, uncached typecheck and Biome, and required builds. Regression fixtures challenge direct and sibling oracle substitution, deleted oracle evidence, stale receipts, partial guides, signal termination, and cleanup faults. Cancellation mutations use separate fixtures so a late completion cannot alter another test's source.</p><p>These checks establish evaluator behavior. They do not demonstrate a model's implementation quality, token savings, live Engine planning, or audio-provider integration. The unsafe-execution flag supplies consent only; external isolation remains necessary.</p>"
+    },
+    {
+      "eyebrow": "The short version",
+      "title": "Compare only evidence that agrees",
+      "content": "<p>PR #250 makes a paired migration comparison conditional on working behavior, preserved inputs, complete instruction delivery, source-bound traces, and independent approval. Its output can report separate token differences when those conditions agree. It does not turn deterministic fixtures into a measured benefit from skills or replace external isolation.</p>"
+    }
+  ]
+}
