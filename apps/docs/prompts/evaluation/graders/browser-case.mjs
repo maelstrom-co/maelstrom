@@ -294,7 +294,8 @@ Orchestrator.prototype.connect = function (...args) {
           inspectionError: String(inspectionError).slice(0, 500),
         }))
     : { pageCreated: false };
-  console.error(error instanceof Error ? error.stack : String(error));
+  console.error(error instanceof Error ? error.message : String(error));
+  if (error instanceof Error) console.error(error.stack);
   console.error(
     `[browser-diagnostics] ${JSON.stringify({
       stage,

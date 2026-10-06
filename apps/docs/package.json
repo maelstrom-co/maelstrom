@@ -9,6 +9,7 @@
     "skills:update": "bun tools/skills/cli.ts update",
     "skills:remove": "bun tools/skills/cli.ts remove",
     "skills:acceptance": "bun tools/skills/acceptance.ts",
+    "skills:eval": "bun tools/skills/migration-cli.ts",
     "prompts:evaluate": "bun prompts/evaluation/index.ts",
     "prompts:evaluation:test": "bun test prompts/evaluation"
   },
