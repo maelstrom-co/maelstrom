@@ -26,7 +26,7 @@ function complete(outcome, completion = {}) {
   clearTimeout(deadline);
   try {
     publish('finished', { outcome, ...completion });
-    // The caller retains this group independently and verifies its removal.
+    // The caller retains this group independently and verifies execution stopped.
     process.exit(0);
   } catch {
     // Publication cannot be a prerequisite for killing our own descendants.

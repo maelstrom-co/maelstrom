@@ -18,6 +18,47 @@ import {
   runMigrationProcess,
 } from './migration-process';
 
+async function expectStopped(id: number, group = false) {
+  try {
+    process.kill(group ? -id : id, 0);
+  } catch (error) {
+    expect((error as NodeJS.ErrnoException).code).toBe('ESRCH');
+    return;
+  }
+  expect(process.platform).toBe('linux');
+  const probe = Bun.spawn(
+    [
+      '/bin/ps',
+      '-L',
+      group ? '-s' : '-p',
+      String(id),
+      '-o',
+      'pid=,pgid=,state=',
+    ],
+    { env: { PATH: '/usr/bin:/bin', LC_ALL: 'C' }, stdout: 'pipe' },
+  );
+  const metadata = (await new Response(probe.stdout).text()).trim();
+  const code = await probe.exited;
+  if (code === 1 && metadata === '') {
+    let absent = false;
+    try {
+      process.kill(group ? -id : id, 0);
+    } catch (error) {
+      absent = (error as NodeJS.ErrnoException).code === 'ESRCH';
+    }
+    expect(absent).toBe(true);
+    return;
+  }
+  expect(code).toBe(0);
+  expect(metadata.length).toBeGreaterThan(0);
+  for (const row of metadata.split('\n')) {
+    const [pid, pgid, state] = row.trim().split(/\s+/);
+    expect(Number(group ? pgid : pid)).toBe(id);
+    expect(state).toBe('Z');
+  }
+  console.info(JSON.stringify({ stopped: id, group, metadata }));
+}
+
 for (const fault of ['helper-start', 'helper-kill'] as const) {
   test(`a stalled supervisor returns bounded cleanup uncertainty when ${fault} fails`, async () => {
     const root = await mkdtemp(join(tmpdir(), 'migration-stalled-supervisor-'));
@@ -126,7 +167,7 @@ for (const fault of ['helper-start', 'helper-kill'] as const) {
         );
         expect(await cleanup.exited).toBe(0);
         await supervisor.exited;
-        expect(() => process.kill(-supervisor!.pid, 0)).toThrow();
+        await expectStopped(supervisor.pid, true);
       }
       await run;
       if (statusPath)
@@ -146,7 +187,7 @@ for (const fault of ['helper-start', 'helper-kill'] as const) {
             pgid: supervisor!.pid,
             cleanupHelperPid: helper?.pid ?? null,
             identityRetainedAfterLateExit: true,
-            groupAbsentAfterOwnIdCleanup: true,
+            groupStoppedAfterOwnIdCleanup: true,
             helperAbsentAfterOwnIdCleanup: true,
           }),
         );
@@ -244,7 +285,7 @@ test('a genuine supervisor SIGKILL cannot orphan its retained group', async () =
       ),
     ).rejects.toThrow('completion');
     const pid = Number(await readFile(pidFile, 'utf8'));
-    expect(() => process.kill(pid, 0)).toThrow();
+    await expectStopped(pid);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -306,7 +347,7 @@ test('a ledger failure cannot leave a running group or discard uncertain identit
       }
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
-    expect(() => process.kill(-pgid, 0)).toThrow();
+    await expectStopped(pgid, true);
   } finally {
     try {
       cleanupGroup();
@@ -363,8 +404,8 @@ test('the native worker kills its group when its initial publication throws', as
       }
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
-    expect(() => process.kill(-worker.pid, 0)).toThrow();
-    expect(() => process.kill(status.pid, 0)).toThrow();
+    await expectStopped(worker.pid, true);
+    await expectStopped(status.pid);
   } finally {
     clearTimeout(guard);
     try {
@@ -514,7 +555,7 @@ test('a TERM-resistant known descendant stops before timeout cleanup returns', a
     ).rejects.toThrow('timed out');
     expect(performance.now() - started).toBeLessThan(5000);
     const pid = Number(await readFile(pidFile, 'utf8'));
-    expect(() => process.kill(pid, 0)).toThrow();
+    await expectStopped(pid);
     const before = await readFile(heartbeat, 'utf8');
     await new Promise((resolve) => setTimeout(resolve, 150));
     expect(await readFile(heartbeat, 'utf8')).toBe(before);
@@ -541,7 +582,7 @@ test('successful parent completion cannot leave its known descendant running', a
       1000,
     );
     const pid = Number(await readFile(pidFile, 'utf8'));
-    expect(() => process.kill(pid, 0)).toThrow();
+    await expectStopped(pid);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
