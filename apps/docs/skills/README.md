@@ -1,6 +1,6 @@
 # Maelstrom agent skills
 
-This directory is the canonical Markdown source for Maelstrom coding-agent skills. The revision-matched consumer bundle is generated from this complete tree during the docs build and is available as a [direct ZIP download](https://docs.maelstrom-ai.co/agents/skills/bundle.zip) or from the [Agent Skills docs page](https://docs.maelstrom-ai.co/agents/skills/). It includes these files and read-only projections of the canonical voice architecture and ADRs; use the generated bundle rather than copying an individual `SKILL.md` or browsing a potentially mutable source branch. The extracted files are plain Markdown and need no runtime package, registry, or repository checkout.
+This directory is the canonical Markdown source for Maelstrom coding-agent skills. The revision-matched consumer bundle is generated from this complete tree during the docs build and is available as a [direct ZIP download](https://docs.maelstrom-ai.co/agents/skills/bundle.zip) or from the [Agent Skills docs page](https://docs.maelstrom-ai.co/agents/skills/). The build copies each procedure's required shared references into its own directory and rewrites its links. Voice includes read-only projections of the canonical architecture and ADRs. Install from the generated bundle so these resources accompany the skill; GitHub source browsing exposes the authoring layout. The extracted files are plain Markdown and need no runtime package, registry, or repository checkout.
 
 ## Consumer entrypoint
 
@@ -8,9 +8,34 @@ Install the complete bundle in the selected tool's project-scoped skill director
 
 ### Install, discover, update, and remove
 
-The [Agent Skills page](https://docs.maelstrom-ai.co/agents/skills/) provides the complete revision-matched ZIP. Install its `apps/docs/skills/` contents in the selected tool's project-scoped skill location; for example, OpenCode uses `.agents/skills/` and Claude Code uses `.claude/skills/`. Discovery locations vary by tool; do not assume `.agents/skills/` is universal. Preserve paths and the complete `references/` tree. Invoke the `maelstrom` entry skill using that tool's skill loader. No global install or SDK install is required.
+Start with [Build with an agent](https://docs.maelstrom-ai.co/agents/skills/) for installation, the task catalog, a safe first request, and troubleshooting. Install the generated complete bundle through the pinned Vercel Skills tool from your application directory. For Pi:
+
+```sh
+bunx skills@1.7.0 add https://docs.maelstrom-ai.co/agents/skills/bundle.zip --skill '*' --agent pi --copy
+bunx skills@1.7.0 list --agent pi
+```
+
+Choose **Project** at the installation scope prompt. Global installation uses a
+different directory and is not the project installation described here. In a PR
+preview, copy the commands from the preview page to use that build's bundle.
+
+Replace `pi` with `opencode` or `claude-code` for those tools. Pi uses `.pi/skills/`, OpenCode uses `.agents/skills/`, and Claude Code uses `.claude/skills/`. Restart or reload the coding agent and ask it to read the installed `maelstrom` entry skill. An installer listing is not proof of activation or correct application. No global install, SDK install, or provider key is required for a planning task.
+
+For manual installation, extract the ZIP's `apps/docs/skills/` contents into the selected tool's project skill directory. Preserve the complete tree. Use whole generated procedure directories for individual copies; authored GitHub files do not include the build projections.
 
 For an existing checkout of this repository, `bun run --cwd apps/docs skills:install` downloads and installs the bundle; run the same command with `skills:update` after obtaining a newer docs build. `bun run --cwd apps/docs skills:remove` removes only files recorded by that installer and leaves unrelated skill files intact. For a downloaded ZIP/manual installation, re-extract the newer complete bundle into the same tool-specific skills directory to update; remove the Maelstrom-owned skill directories and `references/` only when no other installed skill uses those references. Do not delete the entire skills directory. SDK updates are independent: update the desired `@maelstrom-co/*` dependency with the project's package manager, then reload the package-owned guide under `node_modules/@maelstrom-co/<package>/skills/`; do not update an SDK merely to update skills, or vice versa.
+
+### Install one procedure
+
+With Bun installed, run this from your application directory to install the debugging procedure through [Vercel Skills](https://github.com/vercel-labs/skills):
+
+```sh
+bunx skills@1.7.0 add https://docs.maelstrom-ai.co/agents/skills/bundle.zip --skill maelstrom-debugging
+```
+
+Choose your coding agent and project scope when prompted, then ask it to use `maelstrom-debugging`. Select another procedure with its name from the table below. Each generated procedure directory contains its required local references, including transitive references; copy the entire directory if installing manually. The shared sibling `references/` directory is retained for complete-bundle consumers, but individual procedures do not depend on it. The entry skill selects a procedure and asks for it to be installed when it is missing.
+
+For an installation managed by Vercel Skills, rerun the same `add` command to refresh it from the current docs bundle. Use `bunx skills@1.7.0 remove maelstrom-debugging` to remove that skill through the same installer. Keep manual, Vercel Skills, and repository-installer ownership separate when updating or removing files.
 
 | Task | Lead skill | Reference selection |
 | --- | --- | --- |
@@ -26,7 +51,9 @@ For a mixed request, use the lead matching its primary outcome; that skill may p
 
 ## Bundle inventory
 
-The portable package consists of every Markdown file below this directory. Preserve the tree and resolve links relative to the linking file:
+Package-owned SDK guides include conditional task recipes under each guide's own `references/` directory. Those recipes use the owning installed manifest as the version authority. Their code examples are compile-checked against published declarations; live Engine, microphone, and provider checks remain separate. Use Intent from the consumer workspace to list/load installed package guides. Intent setup writes permissions and agent instructions, so review it before confirming.
+
+The bundle starts from every Markdown file below this directory. This is the authored inventory; the build also generates procedure-local reference files and rewrites the distributed skill links:
 
 ```text
 apps/docs/skills/
@@ -56,6 +83,6 @@ apps/docs/skills/
     └── voice-lifecycle-and-turn-taking.md
 ```
 
-The build-generated bundle also includes the exact canonical `docs/realtime-voice-architecture.md`, `docs/architecture.md`, and `docs/adr/0001`–`0003` Markdown under `references/canonical-voice/docs/`; these files are projected read-only at build time, not maintained copies. Each `@maelstrom-co/*` SDK package ships its API guide under its own `skills/` directory. The owning installed package's `package.json` is the version authority; the guide does not duplicate a version field. Maelstrom-specific API names must still be verified against the consumer project's installed exports, declarations, source, tests, and version-specific provider documentation. The bundle does not imply that an API exists in every SDK version or that external provider documentation is version-matched. Voice references are optional and do not imply that a provider is selected or supported. No skill assumes repository-internal absolute paths, starts agents, or performs side effects without the task's authorization.
+The build-generated bundle also includes the exact canonical `docs/realtime-voice-architecture.md`, `docs/architecture.md`, and `docs/adr/0001`–`0003` Markdown under `references/canonical-voice/docs/` and `maelstrom-voice-integration/references/canonical-voice/docs/`; these files are projected read-only at build time, not maintained copies. Each `@maelstrom-co/*` SDK package ships its API guide under its own `skills/` directory. The owning installed package's `package.json` is the version authority; the guide does not duplicate a version field. Maelstrom-specific API names must still be verified against the consumer project's installed exports, declarations, source, tests, and version-specific provider documentation. The bundle does not imply that an API exists in every SDK version or that external provider documentation is version-matched. Voice references are optional and do not imply that a provider is selected or supported. No skill assumes repository-internal absolute paths, starts agents, or performs side effects without the task's authorization.
 
 Representative task inputs and expected outcomes are in [`trials/README.md`](trials/README.md). These are structural routing scenarios, not completed model trials; behavioral compliance requires executing them with a named agent/runtime and reviewing its output and diff.

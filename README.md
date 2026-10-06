@@ -33,6 +33,8 @@ layout surface, from whatever the user is trying to do.
   what Maelstrom is and why it exists.
 - [Quick Start](https://docs.maelstrom-ai.co/getting-started/quick-start/) -
   your first Vessel, from install to a running chart.
+- [Build with an agent](https://docs.maelstrom-ai.co/agents/skills/) -
+  install Maelstrom skills, verify discovery, and plan a bounded integration.
 - [Core Concepts](https://docs.maelstrom-ai.co/getting-started/core-concepts/) -
   Vessels, the Chart, and the Engine.
 - [How Maelstrom Compares](https://docs.maelstrom-ai.co/understanding/comparison/) -

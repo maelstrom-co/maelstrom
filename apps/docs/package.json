@@ -8,6 +8,7 @@
     "skills:install": "bun tools/skills/cli.ts install",
     "skills:update": "bun tools/skills/cli.ts update",
     "skills:remove": "bun tools/skills/cli.ts remove",
+    "skills:acceptance": "bun tools/skills/acceptance.ts",
     "prompts:evaluate": "bun prompts/evaluation/index.ts",
     "prompts:evaluation:test": "bun test prompts/evaluation"
   },
@@ -190,6 +191,9 @@
         }
       },
       "test": {
+        "dependsOn": [
+          "^build"
+        ],
         "command": "bun test src tools/prompts tools/skills prompts/evaluation prompts/acceptance/prepare-trials.test.mjs",
         "inputs": [
           "default",

@@ -18,20 +18,23 @@ const evaluationReadme = readFileSync(
   'utf8',
 );
 
-describe('AGENTS sidebar navigation', () => {
-  it('appears immediately before Community with the prompt, skill, and evaluation guides', () => {
+describe('coding agent sidebar navigation', () => {
+  it('keeps readable agent links and exposes the first-use guide near Quick Start', () => {
     expect(config).toMatch(
-      /\{\s*label: 'AGENTS',\s*items: \[\s*\{ label: 'Prompts library', link: '\/agents\/prompts\/' \},\s*\{ label: 'SKILL', link: '\/agents\/skills\/' \},\s*\{\s*label: 'Testing prompts and skills',\s*link: '\/agents\/evaluations\/',\s*\},\s*\],\s*\},\s*\{\s*label: 'Community'/,
+      /\{\s*label: 'Coding agents',\s*items: \[\s*\{ label: 'Prompts library', link: '\/agents\/prompts\/' \},\s*\{ label: 'Agent skills', link: '\/agents\/skills\/' \},\s*\{\s*label: 'Testing prompts and skills',\s*link: '\/agents\/evaluations\/',\s*\},\s*\],\s*\},\s*\{\s*label: 'Community'/,
     );
-    expect(config.match(/label: 'AGENTS'/g)).toHaveLength(1);
+    expect(config.match(/label: 'Coding agents'/g)).toHaveLength(1);
     expect(config.match(/label: 'Prompts library'/g)).toHaveLength(1);
-    expect(config.match(/label: 'SKILL'/g)).toHaveLength(1);
+    expect(config.match(/label: 'Agent skills'/g)).toHaveLength(1);
     expect(config.match(/label: 'Testing prompts and skills'/g)).toHaveLength(
       1,
     );
     expect(config).not.toContain("label: 'Agent Prompts'");
     expect(config.match(/link: '\/agents\/prompts\/'/g)).toHaveLength(1);
-    expect(config.match(/link: '\/agents\/skills\/'/g)).toHaveLength(1);
+    expect(config.match(/link: '\/agents\/skills\/'/g)).toHaveLength(2);
+    expect(config).toMatch(
+      /slug: 'getting-started\/quick-start'[\s\S]*?label: 'Build with an agent', link: '\/agents\/skills\/'/,
+    );
     expect(config.match(/link: '\/agents\/evaluations\/'/g)).toHaveLength(1);
   });
 

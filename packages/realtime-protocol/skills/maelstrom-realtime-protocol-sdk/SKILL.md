@@ -23,3 +23,6 @@ Confirm every symbol against this installed package's public exports and
 declarations. Preserve its documented runtime and dependency boundaries; do not
 move behavior owned by adjacent packages or the consuming application into this
 package.
+
+When mapping mint failures or importing provider wire contracts, read
+[common tasks](references/common-tasks.md) for contract-only boundaries.

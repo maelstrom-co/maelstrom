@@ -79,7 +79,7 @@ describe('portable agent skill bundle', () => {
       expect(metadata.license).toBe('MIT');
       expect(metadata.metadata).toEqual({
         author: 'Maelstrom',
-        version: '0.1.0',
+        version: directoryName === 'maelstrom' ? '0.1.1' : '0.1.0',
       });
     }
 
@@ -104,7 +104,7 @@ describe('portable agent skill bundle', () => {
     }
   });
 
-  test('build bundle exactly matches skill and canonical architecture sources', async () => {
+  test('build bundle preserves source content while localizing shared reference paths', async () => {
     const archive = await generatedBundle();
     const sourceFiles = await markdownFiles(skillsRoot);
     const expectedPaths = new Set<string>();
@@ -114,7 +114,12 @@ describe('portable agent skill bundle', () => {
         .split(sep)
         .join('/')}`;
       expectedPaths.add(archivePath);
-      expect(Buffer.from(archive[archivePath])).toEqual(await readFile(file));
+      const source = await readFile(file, 'utf8');
+      expect(Buffer.from(archive[archivePath]).toString('utf8')).toBe(
+        file.endsWith(`${sep}SKILL.md`)
+          ? source.replaceAll('../references/', 'references/')
+          : source,
+      );
     }
 
     for (const sourcePath of CANONICAL_VOICE_DOCUMENTS) {
@@ -125,6 +130,19 @@ describe('portable agent skill bundle', () => {
       );
     }
 
+    for (const path of Object.keys(archive)) {
+      if (expectedPaths.has(path)) continue;
+      const match = path.match(
+        /^apps\/docs\/skills\/([^/]+)\/references\/(.+)$/,
+      );
+      expect(match).not.toBeNull();
+      if (!match) throw new Error(`Unexpected bundle entry: ${path}`);
+      expect(expectedProcedures).toContain(match[1]);
+      expect(archive[path]).toEqual(
+        archive[`apps/docs/skills/references/${match[2]}`],
+      );
+      expectedPaths.add(path);
+    }
     expect(Object.keys(archive).sort()).toEqual([...expectedPaths].sort());
   });
 
@@ -220,11 +238,58 @@ describe('portable agent skill bundle', () => {
 
     expect(usedTargets.has('apps/docs/skills/README.md')).toBe(false);
     const references = paths.filter(
-      (file) => file.includes('/references/') && file.endsWith('.md'),
+      (file) =>
+        file.includes('/references/') &&
+        !file.startsWith('apps/docs/skills/references/') &&
+        file.endsWith('.md'),
     );
     expect(references.length).toBeGreaterThan(0);
     for (const reference of references)
       expect(usedTargets.has(reference)).toBe(true);
+  });
+
+  test.each(
+    expectedProcedures,
+  )('%s retains its guidance when an installer copies only that skill directory', async (name) => {
+    const projectRoot = await mkdtemp(
+      join(tmpdir(), 'maelstrom-individual-skill-'),
+    );
+    const installedRoot = join(projectRoot, '.agents/skills', name);
+    try {
+      const archive = await generatedBundle();
+      const prefix = `apps/docs/skills/${name}/`;
+      for (const [path, contents] of Object.entries(archive)) {
+        if (!path.startsWith(prefix)) continue;
+        const destination = join(installedRoot, path.slice(prefix.length));
+        await mkdir(dirname(destination), { recursive: true });
+        await writeFile(destination, contents);
+      }
+
+      const files = await markdownFiles(installedRoot);
+      expect(files.length).toBeGreaterThan(1);
+      for (const file of files) {
+        const source = await readFile(file, 'utf8');
+        for (const match of source.matchAll(/\]\(([^)]+)\)/g)) {
+          const target = match[1];
+          if (/^(?:https?:|mailto:|#)/.test(target)) continue;
+          const destination = resolve(dirname(file), target.split('#')[0]);
+          expect(destination.startsWith(`${installedRoot}${sep}`)).toBe(true);
+          expect(await readFile(destination, 'utf8')).not.toBe('');
+        }
+      }
+
+      if (name === 'maelstrom-voice-integration') {
+        for (const document of CANONICAL_VOICE_DOCUMENTS) {
+          expect(
+            await readFile(
+              join(installedRoot, 'references/canonical-voice/docs', document),
+            ),
+          ).toEqual(await readFile(join(docsRoot, document)));
+        }
+      }
+    } finally {
+      await rm(projectRoot, { recursive: true, force: true });
+    }
   });
 
   test('docs page links to the build-generated bundle and labels GitHub links as browsing only', async () => {

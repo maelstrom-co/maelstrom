@@ -29,3 +29,6 @@ Keep framework bindings in `@maelstrom-co/react`, provider implementations in
 their owning packages, and application data/auth/effects in the application.
 The Engine plans; client-owned chart state and action execution remain client
 concerns.
+
+When constructing an Orchestrator or diagnosing intent/update failures, read
+[common tasks](references/common-tasks.md) for lifecycle and result evidence.

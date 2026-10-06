@@ -1,87 +1,164 @@
 ---
 import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro';
 import { resolveDocsSourceRef } from '../../../lib/docs-source-links.js';
+import {
+  firstImplementationRequest,
+  firstPlanRequest,
+  skillAgents,
+  skillBundleUrl,
+  skillInstaller,
+  skillTasks,
+} from '../../../lib/skill-onboarding';
 
 const sourceRef = resolveDocsSourceRef(process.env);
 const sourceTree = `https://github.com/maelstrom-co/maelstrom/tree/${sourceRef}/apps/docs/skills`;
 const sourceFile = `https://github.com/maelstrom-co/maelstrom/blob/${sourceRef}/apps/docs/skills/README.md`;
+const headings = [
+  { depth: 2, slug: 'install-heading', text: 'Install the complete bundle' },
+  { depth: 2, slug: 'verify-heading', text: 'Verify discovery' },
+  { depth: 2, slug: 'first-task-heading', text: 'Run a safe first task' },
+  { depth: 2, slug: 'tasks-heading', text: 'Choose your task' },
+  { depth: 2, slug: 'sdk-heading', text: 'Load installed SDK guidance' },
+  { depth: 2, slug: 'maintain-heading', text: 'Update and remove' },
+  { depth: 2, slug: 'troubleshoot-heading', text: 'Troubleshoot discovery' },
+];
 ---
-<StarlightPage
-  frontmatter={{
-    title: 'Agent skills',
-    description: 'Portable Maelstrom lead skills and their conditional references.',
-  }}
->
+<StarlightPage headings={headings} frontmatter={{
+  title: 'Build with an agent',
+  description: 'How to install, discover, and use Maelstrom skills in your coding agent.',
+}}>
   <div class="skill-index">
-    <nav aria-label="Breadcrumb">
-      <a href="/agents/prompts/">Agent prompts</a> / Agent skills
-    </nav>
-    <header>
-      <p class="eyebrow">AGENT SKILLS</p>
-      <h1>Portable workflow skills</h1>
-      <p>
-        Choose one lead skill for a task. It owns the workflow and points to
-        supporting references only when they apply. Skills do not assemble or
-        change standalone prompt bodies.
-      </p>
-    </header>
-    <section aria-labelledby="obtain-heading">
-      <h2 id="obtain-heading">Install in this project</h2>
-      <p>
-        Download the complete, revision-matched bundle generated from this docs
-        build. It includes the installable <code>maelstrom</code> entry skill,
-        task procedures, and exact canonical voice architecture/ADR Markdown.
-        Install location depends on the coding agent: OpenCode discovers
-        project skills under <code>.agents/skills/</code>; Claude Code discovers
-        them under <code>.claude/skills/</code>. Do not assume one location is
-        discovered by every Agent Skills-compatible tool. Check the selected
-        tool's skill discovery documentation and use its project-scoped path.
-      </p>
-      <ol>
-        <li><a href="/agents/skills/bundle.zip" download="maelstrom-agent-skills.zip">Download the complete skills bundle</a>.</li>
-        <li>Extract the ZIP's <code>apps/docs/skills/</code> contents into the selected tool's project-scoped skills directory (for example, <code>.agents/skills/</code> for OpenCode or <code>.claude/skills/</code> for Claude Code), preserving paths and the complete <code>references/</code> tree.</li>
-        <li>Ask your coding agent to load/use <code>maelstrom</code>; it routes the task to one procedure and checks installed package versions. For Claude Code, keep the complete tree in <code>.claude/skills/</code> or symlink each skill directory there; preserve the bundled shared references alongside the skills.</li>
-      </ol>
-      <p>
-        For checkouts of this repository, use <code>bun run --cwd apps/docs
-        skills:install</code> to install or <code>skills:update</code> to refresh,
-        and <code>skills:remove</code> to remove only installer-managed files.
-        Manual ZIP installs can be updated by extracting a newer complete bundle
-        over the existing Maelstrom files; remove only the Maelstrom skill
-        directories and references no other skill uses. Do not remove the whole
-        project-scoped skills directory.
-      </p>
-      <p>
-        SDK and skill updates are independent. Update an
-        <code>@maelstrom-co/*</code> dependency with your package manager for API
-        changes; its package-owned guide is distributed under
-        <code>node_modules/@maelstrom-co/&lt;package&gt;/skills/</code> and is
-        version-matched to that SDK release. Updating the skill bundle does not
-        update SDK dependencies. GitHub links below are for source browsing
-        only and may refer to a mutable branch when build revision metadata is
-        unavailable.
-      </p>
-      <ul>
-        <li><a href={sourceTree}>Browse the GitHub skills source tree</a></li>
-        <li><a href={sourceFile}>Browse the README source</a></li>
-      </ul>
+    <p>Install project-scoped guidance, then start with <code>maelstrom</code>. It selects one task procedure and checks your installed SDK.</p>
+    <p>No Maelstrom SDK, Engine, or provider key is required for a planning task. API work uses guides shipped with the installed SDK.</p>
+    <p>For guidance on comparing task, prompt, and skill conditions, see <a href="/agents/evaluations/">testing prompts and skills</a>.</p>
+
+    <section aria-labelledby="install-heading">
+      <h2 id="install-heading">Install the complete bundle</h2>
+      <p>Run one command from your application's root directory. Choose your coding agent below. The commands select all eight skills.</p>
+      <p>Choose Project at the installation scope prompt.</p>
+      <p>Use Bun, or replace <code>bunx</code> with <code>npx</code> when using Node.js. Review the skill source and confirm the installer prompt.</p>
+      {skillAgents.map((agent) => (
+        <div class="agent-install">
+          <h3>{agent.name}</h3>
+          <pre data-bundle-command hidden data-install-agent={agent.id}><code>{`bunx ${skillInstaller} add ${skillBundleUrl} --skill '*' --agent ${agent.id} --copy`}</code></pre>
+          <p>Project location: <code>{agent.directory}</code></p>
+        </div>
+      ))}
+      <p>Install from the generated bundle. Individual procedure directories include their required references, including voice architecture and ADRs. The authored GitHub tree uses a different shared-reference layout.</p>
+      <details>
+        <summary>Manual ZIP or a single procedure</summary>
+        <p><a href="/agents/skills/bundle.zip" download="maelstrom-agent-skills.zip">Download the complete skills bundle</a>. Extract the contents of <code>apps/docs/skills/</code> into your agent's project skills directory.</p>
+        <p>For only debugging, replace <code>--skill '*'</code> with <code>--skill maelstrom maelstrom-debugging</code>. Keep the entry skill so the same starting request still works. Copy whole directories for a manual installation.</p>
+      </details>
+      <noscript><p>Use the manual ZIP download to install this build's skills when JavaScript is disabled.</p></noscript>
     </section>
-    <p class="prompt-link">
-      For guidance on comparing task, prompt, and skill conditions, see
-      <a href="/agents/evaluations/">testing prompts and skills</a>.
-    </p>
-    <p class="prompt-link">
-      Looking for a standalone instruction instead? Browse the
-      <a href="/agents/prompts/">canonical prompt library</a>.
-    </p>
+
+    <section aria-labelledby="verify-heading">
+      <h2 id="verify-heading">Verify discovery</h2>
+      <p>List the installation for your selected agent. Replace <code>pi</code> with <code>opencode</code> or <code>claude-code</code> when needed.</p>
+      <pre><code>bunx skills@1.7.0 list --agent pi</code></pre>
+      <p>Expect <code>maelstrom</code> and seven procedure names. Restart or reload an already running coding agent so it discovers the new files.</p>
+      <blockquote>Show the Maelstrom skills available in this project. Read the maelstrom entry skill and report its task procedures. Do not edit files or install packages.</blockquote>
+      <p>Check that the agent reads this project's installed files. An installer listing proves files are present; it does not prove the agent loaded or followed them. Automatic selection depends on the agent. Explicitly request <code>maelstrom</code> when needed.</p>
+    </section>
+
+    <section aria-labelledby="first-task-heading">
+      <h2 id="first-task-heading">Run a safe first task</h2>
+      <h3>Plan a first integration</h3>
+      <pre data-first-plan><code>{firstPlanRequest}</code></pre>
+      <p>Expect one selected procedure, evidence from your app, a bounded pilot, and a verification/rollback plan. With no SDK installed, expect the agent to say which API details remain unverified.</p>
+      <h3>Authorize a bounded implementation</h3>
+      <pre><code>{firstImplementationRequest}</code></pre>
+      <p>Use this only after you approve the goal. Implementation must preserve application-owned data and authorization. Local tests and typechecks do not establish live Engine or microphone success.</p>
+      <p>Prefer a one-off instruction? The <a href="/agents/prompts/">standalone prompt library</a> needs no skill installation. Its onboarding prompt defaults to planning unless implementation authority is explicit.</p>
+    </section>
+
+    <section aria-labelledby="tasks-heading">
+      <h2 id="tasks-heading">Choose your task</h2>
+      <p>The entry skill routes by the primary outcome. Use one procedure at a time; voice is optional.</p>
+      <div class="task-list">
+        {skillTasks.map((task) => (
+          <article data-task-skill={task.id} id={task.id}>
+            <h3>{task.title}</h3>
+            <p>{task.outcome}</p>
+            <p>Procedure: <code>{task.id}</code></p>
+            <p>Installation: included in the complete bundle above.</p>
+            <details>
+              <summary>Install only this procedure and the entry skill</summary>
+              <pre data-bundle-command hidden><code>{`bunx ${skillInstaller} add ${skillBundleUrl} --skill maelstrom ${task.id} --agent pi --copy`}</code></pre>
+              <p>Replace <code>pi</code> with your selected agent target. Choose Project at the scope prompt.</p>
+            </details>
+            <pre><code>{task.request}</code></pre>
+            <p>Expected evidence: {task.evidence}</p>
+          </article>
+        ))}
+      </div>
+    </section>
+
+    <section aria-labelledby="sdk-heading">
+      <h2 id="sdk-heading">Load installed SDK guidance</h2>
+      <p>The workflow bundle is independent of SDK dependencies. Package API guides live under <code>node_modules/@maelstrom-co/&lt;package&gt;/skills/</code>. The installed package's manifest is the version authority.</p>
+      <p>After SDK installation, add a reviewed Intent development dependency and commit the lockfile. Intent setup is optional for the first planning task.</p>
+      <pre><code>bun add --dev --exact @tanstack/intent@0.5.3</code></pre>
+      <p>Run setup in an interactive terminal. Review the permitted package sources and generated guidance before confirming. It writes package permissions and agent instructions; it does not install a Maelstrom SDK.</p>
+      <pre><code>./node_modules/.bin/intent install</code></pre>
+      <p>Use the pinned local CLI to inspect available guides and load the React guide:</p>
+      <pre><code>./node_modules/.bin/intent list --json
+./node_modules/.bin/intent load @maelstrom-co/react#maelstrom-react-sdk --json</code></pre>
+      <p>Expect the installed package version and readable guide path. Review generated commands if they use <code>@latest</code> instead of the lockfile version. Intent discovery, permission, loading, and correct application are separate checks. See the <a href="https://tanstack.com/intent/latest/docs/getting-started/quick-start-consumers">Intent consumer guide</a>.</p>
+    </section>
+
+    <section aria-labelledby="maintain-heading">
+      <h2 id="maintain-heading">Update and remove</h2>
+      <p>For a Vercel Skills installation, rerun the original <code>add</code> command to refresh from the current docs bundle. To remove only Maelstrom skills, use their names and the original agent target:</p>
+      <pre><code>{`bunx ${skillInstaller} remove maelstrom ${skillTasks.map((task) => task.id).join(' ')} --agent pi`}</code></pre>
+      <p>Replace the agent target as needed. Keep unrelated skills. SDK updates use your project's package manager and update their packaged API guides independently.</p>
+      <details>
+        <summary>Other installation owners</summary>
+        <p>For a manual install, replace the Maelstrom directories with a newer bundle. Remove only those directories when uninstalling.</p>
+        <p>For a Maelstrom repository checkout, use <code>bun run --cwd apps/docs skills:install</code>, <code>skills:update</code>, or <code>skills:remove</code>. These scripts manage <code>.agents/skills/</code> and should not update a Vercel Skills installation.</p>
+      </details>
+    </section>
+
+    <section aria-labelledby="troubleshoot-heading">
+      <h2 id="troubleshoot-heading">Troubleshoot discovery</h2>
+      <dl>
+        <dt>The installer lists the skill, but the agent does not</dt><dd>Check the selected agent, project directory, trust/skill permissions, and reload behavior. Ask it to read the installed entry file. Do not treat a global installation as a project installation.</dd>
+        <dt>A referenced file is missing</dt><dd>Refresh from the generated ZIP and copy the complete procedure directory. A copied <code>SKILL.md</code> from GitHub does not include build-generated references.</dd>
+        <dt>Intent finds no guides</dt><dd>Check that the SDK is installed, run from the owning workspace, and review <code>intent.skills</code>/<code>intent.exclude</code>. Planning can continue without SDK APIs.</dd>
+        <dt>A guide disagrees with an API</dt><dd>Check the installed package manifest, exported declarations, and runtime entrypoint. Runtime JavaScript can be bundled in <code>dist/index.js</code>; declaration subpaths do not imply matching JavaScript files.</dd>
+        <dt>The agent loads the wrong workflow</dt><dd>State the primary outcome and authority explicitly. Ask it to load <code>maelstrom</code>, select one procedure, and report which installed guide supports its API claims.</dd>
+        <dt>The bundle cannot be downloaded</dt><dd>Check the download response and docs deployment. Use the manual download only from a build with the required references. SDK package access is a separate <a href="/getting-started/install-beta/">private beta setup</a>.</dd>
+      </dl>
+    </section>
+    <p class="source-links">For source browsing only: <a href={sourceTree}>skills tree</a> and <a href={sourceFile}>maintainer README</a>.</p>
   </div>
 </StarlightPage>
+<script>
+  import { skillBundleUrl } from '../../../lib/skill-onboarding';
+
+  const initBundleCommands = () => {
+    const servedBundle = new URL('/agents/skills/bundle.zip', location.origin).href;
+    for (const pre of document.querySelectorAll<HTMLElement>('[data-bundle-command]')) {
+      const code = pre.querySelector('code');
+      if (!code?.textContent) continue;
+      code.textContent = code.textContent.replace(skillBundleUrl, servedBundle);
+      pre.hidden = false;
+    }
+  };
+  initBundleCommands();
+  document.addEventListener('astro:page-load', initBundleCommands);
+</script>
 <style>
-  .skill-index { max-width: 58rem; margin: 0 auto; }
-  nav, .eyebrow { color: var(--sl-color-gray-2); font-size: .9rem; }
-  header { margin: 2rem 0; max-width: 46rem; }
-  .eyebrow { letter-spacing: .12em; font-weight: 700; }
-  section { padding: 1.25rem; border: 1px solid var(--sl-color-gray-5); border-radius: .75rem; background: var(--sl-color-bg); }
-  li { margin: .6rem 0; }
-  .prompt-link { margin-top: 2rem; }
+  .skill-index { max-width: 58rem; }
+  section { margin-top: 2rem; }
+  .agent-install, article { padding: 1rem; margin: 1rem 0; border: 1px solid var(--sl-color-gray-5); border-radius: .5rem; }
+  h3 { margin-top: 0; }
+  pre { max-width: 100%; overflow-x: auto; padding: 1rem; background: var(--sl-color-gray-6); border-radius: .4rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+  blockquote { padding: 1rem; border-left: 3px solid var(--sl-color-accent); }
+  dt { margin-top: 1rem; font-weight: 650; }
+  dd { margin-left: 0; }
+  details { padding: 1rem; border: 1px solid var(--sl-color-gray-5); border-radius: .4rem; }
+  summary { cursor: pointer; font-weight: 650; }
+  .source-links { margin-top: 2rem; }
 </style>

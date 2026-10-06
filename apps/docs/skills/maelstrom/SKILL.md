@@ -8,7 +8,7 @@ description: >-
 license: MIT
 metadata:
   author: Maelstrom
-  version: 0.1.0
+  version: 0.1.1
 ---
 
 # Maelstrom task router
@@ -24,8 +24,9 @@ API exists.
 2. Select one procedure by the task's primary outcome. Load the procedure skill
    by its listed name using the selected agent's skill loader; follow that
    workflow and only the references it conditionally requires. When only this
-   entry skill is installed and the procedure is not discoverable, install that
-   procedure skill from the same complete bundle before proceeding.
+    entry skill is installed and the procedure is not discoverable, report the
+    missing procedure and its install command. Install it only when the user's
+    task authorizes installation; plan-only work does not authorize changes.
 3. If an API-specific step is needed and its package is installed, load the
    package-owned guide at
    `node_modules/@maelstrom-co/<package>/skills/<guide>/SKILL.md`. Treat the

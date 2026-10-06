@@ -10,13 +10,15 @@
     "src/**/*.astro",
     "tools/prompts/**/*.ts",
     "prompts/evaluation/**/*.ts",
+    "tools/skills/**/*.ts",
     "astro.config.ts"
   ],
   "exclude": [
     "dist",
     "node_modules",
     "tools/prompts/**/*.test.ts",
-    "prompts/evaluation/**/*.test.ts"
+    "prompts/evaluation/**/*.test.ts",
+    "tools/skills/**/*.test.ts"
   ],
   "references": [
     {
