@@ -9,21 +9,30 @@ export function installPageDiagnostics(page: Page, testInfo: TestInfo) {
   const consoleErrors: string[] = [];
   const failedRequests: string[] = [];
   const badResponses: string[] = [];
+  const retainLatest = (entries: string[], entry: string) => {
+    entries.push(entry);
+    if (entries.length > 20) entries.shift();
+  };
   page.on('pageerror', (error) =>
-    pageErrors.push(sanitizeDiagnosticText(`${error.name}: ${error.message}`)),
+    retainLatest(
+      pageErrors,
+      sanitizeDiagnosticText(`${error.name}: ${error.message}`),
+    ),
   );
   page.on('console', (message) => {
     if (message.type() === 'error')
-      consoleErrors.push(sanitizeDiagnosticText(message.text()));
+      retainLatest(consoleErrors, sanitizeDiagnosticText(message.text()));
   });
   page.on('requestfailed', (request) =>
-    failedRequests.push(
+    retainLatest(
+      failedRequests,
       `${request.method()} ${sanitizeDiagnosticPathname(request.url())}: ${sanitizeDiagnosticText(request.failure()?.errorText ?? 'request failed')}`,
     ),
   );
   page.on('response', (response) => {
     if (response.status() >= 400)
-      badResponses.push(
+      retainLatest(
+        badResponses,
         `${response.status()} ${sanitizeDiagnosticPathname(response.url())}`,
       );
   });

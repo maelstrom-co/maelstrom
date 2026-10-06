@@ -36,10 +36,20 @@ test('redacts credential fields and secret URL path segments from diagnostics', 
       String.raw`{"token":"synthetic \"quoted\" synthetic-json-value"}`,
     ),
     unterminatedQuoteToken: sanitizeDiagnosticText('token="sensitive-value'),
+    basicAuthorization: sanitizeDiagnosticText(
+      'Authorization: Basic dXNlcjpwYXNz',
+    ),
+    webSocketUrl: sanitizeDiagnosticText(
+      'WebSocket failed: wss://user:password@voice.test/sessions/path-secret-value?token=sensitive-value&api_key=sk-test-synthetic-key-token',
+    ),
   };
   assert.match(
     diagnostic.document.bodyText,
     /request \/sessions\/\[REDACTED\]\/summary/,
+  );
+  assert.equal(
+    diagnostic.webSocketUrl,
+    'WebSocket failed: /sessions/[REDACTED]',
   );
   assert.equal(diagnostic.escapedQuoteJson, '{"token":"[REDACTED]"}');
   assert.equal(diagnostic.unterminatedQuoteToken, 'token="[REDACTED]"');
@@ -54,6 +64,8 @@ test('redacts credential fields and secret URL path segments from diagnostics', 
     'path-secret-value',
     'synthetic-bearer-token',
     'sk-test-synthetic-key-token',
+    'dXNlcjpwYXNz',
+    'user:password',
   ])
     assert.equal(
       serialized.includes(secret),

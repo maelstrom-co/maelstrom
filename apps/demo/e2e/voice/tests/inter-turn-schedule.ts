@@ -4,6 +4,7 @@ export const assistantCompletionQuietIntervalMs = 1_000;
 export const fullScenarioPostSpeechBufferMs = 2_000;
 export const fullScenarioInterTurnPollIntervalMs = 100;
 export const fullScenarioLeadInPollIntervalMs = 20;
+export const assistantResponseCompletionTimeoutMs = 30_000;
 
 const assistantQuietBeforeNextInputMs =
   assistantCompletionQuietIntervalMs + fullScenarioPostSpeechBufferMs;
@@ -64,16 +65,27 @@ export async function waitForAssistantResponseCompletion(args: {
     | Promise<{ readonly activeMs: number; readonly silentTailMs: number }>;
   readonly sleep: (milliseconds: number) => Promise<void>;
   readonly quietMs?: number;
+  readonly timeoutMs?: number;
 }): Promise<void> {
   const quietMs = args.quietMs ?? assistantCompletionQuietIntervalMs;
   if (!Number.isFinite(quietMs) || quietMs <= 0)
     throw new Error('Assistant completion quiet interval must be positive');
+  const timeoutMs = args.timeoutMs ?? assistantResponseCompletionTimeoutMs;
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0)
+    throw new Error('Assistant response completion timeout must be positive');
+  const deadlineMs = Date.now() + timeoutMs;
   let sawAssistantOutput = false;
   while (true) {
+    if (Date.now() >= deadlineMs)
+      throw new Error(
+        `Assistant response did not complete within ${timeoutMs} ms`,
+      );
     const current = await args.activity();
     sawAssistantOutput ||= current.activeMs >= 150;
     if (sawAssistantOutput && current.silentTailMs >= quietMs) return;
-    await args.sleep(fullScenarioInterTurnPollIntervalMs);
+    await args.sleep(
+      Math.min(fullScenarioInterTurnPollIntervalMs, deadlineMs - Date.now()),
+    );
   }
 }
 

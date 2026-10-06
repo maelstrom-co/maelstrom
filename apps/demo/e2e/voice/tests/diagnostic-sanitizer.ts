@@ -5,6 +5,8 @@ const quotedSensitiveField = new RegExp(
 );
 const sensitiveField =
   /(["']?(?:api[_-]?key|authorization|access[_-]?token|refresh[_-]?token|token|secret|credential|password|client[_-]?secret)["']?\s*[:=]\s*)(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^,\s;&}\]]+)/gi;
+const basicAuthorization =
+  /\b(Basic\s+)(?:"[^"]*"|'[^']*'|[A-Za-z0-9+/]+={0,2})/gi;
 const bearerToken = /\b(Bearer\s+)(?:"[^"]*"|'[^']*'|[^\s,;}"'\]]+)/gi;
 const providerToken =
   /\b(?:sk|pk|rk|tok)[_-](?:live[_-])?[A-Za-z0-9_-]{8,}\b/gi;
@@ -53,12 +55,13 @@ export function sanitizeDiagnosticPathname(urlOrPath: string): string {
 
 export function sanitizeDiagnosticText(value: string): string {
   return value
-    .replace(quotedSensitiveField, '$1"[REDACTED]"')
-    .replace(bearerToken, '$1[REDACTED]')
-    .replace(sensitiveField, '$1"[REDACTED]"')
-    .replace(/https?:\/\/[^\s"'<>\])}]+/gi, (url) =>
+    .replace(/(?:https?|wss?):\/\/[^\s?"'<>\])}]+(?:\?[^\s<>]*)?/gi, (url) =>
       sanitizeDiagnosticPathname(url),
     )
+    .replace(quotedSensitiveField, '$1"[REDACTED]"')
+    .replace(basicAuthorization, '$1[REDACTED]')
+    .replace(bearerToken, '$1[REDACTED]')
+    .replace(sensitiveField, '$1"[REDACTED]"')
     .replace(/(?:\/[A-Za-z0-9._~%+-]+)+/g, (path) =>
       sanitizeDiagnosticPathname(path),
     )

@@ -244,6 +244,7 @@ test('patched microphone acquisition settles after disposal without recreating c
     });
     Object.defineProperty(navigator.mediaDevices, 'getUserMedia', {
       configurable: true,
+      writable: true,
       value: () => pending,
     });
   });

@@ -22,16 +22,7 @@ export type AudioTimelineMeasurement = {
   readonly reason?: string;
 };
 
-export type BrowserAudioTimelineSnapshot = {
-  readonly sampleRate: number;
-  readonly inputChannels: number;
-  readonly assistantChannels: number;
-  readonly startFrame: number;
-  readonly endFrame: number;
-  readonly missingBlocks: number;
-  readonly inputWavBase64: string;
-  readonly assistantWavBase64: string;
-};
+export type { BrowserAudioTimelineSnapshot } from './shared-audio-capture.ts';
 
 export const assistantSampleThreshold = 0.01;
 export const assistantQuietSamplesAtLeastMs = 10;

@@ -8,12 +8,19 @@ test('sanitizes synthetic document, console, error, and request diagnostics befo
   const captureDiagnostics = installPageDiagnostics(page, testInfo);
   await page.route('http://localhost/**', async (route) => {
     const pathname = new URL(route.request().url()).pathname;
-    if (pathname === '/api/request/token/synthetic-failed-path-token') {
+    if (
+      pathname === '/api/request/token/synthetic-failed-path-token' ||
+      pathname.startsWith('/api/bounded-failure/')
+    ) {
       await route.abort();
       return;
     }
     await route.fulfill({
-      status: pathname === '/api/session/path-secret-value' ? 401 : 200,
+      status:
+        pathname === '/api/session/path-secret-value' ||
+        pathname.startsWith('/api/bounded-response/')
+          ? 401
+          : 200,
       contentType: 'text/html',
       body: `<!doctype html><title>synthetic diagnostics</title><main>{"token":"synthetic-first synthetic-second Bearer synthetic-tail"}</main>`,
     });
@@ -91,4 +98,44 @@ test('sanitizes synthetic document, console, error, and request diagnostics befo
       message.includes('/api/session/[REDACTED]'),
     ),
   );
+
+  await page.evaluate(async () => {
+    await Promise.all(
+      Array.from({ length: 25 }, (_, index) =>
+        Promise.all([
+          fetch(`/api/bounded-failure/${index}`).catch(() => {}),
+          fetch(`/api/bounded-response/${index}`),
+        ]),
+      ),
+    );
+    for (let index = 0; index < 25; index++) {
+      console.error(`console-marker-${index}`);
+      setTimeout(() => {
+        throw new Error(`page-marker-${index}`);
+      }, 0);
+    }
+  });
+  await page.waitForTimeout(100);
+  await captureDiagnostics('bounded-events-probe');
+  const boundedAttachment = testInfo.attachments
+    .filter(({ name }) => name === 'voice-page-diagnostics.json')
+    .at(-1);
+  assert.ok(boundedAttachment?.body);
+  const bounded = JSON.parse(boundedAttachment.body.toString('utf8')) as {
+    consoleErrors: string[];
+    pageErrors: string[];
+    failedRequests: string[];
+    badResponses: string[];
+  };
+  for (const entries of [
+    bounded.consoleErrors,
+    bounded.pageErrors,
+    bounded.failedRequests,
+    bounded.badResponses,
+  ])
+    assert.equal(entries.length, 20);
+  assert.ok(bounded.consoleErrors.at(-1)?.includes('console-marker-24'));
+  assert.ok(bounded.pageErrors.at(-1)?.includes('page-marker-24'));
+  assert.ok(bounded.failedRequests.at(-1)?.includes('/api/bounded-failure/24'));
+  assert.ok(bounded.badResponses.at(-1)?.includes('/api/bounded-response/24'));
 });

@@ -146,7 +146,11 @@ test.describe('voice benchmark', () => {
         '--padding',
         vadPadding,
       ],
-      { encoding: 'utf8', maxBuffer: 1024 * 1024 },
+      {
+        timeout: 60_000,
+        encoding: 'utf8',
+        maxBuffer: 1024 * 1024,
+      },
     );
     const fixtureVadValidation = requireNonemptyFixtureVad(
       validateVadPayload(
@@ -308,8 +312,11 @@ test.describe('voice benchmark', () => {
               },
             );
             if (monitorBeforeNextInput) {
+              let leadInResult: Awaited<
+                ReturnType<typeof monitorFullScenarioLeadIn>
+              >;
               try {
-                await monitorFullScenarioLeadIn({
+                leadInResult = await monitorFullScenarioLeadIn({
                   playbackStartedAtMs: playbackStartedAt,
                   nowMs: () => performance.now(),
                   assistantSilentTailMs,
@@ -322,7 +329,9 @@ test.describe('voice benchmark', () => {
                     return {
                       terminated: true,
                       closedAtMs: stopped.closedAtMs,
-                      sourceNotStarted: false,
+                      sourceNotStarted:
+                        stopped.closedAtMs <
+                        playbackStartedAt + tts2micPlaybackLeadInMs,
                     };
                   },
                 });
@@ -330,6 +339,10 @@ test.describe('voice benchmark', () => {
                 await playbackProcess.stopAndWait();
                 throw error;
               }
+              if (leadInResult === 'cancelled-before-source')
+                throw new Error(
+                  'Assistant output resumed during playback lead-in; playback will not be replayed',
+                );
             }
             stdout = (await playbackProcess.completed()).stdout;
             break;
@@ -708,10 +721,10 @@ test.describe('voice benchmark', () => {
         ],
       );
     }
+    if (attemptFailed) throw attemptError;
     if (singleTurnFailureReason)
       throw new Error(
         `Single-turn diagnostic attempt is invalid: ${singleTurnFailureReason}`,
       );
-    if (attemptFailed) throw attemptError;
   });
 });

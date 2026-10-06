@@ -31,6 +31,21 @@ test('invalidates a lead-in cancellation without source-not-started proof', asyn
   assert.equal(playerLaunches, 1);
 });
 
+test('accepts a lead-in cancellation confirmed before the source deadline', async () => {
+  const result = await monitorFullScenarioLeadIn({
+    playbackStartedAtMs: 10_000,
+    nowMs: () => 10_020,
+    assistantSilentTailMs: () => 0,
+    sleep: async () => {},
+    stopAndWait: async () => ({
+      terminated: true,
+      closedAtMs: 10_030,
+      sourceNotStarted: true,
+    }),
+  });
+  assert.equal(result, 'cancelled-before-source');
+});
+
 test('does not replay when cancellation does not terminate the player', async () => {
   const playerLaunches = 1;
   await assert.rejects(
@@ -108,6 +123,18 @@ test('does not finalize response audio until output quiet follows observed outpu
   finalized = true;
   assert.equal(finalized, true);
   assert.equal(calls, 4);
+});
+
+test('times out when assistant response completion is never observed', async () => {
+  await assert.rejects(
+    waitForAssistantResponseCompletion({
+      activity: () => ({ activeMs: 0, silentTailMs: 0 }),
+      sleep: (milliseconds) =>
+        new Promise((resolve) => setTimeout(resolve, milliseconds)),
+      timeoutMs: 1,
+    }),
+    /Assistant response did not complete within 1 ms/,
+  );
 });
 
 test('requires assistant quiet plus buffer and the source-gap deadline', () => {
