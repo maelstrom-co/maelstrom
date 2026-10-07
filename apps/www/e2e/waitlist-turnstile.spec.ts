@@ -5,7 +5,7 @@ async function openHydratedWaitlist(
   page: Page,
   waitUntil: 'load' | 'domcontentloaded' = 'load',
 ): Promise<void> {
-  await page.goto('/#waitlist', { waitUntil });
+  await page.goto('/__fixtures/waitlist', { waitUntil });
   const waitlistForm = page.locator('astro-island').filter({
     has: page.getByPlaceholder('you@example.com'),
   });

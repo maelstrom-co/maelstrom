@@ -1,0 +1,10 @@
+---
+import WaitlistForm from '../../src/islands/WaitlistForm';
+import Layout from '../../src/layouts/Layout.astro';
+---
+
+<Layout title="Waitlist form fixture" analytics={false}>
+  <main class="container" style="padding-top: 120px;">
+    <WaitlistForm client:load />
+  </main>
+</Layout>

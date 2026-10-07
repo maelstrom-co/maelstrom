@@ -1,5 +1,5 @@
 ---
-import WaitlistForm from '../islands/WaitlistForm.tsx';
+import BetaDiscordLink from '../components/BetaDiscordLink.astro';
 
 const BETA_PROGRAM = [
   {
@@ -61,10 +61,13 @@ const BETA_PROGRAM = [
         <div>
           <h3 class="waitlist-title">Become a beta tester</h3>
           <p class="waitlist-sub">
-            Join the list and we will send you access details.
+            Join our Discord community for the beta role and instructions to
+            request GitHub access.
           </p>
         </div>
-        <WaitlistForm client:visible />
+        <BetaDiscordLink source="beta_section" class="btn btn-primary beta-discord-cta">
+          Join the beta community on Discord
+        </BetaDiscordLink>
       </div>
     </div>
   </div>

@@ -31,6 +31,19 @@ export default defineConfig({
   compressHTML: true,
   adapter,
   integrations: [
+    {
+      name: 'waitlist-test-fixture',
+      hooks: {
+        'astro:config:setup': ({ command, injectRoute }) => {
+          if (command === 'dev' && process.env.WWW_E2E_FIXTURES === '1') {
+            injectRoute({
+              pattern: '/__fixtures/waitlist',
+              entrypoint: './e2e/fixtures/waitlist.astro',
+            });
+          }
+        },
+      },
+    },
     react(),
     mdx(),
     sitemap({

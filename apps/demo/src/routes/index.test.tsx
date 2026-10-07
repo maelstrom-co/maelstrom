@@ -184,7 +184,7 @@ describe('key drawer gating (hosted, no key)', () => {
     expect(screen.getByRole('status', { name: /key required/i })).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Docs' })).toBeTruthy();
     expect(
-      screen.getByRole('link', { name: 'Join private beta' }),
+      screen.getByRole('link', { name: 'Join beta on Discord' }),
     ).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Feedback on X' })).toBeTruthy();
     expect(

@@ -27,11 +27,11 @@ export default defineConfig({
   webServer: {
     // `--ignore-lock`: Astro's dev lock is keyed on the project root, not the
     // port, so a contributor already running `nx dev www` would otherwise make
-    // this abort with "Another astro dev server is already running" — and
-    // `reuseExistingServer` cannot rescue it, since it probes 4323 only.
+    // this abort with "Another astro dev server is already running".
     command: 'bunx astro dev --port 4323 --ignore-lock',
     url: 'http://localhost:4323/',
-    reuseExistingServer: !process.env.CI,
+    // An existing server may lack the development-only waitlist fixture.
+    reuseExistingServer: false,
     timeout: 120_000,
     // Astro detaches `astro dev` into a background daemon when it detects an AI
     // coding agent; the foreground process exits and Playwright aborts with
@@ -39,6 +39,6 @@ export default defineConfig({
     // `!process.env.ASTRO_DEV_BACKGROUND`, so any non-empty value suppresses it
     // (the value is never compared). Also required for `--ignore-lock`, which
     // Astro rejects while agent detection is active.
-    env: { ASTRO_DEV_BACKGROUND: '0' },
+    env: { ASTRO_DEV_BACKGROUND: '0', WWW_E2E_FIXTURES: '1' },
   },
 });

@@ -1,7 +1,7 @@
 import { WAITLIST_TURNSTILE_ACTION } from '@maelstrom-co/platform-infra/waitlist-contract';
 import { useEffect, useRef, useState } from 'react';
 import { WAITLIST_TURNSTILE_SITE_KEY } from '../data/turnstile-site-key';
-import { captureWaitlistEvent } from '../lib/posthog';
+import { captureWebsiteEvent } from '../lib/posthog';
 import { submitWaitlist } from '../lib/waitlist';
 
 declare global {
@@ -240,7 +240,7 @@ export default function WaitlistForm() {
 
       if (result.ok) {
         setStatus('submitted');
-        captureWaitlistEvent('waitlist_submission_accepted');
+        captureWebsiteEvent('waitlist_submission_accepted');
         return;
       }
       console.error('[WaitlistForm] submit failed:', result.message);
