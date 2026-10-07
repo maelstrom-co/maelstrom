@@ -50,6 +50,12 @@ function validManifest() {
 }
 
 describe('registry metadata preflight', () => {
+  it('keeps every publishable workspace package ready for release', () => {
+    expect(
+      collectRegistryMetadataProblems(join(import.meta.dir, '..')),
+    ).toEqual([]);
+  });
+
   it('rejects npmjs metadata before a local release can create a tag', () => {
     const cwd = workspace({
       ...validManifest(),
