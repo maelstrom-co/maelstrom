@@ -1,6 +1,6 @@
 {
   "name": "@maelstrom-co/planner-llm",
-  "version": "0.1.0-alpha.4",
+  "version": "0.1.0-alpha.5",
   "description": "Reference LLM planner for the Maelstrom engine planner seam: one structured-output chat() call per attempt, with a section-based prompt builder.",
   "keywords": [
     "maelstrom",
@@ -46,8 +46,8 @@
     "registry": "https://npm.pkg.github.com"
   },
   "dependencies": {
-    "@maelstrom-co/engine": "0.1.0-alpha.4",
-    "@maelstrom-co/protocol": "0.1.0-alpha.4",
+    "@maelstrom-co/engine": "0.1.0-alpha.5",
+    "@maelstrom-co/protocol": "0.1.0-alpha.5",
     "@tanstack/ai": "catalog:",
     "zod": "catalog:"
   },
