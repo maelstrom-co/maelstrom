@@ -2,6 +2,13 @@
   "name": "@maelstrom-co/realtime-openai-live-server",
   "version": "0.1.0-alpha.3",
   "description": "Server-held-key session exchange for OpenAI Live WebRTC.",
+  "keywords": [
+    "maelstrom",
+    "openai",
+    "realtime",
+    "server",
+    "webrtc"
+  ],
   "license": "MIT",
   "type": "module",
   "engines": {
