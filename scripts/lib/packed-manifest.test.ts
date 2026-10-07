@@ -8,14 +8,16 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import {
   type ArchiveProcessRequest,
   MAX_PACKED_TARBALL_BYTES,
   PACKED_PACKAGE_NAMES,
+  parsePackedManifest,
   validatePackedManifest,
 } from './packed-manifest.ts';
+import { listPublishablePackages } from './workspace-packages.ts';
 
 type TarMember = {
   name: string;
@@ -99,6 +101,29 @@ function fakeArchiveProcess(request: ArchiveProcessRequest) {
         stderr: Buffer.alloc(0),
       };
 }
+
+describe('release package coverage', () => {
+  test('accepts the complete publishable workspace so newly packed packages cannot strand a release', () => {
+    const root = resolve(import.meta.dirname, '../..');
+    const packages = listPublishablePackages(root);
+    const entries = packages.map((pkg, index) => ({
+      name: pkg.name,
+      version: '1.2.3',
+      tarball: `release-${index}.tgz`,
+    }));
+
+    expect(parsePackedManifest(entries, '1.2.3')).toEqual(entries);
+    expect(packages.map((pkg) => pkg.name).sort()).toEqual(
+      [...PACKED_PACKAGE_NAMES].sort(),
+    );
+    expect(entries.map((pkg) => pkg.name)).toContain(
+      '@maelstrom-co/realtime-openai-live',
+    );
+    expect(entries.map((pkg) => pkg.name)).toContain(
+      '@maelstrom-co/realtime-openai-live-server',
+    );
+  });
+});
 
 describe('validatePackedManifest policy', () => {
   test.each([
