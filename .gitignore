@@ -106,3 +106,7 @@ graphify-out
 # support, so a single accidental snapshot would put 80MB in every clone
 # permanently, recoverable only by rewriting history across every workspace.
 **/public/vad-web/
+
+
+# voice e2e artifacts
+apps/demo/e2e/voice/audio

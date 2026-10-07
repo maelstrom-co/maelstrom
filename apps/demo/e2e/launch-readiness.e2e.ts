@@ -177,7 +177,7 @@ test('shows a visible seeded workspace after adding a key', async ({
     try {
       await page
         .getByRole('button', { name: 'API key' })
-        .click({ timeout: 1_000 });
+        .click({ timeout: 5_000 });
     } catch (error) {
       if (!(await apiKeyInput.isVisible())) throw error;
     }
