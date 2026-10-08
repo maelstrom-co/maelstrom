@@ -17,8 +17,8 @@ import { createDemoOpenaiChat } from '../../server/engine-model';
 import { createRedactingLogger, redact } from '../../server/redact';
 
 // OpenAI shares this budget between reasoning and visible output, so layout
-// JSON has less headroom than the cap suggests. TanStack reports max_tokens
-// when native structured output exhausts the budget.
+// JSON has less headroom than the cap suggests. Budget exhaustion rejects the
+// structured result, but the error code depends on the adapter's terminal event.
 const MAX_OUTPUT_TOKENS = 16384;
 
 /** A failed engine build. The message is redacted before construction. */

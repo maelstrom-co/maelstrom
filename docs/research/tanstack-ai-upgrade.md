@@ -75,10 +75,13 @@ Sources: [Gemini changelog][gemini-changelog] and
 ### Preserve the output budget
 
 Core `0.61.0` added explicit `max_tokens` errors for native combined structured
-output. The Worker comment now reflects that behavior. The `16384` output cap
-stays unchanged because OpenAI shares it between reasoning and visible output.
-Other incomplete-response reasons can still produce different errors.
-Sources: [core changelog][changelog] and [structured-output finalization][chat-source].
+output when the adapter reports `finishReason: 'length'`. OpenAI Responses instead
+emits `RUN_ERROR` with code `incomplete` and message `max_output_tokens` for a
+`response.incomplete` budget cutoff. Both paths reject the incomplete result.
+The Worker comment avoids promising one error code. The `16384` output cap stays
+unchanged because OpenAI shares it between reasoning and visible output.
+Sources: [core changelog][changelog], [structured-output finalization][chat-source],
+and [OpenAI Responses terminal handling][responses-source].
 
 ### Report model usage through the engine
 
@@ -109,6 +112,10 @@ Usage survives finalization failure when the provider already reported it.
 Unknown usage stays absent rather than becoming zero. `onFinish.info.usage` is
 not added: it repeats agent-loop usage and omits separate finalization usage.
 Collectors belong to individual calls, so concurrent requests cannot share totals.
+
+OpenAI's `response.incomplete` path does not forward terminal usage, even when
+the upstream event contains it. An offline replay with the real adapter confirms
+this limit. Instrumentation cannot recover usage the adapter discards.
 
 Events exclude prompts, output, provider errors, and credentials. Use correlation
 IDs in logs or traces, not metric labels. The caller supplies the instrument;
@@ -151,17 +158,60 @@ and [OpenAI factory][openai-source].
   also do not affect these calls, which provide no TanStack tools. Maelstrom
   executes actions through its own engine. Source: [changelog][changelog].
 
-## Optional follow-ups
-
-- Add credential-backed provider checks for malformed output, transformed
-  identifiers, optional fields, cancellation, and output-budget exhaustion.
-  Offline tests verify integration contracts, not provider acceptance or quality.
-
 ## Verification scope
 
-No credential-backed provider requests were made. An offline check against real
-`chat()` verified schema transforms, the combined structured-output stream path,
-and AG-UI usage capture. The fake adapters do not verify live model behavior.
+The approved live smoke batch made eight requests. Two additional OpenAI
+diagnostic requests repeated the failed checks with redacted error capture.
+One final OpenAI request verified cancellation when response headers arrived.
+The live checks made eleven requests in total.
+Each case allowed one provider request, no network retries, and a 45-second
+timeout. Output caps were 512 tokens for schema checks, 128 for validation,
+16 for budget exhaustion, and 256 for cancellation. Inputs were synthetic.
+Credentials stayed in the child process environment and were not recorded.
+
+| Check | OpenAI `gpt-6-luna` | Gemini `gemini-3.1-flash-lite-preview` |
+| --- | --- | --- |
+| Transformed identifier, optional and nullable fields | Passed | Passed |
+| Intentional local schema refinement rejection | Passed | Passed |
+| Output-budget exhaustion | Rejected; `incomplete`, message `max_output_tokens` | Passed; `max_tokens` |
+| Caller cancellation after first text | Not exercised; budget exhausted before text | Passed; transport aborted |
+| Caller cancellation on response headers | Passed; transport aborted before text | Not run |
+
+The first batch passed six of eight original assertions. The OpenAI budget
+assertion expected `max_tokens`, but both attempts returned `incomplete` with
+message `max_output_tokens`. The cancellation fixture failed before its abort
+trigger. Neither failure returned an incomplete object as a successful result.
+The two diagnostic requests confirmed the same outcomes. They did not verify
+live OpenAI cancellation.
+
+The final OpenAI check cancelled immediately after HTTP `200` headers arrived,
+before the SDK consumed the response body. The provider's transport signal was
+aborted synchronously. `chat()` rejected 27 milliseconds after cancellation and
+fired only `onAbort`, with no text or usage callback. The request took 1948
+milliseconds in total. This verifies local transport cancellation, not when the
+provider stops generation or billing.
+
+A network-disabled SSE replay through the real OpenAI SDK and TanStack adapter
+confirmed three behaviors: `response.incomplete` rejects with `incomplete` and
+omits usage; `response.completed` with a length cutoff reaches core `max_tokens`
+handling and forwards usage; caller cancellation after a text delta aborts the
+transport and fires `onAbort`. These are synthetic event fixtures, not captured
+provider bodies. They verify adapter behavior, not live model behavior.
+
+Four live responses reported 158 input and 74 output tokens. The budget and
+cancellation cases reported no usage through TanStack, so 232 reported tokens
+are not a complete billing total. No exact monetary cost was calculated.
+
+Offline integration tests also verify schema transforms, combined structured
+output, AG-UI usage capture, and planner telemetry. Live checks used small schemas,
+not full planner layouts or actions. They do not establish planner quality.
+
+## Remaining verification
+
+- Malformed provider JSON was not tested live. Local schema refinement rejection
+  verifies validation, not malformed JSON parsing.
+- OpenAI terminal usage loss remains an upstream adapter limit. Keep missing
+  usage absent; do not estimate it from the request's output cap.
 
 [registry-ai]: https://registry.npmjs.org/@tanstack/ai/0.65.1
 [openai-package]: https://github.com/TanStack/ai/blob/25e0d65e19eee4641eece3cc812b9ba991d62893/packages/ai-openai/package.json
@@ -172,6 +222,7 @@ and AG-UI usage capture. The fake adapters do not verify live model behavior.
 [usage]: https://github.com/TanStack/ai/blob/25e0d65e19eee4641eece3cc812b9ba991d62893/packages/ai/src/utilities/ag-ui-usage.ts
 [chat-source]: https://github.com/TanStack/ai/blob/25e0d65e19eee4641eece3cc812b9ba991d62893/packages/ai/src/activities/chat/index.ts
 [openai-source]: https://github.com/TanStack/ai/blob/25e0d65e19eee4641eece3cc812b9ba991d62893/packages/ai-openai/src/adapters/text.ts
+[responses-source]: https://github.com/TanStack/ai/blob/25e0d65e19eee4641eece3cc812b9ba991d62893/packages/openai-base/src/adapters/responses-text.ts
 [extend-source]: https://github.com/TanStack/ai/blob/25e0d65e19eee4641eece3cc812b9ba991d62893/packages/ai/src/extend-adapter.ts
 [debug-guide]: https://github.com/TanStack/ai/blob/25e0d65e19eee4641eece3cc812b9ba991d62893/docs/advanced/debug-logging.md
 [debug-source]: https://github.com/TanStack/ai/blob/25e0d65e19eee4641eece3cc812b9ba991d62893/packages/ai/src/logger/resolve.ts
