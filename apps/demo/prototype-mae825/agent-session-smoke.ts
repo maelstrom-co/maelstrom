@@ -78,7 +78,7 @@ ws.onmessage = (event) => {
     }
     case 'agent.ui': {
       const actions = frame.executionPlan.map(
-        (a) => `${a.action}${a.paramsJson ?? ''}`,
+        (a) => `${a.action}${a.params ? JSON.stringify(a.params) : ''}`,
       );
       console.log(
         at,
@@ -160,10 +160,26 @@ function applyUi(frame: Extract<AgentServerFrame, { type: 'agent.ui' }>): void {
       instances: layout.instances ?? chart.instances,
     };
   }
-  for (const action of frame.executionPlan) {
-    const params = action.paramsJson ? JSON.parse(action.paramsJson) : {};
+  for (const action of frame.executionPlan as readonly {
+    action: string;
+    params?: Record<string, unknown>;
+    paramsJson?: unknown;
+  }[]) {
+    // The browser reads MaelstromResponse `params` only; fail loudly on the
+    // LLM-only `paramsJson` shape that silently broke addToCart in the browser.
+    if (
+      'paramsJson' in action ||
+      (action.action === 'addToCart' && !action.params?.sku)
+    ) {
+      console.log(
+        'SHAPE ERROR: agent.ui action is not a MaelstromResponse ActionExecution',
+        JSON.stringify(action),
+      );
+      process.exit(1);
+    }
+    const params = (action.params ?? {}) as { sku?: string; quantity?: number };
     if (action.action === 'addToCart') {
-      const product = productBySku(params.sku);
+      const product = productBySku(params.sku ?? '');
       if (!product) continue;
       cart = [
         ...cart,

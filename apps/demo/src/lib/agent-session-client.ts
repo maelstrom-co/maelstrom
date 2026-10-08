@@ -171,14 +171,16 @@ async function routeFrame(
         ],
       });
       return;
-    case 'agent.ui':
-      await applyAgentUi(frame, orchestrator);
+    case 'agent.ui': {
+      const error = await applyAgentUi(frame, orchestrator);
       sendFrame(send, {
         type: 'agent.ui.applied',
         uiId: frame.uiId,
         chart: readChartSnapshot(orchestrator),
+        ...(error ? { error } : {}),
       });
       return;
+    }
     case 'agent.tool.request':
       // Yield first: confirm() blocks, and the socket handler should return.
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -211,7 +213,7 @@ async function routeFrame(
 async function applyAgentUi(
   frame: AgentUiFrame,
   orchestrator: Orchestrator,
-): Promise<void> {
+): Promise<string | undefined> {
   const executionPlan = frame.executionPlan as readonly ActionExecution[];
   orchestrator.commandProcessor.dispatch(
     ...(frame.layout
@@ -219,7 +221,8 @@ async function applyAgentUi(
       : []),
     { kind: 'execute_actions', executionPlan },
   );
-  await orchestrator.commandProcessor.waitForIdle();
+  const settled = await orchestrator.commandProcessor.waitForIdle();
+  return settled.ok ? undefined : settled.error.message;
 }
 
 function runClientTool(frame: AgentToolRequestFrame): AgentClientFrame {

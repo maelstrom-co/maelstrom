@@ -266,11 +266,9 @@ function actionExecution(
   action: string,
   params: Record<string, unknown>,
 ): ActionExecution {
-  return {
-    instanceId,
-    action,
-    paramsJson: JSON.stringify(params),
-  } as unknown as ActionExecution;
+  // MaelstromResponse actions carry parsed `params`; `paramsJson` is only the
+  // LLM structured-output shape, and the browser ignores it.
+  return { instanceId, action, params } as unknown as ActionExecution;
 }
 
 function summarizeProduct(product: Product) {

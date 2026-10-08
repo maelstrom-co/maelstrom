@@ -89,7 +89,7 @@ export class AgentSession {
     string,
     { resolve: (value: unknown) => void; reject: (error: Error) => void }
   >();
-  readonly #pendingUiApplied = new Map<string, () => void>();
+  readonly #pendingUiApplied = new Map<string, (error?: string) => void>();
   #chart: AgentChartSnapshot | null = null;
   #uiQueue: Promise<void> = Promise.resolve();
   #turnActive = false;
@@ -125,7 +125,7 @@ export class AgentSession {
         this.#chart = frame.chart;
         const resolve = this.#pendingUiApplied.get(frame.uiId);
         this.#pendingUiApplied.delete(frame.uiId);
-        resolve?.();
+        resolve?.(frame.error);
         return;
       }
     }
@@ -304,10 +304,16 @@ export class AgentSession {
         this.#showUi(intent);
         return this.#waitForScreen();
       },
-      runActions: async (executionPlan) => {
-        this.#enqueueUi(() => this.#pushDirectActions(executionPlan));
-        return this.#waitForScreen();
-      },
+      runActions: (executionPlan) =>
+        new Promise((resolve, reject) => {
+          this.#enqueueUi(async () => {
+            const error = await this.#pushDirectActions(executionPlan);
+            if (error)
+              reject(new Error(`Action failed in the browser: ${error}`));
+            else if (this.#chart) resolve(this.#chart);
+            else reject(new Error('No chart snapshot from the browser'));
+          });
+        }),
       callClientTool: (tool, args) => this.#callClientTool(tool, args),
     };
   }
@@ -376,7 +382,9 @@ export class AgentSession {
     });
   }
 
-  #pushDirectActions(executionPlan: readonly ActionExecution[]): Promise<void> {
+  #pushDirectActions(
+    executionPlan: readonly ActionExecution[],
+  ): Promise<string | undefined> {
     return this.#pushUiAndAwaitApplied({
       source: 'direct',
       userMessage: '',
@@ -384,22 +392,23 @@ export class AgentSession {
     });
   }
 
+  /** Resolves with the browser's apply error, if any, once it acked. */
   #pushUiAndAwaitApplied(
     change: Omit<
       Extract<AgentServerFrame, { type: 'agent.ui' }>,
       'type' | 'uiId'
     >,
-  ): Promise<void> {
+  ): Promise<string | undefined> {
     const uiId = crypto.randomUUID();
     this.#turn?.markFirstUi();
-    const applied = new Promise<void>((resolve) => {
+    const applied = new Promise<string | undefined>((resolve) => {
       const timer = setTimeout(() => {
         this.#pendingUiApplied.delete(uiId);
-        resolve();
+        resolve(undefined);
       }, UI_APPLIED_TIMEOUT_MS);
-      this.#pendingUiApplied.set(uiId, () => {
+      this.#pendingUiApplied.set(uiId, (error) => {
         clearTimeout(timer);
-        resolve();
+        resolve(error);
       });
     });
     this.#push({ type: 'agent.ui', uiId, ...change });

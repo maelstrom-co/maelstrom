@@ -62,6 +62,8 @@ export interface AgentUiAppliedFrame {
   readonly type: 'agent.ui.applied';
   readonly uiId: string;
   readonly chart: AgentChartSnapshot;
+  /** Set when applying the change failed, for example an action error. */
+  readonly error?: string;
 }
 
 export type AgentClientFrame =
