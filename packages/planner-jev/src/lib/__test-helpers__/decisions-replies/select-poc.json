@@ -1,0 +1,630 @@
+{
+  "request": {
+    "model": "gpt-6-luna",
+    "input": "{\"intent\":[{\"type\":\"user_intent\",\"intent\":\"weather for the capital of Japan\"}],\"history\":[],\"chartDimensions\":{\"rows\":18,\"columns\":30},\"currentLayout\":[\"V:1,1,1\",\"ID:calendar-main\",\"ID:weather-main\",\"ID:tasks-main\"],\"instances\":[{\"instanceId\":\"calendar-main\",\"vesselId\":\"calendar\",\"variant\":\"month\",\"visible\":true},{\"instanceId\":\"weather-main\",\"vesselId\":\"weather\",\"variant\":\"current\",\"visible\":true},{\"instanceId\":\"tasks-main\",\"vesselId\":\"tasks\",\"variant\":\"list\",\"visible\":true},{\"instanceId\":\"map-main\",\"vesselId\":\"map\",\"variant\":\"overview\",\"visible\":false},{\"instanceId\":\"journal-main\",\"vesselId\":\"journal\",\"variant\":\"list\",\"visible\":false}],\"vessels\":[{\"id\":\"calendar\",\"name\":\"Calendar\",\"description\":\"Calendar with month, week and day views\",\"defaultVariant\":\"month\",\"variants\":{\"month\":{\"props\":{},\"minSize\":{\"width\":4,\"height\":4},\"actions\":[{\"name\":\"showWeek\",\"description\":\"Switch to week view\",\"transitionsTo\":\"week\",\"idempotent\":false},{\"name\":\"addEvent\",\"description\":\"Add an event to today's schedule\",\"parameters\":[{\"name\":\"title\",\"type\":\"string\",\"description\":\"Event title\"},{\"name\":\"time\",\"type\":\"string\",\"description\":\"Time like 9:00 or 14:30\"}],\"transitionsTo\":\"day\",\"idempotent\":false}]},\"week\":{\"props\":{},\"minSize\":{\"width\":6,\"height\":3},\"actions\":[{\"name\":\"showMonth\",\"description\":\"Switch back to month view\",\"transitionsTo\":\"month\",\"idempotent\":false},{\"name\":\"addEvent\",\"description\":\"Add an event to today's schedule\",\"parameters\":[{\"name\":\"title\",\"type\":\"string\",\"description\":\"Event title\"},{\"name\":\"time\",\"type\":\"string\",\"description\":\"Time like 9:00 or 14:30\"}],\"idempotent\":false}]},\"day\":{\"props\":{},\"minSize\":{\"width\":4,\"height\":4},\"actions\":[{\"name\":\"showMonth\",\"description\":\"Switch to month view\",\"transitionsTo\":\"month\",\"idempotent\":false},{\"name\":\"addEvent\",\"description\":\"Add an event to today's schedule\",\"parameters\":[{\"name\":\"title\",\"type\":\"string\",\"description\":\"Event title\"},{\"name\":\"time\",\"type\":\"string\",\"description\":\"Time like 9:00 or 14:30\"}],\"idempotent\":false}]}}},{\"id\":\"weather\",\"name\":\"Weather\",\"description\":\"Current conditions or a weekly forecast\",\"defaultVariant\":\"current\",\"variants\":{\"current\":{\"props\":{},\"minSize\":{\"width\":6,\"height\":4},\"actions\":[{\"name\":\"setLocation\",\"description\":\"Load weather for a place\",\"parameters\":[{\"name\":\"location\",\"type\":\"string\",\"description\":\"City or place to request weather for\"}],\"idempotent\":false},{\"name\":\"showWeekly\",\"description\":\"Show the weekly forecast\",\"transitionsTo\":\"weekly\",\"idempotent\":false}]},\"weekly\":{\"props\":{},\"minSize\":{\"width\":8,\"height\":3},\"actions\":[{\"name\":\"setLocation\",\"description\":\"Load weather for a place\",\"parameters\":[{\"name\":\"location\",\"type\":\"string\",\"description\":\"City or place to request weather for\"}],\"idempotent\":false},{\"name\":\"showCurrent\",\"description\":\"Show current conditions\",\"transitionsTo\":\"current\",\"idempotent\":false}]}}},{\"id\":\"tasks\",\"name\":\"Tasks\",\"description\":\"Task list\",\"defaultVariant\":\"list\",\"variants\":{\"list\":{\"props\":{},\"minSize\":{\"width\":3,\"height\":3},\"actions\":[{\"name\":\"addTask\",\"description\":\"Add a new task\",\"parameters\":[{\"name\":\"title\",\"type\":\"string\",\"description\":\"Task title\"},{\"name\":\"urgent\",\"type\":\"boolean\",\"description\":\"Whether the task is urgent\",\"required\":false}],\"idempotent\":false},{\"name\":\"checkTask\",\"description\":\"Mark a task as complete\",\"parameters\":[{\"name\":\"title\",\"type\":\"string\",\"description\":\"Title of the task to check\",\"enum\":[\"Buy milk\",\"Send invoice\",7,null]}],\"idempotent\":false},{\"name\":\"setLimit\",\"description\":\"Limit how many tasks are shown\",\"parameters\":[{\"name\":\"count\",\"type\":\"number\",\"description\":\"How many tasks to show\"}],\"idempotent\":false},{\"name\":\"importTasks\",\"description\":\"Import tasks from a structured payload\",\"parameters\":[{\"name\":\"payload\",\"type\":\"object\",\"description\":\"Tasks to import\"}],\"idempotent\":false}]}}},{\"id\":\"map\",\"name\":\"Map\",\"description\":\"Saved places and routes\",\"defaultVariant\":\"overview\",\"variants\":{\"overview\":{\"props\":{},\"minSize\":{\"width\":4,\"height\":4},\"actions\":[{\"name\":\"showRoute\",\"description\":\"Show driving directions to a destination\",\"parameters\":[{\"name\":\"destination\",\"type\":\"string\",\"description\":\"Name of the destination location\",\"enum\":[\"Studio Vortex HQ\",\"Central Station\"]}],\"transitionsTo\":\"route\",\"idempotent\":false}]},\"route\":{\"props\":{},\"minSize\":{\"width\":6,\"height\":4},\"actions\":[{\"name\":\"showOverview\",\"description\":\"Show all saved places\",\"transitionsTo\":\"overview\",\"idempotent\":false},{\"name\":\"showRoute\",\"description\":\"Show driving directions to a destination\",\"parameters\":[{\"name\":\"destination\",\"type\":\"string\",\"description\":\"Name of the destination location\",\"enum\":[\"Studio Vortex HQ\",\"Central Station\"]}],\"idempotent\":false}]}}},{\"id\":\"journal\",\"name\":\"Journal\",\"description\":\"Journal entries\",\"defaultVariant\":\"list\",\"variants\":{\"list\":{\"props\":{},\"minSize\":{\"width\":3,\"height\":3},\"actions\":[{\"name\":\"openEntry\",\"description\":\"Open an existing entry by title\",\"parameters\":[{\"name\":\"title\",\"type\":\"string\",\"description\":\"Title of the entry to open\"}],\"transitionsTo\":\"entry\",\"idempotent\":false}]},\"entry\":{\"props\":{},\"minSize\":{\"width\":16,\"height\":12},\"actions\":[{\"name\":\"backToList\",\"description\":\"Return to the entries list\",\"transitionsTo\":\"list\",\"idempotent\":false}]}}}]}",
+    "questions": [
+      {
+        "type": "choice",
+        "name": "scope",
+        "instructions": "Can the complete latest intent be satisfied using these vessels, their views and their registered actions? Showing, hiding, removing, replacing, arranging or configuring widgets is supported. A chart resize with no other request is supported. Do not partially satisfy an unsupported compound request.",
+        "choices": [
+          {
+            "value": "supported",
+            "description": "The complete request is clear and supported."
+          },
+          {
+            "value": "unsupported",
+            "description": "A requested capability, generated content, or required target is unavailable."
+          },
+          {
+            "value": "ambiguous",
+            "description": "The intended target or operation is genuinely unclear."
+          }
+        ]
+      },
+      {
+        "type": "choice",
+        "name": "view/calendar-main",
+        "instructions": "Decide what happens to calendar-main, currently visible in its month view. When the latest intent describes the whole screen, for example \"show me X and Y side by side\", \"just X\" or \"only X\", hide every visible instance it does not name or need. When it adds to or edits the screen, for example \"also show X\", \"add X\" or \"set the weather to Warsaw\", leave unrelated instances as they are: keep a visible one, leave a hidden one hidden. View changes and content edits are planned later through actions, so keep an instance whose view or content should change.",
+        "choices": [
+          {
+            "value": "keep",
+            "description": "Keep it visible: the request names or needs it, or only adds to or edits the screen. Its view or content may still change through actions."
+          },
+          {
+            "value": "hide",
+            "description": "Hide it, retaining its state: the request hides or removes it, or describes a screen without it."
+          },
+          {
+            "value": "delete",
+            "description": "Explicitly delete this instance and its state."
+          }
+        ]
+      },
+      {
+        "type": "choice",
+        "name": "view/weather-main",
+        "instructions": "Decide what happens to weather-main, currently visible in its current view. When the latest intent describes the whole screen, for example \"show me X and Y side by side\", \"just X\" or \"only X\", hide every visible instance it does not name or need. When it adds to or edits the screen, for example \"also show X\", \"add X\" or \"set the weather to Warsaw\", leave unrelated instances as they are: keep a visible one, leave a hidden one hidden. View changes and content edits are planned later through actions, so keep an instance whose view or content should change.",
+        "choices": [
+          {
+            "value": "keep",
+            "description": "Keep it visible: the request names or needs it, or only adds to or edits the screen. Its view or content may still change through actions."
+          },
+          {
+            "value": "hide",
+            "description": "Hide it, retaining its state: the request hides or removes it, or describes a screen without it."
+          },
+          {
+            "value": "delete",
+            "description": "Explicitly delete this instance and its state."
+          }
+        ]
+      },
+      {
+        "type": "choice",
+        "name": "view/tasks-main",
+        "instructions": "Decide what happens to tasks-main, currently visible in its list view. When the latest intent describes the whole screen, for example \"show me X and Y side by side\", \"just X\" or \"only X\", hide every visible instance it does not name or need. When it adds to or edits the screen, for example \"also show X\", \"add X\" or \"set the weather to Warsaw\", leave unrelated instances as they are: keep a visible one, leave a hidden one hidden. View changes and content edits are planned later through actions, so keep an instance whose view or content should change.",
+        "choices": [
+          {
+            "value": "keep",
+            "description": "Keep it visible: the request names or needs it, or only adds to or edits the screen. Its view or content may still change through actions."
+          },
+          {
+            "value": "hide",
+            "description": "Hide it, retaining its state: the request hides or removes it, or describes a screen without it."
+          },
+          {
+            "value": "delete",
+            "description": "Explicitly delete this instance and its state."
+          }
+        ]
+      },
+      {
+        "type": "choice",
+        "name": "view/map-main",
+        "instructions": "Decide what happens to map-main, currently hidden in its overview view. When the latest intent describes the whole screen, for example \"show me X and Y side by side\", \"just X\" or \"only X\", hide every visible instance it does not name or need. When it adds to or edits the screen, for example \"also show X\", \"add X\" or \"set the weather to Warsaw\", leave unrelated instances as they are: keep a visible one, leave a hidden one hidden. View changes and content edits are planned later through actions, so keep an instance whose view or content should change.",
+        "choices": [
+          {
+            "value": "keep",
+            "description": "Show it: the instance and its state become visible again."
+          },
+          {
+            "value": "hide",
+            "description": "Leave it hidden, retaining its state."
+          },
+          {
+            "value": "delete",
+            "description": "Explicitly delete this instance and its state."
+          }
+        ]
+      },
+      {
+        "type": "choice",
+        "name": "view/journal-main",
+        "instructions": "Decide what happens to journal-main, currently hidden in its list view. When the latest intent describes the whole screen, for example \"show me X and Y side by side\", \"just X\" or \"only X\", hide every visible instance it does not name or need. When it adds to or edits the screen, for example \"also show X\", \"add X\" or \"set the weather to Warsaw\", leave unrelated instances as they are: keep a visible one, leave a hidden one hidden. View changes and content edits are planned later through actions, so keep an instance whose view or content should change.",
+        "choices": [
+          {
+            "value": "keep",
+            "description": "Show it: the instance and its state become visible again."
+          },
+          {
+            "value": "hide",
+            "description": "Leave it hidden, retaining its state."
+          },
+          {
+            "value": "delete",
+            "description": "Explicitly delete this instance and its state."
+          }
+        ]
+      },
+      {
+        "type": "choice",
+        "name": "new/calendar",
+        "instructions": "Select the NEW Calendar instances the latest intent needs. There are 1 existing instances of this type; showing or reusing one of them is not a new instance. Choose none for a type that was not requested. Layout rows or columns are not copies.",
+        "choices": [
+          {
+            "value": "none",
+            "description": "No new Calendar. This type was not requested, or an existing instance satisfies the request."
+          },
+          {
+            "value": "one/month",
+            "description": "Create ONE Calendar starting in its month view (the default view for ordinary display requests)."
+          },
+          {
+            "value": "pair/month/month",
+            "description": "Create TWO Calendar instances, starting in month and month. Only for an explicit request for two new copies of this type."
+          },
+          {
+            "value": "pair/month/week",
+            "description": "Create TWO Calendar instances, starting in month and week. Only for an explicit request for two new copies of this type."
+          },
+          {
+            "value": "pair/month/day",
+            "description": "Create TWO Calendar instances, starting in month and day. Only for an explicit request for two new copies of this type."
+          },
+          {
+            "value": "one/week",
+            "description": "Create ONE Calendar starting in its week view."
+          },
+          {
+            "value": "pair/week/month",
+            "description": "Create TWO Calendar instances, starting in week and month. Only for an explicit request for two new copies of this type."
+          },
+          {
+            "value": "pair/week/week",
+            "description": "Create TWO Calendar instances, starting in week and week. Only for an explicit request for two new copies of this type."
+          },
+          {
+            "value": "pair/week/day",
+            "description": "Create TWO Calendar instances, starting in week and day. Only for an explicit request for two new copies of this type."
+          },
+          {
+            "value": "one/day",
+            "description": "Create ONE Calendar starting in its day view."
+          },
+          {
+            "value": "pair/day/month",
+            "description": "Create TWO Calendar instances, starting in day and month. Only for an explicit request for two new copies of this type."
+          },
+          {
+            "value": "pair/day/week",
+            "description": "Create TWO Calendar instances, starting in day and week. Only for an explicit request for two new copies of this type."
+          },
+          {
+            "value": "pair/day/day",
+            "description": "Create TWO Calendar instances, starting in day and day. Only for an explicit request for two new copies of this type."
+          }
+        ]
+      },
+      {
+        "type": "choice",
+        "name": "new/weather",
+        "instructions": "Select the NEW Weather instances the latest intent needs. There are 1 existing instances of this type; showing or reusing one of them is not a new instance. Choose none for a type that was not requested. Layout rows or columns are not copies.",
+        "choices": [
+          {
+            "value": "none",
+            "description": "No new Weather. This type was not requested, or an existing instance satisfies the request."
+          },
+          {
+            "value": "one/current",
+            "description": "Create ONE Weather starting in its current view (the default view for ordinary display requests)."
+          },
+          {
+            "value": "pair/current/current",
+            "description": "Create TWO Weather instances, starting in current and current. Only for an explicit request for two new copies of this type."
+          },
+          {
+            "value": "pair/current/weekly",
+            "description": "Create TWO Weather instances, starting in current and weekly. Only for an explicit request for two new copies of this type."
+          },
+          {
+            "value": "one/weekly",
+            "description": "Create ONE Weather starting in its weekly view."
+          },
+          {
+            "value": "pair/weekly/current",
+            "description": "Create TWO Weather instances, starting in weekly and current. Only for an explicit request for two new copies of this type."
+          },
+          {
+            "value": "pair/weekly/weekly",
+            "description": "Create TWO Weather instances, starting in weekly and weekly. Only for an explicit request for two new copies of this type."
+          }
+        ]
+      },
+      {
+        "type": "choice",
+        "name": "new/tasks",
+        "instructions": "Select the NEW Tasks instances the latest intent needs. There are 1 existing instances of this type; showing or reusing one of them is not a new instance. Choose none for a type that was not requested. Layout rows or columns are not copies.",
+        "choices": [
+          {
+            "value": "none",
+            "description": "No new Tasks. This type was not requested, or an existing instance satisfies the request."
+          },
+          {
+            "value": "one/list",
+            "description": "Create ONE Tasks starting in its list view (the default view for ordinary display requests)."
+          },
+          {
+            "value": "pair/list/list",
+            "description": "Create TWO Tasks instances, starting in list and list. Only for an explicit request for two new copies of this type."
+          }
+        ]
+      },
+      {
+        "type": "choice",
+        "name": "new/map",
+        "instructions": "Select the NEW Map instances the latest intent needs. There are 1 existing instances of this type; showing or reusing one of them is not a new instance. Choose none for a type that was not requested. Layout rows or columns are not copies.",
+        "choices": [
+          {
+            "value": "none",
+            "description": "No new Map. This type was not requested, or an existing instance satisfies the request."
+          },
+          {
+            "value": "one/overview",
+            "description": "Create ONE Map starting in its overview view (the default view for ordinary display requests)."
+          },
+          {
+            "value": "pair/overview/overview",
+            "description": "Create TWO Map instances, starting in overview and overview. Only for an explicit request for two new copies of this type."
+          },
+          {
+            "value": "pair/overview/route",
+            "description": "Create TWO Map instances, starting in overview and route. Only for an explicit request for two new copies of this type."
+          },
+          {
+            "value": "one/route",
+            "description": "Create ONE Map starting in its route view."
+          },
+          {
+            "value": "pair/route/overview",
+            "description": "Create TWO Map instances, starting in route and overview. Only for an explicit request for two new copies of this type."
+          },
+          {
+            "value": "pair/route/route",
+            "description": "Create TWO Map instances, starting in route and route. Only for an explicit request for two new copies of this type."
+          }
+        ]
+      },
+      {
+        "type": "choice",
+        "name": "new/journal",
+        "instructions": "Select the NEW Journal instances the latest intent needs. There are 1 existing instances of this type; showing or reusing one of them is not a new instance. Choose none for a type that was not requested. Layout rows or columns are not copies.",
+        "choices": [
+          {
+            "value": "none",
+            "description": "No new Journal. This type was not requested, or an existing instance satisfies the request."
+          },
+          {
+            "value": "one/list",
+            "description": "Create ONE Journal starting in its list view (the default view for ordinary display requests)."
+          },
+          {
+            "value": "pair/list/list",
+            "description": "Create TWO Journal instances, starting in list and list. Only for an explicit request for two new copies of this type."
+          },
+          {
+            "value": "pair/list/entry",
+            "description": "Create TWO Journal instances, starting in list and entry. Only for an explicit request for two new copies of this type."
+          },
+          {
+            "value": "one/entry",
+            "description": "Create ONE Journal starting in its entry view."
+          },
+          {
+            "value": "pair/entry/list",
+            "description": "Create TWO Journal instances, starting in entry and list. Only for an explicit request for two new copies of this type."
+          },
+          {
+            "value": "pair/entry/entry",
+            "description": "Create TWO Journal instances, starting in entry and entry. Only for an explicit request for two new copies of this type."
+          }
+        ]
+      }
+    ]
+  },
+  "body": {
+    "model": "gpt-6-luna",
+    "answers": [
+      {
+        "type": "choice",
+        "name": "scope",
+        "choice": "supported",
+        "probabilities": [
+          {
+            "value": "supported",
+            "probability": 0.74
+          },
+          {
+            "value": "unsupported",
+            "probability": 0.25
+          },
+          {
+            "value": "ambiguous",
+            "probability": 0.01
+          }
+        ],
+        "confidence": 0.61
+      },
+      {
+        "type": "choice",
+        "name": "view/calendar-main",
+        "choice": "keep",
+        "probabilities": [
+          {
+            "value": "keep",
+            "probability": 0.7
+          },
+          {
+            "value": "hide",
+            "probability": 0.28
+          },
+          {
+            "value": "delete",
+            "probability": 0.02
+          }
+        ],
+        "confidence": 0.55
+      },
+      {
+        "type": "choice",
+        "name": "view/weather-main",
+        "choice": "keep",
+        "probabilities": [
+          {
+            "value": "keep",
+            "probability": 0.95
+          },
+          {
+            "value": "hide",
+            "probability": 0.03
+          },
+          {
+            "value": "delete",
+            "probability": 0.02
+          }
+        ],
+        "confidence": 0.93
+      },
+      {
+        "type": "choice",
+        "name": "view/tasks-main",
+        "choice": "keep",
+        "probabilities": [
+          {
+            "value": "keep",
+            "probability": 0.62
+          },
+          {
+            "value": "hide",
+            "probability": 0.37
+          },
+          {
+            "value": "delete",
+            "probability": 0.01
+          }
+        ],
+        "confidence": 0.43
+      },
+      {
+        "type": "choice",
+        "name": "view/map-main",
+        "choice": "hide",
+        "probabilities": [
+          {
+            "value": "keep",
+            "probability": 0.04
+          },
+          {
+            "value": "hide",
+            "probability": 0.95
+          },
+          {
+            "value": "delete",
+            "probability": 0.01
+          }
+        ],
+        "confidence": 0.93
+      },
+      {
+        "type": "choice",
+        "name": "view/journal-main",
+        "choice": "hide",
+        "probabilities": [
+          {
+            "value": "keep",
+            "probability": 0.06
+          },
+          {
+            "value": "hide",
+            "probability": 0.93
+          },
+          {
+            "value": "delete",
+            "probability": 0.01
+          }
+        ],
+        "confidence": 0.89
+      },
+      {
+        "type": "choice",
+        "name": "new/calendar",
+        "choice": "none",
+        "probabilities": [
+          {
+            "value": "none",
+            "probability": 1
+          },
+          {
+            "value": "one/month",
+            "probability": 0
+          },
+          {
+            "value": "pair/month/month",
+            "probability": 0
+          },
+          {
+            "value": "pair/month/week",
+            "probability": 0
+          },
+          {
+            "value": "pair/month/day",
+            "probability": 0
+          },
+          {
+            "value": "one/week",
+            "probability": 0
+          },
+          {
+            "value": "pair/week/month",
+            "probability": 0
+          },
+          {
+            "value": "pair/week/week",
+            "probability": 0
+          },
+          {
+            "value": "pair/week/day",
+            "probability": 0
+          },
+          {
+            "value": "one/day",
+            "probability": 0
+          },
+          {
+            "value": "pair/day/month",
+            "probability": 0
+          },
+          {
+            "value": "pair/day/week",
+            "probability": 0
+          },
+          {
+            "value": "pair/day/day",
+            "probability": 0
+          }
+        ],
+        "confidence": 1
+      },
+      {
+        "type": "choice",
+        "name": "new/weather",
+        "choice": "none",
+        "probabilities": [
+          {
+            "value": "none",
+            "probability": 1
+          },
+          {
+            "value": "one/current",
+            "probability": 0
+          },
+          {
+            "value": "pair/current/current",
+            "probability": 0
+          },
+          {
+            "value": "pair/current/weekly",
+            "probability": 0
+          },
+          {
+            "value": "one/weekly",
+            "probability": 0
+          },
+          {
+            "value": "pair/weekly/current",
+            "probability": 0
+          },
+          {
+            "value": "pair/weekly/weekly",
+            "probability": 0
+          }
+        ],
+        "confidence": 1
+      },
+      {
+        "type": "choice",
+        "name": "new/tasks",
+        "choice": "none",
+        "probabilities": [
+          {
+            "value": "none",
+            "probability": 0.97
+          },
+          {
+            "value": "one/list",
+            "probability": 0.03
+          },
+          {
+            "value": "pair/list/list",
+            "probability": 0
+          }
+        ],
+        "confidence": 0.96
+      },
+      {
+        "type": "choice",
+        "name": "new/map",
+        "choice": "none",
+        "probabilities": [
+          {
+            "value": "none",
+            "probability": 0.9
+          },
+          {
+            "value": "one/overview",
+            "probability": 0.01
+          },
+          {
+            "value": "pair/overview/overview",
+            "probability": 0
+          },
+          {
+            "value": "pair/overview/route",
+            "probability": 0
+          },
+          {
+            "value": "one/route",
+            "probability": 0.09
+          },
+          {
+            "value": "pair/route/overview",
+            "probability": 0
+          },
+          {
+            "value": "pair/route/route",
+            "probability": 0
+          }
+        ],
+        "confidence": 0.88
+      },
+      {
+        "type": "choice",
+        "name": "new/journal",
+        "choice": "none",
+        "probabilities": [
+          {
+            "value": "none",
+            "probability": 0.99
+          },
+          {
+            "value": "one/list",
+            "probability": 0.01
+          },
+          {
+            "value": "pair/list/list",
+            "probability": 0
+          },
+          {
+            "value": "pair/list/entry",
+            "probability": 0
+          },
+          {
+            "value": "one/entry",
+            "probability": 0
+          },
+          {
+            "value": "pair/entry/list",
+            "probability": 0
+          },
+          {
+            "value": "pair/entry/entry",
+            "probability": 0
+          }
+        ],
+        "confidence": 0.99
+      }
+    ],
+    "usage": {
+      "input_tokens": 4497,
+      "input_tokens_details": {
+        "cached_tokens": 0,
+        "cache_write_tokens": 0
+      },
+      "output_tokens": 0,
+      "output_tokens_details": {
+        "reasoning_tokens": 0
+      },
+      "total_tokens": 4497
+    }
+  }
+}

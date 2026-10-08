@@ -1,0 +1,56 @@
+{
+  "request": {
+    "model": "gpt-6-luna",
+    "input": "{\"request\":\"show everything side by side: calendar, weather, tasks, map, journal and a second calendar for my work schedule\",\"currentArrangement\":\"calendar-main on the left; weather-main in the middle; tasks-main on the right\",\"instances\":[{\"id\":\"calendar-main\",\"widget\":\"calendar\",\"variant\":\"month\"},{\"id\":\"weather-main\",\"widget\":\"weather\",\"variant\":\"current\"},{\"id\":\"tasks-main\",\"widget\":\"tasks\",\"variant\":\"list\"},{\"id\":\"map-main\",\"widget\":\"map\",\"variant\":\"overview\"},{\"id\":\"journal-main\",\"widget\":\"journal\",\"variant\":\"list\"},{\"id\":\"calendar-jev-1\",\"widget\":\"calendar\",\"variant\":\"week\"}]}",
+    "questions": [
+      {
+        "type": "score",
+        "name": "fraction_in_group/calendar-main",
+        "instructions": "The `request` may put calendar-main (the calendar widget) in a row or a column together with other widgets. What fraction of that row or column does the `request` give calendar-main? Answer from the `request` alone.",
+        "levels": [
+          {
+            "label": "0",
+            "description": "a quarter of its row or column or less: signals: 'a quarter', 'a thin strip of the column', 'just a sliver'"
+          },
+          {
+            "label": "1",
+            "description": "a third of its row or column: signals: 'a third', 'one of three equal rows', 'the rest when another widget gets two thirds'"
+          },
+          {
+            "label": "2",
+            "description": "half of its row or column: signals: 'half', 'half the height', 'half the column', 'half of the row', 'one of two equal parts'"
+          },
+          {
+            "label": "3",
+            "description": "two thirds of its row or column: signals: 'two thirds', 'twice the others' when it shares with one other widget"
+          },
+          {
+            "label": "4",
+            "description": "three quarters of its row or column or more: signals: 'three quarters', 'most of the column', 'nearly all of the row'"
+          }
+        ]
+      }
+    ]
+  },
+  "body": {
+    "model": "gpt-6-luna",
+    "answers": [
+      {
+        "type": "refusal",
+        "name": "fraction_in_group/calendar-main"
+      }
+    ],
+    "usage": {
+      "input_tokens": 137,
+      "input_tokens_details": {
+        "cached_tokens": 0,
+        "cache_write_tokens": 0
+      },
+      "output_tokens": 0,
+      "output_tokens_details": {
+        "reasoning_tokens": 0
+      },
+      "total_tokens": 137
+    }
+  }
+}
