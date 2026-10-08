@@ -1,4 +1,5 @@
 // PROTOTYPE (MAE-825): throwaway agent loop, never merge.
+// Kept outside every tsconfig include on purpose: run with bun, not typechecked.
 import { chat, maxIterations, toolDefinition } from '@tanstack/ai';
 import { z } from 'zod';
 import { createDemoOpenaiChat } from '../src/server/engine-model';

@@ -10,6 +10,10 @@ import {
   useRef,
   useState,
 } from 'react';
+import {
+  sendAgentUserText,
+  useAgentSessionClient,
+} from '../lib/agent-session-client';
 import { createDemoConnector } from '../lib/connector';
 import { isDebugRequested } from '../lib/debug-mode';
 import { DEFAULT_LAYOUT, NARROW_LAYOUT } from '../lib/default-layout';
@@ -37,6 +41,7 @@ import {
 } from '../lib/playground-key-store';
 import { useFlashInstances } from '../lib/use-touched-instances';
 import { voiceProviderStore } from '../lib/voice-provider';
+import { AgentSessionPanel } from './agent-session-panel';
 import { AssistantResponse } from './assistant-response';
 import { Captions } from './captions';
 import { DemoHeader } from './demo-header';
@@ -75,6 +80,8 @@ export interface DemoWorkspaceConfig {
   readonly examples: readonly string[];
   /** Palette scoped to the page host; the default palette when omitted. */
   readonly theme?: 'shop';
+  /** PROTOTYPE (MAE-825): send typed text to the server Agent Session. */
+  readonly agentSession?: boolean;
 }
 
 const HOME_WORKSPACE: DemoWorkspaceConfig = {
@@ -198,6 +205,7 @@ export function DemoWorkspace({
             <config.OptionSync />
             <DemoApp
               examples={config.examples}
+              agentSession={config.agentSession === true}
               onRequireKey={() => setDrawerOpen(true)}
               onBlockedSubmit={() => {
                 setBlockedSubmit(true);
@@ -274,6 +282,7 @@ export function DemoWorkspace({
 
 interface DemoAppProps {
   readonly examples: readonly string[];
+  readonly agentSession: boolean;
   readonly onRequireKey: () => void;
   readonly onBlockedSubmit: () => void;
   readonly onMintError: (message: string) => void;
@@ -287,6 +296,7 @@ interface DemoAppProps {
 
 function DemoApp({
   examples,
+  agentSession,
   onRequireKey,
   onBlockedSubmit,
   onMintError,
@@ -366,6 +376,7 @@ function DemoApp({
       {/* Compact voice and intent dock */}
       <IntentInput
         examples={examples}
+        agentSession={agentSession}
         onBlockedSubmit={onBlockedSubmit}
         onMintError={onMintError}
         intent={intent}
@@ -418,6 +429,7 @@ function StatusIndicator() {
 
 interface IntentInputProps {
   readonly examples: readonly string[];
+  readonly agentSession: boolean;
   readonly onBlockedSubmit: () => void;
   readonly onMintError: (message: string) => void;
   readonly intent: string;
@@ -428,6 +440,7 @@ interface IntentInputProps {
 
 function IntentInput({
   examples,
+  agentSession,
   onBlockedSubmit,
   onMintError,
   intent,
@@ -436,14 +449,16 @@ function IntentInput({
   onResumeIntentHandled,
 }: IntentInputProps) {
   const m = useDemoMaelstrom();
+  const agent = useAgentSessionClient();
   const {
     processIntent,
-    isProcessing,
+    isProcessing: isEngineProcessing,
     lastError,
     lastResponse,
     connectionStatus,
   } = m.useMaelstrom();
   const { state: voiceState } = m.useVoice();
+  const isProcessing = isEngineProcessing || (agentSession && agent.active);
   const browserKeyMode = usesBrowserKey();
   const apiKey = useStore(playgroundKeyStore, (state) => state.apiKey);
   const needsKey = browserKeyMode && !apiKey;
@@ -506,6 +521,11 @@ function IntentInput({
       return;
     }
 
+    if (agentSession) {
+      sendAgentUserText(intent);
+      onIntentChange('');
+      return;
+    }
     await processIntent(intent);
     onIntentChange('');
   };
@@ -525,11 +545,15 @@ function IntentInput({
       className="connected-input relative border-t p-3 bg-bg-1"
       style={{ borderColor: 'var(--line)' }}
     >
-      <AssistantResponse
-        isProcessing={isProcessing}
-        message={lastResponse?.userMessage}
-        voiceActive={voiceState !== 'idle' && voiceState !== 'error'}
-      />
+      {agentSession ? (
+        <AgentSessionPanel />
+      ) : (
+        <AssistantResponse
+          isProcessing={isProcessing}
+          message={lastResponse?.userMessage}
+          voiceActive={voiceState !== 'idle' && voiceState !== 'error'}
+        />
+      )}
       <VoiceErrorNote />
       {/* Captions stay in footer chrome (never under main): a chart-bottom
           scrim covered vessel flash borders, and in-flow height changes here

@@ -6,6 +6,7 @@ import { SessionId } from '@maelstrom-co/protocol';
 // src/server — it defines the contract, not a server implementation of it.
 import { PLAYGROUND_NOKEY_FRAME } from '../server/playground-frames';
 import { parsePlaygroundMetadata } from '../server/playground-metadata';
+import { attachAgentChannel, handleAgentFrame } from './agent-session-client';
 import { withBrowserCalendarContext } from './calendar-context';
 import { diagnosticCapture } from './diagnostic-capture';
 import { DiagnosticConnector } from './diagnostic-connector';
@@ -21,9 +22,12 @@ class DemoConnector extends DiagnosticConnector {
       ...options,
       onOpen: (send, sessionId) => {
         engineMetadata.begin(owner);
+        // PROTOTYPE (MAE-825): the Agent Session sends over this socket.
+        attachAgentChannel(send);
         options.onOpen?.(send, sessionId);
       },
       onFrame: (raw, send, sessionId, isCurrentConnection) => {
+        if (handleAgentFrame(raw, send)) return true;
         const metadata = parsePlaygroundMetadata(raw);
         if (metadata) {
           if (isCurrentConnection === false) return true;

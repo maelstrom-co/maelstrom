@@ -1,4 +1,5 @@
 // PROTOTYPE (MAE-825): throwaway agent loop, never merge.
+// Kept outside every tsconfig include on purpose: run with bun, not typechecked.
 // Drives the local ws-server's Agent Session over a real WebSocket, playing
 // the browser: applies agent.ui to a simulated chart, answers client tools,
 // and prints the frame sequence with timestamps plus agent.done metrics.

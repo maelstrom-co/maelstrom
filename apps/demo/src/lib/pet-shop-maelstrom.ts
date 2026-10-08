@@ -3,6 +3,7 @@ import { cartEntry } from '../vessels/cart.vessel';
 import { catalogEntry } from '../vessels/catalog.vessel';
 import { checkoutEntry } from '../vessels/checkout.vessel';
 import { ordersEntry } from '../vessels/orders.vessel';
+import { agentSessionBridge } from './agent-session-bridge';
 import { demoRealtime } from './maelstrom';
 import { orchestrationLegibility } from './orchestration-legibility';
 
@@ -13,4 +14,5 @@ export const shop = createMaelstrom({
   vessels: [ordersEntry, catalogEntry, cartEntry, checkoutEntry] as const,
 })
   .with(demoRealtime())
-  .with(orchestrationLegibility);
+  .with(orchestrationLegibility)
+  .with(agentSessionBridge);
