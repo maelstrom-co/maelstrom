@@ -11,7 +11,8 @@ import { describeLayout } from './stages/layout-describe.js';
 /**
  * Renders a value for a Decisions call. The select stage's state (an
  * object with `intent`, `instances` and `vessels` arrays) becomes short
- * plain prose: the user's requests verbatim, the visible and hidden
+ * plain prose: the user's requests verbatim (or that there is none, and
+ * for a bare resize that what is shown stays), the visible and hidden
  * instances by name and id, the layout in words, the chart size, and one
  * line per widget type with its description, views and action names, but
  * no action parameter schemas. Any other value is `JSON.stringify`d
@@ -71,11 +72,11 @@ function requestLines(reasons: readonly UpdateReason[]): string[] {
             "The user's latest requests, in order:",
             ...requests.map((request) => `- ${request}`),
           ]
-        : [];
+        : ['There is no new request from the user.'];
   for (const reason of reasons) {
     if (reason.type === 'chart_resize')
       lines.push(
-        `The chart was resized from ${size(reason.previous)} to ${size(reason.current)}.`,
+        `The chart was resized from ${size(reason.previous)} to ${size(reason.current)}.${requests.length === 0 ? ' Only the size changed: keep showing what is shown now.' : ''}`,
       );
     if (reason.type === 'vessel_mutation')
       lines.push(`${reason.instanceId} changed: ${reason.changes}.`);

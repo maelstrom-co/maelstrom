@@ -125,6 +125,22 @@ describe('renderSelectStateAsProse', () => {
     );
   });
 
+  test('says a resize with no request asks for no change to what is shown', () => {
+    const prose = renderSelectStateAsProse({
+      ...selectState,
+      intent: [
+        {
+          type: 'chart_resize',
+          previous: { columns: 30, rows: 18 },
+          current: { columns: 12, rows: 20 },
+        },
+      ],
+    });
+    expect(prose).toStartWith(
+      'There is no new request from the user.\nThe chart was resized from 30 columns by 18 rows to 12 columns by 20 rows. Only the size changed: keep showing what is shown now.',
+    );
+  });
+
   test('names an instance of an unknown widget type by its type id', () => {
     const prose = renderSelectStateAsProse({
       ...selectState,
