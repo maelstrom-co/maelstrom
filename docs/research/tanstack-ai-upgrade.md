@@ -120,6 +120,17 @@ combined output, streaming finalization, and direct finalization through all
 three planner call paths. They verify known and unknown usage, invalid output,
 and unchanged evaluation totals. Source: [middleware guide][middleware-guide].
 
+### Use the built-in OpenAI model catalog
+
+The [demo model factory](../../apps/demo/src/server/engine-model.ts) now calls
+`createOpenaiChat()` directly. OpenAI `0.27.0` includes `gpt-6-luna`, so the custom
+`createModel()` and `extendAdapter()` wrapper is redundant. The default remains
+`gpt-6-luna`; the trimmed `ENGINE_MODEL` override and explicit caller API keys
+remain unchanged. Blank overrides still use the default. Regression tests cover
+these cases and confirm caller keys do not come from the server environment.
+Catalog membership does not prove account access. Sources: [model catalog][models]
+and [OpenAI factory][openai-source].
+
 ## Existing setup to retain
 
 - `chat({ outputSchema, stream: false, abortController, modelOptions })` remains
@@ -142,11 +153,6 @@ and unchanged evaluation totals. Source: [middleware guide][middleware-guide].
 
 ## Optional follow-ups
 
-- Remove the demo's redundant custom model extension in a separate cleanup.
-  OpenAI `0.27.0` includes `gpt-6-luna` in its catalog. Preserve the default model,
-  `ENGINE_MODEL` override, and explicit API key injection. Catalog membership does
-  not prove account access. Sources: [model catalog][models] and
-  [demo model factory](../../apps/demo/src/server/engine-model.ts).
 - Add credential-backed provider checks for malformed output, transformed
   identifiers, optional fields, cancellation, and output-budget exhaustion.
   Offline tests verify integration contracts, not provider acceptance or quality.
