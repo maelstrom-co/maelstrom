@@ -1,4 +1,5 @@
 import type { PlannerEvalPlugin } from '../core/plugin.js';
+import { decisionsPlugin } from './decisions/plugin.js';
 import { jevPlugin } from './jev/plugin.js';
 import { llmPlugin } from './llm/plugin.js';
 
@@ -8,4 +9,8 @@ import { llmPlugin } from './llm/plugin.js';
  * eval, which offers every plugin's `stageModules`. A new plugin is added
  * here and nowhere else.
  */
-export const evalPlugins: readonly PlannerEvalPlugin[] = [llmPlugin, jevPlugin];
+export const evalPlugins: readonly PlannerEvalPlugin[] = [
+  llmPlugin,
+  jevPlugin,
+  decisionsPlugin,
+];
