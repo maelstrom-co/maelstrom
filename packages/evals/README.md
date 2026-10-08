@@ -6,7 +6,9 @@ Two evals live here: the full-planner eval runs whole planners through `createEn
 
 ## Plugins
 
-`src/core/` never imports a planner package: it takes every planner-specific piece from a `PlannerEvalPlugin` (`src/core/plugin.ts`). Two plugins are registered today: `src/plugins/llm/plugin.ts` (the `baseline` arm on `@maelstrom-co/planner-llm`, and the fallback planner the staged arms run on a deferral) and `src/plugins/jev/plugin.ts` (the eleven Jev arms, the Jev fields of the records and the report, the TypeSafe judge and the actions and layout stage evals).
+`src/core/` never imports a planner package: it takes every planner-specific piece from a `PlannerEvalPlugin` (`src/core/plugin.ts`). Three plugins are registered today: `src/plugins/llm/plugin.ts` (the `baseline` arm on `@maelstrom-co/planner-llm`, and the fallback planner the staged arms run on a deferral), `src/plugins/jev/plugin.ts` (the eleven Jev arms on TypeSafe Jev, the Jev fields of the records and the report, the TypeSafe judge and the select, actions and layout stage evals) and `src/plugins/decisions/plugin.ts` (the two Decisions arms on OpenAI Decisions and the `decisions-select`, `decisions-actions` and `decisions-layout` stage evals), thirteen staged arms in all.
+
+The Jev and Decisions plugins share one body, `stagePluginWith` in `src/plugins/jev/plugin.ts`: replay by stage, the record and summary fields, the report rows and the three stage modules, all run on a `ClientBuilder` (`src/plugins/jev/client-builder.ts`: the provider label of the stage report, its required variables, its `meta()` and a client per call). `jevPluginWith` is its TypeSafe preset (the Jev arms, the `jev` alias, `jev-poc` as default, the TypeSafe judge); `decisionsPluginWith` passes the Decisions client and its own arms, with no default arms, aliases or judge. Both plugins print the same report rows, so the Decisions plugin adds none when a Jev arm is in the report (`rowsDeferTo`), and the stage eval CLI refuses to start when two plugins register a stage module under the same name.
 
 A plugin declares:
 
@@ -19,9 +21,9 @@ A plugin declares:
 | `verifyReplay(record, arm)` | What a replayed stage output lacks for the arm to read it, checked before any turn runs. |
 | `recordTurn(scenario, stages, calls)` | Fields added to a staged turn's record in `records.json`. Naming a field the runner owns throws. |
 | `summarizeArm(records)`, `reportRows(summaries)` | Fields added to an arm's summary in `summary.json` (`latency` and `tokens` merge into the runner's; naming a field the runner owns throws), and rows added to each suite's table in `report.md`, by section. |
-| `judge` | Rates shipped responses for `--grader` (`Judge`: one `score(input, ctx)` call per grading, returning a level and level probabilities per dimension, with its own provider calls). The grader's questions, levels, state and resampling stay in `src/core/grader.ts`; the TypeSafe judge in `src/plugins/jev/typesafe-judge.ts` only maps them to a TypeSafe call. |
+| `judge` | Rates shipped responses for `--grader` (`Judge`: one `score(input, ctx)` call per grading, returning a level and level probabilities per dimension, with its own provider calls). The grader's questions, levels, state and resampling stay in `src/core/grader.ts`; the TypeSafe judge in `src/plugins/jev/typesafe-judge.ts` only maps them to a TypeSafe call. Only the Jev plugin offers a judge, so `--grader` grades every arm with TypeSafe, Decisions arms included, and the scores stay comparable. |
 | `stageModules` | Single-stage evals for `--stage`, each a `StageEvalModule` (`src/core/stage-eval.ts`): its `name`, the `stage` it records, `variants` as factories over the module's own `Deps`, `makeDeps(onCall)` building those deps for one turn, optional CLI `flags` with a `configure(values, run)` that returns the module to run and the settings for `meta.json`, plus `prepare`, `judge` and `reportSections` as before. |
-| `meta()` | Settings printed with the run's meta whenever one of the plugin's arms runs (the Jev plugin adds `jevModel`). |
+| `meta()` | Settings printed with the run's meta whenever one of the plugin's arms runs (the Jev plugin adds `jevModel`, the Decisions plugin `decisionsModel`). |
 
 A new planner family, or a prompt experiment on `@maelstrom-co/planner-llm`, registers its arms in a plugin under `src/plugins/<name>/plugin.ts` and adds it to `evalPlugins` in `src/plugins/index.ts`, which every entry point reads; its `stageModules` then appear in the stage eval too. Every run needs `OPENAI_API_KEY`, since core builds the OpenAI adapter behind every LLM role and the fallback; beyond it, only the arms selected with `--arm` decide which environment variables a run needs, so `--arm baseline` runs with `OPENAI_API_KEY` alone. `src/core/boundary.test.ts` fails when a file under `src/core/` imports a planner package or anything outside `src/core/`. The scorers replay an Execution Plan with `finalVariants` from `@maelstrom-co/engine`. They keep a copy of planner-jev's layout geometry in `src/core/geometry.ts`, since core may not import planner-jev and no shared geometry package exists yet; `src/plugins/jev/geometry.test.ts` holds it equal to planner-jev's.
 
@@ -39,7 +41,7 @@ OPENAI_API_KEY=... TYPESAFE_API_KEY=... JEV_MODEL=jev-1.13.0 \
 | Flag | Default | Meaning |
 | --- | --- | --- |
 | `--suite` | `all` | `development`, `holdout` or `all`. |
-| `--arm` | `baseline`, `jev-poc` | A named arm of any registered plugin; repeat the flag for several. Columns follow the order given, and a repeated name runs once. `jev` is an alias of `jev-poc`. The stage-library arms (`jev-ungated-stepwise-preset-inline` and the other planners listed in the planner-jev README under Stage library) compose the stages in planner-jev's `src/lib/stages/` and `src/lib/stages-experimental/`. |
+| `--arm` | `baseline`, `jev-poc` | A named arm of any registered plugin; repeat the flag for several. Columns follow the order given, and a repeated name runs once. `jev` is an alias of `jev-poc`. The stage-library arms (`jev-ungated-stepwise-preset-inline` and the other planners listed in the planner-jev README under Stage library) compose the stages in planner-jev's `src/lib/stages/` and `src/lib/stages-experimental/`. `decisions-poc` and `decisions-composed-pairs` are the OpenAI Decisions twins of `jev-poc` and `jev-gated-per-instance-composed-pairs-gate-and-defer-inline`, with the same stages and replay shapes, so `--replay-arm jev-poc` replays into `decisions-poc`. |
 | `--repeats` | `3` | Runs per scenario and arm. |
 | `--case` | every case | A scenario id; repeat the flag for several. |
 | `--model` | the demo's default | OpenAI model for the baseline, `llmComplete` and the fallback. |
@@ -51,7 +53,7 @@ OPENAI_API_KEY=... TYPESAFE_API_KEY=... JEV_MODEL=jev-1.13.0 \
 | `--grader` | off | Grades every planned shipped response with the first plugin's judge, TypeSafe today (see Grader below). |
 | `--grader-validation` | none | A `grader-validation.json` written by `src/eval/grader-validate.ts`. The grader's rows appear in `report.md` only when it passed the gate. Needs `--grader`. |
 
-Without a variable the run needs (`OPENAI_API_KEY` always; the Jev arms also need `TYPESAFE_API_KEY` and `JEV_MODEL`, and so does `--grader`) the runner writes `status.json` naming the missing variables and exits with code 2. Live runs are not part of `nx test`; the offline tests use a scripted TypeSafe transport and a mocked `chat()`.
+Without a variable the run needs (`OPENAI_API_KEY` always, and it is all the Decisions arms need; the Jev arms also need `TYPESAFE_API_KEY` and `JEV_MODEL`, and so does `--grader`, whatever the arms) the runner writes `status.json` naming the missing variables and exits with code 2. Live runs are not part of `nx test`; the offline tests use scripted TypeSafe and Decisions transports and a mocked `chat()`.
 
 Each staged turn writes its stages' inputs and outputs to `<out>/stages/<arm>/<scenarioId>-<repeat>.json`. Replay reads them back: a replayed stage returns the recorded output (or the same deferral), so the stage after it runs on identical upstream results. Jev and LLM replies are not deterministic, so replay isolates one stage; it never stands in for an end-to-end result. A turn with no recorded stage fails with an error naming the stage and turn. Before any call, the runner also refuses a recording that lacks what an arm's plugin says it reads from a replayed stage: stage-library arms read `minConfidence` from a replayed action plan, gated arms read every gate from a replayed selection and action plan, so a run recorded before the select stage asked a gate (such as `dependsOnScreen`) no longer replays into a gated arm and is refused as having no complete gates, and ungated arms refuse a recording that carries gates, since their actions stage would act on them. Replay gated arms from a gated arm's run and ungated arms from an ungated one.
 
@@ -60,23 +62,23 @@ Each staged turn writes its stages' inputs and outputs to `<out>/stages/<arm>/<s
 `src/core/stage-eval.ts` tests one pipeline stage on its own, so a stage can be tuned in minutes before a full-planner run. It calls the stage function directly on the input a scenario's expectation implies: no planner, no Engine, no replay and no LLM. The select, actions and layout stages are covered so far. Use it while changing a stage's questions, options or code; use the full-planner eval above for the final comparison of whole planners, since a stage that scores well alone can still lose to the completion call or the fallback.
 
 ```sh
-# from the workspace root, so Bun loads .env (TYPESAFE_API_KEY and JEV_MODEL; no OpenAI key is needed)
+# from the workspace root, so Bun loads .env (TYPESAFE_API_KEY and JEV_MODEL for the Jev modules, OPENAI_API_KEY for the decisions-* modules)
 bun --conditions=@maelstrom-co/source packages/evals/src/eval-stages/cli.ts --stage layout --variant preset-or-llm --variant composed-pairs --suite development --repeats 3 --out tmp/evals/<name>
 ```
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
-| `--stage` | required | The stage to test: `select`, `actions` or `layout`. |
+| `--stage` | required | The stage to test: `select`, `actions` or `layout` on TypeSafe Jev, or `decisions-select`, `decisions-actions` or `decisions-layout`, the same stages and variants on OpenAI Decisions. |
 | `--variant` | every variant of the stage | Repeat the flag for several; columns follow the order given. Layout variants: `preset` (the preset choice with placement descriptions), `preset-or-llm` and `composed-pairs` (the composed pairs planner's layout stage), listed in `LAYOUT_STAGES`, `src/plugins/jev/stages/layout.ts`. Each is built as the matching arm in `src/plugins/jev/arms.ts` builds its layout stage. |
 | `--suite` | `development` | `development`, `holdout` or `all`. |
 | `--repeats` | `3` | Runs per scenario and variant. |
 | `--case` | every case | A scenario id; repeat the flag for several. |
 | `--concurrency` | `1` | Turns in flight at once. Latency is measured per call, so raising it can inflate the latency rows. |
 | `--out` | `tmp/evals/stage-<stage>-<timestamp>` | Output directory. |
-| `--verbose` | off | Logs every Jev call to the console. |
+| `--verbose` | off | Logs every provider call to the console. |
 | `--spatial-signal` | `gold` | Layout only. `gold` feeds the stage the scenario's spatial tag; `recorded-live` feeds it the `spatial` gate a live planner answered, read from `--spatial-records`, and keeps the gold gate for a turn that recorded none. |
 | `--spatial-records` | none | Layout only. The `records.json` of a full planner eval to read the spatial gates from. Needs `--spatial-signal recorded-live`. |
-| `--spatial-records-arm` | `jev-gated-per-instance-composed-pairs-gate-and-defer-inline` | Layout only. The arm of `--spatial-records` whose gates are read; it must be a registered Jev arm. Needs `--spatial-signal recorded-live`. The run fails before any turn when that arm recorded no spatial gate in the file, or none for the selected scenarios and repeats, rather than running every turn on gold. |
+| `--spatial-records-arm` | `jev-gated-per-instance-composed-pairs-gate-and-defer-inline` (`decisions-composed-pairs` for `decisions-layout`) | Layout only. The arm of `--spatial-records` whose gates are read; it must be an arm of the module's own plugin (a Jev arm for `layout`, a Decisions arm for `decisions-layout`). Needs `--spatial-signal recorded-live`. The run fails before any turn when that arm recorded no spatial gate in the file, or none for the selected scenarios and repeats, rather than running every turn on gold. |
 
 The layout stage gets gold inputs from `src/plugins/jev/gold-inputs.ts`: the expected selection and action plan, with every gate (`spatial` yes only for scenarios tagged `spatial: true`). A scenario that cannot form them (it expects a deferral, or states no visible set or actions) is recorded once per variant as not applicable and does not run. A scenario that expects the layout stage itself to defer runs instead on the board as it is (`layoutDeferralGoldInputs`) and passes only on the expected reason: `jevLayout/spatial_not_stated` when its `deferCause` is `arrangement_not_stated` (the request asks for an arrangement the pair questions cannot express, so they leave the board unchanged), and `jevLayout/no_feasible_layout` otherwise. The preset variants never give the first reason, so they never pass those scenarios. Each turn ends in one outcome:
 
@@ -105,6 +107,27 @@ The gate scenarios live in `src/core/scenarios/gates.ts`, on the demo board and 
 ```sh
 bun --conditions=@maelstrom-co/source packages/evals/src/eval-stages/cli.ts --stage select --variant gated --suite development --repeats 3 --out tmp/evals/<name>
 ```
+
+### Comparing providers
+
+The Decisions plugin exists to compare OpenAI Decisions with TypeSafe Jev answering the same stage questions. A stage comparison is two stage eval runs on the same suite, variants and repeats, read side by side:
+
+```sh
+bunx nx run @maelstrom-co/evals:eval-stages -- --stage select --variant gated --suite all --repeats 3 --out "$EVAL_OUT/stage-select-jev"
+bunx nx run @maelstrom-co/evals:eval-stages -- --stage decisions-select --variant gated --suite all --repeats 3 --out "$EVAL_OUT/stage-select-decisions"
+bunx nx run @maelstrom-co/evals:eval-stages -- --stage actions --variant stepwise --variant batched-per-instance --suite all --repeats 3 --out "$EVAL_OUT/stage-actions-jev"
+bunx nx run @maelstrom-co/evals:eval-stages -- --stage decisions-actions --variant stepwise --variant batched-per-instance --suite all --repeats 3 --out "$EVAL_OUT/stage-actions-decisions"
+bunx nx run @maelstrom-co/evals:eval-stages -- --stage layout --variant preset --variant composed-pairs --suite all --repeats 3 --out "$EVAL_OUT/stage-layout-jev"
+bunx nx run @maelstrom-co/evals:eval-stages -- --stage decisions-layout --variant preset --variant composed-pairs --suite all --repeats 3 --out "$EVAL_OUT/stage-layout-decisions"
+```
+
+A full comparison is one run with every arm side by side, plus `paired.md`:
+
+```sh
+bunx nx run @maelstrom-co/evals:eval -- --arm baseline --arm jev-poc --arm decisions-poc --arm jev-gated-per-instance-composed-pairs-gate-and-defer-inline --arm decisions-composed-pairs --suite all --repeats 3 --out "$EVAL_OUT/full-comparison"
+```
+
+The nx targets run in `packages/evals`, so pass an absolute `--out` (`EVAL_OUT` above). Keep `--concurrency 1` and run each Jev and Decisions pair back to back, so latency is not inflated and load hits both alike. The completion call and the fallback use `--model` for every arm alike. In the full-planner report the rows labelled "Jev calls", "Jev call latency" and "Jev tokens" are shared by both plugins and count Decisions calls in a Decisions column; the stage eval report labels its call rows with the module's provider (`Decisions calls per turn`). A Decisions refusal of any question defers the stage as `<stage>/provider_refusal`, shown among the fallback reasons.
 
 ### Reading the report
 
