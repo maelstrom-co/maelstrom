@@ -71,6 +71,7 @@ export type {
   ActionPlan2,
   GateAnswer,
   GatedActionPlan,
+  GatedSelection,
   LayoutDecision,
   LayoutSource,
   LayoutStage,
@@ -81,6 +82,7 @@ export { actionsStepwise } from './lib/stages-experimental/actions-stepwise.js';
 export { completeLayoutParallel } from './lib/stages-experimental/complete-layout-parallel.js';
 export { layoutPreset } from './lib/stages-experimental/layout-preset.js';
 export { layoutPresetOrLlm } from './lib/stages-experimental/layout-preset-or-llm.js';
+export { selectGatedScreenScope } from './lib/stages-experimental/select-gated-screen-scope.js';
 export { selectUngated } from './lib/stages-experimental/select-ungated.js';
 export type {
   AnswerRecord,

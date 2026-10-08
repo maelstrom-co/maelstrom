@@ -188,6 +188,47 @@ describe('select stage eval', () => {
     );
   });
 
+  test('runs the screen scope variant, which keeps the untargeted widgets of an additive request', async () => {
+    const transport = scriptedFetch(
+      conversation({
+        select: {
+          screen: 'adds_or_adjusts',
+          'view/map-main': 'keep',
+          'view/weather-main': 'hide',
+        },
+        gates: { ...QUIET_GATES, 'gate/spatial': 0.1 },
+      }),
+    );
+    const module = selectModuleWith({
+      client: typesafeClientBuilder(
+        typesafeSettings({
+          apiKey: 'typesafe-test-key',
+          model: TEST_MODEL,
+          fetch: transport.fetch,
+        }),
+      ),
+    });
+    expect(Object.keys(module.variants)).toEqual([
+      'gated',
+      'gated-screen-scope',
+    ]);
+    const [record] = (await runStageEval(module, {
+      scenarios: selectScenarios('all', ['show-hidden']),
+      variants: ['gated-screen-scope'],
+      repeats: 1,
+    })) as StageTurnRecord<SelectTurnDetail>[];
+    expect(Object.keys(transport.calls[0]?.questions ?? {})).toContain(
+      'screen',
+    );
+    expect(record?.outcome).toBe('pass');
+    expect(record?.detail?.selection?.visible).toEqual([
+      'calendar-main',
+      'map-main',
+      'tasks-main',
+      'weather-main',
+    ]);
+  });
+
   test('passes when every expected gate matches', async () => {
     const { records } = await run(
       ['swap'],

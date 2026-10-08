@@ -8,11 +8,13 @@ import {
 import {
   type Ask,
   type GateAnswer,
+  type GatedSelection,
   readGateAnswers,
   SELECTION_GATES,
   type SelectionGates,
   STAGE_NAME,
   selectGated,
+  selectGatedScreenScope,
 } from '@maelstrom-co/planner-jev/_internal';
 import { err, isErr, isOk, ok } from '@maelstrom-co/protocol';
 import type { Scenario } from '../../../core/scenarios.js';
@@ -67,14 +69,18 @@ export interface SelectDeps {
 
 /**
  * The select stage variants the eval runs: `gated` is the composed pairs
- * planner's `selectGated`, read through `readGateAnswers` so the eval
- * judges exactly the gates the stage decides, including on turns where
- * the stage then defers.
+ * planner's `selectGated`, and `gated-screen-scope` is
+ * `selectGatedScreenScope`, which adds a screen scope question and a hide
+ * question per visible instance. Both are read through `readGateAnswers`
+ * so the eval judges exactly the gates the stage decides, including on
+ * turns where the stage then defers.
  */
 export const SELECT_VARIANTS: Readonly<
   Record<string, (deps: SelectDeps) => Stage<PlanningInput, GateReading>>
 > = {
-  gated: (deps) => gatedReading(deps.ask),
+  gated: (deps) => gatedReading(deps.ask, selectGated),
+  'gated-screen-scope': (deps) =>
+    gatedReading(deps.ask, selectGatedScreenScope),
 };
 
 /** The select stage eval module. */
@@ -284,7 +290,10 @@ export function renderGateErrorsSection(
   return lines.join('\n');
 }
 
-function gatedReading(ask: Ask): Stage<PlanningInput, GateReading> {
+function gatedReading(
+  ask: Ask,
+  select: (ask: Ask) => Stage<PlanningInput, GatedSelection>,
+): Stage<PlanningInput, GateReading> {
   return async (input, ctx) => {
     let reply: Parameters<typeof readGateAnswers>[0] | undefined;
     const keepReply: Ask = async (stage, evaluation, callCtx) => {
@@ -292,7 +301,7 @@ function gatedReading(ask: Ask): Stage<PlanningInput, GateReading> {
       if (isOk(result)) reply = result.value;
       return result;
     };
-    const selected = await selectGated(keepReply)(input, ctx);
+    const selected = await select(keepReply)(input, ctx);
     if (isOk(selected))
       return ok({
         gates: selected.value.gates,

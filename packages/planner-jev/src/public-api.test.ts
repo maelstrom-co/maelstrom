@@ -55,6 +55,7 @@ test('_internal exposes the runtime values @maelstrom-co/evals composes', () => 
       'DECISIONS_MODEL',
       'createStageDeps',
       'renderSelectStateAsProse',
+      'selectGatedScreenScope',
     ].sort(),
   );
 });
