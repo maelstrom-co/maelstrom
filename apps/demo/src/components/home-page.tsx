@@ -1,16 +1,23 @@
 import { WireEngineError } from '@maelstrom-co/client';
-import { SessionId } from '@maelstrom-co/protocol';
+import { SessionId, type TilingLayout } from '@maelstrom-co/protocol';
 import { RealtimeVoiceError } from '@maelstrom-co/realtime';
 import { useStore } from '@tanstack/react-store';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  type ComponentType,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { createDemoConnector } from '../lib/connector';
 import { isDebugRequested } from '../lib/debug-mode';
+import { DEFAULT_LAYOUT, NARROW_LAYOUT } from '../lib/default-layout';
 import {
-  DEFAULT_LAYOUT,
-  isShopLayoutRequested,
-  NARROW_LAYOUT,
-  SHOP_LAYOUT,
-} from '../lib/default-layout';
+  type DemoMaelstrom,
+  DemoMaelstromProvider,
+  useDemoMaelstrom,
+} from '../lib/demo-maelstrom-context';
 import { STATUS_COLORS } from '../lib/design-tokens';
 import { diagnosticCapture } from '../lib/diagnostic-capture';
 import {
@@ -19,7 +26,10 @@ import {
   usesBrowserOpenAIVoice,
 } from '../lib/hosted-mode';
 import { preloadHostedVadAssets } from '../lib/hosted-vad';
-import { m, prepareBrowserOpenAIVoice } from '../lib/maelstrom';
+import {
+  m as homeMaelstrom,
+  prepareBrowserOpenAIVoice,
+} from '../lib/maelstrom';
 import {
   clearPlaygroundKey,
   playgroundKeyStore,
@@ -53,7 +63,36 @@ function isInvalidKeyError(error: Error): boolean {
   return /\b401\b|invalid api key|incorrect api key/i.test(error.message);
 }
 
+/** What distinguishes one demo page from another; everything else is shared chrome. */
+export interface DemoWorkspaceConfig {
+  /** Instance whose vessel list is the Engine catalog for this page. */
+  readonly maelstrom: DemoMaelstrom;
+  /** Starting layout for the measured width of the page host. */
+  readonly initialLayout: (hostWidth: number) => TilingLayout;
+  /** Keeps the page's action option lists in step with its stores. */
+  readonly OptionSync: ComponentType;
+  /** Example prompts for the first-run hint and the intent suggestions. */
+  readonly examples: readonly string[];
+  /** Palette scoped to the page host; the default palette when omitted. */
+  readonly theme?: 'shop';
+}
+
+const HOME_WORKSPACE: DemoWorkspaceConfig = {
+  maelstrom: homeMaelstrom,
+  initialLayout: (hostWidth) =>
+    hostWidth <= 640 ? NARROW_LAYOUT : DEFAULT_LAYOUT,
+  OptionSync: VesselOptionSync,
+  examples: FIRST_RUN_EXAMPLES,
+};
+
 export function HomePage() {
+  return <DemoWorkspace config={HOME_WORKSPACE} />;
+}
+
+/** The full demo page (key custody, voice, chart, intent dock) for one vessel catalog. */
+export function DemoWorkspace({
+  config,
+}: Readonly<{ config: DemoWorkspaceConfig }>) {
   const hosted = isHosted();
   const browserKeyMode = usesBrowserKey();
   const apiKey = useStore(playgroundKeyStore, (state) => state.apiKey);
@@ -117,13 +156,8 @@ export function HomePage() {
   // session boundary the Provider remount defines. It is not a stale dep.
   const sessionId = useMemo(() => SessionId(), [keyEpoch]);
   const initialLayout = useMemo(
-    () =>
-      isShopLayoutRequested()
-        ? SHOP_LAYOUT
-        : layoutHostWidth !== null && layoutHostWidth <= 640
-          ? NARROW_LAYOUT
-          : DEFAULT_LAYOUT,
-    [layoutHostWidth],
+    () => config.initialLayout(layoutHostWidth ?? Number.POSITIVE_INFINITY),
+    [config, layoutHostWidth],
   );
   const connector = useMemo(() => {
     if (browserKeyMode && !apiKey) return null;
@@ -147,91 +181,99 @@ export function HomePage() {
   const debug = useMemo(() => isDebugRequested(), []);
 
   return (
-    <div ref={layoutHostRef} className="demo-layout-host">
-      {connector && layoutHostWidth !== null ? (
-        <m.Provider
-          key={keyEpoch}
-          sessionId={sessionId}
-          connector={connector}
-          initialLayout={initialLayout}
-          debug={debug}
-        >
-          <VesselOptionSync />
-          <DemoApp
+    <DemoMaelstromProvider value={config.maelstrom}>
+      <div
+        ref={layoutHostRef}
+        className="demo-layout-host"
+        data-demo-theme={config.theme}
+      >
+        {connector && layoutHostWidth !== null ? (
+          <config.maelstrom.Provider
+            key={keyEpoch}
+            sessionId={sessionId}
+            connector={connector}
+            initialLayout={initialLayout}
+            debug={debug}
+          >
+            <config.OptionSync />
+            <DemoApp
+              examples={config.examples}
+              onRequireKey={() => setDrawerOpen(true)}
+              onBlockedSubmit={() => {
+                setBlockedSubmit(true);
+                setDrawerOpen(true);
+              }}
+              onMintError={handleMintError}
+              intent={intent}
+              onIntentChange={setIntent}
+              resumeIntent={resumeIntent}
+              onResumeIntentHandled={() => setResumeIntent(false)}
+              autoStartVoice={autoStartVoice}
+              onAutoStartVoiceHandled={() => setAutoStartVoice(false)}
+            />
+          </config.maelstrom.Provider>
+        ) : connector ? null : (
+          <KeylessDemo
+            intent={intent}
+            onIntentChange={setIntent}
             onRequireKey={() => setDrawerOpen(true)}
             onBlockedSubmit={() => {
               setBlockedSubmit(true);
               setDrawerOpen(true);
             }}
-            onMintError={handleMintError}
-            intent={intent}
-            onIntentChange={setIntent}
-            resumeIntent={resumeIntent}
-            onResumeIntentHandled={() => setResumeIntent(false)}
-            autoStartVoice={autoStartVoice}
-            onAutoStartVoiceHandled={() => setAutoStartVoice(false)}
           />
-        </m.Provider>
-      ) : connector ? null : (
-        <KeylessDemo
-          intent={intent}
-          onIntentChange={setIntent}
-          onRequireKey={() => setDrawerOpen(true)}
-          onBlockedSubmit={() => {
-            setBlockedSubmit(true);
-            setDrawerOpen(true);
-          }}
-        />
-      )}
-      {!connector && <RetainedCaptureDrawer />}
-      {browserKeyMode && (
-        <KeyDrawer
-          isOpen={drawerOpen}
-          onClose={() => {
-            setDrawerOpen(false);
-            setKeyErrorMessage(null);
-            setBlockedSubmit(false);
-          }}
-          onSave={(key) => {
-            // Re-entering (or merely viewing) the same key from the header
-            // pill must not remount <m.Provider> mid-session — that would
-            // mint a fresh sessionId and drop everything the LLM has
-            // arranged so far. Only a genuine key change earns the reset.
-            const keyChanged = key !== playgroundKeyStore.state.apiKey;
-            const firstKey = playgroundKeyStore.state.apiKey === null;
-            if (keyChanged) diagnosticCapture.stop();
-            setPlaygroundKey(key);
-            setDrawerOpen(false);
-            setKeyErrorMessage(null);
-            if (!keyChanged) {
+        )}
+        {!connector && <RetainedCaptureDrawer />}
+        {browserKeyMode && (
+          <KeyDrawer
+            isOpen={drawerOpen}
+            onClose={() => {
+              setDrawerOpen(false);
+              setKeyErrorMessage(null);
               setBlockedSubmit(false);
-              return;
-            }
-            setResumeIntent(blockedSubmit && intent.trim().length > 0);
-            setAutoStartVoice(
-              firstKey &&
-                (voiceProviderStore.state.provider === 'live' ||
-                  prepareBrowserOpenAIVoice()),
-            );
-            setBlockedSubmit(false);
-            setKeyEpoch((e) => e + 1);
-          }}
-          onRemove={() => {
-            diagnosticCapture.stop();
-            clearPlaygroundKey();
-            setDrawerOpen(false);
-            setKeyErrorMessage(null);
-            setBlockedSubmit(false);
-            setKeyEpoch((e) => e + 1);
-          }}
-          errorMessage={keyErrorMessage}
-        />
-      )}
-    </div>
+            }}
+            onSave={(key) => {
+              // Re-entering (or merely viewing) the same key from the header
+              // pill must not remount <m.Provider> mid-session — that would
+              // mint a fresh sessionId and drop everything the LLM has
+              // arranged so far. Only a genuine key change earns the reset.
+              const keyChanged = key !== playgroundKeyStore.state.apiKey;
+              const firstKey = playgroundKeyStore.state.apiKey === null;
+              if (keyChanged) diagnosticCapture.stop();
+              setPlaygroundKey(key);
+              setDrawerOpen(false);
+              setKeyErrorMessage(null);
+              if (!keyChanged) {
+                setBlockedSubmit(false);
+                return;
+              }
+              setResumeIntent(blockedSubmit && intent.trim().length > 0);
+              setAutoStartVoice(
+                firstKey &&
+                  (voiceProviderStore.state.provider === 'live' ||
+                    prepareBrowserOpenAIVoice()),
+              );
+              setBlockedSubmit(false);
+              setKeyEpoch((e) => e + 1);
+            }}
+            onRemove={() => {
+              diagnosticCapture.stop();
+              clearPlaygroundKey();
+              setDrawerOpen(false);
+              setKeyErrorMessage(null);
+              setBlockedSubmit(false);
+              setKeyEpoch((e) => e + 1);
+            }}
+            errorMessage={keyErrorMessage}
+          />
+        )}
+      </div>
+    </DemoMaelstromProvider>
   );
 }
 
 interface DemoAppProps {
+  readonly examples: readonly string[];
   readonly onRequireKey: () => void;
   readonly onBlockedSubmit: () => void;
   readonly onMintError: (message: string) => void;
@@ -244,6 +286,7 @@ interface DemoAppProps {
 }
 
 function DemoApp({
+  examples,
   onRequireKey,
   onBlockedSubmit,
   onMintError,
@@ -254,6 +297,7 @@ function DemoApp({
   autoStartVoice,
   onAutoStartVoiceHandled,
 }: DemoAppProps) {
+  const m = useDemoMaelstrom();
   const { isProcessing } = m.useMaelstrom();
   const {
     state: voiceState,
@@ -315,12 +359,13 @@ function DemoApp({
         >
           <m.Chart />
         </div>
-        <FirstRunHint />
+        <FirstRunHint examples={examples} />
         <ActionFlash />
       </main>
 
       {/* Compact voice and intent dock */}
       <IntentInput
+        examples={examples}
         onBlockedSubmit={onBlockedSubmit}
         onMintError={onMintError}
         intent={intent}
@@ -338,12 +383,14 @@ function DemoApp({
  * directly (Chart owns that DOM, not this component's React tree).
  */
 function ActionFlash() {
+  const m = useDemoMaelstrom();
   const touched = m.useTouchedInstances();
   useFlashInstances(touched);
   return null;
 }
 
 function StatusIndicator() {
+  const m = useDemoMaelstrom();
   const { connectionStatus } = m.useMaelstrom();
   const color = STATUS_COLORS[connectionStatus];
   const statusLabel =
@@ -370,6 +417,7 @@ function StatusIndicator() {
 }
 
 interface IntentInputProps {
+  readonly examples: readonly string[];
   readonly onBlockedSubmit: () => void;
   readonly onMintError: (message: string) => void;
   readonly intent: string;
@@ -379,6 +427,7 @@ interface IntentInputProps {
 }
 
 function IntentInput({
+  examples,
   onBlockedSubmit,
   onMintError,
   intent,
@@ -386,6 +435,7 @@ function IntentInput({
   resumeIntent,
   onResumeIntentHandled,
 }: IntentInputProps) {
+  const m = useDemoMaelstrom();
   const {
     processIntent,
     isProcessing,
@@ -520,7 +570,7 @@ function IntentInput({
         </div>
 
         <datalist id="demo-intent-examples">
-          {FIRST_RUN_EXAMPLES.map((suggestion) => (
+          {examples.map((suggestion) => (
             <option key={suggestion} value={suggestion} />
           ))}
         </datalist>

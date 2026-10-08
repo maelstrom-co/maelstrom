@@ -3,8 +3,8 @@ import type { TypedVesselProps } from '@maelstrom-co/react';
 import { OrderTotalsTable } from '../components/order-totals-table';
 import { VesselCard } from '../components/vessel-card';
 import { VESSEL_ACCENTS } from '../lib/design-tokens';
-import { m } from '../lib/maelstrom';
 import { CATALOG_SKUS, formatCents } from '../lib/pet-shop-fixtures';
+import { shop } from '../lib/pet-shop-maelstrom';
 import {
   type CartMutationResult,
   cartActions,
@@ -22,7 +22,7 @@ export default function CartComponent({
   const totals = cartTotals(lines);
   const itemCount = lines.reduce((sum, line) => sum + line.quantity, 0);
 
-  m.useActions('cart', instanceId, {
+  shop.useActions('cart', instanceId, {
     addToCart: async ({ sku, quantity }) =>
       toActionResult(cartActions.addToCart(sku, quantity ?? 1), sku),
     removeFromCart: async ({ sku }) =>

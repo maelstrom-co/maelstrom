@@ -9,9 +9,9 @@ import {
   useRef,
   useState,
 } from 'react';
+import { useDemoMaelstrom } from '../lib/demo-maelstrom-context';
 import { demoVoiceSession } from '../lib/demo-voice';
 import { liveErrorMessage } from '../lib/live-exchange';
-import { m } from '../lib/maelstrom';
 import { getVoiceErrorStatusLabel } from './voice-error-copy';
 
 const STATE_LABEL: Record<VoiceSessionState, string> = {
@@ -57,6 +57,7 @@ interface VoiceControlProps {
  * precedence over the preparation label.
  */
 export function VoiceControl({ showOrb = true }: VoiceControlProps = {}) {
+  const m = useDemoMaelstrom();
   const {
     greetingState,
     state,

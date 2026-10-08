@@ -200,6 +200,24 @@ The LiveKit cascade is also optional. It requires a local LiveKit server plus re
 - "Actually skip the gym, add coffee with Sam at 9"
 - "Start a journal entry about today's plan and jot down the key points"
 
+## Pet-food shop page
+
+`/shop` is the same demo page, voice included, with a catalog of only the four pet-food shop Vessels (`orders`, `catalog`, `cart`, `checkout`) and a green palette. The Engine never sees the day-planner Vessels there, and the home page no longer registers the shop ones.
+
+From the repository root, start it with:
+
+```bash
+bunx nx dev-shop demo
+```
+
+Then open `http://localhost:3000/shop`. The command is `bunx nx dev demo` plus a printed reminder of that URL, so `/shop` also works under the baseline command and the other variants.
+
+Things to type or say there:
+
+- "Show me my past orders"
+- "Find a dog food like my usual one but with less fat"
+- "Add it to my cart and take me to checkout"
+
 ## How voice works
 
 The browser holds the OpenAI realtime session directly, authenticated by a short-lived token minted by `/api/realtime-token`. The model has one write path: an `update_ui` tool call carrying a plain-text intent, which follows the same path as typed input. The Engine plans against the app's own state, never the model's beliefs about the screen. The model receives the tool result only after rendering settles, so it does not narrate a change before it appears. See [`docs/realtime-voice-architecture.md`](../../docs/realtime-voice-architecture.md) for the full design.

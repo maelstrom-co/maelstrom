@@ -8,12 +8,8 @@ import { m } from '../lib/maelstrom';
 import { withActionOptions } from '../lib/vessel-options';
 import { useCalendarStore } from '../vessels/calendar.store';
 import { calendarVessel } from '../vessels/calendar.vessel';
-import { useCartStore } from '../vessels/cart.store';
-import { cartVessel } from '../vessels/cart.vessel';
 import { useJournalStore } from '../vessels/journal.store';
 import { journalVessel } from '../vessels/journal.vessel';
-import { useOrdersStore } from '../vessels/orders.store';
-import { ordersVessel } from '../vessels/orders.vessel';
 import { useTasksStore } from '../vessels/tasks.store';
 import { tasksVessel } from '../vessels/tasks.vessel';
 
@@ -113,8 +109,6 @@ export function VesselOptionSync() {
   const { entries } = useJournalStore();
   const { events } = useCalendarStore();
   const { tasks } = useTasksStore();
-  const { orders } = useOrdersStore();
-  const { lines } = useCartStore();
   // A republish refused with `batch_in_flight` exhausts its bounded backoff
   // in ~3.1s and is then abandoned — the title keys that would re-trigger the
   // effect have already changed and settled, so nothing re-attempts it and
@@ -139,18 +133,7 @@ export function VesselOptionSync() {
 
   const entryKey = optionKey(entryTitles);
   const eventKey = optionKey(eventTitles);
-  const orderIds = cleanTitles(
-    orders.map((order) => order.id),
-    'orders',
-  );
-  const cartSkus = cleanTitles(
-    lines.map((line) => line.sku),
-    'cart',
-  );
-
   const taskKey = optionKey(taskTitles);
-  const orderKey = optionKey(orderIds);
-  const cartKey = optionKey(cartSkus);
 
   useEffect(
     () =>
@@ -192,33 +175,6 @@ export function VesselOptionSync() {
     [taskKey, isProcessing],
   );
 
-  useEffect(
-    () =>
-      republishWithRetry(() =>
-        m.updateVessel(
-          withActionOptions(ordersVessel, {
-            showOrderDetails: { orderId: orderIds },
-          }),
-        ),
-      ),
-    [orderKey, isProcessing],
-  );
-
-  // An empty cart publishes no enum, so the model still sees an
-  // unconstrained sku rather than an impossible empty choice.
-  useEffect(
-    () =>
-      republishWithRetry(() =>
-        m.updateVessel(
-          withActionOptions(cartVessel, {
-            removeFromCart: { sku: cartSkus },
-            updateCartQuantity: { sku: cartSkus },
-          }),
-        ),
-      ),
-    [cartKey, isProcessing],
-  );
-
   return null;
 }
 
@@ -229,7 +185,7 @@ export function VesselOptionSync() {
 // (e.g. join('\n')) can collide — ['a\nb'] and ['a', 'b'] would flatten to
 // the same key and silently skip a republish. JSON.stringify escapes
 // embedded delimiters, so distinct lists always produce distinct keys.
-function optionKey(values: readonly string[]): string {
+export function optionKey(values: readonly string[]): string {
   return JSON.stringify(values);
 }
 
@@ -269,7 +225,9 @@ const RETRY_BASE_DELAY_MS = 100;
  * to this function for the same vessel) never lets a stale retry chain fire
  * after the fact.
  */
-function republishWithRetry(publish: () => UpdateVesselResult): () => void {
+export function republishWithRetry(
+  publish: () => UpdateVesselResult,
+): () => void {
   let cancelled = false;
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
 

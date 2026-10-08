@@ -1,10 +1,10 @@
 import { OpenAILiveAdapter } from '@maelstrom-co/realtime-openai-live';
 import { Activity, Bug, Fingerprint, Radio, X } from 'lucide-react';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useDemoMaelstrom } from '../lib/demo-maelstrom-context';
 import { demoVoiceSession } from '../lib/demo-voice';
 import { diagnosticCapture } from '../lib/diagnostic-capture';
 import { engineMetadata } from '../lib/engine-metadata';
-import { m } from '../lib/maelstrom';
 import { DEFAULT_REALTIME_MODEL } from '../lib/realtime-model';
 import {
   projectLiveTransport,
@@ -39,6 +39,7 @@ function Facts({
 }
 
 export function VoiceDebugDrawer() {
+  const m = useDemoMaelstrom();
   const metadata = useSyncExternalStore(
     engineMetadata.subscribe,
     engineMetadata.getSnapshot,

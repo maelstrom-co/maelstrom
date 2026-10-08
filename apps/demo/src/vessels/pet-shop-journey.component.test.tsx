@@ -11,8 +11,8 @@ type Handler = (params?: Record<string, unknown>) => Promise<{
 
 const handlers = new Map<string, Record<string, Handler>>();
 
-vi.mock('../lib/maelstrom', () => ({
-  m: {
+vi.mock('../lib/pet-shop-maelstrom', () => ({
+  shop: {
     useActions: (
       vesselId: string,
       _instanceId: string,

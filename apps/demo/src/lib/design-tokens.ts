@@ -3,8 +3,17 @@
  * (`--color-brand*`, `--color-green`, `--color-amber` in `styles.css`'s
  * `@theme`). MapLibre paint colors and calendar/task chip tints read the
  * hex directly since neither consumer can resolve a CSS custom property.
+ * `leaf`, `mint` and `moss` are demo-only accents for the pet-shop palette.
  */
-export type AccentToken = 'brand' | 'brand-2' | 'brand-3' | 'green' | 'amber';
+export type AccentToken =
+  | 'brand'
+  | 'brand-2'
+  | 'brand-3'
+  | 'green'
+  | 'amber'
+  | 'leaf'
+  | 'mint'
+  | 'moss';
 
 export const ACCENT_HEX: Record<AccentToken, string> = {
   brand: '#0091ff',
@@ -12,6 +21,9 @@ export const ACCENT_HEX: Record<AccentToken, string> = {
   'brand-3': '#6e5bff',
   green: '#2bd46b',
   amber: '#f5a524',
+  leaf: '#1fbf75',
+  mint: '#5fe0a4',
+  moss: '#9ccc4a',
 };
 
 export type VesselName =
@@ -31,9 +43,9 @@ export const VESSEL_ACCENTS: Record<VesselName, AccentToken> = {
   map: 'brand-3',
   journal: 'green',
   tasks: 'amber',
-  orders: 'brand',
-  catalog: 'brand-3',
-  cart: 'amber',
+  orders: 'leaf',
+  catalog: 'mint',
+  cart: 'moss',
   checkout: 'green',
 };
 

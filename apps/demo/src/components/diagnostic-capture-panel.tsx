@@ -1,11 +1,12 @@
 import { Circle, Download, Square, Trash2 } from 'lucide-react';
 import { useMemo, useSyncExternalStore } from 'react';
+import { useDemoMaelstrom } from '../lib/demo-maelstrom-context';
 import { demoVoiceSession } from '../lib/demo-voice';
 import { diagnosticCapture } from '../lib/diagnostic-capture';
-import { m } from '../lib/maelstrom';
 import { DiagnosticEvents } from './diagnostic-events';
 
 export function DiagnosticCapturePanel() {
+  const m = useDemoMaelstrom();
   const { session, provider } = m.useVoice();
   const { snapshot } = m.useVoiceObservations();
   const providerInstanceId =

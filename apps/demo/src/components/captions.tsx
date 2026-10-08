@@ -1,7 +1,7 @@
 import type { VoiceCaption } from '@maelstrom-co/client';
 import { useEffect, useState } from 'react';
 import { cn } from '../lib/cn';
-import { m } from '../lib/maelstrom';
+import { useDemoMaelstrom } from '../lib/demo-maelstrom-context';
 
 /** How long a finalized caption stays fully visible before it starts to fade. */
 const FADE_DELAY_MS = 3500;
@@ -45,6 +45,7 @@ function useFadingCaption(
  * stack on narrow screens, and use the full row when only one speaker is shown.
  */
 export function Captions() {
+  const m = useDemoMaelstrom();
   const { state } = m.useVoice();
   const { snapshot } = m.useVoiceObservations();
   const assistant = useFadingCaption(

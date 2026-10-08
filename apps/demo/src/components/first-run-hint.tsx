@@ -1,4 +1,4 @@
-import { m } from '../lib/maelstrom';
+import { useDemoMaelstrom } from '../lib/demo-maelstrom-context';
 
 /** Hand-picked example prompts, shown in the first-run hint and echoed as suggestion chips so text and voice paths teach the same vocabulary. */
 export const FIRST_RUN_EXAMPLES = [
@@ -19,7 +19,10 @@ export function isFirstRunHintVisible(
  * Centered hint shown in place of an empty chart — replaces silence with a
  * few concrete things to say, matched to what the suggestion chips offer.
  */
-export function FirstRunHint() {
+export function FirstRunHint({
+  examples = FIRST_RUN_EXAMPLES,
+}: Readonly<{ examples?: readonly string[] }> = {}) {
+  const m = useDemoMaelstrom();
   const instanceCount = m.useInstanceCount();
   const { isProcessing } = m.useMaelstrom();
 
@@ -33,7 +36,7 @@ export function FirstRunHint() {
       <div className="surface max-w-md px-8 py-6 text-center">
         <p className="text-sm font-medium text-ink-2">Try saying…</p>
         <ul className="mt-3 space-y-2">
-          {FIRST_RUN_EXAMPLES.map((example) => (
+          {examples.map((example) => (
             <li key={example} className="text-sm text-ink">
               &ldquo;{example}&rdquo;
             </li>

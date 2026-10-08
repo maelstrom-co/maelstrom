@@ -56,6 +56,13 @@ describe('VESSEL_ACCENTS', () => {
     expect(VESSEL_ACCENTS.journal).toBe('green');
     expect(VESSEL_ACCENTS.tasks).toBe('amber');
   });
+
+  it('keeps the pet-shop vessels on the green shop palette', () => {
+    expect(VESSEL_ACCENTS.orders).toBe('leaf');
+    expect(VESSEL_ACCENTS.catalog).toBe('mint');
+    expect(VESSEL_ACCENTS.cart).toBe('moss');
+    expect(VESSEL_ACCENTS.checkout).toBe('green');
+  });
 });
 
 describe('CALENDAR_EVENT_ACCENTS', () => {

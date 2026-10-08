@@ -45,9 +45,9 @@ const CART = InstanceId('cart-main');
 const CHECKOUT = InstanceId('checkout-main');
 
 /**
- * Opt-in pet-food shop screen (`?layout=shop`): orders and catalog on the
- * left, cart and checkout on the right, so the reorder journey's vessels are
- * on screen without asking the engine to place them.
+ * The `/shop` page's starting screen: orders and catalog on the left, cart
+ * and checkout on the right, so the reorder journey's vessels are on screen
+ * without asking the engine to place them.
  */
 export const SHOP_LAYOUT: TilingLayout = {
   type: 'tiling',
@@ -83,8 +83,3 @@ export const SHOP_LAYOUT: TilingLayout = {
     },
   ],
 };
-
-export function isShopLayoutRequested(): boolean {
-  if (typeof window === 'undefined') return false;
-  return new URLSearchParams(window.location.search).get('layout') === 'shop';
-}
