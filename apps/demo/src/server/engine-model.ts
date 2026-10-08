@@ -24,6 +24,29 @@ export const ENGINE_MODEL: DemoEngineModel = engineModelOverride
   ? (engineModelOverride as DemoEngineModel)
   : DEFAULT_ENGINE_MODEL;
 
+/**
+ * Planner reasoning effort sent with every Planner call; `default` sends no
+ * effort and leaves the model's own default. `PLANNER_REASONING_EFFORT`
+ * overrides it on runtimes with `process.env`. `none` matched `low` on mean
+ * latency in the /shop smoke but never reasoned, so it never hit the
+ * 7 s tail `low` and the model default occasionally did.
+ */
+export const PLANNER_REASONING_EFFORT =
+  (typeof process !== 'undefined'
+    ? process.env.PLANNER_REASONING_EFFORT?.trim()
+    : undefined) || 'none';
+
+/** Adds the Planner reasoning effort to `modelOptions`. */
+export function withPlannerReasoning(
+  modelOptions: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (PLANNER_REASONING_EFFORT === 'default') return modelOptions;
+  return {
+    ...modelOptions,
+    reasoning: { effort: PLANNER_REASONING_EFFORT },
+  };
+}
+
 export function createDemoOpenaiChat(apiKey: string): AnyTextAdapter {
   return observeOpenaiCalls(
     createLunaChat(ENGINE_MODEL, apiKey),

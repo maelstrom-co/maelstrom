@@ -24,6 +24,7 @@ import {
   type TypeSafeOptions,
 } from '@maelstrom-co/planner-jev';
 import { type LlmPlannerOptions, llmPlanner } from '@maelstrom-co/planner-llm';
+import { withPlannerReasoning } from './engine-model';
 
 const SYSTEM_RULES = `
 - Try to always keep at least one vessel visible on the chart
@@ -57,13 +58,12 @@ export interface PlaygroundEngineOptions {
 export function createPlaygroundEngine(
   options: PlaygroundEngineOptions,
 ): Engine {
+  const modelOptions = withPlannerReasoning(options.modelOptions);
   return createEngine({
     planner: llmPlanner({
       adapter: options.adapter,
       prompt: { system: { rules: { append: SYSTEM_RULES } } },
-      ...(options.modelOptions === undefined
-        ? {}
-        : { modelOptions: options.modelOptions }),
+      ...(modelOptions === undefined ? {} : { modelOptions }),
     }),
     retry: { max: MAX_RETRIES },
     history: {
@@ -98,10 +98,11 @@ export interface JevPlaygroundEngineOptions extends PlaygroundEngineOptions {
 export function createJevPlaygroundEngine(
   options: JevPlaygroundEngineOptions,
 ): Engine {
+  const plannerModelOptions = withPlannerReasoning(options.modelOptions);
   const modelOptions =
-    options.modelOptions === undefined
+    plannerModelOptions === undefined
       ? {}
-      : { modelOptions: options.modelOptions };
+      : { modelOptions: plannerModelOptions };
   const planner =
     options.planner === 'jev-composed-pairs'
       ? jevComposedPairsPlanner
