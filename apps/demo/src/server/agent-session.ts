@@ -68,6 +68,20 @@ export const AGENT_MODEL = agentEnv.AGENT_MODEL?.trim() || DEFAULT_ENGINE_MODEL;
 const LOOP_REASONING_EFFORT = agentEnv.AGENT_REASONING_EFFORT?.trim() || 'low';
 const ROUTER_REASONING_EFFORT = 'none';
 
+/**
+ * How a turn picks between one Planner call and the tool loop: `luna` asks
+ * the agent model first, `jev` asks TypeSafe Jev first, `off` always runs
+ * the loop, and `parallel` starts the loop while the Luna router runs and
+ * aborts it before any tool runs when the router answers `ui_only`.
+ * Unset, it is `jev` when TypeSafe is configured (about 0.3 s against 1 to
+ * 3 s for Luna) and `parallel` otherwise.
+ */
+const ROUTER_MODE = parseRouterMode(agentEnv.AGENT_ROUTER);
+const JEV_ENDPOINT = 'https://api.typesafe.ai/v1/systemone';
+const JEV_ROUTER_TIMEOUT_MS = 5000;
+
+type Route = 'ui_only' | 'needs_tools';
+
 const RouteSchema = z.object({
   route: z
     .enum(['ui_only', 'needs_tools'])
@@ -76,9 +90,13 @@ const RouteSchema = z.object({
     ),
 });
 
+const UI_ONLY_DESCRIPTION =
+  'a single screen change that the UI can do on its own, e.g. "show my past orders", "open my most recent order", "show the cart", "make the catalog bigger", "hide checkout".';
+const NEEDS_TOOLS_DESCRIPTION =
+  'anything that needs looking up and reasoning over data before acting, several steps, references to earlier results ("it", "that one"), adding to cart, checkout or placing an order, comparisons, recommendations.';
 const ROUTER_PROMPT = `Classify the customer's latest request to a pet-food shop UI.
-ui_only: a single screen change that the UI can do on its own, e.g. "show my past orders", "open my most recent order", "show the cart", "make the catalog bigger", "hide checkout".
-needs_tools: anything that needs looking up and reasoning over data before acting, several steps, references to earlier results ("it", "that one"), adding to cart, checkout or placing an order, comparisons, recommendations.`;
+ui_only: ${UI_ONLY_DESCRIPTION}
+needs_tools: ${NEEDS_TOOLS_DESCRIPTION}`;
 
 export interface AgentSessionOptions {
   readonly engine: Engine;
@@ -167,21 +185,7 @@ export class AgentSession {
         ? frame.input.text
         : `[Outside event from ${frame.input.source}] ${frame.input.description}`;
     try {
-      const route = await turn.time('router', () =>
-        this.#route(text).catch((error: unknown) => {
-          console.warn(
-            '[agent-session] router failed, using the tool loop:',
-            error instanceof Error ? error.message : error,
-          );
-          return 'needs_tools' as const;
-        }),
-      );
-      turn.route = route;
-      turn.routerMs = turn.lastMs;
-      const reply =
-        route === 'ui_only'
-          ? await this.#runFastRoute(text)
-          : await this.#runToolLoop(text);
+      const reply = await this.#runRoutedTurn(text);
       this.#finishTurn(true, reply);
     } catch (error) {
       turn.route = turn.route ?? 'error';
@@ -193,10 +197,113 @@ export class AgentSession {
     }
   }
 
-  async #route(text: string): Promise<'ui_only' | 'needs_tools'> {
-    // Plain user and assistant text only: a tool message without its call
-    // makes the structured-output request invalid.
-    const recent = this.#messages
+  async #runRoutedTurn(text: string): Promise<string> {
+    const turn = this.#requireTurn();
+    if (ROUTER_MODE === 'off') {
+      turn.route = 'needs_tools';
+      return (await this.#runToolLoop(text)) ?? 'Done.';
+    }
+    const routed = this.#timedRoute(text);
+    if (ROUTER_MODE === 'parallel') {
+      const reply = await this.#runToolLoop(text, routed);
+      if (reply !== null) {
+        turn.route = 'needs_tools';
+        return reply;
+      }
+      turn.route = 'ui_only';
+      return this.#runFastRoute(text);
+    }
+    const route = await routed;
+    turn.route = route;
+    return route === 'ui_only'
+      ? this.#runFastRoute(text)
+      : ((await this.#runToolLoop(text)) ?? 'Done.');
+  }
+
+  async #timedRoute(text: string): Promise<Route> {
+    const turn = this.#requireTurn();
+    const started = performance.now();
+    const route = await (ROUTER_MODE === 'jev'
+      ? this.#routeWithJev(text)
+      : this.#route(text)
+    ).catch((error: unknown) => {
+      console.warn(
+        '[agent-session] router failed, using the tool loop:',
+        error instanceof Error ? error.message : error,
+      );
+      return 'needs_tools' as const;
+    });
+    turn.routerMs = round(performance.now() - started);
+    turn.mark('router.decided', route);
+    return route;
+  }
+
+  async #routeWithJev(text: string): Promise<Route> {
+    const apiKey = agentEnv.TYPESAFE_API_KEY?.trim();
+    const model = agentEnv.JEV_MODEL?.trim();
+    if (!apiKey || !model)
+      throw new Error('AGENT_ROUTER=jev needs TYPESAFE_API_KEY and JEV_MODEL');
+    const turn = this.#turn;
+    turn?.mark('router.start', `jev ${model}`);
+    const response = await fetch(JEV_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model,
+        state: {
+          recentConversation: this.#recentText().map(
+            (message) => `${message.role}: ${message.content}`,
+          ),
+          latestRequest: text,
+        },
+        questions: {
+          route: {
+            type: 'choice',
+            instructions:
+              "Classify the customer's latest request to a pet-food shop UI.",
+            criteria: {
+              ui_only: UI_ONLY_DESCRIPTION,
+              needs_tools: NEEDS_TOOLS_DESCRIPTION,
+            },
+          },
+        },
+      }),
+      signal: AbortSignal.timeout(JEV_ROUTER_TIMEOUT_MS),
+    });
+    if (!response.ok) throw new Error(`Jev router HTTP ${response.status}`);
+    const reply = (await response.json()) as {
+      answers?: { route?: { choice?: string; confidence?: number } };
+      usage?: { input_tokens?: number; output_tokens?: number };
+    };
+    const answer = reply.answers?.route;
+    turn?.mark(
+      'router.end',
+      `jev ${answer?.choice} confidence=${answer?.confidence} in=${reply.usage?.input_tokens} out=${reply.usage?.output_tokens}`,
+    );
+    if (answer?.choice !== 'ui_only' && answer?.choice !== 'needs_tools')
+      throw new Error('Jev router returned no route');
+    return answer.choice;
+  }
+
+  async #route(text: string): Promise<Route> {
+    const result = await chat({
+      adapter: this.#adapter,
+      systemPrompts: [ROUTER_PROMPT],
+      messages: [...this.#recentText(), { role: 'user', content: text }],
+      outputSchema: RouteSchema,
+      stream: false,
+      modelOptions: { reasoning: { effort: ROUTER_REASONING_EFFORT } },
+    } as Parameters<typeof chat>[0]);
+    return (result as unknown as z.infer<typeof RouteSchema>).route;
+  }
+
+  // Plain user and assistant text only: a tool message without its call
+  // makes the structured-output request invalid.
+  #recentText(): ModelMessage[] {
+    return this.#messages
       .filter(
         (message) =>
           (message.role === 'user' || message.role === 'assistant') &&
@@ -205,15 +312,6 @@ export class AgentSession {
           message.content.length > 0,
       )
       .slice(-4);
-    const result = await chat({
-      adapter: this.#adapter,
-      systemPrompts: [ROUTER_PROMPT],
-      messages: [...recent, { role: 'user', content: text }],
-      outputSchema: RouteSchema,
-      stream: false,
-      modelOptions: { reasoning: { effort: ROUTER_REASONING_EFFORT } },
-    } as Parameters<typeof chat>[0]);
-    return (result as unknown as z.infer<typeof RouteSchema>).route;
   }
 
   async #runFastRoute(text: string): Promise<string> {
@@ -224,7 +322,15 @@ export class AgentSession {
     return reply;
   }
 
-  async #runToolLoop(text: string): Promise<string> {
+  /**
+   * Runs the tool loop. With `routeGate` it resolves null, having undone
+   * its history change, when the router answers `ui_only` before any tool
+   * ran; tools wait for the router before they run.
+   */
+  async #runToolLoop(
+    text: string,
+    routeGate?: Promise<Route>,
+  ): Promise<string | null> {
     const turn = this.#requireTurn();
     const hooks: AgentToolHooks = {
       onToolStart: (name, visibility) => {
@@ -244,11 +350,20 @@ export class AgentSession {
     const tools = AGENT_TOOLS.map((tool) =>
       tool.bind(this.#toolContext(), hooks),
     );
-    this.#messages.push({ role: 'user', content: text });
+    const userMessage: ModelMessage = { role: 'user', content: text };
+    this.#messages.push(userMessage);
 
     const finished: { messages: readonly ModelMessage[] | null } = {
       messages: null,
     };
+    const abortController = new AbortController();
+    const gate = { settled: false, abortedForUiOnly: false };
+    void routeGate?.then((route) => {
+      if (route !== 'ui_only' || gate.settled) return;
+      gate.abortedForUiOnly = true;
+      turn.mark('loop.aborted', 'router chose ui_only');
+      abortController.abort();
+    });
     const stream = chat({
       adapter: this.#adapter,
       systemPrompts: [AGENT_SYSTEM_PROMPT, this.#screenSummary()],
@@ -256,10 +371,16 @@ export class AgentSession {
       tools,
       agentLoopStrategy: maxIterations(MAX_LOOP_ITERATIONS),
       modelOptions: { reasoning: { effort: LOOP_REASONING_EFFORT } },
+      abortController,
       middleware: [
         {
           onIteration: () => {
             turn.modelTurns++;
+          },
+          onBeforeToolCall: async () => {
+            if (!routeGate || (await routeGate) !== 'ui_only') return;
+            gate.abortedForUiOnly = true;
+            return { type: 'abort', reason: 'router chose ui_only' };
           },
           onFinish: (context) => {
             finished.messages = [...context.messages];
@@ -276,24 +397,36 @@ export class AgentSession {
 
     let buffer = '';
     let heldText = '';
-    for await (const chunk of stream) {
-      if (chunk.type === 'TEXT_MESSAGE_CONTENT') buffer += chunk.delta ?? '';
-      else if (chunk.type === 'TEXT_MESSAGE_END') {
-        heldText = buffer.trim() || heldText;
-        buffer = '';
-      } else if (chunk.type === 'TOOL_CALL_START') {
-        const progress = (heldText || buffer).trim();
-        if (progress) this.#push({ type: 'agent.progress', text: progress });
-        heldText = '';
-        buffer = '';
-      } else if (
-        chunk.type === 'TOOL_CALL_RESULT' &&
-        chunk.state === 'output-error'
-      ) {
-        turn.mark('tool.error', chunk.content?.slice(0, 200));
-      } else if (chunk.type === 'RUN_ERROR') {
-        throw new Error(chunk.message ?? 'agent loop failed');
+    try {
+      for await (const chunk of stream) {
+        if (chunk.type === 'TEXT_MESSAGE_CONTENT') buffer += chunk.delta ?? '';
+        else if (chunk.type === 'TEXT_MESSAGE_END') {
+          heldText = buffer.trim() || heldText;
+          buffer = '';
+        } else if (chunk.type === 'TOOL_CALL_START') {
+          const progress = (heldText || buffer).trim();
+          if (progress) this.#push({ type: 'agent.progress', text: progress });
+          heldText = '';
+          buffer = '';
+        } else if (
+          chunk.type === 'TOOL_CALL_RESULT' &&
+          chunk.state === 'output-error'
+        ) {
+          turn.mark('tool.error', chunk.content?.slice(0, 200));
+        } else if (chunk.type === 'RUN_ERROR') {
+          if (gate.abortedForUiOnly) break;
+          throw new Error(chunk.message ?? 'agent loop failed');
+        }
       }
+    } catch (error) {
+      if (!gate.abortedForUiOnly) throw error;
+    } finally {
+      gate.settled = true;
+    }
+    if (gate.abortedForUiOnly) {
+      const index = this.#messages.lastIndexOf(userMessage);
+      if (index >= 0) this.#messages.splice(index);
+      return null;
     }
     const reply = (heldText || buffer).trim() || 'Done.';
     // Waits for screen changes still in flight so `agent.done` arrives last.
@@ -537,22 +670,12 @@ class TurnRecorder {
   route: AgentTurnMetrics['route'] | null = null;
   routerMs: number | null = null;
   firstUiMs: number | null = null;
-  lastMs = 0;
   modelTurns = 0;
   readonly plannerCalls: AgentTimedStep[] = [];
   readonly toolCalls: AgentTimedStep[] = [];
   readonly timeline: AgentTimelineEvent[] = [];
   readonly modelCalls: AgentModelCall[] = [];
   readonly #callCounts = new Map<string, number>();
-
-  async time<T>(_label: string, run: () => Promise<T>): Promise<T> {
-    const started = performance.now();
-    try {
-      return await run();
-    } finally {
-      this.lastMs = round(performance.now() - started);
-    }
-  }
 
   sinceStart(): number {
     return round(performance.now() - this.startedAt);
@@ -645,4 +768,24 @@ function formatTimeline(metrics: AgentTurnMetrics): string {
         `  ${String(entry.atMs).padStart(6)}ms ${entry.event}${entry.detail ? ` ${entry.detail}` : ''}`,
     )
     .join('\n');
+}
+
+function parseRouterMode(
+  value: string | undefined,
+): 'luna' | 'jev' | 'off' | 'parallel' {
+  const mode =
+    value?.trim() ||
+    (agentEnv.TYPESAFE_API_KEY?.trim() && agentEnv.JEV_MODEL?.trim()
+      ? 'jev'
+      : 'parallel');
+  if (
+    mode === 'luna' ||
+    mode === 'jev' ||
+    mode === 'off' ||
+    mode === 'parallel'
+  )
+    return mode;
+  throw new Error(
+    `AGENT_ROUTER must be luna, jev, off or parallel, got "${mode}"`,
+  );
 }
