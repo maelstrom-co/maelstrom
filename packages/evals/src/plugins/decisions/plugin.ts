@@ -1,10 +1,13 @@
-import type {
-  DecisionsClientOptions,
-  JevCall,
-  StageName,
+import {
+  type DecisionsClientOptions,
+  type JevCall,
+  renderSelectStateAsProse,
+  type StageName,
 } from '@maelstrom-co/planner-jev/_internal';
 import type { PlannerEvalPlugin } from '../../core/plugin.js';
+import { registerStageEval } from '../../core/stage-eval.js';
 import { jevPlugin, stagePluginWith } from '../jev/plugin.js';
+import { selectModuleWith } from '../jev/stages/select.js';
 import { decisionsArms } from './arms.js';
 import { decisionsClientBuilder } from './client-builder.js';
 import { decisionsSettings } from './decisions-settings.js';
@@ -19,7 +22,8 @@ export interface DecisionsPluginOptions {
  * The stage-library planners on OpenAI Decisions as an eval plugin: the
  * `decisions-poc` and `decisions-composed-pairs` arms and the
  * `decisions-select`, `decisions-actions` and `decisions-layout` stage
- * evals. It has no default arms and no judge, so `--grader` stays on the
+ * evals, plus `decisions-poc-prose` and `decisions-select-prose`, which
+ * send the select state as prose (`renderSelectStateAsProse`). It has no default arms and no judge, so `--grader` stays on the
  * Jev plugin's judge, and it adds no report rows when a Jev arm runs
  * beside it, since the Jev plugin's rows cover its columns.
  */
@@ -27,8 +31,14 @@ export function decisionsPluginWith(
   options: DecisionsPluginOptions = {},
 ): PlannerEvalPlugin<JevCall, StageName> {
   const client = decisionsClientBuilder(decisionsSettings(options.decisions));
-  const arms = decisionsArms(client);
-  return stagePluginWith({
+  const proseClient = decisionsClientBuilder(
+    decisionsSettings({
+      ...options.decisions,
+      render: renderSelectStateAsProse,
+    }),
+  );
+  const arms = decisionsArms(client, proseClient);
+  const plugin = stagePluginWith({
     name: 'decisions',
     client,
     arms,
@@ -43,6 +53,18 @@ export function decisionsPluginWith(
     },
     rowsDeferTo: jevPlugin,
   });
+  return {
+    ...plugin,
+    stageModules: [
+      ...(plugin.stageModules ?? []),
+      registerStageEval(
+        selectModuleWith({
+          client: proseClient,
+          name: 'decisions-select-prose',
+        }),
+      ),
+    ],
+  };
 }
 
 /** The Decisions plugin on the settings from the environment. */

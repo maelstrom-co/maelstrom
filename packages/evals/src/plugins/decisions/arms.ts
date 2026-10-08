@@ -10,11 +10,15 @@ import type { JevArm } from '../jev/arms.js';
 import type { ClientBuilder } from '../jev/client-builder.js';
 
 /**
- * The Decisions twins of `jev-poc` and the composed pairs Jev arm: the
- * same builders with `client` as their `Ask`. Each reads the replay shape
- * of its twin, so a Jev run's stages replay into it.
+ * The Decisions twins of `jev-poc` and the composed pairs Jev arm, on
+ * `client`, and `decisions-poc-prose`, the POC on `proseClient`, whose
+ * select state reads as prose rather than JSON. Each reads the replay
+ * shape of its twin, so a Jev run's stages replay into it.
  */
-export function decisionsArms(client: ClientBuilder): readonly JevArm[] {
+export function decisionsArms(
+  client: ClientBuilder,
+  proseClient: ClientBuilder,
+): readonly JevArm[] {
   const requiredEnv = [...new Set(['OPENAI_API_KEY', ...client.requiredEnv])];
   return [
     {
@@ -30,6 +34,13 @@ export function decisionsArms(client: ClientBuilder): readonly JevArm[] {
       requiredEnv,
       replayShape: 'gated',
       build: (deps) => buildJevComposedPairsPlanner(stageDeps(client, deps)),
+    },
+    {
+      name: 'decisions-poc-prose',
+      kind: 'decisions-poc',
+      requiredEnv,
+      replayShape: 'poc',
+      build: (deps) => buildJevPlanner(stageDeps(proseClient, deps)),
     },
   ];
 }

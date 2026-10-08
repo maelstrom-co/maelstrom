@@ -29,6 +29,11 @@ describe('the Decisions arms', () => {
         kind: 'decisions',
         replayShape: 'gated',
       },
+      {
+        name: 'decisions-poc-prose',
+        kind: 'decisions-poc',
+        replayShape: 'poc',
+      },
     ]);
     const twins = jevPlugin.arms as readonly JevArm[];
     const twinShape = (name: string) =>
@@ -83,14 +88,13 @@ describe('the Decisions arms', () => {
       },
       onCall: () => {},
     };
-    const arms = decisionsArms(
-      decisionsClientBuilder(
-        decisionsSettings({
-          apiKey: 'decisions-test-key',
-          model: DECISIONS_TEST_MODEL,
-        }),
-      ),
+    const client = decisionsClientBuilder(
+      decisionsSettings({
+        apiKey: 'decisions-test-key',
+        model: DECISIONS_TEST_MODEL,
+      }),
     );
+    const arms = decisionsArms(client, client);
     for (const arm of arms) expect(typeof arm.build(deps)).toBe('function');
     expect(roles).toEqual(arms.map((): LlmRole => 'complete'));
   });

@@ -23,6 +23,7 @@ import {
 } from '../jev/stages/select.js';
 import { decisionsClientBuilder } from './client-builder.js';
 import { decisionsSettings } from './decisions-settings.js';
+import { decisionsPluginWith } from './plugin.js';
 
 function scripted(script: DecisionsScript | Script) {
   const transport = scriptedDecisionsFetch(script);
@@ -79,6 +80,38 @@ describe('the Decisions stage evals on the scripted Decisions transport', () => 
       outcome: 'ok',
       state: expect.any(Object),
     });
+  });
+
+  test('decisions-select-prose sends the select state as prose and judges the selection', async () => {
+    const transport = scriptedDecisionsFetch(
+      conversation({
+        select: { 'view/map-main': 'keep' },
+        gates: {
+          'gate/needsActions': 0.1,
+          'gate/generatedContent': 0.1,
+          'gate/spatial': 0.1,
+        },
+      }),
+    );
+    const module = decisionsPluginWith({
+      decisions: {
+        apiKey: 'decisions-test-key',
+        model: DECISIONS_TEST_MODEL,
+        fetch: transport.fetch,
+      },
+    }).stageModules?.find((stage) => stage.name === 'decisions-select-prose');
+    if (module === undefined) throw new Error('no decisions-select-prose');
+    const [record] = (await module.run({
+      scenarios: selectScenarios('all', ['show-hidden']),
+      variants: ['gated'],
+      repeats: 1,
+    })) as StageTurnRecord<SelectTurnDetail>[];
+    expect(transport.requests).toHaveLength(1);
+    expect(transport.requests[0]?.input).toStartWith(
+      'The user\'s latest request: "Show the map next to the current widgets."',
+    );
+    expect(record?.outcome).toBe('pass');
+    expect(record?.detail?.selection?.pass).toBe(true);
   });
 
   test('decisions-actions passes a plan whose Decisions answers bind every expected value', async () => {

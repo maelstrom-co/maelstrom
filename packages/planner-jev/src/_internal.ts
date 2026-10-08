@@ -38,6 +38,7 @@ export {
   type Question,
   score,
 } from './lib/questions.js';
+export { renderSelectStateAsProse } from './lib/select-state-prose.js';
 export { actionPlanOf } from './lib/stages/action-plan.js';
 export { actionsBatchedPerInstance } from './lib/stages/actions-batched-per-instance.js';
 export { completeLayoutInline } from './lib/stages/complete-layout-inline.js';
