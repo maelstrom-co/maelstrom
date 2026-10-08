@@ -8,6 +8,8 @@
     "dev": "concurrently --kill-others-on-fail --names ws,vite \"bun --env-file=../../.env run src/server/ws-server.ts\" \"bun run dev:client\"",
     "dev-jev": "MAELSTROM_PLANNER=jev VITE_BROWSER_KEY_MODE=0 bun run dev",
     "dev-jev-composed-pairs": "MAELSTROM_PLANNER=jev-composed-pairs VITE_BROWSER_KEY_MODE=0 bun run dev",
+    "dev-decisions": "MAELSTROM_PLANNER=decisions VITE_BROWSER_KEY_MODE=0 bun run dev",
+    "dev-decisions-composed-pairs": "MAELSTROM_PLANNER=decisions-composed-pairs VITE_BROWSER_KEY_MODE=0 bun run dev",
     "dev-livekit": "concurrently --kill-others-on-fail --names ws,agent,vite \"bun --env-file=../../.env run src/server/ws-server.ts\" \"bun run dev-agent\" \"bun run dev:client:livekit\"",
     "dev:ws": "bun --env-file=../../.env run src/server/ws-server.ts",
     "dev:client": "bunx nx run @maelstrom-co/demo:serve",
@@ -160,6 +162,20 @@
         ]
       },
       "dev-jev": {
+        "...": true,
+        "dependsOn": [
+          "...",
+          "prepare-voice-assets"
+        ]
+      },
+      "dev-decisions": {
+        "...": true,
+        "dependsOn": [
+          "...",
+          "prepare-voice-assets"
+        ]
+      },
+      "dev-decisions-composed-pairs": {
         "...": true,
         "dependsOn": [
           "...",

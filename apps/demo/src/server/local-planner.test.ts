@@ -9,6 +9,8 @@ vi.mock('@maelstrom-co/engine', async (importOriginal) => ({
 const plannerSpies = vi.hoisted(() => ({
   jevPlanner: vi.fn(),
   jevComposedPairsPlanner: vi.fn(),
+  decisionsPlanner: vi.fn(),
+  decisionsComposedPairsPlanner: vi.fn(),
 }));
 vi.mock('@maelstrom-co/planner-jev', async (importOriginal) => {
   const original =
@@ -17,10 +19,16 @@ vi.mock('@maelstrom-co/planner-jev', async (importOriginal) => {
   plannerSpies.jevComposedPairsPlanner.mockImplementation(
     original.jevComposedPairsPlanner,
   );
+  plannerSpies.decisionsPlanner.mockImplementation(original.decisionsPlanner);
+  plannerSpies.decisionsComposedPairsPlanner.mockImplementation(
+    original.decisionsComposedPairsPlanner,
+  );
   return {
     ...original,
     jevPlanner: plannerSpies.jevPlanner,
     jevComposedPairsPlanner: plannerSpies.jevComposedPairsPlanner,
+    decisionsPlanner: plannerSpies.decisionsPlanner,
+    decisionsComposedPairsPlanner: plannerSpies.decisionsComposedPairsPlanner,
   };
 });
 
@@ -41,8 +49,7 @@ function stubEngine() {
 
 afterEach(() => {
   createEngineMock.mockReset();
-  plannerSpies.jevPlanner.mockClear();
-  plannerSpies.jevComposedPairsPlanner.mockClear();
+  for (const spy of Object.values(plannerSpies)) spy.mockClear();
   vi.restoreAllMocks();
 });
 
@@ -80,7 +87,9 @@ describe('buildLocalEngine', () => {
   it('rejects an unknown planner', () => {
     expect(() =>
       quietly(() => buildLocalEngine({ MAELSTROM_PLANNER: 'gpt' })),
-    ).toThrow(/MAELSTROM_PLANNER must be llm, jev or jev-composed-pairs/);
+    ).toThrow(
+      'MAELSTROM_PLANNER must be llm, jev, jev-composed-pairs, decisions or decisions-composed-pairs, got "gpt".',
+    );
   });
 
   it.each([
@@ -210,5 +219,90 @@ describe('buildLocalEngine', () => {
       .map((arg) => (arg instanceof Error ? arg.message : String(arg)))
       .join(' ');
     expect(logged).not.toContain(TYPESAFE_KEY);
+  });
+
+  it.each([
+    ['decisions', 'decisionsPlanner'],
+    ['decisions-composed-pairs', 'decisionsComposedPairsPlanner'],
+  ] as const)('%s builds its Decisions planner with only the OpenAI key and retry off', (planner, spyName) => {
+    createEngineMock.mockReturnValue(stubEngine());
+    const local = quietly(() =>
+      buildLocalEngine({
+        MAELSTROM_PLANNER: planner,
+        OPENAI_API_KEY: OPENAI_KEY,
+      }),
+    );
+    expect(local.planner).toBe(planner);
+    expect(local.engine).not.toBeNull();
+    expect(local.helloReceived).toBe(true);
+    expect(local.secrets).toEqual([OPENAI_KEY]);
+    const spy = plannerSpies[spyName];
+    expect(spy).toHaveBeenCalledTimes(1);
+    for (const [name, other] of Object.entries(plannerSpies))
+      if (name !== spyName) expect(other).not.toHaveBeenCalled();
+    const [options] = spy.mock.calls[0] ?? [];
+    expect(options.decisions).toEqual({
+      apiKey: OPENAI_KEY,
+      logReplies: false,
+    });
+    expect(options.typesafe).toBeUndefined();
+    expect(typeof options.fallback).toBe('function');
+    expect(createEngineMock.mock.calls[0]?.[0].retry).toBe(false);
+  });
+
+  it('decisions turns on reply logging with DECISIONS_LOG_REPLIES=1', () => {
+    createEngineMock.mockReturnValue(stubEngine());
+    quietly(() =>
+      buildLocalEngine({
+        MAELSTROM_PLANNER: 'decisions',
+        OPENAI_API_KEY: OPENAI_KEY,
+        DECISIONS_LOG_REPLIES: '1',
+      }),
+    );
+    const [options] = plannerSpies.decisionsPlanner.mock.calls[0] ?? [];
+    expect(options.decisions.logReplies).toBe(true);
+  });
+
+  it.each([
+    'decisions',
+    'decisions-composed-pairs',
+  ])('%s without the server OpenAI key throws without echoing a secret', (planner) => {
+    let caught: unknown;
+    try {
+      quietly(() =>
+        buildLocalEngine({
+          MAELSTROM_PLANNER: planner,
+          TYPESAFE_API_KEY: TYPESAFE_KEY,
+        }),
+      );
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(Error);
+    const message = (caught as Error).message;
+    expect(message).toBe(
+      `MAELSTROM_PLANNER=${planner} requires a server OPENAI_API_KEY for Decisions, the reply and the fallback.`,
+    );
+    expect(message).not.toContain(TYPESAFE_KEY);
+    expect(createEngineMock).not.toHaveBeenCalled();
+  });
+
+  it('redacts secrets from a decisions engine construction failure', () => {
+    createEngineMock.mockImplementation(() => {
+      throw new Error(`bad config ${OPENAI_KEY}`);
+    });
+    let caught: unknown;
+    try {
+      quietly(() =>
+        buildLocalEngine({
+          MAELSTROM_PLANNER: 'decisions',
+          OPENAI_API_KEY: OPENAI_KEY,
+        }),
+      );
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(Error);
+    expect((caught as Error).message).not.toContain(OPENAI_KEY);
   });
 });
