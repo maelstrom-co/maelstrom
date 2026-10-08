@@ -29,19 +29,26 @@ A tiling split token carrying comma-separated integer weights, as in `"V:1,1,1"`
 _Avoid_: ratio node, proportional split, n-ary split
 
 **Engine**:
-The stateless decision core: takes user intent plus current Chart state and returns an Execution Plan and Layout Directives.
+The entry point clients talk to. Hosts Agent Sessions and delegates every UI decision to the Planner.
 _Avoid_: brain, orchestrator (that names a client-side module)
 
+**Planner**:
+The stateless decision step: takes an intent plus current Chart state and returns an Execution Plan and Layout Directives.
+
 **Agent Session**:
-A per-user conversation in which an agent pursues the user's goals across many steps (tool calls, tool results, user answers). Unlike the Engine, it holds state.
-_Avoid_: runtime, brain, orchestrator
+A per-user conversation, hosted by the Engine, in which an agent pursues the user's goals across many steps (tool calls, tool results, user answers). Unlike the Planner, it holds state.
+_Avoid_: runtime, brain, orchestrator, harness
+
+**Agent Run**:
+One pass of an Agent Session's loop pursuing one goal, from the input that starts it to its finish. An Agent Session holds many Agent Runs.
+_Avoid_: run (unqualified), request, turn
 
 **Execution Plan**:
-The ordered list of Actions the Engine decided to invoke in response to an update.
+The ordered list of Actions the Planner decided to invoke in response to an update.
 _Avoid_: action list, plan (unqualified)
 
 **Layout Directive**:
-The Engine's placement decision for one Instance: grid position and size.
+The Planner's placement decision for one Instance: grid position and size.
 _Avoid_: layout instruction
 
 **Envelope**:
