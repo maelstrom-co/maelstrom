@@ -102,6 +102,28 @@ export interface AgentTimedStep {
   readonly ms: number;
 }
 
+/** One timestamped step of a turn, relative to `agent.input` arrival. */
+export interface AgentTimelineEvent {
+  readonly atMs: number;
+  readonly event: string;
+  readonly detail?: string;
+}
+
+/** One model request made during a turn, with its provider-reported usage. */
+export interface AgentModelCall {
+  readonly label: string;
+  readonly reasoningEffort: string | null;
+  readonly startMs: number;
+  /** Time from request start to the first streamed output; null when not streamed. */
+  readonly firstOutputMs: number | null;
+  readonly ms: number;
+  readonly ok: boolean;
+  readonly inputTokens: number | null;
+  readonly cachedTokens: number | null;
+  readonly reasoningTokens: number | null;
+  readonly outputTokens: number | null;
+}
+
 export interface AgentTurnMetrics {
   readonly route: 'ui_only' | 'needs_tools' | 'error';
   readonly routerMs: number | null;
@@ -112,6 +134,8 @@ export interface AgentTurnMetrics {
   /** Model turns in the tool loop (0 on the fast route). */
   readonly modelTurns: number;
   readonly totalMs: number;
+  readonly timeline: readonly AgentTimelineEvent[];
+  readonly modelCalls: readonly AgentModelCall[];
 }
 
 export interface AgentDoneFrame {

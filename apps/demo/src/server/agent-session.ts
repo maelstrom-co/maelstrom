@@ -27,8 +27,10 @@ import type {
   AgentChartSnapshot,
   AgentClientFrame,
   AgentInputFrame,
+  AgentModelCall,
   AgentServerFrame,
   AgentTimedStep,
+  AgentTimelineEvent,
   AgentTurnMetrics,
   ClientToolName,
 } from './agent-session-frames';
@@ -38,7 +40,12 @@ import {
   type AgentToolContext,
   type AgentToolHooks,
 } from './agent-session-tools';
-import { DEFAULT_ENGINE_MODEL } from './engine-model';
+import { DEFAULT_ENGINE_MODEL, onEngineModelCall } from './engine-model';
+import {
+  type ObservedCall,
+  type ObservedCallStart,
+  observeOpenaiCalls,
+} from './openai-call-observer';
 
 const MAX_LOOP_ITERATIONS = 12;
 const CLIENT_TOOL_TIMEOUT_MS = 120_000;
@@ -101,9 +108,10 @@ export class AgentSession {
   constructor(options: AgentSessionOptions) {
     this.#engine = options.engine;
     this.#send = options.send;
-    this.#adapter = createAgentChat(
-      AGENT_MODEL as OpenAIChatModel,
-      options.apiKey,
+    this.#adapter = observeOpenaiCalls(
+      createAgentChat(AGENT_MODEL as OpenAIChatModel, options.apiKey),
+      (start) =>
+        this.#turn?.modelCall(start.structured ? 'router' : 'loop', start),
     );
   }
 
@@ -149,6 +157,7 @@ export class AgentSession {
     this.#chart = frame.chart;
     const turn = new TurnRecorder();
     this.#turn = turn;
+    turn.mark('turn.start');
     this.#lastPlannerMessage = '';
     if (this.#inputCount++ === 0)
       this.#push({ type: 'agent.progress', text: 'Working on it…' });
@@ -219,6 +228,7 @@ export class AgentSession {
     const turn = this.#requireTurn();
     const hooks: AgentToolHooks = {
       onToolStart: (name, visibility) => {
+        turn.mark(`tool.${name}.start`);
         if (visibility.visibility === 'shown')
           this.#push({
             type: 'agent.progress',
@@ -226,7 +236,10 @@ export class AgentSession {
             tool: name,
           });
       },
-      onToolEnd: (name, ms) => turn.toolCalls.push({ name, ms: round(ms) }),
+      onToolEnd: (name, ms) => {
+        turn.mark(`tool.${name}.end`);
+        turn.toolCalls.push({ name, ms: round(ms) });
+      },
     };
     const tools = AGENT_TOOLS.map((tool) =>
       tool.bind(this.#toolContext(), hooks),
@@ -319,6 +332,7 @@ export class AgentSession {
   }
 
   #showUi(intent: string): void {
+    this.#turn?.mark('planner.enqueue', intent.slice(0, 80));
     this.#enqueueUi(() => this.#plannerUi(intent));
   }
 
@@ -357,14 +371,21 @@ export class AgentSession {
       throw new Error(`Chart snapshot rejected: ${parsed.error.message}`);
 
     const started = performance.now();
-    const result = await this.#engine.handle(
-      ChartRequestMessage({
-        sessionId: SessionId(chart.sessionId),
-        request: parsed.data as Parameters<
-          typeof ChartRequestMessage
-        >[0]['request'],
-      }),
+    turn?.mark('planner.dequeue');
+    const unsubscribe = onEngineModelCall((start) =>
+      turn?.modelCall('planner', start),
     );
+    const result = await this.#engine
+      .handle(
+        ChartRequestMessage({
+          sessionId: SessionId(chart.sessionId),
+          request: parsed.data as Parameters<
+            typeof ChartRequestMessage
+          >[0]['request'],
+        }),
+      )
+      .finally(unsubscribe);
+    turn?.mark('planner.end', isErr(result) ? 'error' : 'ok');
     turn?.plannerCalls.push({
       name: intent.slice(0, 60),
       ms: round(performance.now() - started),
@@ -400,14 +421,21 @@ export class AgentSession {
     >,
   ): Promise<string | undefined> {
     const uiId = crypto.randomUUID();
-    this.#turn?.markFirstUi();
+    const turn = this.#turn;
+    turn?.markFirstUi();
+    turn?.mark(
+      'ui.push',
+      `${change.source} ${change.executionPlan.map((action) => action.action).join(',') || 'layout'}`,
+    );
     const applied = new Promise<string | undefined>((resolve) => {
       const timer = setTimeout(() => {
         this.#pendingUiApplied.delete(uiId);
+        turn?.mark('ui.ack', 'timeout');
         resolve(undefined);
       }, UI_APPLIED_TIMEOUT_MS);
       this.#pendingUiApplied.set(uiId, (error) => {
         clearTimeout(timer);
+        turn?.mark('ui.ack', error);
         resolve(error);
       });
     });
@@ -438,9 +466,15 @@ export class AgentSession {
 
   #finishTurn(ok: boolean, reply: string, error?: string): void {
     const turn = this.#requireTurn();
+    turn.mark('done', ok ? 'ok' : 'failed');
     const metrics = turn.toMetrics();
+    const {
+      timeline: _timeline,
+      modelCalls: _modelCalls,
+      ...summary
+    } = metrics;
     console.log(
-      `[agent-session] turn ${ok ? 'done' : 'failed'} ${JSON.stringify({ ...metrics, ...(error ? { error } : {}) })}`,
+      `[agent-session] turn ${ok ? 'done' : 'failed'} ${JSON.stringify({ ...summary, ...(error ? { error } : {}) })}\n${formatTimeline(metrics)}`,
     );
     this.#push({
       type: 'agent.done',
@@ -500,6 +534,9 @@ class TurnRecorder {
   modelTurns = 0;
   readonly plannerCalls: AgentTimedStep[] = [];
   readonly toolCalls: AgentTimedStep[] = [];
+  readonly timeline: AgentTimelineEvent[] = [];
+  readonly modelCalls: AgentModelCall[] = [];
+  readonly #callCounts = new Map<string, number>();
 
   async time<T>(_label: string, run: () => Promise<T>): Promise<T> {
     const started = performance.now();
@@ -508,6 +545,50 @@ class TurnRecorder {
     } finally {
       this.lastMs = round(performance.now() - started);
     }
+  }
+
+  sinceStart(): number {
+    return round(performance.now() - this.startedAt);
+  }
+
+  mark(event: string, detail?: string): void {
+    this.timeline.push({
+      atMs: this.sinceStart(),
+      event,
+      ...(detail ? { detail } : {}),
+    });
+  }
+
+  /** Records one model request: start, first streamed output and usage. */
+  modelCall(kind: string, start: ObservedCallStart): ObservedCall {
+    const count = (this.#callCounts.get(kind) ?? 0) + 1;
+    this.#callCounts.set(kind, count);
+    const label = kind === 'router' ? kind : `${kind}${count}`;
+    const startMs = this.sinceStart();
+    let firstOutputMs: number | null = null;
+    this.mark(`${label}.start`, start.reasoningEffort);
+    return {
+      onFirstOutput: () => {
+        firstOutputMs = this.sinceStart() - startMs;
+        this.mark(`${label}.first_output`);
+      },
+      onEnd: ({ ok, usage }) => {
+        const call: AgentModelCall = {
+          label,
+          reasoningEffort: start.reasoningEffort ?? null,
+          startMs,
+          firstOutputMs,
+          ms: this.sinceStart() - startMs,
+          ok,
+          inputTokens: usage?.inputTokens ?? null,
+          cachedTokens: usage?.cachedTokens ?? null,
+          reasoningTokens: usage?.reasoningTokens ?? null,
+          outputTokens: usage?.outputTokens ?? null,
+        };
+        this.modelCalls.push(call);
+        this.mark(`${label}.end`, formatUsage(call));
+      },
+    };
   }
 
   markFirstUi(): void {
@@ -523,6 +604,8 @@ class TurnRecorder {
       toolCalls: this.toolCalls,
       modelTurns: this.modelTurns,
       totalMs: round(performance.now() - this.startedAt),
+      timeline: this.timeline,
+      modelCalls: this.modelCalls,
     };
   }
 }
@@ -540,4 +623,19 @@ function createAgentChat(
 
 function round(ms: number): number {
   return Math.round(ms);
+}
+
+function formatUsage(call: AgentModelCall): string {
+  const status = call.ok ? '' : 'FAILED ';
+  if (call.inputTokens === null) return `${status}${call.ms}ms`;
+  return `${status}${call.ms}ms in=${call.inputTokens} cached=${call.cachedTokens} reasoning=${call.reasoningTokens} out=${call.outputTokens}`;
+}
+
+function formatTimeline(metrics: AgentTurnMetrics): string {
+  return metrics.timeline
+    .map(
+      (entry) =>
+        `  ${String(entry.atMs).padStart(6)}ms ${entry.event}${entry.detail ? ` ${entry.detail}` : ''}`,
+    )
+    .join('\n');
 }

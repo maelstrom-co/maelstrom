@@ -14,6 +14,12 @@ import type {
   AgentChartSnapshot,
   AgentServerFrame,
 } from '../src/server/agent-session-frames';
+
+type AgentDoneMetrics = Extract<
+  AgentServerFrame,
+  { type: 'agent.done' }
+>['metrics'];
+
 import { cartVessel } from '../src/vessels/cart.vessel.def';
 import { catalogVessel } from '../src/vessels/catalog.vessel.def';
 import { checkoutVessel } from '../src/vessels/checkout.vessel.def';
@@ -104,7 +110,7 @@ ws.onmessage = (event) => {
         JSON.stringify(frame.reply),
         frame.error ?? '',
       );
-      console.log(JSON.stringify(frame.metrics, null, 2));
+      printMetrics(frame.metrics);
       if (!frame.busy) resolveTurn();
       return;
     default:
@@ -193,4 +199,15 @@ function applyUi(frame: Extract<AgentServerFrame, { type: 'agent.ui' }>): void {
     }
     if (action.action === 'placeOrder') cart = [];
   }
+}
+
+function printMetrics(metrics: AgentDoneMetrics): void {
+  if (!metrics) return;
+  const { timeline, modelCalls, ...summary } = metrics;
+  console.log('metrics', JSON.stringify(summary));
+  for (const entry of timeline ?? [])
+    console.log(
+      `  ${String(entry.atMs).padStart(6)}ms ${entry.event}${entry.detail ? ` ${entry.detail}` : ''}`,
+    );
+  console.log('modelCalls', JSON.stringify(modelCalls ?? []));
 }

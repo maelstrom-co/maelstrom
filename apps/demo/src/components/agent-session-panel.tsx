@@ -52,6 +52,11 @@ export function AgentSessionPanel() {
                 tool {call.name}: {formatMs(call.ms)}
               </li>
             ))}
+            {(metrics.timeline ?? []).map((entry, index) => (
+              <li key={`timeline-${index}-${entry.event}`}>
+                +{entry.atMs}ms {entry.event} {entry.detail ?? ''}
+              </li>
+            ))}
           </ul>
         </details>
       )}
