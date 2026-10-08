@@ -16,13 +16,9 @@ import { createPlaygroundEngine } from '../../server/engine-config';
 import { createDemoOpenaiChat } from '../../server/engine-model';
 import { createRedactingLogger, redact } from '../../server/redact';
 
-// A generous cap intended to make OpenAI's response.incomplete truncation
-// unlikely for a verbose layout response, not to guarantee it never happens
-// — max_output_tokens is shared between reasoning and visible output, so the
-// real headroom for the layout JSON is smaller than this number suggests. If
-// truncation does happen, @tanstack/ai currently swallows it into a generic
-// "structured output finalization produced no result" rather than surfacing
-// the incomplete-response reason.
+// OpenAI shares this budget between reasoning and visible output, so layout
+// JSON has less headroom than the cap suggests. TanStack reports max_tokens
+// when native structured output exhausts the budget.
 const MAX_OUTPUT_TOKENS = 16384;
 
 /** A failed engine build. The message is redacted before construction. */

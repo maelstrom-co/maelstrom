@@ -82,6 +82,41 @@ describe('withUsage', () => {
     expect(calls.map((call) => call.usage?.inputTokens)).toEqual([120, 120]);
   });
 
+  test('includes every AG-UI usage entry so evaluation totals do not undercount model work', async () => {
+    const chunks = finished.map((chunk) =>
+      chunk.type === 'RUN_FINISHED'
+        ? {
+            ...chunk,
+            usage: [
+              { inputTokens: 120, outputTokens: 30, totalTokens: 150 },
+              { inputTokens: 40, outputTokens: 10, totalTokens: 50 },
+            ],
+          }
+        : chunk,
+    );
+    const { adapter, calls } = wrap(new FakeAdapter(chunks));
+    expect(await drain(adapter.chatStream({} as never))).toEqual(chunks);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.usage).toEqual({
+      inputTokens: 160,
+      outputTokens: 40,
+      totalTokens: 200,
+    });
+  });
+
+  test('does not report missing provider usage as zero token work', async () => {
+    const { adapter, calls } = wrap(
+      new FakeAdapter(
+        finished.map((chunk) =>
+          chunk.type === 'RUN_FINISHED' ? { ...chunk, usage: [] } : chunk,
+        ),
+      ),
+    );
+    await drain(adapter.chatStream({} as never));
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.usage).toBeUndefined();
+  });
+
   test('records a call without usage, and one that stops early', async () => {
     const { adapter, calls } = wrap(
       new FakeAdapter(finished.slice(0, 2) as StreamChunk[]),

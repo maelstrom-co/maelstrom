@@ -287,6 +287,7 @@ export async function callLlm<T>(
       systemPrompts: [SYSTEM_PROMPT],
       outputSchema: schema,
       stream: false,
+      debug: false,
       abortController: controller,
       ...(llm.modelOptions !== undefined && {
         modelOptions: llm.modelOptions,

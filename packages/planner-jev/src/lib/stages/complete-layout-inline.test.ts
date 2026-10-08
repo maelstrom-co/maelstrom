@@ -75,6 +75,13 @@ const hidden = () =>
   });
 
 describe('completeLayoutInline', () => {
+  test('disables TanStack console logs on layout hand-offs so provider errors use the engine logger', async () => {
+    const tree = ['H', 'ID:weather-main', 'ID:calendar-main'];
+    mockChat.mockResolvedValue({ userMessage: 'Done.', layout: { tree } });
+    await run(handOff(hidden()));
+    expect(chatCall().debug).toBe(false);
+  });
+
   test('with a tree, sends the llmComplete call and ships its candidate', async () => {
     const layoutPlan = completionPlan(
       makeRequest('weather for the capital of Japan'),

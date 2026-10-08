@@ -57,6 +57,7 @@ interface ChatArgs {
   readonly systemPrompts: readonly string[];
   readonly outputSchema: unknown;
   readonly stream: boolean;
+  readonly debug: boolean;
   readonly abortController: AbortController;
   readonly modelOptions?: Record<string, unknown>;
 }
@@ -270,6 +271,7 @@ describe('llmPlanner', () => {
           outputSchema:
             mode === 'grid' ? GridResponseSchema : TilingResponseSchema,
           stream: false,
+          debug: false,
           modelOptions,
         },
       ]);
@@ -612,6 +614,48 @@ describe('llmPlanner', () => {
       expect(isErr(result)).toBe(true);
       if (!isErr(result)) return;
       expect(result.error._tag).toBe('CancellationError');
+    });
+
+    test('stops the provider request when the caller cancels to avoid unused model work', async () => {
+      const controller = new AbortController();
+      let providerSignal: AbortSignal | undefined;
+      mockChat.mockImplementationOnce((options) => {
+        const { abortController } = options as ChatArgs;
+        providerSignal = abortController.signal;
+        controller.abort('superseded');
+        return Promise.reject(new DOMException('Aborted', 'AbortError'));
+      });
+
+      const input = makePlanningInput(makeGridRequest());
+      const result = await llmPlanner({ adapter: dummyAdapter })(
+        input,
+        makeStageContext({ origin: input, signal: controller.signal }),
+      );
+
+      expect(mockChat).toHaveBeenCalledTimes(1);
+      expect(providerSignal?.aborted).toBe(true);
+      expect(providerSignal?.reason).toBe('superseded');
+      expect(result).toMatchObject({
+        ok: false,
+        error: { _tag: 'CancellationError', reason: 'superseded' },
+      });
+    });
+
+    test('rejects a cancelled response even when the provider ignores the abort', async () => {
+      const controller = new AbortController();
+      mockChat.mockImplementationOnce(() => {
+        controller.abort('superseded');
+        return Promise.resolve(buildGridResponse());
+      });
+      const input = makePlanningInput(makeGridRequest());
+      const result = await llmPlanner({ adapter: dummyAdapter })(
+        input,
+        makeStageContext({ origin: input, signal: controller.signal }),
+      );
+      expect(result).toMatchObject({
+        ok: false,
+        error: { _tag: 'CancellationError', reason: 'superseded' },
+      });
     });
   });
 

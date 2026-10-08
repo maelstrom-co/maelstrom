@@ -1,4 +1,9 @@
-import type { AnyTextAdapter, StreamChunk, TokenUsage } from '@tanstack/ai';
+import {
+  type AnyTextAdapter,
+  fromSpecTokenUsage,
+  type StreamChunk,
+  type TokenUsage,
+} from '@tanstack/ai';
 
 /** Every LLM role, in report order. */
 export const LLM_ROLES = [
@@ -74,7 +79,10 @@ async function* recordStream(
   let usage: TokenUsage | undefined;
   try {
     for await (const chunk of stream) {
-      if (chunk.type === 'RUN_FINISHED' && chunk.usage) usage = chunk.usage;
+      if (chunk.type === 'RUN_FINISHED' && chunk.usage)
+        usage = Array.isArray(chunk.usage)
+          ? fromSpecTokenUsage(chunk.usage)
+          : chunk.usage;
       yield chunk;
     }
   } finally {

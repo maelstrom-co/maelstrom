@@ -30,16 +30,15 @@ export async function callLLM(
   modelOptions?: Record<string, unknown>,
 ): Promise<Result<PlannerCandidate, EngineError>> {
   const controller = new AbortController();
-  const effectiveSignal = signal
-    ? AbortSignal.any([signal, controller.signal])
-    : controller.signal;
 
-  if (effectiveSignal.aborted) {
+  if (signal?.aborted) {
     return err(
       cancellationError('Request was already cancelled', signal?.reason),
     );
   }
 
+  const abort = () => controller.abort(signal?.reason);
+  signal?.addEventListener('abort', abort, { once: true });
   try {
     const output = await chat({
       adapter,
@@ -50,9 +49,17 @@ export async function callLLM(
       systemPrompts: [systemPrompt],
       outputSchema,
       stream: false,
+      debug: false,
       abortController: controller,
       ...(modelOptions !== undefined && { modelOptions }),
     });
+    if (signal?.aborted)
+      return err(
+        cancellationError(
+          'Request cancelled before accepting the response',
+          signal.reason,
+        ),
+      );
     // @tanstack/ai infers `chat()`'s output from the Zod schema's INPUT type
     // (pre-transform), but at runtime the schema's `.transform(<Brand>)` calls
     // do run during parse, so the value IS branded. Cast to align the type
@@ -86,6 +93,8 @@ export async function callLLM(
         error,
       ),
     );
+  } finally {
+    signal?.removeEventListener('abort', abort);
   }
 }
 

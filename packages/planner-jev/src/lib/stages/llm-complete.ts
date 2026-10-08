@@ -158,6 +158,7 @@ async function complete(
       systemPrompts: [SYSTEM_PROMPT],
       outputSchema: schema,
       stream: false,
+      debug: false,
       abortController: controller,
       ...(options.modelOptions !== undefined && {
         modelOptions: options.modelOptions,

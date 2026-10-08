@@ -10,6 +10,8 @@ export interface ChatCall {
   readonly systemPrompts: readonly string[];
   readonly outputSchema: z.ZodObject<z.ZodRawShape>;
   readonly abortController: AbortController;
+  /** Disables provider console logs that bypass the engine logger. */
+  readonly debug: boolean;
 }
 
 /** A stand-in for `@tanstack/ai`'s `chat`, as far as tests call it. */
