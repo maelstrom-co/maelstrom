@@ -37,8 +37,12 @@ The configured decision stage that proposes a Layout and Execution Plan from the
 _Avoid_: engine (that names the component that coordinates and validates planning)
 
 **Agent Session**:
-A per-user conversation in which an agent pursues the user's goals across many steps (tool calls, tool results, user answers). Unlike the Engine, it holds state.
-_Avoid_: runtime, brain, orchestrator
+A per-user conversation, hosted by the Engine, in which an agent pursues the user's goals across many steps (tool calls, tool results, user answers). Unlike the Planner, it holds state.
+_Avoid_: runtime, brain, orchestrator, harness
+
+**Agent Run**:
+One pass of an Agent Session's loop pursuing one goal, from the input that starts it to its finish. An Agent Session holds many Agent Runs.
+_Avoid_: run (unqualified), request, turn
 
 **Execution Plan**:
 The ordered list of Actions the client runs after applying an accepted Layout.
