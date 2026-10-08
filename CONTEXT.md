@@ -32,6 +32,10 @@ _Avoid_: ratio node, proportional split, n-ary split
 The stateless decision core: takes user intent plus current Chart state and returns an Execution Plan and Layout Directives.
 _Avoid_: brain, orchestrator (that names a client-side module)
 
+**Agent Session**:
+A per-user conversation in which an agent pursues the user's goals across many steps (tool calls, tool results, user answers). Unlike the Engine, it holds state.
+_Avoid_: runtime, brain, orchestrator
+
 **Execution Plan**:
 The ordered list of Actions the Engine decided to invoke in response to an update.
 _Avoid_: action list, plan (unqualified)
