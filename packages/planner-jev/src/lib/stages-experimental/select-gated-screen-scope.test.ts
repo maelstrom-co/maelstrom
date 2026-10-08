@@ -74,6 +74,33 @@ describe('selectGatedScreenScope', () => {
     expect(view).toContain('Hide the weather');
   });
 
+  test('counts showing two widgets side by side as the whole screen', async () => {
+    const { calls } = await select(
+      'Show the map next to the current widgets.',
+      {
+        gates: QUIET_GATES,
+      },
+    );
+    const screen = JSON.stringify(calls[0]?.questions.screen);
+    expect(screen).toContain(
+      'Show me the forecast and my week view side by side',
+    );
+  });
+
+  test('asks the action and spatial gates with item edits and arrangement words spelled out', async () => {
+    const { calls } = await select('Add a task.', { gates: QUIET_GATES });
+    const questions = calls[0]?.questions ?? {};
+    const needsActions = JSON.stringify(questions['gate/needsActions']);
+    expect(needsActions).toContain(
+      'adds, removes, checks, moves or edits an item',
+    );
+    expect(needsActions).toContain('Add a task to pick up the dry cleaning');
+    expect(needsActions).toContain('Make the map larger');
+    const spatial = JSON.stringify(questions['gate/spatial']);
+    expect(spatial).toContain('swapping or reversing');
+    expect(spatial).toContain('A city, place or address');
+  });
+
   test('keeps an untargeted visible instance when the request adds to the screen, whatever its keep answer', async () => {
     const { visible } = await select(
       'Show the map next to the current widgets.',

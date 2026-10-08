@@ -28,7 +28,9 @@ const STAGE = STAGE_NAME.jevSelect;
  * examples on the screen scope and keep questions. When the latest intent
  * adds to or adjusts the screen, a visible instance stays visible unless
  * its hide question answers yes at or above {@link GATE_THRESHOLD}; a
- * targeted instance whose keep question still answered keep is hidden. When
+ * targeted instance whose keep question still answered keep is hidden. The
+ * `needsActions` and `spatial` gates are asked with item edits and
+ * arrangement words spelled out, under the same thresholds. When
  * the intent describes the whole screen, the keep questions decide, as in
  * {@link selectGated}. Hidden and new instances always follow their own
  * questions. Defers exactly as {@link selectGated} does.
@@ -143,7 +145,7 @@ function screenQuestion(): ChoiceQuestion {
       [ADDS_OR_ADJUSTS]: {
         what: 'The request adds widgets, shows a hidden one, hides or removes named widgets, changes a view or content, or moves or resizes what is shown. Widgets it does not name stay as they are. A chart resize with no request also counts.',
         not_for:
-          'a request that lists the full set of widgets the screen should show, or says only, just, nothing but or instead',
+          'a request that lists the full set of widgets the screen should show, shows two or more widgets together (X and Y side by side, X next to Y), or says only, just, nothing but or instead',
         examples: [
           'Show the map next to the current widgets',
           'Hide the weather',
@@ -155,11 +157,13 @@ function screenQuestion(): ChoiceQuestion {
         ],
       },
       whole_screen: {
-        what: 'The request states the full set of widgets the screen should show, replacing the current set: widgets it does not name or need are hidden.',
+        what: 'The request states the full set of widgets the screen should show, replacing the current set: widgets it does not name or need are hidden. Asking to see two or more named widgets together, side by side or stacked, describes the whole screen unless it says to keep the others.',
         not_for:
           'a request that names widgets only to add, show, hide, move, resize or edit them',
         examples: [
           'Just show me the calendar',
+          'Show me the forecast and my week view side by side',
+          'I want the tasks and the map next to each other',
           'Only the map and the weather',
           'Show me the calendar and tasks side by side, nothing else',
           'Replace everything with the journal',
@@ -169,6 +173,14 @@ function screenQuestion(): ChoiceQuestion {
     },
   );
 }
+
+const ACTIONS_GATE = noul(
+  "The latest intent needs a widget action: it adds, removes, checks, moves or edits an item inside a widget (a task, an event, a journal entry), sets or changes what a widget shows (a city, a destination, a route, or a view such as week, day, hourly or route), or opens a widget that must be set to something specific. Adding an item is an action even when the request says add. Needs an action: 'Add a task to pick up the dry cleaning', 'Add lunch with Ana to my calendar', 'Put the gym on my task list', 'Create two tasks: call Mia and pay the bill', 'Move my 9:00 meeting to noon', 'Set the weather to Lisbon', 'Show the calendar in week view', 'Open a second weather widget for Rome'. Needs no action: 'Bring up the journal', 'Hide the tasks', 'Make the map larger', 'Put the calendar on the left', 'Swap two widgets', 'Give the tasks half of the board'.",
+);
+
+const SPATIAL_GATE = noul(
+  "The latest intent states where widgets go, their order, or how large they are: a side or position, side by side, stacked, above or below, swapping or reversing places, moving to the start or end of a row, or a size or share of the board. A city, place or address inside a widget's content does not count. Spatial: 'Put the map on the left', 'Swap the journal and the weather', 'Reverse the row', 'Show the tasks and the map side by side', 'Give the calendar two thirds'. Not spatial: 'Set the weather to Lisbon', 'Add a task', 'Show the map', 'Hide the journal'.",
+);
 
 function withScreenScope(
   questions: Readonly<Record<string, Question>>,
@@ -189,6 +201,9 @@ function withScreenScope(
           )
         : question;
   }
+  if (next['gate/needsActions'] !== undefined)
+    next['gate/needsActions'] = ACTIONS_GATE;
+  if (next['gate/spatial'] !== undefined) next['gate/spatial'] = SPATIAL_GATE;
   next[SCREEN_QUESTION] = screenQuestion();
   for (const instance of request.instances) {
     if (!visibleIds.has(instance.instanceId)) continue;
