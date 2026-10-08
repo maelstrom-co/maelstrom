@@ -5,7 +5,6 @@ import {
   type Ask,
   actionsBatchedPerInstance,
   actionsStepwise,
-  createTypeSafeClient,
   type JevActionPlan,
   type Selection2,
   STAGE_NAME,
@@ -17,13 +16,14 @@ import type {
   StageTurnRecord,
 } from '../../../core/stage-eval.js';
 import { ratio, STAGE_RATIO } from '../../../core/stats.js';
+import {
+  askRecordingState,
+  type ClientBuilder,
+  typesafeClientBuilder,
+} from '../client-builder.js';
 import { goldSelection } from '../gold-inputs.js';
 import { scoreActions } from '../score.js';
-import {
-  TYPESAFE_ENV,
-  type TypeSafeSettings,
-  typesafeSettings,
-} from '../typesafe-settings.js';
+import { typesafeSettings } from '../typesafe-settings.js';
 
 /** One planned action as the actions stage eval records it. */
 export interface RecordedAction {
@@ -46,7 +46,7 @@ export interface ActionsTurnDetail {
   readonly answers: readonly AnswerRecord[];
 }
 
-/** What every actions stage variant runs on: the TypeSafe client of the turn. */
+/** What every actions stage variant runs on: the provider client of the turn. */
 export interface ActionsDeps {
   readonly ask: Ask;
 }
@@ -82,8 +82,10 @@ export type ActionsModule = StageEvalModule<
 
 /** What {@link actionsModuleWith} takes. */
 export interface ActionsModuleOptions {
-  /** TypeSafe settings; the environment's when absent. */
-  readonly typesafe?: TypeSafeSettings;
+  /** The provider client; TypeSafe on the environment's settings when absent. */
+  readonly client?: ClientBuilder;
+  /** The `--stage` name; `actions` when absent. */
+  readonly name?: string;
 }
 
 /**
@@ -98,26 +100,17 @@ export interface ActionsModuleOptions {
 export function actionsModuleWith(
   options: ActionsModuleOptions = {},
 ): ActionsModule {
-  const typesafe = options.typesafe ?? typesafeSettings();
+  const client = options.client ?? typesafeClientBuilder(typesafeSettings());
   return {
-    name: 'actions',
+    name: options.name ?? 'actions',
     stage: STAGE_NAME.jevActions,
-    provider: 'Jev',
-    requiredEnv: TYPESAFE_ENV,
+    provider: client.provider,
+    requiredEnv: client.requiredEnv,
     variants: ACTIONS_VARIANTS,
-    makeDeps: (onCall) => ({
-      ask: (stage, evaluation, ctx) =>
-        createTypeSafeClient({
-          ...typesafe(),
-          onCall: (call) => {
-            const recorded = { ...call, state: evaluation.state };
-            onCall(recorded);
-          },
-        })(stage, evaluation, ctx),
-    }),
+    makeDeps: (onCall) => ({ ask: askRecordingState(client, onCall) }),
     configure: async () => ({
       module: actionsModuleWith(options),
-      meta: { jevModel: typesafe().model, inputs: 'gold selection' },
+      meta: { ...client.meta(), inputs: 'gold selection' },
     }),
     prepare: async (scenario, ctx) => {
       const { expected } = scenario;
@@ -142,7 +135,7 @@ export function actionsModuleWith(
   };
 }
 
-/** {@link actionsModuleWith} on the environment's TypeSafe settings. */
+/** {@link actionsModuleWith} on TypeSafe with the environment's settings. */
 export const actionsModule: ActionsModule = actionsModuleWith();
 
 /** Scores one action plan against `scenario` (see {@link actionsModuleWith}). */

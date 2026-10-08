@@ -12,6 +12,7 @@ import {
   runStageEval,
   type StageTurnRecord,
 } from '../../../core/stage-eval.js';
+import { typesafeClientBuilder } from '../client-builder.js';
 import { recordedSpatialSignal } from '../recorded-spatial.js';
 import { typesafeSettings } from '../typesafe-settings.js';
 import {
@@ -43,16 +44,18 @@ async function run(
   variants: readonly string[],
   script: Script = SWAP_CORRECT,
   repeats = 1,
-  options: Omit<LayoutModuleOptions, 'typesafe'> = {},
+  options: Omit<LayoutModuleOptions, 'client'> = {},
 ) {
   const transport = scriptedFetch(script);
   const module = layoutModuleWith({
     ...options,
-    typesafe: typesafeSettings({
-      apiKey: 'typesafe-test-key',
-      model: TEST_MODEL,
-      fetch: transport.fetch,
-    }),
+    client: typesafeClientBuilder(
+      typesafeSettings({
+        apiKey: 'typesafe-test-key',
+        model: TEST_MODEL,
+        fetch: transport.fetch,
+      }),
+    ),
   });
   const records = (await runStageEval(module, {
     scenarios: selectScenarios('all', ids),

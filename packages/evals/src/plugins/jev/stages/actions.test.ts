@@ -9,6 +9,7 @@ import {
   runStageEval,
   type StageTurnRecord,
 } from '../../../core/stage-eval.js';
+import { typesafeClientBuilder } from '../client-builder.js';
 import { typesafeSettings } from '../typesafe-settings.js';
 import {
   type ActionsTurnDetail,
@@ -34,11 +35,13 @@ async function run(
 ) {
   const transport = scriptedFetch(conversation(script));
   const module = actionsModuleWith({
-    typesafe: typesafeSettings({
-      apiKey: 'typesafe-test-key',
-      model: TEST_MODEL,
-      fetch: transport.fetch,
-    }),
+    client: typesafeClientBuilder(
+      typesafeSettings({
+        apiKey: 'typesafe-test-key',
+        model: TEST_MODEL,
+        fetch: transport.fetch,
+      }),
+    ),
   });
   const records = (await runStageEval(module, {
     scenarios: selectScenarios('all', ids),
