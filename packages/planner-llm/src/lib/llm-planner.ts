@@ -155,13 +155,26 @@ export function llmPlanner(
     }
 
     const started = performance.now();
-    let usage: { input: number; output: number } | undefined;
+    let usage: { input?: number; output?: number } | undefined;
     const middleware: ChatMiddleware = {
-      onUsage: (_ctx, current) => {
-        usage = {
-          input: (usage?.input ?? 0) + current.promptTokens,
-          output: (usage?.output ?? 0) + current.completionTokens,
-        };
+      // onUsage normalizes missing AG-UI counters to zero; retain their presence.
+      onChunk: (_ctx, chunk) => {
+        if (chunk.type !== 'RUN_FINISHED' || !chunk.usage) return;
+        const entries = Array.isArray(chunk.usage)
+          ? chunk.usage
+          : [
+              {
+                inputTokens: chunk.usage.promptTokens,
+                outputTokens: chunk.usage.completionTokens,
+              },
+            ];
+        for (const entry of entries) {
+          usage ??= {};
+          if (entry.inputTokens !== undefined)
+            usage.input = (usage.input ?? 0) + entry.inputTokens;
+          if (entry.outputTokens !== undefined)
+            usage.output = (usage.output ?? 0) + entry.outputTokens;
+        }
       },
     };
     const result = await callLLM(
@@ -180,8 +193,10 @@ export function llmPlanner(
       'gen_ai.request.model': adapter.model,
       'maelstrom.message_id': ctx.origin.messageId,
       'maelstrom.session_id': ctx.origin.sessionId,
-      ...(usage && {
+      ...(usage?.input !== undefined && {
         'gen_ai.usage.input_tokens': usage.input,
+      }),
+      ...(usage?.output !== undefined && {
         'gen_ai.usage.output_tokens': usage.output,
       }),
       'maelstrom.outcome': isErr(result)

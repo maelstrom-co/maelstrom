@@ -117,6 +117,32 @@ describe('withUsage', () => {
     expect(calls[0]?.usage).toBeUndefined();
   });
 
+  test.each([
+    { entries: [{}], expected: undefined },
+    {
+      entries: [{ provider: 'offline', model: 'offline' }],
+      expected: undefined,
+    },
+    { entries: [{ inputTokens: 7 }], expected: { inputTokens: 7 } },
+    { entries: [{ outputTokens: 0 }], expected: { outputTokens: 0 } },
+    { entries: [{ totalTokens: 3 }], expected: { totalTokens: 3 } },
+    {
+      entries: [{ inputTokens: 7 }, { outputTokens: 3, totalTokens: 10 }],
+      expected: { inputTokens: 7, outputTokens: 3, totalTokens: 10 },
+    },
+  ])('keeps unreported counters absent in evaluation records: $entries', async ({
+    entries,
+    expected,
+  }) => {
+    const chunks = finished.map((chunk) =>
+      chunk.type === 'RUN_FINISHED' ? { ...chunk, usage: [...entries] } : chunk,
+    );
+    const { adapter, calls } = wrap(new FakeAdapter(chunks));
+    expect(await drain(adapter.chatStream({} as never))).toEqual(chunks);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.usage).toEqual(expected);
+  });
+
   test('records a call without usage, and one that stops early', async () => {
     const { adapter, calls } = wrap(
       new FakeAdapter(finished.slice(0, 2) as StreamChunk[]),

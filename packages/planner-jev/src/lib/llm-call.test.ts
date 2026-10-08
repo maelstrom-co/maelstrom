@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import type { InstrumentAttributes } from '@maelstrom-co/engine';
 import { MessageId } from '@maelstrom-co/protocol';
+import type {
+  ChatMiddleware,
+  RunFinishedEvent,
+  TokenUsage,
+} from '@tanstack/ai';
 import { z } from 'zod';
 import {
   makeContext,
@@ -39,6 +44,20 @@ const schema = z.object({ userMessage: z.string() });
 const complete = (ctx: ReturnType<typeof context>['ctx']) =>
   callLlm({ adapter: dummyAdapter }, 'private prompt', schema, [], ctx);
 
+async function reportUsage(
+  middleware: readonly ChatMiddleware[],
+  usage: TokenUsage,
+) {
+  await middleware[0]?.onChunk?.({} as never, {
+    type: 'RUN_FINISHED' as RunFinishedEvent['type'],
+    runId: 'r',
+    threadId: 't',
+    timestamp: 1,
+    usage,
+  });
+  await middleware[0]?.onUsage?.({} as never, usage);
+}
+
 describe('completion call instrumentation', () => {
   test('includes all reported usage in one correlated event without private content', async () => {
     mockChat.mockImplementationOnce(async ({ middleware }) => {
@@ -46,7 +65,7 @@ describe('completion call instrumentation', () => {
         { promptTokens: 12, completionTokens: 3, totalTokens: 15 },
         { promptTokens: 4, completionTokens: 2, totalTokens: 6 },
       ])
-        await middleware[0]?.onUsage?.({} as never, usage);
+        await reportUsage(middleware, usage);
       return { userMessage: 'private output' };
     });
     const { ctx, events } = context();
@@ -79,7 +98,7 @@ describe('completion call instrumentation', () => {
 
   test('preserves an explicit zero measurement instead of treating it as missing', async () => {
     mockChat.mockImplementationOnce(async ({ middleware }) => {
-      await middleware[0]?.onUsage?.({} as never, {
+      await reportUsage(middleware, {
         promptTokens: 0,
         completionTokens: 0,
         totalTokens: 0,
@@ -112,7 +131,7 @@ describe('completion call instrumentation', () => {
 
   test('retains usage on a failure without exposing the provider error', async () => {
     mockChat.mockImplementationOnce(async ({ middleware }) => {
-      await middleware[0]?.onUsage?.({} as never, {
+      await reportUsage(middleware, {
         promptTokens: 12,
         completionTokens: 3,
         totalTokens: 15,
@@ -136,7 +155,7 @@ describe('completion call instrumentation', () => {
   test('rejects a late cancelled response and reports the actual planner outcome', async () => {
     const controller = new AbortController();
     mockChat.mockImplementationOnce(async ({ middleware }) => {
-      await middleware[0]?.onUsage?.({} as never, {
+      await reportUsage(middleware, {
         promptTokens: 12,
         completionTokens: 3,
         totalTokens: 15,
@@ -162,7 +181,7 @@ describe('completion call instrumentation', () => {
       release = resolve;
     });
     mockChat.mockImplementationOnce(async ({ middleware }) => {
-      await middleware[0]?.onUsage?.({} as never, {
+      await reportUsage(middleware, {
         promptTokens: 12,
         completionTokens: 3,
         totalTokens: 15,
@@ -171,7 +190,7 @@ describe('completion call instrumentation', () => {
       return { userMessage: 'First.' };
     });
     mockChat.mockImplementationOnce(async ({ middleware }) => {
-      await middleware[0]?.onUsage?.({} as never, {
+      await reportUsage(middleware, {
         promptTokens: 40,
         completionTokens: 10,
         totalTokens: 50,

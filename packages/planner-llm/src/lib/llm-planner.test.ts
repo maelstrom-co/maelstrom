@@ -30,7 +30,11 @@ import {
   SessionId,
   TilingResponseSchema,
 } from '@maelstrom-co/protocol';
-import type { ChatMiddleware } from '@tanstack/ai';
+import type {
+  ChatMiddleware,
+  RunFinishedEvent,
+  TokenUsage,
+} from '@tanstack/ai';
 
 import {
   dummyAdapter,
@@ -62,6 +66,20 @@ interface ChatArgs {
   readonly abortController: AbortController;
   readonly middleware: readonly ChatMiddleware[];
   readonly modelOptions?: Record<string, unknown>;
+}
+
+async function reportUsage(
+  middleware: ChatMiddleware | undefined,
+  usage: TokenUsage,
+) {
+  await middleware?.onChunk?.({} as never, {
+    type: 'RUN_FINISHED' as RunFinishedEvent['type'],
+    runId: 'r',
+    threadId: 't',
+    timestamp: 1,
+    usage,
+  });
+  await middleware?.onUsage?.({} as never, usage);
 }
 
 function chatCall(index: number): ChatArgs {
@@ -1101,14 +1119,14 @@ describe('llmPlanner instrumentation', () => {
     ]);
   });
 
-  test('sums every usage hook without counting the terminal usage again', async () => {
+  test('sums reported usage without counting normalized hooks again', async () => {
     mockChat.mockImplementationOnce(async (options) => {
       const middleware = (options as ChatArgs).middleware[0];
       for (const usage of [
         { promptTokens: 12, completionTokens: 3, totalTokens: 15 },
         { promptTokens: 4, completionTokens: 2, totalTokens: 6 },
       ])
-        await middleware?.onUsage?.({} as never, usage);
+        await reportUsage(middleware, usage);
       return buildGridResponse();
     });
     const { instrument, events } = spyInstrument();
@@ -1128,7 +1146,7 @@ describe('llmPlanner instrumentation', () => {
 
   test('keeps reported usage when finalization fails so failed work is not free', async () => {
     mockChat.mockImplementationOnce(async (options) => {
-      await (options as ChatArgs).middleware[0]?.onUsage?.({} as never, {
+      await reportUsage((options as ChatArgs).middleware[0], {
         promptTokens: 12,
         completionTokens: 3,
         totalTokens: 15,

@@ -35,13 +35,26 @@ export async function callLlm<T>(
   const { messageId, sessionId } = ctx.origin;
   const started = performance.now();
   let outcome: 'ok' | 'error' | 'cancelled' = 'error';
-  let usage: { input: number; output: number } | undefined;
+  let usage: { input?: number; output?: number } | undefined;
   const middleware: ChatMiddleware = {
-    onUsage: (_ctx, current) => {
-      usage = {
-        input: (usage?.input ?? 0) + current.promptTokens,
-        output: (usage?.output ?? 0) + current.completionTokens,
-      };
+    // onUsage normalizes missing AG-UI counters to zero; retain their presence.
+    onChunk: (_ctx, chunk) => {
+      if (chunk.type !== 'RUN_FINISHED' || !chunk.usage) return;
+      const entries = Array.isArray(chunk.usage)
+        ? chunk.usage
+        : [
+            {
+              inputTokens: chunk.usage.promptTokens,
+              outputTokens: chunk.usage.completionTokens,
+            },
+          ];
+      for (const entry of entries) {
+        usage ??= {};
+        if (entry.inputTokens !== undefined)
+          usage.input = (usage.input ?? 0) + entry.inputTokens;
+        if (entry.outputTokens !== undefined)
+          usage.output = (usage.output ?? 0) + entry.outputTokens;
+      }
     },
   };
   const controller = new AbortController();
@@ -93,8 +106,10 @@ export async function callLlm<T>(
       'maelstrom.session_id': sessionId,
       'maelstrom.outcome': outcome,
       'maelstrom.latency_ms': performance.now() - started,
-      ...(usage && {
+      ...(usage?.input !== undefined && {
         'gen_ai.usage.input_tokens': usage.input,
+      }),
+      ...(usage?.output !== undefined && {
         'gen_ai.usage.output_tokens': usage.output,
       }),
     });

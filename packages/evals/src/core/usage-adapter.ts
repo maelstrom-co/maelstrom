@@ -1,8 +1,8 @@
-import {
-  type AnyTextAdapter,
-  fromSpecTokenUsage,
-  type StreamChunk,
-  type TokenUsage,
+import type {
+  AnyTextAdapter,
+  SpecTokenUsage,
+  StreamChunk,
+  TokenUsage,
 } from '@tanstack/ai';
 
 /** Every LLM role, in report order. */
@@ -18,9 +18,12 @@ export const LLM_ROLES = [
 export type LlmRole = (typeof LLM_ROLES)[number];
 
 export interface LlmUsage {
-  readonly inputTokens: number;
-  readonly outputTokens: number;
-  readonly totalTokens: number;
+  /** Reported input tokens; absent when the provider omitted this counter. */
+  readonly inputTokens?: number;
+  /** Reported output tokens; absent when the provider omitted this counter. */
+  readonly outputTokens?: number;
+  /** Reported total tokens; not derived from other counters. */
+  readonly totalTokens?: number;
 }
 
 export interface LlmCall {
@@ -56,10 +59,10 @@ export function withUsage(
       if (property === 'structuredOutput')
         return async (...args: unknown[]) => {
           const started = performance.now();
-          let usage: TokenUsage | undefined;
+          let usage: LlmUsage | undefined;
           try {
             const result = await value.apply(target, args);
-            usage = result?.usage;
+            usage = reportedUsage(result?.usage);
             return result;
           } finally {
             sink(call(role, started, usage));
@@ -76,13 +79,10 @@ async function* recordStream(
   sink: (call: LlmCall) => void,
 ): AsyncGenerator<StreamChunk> {
   const started = performance.now();
-  let usage: TokenUsage | undefined;
+  let usage: LlmUsage | undefined;
   try {
     for await (const chunk of stream) {
-      if (chunk.type === 'RUN_FINISHED' && chunk.usage)
-        usage = Array.isArray(chunk.usage)
-          ? fromSpecTokenUsage(chunk.usage)
-          : chunk.usage;
+      if (chunk.type === 'RUN_FINISHED') usage = reportedUsage(chunk.usage);
       yield chunk;
     }
   } finally {
@@ -90,20 +90,41 @@ async function* recordStream(
   }
 }
 
+function reportedUsage(
+  usage: TokenUsage | SpecTokenUsage[] | undefined,
+): LlmUsage | undefined {
+  if (!usage) return undefined;
+  const entries = Array.isArray(usage)
+    ? usage
+    : [
+        {
+          inputTokens: usage.promptTokens,
+          outputTokens: usage.completionTokens,
+          totalTokens: usage.totalTokens,
+        },
+      ];
+  const totals: {
+    inputTokens?: number;
+    outputTokens?: number;
+    totalTokens?: number;
+  } = {};
+  for (const entry of entries) {
+    for (const key of ['inputTokens', 'outputTokens', 'totalTokens'] as const) {
+      const value = entry[key];
+      if (typeof value === 'number') totals[key] = (totals[key] ?? 0) + value;
+    }
+  }
+  return Object.keys(totals).length > 0 ? totals : undefined;
+}
+
 function call(
   role: LlmRole,
   started: number,
-  usage: TokenUsage | undefined,
+  usage: LlmUsage | undefined,
 ): LlmCall {
   return {
     role,
     latencyMs: performance.now() - started,
-    ...(usage && {
-      usage: {
-        inputTokens: usage.promptTokens,
-        outputTokens: usage.completionTokens,
-        totalTokens: usage.totalTokens,
-      },
-    }),
+    ...(usage && { usage }),
   };
 }

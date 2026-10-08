@@ -14,13 +14,14 @@ test('real TanStack usage reaches every planner path without doubling evaluation
     import { makeContext, makeRequest } from ${JSON.stringify(join(jev, '__test-helpers__', 'fixtures.ts'))};
     import { completionPlan } from ${JSON.stringify(join(jev, '__test-helpers__', 'layout-fixtures.ts'))};
     import { withUsage } from ${JSON.stringify(join(packages, 'evals', 'src', 'core', 'usage-adapter.ts'))};
+    import { tokenTotals } from ${JSON.stringify(join(packages, 'evals', 'src', 'core', 'report.ts'))};
 
     const specUsage = [
       { inputTokens: 12, outputTokens: 3, totalTokens: 15 },
       { inputTokens: 4, outputTokens: 2, totalTokens: 6 },
     ];
     const totals = { promptTokens: 16, completionTokens: 5, totalTokens: 21 };
-    function adapter(mode, data, reported) {
+    function adapter(mode, data, reported, wireUsage = specUsage, directUsage = totals) {
       async function* stream() {
         yield { type: 'RUN_STARTED', runId: 'r', threadId: 't', timestamp: 1 };
         yield { type: 'TEXT_MESSAGE_START', messageId: 'm', role: 'assistant', timestamp: 2 };
@@ -29,7 +30,7 @@ test('real TanStack usage reaches every planner path without doubling evaluation
         if (mode === 'stream-finalization') {
           yield { type: 'CUSTOM', name: 'structured-output.complete', value: { object: data, raw: JSON.stringify(data) }, timestamp: 5 };
         }
-        yield { type: 'RUN_FINISHED', runId: 'r', threadId: 't', finishReason: 'stop', timestamp: 6, usage: reported ? specUsage : [] };
+        yield { type: 'RUN_FINISHED', runId: 'r', threadId: 't', finishReason: 'stop', timestamp: 6, usage: reported ? wireUsage : [] };
       }
       return {
         kind: 'text', name: 'offline', model: 'offline',
@@ -37,7 +38,7 @@ test('real TanStack usage reaches every planner path without doubling evaluation
         chatStream: stream,
         ...(mode === 'stream-finalization' ? { structuredOutputStream: stream } : {}),
         async structuredOutput() {
-          return { data, rawText: JSON.stringify(data), ...(reported ? { usage: totals } : {}) };
+          return { data, rawText: JSON.stringify(data), ...(reported ? { usage: directUsage } : {}) };
         },
       };
     }
@@ -45,8 +46,18 @@ test('real TanStack usage reaches every planner path without doubling evaluation
     let checked = 0;
     for (const mode of ['combined', 'stream-finalization', 'direct-finalization']) {
       for (const entry of ['planner', 'complete', 'inline']) {
-        for (const scenario of ['reported', 'missing', 'invalid']) {
+        for (const scenario of ['reported', 'missing', 'invalid', 'labels', 'partial', 'output-only', 'total-only', 'zero', 'split']) {
+          if (mode === 'direct-finalization' && !['reported', 'missing', 'invalid', 'zero'].includes(scenario)) continue;
           const reported = scenario !== 'missing';
+          const fixture = {
+            labels: { wire: [{ provider: 'offline' }], expected: undefined },
+            partial: { wire: [{ inputTokens: 7 }], expected: { inputTokens: 7 } },
+            'output-only': { wire: [{ outputTokens: 0 }], expected: { outputTokens: 0 } },
+            'total-only': { wire: [{ totalTokens: 3 }], expected: { totalTokens: 3 } },
+            zero: { wire: [{ inputTokens: 0, outputTokens: 0, totalTokens: 0 }], expected: { inputTokens: 0, outputTokens: 0, totalTokens: 0 } },
+            split: { wire: [{ inputTokens: 7 }, { outputTokens: 3, totalTokens: 10 }], expected: { inputTokens: 7, outputTokens: 3, totalTokens: 10 } },
+          }[scenario];
+          const expectedUsage = fixture ? fixture.expected : reported ? { inputTokens: 16, outputTokens: 5, totalTokens: 21 } : undefined;
           const data = scenario === 'invalid'
             ? { userMessage: 42 }
             : entry === 'planner' ? buildGridResponse() : { userMessage: 'Private output.' };
@@ -56,7 +67,7 @@ test('real TanStack usage reaches every planner path without doubling evaluation
             stage: (_name, stage) => stage,
             event: (name, attributes) => events.push({ name, attributes }),
           };
-          const wrapped = withUsage(adapter(mode, data, reported), entry === 'planner' ? 'planner' : 'complete', call => calls.push(call));
+          const wrapped = withUsage(adapter(mode, data, reported, fixture?.wire, scenario === 'zero' ? { promptTokens: 0, completionTokens: 0, totalTokens: 0 } : totals), entry === 'planner' ? 'planner' : 'complete', call => calls.push(call));
           const plan = completionPlan(makeRequest('hide the tasks'));
           const ctx = makeContext(plan.plan.selection.input, { instrument });
           const result = entry === 'planner'
@@ -77,11 +88,16 @@ test('real TanStack usage reaches every planner path without doubling evaluation
             'maelstrom.message_id': 'req-1',
             'maelstrom.session_id': 'session-1',
             'maelstrom.outcome': scenario === 'invalid' ? 'error' : 'ok',
-            ...(reported ? { 'gen_ai.usage.input_tokens': 16, 'gen_ai.usage.output_tokens': 5 } : {}),
+            ...(expectedUsage?.inputTokens !== undefined ? { 'gen_ai.usage.input_tokens': expectedUsage.inputTokens } : {}),
+            ...(expectedUsage?.outputTokens !== undefined ? { 'gen_ai.usage.output_tokens': expectedUsage.outputTokens } : {}),
           }, label);
-          assert.deepEqual(calls[0].usage, reported
-            ? { inputTokens: 16, outputTokens: 5, totalTokens: 21 }
-            : undefined, label);
+          assert.deepEqual(calls[0].usage, expectedUsage, label);
+          assert.deepEqual(tokenTotals(calls), {
+            calls: 1,
+            input: expectedUsage?.inputTokens ?? 0,
+            output: expectedUsage?.outputTokens ?? 0,
+            withoutUsage: expectedUsage?.inputTokens === undefined || expectedUsage?.outputTokens === undefined ? 1 : 0,
+          }, label);
           checked++;
         }
       }
@@ -94,5 +110,5 @@ test('real TanStack usage reaches every planner path without doubling evaluation
   );
   expect(run.stderr.toString()).toBe('');
   expect(run.exitCode).toBe(0);
-  expect(run.stdout.toString().trim()).toBe('27');
+  expect(run.stdout.toString().trim()).toBe('66');
 });

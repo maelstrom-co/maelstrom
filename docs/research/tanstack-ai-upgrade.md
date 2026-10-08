@@ -33,10 +33,15 @@ which also contains OpenAI `0.27.0` and Gemini `0.36.0`.
 or an AG-UI usage array. Direct assignment no longer type-checks.
 
 The [evaluation adapter](../../packages/evals/src/core/usage-adapter.ts) preserves
-the object branch and converts arrays with `fromSpecTokenUsage()`. The helper
-sums every entry. An empty array without usage metadata means usage is missing,
-not that the provider used zero tokens. Regression tests cover both formats,
-multiple entries, and an empty array. Stream chunks remain unchanged.
+the object branch and sums each reported array counter independently.
+`fromSpecTokenUsage()` fills absent counters with zero, so it cannot preserve
+measurement presence. An empty array or label-only entries mean usage is missing.
+Partial records keep known counts and omit unknown ones, including total tokens.
+Totals are not derived from other counters. Explicit zero counts remain zero.
+Evaluation summaries sum reported counts and mark calls missing input or output
+usage with `withoutUsage`. These sums can be incomplete.
+Regression tests cover both formats, multiple entries, partial counters, and
+missing usage. Stream chunks remain unchanged.
 Sources: [event types][types] and [normalizer][usage].
 
 ### Keep provider errors on the engine logger
@@ -91,7 +96,8 @@ calls take. No new public middleware option is needed.
 
 The [LLM planner](../../packages/planner-llm/src/lib/llm-planner.ts) and
 [Jev completion helper](../../packages/planner-jev/src/lib/llm-call.ts) collect
-every `onUsage` callback. They emit one `llm.call` event after the call settles:
+reported counters from `RUN_FINISHED` in `onChunk`. They emit one `llm.call` event
+after the call settles:
 
 | Attribute | Meaning |
 | --- | --- |
@@ -112,6 +118,10 @@ Usage survives finalization failure when the provider already reported it.
 Unknown usage stays absent rather than becoming zero. `onFinish.info.usage` is
 not added: it repeats agent-loop usage and omits separate finalization usage.
 Collectors belong to individual calls, so concurrent requests cannot share totals.
+The raw chunks retain counter presence that `onUsage` normalization discards.
+Partial usage emits only known input or output attributes. The collectors do not
+add normalized hook totals to raw chunk totals. Real-runtime regressions cover
+66 combinations across the three planner entry paths and finalization modes.
 
 OpenAI's `response.incomplete` path does not forward terminal usage, even when
 the upstream event contains it. An offline replay with the real adapter confirms
