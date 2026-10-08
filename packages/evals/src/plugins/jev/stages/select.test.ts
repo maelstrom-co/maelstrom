@@ -211,6 +211,7 @@ describe('select stage eval', () => {
     expect(Object.keys(module.variants)).toEqual([
       'gated',
       'gated-screen-scope',
+      'gated-screen-scope-spelled-out-actions',
     ]);
     const [record] = (await runStageEval(module, {
       scenarios: selectScenarios('all', ['show-hidden']),

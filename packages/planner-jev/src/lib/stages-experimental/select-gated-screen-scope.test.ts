@@ -12,7 +12,10 @@ import {
   makeRequest,
 } from '../__test-helpers__/fixtures.js';
 import { scriptedAsk } from '../__test-helpers__/scripted-fetch.js';
-import { selectGatedScreenScope } from './select-gated-screen-scope.js';
+import {
+  type ScreenScopeOptions,
+  selectGatedScreenScope,
+} from './select-gated-screen-scope.js';
 
 const QUIET_GATES = {
   'gate/needsActions': 0.1,
@@ -21,10 +24,17 @@ const QUIET_GATES = {
   'gate/dependsOnScreen': 0.1,
 };
 
-async function select(intent: string, script: Conversation) {
+async function select(
+  intent: string,
+  script: Conversation,
+  options: ScreenScopeOptions = {},
+) {
   const { ask, calls } = scriptedAsk(conversation(script));
   const input = makeInput(makeRequest(intent));
-  const result = await selectGatedScreenScope(ask)(input, makeContext(input));
+  const result = await selectGatedScreenScope(ask, options)(
+    input,
+    makeContext(input),
+  );
   const visible = isOk(result)
     ? result.value.instances
         .filter((instance) => instance.visible)
@@ -87,8 +97,23 @@ describe('selectGatedScreenScope', () => {
     );
   });
 
-  test('asks the action and spatial gates with item edits and arrangement words spelled out', async () => {
+  test("asks the gated selection's action gate and a spatial gate with arrangement words spelled out by default", async () => {
     const { calls } = await select('Add a task.', { gates: QUIET_GATES });
+    const questions = calls[0]?.questions ?? {};
+    expect(JSON.stringify(questions['gate/needsActions'])).not.toContain(
+      'Add a task to pick up the dry cleaning',
+    );
+    expect(JSON.stringify(questions['gate/spatial'])).toContain(
+      'swapping or reversing',
+    );
+  });
+
+  test('asks the action and spatial gates with item edits and arrangement words spelled out on request', async () => {
+    const { calls } = await select(
+      'Add a task.',
+      { gates: QUIET_GATES },
+      { spelledOutActionsGate: true },
+    );
     const questions = calls[0]?.questions ?? {};
     const needsActions = JSON.stringify(questions['gate/needsActions']);
     expect(needsActions).toContain(

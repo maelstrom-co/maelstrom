@@ -1,6 +1,7 @@
 import {
   buildJevComposedPairsPlanner,
   buildJevPlanner,
+  buildPocScreenScopePlanner,
   createStageDeps,
   type JevCall,
   type JevDeps,
@@ -12,7 +13,9 @@ import type { ClientBuilder } from '../jev/client-builder.js';
 /**
  * The Decisions twins of `jev-poc` and the composed pairs Jev arm, on
  * `client`, and `decisions-poc-prose`, the POC on `proseClient`, whose
- * select state reads as prose rather than JSON. Each reads the replay
+ * select state reads as prose rather than JSON, and
+ * `decisions-poc-screen-scope-prose`, that POC with the screen scope select
+ * and the spelled-out `needsActions` gate. Each reads the replay
  * shape of its twin, so a Jev run's stages replay into it.
  */
 export function decisionsArms(
@@ -41,6 +44,16 @@ export function decisionsArms(
       requiredEnv,
       replayShape: 'poc',
       build: (deps) => buildJevPlanner(stageDeps(proseClient, deps)),
+    },
+    {
+      name: 'decisions-poc-screen-scope-prose',
+      kind: 'decisions-poc',
+      requiredEnv,
+      replayShape: 'poc',
+      build: (deps) =>
+        buildPocScreenScopePlanner(stageDeps(proseClient, deps), {
+          spelledOutActionsGate: true,
+        }),
     },
   ];
 }

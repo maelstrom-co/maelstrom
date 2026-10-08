@@ -141,7 +141,7 @@ describe('recorded spatial signal', () => {
     );
     expect(run.exitCode).toBe(1);
     expect(run.stderr.toString()).toContain(
-      `--spatial-records-arm: unknown arm nope; known arms: jev-poc, jev-ungated-stepwise-preset-inline,`,
+      `--spatial-records-arm: unknown arm nope; known arms: jev-poc, jev-poc-screen-scope, jev-ungated-stepwise-preset-inline,`,
     );
   }, 30_000);
 });

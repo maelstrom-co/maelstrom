@@ -9,6 +9,7 @@ import {
   buildJevUngatedBatchedPerInstancePlanner,
   buildJevUngatedBatchedPlanner,
   buildJevUngatedStepwisePlanner,
+  buildPocScreenScopePlanner,
   completeLayoutInline,
   completeLayoutParallel,
   createJevDeps,
@@ -73,6 +74,9 @@ export function jevArms(typesafe: TypeSafeSettings): readonly JevArm[] {
       replayShape: 'poc',
       build: (deps) => buildJevPlanner(jevDeps(typesafe, deps)),
     },
+    library('jev-poc-screen-scope', 'poc', (deps) =>
+      buildPocScreenScopePlanner(deps),
+    ),
     library(
       'jev-ungated-stepwise-preset-inline',
       'ungated',

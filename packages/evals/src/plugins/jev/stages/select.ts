@@ -71,7 +71,8 @@ export interface SelectDeps {
  * The select stage variants the eval runs: `gated` is the composed pairs
  * planner's `selectGated`, and `gated-screen-scope` is
  * `selectGatedScreenScope`, which adds a screen scope question and a hide
- * question per visible instance. Both are read through `readGateAnswers`
+ * question per visible instance, and `gated-screen-scope-spelled-out-actions`
+ * is that with the spelled-out `needsActions` gate. Both are read through `readGateAnswers`
  * so the eval judges exactly the gates the stage decides, including on
  * turns where the stage then defers.
  */
@@ -81,6 +82,10 @@ export const SELECT_VARIANTS: Readonly<
   gated: (deps) => gatedReading(deps.ask, selectGated),
   'gated-screen-scope': (deps) =>
     gatedReading(deps.ask, selectGatedScreenScope),
+  'gated-screen-scope-spelled-out-actions': (deps) =>
+    gatedReading(deps.ask, (ask) =>
+      selectGatedScreenScope(ask, { spelledOutActionsGate: true }),
+    ),
 };
 
 /** The select stage eval module. */

@@ -29,8 +29,9 @@ const STAGE = STAGE_NAME.jevSelect;
  * adds to or adjusts the screen, a visible instance stays visible unless
  * its hide question answers yes at or above {@link GATE_THRESHOLD}; a
  * targeted instance whose keep question still answered keep is hidden. The
- * `needsActions` and `spatial` gates are asked with item edits and
- * arrangement words spelled out, under the same thresholds. When
+ * `spatial` gate is asked with arrangement words spelled out, and the
+ * `needsActions` gate too when {@link ScreenScopeOptions.spelledOutActionsGate}
+ * is set; both keep their thresholds. When
  * the intent describes the whole screen, the keep questions decide, as in
  * {@link selectGated}. Hidden and new instances always follow their own
  * questions. Defers exactly as {@link selectGated} does.
@@ -39,6 +40,7 @@ const STAGE = STAGE_NAME.jevSelect;
  */
 export function selectGatedScreenScope(
   ask: Ask,
+  options: ScreenScopeOptions = {},
 ): Stage<PlanningInput, GatedSelection> {
   return async (input, ctx) => {
     const { request } = input;
@@ -52,7 +54,12 @@ export function selectGatedScreenScope(
         stage,
         {
           ...evaluation,
-          questions: withScreenScope(evaluation.questions, request, visibleIds),
+          questions: withScreenScope(
+            evaluation.questions,
+            request,
+            visibleIds,
+            options,
+          ),
         },
         callCtx,
       );
@@ -82,6 +89,17 @@ export function selectGatedScreenScope(
     }
     return ok({ ...selected.value, instances });
   };
+}
+
+/** What {@link selectGatedScreenScope} takes beside the provider client. */
+export interface ScreenScopeOptions {
+  /**
+   * Asks `needsActions` with item edits and settings spelled out, with
+   * examples. It lifts Decisions on requests that add items, but pushes
+   * TypeSafe's answers on requests without actions up to its 0.3 threshold,
+   * so it is off by default.
+   */
+  readonly spelledOutActionsGate?: boolean;
 }
 
 const SCREEN_QUESTION = 'screen';
@@ -186,6 +204,7 @@ function withScreenScope(
   questions: Readonly<Record<string, Question>>,
   request: ChartRequest,
   visibleIds: ReadonlySet<string>,
+  options: ScreenScopeOptions,
 ): Record<string, Question> {
   const names = new Map<string, string>(
     request.vessels.map((vessel) => [vessel.id, vessel.name]),
@@ -201,7 +220,10 @@ function withScreenScope(
           )
         : question;
   }
-  if (next['gate/needsActions'] !== undefined)
+  if (
+    options.spelledOutActionsGate === true &&
+    next['gate/needsActions'] !== undefined
+  )
     next['gate/needsActions'] = ACTIONS_GATE;
   if (next['gate/spatial'] !== undefined) next['gate/spatial'] = SPATIAL_GATE;
   next[SCREEN_QUESTION] = screenQuestion();
