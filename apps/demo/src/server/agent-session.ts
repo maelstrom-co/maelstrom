@@ -93,6 +93,7 @@ export class AgentSession {
   #chart: AgentChartSnapshot | null = null;
   #uiQueue: Promise<void> = Promise.resolve();
   #turnActive = false;
+  #turnId = '';
   #inputCount = 0;
   #turn: TurnRecorder | null = null;
   #lastPlannerMessage = '';
@@ -133,12 +134,18 @@ export class AgentSession {
   async #startTurn(frame: AgentInputFrame): Promise<void> {
     if (this.#turnActive) {
       this.#push({
-        type: 'agent.progress',
-        text: 'Still working on the previous request…',
+        type: 'agent.done',
+        turnId: frame.turnId,
+        ok: false,
+        busy: true,
+        reply:
+          'I am still working on your previous request. Ask again once it finishes.',
+        metrics: null,
       });
       return;
     }
     this.#turnActive = true;
+    this.#turnId = frame.turnId;
     this.#chart = frame.chart;
     const turn = new TurnRecorder();
     this.#turn = turn;
@@ -428,6 +435,7 @@ export class AgentSession {
     );
     this.#push({
       type: 'agent.done',
+      turnId: this.#turnId,
       ok,
       reply,
       ...(error ? { error } : {}),

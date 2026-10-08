@@ -98,12 +98,14 @@ ws.onmessage = (event) => {
       console.log(
         at,
         'agent.done',
+        frame.turnId,
+        frame.busy ? 'BUSY' : '',
         frame.ok,
         JSON.stringify(frame.reply),
         frame.error ?? '',
       );
       console.log(JSON.stringify(frame.metrics, null, 2));
-      resolveTurn();
+      if (!frame.busy) resolveTurn();
       return;
     default:
       console.log(at, 'other', String(event.data).slice(0, 200));
@@ -123,10 +125,20 @@ for (const prompt of prompts) {
   ws.send(
     JSON.stringify({
       type: 'agent.input',
+      turnId: `turn-${prompt}`,
       input: { kind: 'user_text', text: prompt },
       chart,
     }),
   );
+  if (process.env.SMOKE_CONCURRENT === '1')
+    ws.send(
+      JSON.stringify({
+        type: 'agent.input',
+        turnId: 'turn-concurrent',
+        input: { kind: 'user_text', text: 'Show the cart' },
+        chart,
+      }),
+    );
   const timedOut = await Promise.race([
     done.then(() => false),
     Bun.sleep(180_000).then(() => true),

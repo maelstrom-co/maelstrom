@@ -40,7 +40,19 @@ const INITIAL_STATE: AgentSessionClientState = {
   metrics: null,
 };
 
+/** How an Agent Session turn ended, as voice and text callers see it. */
+export interface AgentTurnOutcome {
+  readonly ok: boolean;
+  readonly reply: string;
+  readonly busy: boolean;
+}
+
+// Below the OpenAI Live adapter's 120s batch bound, which ends voice on expiry.
+const TURN_RESULT_TIMEOUT_MS = 100_000;
+
 let state = INITIAL_STATE;
+let activeTurnId: string | null = null;
+const pendingTurns = new Map<string, (outcome: AgentTurnOutcome) => void>();
 let currentSend: ((data: string) => void) | null = null;
 let currentOrchestrator: Orchestrator | null = null;
 const listeners = new Set<() => void>();
@@ -76,11 +88,35 @@ export function handleAgentFrame(
 
 /** Starts an Agent Session turn with the user's typed text. */
 export function sendAgentUserText(text: string): void {
+  void runAgentTurn(text);
+}
+
+/**
+ * Runs one Agent Session turn for text or voice and resolves with its reply.
+ * Never rejects: a busy session, a missing channel or a stalled turn all
+ * resolve with a speakable reply instead.
+ */
+export function runAgentTurn(text: string): Promise<AgentTurnOutcome> {
   const orchestrator = currentOrchestrator;
-  if (!currentSend || !orchestrator) {
+  const send = currentSend;
+  if (!send || !orchestrator) {
     setState({ ...state, error: 'Agent channel is not connected yet.' });
-    return;
+    return Promise.resolve({
+      ok: false,
+      busy: false,
+      reply: 'The shop assistant is not connected yet.',
+    });
   }
+  if (activeTurnId !== null)
+    return Promise.resolve({
+      ok: false,
+      busy: true,
+      reply:
+        'I am still working on your previous request. Ask again once it finishes.',
+    });
+
+  const turnId = crypto.randomUUID();
+  activeTurnId = turnId;
   setState({
     active: true,
     progress: [],
@@ -88,11 +124,32 @@ export function sendAgentUserText(text: string): void {
     error: null,
     metrics: state.metrics,
   });
-  sendFrame(currentSend, {
+  const outcome = new Promise<AgentTurnOutcome>((resolve) => {
+    const timer = setTimeout(() => {
+      pendingTurns.delete(turnId);
+      if (activeTurnId === turnId) {
+        activeTurnId = null;
+        setState({ ...state, active: false });
+      }
+      resolve({
+        ok: false,
+        busy: false,
+        reply:
+          'This is taking longer than expected; the screen will update when it is ready.',
+      });
+    }, TURN_RESULT_TIMEOUT_MS);
+    pendingTurns.set(turnId, (result) => {
+      clearTimeout(timer);
+      resolve(result);
+    });
+  });
+  sendFrame(send, {
     type: 'agent.input',
+    turnId,
     input: { kind: 'user_text', text },
     chart: readChartSnapshot(orchestrator),
   });
+  return outcome;
 }
 
 export function useAgentSessionClient(): AgentSessionClientState {
@@ -127,7 +184,15 @@ async function routeFrame(
       await new Promise((resolve) => setTimeout(resolve, 0));
       sendFrame(send, runClientTool(frame));
       return;
-    case 'agent.done':
+    case 'agent.done': {
+      pendingTurns.get(frame.turnId)?.({
+        ok: frame.ok,
+        reply: frame.reply,
+        busy: frame.busy === true,
+      });
+      pendingTurns.delete(frame.turnId);
+      if (frame.turnId !== activeTurnId) return;
+      activeTurnId = null;
       setState({
         ...state,
         active: false,
@@ -137,6 +202,7 @@ async function routeFrame(
       });
       console.info('[agent-session] metrics', frame.metrics);
       return;
+    }
   }
 }
 

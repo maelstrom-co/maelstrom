@@ -37,6 +37,8 @@ export type ClientToolName = 'get_cart' | 'ask_user';
 
 export interface AgentInputFrame {
   readonly type: 'agent.input';
+  /** Client-chosen id echoed on this turn's `agent.done`. */
+  readonly turnId: string;
   readonly input: AgentInput;
   readonly chart: AgentChartSnapshot;
 }
@@ -112,10 +114,14 @@ export interface AgentTurnMetrics {
 
 export interface AgentDoneFrame {
   readonly type: 'agent.done';
+  readonly turnId: string;
   readonly ok: boolean;
   readonly reply: string;
   readonly error?: string;
-  readonly metrics: AgentTurnMetrics;
+  /** True when the input was refused because another turn is running. */
+  readonly busy?: boolean;
+  /** Null for a refused (busy) input, which never ran. */
+  readonly metrics: AgentTurnMetrics | null;
 }
 
 export type AgentServerFrame =
