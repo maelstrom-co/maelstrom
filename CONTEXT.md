@@ -36,6 +36,10 @@ _Avoid_: brain, orchestrator (that names a client-side module)
 The configured decision stage that proposes a Layout and Execution Plan from the current Chart state, update reasons, and available history.
 _Avoid_: engine (that names the component that coordinates and validates planning)
 
+**Agent Session**:
+A per-user conversation in which an agent pursues the user's goals across many steps (tool calls, tool results, user answers). Unlike the Engine, it holds state.
+_Avoid_: runtime, brain, orchestrator
+
 **Execution Plan**:
 The ordered list of Actions the client runs after applying an accepted Layout.
 _Avoid_: action list, plan (unqualified)
