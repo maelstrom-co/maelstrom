@@ -1,10 +1,11 @@
 /**
  * Workspace-internal subpath: the stages, planners, builders, geometry
- * helpers and TypeSafe client that code elsewhere in this repository
+ * helpers and the TypeSafe and OpenAI Decisions clients that code elsewhere in this repository
  * composes outside a shipped planner, experimental ones included.
  * Unsupported outside the repository and free to change in any release.
  */
 export { demoVessels } from './lib/__test-helpers__/demo-vessels.js';
+export type { AskCall } from './lib/ask.js';
 export {
   type JevCaller,
   STAGE_NAME,
@@ -13,10 +14,19 @@ export {
 } from './lib/defer.js';
 export { buildJevPlanner, FALLBACK_RETRIES } from './lib/jev-planner.js';
 export { type LeafRect, layoutFits, treeRects } from './lib/layout-fit.js';
+export {
+  createDecisionsClient,
+  DECISIONS_MODEL,
+  type DecisionsClientOptions,
+} from './lib/openai-decisions-client.js';
+export { buildDecisionsComposedPairsPlanner } from './lib/planners/decisions-composed-pairs.js';
+export { buildDecisionsPlanner } from './lib/planners/decisions-planner.js';
 export { buildJevComposedPairsPlanner } from './lib/planners/jev-composed-pairs.js';
 export {
   buildJevStagePlanner,
+  createStageDeps,
   type JevStages,
+  type StageDepsOptions,
 } from './lib/planners/jev-stage-planner.js';
 export { buildJevGatedBatchedPlanner } from './lib/planners-experimental/jev-gated-batched.js';
 export { buildJevGatedStepwisePlanner } from './lib/planners-experimental/jev-gated-stepwise.js';

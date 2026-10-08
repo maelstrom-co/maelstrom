@@ -2,6 +2,18 @@ import { expect, test } from 'bun:test';
 
 import * as evalApi from './_internal.js';
 import * as testingApi from './_testing.js';
+import * as rootApi from './index.js';
+
+test('the root entry exposes only the shipped planners', () => {
+  expect(Object.keys(rootApi).sort()).toEqual(
+    [
+      'jevPlanner',
+      'jevComposedPairsPlanner',
+      'decisionsPlanner',
+      'decisionsComposedPairsPlanner',
+    ].sort(),
+  );
+});
 
 test('_internal exposes the runtime values @maelstrom-co/evals composes', () => {
   expect(Object.keys(evalApi).sort()).toEqual(
@@ -44,6 +56,11 @@ test('_internal exposes the runtime values @maelstrom-co/evals composes', () => 
       'selectGated',
       'createJevDeps',
       'createTypeSafeClient',
+      'createDecisionsClient',
+      'DECISIONS_MODEL',
+      'buildDecisionsPlanner',
+      'buildDecisionsComposedPairsPlanner',
+      'createStageDeps',
     ].sort(),
   );
 });
@@ -64,6 +81,9 @@ test('_testing exposes the fixtures and transports the eval tests use', () => {
       'scriptedAsk',
       'scriptedFetch',
       'TEST_MODEL',
+      'scriptedDecisionsAsk',
+      'scriptedDecisionsFetch',
+      'DECISIONS_TEST_MODEL',
     ].sort(),
   );
 });
