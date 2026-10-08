@@ -34,7 +34,7 @@ import {
   score,
 } from './questions.js';
 
-const KEY = 'sk-decisions-secret-key-value';
+const KEY = 'decisions-secret-key-value';
 
 const LEVELS = ['Nothing happened', 'Some of it happened', 'All of it'];
 
