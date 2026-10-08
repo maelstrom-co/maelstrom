@@ -663,6 +663,38 @@ export class LiveKitAdapter
     // Intentionally empty — see JSDoc.
   }
 
+  /**
+   * Speaks a progress cue verbatim through the worker's SPEAK_TOPIC TTS queue,
+   * which serializes it ahead of any later tool-result read-back. Returns
+   * `false` without an active room or before the worker announced TTS
+   * readiness. A failed send is logged, collapses a still-current `speaking`
+   * state, and never ends voice.
+   */
+  speakCue(text: string): boolean {
+    const cue = text.trim();
+    const room = this.#room;
+    if (!cue || !room || !this.#ttsReady) return false;
+    this.#utteranceSeq += 1;
+    const utteranceId = this.#utteranceSeq;
+    this.#currentUtteranceId = utteranceId;
+    this.#unmutePlaybackForNextTtsTurn();
+    this.#emit({ type: 'state', state: 'speaking' });
+    this.#logger.debug('→ speak cue', { utteranceId });
+    room.localParticipant
+      .sendText(cue, {
+        topic: SPEAK_TOPIC,
+        attributes: { [SPEAK_UTTERANCE_ID_ATTR]: String(utteranceId) },
+      })
+      .catch((error: unknown) => {
+        this.#logger.warn('progress cue send failed (non-fatal)', error);
+        if (this.#currentUtteranceId === utteranceId) {
+          this.#currentUtteranceId = undefined;
+          this.#collapseSpeaking();
+        }
+      });
+    return true;
+  }
+
   on(handler: (event: RealtimeAdapterEvent) => void): Unsubscribe {
     this.#handlers.add(handler);
     return () => {
