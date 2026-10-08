@@ -46,6 +46,8 @@ export interface OpenAILiveAdapterOptions extends LiveTransportOptions {
   readonly batchTimeoutMs?: number;
   /** Bound for each opening, recovery, or grounding acknowledgment, default 30 seconds. Expiry reports unknown delivery, never speech completion. */
   readonly contextTimeoutMs?: number;
+  /** Logs progress-cue sends and the provider events that answer them to the console. Defaults to `false`. */
+  readonly debug?: boolean;
 }
 
 type Call = {
@@ -89,6 +91,8 @@ type Run = {
   recovery?: { id: string; timer: ReturnType<typeof setTimeout> };
   recoveryQueue: string[];
   recoverySeen: string[];
+  cues: Map<string, number>;
+  cueAwaitingSpeech?: { id: string; sentAt: number };
 };
 
 function boundedText(text: string, bytes: number): string {
@@ -287,6 +291,7 @@ export class OpenAILiveAdapter implements RealtimeProviderAdapter {
       commands: new Set(),
       recoveryQueue: [],
       recoverySeen: recovery ? outcomeRecords(recovery) : [],
+      cues: new Map(),
     };
     this.run = run;
     try {
@@ -501,6 +506,44 @@ export class OpenAILiveAdapter implements RealtimeProviderAdapter {
     this.appendContext(run, content);
   }
 
+  /**
+   * Requests speech of a short progress cue through `session.commentary.append`
+   * while delegated work is pending. The cue is bounded to 400 UTF-8 bytes and
+   * sent session-wide. Returns `true` after local submission only; provider
+   * acceptance and audible delivery are never proven. Rejection by the provider
+   * is reported as a non-fatal error and does not end voice.
+   */
+  speakCue(text: string): boolean {
+    const run = this.run;
+    const content = boundedText(text.trim(), 400);
+    if (!run || !content || this.transport.getSnapshot().state !== 'connected')
+      return false;
+    const id = crypto.randomUUID();
+    try {
+      this.transport.send(
+        {
+          type: 'session.commentary.append',
+          event_id: id,
+          delegation_id: null,
+          content,
+        },
+        run.generation,
+      );
+    } catch (error) {
+      this.debugLog('cue send failed', { id, error });
+      return false;
+    }
+    const sentAt = Date.now();
+    run.cues.set(id, sentAt);
+    for (const old of run.cues.keys()) {
+      if (run.cues.size <= 16) break;
+      run.cues.delete(old);
+    }
+    run.cueAwaitingSpeech = { id, sentAt };
+    this.debugLog('→ session.commentary.append', { id, content });
+    return true;
+  }
+
   private appendContext(run: Run, text: string): void {
     const id = crypto.randomUUID();
     const timer = setTimeout(() => {
@@ -538,6 +581,7 @@ export class OpenAILiveAdapter implements RealtimeProviderAdapter {
       this.appendContext(run, next);
   }
   private receive(run: Run, envelope: LiveServerEvent): void {
+    this.observeCue(run, envelope);
     if (envelope.type === 'session.closed') {
       this.fail(run, 'provider_closed');
       return;
@@ -591,6 +635,9 @@ export class OpenAILiveAdapter implements RealtimeProviderAdapter {
         clearTimeout(run.context.timer);
         run.context = undefined;
         this.nextContext(run);
+      } else if (identity(id) && run.cues.has(id)) {
+        run.cues.delete(id);
+        if (run.cueAwaitingSpeech?.id === id) run.cueAwaitingSpeech = undefined;
       } else if (!identity(id) || run.commands.has(id))
         this.fail(run, 'managed_command_rejected');
       return;
@@ -835,6 +882,41 @@ export class OpenAILiveAdapter implements RealtimeProviderAdapter {
     } catch {
       this.fail(run, 'managed_send_failed');
     }
+  }
+  private observeCue(run: Run, envelope: LiveServerEvent): void {
+    if (!this.options.debug) return;
+    const now = Date.now();
+    if (envelope.type.includes('commentary')) {
+      const id = envelope.client_event_id;
+      const sentAt = typeof id === 'string' ? run.cues.get(id) : undefined;
+      this.debugLog(`← ${envelope.type}`, {
+        ...(sentAt === undefined ? {} : { afterMs: now - sentAt }),
+        event: envelope,
+      });
+      return;
+    }
+    if (envelope.type === 'error' && record(envelope.error)) {
+      const id = envelope.error.client_event_id;
+      if (typeof id === 'string' && run.cues.has(id))
+        this.debugLog('← error for cue (rejected, voice continues)', {
+          afterMs: now - (run.cues.get(id) ?? now),
+          error: envelope.error,
+        });
+      return;
+    }
+    const pending = run.cueAwaitingSpeech;
+    if (pending && envelope.type === 'session.output_transcript.delta') {
+      run.cueAwaitingSpeech = undefined;
+      this.debugLog('← first assistant speech after cue', {
+        id: pending.id,
+        afterMs: now - pending.sentAt,
+        delta: envelope.delta,
+      });
+    }
+  }
+  private debugLog(message: string, details: unknown): void {
+    if (this.options.debug)
+      console.info('[OpenAILiveAdapter]', message, details);
   }
   private send(run: Run, command: LiveCommand): void {
     run.commands.add(command.event_id);

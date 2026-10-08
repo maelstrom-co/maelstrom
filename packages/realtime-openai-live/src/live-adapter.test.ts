@@ -1633,3 +1633,33 @@ for (const endVoice of [false, true]) {
       });
   });
 }
+
+test('progress cues request speech through session-wide commentary and a rejection keeps voice connected', async () => {
+  const h = await harness();
+  h.channel.begin();
+  h.channel.call('call');
+  h.channel.done();
+  await tick();
+  expect(h.session.canSpeakCue).toBe(true);
+  expect(h.session.speakCue('  Searching your past orders…  ')).toBe(true);
+  const cue = h.channel.sent.find(
+    (event) => event.type === 'session.commentary.append',
+  );
+  expect(cue).toEqual({
+    type: 'session.commentary.append',
+    event_id: expect.any(String),
+    delegation_id: null,
+    content: 'Searching your past orders…',
+  });
+  expect(h.session.speakCue('   ')).toBe(false);
+  h.channel.event('session.commentary.appended', {
+    client_event_id: cue?.event_id,
+  });
+  h.channel.event('error', {
+    error: { code: 'invalid_value', client_event_id: cue?.event_id },
+  });
+  await tick();
+  expect(h.adapter.getTransportSnapshot().state).toBe('connected');
+  expect(h.channel.outputs()).toHaveLength(1);
+  expect(h.channel.continues()).toHaveLength(1);
+});
