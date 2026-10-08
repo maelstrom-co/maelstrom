@@ -204,13 +204,13 @@ The LiveKit cascade is also optional. It requires a local LiveKit server plus re
 
 `/shop` is the same demo page, voice included, with a catalog of only the four pet-food shop Vessels (`orders`, `catalog`, `cart`, `checkout`) and a green palette. The Engine never sees the day-planner Vessels there, and the home page no longer registers the shop ones.
 
-From the repository root, start it with:
+From the repository root, start the dev server with:
 
 ```bash
-bunx nx dev-shop demo
+bunx nx dev demo
 ```
 
-Then open `http://localhost:3000/shop`. The command is `bunx nx dev demo` plus a printed reminder of that URL, so `/shop` also works under the baseline command and the other variants.
+Then open `http://127.0.0.1:3000/shop` on that dev server.
 
 Things to type or say there:
 
