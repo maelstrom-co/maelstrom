@@ -27,14 +27,14 @@ export const ENGINE_MODEL: DemoEngineModel = engineModelOverride
 /**
  * Planner reasoning effort sent with every Planner call; `default` sends no
  * effort and leaves the model's own default. `PLANNER_REASONING_EFFORT`
- * overrides it on runtimes with `process.env`. `none` matched `low` on mean
- * latency in the /shop smoke but never reasoned, so it never hit the
- * 7 s tail `low` and the model default occasionally did.
+ * overrides it on runtimes with `process.env`. `low` cuts the model-default
+ * latency tail; `none` is no faster on average and occasionally writes prose
+ * before the JSON, which fails the structured-output parse.
  */
 export const PLANNER_REASONING_EFFORT =
   (typeof process !== 'undefined'
     ? process.env.PLANNER_REASONING_EFFORT?.trim()
-    : undefined) || 'none';
+    : undefined) || 'low';
 
 /** Adds the Planner reasoning effort to `modelOptions`. */
 export function withPlannerReasoning(
