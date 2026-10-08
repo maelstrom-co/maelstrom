@@ -1,0 +1,194 @@
+import { afterEach, describe, expect, test } from 'bun:test';
+import type { InstrumentAttributes } from '@maelstrom-co/engine';
+import { MessageId } from '@maelstrom-co/protocol';
+import { z } from 'zod';
+import {
+  makeContext,
+  makeInput,
+  makeRequest,
+} from './__test-helpers__/fixtures.js';
+import {
+  dummyAdapter,
+  installMockChat,
+  mockChat,
+} from './__test-helpers__/mock-chat.js';
+import { callLlm } from './llm-call.js';
+
+installMockChat();
+afterEach(() => mockChat.mockReset());
+
+function context(signal?: AbortSignal, messageId = 'req-1') {
+  const events: { name: string; attributes: InstrumentAttributes }[] = [];
+  const ctx = makeContext(
+    {
+      ...makeInput(makeRequest('hide the tasks')),
+      messageId: MessageId(messageId),
+    },
+    {
+      signal,
+      instrument: {
+        stage: (_name, stage) => stage,
+        event: (name, attributes) => events.push({ name, attributes }),
+      },
+    },
+  );
+  return { ctx, events };
+}
+
+const schema = z.object({ userMessage: z.string() });
+const complete = (ctx: ReturnType<typeof context>['ctx']) =>
+  callLlm({ adapter: dummyAdapter }, 'private prompt', schema, [], ctx);
+
+describe('completion call instrumentation', () => {
+  test('includes all reported usage in one correlated event without private content', async () => {
+    mockChat.mockImplementationOnce(async ({ middleware }) => {
+      for (const usage of [
+        { promptTokens: 12, completionTokens: 3, totalTokens: 15 },
+        { promptTokens: 4, completionTokens: 2, totalTokens: 6 },
+      ])
+        await middleware[0]?.onUsage?.({} as never, usage);
+      return { userMessage: 'private output' };
+    });
+    const { ctx, events } = context();
+    expect((await complete(ctx)).ok).toBe(true);
+    expect(events).toHaveLength(1);
+    expect(events[0]?.name).toBe('llm.call');
+    expect(events[0]?.attributes).toEqual({
+      'gen_ai.request.model': 'dummy-model',
+      'gen_ai.usage.input_tokens': 16,
+      'gen_ai.usage.output_tokens': 5,
+      'maelstrom.message_id': 'req-1',
+      'maelstrom.session_id': ctx.origin.sessionId,
+      'maelstrom.outcome': 'ok',
+      'maelstrom.latency_ms': expect.any(Number),
+    });
+  });
+
+  test('does not fabricate zero usage when the provider reports none', async () => {
+    mockChat.mockResolvedValueOnce({ userMessage: 'Done.' });
+    const { ctx, events } = context();
+    await complete(ctx);
+    expect(events).toHaveLength(1);
+    expect(events[0]?.attributes).not.toHaveProperty(
+      'gen_ai.usage.input_tokens',
+    );
+    expect(events[0]?.attributes).not.toHaveProperty(
+      'gen_ai.usage.output_tokens',
+    );
+  });
+
+  test('preserves an explicit zero measurement instead of treating it as missing', async () => {
+    mockChat.mockImplementationOnce(async ({ middleware }) => {
+      await middleware[0]?.onUsage?.({} as never, {
+        promptTokens: 0,
+        completionTokens: 0,
+        totalTokens: 0,
+      });
+      return { userMessage: 'Done.' };
+    });
+    const { ctx, events } = context();
+    await complete(ctx);
+    expect(events[0]?.attributes).toMatchObject({
+      'gen_ai.usage.input_tokens': 0,
+      'gen_ai.usage.output_tokens': 0,
+    });
+  });
+
+  test('reports pre-flight cancellation without starting paid provider work', async () => {
+    const controller = new AbortController();
+    controller.abort('superseded');
+    const { ctx, events } = context(controller.signal);
+    expect(await complete(ctx)).toMatchObject({
+      ok: false,
+      error: { _tag: 'CancellationError' },
+    });
+    expect(mockChat).not.toHaveBeenCalled();
+    expect(events).toHaveLength(1);
+    expect(events[0]?.attributes['maelstrom.outcome']).toBe('cancelled');
+    expect(events[0]?.attributes).not.toHaveProperty(
+      'gen_ai.usage.input_tokens',
+    );
+  });
+
+  test('retains usage on a failure without exposing the provider error', async () => {
+    mockChat.mockImplementationOnce(async ({ middleware }) => {
+      await middleware[0]?.onUsage?.({} as never, {
+        promptTokens: 12,
+        completionTokens: 3,
+        totalTokens: 15,
+      });
+      throw new Error('private-provider-key');
+    });
+    const { ctx, events } = context();
+    expect(await complete(ctx)).toMatchObject({
+      ok: false,
+      error: { _tag: 'ProviderError' },
+    });
+    expect(events).toHaveLength(1);
+    expect(events[0]?.attributes).toMatchObject({
+      'gen_ai.usage.input_tokens': 12,
+      'gen_ai.usage.output_tokens': 3,
+      'maelstrom.outcome': 'error',
+    });
+    expect(JSON.stringify(events)).not.toContain('private-provider-key');
+  });
+
+  test('rejects a late cancelled response and reports the actual planner outcome', async () => {
+    const controller = new AbortController();
+    mockChat.mockImplementationOnce(async ({ middleware }) => {
+      await middleware[0]?.onUsage?.({} as never, {
+        promptTokens: 12,
+        completionTokens: 3,
+        totalTokens: 15,
+      });
+      controller.abort('superseded');
+      return { userMessage: 'Done.' };
+    });
+    const { ctx, events } = context(controller.signal);
+    expect(await complete(ctx)).toMatchObject({
+      ok: false,
+      error: { _tag: 'CancellationError', reason: 'superseded' },
+    });
+    expect(events).toHaveLength(1);
+    expect(events[0]?.attributes).toMatchObject({
+      'gen_ai.usage.input_tokens': 12,
+      'maelstrom.outcome': 'cancelled',
+    });
+  });
+
+  test('does not share usage between concurrent requests on one adapter', async () => {
+    let release: () => void = () => {};
+    const barrier = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    mockChat.mockImplementationOnce(async ({ middleware }) => {
+      await middleware[0]?.onUsage?.({} as never, {
+        promptTokens: 12,
+        completionTokens: 3,
+        totalTokens: 15,
+      });
+      await barrier;
+      return { userMessage: 'First.' };
+    });
+    mockChat.mockImplementationOnce(async ({ middleware }) => {
+      await middleware[0]?.onUsage?.({} as never, {
+        promptTokens: 40,
+        completionTokens: 10,
+        totalTokens: 50,
+      });
+      release();
+      return { userMessage: 'Second.' };
+    });
+    const first = context(undefined, 'first');
+    const second = context(undefined, 'second');
+    await Promise.all([complete(first.ctx), complete(second.ctx)]);
+    expect(first.events[0]?.attributes).toMatchObject({
+      'maelstrom.message_id': 'first',
+      'gen_ai.usage.input_tokens': 12,
+    });
+    expect(second.events[0]?.attributes).toMatchObject({
+      'maelstrom.message_id': 'second',
+      'gen_ai.usage.input_tokens': 40,
+    });
+  });
+});

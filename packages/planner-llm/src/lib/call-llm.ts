@@ -17,7 +17,7 @@ import {
   ok,
   type TilingResponseSchema,
 } from '@maelstrom-co/protocol';
-import type { AnyTextAdapter } from '@tanstack/ai';
+import type { AnyTextAdapter, ChatMiddleware } from '@tanstack/ai';
 import { chat } from '@tanstack/ai';
 
 export async function callLLM(
@@ -28,6 +28,7 @@ export async function callLLM(
   historyMessages: readonly LLMContextMessage[],
   signal?: AbortSignal,
   modelOptions?: Record<string, unknown>,
+  middleware: ChatMiddleware[] = [],
 ): Promise<Result<PlannerCandidate, EngineError>> {
   const controller = new AbortController();
 
@@ -50,6 +51,7 @@ export async function callLLM(
       outputSchema,
       stream: false,
       debug: false,
+      middleware,
       abortController: controller,
       ...(modelOptions !== undefined && { modelOptions }),
     });

@@ -25,7 +25,7 @@ import {
   ok,
   TilingResponseSchema,
 } from '@maelstrom-co/protocol';
-import type { AnyTextAdapter } from '@tanstack/ai';
+import type { AnyTextAdapter, ChatMiddleware } from '@tanstack/ai';
 
 import { callLLM, logLLMCallError } from './call-llm.js';
 import type { PromptOptions } from './prompt/prompt-builder.js';
@@ -87,8 +87,11 @@ export type LlmPlannerInput = Retryable<
  *
  * Each model call is reported to `ctx.instrument` as an `llm.call` event
  * with `gen_ai.request.model` (the adapter's model), `maelstrom.outcome`
- * (`ok`, `error` or `cancelled`) and `maelstrom.latency_ms`. Token usage is
- * not reported: `chat()` exposes it only to middleware.
+ * (`ok`, `error` or `cancelled`), `maelstrom.latency_ms`, and the origin's
+ * `maelstrom.message_id` and `maelstrom.session_id`. Provider-reported usage
+ * is summed across model calls as `gen_ai.usage.input_tokens` and
+ * `gen_ai.usage.output_tokens`; missing usage remains absent. Prompts, output,
+ * provider errors, and credentials are never included in these events.
  *
  * @throws {Error} If `options` is invalid or a system-prompt customizer is
  *   misconfigured. System prompts are built once here, so the error surfaces
@@ -152,6 +155,15 @@ export function llmPlanner(
     }
 
     const started = performance.now();
+    let usage: { input: number; output: number } | undefined;
+    const middleware: ChatMiddleware = {
+      onUsage: (_ctx, current) => {
+        usage = {
+          input: (usage?.input ?? 0) + current.promptTokens,
+          output: (usage?.output ?? 0) + current.completionTokens,
+        };
+      },
+    };
     const result = await callLLM(
       adapter,
       systemPrompts[mode],
@@ -162,9 +174,16 @@ export function llmPlanner(
       input.history,
       signal,
       modelOptions,
+      [middleware],
     );
     ctx.instrument.event('llm.call', {
       'gen_ai.request.model': adapter.model,
+      'maelstrom.message_id': ctx.origin.messageId,
+      'maelstrom.session_id': ctx.origin.sessionId,
+      ...(usage && {
+        'gen_ai.usage.input_tokens': usage.input,
+        'gen_ai.usage.output_tokens': usage.output,
+      }),
       'maelstrom.outcome': isErr(result)
         ? result.error._tag === 'CancellationError'
           ? 'cancelled'

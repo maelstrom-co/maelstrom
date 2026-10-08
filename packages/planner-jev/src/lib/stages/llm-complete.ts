@@ -1,34 +1,14 @@
-import {
-  type CancellationError,
-  cancellationError,
-  type LLMContextMessage,
-  type PlannerCandidate,
-  type ProviderError,
-  providerError,
-  type Stage,
-  type StageContext,
-} from '@maelstrom-co/engine';
-import { err, isErr, ok, type Result } from '@maelstrom-co/protocol';
-import { type AnyTextAdapter, chat } from '@tanstack/ai';
-import type { z } from 'zod';
-import {
-  type Completion,
-  outputSchema,
-  parseFill,
-  type Slot,
-} from '../completion-schema.js';
+import type { PlannerCandidate, Stage } from '@maelstrom-co/engine';
+import { isErr, ok } from '@maelstrom-co/protocol';
+import type { AnyTextAdapter } from '@tanstack/ai';
+import { outputSchema, parseFill, type Slot } from '../completion-schema.js';
 import { declaredVariants } from '../declared-variants.js';
 import { deferAt, STAGE_NAME } from '../defer.js';
-import { intentText, recentHistory } from '../questions.js';
+import { callLlm } from '../llm-call.js';
+import { intentText } from '../questions.js';
 import type { JevLayoutPlan, ParameterAsk, PlannedAction } from '../types.js';
 
 const STAGE = STAGE_NAME.llmComplete;
-
-const SYSTEM_PROMPT = `You write the reply of a dashboard assistant after its planner already decided what to change.
-- Describe only what was decided, in one or two short, friendly sentences that read well aloud.
-- Do not promise anything the decisions do not include, and never claim that an action listed under "Ask the user" ran.
-- When there are values to ask for, ask the user for them in the same reply.
-- For each value to fill, give the concrete value the parameter needs, in its type: resolve a landmark, event, or other indirect reference to what it names. Use null only when the request gives no value at all.`;
 
 /** Configuration for {@link llmComplete}. */
 export interface LlmCompleteOptions {
@@ -61,7 +41,7 @@ export function llmComplete(
       )
       .map((slot, index) => ({ ...slot, key: `p${index}` }));
 
-    const completion = await complete(
+    const completion = await callLlm(
       options,
       buildPrompt(layoutPlan, slots),
       outputSchema(slots),
@@ -128,62 +108,6 @@ export function llmComplete(
       return deferAt(ctx, STAGE, 'retry_recommended');
     return ok(candidate);
   };
-}
-
-async function complete(
-  options: LlmCompleteOptions,
-  prompt: string,
-  schema: z.ZodType<Completion>,
-  history: readonly LLMContextMessage[],
-  ctx: StageContext,
-): Promise<Result<Completion, CancellationError | ProviderError>> {
-  const { signal, logger } = ctx;
-  const messageId = ctx.origin.messageId;
-  if (signal?.aborted) {
-    logger.info('Request cancelled', { messageId, reason: signal.reason });
-    return err(
-      cancellationError('Request was already cancelled', signal.reason),
-    );
-  }
-  const controller = new AbortController();
-  const abort = () => controller.abort(signal?.reason);
-  signal?.addEventListener('abort', abort, { once: true });
-  try {
-    const output = await chat({
-      adapter: options.adapter,
-      messages: [
-        ...recentHistory(history),
-        { role: 'user' as const, content: prompt },
-      ],
-      systemPrompts: [SYSTEM_PROMPT],
-      outputSchema: schema,
-      stream: false,
-      debug: false,
-      abortController: controller,
-      ...(options.modelOptions !== undefined && {
-        modelOptions: options.modelOptions,
-      }),
-    });
-    return ok(output as Completion);
-  } catch (error) {
-    if (signal?.aborted) {
-      logger.info('Request cancelled', { messageId, reason: signal.reason });
-      return err(
-        cancellationError(
-          `Request cancelled: ${signal.reason ?? 'unknown reason'}`,
-          signal.reason,
-        ),
-      );
-    }
-    const failure = providerError(
-      error instanceof Error ? error.message : String(error),
-      error,
-    );
-    logger.error('llmComplete call failed', failure, { messageId });
-    return err(failure);
-  } finally {
-    signal?.removeEventListener('abort', abort);
-  }
 }
 
 function buildPrompt(

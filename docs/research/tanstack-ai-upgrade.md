@@ -80,6 +80,46 @@ stays unchanged because OpenAI shares it between reasoning and visible output.
 Other incomplete-response reasons can still produce different errors.
 Sources: [core changelog][changelog] and [structured-output finalization][chat-source].
 
+### Report model usage through the engine
+
+The existing `StageContext.instrument` seam answers three operational questions:
+which model consumes tokens, whether calls fail or get cancelled, and how long
+calls take. No new public middleware option is needed.
+
+The [LLM planner](../../packages/planner-llm/src/lib/llm-planner.ts) and
+[Jev completion helper](../../packages/planner-jev/src/lib/llm-call.ts) collect
+every `onUsage` callback. They emit one `llm.call` event after the call settles:
+
+| Attribute | Meaning |
+| --- | --- |
+| `gen_ai.request.model` | Adapter model |
+| `gen_ai.usage.input_tokens` | Sum of reported input tokens; absent without usage |
+| `gen_ai.usage.output_tokens` | Sum of reported output tokens; absent without usage |
+| `maelstrom.outcome` | `ok`, `error`, or `cancelled` at the call boundary |
+| `maelstrom.latency_ms` | Call duration in milliseconds |
+| `maelstrom.message_id` | Origin request correlation |
+| `maelstrom.session_id` | Origin session correlation |
+
+Outcome comes from the planner result rather than a TanStack terminal hook. A
+provider can finish after caller cancellation; that response must still be
+rejected. Later candidate validation or Jev deferral has its own stage outcome.
+An already-cancelled request reports cancellation without contacting a provider.
+
+Usage survives finalization failure when the provider already reported it.
+Unknown usage stays absent rather than becoming zero. `onFinish.info.usage` is
+not added: it repeats agent-loop usage and omits separate finalization usage.
+Collectors belong to individual calls, so concurrent requests cannot share totals.
+
+Events exclude prompts, output, provider errors, and credentials. Use correlation
+IDs in logs or traces, not metric labels. The caller supplies the instrument;
+the engine's default remains a no-op.
+
+Evaluation accounting stays in the role-labelled adapter proxy. Reports do not
+add instrument totals to proxy totals. Offline integration tests exercise native
+combined output, streaming finalization, and direct finalization through all
+three planner call paths. They verify known and unknown usage, invalid output,
+and unchanged evaluation totals. Source: [middleware guide][middleware-guide].
+
 ## Existing setup to retain
 
 - `chat({ outputSchema, stream: false, abortController, modelOptions })` remains
@@ -102,13 +142,6 @@ Sources: [core changelog][changelog] and [structured-output finalization][chat-s
 
 ## Optional follow-ups
 
-- Expose a narrow middleware option for production usage events. Forward
-  `onUsage` into `ctx.instrument`, with terminal hooks for outcome and duration.
-  Do not rely only on `onFinish.info.usage`: separate structured-output
-  finalization has its own usage events. Keep the eval proxy until middleware
-  reaches every planner call. Do not add proxy and middleware totals together.
-  Sources: [middleware guide][middleware-guide] and
-  [current instrumentation](../../packages/planner-llm/src/lib/llm-planner.ts).
 - Remove the demo's redundant custom model extension in a separate cleanup.
   OpenAI `0.27.0` includes `gpt-6-luna` in its catalog. Preserve the default model,
   `ENGINE_MODEL` override, and explicit API key injection. Catalog membership does

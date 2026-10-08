@@ -34,10 +34,10 @@ const STREAMS = ['chatStream', 'structuredOutputStream'] as const;
 
 /**
  * Wraps `adapter` so every provider call reports its latency and token
- * usage to `sink`, once per call. `chat()` hands usage only to middleware,
- * which the planners do not take, so the adapter is the one place that sees
- * it: streamed calls carry it on their `RUN_FINISHED` chunk and
- * `structuredOutput` on its result. Methods run with the wrapped adapter as
+ * usage to `sink`, once per call. Evaluation reports use this role-labelled
+ * sink, not the planner's `llm.call` events, so telemetry does not double-count
+ * usage. Streamed calls carry usage on their `RUN_FINISHED` chunk and
+ * `structuredOutput` on its result. Methods run with the original adapter as
  * `this`, and a method the adapter lacks stays absent, because `chat()`
  * picks its path by probing for `structuredOutputStream`.
  */

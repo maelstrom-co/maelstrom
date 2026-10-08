@@ -1,0 +1,98 @@
+import { expect, test } from 'bun:test';
+import { join } from 'node:path';
+
+test('real TanStack usage reaches every planner path without doubling evaluation totals', () => {
+  const packages = join(import.meta.dir, '..', '..', '..');
+  const jev = join(packages, 'planner-jev', 'src', 'lib');
+  const probe = `
+    import assert from 'node:assert/strict';
+    import { llmPlanner } from '@maelstrom-co/planner-llm';
+    import { buildGridResponse, makePlanningInput, makeStageContext } from '@maelstrom-co/engine/_testing';
+    import { z } from 'zod';
+    import { llmComplete } from ${JSON.stringify(join(jev, 'stages', 'llm-complete.ts'))};
+    import { callLlm } from ${JSON.stringify(join(jev, 'stages', 'complete-layout-inline.ts'))};
+    import { makeContext, makeRequest } from ${JSON.stringify(join(jev, '__test-helpers__', 'fixtures.ts'))};
+    import { completionPlan } from ${JSON.stringify(join(jev, '__test-helpers__', 'layout-fixtures.ts'))};
+    import { withUsage } from ${JSON.stringify(join(packages, 'evals', 'src', 'core', 'usage-adapter.ts'))};
+
+    const specUsage = [
+      { inputTokens: 12, outputTokens: 3, totalTokens: 15 },
+      { inputTokens: 4, outputTokens: 2, totalTokens: 6 },
+    ];
+    const totals = { promptTokens: 16, completionTokens: 5, totalTokens: 21 };
+    function adapter(mode, data, reported) {
+      async function* stream() {
+        yield { type: 'RUN_STARTED', runId: 'r', threadId: 't', timestamp: 1 };
+        yield { type: 'TEXT_MESSAGE_START', messageId: 'm', role: 'assistant', timestamp: 2 };
+        yield { type: 'TEXT_MESSAGE_CONTENT', messageId: 'm', delta: JSON.stringify(data), timestamp: 3 };
+        yield { type: 'TEXT_MESSAGE_END', messageId: 'm', timestamp: 4 };
+        if (mode === 'stream-finalization') {
+          yield { type: 'CUSTOM', name: 'structured-output.complete', value: { object: data, raw: JSON.stringify(data) }, timestamp: 5 };
+        }
+        yield { type: 'RUN_FINISHED', runId: 'r', threadId: 't', finishReason: 'stop', timestamp: 6, usage: reported ? specUsage : [] };
+      }
+      return {
+        kind: 'text', name: 'offline', model: 'offline',
+        supportsCombinedToolsAndSchema: () => mode === 'combined',
+        chatStream: stream,
+        ...(mode === 'stream-finalization' ? { structuredOutputStream: stream } : {}),
+        async structuredOutput() {
+          return { data, rawText: JSON.stringify(data), ...(reported ? { usage: totals } : {}) };
+        },
+      };
+    }
+
+    let checked = 0;
+    for (const mode of ['combined', 'stream-finalization', 'direct-finalization']) {
+      for (const entry of ['planner', 'complete', 'inline']) {
+        for (const scenario of ['reported', 'missing', 'invalid']) {
+          const reported = scenario !== 'missing';
+          const data = scenario === 'invalid'
+            ? { userMessage: 42 }
+            : entry === 'planner' ? buildGridResponse() : { userMessage: 'Private output.' };
+          const events = [];
+          const calls = [];
+          const instrument = {
+            stage: (_name, stage) => stage,
+            event: (name, attributes) => events.push({ name, attributes }),
+          };
+          const wrapped = withUsage(adapter(mode, data, reported), entry === 'planner' ? 'planner' : 'complete', call => calls.push(call));
+          const plan = completionPlan(makeRequest('hide the tasks'));
+          const ctx = makeContext(plan.plan.selection.input, { instrument });
+          const result = entry === 'planner'
+            ? await llmPlanner({ adapter: wrapped })(makePlanningInput(), makeStageContext({ instrument }))
+            : entry === 'complete'
+              ? await llmComplete({ adapter: wrapped })(plan, ctx)
+              : await callLlm({ adapter: wrapped }, 'Private prompt.', z.object({ userMessage: z.string() }), [], ctx);
+          const label = [mode, entry, scenario].join('/');
+          assert.equal(result.ok, scenario !== 'invalid', label);
+          assert.equal(events.length, 1, label);
+          assert.equal(calls.length, 1, label);
+          const event = events[0];
+          assert.equal(event.name, 'llm.call', label);
+          const { ['maelstrom.latency_ms']: latency, ...attributes } = event.attributes;
+          assert.ok(Number.isFinite(latency) && latency >= 0, label);
+          assert.deepEqual(attributes, {
+            'gen_ai.request.model': 'offline',
+            'maelstrom.message_id': 'req-1',
+            'maelstrom.session_id': 'session-1',
+            'maelstrom.outcome': scenario === 'invalid' ? 'error' : 'ok',
+            ...(reported ? { 'gen_ai.usage.input_tokens': 16, 'gen_ai.usage.output_tokens': 5 } : {}),
+          }, label);
+          assert.deepEqual(calls[0].usage, reported
+            ? { inputTokens: 16, outputTokens: 5, totalTokens: 21 }
+            : undefined, label);
+          checked++;
+        }
+      }
+    }
+    process.stdout.write(String(checked));
+  `;
+  const run = Bun.spawnSync(
+    [process.execPath, '--conditions=@maelstrom-co/source', '-e', probe],
+    { cwd: join(packages, 'evals') },
+  );
+  expect(run.stderr.toString()).toBe('');
+  expect(run.exitCode).toBe(0);
+  expect(run.stdout.toString().trim()).toBe('27');
+});

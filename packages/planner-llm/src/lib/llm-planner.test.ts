@@ -30,6 +30,7 @@ import {
   SessionId,
   TilingResponseSchema,
 } from '@maelstrom-co/protocol';
+import type { ChatMiddleware } from '@tanstack/ai';
 
 import {
   dummyAdapter,
@@ -59,6 +60,7 @@ interface ChatArgs {
   readonly stream: boolean;
   readonly debug: boolean;
   readonly abortController: AbortController;
+  readonly middleware: readonly ChatMiddleware[];
   readonly modelOptions?: Record<string, unknown>;
 }
 
@@ -68,9 +70,15 @@ function chatCall(index: number): ChatArgs {
   return args;
 }
 
-function comparableChatCalls(): Array<Omit<ChatArgs, 'abortController'>> {
+function comparableChatCalls(): Array<
+  Omit<ChatArgs, 'abortController' | 'middleware'>
+> {
   return mockChat.mock.calls.map((call) => {
-    const { abortController: _ignored, ...rest } = call[0] as ChatArgs;
+    const {
+      abortController: _ignored,
+      middleware: _middleware,
+      ...rest
+    } = call[0] as ChatArgs;
     return rest;
   });
 }
@@ -1087,8 +1095,57 @@ describe('llmPlanner instrumentation', () => {
     expect(Object.keys(events[0]?.attributes ?? {}).sort()).toEqual([
       'gen_ai.request.model',
       'maelstrom.latency_ms',
+      'maelstrom.message_id',
       'maelstrom.outcome',
+      'maelstrom.session_id',
     ]);
+  });
+
+  test('sums every usage hook without counting the terminal usage again', async () => {
+    mockChat.mockImplementationOnce(async (options) => {
+      const middleware = (options as ChatArgs).middleware[0];
+      for (const usage of [
+        { promptTokens: 12, completionTokens: 3, totalTokens: 15 },
+        { promptTokens: 4, completionTokens: 2, totalTokens: 6 },
+      ])
+        await middleware?.onUsage?.({} as never, usage);
+      return buildGridResponse();
+    });
+    const { instrument, events } = spyInstrument();
+    await llmPlanner({ adapter: dummyAdapter })(
+      makePlanningInput(),
+      makeStageContext({ instrument }),
+    );
+    expect(events).toHaveLength(1);
+    expect(events[0]?.attributes).toMatchObject({
+      'gen_ai.usage.input_tokens': 16,
+      'gen_ai.usage.output_tokens': 5,
+      'maelstrom.message_id': 'req-1',
+      'maelstrom.session_id': 'session-1',
+      'maelstrom.outcome': 'ok',
+    });
+  });
+
+  test('keeps reported usage when finalization fails so failed work is not free', async () => {
+    mockChat.mockImplementationOnce(async (options) => {
+      await (options as ChatArgs).middleware[0]?.onUsage?.({} as never, {
+        promptTokens: 12,
+        completionTokens: 3,
+        totalTokens: 15,
+      });
+      throw new Error('invalid structured output');
+    });
+    const { instrument, events } = spyInstrument();
+    await llmPlanner({ adapter: dummyAdapter })(
+      makePlanningInput(),
+      makeStageContext({ instrument }),
+    );
+    expect(events).toHaveLength(1);
+    expect(events[0]?.attributes).toMatchObject({
+      'gen_ai.usage.input_tokens': 12,
+      'gen_ai.usage.output_tokens': 3,
+      'maelstrom.outcome': 'error',
+    });
   });
 
   test('reports a failed model call as an error', async () => {
