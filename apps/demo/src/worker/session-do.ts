@@ -47,6 +47,7 @@ import {
 import { encodeEnvelope } from '@maelstrom-co/protocol';
 import { Effect, Layer, ManagedRuntime } from 'effect';
 import * as Result from 'effect/Result';
+import { AgentSession } from '../server/agent-session';
 import { dispatchFrame, encodeEngineErrorReply } from '../server/dispatch';
 import { engineMetadataFrame } from '../server/engine-model';
 import { resolvePreHelloDispatch } from '../server/playground-frames';
@@ -83,6 +84,8 @@ const sessionLayer = Layer.mergeAll(ConnectionsLive, enginesLive);
 
 export class SessionDO extends DurableObject<PlaygroundEnv> {
   readonly #runtime = ManagedRuntime.make(sessionLayer);
+  // PROTOTYPE (MAE-825): in-memory only, lost on hibernation. Untested hosted.
+  readonly #agentSessions = new WeakMap<WebSocket, AgentSession>();
 
   constructor(ctx: DurableObjectState, env: PlaygroundEnv) {
     super(ctx, env);
@@ -184,6 +187,19 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
               key ? Effect.runPromise(engines.forApiKey(key)) : null,
             wasHelloed: marker?.helloed === true && !connections.declined(ws),
             engineUnavailableReason: 'session engine unavailable',
+            getAgentSession: (engine) => {
+              if (!key) return null;
+              let session = this.#agentSessions.get(ws);
+              if (!session) {
+                session = new AgentSession({
+                  engine,
+                  apiKey: key,
+                  send: (wire) => this.#send(ws, wire, key),
+                });
+                this.#agentSessions.set(ws, session);
+              }
+              return session;
+            },
           }),
         catch: (cause): Error =>
           cause instanceof EngineBuildError

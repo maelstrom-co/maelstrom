@@ -17,6 +17,8 @@ import {
   encodeEnvelope,
   isErr,
 } from '@maelstrom-co/protocol';
+import type { AgentSession } from './agent-session';
+import { isAgentClientFrame } from './agent-session-frames';
 import {
   classifyIncomingFrame,
   type PlaygroundHelloFrame,
@@ -46,6 +48,13 @@ export interface DispatchContext {
   readonly wasHelloed: boolean;
   /** Error text for the engine-null reply, chosen by the transport. */
   readonly engineUnavailableReason: string;
+  /**
+   * PROTOTYPE (MAE-825): resolves this connection's Agent Session, which
+   * pushes its own frames. Absent or null means the transport has none.
+   */
+  readonly getAgentSession?: (
+    engine: Engine,
+  ) => AgentSession | null | Promise<AgentSession | null>;
 }
 
 export type DispatchResult =
@@ -118,6 +127,12 @@ export async function dispatchFrame(
       kind: 'reply',
       wire: encodeEngineErrorReply(raw, ctx.engineUnavailableReason),
     };
+  }
+
+  if (isAgentClientFrame(parsed)) {
+    const session = await ctx.getAgentSession?.(engine);
+    if (session) session.receive(parsed);
+    return { kind: 'none' };
   }
 
   const reply = await handleEnvelope(engine, raw);

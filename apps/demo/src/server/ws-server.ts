@@ -13,6 +13,7 @@
  */
 import { HEARTBEAT_PONG_FRAME } from '@maelstrom-co/connectors';
 import type { Engine } from '@maelstrom-co/engine';
+import { AgentSession } from './agent-session';
 import { dispatchFrame } from './dispatch';
 import { engineMetadataFrame } from './engine-model';
 import { buildLocalEngine, buildSharedEngine } from './local-planner';
@@ -54,6 +55,8 @@ export interface SocketData {
   browserApiKey?: string;
   browserEngine?: Engine | null;
   browserEngineInitError?: string | null;
+  /** PROTOTYPE (MAE-825): this connection's Agent Session, built on first use. */
+  agentSession?: AgentSession;
 }
 
 export interface WebSocketHandlerDeps {
@@ -61,6 +64,8 @@ export interface WebSocketHandlerDeps {
   readonly sharedEngineInitError: string | null;
   /** Server-held secrets, scrubbed from every outbound reply as defense in depth. */
   readonly secrets?: readonly string[];
+  /** PROTOTYPE (MAE-825): server OpenAI key for the Agent Session loop. */
+  readonly agentApiKey?: string;
 }
 
 /**
@@ -72,7 +77,12 @@ export interface WebSocketHandlerDeps {
 export function createWebSocketHandlers(
   deps: WebSocketHandlerDeps,
 ): Bun.WebSocketHandler<SocketData> {
-  const { sharedEngine, sharedEngineInitError, secrets = [] } = deps;
+  const {
+    sharedEngine,
+    sharedEngineInitError,
+    secrets = [],
+    agentApiKey,
+  } = deps;
 
   return {
     open(ws) {
@@ -90,6 +100,22 @@ export function createWebSocketHandlers(
           ws.data.browserEngineInitError ??
           sharedEngineInitError ??
           'engine unavailable',
+        getAgentSession: (engine) => {
+          const apiKey = agentApiKey || ws.data.browserApiKey;
+          if (!apiKey) return null;
+          ws.data.agentSession ??= new AgentSession({
+            engine,
+            apiKey,
+            send: (wire) =>
+              ws.send(
+                redactSecrets(wire, [
+                  ...secrets,
+                  ...(ws.data.browserApiKey ? [ws.data.browserApiKey] : []),
+                ]),
+              ),
+          });
+          return ws.data.agentSession;
+        },
       });
 
       switch (result.kind) {
@@ -142,6 +168,7 @@ if (import.meta.main) {
     sharedEngine: local.engine,
     sharedEngineInitError: local.initError,
     secrets: local.secrets,
+    agentApiKey: process.env.OPENAI_API_KEY?.trim() || undefined,
   });
   const server = Bun.serve<SocketData>({
     port: PORT,
