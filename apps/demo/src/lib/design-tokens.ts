@@ -14,7 +14,16 @@ export const ACCENT_HEX: Record<AccentToken, string> = {
   amber: '#f5a524',
 };
 
-export type VesselName = 'calendar' | 'weather' | 'map' | 'journal' | 'tasks';
+export type VesselName =
+  | 'calendar'
+  | 'weather'
+  | 'map'
+  | 'journal'
+  | 'tasks'
+  | 'orders'
+  | 'catalog'
+  | 'cart'
+  | 'checkout';
 
 export const VESSEL_ACCENTS: Record<VesselName, AccentToken> = {
   calendar: 'brand',
@@ -22,6 +31,10 @@ export const VESSEL_ACCENTS: Record<VesselName, AccentToken> = {
   map: 'brand-3',
   journal: 'green',
   tasks: 'amber',
+  orders: 'brand',
+  catalog: 'brand-3',
+  cart: 'amber',
+  checkout: 'green',
 };
 
 /** Cycles the full shipped palette for calendar event chips — order is fixed, not tied to any per-event identity. */

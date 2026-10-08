@@ -73,6 +73,10 @@ vi.mock('../vessels/journal.vessel', () => ({ journalEntry: {} }));
 vi.mock('../vessels/map.vessel', () => ({ mapEntry: {} }));
 vi.mock('../vessels/tasks.vessel', () => ({ tasksEntry: {} }));
 vi.mock('../vessels/weather.vessel', () => ({ weatherEntry: {} }));
+vi.mock('../vessels/orders.vessel', () => ({ ordersEntry: {} }));
+vi.mock('../vessels/catalog.vessel', () => ({ catalogEntry: {} }));
+vi.mock('../vessels/cart.vessel', () => ({ cartEntry: {} }));
+vi.mock('../vessels/checkout.vessel', () => ({ checkoutEntry: {} }));
 vi.mock('./debug-mode', () => ({ isDebugRequested: () => true }));
 vi.mock('./mint-token', () => ({
   mintOpenAIToken: () => Promise.resolve(),

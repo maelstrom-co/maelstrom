@@ -6,8 +6,12 @@ import { LiveKitAdapter } from '@maelstrom-co/realtime-livekit';
 import { OpenAIAdapter } from '@maelstrom-co/realtime-openai';
 import { OpenAILiveAdapter } from '@maelstrom-co/realtime-openai-live';
 import { calendarEntry } from '../vessels/calendar.vessel';
+import { cartEntry } from '../vessels/cart.vessel';
+import { catalogEntry } from '../vessels/catalog.vessel';
+import { checkoutEntry } from '../vessels/checkout.vessel';
 import { journalEntry } from '../vessels/journal.vessel';
 import { mapEntry } from '../vessels/map.vessel';
+import { ordersEntry } from '../vessels/orders.vessel';
 import { tasksEntry } from '../vessels/tasks.vessel';
 import { weatherEntry } from '../vessels/weather.vessel';
 import { isDebugRequested } from './debug-mode';
@@ -43,6 +47,10 @@ const vessels = [
   journalEntry,
   tasksEntry,
   mapEntry,
+  ordersEntry,
+  catalogEntry,
+  cartEntry,
+  checkoutEntry,
 ] as const;
 
 // Factories only — no network at module load.

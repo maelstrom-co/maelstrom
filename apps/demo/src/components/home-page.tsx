@@ -5,7 +5,12 @@ import { useStore } from '@tanstack/react-store';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createDemoConnector } from '../lib/connector';
 import { isDebugRequested } from '../lib/debug-mode';
-import { DEFAULT_LAYOUT, NARROW_LAYOUT } from '../lib/default-layout';
+import {
+  DEFAULT_LAYOUT,
+  isShopLayoutRequested,
+  NARROW_LAYOUT,
+  SHOP_LAYOUT,
+} from '../lib/default-layout';
 import { STATUS_COLORS } from '../lib/design-tokens';
 import { diagnosticCapture } from '../lib/diagnostic-capture';
 import {
@@ -113,9 +118,11 @@ export function HomePage() {
   const sessionId = useMemo(() => SessionId(), [keyEpoch]);
   const initialLayout = useMemo(
     () =>
-      layoutHostWidth !== null && layoutHostWidth <= 640
-        ? NARROW_LAYOUT
-        : DEFAULT_LAYOUT,
+      isShopLayoutRequested()
+        ? SHOP_LAYOUT
+        : layoutHostWidth !== null && layoutHostWidth <= 640
+          ? NARROW_LAYOUT
+          : DEFAULT_LAYOUT,
     [layoutHostWidth],
   );
   const connector = useMemo(() => {

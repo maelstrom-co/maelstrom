@@ -8,7 +8,17 @@ import {
   VESSEL_ACCENTS,
 } from './design-tokens';
 
-const ALL_VESSELS = ['calendar', 'weather', 'map', 'journal', 'tasks'] as const;
+const ALL_VESSELS = [
+  'calendar',
+  'weather',
+  'map',
+  'journal',
+  'tasks',
+  'orders',
+  'catalog',
+  'cart',
+  'checkout',
+] as const;
 
 const ALL_STATUS_KEYS: StatusKey[] = [
   'idle',
