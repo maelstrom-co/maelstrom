@@ -17,6 +17,8 @@ import {
 import type { AnyTextAdapter } from '@tanstack/ai';
 import { z } from 'zod';
 
+import { createStageDeps } from '../planners/jev-stage-planner.js';
+import type { JevDeps } from '../stages/stage-deps.js';
 import type { TypeSafeClientOptions } from '../typesafe-client.js';
 import { type Conversation, conversation } from './actions-fixtures.js';
 import {
@@ -26,6 +28,7 @@ import {
   silentLogger,
 } from './fixtures.js';
 import { dummyAdapter, mockChat } from './mock-chat.js';
+import { scriptedDecisionsAsk } from './scripted-decisions-fetch.js';
 import { type Payload, scriptedFetch, TEST_MODEL } from './scripted-fetch.js';
 
 /** One request the frozen POC and the stage-library planners are pinned on. */
@@ -173,18 +176,9 @@ export async function runPocCase(
   fixture: PocCase,
   build: (options: PlannerFixtureOptions) => Planner,
 ): Promise<PocRun> {
-  mockChat.mockReset();
-  mockChat.mockResolvedValue(fixture.completion);
   const { fetch, calls } = scriptedFetch(conversation(fixture.script));
-  let fallbackCalls = 0;
-  const fallback: Stage<Retryable<PlanningInput>, PlannerCandidate> = async (
-    input,
-  ) => {
-    fallbackCalls += 1;
-    return ok(fallbackCandidate(input.request));
-  };
-  const engine = createEngine({
-    planner: build({
+  return planPocCase(fixture, calls, (fallback) =>
+    build({
       typesafe: {
         apiKey: 'typesafe-test-key',
         model: TEST_MODEL,
@@ -194,6 +188,48 @@ export async function runPocCase(
       adapter: dummyAdapter,
       fallback,
     }),
+  );
+}
+
+/**
+ * Plans `fixture` as {@link runPocCase} does, with the planner built over
+ * the scripted Decisions transport. The recorded evaluations are the
+ * decoded, TypeSafe-shaped payloads.
+ */
+export async function runPocCaseOnDecisions(
+  fixture: PocCase,
+  build: (deps: JevDeps) => Planner,
+): Promise<PocRun> {
+  const { ask, calls } = scriptedDecisionsAsk(conversation(fixture.script));
+  return planPocCase(fixture, calls, (fallback) =>
+    build(
+      createStageDeps(
+        ask,
+        { adapter: dummyAdapter, fallback },
+        'DecisionsPlannerOptions',
+      ),
+    ),
+  );
+}
+
+async function planPocCase(
+  fixture: PocCase,
+  calls: readonly Payload[],
+  build: (
+    fallback: Stage<Retryable<PlanningInput>, PlannerCandidate>,
+  ) => Planner,
+): Promise<PocRun> {
+  mockChat.mockReset();
+  mockChat.mockResolvedValue(fixture.completion);
+  let fallbackCalls = 0;
+  const fallback: Stage<Retryable<PlanningInput>, PlannerCandidate> = async (
+    input,
+  ) => {
+    fallbackCalls += 1;
+    return ok(fallbackCandidate(input.request));
+  };
+  const engine = createEngine({
+    planner: build(fallback),
     retry: false,
     logger: silentLogger,
   });
