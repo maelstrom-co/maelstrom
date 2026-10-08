@@ -10,6 +10,8 @@ import {
   registerAgentOrchestrator,
   runAgentTurn,
 } from './agent-session-client';
+import { createVoiceCueGate } from './agent-voice-cues';
+import { currentVoiceSession } from './demo-voice';
 
 export interface AgentSessionBridge {
   /**
@@ -45,7 +47,14 @@ function routeProcessIntentToAgentSession(
 ): () => void {
   const original = orchestrator.processIntent;
   orchestrator.processIntent = async (intent: string) => {
-    const outcome = await runAgentTurn(intent);
+    const cues = createVoiceCueGate({
+      speak: (text) =>
+        currentVoiceSession(orchestrator)?.speakCue(text) ?? false,
+      log: (message, text) => console.info(`[agent-session] ${message}:`, text),
+    });
+    const outcome = await runAgentTurn(intent, {
+      onProgress: (text) => cues.offer(text),
+    }).finally(() => cues.close());
     const layout = orchestrator.commandProcessor.store.state.layout;
     return {
       type: 'maelstrom_response',

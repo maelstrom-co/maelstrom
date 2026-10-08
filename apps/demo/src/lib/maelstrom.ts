@@ -140,6 +140,8 @@ function createLiveAdapter(): OpenAILiveAdapter {
     exchange: createDemoLiveExchange(
       usesBrowserKey() ? () => playgroundKeyStore.state.apiKey : undefined,
     ),
+    // PROTOTYPE (MAE-825): logs progress-cue commentary sends and replies.
+    debug: true,
   });
 }
 

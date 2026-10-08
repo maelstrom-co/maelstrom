@@ -53,6 +53,7 @@ export function attachDemoVoice(
   const { provider, adapter } = context;
   const providerInstanceId = context.instanceId;
   currentInstances.set(context.orchestrator, providerInstanceId);
+  currentSessions.set(context.orchestrator, session);
   const diagnostics = diagnosticsFor(context.orchestrator);
   sessions.set(session, {
     provider,
@@ -121,8 +122,17 @@ export function attachDemoVoice(
     }),
   ];
   return () => {
+    if (currentSessions.get(context.orchestrator) === session)
+      currentSessions.delete(context.orchestrator);
     for (const release of releases) release();
   };
+}
+
+/** The voice session most recently attached for an orchestrator, while attached. */
+export function currentVoiceSession(
+  orchestrator: Orchestrator,
+): RealtimeSession | undefined {
+  return currentSessions.get(orchestrator);
 }
 
 /** Demo wiring of a session built by the library, or undefined for a foreign one. */
@@ -135,6 +145,7 @@ export function demoVoiceSession(
 const sessions = new WeakMap<RealtimeSession, DemoVoiceSession>();
 const diagnosticsByOrchestrator = new WeakMap<Orchestrator, VoiceDiagnostics>();
 const currentInstances = new WeakMap<Orchestrator, string>();
+const currentSessions = new WeakMap<Orchestrator, RealtimeSession>();
 
 function diagnosticsFor(orchestrator: Orchestrator): VoiceDiagnostics {
   const existing = diagnosticsByOrchestrator.get(orchestrator);

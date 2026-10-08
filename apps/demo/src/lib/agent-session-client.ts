@@ -53,6 +53,7 @@ const TURN_RESULT_TIMEOUT_MS = 100_000;
 let state = INITIAL_STATE;
 let activeTurnId: string | null = null;
 const pendingTurns = new Map<string, (outcome: AgentTurnOutcome) => void>();
+const progressListeners = new Map<string, (text: string) => void>();
 let currentSend: ((data: string) => void) | null = null;
 let currentOrchestrator: Orchestrator | null = null;
 const listeners = new Set<() => void>();
@@ -96,7 +97,10 @@ export function sendAgentUserText(text: string): void {
  * Never rejects: a busy session, a missing channel or a stalled turn all
  * resolve with a speakable reply instead.
  */
-export function runAgentTurn(text: string): Promise<AgentTurnOutcome> {
+export function runAgentTurn(
+  text: string,
+  options: { readonly onProgress?: (text: string) => void } = {},
+): Promise<AgentTurnOutcome> {
   const orchestrator = currentOrchestrator;
   const send = currentSend;
   if (!send || !orchestrator) {
@@ -117,6 +121,7 @@ export function runAgentTurn(text: string): Promise<AgentTurnOutcome> {
 
   const turnId = crypto.randomUUID();
   activeTurnId = turnId;
+  if (options.onProgress) progressListeners.set(turnId, options.onProgress);
   setState({
     active: true,
     progress: [],
@@ -127,6 +132,7 @@ export function runAgentTurn(text: string): Promise<AgentTurnOutcome> {
   const outcome = new Promise<AgentTurnOutcome>((resolve) => {
     const timer = setTimeout(() => {
       pendingTurns.delete(turnId);
+      progressListeners.delete(turnId);
       if (activeTurnId === turnId) {
         activeTurnId = null;
         setState({ ...state, active: false });
@@ -163,6 +169,8 @@ async function routeFrame(
 ): Promise<void> {
   switch (frame.type) {
     case 'agent.progress':
+      if (activeTurnId !== null)
+        progressListeners.get(activeTurnId)?.(frame.text);
       setState({
         ...state,
         progress: [
@@ -193,6 +201,7 @@ async function routeFrame(
         busy: frame.busy === true,
       });
       pendingTurns.delete(frame.turnId);
+      progressListeners.delete(frame.turnId);
       if (frame.turnId !== activeTurnId) return;
       activeTurnId = null;
       setState({
