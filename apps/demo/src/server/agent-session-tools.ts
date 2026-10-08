@@ -268,6 +268,8 @@ function withoutNulls<T extends object>(input: T): WithoutNulls<T> {
   ) as WithoutNulls<T>;
 }
 
+// Bypasses the Planner for measurement only: the design keeps the Planner
+// as the single path for UI changes.
 async function showInCatalog(
   context: AgentToolContext,
   action: string,
