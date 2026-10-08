@@ -1,15 +1,18 @@
 import {
   named,
   type Planner,
+  type PlannerCandidate,
   type PlanningInput,
   pipeline,
+  type Retryable,
   type Stage,
   withFallback,
   withRetry,
 } from '@maelstrom-co/engine';
 import { isErr, ok } from '@maelstrom-co/protocol';
+import type { AnyTextAdapter } from '@tanstack/ai';
+import type { Ask } from '../ask.js';
 import { STAGE_NAME } from '../defer.js';
-import { FALLBACK_RETRIES } from '../jev-planner.js';
 import type { CompletionLlm, JevDeps } from '../stages/stage-deps.js';
 import type {
   ActionPlan2,
@@ -18,7 +21,46 @@ import type {
   LayoutDecision,
   Selection2,
 } from '../stages/stage-types.js';
-import type { Ask } from '../typesafe-client.js';
+
+/** How many times the fallback is re-run when validation recommends a retry. */
+export const FALLBACK_RETRIES = 1;
+
+/** The provider-neutral options {@link createStageDeps} validates, shaped like `JevPlannerOptions`. */
+export interface StageDepsOptions {
+  /** TanStack AI text adapter for the completion call. */
+  readonly adapter: AnyTextAdapter;
+  /** Provider options forwarded to the completion call's `chat()`. */
+  readonly modelOptions?: Record<string, unknown>;
+  /** The unwrapped fallback planner. */
+  readonly fallback: Stage<Retryable<PlanningInput>, PlannerCandidate>;
+}
+
+/**
+ * Validates the provider-neutral options and assembles {@link JevDeps}
+ * around `ask`. Error messages start with `Invalid ${optionsName}:`.
+ *
+ * @throws {Error} If `fallback` is not a stage or `adapter` is missing.
+ */
+export function createStageDeps(
+  ask: Ask,
+  options: StageDepsOptions,
+  optionsName: string,
+): JevDeps {
+  if (typeof options.fallback !== 'function')
+    throw new Error(`Invalid ${optionsName}: fallback must be a stage`);
+  if (options.adapter === undefined || options.adapter === null)
+    throw new Error(`Invalid ${optionsName}: adapter is required`);
+  return {
+    ask,
+    llm: {
+      adapter: options.adapter,
+      ...(options.modelOptions !== undefined && {
+        modelOptions: options.modelOptions,
+      }),
+    },
+    fallback: options.fallback,
+  };
+}
 
 /**
  * The action plan an actions stage hands on after a select stage whose

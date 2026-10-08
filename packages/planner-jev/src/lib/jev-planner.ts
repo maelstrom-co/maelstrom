@@ -12,6 +12,7 @@ import {
 import type { AnyTextAdapter } from '@tanstack/ai';
 import { STAGE_NAME } from './defer.js';
 import { logTurns } from './log-turn.js';
+import { FALLBACK_RETRIES } from './planners/jev-stage-planner.js';
 import { jevActions } from './stages/jev-actions.js';
 import { jevLayout } from './stages/jev-layout.js';
 import { jevSelect } from './stages/jev-select.js';
@@ -21,8 +22,7 @@ import {
   type TypeSafeClientOptions,
 } from './typesafe-client.js';
 
-/** How many times the fallback is re-run when validation recommends a retry. */
-export const FALLBACK_RETRIES = 1;
+export { FALLBACK_RETRIES };
 
 /** Connection settings for TypeSafe's System One endpoint, which serves Jev. */
 export interface TypeSafeOptions {

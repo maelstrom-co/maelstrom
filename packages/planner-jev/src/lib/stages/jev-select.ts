@@ -7,7 +7,7 @@ import {
   VariantName,
   type Vessel,
 } from '@maelstrom-co/protocol';
-
+import type { Ask } from '../ask.js';
 import { deferAt, STAGE_NAME } from '../defer.js';
 import {
   type ConfidencePolicy,
@@ -18,7 +18,6 @@ import {
   recentHistory,
 } from '../questions.js';
 import type { AnswerRecord, JevSelection, SelectedInstance } from '../types.js';
-import type { Ask } from '../typesafe-client.js';
 
 const STAGE = STAGE_NAME.jevSelect;
 const NEW_SLOTS_PER_VESSEL = 2;

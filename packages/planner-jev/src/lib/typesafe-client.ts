@@ -1,52 +1,34 @@
-import type {
-  CancellationError,
-  Deferred,
-  StageContext,
-} from '@maelstrom-co/engine';
 import { cancellationError } from '@maelstrom-co/engine';
-import { err, ok, type Result } from '@maelstrom-co/protocol';
+import { err, ok } from '@maelstrom-co/protocol';
 
-import { deferAt, type JevCaller } from './defer.js';
+import type { Ask, AskCall, CallAnswer, CallOutcome } from './ask.js';
+import { deferAt } from './defer.js';
 import {
-  type Answer,
   type Evaluation,
   overOptionCap,
   type Reply,
   type ScoreQuestion,
   type Usage,
 } from './questions.js';
+import {
+  choiceAnswer,
+  isCount,
+  isProbability,
+  isRecord,
+  levelAnswer,
+  noulAnswer,
+  readBody,
+  sameKeys,
+  withoutProbabilities,
+} from './reply-validation.js';
+
+export type { Ask, CallAnswer, CallOutcome } from './ask.js';
 
 const DEFAULT_ENDPOINT = 'https://api.typesafe.ai/v1/systemone';
 const DEFAULT_TIMEOUT_MS = 5000;
-const MAX_RESPONSE_BYTES = 256 * 1024;
 
-/** How one TypeSafe call ended: `ok`, `cancelled`, or the deferral code. */
-export type CallOutcome =
-  | 'ok'
-  | 'cancelled'
-  | 'option_cap'
-  | 'provider_timeout'
-  | 'provider_network'
-  | 'provider_http'
-  | 'provider_invalid_reply';
-
-/** One validated answer as {@link JevCall} reports it. */
-export interface CallAnswer extends Answer {
-  /** Probability per option: `yes` and `no` for a noul, level number strings for a score. */
-  readonly probabilities?: Readonly<Record<string, number>>;
-}
-
-/** What the client reports about each call to {@link TypeSafeClientOptions.onCall}. */
-export interface JevCall {
-  /** Who asked: a stage, or `grader` for the eval's grader. */
-  readonly stage: JevCaller;
-  readonly questionIds: readonly string[];
-  readonly latencyMs: number;
-  readonly usage?: Usage;
-  readonly outcome: CallOutcome;
-  /** Every answer of a reply that passed validation, whether or not the stage later defers. */
-  readonly answers?: Readonly<Record<string, CallAnswer>>;
-}
+/** What the TypeSafe client reports about each call; the provider-neutral {@link AskCall}. */
+export type JevCall = AskCall;
 
 /** Connection settings for TypeSafe's System One endpoint. */
 export interface TypeSafeClientOptions {
@@ -70,15 +52,19 @@ export interface TypeSafeClientOptions {
   readonly logReplies?: boolean;
 }
 
-/** Asks Jev one evaluation on behalf of `stage`, a stage or the eval's grader. */
-export type Ask = (
-  stage: JevCaller,
-  evaluation: Evaluation,
-  ctx: StageContext,
-) => Promise<Result<Reply, Deferred | CancellationError>>;
-
 type ProviderCode = Exclude<CallOutcome, 'ok' | 'cancelled' | 'option_cap'>;
 
+/**
+ * An {@link Ask} that sends each evaluation to TypeSafe's System One
+ * endpoint and validates the reply strictly (see {@link validateReply}).
+ * A question over the option cap defers `option_cap` before any call; a
+ * timeout, network failure, non-2xx status or invalid reply defers with the
+ * matching `provider_*` code and logs `jev.provider_failure` at warn; a user
+ * abort returns a `CancellationError`. Every call logs `jev.call` at debug,
+ * emits a `jev.call` instrument event and reaches `onCall`.
+ *
+ * @throws {Error} If an option is invalid. The message never contains the key.
+ */
 export function createTypeSafeClient(options: TypeSafeClientOptions): Ask {
   const config = validateOptions(options);
   return async (stage, evaluation, ctx) => {
@@ -214,7 +200,7 @@ export function createTypeSafeClient(options: TypeSafeClientOptions): Ask {
  * its legend with probabilities over exactly those levels summing to 1
  * within 0.02 and a score between 0 and the top level, and usage is
  * integral. A noul answer is read as a `yes` or `no` choice and a score
- * answer keeps its score and per-level probabilities (see {@link Answer}).
+ * answer keeps its score and per-level probabilities (see `Answer`).
  */
 export function validateReply(
   raw: unknown,
@@ -262,37 +248,15 @@ function parseReply(
       answers[id] = parsed;
       continue;
     }
-    if (
-      !isRecord(answer) ||
-      answer.type !== 'choice' ||
-      typeof answer.choice !== 'string' ||
-      !isProbability(answer.confidence) ||
-      !isRecord(answer.probabilities)
-    )
-      return undefined;
-    const options = Object.keys(question.criteria);
-    if (
-      !sameKeys(answer.probabilities, options) ||
-      !Object.hasOwn(question.criteria, answer.choice)
-    )
-      return undefined;
-    let total = 0;
-    let maximum = -1;
-    const probabilities: Record<string, number> = Object.create(null);
-    for (const option of options) {
-      const value = answer.probabilities[option];
-      if (!isProbability(value)) return undefined;
-      probabilities[option] = value;
-      total += value;
-      maximum = Math.max(maximum, value);
-    }
-    if (!sumsToOne(total) || answer.probabilities[answer.choice] !== maximum)
-      return undefined;
-    answers[id] = {
-      choice: answer.choice,
-      confidence: answer.confidence,
-      probabilities,
-    };
+    if (!isRecord(answer) || answer.type !== 'choice') return undefined;
+    const parsed = choiceAnswer(
+      answer.choice,
+      answer.confidence,
+      answer.probabilities,
+      Object.keys(question.criteria),
+    );
+    if (parsed === undefined) return undefined;
+    answers[id] = parsed;
   }
   return {
     answers,
@@ -300,15 +264,6 @@ function parseReply(
       inputTokens: raw.usage.input_tokens,
       outputTokens: raw.usage.output_tokens,
     },
-  };
-}
-
-function noulAnswer(probability: number): CallAnswer {
-  return {
-    choice: probability >= 0.5 ? 'yes' : 'no',
-    confidence: Math.abs(2 * probability - 1),
-    probability,
-    probabilities: { yes: probability, no: 1 - probability },
   };
 }
 
@@ -320,96 +275,19 @@ function scoreAnswer(
   if (
     !isRecord(answer) ||
     answer.type !== 'score' ||
-    typeof answer.score !== 'number' ||
-    !Number.isFinite(answer.score) ||
-    answer.score < 0 ||
-    answer.score > question.criteria.length - 1 ||
-    !isProbability(answer.confidence) ||
     !isRecord(answer.legend) ||
-    !isRecord(answer.probabilities) ||
-    !sameKeys(answer.legend, levelKeys) ||
-    !sameKeys(answer.probabilities, levelKeys)
+    !sameKeys(answer.legend, levelKeys)
   )
     return undefined;
-  let total = 0;
-  let top = levelKeys[0];
-  const probabilities: Record<string, number> = Object.create(null);
-  for (const [level, key] of levelKeys.entries()) {
-    const value = answer.probabilities[key];
-    if (
-      answer.legend[key] !== question.criteria[level] ||
-      !isProbability(value)
-    )
-      return undefined;
-    probabilities[key] = value;
-    total += value;
-    if (value > probabilities[top]) top = key;
-  }
-  if (!sumsToOne(total)) return undefined;
-  return {
-    choice: top,
-    confidence: answer.confidence,
-    score: answer.score,
-    probabilities,
-  };
-}
-
-function sumsToOne(total: number): boolean {
-  return Math.abs(total - 1) <= 0.02;
-}
-
-function withoutProbabilities(reply: Reply): Reply {
-  const answers: Record<string, Answer> = Object.create(null);
-  for (const [id, answer] of Object.entries(reply.answers))
-    answers[id] = replyAnswer(answer);
-  return { answers, usage: reply.usage };
-}
-
-function replyAnswer({
-  choice,
-  confidence,
-  probability,
-  score,
-  probabilities,
-}: Answer): Answer {
-  if (score !== undefined && probabilities !== undefined)
-    return { choice, confidence, score, probabilities };
-  if (probability !== undefined) return { choice, confidence, probability };
-  const answer = { choice, confidence };
-  if (probabilities !== undefined)
-    // Non-enumerable so answer records spread from a choice answer, and every
-    // recording and snapshot built from them, keep their earlier shape.
-    Object.defineProperty(answer, 'probabilities', {
-      value: probabilities,
-      enumerable: false,
-    });
-  return answer;
-}
-
-async function readBody(
-  response: Response,
-  signal: AbortSignal,
-): Promise<string | undefined> {
-  const length = response.headers.get('content-length');
-  if (length !== null && Number(length) > MAX_RESPONSE_BYTES) return undefined;
-  if (!response.body) throw new Error('response body missing');
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let bytes = 0;
-  let text = '';
-  try {
-    for (;;) {
-      if (signal.aborted) throw new Error('request aborted');
-      const next = await reader.read();
-      if (next.done) break;
-      bytes += next.value.byteLength;
-      if (bytes > MAX_RESPONSE_BYTES) return undefined;
-      text += decoder.decode(next.value, { stream: true });
-    }
-    return text + decoder.decode();
-  } finally {
-    void reader.cancel().catch(() => undefined);
-  }
+  const legend = answer.legend;
+  if (levelKeys.some((key, level) => legend[key] !== question.criteria[level]))
+    return undefined;
+  return levelAnswer(
+    answer.score,
+    answer.confidence,
+    answer.probabilities,
+    question.criteria.length,
+  );
 }
 
 function validateOptions(options: TypeSafeClientOptions) {
@@ -448,31 +326,4 @@ function validateOptions(options: TypeSafeClientOptions) {
     onCall: options.onCall,
     logReplies: options.logReplies ?? false,
   };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function sameKeys(
-  record: Record<string, unknown>,
-  keys: readonly string[],
-): boolean {
-  return (
-    Object.keys(record).length === keys.length &&
-    keys.every((key) => Object.hasOwn(record, key))
-  );
-}
-
-function isProbability(value: unknown): value is number {
-  return (
-    typeof value === 'number' &&
-    Number.isFinite(value) &&
-    value >= 0 &&
-    value <= 1
-  );
-}
-
-function isCount(value: unknown): value is number {
-  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 }

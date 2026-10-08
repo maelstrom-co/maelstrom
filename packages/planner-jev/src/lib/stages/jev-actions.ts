@@ -13,6 +13,7 @@ import {
   type VariantName,
   type VesselAction,
 } from '@maelstrom-co/protocol';
+import type { Ask } from '../ask.js';
 import { deferAt, STAGE_NAME } from '../defer.js';
 import {
   bindParameterChoices,
@@ -36,7 +37,6 @@ import type {
   PlannedAction,
   SelectedInstance,
 } from '../types.js';
-import type { Ask } from '../typesafe-client.js';
 
 const STAGE = STAGE_NAME.jevActions;
 /** Planned actions per request; choosing a fifth defers. */

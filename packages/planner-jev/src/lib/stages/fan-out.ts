@@ -4,10 +4,9 @@ import type {
   StageContext,
 } from '@maelstrom-co/engine';
 import { isErr, ok, type Result } from '@maelstrom-co/protocol';
-
+import type { Ask } from '../ask.js';
 import { deferAt, type StageName } from '../defer.js';
 import type { Answer, Evaluation, Question, Reply } from '../questions.js';
-import type { Ask } from '../typesafe-client.js';
 
 /**
  * The serialized request size one TypeSafe call is packed up to, in bytes.
