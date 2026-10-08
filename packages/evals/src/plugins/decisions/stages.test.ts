@@ -45,6 +45,11 @@ describe('the Decisions stage evals on the scripted Decisions transport', () => 
   test('decisions-select judges the gates Decisions answered', async () => {
     const { client, transport } = scripted(
       conversation({
+        select: {
+          'view/map-main': 'keep',
+          'view/weather-main': 'hide',
+          'view/tasks-main': 'hide',
+        },
         gates: {
           'gate/needsActions': 0.9,
           'gate/generatedContent': 0.1,
