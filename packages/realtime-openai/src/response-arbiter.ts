@@ -26,7 +26,7 @@ const entry = (): Entry => ({
 
 /** Package-private, generation-local OpenAI response scheduling and interruption policy. */
 export class ResponseArbiter {
-  #inFlight: { responseId?: string } | undefined;
+  #inFlight: { responseId?: string; outOfBandEventId?: string } | undefined;
   #toolPending = false;
   #fatal = false;
   #blockDepth = 0;
@@ -71,6 +71,47 @@ export class ResponseArbiter {
       return;
     }
     this.#create();
+  }
+  /**
+   * Sends an out-of-band `response.create` only while no response is in flight,
+   * owed to a tool result, or queued for a user turn, so it can never collide
+   * with them. It then occupies the in-flight slot like any response, and a
+   * tool follow-up requested meanwhile is deferred until it is done.
+   */
+  requestOutOfBand(command: {
+    readonly event_id: string;
+    readonly response: object;
+  }): boolean {
+    if (
+      this.#fatal ||
+      this.#inFlight ||
+      this.#toolPending ||
+      this.#queue.length > 0 ||
+      this.#blocked()
+    ) {
+      this.#sink.debug('out-of-band-skipped');
+      return false;
+    }
+    this.#inFlight = { outOfBandEventId: command.event_id };
+    try {
+      this.#sink.send({ type: 'response.create', ...command });
+      return true;
+    } catch {
+      this.#inFlight = undefined;
+      this.#sink.debug('out-of-band-send-failed');
+      return false;
+    }
+  }
+  /** Frees the slot when the provider rejects an out-of-band request before creating its response. */
+  outOfBandRejected(eventId: string | undefined): void {
+    if (
+      !eventId ||
+      this.#inFlight?.outOfBandEventId !== eventId ||
+      this.#inFlight.responseId
+    )
+      return;
+    this.#inFlight = undefined;
+    this.#drain();
   }
   committed(itemId: string | undefined): void {
     const e = this.#get(itemId);

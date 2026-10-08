@@ -528,6 +528,36 @@ export class OpenAIAdapter
     }
   }
 
+  /**
+   * Speaks a short progress cue as an out-of-band response
+   * (`conversation: "none"`), so the cue never enters the default
+   * conversation. The response arbiter sends it only while no other response
+   * is in flight, owed to a tool result, or queued for a user turn; otherwise
+   * the cue is dropped and this returns `false`. User speech cancels it like
+   * any other response. `true` proves local submission only.
+   */
+  speakCue(text: string): boolean {
+    const cue = text.trim();
+    const arbiter = this.#arbiter;
+    if (!cue || !arbiter || !this.#dc || this.#dc.readyState !== 'open')
+      return false;
+    const eventId = `cue_${crypto.randomUUID()}`;
+    const sent = arbiter.requestOutOfBand({
+      event_id: eventId,
+      response: {
+        conversation: 'none',
+        output_modalities: ['audio'],
+        input: [],
+        instructions: `Say exactly: ${cue}`,
+        metadata: { maelstrom_kind: 'progress_cue' },
+      },
+    });
+    this.#logger.debug(sent ? '→ progress cue' : 'progress cue skipped', {
+      eventId,
+    });
+    return sent;
+  }
+
   on(handler: (event: RealtimeAdapterEvent) => void): Unsubscribe {
     this.#handlers.add(handler);
     return () => {
@@ -1006,6 +1036,8 @@ export class OpenAIAdapter
         this.#responseId(parsed),
         this.#completedResponseHasExplicitlyEmptyOutput(parsed),
       );
+    } else if (type === 'error') {
+      this.#arbiter?.outOfBandRejected(this.#clientEventId(parsed));
     } else if (type === 'output_audio_buffer.started') {
       this.#arbiter?.outputStarted();
       if (this.#pc)
@@ -1124,6 +1156,11 @@ export class OpenAIAdapter
       Array.isArray(event.response.output) &&
       event.response.output.length === 0
     );
+  }
+
+  #clientEventId(event: unknown): string | undefined {
+    if (!isRecord(event) || !isRecord(event.error)) return undefined;
+    return asString(event.error.event_id);
   }
 
   #itemId(event: unknown): string | undefined {

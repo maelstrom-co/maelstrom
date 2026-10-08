@@ -225,3 +225,33 @@ test('generation close drops queued and settled state', () => {
   arbiter.requestToolFollowUp();
   expect(commands).toEqual([{ type: 'response.create' }]);
 });
+
+test('out-of-band cues never overlap a response and defer tool follow-ups until done', () => {
+  const { arbiter, commands } = harness();
+  const cue = { event_id: 'cue', response: { conversation: 'none' } };
+  expect(arbiter.requestOutOfBand(cue)).toBe(true);
+  expect(arbiter.requestOutOfBand({ ...cue, event_id: 'second' })).toBe(false);
+  arbiter.responseCreated('cue-response');
+  arbiter.requestToolFollowUp();
+  expect(commands).toEqual([{ type: 'response.create', ...cue }]);
+  arbiter.responseDone('cue-response', false);
+  expect(commands).toEqual([
+    { type: 'response.create', ...cue },
+    { type: 'response.create' },
+  ]);
+  expect(arbiter.requestOutOfBand({ ...cue, event_id: 'third' })).toBe(false);
+});
+
+test('a rejected out-of-band cue releases the slot for an owed tool follow-up', () => {
+  const { arbiter, commands } = harness();
+  const cue = { event_id: 'cue', response: { conversation: 'none' } };
+  arbiter.requestOutOfBand(cue);
+  arbiter.requestToolFollowUp();
+  arbiter.outOfBandRejected('other');
+  expect(commands).toHaveLength(1);
+  arbiter.outOfBandRejected('cue');
+  expect(commands).toEqual([
+    { type: 'response.create', ...cue },
+    { type: 'response.create' },
+  ]);
+});
