@@ -228,6 +228,16 @@ export interface RealtimeProviderAdapter extends RealtimeTransportAdapter {
    * adapter is never asked to collapse a rapid burst on its own.
    */
   injectGrounding(text: string): void;
+  /**
+   * Optional: asks the provider to speak a short progress cue, such as
+   * "Searching your past orders", while a tool call is still pending. Cues are
+   * ephemeral: an adapter may drop one rather than queue it when the provider
+   * is busy, and never replays one after reconnect.
+   *
+   * Returns `true` only when the cue was handed to the provider, which never
+   * proves audible delivery, and `false` when it was skipped. Must not throw.
+   */
+  speakCue?(text: string): boolean;
   on(handler: (event: RealtimeAdapterEvent) => void): Unsubscribe;
   /**
    * Manual control for the current connection generation. It may appear,

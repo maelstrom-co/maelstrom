@@ -415,6 +415,32 @@ export class RealtimeSession implements VoiceSession {
     return true;
   }
 
+  /** Whether the current adapter implements {@link RealtimeProviderAdapter.speakCue}. */
+  get canSpeakCue(): boolean {
+    return typeof this.#adapter.speakCue === 'function';
+  }
+
+  /**
+   * Asks the connected provider to speak a short progress cue while a tool
+   * call is pending. Returns `true` only when the adapter handed the cue to the
+   * provider, never as proof of audible delivery. Returns `false` when the
+   * adapter has no cue support, the session is not connected, the text is
+   * blank, or the adapter skipped the cue. Cues are not transcripts or Engine
+   * history entries.
+   */
+  speakCue(text: string): boolean {
+    const cue = text.trim();
+    const adapter = this.#adapter;
+    if (!cue || !adapter.speakCue || this.#connection !== 'connected')
+      return false;
+    try {
+      return adapter.speakCue(cue);
+    } catch (error) {
+      this.#logger.warn('speakCue failed', error);
+      return false;
+    }
+  }
+
   /**
    * Retained fixed-greeting presentation lifecycle for this shared session.
    * The value is initialized synchronously from coordinator proof and survives
