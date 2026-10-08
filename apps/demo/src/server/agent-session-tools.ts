@@ -75,30 +75,50 @@ export const AGENT_TOOLS: readonly AgentTool[] = [
   defineAgentTool({
     name: 'search_products',
     description:
-      'Search the pet-food catalog. Every field is optional and they combine.',
+      'Search the pet-food catalog AND show the matches in the catalog on screen. Every field is optional and they combine. No show_ui call is needed for the results.',
     inputSchema: z.object({
-      query: z.string().optional().describe('Free text: brand, protein, need'),
-      species: z.enum(['dog', 'cat']).optional(),
-      foodType: z.enum(['dry', 'wet']).optional(),
-      maxFatPercent: z.number().optional(),
+      query: z.string().nullish().describe('Free text: brand, protein, need'),
+      species: z.enum(['dog', 'cat']).nullish(),
+      foodType: z.enum(['dry', 'wet']).nullish(),
+      maxFatPercent: z.number().nullish(),
     }),
     visibility: { visibility: 'shown', label: 'Searching the catalog…' },
-    run: async (input) => searchProducts(input).map(summarizeProduct),
+    run: async (input, context) => {
+      const results = searchProducts(input).map(summarizeProduct);
+      const shown = await showInCatalog(
+        context,
+        'searchProducts',
+        { ...input },
+        `Show the catalog with the search results for ${JSON.stringify(input)}.`,
+      );
+      return { shown, results };
+    },
   }),
   defineAgentTool({
     name: 'find_similar_products',
     description:
-      'Find catalog products similar to a reference SKU (same species, food type, compatible life stage), leanest first. Set lowerFatOnly for lower-fat alternatives.',
+      'Find catalog products similar to a reference SKU (same species, food type, compatible life stage), leanest first, AND show them in the catalog on screen. Set lowerFatOnly for lower-fat alternatives. No show_ui call is needed for the results.',
     inputSchema: z.object({
       sku: z.string(),
-      lowerFatOnly: z.boolean().optional(),
-      maxFatPercent: z.number().optional(),
+      lowerFatOnly: z.boolean().nullish(),
+      maxFatPercent: z.number().nullish(),
     }),
     visibility: { visibility: 'shown', label: 'Finding similar products…' },
-    run: async ({ sku, lowerFatOnly, maxFatPercent }) => {
+    run: async ({ sku, lowerFatOnly, maxFatPercent }, context) => {
       const reference = productBySku(sku);
       if (!reference) return { error: `Unknown SKU ${sku}` };
+      const filters = {
+        ...(lowerFatOnly === undefined ? {} : { lowerFatOnly }),
+        ...(maxFatPercent === undefined ? {} : { maxFatPercent }),
+      };
+      const shown = await showInCatalog(
+        context,
+        'findSimilarProducts',
+        { sku, ...filters },
+        `Show the catalog with products similar to SKU ${sku}${lowerFatOnly ? ' with lower fat' : ''}${maxFatPercent === undefined ? '' : ` at most ${maxFatPercent}% fat`}.`,
+      );
       return {
+        shown,
         reference: summarizeProduct(reference),
         similar: findSimilarProducts(reference, {
           lowerFatOnly,
@@ -126,7 +146,7 @@ export const AGENT_TOOLS: readonly AgentTool[] = [
   defineAgentTool({
     name: 'show_ui',
     description:
-      'Change what is on screen. Describe the desired screen in plain words, naming the vessels (orders, catalog, cart, checkout) and any vessel action to run, e.g. "Show the catalog with products similar to SKU X with lower fat, next to the orders list". Returns immediately; the screen updates in the background. Call it once per distinct screen change, as soon as you know what to show.',
+      'Rearrange the screen through the slow layout planner (several seconds). Describe the desired screen in plain words, naming the vessels (orders, catalog, cart, checkout) and any vessel action to run, e.g. "Open my most recent order next to the catalog". Do NOT use it for catalog results (search_products and find_similar_products show those) or cart changes (add_to_cart). Returns immediately; the screen updates in the background.',
     inputSchema: z.object({ intent: z.string() }),
     visibility: { visibility: 'shown', label: 'Arranging the screen…' },
     run: async ({ intent }, context) => context.showUi(intent),
@@ -137,7 +157,7 @@ export const AGENT_TOOLS: readonly AgentTool[] = [
       'Add a catalog product to the cart (shows the cart if needed). Use it instead of show_ui for cart changes.',
     inputSchema: z.object({
       sku: z.string(),
-      quantity: z.number().int().min(1).optional(),
+      quantity: z.number().int().min(1).nullish(),
     }),
     visibility: { visibility: 'shown', label: 'Adding to your cart…' },
     run: async ({ sku, quantity }, context) => {
@@ -194,9 +214,8 @@ export const AGENT_SYSTEM_PROMPT = `You are the shopping assistant for a pet-foo
 The customer is Sam Rivera (dog Biscuit, adult Labrador; cat Miso, indoor adult).
 Rules:
 - Look up data with get_past_orders, search_products, find_similar_products and get_cart. Never invent SKUs.
-- Change the screen ONLY with show_ui, add_to_cart and place_order. show_ui is asynchronous: call it as soon as you know what to show, then keep working.
-- Show early: as soon as one lookup tells you what the customer will want to see, call show_ui in that same step (you may call it together with the next lookup), instead of waiting until the end.
-- Show the customer what you found (for example the similar lower-fat products in the catalog) before you act on it.
+- search_products and find_similar_products also show their results in the catalog on screen, instantly. Never call show_ui to show catalog results.
+- Change the screen otherwise ONLY with show_ui, add_to_cart and place_order. Use show_ui only for layout changes no other tool covers (for example opening an order or resizing). show_ui is slow and asynchronous: call it at most once per request, then keep working.
 - Never place an order without place_order, which asks the customer for approval itself. Only call place_order when the customer asked to check out or buy.
 - Before each group of tool calls, write one short sentence saying what you are doing (it is shown as progress).
 - Finish with one or two short sentences for the customer. No markdown.`;
@@ -206,7 +225,10 @@ function defineAgentTool<TSchema extends z.ZodObject>(spec: {
   description: string;
   inputSchema: TSchema;
   visibility: ToolVisibility;
-  run: (input: z.infer<TSchema>, context: AgentToolContext) => Promise<unknown>;
+  run: (
+    input: WithoutNulls<z.infer<TSchema>>,
+    context: AgentToolContext,
+  ) => Promise<unknown>;
 }): AgentTool {
   return {
     name: spec.name,
@@ -220,7 +242,10 @@ function defineAgentTool<TSchema extends z.ZodObject>(spec: {
         hooks.onToolStart(spec.name, spec.visibility);
         const started = performance.now();
         try {
-          return await spec.run(input as z.infer<TSchema>, context);
+          return await spec.run(
+            withoutNulls(input as z.infer<TSchema>),
+            context,
+          );
         } catch (error) {
           return {
             ok: false,
@@ -231,6 +256,32 @@ function defineAgentTool<TSchema extends z.ZodObject>(spec: {
         }
       }) as AnyTool,
   };
+}
+
+// OpenAI strict tool schemas make every optional field required and
+// nullable, so the model sends null for "not set".
+type WithoutNulls<T> = { [K in keyof T]: Exclude<T[K], null> };
+
+function withoutNulls<T extends object>(input: T): WithoutNulls<T> {
+  return Object.fromEntries(
+    Object.entries(input).filter(([, value]) => value !== null),
+  ) as WithoutNulls<T>;
+}
+
+async function showInCatalog(
+  context: AgentToolContext,
+  action: string,
+  params: Record<string, unknown>,
+  fallbackIntent: string,
+): Promise<'catalog' | 'queued'> {
+  const chart = await context.waitForScreen();
+  const catalogInstance = visibleInstanceOf(chart, 'catalog');
+  if (!catalogInstance) {
+    context.showUi(fallbackIntent);
+    return 'queued';
+  }
+  await context.runActions([actionExecution(catalogInstance, action, params)]);
+  return 'catalog';
 }
 
 async function ensureVesselOnScreen(

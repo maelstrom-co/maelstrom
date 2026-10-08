@@ -270,6 +270,8 @@ export class AgentSession {
       type: string;
       delta?: string;
       message?: string;
+      state?: string;
+      content?: string;
     }>;
 
     let buffer = '';
@@ -284,6 +286,11 @@ export class AgentSession {
         if (progress) this.#push({ type: 'agent.progress', text: progress });
         heldText = '';
         buffer = '';
+      } else if (
+        chunk.type === 'TOOL_CALL_RESULT' &&
+        chunk.state === 'output-error'
+      ) {
+        turn.mark('tool.error', chunk.content?.slice(0, 200));
       } else if (chunk.type === 'RUN_ERROR') {
         throw new Error(chunk.message ?? 'agent loop failed');
       }
