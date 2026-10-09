@@ -307,6 +307,12 @@ async function runTwoTurnRepair(
         });
     } catch (error) {
       await preserve(() =>
+        test.info().attach('voice-session-reply-recorder.pcm', {
+          body: audio.pcm(),
+          contentType: 'application/octet-stream',
+        }),
+      );
+      await preserve(() =>
         test.info().attach('session-audio-limitation.json', {
           body: JSON.stringify(
             {

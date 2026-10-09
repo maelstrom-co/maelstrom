@@ -94,6 +94,32 @@ test('launches the interactive demo from a key-required landing page', async ({
   await expect(page.getByRole('status')).toHaveCount(0);
 });
 
+test('bootstraps an aria-labeled keyless landing CTA', async ({ page }) => {
+  await page.setContent(`
+    <button id="start" aria-label="Start interactive demo">Continue</button>
+    <div role="dialog" hidden>
+      <input id="playground-api-key" type="password" />
+      <button id="save">Save</button>
+    </div>
+    <script>
+      document.querySelector('#start').addEventListener('click', () => {
+        document.querySelector('[role="dialog"]').hidden = false;
+      });
+      document.querySelector('#save').addEventListener('click', () => {
+        document.body.dataset.submitted = 'yes';
+        document.querySelector('[role="dialog"]').hidden = true;
+        document.querySelector('#start').remove();
+        document.body.insertAdjacentHTML('beforeend', '<button class="voice-orb">Voice</button>');
+      });
+    </script>
+  `);
+
+  await startVoiceDemoFromKeylessLanding(page, nonSecretInput);
+
+  await expect(page.locator('body')).toHaveAttribute('data-submitted', 'yes');
+  await expect(page.locator('button.voice-orb')).toHaveCount(1);
+});
+
 test('bootstraps a visible keyless landing CTA without a status role', async ({
   page,
 }) => {

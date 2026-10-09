@@ -97,7 +97,10 @@ export async function startVoiceDemoFromKeylessLanding(
           );
         };
         const startButton = [...document.querySelectorAll('button')].find(
-          (button) => button.textContent?.trim() === 'Start interactive demo',
+          (button) =>
+            button.getAttribute('aria-label')?.trim() ===
+              'Start interactive demo' ||
+            button.textContent?.trim() === 'Start interactive demo',
         );
         return (
           isVisible(startButton ?? null) ||
