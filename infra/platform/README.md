@@ -272,11 +272,59 @@ Completed:
 7. Migrated demo PR previews and their isolated `SessionDO` namespaces to
    Alchemy.
 
-`alchemy@2.0.0-beta.73` is patched with
-[alchemy-run/alchemy#1300](https://github.com/alchemy-run/alchemy/pull/1300)
-so unresolved Worker bindings do not bypass adoption ownership checks. Remove
-`patches/alchemy@2.0.0-beta.73.patch` when upgrading to a release that includes
-that fix.
+`alchemy@2.0.0-beta.81` includes deferred adoption from
+[alchemy-run/alchemy#1695](https://github.com/alchemy-run/alchemy/pull/1695).
+Its precreate path can still bypass those checks. Keep the local beta.81 patch.
+It backports the cycle-only precreation engine change and REST API compatibility
+change from [alchemy-run/alchemy#2015](https://github.com/alchemy-run/alchemy/pull/2015),
+which landed after beta.81. It also checks Worker ownership before cyclic
+precreation publishes attributes and checks Worker replacement identities before reconciliation.
+Unresolved cyclic Worker identities and unreadable ownership fail closed.
+Worker recovery from an attribute-free checkpoint requires matching, fully resolved
+desired props and an explicit complete-identity marker. Cleanup does not infer
+an identity from unmarked or incomplete Worker checkpoints. Those legacy or
+interrupted attempts can require manual cleanup. Recorded attributes remain trusted.
+Live Worker checkpoints also record the Cloudflare account before mutation.
+Planning, apply, and cleanup validate that account across replacement generations.
+Legacy rows can use the account in their recorded attributes. An attribute-free
+row without an account requires manual identity recovery; changing profiles must
+not turn a same-tagged Worker in another account into a recovery candidate.
+Delete-first Worker replacements check admission before deleting old generations.
+Cloud ownership admission applies only to live Workers. Local providers keep
+their existing replacement lifecycle.
+Missing versions remain tolerable only when trusted attributes exist.
+Worker-specific admission checks do not alter other providers.
+The REST API backport recovers a uniquely matching API by name, ownership tags,
+and creation instance before creating another API. It searches all result pages
+and refuses ambiguous matches. Newly created APIs carry an `alchemy::instance`
+tag so replacement cannot reuse and then delete its predecessor. Legacy APIs
+without that tag are not recovery candidates. A missing recorded API fails
+rather than silently changing IDs that children treat as stable.
+Recovery requires collection GET access to `/restapis`. Its lookup is not an
+atomic create-if-absent operation.
+Version and preview Workers retain their separate upstream behavior.
+
+The patch also restores the read-only `state get` and `state stacks` interfaces
+absent from beta.81. They retain the arguments and output required by the trusted
+deployment workflows and the operator runbook. Initialization diagnostics use
+`stderr`; successful reads write only the requested state output to `stdout`.
+Migrate those callers before removing the compatibility commands.
+
+`test/alchemy-adoption.test.ts` exercises the engine with offline providers.
+It checks ownership refusal through all four Worker create producers, including
+recreation after interrupted deletion.
+`test/alchemy-worker-ownership.test.ts` exercises the real Worker provider with
+mocked HTTP, including an unmodified acyclic provider path that must refuse
+before any mutation request. `test/alchemy-worker-account.test.ts` checks
+serialized checkpoints, changed accounts, stale plans, and replacement cleanup.
+`test/alchemy-rest-api.test.ts` checks REST API creation recovery and generation
+isolation with mocked AWS requests. `test/alchemy-cli-state.test.ts` runs the
+published CLI against offline stores. It verifies argument compatibility, read-only access,
+output channels, and local commands that must not initialize the configured store.
+These tests do not prove live account compatibility.
+A dry-run cannot verify deferred apply checks. Run the credentialed CI verification
+before merging, and follow the serialized state-store bootstrap procedure after
+the upgrade.
 
 `Cloudflare.Website.Astro` is deferred. In beta.73 it runs the Astro build in
 the credentialed deployment process and cannot scrub Cloudflare credentials or
@@ -284,10 +332,14 @@ hash `DOCS_SOURCE_REF`. Docs therefore keeps its credential-free Nx build and
 lets Alchemy upload only the resulting `dist` artifact.
 
 Alchemy, Effect, and the Cloudflare toolchain are one compatibility unit.
-The root catalog pins `effect`, `@effect/platform-node`, and
-`@effect/platform-bun` to `4.0.0-rc.111` (Alchemy's peer floor). App and
-infra packages take those through `catalog:`. Do not add
+The root catalog pins `effect`, `@effect/platform-node`,
+`@effect/platform-bun`, and `@effect/sql-d1` to `4.0.2`, satisfying Alchemy's
+stable `^4.0.0` peers. App and infra packages take those through `catalog:`. Do not add
 `@effect/language-service` until a `tsconfig` plugin actually loads it.
+
+Review Alchemy upgrades monthly. Upgrade sooner for relevant security fixes or
+blocking correctness fixes. Keep the compatibility, uncached project verification,
+credentialed CI verification, and serialized bootstrap gates for every upgrade.
 
 Worker runtime packages compile against `@cloudflare/workers-types@5.20260722.1`,
 matching their `2026-07-22` compatibility date.

@@ -1,0 +1,893 @@
+diff --git a/lib/Plan.d.ts b/lib/Plan.d.ts
+index a5f31f3fe6673bc133c0d3cea0442e5d26977e3d..1a246e5deeaa43f19d34abaf49e5b0caa3d2b272 100644
+--- a/lib/Plan.d.ts
++++ b/lib/Plan.d.ts
+@@ -23,6 +23,8 @@ export interface BindingNode<Data = any> extends ResourceBinding {
+     data: Data;
+ }
+ export interface BaseNode<R extends ResourceLike<string> = ResourceLike<string>> {
++    /** Cloudflare account whose identity was checked while planning this Worker. */
++    workerAccountId?: string;
+     resource: R;
+     provider: ProviderService<R>;
+     /**
+@@ -244,4 +246,4 @@ export declare class UnsatisfiedResourceCycle extends UnsatisfiedResourceCycle_b
+  * Print a plan in a human-readable format that shows the graph topology.
+  */
+ export declare const printPlan: (plan: Plan) => string;
+-//# sourceMappingURL=Plan.d.ts.map
+\ No newline at end of file
++//# sourceMappingURL=Plan.d.ts.map
+diff --git a/lib/State/ResourceState.d.ts b/lib/State/ResourceState.d.ts
+index 8438dbaafa7b45679594098cf8eafff563dc60d0..580ace5dda2c54db1be374ccf4f49dc5c9bee421 100644
+--- a/lib/State/ResourceState.d.ts
++++ b/lib/State/ResourceState.d.ts
+@@ -9,6 +9,10 @@ export type ResourceStatus = ResourceState["status"];
+ export type ReplacementResourceState = ReplacingResourceState | ReplacedResourceState;
+ export type ReplacementOldResourceState = CreatingResourceState | CreatedResourceState | UpdatingReourceState | UpdatedResourceState | DeletingResourceState | ReplacementResourceState;
+ interface BaseResourceState {
++    /** Whether an attribute-free Worker checkpoint retained its complete script identity. */
++    workerIdentityResolved?: boolean;
++    /** Cloudflare account recorded before a live Worker mutation. */
++    workerAccountId?: string;
+     /**
+      * Discriminator vs {@link ActionState}. Optional for back-compat: legacy
+      * persisted rows have no `kind` field and are implicitly resources.
+@@ -120,4 +124,4 @@ export interface ReplacedResourceState extends BaseResourceState {
+     deleteFirst: boolean;
+ }
+ export {};
+-//# sourceMappingURL=ResourceState.d.ts.map
+\ No newline at end of file
++//# sourceMappingURL=ResourceState.d.ts.map
+diff --git a/src/AWS/ApiGateway/RestApi.ts b/src/AWS/ApiGateway/RestApi.ts
+index 91db1467662d4e797332ec8f09067de53b22c6e6..dc59a73e03401464fc38c8480ba7113186383c38 100644
+--- a/src/AWS/ApiGateway/RestApi.ts
++++ b/src/AWS/ApiGateway/RestApi.ts
+@@ -300,6 +300,62 @@ export const RestApiProvider = () =>
+   Provider.effect(
+     RestApi,
+     Effect.gen(function* () {
++      const recoverApi = Effect.fn(function* (id: string, news: RestApiProps, instanceId: string) {
++        const name = yield* generatedName(id, news);
++        const internalTags = { ...(yield* createInternalTags(id)), "alchemy::instance": instanceId };
++        const owns = (api: ag.RestApi) => api.name === name &&
++          Object.entries(internalTags).every(([key, value]) => api.tags?.[key] === value);
++        const pages = yield* ag.getRestApis.pages({ limit: 500 }).pipe(Stream.runCollect);
++        const candidates = Array.from(pages).flatMap((page) => page.items ?? []).filter((api) => api.id && owns(api));
++        if (candidates.length > 1) {
++          return yield* Effect.fail(new Error(`AmbiguousRestApiRecovery: multiple REST APIs match ${id}'s ownership and name.`));
++        }
++        const candidate = candidates[0];
++        if (!candidate?.id) return undefined;
++        const observed = yield* ag.getRestApi({ restApiId: candidate.id }).pipe(
++          Effect.catchTag("NotFoundException", () => Effect.succeed(undefined)),
++        );
++        if (!observed?.id) return undefined;
++        if (!owns(observed)) {
++          return yield* Effect.fail(new Error(`RestApiRecoveryOwnershipChanged: API ${candidate.id} changed identity during recovery.`));
++        }
++        return snapshotFromApi(observed);
++      });
++      const createApi = Effect.fn(function* (
++        id: string,
++        news: RestApiProps,
++        session: { note: (message: string) => Effect.Effect<void> },
++        instanceId: string,
++      ) {
++        const recovered = yield* recoverApi(id, news, instanceId);
++        if (recovered) return recovered;
++        const name = yield* generatedName(id, news);
++        const internalTags = { ...(yield* createInternalTags(id)), "alchemy::instance": instanceId };
++        const allTags = { ...news.tags, ...internalTags };
++        const created = yield* retryOnApiStatusUpdating(
++          ag.createRestApi({
++            name,
++            description: news.description,
++            version: news.version,
++            cloneFrom: news.cloneFrom,
++            binaryMediaTypes: news.binaryMediaTypes,
++            minimumCompressionSize: news.minimumCompressionSize,
++            apiKeySource: news.apiKeySource,
++            endpointConfiguration: news.endpointConfiguration,
++            policy: news.policy,
++            tags: allTags,
++            disableExecuteApiEndpoint: news.disableExecuteApiEndpoint,
++            securityPolicy: news.securityPolicy,
++            endpointAccessMode: news.endpointAccessMode,
++          }),
++        );
++        if (!created.id || !created.rootResourceId) {
++          return yield* Effect.die("createRestApi missing id or rootResourceId");
++        }
++        yield* session.note(`Created REST API ${created.id}`);
++        const full = yield* ag.getRestApi({ restApiId: created.id });
++        return snapshotFromApi(full);
++      });
+       return {
+         stables: ["restApiId", "rootResourceId"] as const,
+         diff: Effect.fn(function* ({ news: newsIn, olds }) {
+@@ -337,8 +393,8 @@ export const RestApiProvider = () =>
+               ),
+             ),
+           ),
+-        read: Effect.fn(function* ({ output }) {
+-          if (!output?.restApiId) return undefined;
++        read: Effect.fn(function* ({ id, olds, output, instanceId }) {
++          if (!output?.restApiId) return yield* recoverApi(id, olds, instanceId);
+           const api = yield* ag
+             .getRestApi({ restApiId: output.restApiId })
+             .pipe(Effect.catchTag("NotFoundException", () => Effect.succeed(undefined)));
+@@ -355,67 +411,34 @@ export const RestApiProvider = () =>
+         // `Deployment` referencing `api.*` outputs will see a value produced
+         // only after every bound child has settled, because the bindings on
+         // the API force `create` to wait for them before returning.
+-        precreate: Effect.fn(function* ({ id, news: newsIn, session }) {
++        precreate: Effect.fn(function* ({ id, news: newsIn, session, instanceId }) {
+           if (!isResolved(newsIn)) {
+             return yield* Effect.die("RestApi props were not resolved");
+           }
+           const news = newsIn as RestApiProps;
+-          const name = yield* generatedName(id, news);
+-          const internalTags = yield* createInternalTags(id);
+-          const allTags = { ...news.tags, ...internalTags };
+-          const created = yield* retryOnApiStatusUpdating(
+-            ag.createRestApi({
+-              name,
+-              description: news.description,
+-              version: news.version,
+-              cloneFrom: news.cloneFrom,
+-              binaryMediaTypes: news.binaryMediaTypes,
+-              minimumCompressionSize: news.minimumCompressionSize,
+-              apiKeySource: news.apiKeySource,
+-              endpointConfiguration: news.endpointConfiguration,
+-              policy: news.policy,
+-              tags: allTags,
+-              disableExecuteApiEndpoint: news.disableExecuteApiEndpoint,
+-              securityPolicy: news.securityPolicy,
+-              endpointAccessMode: news.endpointAccessMode,
+-            }),
+-          );
+-          if (!created.id || !created.rootResourceId) {
+-            return yield* Effect.die("createRestApi missing id or rootResourceId");
+-          }
+-          yield* session.note(`Created REST API ${created.id}`);
+-          const full = yield* ag.getRestApi({ restApiId: created.id });
+-          return snapshotFromApi(full);
++          return yield* createApi(id, news, session, instanceId);
+         }),
+-        reconcile: Effect.fn(function* ({ id, news: newsIn, output, session }) {
++        reconcile: Effect.fn(function* ({ id, news: newsIn, output, session, instanceId }) {
+           const { region } = yield* AWSEnvironment.current;
+           if (!isResolved(newsIn)) {
+             return yield* Effect.die("RestApi props were not resolved");
+           }
+           const news = newsIn as RestApiProps;
+ 
+-          // RestApi has a `precreate` that always runs before `reconcile`
+-          // for greenfield deployments — it creates the REST API in full
+-          // so that `restApi.restApiId` is resolvable and child resources
+-          // (Method, Resource, Authorizer) can register themselves back on
+-          // the API via `restApi.bind`. By the time `reconcile` runs the id
+-          // is populated; we never expect `output === undefined` here, but
+-          // we still handle it defensively.
+-          if (!output?.restApiId) {
+-            return yield* Effect.die("RestApi reconcile reached without a precreate output");
+-          }
+-
+-          // Observe — fetch live cloud state. `output` is treated as a
+-          // cache for the stable id only.
+-          const observed = yield* ag
+-            .getRestApi({ restApiId: output.restApiId })
+-            .pipe(Effect.catchTag("NotFoundException", () => Effect.succeed(undefined)));
+-          if (!observed?.id) {
++          const observed = output?.restApiId
++            ? yield* ag
++                .getRestApi({ restApiId: output.restApiId })
++                .pipe(Effect.catchTag("NotFoundException", () => Effect.succeed(undefined)))
++            : undefined;
++          if (output?.restApiId && !observed?.id) {
+             return yield* Effect.die(
+               `RestApi ${output.restApiId} disappeared between precreate and reconcile`,
+             );
+           }
+-          const observedSnapshot = snapshotFromApi(observed);
++          const observedSnapshot = observed?.id
++            ? snapshotFromApi(observed)
++            : yield* createApi(id, news, session, instanceId);
++          const restApiId = observedSnapshot.restApiId;
+ 
+           // Sync mutable scalar fields — diff observed cloud state against
+           // desired and emit only the delta as PATCH operations.
+@@ -423,7 +446,7 @@ export const RestApiProvider = () =>
+           if (patches.length > 0) {
+             yield* retryOnApiStatusUpdating(
+               ag.updateRestApi({
+-                restApiId: output.restApiId,
++                restApiId,
+                 patchOperations: patches,
+               }),
+             );
+@@ -432,9 +455,14 @@ export const RestApiProvider = () =>
+           // Sync tags — observed ↔ desired so adoption converges without
+           // fighting the existing tag set.
+           const internalTags = yield* createInternalTags(id);
+-          const desiredTags = { ...news.tags, ...internalTags };
++          const recoveryInstance = observedSnapshot.tags?.["alchemy::instance"];
++          const desiredTags = {
++            ...news.tags,
++            ...internalTags,
++            ...(recoveryInstance !== undefined ? { "alchemy::instance": recoveryInstance } : {}),
++          };
+           if (!deepEqual(observedSnapshot.tags, desiredTags)) {
+-            const arn = restApiArn(region, output.restApiId);
++            const arn = restApiArn(region, restApiId);
+             yield* syncTags({
+               resourceArn: arn,
+               oldTags: observedSnapshot.tags,
+@@ -442,11 +470,11 @@ export const RestApiProvider = () =>
+             });
+           }
+ 
+-          yield* session.note(`Reconciled REST API ${output.restApiId}`);
++          yield* session.note(`Reconciled REST API ${restApiId}`);
+ 
+           // Re-read so the returned attributes reflect what's actually in
+           // the cloud after all sync steps.
+-          const final = yield* ag.getRestApi({ restApiId: output.restApiId });
++          const final = yield* ag.getRestApi({ restApiId });
+           if (!final.id) {
+             return yield* Effect.die("getRestApi missing id after reconcile");
+           }
+diff --git a/src/Apply.ts b/src/Apply.ts
+index 388b0904e9d6d591ad78856d7ebb4438273e8d51..ba7c64938990bd3ba03366284b1367508abb317a 100644
+--- a/src/Apply.ts
++++ b/src/Apply.ts
+@@ -10,8 +10,9 @@ import * as Predicate from "effect/Predicate";
+ import type { Simplify } from "effect/Types";
+ import type { ActionLike } from "./Action.ts";
+ import { makeResolveContext } from "./ActionRuntimeContext.ts";
+-import { OwnedBySomeoneElse, stripUnowned, Unowned } from "./AdoptPolicy.ts";
++import { AdoptPolicy, OwnedBySomeoneElse, stripUnowned, Unowned } from "./AdoptPolicy.ts";
+ import { AlchemyContext } from "./AlchemyContext.ts";
++import { assertWorkerAccount, currentWorkerAccountId, hasLiveWorkerAccount, recordedWorkerAccountId } from "./WorkerAccount.ts";
+ import {
+   Artifacts,
+   ArtifactStore,
+@@ -25,7 +26,7 @@ import {
+   failCredentialsRequired,
+   demandPlanCredentials,
+ } from "./Auth/Demand.ts";
+-import { havePropsChanged, stripUnresolved } from "./Diff.ts";
++import { havePropsChanged, isResolved, stripUnresolved } from "./Diff.ts";
+ import type { Input } from "./Input.ts";
+ import { generateInstanceId, InstanceId } from "./InstanceId.ts";
+ import * as Output from "./Output.ts";
+@@ -179,6 +180,22 @@ export const apply = <P extends Plan>(
+       const stack = yield* Stack;
+       const stage = yield* Stage;
+       const stackName = stack.name;
++      const workerAccount = yield* Effect.cached(currentWorkerAccountId);
++      for (const node of Object.values(plan.resources)) {
++        const liveWorker = node.resource.Type === "Cloudflare.Worker" && node.mode !== "local";
++        if (liveWorker || (node.state && hasLiveWorkerAccount(node.state))) {
++          const accountId = yield* workerAccount;
++          if (liveWorker && node.workerAccountId !== undefined) {
++            yield* assertWorkerAccount({ resourceType: "Cloudflare.Worker", workerAccountId: node.workerAccountId }, accountId);
++          }
++          if (node.state) yield* assertWorkerAccount(node.state, accountId);
++        }
++      }
++      for (const node of Object.values(plan.deletions)) {
++        if (node && hasLiveWorkerAccount(node.state)) {
++          yield* assertWorkerAccount(node.state, yield* workerAccount);
++        }
++      }
+ 
+       const tracker: Record<string, ResourceTracker> = {};
+       const terminalStatuses = new Map<
+@@ -513,6 +530,31 @@ const executeNode = (
+     const logicalId = node.resource.LogicalId;
+     const namespace = node.resource.Namespace;
+ 
++    const isLiveWorker = node.resource.Type === "Cloudflare.Worker" && node.mode !== "local";
++    const workerAccountId = isLiveWorker || (node.state && hasLiveWorkerAccount(node.state))
++      ? yield* currentWorkerAccountId
++      : undefined;
++    if (workerAccountId !== undefined) {
++      if (isLiveWorker && node.workerAccountId !== undefined) {
++        yield* assertWorkerAccount({ resourceType: "Cloudflare.Worker", workerAccountId: node.workerAccountId }, workerAccountId);
++      }
++      if (node.state) yield* assertWorkerAccount(node.state, workerAccountId);
++    }
++    const effectiveAdopt = Effect.gen(function* () {
++      if (node.resource.Adopt !== undefined) return node.resource.Adopt;
++      if (node.action === "create" && node.deferredAdoption) {
++        return node.deferredAdoption.adopt;
++      }
++      const policy = yield* Effect.serviceOption(AdoptPolicy);
++      if (Option.isSome(policy)) return policy.value;
++      const context = yield* Effect.serviceOption(AlchemyContext);
++      return Option.isSome(context) ? context.value.adopt : false;
++    });
++    const providePrecreatePolicy = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
++      isLiveWorker
++        ? effect.pipe(Effect.provideServiceEffect(AdoptPolicy, effectiveAdopt))
++        : effect;
++
+     const commit = <S extends ResourceState>(value: Omit<S, "namespace">) =>
+       state.set({
+         stack: stackName,
+@@ -534,6 +576,13 @@ const executeNode = (
+         value: {
+           ...value,
+           adoptionBlocked: value.adoptionBlocked ?? node.adoptionBlocked,
++          workerAccountId: value.resourceType === "Cloudflare.Worker" && stampedMode(value) !== "local"
++            ? workerAccountId
++            : undefined,
++          workerIdentityResolved:
++            value.resourceType === "Cloudflare.Worker" && value.attr === undefined
++              ? isResolved(value.props?.name) && isResolved(value.props?.namespace)
++              : undefined,
+           props: stripUnresolved(value.props),
+           bindings: stripUnresolved(value.bindings),
+           namespace,
+@@ -772,7 +821,7 @@ const executeNode = (
+           yield* storeAndSignal({ output: attr, props: {}, bindings: [], instanceId });
+         }
+ 
+-        if (node.provider.precreate && attr === undefined) {
++        if (inCycle && node.provider.precreate && attr === undefined) {
+           // Some resources need a placeholder physical resource before their real
+           // create can finish. Persist that stub so downstream evaluation can proceed.
+           yield* report("pre-creating");
+@@ -785,7 +834,10 @@ const executeNode = (
+               instanceId,
+               bindings: excludeDeletedBindings(node.bindings),
+             })
+-            .pipe(instrumentLifecycle("precreate", fqn, node.resource.Type, logicalId, instanceId));
++            .pipe(
++              providePrecreatePolicy,
++              instrumentLifecycle("precreate", fqn, node.resource.Type, logicalId, instanceId),
++            );
+           yield* commit<CreatingResourceState>({
+             status: "creating",
+             fqn,
+@@ -1104,6 +1156,23 @@ const executeNode = (
+         // `created` state (rather than `replaced`) so Phase 2 has no old chain
+         // left to drain. `delete` is required to be idempotent, so a re-run
+         // after an interrupted apply simply re-converges.
++        const readReplacement = Effect.fn(function* (news: Record<string, any>) {
++          if (!node.provider.read) {
++            return yield* Effect.die("Worker replacement requires an ownership reader");
++          }
++          const observed = yield* node.provider
++            .read({ id: logicalId, fqn, instanceId, olds: news, output: undefined })
++            .pipe(instrumentLifecycle("read", fqn, node.resource.Type, logicalId, instanceId));
++          if (observed === undefined) return undefined;
++          if (Unowned.is(observed) && !(yield* effectiveAdopt)) {
++            return yield* new OwnedBySomeoneElse({
++              message: `Cannot adopt replacement '${fqn}': it is not owned by this stack/stage/logical-id.`,
++              resourceType: node.resource.Type,
++              logicalId,
++            });
++          }
++          return stripUnowned(observed);
++        });
+         const deleteOldGenerations = (
+           old: ReplacementOldResourceState,
+         ): Effect.Effect<void, any, any> =>
+@@ -1136,7 +1205,18 @@ const executeNode = (
+             }
+           });
+ 
+-        if (node.deleteFirst) {
++        if (
++          node.deleteFirst &&
++          isLiveWorker &&
++          inCycle &&
++          replState.attr === undefined
++        ) {
++          if (!isResolved(node.props.name) || !isResolved(node.props.namespace)) {
++            return yield* Effect.die("Cannot admit a delete-first Worker replacement with an unresolved identity");
++          }
++          yield* readReplacement(stripUnresolved(node.props));
++        }
++        if (node.deleteFirst && (!isLiveWorker || inCycle)) {
+           yield* scopedSession.note(
+             "Deleting previous resource before creating its replacement (deleteFirst)...",
+           );
+@@ -1151,7 +1231,7 @@ const executeNode = (
+           yield* storeAndSignal({ output: attr, props: {}, bindings: [], instanceId });
+         }
+ 
+-        if (node.provider.precreate && attr === undefined) {
++        if (inCycle && node.provider.precreate && attr === undefined) {
+           yield* report("pre-creating");
+           attr = yield* node.provider
+             .precreate({
+@@ -1162,7 +1242,10 @@ const executeNode = (
+               instanceId,
+               bindings: excludeDeletedBindings(node.bindings),
+             })
+-            .pipe(instrumentLifecycle("precreate", fqn, node.resource.Type, logicalId, instanceId));
++            .pipe(
++              providePrecreatePolicy,
++              instrumentLifecycle("precreate", fqn, node.resource.Type, logicalId, instanceId),
++            );
+           yield* commit<ReplacingResourceState>({
+             status: "replacing",
+             fqn,
+@@ -1199,6 +1282,15 @@ const executeNode = (
+           yield* Output.evaluate(node.bindings, outputs),
+         );
+ 
++        if (isLiveWorker && attr === undefined) {
++          const observed = yield* readReplacement(news);
++          if (!node.deleteFirst) attr = observed;
++        }
++        if (isLiveWorker && node.deleteFirst && !inCycle) {
++          yield* deleteOldGenerations(replState.old);
++          attr = undefined;
++        }
++
+         attr = yield* node.provider
+           .reconcile({
+             id: logicalId,
+@@ -1850,6 +1942,10 @@ const collectGarbage = Effect.fn(function* (plan: Plan, session: PlanStatusSessi
+         const adoptionBlocked = isDeleteNode(node)
+           ? node.state.adoptionBlocked
+           : node.old.adoptionBlocked;
++        const workerIdentityResolved = isDeleteNode(node)
++          ? node.state.workerIdentityResolved
++          : node.old.workerIdentityResolved;
++        const workerAccountId = recordedWorkerAccountId(isDeleteNode(node) ? node.state : node.old);
+         // Mutable: an attr-less row (interrupted create) may recover its
+         // attributes from `provider.read` below, right before deletion.
+         let attr = persistedAttr;
+@@ -1961,6 +2057,10 @@ const collectGarbage = Effect.fn(function* (plan: Plan, session: PlanStatusSessi
+ 
+         function deleteResourceBody() {
+           return Effect.gen(function* () {
++            const accountState = isDeleteNode(node) ? node.state : node.old;
++            if (hasLiveWorkerAccount(accountState)) {
++              yield* assertWorkerAccount(accountState, yield* currentWorkerAccountId);
++            }
+             if (isDeleteNode(node)) {
+               yield* report(node.action === "orphaned" ? "orphaning" : "deleting");
+               if (node.action === "orphaned") {
+@@ -2003,6 +2103,10 @@ const collectGarbage = Effect.fn(function* (plan: Plan, session: PlanStatusSessi
+                     "migrated predecessor. Any interrupted new physical " +
+                     "resource must be identified and cleaned up manually.",
+                 );
++              } else if (resourceType === "Cloudflare.Worker" && workerIdentityResolved !== true) {
++                yield* scopedSession.note(
++                  "Skipping Worker cleanup: this attribute-free checkpoint has no complete script identity. Any physical resource requires manual cleanup.",
++                );
+               } else if (provider.read) {
+                 const recovered = yield* provider
+                   .read({ id: logicalId, fqn, instanceId, olds: props as never, output: undefined })
+@@ -2064,6 +2168,8 @@ const collectGarbage = Effect.fn(function* (plan: Plan, session: PlanStatusSessi
+                 removalPolicy: node.resource.RemovalPolicy,
+                 providerMode,
+                 adoptionBlocked,
++                workerIdentityResolved,
++                workerAccountId,
+               });
+             }
+ 
+@@ -2111,6 +2217,8 @@ const collectGarbage = Effect.fn(function* (plan: Plan, session: PlanStatusSessi
+                   bindings: excludeDeletedBindings(node.bindings),
+                   removalPolicy: node.removalPolicy,
+                   providerMode: node.providerMode,
++                  workerIdentityResolved: node.workerIdentityResolved,
++                  workerAccountId: node.workerAccountId,
+                 });
+               }
+               yield* scopedSession.note(
+diff --git a/src/Cli/commands/state.ts b/src/Cli/commands/state.ts
+index 8f6f4c6c8a717c9c1b929de9ae54e572cfabc0e4..fd38ee6ca1bbb55aa0dca37590df237257e69d92 100644
+--- a/src/Cli/commands/state.ts
++++ b/src/Cli/commands/state.ts
+@@ -2,15 +2,19 @@ import { Command, Flag } from "effect/cli";
+ import * as Argument from "effect/cli/Argument";
+ import * as Console from "effect/Console";
+ import * as Effect from "effect/Effect";
++import * as Layer from "effect/Layer";
++import * as Logger from "effect/Logger";
+ import * as Option from "effect/Option";
+ import * as AlchemistState from "../../Alchemist/routes/state.ts";
+ import type { StateSource } from "../../Alchemist/routes/state.ts";
+ import * as CliKit from "../../Cli/CliKit/index.ts";
+ import * as State from "../../State/index.ts";
++import { encodeState } from "../../State/StateEncoding.ts";
+ import {
+   stateExplorerScreen,
+   type StateExplorerSource,
+ } from "../components/view/StateExplorer.tsx";
++import { consoleLogFloor, makeConsoleLogger } from "../GlobalLog.ts";
+ import { confirmOrDecline } from "./confirm.ts";
+ import { failWithHelp, UserInputError } from "./errors.ts";
+ import { envFile, profile, yes } from "./flags.ts";
+@@ -89,6 +93,59 @@ const usingStore =
+       ),
+     );
+ 
++const legacyMain = Argument.File("main", { mustExist: true }).pipe(
++  Argument.withDescription("Main file to deploy, defaults to alchemy.run.ts"),
++  Argument.withDefault("alchemy.run.ts"),
++);
++const legacyLocal = Flag.Boolean("local").pipe(
++  Flag.withDescription("Read from local .alchemy/state instead of the stack's configured state store"),
++  Flag.withDefault(false),
++);
++const legacySource = (args: Omit<StateArgs, "backend"> & { readonly local: boolean }) =>
++  source({ ...args, backend: args.local ? "local" : "configured" });
++
++const legacyDiagnostics = Layer.mergeAll(
++  // The ambient Interaction layer is already memoized against stdout.
++  Layer.provideMerge(Layer.fresh(CliKit.CliKitInteraction), CliKit.layer({ stdout: process.stderr })),
++  Logger.layer([makeConsoleLogger(consoleLogFloor(process.argv.slice(2)), Logger.withConsoleError(Logger.formatLogFmt))]),
++);
++
++const getCommand = Command.make(
++  "get",
++  {
++    stack: Flag.String("stack"),
++    stageName: Flag.String("stage"),
++    fqn: Flag.String("fqn"),
++    main: legacyMain,
++    envFile,
++    profile,
++    local: legacyLocal,
++  },
++  instrumentCommand("state.get")(
++    Effect.fn(function* ({ stack, stageName, fqn, ...args }) {
++      const store = yield* AlchemistState.store(legacySource(args));
++      const value = yield* store.get({ stack, stage: stageName, fqn });
++      yield* Console.log(
++        value === undefined
++          ? `(not found: ${stack}/${stageName}/${fqn})`
++          : JSON.stringify(encodeState(value), null, 2),
++      );
++    }, Effect.provide(legacyDiagnostics)),
++  ),
++);
++
++const stacksCommand = Command.make(
++  "stacks",
++  { main: legacyMain, envFile, profile, local: legacyLocal },
++  instrumentCommand("state.stacks")(
++    Effect.fn(function* (args) {
++      const store = yield* AlchemistState.store(legacySource(args));
++      const stacks = [...(yield* store.listStacks())].sort();
++      yield* Console.log(stacks.length === 0 ? "(no stacks)" : stacks.join("\n"));
++    }, Effect.provide(legacyDiagnostics)),
++  ),
++);
++
+ const listCommand = Command.make(
+   "list",
+   { path: pathArgument, recursive, main: config, envFile, profile, backend },
+@@ -258,5 +315,5 @@ export const stateCommand = Command.make(
+   ),
+ ).pipe(
+   Command.withDescription("Inspect and manage deployment state"),
+-  Command.withSubcommands([listCommand, readCommand, deleteCommand, unsafeCommand]),
++  Command.withSubcommands([listCommand, readCommand, getCommand, stacksCommand, deleteCommand, unsafeCommand]),
+ );
+diff --git a/src/Cloudflare/Workers/WorkerProvider.ts b/src/Cloudflare/Workers/WorkerProvider.ts
+index b3dc2bd86c0772f4207b307bf08a82ae48ad768d..1220b6b0fcc8ad6810cd3c4a88812da86d4bfd4b 100644
+--- a/src/Cloudflare/Workers/WorkerProvider.ts
++++ b/src/Cloudflare/Workers/WorkerProvider.ts
+@@ -14,7 +14,7 @@ import * as Predicate from "effect/Predicate";
+ import * as Redacted from "effect/Redacted";
+ import * as Schedule from "effect/Schedule";
+ import * as Stream from "effect/Stream";
+-import { Unowned } from "../../AdoptPolicy.ts";
++import { AdoptPolicy, OwnedBySomeoneElse, Unowned } from "../../AdoptPolicy.ts";
+ import { dotAlchemyDirectory } from "../../AlchemyContext.ts";
+ import * as Artifacts from "../../Artifacts.ts";
+ import { havePropsChanged, isResolved, stripEffects } from "../../Diff.ts";
+@@ -73,6 +73,10 @@ class MissingDurableObjects extends Data.TaggedError("MissingDurableObjects")<{
+   expected: string[];
+ }> {}
+ 
++class UnresolvedWorkerIdentity extends Data.TaggedError("UnresolvedWorkerIdentity")<{
++  message: string;
++}> {}
++
+ /**
+  * A Durable Object class is being dropped from this Worker while a binding in
+  * the same deploy still references it on another script — the class moved
+@@ -4582,14 +4586,36 @@ export const LiveWorkerProvider = () =>
+               crons: [],
+             } satisfies Worker["Attributes"];
+           }
+-          // A Workers for Platforms user worker can't be pre-created: precreate
+-          // runs on raw, *unresolved* props (so resources in a dependency cycle
+-          // can signal early), meaning a `namespace` that references the
+-          // namespace resource is still an unresolved Output here, and the
+-          // namespace itself may not be deployed yet. There's also nothing to
+-          // pre-create — a user worker is dispatched to by name, never bound to
+-          // circularly. Return a stub; `reconcile` performs the real upload
+-          // once props resolve and the namespace exists.
++          if (!isResolved(news.name) || !isResolved(news.namespace)) {
++            return yield* new UnresolvedWorkerIdentity({
++              message: `Worker '${id}' cannot be pre-created before its name and namespace resolve.`,
++            });
++          }
++          const dispatchNamespace = resolveNamespaceName(news.namespace);
++          const existingSettings = yield* getScriptSettings(
++            accountId,
++            name,
++            dispatchNamespace,
++          ).pipe(
++            Effect.catchTag("WorkerNotFound", () => Effect.succeed(undefined)),
++            Effect.catchTag("DispatchNamespaceScriptNotFound", () => Effect.succeed(undefined)),
++            Effect.catchTag("DispatchNamespaceNotFound", () => Effect.succeed(undefined)),
++          );
++          if (existingSettings && !hasAlchemyWorkerTags(id, existingSettings.tags ?? [])) {
++            const policy = yield* Effect.serviceOption(AdoptPolicy);
++            if (Option.isNone(policy) || !policy.value) {
++              return yield* new OwnedBySomeoneElse({
++                message: `Cannot pre-create Worker '${name}': it is not owned by this stack/stage/logical-id. Enable adoption explicitly to take it over.`,
++                resourceType: Worker.Type,
++                logicalId: id,
++                physicalName: name,
++              });
++            }
++          }
++
++          // Dispatch workers need no physical placeholder. Ownership must be
++          // checked before publishing even provisional attributes; reconcile
++          // performs the upload once the remaining props resolve.
+           if (news.namespace != null) {
+             yield* Effect.logInfo(
+               `Cloudflare Worker precreate: skipping stub for dispatch-namespace worker ${name}`,
+@@ -4612,7 +4638,6 @@ export const LiveWorkerProvider = () =>
+               crons: [],
+             } satisfies Worker["Attributes"];
+           }
+-          const dispatchNamespace = resolveNamespaceName(news.namespace);
+           const exportMap = news.exports ?? {};
+           // A worker hosts Durable Object classes from two independent sources:
+           // Effect-native DO *exports* (classes defined in the worker entry) and
+@@ -4654,29 +4679,10 @@ export const LiveWorkerProvider = () =>
+           yield* Effect.logInfo(
+             `Cloudflare Worker precreate: durable objects ${JSON.stringify(durableObjects)}`,
+           );
+-          const existingSettings = yield* getScriptSettings(
+-            accountId,
+-            name,
+-            dispatchNamespace,
+-          ).pipe(
+-            // A freshly pre-created stub can briefly report "has no
+-            // versions" before its first version registers — treat it the
+-            // same as a missing worker (nothing to adopt yet). For a user
+-            // worker the dispatch-namespace endpoints report a missing
+-            // script as `DispatchNamespaceScriptNotFound` (and a missing
+-            // namespace as `DispatchNamespaceNotFound`).
+-            Effect.catchTag("WorkerNotFound", () => Effect.succeed(undefined)),
+-            Effect.catchTag("WorkerHasNoVersions", () => Effect.succeed(undefined)),
+-            Effect.catchTag("DispatchNamespaceScriptNotFound", () => Effect.succeed(undefined)),
+-            Effect.catchTag("DispatchNamespaceNotFound", () => Effect.succeed(undefined)),
+-          );
+           let durableObjectNamespaces = getDurableObjects(existingSettings?.bindings);
+ 
+           let placeholder: { tag?: string | null } | undefined;
+           if (existingSettings) {
+-            // Engine has already cleared this resource for write via
+-            // `read` + AdoptPolicy. Either we own it (matching tags) or
+-            // the user opted in to a takeover (`--adopt` / `adopt(true)`).
+             yield* Effect.logInfo(`Cloudflare Worker precreate: reusing existing ${name}`);
+           } else {
+             yield* session.note("Pre-creating worker...", { kind: "status" });
+@@ -5001,14 +5007,14 @@ export const LiveWorkerProvider = () =>
+             // raises `OwnedBySomeoneElse`).
+             return hasAlchemyWorkerTags(id, settings.tags ?? []) ? attrs : Unowned(attrs);
+           },
+-          (effect) =>
++          (effect, { output }) =>
+             effect.pipe(
+-              // A worker that exists but hasn't registered a version yet reads
+-              // as "not deployed" — fall through to (re)create like NotFound.
+-              // The dispatch-namespace endpoints report the same conditions as
+-              // `DispatchNamespaceScriptNotFound` / `DispatchNamespaceNotFound`.
++              // Propagation lag is tolerable only for a trusted identity.
++              // Without attributes, missing versions cannot prove absence.
+               Effect.catchTag("WorkerNotFound", () => Effect.succeed(undefined)),
+-              Effect.catchTag("WorkerHasNoVersions", () => Effect.succeed(undefined)),
++              Effect.catchTag("WorkerHasNoVersions", (error) =>
++                output === undefined ? Effect.fail(error) : Effect.succeed(undefined),
++              ),
+               Effect.catchTag("DispatchNamespaceScriptNotFound", () => Effect.succeed(undefined)),
+               Effect.catchTag("DispatchNamespaceNotFound", () => Effect.succeed(undefined)),
+             ),
+diff --git a/src/Plan.ts b/src/Plan.ts
+index 6907469ae6f1c0cb0e8e5be9b0badd901d76d834..7c9df920e492b809fe649195dd3edaf5db126044 100644
+--- a/src/Plan.ts
++++ b/src/Plan.ts
+@@ -11,6 +11,7 @@ import { asEffect } from ".//Util/types.ts";
+ import { isAction, type ActionLike } from "./Action.ts";
+ import { AdoptPolicy, OwnedBySomeoneElse, stripUnowned, Unowned } from "./AdoptPolicy.ts";
+ import { AlchemyContext } from "./AlchemyContext.ts";
++import { assertWorkerAccount, currentWorkerAccountId, hasLiveWorkerAccount } from "./WorkerAccount.ts";
+ import {
+   Artifacts,
+   ArtifactStore,
+@@ -107,6 +108,8 @@ export interface BindingNode<Data = any> extends ResourceBinding {
+ }
+ 
+ export interface BaseNode<R extends ResourceLike<string> = ResourceLike<string>> {
++  /** Cloudflare account whose identity was checked while planning this Worker. */
++  workerAccountId?: string;
+   resource: R;
+   provider: ProviderService<R>;
+   /**
+@@ -485,6 +488,16 @@ const makePlan = <A>(
+       resourceFqns.map((fqn) => state.get({ stack: stackName, stage: stage, fqn })),
+       { concurrency: "unbounded" },
+     );
++    const workerAccount = yield* Effect.cached(currentWorkerAccountId);
++    for (const [index, row] of oldResources.entries()) {
++      const fqn = resourceFqns[index];
++      const touched = !selected || selected.has(fqn) || resources.some((resource) =>
++        resource.Type === "Cloudflare.Worker" && resource.FormerFqns?.includes(fqn),
++      );
++      if (touched && row && hasLiveWorkerAccount(row)) {
++        yield* assertWorkerAccount(row, yield* workerAccount);
++      }
++    }
+ 
+     // Snapshot of every persisted row, keyed by FQN. The rename resolution
+     // below reads from this map instead of issuing per-FQN `state.get`s —
+@@ -1310,6 +1323,9 @@ const makePlan = <A>(
+       // prior state — its row is reaped by `actionDeletions` below.)
+       const { row: persistedRow, renamedFrom, renameMoved } = yield* getPersistedRow(resource);
+       let oldState: ResourceState | undefined = persistedRow;
++      const workerAccountId = resource.Type === "Cloudflare.Worker" && mode !== "local"
++        ? yield* workerAccount
++        : undefined;
+ 
+       // Engine-level adoption. When there is no prior state, always
+       // consult `provider.read` (if implemented) so the engine — not
+@@ -1463,6 +1479,7 @@ const makePlan = <A>(
+       ) =>
+         ({
+           ...node,
++          workerAccountId,
+           provider,
+           resource,
+           bindings: bindingDiffs,
+@@ -1475,7 +1492,9 @@ const makePlan = <A>(
+             provider.read &&
+             !reusesMigratedFqn &&
+             ((oldState === undefined && !isResolved(news)) ||
+-              (oldState?.status === "creating" && oldState.attr === undefined))
++              (oldState?.attr === undefined &&
++                (oldState?.status === "creating" ||
++                  (resource.Type === "Cloudflare.Worker" && oldState?.status === "deleting"))))
+               ? { adopt: adoptThis }
+               : undefined,
+         }) as any as T;
+@@ -1501,7 +1520,16 @@ const makePlan = <A>(
+         // `output` is undefined (as it is here), so handing them
+         // unresolved exprs crashes. Skip the probe — same behavior as
+         // a read that found nothing — and re-drive the create.
+-        if (provider.read && !reusesMigratedFqn && isResolved(oldState.props)) {
++        // Worker checkpoint props can lose a namespace when Outputs are stripped.
++        // Do not recover a different script as this attempt's identity.
++        if (
++          provider.read &&
++          !reusesMigratedFqn &&
++          isResolved(oldState.props) &&
++          (resource.Type !== "Cloudflare.Worker" ||
++            (oldState.workerIdentityResolved === true &&
++              isResolved(news) && !havePropsChanged(oldState.props, news)))
++        ) {
+           const attr = yield* provider
+             .read({
+               id,
+diff --git a/src/State/ResourceState.ts b/src/State/ResourceState.ts
+index 493e714e33ae8c75acaeec8fa39b754af12e2b91..f606f3a78e1dcd56dba292de45c99242a22ea992 100644
+--- a/src/State/ResourceState.ts
++++ b/src/State/ResourceState.ts
+@@ -57,6 +57,10 @@ interface BaseResourceState {
+   removalPolicy?: RemovalPolicy["Service"];
+   /** Attr-less lookup could recover the predecessor migrated away from this FQN. */
+   adoptionBlocked?: "migrated-fqn";
++  /** Whether an attribute-free Worker checkpoint retained its complete script identity. */
++  workerIdentityResolved?: boolean;
++  /** Cloudflare account recorded before a live Worker mutation. */
++  workerAccountId?: string;
+   /**
+    * The {@link ProviderMode} this resource was last reconciled with.
+    *
+diff --git a/src/WorkerAccount.ts b/src/WorkerAccount.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..817d895c83f6e03b5c1d58f95591877b9088448b
+--- /dev/null
++++ b/src/WorkerAccount.ts
+@@ -0,0 +1,81 @@
++import * as Data from "effect/Data";
++import * as Effect from "effect/Effect";
++import * as Option from "effect/Option";
++import * as Predicate from "effect/Predicate";
++import { stampedMode, type ProviderMode } from "./ProviderMode.ts";
++import { CloudflareEnvironment } from "./Cloudflare/CloudflareEnvironmentService.ts";
++
++/** An interrupted Worker cannot be recovered outside its original account. */
++export class WorkerAccountMismatch extends Data.TaggedError("WorkerAccountMismatch")<{
++  /** Account recorded before the original cloud mutation. */
++  expectedAccountId: string | undefined;
++  /** Account resolved for the current operation. */
++  actualAccountId: string | undefined;
++  /** Reason the operation requires account identity recovery. */
++  message: string;
++}> {}
++
++/** Account identity retained by a Worker generation or replacement ancestor. */
++export interface WorkerAccountState {
++  /** Resource provider owning this generation. */
++  resourceType?: string;
++  /** Mode in which the generation was created. */
++  providerMode?: ProviderMode;
++  /** Account persisted before a cloud mutation. */
++  workerAccountId?: string;
++  /** Recorded provider attributes, including the account for legacy rows. */
++  attr?: unknown;
++  /** Earlier generation whose cleanup still requires its original identity. */
++  old?: WorkerAccountState;
++}
++
++/** Resolve the account without performing a resource API request. */
++export const currentWorkerAccountId = Effect.gen(function* () {
++  const environment = yield* Effect.serviceOption(CloudflareEnvironment);
++  const accountId = Option.isSome(environment)
++    ? (yield* environment.value).accountId
++    : undefined;
++  if (typeof accountId !== "string" || !/^[a-f0-9]{32}$/i.test(accountId)) {
++    return yield* new WorkerAccountMismatch({
++      expectedAccountId: undefined,
++      actualAccountId: accountId,
++      message: "A live Worker requires a resolved Cloudflare account before planning or mutation.",
++    });
++  }
++  return accountId;
++});
++
++const attributeAccount = (state: WorkerAccountState): string | undefined =>
++  Predicate.hasProperty(state.attr, "accountId") && typeof state.attr.accountId === "string"
++    ? state.attr.accountId
++    : undefined;
++
++/** Read the account recorded in checkpoint metadata or trusted legacy attributes. */
++export const recordedWorkerAccountId = (state: WorkerAccountState): string | undefined =>
++  state.workerAccountId ?? attributeAccount(state);
++
++/** Whether a generation chain contains a live Worker requiring account validation. */
++export const hasLiveWorkerAccount = (state: WorkerAccountState): boolean =>
++  (state.resourceType === "Cloudflare.Worker" && stampedMode(state) !== "local") ||
++  (state.old !== undefined && hasLiveWorkerAccount(state.old));
++
++/** Refuse unknown or changed accounts before inspecting or mutating any generation. */
++export const assertWorkerAccount: (state: WorkerAccountState, accountId: string) => Effect.Effect<void, WorkerAccountMismatch> = Effect.fn(function* (
++  state: WorkerAccountState,
++  accountId: string,
++) {
++  if (state.resourceType === "Cloudflare.Worker" && stampedMode(state) !== "local") {
++    const expectedAccountId = recordedWorkerAccountId(state);
++    const attrsAccountId = attributeAccount(state);
++    if (expectedAccountId !== accountId || (attrsAccountId !== undefined && attrsAccountId !== accountId)) {
++      return yield* new WorkerAccountMismatch({
++        expectedAccountId,
++        actualAccountId: accountId,
++        message: expectedAccountId === undefined
++          ? "This Worker checkpoint has no recorded Cloudflare account; recover its identity manually."
++          : `Worker checkpoint account ${expectedAccountId} does not match current account ${accountId}.`,
++      });
++    }
++  }
++  if (state.old) yield* assertWorkerAccount(state.old, accountId);
++});

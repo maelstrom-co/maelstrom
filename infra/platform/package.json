@@ -29,11 +29,13 @@
   "dependencies": {
     "@effect/platform-bun": "catalog:",
     "@effect/platform-node": "catalog:",
-    "alchemy": "2.0.0-beta.73",
+    "alchemy": "2.0.0-beta.81",
     "drizzle-orm": "1.0.0-rc.5-ab785fc",
     "effect": "catalog:"
   },
   "devDependencies": {
+    "@distilled.cloud/aws": "1.0.0-rc.13",
+    "@distilled.cloud/cloudflare": "1.0.0-rc.13",
     "@types/bun": "*",
     "drizzle-kit": "1.0.0-rc.5-ab785fc",
     "jsonc-parser": "3.3.1",
