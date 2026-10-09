@@ -12,14 +12,24 @@ import type { JevArm } from '../jev/arms.js';
 import type { ClientBuilder } from '../jev/client-builder.js';
 
 /**
- * The Decisions twins of `jev-poc` and the composed pairs Jev arm, on
- * `client`, and `decisions-poc-prose`, the POC on `proseClient`, whose
- * select state reads as prose rather than JSON, and
- * `decisions-poc-screen-scope-prose`, that POC with the screen scope select
- * and the spelled-out `needsActions` gate, and
- * `decisions-composed-pairs-screen-scope-prose`, the composed pairs planner
- * with the same select and fraction questions Decisions does not refuse. Each reads the replay
- * shape of its twin, so a Jev run's stages replay into it.
+ * The Decisions arms. Each reads the replay shape of its Jev twin, so a
+ * Jev run's stages replay into it.
+ *
+ * - `decisions-poc` and `decisions-composed-pairs`: the twins of `jev-poc`
+ *   and the composed pairs Jev arm, on `client`.
+ * - `decisions-poc-prose`: the POC on `proseClient`, whose select state
+ *   reads as prose rather than JSON.
+ * - `decisions-poc-screen-scope-prose`: the POC with the screen scope
+ *   select on `proseClient`, the twin of `jev-poc-screen-scope`. That
+ *   select also asks the gated select's four gate questions and adds its
+ *   `scope_unsupported` and `screen_content_unavailable` deferrals. It sets
+ *   the spelled-out `needsActions` gate, which has no effect here, since
+ *   the POC's actions and layout stages read no gate answers.
+ * - `decisions-composed-pairs-screen-scope-prose`: the composed pairs
+ *   planner with the screen scope select and the spelled-out `needsActions`
+ *   gate on `proseClient`, whose layout fraction questions are told to
+ *   answer half when no fraction is stated, which Decisions otherwise
+ *   refuses. Its Jev twin is `jev-composed-pairs-screen-scope`.
  */
 export function decisionsArms(
   client: ClientBuilder,

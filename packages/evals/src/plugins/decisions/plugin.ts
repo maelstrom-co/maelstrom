@@ -20,12 +20,13 @@ export interface DecisionsPluginOptions {
 
 /**
  * The stage-library planners on OpenAI Decisions as an eval plugin: the
- * `decisions-poc` and `decisions-composed-pairs` arms and the
- * `decisions-select`, `decisions-actions` and `decisions-layout` stage
- * evals, plus `decisions-poc-prose` and `decisions-select-prose`, which
- * send the select state as prose (`renderSelectStateAsProse`). It has no default arms and no judge, so `--grader` stays on the
- * Jev plugin's judge, and it adds no report rows when a Jev arm runs
- * beside it, since the Jev plugin's rows cover its columns.
+ * arms of {@link decisionsArms} and the `decisions-select`,
+ * `decisions-actions` and `decisions-layout` stage evals, plus
+ * `decisions-select-prose`, which sends the select state as prose
+ * (`renderSelectStateAsProse`). It has no default arms and no judge, so
+ * `--grader` stays on the Jev plugin's judge, and it adds no report rows
+ * when a Jev arm runs beside it, since the Jev plugin's rows cover its
+ * columns.
  */
 export function decisionsPluginWith(
   options: DecisionsPluginOptions = {},

@@ -68,13 +68,13 @@ export interface SelectDeps {
 }
 
 /**
- * The select stage variants the eval runs: `gated` is the composed pairs
- * planner's `selectGated`, and `gated-screen-scope` is
- * `selectGatedScreenScope`, which adds a screen scope question and a hide
- * question per visible instance, and `gated-screen-scope-spelled-out-actions`
- * is that with the spelled-out `needsActions` gate. Both are read through `readGateAnswers`
- * so the eval judges exactly the gates the stage decides, including on
- * turns where the stage then defers.
+ * The select stage variants the eval runs. `gated` is the composed pairs
+ * planner's `selectGated`. `gated-screen-scope` is `selectGatedScreenScope`,
+ * which adds a screen scope question and a hide question per visible
+ * instance. `gated-screen-scope-spelled-out-actions` is that with the
+ * spelled-out `needsActions` gate. Every variant is read through
+ * `readGateAnswers`, so the eval judges exactly the gates the stage
+ * decides, including on turns where the stage then defers.
  */
 export const SELECT_VARIANTS: Readonly<
   Record<string, (deps: SelectDeps) => Stage<PlanningInput, GateReading>>
@@ -111,11 +111,11 @@ export interface SelectModuleOptions {
  * visible set, the selection leaves exactly that set visible; a turn that
  * deferred has no selection, so it fails a scenario expecting one. Gates
  * the planner does not ask are ignored, and a scenario with no expected
- * answer for any asked gate is not applicable. A turn where the stage answered the gates and then
- * deferred is still judged and records the deferral reason; a deferral
- * whose reply carries no gate answers is recorded as that deferral,
- * unjudged. A provider failure, an over-cap question or a missing answer
- * is an error, never a deferral.
+ * answer for any asked gate is not applicable. A turn where the stage
+ * answered the gates and then deferred is still judged and records the
+ * deferral reason; a deferral whose reply carries no gate answers is
+ * recorded as that deferral, unjudged. A provider failure, an over-cap
+ * question or a missing answer is an error, never a deferral.
  */
 export function selectModuleWith(
   options: SelectModuleOptions = {},
