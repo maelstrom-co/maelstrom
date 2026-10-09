@@ -1,4 +1,5 @@
 import {
+  buildComposedPairsScreenScopePlanner,
   buildJevComposedPairsPlanner,
   buildJevPlanner,
   buildPocScreenScopePlanner,
@@ -15,7 +16,9 @@ import type { ClientBuilder } from '../jev/client-builder.js';
  * `client`, and `decisions-poc-prose`, the POC on `proseClient`, whose
  * select state reads as prose rather than JSON, and
  * `decisions-poc-screen-scope-prose`, that POC with the screen scope select
- * and the spelled-out `needsActions` gate. Each reads the replay
+ * and the spelled-out `needsActions` gate, and
+ * `decisions-composed-pairs-screen-scope-prose`, the composed pairs planner
+ * with the same select and fraction questions Decisions does not refuse. Each reads the replay
  * shape of its twin, so a Jev run's stages replay into it.
  */
 export function decisionsArms(
@@ -53,6 +56,17 @@ export function decisionsArms(
       build: (deps) =>
         buildPocScreenScopePlanner(stageDeps(proseClient, deps), {
           spelledOutActionsGate: true,
+        }),
+    },
+    {
+      name: 'decisions-composed-pairs-screen-scope-prose',
+      kind: 'decisions',
+      requiredEnv,
+      replayShape: 'gated',
+      build: (deps) =>
+        buildComposedPairsScreenScopePlanner(stageDeps(proseClient, deps), {
+          spelledOutActionsGate: true,
+          answerableFractions: true,
         }),
     },
   ];

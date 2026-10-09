@@ -39,6 +39,11 @@ describe('the Decisions arms', () => {
         kind: 'decisions-poc',
         replayShape: 'poc',
       },
+      {
+        name: 'decisions-composed-pairs-screen-scope-prose',
+        kind: 'decisions',
+        replayShape: 'gated',
+      },
     ]);
     const twins = jevPlugin.arms as readonly JevArm[];
     const twinShape = (name: string) =>

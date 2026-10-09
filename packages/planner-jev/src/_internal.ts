@@ -26,6 +26,10 @@ export {
   type JevStages,
   type StageDepsOptions,
 } from './lib/planners/jev-stage-planner.js';
+export {
+  buildComposedPairsScreenScopePlanner,
+  type ComposedPairsScreenScopeOptions,
+} from './lib/planners-experimental/composed-pairs-screen-scope.js';
 export { buildJevGatedBatchedPlanner } from './lib/planners-experimental/jev-gated-batched.js';
 export { buildJevGatedStepwisePlanner } from './lib/planners-experimental/jev-gated-stepwise.js';
 export { buildJevUngatedBatchedPlanner } from './lib/planners-experimental/jev-ungated-batched.js';
@@ -81,6 +85,10 @@ export type {
 } from './lib/stages/stage-types.js';
 export { actionsStepwise } from './lib/stages-experimental/actions-stepwise.js';
 export { completeLayoutParallel } from './lib/stages-experimental/complete-layout-parallel.js';
+export {
+  layoutComposedPairsAnswerableFractions,
+  withAnswerableFractions,
+} from './lib/stages-experimental/layout-composed-pairs-answerable-fractions.js';
 export { layoutPreset } from './lib/stages-experimental/layout-preset.js';
 export { layoutPresetOrLlm } from './lib/stages-experimental/layout-preset-or-llm.js';
 export {
