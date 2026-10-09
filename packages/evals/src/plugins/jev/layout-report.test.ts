@@ -41,9 +41,9 @@ describe('composed pairs report', () => {
     expect(
       summarizeComposedPairs(records, 'composed-pairs')?.sizeFallbacks,
     ).toEqual({ raised_to_minimum: 1, equal_weights: 1 });
-    expect(renderComposedPairsSection(records, ['composed-pairs'])).toContain(
-      '| Size fallback: raised to minimum / equal weights | 1 / 1 |',
-    );
+    expect(
+      renderComposedPairsSection(records, ['composed-pairs'], 'Jev'),
+    ).toContain('| Size fallback: raised to minimum / equal weights | 1 / 1 |');
   });
 
   test('counts turns failing a size rule and the size answer confidence', () => {
@@ -68,7 +68,11 @@ describe('composed pairs report', () => {
     const summary = summarizeComposedPairs(records, 'composed-pairs');
     expect(summary?.sizeRuleFailures).toBe(2);
     expect(summary?.sizeConfidence).toEqual({ p10: 0.5, p50: 0.7, p90: 1 });
-    const section = renderComposedPairsSection(records, ['composed-pairs']);
+    const section = renderComposedPairsSection(
+      records,
+      ['composed-pairs'],
+      'Jev',
+    );
     expect(section).toContain(
       '| Turns failing a size rule (weightRatio or dominant) | 2 |',
     );
@@ -125,19 +129,22 @@ describe('arrangement not asked report', () => {
         notAsked('asks', false, 1),
       ],
       ['gate', 'asks'],
+      'Decisions',
     );
     expect(section).toContain('| Metric | gate | asks |');
     expect(section).toContain(
       '| Turns that ask no arrangement (same Instances, current tree fits) | 2 | 2 |',
     );
     expect(section).toContain('| Changed the layout | 0/2 (0%) | 1/2 (50%) |');
-    expect(section).toContain('| Jev calls per turn | 0.00 | 1.00 |');
+    expect(section).toContain('| Decisions calls per turn | 0.00 | 1.00 |');
     expect(section).toContain(
-      '| Jev tokens per turn (input / output) | 0 / 0 | 300 / 30 |',
+      '| Decisions tokens per turn (input / output) | 0 / 0 | 300 / 30 |',
     );
   });
 
   test('is absent when no turn asks no arrangement', () => {
-    expect(renderArrangementNotAskedSection([], ['gate'])).toBeUndefined();
+    expect(
+      renderArrangementNotAskedSection([], ['gate'], 'Jev'),
+    ).toBeUndefined();
   });
 });

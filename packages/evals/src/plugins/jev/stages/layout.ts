@@ -266,8 +266,8 @@ export function layoutModuleWith(
     judge: judgeLayout,
     reportSections: (records, variants) =>
       [
-        renderArrangementNotAskedSection(records, variants),
-        renderComposedPairsSection(records, variants),
+        renderArrangementNotAskedSection(records, variants, client.provider),
+        renderComposedPairsSection(records, variants, client.provider),
       ].flatMap((section) => section ?? []),
   };
 }
