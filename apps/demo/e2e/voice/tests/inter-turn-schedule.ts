@@ -4,6 +4,7 @@ export const assistantCompletionQuietIntervalMs = 1_000;
 export const fullScenarioPostSpeechBufferMs = 2_000;
 export const fullScenarioInterTurnPollIntervalMs = 100;
 export const fullScenarioLeadInPollIntervalMs = 20;
+export const fullScenarioInterTurnTimeoutMs = 60_000;
 export const assistantResponseCompletionTimeoutMs = 30_000;
 
 const assistantQuietBeforeNextInputMs =
@@ -119,10 +120,16 @@ export function canStartNextFullScenarioInput(args: {
 }
 
 export async function waitForNextFullScenarioInput(
-  gate: FullScenarioInterTurnGate,
+  gate: FullScenarioInterTurnGate & { readonly timeoutMs?: number },
 ): Promise<void> {
   if (!Number.isFinite(gate.previousSourceEndMs))
     throw new Error('Previous source end timestamp must be finite');
+  const timeoutMs = gate.timeoutMs ?? fullScenarioInterTurnTimeoutMs;
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0)
+    throw new Error('Full scenario inter-turn timeout must be positive');
+  const deadlineMs = gate.nowMs() + timeoutMs;
+  if (!Number.isFinite(deadlineMs))
+    throw new Error('Full scenario inter-turn deadline must be finite');
 
   while (true) {
     const nowMs = gate.nowMs();
@@ -135,6 +142,10 @@ export async function waitForNextFullScenarioInput(
       })
     )
       return;
+    if (nowMs >= deadlineMs)
+      throw new Error(
+        `Next full scenario input did not become ready within ${timeoutMs} ms`,
+      );
 
     const commandDeadlineMs =
       gate.previousSourceEndMs +
@@ -147,6 +158,7 @@ export async function waitForNextFullScenarioInput(
     );
     const waitMs = Math.min(
       fullScenarioInterTurnPollIntervalMs,
+      deadlineMs - nowMs,
       Math.max(spacingWaitMs, silenceWaitMs),
     );
     await gate.sleep(waitMs);

@@ -13,22 +13,25 @@ import {
 } from './inter-turn-schedule.ts';
 
 test('invalidates a lead-in cancellation without source-not-started proof', async () => {
-  const playerLaunches = 1;
+  let stopCalls = 0;
   await assert.rejects(
     monitorFullScenarioLeadIn({
       playbackStartedAtMs: 10_000,
       nowMs: () => 10_020,
       assistantSilentTailMs: () => 0,
       sleep: async () => {},
-      stopAndWait: async () => ({
-        terminated: true,
-        closedAtMs: 10_010,
-        sourceNotStarted: false,
-      }),
+      stopAndWait: async () => {
+        stopCalls++;
+        return {
+          terminated: true,
+          closedAtMs: 10_010,
+          sourceNotStarted: false,
+        };
+      },
     }),
     /source onset is unverified/,
   );
-  assert.equal(playerLaunches, 1);
+  assert.equal(stopCalls, 1);
 });
 
 test('accepts a lead-in cancellation confirmed before the source deadline', async () => {
@@ -47,22 +50,25 @@ test('accepts a lead-in cancellation confirmed before the source deadline', asyn
 });
 
 test('does not replay when cancellation does not terminate the player', async () => {
-  const playerLaunches = 1;
+  let stopCalls = 0;
   await assert.rejects(
     monitorFullScenarioLeadIn({
       playbackStartedAtMs: 10_000,
       nowMs: () => 10_020,
       assistantSilentTailMs: () => 0,
       sleep: async () => {},
-      stopAndWait: async () => ({
-        terminated: false,
-        closedAtMs: Number.NaN,
-        sourceNotStarted: false,
-      }),
+      stopAndWait: async () => {
+        stopCalls++;
+        return {
+          terminated: false,
+          closedAtMs: Number.NaN,
+          sourceNotStarted: false,
+        };
+      },
     }),
     /termination was not confirmed/,
   );
-  assert.equal(playerLaunches, 1);
+  assert.equal(stopCalls, 1);
 });
 
 test('monitors the full lead-in and refuses uncertain resumed-output cancellation', async () => {
@@ -226,6 +232,28 @@ test('does not release when the cooldown expires until the post-burst quiet buff
     nowMs - lastAssistantOutputMs >=
       assistantCompletionQuietIntervalMs + fullScenarioPostSpeechBufferMs,
   );
+});
+
+test('times out when the next full-scenario input gates never open', async () => {
+  let nowMs = 0;
+  let gateChecks = 0;
+  await assert.rejects(
+    waitForNextFullScenarioInput({
+      previousSourceEndMs: 0,
+      nowMs: () => nowMs,
+      silentTailMs: () => {
+        gateChecks++;
+        return 0;
+      },
+      sleep: async (milliseconds) => {
+        nowMs += milliseconds;
+      },
+      timeoutMs: 250,
+    }),
+    /Next full scenario input did not become ready within 250 ms/,
+  );
+  assert.equal(nowMs, 250);
+  assert.ok(gateChecks > 0);
 });
 
 test('rejects invalid schedule observations', async () => {
