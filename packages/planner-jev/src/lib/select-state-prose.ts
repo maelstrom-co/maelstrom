@@ -12,7 +12,8 @@ import { describeLayout } from './stages/layout-describe.js';
  * Renders a value for a Decisions call. The select stage's state (an
  * object with `intent`, `instances` and `vessels` arrays) becomes short
  * plain prose: the user's requests verbatim (or that there is none, and
- * for a bare resize that what is shown stays), the visible and hidden
+ * for a bare resize that what is shown stays), one line per instance
+ * mutation, the earlier conversation turns, the visible and hidden
  * instances by name and id, the layout in words, the chart size, and one
  * line per widget type with its description, views and action names, but
  * no action parameter schemas. Any other value is `JSON.stringify`d

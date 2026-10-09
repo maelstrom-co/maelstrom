@@ -16,7 +16,11 @@ import {
   type Reply,
   readAnswer,
 } from '../questions.js';
-import { GATE_THRESHOLD, selectGated } from '../stages/select-gated.js';
+import {
+  GATE_THRESHOLD,
+  NEEDS_ACTIONS_THRESHOLD,
+  selectGated,
+} from '../stages/select-gated.js';
 import type { GatedSelection } from '../stages/stage-types.js';
 import type { SelectedInstance } from '../types.js';
 
@@ -28,13 +32,14 @@ const STAGE = STAGE_NAME.jevSelect;
  * examples on the screen scope and keep questions. When the latest intent
  * adds to or adjusts the screen, a visible instance stays visible unless
  * its hide question answers yes at or above {@link GATE_THRESHOLD}; a
- * targeted instance whose keep question still answered keep is hidden. The
- * `spatial` gate is asked with arrangement words spelled out, and the
- * `needsActions` gate too when {@link ScreenScopeOptions.spelledOutActionsGate}
- * is set; both keep their thresholds. When
- * the intent describes the whole screen, the keep questions decide, as in
- * {@link selectGated}. Hidden and new instances always follow their own
- * questions. Defers exactly as {@link selectGated} does.
+ * targeted instance whose keep question still answered keep is hidden.
+ * The `spatial` gate is asked with arrangement words spelled out, and the
+ * `needsActions` gate too when
+ * {@link ScreenScopeOptions.spelledOutActionsGate} is set; both keep their
+ * thresholds. When the intent describes the whole screen, the keep
+ * questions decide, as in {@link selectGated}. Hidden and new instances
+ * always follow their own questions. Defers exactly as {@link selectGated}
+ * does.
  *
  * @experimental
  */
@@ -96,8 +101,8 @@ export interface ScreenScopeOptions {
   /**
    * Asks `needsActions` with item edits and settings spelled out, with
    * examples. It lifts Decisions on requests that add items, but pushes
-   * TypeSafe's answers on requests without actions up to its 0.3 threshold,
-   * so it is off by default.
+   * TypeSafe's answers on requests without actions up to
+   * {@link NEEDS_ACTIONS_THRESHOLD}, so it is off by default.
    */
   readonly spelledOutActionsGate?: boolean;
 }
