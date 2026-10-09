@@ -51,7 +51,7 @@ It is not the default: `jevPlanner` passed more holdout scenarios in the compari
 
 `decisionsPlanner(options)` and `decisionsComposedPairsPlanner(options)` run the same stages as `jevPlanner` and `jevComposedPairsPlanner`, but the typed questions go to OpenAI's Decisions API (public beta, `POST https://api.openai.com/v1/decisions`, model `gpt-6-luna`) instead of TypeSafe. No TypeSafe key is needed; the client reuses the server `OPENAI_API_KEY` and never logs it. Both are `@experimental` and server-only, and run under an Engine with `retry: false` and an unwrapped fallback, like the Jev planners. `buildDecisionsPlanner` and `buildDecisionsComposedPairsPlanner` build them from shared dependencies for the eval.
 
-Questions map onto Decisions types: `noul` to `predicate`, `choice` to `choice` (one value per option key) and `score` to `score` (levels labelled "0" to "n-1"; the level is the most probable one, not the rounded fractional score). The evaluation state and every object-valued question text are rendered to text with `JSON.stringify`; the `render` option replaces that. Question ids and option keys are sent as-is.
+Questions map onto Decisions types: `noul` to `predicate`, `choice` to `choice` (one value per option key) and `score` to `score` (levels labelled "0" to "n-1"; the level is the most probable one, not the rounded fractional score). The evaluation state and every object-valued question text are rendered to text with `JSON.stringify`. The workspace-internal `createDecisionsClient` takes a `render` option that replaces that; the planners' `decisions` options have no such option. Question ids and option keys are sent as-is.
 
 Decisions can refuse a question. A refusal of any question makes the call defer with `<stage>/provider_refusal`, naming the first refused question, and the fallback answers the turn. TypeSafe never refuses. In one recorded composed pairs layout call, Decisions deterministically refuses the benign `fraction_in_group/calendar-main` score question, so that call defers to the fallback.
 
@@ -70,7 +70,7 @@ const engine = createEngine({
 });
 ```
 
-`decisions` takes `apiKey`, plus optional `model`, `endpoint`, `timeoutMs`, `fetch` and `logReplies`. It emits the same `jev.call`, `jev.provider_failure` and `jev.reply` logs and instrument events as the TypeSafe client.
+`decisions` takes `apiKey`, plus optional `model`, `endpoint`, `timeoutMs`, `fetch` and `logReplies`. It emits the same `jev.call`, `jev.provider_failure` and (with `logReplies`) `jev.reply` logs, and the same `jev.call` instrument event, as the TypeSafe client.
 
 ## Stage library
 
@@ -234,8 +234,8 @@ Every deferral logs `jev.defer` at info with `{ stage, reason, question }`, and 
 
 - `jev.call` (debug): stage, model, question ids, latency, outcome and token usage of every provider call (TypeSafe Jev or OpenAI Decisions).
 - `jev.answer` (debug): stage, question, choice and confidence of every answer read.
-- `jev.reply` (debug, opt-in via `logReplies` / `JEV_LOG_REPLIES=1`): the state and questions sent (the user's words included) and the raw reply, as JSON, before validation, so an invalid reply is visible too.
-- `jev.request` and `jev.result` (debug, same opt-in): the user's request at the start of each turn, and at the end the shipped candidate as JSON (reply text, layout tree, rationale) or the error tag. The candidate is the one from Jev or from the fallback, whichever ships.
+- `jev.reply` (debug, opt-in via `logReplies` / `JEV_LOG_REPLIES=1` / `DECISIONS_LOG_REPLIES=1`): the state and questions sent (the user's words included) and the raw reply, as JSON, before validation, so an invalid reply is visible too.
+- `jev.request` and `jev.result` (debug, same opt-in): the user's request at the start of each turn, and at the end the shipped candidate as JSON (reply text, layout tree, rationale) or the error tag. The candidate is the one from the staged pipeline (Jev or Decisions) or from the fallback, whichever ships.
 - `jev.action_dropped` (info): an action dropped for a `not_stated` parameter.
 
 ## Evaluating

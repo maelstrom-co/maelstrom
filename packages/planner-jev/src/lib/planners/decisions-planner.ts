@@ -25,7 +25,7 @@ import { createStageDeps, FALLBACK_RETRIES } from './jev-stage-planner.js';
 export interface DecisionsOptions {
   /** OpenAI API key. Keep it server-side; it is never logged or echoed in errors. */
   readonly apiKey: string;
-  /** Decisions model id. Defaults to `gpt-6-luna`, the only model Decisions serves. */
+  /** Decisions model id. Defaults to `gpt-6-luna`. */
   readonly model?: string;
   /** Endpoint URL. Defaults to OpenAI's v1 Decisions endpoint. */
   readonly endpoint?: string;
