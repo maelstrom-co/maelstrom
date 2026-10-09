@@ -230,6 +230,27 @@ describe('select stage eval', () => {
     ]);
   });
 
+  test('judges only the gates of a scenario that expects no visible set', async () => {
+    const [swap] = selectScenarios('all', ['swap']);
+    if (swap === undefined) throw new Error('no swap scenario');
+    const { visible: _, ...expected } = swap.expected;
+    const { records } = await runOn(
+      [{ ...swap, expected }],
+      conversation({
+        select: {
+          'view/map-main': 'keep',
+          'view/weather-main': 'keep',
+          'view/tasks-main': 'keep',
+        },
+        gates: QUIET_GATES,
+      }),
+    );
+    const [record] = records;
+    expect(record?.outcome).toBe('pass');
+    expect(record?.failures).toEqual([]);
+    expect(record?.detail?.selection).toBeUndefined();
+  });
+
   test('passes when every expected gate matches', async () => {
     const { records } = await run(
       ['swap'],

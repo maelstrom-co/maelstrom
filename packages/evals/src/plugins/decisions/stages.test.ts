@@ -69,6 +69,7 @@ describe('the Decisions stage evals on the scripted Decisions transport', () => 
       repeats: 1,
     })) as StageTurnRecord<SelectTurnDetail>[];
     expect(transport.requests).toHaveLength(1);
+    expect(transport.requests[0]?.input).toStartWith('{');
     expect(record?.stage).toBe('jevSelect');
     expect(record?.outcome).toBe('fail');
     expect(record?.failures).toEqual([
