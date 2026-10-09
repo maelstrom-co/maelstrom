@@ -58,6 +58,14 @@ describe('the Decisions plugin', () => {
     );
   });
 
+  test('gives the same report row labels as the TypeSafe plugin, which the row deferral relies on', () => {
+    const summaries = [summaryOf('decisions-poc')];
+    const labels = (plugin: typeof jevPlugin) =>
+      (plugin.reportRows?.(summaries) ?? []).map((row) => row.label);
+    expect(labels(decisionsPlugin).length).toBeGreaterThan(0);
+    expect(labels(decisionsPlugin)).toEqual(labels(jevPlugin));
+  });
+
   test('checks a replayed selection against a gated arm and names itself for an arm it does not own', () => {
     const record: StageRecord = {
       stage: 'jevSelect',

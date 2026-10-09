@@ -148,4 +148,64 @@ describe('the Decisions stage evals on the scripted Decisions transport', () => 
       'ID:calendar-main',
     ]);
   });
+  test('decisions-select reports a refusal as a provider error, layout and actions as a deferral', async () => {
+    const refuseFirst: Script = (payload) => ({
+      refuse: Object.keys(payload.questions).slice(0, 1),
+    });
+    const run = async (
+      module: Parameters<typeof runStageEval>[0],
+      scenario: string,
+      variant: string,
+    ) => {
+      const [record] = await runStageEval(module, {
+        scenarios: selectScenarios('all', [scenario]),
+        variants: [variant],
+        repeats: 1,
+      });
+      return record;
+    };
+    const select = await run(
+      selectModuleWith({
+        client: scripted(refuseFirst).client,
+        name: 'decisions-select',
+      }),
+      'swap',
+      'gated',
+    );
+    expect(select).toMatchObject({
+      outcome: 'error',
+      reason: 'ProviderError: jevSelect/provider_refusal',
+    });
+    expect(select?.calls.map((call) => call.outcome)).toEqual([
+      'provider_refusal',
+    ]);
+    const actions = await run(
+      actionsModuleWith({
+        client: scripted(refuseFirst).client,
+        name: 'decisions-actions',
+      }),
+      'enum-route-short-name',
+      'stepwise',
+    );
+    const layout = await run(
+      layoutModuleWith({
+        client: scripted(refuseFirst).client,
+        name: 'decisions-layout',
+      }),
+      'swap',
+      'composed-pairs',
+    );
+    expect(actions).toMatchObject({
+      outcome: 'deferred',
+      reason: 'jevActions/provider_refusal',
+    });
+    expect(layout).toMatchObject({
+      outcome: 'deferred',
+      reason: 'jevLayout/provider_refusal',
+    });
+    for (const record of [actions, layout])
+      expect(record?.calls.map((call) => call.outcome)).toEqual([
+        'provider_refusal',
+      ]);
+  });
 });
