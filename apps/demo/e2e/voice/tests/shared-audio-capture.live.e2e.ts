@@ -283,6 +283,61 @@ test('patched microphone acquisition settles after disposal without recreating c
   }
 });
 
+test('shared microphone capture accepts the same track and rejects a replacement', async ({
+  page,
+}) => {
+  await prepareAudioPage(page);
+  await page.evaluate(installSharedAudioTimeline);
+  const result = await page.evaluate(async () => {
+    const target = window as Window & {
+      __voiceAudioTimeline?: {
+        testAttachMicrophone(stream: MediaStream): Promise<void>;
+      };
+      __voiceAudioFailures?: unknown[];
+      __voiceTestObserve?: (event: {
+        readonly type: string;
+        readonly source: string;
+        readonly clock: number;
+        readonly payload?: unknown;
+      }) => Promise<void>;
+    };
+    target.__voiceAudioFailures = [];
+    target.__voiceTestObserve = async (event) => {
+      if (event.type === 'audio-capture-failure')
+        target.__voiceAudioFailures?.push(event.payload);
+    };
+    const timeline = target.__voiceAudioTimeline;
+    if (!timeline)
+      throw new Error('Shared audio timeline hook was not installed');
+    const producer = new AudioContext({ sampleRate: 48_000 });
+    await producer.resume();
+    const firstStream = producer.createMediaStreamDestination().stream;
+    const firstTrack = firstStream.getAudioTracks()[0];
+    const secondStream = producer.createMediaStreamDestination().stream;
+    if (!firstTrack) throw new Error('First microphone track is unavailable');
+    await timeline.testAttachMicrophone(firstStream);
+    await timeline.testAttachMicrophone(new MediaStream([firstTrack]));
+    let replacementError = '';
+    try {
+      await timeline.testAttachMicrophone(secondStream);
+    } catch (error) {
+      replacementError = String(error);
+    }
+    await producer.close();
+    return {
+      replacementError,
+      failures: target.__voiceAudioFailures,
+    };
+  });
+  assert.match(
+    result.replacementError,
+    /microphone-track-replaced-after-capture-attached/,
+  );
+  assert.deepEqual(result.failures, [
+    { reason: 'microphone-track-replaced-after-capture-attached' },
+  ]);
+});
+
 test('shared AudioWorklet retains distinct microphone/output tones through repeated and explicit flushes', async ({
   page,
 }, testInfo) => {

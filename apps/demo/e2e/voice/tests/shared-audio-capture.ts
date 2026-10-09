@@ -71,6 +71,7 @@ export async function installSharedAudioTimeline(): Promise<void> {
   let recorder: AudioWorkletNode | undefined;
   let graphPromise: Promise<void> | undefined;
   let microphoneSourceConnected = false;
+  let microphoneTrack: MediaStreamTrack | undefined;
   let assistantSourceConnected = false;
   let assistantStream: MediaStream | undefined;
   let assistantAttachPromise: Promise<void> | undefined;
@@ -508,6 +509,10 @@ export async function installSharedAudioTimeline(): Promise<void> {
       reportFailure('microphone-audio-track-unavailable');
       throw new Error('getUserMedia returned no audio track');
     }
+    if (microphoneTrack && microphoneTrack !== track) {
+      reportFailure('microphone-track-replaced-after-capture-attached');
+      throw problem ?? new Error('Microphone track replacement failed');
+    }
     try {
       await ensureGraph();
     } catch (error) {
@@ -523,6 +528,7 @@ export async function installSharedAudioTimeline(): Promise<void> {
       new MediaStream([track]),
     );
     source.connect(worklet, 0, 0);
+    microphoneTrack = track;
     microphoneSourceConnected = true;
     worklet.port.postMessage('microphone-connected');
     readyIfAttached();
