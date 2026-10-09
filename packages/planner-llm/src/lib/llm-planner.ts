@@ -88,10 +88,11 @@ export type LlmPlannerInput = Retryable<
  * Each model call is reported to `ctx.instrument` as an `llm.call` event
  * with `gen_ai.request.model` (the adapter's model), `maelstrom.outcome`
  * (`ok`, `error` or `cancelled`), `maelstrom.latency_ms`, and the origin's
- * `maelstrom.message_id` and `maelstrom.session_id`. Provider-reported usage
+ * `maelstrom.message_id` and `maelstrom.session_id`. Adapter-reported usage
  * is summed across model calls as `gen_ai.usage.input_tokens` and
  * `gen_ai.usage.output_tokens`; missing usage remains absent. Prompts, output,
- * provider errors, and credentials are never included in these events.
+ * provider errors, and credentials are never included in these events. Counters
+ * normalized or omitted by an adapter cannot be recovered here.
  *
  * @throws {Error} If `options` is invalid or a system-prompt customizer is
  *   misconfigured. System prompts are built once here, so the error surfaces
@@ -156,10 +157,20 @@ export function llmPlanner(
 
     const started = performance.now();
     let usage: { input?: number; output?: number } | undefined;
+    let usageRecorded = false;
     const middleware: ChatMiddleware = {
+      // Each provider call gets a fresh snapshot, including separate finalization.
+      onConfig: () => {
+        usageRecorded = false;
+      },
       // onUsage normalizes missing AG-UI counters to zero; retain their presence.
       onChunk: (_ctx, chunk) => {
-        if (chunk.type !== 'RUN_FINISHED' || !chunk.usage) return;
+        if (
+          (chunk.type !== 'RUN_FINISHED' && chunk.type !== 'RUN_ERROR') ||
+          !chunk.usage ||
+          usageRecorded
+        )
+          return;
         const entries = Array.isArray(chunk.usage)
           ? chunk.usage
           : [
@@ -170,10 +181,14 @@ export function llmPlanner(
             ];
         for (const entry of entries) {
           usage ??= {};
-          if (entry.inputTokens !== undefined)
+          if (entry.inputTokens !== undefined) {
             usage.input = (usage.input ?? 0) + entry.inputTokens;
-          if (entry.outputTokens !== undefined)
+            usageRecorded = true;
+          }
+          if (entry.outputTokens !== undefined) {
             usage.output = (usage.output ?? 0) + entry.outputTokens;
+            usageRecorded = true;
+          }
         }
       },
     };

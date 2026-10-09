@@ -472,14 +472,17 @@ describe('llmComplete', () => {
 
   test('an abort is a CancellationError, not a deferral', async () => {
     const controller = new AbortController();
+    let providerSignal: AbortSignal | undefined;
     mockChat.mockImplementation(async (options) => {
+      providerSignal = options.abortController.signal;
       controller.abort('user left');
-      expect(options.abortController.signal.aborted).toBe(true);
       throw new DOMException('aborted', 'AbortError');
     });
     const { result } = await run(completionPlan(makeRequest('x')), {
       signal: controller.signal,
     });
+    expect(providerSignal?.aborted).toBe(true);
+    expect(providerSignal?.reason).toBe('user left');
     expect(errorTagOf(result)).toBe('CancellationError');
   });
 });

@@ -153,6 +153,26 @@ describe('withUsage', () => {
     expect(calls[0]?.usage).toBe(undefined);
   });
 
+  test('retains failed-call usage without adding a repeated terminal snapshot', async () => {
+    const failed = {
+      type: 'RUN_ERROR',
+      runId: 'r',
+      threadId: 't',
+      timestamp: 4,
+      message: 'synthetic failure',
+      usage: [{ inputTokens: 120, outputTokens: 30, totalTokens: 150 }],
+    } as unknown as StreamChunk;
+    const chunks = [finished[0]!, failed, failed, { ...failed, usage: [] }];
+    const { adapter, calls } = wrap(new FakeAdapter(chunks));
+    expect(await drain(adapter.chatStream({} as never))).toEqual(chunks);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.usage).toEqual({
+      inputTokens: 120,
+      outputTokens: 30,
+      totalTokens: 150,
+    });
+  });
+
   test('keeps the adapter’s shape and binds its methods', () => {
     const { adapter } = wrap(new FakeAdapter(finished));
     expect(adapter.model).toBe('fake-model');

@@ -32,6 +32,7 @@ import {
 } from '@maelstrom-co/protocol';
 import type {
   ChatMiddleware,
+  RunErrorEvent,
   RunFinishedEvent,
   TokenUsage,
 } from '@tanstack/ai';
@@ -72,6 +73,7 @@ async function reportUsage(
   middleware: ChatMiddleware | undefined,
   usage: TokenUsage,
 ) {
+  await middleware?.onConfig?.({} as never, {} as never);
   await middleware?.onChunk?.({} as never, {
     type: 'RUN_FINISHED' as RunFinishedEvent['type'],
     runId: 'r',
@@ -1092,6 +1094,100 @@ describe('llmPlanner instrumentation', () => {
       },
     };
   }
+
+  test('keeps token accounting local to overlapping requests on one planner', async () => {
+    const planner = llmPlanner({ adapter: dummyAdapter });
+    let release: () => void = () => {};
+    const barrier = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    mockChat.mockImplementationOnce(async (options) => {
+      await reportUsage((options as ChatArgs).middleware[0], {
+        promptTokens: 12,
+        completionTokens: 3,
+        totalTokens: 15,
+      });
+      await barrier;
+      return buildGridResponse();
+    });
+    mockChat.mockImplementationOnce(async (options) => {
+      await reportUsage((options as ChatArgs).middleware[0], {
+        promptTokens: 40,
+        completionTokens: 10,
+        totalTokens: 50,
+      });
+      release();
+      return buildGridResponse();
+    });
+    const first = { ...makePlanningInput(), messageId: MessageId('first') };
+    const second = { ...makePlanningInput(), messageId: MessageId('second') };
+    const { instrument, events } = spyInstrument();
+    const results = await Promise.all([
+      planner(first, makeStageContext({ origin: first, instrument })),
+      planner(second, makeStageContext({ origin: second, instrument })),
+    ]);
+    expect(results.every(isOk)).toBe(true);
+    expect(events).toHaveLength(2);
+    expect(events.map((event) => event.name)).toEqual(['llm.call', 'llm.call']);
+    const attributes = (messageId: string) =>
+      events.find(
+        (event) => event.attributes['maelstrom.message_id'] === messageId,
+      )?.attributes;
+    expect(attributes('first')).toMatchObject({
+      'gen_ai.usage.input_tokens': 12,
+      'gen_ai.usage.output_tokens': 3,
+    });
+    expect(attributes('second')).toMatchObject({
+      'gen_ai.usage.input_tokens': 40,
+      'gen_ai.usage.output_tokens': 10,
+    });
+    mockChat.mockResolvedValueOnce(buildGridResponse());
+    const third = { ...makePlanningInput(), messageId: MessageId('third') };
+    expect(
+      isOk(
+        await planner(third, makeStageContext({ origin: third, instrument })),
+      ),
+    ).toBe(true);
+    expect(events).toHaveLength(3);
+    expect(attributes('third')).not.toHaveProperty('gen_ai.usage.input_tokens');
+    expect(attributes('third')).not.toHaveProperty(
+      'gen_ai.usage.output_tokens',
+    );
+  });
+
+  test('counts a failed provider run once when terminal usage is repeated', async () => {
+    mockChat.mockImplementationOnce(async (options) => {
+      const middleware = (options as ChatArgs).middleware[0];
+      await reportUsage(middleware, {
+        promptTokens: 12,
+        completionTokens: 3,
+        totalTokens: 15,
+      });
+      await middleware?.onChunk?.({} as never, {
+        type: 'RUN_ERROR' as RunErrorEvent['type'],
+        message: 'private-provider-key',
+        timestamp: 2,
+        usage: [{ inputTokens: 12, outputTokens: 3, totalTokens: 15 }],
+      });
+      throw new Error('private-provider-key');
+    });
+    const { instrument, events } = spyInstrument();
+    const result = await llmPlanner({ adapter: dummyAdapter })(
+      makePlanningInput(),
+      makeStageContext({ instrument }),
+    );
+    expect(result).toMatchObject({
+      ok: false,
+      error: { _tag: 'ProviderError' },
+    });
+    expect(events).toHaveLength(1);
+    expect(events[0]?.attributes).toMatchObject({
+      'gen_ai.usage.input_tokens': 12,
+      'gen_ai.usage.output_tokens': 3,
+      'maelstrom.outcome': 'error',
+    });
+    expect(JSON.stringify(events)).not.toContain('private-provider-key');
+  });
 
   test('reports a successful model call with the adapter model and latency', async () => {
     mockChat.mockResolvedValueOnce(buildGridResponse());

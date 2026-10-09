@@ -18,18 +18,18 @@ export const LLM_ROLES = [
 export type LlmRole = (typeof LLM_ROLES)[number];
 
 export interface LlmUsage {
-  /** Reported input tokens; absent when the provider omitted this counter. */
+  /** Adapter-reported input tokens; absent when the adapter omitted this counter. */
   readonly inputTokens?: number;
-  /** Reported output tokens; absent when the provider omitted this counter. */
+  /** Adapter-reported output tokens; absent when the adapter omitted this counter. */
   readonly outputTokens?: number;
-  /** Reported total tokens; not derived from other counters. */
+  /** Adapter-reported total tokens; this wrapper does not derive them. */
   readonly totalTokens?: number;
 }
 
 export interface LlmCall {
   readonly role: LlmRole;
   readonly latencyMs: number;
-  /** Absent when the provider reported none. */
+  /** Absent when the adapter reported none. */
   readonly usage?: LlmUsage;
 }
 
@@ -39,10 +39,11 @@ const STREAMS = ['chatStream', 'structuredOutputStream'] as const;
  * Wraps `adapter` so every provider call reports its latency and token
  * usage to `sink`, once per call. Evaluation reports use this role-labelled
  * sink, not the planner's `llm.call` events, so telemetry does not double-count
- * usage. Streamed calls carry usage on their `RUN_FINISHED` chunk and
+ * usage. Streamed calls carry usage on `RUN_FINISHED` or `RUN_ERROR`, and
  * `structuredOutput` on its result. Methods run with the original adapter as
  * `this`, and a method the adapter lacks stays absent, because `chat()`
- * picks its path by probing for `structuredOutputStream`.
+ * picks its path by probing for `structuredOutputStream`. Counter presence is
+ * preserved at the adapter boundary; prior adapter normalization is irreversible.
  */
 export function withUsage(
   adapter: AnyTextAdapter,
@@ -82,7 +83,8 @@ async function* recordStream(
   let usage: LlmUsage | undefined;
   try {
     for await (const chunk of stream) {
-      if (chunk.type === 'RUN_FINISHED') usage = reportedUsage(chunk.usage);
+      if (chunk.type === 'RUN_FINISHED' || chunk.type === 'RUN_ERROR')
+        usage ??= reportedUsage(chunk.usage);
       yield chunk;
     }
   } finally {

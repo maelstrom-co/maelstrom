@@ -21,8 +21,9 @@ const SYSTEM_PROMPT = `You write the reply of a dashboard assistant after its pl
 /**
  * Runs a structured completion with caller cancellation and engine error logging.
  * Reports one `llm.call` event with the model, request correlation, duration,
- * outcome, and the sum of provider-reported input/output tokens. Missing usage
+ * outcome, and the sum of adapter-reported input/output tokens. Missing usage
  * stays absent. The event excludes prompts, output, errors, and credentials.
+ * Counters normalized or omitted by an adapter cannot be recovered here.
  */
 export async function callLlm<T>(
   llm: CompletionLlm,
@@ -36,10 +37,20 @@ export async function callLlm<T>(
   const started = performance.now();
   let outcome: 'ok' | 'error' | 'cancelled' = 'error';
   let usage: { input?: number; output?: number } | undefined;
+  let usageRecorded = false;
   const middleware: ChatMiddleware = {
+    // Each provider call gets a fresh snapshot, including separate finalization.
+    onConfig: () => {
+      usageRecorded = false;
+    },
     // onUsage normalizes missing AG-UI counters to zero; retain their presence.
     onChunk: (_ctx, chunk) => {
-      if (chunk.type !== 'RUN_FINISHED' || !chunk.usage) return;
+      if (
+        (chunk.type !== 'RUN_FINISHED' && chunk.type !== 'RUN_ERROR') ||
+        !chunk.usage ||
+        usageRecorded
+      )
+        return;
       const entries = Array.isArray(chunk.usage)
         ? chunk.usage
         : [
@@ -50,10 +61,14 @@ export async function callLlm<T>(
           ];
       for (const entry of entries) {
         usage ??= {};
-        if (entry.inputTokens !== undefined)
+        if (entry.inputTokens !== undefined) {
           usage.input = (usage.input ?? 0) + entry.inputTokens;
-        if (entry.outputTokens !== undefined)
+          usageRecorded = true;
+        }
+        if (entry.outputTokens !== undefined) {
           usage.output = (usage.output ?? 0) + entry.outputTokens;
+          usageRecorded = true;
+        }
       }
     },
   };

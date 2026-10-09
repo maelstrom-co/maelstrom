@@ -3,6 +3,7 @@ import type { InstrumentAttributes } from '@maelstrom-co/engine';
 import { MessageId } from '@maelstrom-co/protocol';
 import type {
   ChatMiddleware,
+  RunErrorEvent,
   RunFinishedEvent,
   TokenUsage,
 } from '@tanstack/ai';
@@ -48,6 +49,7 @@ async function reportUsage(
   middleware: readonly ChatMiddleware[],
   usage: TokenUsage,
 ) {
+  await middleware[0]?.onConfig?.({} as never, {} as never);
   await middleware[0]?.onChunk?.({} as never, {
     type: 'RUN_FINISHED' as RunFinishedEvent['type'],
     runId: 'r',
@@ -59,6 +61,53 @@ async function reportUsage(
 }
 
 describe('completion call instrumentation', () => {
+  test('counts a failed provider run once when terminal usage is repeated', async () => {
+    mockChat.mockImplementationOnce(async ({ middleware }) => {
+      await reportUsage(middleware, {
+        promptTokens: 12,
+        completionTokens: 3,
+        totalTokens: 15,
+      });
+      await middleware[0]?.onChunk?.({} as never, {
+        type: 'RUN_ERROR' as RunErrorEvent['type'],
+        message: 'private-provider-key',
+        timestamp: 2,
+        usage: [{ inputTokens: 12, outputTokens: 3, totalTokens: 15 }],
+      });
+      throw new Error('private-provider-key');
+    });
+    const { ctx, events } = context();
+    expect(await complete(ctx)).toMatchObject({
+      ok: false,
+      error: { _tag: 'ProviderError' },
+    });
+    expect(events).toHaveLength(1);
+    expect(events[0]?.attributes).toMatchObject({
+      'gen_ai.usage.input_tokens': 12,
+      'gen_ai.usage.output_tokens': 3,
+      'maelstrom.outcome': 'error',
+    });
+    expect(JSON.stringify(events)).not.toContain('private-provider-key');
+  });
+
+  test('forwards midflight cancellation so unused provider work stops', async () => {
+    const controller = new AbortController();
+    let providerSignal: AbortSignal | undefined;
+    mockChat.mockImplementationOnce(async ({ abortController }) => {
+      providerSignal = abortController.signal;
+      controller.abort('superseded');
+      throw new DOMException('aborted', 'AbortError');
+    });
+    const { ctx, events } = context(controller.signal);
+    expect(await complete(ctx)).toMatchObject({
+      ok: false,
+      error: { _tag: 'CancellationError', reason: 'superseded' },
+    });
+    expect(providerSignal?.aborted).toBe(true);
+    expect(providerSignal?.reason).toBe('superseded');
+    expect(events).toHaveLength(1);
+    expect(events[0]?.attributes['maelstrom.outcome']).toBe('cancelled');
+  });
   test('includes all reported usage in one correlated event without private content', async () => {
     mockChat.mockImplementationOnce(async ({ middleware }) => {
       for (const usage of [

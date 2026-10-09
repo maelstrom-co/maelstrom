@@ -37,12 +37,25 @@ the object branch and sums each reported array counter independently.
 `fromSpecTokenUsage()` fills absent counters with zero, so it cannot preserve
 measurement presence. An empty array or label-only entries mean usage is missing.
 Partial records keep known counts and omit unknown ones, including total tokens.
-Totals are not derived from other counters. Explicit zero counts remain zero.
+The wrapper does not derive totals from other counters. Explicit zero counts
+remain zero.
 Evaluation summaries sum reported counts and mark calls missing input or output
 usage with `withoutUsage`. These sums can be incomplete.
 Regression tests cover both formats, multiple entries, partial counters, and
 missing usage. Stream chunks remain unchanged.
 Sources: [event types][types] and [normalizer][usage].
+
+Counter presence is preserved only after the adapter emits usage. Gemini
+`0.36.0` converts missing `promptTokenCount` or `candidatesTokenCount` to zero.
+It also derives a missing total from those counters. Metadata containing only
+`{ promptTokenCount: 7 }` therefore reaches Maelstrom as input `7`, output `0`,
+and total `7`. This output is indistinguishable from an explicit zero measurement.
+Evaluation summaries cannot detect that loss with `withoutUsage`.
+
+An offline regression through the real Gemini adapter confirms both inputs
+produce the same counters. Do not drop every Gemini zero: that would discard
+explicit measurements. Preserving provider-level absence requires an upstream
+adapter change. Source: [Gemini usage normalization][gemini-usage].
 
 ### Keep provider errors on the engine logger
 
@@ -96,14 +109,15 @@ calls take. No new public middleware option is needed.
 
 The [LLM planner](../../packages/planner-llm/src/lib/llm-planner.ts) and
 [Jev completion helper](../../packages/planner-jev/src/lib/llm-call.ts) collect
-reported counters from `RUN_FINISHED` in `onChunk`. They emit one `llm.call` event
+adapter-reported counters from `RUN_FINISHED` or `RUN_ERROR` in `onChunk`.
+They emit one `llm.call` event
 after the call settles:
 
 | Attribute | Meaning |
 | --- | --- |
 | `gen_ai.request.model` | Adapter model |
-| `gen_ai.usage.input_tokens` | Sum of reported input tokens; absent without usage |
-| `gen_ai.usage.output_tokens` | Sum of reported output tokens; absent without usage |
+| `gen_ai.usage.input_tokens` | Sum of adapter-reported input tokens; absent without usage |
+| `gen_ai.usage.output_tokens` | Sum of adapter-reported output tokens; absent without usage |
 | `maelstrom.outcome` | `ok`, `error`, or `cancelled` at the call boundary |
 | `maelstrom.latency_ms` | Call duration in milliseconds |
 | `maelstrom.message_id` | Origin request correlation |
@@ -115,13 +129,19 @@ rejected. Later candidate validation or Jev deferral has its own stage outcome.
 An already-cancelled request reports cancellation without contacting a provider.
 
 Usage survives finalization failure when the provider already reported it.
-Unknown usage stays absent rather than becoming zero. `onFinish.info.usage` is
+Usage absent at the adapter boundary stays absent. `onFinish.info.usage` is
 not added: it repeats agent-loop usage and omits separate finalization usage.
 Collectors belong to individual calls, so concurrent requests cannot share totals.
-The raw chunks retain counter presence that `onUsage` normalization discards.
+Raw chunks preserve counter presence before core's `onUsage` normalization,
+but cannot undo earlier provider-adapter normalization.
 Partial usage emits only known input or output attributes. The collectors do not
-add normalized hook totals to raw chunk totals. Real-runtime regressions cover
-66 combinations across the three planner entry paths and finalization modes.
+add normalized hook totals to raw chunk totals. Each provider call contributes
+its first reported terminal snapshot, so repeated terminal usage is not added
+again. The `onConfig` boundary resets this guard for each model call, including
+separate structured-output finalization. Real-runtime regressions cover
+102 combinations across the three planner entry paths and finalization modes,
+including repeated usage and terminal errors with complete, partial, missing,
+zero, and legacy usage.
 
 OpenAI's `response.incomplete` path does not forward terminal usage, even when
 the upstream event contains it. An offline replay with the real adapter confirms
@@ -135,7 +155,10 @@ Evaluation accounting stays in the role-labelled adapter proxy. Reports do not
 add instrument totals to proxy totals. Offline integration tests exercise native
 combined output, streaming finalization, and direct finalization through all
 three planner call paths. They verify known and unknown usage, invalid output,
-and unchanged evaluation totals. Source: [middleware guide][middleware-guide].
+terminal failures, and unchanged evaluation totals. A shared-planner regression
+overlaps two requests, then checks a usage-less request for retained counters.
+Jev cancellation tests assert the provider signal after the call settles, outside
+the helper's error handler. Source: [middleware guide][middleware-guide].
 
 ### Use the built-in OpenAI model catalog
 
@@ -222,12 +245,15 @@ not full planner layouts or actions. They do not establish planner quality.
   verifies validation, not malformed JSON parsing.
 - OpenAI terminal usage loss remains an upstream adapter limit. Keep missing
   usage absent; do not estimate it from the request's output cap.
+- Gemini normalizes absent individual counters before Maelstrom sees them.
+  The local guarantee covers adapter-emitted usage, not original provider metadata.
 
 [registry-ai]: https://registry.npmjs.org/@tanstack/ai/0.65.1
 [openai-package]: https://github.com/TanStack/ai/blob/25e0d65e19eee4641eece3cc812b9ba991d62893/packages/ai-openai/package.json
 [gemini-package]: https://github.com/TanStack/ai/blob/25e0d65e19eee4641eece3cc812b9ba991d62893/packages/ai-gemini/package.json
 [changelog]: https://github.com/TanStack/ai/blob/25e0d65e19eee4641eece3cc812b9ba991d62893/packages/ai/CHANGELOG.md
 [gemini-changelog]: https://github.com/TanStack/ai/blob/25e0d65e19eee4641eece3cc812b9ba991d62893/packages/ai-gemini/CHANGELOG.md
+[gemini-usage]: https://github.com/TanStack/ai/blob/25e0d65e19eee4641eece3cc812b9ba991d62893/packages/ai-gemini/src/usage.ts
 [types]: https://github.com/TanStack/ai/blob/25e0d65e19eee4641eece3cc812b9ba991d62893/packages/ai/src/types.ts
 [usage]: https://github.com/TanStack/ai/blob/25e0d65e19eee4641eece3cc812b9ba991d62893/packages/ai/src/utilities/ag-ui-usage.ts
 [chat-source]: https://github.com/TanStack/ai/blob/25e0d65e19eee4641eece3cc812b9ba991d62893/packages/ai/src/activities/chat/index.ts

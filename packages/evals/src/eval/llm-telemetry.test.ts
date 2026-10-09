@@ -21,9 +21,13 @@ test('real TanStack usage reaches every planner path without doubling evaluation
       { inputTokens: 4, outputTokens: 2, totalTokens: 6 },
     ];
     const totals = { promptTokens: 16, completionTokens: 5, totalTokens: 21 };
-    function adapter(mode, data, reported, wireUsage = specUsage, directUsage = totals) {
+    function adapter(mode, data, reported, wireUsage = specUsage, directUsage = totals, terminalError = false, repeated = false) {
       async function* stream() {
         yield { type: 'RUN_STARTED', runId: 'r', threadId: 't', timestamp: 1 };
+        if (terminalError) {
+          yield { type: 'RUN_ERROR', runId: 'r', threadId: 't', timestamp: 2, message: 'Private provider failure.', usage: reported ? wireUsage : [] };
+          return;
+        }
         yield { type: 'TEXT_MESSAGE_START', messageId: 'm', role: 'assistant', timestamp: 2 };
         yield { type: 'TEXT_MESSAGE_CONTENT', messageId: 'm', delta: JSON.stringify(data), timestamp: 3 };
         yield { type: 'TEXT_MESSAGE_END', messageId: 'm', timestamp: 4 };
@@ -31,6 +35,7 @@ test('real TanStack usage reaches every planner path without doubling evaluation
           yield { type: 'CUSTOM', name: 'structured-output.complete', value: { object: data, raw: JSON.stringify(data) }, timestamp: 5 };
         }
         yield { type: 'RUN_FINISHED', runId: 'r', threadId: 't', finishReason: 'stop', timestamp: 6, usage: reported ? wireUsage : [] };
+        if (repeated) yield { type: 'RUN_FINISHED', runId: 'r', threadId: 't', finishReason: 'stop', timestamp: 7, usage: wireUsage };
       }
       return {
         kind: 'text', name: 'offline', model: 'offline',
@@ -46,9 +51,10 @@ test('real TanStack usage reaches every planner path without doubling evaluation
     let checked = 0;
     for (const mode of ['combined', 'stream-finalization', 'direct-finalization']) {
       for (const entry of ['planner', 'complete', 'inline']) {
-        for (const scenario of ['reported', 'missing', 'invalid', 'labels', 'partial', 'output-only', 'total-only', 'zero', 'split']) {
+        for (const scenario of ['reported', 'missing', 'invalid', 'labels', 'partial', 'output-only', 'total-only', 'zero', 'split', 'error-reported', 'error-missing', 'error-partial', 'error-zero', 'error-legacy', 'repeated']) {
           if (mode === 'direct-finalization' && !['reported', 'missing', 'invalid', 'zero'].includes(scenario)) continue;
-          const reported = scenario !== 'missing';
+          const failed = scenario === 'invalid' || scenario.startsWith('error-');
+          const reported = !['missing', 'error-missing'].includes(scenario);
           const fixture = {
             labels: { wire: [{ provider: 'offline' }], expected: undefined },
             partial: { wire: [{ inputTokens: 7 }], expected: { inputTokens: 7 } },
@@ -56,6 +62,9 @@ test('real TanStack usage reaches every planner path without doubling evaluation
             'total-only': { wire: [{ totalTokens: 3 }], expected: { totalTokens: 3 } },
             zero: { wire: [{ inputTokens: 0, outputTokens: 0, totalTokens: 0 }], expected: { inputTokens: 0, outputTokens: 0, totalTokens: 0 } },
             split: { wire: [{ inputTokens: 7 }, { outputTokens: 3, totalTokens: 10 }], expected: { inputTokens: 7, outputTokens: 3, totalTokens: 10 } },
+            'error-partial': { wire: [{ inputTokens: 7 }], expected: { inputTokens: 7 } },
+            'error-zero': { wire: [{ inputTokens: 0, outputTokens: 0, totalTokens: 0 }], expected: { inputTokens: 0, outputTokens: 0, totalTokens: 0 } },
+            'error-legacy': { wire: totals, expected: { inputTokens: 16, outputTokens: 5, totalTokens: 21 } },
           }[scenario];
           const expectedUsage = fixture ? fixture.expected : reported ? { inputTokens: 16, outputTokens: 5, totalTokens: 21 } : undefined;
           const data = scenario === 'invalid'
@@ -67,7 +76,7 @@ test('real TanStack usage reaches every planner path without doubling evaluation
             stage: (_name, stage) => stage,
             event: (name, attributes) => events.push({ name, attributes }),
           };
-          const wrapped = withUsage(adapter(mode, data, reported, fixture?.wire, scenario === 'zero' ? { promptTokens: 0, completionTokens: 0, totalTokens: 0 } : totals), entry === 'planner' ? 'planner' : 'complete', call => calls.push(call));
+          const wrapped = withUsage(adapter(mode, data, reported, fixture?.wire, scenario === 'zero' ? { promptTokens: 0, completionTokens: 0, totalTokens: 0 } : totals, scenario.startsWith('error-'), scenario === 'repeated'), entry === 'planner' ? 'planner' : 'complete', call => calls.push(call));
           const plan = completionPlan(makeRequest('hide the tasks'));
           const ctx = makeContext(plan.plan.selection.input, { instrument });
           const result = entry === 'planner'
@@ -76,7 +85,7 @@ test('real TanStack usage reaches every planner path without doubling evaluation
               ? await llmComplete({ adapter: wrapped })(plan, ctx)
               : await callLlm({ adapter: wrapped }, 'Private prompt.', z.object({ userMessage: z.string() }), [], ctx);
           const label = [mode, entry, scenario].join('/');
-          assert.equal(result.ok, scenario !== 'invalid', label);
+          assert.equal(result.ok, !failed, label);
           assert.equal(events.length, 1, label);
           assert.equal(calls.length, 1, label);
           const event = events[0];
@@ -87,7 +96,7 @@ test('real TanStack usage reaches every planner path without doubling evaluation
             'gen_ai.request.model': 'offline',
             'maelstrom.message_id': 'req-1',
             'maelstrom.session_id': 'session-1',
-            'maelstrom.outcome': scenario === 'invalid' ? 'error' : 'ok',
+            'maelstrom.outcome': failed ? 'error' : 'ok',
             ...(expectedUsage?.inputTokens !== undefined ? { 'gen_ai.usage.input_tokens': expectedUsage.inputTokens } : {}),
             ...(expectedUsage?.outputTokens !== undefined ? { 'gen_ai.usage.output_tokens': expectedUsage.outputTokens } : {}),
           }, label);
@@ -110,5 +119,5 @@ test('real TanStack usage reaches every planner path without doubling evaluation
   );
   expect(run.stderr.toString()).toBe('');
   expect(run.exitCode).toBe(0);
-  expect(run.stdout.toString().trim()).toBe('66');
+  expect(run.stdout.toString().trim()).toBe('102');
 });
