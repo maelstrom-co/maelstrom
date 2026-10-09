@@ -1,4 +1,4 @@
-import type { AnyTextAdapter } from '@tanstack/ai';
+import type { AnyTextAdapter, ChatMiddleware } from '@tanstack/ai';
 import type { z } from 'zod';
 
 /** The options `chat()` receives, as far as tests inspect them. */
@@ -10,6 +10,10 @@ export interface ChatCall {
   readonly systemPrompts: readonly string[];
   readonly outputSchema: z.ZodObject<z.ZodRawShape>;
   readonly abortController: AbortController;
+  /** Disables provider console logs that bypass the engine logger. */
+  readonly debug: boolean;
+  /** Observes provider usage without changing the request or output. */
+  readonly middleware: readonly ChatMiddleware[];
 }
 
 /** A stand-in for `@tanstack/ai`'s `chat`, as far as tests call it. */

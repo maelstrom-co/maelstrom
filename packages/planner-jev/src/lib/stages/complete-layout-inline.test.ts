@@ -75,6 +75,13 @@ const hidden = () =>
   });
 
 describe('completeLayoutInline', () => {
+  test('disables TanStack console logs on layout hand-offs so provider errors use the engine logger', async () => {
+    const tree = ['H', 'ID:weather-main', 'ID:calendar-main'];
+    mockChat.mockResolvedValue({ userMessage: 'Done.', layout: { tree } });
+    await run(handOff(hidden()));
+    expect(chatCall().debug).toBe(false);
+  });
+
   test('with a tree, sends the llmComplete call and ships its candidate', async () => {
     const layoutPlan = completionPlan(
       makeRequest('weather for the capital of Japan'),
@@ -199,14 +206,17 @@ describe('completeLayoutInline', () => {
 
   test('an abort is a CancellationError, not a deferral', async () => {
     const controller = new AbortController();
+    let providerSignal: AbortSignal | undefined;
     mockChat.mockImplementation(async (options) => {
+      providerSignal = options.abortController.signal;
       controller.abort('user left');
-      expect(options.abortController.signal.aborted).toBe(true);
       throw new DOMException('aborted', 'AbortError');
     });
     const result = await run(decisionOf(completionPlan(makeRequest('x'))), {
       signal: controller.signal,
     });
+    expect(providerSignal?.aborted).toBe(true);
+    expect(providerSignal?.reason).toBe('user left');
     expect(errorTagOf(result)).toBe('CancellationError');
   });
 

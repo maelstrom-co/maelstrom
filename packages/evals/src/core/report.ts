@@ -24,7 +24,7 @@ export interface TokenTotals {
   readonly calls: number;
   readonly input: number;
   readonly output: number;
-  /** Calls that reported no usage, counted as zero tokens in `input` and `output`. */
+  /** Calls missing input or output usage; totals sum only reported counters. */
   readonly withoutUsage: number;
 }
 
@@ -345,14 +345,18 @@ export async function writeReport(
 export function tokenTotals(
   calls: readonly {
     readonly usage?: {
-      readonly inputTokens: number;
-      readonly outputTokens: number;
+      readonly inputTokens?: number;
+      readonly outputTokens?: number;
     };
   }[],
 ): TokenTotals {
   return {
     calls: calls.length,
-    withoutUsage: calls.filter((call) => call.usage === undefined).length,
+    withoutUsage: calls.filter(
+      (call) =>
+        call.usage?.inputTokens === undefined ||
+        call.usage?.outputTokens === undefined,
+    ).length,
     input: calls.reduce(
       (total, call) => total + (call.usage?.inputTokens ?? 0),
       0,

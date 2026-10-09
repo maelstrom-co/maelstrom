@@ -1,4 +1,9 @@
-import type { AnyTextAdapter, StreamChunk, TokenUsage } from '@tanstack/ai';
+import type {
+  AnyTextAdapter,
+  SpecTokenUsage,
+  StreamChunk,
+  TokenUsage,
+} from '@tanstack/ai';
 
 /** Every LLM role, in report order. */
 export const LLM_ROLES = [
@@ -13,15 +18,18 @@ export const LLM_ROLES = [
 export type LlmRole = (typeof LLM_ROLES)[number];
 
 export interface LlmUsage {
-  readonly inputTokens: number;
-  readonly outputTokens: number;
-  readonly totalTokens: number;
+  /** Adapter-reported input tokens; absent when the adapter omitted this counter. */
+  readonly inputTokens?: number;
+  /** Adapter-reported output tokens; absent when the adapter omitted this counter. */
+  readonly outputTokens?: number;
+  /** Adapter-reported total tokens; this wrapper does not derive them. */
+  readonly totalTokens?: number;
 }
 
 export interface LlmCall {
   readonly role: LlmRole;
   readonly latencyMs: number;
-  /** Absent when the provider reported none. */
+  /** Absent when the adapter reported none. */
   readonly usage?: LlmUsage;
 }
 
@@ -29,12 +37,13 @@ const STREAMS = ['chatStream', 'structuredOutputStream'] as const;
 
 /**
  * Wraps `adapter` so every provider call reports its latency and token
- * usage to `sink`, once per call. `chat()` hands usage only to middleware,
- * which the planners do not take, so the adapter is the one place that sees
- * it: streamed calls carry it on their `RUN_FINISHED` chunk and
- * `structuredOutput` on its result. Methods run with the wrapped adapter as
+ * usage to `sink`, once per call. Evaluation reports use this role-labelled
+ * sink, not the planner's `llm.call` events, so telemetry does not double-count
+ * usage. Streamed calls carry usage on `RUN_FINISHED` or `RUN_ERROR`, and
+ * `structuredOutput` on its result. Methods run with the original adapter as
  * `this`, and a method the adapter lacks stays absent, because `chat()`
- * picks its path by probing for `structuredOutputStream`.
+ * picks its path by probing for `structuredOutputStream`. Counter presence is
+ * preserved at the adapter boundary; prior adapter normalization is irreversible.
  */
 export function withUsage(
   adapter: AnyTextAdapter,
@@ -51,10 +60,10 @@ export function withUsage(
       if (property === 'structuredOutput')
         return async (...args: unknown[]) => {
           const started = performance.now();
-          let usage: TokenUsage | undefined;
+          let usage: LlmUsage | undefined;
           try {
             const result = await value.apply(target, args);
-            usage = result?.usage;
+            usage = reportedUsage(result?.usage);
             return result;
           } finally {
             sink(call(role, started, usage));
@@ -71,10 +80,11 @@ async function* recordStream(
   sink: (call: LlmCall) => void,
 ): AsyncGenerator<StreamChunk> {
   const started = performance.now();
-  let usage: TokenUsage | undefined;
+  let usage: LlmUsage | undefined;
   try {
     for await (const chunk of stream) {
-      if (chunk.type === 'RUN_FINISHED' && chunk.usage) usage = chunk.usage;
+      if (chunk.type === 'RUN_FINISHED' || chunk.type === 'RUN_ERROR')
+        usage ??= reportedUsage(chunk.usage);
       yield chunk;
     }
   } finally {
@@ -82,20 +92,41 @@ async function* recordStream(
   }
 }
 
+function reportedUsage(
+  usage: TokenUsage | SpecTokenUsage[] | undefined,
+): LlmUsage | undefined {
+  if (!usage) return undefined;
+  const entries = Array.isArray(usage)
+    ? usage
+    : [
+        {
+          inputTokens: usage.promptTokens,
+          outputTokens: usage.completionTokens,
+          totalTokens: usage.totalTokens,
+        },
+      ];
+  const totals: {
+    inputTokens?: number;
+    outputTokens?: number;
+    totalTokens?: number;
+  } = {};
+  for (const entry of entries) {
+    for (const key of ['inputTokens', 'outputTokens', 'totalTokens'] as const) {
+      const value = entry[key];
+      if (typeof value === 'number') totals[key] = (totals[key] ?? 0) + value;
+    }
+  }
+  return Object.keys(totals).length > 0 ? totals : undefined;
+}
+
 function call(
   role: LlmRole,
   started: number,
-  usage: TokenUsage | undefined,
+  usage: LlmUsage | undefined,
 ): LlmCall {
   return {
     role,
     latencyMs: performance.now() - started,
-    ...(usage && {
-      usage: {
-        inputTokens: usage.promptTokens,
-        outputTokens: usage.completionTokens,
-        totalTokens: usage.totalTokens,
-      },
-    }),
+    ...(usage && { usage }),
   };
 }

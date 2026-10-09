@@ -30,6 +30,12 @@ import {
   SessionId,
   TilingResponseSchema,
 } from '@maelstrom-co/protocol';
+import type {
+  ChatMiddleware,
+  RunErrorEvent,
+  RunFinishedEvent,
+  TokenUsage,
+} from '@tanstack/ai';
 
 import {
   dummyAdapter,
@@ -57,8 +63,25 @@ interface ChatArgs {
   readonly systemPrompts: readonly string[];
   readonly outputSchema: unknown;
   readonly stream: boolean;
+  readonly debug: boolean;
   readonly abortController: AbortController;
+  readonly middleware: readonly ChatMiddleware[];
   readonly modelOptions?: Record<string, unknown>;
+}
+
+async function reportUsage(
+  middleware: ChatMiddleware | undefined,
+  usage: TokenUsage,
+) {
+  await middleware?.onConfig?.({} as never, {} as never);
+  await middleware?.onChunk?.({} as never, {
+    type: 'RUN_FINISHED' as RunFinishedEvent['type'],
+    runId: 'r',
+    threadId: 't',
+    timestamp: 1,
+    usage,
+  });
+  await middleware?.onUsage?.({} as never, usage);
 }
 
 function chatCall(index: number): ChatArgs {
@@ -67,9 +90,15 @@ function chatCall(index: number): ChatArgs {
   return args;
 }
 
-function comparableChatCalls(): Array<Omit<ChatArgs, 'abortController'>> {
+function comparableChatCalls(): Array<
+  Omit<ChatArgs, 'abortController' | 'middleware'>
+> {
   return mockChat.mock.calls.map((call) => {
-    const { abortController: _ignored, ...rest } = call[0] as ChatArgs;
+    const {
+      abortController: _ignored,
+      middleware: _middleware,
+      ...rest
+    } = call[0] as ChatArgs;
     return rest;
   });
 }
@@ -270,6 +299,7 @@ describe('llmPlanner', () => {
           outputSchema:
             mode === 'grid' ? GridResponseSchema : TilingResponseSchema,
           stream: false,
+          debug: false,
           modelOptions,
         },
       ]);
@@ -612,6 +642,48 @@ describe('llmPlanner', () => {
       expect(isErr(result)).toBe(true);
       if (!isErr(result)) return;
       expect(result.error._tag).toBe('CancellationError');
+    });
+
+    test('stops the provider request when the caller cancels to avoid unused model work', async () => {
+      const controller = new AbortController();
+      let providerSignal: AbortSignal | undefined;
+      mockChat.mockImplementationOnce((options) => {
+        const { abortController } = options as ChatArgs;
+        providerSignal = abortController.signal;
+        controller.abort('superseded');
+        return Promise.reject(new DOMException('Aborted', 'AbortError'));
+      });
+
+      const input = makePlanningInput(makeGridRequest());
+      const result = await llmPlanner({ adapter: dummyAdapter })(
+        input,
+        makeStageContext({ origin: input, signal: controller.signal }),
+      );
+
+      expect(mockChat).toHaveBeenCalledTimes(1);
+      expect(providerSignal?.aborted).toBe(true);
+      expect(providerSignal?.reason).toBe('superseded');
+      expect(result).toMatchObject({
+        ok: false,
+        error: { _tag: 'CancellationError', reason: 'superseded' },
+      });
+    });
+
+    test('rejects a cancelled response even when the provider ignores the abort', async () => {
+      const controller = new AbortController();
+      mockChat.mockImplementationOnce(() => {
+        controller.abort('superseded');
+        return Promise.resolve(buildGridResponse());
+      });
+      const input = makePlanningInput(makeGridRequest());
+      const result = await llmPlanner({ adapter: dummyAdapter })(
+        input,
+        makeStageContext({ origin: input, signal: controller.signal }),
+      );
+      expect(result).toMatchObject({
+        ok: false,
+        error: { _tag: 'CancellationError', reason: 'superseded' },
+      });
     });
   });
 
@@ -1023,6 +1095,100 @@ describe('llmPlanner instrumentation', () => {
     };
   }
 
+  test('keeps token accounting local to overlapping requests on one planner', async () => {
+    const planner = llmPlanner({ adapter: dummyAdapter });
+    let release: () => void = () => {};
+    const barrier = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    mockChat.mockImplementationOnce(async (options) => {
+      await reportUsage((options as ChatArgs).middleware[0], {
+        promptTokens: 12,
+        completionTokens: 3,
+        totalTokens: 15,
+      });
+      await barrier;
+      return buildGridResponse();
+    });
+    mockChat.mockImplementationOnce(async (options) => {
+      await reportUsage((options as ChatArgs).middleware[0], {
+        promptTokens: 40,
+        completionTokens: 10,
+        totalTokens: 50,
+      });
+      release();
+      return buildGridResponse();
+    });
+    const first = { ...makePlanningInput(), messageId: MessageId('first') };
+    const second = { ...makePlanningInput(), messageId: MessageId('second') };
+    const { instrument, events } = spyInstrument();
+    const results = await Promise.all([
+      planner(first, makeStageContext({ origin: first, instrument })),
+      planner(second, makeStageContext({ origin: second, instrument })),
+    ]);
+    expect(results.every(isOk)).toBe(true);
+    expect(events).toHaveLength(2);
+    expect(events.map((event) => event.name)).toEqual(['llm.call', 'llm.call']);
+    const attributes = (messageId: string) =>
+      events.find(
+        (event) => event.attributes['maelstrom.message_id'] === messageId,
+      )?.attributes;
+    expect(attributes('first')).toMatchObject({
+      'gen_ai.usage.input_tokens': 12,
+      'gen_ai.usage.output_tokens': 3,
+    });
+    expect(attributes('second')).toMatchObject({
+      'gen_ai.usage.input_tokens': 40,
+      'gen_ai.usage.output_tokens': 10,
+    });
+    mockChat.mockResolvedValueOnce(buildGridResponse());
+    const third = { ...makePlanningInput(), messageId: MessageId('third') };
+    expect(
+      isOk(
+        await planner(third, makeStageContext({ origin: third, instrument })),
+      ),
+    ).toBe(true);
+    expect(events).toHaveLength(3);
+    expect(attributes('third')).not.toHaveProperty('gen_ai.usage.input_tokens');
+    expect(attributes('third')).not.toHaveProperty(
+      'gen_ai.usage.output_tokens',
+    );
+  });
+
+  test('counts a failed provider run once when terminal usage is repeated', async () => {
+    mockChat.mockImplementationOnce(async (options) => {
+      const middleware = (options as ChatArgs).middleware[0];
+      await reportUsage(middleware, {
+        promptTokens: 12,
+        completionTokens: 3,
+        totalTokens: 15,
+      });
+      await middleware?.onChunk?.({} as never, {
+        type: 'RUN_ERROR' as RunErrorEvent['type'],
+        message: 'private-provider-key',
+        timestamp: 2,
+        usage: [{ inputTokens: 12, outputTokens: 3, totalTokens: 15 }],
+      });
+      throw new Error('private-provider-key');
+    });
+    const { instrument, events } = spyInstrument();
+    const result = await llmPlanner({ adapter: dummyAdapter })(
+      makePlanningInput(),
+      makeStageContext({ instrument }),
+    );
+    expect(result).toMatchObject({
+      ok: false,
+      error: { _tag: 'ProviderError' },
+    });
+    expect(events).toHaveLength(1);
+    expect(events[0]?.attributes).toMatchObject({
+      'gen_ai.usage.input_tokens': 12,
+      'gen_ai.usage.output_tokens': 3,
+      'maelstrom.outcome': 'error',
+    });
+    expect(JSON.stringify(events)).not.toContain('private-provider-key');
+  });
+
   test('reports a successful model call with the adapter model and latency', async () => {
     mockChat.mockResolvedValueOnce(buildGridResponse());
     const { instrument, events } = spyInstrument();
@@ -1043,8 +1209,57 @@ describe('llmPlanner instrumentation', () => {
     expect(Object.keys(events[0]?.attributes ?? {}).sort()).toEqual([
       'gen_ai.request.model',
       'maelstrom.latency_ms',
+      'maelstrom.message_id',
       'maelstrom.outcome',
+      'maelstrom.session_id',
     ]);
+  });
+
+  test('sums reported usage without counting normalized hooks again', async () => {
+    mockChat.mockImplementationOnce(async (options) => {
+      const middleware = (options as ChatArgs).middleware[0];
+      for (const usage of [
+        { promptTokens: 12, completionTokens: 3, totalTokens: 15 },
+        { promptTokens: 4, completionTokens: 2, totalTokens: 6 },
+      ])
+        await reportUsage(middleware, usage);
+      return buildGridResponse();
+    });
+    const { instrument, events } = spyInstrument();
+    await llmPlanner({ adapter: dummyAdapter })(
+      makePlanningInput(),
+      makeStageContext({ instrument }),
+    );
+    expect(events).toHaveLength(1);
+    expect(events[0]?.attributes).toMatchObject({
+      'gen_ai.usage.input_tokens': 16,
+      'gen_ai.usage.output_tokens': 5,
+      'maelstrom.message_id': 'req-1',
+      'maelstrom.session_id': 'session-1',
+      'maelstrom.outcome': 'ok',
+    });
+  });
+
+  test('keeps reported usage when finalization fails so failed work is not free', async () => {
+    mockChat.mockImplementationOnce(async (options) => {
+      await reportUsage((options as ChatArgs).middleware[0], {
+        promptTokens: 12,
+        completionTokens: 3,
+        totalTokens: 15,
+      });
+      throw new Error('invalid structured output');
+    });
+    const { instrument, events } = spyInstrument();
+    await llmPlanner({ adapter: dummyAdapter })(
+      makePlanningInput(),
+      makeStageContext({ instrument }),
+    );
+    expect(events).toHaveLength(1);
+    expect(events[0]?.attributes).toMatchObject({
+      'gen_ai.usage.input_tokens': 12,
+      'gen_ai.usage.output_tokens': 3,
+      'maelstrom.outcome': 'error',
+    });
   });
 
   test('reports a failed model call as an error', async () => {

@@ -151,6 +151,12 @@ function candidateOf(result: Awaited<ReturnType<typeof run>>['result']) {
 }
 
 describe('llmComplete', () => {
+  test('disables TanStack console logs so provider errors use the engine logger', async () => {
+    mockChat.mockResolvedValue({ userMessage: 'Done.' });
+    await run(completionPlan(makeRequest('hide the tasks')));
+    expect(chatCall().debug).toBe(false);
+  });
+
   test('uses the { userMessage } schema when nothing is pending', async () => {
     mockChat.mockResolvedValue({ userMessage: 'Done.' });
     const { result } = await run(completionPlan(makeRequest('hide the tasks')));
@@ -466,14 +472,17 @@ describe('llmComplete', () => {
 
   test('an abort is a CancellationError, not a deferral', async () => {
     const controller = new AbortController();
+    let providerSignal: AbortSignal | undefined;
     mockChat.mockImplementation(async (options) => {
+      providerSignal = options.abortController.signal;
       controller.abort('user left');
-      expect(options.abortController.signal.aborted).toBe(true);
       throw new DOMException('aborted', 'AbortError');
     });
     const { result } = await run(completionPlan(makeRequest('x')), {
       signal: controller.signal,
     });
+    expect(providerSignal?.aborted).toBe(true);
+    expect(providerSignal?.reason).toBe('user left');
     expect(errorTagOf(result)).toBe('CancellationError');
   });
 });

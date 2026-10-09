@@ -1,16 +1,10 @@
-import {
-  type CancellationError,
-  cancellationError,
-  type Deferred,
-  type LLMContextMessage,
-  type PlannerCandidate,
-  type ProviderError,
-  providerError,
-  type StageContext,
+import type {
+  Deferred,
+  PlannerCandidate,
+  StageContext,
 } from '@maelstrom-co/engine';
 import {
   type ChartRequest,
-  err,
   type InstanceId,
   isErr,
   MAX_SPLIT_CHILDREN,
@@ -21,7 +15,6 @@ import {
   type VariantName,
   type VesselInstanceSnapshot,
 } from '@maelstrom-co/protocol';
-import { chat } from '@tanstack/ai';
 import { z } from 'zod';
 import {
   type Completion,
@@ -32,7 +25,8 @@ import {
 import { declaredVariants } from '../declared-variants.js';
 import { deferAt, STAGE_NAME } from '../defer.js';
 import { layoutFits } from '../layout-fit.js';
-import { intentText, recentHistory } from '../questions.js';
+import { callLlm } from '../llm-call.js';
+import { intentText } from '../questions.js';
 import type {
   ParameterAsk,
   PlannedAction,
@@ -44,11 +38,7 @@ import type { CompleteStage, LayoutDecision } from './stage-types.js';
 
 const STAGE = STAGE_NAME.llmComplete;
 
-const SYSTEM_PROMPT = `You write the reply of a dashboard assistant after its planner already decided what to change.
-- Describe only what was decided, in one or two short, friendly sentences that read well aloud.
-- Do not promise anything the decisions do not include, and never claim that an action listed under "Ask the user" ran.
-- When there are values to ask for, ask the user for them in the same reply.
-- For each value to fill, give the concrete value the parameter needs, in its type: resolve a landmark, event, or other indirect reference to what it names. Use null only when the request gives no value at all.`;
+export { callLlm } from '../llm-call.js';
 
 type HandOffCompletion = Completion & {
   readonly layout?: { readonly tree?: readonly (string | null)[] };
@@ -252,67 +242,6 @@ export const LAYOUT_SCHEMA = z.object({
       'The tiling tree for the visible instances, as a preorder token array.',
     ),
 });
-
-/**
- * Runs one structured-output call over `llm`, honoring `ctx.signal` and
- * turning an already-cancelled signal, a mid-flight abort or a provider
- * failure into a {@link CancellationError} or {@link ProviderError} result
- * instead of a thrown error.
- */
-export async function callLlm<T>(
-  llm: CompletionLlm,
-  prompt: string,
-  schema: z.ZodType<T>,
-  history: readonly LLMContextMessage[],
-  ctx: StageContext,
-): Promise<Result<T, CancellationError | ProviderError>> {
-  const { signal, logger } = ctx;
-  const messageId = ctx.origin.messageId;
-  if (signal?.aborted) {
-    logger.info('Request cancelled', { messageId, reason: signal.reason });
-    return err(
-      cancellationError('Request was already cancelled', signal.reason),
-    );
-  }
-  const controller = new AbortController();
-  const abort = () => controller.abort(signal?.reason);
-  signal?.addEventListener('abort', abort, { once: true });
-  try {
-    const output = await chat({
-      adapter: llm.adapter,
-      messages: [
-        ...recentHistory(history),
-        { role: 'user' as const, content: prompt },
-      ],
-      systemPrompts: [SYSTEM_PROMPT],
-      outputSchema: schema,
-      stream: false,
-      abortController: controller,
-      ...(llm.modelOptions !== undefined && {
-        modelOptions: llm.modelOptions,
-      }),
-    });
-    return ok(output as T);
-  } catch (error) {
-    if (signal?.aborted) {
-      logger.info('Request cancelled', { messageId, reason: signal.reason });
-      return err(
-        cancellationError(
-          `Request cancelled: ${signal.reason ?? 'unknown reason'}`,
-          signal.reason,
-        ),
-      );
-    }
-    const failure = providerError(
-      error instanceof Error ? error.message : String(error),
-      error,
-    );
-    logger.error('llmComplete call failed', failure, { messageId });
-    return err(failure);
-  } finally {
-    signal?.removeEventListener('abort', abort);
-  }
-}
 
 function buildPrompt(
   decision: LayoutDecision,

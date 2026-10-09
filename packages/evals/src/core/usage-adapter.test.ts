@@ -82,6 +82,67 @@ describe('withUsage', () => {
     expect(calls.map((call) => call.usage?.inputTokens)).toEqual([120, 120]);
   });
 
+  test('includes every AG-UI usage entry so evaluation totals do not undercount model work', async () => {
+    const chunks = finished.map((chunk) =>
+      chunk.type === 'RUN_FINISHED'
+        ? {
+            ...chunk,
+            usage: [
+              { inputTokens: 120, outputTokens: 30, totalTokens: 150 },
+              { inputTokens: 40, outputTokens: 10, totalTokens: 50 },
+            ],
+          }
+        : chunk,
+    );
+    const { adapter, calls } = wrap(new FakeAdapter(chunks));
+    expect(await drain(adapter.chatStream({} as never))).toEqual(chunks);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.usage).toEqual({
+      inputTokens: 160,
+      outputTokens: 40,
+      totalTokens: 200,
+    });
+  });
+
+  test('does not report missing provider usage as zero token work', async () => {
+    const { adapter, calls } = wrap(
+      new FakeAdapter(
+        finished.map((chunk) =>
+          chunk.type === 'RUN_FINISHED' ? { ...chunk, usage: [] } : chunk,
+        ),
+      ),
+    );
+    await drain(adapter.chatStream({} as never));
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.usage).toBeUndefined();
+  });
+
+  test.each([
+    { entries: [{}], expected: undefined },
+    {
+      entries: [{ provider: 'offline', model: 'offline' }],
+      expected: undefined,
+    },
+    { entries: [{ inputTokens: 7 }], expected: { inputTokens: 7 } },
+    { entries: [{ outputTokens: 0 }], expected: { outputTokens: 0 } },
+    { entries: [{ totalTokens: 3 }], expected: { totalTokens: 3 } },
+    {
+      entries: [{ inputTokens: 7 }, { outputTokens: 3, totalTokens: 10 }],
+      expected: { inputTokens: 7, outputTokens: 3, totalTokens: 10 },
+    },
+  ])('keeps unreported counters absent in evaluation records: $entries', async ({
+    entries,
+    expected,
+  }) => {
+    const chunks = finished.map((chunk) =>
+      chunk.type === 'RUN_FINISHED' ? { ...chunk, usage: [...entries] } : chunk,
+    );
+    const { adapter, calls } = wrap(new FakeAdapter(chunks));
+    expect(await drain(adapter.chatStream({} as never))).toEqual(chunks);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.usage).toEqual(expected);
+  });
+
   test('records a call without usage, and one that stops early', async () => {
     const { adapter, calls } = wrap(
       new FakeAdapter(finished.slice(0, 2) as StreamChunk[]),
@@ -90,6 +151,26 @@ describe('withUsage', () => {
     for await (const _chunk of adapter.chatStream({} as never)) break;
     expect(calls).toHaveLength(2);
     expect(calls[0]?.usage).toBe(undefined);
+  });
+
+  test('retains failed-call usage without adding a repeated terminal snapshot', async () => {
+    const failed = {
+      type: 'RUN_ERROR',
+      runId: 'r',
+      threadId: 't',
+      timestamp: 4,
+      message: 'synthetic failure',
+      usage: [{ inputTokens: 120, outputTokens: 30, totalTokens: 150 }],
+    } as unknown as StreamChunk;
+    const chunks = [finished[0]!, failed, failed, { ...failed, usage: [] }];
+    const { adapter, calls } = wrap(new FakeAdapter(chunks));
+    expect(await drain(adapter.chatStream({} as never))).toEqual(chunks);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.usage).toEqual({
+      inputTokens: 120,
+      outputTokens: 30,
+      totalTokens: 150,
+    });
   });
 
   test('keeps the adapter’s shape and binds its methods', () => {

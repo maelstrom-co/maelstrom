@@ -33,6 +33,45 @@ test('the live eval modules leave @tanstack/ai chat untouched outside bun test',
   expect(run.exitCode).toBe(0);
 });
 
+test('real TanStack planner failures do not print provider secrets outside the engine logger', () => {
+  const packages = join(SRC, '..', '..');
+  const jev = join(packages, 'planner-jev', 'src', 'lib');
+  const probe = `
+    import { callLLM } from ${JSON.stringify(join(packages, 'planner-llm', 'src', 'lib', 'call-llm.ts'))};
+    import { GridResponseSchema } from '@maelstrom-co/protocol';
+    import { z } from 'zod';
+    import { llmComplete } from ${JSON.stringify(join(jev, 'stages', 'llm-complete.ts'))};
+    import { callLlm } from ${JSON.stringify(join(jev, 'stages', 'complete-layout-inline.ts'))};
+    import { makeContext, makeRequest } from ${JSON.stringify(join(jev, '__test-helpers__', 'fixtures.ts'))};
+    import { completionPlan } from ${JSON.stringify(join(jev, '__test-helpers__', 'layout-fixtures.ts'))};
+
+    const fail = () => { throw new Error('rejected fake-provider-key-for-tests'); };
+    const adapter = {
+      kind: 'text', name: 'offline', model: 'offline',
+      supportsCombinedToolsAndSchema: () => true,
+      async *chatStream() { fail(); },
+      async structuredOutput() { fail(); },
+    };
+    const plan = completionPlan(makeRequest('hide the tasks'));
+    const ctx = makeContext(plan.plan.selection.input);
+    const results = await Promise.all([
+      callLLM(adapter, 'system', 'user', GridResponseSchema, []),
+      llmComplete({ adapter })(plan, ctx),
+      callLlm({ adapter }, 'user', z.object({ userMessage: z.string() }), [], ctx),
+    ]);
+    if (results.some(result => result.ok || result.error._tag !== 'ProviderError')) {
+      throw new Error('Expected provider failures from every planner call');
+    }
+  `;
+  const run = Bun.spawnSync(
+    [process.execPath, '--conditions=@maelstrom-co/source', '-e', probe],
+    { cwd: join(SRC, '..') },
+  );
+  expect(run.exitCode).toBe(0);
+  expect(run.stdout.toString()).toBe('');
+  expect(run.stderr.toString()).toBe('');
+});
+
 test('only test files import values from @maelstrom-co/planner-jev/_testing', async () => {
   const entries = await readdir(SRC, { recursive: true });
   const offenders: string[] = [];
