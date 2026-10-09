@@ -257,6 +257,7 @@ describe('recorded live replies', () => {
           reason: 'jevLayout/provider_refusal',
         });
         expect(calls[0]?.outcome).toBe('provider_refusal');
+        expect(calls[0]?.usage?.inputTokens).toBeGreaterThan(0);
         return;
       }
       expect(isOk(result)).toBe(true);
@@ -531,6 +532,14 @@ describe('refusals', () => {
     expect(recorded).toHaveLength(1);
     expect(recorded[0]?.outcome).toBe('provider_refusal');
     expect(recorded[0]?.answers).toBe(undefined);
+    expect(recorded[0]?.usage).toEqual({ inputTokens: 11, outputTokens: 0 });
+    expect(
+      entries.find((entry) => entry.msg === 'jev.call')?.data,
+    ).toMatchObject({
+      outcome: 'provider_refusal',
+      inputTokens: 11,
+      outputTokens: 0,
+    });
   });
 
   test('defers on the first refused question in question order', async () => {

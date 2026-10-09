@@ -9,6 +9,17 @@ import type { JevCaller } from './defer.js';
 import type { Answer, Evaluation, Reply, Usage } from './questions.js';
 
 /**
+ * A deferral code for a provider call that returned no usable reply: a
+ * timeout, a network failure, a non-2xx status or a reply that failed
+ * validation.
+ */
+export type ProviderFailureCode =
+  | 'provider_timeout'
+  | 'provider_network'
+  | 'provider_http'
+  | 'provider_invalid_reply';
+
+/**
  * How one provider call ended: `ok`, `cancelled`, or the deferral code.
  * `provider_refusal` is an OpenAI Decisions refusal of a question; TypeSafe
  * never refuses.
@@ -17,10 +28,7 @@ export type CallOutcome =
   | 'ok'
   | 'cancelled'
   | 'option_cap'
-  | 'provider_timeout'
-  | 'provider_network'
-  | 'provider_http'
-  | 'provider_invalid_reply'
+  | ProviderFailureCode
   | 'provider_refusal';
 
 /** One validated answer as {@link AskCall} reports it. */
@@ -37,7 +45,11 @@ export interface AskCall {
   readonly questionIds: readonly string[];
   /** Wall time from the start of the call to its outcome, in milliseconds. */
   readonly latencyMs: number;
-  /** Token usage the provider reported; absent when the call failed. */
+  /**
+   * Token usage the provider reported. Present on `ok` and
+   * `provider_refusal`; absent when no valid reply arrived (`option_cap`,
+   * `cancelled` or a {@link ProviderFailureCode}).
+   */
   readonly usage?: Usage;
   /** How the call ended. */
   readonly outcome: CallOutcome;

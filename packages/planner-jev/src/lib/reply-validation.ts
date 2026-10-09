@@ -34,11 +34,6 @@ export function isCount(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 }
 
-/** Whether probabilities totalling `total` sum to one within 0.02. */
-export function sumsToOne(total: number): boolean {
-  return Math.abs(total - 1) <= 0.02;
-}
-
 /**
  * A noul answer from the probability of yes: `yes` from one half up, with
  * its distance from one half scaled to [0, 1] as the confidence.
@@ -128,8 +123,9 @@ export function levelAnswer(
 }
 
 /**
- * The reply a stage reads: each answer through {@link replyAnswer}, usage
- * unchanged.
+ * The reply a stage reads, usage unchanged. A score answer keeps its
+ * probabilities, a noul answer keeps only its probability of yes, and a
+ * choice answer keeps its probabilities as a non-enumerable property.
  */
 export function withoutProbabilities(reply: Reply): Reply {
   const answers: Record<string, Answer> = Object.create(null);
@@ -139,11 +135,38 @@ export function withoutProbabilities(reply: Reply): Reply {
 }
 
 /**
- * The answer a stage reads: a score keeps its probabilities, a noul keeps
- * only its probability of yes, and a choice keeps its probabilities as a
- * non-enumerable property.
+ * The response body as text, or `undefined` once it exceeds 256 KB by its
+ * declared length or while streaming.
+ *
+ * @throws {Error} If the body is missing, `signal` aborts or the stream fails.
  */
-export function replyAnswer({
+export async function readBody(
+  response: Response,
+  signal: AbortSignal,
+): Promise<string | undefined> {
+  const length = response.headers.get('content-length');
+  if (length !== null && Number(length) > MAX_RESPONSE_BYTES) return undefined;
+  if (!response.body) throw new Error('response body missing');
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let bytes = 0;
+  let text = '';
+  try {
+    for (;;) {
+      if (signal.aborted) throw new Error('request aborted');
+      const next = await reader.read();
+      if (next.done) break;
+      bytes += next.value.byteLength;
+      if (bytes > MAX_RESPONSE_BYTES) return undefined;
+      text += decoder.decode(next.value, { stream: true });
+    }
+    return text + decoder.decode();
+  } finally {
+    void reader.cancel().catch(() => undefined);
+  }
+}
+
+function replyAnswer({
   choice,
   confidence,
   probability,
@@ -164,35 +187,6 @@ export function replyAnswer({
   return answer;
 }
 
-/**
- * The response body as text, or `undefined` once it exceeds `maxBytes`
- * (256 KB by default) by its declared length or while streaming.
- *
- * @throws {Error} If the body is missing, `signal` aborts or the stream fails.
- */
-export async function readBody(
-  response: Response,
-  signal: AbortSignal,
-  maxBytes: number = MAX_RESPONSE_BYTES,
-): Promise<string | undefined> {
-  const length = response.headers.get('content-length');
-  if (length !== null && Number(length) > maxBytes) return undefined;
-  if (!response.body) throw new Error('response body missing');
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let bytes = 0;
-  let text = '';
-  try {
-    for (;;) {
-      if (signal.aborted) throw new Error('request aborted');
-      const next = await reader.read();
-      if (next.done) break;
-      bytes += next.value.byteLength;
-      if (bytes > maxBytes) return undefined;
-      text += decoder.decode(next.value, { stream: true });
-    }
-    return text + decoder.decode();
-  } finally {
-    void reader.cancel().catch(() => undefined);
-  }
+function sumsToOne(total: number): boolean {
+  return Math.abs(total - 1) <= 0.02;
 }

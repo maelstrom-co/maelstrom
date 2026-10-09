@@ -1,7 +1,13 @@
 import { cancellationError } from '@maelstrom-co/engine';
 import { err, ok } from '@maelstrom-co/protocol';
 
-import type { Ask, AskCall, CallAnswer, CallOutcome } from './ask.js';
+import type {
+  Ask,
+  AskCall,
+  CallAnswer,
+  CallOutcome,
+  ProviderFailureCode,
+} from './ask.js';
 import { deferAt } from './defer.js';
 import {
   type Evaluation,
@@ -51,8 +57,6 @@ export interface TypeSafeClientOptions {
    */
   readonly logReplies?: boolean;
 }
-
-type ProviderCode = Exclude<CallOutcome, 'ok' | 'cancelled' | 'option_cap'>;
 
 /**
  * An {@link Ask} that sends each evaluation to TypeSafe's System One
@@ -111,7 +115,7 @@ export function createTypeSafeClient(options: TypeSafeClientOptions): Ask {
       report('cancelled');
       return err(cancellationError('Jev call cancelled', ctx.signal?.reason));
     };
-    const providerFailure = (code: ProviderCode, detail: string) => {
+    const providerFailure = (code: ProviderFailureCode, detail: string) => {
       report(code);
       ctx.logger.warn('jev.provider_failure', {
         stage,
@@ -132,7 +136,7 @@ export function createTypeSafeClient(options: TypeSafeClientOptions): Ask {
     const signal = ctx.signal
       ? AbortSignal.any([ctx.signal, timeout])
       : timeout;
-    const failed = (code: ProviderCode, detail: string) => {
+    const failed = (code: ProviderFailureCode, detail: string) => {
       if (ctx.signal?.aborted) return cancelled();
       if (timeout.aborted)
         return providerFailure(

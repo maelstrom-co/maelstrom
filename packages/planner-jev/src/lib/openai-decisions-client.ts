@@ -1,7 +1,13 @@
 import { cancellationError } from '@maelstrom-co/engine';
 import { err, ok } from '@maelstrom-co/protocol';
 
-import type { Ask, AskCall, CallAnswer, CallOutcome } from './ask.js';
+import type {
+  Ask,
+  AskCall,
+  CallAnswer,
+  CallOutcome,
+  ProviderFailureCode,
+} from './ask.js';
 import { deferAt } from './defer.js';
 import {
   type Evaluation,
@@ -21,7 +27,7 @@ import {
   withoutProbabilities,
 } from './reply-validation.js';
 
-/** The only model OpenAI's Decisions API serves. */
+/** The default Decisions model. */
 export const DECISIONS_MODEL = 'gpt-6-luna';
 
 const DEFAULT_ENDPOINT = 'https://api.openai.com/v1/decisions';
@@ -66,8 +72,10 @@ export interface DecisionsClientOptions {
  * its level taken from the most probable one, and integral usage.
  *
  * A refusal of any question defers `provider_refusal` on the first refused
- * question and logs `jev.provider_failure` at warn. A question over the
- * option cap defers `option_cap` before any call; a timeout, network
+ * question and logs `jev.provider_failure` at warn. A reply that refuses any
+ * question is read as a refusal before the completeness and per-answer
+ * checks, so its other answers need not be present or valid. A question over
+ * the option cap defers `option_cap` before any call; a timeout, network
  * failure, non-2xx status or invalid reply defers with the matching
  * `provider_*` code; a user abort returns a `CancellationError`. Every call
  * logs `jev.call` at debug, emits a `jev.call` instrument event and reaches
@@ -132,7 +140,7 @@ export function createDecisionsClient(options: DecisionsClientOptions): Ask {
         reason: `${stage}/${code}`,
         detail,
       });
-    const providerFailure = (code: ProviderCode, detail: string) => {
+    const providerFailure = (code: ProviderFailureCode, detail: string) => {
       report(code);
       warn(code, detail);
       return deferAt(ctx, stage, code);
@@ -149,7 +157,7 @@ export function createDecisionsClient(options: DecisionsClientOptions): Ask {
     const signal = ctx.signal
       ? AbortSignal.any([ctx.signal, timeout])
       : timeout;
-    const failed = (code: ProviderCode, detail: string) => {
+    const failed = (code: ProviderFailureCode, detail: string) => {
       if (ctx.signal?.aborted) return cancelled();
       if (timeout.aborted)
         return providerFailure(
@@ -159,6 +167,9 @@ export function createDecisionsClient(options: DecisionsClientOptions): Ask {
       return providerFailure(code, detail);
     };
 
+    const body = JSON.stringify(
+      decisionsRequest(evaluation, config.model, config.render),
+    );
     let response: Response;
     try {
       response = await config.fetch(config.endpoint, {
@@ -167,9 +178,7 @@ export function createDecisionsClient(options: DecisionsClientOptions): Ask {
           Authorization: `Bearer ${config.apiKey}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(
-          decisionsRequest(evaluation, config.model, config.render),
-        ),
+        body,
         signal,
       });
     } catch {
@@ -182,10 +191,10 @@ export function createDecisionsClient(options: DecisionsClientOptions): Ask {
 
     let raw: unknown;
     try {
-      const body = await readBody(response, signal);
-      if (body === undefined)
+      const text = await readBody(response, signal);
+      if (text === undefined)
         return failed('provider_invalid_reply', 'response too large');
-      raw = JSON.parse(body);
+      raw = JSON.parse(text);
     } catch {
       return failed('provider_invalid_reply', 'response unreadable');
     }
@@ -210,11 +219,6 @@ export function createDecisionsClient(options: DecisionsClientOptions): Ask {
     return ok(withoutProbabilities(parsed));
   };
 }
-
-type ProviderCode = Exclude<
-  CallOutcome,
-  'ok' | 'cancelled' | 'option_cap' | 'provider_refusal'
->;
 
 type ParsedReply =
   | { readonly answers: Record<string, CallAnswer>; readonly usage: Usage }
