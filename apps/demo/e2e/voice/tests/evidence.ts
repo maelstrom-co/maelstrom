@@ -107,7 +107,7 @@ export function observeProtocol(page: Page) {
       if (failures.length) {
         throw new Error(
           `Maelstrom rejected a chart request during ${phase}: ${failures[0].message}. ` +
-            'See protocol-evidence.json and before-cleanup.png. Check browser/server protocol builds; ' +
+            'See protocol-evidence.json. Check browser/server protocol builds; ' +
             'do not treat this as a microphone failure.',
           cause === undefined ? undefined : { cause },
         );

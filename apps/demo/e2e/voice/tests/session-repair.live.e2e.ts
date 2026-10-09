@@ -267,12 +267,6 @@ async function runTwoTurnRepair(
       }),
     );
     await preserve(async () =>
-      test.info().attach('before-cleanup.png', {
-        body: await page.screenshot(),
-        contentType: 'image/png',
-      }),
-    );
-    await preserve(async () =>
       test.info().attach('before-cleanup.json', {
         body: JSON.stringify(
           {

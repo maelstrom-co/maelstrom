@@ -107,6 +107,8 @@ test('reports the actual protocol rejection and retains the original failed step
       assert.ok(error instanceof Error);
       assert.equal(error.cause, cause);
       assert.match(error.message, /decodeClientEnvelope/);
+      assert.match(error.message, /protocol-evidence\.json/);
+      assert.doesNotMatch(error.message, /before-cleanup\.png/);
       return true;
     },
   );
