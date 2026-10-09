@@ -23,6 +23,7 @@ describe('the Jev arms', () => {
     expect(jevPlugin.arms.map((arm) => arm.name)).toEqual([
       'jev-poc',
       'jev-poc-screen-scope',
+      'jev-composed-pairs-screen-scope',
       'jev-ungated-stepwise-preset-inline',
       'jev-ungated-batched-preset-inline',
       'jev-ungated-per-instance-preset-inline',
@@ -44,6 +45,7 @@ describe('the Jev arms', () => {
     ).toEqual({
       'jev-poc': 'poc',
       'jev-poc-screen-scope': 'poc',
+      'jev-composed-pairs-screen-scope': 'gated',
       'jev-ungated-stepwise-preset-inline': 'ungated',
       'jev-ungated-batched-preset-inline': 'ungated',
       'jev-ungated-per-instance-preset-inline': 'ungated',
@@ -63,7 +65,7 @@ describe('the Jev arms', () => {
       'jev-poc',
     ]);
     expect(() => resolveArms(plugins, ['baseline', 'jev2'])).toThrow(
-      'unknown arm jev2; known arms: baseline, jev-poc (alias jev), jev-poc-screen-scope, jev-ungated-stepwise-preset-inline, jev-ungated-batched-preset-inline, jev-ungated-per-instance-preset-inline, jev-gated-stepwise-preset-inline, jev-gated-batched-preset-inline, jev-gated-per-instance-preset-inline, jev-gated-per-instance-preset-or-llm-inline, jev-gated-per-instance-preset-or-llm-parallel, jev-gated-per-instance-composed-pairs-gate-and-defer-inline, jev-ungated-per-instance-preset-or-llm-inline',
+      'unknown arm jev2; known arms: baseline, jev-poc (alias jev), jev-poc-screen-scope, jev-composed-pairs-screen-scope, jev-ungated-stepwise-preset-inline, jev-ungated-batched-preset-inline, jev-ungated-per-instance-preset-inline, jev-gated-stepwise-preset-inline, jev-gated-batched-preset-inline, jev-gated-per-instance-preset-inline, jev-gated-per-instance-preset-or-llm-inline, jev-gated-per-instance-preset-or-llm-parallel, jev-gated-per-instance-composed-pairs-gate-and-defer-inline, jev-ungated-per-instance-preset-or-llm-inline',
     );
   });
 

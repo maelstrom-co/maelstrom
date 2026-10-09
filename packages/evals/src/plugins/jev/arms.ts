@@ -1,6 +1,7 @@
 import type { Planner } from '@maelstrom-co/engine';
 import {
   actionsBatchedPerInstance,
+  buildComposedPairsScreenScopePlanner,
   buildJevComposedPairsPlanner,
   buildJevGatedBatchedPlanner,
   buildJevGatedStepwisePlanner,
@@ -76,6 +77,9 @@ export function jevArms(typesafe: TypeSafeSettings): readonly JevArm[] {
     },
     library('jev-poc-screen-scope', 'poc', (deps) =>
       buildPocScreenScopePlanner(deps),
+    ),
+    library('jev-composed-pairs-screen-scope', 'gated', (deps) =>
+      buildComposedPairsScreenScopePlanner(deps),
     ),
     library(
       'jev-ungated-stepwise-preset-inline',

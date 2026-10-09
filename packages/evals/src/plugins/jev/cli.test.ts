@@ -50,7 +50,7 @@ describe('the eval command line over both plugins', () => {
     ]);
     expect(exitCode).toBe(1);
     expect(stderr).toContain(
-      '--arm: unknown arm nope; known arms: baseline, jev-poc (alias jev), jev-poc-screen-scope, jev-ungated-stepwise-preset-inline, jev-ungated-batched-preset-inline, jev-ungated-per-instance-preset-inline, jev-gated-stepwise-preset-inline, jev-gated-batched-preset-inline, jev-gated-per-instance-preset-inline, jev-gated-per-instance-preset-or-llm-inline, jev-gated-per-instance-preset-or-llm-parallel, jev-gated-per-instance-composed-pairs-gate-and-defer-inline, jev-ungated-per-instance-preset-or-llm-inline',
+      '--arm: unknown arm nope; known arms: baseline, jev-poc (alias jev), jev-poc-screen-scope, jev-composed-pairs-screen-scope, jev-ungated-stepwise-preset-inline, jev-ungated-batched-preset-inline, jev-ungated-per-instance-preset-inline, jev-gated-stepwise-preset-inline, jev-gated-batched-preset-inline, jev-gated-per-instance-preset-inline, jev-gated-per-instance-preset-or-llm-inline, jev-gated-per-instance-preset-or-llm-parallel, jev-gated-per-instance-composed-pairs-gate-and-defer-inline, jev-ungated-per-instance-preset-or-llm-inline',
     );
   }, 30_000);
 
