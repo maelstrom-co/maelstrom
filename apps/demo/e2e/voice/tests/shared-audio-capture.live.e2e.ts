@@ -640,6 +640,84 @@ test('shared audio timeline snapshots aligned tones after source tracks and cont
   assert.ok(report.assistantToneBursts >= 2);
 });
 
+test('rejects assistant stream replacement and restores media mute state', async ({
+  page,
+}) => {
+  await prepareAudioPage(page);
+  await page.evaluate(installSharedAudioTimeline);
+  await page.evaluate(() => {
+    const button = document.createElement('button');
+    button.textContent = 'Start replacement capture';
+    document.body.append(button);
+    button.addEventListener('click', () => {
+      void (async () => {
+        const producer = new AudioContext({ sampleRate: 48_000 });
+        await producer.resume();
+        const microphone = producer.createMediaStreamDestination();
+        const firstAssistant = producer.createMediaStreamDestination();
+        const replacementAssistant = producer.createMediaStreamDestination();
+        const timeline = (
+          window as Window & {
+            __voiceAudioTimeline?: {
+              testAttachMicrophone(stream: MediaStream): Promise<void>;
+              waitForReady(): Promise<void>;
+            };
+            __replacementCaptureResult?: {
+              muted: boolean;
+              error: string;
+            };
+          }
+        ).__voiceAudioTimeline;
+        if (!timeline)
+          throw new Error('Shared audio timeline hook was not installed');
+        await timeline.testAttachMicrophone(microphone.stream);
+        const audio = document.createElement('audio');
+        document.body.append(audio);
+        audio.srcObject = firstAssistant.stream;
+        await audio.play();
+        await timeline.waitForReady();
+        audio.srcObject = replacementAssistant.stream;
+        let error = '';
+        try {
+          await timeline.waitForReady();
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          await audio.play();
+        } catch (reason) {
+          error = String(reason);
+        }
+        (
+          window as Window & {
+            __replacementCaptureResult?: { muted: boolean; error: string };
+          }
+        ).__replacementCaptureResult = { muted: audio.muted, error };
+      })();
+    });
+  });
+  await page.getByRole('button', { name: 'Start replacement capture' }).click();
+  await page.waitForFunction(
+    () =>
+      (
+        window as Window & {
+          __replacementCaptureResult?: { muted: boolean; error: string };
+        }
+      ).__replacementCaptureResult !== undefined,
+  );
+  const result = await page.evaluate(
+    () =>
+      (
+        window as Window & {
+          __replacementCaptureResult?: { muted: boolean; error: string };
+        }
+      ).__replacementCaptureResult,
+  );
+  assert.ok(result);
+  assert.equal(result.muted, false);
+  assert.match(
+    result.error,
+    /assistant-stream-replaced-after-capture-attached/,
+  );
+});
+
 test('bounds snapshot readiness when the assistant stream never attaches', async ({
   page,
 }, testInfo) => {

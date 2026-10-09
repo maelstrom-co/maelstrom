@@ -39,6 +39,9 @@ test('redacts credential fields and secret URL path segments from diagnostics', 
     basicAuthorization: sanitizeDiagnosticText(
       'Authorization: Basic dXNlcjpwYXNz',
     ),
+    tokenAuthorization: sanitizeDiagnosticText(
+      'Authorization: Token synthetic-token-prefix synthetic-token-tail',
+    ),
     webSocketUrl: sanitizeDiagnosticText(
       'WebSocket failed: wss://user:password@voice.test/sessions/path-secret-value?token=sensitive-value&api_key=sk-test-synthetic-key-token',
     ),
@@ -65,6 +68,8 @@ test('redacts credential fields and secret URL path segments from diagnostics', 
     'synthetic-bearer-token',
     'sk-test-synthetic-key-token',
     'dXNlcjpwYXNz',
+    'synthetic-token-prefix',
+    'synthetic-token-tail',
     'user:password',
   ])
     assert.equal(

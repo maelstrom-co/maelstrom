@@ -72,6 +72,7 @@ export async function installSharedAudioTimeline(): Promise<void> {
   let graphPromise: Promise<void> | undefined;
   let microphoneSourceConnected = false;
   let assistantSourceConnected = false;
+  let assistantStream: MediaStream | undefined;
   let assistantAttachPromise: Promise<void> | undefined;
   const pendingAcquisitions = new Set<Promise<MediaStream>>();
   const mutedState = new Map<HTMLMediaElement, boolean>();
@@ -531,10 +532,21 @@ export async function installSharedAudioTimeline(): Promise<void> {
     element: HTMLMediaElement,
     stream: MediaStream,
   ): Promise<void> => {
-    if (disposed || assistantSourceConnected) return Promise.resolve();
+    if (disposed) return Promise.resolve();
+    if (assistantStream && assistantStream !== stream) {
+      for (const [mutedElement, wasMuted] of mutedState)
+        mutedElement.muted = wasMuted;
+      reportFailure('assistant-stream-replaced-after-capture-attached');
+      return Promise.reject(
+        problem ?? new Error('Assistant stream replacement failed'),
+      );
+    }
+    assistantStream ??= stream;
+    if (assistantSourceConnected) return Promise.resolve();
     if (assistantAttachPromise) return assistantAttachPromise;
     assistantAttachPromise = (async () => {
       await ensureGraph();
+      if (problem) throw problem;
       if (disposed || assistantSourceConnected) return;
       const audioContext = context;
       const worklet = recorder;
@@ -584,9 +596,12 @@ export async function installSharedAudioTimeline(): Promise<void> {
     )
       return nativePlay.call(this);
     return attachAssistant(this, this.srcObject as MediaStream)
-      .catch((_error: unknown) => {
+      .catch(() => {
         reportFailure('assistant-track-attachment-failed');
-        rejectReady(problem ?? new Error('Assistant track attachment failed'));
+        const failure =
+          problem ?? new Error('Assistant track attachment failed');
+        rejectReady(failure);
+        throw failure;
       })
       .then(() => nativePlay.call(this));
   };

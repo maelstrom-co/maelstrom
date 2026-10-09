@@ -122,6 +122,7 @@ test.describe('voice benchmark', () => {
 
     const binaryHelp = spawnSync(binary, ['__vadversion_probe__'], {
       encoding: 'utf8',
+      timeout: 60_000,
     });
     if (
       !`${binaryHelp.stdout ?? ''}${binaryHelp.stderr ?? ''}`.includes(
@@ -699,27 +700,33 @@ test.describe('voice benchmark', () => {
         summary: summarizeVoiceBenchmark(records, responseLatency, failures),
         records,
       };
-      await testInfo
-        .attach('voice-driver-before-cleanup.json', {
-          body: JSON.stringify(await voiceDriver.evidence(), null, 2),
+      try {
+        const evidence = await voiceDriver.evidence();
+        await testInfo.attach('voice-driver-before-cleanup.json', {
+          body: JSON.stringify(evidence, null, 2),
           contentType: 'application/json',
-        })
-        .catch(() => {});
-      await attachReportAndCleanup(
-        output,
-        async (report) =>
-          testInfo.attach('voice-benchmark.json', {
-            body: JSON.stringify(report, null, 2),
-            contentType: 'application/json',
-          }),
-        [
-          async () =>
-            page
-              .getByRole('button', { name: 'Stop voice', exact: true })
-              .click({ timeout: 1500 }),
-          async () => capture.stop(),
-        ],
-      );
+        });
+      } catch {}
+      try {
+        await attachReportAndCleanup(
+          output,
+          async (report) =>
+            testInfo.attach('voice-benchmark.json', {
+              body: JSON.stringify(report, null, 2),
+              contentType: 'application/json',
+            }),
+          [
+            async () =>
+              page
+                .getByRole('button', { name: 'Stop voice', exact: true })
+                .click({ timeout: 1500 }),
+            async () => capture.stop(),
+          ],
+        );
+      } catch (error) {
+        attemptFailed = true;
+        attemptError ??= error;
+      }
     }
     if (attemptFailed) throw attemptError;
     if (singleTurnFailureReason)

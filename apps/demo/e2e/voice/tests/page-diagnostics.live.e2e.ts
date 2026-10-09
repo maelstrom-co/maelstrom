@@ -100,14 +100,10 @@ test('sanitizes synthetic document, console, error, and request diagnostics befo
   );
 
   await page.evaluate(async () => {
-    await Promise.all(
-      Array.from({ length: 25 }, (_, index) =>
-        Promise.all([
-          fetch(`/api/bounded-failure/${index}`).catch(() => {}),
-          fetch(`/api/bounded-response/${index}`),
-        ]),
-      ),
-    );
+    for (let index = 0; index < 25; index++) {
+      await fetch(`/api/bounded-failure/${index}`).catch(() => {});
+      await fetch(`/api/bounded-response/${index}`);
+    }
     for (let index = 0; index < 25; index++) {
       console.error(`console-marker-${index}`);
       setTimeout(() => {
