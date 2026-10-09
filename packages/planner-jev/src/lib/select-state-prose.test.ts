@@ -119,6 +119,7 @@ describe('renderSelectStateAsProse', () => {
     expect(prose).toContain(
       'The chart was resized from 12 columns by 8 rows to 8 columns by 8 rows.',
     );
+    expect(prose).not.toContain('keep showing what is shown now');
     expect(prose).toContain('tasks-main changed: checked "Buy milk".');
     expect(prose).toContain(
       'Earlier in the conversation:\nUser: Show my tasks.\nAssistant: Your tasks are on screen.',
