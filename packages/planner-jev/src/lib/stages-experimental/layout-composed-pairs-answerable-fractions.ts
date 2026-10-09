@@ -1,11 +1,11 @@
+import type { Stage } from '@maelstrom-co/engine';
 import type { Ask } from '../ask.js';
 import type { Question } from '../questions.js';
-import { layoutComposedPairsGateAndDefer } from '../stages/layout-composed-pairs-gate-and-defer.js';
-
-const FRACTION_PREFIX = 'fraction_in_group/';
-
-const UNSTATED_FRACTION =
-  ' When the `request` states no such fraction, answer half of its row or column: the answer is then ignored.';
+import {
+  type ComposedPairsDecision,
+  layoutComposedPairsGateAndDefer,
+} from '../stages/layout-composed-pairs-gate-and-defer.js';
+import type { GatedActionPlan } from '../stages/stage-types.js';
 
 /**
  * `ask` with every `fraction_in_group/<instance>` question told to answer
@@ -35,6 +35,13 @@ export function withAnswerableFractions(ask: Ask): Ask {
  *
  * @experimental
  */
-export function layoutComposedPairsAnswerableFractions(ask: Ask) {
+export function layoutComposedPairsAnswerableFractions(
+  ask: Ask,
+): Stage<GatedActionPlan, ComposedPairsDecision> {
   return layoutComposedPairsGateAndDefer(withAnswerableFractions(ask));
 }
+
+const FRACTION_PREFIX = 'fraction_in_group/';
+
+const UNSTATED_FRACTION =
+  ' When the `request` states no such fraction, answer half of its row or column: the answer is then ignored.';
