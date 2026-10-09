@@ -3,6 +3,7 @@ import type { AskCall } from '@maelstrom-co/planner-jev/_internal';
 import {
   conversation,
   DECISIONS_TEST_MODEL,
+  type DecisionsScript,
   type Script,
   scriptedDecisionsFetch,
 } from '@maelstrom-co/planner-jev/_testing';
@@ -23,7 +24,7 @@ import {
 import { decisionsClientBuilder } from './client-builder.js';
 import { decisionsSettings } from './decisions-settings.js';
 
-function scripted(script: Script) {
+function scripted(script: DecisionsScript | Script) {
   const transport = scriptedDecisionsFetch(script);
   const client = decisionsClientBuilder(
     decisionsSettings({
@@ -149,52 +150,39 @@ describe('the Decisions stage evals on the scripted Decisions transport', () => 
     ]);
   });
   test('decisions-select reports a refusal as a provider error, layout and actions as a deferral', async () => {
-    const refuseFirst: Script = (payload) => ({
+    const refuseFirst: DecisionsScript = (payload) => ({
       refuse: Object.keys(payload.questions).slice(0, 1),
     });
-    const run = async (
-      module: Parameters<typeof runStageEval>[0],
-      scenario: string,
-      variant: string,
-    ) => {
-      const [record] = await runStageEval(module, {
-        scenarios: selectScenarios('all', [scenario]),
-        variants: [variant],
-        repeats: 1,
-      });
-      return record;
-    };
-    const select = await run(
+    const options = (scenario: string, variant: string) => ({
+      scenarios: selectScenarios('all', [scenario]),
+      variants: [variant],
+      repeats: 1,
+    });
+    const [select] = await runStageEval(
       selectModuleWith({
         client: scripted(refuseFirst).client,
         name: 'decisions-select',
       }),
-      'swap',
-      'gated',
+      options('swap', 'gated'),
+    );
+    const [actions] = await runStageEval(
+      actionsModuleWith({
+        client: scripted(refuseFirst).client,
+        name: 'decisions-actions',
+      }),
+      options('enum-route-short-name', 'stepwise'),
+    );
+    const [layout] = await runStageEval(
+      layoutModuleWith({
+        client: scripted(refuseFirst).client,
+        name: 'decisions-layout',
+      }),
+      options('swap', 'composed-pairs'),
     );
     expect(select).toMatchObject({
       outcome: 'error',
       reason: 'ProviderError: jevSelect/provider_refusal',
     });
-    expect(select?.calls.map((call) => call.outcome)).toEqual([
-      'provider_refusal',
-    ]);
-    const actions = await run(
-      actionsModuleWith({
-        client: scripted(refuseFirst).client,
-        name: 'decisions-actions',
-      }),
-      'enum-route-short-name',
-      'stepwise',
-    );
-    const layout = await run(
-      layoutModuleWith({
-        client: scripted(refuseFirst).client,
-        name: 'decisions-layout',
-      }),
-      'swap',
-      'composed-pairs',
-    );
     expect(actions).toMatchObject({
       outcome: 'deferred',
       reason: 'jevActions/provider_refusal',
@@ -203,7 +191,7 @@ describe('the Decisions stage evals on the scripted Decisions transport', () => 
       outcome: 'deferred',
       reason: 'jevLayout/provider_refusal',
     });
-    for (const record of [actions, layout])
+    for (const record of [select, actions, layout])
       expect(record?.calls.map((call) => call.outcome)).toEqual([
         'provider_refusal',
       ]);
