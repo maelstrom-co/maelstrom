@@ -7,6 +7,8 @@ const sensitiveField =
   /(["']?(?:api[_-]?key|authorization|access[_-]?token|refresh[_-]?token|token|secret|credential|password|client[_-]?secret)["']?\s*[:=]\s*)(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^,\s;&}\]]+)/gi;
 const authorizationField =
   /(\bauthorization["']?\s*[:=]\s*)(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^,\r\n;&}\]]+)/gi;
+const authorizationScheme =
+  /(\bAuthorization\s*:\s*(?:Basic|Bearer|Token)\s+)[^\r\n,;"'\]}]+/gi;
 const basicAuthorization =
   /\b(Basic\s+)(?:"[^"]*"|'[^']*'|[A-Za-z0-9+/]+={0,2})/gi;
 const bearerToken = /\b(Bearer\s+)(?:"[^"]*"|'[^']*'|[^\s,;}"'\]]+)/gi;
@@ -61,6 +63,7 @@ export function sanitizeDiagnosticText(value: string): string {
       sanitizeDiagnosticPathname(url),
     )
     .replace(quotedSensitiveField, '$1"[REDACTED]"')
+    .replace(authorizationScheme, '$1[REDACTED]')
     .replace(authorizationField, '$1"[REDACTED]"')
     .replace(basicAuthorization, '$1[REDACTED]')
     .replace(bearerToken, '$1[REDACTED]')

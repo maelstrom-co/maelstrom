@@ -83,6 +83,7 @@ test('launches the interactive demo from a key-required landing page', async ({
         document.querySelector('[role="status"]').remove();
         document.querySelector('#start').remove();
         document.body.dataset.voiceReady = 'yes';
+        document.body.insertAdjacentHTML('beforeend', '<button class="voice-orb">Voice</button>');
       });
     </script>
   `);
@@ -111,6 +112,7 @@ test('bootstraps a visible keyless landing CTA without a status role', async ({
         document.body.dataset.submitted = 'yes';
         document.querySelector('[role="dialog"]').hidden = true;
         document.querySelector('#start').remove();
+        document.body.insertAdjacentHTML('beforeend', '<button class="voice-orb">Voice</button>');
       });
     </script>
   `);
@@ -135,6 +137,7 @@ test('waits for the keyless landing to hydrate before bootstrapping', async ({
           document.body.dataset.submitted = 'yes';
           document.querySelector('[role="dialog"]').hidden = true;
           document.querySelector('#start').remove();
+          document.body.insertAdjacentHTML('beforeend', '<button class="voice-orb">Voice</button>');
         });
       }, 50);
     </script>
@@ -143,6 +146,32 @@ test('waits for the keyless landing to hydrate before bootstrapping', async ({
   await startVoiceDemoFromKeylessLanding(page, nonSecretInput);
 
   await expect(page.locator('body')).toHaveAttribute('data-submitted', 'yes');
+});
+
+test('waits for the start action instead of ending on key-required status alone', async ({
+  page,
+}) => {
+  await page.setContent(`
+    <div role="status" aria-label="Connection status: key required">Key required</div>
+    <script>
+      setTimeout(() => {
+        document.body.insertAdjacentHTML('beforeend', '<button id="start">Start interactive demo</button><div role="dialog" hidden><input id="playground-api-key" type="password"><button id="save">Save</button></div>');
+        document.querySelector('#start').addEventListener('click', () => {
+          document.querySelector('[role="dialog"]').hidden = false;
+        });
+        document.querySelector('#save').addEventListener('click', () => {
+          document.querySelector('[role="status"]').remove();
+          document.querySelector('[role="dialog"]').remove();
+          document.querySelector('button#start').remove();
+          document.body.insertAdjacentHTML('beforeend', '<button class="voice-orb">Voice</button>');
+        });
+      }, 50);
+    </script>
+  `);
+
+  await startVoiceDemoFromKeylessLanding(page, nonSecretInput);
+
+  await expect(page.locator('button.voice-orb')).toHaveCount(1);
 });
 
 test('fails specifically when the status-less keyless landing remains after save', async ({
@@ -162,8 +191,8 @@ test('fails specifically when the status-less keyless landing remains after save
   `);
 
   await expect(
-    startVoiceDemoFromKeylessLanding(page, nonSecretInput),
-  ).rejects.toThrow('page remains on the keyless landing');
+    startVoiceDemoFromKeylessLanding(page, nonSecretInput, 100),
+  ).rejects.toThrow('did not expose exactly one visible voice orb');
 });
 
 test('submits an already-open fullscreen key drawer without clicking its covered opener', async ({
@@ -186,6 +215,7 @@ test('submits an already-open fullscreen key drawer without clicking its covered
         document.querySelector('[role="status"]').remove();
         document.querySelector('[role="dialog"]').remove();
         document.querySelector('#start').remove();
+        document.body.insertAdjacentHTML('beforeend', '<button class="voice-orb">Voice</button>');
       });
     </script>
   `);
@@ -239,8 +269,8 @@ test('reports when the landing page still requires a key after saving', async ({
   `);
 
   await expect(
-    startVoiceDemoFromKeylessLanding(page, nonSecretInput),
-  ).rejects.toThrow('page still requires a key');
+    startVoiceDemoFromKeylessLanding(page, nonSecretInput, 100),
+  ).rejects.toThrow('did not expose exactly one visible voice orb');
 });
 
 test('reports a missing start action on the key-required landing page', async ({

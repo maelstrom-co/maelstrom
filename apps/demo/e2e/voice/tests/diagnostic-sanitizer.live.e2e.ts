@@ -42,6 +42,13 @@ test('redacts credential fields and secret URL path segments from diagnostics', 
     tokenAuthorization: sanitizeDiagnosticText(
       'Authorization: Token synthetic-token-prefix synthetic-token-tail',
     ),
+    serializedAuthorization: sanitizeDiagnosticText(
+      JSON.stringify({
+        headers: {
+          Authorization: 'Token synthetic-token-prefix synthetic-token-tail',
+        },
+      }),
+    ),
     webSocketUrl: sanitizeDiagnosticText(
       'WebSocket failed: wss://user:password@voice.test/sessions/path-secret-value?token=sensitive-value&api_key=sk-test-synthetic-key-token',
     ),

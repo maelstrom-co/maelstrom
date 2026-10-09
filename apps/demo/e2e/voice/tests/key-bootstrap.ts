@@ -80,6 +80,7 @@ export async function enterAndSubmitApiKey(page: Page, key: string) {
 export async function startVoiceDemoFromKeylessLanding(
   page: Page,
   apiKey: string | undefined,
+  voiceOrbTimeoutMs = 30_000,
 ) {
   await page
     .waitForFunction(
@@ -101,12 +102,7 @@ export async function startVoiceDemoFromKeylessLanding(
         return (
           isVisible(startButton ?? null) ||
           isVisible(document.querySelector('button.voice-orb')) ||
-          isVisible(document.querySelector('#playground-api-key')) ||
-          isVisible(
-            document.querySelector(
-              '[role="status"][aria-label*="connection status: key required" i]',
-            ),
-          )
+          isVisible(document.querySelector('#playground-api-key'))
         );
       },
       undefined,
@@ -152,12 +148,29 @@ export async function startVoiceDemoFromKeylessLanding(
     );
   await enterAndSubmitApiKey(page, apiKey);
 
-  if (await keyRequired.isVisible().catch(() => false))
-    throw new Error(
-      'Voice benchmark API-key bootstrap completed but the page still requires a key.',
-    );
-  if (await startButton.isVisible().catch(() => false))
-    throw new Error(
-      'Voice benchmark API-key bootstrap completed but the page remains on the keyless landing.',
-    );
+  await page
+    .waitForFunction(
+      () => {
+        const visibleOrbs = [
+          ...document.querySelectorAll('button.voice-orb'),
+        ].filter((orb) => {
+          const style = getComputedStyle(orb);
+          const bounds = orb.getBoundingClientRect();
+          return (
+            style.visibility !== 'hidden' &&
+            style.display !== 'none' &&
+            bounds.width > 0 &&
+            bounds.height > 0
+          );
+        });
+        return visibleOrbs.length === 1;
+      },
+      undefined,
+      { timeout: voiceOrbTimeoutMs },
+    )
+    .catch(() => {
+      throw new Error(
+        `Voice benchmark API-key bootstrap completed but did not expose exactly one visible voice orb within ${voiceOrbTimeoutMs} ms.`,
+      );
+    });
 }
