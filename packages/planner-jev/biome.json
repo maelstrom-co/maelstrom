@@ -4,6 +4,7 @@
   "files": {
     "includes": [
       "**",
+      "!**/__test-helpers__/decisions-replies",
       "!**/__test-helpers__/poc-evaluations",
       "!**/__test-helpers__/layout-replay-fixtures"
     ]
