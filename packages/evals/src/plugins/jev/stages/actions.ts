@@ -90,10 +90,10 @@ export interface ActionsModuleOptions {
 
 /**
  * The actions stage on gold inputs: each scenario's expected selection
- * with every gate (see `goldSelection`). A plan passes when Jev bound
- * every expected action and parameter itself; a plan that is right only
- * because the completion call would fill a `stated_elsewhere` value is
- * handed off. For a parameter with no listed match, the plan passes
+ * with every gate (see `goldSelection`). A plan passes when the stage
+ * bound every expected action and parameter itself; a plan that is right
+ * only because the completion call would fill a `stated_elsewhere` value
+ * is handed off. For a parameter with no listed match, the plan passes
  * unless it binds that parameter or repeats its action. Repeated and
  * unexpected actions are recorded on every turn.
  */

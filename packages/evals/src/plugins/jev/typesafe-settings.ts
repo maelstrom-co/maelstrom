@@ -1,6 +1,6 @@
 import type { TypeSafeClientOptions } from '@maelstrom-co/planner-jev/_internal';
 
-/** Connection settings for one TypeSafe client, read when a turn starts so a missing key fails the run, not the import. */
+/** Connection settings for one TypeSafe client, read each time a client is built and each time its meta is printed, so a missing key fails the run, not the import. */
 export type TypeSafeSettings = () => Omit<TypeSafeClientOptions, 'onCall'>;
 
 /** The environment variables the settings read when `overrides` leave a value out. */

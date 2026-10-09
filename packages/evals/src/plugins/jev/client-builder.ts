@@ -7,9 +7,9 @@ import { TYPESAFE_ENV, type TypeSafeSettings } from './typesafe-settings.js';
 
 /**
  * The provider client the stage eval modules and the stage plugin run on,
- * with how the eval labels and configures it. The client is built from
- * settings read when a call starts, so a missing key fails the run, not
- * the import.
+ * with how the eval labels and configures it. Its settings are read each
+ * time a client is built and each time its meta is printed, so a missing
+ * key fails the run, not the import.
  */
 export interface ClientBuilder {
   /** What the stage report calls the client's calls, for example `Jev` or `Decisions`. */
