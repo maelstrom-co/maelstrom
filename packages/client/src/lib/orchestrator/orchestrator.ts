@@ -49,6 +49,14 @@ import {
 } from '../voice-session/ui-structural-snapshot.js';
 import { buildChartRequest } from './build-chart-request.js';
 import { ConnectorSupersededError } from './connector-superseded-error.js';
+import { IntentScheduler } from './intent-scheduler.js';
+import type {
+  EnqueueIntentOptions,
+  IntentResult,
+  IntentSchedulerView,
+  IntentScope,
+  IntentSubmission,
+} from './intent-scheduler.types.js';
 import type {
   OrchestratorOptions,
   OrchestratorViewState,
@@ -133,6 +141,9 @@ export class Orchestrator {
   readonly #chartManager: ChartManager;
   readonly #requestCoordinator: RequestCoordinator;
 
+  readonly #intentScheduler: IntentScheduler;
+  #automaticPending = false;
+  #localActions = 0;
   #isDisposed = false;
   #unsubscribers: (() => void)[] = [];
   // Held apart from #unsubscribers: a connector swap must detach this one
@@ -152,6 +163,22 @@ export class Orchestrator {
     this.#connector = connector;
     this.#config = resolveOrchestratorOptions(options);
     this.#logger = new Logger(this.#config.debug, 'Orchestrator');
+    this.#intentScheduler = new IntentScheduler(options.intentQueue ?? {}, {
+      ready: () =>
+        this.#localActions === 0 &&
+        this.#commandProcessor.store.state.status === 'idle' &&
+        this.#commandProcessor.queueLength === 0,
+      run: (intent, live) => this.#runQueuedIntent(intent, live),
+      onActiveDeadline: () =>
+        this.#requestCoordinator.resolveFlushPromises(null),
+      automatic: () => {
+        if (!this.#automaticPending) return;
+        this.#automaticPending = false;
+        void this.flushUpdates().catch((error) => {
+          this.#requestCoordinator.rejectFlushPromises(toError(error));
+        });
+      },
+    });
 
     const { initialLayout } = options;
     // Rejected before any microkernel exists: the static type says
@@ -426,23 +453,25 @@ export class Orchestrator {
    * request, so an intent typed right after a resize or a vessel mutation
    * asks the engine to plan against what the board actually looks like. The
    * response is dispatched as one atomic batch — layout first, then actions
-   * — and only then are queued flush promises settled, so a consumer awaiting
-   * a flush observes fully updated state.
+   * — before the legacy response/flush promises resolve. These promises do not
+   * certify action success. Use {@link enqueueIntent} for exact-batch outcomes.
    *
-   * Single-flight: only one engine request may be outstanding, so this
-   * rejects with {@link RequestInFlightError} rather than queueing.
+   * Single-flight includes response application and active local commands, not
+   * just network time. Older accepted users also take priority. This rejects
+   * with {@link RequestInFlightError} rather than queueing, and its admission
+   * lock remains held through command settlement after this promise resolves.
    *
    * REJECTS WITH:
    * - `RequestInFlightError` — a request is already in flight; retry when
-   *   `requestCoordinator.isProcessing` clears.
+   *   the shared scheduler and command processor become idle.
    * - `ConnectorSupersededError` — a concurrent {@link setConnector} replaced
    *   the connector while this request was in flight. The response was
-   *   deliberately never applied, so the intent must be re-issued; see
-   *   `setConnector` for why the fence exists.
+   *   deliberately never applied locally. Server-side effects may be uncertain;
+   *   do not automatically retry.
    * - the transport's own error — either an ordinary send failure, or the
    *   failure a swap itself caused when the outgoing connector was
    *   disconnected out from under this request. Both shapes mean the intent
-   *   must be re-issued.
+   *   may have effects; do not automatically retry uncertain work.
    * - `Error('Orchestrator is disposed')` — called after {@link dispose}.
    *
    * INVARIANTS:
@@ -457,41 +486,115 @@ export class Orchestrator {
     if (this.#isDisposed) {
       throw new Error('Orchestrator is disposed');
     }
-    if (this.#requestCoordinator.isProcessing) {
+    if (!this.#intentScheduler.acquire()) {
       throw new RequestInFlightError();
     }
+    let applying = false;
+    try {
+      const pendingUpdates = this.#updateCoordinator.takeCoalesced();
+      const updates: UpdateReason[] = [
+        ...pendingUpdates,
+        { type: 'user_intent', intent },
+      ];
 
-    const pendingUpdates = this.#updateCoordinator.takeCoalesced();
-    const updates: UpdateReason[] = [
-      ...pendingUpdates,
-      { type: 'user_intent', intent },
-    ];
+      this.#logger.info(
+        `Processing intent with ${updates.length} batched updates`,
+      );
 
-    this.#logger.info(
-      `Processing intent with ${updates.length} batched updates`,
-    );
-
-    const request = this.#newRequest(updates);
-    // Recovery replays `pendingUpdates`, NOT `updates` — the synthetic
-    // `user_intent` reason this call appended is the caller's to re-issue,
-    // and replaying it would re-ask the engine for an intent nobody repeated.
-    const outcome = await this.#sendFenced(request, pendingUpdates);
-    // A fenced rejection keeps its original identity so consumers matching on
-    // the transport error still see it.
-    if (outcome.kind === 'rejected') throw outcome.error;
-    if (outcome.kind === 'stale') {
-      // Disposal is teardown, not failure: the request was legitimately issued
-      // under a connector that still speaks for this session, so the caller
-      // keeps its response — it simply is never dispatched into a torn-down
-      // CommandProcessor. A swap is the opposite: the response describes a
-      // board this Orchestrator never moved, and returning it would be
-      // indistinguishable from an applied one.
-      if (outcome.reason === 'superseded') throw new ConnectorSupersededError();
+      const request = this.#newRequest(updates);
+      // Recovery replays `pendingUpdates`, NOT `updates` — the synthetic
+      // `user_intent` reason this call appended is the caller's to re-issue,
+      // and replaying it would re-ask the engine for an intent nobody repeated.
+      const outcome = await this.#sendFenced(request, pendingUpdates);
+      // A fenced rejection keeps its original identity so consumers matching on
+      // the transport error still see it.
+      if (outcome.kind === 'rejected') throw outcome.error;
+      if (outcome.kind === 'stale') {
+        // Disposal is teardown, not failure: the request was legitimately issued
+        // under a connector that still speaks for this session, so the caller
+        // keeps its response — it simply is never dispatched into a torn-down
+        // CommandProcessor. A swap is the opposite: the response describes a
+        // board this Orchestrator never moved, and returning it would be
+        // indistinguishable from an applied one.
+        if (outcome.reason === 'superseded')
+          throw new ConnectorSupersededError();
+        return outcome.response;
+      }
+      this.#intentScheduler.applying();
+      const settlement = this.#dispatchSettledResponse(outcome.response);
+      applying = true;
+      void settlement.finally(() => this.#intentScheduler.release());
+      this.#requestCoordinator.resolveFlushPromises(outcome.response);
       return outcome.response;
+    } catch (error) {
+      this.#requestCoordinator.rejectFlushPromises(toError(error));
+      throw error;
+    } finally {
+      if (!applying) this.#intentScheduler.release();
     }
-    this.#dispatchResponse(outcome.response);
-    this.#requestCoordinator.resolveFlushPromises(outcome.response);
-    return outcome.response;
+  }
+
+  /** Shared admission state; network telemetry alone does not imply readiness. */
+  get intentScheduler(): IntentSchedulerView {
+    return this.#intentScheduler;
+  }
+
+  /**
+   * Accept into the bounded FIFO synchronously. Request snapshots are built at
+   * dispatch, after earlier response application settles. Operational failures
+   * resolve the ticket result; unknown outcomes must not be automatically retried.
+   * Throws only for a scope belonging to another Orchestrator.
+   */
+  enqueueIntent(
+    intent: string,
+    options?: EnqueueIntentOptions,
+  ): IntentSubmission {
+    return this.#intentScheduler.enqueue(intent, options);
+  }
+
+  /** Create a lifetime that retires only its pending intents, never active work. */
+  createIntentScope(): IntentScope {
+    return this.#intentScheduler.createScope();
+  }
+
+  async #runQueuedIntent(
+    intent: string,
+    live: () => boolean,
+  ): Promise<IntentResult> {
+    if (!live())
+      return {
+        status: 'unknown',
+        error: new Error('Intent retired before dispatch'),
+      };
+    const pendingUpdates = this.#updateCoordinator.takeCoalesced();
+    this.#automaticPending = false;
+    try {
+      const request = this.#newRequest([
+        ...pendingUpdates,
+        { type: 'user_intent', intent },
+      ]);
+      const outcome = await this.#sendFenced(request, pendingUpdates);
+      if (outcome.kind !== 'ok' || !live()) {
+        if (outcome.kind === 'ok') this.#recoverFencedRequest(pendingUpdates);
+        this.#requestCoordinator.resolveFlushPromises(null);
+        return {
+          status: 'unknown',
+          error:
+            outcome.kind === 'rejected'
+              ? outcome.error
+              : new Error('Intent response fenced'),
+        };
+      }
+      this.#intentScheduler.applying();
+      const settlement = await this.#dispatchSettledResponse(outcome.response);
+      this.#requestCoordinator.resolveFlushPromises(outcome.response);
+      return settlement.status === 'applied'
+        ? { status: 'applied', response: outcome.response }
+        : settlement;
+    } catch (error) {
+      this.#requestCoordinator.rejectFlushPromises(toError(error));
+      return { status: 'unknown', error: toError(error) };
+    }
   }
 
   scheduleUpdate(reason: ChartResizeReason | VesselMutationReason): void {
@@ -526,29 +629,33 @@ export class Orchestrator {
   async flushUpdates(): Promise<MaelstromResponse | null> {
     if (this.#isDisposed) return null;
 
-    const updates = this.#updateCoordinator.takeCoalesced();
-    if (updates.length === 0) {
-      return null;
-    }
-
-    if (this.#requestCoordinator.isProcessing) {
-      this.#logger.info('Already processing, queueing flush promise');
-      for (const update of updates) this.#updateCoordinator.schedule(update);
+    if (!this.#updateCoordinator.hasPending()) return null;
+    if (!this.#intentScheduler.acquire()) {
+      this.#automaticPending = true;
+      this.#intentScheduler.wake();
       return this.#requestCoordinator.queueFlush();
     }
-
-    const request = this.#newRequest(updates);
-    const outcome = await this.#sendFenced(request, updates);
-    // Both fenced shapes collapse into the `null` that already means "nothing
-    // to report" — a swap is not a failure the caller can act on, and the
-    // updates were requeued. The rejected shape swallows a real transport
-    // error to get there, which is why the fence logs it with epoch context:
-    // that log is the only thing separating "the fence ate it" from a request
-    // that was never sent.
-    if (outcome.kind !== 'ok') return null;
-    this.#dispatchResponse(outcome.response);
-    this.#requestCoordinator.resolveFlushPromises(outcome.response);
-    return outcome.response;
+    this.#automaticPending = false;
+    const updates = this.#updateCoordinator.takeCoalesced();
+    try {
+      const request = this.#newRequest(updates);
+      const outcome = await this.#sendFenced(request, updates);
+      if (outcome.kind !== 'ok') return null;
+      this.#intentScheduler.applying();
+      try {
+        await this.#dispatchSettledResponse(outcome.response);
+      } catch (error) {
+        this.#logger.error('Timer-flush dispatch failed', error);
+        throw error;
+      }
+      this.#requestCoordinator.resolveFlushPromises(outcome.response);
+      return outcome.response;
+    } catch (error) {
+      this.#requestCoordinator.rejectFlushPromises(toError(error));
+      throw error;
+    } finally {
+      this.#intentScheduler.release();
+    }
   }
 
   // ==========================================================================
@@ -638,6 +745,7 @@ export class Orchestrator {
       return;
     }
 
+    this.#localActions += 1;
     // Transition first: apply the declared variant change locally so the UI
     // updates before the (async) runner runs.
     let transition: { from: VariantName; to: VariantName } | null = null;
@@ -684,7 +792,10 @@ export class Orchestrator {
     }
 
     const execution: ActionExecution = { instanceId, action, params };
-    void this.#runLocalAction(execution, transition);
+    void this.#runLocalAction(execution, transition).finally(() => {
+      this.#localActions -= 1;
+      this.#intentScheduler.wake();
+    });
   }
 
   // ==========================================================================
@@ -696,6 +807,7 @@ export class Orchestrator {
   }
 
   async disconnect(): Promise<void> {
+    this.#intentScheduler.setConnected(false);
     // Preserve unflushed vessel_mutations across the disconnect so a click that
     // hasn't reached the wire replays on reconnect instead of vanishing.
     // takeCoalesced() drains + clears the coordinator (buffer + timers) like
@@ -814,6 +926,8 @@ export class Orchestrator {
 
     this.#connector = next;
     this.#connectorEpoch += 1;
+    this.#intentScheduler.retire('connector_replaced');
+    this.#requestCoordinator.resolveFlushPromises(null);
     this.#connectionManager.setConnector(next);
     this.#requestCoordinator.setConnector(next);
 
@@ -833,6 +947,7 @@ export class Orchestrator {
     if (this.#isDisposed) return;
 
     this.#isDisposed = true;
+    this.#intentScheduler.retire('disposed');
     for (const unsub of this.#unsubscribers) {
       unsub();
     }
@@ -868,6 +983,17 @@ export class Orchestrator {
     );
     this.#unsubscribers.push(unsubDimensions);
 
+    let connectionStatus = this.#connectionManager.store.state.connectionStatus;
+    const connectionSubscription = this.#connectionManager.store.subscribe(
+      () => {
+        const status = this.#connectionManager.store.state.connectionStatus;
+        if (status === connectionStatus) return;
+        connectionStatus = status;
+        this.#intentScheduler.setConnected(status === 'connected');
+      },
+    );
+    this.#unsubscribers.push(() => connectionSubscription.unsubscribe());
+
     // Wire connection status → flush pending resize on connect
     const unsubConnection = this.#connectionManager.events.on(
       'connection_status_changed',
@@ -889,64 +1015,19 @@ export class Orchestrator {
     );
     this.#unsubscribers.push(unsubConnection);
 
-    // Wire UpdateCoordinator timer-triggered flushes
+    const commandSubscription = this.#commandProcessor.store.subscribe(() => {
+      if (this.#commandProcessor.store.state.status === 'idle')
+        this.#intentScheduler.wake();
+    });
+    this.#unsubscribers.push(() => commandSubscription.unsubscribe());
+
     const unsubFlush = this.#updateCoordinator.events.on(
       'updates_flushed',
-      async (event) => {
+      (event) => {
         if (this.#isDisposed) return;
-
-        if (this.#requestCoordinator.isProcessing) {
-          // A request is already in flight; its completion will
-          // handle any queued flush promises. UpdateCoordinator.flush()
-          // already cleared its buffer before emitting this event, so
-          // requeue the updates here or they're lost for good — mirrors
-          // flushUpdates().
-          for (const update of event.updates) {
-            this.#updateCoordinator.schedule(update);
-          }
-          return;
-        }
-
-        let request: ChartRequestMessage;
-        try {
-          request = this.#newRequest(event.updates);
-        } catch (err) {
-          // Synchronous construction failure (e.g., ChartRequestMessage's
-          // resolveTimestamp guard). RequestCoordinator never saw it, so we
-          // need to log here AND settle queued flush promises.
-          const error = toError(err);
-          this.#logger.error(
-            `Timer-flush request construction failed: ${error.message}`,
-          );
-          this.#requestCoordinator.rejectFlushPromises(error);
-          return;
-        }
-
-        let outcome: FencedSend;
-        try {
-          outcome = await this.#sendFenced(request, event.updates);
-        } catch (err) {
-          // Only genuine failures reach here now — a swap-induced rejection
-          // is a fenced outcome, not something to reject queued flushes with.
-          // send() already surfaces the error via the 'error' event. Settle
-          // queued flush promises so consumers don't time out.
-          const error = toError(err);
-          this.#requestCoordinator.rejectFlushPromises(error);
-          return;
-        }
-        if (outcome.kind !== 'ok') return;
-
-        try {
-          this.#dispatchResponse(outcome.response);
-        } catch (err) {
-          // dispatchResponse delegates to CommandProcessor; failures here are
-          // not surfaced upstream, so we log and reject queued flushes.
-          const error = toError(err);
-          this.#logger.error(`Timer-flush dispatch failed: ${error.message}`);
-          this.#requestCoordinator.rejectFlushPromises(error);
-          return;
-        }
-        this.#requestCoordinator.resolveFlushPromises(outcome.response);
+        this.#updateCoordinator.retain(event.updates);
+        this.#automaticPending = true;
+        this.#intentScheduler.wake();
       },
     );
     this.#unsubscribers.push(unsubFlush);
@@ -1014,7 +1095,9 @@ export class Orchestrator {
     this.#logger.debug(
       `Recovering fenced request: requeued ${ownedUpdates.length} update reason(s), settled queued flushes with null`,
     );
-    for (const update of ownedUpdates) this.#updateCoordinator.schedule(update);
+    const newerUpdates = this.#updateCoordinator.takeCoalesced();
+    for (const update of [...ownedUpdates, ...newerUpdates])
+      this.#updateCoordinator.schedule(update);
     this.#requestCoordinator.resolveFlushPromises(null);
   }
 
@@ -1104,6 +1187,13 @@ export class Orchestrator {
       this.#optionOmissionWarned = true;
       this.#logger.warn(message, omissions);
     }
+  }
+
+  #dispatchSettledResponse(response: MaelstromResponse) {
+    return this.#commandProcessor.dispatchSettled(
+      { kind: 'set_layout', layout: response.layout },
+      { kind: 'execute_actions', executionPlan: response.executionPlan },
+    );
   }
 
   #dispatchResponse(response: MaelstromResponse): void {

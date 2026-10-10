@@ -26,6 +26,7 @@ import type {
   BatchExecutionResult,
 } from './action-runner.types.js';
 import type { Command, ExecuteActionsCommand } from './command.types.js';
+import type { CommandBatchResult } from './command-batch-result.js';
 import {
   type CommandProcessingState,
   createInitialCommandProcessingState,
@@ -97,6 +98,11 @@ export type CommandProcessorEvents = {
 // there is nothing to undo).
 export type ActionInvocationOutcome = 'succeeded' | 'failed' | 'skipped';
 
+type QueueItem = {
+  commands: Command[];
+  settle?: (result: CommandBatchResult) => void;
+};
+
 /**
  * Processes commands through a sequential event loop.
  *
@@ -127,7 +133,10 @@ export class CommandProcessor {
   readonly events: EventSubscriber<CommandProcessorEvents> = this.#emitter;
   readonly #actionManager: ActionManager;
   readonly #logger: Logger;
-  #commandQueue: Array<Command | Command[]> = [];
+  #commandQueue: QueueItem[] = [];
+  #batchResolvers = new Set<(result: CommandBatchResult) => void>();
+  #actionErrors = new WeakMap<Command, Error>();
+  #appliedCommands = new WeakSet<Command>();
   #idleResolvers: Set<(result: Result<void, Error>) => void> = new Set();
   // Outlives the return to 'idle' so a wait issued after the fact still sees
   // the failure.
@@ -214,23 +223,37 @@ export class CommandProcessor {
    */
   dispatch(...commands: Command[]): void {
     if (commands.length === 0) return;
-    if (commands.length === 1) {
-      this.#enqueue(commands[0]);
-      return;
-    }
-    this.#enqueue(commands);
+    this.#enqueue({ commands });
   }
 
-  #enqueue(item: Command | Command[]): void {
+  /**
+   * Dispatch an atomic batch and observe only its own settlement. Never rejects.
+   * A first-layout refusal is `failed`; action failures, skips, partial application
+   * and disposal are `unknown`. Neither outcome proves external effects are safe
+   * to retry. Unlike waitForIdle, unrelated commands cannot change this result.
+   */
+  dispatchSettled(...commands: Command[]): Promise<CommandBatchResult> {
+    if (this.#emitter.disposed) {
+      return Promise.resolve({
+        status: 'unknown',
+        error: new Error('CommandProcessor is disposed'),
+      });
+    }
+    if (commands.length === 0) return Promise.resolve({ status: 'applied' });
+    return new Promise((resolve) => {
+      this.#batchResolvers.add(resolve);
+      this.#enqueue({ commands, settle: resolve });
+    });
+  }
+
+  #enqueue(item: QueueItem): void {
     if (this.#emitter.disposed) {
       throw new Error('CommandProcessor is disposed');
     }
-
     if (this.store.state.status !== 'idle') {
       this.#commandQueue.push(item);
       return;
     }
-
     void this.#runEventLoop(item);
   }
 
@@ -322,6 +345,13 @@ export class CommandProcessor {
 
     this.#emitter.dispose();
     this.#commandQueue = [];
+    for (const resolve of this.#batchResolvers) {
+      resolve({
+        status: 'unknown',
+        error: new Error('CommandProcessor is disposed'),
+      });
+    }
+    this.#batchResolvers.clear();
     this.#actionManager.dispose();
 
     // Resolve any pending waitForIdle promises so they don't hang
@@ -335,37 +365,41 @@ export class CommandProcessor {
     this.#actionResultResolvers.clear();
   }
 
-  async #runEventLoop(firstItem: Command | Command[]): Promise<void> {
+  async #runEventLoop(firstItem: QueueItem): Promise<void> {
     this.#lastBurstError = null;
-    let currentItem: Command | Command[] | null = firstItem;
-
-    while (currentItem) {
-      if (Array.isArray(currentItem)) {
-        // A batch is atomic to its producer: a set_layout is paired with the
-        // execute_actions that targets the instances that layout creates.
-        // Running the tail after the head threw would execute those actions
-        // against the pre-command store — every action waiting out its
-        // readiness timeout, recording as `skipped` with an `ok` result, and
-        // the batch reporting zero failures. Abandon instead, and say which
-        // commands were abandoned.
-        for (const [index, command] of currentItem.entries()) {
-          const outcome = await this.#processCommand(command);
-          if (!outcome.ok) {
-            this.#abandonBatch(
-              command,
-              currentItem.slice(index + 1),
-              outcome.error,
-            );
-            break;
-          }
+    let currentItem: QueueItem | null = firstItem;
+    while (currentItem && !this.#emitter.disposed) {
+      let result: CommandBatchResult = { status: 'applied' };
+      for (const [index, command] of currentItem.commands.entries()) {
+        if (this.#emitter.disposed) break;
+        const outcome = await this.#processCommand(command);
+        if (!outcome.ok) {
+          result = {
+            status:
+              index === 0 &&
+              command.kind === 'set_layout' &&
+              !this.#appliedCommands.has(command)
+                ? 'failed'
+                : 'unknown',
+            error: outcome.error,
+          };
+          this.#abandonBatch(
+            command,
+            currentItem.commands.slice(index + 1),
+            outcome.error,
+          );
+          break;
         }
-      } else {
-        // Discarding the outcome is the handling: a command dispatched alone
-        // has no batch tail to abandon, and `processing_error` has already
-        // named the failure.
-        await this.#processCommand(currentItem);
+        const actionError = this.#actionErrors.get(command);
+        if (actionError) result = { status: 'unknown', error: actionError };
       }
-
+      if (
+        currentItem.settle &&
+        this.#batchResolvers.delete(currentItem.settle)
+      ) {
+        currentItem.settle(result);
+      }
+      if (this.#emitter.disposed) return;
       currentItem = this.#dequeueNext();
     }
   }
@@ -400,6 +434,8 @@ export class CommandProcessor {
 
   // The signal #runEventLoop needs to abandon the rest of an atomic batch.
   async #processCommand(command: Command): Promise<Result<void, Error>> {
+    this.#actionErrors.delete(command);
+    this.#appliedCommands.delete(command);
     const startTime = performance.now();
 
     this.#logger.info(`Processing command: ${command.kind}`);
@@ -427,6 +463,7 @@ export class CommandProcessor {
             command.layout,
             this.store.state.instances,
           );
+          this.#appliedCommands.add(command);
           this.store.setState((s) => ({
             ...s,
             layout: command.layout,
@@ -439,6 +476,14 @@ export class CommandProcessor {
             command.executionPlan,
           );
           for (const record of actionResult.actions) {
+            if (record.skipped || !record.result.ok) {
+              this.#actionErrors.set(
+                command,
+                record.result.ok
+                  ? new Error('Action was skipped')
+                  : record.result.error,
+              );
+            }
             if (!record.result.ok) {
               this.#emitter.emit('action_error', {
                 instanceId: record.instanceId,
@@ -483,7 +528,7 @@ export class CommandProcessor {
     return outcome;
   }
 
-  #dequeueNext(): Command | Command[] | null {
+  #dequeueNext(): QueueItem | null {
     if (this.#commandQueue.length > 0) {
       return this.#commandQueue.shift() ?? null;
     }

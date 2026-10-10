@@ -4,8 +4,8 @@ import {
   type TilingLayout,
   type VesselDefinition,
 } from '@maelstrom-co/protocol';
-
 import type { ConnectionOptions } from '../connection-manager/connection-manager.types.js';
+import type { IntentQueueOptions } from './intent-scheduler.types.js';
 
 /**
  * Options that apply under every layout mode.
@@ -14,6 +14,8 @@ import type { ConnectionOptions } from '../connection-manager/connection-manager
  * `layoutMode` / `initialLayout` fields.
  */
 export interface OrchestratorOptionsBase {
+  /** Mount-time bounded FIFO policy; invalid positive bounds throw at construction. */
+  intentQueue?: IntentQueueOptions;
   /** Session ID for conversation continuity. Auto-generated if omitted. */
   sessionId?: SessionId;
   /** Enable debug logging (default: false) */

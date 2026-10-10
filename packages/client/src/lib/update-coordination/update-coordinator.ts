@@ -144,6 +144,20 @@ export class UpdateCoordinator {
     return coalesced;
   }
 
+  /**
+   * Restore flushed updates without restarting debounce timers. Retained updates
+   * precede newer buffered work, preserving latest resize and mutation ordering.
+   * The admission owner must explicitly drain them when its active turn settles.
+   * @internal
+   */
+  retain(updates: readonly UpdateReason[]): void {
+    if (this.#emitter.disposed) return;
+    this.#pendingUpdates = this.#coalesce([
+      ...updates,
+      ...this.#pendingUpdates,
+    ]);
+  }
+
   getPending(): UpdateReason[] {
     return [...this.#pendingUpdates];
   }

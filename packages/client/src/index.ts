@@ -79,6 +79,7 @@ export type {
   ExecuteActionsCommand,
   SetLayoutCommand,
 } from './lib/command-processor/command.types.js';
+export type { CommandBatchResult } from './lib/command-processor/command-batch-result.js';
 export type { CommandProcessorEvents } from './lib/command-processor/command-processor.js';
 export { CommandProcessor } from './lib/command-processor/command-processor.js';
 export {
@@ -122,6 +123,17 @@ export { WebSocketConnector } from './lib/connection-manager/connectors/web-sock
 // Orchestrator
 export { buildChartRequest } from './lib/orchestrator/build-chart-request.js';
 export { ConnectorSupersededError } from './lib/orchestrator/connector-superseded-error.js';
+export type {
+  EnqueueIntentOptions,
+  IntentNotSubmittedReason,
+  IntentQueueOptions,
+  IntentResult,
+  IntentSchedulerState,
+  IntentSchedulerView,
+  IntentScope,
+  IntentSnapshot,
+  IntentSubmission,
+} from './lib/orchestrator/intent-scheduler.types.js';
 export { Orchestrator } from './lib/orchestrator/orchestrator.js';
 export type {
   GridOrchestratorOptions,
