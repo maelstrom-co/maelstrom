@@ -502,6 +502,7 @@ export class Orchestrator {
       );
 
       const request = this.#newRequest(updates);
+      const isFenced = this.#captureFence(`Response ${request.id}`);
       // Recovery replays `pendingUpdates`, NOT `updates` — the synthetic
       // `user_intent` reason this call appended is the caller's to re-issue,
       // and replaying it would re-ask the engine for an intent nobody repeated.
@@ -521,6 +522,12 @@ export class Orchestrator {
         return outcome.response;
       }
       this.#intentScheduler.applying();
+      const reason = isFenced('application notification completed');
+      if (reason) {
+        this.#recoverFencedRequest(pendingUpdates);
+        if (reason === 'superseded') throw new ConnectorSupersededError();
+        return outcome.response;
+      }
       const settlement = this.#dispatchSettledResponse(outcome.response);
       applying = true;
       void settlement.finally(() => this.#intentScheduler.release());
@@ -573,6 +580,7 @@ export class Orchestrator {
         ...pendingUpdates,
         { type: 'user_intent', intent },
       ]);
+      const isFenced = this.#captureFence(`Response ${request.id}`);
       const outcome = await this.#sendFenced(request, pendingUpdates);
       if (outcome.kind !== 'ok' || !live()) {
         if (outcome.kind === 'ok') this.#recoverFencedRequest(pendingUpdates);
@@ -586,6 +594,13 @@ export class Orchestrator {
         };
       }
       this.#intentScheduler.applying();
+      if (isFenced('application notification completed') || !live()) {
+        this.#recoverFencedRequest(pendingUpdates);
+        return {
+          status: 'unknown',
+          error: new Error('Intent response fenced'),
+        };
+      }
       const settlement = await this.#dispatchSettledResponse(outcome.response);
       this.#requestCoordinator.resolveFlushPromises(outcome.response);
       return settlement.status === 'applied'
@@ -639,9 +654,14 @@ export class Orchestrator {
     const updates = this.#updateCoordinator.takeCoalesced();
     try {
       const request = this.#newRequest(updates);
+      const isFenced = this.#captureFence(`Response ${request.id}`);
       const outcome = await this.#sendFenced(request, updates);
       if (outcome.kind !== 'ok') return null;
       this.#intentScheduler.applying();
+      if (isFenced('application notification completed')) {
+        this.#recoverFencedRequest(updates);
+        return null;
+      }
       try {
         await this.#dispatchSettledResponse(outcome.response);
       } catch (error) {

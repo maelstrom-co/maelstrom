@@ -17,6 +17,7 @@ import {
   createMockResponse,
 } from '../../../test-utils/mocks.js';
 import type { ActionResult } from '../command-processor/action-result.js';
+import { ConnectorSupersededError } from './connector-superseded-error.js';
 import { Orchestrator } from './orchestrator.js';
 import type { OrchestratorOptions } from './orchestrator.types.js';
 import { RequestInFlightError } from './request-in-flight-error.js';
@@ -58,6 +59,121 @@ describe('Orchestrator intent queue', () => {
     await client.connect();
     return { client, connector, sent, responses };
   }
+
+  for (const ingress of ['queued', 'immediate', 'flush', 'timer'] as const) {
+    for (const lifecycle of ['replace', 'dispose'] as const) {
+      it(`fences ${ingress} response when applying notification triggers ${lifecycle}`, async () => {
+        const { client, sent, responses } = await setup();
+        const runner = mock(() => ok(undefined));
+        const commands = mock(() => {});
+        client.commandProcessor.registerRunner(InstanceId('stale'), {
+          show: runner,
+        });
+        client.commandProcessor.events.on('command_start', commands);
+        const mutation = {
+          type: 'vessel_mutation' as const,
+          instanceId: InstanceId('retained'),
+          changes: 'keep automatic reason',
+        };
+        client.scheduleUpdate(mutation);
+        client.chartManager.setDimensions({ columns: 10, rows: 6 });
+        const recovered: ChartRequestMessage[] = [];
+        const replacement = createMockConnector({
+          process: mock(async (request: ChartRequestMessage) => {
+            recovered.push(request);
+            return createMockEmptyResponse(request.id);
+          }),
+        });
+        let observed = false;
+        let disposal: Promise<void> | undefined;
+        const subscription = client.intentScheduler.store.subscribe(() => {
+          if (
+            observed ||
+            client.intentScheduler.store.state.phase !== 'applying'
+          )
+            return;
+          observed = true;
+          if (lifecycle === 'replace') client.setConnector(replacement);
+          else disposal = client.dispose();
+        });
+        const ticket =
+          ingress === 'queued'
+            ? client.enqueueIntent('do not replay')
+            : undefined;
+        const immediate =
+          ingress === 'immediate'
+            ? client.processIntent('do not replay').then(
+                (response) => ({ response }),
+                (error: unknown) => ({ error }),
+              )
+            : undefined;
+        const flush = ingress === 'flush' ? client.flushUpdates() : undefined;
+        if (ingress === 'timer') await clock.tickAsync(350);
+        else await flushMicrotasks();
+        expect(sent).toHaveLength(1);
+        client.chartManager.setDimensions({ columns: 20, rows: 6 });
+        const response = createMockResponse(sent[0].id, 'stale', 'show');
+        responses[0].resolve(response);
+        await flushMicrotasks();
+        expect(observed).toBe(true);
+        expect(client.commandProcessor.store.state.instances.size).toBe(0);
+        expect(commands).not.toHaveBeenCalled();
+        expect(runner).not.toHaveBeenCalled();
+        if (ticket) expect((await ticket.result).status).toBe('unknown');
+        if (immediate)
+          expect(await immediate).toEqual(
+            lifecycle === 'replace'
+              ? { error: expect.any(ConnectorSupersededError) }
+              : { response },
+          );
+        if (flush) expect(await flush).toBeNull();
+        if (lifecycle === 'replace') {
+          await client.flushUpdates();
+          expect(recovered).toHaveLength(1);
+          const retained = recovered[0].request.context.updateReasons;
+          expect(retained).toContainEqual(mutation);
+          expect(
+            retained.filter((reason) => reason.type === 'chart_resize'),
+          ).toEqual([
+            {
+              type: 'chart_resize',
+              previous: { columns: 10, rows: 6 },
+              current: { columns: 20, rows: 6 },
+            },
+          ]);
+          expect(retained.some((reason) => reason.type === 'user_intent')).toBe(
+            false,
+          );
+        }
+        await disposal;
+        subscription.unsubscribe();
+      });
+    }
+  }
+
+  it('rechecks queued ticket liveness after applying notification expires its deadline', async () => {
+    const { client, sent, responses } = await setup({
+      intentQueue: { activeTimeoutMs: 50 },
+    });
+    const commands = mock(() => {});
+    client.commandProcessor.events.on('command_start', commands);
+    let observed = false;
+    const subscription = client.intentScheduler.store.subscribe(() => {
+      if (observed || client.intentScheduler.store.state.phase !== 'applying')
+        return;
+      observed = true;
+      clock.tick(50);
+    });
+    const ticket = client.enqueueIntent('expired before application');
+    await flushMicrotasks();
+    responses[0].resolve(createMockResponse(sent[0].id, 'stale', 'show'));
+    await flushMicrotasks();
+    expect(observed).toBe(true);
+    expect((await ticket.result).status).toBe('unknown');
+    expect(client.commandProcessor.store.state.instances.size).toBe(0);
+    expect(commands).not.toHaveBeenCalled();
+    subscription.unsubscribe();
+  });
 
   it('runs FIFO users next after a 3s resize and action settlement, carrying latest dimensions and mutations', async () => {
     const { client, sent, responses } = await setup();
