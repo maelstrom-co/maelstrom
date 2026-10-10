@@ -156,9 +156,10 @@ describe('application infrastructure contract', () => {
       devDependencies?: Record<string, string>;
     };
     const catalog = root.catalog ?? {};
-    expect(catalog.effect).toBe('4.0.0-rc.111');
+    expect(catalog.effect).toBe('4.0.2');
     expect(catalog['@effect/platform-node']).toBe(catalog.effect);
     expect(catalog['@effect/platform-bun']).toBe(catalog.effect);
+    expect(catalog['@effect/sql-d1']).toBe(catalog.effect);
 
     const packagePaths = [
       'package.json',
@@ -546,27 +547,40 @@ describe('application infrastructure contract', () => {
     });
   });
 
-  test('installs the reviewed Alchemy ownership patch', () => {
-    expect(readJson('package.json')).toMatchObject({
-      patchedDependencies: {
-        'alchemy@2.0.0-beta.73': 'patches/alchemy@2.0.0-beta.73.patch',
-      },
+  test('installs the reviewed beta.81 ownership patch for every deployment', () => {
+    for (const path of [
+      'apps/www/package.json',
+      'apps/docs/package.json',
+      'apps/demo/package.json',
+      'infra/platform/package.json',
+    ]) {
+      const manifest = readJson(path) as {
+        dependencies?: Record<string, string>;
+        devDependencies?: Record<string, string>;
+      };
+      expect(
+        manifest.dependencies?.alchemy ?? manifest.devDependencies?.alchemy,
+      ).toBe('2.0.0-beta.81');
+    }
+    const root = readJson('package.json') as {
+      patchedDependencies?: Record<string, string>;
+    };
+    const patchPath = 'patches/alchemy@2.0.0-beta.81.patch';
+    expect(root.patchedDependencies).toEqual({
+      'alchemy@2.0.0-beta.81': patchPath,
     });
+    expect(createHash('sha256').update(read(patchPath)).digest('hex')).toBe(
+      '6929f1342c370754b6477faf20d52e60879c4f2287580ff54816e24a9654c8b8',
+    );
     const lockfile = read('bun.lock');
-    expect(lockfile).toContain(
-      '"alchemy@2.0.0-beta.73": "patches/alchemy@2.0.0-beta.73.patch"',
-    );
-
-    const patch = read('patches/alchemy@2.0.0-beta.73.patch');
-    expect(createHash('sha256').update(patch).digest('hex')).toBe(
-      '50f99cadb46c44dd162d7a954e6571257ba9f197d6cfaaabd28421152a8c28a4',
-    );
-    expect(patch).toContain('resolveReadProps: resolveWorkerReadProps');
-    expect(patch).toContain('provider.resolveReadProps?.(news)');
-    expect(patch).toContain(
-      'Option.isSome(readProps) && !isResolved(readProps.value)',
-    );
-    expect(patch).toContain('olds: readProps.value');
+    expect(lockfile).toContain('alchemy@2.0.0-beta.81');
+    expect(lockfile).not.toContain('alchemy@2.0.0-beta.73');
+    expect(lockfile).toContain(patchPath);
+    expect([
+      ...new Bun.Glob('patches/alchemy@*.patch').scanSync({
+        cwd: workspaceRoot,
+      }),
+    ]).toEqual([patchPath]);
   });
 
   test('keeps Worker identities authoritative in Alchemy', () => {

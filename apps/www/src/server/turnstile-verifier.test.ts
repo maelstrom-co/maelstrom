@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 import { Effect, Layer } from 'effect';
 import * as Duration from 'effect/Duration';
-import * as HttpModule from 'effect/unstable/http/HttpClient';
-import type { HttpClientRequest } from 'effect/unstable/http/HttpClientRequest';
-import * as HttpClientResponse from 'effect/unstable/http/HttpClientResponse';
+import * as HttpModule from 'effect/http/HttpClient';
+import type { HttpClientRequest } from 'effect/http/HttpClientRequest';
+import * as HttpClientResponse from 'effect/http/HttpClientResponse';
 import {
   TurnstileVerifier,
   type TurnstileVerifierError,
