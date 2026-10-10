@@ -96,14 +96,16 @@ export async function startVoiceDemoFromKeylessLanding(
             bounds.height > 0
           );
         };
-        const startButton = [...document.querySelectorAll('button')].find(
-          (button) =>
-            button.getAttribute('aria-label')?.trim() ===
-              'Start interactive demo' ||
-            button.textContent?.trim() === 'Start interactive demo',
-        );
+        const startVisible = [...document.querySelectorAll('button')]
+          .filter(
+            (button) =>
+              button.getAttribute('aria-label')?.trim() ===
+                'Start interactive demo' ||
+              button.textContent?.trim() === 'Start interactive demo',
+          )
+          .some(isVisible);
         return (
-          isVisible(startButton ?? null) ||
+          startVisible ||
           isVisible(document.querySelector('button.voice-orb')) ||
           isVisible(document.querySelector('#playground-api-key'))
         );

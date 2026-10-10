@@ -149,6 +149,57 @@ test('bootstraps a visible keyless landing CTA without a status role', async ({
   await expect(page.getByRole('status')).toHaveCount(0);
 });
 
+for (const nameSource of ['text', 'aria-label'] as const) {
+  test(`bootstraps a visible ${nameSource} Start action after a hidden match`, async ({
+    page,
+  }) => {
+    test.setTimeout(5_000);
+    const startMarkup =
+      nameSource === 'text' ? 'Start interactive demo' : 'Continue';
+    const startAttributes =
+      nameSource === 'aria-label' ? 'aria-label="Start interactive demo"' : '';
+    await page.setContent(`
+      <button hidden ${startAttributes}>${startMarkup}</button>
+      <button id="start" ${startAttributes}>${startMarkup}</button>
+      <div role="dialog" hidden>
+        <input id="playground-api-key" type="password" />
+        <button id="save">Save</button>
+      </div>
+      <script>
+        document.querySelector('#start').addEventListener('click', () => {
+          document.querySelector('[role="dialog"]').hidden = false;
+        });
+        document.querySelector('#save').addEventListener('click', () => {
+          document.body.dataset.submitted = 'yes';
+          document.querySelector('[role="dialog"]').remove();
+          document.querySelector('#start').remove();
+          document.body.insertAdjacentHTML('beforeend', '<button class="voice-orb">Voice</button>');
+        });
+      </script>
+    `);
+
+    await startVoiceDemoFromKeylessLanding(page, nonSecretInput);
+
+    await expect(page.locator('body')).toHaveAttribute('data-submitted', 'yes');
+    await expect(page.locator('button.voice-orb')).toBeVisible();
+  });
+}
+
+test('rejects two visible Start actions on the key-required landing page', async ({
+  page,
+}) => {
+  test.setTimeout(5_000);
+  await page.setContent(`
+    <div role="status" aria-label="Connection status: key required">Key required</div>
+    <button>Start interactive demo</button>
+    <button>Start interactive demo</button>
+  `);
+
+  await expect(
+    startVoiceDemoFromKeylessLanding(page, nonSecretInput),
+  ).rejects.toThrow('without its Start interactive demo action');
+});
+
 test('waits for the keyless landing to hydrate before bootstrapping', async ({
   page,
 }) => {

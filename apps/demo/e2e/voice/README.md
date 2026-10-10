@@ -21,7 +21,7 @@ test('voice scenario', async ({ page, voiceDriver }) => {
 });
 ```
 
-Observations identify the run/page, carry monotonically increasing sequence numbers, and retain separate Node-monotonic and browser-performance clock domains. The bounded buffer exposes overflow and rejects expired cursors rather than silently skipping events. The Playwright fixture records evidence and disposes its browser instrumentation automatically; `navigate(baseURL, false)` skips AudioWorklet capture when unnecessary. Use `startVoiceProcess` for playback commands that must be cancelled with the driver lifecycle; termination escalates from SIGTERM to SIGKILL.
+Observations identify the run/page, carry monotonically increasing sequence numbers, and retain separate Node-monotonic and browser-performance clock domains. The bounded buffer exposes overflow and rejects expired cursors rather than silently skipping events. The Playwright fixture records evidence and disposes its browser instrumentation automatically; `navigate(baseURL, false)` skips AudioWorklet capture when unnecessary. Use `voiceDriver.startPlayback` or `voiceDriver.startProcess` for subprocesses that must be cancelled with the driver lifecycle; `dispose()` aborts managed processes and waits for cleanup, with termination escalating from SIGTERM to SIGKILL. The standalone `startVoiceProcess` has its own timeout; pass an explicit `signal` to tie it to lifecycle cancellation.
 
 Run the standalone benchmark on Linux with `TTS2MIC_BIN` and `PULSE_SERVER` set (normally supplied by the voice-devtools container), using its separate Playwright configuration and no test retries:
 
