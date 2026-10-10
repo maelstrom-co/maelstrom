@@ -124,7 +124,8 @@ export interface ToolCalledEvent {
 
 /**
  * Local handling of a tool call finished. Provider delivery is best-effort:
- * this event can follow a failed or skipped send and does not confirm receipt.
+ * this event can follow a started, failed or skipped send; it neither waits for
+ * delivery nor confirms receipt.
  * It is not published when a disconnect or reconnect starts between the call's
  * arrival and its dispatch.
  */
@@ -157,7 +158,7 @@ export interface TimingEvent {
  */
 export type ToolOutcomeEvent = ToolSubmittedEvent | ToolLaterOutcomeEvent;
 
-/** Outcomes that can follow a request's first submission. */
+/** Admission and application outcomes; queued/refused work need not have submitted. */
 export type ToolLaterOutcomeType =
   | 'tool.queued'
   | 'tool.completed'
@@ -165,7 +166,7 @@ export type ToolLaterOutcomeType =
   | 'tool.unconfirmed'
   | 'tool.not_submitted';
 
-/** An `update_ui` intent was handed to the application. */
+/** An `update_ui` intent began processing, or entered a legacy immediate bridge. */
 export interface ToolSubmittedEvent {
   /** Discriminant. */
   readonly type: 'tool.submitted';
@@ -173,11 +174,11 @@ export interface ToolSubmittedEvent {
   readonly callId: ToolCallId;
   /** Requested natural-language intent. */
   readonly intent: string;
-  /** True when a queued request was submitted again, rather than first received. */
+  /** Legacy retry marker. Shared FIFO admission never retries and emits false. */
   readonly retry: boolean;
 }
 
-/** A later outcome of an `update_ui` request that was already submitted once. */
+/** Admission or application evidence for an `update_ui` request. */
 export interface ToolLaterOutcomeEvent {
   /** Discriminant. `tool.unconfirmed` means the application result is unknown. */
   readonly type: ToolLaterOutcomeType;

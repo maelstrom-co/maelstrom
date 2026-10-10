@@ -75,14 +75,6 @@ describe('recoveryMemorySubscriber', () => {
   it('maps every later outcome event to its recovery status', () => {
     const memory = new RealtimeSessionMemory(sessionId);
     const handle = recoveryMemorySubscriber(memory);
-    const callId = ToolCallId('call-1');
-    handle({
-      type: 'tool.submitted',
-      callId,
-      intent: 'show labs',
-      retry: false,
-    });
-
     const statuses = (
       [
         'tool.queued',
@@ -92,6 +84,13 @@ describe('recoveryMemorySubscriber', () => {
         'tool.not_submitted',
       ] as const
     ).map((type) => {
+      const callId = ToolCallId(type);
+      handle({
+        type: 'tool.submitted',
+        callId,
+        intent: 'show labs',
+        retry: false,
+      });
       handle({ type, callId, intent: 'show labs' });
       return memory.find(callId)?.status;
     });
@@ -147,6 +146,52 @@ describe('recoveryMemorySubscriber', () => {
     });
 
     expect(memory.getSnapshot().outcomes).toEqual([]);
+  });
+
+  it('records queued and refused admission without inventing a submission', () => {
+    const memory = new RealtimeSessionMemory(sessionId);
+    const handle = recoveryMemorySubscriber(memory);
+    handle({
+      type: 'tool.queued',
+      callId: ToolCallId('queued'),
+      intent: 'one',
+    });
+    handle({
+      type: 'tool.not_submitted',
+      callId: ToolCallId('full'),
+      intent: 'two',
+    });
+    expect(memory.getSnapshot().outcomes.map((value) => value.status)).toEqual([
+      'queued',
+      'not_submitted',
+    ]);
+  });
+
+  it('never rewrites terminal uncertainty with late success or submission', () => {
+    const memory = new RealtimeSessionMemory(sessionId);
+    const handle = recoveryMemorySubscriber(memory);
+    const callId = ToolCallId('late');
+    handle({ type: 'tool.queued', callId, intent: 'one' });
+    handle({ type: 'tool.unconfirmed', callId, intent: 'one' });
+    handle({ type: 'tool.completed', callId, intent: 'one' });
+    handle({ type: 'tool.submitted', callId, intent: 'one', retry: false });
+    expect(memory.find(callId)?.status).toBe('unknown');
+  });
+
+  it('does not resurrect an evicted queued request at its first dispatch', () => {
+    const memory = new RealtimeSessionMemory(sessionId);
+    const handle = recoveryMemorySubscriber(memory);
+    const callId = ToolCallId('evicted-queued');
+    handle({ type: 'tool.queued', callId, intent: 'old' });
+    for (let index = 0; index < 8; index++)
+      handle({
+        type: 'tool.queued',
+        callId: ToolCallId(`new-${index}`),
+        intent: 'new',
+      });
+    handle({ type: 'tool.submitted', callId, intent: 'old', retry: false });
+    handle({ type: 'tool.not_submitted', callId, intent: 'old' });
+    expect(memory.find(callId)).toBeUndefined();
   });
 
   it('leaves memory untouched for lifecycle, media and the opening claim', () => {

@@ -149,46 +149,57 @@ export class RealtimeSessionMemory {
 /**
  * Records one session's events into shared recovery memory. Memory outlives
  * sessions, so the owning session must release this subscription when it is
- * disposed. Fragments are validated here with the same rule as the
- * observation store. A first submission inserts an outcome record; every later
- * outcome, including a retried submission, updates the record only while it
- * is still retained, so an evicted request never reappears. The opening claim
- * is a direct compare-and-set on memory, so `opening.claimed` needs no work.
+ * disposed and its outstanding application work has settled. Fragments use the
+ * same validation rule as the observation store. Initial queue admission, submission, or refusal inserts an
+ * outcome. Later events update only retained nonterminal evidence, so evicted
+ * pending work never reappears and terminal uncertainty cannot become success.
+ * The opening claim is a direct compare-and-set on memory, so `opening.claimed`
+ * needs no work.
  */
 export function recoveryMemorySubscriber(
   memory: RealtimeSessionMemory,
   maxFragmentChars: number = DEFAULT_MAX_FRAGMENT_CHARS,
 ): SessionEventHandler {
+  const pending = new Set<ToolCallId>();
   return (event) => {
-    switch (event.type) {
-      case 'transcript.fragment':
-        if (isValidFragment(event.fragment, maxFragmentChars))
-          memory.observe(event.fragment, event.connectionId);
-        return;
-      case 'tool.submitted':
-        if (event.retry && !memory.find(event.callId)) return;
-        memory.outcome({
-          id: event.callId,
-          intent: event.intent,
-          status: 'submitted',
-        });
-        return;
-      case 'tool.queued':
-      case 'tool.completed':
-      case 'tool.failed':
-      case 'tool.unconfirmed':
-      case 'tool.not_submitted':
-        if (!memory.find(event.callId)) return;
-        memory.outcome({
-          id: event.callId,
-          intent: event.intent,
-          status: RECOVERY_STATUS_BY_OUTCOME[event.type],
-          ...(event.summary === undefined ? {} : { summary: event.summary }),
-        });
-        return;
-      default:
-        return;
+    if (event.type === 'transcript.fragment') {
+      if (isValidFragment(event.fragment, maxFragmentChars))
+        memory.observe(event.fragment, event.connectionId);
+      return;
     }
+    if (!('callId' in event) || !('intent' in event)) return;
+    const existing = memory.find(event.callId);
+    if (
+      existing &&
+      existing.status !== 'submitted' &&
+      existing.status !== 'queued'
+    )
+      return;
+    const first = !pending.has(event.callId);
+    const terminal =
+      event.type !== 'tool.queued' && event.type !== 'tool.submitted';
+    if (terminal) pending.delete(event.callId);
+    else pending.add(event.callId);
+    if (
+      !existing &&
+      (!first ||
+        (event.type === 'tool.submitted'
+          ? event.retry
+          : event.type !== 'tool.queued' &&
+            event.type !== 'tool.not_submitted'))
+    )
+      return;
+    memory.outcome({
+      id: event.callId,
+      intent: event.intent,
+      status:
+        event.type === 'tool.submitted'
+          ? 'submitted'
+          : RECOVERY_STATUS_BY_OUTCOME[event.type],
+      ...('summary' in event && event.summary !== undefined
+        ? { summary: event.summary }
+        : {}),
+    });
   };
 }
 

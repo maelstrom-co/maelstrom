@@ -149,22 +149,22 @@ UI churn is exactly the case where it gets expensive.
 
 ## Why "busy" is not a failure
 
-Voice is the first intent source that can fire while a request is still in
-flight. A person typing waits for the spinner. A model does not.
+Typed and voice intents share the client's bounded FIFO. Accepted requests are
+never superseded by newer speech. At a safe completion boundary, the oldest user
+request runs before automatic updates. The client builds its authoritative
+snapshot at dispatch and holds admission through layout and Action settlement.
 
-When an intent arrives mid-request, it is held in a single latest-wins slot and
-submitted once the in-flight request settles, so correcting yourself mid-sentence
-simply works. A newer interruption supersedes an older queued one, and the
-superseded call is still answered, because every tool call must be answered
-exactly once or the model waits forever.
+Each voice connection owns a scope. Disconnect or provider replacement retires
+only its pending requests as not submitted; active work retains its actual
+outcome without delivering to the stale adapter. Recovery memory retains that
+evidence. Queue capacity, pending wait, connection-loss grace, and active-result
+deadlines are client policy, not a second voice queue.
 
-The subtle part is what happens to *other* errors. The in-flight case is caught
-by type, never by matching an error string across a package boundary, and
-anything else surfaces as a distinct failure rather than as busy-ness. That
-distinction is load-bearing: telling a model "try again in a moment" after a
-genuine pipeline failure invites it to retry a thing that cannot succeed, and it
-will keep doing so. A wrong answer here does not degrade the experience, it
-creates a loop.
+Generic instances without the optional scoped admission capability keep their
+immediate API. Voice calls it once and reports a typed busy rejection as not
+submitted; it never polls or retries. Transport errors and partial application
+are unknown outcomes, not permission to replay a mutation. A successful ticket
+confirms its own application batch, not merely network completion or global idle.
 
 ## Where the keys live
 

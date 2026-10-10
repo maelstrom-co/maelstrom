@@ -14,7 +14,6 @@ import type {
   ContinuousTranscriptOptions,
   GreetingCoordinator,
   GreetingState,
-  RealtimeInstance,
   RealtimeProviderAdapter,
   RealtimeSessionMemory,
   SummarizeFn,
@@ -28,6 +27,7 @@ import {
   useSyncExternalStore,
 } from 'react';
 
+import { createRealtimeInstance } from './realtime-instance.js';
 import {
   type SharedRealtimeSessionBuild,
   SharedRealtimeSessionRegistry,
@@ -568,7 +568,7 @@ function buildSession<Provider>(
         : undefined;
     const session = new RealtimeSession({
       adapter,
-      instance: createBridge(orchestrator),
+      instance: createRealtimeInstance(orchestrator),
       sessionId,
       memory,
       ...(generatedOpening ? { generatedOpening } : {}),
@@ -604,58 +604,6 @@ function releaseAdapter(adapter: RealtimeProviderAdapter): void {
   } catch {
     // The build failure is the error worth reporting.
   }
-}
-
-function createBridge(orchestrator: Orchestrator): RealtimeInstance {
-  return {
-    applicationWork: {
-      getSnapshot: () => ({
-        planning: orchestrator.requestCoordinator.isProcessing
-          ? 'active'
-          : 'inactive',
-        applying:
-          orchestrator.commandProcessor.store.state.status === 'error'
-            ? 'unknown'
-            : orchestrator.commandProcessor.store.state.status ===
-                  'processing' || orchestrator.commandProcessor.queueLength > 0
-              ? 'active'
-              : 'inactive',
-      }),
-      subscribe: (handler) => {
-        const request =
-          orchestrator.requestCoordinator.store.subscribe(handler);
-        const commands = orchestrator.commandProcessor.store.subscribe(handler);
-        return () => {
-          request.unsubscribe();
-          commands.unsubscribe();
-        };
-      },
-    },
-    submitIntent: (intent) =>
-      orchestrator
-        .processIntent(intent)
-        .then((response) => ({ userMessage: response.userMessage })),
-    waitForIdle: async () => {
-      await orchestrator.commandProcessor.waitForIdle();
-    },
-    waitForIdleResult: () => orchestrator.commandProcessor.waitForIdle(),
-    getStructuralSnapshot: () => orchestrator.getStructuralSnapshot(),
-    getCapabilitySnapshot: () => orchestrator.getCapabilitySnapshot(),
-    onSettled: (callback) => orchestrator.onSettled(callback),
-    addAssistantMessageAcknowledged: (args) =>
-      orchestrator.addAssistantMessageAcknowledged(args),
-    observeEngineConnection: (cb) => {
-      const unsubscribe = orchestrator.connectionManager.events.on(
-        'connection_status_changed',
-        (event) => cb(event.status === 'connected'),
-      );
-      cb(
-        orchestrator.connectionManager.store.state.connectionStatus ===
-          'connected',
-      );
-      return unsubscribe;
-    },
-  };
 }
 
 function readTurnPolicy(session: RealtimeSession): TurnPolicy {

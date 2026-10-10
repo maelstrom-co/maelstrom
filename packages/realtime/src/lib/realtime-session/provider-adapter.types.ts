@@ -87,7 +87,17 @@ export type RealtimeAdapterEvent =
       readonly final: boolean;
     }
   | { readonly type: 'speech_started' }
-  | { readonly type: 'state'; readonly state: VoiceSessionState }
+  | {
+      /** UI-facing provider lifecycle or turn activity. */
+      readonly type: 'state';
+      /**
+       * `idle` ends the connection lifetime and retires pending voice work;
+       * `connected` means live turn-idle and does not retire work. Bare `error`
+       * preserves startup presentation; runtime connection failures must emit
+       * an error event carrying RealtimeVoiceError for terminal cleanup.
+       */
+      readonly state: VoiceSessionState;
+    }
   | TurnModeEvent
   | { readonly type: 'error'; readonly error: unknown };
 
