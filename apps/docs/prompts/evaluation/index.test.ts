@@ -191,32 +191,31 @@ describe('registered behavioral cases', () => {
       await mkdir(bin, { recursive: true });
       const started = join(root, 'grader.pid');
       const laterCheck = join(root, 'behavior-started');
-      const hangingGrader = `#!/usr/bin/env node\nconst fs = require('node:fs'); const marker = ${JSON.stringify(started)}; fs.writeFileSync(marker + '.tmp', String(process.pid)); fs.renameSync(marker + '.tmp', marker); setInterval(() => {}, 1000);`;
       await writeFile(
-        join(bin, 'tsc'),
-        stage === 'typecheck'
-          ? hangingGrader
-          : `#!${startupDelayMs ? process.execPath : '/usr/bin/env node'}\nsetTimeout(() => process.exit(0), ${startupDelayMs});`,
-        { mode: 0o700 },
+        join(candidateRoot, 'node_modules/cancellation-grader.json'),
+        JSON.stringify({
+          stage,
+          scenario,
+          startupDelayMs,
+          started,
+          laterCheck,
+        }),
       );
-      await writeFile(
-        join(bin, 'vitest'),
-        scenario === 'early-exit behavior'
-          ? '#!/usr/bin/env node\nconsole.error("fixture behavior failed before readiness"); process.exit(1);'
-          : stage === 'behavior'
-            ? hangingGrader
-            : `#!/usr/bin/env node\nrequire('node:fs').writeFileSync(${JSON.stringify(laterCheck)}, 'started'); process.exit(1);`,
-        { mode: 0o700 },
-      );
+      for (const name of ['tsc', 'vitest']) {
+        await cp(
+          join(import.meta.dir, 'fixtures/cancellation-grader.cjs'),
+          join(bin, name),
+        );
+      }
       await writeFile(
         fakePi,
-        `#!${startupDelayMs ? process.execPath : '/usr/bin/env node'}\nprocess.stdin.resume(); process.stdin.on('end', () => setTimeout(() => console.log('done'), ${startupDelayMs}));`,
-        { mode: 0o700 },
+        `process.stdin.resume(); process.stdin.on('end', () => setTimeout(() => console.log('done'), ${startupDelayMs}));`,
       );
       const controller = new AbortController();
       const evaluationStartedAt = performance.now();
       const evaluation = evaluateCase('react-conversion', {
         ...genericOptions(),
+        command: { executable: process.execPath, args: [fakePi] },
         candidateRoot,
         executionAuthorization: 'operator-approved',
         signal: controller.signal,
