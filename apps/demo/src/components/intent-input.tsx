@@ -141,10 +141,7 @@ export function IntentInput({
 
   const feedback = entries
     .filter(({ snapshot }) => !voiceActive || snapshot.status !== 'applied')
-    .map(
-      ({ ticket, text, snapshot }) =>
-        `${ticket.id} “${text}”: ${describeIntent(snapshot)}`,
-    )
+    .map(({ text, snapshot }) => `“${text}”: ${describeIntent(snapshot)}`)
     .join(' · ');
 
   // VoiceOrb owns its own click handler internally (no onClick prop) — a

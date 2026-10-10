@@ -114,8 +114,15 @@ describe('IntentScheduler', () => {
     active.store.subscribe(() => {
       if (active.store.state.status === 'unknown') terminalCount++;
     });
+    expect(scheduler.store.state.currentTicketId).toBe(active.id);
+    scheduler.applying();
     await clock.tickAsync(50);
     expect((await active.result).status).toBe('unknown');
+    expect(scheduler.store.state).toMatchObject({
+      phase: 'applying',
+      currentTicketId: null,
+      pendingCount: 1,
+    });
     expect(scheduler.acquire()).toBe(false);
     expect(run).toHaveBeenCalledTimes(1);
     await clock.tickAsync(50);
@@ -129,6 +136,12 @@ describe('IntentScheduler', () => {
     expect(terminalCount).toBe(1);
     expect(active.store.state.status).toBe('unknown');
     expect(run).toHaveBeenCalledTimes(1);
+    expect(scheduler.store.state).toMatchObject({
+      phase: 'idle',
+      currentTicketId: null,
+    });
+    expect(scheduler.acquire()).toBe(true);
+    scheduler.release();
   });
 
   it('retires a middle pending entry without losing live entries on either side', async () => {
@@ -191,17 +204,50 @@ describe('IntentScheduler', () => {
 
   for (const reason of ['disposed', 'connector_replaced'] as const) {
     it(`settles active and pending tickets once on ${reason}`, async () => {
-      const { scheduler, turns } = setup();
+      const { scheduler, turns, run } = setup();
       const active = scheduler.enqueue('active');
       await flushMicrotasks();
+      expect(scheduler.store.state.currentTicketId).toBe(active.id);
+      let terminalCount = 0;
+      active.store.subscribe(() => {
+        if (active.store.state.status === 'unknown') terminalCount++;
+      });
       const pending = scheduler.enqueue('pending');
       scheduler.retire(reason);
       expect((await active.result).status).toBe('unknown');
       expect(await pending.result).toEqual({ status: 'not_submitted', reason });
       expect(clock.countTimers()).toBe(0);
+      expect(scheduler.store.state).toMatchObject({
+        phase: 'sending',
+        currentTicketId: null,
+        pendingCount: 0,
+      });
+      expect(scheduler.acquire()).toBe(false);
+      const next =
+        reason === 'connector_replaced' ? scheduler.enqueue('next') : null;
+      await flushMicrotasks();
+      expect(run).toHaveBeenCalledTimes(1);
+      expect(next?.store.state.status).toBe(
+        reason === 'connector_replaced' ? 'queued' : undefined,
+      );
       turns[0].resolve(refused);
       await flushMicrotasks();
       expect(active.store.state.status).toBe('unknown');
+      expect(terminalCount).toBe(1);
+      if (next) {
+        expect(run.mock.calls.map((call) => call[0])).toEqual([
+          'active',
+          'next',
+        ]);
+        expect(scheduler.store.state.currentTicketId).toBe(next.id);
+        turns[1].resolve(refused);
+        await flushMicrotasks();
+        expect(await next.result).toBe(refused);
+      }
+      expect(scheduler.store.state).toMatchObject({
+        phase: 'idle',
+        currentTicketId: null,
+      });
       if (reason === 'disposed')
         expect(await scheduler.enqueue('late').result).toEqual({
           status: 'not_submitted',

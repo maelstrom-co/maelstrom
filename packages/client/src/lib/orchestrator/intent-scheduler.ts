@@ -187,11 +187,14 @@ export class IntentScheduler {
     this.#pending = [];
     for (const entry of pending)
       this.#finish(entry, { status: 'not_submitted', reason });
-    if (this.#active)
-      this.#finish(this.#active, {
+    const active = this.#active;
+    if (active) {
+      this.#finish(active, {
         status: 'unknown',
         error: new Error(reason),
       });
+      if (this.#active === active) this.#active = null;
+    }
     clearTimeout(this.#activeTimer);
     this.#publish();
   }
@@ -227,6 +230,8 @@ export class IntentScheduler {
         status: 'unknown',
         error: new Error('Intent active deadline exceeded'),
       });
+      if (this.#active === entry) this.#active = null;
+      this.#publish();
       this.#onActiveDeadline();
     }, this.#policy.activeTimeoutMs);
     // The lock and active entry precede notifications, which may reenter admission.

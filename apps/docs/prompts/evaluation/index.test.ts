@@ -258,7 +258,9 @@ describe('registered behavioral cases', () => {
         const pid = await waitForGraderPid(started, evaluation, controller);
         expect(isProcessAlive(pid)).toBe(true);
         if (startupDelayMs) {
-          expect(performance.now() - evaluationStartedAt).toBeGreaterThan(2000);
+          expect(
+            performance.now() - evaluationStartedAt,
+          ).toBeGreaterThanOrEqual(2 * startupDelayMs - 100);
         }
         controller.abort();
         const result = await evaluation;

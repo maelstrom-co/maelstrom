@@ -190,6 +190,27 @@ it('keeps typing and Send usable during a 3s resize; shows FIFO queued, processi
   ]);
 });
 
+it('shows quoted intent and status without internal ticket IDs', async () => {
+  const h = await setup();
+  h.type('first');
+  await h.send();
+  expect(h.view.getByRole('status').textContent).toBe('“first”: Processing');
+  h.type('second');
+  await h.send();
+  expect(h.view.getByRole('status').textContent).toBe(
+    '“first”: Processing · “second”: Queued (#1)',
+  );
+  await act(async () => {
+    h.finish(0);
+  });
+  expect(h.view.getByRole('status').textContent).toBe(
+    '“first”: Applied — Reply 0 · “second”: Processing',
+  );
+  await act(async () => {
+    h.finish(1);
+  });
+});
+
 it('retains full-queue drafts and distinguishes expiry and unknown without retries', async () => {
   vi.useFakeTimers();
   const h = await setup({
