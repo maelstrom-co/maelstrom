@@ -323,8 +323,8 @@ published CLI against offline stores. It verifies argument compatibility, read-o
 output channels, and local commands that must not initialize the configured store.
 These tests do not prove live account compatibility.
 A dry-run cannot verify deferred apply checks. Run the credentialed CI verification
-before merging, and follow the serialized state-store bootstrap procedure after
-the upgrade.
+before merging, and follow the preview-first
+[state-store verification procedure](#state-store-bootstrap-rules) for the upgrade.
 
 `Cloudflare.Website.Astro` is deferred. In beta.73 it runs the Astro build in
 the credentialed deployment process and cannot scrub Cloudflare credentials or
@@ -339,7 +339,8 @@ stable `^4.0.0` peers. App and infra packages take those through `catalog:`. Do 
 
 Review Alchemy upgrades monthly. Upgrade sooner for relevant security fixes or
 blocking correctness fixes. Keep the compatibility, uncached project verification,
-credentialed CI verification, and serialized bootstrap gates for every upgrade.
+credentialed CI verification, and preview-first state-store verification gates
+for every upgrade.
 
 Worker runtime packages compile against `@cloudflare/workers-types@5.20260722.1`,
 matching their `2026-07-22` compatibility date.
@@ -377,23 +378,69 @@ outside the repository.
 
 ### State-store bootstrap rules
 
-Both accounts' remote state stores are pre-bootstrapped with the pinned
-Alchemy version via `alchemy cloudflare bootstrap`. PR preview jobs must never
-perform implicit state-store bootstrap or upgrades: concurrent first-use or
-version transitions race the same account-wide Worker and Secrets Store
-resources.
+Verify the shared state store before each Alchemy upgrade. Its protocol version
+is independent of the package version. In beta.81,
+[`STATE_STORE_VERSION`](https://github.com/alchemy-run/alchemy/blob/v2.0.0-beta.81/packages/alchemy/src/Cloudflare/StateStore/Api.ts)
+is `7`. Both normal initialization and explicit bootstrap reuse a serving store
+when its `/version` matches. Bootstrap without `--force` does not redeploy that
+store merely because the Alchemy package changed.
 
-- After any Alchemy pin bump, run a serialized manual bootstrap of both
-  accounts before preview traffic resumes. Treat every beta upgrade as a
-  control-plane migration: canary the preview account first.
-- Outside CI, exactly one Alchemy execution is permitted against either
-  account: the pinned-version state-store bootstrap, run serialized from the
-  controlled operator environment (`state-store-bootstrap.sh` wrapping
-  `alchemy cloudflare bootstrap`). Every other local invocation is prohibited;
-  a client with a different version can upgrade the shared store mid-deploy.
-  All callers sharing an account stay on one exact pinned version.
-- If a state-store Worker is found missing, re-bootstrap manually before
-  deploying; do not let a queued PR job discover the absence implicitly.
+1. Review the pinned release's state-store protocol and runtime changes.
+   Keep all callers sharing an account on one exact Alchemy version. Check
+   each account's `alchemy-state-store.<account-subdomain>.workers.dev/version`
+   against the pinned `STATE_STORE_VERSION`. The endpoint is read-only and
+   requires no state-store credentials.
+2. If both stores match and no required server fix needs deployment, run the
+   pinned-version credentialed preview canary before production verification.
+   Record the protocol and CI results. No bootstrap redeployment is required.
+3. If a store is missing, mismatched, or needs a server fix, pause and drain
+   all deployment, teardown, and reconciliation jobs for both accounts.
+   Per-PR and per-application CI queues do not serialize the account-wide
+   Worker and Secrets Store resources. Bootstrap preview first, verify its
+   protocol and credentialed canary, then bootstrap and verify production.
+   Resume callers only after both accounts pass.
+
+Run a required bootstrap from a trusted operator environment with the repository's
+Bun version, frozen lockfile, pinned Alchemy package, and credentials for the
+selected account. Before each command, compare `CLOUDFLARE_ACCOUNT_ID` with the
+repository's `PREVIEW_ACCOUNT_ID` or `PRODUCTION_ACCOUNT_ID` variable. Bootstrap does not
+evaluate the application's account guard. The profile names below match CI;
+they do not replace selecting and checking the account credentials.
+From `infra/platform`, run the preview bootstrap:
+
+```sh
+bun alchemy provider cloudflare bootstrap --profile preview-ci
+```
+
+After the preview protocol check and credentialed canary pass, select and check
+the production credentials. From the same directory, run:
+
+```sh
+bun alchemy provider cloudflare bootstrap --profile production-ci
+```
+
+Use `--force` only when a reviewed server fix requires redeployment despite a
+matching protocol. No `state-store-bootstrap.sh` wrapper is supplied by this
+repository. The commands require configured account credentials; repository
+access alone does not provide them.
+
+Outside CI, only this serialized, pinned-version bootstrap may execute Alchemy
+against either account. Every other local Alchemy invocation remains prohibited.
+Read-only HTTP version probes do not initialize Alchemy.
+
+PR preview jobs must never perform implicit bootstrap or upgrades. This remains
+an operator gate: current workflows pass `--yes`, which permits Alchemy to
+bootstrap a missing store or upgrade a mismatched store during initialization.
+Even `deploy --dry-run --yes` can mutate the shared store before planning.
+Do not rely on a deployment dry-run or a per-PR queue to prevent that migration.
+
+The beta.73 to beta.81 upgrade keeps protocol `7`. The
+[beta.81 preview canary](https://github.com/maelstrom-co/maelstrom/actions/runs/38065355199)
+passed before the
+[production verification](https://github.com/maelstrom-co/maelstrom/actions/runs/38073333347).
+Production logs show credential refreshes without state-store bootstrap or
+upgrade. The preview `/version` check returns `{"version":7}`. These results
+verify compatibility with the existing stores; no manual bootstrap was performed.
 
 The preview account token also needs Secrets Store access so ephemeral CI
 runners can derive the Alchemy state-store credentials used by preview stacks.
