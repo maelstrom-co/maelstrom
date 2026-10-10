@@ -144,6 +144,58 @@ test('waits settle on timeout, abort, page close, and disposal; subscriptions un
   await assert.rejects(pending, /aborted|disposed/);
 });
 
+for (const termination of ['close', 'dispose'] as const) {
+  for (const operation of [
+    'initialization',
+    'navigation',
+    'evaluation',
+  ] as const) {
+    test(`${termination} preserves the terminal error during pending ${operation}`, async () => {
+      const fixture = mockPage();
+      const driver = createVoiceTestDriver(fixture.page);
+      if (operation === 'evaluation') await driver.navigate(undefined, false);
+      let started!: () => void;
+      let release!: () => void;
+      const entered = new Promise<void>((resolve) => {
+        started = resolve;
+      });
+      const blocked = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const method =
+        operation === 'initialization'
+          ? 'addInitScript'
+          : operation === 'navigation'
+            ? 'goto'
+            : 'evaluate';
+      Object.assign(fixture.page, {
+        [method]: async () => {
+          started();
+          await blocked;
+        },
+      });
+      const pending =
+        operation === 'evaluation'
+          ? driver.evaluate('blocked-evaluation', () => undefined)
+          : driver.navigate(undefined, false);
+      const rejected = assert.rejects(
+        pending,
+        termination === 'close' ? /page closed/ : /disposed/,
+      );
+      await entered;
+      let disposing: Promise<void> | undefined;
+      if (termination === 'close') fixture.close();
+      else disposing = driver.dispose();
+      try {
+        await rejected;
+      } finally {
+        release();
+        await (disposing ?? driver.dispose());
+      }
+    });
+  }
+}
+
 test('dispose during initialization prevents a delayed navigation and calls browser cleanup', async () => {
   const fixture = mockPage();
   let release!: () => void;

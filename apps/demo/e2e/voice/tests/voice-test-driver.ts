@@ -403,10 +403,11 @@ export function createVoiceTestDriver(
   };
   const onClose = () => {
     pageClosed = true;
-    abortController.abort();
-    rejectPending(
-      new Error('Voice test page closed before observation completed'),
+    terminalError ??= new Error(
+      'Voice test page closed before observation completed',
     );
+    abortController.abort();
+    rejectPending(terminalError);
   };
   page.on('close', onClose);
 
@@ -1002,8 +1003,9 @@ export function createVoiceTestDriver(
     async dispose() {
       if (disposePromise) return disposePromise;
       disposed = true;
+      terminalError ??= new Error('Voice test driver disposed');
       abortController.abort();
-      rejectPending(new Error('Voice test driver disposed'));
+      rejectPending(terminalError);
       disposePromise = (async () => {
         const processCleanup = Promise.allSettled(
           [...managedProcesses].map((child) => child.closed),
