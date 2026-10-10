@@ -175,6 +175,96 @@ describe('Orchestrator intent queue', () => {
     subscription.unsubscribe();
   });
 
+  for (const retainMutation of [false, true]) {
+    it(`settles disconnected flushes behind local commands without reconnect (mutation: ${retainMutation})`, async () => {
+      const { client, sent, responses } = await setup();
+      const action = deferred<ActionResult>();
+      client.commandProcessor.registerRunner(InstanceId('local'), {
+        show: () => action.promise,
+      });
+      client.commandProcessor.executeActions(
+        createMockResponse(MessageId('local'), 'local', 'show').executionPlan,
+      );
+      client.chartManager.setDimensions({ columns: 10, rows: 6 });
+      const mutation = {
+        type: 'vessel_mutation' as const,
+        instanceId: InstanceId('local'),
+        changes: 'replay once',
+      };
+      if (retainMutation) client.scheduleUpdate(mutation);
+      const completed: Array<MaelstromResponse | null> = [];
+      void client.flushUpdates().then((response) => {
+        completed.push(response);
+      });
+      void client.flushUpdates().then((response) => {
+        completed.push(response);
+      });
+      await flushMicrotasks();
+      expect(sent).toHaveLength(0);
+      expect(completed).toEqual([]);
+      await client.disconnect();
+      action.resolve(ok(undefined));
+      await flushMicrotasks();
+      await clock.tickAsync(1000);
+      expect(sent).toHaveLength(0);
+      expect(completed).toEqual([null, null]);
+      if (retainMutation) {
+        await client.connect();
+        await clock.tickAsync(350);
+        expect(sent).toHaveLength(1);
+        expect(
+          sent[0].request.context.updateReasons.filter(
+            (reason) => reason.type === 'vessel_mutation',
+          ),
+        ).toEqual([mutation]);
+        responses[0].resolve(createMockEmptyResponse(sent[0].id));
+        await clock.tickAsync(1000);
+        expect(sent).toHaveLength(1);
+        expect(completed).toEqual([null, null]);
+      }
+    });
+  }
+
+  for (const ingress of ['queued', 'automatic'] as const) {
+    for (const phase of ['sending', 'applying'] as const) {
+      it(`disconnect preserves ${ingress} active-response flush waiters while ${phase}`, async () => {
+        const { client, sent, responses } = await setup();
+        const action = deferred<ActionResult>();
+        client.commandProcessor.registerRunner(InstanceId('active'), {
+          show: () => action.promise,
+        });
+        client.chartManager.setDimensions({ columns: 10, rows: 6 });
+        const ticket =
+          ingress === 'queued' ? client.enqueueIntent('active') : undefined;
+        const automatic =
+          ingress === 'automatic' ? client.flushUpdates() : undefined;
+        await flushMicrotasks();
+        const response = createMockResponse(sent[0].id, 'active', 'show');
+        if (phase === 'applying') {
+          responses[0].resolve(response);
+          await flushMicrotasks();
+        }
+        expect(client.intentScheduler.store.state.phase).toBe(phase);
+        client.chartManager.setDimensions({ columns: 20, rows: 6 });
+        const completed: Array<MaelstromResponse | null> = [];
+        const flush = client.flushUpdates();
+        void flush.then((value) => {
+          completed.push(value);
+        });
+        await client.disconnect();
+        await flushMicrotasks();
+        expect(completed).toEqual([]);
+        if (phase === 'sending') responses[0].resolve(response);
+        action.resolve(ok(undefined));
+        expect(await flush).toBe(response);
+        if (ticket) expect((await ticket.result).status).toBe('applied');
+        if (automatic) expect(await automatic).toBe(response);
+        expect(completed).toEqual([response]);
+        expect(sent).toHaveLength(1);
+      });
+    }
+  }
+
   it('runs FIFO users next after a 3s resize and action settlement, carrying latest dimensions and mutations', async () => {
     const { client, sent, responses } = await setup();
     client.chartManager.setDimensions({ columns: 10, rows: 6 });

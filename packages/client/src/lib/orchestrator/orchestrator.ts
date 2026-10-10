@@ -631,6 +631,7 @@ export class Orchestrator {
    * case, because none of them is a failure the caller can act on:
    * - the Orchestrator is disposed;
    * - nothing was buffered;
+   * - disconnect removed buffered work before an engine turn began;
    * - a concurrent {@link setConnector} superseded the response, which was
    *   therefore never applied (the updates are requeued for the next flush);
    * - the send itself failed *because* of that swap — the transport error is
@@ -835,6 +836,11 @@ export class Orchestrator {
     for (const update of this.#updateCoordinator.takeCoalesced()) {
       if (update.type === 'vessel_mutation')
         this.#pendingMutations.push(update);
+    }
+    // No response will arrive for work held behind local commands. An active
+    // engine turn still owns its flush waiters, including during application.
+    if (this.#intentScheduler.store.state.phase === 'idle') {
+      this.#requestCoordinator.resolveFlushPromises(null);
     }
     await this.#connectionManager.disconnect();
   }
