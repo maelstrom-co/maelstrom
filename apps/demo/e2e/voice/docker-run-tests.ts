@@ -2,8 +2,11 @@ import { spawn } from 'node:child_process';
 import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { selectVoiceBenchmark } from './benchmark-selection.ts';
 import { checkPort, forwardPort } from './forward.ts';
 import { resolveRunnerTarget } from './runner-target.ts';
+
+process.umask(0o077);
 
 const root = dirname(fileURLToPath(import.meta.url));
 const target = resolveRunnerTarget(process.env.MAELSTROM_BASE_URL);
@@ -26,6 +29,14 @@ const sigint = () => shutdown('SIGINT');
 const sigterm = () => shutdown('SIGTERM');
 process.on('SIGINT', sigint);
 process.on('SIGTERM', sigterm);
+
+const benchmark = process.argv.includes('--benchmark');
+const benchmarkSelection = benchmark
+  ? selectVoiceBenchmark({
+      singleTurn: process.env.VOICE_BENCHMARK_SINGLE_TURN,
+      repetitions: process.env.VOICE_BENCHMARK_REPETITIONS,
+    })
+  : undefined;
 
 try {
   const requiredFixtures = ['only-tasks', 'put-it-back', 'open-calendar'];
@@ -112,6 +123,17 @@ try {
         playwright: pkg.version,
         mode: target.mode,
         ...(target.mode === 'local' ? { upstream } : {}),
+        ...(benchmarkSelection
+          ? {
+              benchmark: {
+                mode: benchmarkSelection.singleTurn
+                  ? 'single-turn'
+                  : 'full-scenario-suite',
+                repetitions: benchmarkSelection.repetitions,
+                selectedScenario: benchmarkSelection.selectedScenario,
+              },
+            }
+          : {}),
         browserURL:
           target.mode === 'local' ? target.browserURL : target.metadataURL,
         checkedAt: new Date().toISOString(),
@@ -130,11 +152,18 @@ try {
       join(root, 'node_modules/@playwright/test/cli.js'),
       'test',
       '--config',
-      join(root, 'playwright.voice.config.ts'),
+      join(
+        root,
+        benchmark
+          ? 'playwright.benchmark.config.ts'
+          : 'playwright.voice.config.ts',
+      ),
       '--output',
-      '/work/artifacts/playwright',
+      benchmark
+        ? '/work/artifacts/benchmark-results'
+        : '/work/artifacts/playwright',
       '--reporter=line,html',
-      ...process.argv.slice(2),
+      ...process.argv.slice(2).filter((argument) => argument !== '--benchmark'),
     ],
     {
       cwd: root,

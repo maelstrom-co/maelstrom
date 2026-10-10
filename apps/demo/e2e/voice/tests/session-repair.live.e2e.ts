@@ -1,24 +1,18 @@
-import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { promisify } from 'node:util';
 import { test as base, expect, type Page } from '@playwright/test';
-import { initialNavigationURL } from '../runner-target.ts';
-import { observeProtocol } from './evidence.ts';
 import { enterAndSubmitApiKey, hasKeyEntryControl } from './key-bootstrap.ts';
-import {
-  nonSilentMs,
-  recordReplies,
-  replyWav,
-  silentTailMs,
-} from './reply-recorder';
+import { nonSilentMs, recordReplies, silentTailMs } from './reply-recorder';
+import { sessionAudioArtifacts } from './session-audio-artifacts.ts';
+import { createVoiceTestDriver } from './voice-test-driver.ts';
 
-const exec = promisify(execFile);
 const fixture = (name: string) =>
   fileURLToPath(new URL(`../audio/${name}.wav`, import.meta.url));
+
 type VoiceTestFixtures = {
   readonly voice: {
     readonly page: Page;
-    readonly protocol: ReturnType<typeof observeProtocol>;
+    readonly protocol: ReturnType<typeof createVoiceTestDriver>['protocol'];
+    readonly driver: ReturnType<typeof createVoiceTestDriver>;
   };
 };
 
@@ -27,13 +21,6 @@ type VoiceWorkerFixtures = {
     readonly openAIApiKey: string | undefined;
     readonly baseURL: string | undefined;
   };
-};
-
-type RecordedTurn = {
-  readonly name: string;
-  readonly input: string;
-  readonly start: number;
-  end?: number;
 };
 
 const test = base.extend<VoiceTestFixtures, VoiceWorkerFixtures>({
@@ -49,9 +36,10 @@ const test = base.extend<VoiceTestFixtures, VoiceWorkerFixtures>({
   voice: async ({ browser, voiceConfig }, use, testInfo) => {
     const context = await browser.newContext({ permissions: ['microphone'] });
     const page = await context.newPage();
-    const protocol = observeProtocol(page);
+    const driver = createVoiceTestDriver(page);
+    const protocol = driver.protocol;
     try {
-      await page.goto(initialNavigationURL(voiceConfig.baseURL));
+      await driver.navigate(voiceConfig.baseURL);
       const keyInput = page.locator('#playground-api-key');
       const calendar = page.locator('[data-instance-id="calendar-main"]');
       const tasks = page.locator('[data-instance-id="tasks-main"]');
@@ -100,17 +88,22 @@ const test = base.extend<VoiceTestFixtures, VoiceWorkerFixtures>({
       await expect(voiceControl).toBeVisible({ timeout: 30_000 });
 
       protocol.assertHealthy('fresh page navigation and key setup');
-      await use({ page, protocol });
+      await use({ page, protocol, driver });
     } finally {
       try {
+        const evidence = await driver.evidence();
+        await testInfo.attach('voice-driver-final-evidence.json', {
+          body: JSON.stringify(evidence, null, 2),
+          contentType: 'application/json',
+        });
         await testInfo.attach('protocol-evidence.json', {
-          body: JSON.stringify(protocol.snapshot(), null, 2),
+          body: JSON.stringify(evidence.protocol, null, 2),
           contentType: 'application/json',
         });
       } catch {
-        console.error('Unable to attach protocol evidence.');
+        console.error('Unable to attach voice driver evidence.');
       }
-      protocol.dispose();
+      await driver.dispose();
       await context.close();
     }
   },
@@ -118,7 +111,7 @@ const test = base.extend<VoiceTestFixtures, VoiceWorkerFixtures>({
 
 async function runTwoTurnRepair(
   page: Page,
-  protocol: ReturnType<typeof observeProtocol>,
+  driver: ReturnType<typeof createVoiceTestDriver>,
   secondInput: string,
 ) {
   const binary = process.env.TTS2MIC_BIN;
@@ -129,6 +122,7 @@ async function runTwoTurnRepair(
       'Run this test through tts2mic scripts/with-audio.sh on Linux/PulseAudio',
     );
 
+  const protocol = driver.protocol;
   const calendar = page.locator('[data-instance-id="calendar-main"]');
   const tasks = page.locator('[data-instance-id="tasks-main"]');
   const user = page.getByTestId('captions').locator('[data-role="user"]');
@@ -136,7 +130,6 @@ async function runTwoTurnRepair(
     .getByTestId('captions')
     .locator('[data-role="assistant"]');
   const audio = recordReplies();
-  const turns: RecordedTurn[] = [];
   try {
     const voiceOrb = page.locator('button.voice-orb');
     const initialVoiceState = await voiceOrb.getAttribute('data-state');
@@ -174,30 +167,29 @@ async function runTwoTurnRepair(
         });
         await page.waitForTimeout(500);
       }
+      const observationCursor = driver.cursor();
       const assistantBefore = await assistant.allTextContents();
-      const turn: RecordedTurn = {
-        name,
-        input,
-        start: audio.pcm().length,
-      };
-      turns.push(turn);
+      const turnStart = audio.pcm().length;
       let stdout: string;
       try {
-        ({ stdout } = await exec(
-          binary,
-          ['play', '--target', 'pipewire', '--delay', '3s', '--file', input],
-          {
-            timeout: 20_000,
-            encoding: 'utf8',
-            killSignal: 'SIGTERM',
-            maxBuffer: 1024 * 1024,
-          },
-        ));
+        stdout = await driver.action(`playback:${name}`, async () => {
+          const playback = driver.startPlayback(binary, input, {
+            delayMs: 3_000,
+            timeoutMs: 20_000,
+            maxOutputBytes: 1024 * 1024,
+          });
+          return (await playback.completed()).stdout;
+        });
       } finally {
         if (manual) await page.keyboard.up('Space');
       }
       expect(JSON.parse(stdout).status).toBe('completed');
       protocol.assertHealthy(`${name} fixture injection`);
+      await driver.waitForObservation((event) => event.type === 'captions', {
+        after: observationCursor,
+        timeoutMs: 30_000,
+        signal: driver.signal,
+      });
       await expect
         .poll(
           async () => {
@@ -213,11 +205,10 @@ async function runTwoTurnRepair(
       await expect
         .poll(() => {
           audio.check();
-          const turnPcm = audio.pcm(turn.start);
+          const turnPcm = audio.pcm(turnStart);
           return nonSilentMs(turnPcm) >= 150 && silentTailMs(turnPcm) >= 600;
         })
         .toBe(true);
-      turn.end = audio.pcm().length;
       if (name === 'only-tasks') {
         const evidence = JSON.stringify({
           user: await user.allTextContents(),
@@ -253,6 +244,7 @@ async function runTwoTurnRepair(
         /^(?:connected|listening)$/,
       );
     }
+    await driver.waitForAudioReady();
     protocol.assertHealthy('completed two-turn scenario');
   } catch (error) {
     protocol.assertHealthy('failed test step', error);
@@ -269,9 +261,9 @@ async function runTwoTurnRepair(
       }
     };
     await preserve(async () =>
-      test.info().attach('before-cleanup.png', {
-        body: await page.screenshot(),
-        contentType: 'image/png',
+      test.info().attach('voice-driver-before-cleanup.json', {
+        body: JSON.stringify(await driver.evidence(), null, 2),
+        contentType: 'application/json',
       }),
     );
     await preserve(async () =>
@@ -298,30 +290,43 @@ async function runTwoTurnRepair(
       .click({ timeout: 1500 })
       .catch(() => {});
     await preserve(() => audio.stop());
-    for (const [turnIndex, turn] of turns.entries()) {
-      const inputIndex = turnIndex * 2;
-      const outputIndex = inputIndex + 1;
-      await preserve(async () =>
-        test.info().attach(`${turn.name}-input-${inputIndex}.wav`, {
-          path: turn.input,
-          contentType: 'audio/wav',
+    try {
+      const snapshot = await driver.snapshotAudio();
+      const artifacts = sessionAudioArtifacts(snapshot);
+      expect(artifacts).toHaveLength(2);
+      for (const artifact of artifacts)
+        await test.info().attach(artifact.name, {
+          body: artifact.body,
+          contentType: artifact.contentType,
+        });
+    } catch (error) {
+      await preserve(() =>
+        test.info().attach('voice-session-reply-recorder.pcm', {
+          body: audio.pcm(),
+          contentType: 'application/octet-stream',
         }),
       );
-      await preserve(async () => {
-        const captured = audio.pcm(turn.start);
-        const end = turn.end ?? audio.pcm().length;
-        await test.info().attach(`${turn.name}-output-${outputIndex}.wav`, {
-          body: replyWav(captured.subarray(0, end - turn.start)),
-          contentType: 'audio/wav',
-        });
-      });
+      await preserve(() =>
+        test.info().attach('session-audio-limitation.json', {
+          body: JSON.stringify(
+            {
+              scenario: 'two-turn session audio capture',
+              limitation:
+                error instanceof Error ? error.message : String(error),
+            },
+            null,
+            2,
+          ),
+          contentType: 'application/json',
+        }),
+      );
+      expect
+        .soft(
+          false,
+          `Unable to attach aligned complete-session audio WAVs: ${error instanceof Error ? error.message : String(error)}`,
+        )
+        .toBe(true);
     }
-    await preserve(async () =>
-      test.info().attach('capture-session.wav', {
-        body: replyWav(audio.pcm()),
-        contentType: 'audio/wav',
-      }),
-    );
     await preserve(async () =>
       test.info().attach('recorder.log', {
         body: audio.diagnostics(),
@@ -334,11 +339,11 @@ async function runTwoTurnRepair(
 test('calendar repair by putting it back shares one voice conversation', async ({
   voice,
 }) => {
-  await runTwoTurnRepair(voice.page, voice.protocol, 'put-it-back');
+  await runTwoTurnRepair(voice.page, voice.driver, 'put-it-back');
 });
 
 test('calendar repair by explicitly opening it shares one voice conversation', async ({
   voice,
 }) => {
-  await runTwoTurnRepair(voice.page, voice.protocol, 'open-calendar');
+  await runTwoTurnRepair(voice.page, voice.driver, 'open-calendar');
 });

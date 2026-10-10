@@ -2,8 +2,10 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import {
   access,
+  chmod,
   mkdir,
   mkdtemp,
+  readdir,
   readFile,
   rm,
   writeFile,
@@ -12,12 +14,21 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { selectVoiceBenchmark } from './benchmark-selection.ts';
 import { resolveTtsCacheDir } from './tts-cache-dir.ts';
+
+process.umask(0o077);
 
 const voiceRoot = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(voiceRoot, '../../../..');
 const artifactRoot = join(repositoryRoot, 'apps/demo/dist/docker-voice');
 const reportPath = join(artifactRoot, 'report/index.html');
+const benchmark = process.argv.includes('--benchmark');
+if (benchmark)
+  selectVoiceBenchmark({
+    singleTurn: process.env.VOICE_BENCHMARK_SINGLE_TURN,
+    repetitions: process.env.VOICE_BENCHMARK_REPETITIONS,
+  });
 const voiceDevtoolsImage = 'ghcr.io/maelstrom-co/voice-devtools:0.1.0';
 const fixtures = ['only-tasks', 'put-it-back', 'open-calendar'] as const;
 const forwardedRunnerEnvironment = [
@@ -154,6 +165,15 @@ async function prepareFixtures(
   }
 }
 
+async function makeArtifactTreePrivate(path: string): Promise<void> {
+  for (const entry of await readdir(path, { withFileTypes: true })) {
+    const child = join(path, entry.name);
+    if (entry.isDirectory()) await makeArtifactTreePrivate(child);
+    else if (entry.isFile()) await chmod(child, 0o600);
+  }
+  await chmod(path, 0o700);
+}
+
 async function collectArtifacts(runnerName: string): Promise<number> {
   let status = 0;
   const copy = await runDocker(
@@ -217,7 +237,19 @@ async function main(): Promise<number> {
       '--init',
       '--shm-size=1g',
     ];
-    for (const name of forwardedRunnerEnvironment) {
+    const runnerEnvironment = benchmark
+      ? [
+          'MAELSTROM_APP_PORT',
+          'MAELSTROM_WS_PORT',
+          'MAELSTROM_HOST',
+          'VOICE_BENCHMARK_REPETITIONS',
+          'VOICE_BENCHMARK_SINGLE_TURN',
+          ...(process.env.MAELSTROM_E2E_OPENAI_API_KEY
+            ? ['MAELSTROM_E2E_OPENAI_API_KEY']
+            : []),
+        ]
+      : forwardedRunnerEnvironment;
+    for (const name of runnerEnvironment) {
       if (process.env[name] !== undefined) createArgs.push('--env', name);
     }
     if (process.env.MAELSTROM_BASE_URL?.trim()) {
@@ -229,6 +261,12 @@ async function main(): Promise<number> {
       image,
     );
     runnerCreationAttempted = true;
+    if (benchmark)
+      createArgs.push(
+        '/work/maelstrom/node_modules/.bin/tsx',
+        '/work/maelstrom/docker-run-tests.ts',
+        '--benchmark',
+      );
     await runDocker(createArgs, { quiet: true });
     runnerCreated = true;
 
@@ -251,6 +289,11 @@ async function main(): Promise<number> {
         process.stderr.write(`${redact(message)}\n`);
         artifactStatus = 1;
       }
+    }
+    try {
+      await makeArtifactTreePrivate(artifactRoot);
+    } catch {
+      if (artifactStatus === 0) artifactStatus = 1;
     }
     if (runnerCreationAttempted) {
       await runDocker(['rm', '--force', runnerName], {

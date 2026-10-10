@@ -98,6 +98,8 @@ test('reports the actual protocol rejection and retains the original failed step
   const message =
     '[RequestCoordinator] Request failed: decodeClientEnvelope: invalid envelope: Tiling tree leaf "ID:calendar-main" is not declared in layout.instances';
   page.emit('console', { type: () => 'error', text: () => message });
+  for (let index = 0; index < 44; index++)
+    page.emit('console', { type: () => 'error', text: () => message });
   const cause = new Error('original assertion');
   assert.throws(
     () => evidence.assertHealthy('voice turn', cause),
@@ -105,10 +107,13 @@ test('reports the actual protocol rejection and retains the original failed step
       assert.ok(error instanceof Error);
       assert.equal(error.cause, cause);
       assert.match(error.message, /decodeClientEnvelope/);
+      assert.match(error.message, /protocol-evidence\.json/);
+      assert.doesNotMatch(error.message, /before-cleanup\.png/);
       return true;
     },
   );
-  assert.equal(evidence.snapshot().failures.length, 1);
+  assert.equal(evidence.snapshot().failures.length, 40);
+  assert.deepEqual(evidence.snapshot().dropped, { failures: 5, requests: 0 });
   evidence.dispose();
   assert.equal(page.listenerCount('console'), 0);
 });
@@ -124,9 +129,11 @@ test('observes only the app websocket and removes socket listeners', () => {
   });
   page.emit('websocket', app as unknown as WebSocket);
   page.emit('websocket', other as unknown as WebSocket);
-  app.emit('framesent', { payload: makeFrame() });
+  for (let index = 0; index < 43; index++)
+    app.emit('framesent', { payload: makeFrame() });
   other.emit('framesent', { payload: makeFrame() });
-  assert.equal(evidence.snapshot().requests.length, 1);
+  assert.equal(evidence.snapshot().requests.length, 40);
+  assert.deepEqual(evidence.snapshot().dropped, { failures: 0, requests: 3 });
   evidence.dispose();
   assert.equal(app.listenerCount('framesent'), 0);
 });

@@ -76,3 +76,106 @@ export async function enterAndSubmitApiKey(page: Page, key: string) {
   if ((await saveButton.count()) !== 1) throw new Error(missingEntryMessage);
   await saveButton.click();
 }
+
+export async function startVoiceDemoFromKeylessLanding(
+  page: Page,
+  apiKey: string | undefined,
+  voiceOrbTimeoutMs = 30_000,
+) {
+  await page
+    .waitForFunction(
+      () => {
+        const isVisible = (element: Element | null) => {
+          if (!element) return false;
+          const style = getComputedStyle(element);
+          const bounds = element.getBoundingClientRect();
+          return (
+            style.visibility !== 'hidden' &&
+            style.display !== 'none' &&
+            bounds.width > 0 &&
+            bounds.height > 0
+          );
+        };
+        const startVisible = [...document.querySelectorAll('button')]
+          .filter(
+            (button) =>
+              button.getAttribute('aria-label')?.trim() ===
+                'Start interactive demo' ||
+              button.textContent?.trim() === 'Start interactive demo',
+          )
+          .some(isVisible);
+        return (
+          startVisible ||
+          isVisible(document.querySelector('button.voice-orb')) ||
+          isVisible(document.querySelector('#playground-api-key'))
+        );
+      },
+      undefined,
+      { timeout: 10_000 },
+    )
+    .catch(() => undefined);
+
+  const keyRequired = page.getByRole('status', {
+    name: /connection status: key required/i,
+  });
+  const keyInput = page.locator('#playground-api-key');
+  const keyDialog = page.getByRole('dialog').filter({ has: keyInput });
+  const drawerAlreadyOpen =
+    (await keyInput.isVisible().catch(() => false)) ||
+    (await keyDialog.isVisible().catch(() => false));
+  const keyIsRequired = await keyRequired.isVisible().catch(() => false);
+  const startButton = page.getByRole('button', {
+    name: 'Start interactive demo',
+    exact: true,
+  });
+  const startButtonVisible =
+    (await startButton.count()) === 1 &&
+    (await startButton.isVisible().catch(() => false));
+  if (!keyIsRequired && !drawerAlreadyOpen && !startButtonVisible) {
+    const voiceOrb = page.locator('button.voice-orb');
+    if ((await voiceOrb.count()) === 1 && (await voiceOrb.isVisible())) return;
+    throw new Error(
+      'Voice benchmark found neither a ready voice orb nor a recognized keyless landing page.',
+    );
+  }
+
+  if (!drawerAlreadyOpen) {
+    if (!startButtonVisible)
+      throw new Error(
+        'Voice benchmark found the key-required landing page without its Start interactive demo action.',
+      );
+    await startButton.click();
+  }
+
+  if (!apiKey)
+    throw new Error(
+      'BYOK voice benchmark requires MAELSTROM_E2E_OPENAI_API_KEY',
+    );
+  await enterAndSubmitApiKey(page, apiKey);
+
+  await page
+    .waitForFunction(
+      () => {
+        const visibleOrbs = [
+          ...document.querySelectorAll('button.voice-orb'),
+        ].filter((orb) => {
+          const style = getComputedStyle(orb);
+          const bounds = orb.getBoundingClientRect();
+          return (
+            style.visibility !== 'hidden' &&
+            style.display !== 'none' &&
+            bounds.width > 0 &&
+            bounds.height > 0
+          );
+        });
+        return visibleOrbs.length === 1;
+      },
+      undefined,
+      { timeout: voiceOrbTimeoutMs },
+    )
+    .catch(() => {
+      throw new Error(
+        `Voice benchmark API-key bootstrap completed but did not expose exactly one visible voice orb within ${voiceOrbTimeoutMs} ms.`,
+      );
+    });
+}
