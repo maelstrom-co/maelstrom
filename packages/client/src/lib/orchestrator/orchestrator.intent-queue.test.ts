@@ -225,9 +225,9 @@ describe('Orchestrator intent queue', () => {
     });
   }
 
-  for (const ingress of ['queued', 'automatic'] as const) {
+  for (const ingress of ['queued', 'immediate', 'automatic'] as const) {
     for (const phase of ['sending', 'applying'] as const) {
-      it(`disconnect preserves ${ingress} active-response flush waiters while ${phase}`, async () => {
+      it(`disconnect settles ${ingress} flush waiters by response ownership while ${phase}`, async () => {
         const { client, sent, responses } = await setup();
         const action = deferred<ActionResult>();
         client.commandProcessor.registerRunner(InstanceId('active'), {
@@ -236,6 +236,8 @@ describe('Orchestrator intent queue', () => {
         client.chartManager.setDimensions({ columns: 10, rows: 6 });
         const ticket =
           ingress === 'queued' ? client.enqueueIntent('active') : undefined;
+        const immediate =
+          ingress === 'immediate' ? client.processIntent('active') : undefined;
         const automatic =
           ingress === 'automatic' ? client.flushUpdates() : undefined;
         await flushMicrotasks();
@@ -243,27 +245,144 @@ describe('Orchestrator intent queue', () => {
         if (phase === 'applying') {
           responses[0].resolve(response);
           await flushMicrotasks();
+          if (immediate) expect(await immediate).toBe(response);
         }
         expect(client.intentScheduler.store.state.phase).toBe(phase);
         client.chartManager.setDimensions({ columns: 20, rows: 6 });
+        const mutation = {
+          type: 'vessel_mutation' as const,
+          instanceId: InstanceId('active'),
+          changes: 'retained after response',
+        };
+        client.scheduleUpdate(mutation);
         const completed: Array<MaelstromResponse | null> = [];
         const flush = client.flushUpdates();
         void flush.then((value) => {
           completed.push(value);
         });
+        const unsent = ingress === 'immediate' && phase === 'applying';
         await client.disconnect();
         await flushMicrotasks();
-        expect(completed).toEqual([]);
+        if (!unsent) expect(completed).toEqual([]);
         if (phase === 'sending') responses[0].resolve(response);
+        await flushMicrotasks();
+        if (immediate && !unsent) expect(completed).toEqual([response]);
+        else if (!unsent) expect(completed).toEqual([]);
         action.resolve(ok(undefined));
-        expect(await flush).toBe(response);
+        await flushMicrotasks();
+        await clock.tickAsync(1000);
+        expect(completed).toEqual([unsent ? null : response]);
+        expect(await flush).toBe(unsent ? null : response);
         if (ticket) expect((await ticket.result).status).toBe('applied');
+        if (immediate) expect(await immediate).toBe(response);
         if (automatic) expect(await automatic).toBe(response);
-        expect(completed).toEqual([response]);
         expect(sent).toHaveLength(1);
+        if (unsent) {
+          // Settlement above must not depend on reconnect or its response.
+          await client.connect();
+          await clock.tickAsync(350);
+          expect(sent).toHaveLength(2);
+          expect(
+            sent[1].request.context.updateReasons.filter(
+              (reason) => reason.type === 'vessel_mutation',
+            ),
+          ).toEqual([mutation]);
+          expect(
+            sent[1].request.context.updateReasons.some(
+              (reason) => reason.type === 'user_intent',
+            ),
+          ).toBe(false);
+          responses[1].resolve(createMockEmptyResponse(sent[1].id));
+          await clock.tickAsync(1000);
+          expect(completed).toEqual([null]);
+          expect(sent).toHaveLength(2);
+        }
       });
     }
+
+    it(`connected ${ingress} application flushes retain their actual response and latest updates`, async () => {
+      const { client, sent, responses } = await setup();
+      const action = deferred<ActionResult>();
+      client.commandProcessor.registerRunner(InstanceId('active'), {
+        show: () => action.promise,
+      });
+      client.chartManager.setDimensions({ columns: 10, rows: 6 });
+      const ticket =
+        ingress === 'queued' ? client.enqueueIntent('active') : undefined;
+      const immediate =
+        ingress === 'immediate' ? client.processIntent('active') : undefined;
+      const automatic =
+        ingress === 'automatic' ? client.flushUpdates() : undefined;
+      await flushMicrotasks();
+      client.chartManager.setDimensions({ columns: 15, rows: 6 });
+      const earlyCompleted: Array<MaelstromResponse | null> = [];
+      const earlyFlush = client.flushUpdates();
+      void earlyFlush.then((response) => {
+        earlyCompleted.push(response);
+      });
+      const firstResponse = createMockResponse(sent[0].id, 'active', 'show');
+      responses[0].resolve(firstResponse);
+      await flushMicrotasks();
+      if (immediate) expect(await immediate).toBe(firstResponse);
+      expect(client.intentScheduler.store.state.phase).toBe('applying');
+      expect(earlyCompleted).toEqual(immediate ? [firstResponse] : []);
+      client.chartManager.setDimensions({ columns: 20, rows: 6 });
+      client.chartManager.setDimensions({ columns: 30, rows: 6 });
+      const completed: Array<MaelstromResponse | null> = [];
+      const flush = client.flushUpdates();
+      void flush.then((response) => {
+        completed.push(response);
+      });
+      await clock.tickAsync(1000);
+      expect(sent).toHaveLength(1);
+      expect(completed).toEqual([]);
+      action.resolve(ok(undefined));
+      await flushMicrotasks();
+      expect(sent).toHaveLength(2);
+      expect(await earlyFlush).toBe(firstResponse);
+      expect(earlyCompleted).toEqual([firstResponse]);
+      expect(completed).toEqual(immediate ? [] : [firstResponse]);
+      expect(sent[1].request.context.updateReasons).toEqual([
+        {
+          type: 'chart_resize',
+          previous: { columns: 20, rows: 6 },
+          current: { columns: 30, rows: 6 },
+        },
+      ]);
+      const secondResponse = createMockEmptyResponse(sent[1].id, 'second turn');
+      responses[1].resolve(secondResponse);
+      expect(await flush).toBe(immediate ? secondResponse : firstResponse);
+      if (ticket) expect((await ticket.result).status).toBe('applied');
+      if (automatic) expect(await automatic).toBe(firstResponse);
+      await clock.tickAsync(1000);
+      expect(sent).toHaveLength(2);
+      expect(completed).toEqual([immediate ? secondResponse : firstResponse]);
+    });
   }
+
+  it('clears immediate flush ownership before the next queued turn', async () => {
+    const { client, sent, responses } = await setup();
+    const immediate = client.processIntent('first');
+    responses[0].resolve(createMockEmptyResponse(sent[0].id));
+    await immediate;
+    await flushMicrotasks();
+    const ticket = client.enqueueIntent('second');
+    await flushMicrotasks();
+    client.chartManager.setDimensions({ columns: 10, rows: 6 });
+    const completed: Array<MaelstromResponse | null> = [];
+    const flush = client.flushUpdates();
+    void flush.then((response) => {
+      completed.push(response);
+    });
+    await client.disconnect();
+    await flushMicrotasks();
+    expect(completed).toEqual([]);
+    const response = createMockEmptyResponse(sent[1].id);
+    responses[1].resolve(response);
+    expect(await flush).toBe(response);
+    expect((await ticket.result).status).toBe('applied');
+    expect(completed).toEqual([response]);
+  });
 
   it('runs FIFO users next after a 3s resize and action settlement, carrying latest dimensions and mutations', async () => {
     const { client, sent, responses } = await setup();

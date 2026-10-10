@@ -143,6 +143,9 @@ export class Orchestrator {
 
   readonly #intentScheduler: IntentScheduler;
   #automaticPending = false;
+  // Immediate responses settle flush waiters before actions finish. New waiters
+  // in that interval belong to buffered work, not the delivered response.
+  #immediateResponseDelivered = false;
   #localActions = 0;
   #isDisposed = false;
   #unsubscribers: (() => void)[] = [];
@@ -530,7 +533,11 @@ export class Orchestrator {
       }
       const settlement = this.#dispatchSettledResponse(outcome.response);
       applying = true;
-      void settlement.finally(() => this.#intentScheduler.release());
+      this.#immediateResponseDelivered = true;
+      void settlement.finally(() => {
+        this.#immediateResponseDelivered = false;
+        this.#intentScheduler.release();
+      });
       this.#requestCoordinator.resolveFlushPromises(outcome.response);
       return outcome.response;
     } catch (error) {
@@ -625,13 +632,15 @@ export class Orchestrator {
    * teardown, a UI gesture that should not sit out the debounce window. If a
    * request is already in flight this coalesces with it rather than sending a
    * second one: the buffered updates are put back and the returned promise
-   * settles with that request's outcome.
+   * settles with that request's outcome. After an immediate intent has delivered
+   * its response, new flushes wait for the next engine turn even if that intent's
+   * actions are still settling.
    *
    * RESOLVES `null` — deliberately the same value for every "nothing landed"
    * case, because none of them is a failure the caller can act on:
    * - the Orchestrator is disposed;
    * - nothing was buffered;
-   * - disconnect removed buffered work before an engine turn began;
+   * - disconnect removed buffered work waiting for a future engine turn;
    * - a concurrent {@link setConnector} superseded the response, which was
    *   therefore never applied (the updates are requeued for the next flush);
    * - the send itself failed *because* of that swap — the transport error is
@@ -837,9 +846,12 @@ export class Orchestrator {
       if (update.type === 'vessel_mutation')
         this.#pendingMutations.push(update);
     }
-    // No response will arrive for work held behind local commands. An active
-    // engine turn still owns its flush waiters, including during application.
-    if (this.#intentScheduler.store.state.phase === 'idle') {
+    // Preserve waiters only while the active turn still owes them an outcome.
+    // Immediate application can remain locked after delivering that outcome.
+    if (
+      this.#intentScheduler.store.state.phase === 'idle' ||
+      this.#immediateResponseDelivered
+    ) {
       this.#requestCoordinator.resolveFlushPromises(null);
     }
     await this.#connectionManager.disconnect();
