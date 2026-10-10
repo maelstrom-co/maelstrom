@@ -8,8 +8,10 @@ import {
   rm,
   writeFile,
 } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { installPackedConsumer, type PackageAuditInput } from './audit';
 
@@ -60,18 +62,24 @@ async function packPackage(
   return { name, tarball: join(destination, tarballs[0]) };
 }
 
-test('the current packed React package keeps warning utilities behind _testing', async () => {
+test('packed React keeps testing exports private and renders with production React', async () => {
   const root = await mkdtemp(join(tmpdir(), 'react-packed-surface-'));
   temporaryRoots.push(root);
 
   expectSuccess(
-    run(
+    Bun.spawnSync(
       [
         join(repositoryRoot, 'node_modules/.bin/nx'),
         'build',
         '@maelstrom-co/react',
+        '--skip-nx-cache',
       ],
-      repositoryRoot,
+      {
+        cwd: repositoryRoot,
+        env: { ...process.env, NODE_ENV: 'development' },
+        stdout: 'pipe',
+        stderr: 'pipe',
+      },
     ),
   );
 
@@ -84,6 +92,11 @@ test('the current packed React package keeps warning utilities behind _testing',
     packPackage(
       '@maelstrom-co/client',
       join(repositoryRoot, 'packages/client'),
+      root,
+    ),
+    packPackage(
+      '@maelstrom-co/connectors',
+      join(repositoryRoot, 'packages/connectors'),
       root,
     ),
     packPackage(
@@ -136,6 +149,47 @@ test('the current packed React package keeps warning utilities behind _testing',
   const deepSpecifier = '@maelstrom-co/react/dist/lib/warn-once';
   const node = Bun.which('node');
   expect(node).not.toBeNull();
+  const happyDom = createRequire(
+    join(repositoryRoot, 'packages/react/package.json'),
+  ).resolve('happy-dom');
+  await writeFile(
+    join(consumerRoot, 'production-dom.mjs'),
+    `import { Window } from '${pathToFileURL(happyDom).href}';
+globalThis.window = new Window({ url: 'http://localhost/' });
+globalThis.document = window.document;
+`,
+  );
+  await writeFile(
+    join(consumerRoot, 'production-render.mjs'),
+    `import { createElement } from 'react';
+import { createRoot } from 'react-dom/client';
+import { createMaelstrom } from '@maelstrom-co/react';
+const m = createMaelstrom({ vessels: [] });
+const connector = { capabilities: { voice: false, streaming: false, stateful: false }, connect: async () => {}, disconnect: async () => {}, subscribe: () => () => {}, process: async () => { throw Error('unexpected request'); }, addAssistantMessage: async () => {}, getHistory: async () => [] };
+const container = document.createElement('div');document.body.append(container);
+const errors = [];
+const root = createRoot(container, { onUncaughtError: error => errors.push(String(error)) });
+root.render(createElement(m.Provider, { connector }, createElement('span', null, 'Production SDK rendered')));
+for (let attempt = 0; attempt < 100 && container.textContent !== 'Production SDK rendered'; attempt++) await new Promise(resolve => setTimeout(resolve, 10));
+const rendered = container.textContent === 'Production SDK rendered';
+root.unmount();window.close();
+console.log(JSON.stringify({ rendered, errors }));
+`,
+  );
+  const productionRender = Bun.spawnSync(
+    [node!, '--import', './production-dom.mjs', 'production-render.mjs'],
+    {
+      cwd: consumerRoot,
+      env: { ...process.env, NODE_ENV: 'production' },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    },
+  );
+  expectSuccess(productionRender);
+  expect(JSON.parse(productionRender.stdout.toString())).toEqual({
+    rendered: true,
+    errors: [],
+  });
   const runtimeDeepImport = run(
     [
       node!,

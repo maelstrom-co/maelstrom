@@ -7,12 +7,12 @@ description: >-
 license: MIT
 metadata:
   author: Maelstrom
-  version: 0.1.0
+  version: 0.1.1
 ---
 
 # Focused event observability
 
-1. **Name the operational question.** Inspect the current telemetry conventions, integration lifecycle, installed SDK exports/types/source/tests, and exact package versions. Choose only event surfaces evidenced in that version.
+1. **Name the operational question.** Inspect the current telemetry conventions, integration lifecycle, installed SDK exports/types/source/tests, and exact package versions. Choose only event surfaces evidenced in that version. For a local inspection goal, check existing DevTools evidence before adding telemetry; read [`../references/debugging-evidence.md`](../references/debugging-evidence.md) for its version and recording constraints. Keep operational reporting in the application's telemetry system.
 2. **Keep the signal bounded.** Map the smallest relevant supported events to existing metrics/logging. Do not add a second product-state store, unsupported event names, unnecessary high-cardinality fields, or a generic telemetry framework.
 3. **Protect data.** Before handling request fields, credentials, intent text, Vessel props, user data, or raw errors, read [`../references/security-and-telemetry.md`](../references/security-and-telemetry.md). Prefer stable identifiers already provided; define redaction and retention within existing app policy.
 4. **Own listener lifetime.** Tie subscription cleanup to an observed application lifecycle. Keep telemetry separate from Connector transport and orchestration policy.

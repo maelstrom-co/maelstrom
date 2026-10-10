@@ -205,6 +205,32 @@ describe('createWebSocketHandlers pre-hello frame handling', () => {
 });
 
 describe('createWebSocketHandlers send paths (local mode)', () => {
+  it.each([
+    false,
+    true,
+  ])('replies to an invalid first envelope after hello, diagnostics: %s', async (enabled) => {
+    const handlers = createWebSocketHandlers({
+      sharedEngine: stubEngine(),
+      sharedEngineInitError: null,
+    });
+    const ws = makeFakeWs();
+    ws.data.reportMetadata = enabled;
+    await handlers.message(
+      ws as unknown as Parameters<typeof handlers.message>[0],
+      JSON.stringify({
+        type: 'chart_request',
+        id: 'invalid-first',
+        sessionId: 's-1',
+      }),
+    );
+    expect(ws.sent).toHaveLength(1);
+    expect(JSON.parse(ws.sent[0]!)).toMatchObject({
+      type: 'engine.error',
+      requestId: 'invalid-first',
+      sessionId: 's-1',
+      code: 'invalid_envelope',
+    });
+  });
   // makeFakeWs() defaults to the server-owned key path, which dispatches
   // without waiting for a browser handshake.
   it('sends a maelstrom_response for a chart_request', async () => {

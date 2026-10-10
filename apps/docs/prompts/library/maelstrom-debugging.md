@@ -1,6 +1,6 @@
 ---
 id: maelstrom-debugging
-prompt_version: 0.1.0
+prompt_version: 0.1.1
 compatibility:
   sdk:
     "@maelstrom-co/react": "0.1.0-alpha.4"
@@ -35,6 +35,21 @@ Inspect the evidence relevant to the symptom: `m.useMaelstrom()` state, includin
 `lastResponse` where available; Provider `onError`; browser Connector state;
 server Engine logs; current Vessel definition and active Variant; Action
 parameters/transitions; relevant events; and installed-version compatibility.
+
+When DevTools is installed, inspect its retained metadata before adding custom
+listeners. Load the guide shipped by the installed `@maelstrom-co/react-devtools`
+or `@maelstrom-co/devtools` package and verify its exports. Requests separates
+response receipt, application, and Action outcomes; identify each request by app
+lifetime and request ID. Connections shows Engine and optional voice evidence.
+In All events, search for `voice.` to isolate voice metadata.
+
+Record supported content only when the user's authorization covers retaining
+application data. Choose a scope and start recording before reproduction, then
+stop and inspect it. Inspection filters do not change that scope. Inspect and
+redact any export before sharing it. Imported recordings are read-only evidence,
+not replay. Missing Engine stages can mean forwarding is unavailable. Use existing
+state and logs when DevTools is absent; a diagnosis does not authorize installation,
+production browser opt-in, or server forwarding changes.
 
 Do not assume `processIntent()` rejects on failure. Inspect Maelstrom state and
 error reporting. Do not diagnose a connector failure as Vessel logic without

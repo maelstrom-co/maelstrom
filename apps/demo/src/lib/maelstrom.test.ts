@@ -21,6 +21,7 @@ type DemoRealtimeOptions = MaelstromRealtimeBaseOptions<DemoVoiceProvider> &
 const state = vi.hoisted(() => ({
   extension: {},
   orchestrationExtension: {},
+  devtoolsExtension: {},
   installedExtensions: [] as unknown[],
   realtimeOptions: undefined as DemoRealtimeOptions | undefined,
   liveKitAdapterOptions: [] as unknown[],
@@ -82,6 +83,9 @@ vi.mock('./mint-token', () => ({
 }));
 vi.mock('./orchestration-legibility', () => ({
   orchestrationLegibility: state.orchestrationExtension,
+}));
+vi.mock('@maelstrom-co/react-devtools/production', () => ({
+  devtools: () => state.devtoolsExtension,
 }));
 vi.mock('./voice/get-livekit-token', () => ({
   getLivekitToken: () => Promise.resolve(),
@@ -153,10 +157,11 @@ describe('demo voice provider wiring', () => {
     expect(state.liveKitAdapterOptions).toEqual([]);
   });
 
-  it('installs the plain realtime and orchestration extensions', () => {
+  it('installs diagnostics for every build alongside realtime and orchestration', () => {
     expect(state.installedExtensions).toEqual([
       state.extension,
       state.orchestrationExtension,
+      state.devtoolsExtension,
     ]);
   });
 

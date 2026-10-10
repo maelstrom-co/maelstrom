@@ -1,0 +1,273 @@
+---
+title: Debug applications with DevTools
+description: How to inspect requests, voice events, layouts, and recordings with Maelstrom DevTools.
+sidebar:
+  label: DevTools
+---
+
+import { Aside, Steps } from '@astrojs/starlight/components';
+
+Use DevTools to follow a request from submission through layout and Action outcomes.
+Live activity collects metadata automatically. Start a recording before reproducing
+a problem to retain supported prompts, arguments, and transcript content.
+
+## Before you start
+
+- Configure a working React application with Vessels and an Engine connector.
+  The examples below extend the files from [Creating Vessels](/guides/react/creating-vessels/).
+- Configure [GitHub Packages access](/getting-started/install-beta/) and use
+  DevTools from the same release or PR preview as your Maelstrom packages.
+
+## Install and open the tools
+
+<Steps>
+1. **Install the React adapter** in your application directory. This command
+   uses the beta `alpha` tag; use your matching preview tag when testing a PR.
+
+   ```sh
+   bun add @maelstrom-co/react-devtools@alpha
+   ```
+
+2. **Apply the extension to your configured instance.** Keep your existing
+   Vessel entries. This example reuses the Greeting definition and component
+   from the prerequisite guide.
+
+   ```tsx title="src/maelstrom.ts"
+   import { createMaelstrom, vessel } from '@maelstrom-co/react';
+   import { devtools } from '@maelstrom-co/react-devtools';
+   import GreetingComponent from './vessels/greeting/greeting.component';
+   import { greetingVessel } from './vessels/greeting/greeting.vessel';
+
+   export const greetingEntry = vessel(greetingVessel, GreetingComponent);
+
+   export const m = createMaelstrom({
+     vessels: [greetingEntry],
+   }).with(devtools());
+   ```
+
+3. **Mount `m.Devtools` near the Provider.** Use your existing connector.
+   Keeping the tools outside a conditional Provider preserves access to retained
+   evidence when that Provider unmounts.
+
+   ```tsx title="src/app.tsx"
+   import { m } from './maelstrom';
+   import { myConnector } from './connector';
+
+   export default function App() {
+     return (
+       <>
+         <m.Provider connector={myConnector}>
+           <m.Chart />
+         </m.Provider>
+         <m.Devtools />
+       </>
+     );
+   }
+   ```
+
+4. **Open the floating Maelstrom button** in your development build. Submit an
+   intent through your existing application and select it in **Requests**.
+   Inspect its observed stages beside the JSON.
+</Steps>
+
+The extension attaches collection before the Provider connects. Closing the
+panel keeps collection active. Several mounts of `m.Devtools` share one panel.
+Each mounted Provider creates a separate app lifetime; an ended lifetime can
+remain visible as bounded history after a remount.
+
+## Inspect a request
+
+Select a request to read its outcome and observed stages. Response receipt and
+application completion are separate milestones. The client applies the layout
+before executing the response's Actions.
+
+| Outcome | What it establishes | What to inspect next |
+| --- | --- | --- |
+| Response received | The response reached the browser. | Wait for an application outcome or inspect missing stages. |
+| Applied | The client completed the response command batch. | Inspect the resulting structure and Action outcomes. |
+| Applied with Action issues | The batch completed with failed or skipped Actions. | Inspect each Action's outcome and readiness evidence. |
+| Failed | The client reported a request or application failure. | Inspect the error; supported details require recording. |
+| Discarded or abandoned | Work became stale or ended before completion. | Inspect the reported reason and app lifetime. |
+
+An applied outcome does not establish browser paint, animation completion, or
+audible speech. Missing or evicted stages remain partial evidence. Durations use
+the emitting process's clock; server and browser timestamps are independent.
+
+The request list, readable details, and JSON pane scroll independently. Use the
+JSON pane's **Tree** presentation to explore collapsible sections, or **Raw JSON**
+for highlighted text. Selection stays fixed while new requests arrive. If the
+selected trace expires, select another request from the list.
+
+## Find voice and connection events
+
+In **Requests**, switch the activity selector to **All events** and search for
+`voice.`. Narrow the results with **App instance** when several app lifetimes
+are present. Search matches event kinds, request IDs, and metadata.
+
+Open **Connections** for Engine connection state and separate voice summaries.
+Voice evidence distinguishes provider lifetimes and connection generations.
+Connections labels session and provider generations separately. These counters
+can differ after a cancelled startup; matching numbers do not establish that
+they describe the same attempt. Older recordings can show a generation without
+an explicit scope.
+Voice observation requires the optional realtime integration; DevTools itself
+does not connect a voice provider or acquire a microphone.
+
+React realtime attaches voice diagnostics automatically. For another framework,
+use [`attachRealtimeDiagnostics`](/reference/realtime/functions/attachrealtimediagnostics/)
+with the existing session, adapter, owning client channel, and provider lifetime
+identity. Release the attachment when retiring that lifetime. Supported native
+provider facts appear under `voice.provider.*`; arguments and intent remain
+explicit recording content.
+
+The App instance selector identifies a Maelstrom client, not a voice provider.
+It filters inspection. Search also changes the displayed evidence, without
+changing what is recorded.
+
+## Inspect the Chart
+
+Open **Inspector** to see a schematic Chart, retained Instances, current
+Variants, and declared Actions. Select a live Instance to highlight it in its
+owning Chart. **Chart outlines** is a separate display control.
+
+The schematic uses reported Chart dimensions and layout structure. It does not
+retain exact DOM pixels. Hidden retained Instances remain in the list. A
+recording's Inspector shows its latest retained structure; selecting an old
+event does not move a history cursor. Recorded and imported selection never
+highlights a live Instance or changes the application.
+
+## Record and reopen a problem
+
+<Steps>
+1. **Open Recordings and choose the recording scope.** Select all app instances
+   or one active app. The scope stays fixed after recording starts. An all-app
+   recording includes later attachments; a selected-app recording stops when
+   that lifetime ends.
+2. **Select Start recording, then reproduce the problem.** The recording begins
+   with structural baselines. It retains supported subsequent content and cannot
+   recover earlier prompts, transcripts, or Action arguments.
+3. **Select Stop, then Inspect recording.** Use the same readable views and JSON
+   to inspect the retained evidence. Add **Expected result and observed result**
+   notes to explain the problem. Notes are manual context, not an automated test.
+4. **Select Export JSON** to download the recording. Use **Open recording** to
+   inspect a saved file. Imported evidence and notes are read-only.
+</Steps>
+
+Use **Evidence** to switch between live activity, the current recording, and an
+imported recording. The recording scope is independent of the App instance
+inspection filter.
+
+**Clear recording** removes the current recording and its notes while keeping
+live activity. Closing the panel does not stop a recording. Evidence stays in
+memory until cleared or reloaded; files are downloaded only when you export.
+DevTools does not upload recordings or store them in browser storage.
+
+<Aside type="note" title="Recorded content and redaction">
+  Supported recording content can include request reasons, Action arguments,
+  transcript fragments, and enabled server diagnostics. Raw audio is excluded.
+  Projection and credential redaction run before retention and again before
+  export. Configure application redaction for your own data. Opening a recording
+  validates and bounds its contents; it never replays requests or Actions.
+</Aside>
+
+## Configure retention and presentation
+
+Replace the `devtools()` call in the installation example with options for your
+application. This fragment changes the trigger, theme, and retention limits:
+
+```ts
+devtools({
+  position: 'bottom-left',
+  theme: 'dark',
+  maxActivityEvents: 250,
+  maxRequestEvents: 2000,
+  capture: { maxEvents: 2000, maxCharacters: 4000000 },
+});
+```
+
+Defaults retain 100 recent metadata events, 1,000 request metadata events,
+16 app lifetimes, and 1,000 recording events. Recordings permit 2,000,000 serialized
+event characters and 16,384 characters per string. Dropped counts make incomplete
+evidence visible. Request history has its own budget and evicts whole requests;
+an oversized request keeps its latest stages and reports partial evidence.
+
+Use [`DevtoolsOptions`](/reference/devtools/interfaces/devtoolsoptions/) for
+the complete configuration. Its `redact` callback receives detached JSON and
+should be idempotent. Its `filter` callback excludes events before retention;
+this differs from the panel's search filter. Set `enabled: false` to disable
+collection and mounting.
+
+## Enable tools in preview and production
+
+The default import is inert in production. To expose browser diagnostics in
+every build, replace the adapter import in your configured instance:
+
+```ts
+import { devtools } from '@maelstrom-co/react-devtools/production';
+```
+
+Apply the same extension and mount `m.Devtools`. The demo uses this entrypoint in
+development, preview, and production. Content still requires Start recording.
+If you supply a capture store, create it from `@maelstrom-co/devtools/production`.
+Source consumers must replace `process.env.NODE_ENV` at build time, as Vite does.
+
+## Enable optional Engine evidence
+
+Local client diagnostics work with every Engine connector. Planner attempts,
+validation, and reported usage require a compatible transport and an explicitly
+enabled host. The WebSocket connector carries diagnostics over its existing
+connection; DevTools opens no separate debug server.
+
+In the Engine host, use
+[`createDiagnosticConnection`](/reference/engine/functions/creatediagnosticconnection/)
+for each authorized connection. Bind its `sessionId` to the authenticated
+session, handle diagnostic envelopes in the existing connection handler, and
+dispose the helper when the connection closes. Metadata and content forwarding
+have separate permissions; explicit recording enables supported content.
+
+The host owns authentication and session ownership checks. Server forwarding
+remains disabled in production, including when browser tools use `/production`.
+Absent server stages or provider-reported usage remain unknown.
+
+## Use the core without React
+
+The core package supplies the same collector and browser panel. Supply an
+existing Orchestrator, attach before connecting it, and release both lifecycles
+when the application surface is removed:
+
+```ts title="src/attach-devtools.ts"
+import type { Orchestrator } from '@maelstrom-co/client';
+import { createDevtools, mountDevtools } from '@maelstrom-co/devtools';
+
+export function attachDevtools(orchestrator: Orchestrator) {
+  const tools = createDevtools();
+  const detach = tools.attach(orchestrator);
+  const unmount = mountDevtools(tools);
+
+  return () => {
+    unmount();
+    detach();
+    tools.dispose();
+  };
+}
+```
+
+Install `@maelstrom-co/devtools` from the matching release or preview for this
+integration. Mounting requires a browser DOM; server rendering mounts no panel.
+Use the core's `/production` entrypoint for the same explicit production opt-in.
+
+## Verify the integration
+
+- Open the development panel and submit a request. Confirm that its receipt,
+  layout, and available Action outcomes remain distinct.
+- Start recording before another request, stop, export, and reopen it. Confirm
+  that supported content appears and import changes no live application state.
+- Remount the Provider and confirm that its new app lifetime stays separate from
+  retained evidence. Keep the tools mounted while checking an ended lifetime.
+- Build for production. Confirm that the default import mounts no tools, or
+  that the explicit `/production` import exposes the intended recording flow.
+
+If the panel is empty, check that the extension and Chart use the same configured
+instance and that collection is enabled. For the exact public interfaces, see
+the [React adapter reference](/reference/react-devtools/readme/) and
+[core reference](/reference/devtools/readme/).

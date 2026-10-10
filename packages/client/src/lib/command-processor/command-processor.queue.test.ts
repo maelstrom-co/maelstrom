@@ -13,6 +13,26 @@ describe('CommandProcessor Queue Timing', () => {
     processor = new CommandProcessor({ defaultActionWaitTimeoutMs: 0 });
   });
 
+  it.each([
+    false,
+    true,
+  ])('queue observers cannot overtake earlier work, atomic batch: %s', async (batch) => {
+    const first = createSetLayoutCommand('first');
+    const tail = createSetLayoutCommand('tail');
+    const nested = createSetLayoutCommand('nested');
+    const started: Command[] = [];
+    processor.events.on('command_queued', ({ command }) => {
+      if (command === first) processor.dispatch(nested);
+    });
+    processor.events.on('command_start', ({ command }) =>
+      started.push(command),
+    );
+    processor.dispatch(...(batch ? [first, tail] : [first]));
+    await processor.waitForIdle();
+    expect(started).toEqual(batch ? [first, tail, nested] : [first, nested]);
+    processor.dispose();
+  });
+
   /**
    * When two commands are dispatched synchronously, the first's layout phase
    * completes before the second's dispatch call runs, because

@@ -208,6 +208,27 @@ The browser holds the OpenAI realtime session directly, authenticated by a short
 
 Append `?debug` to the URL, for example `http://localhost:3000/?debug`, to show the grid and tiling overlay plus Instance ID and size labels for every Vessel. The overlay is off by default.
 
+## Inspect the demo with devtools
+
+The [DevTools guide](https://docs.maelstrom-ai.co/guides/devtools/) explains
+installation in other applications, the inspection views, and recording controls.
+
+The floating Maelstrom button is available in development, preview, and production.
+The demo explicitly imports the packages' `/production` entrypoints.
+Other applications keep the development-only default unless they choose this opt-in.
+
+Open Requests to inspect grouped requests and their observed stages. All events
+shows lower-level metadata. Inspector shows a schematic Chart, Instance details,
+and registered Actions. Connections shows Engine and optional voice evidence.
+The App instance selector filters client lifetimes; it does not select a voice provider.
+
+In Recordings, choose a recording scope, then Start recording before reproducing
+a problem. Stop retains the evidence. Inspect recording opens readable views;
+Export JSON saves it. Open recording loads a saved file without executing commands.
+Recording scope stays fixed even when the inspection filter changes.
+Recordings stay in memory until Clear recording or page reload. Production Engine forwarding
+remains disabled; browser diagnostics and capture remain available.
+
 **Recording tip:** macOS's Reduce Motion setting (System Settings → Accessibility → Display) disables the demo's choreography through `prefers-reduced-motion`.
 
 ## Troubleshooting and shutdown

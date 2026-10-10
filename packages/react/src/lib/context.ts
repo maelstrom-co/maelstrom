@@ -53,7 +53,31 @@ export function createMaelstromContext() {
     return ctx;
   }
 
-  return { Context, useMaelstromContext, contextRef } as const;
+  return {
+    Context,
+    useMaelstromContext,
+    contextRef,
+    ...createOrchestratorObservers(),
+  } as const;
+}
+
+export function createOrchestratorObservers(
+  inherited: Iterable<(orchestrator: Orchestrator) => () => void> = [],
+) {
+  const orchestratorObservers = new Set(inherited);
+  const onOrchestrator = (
+    attach: (orchestrator: Orchestrator) => () => void,
+  ) => {
+    let active = true;
+    const observer = (orchestrator: Orchestrator) =>
+      active ? attach(orchestrator) : () => {};
+    orchestratorObservers.add(observer);
+    return () => {
+      active = false;
+      orchestratorObservers.delete(observer);
+    };
+  };
+  return { onOrchestrator, orchestratorObservers } as const;
 }
 
 export type MaelstromContextPair = ReturnType<typeof createMaelstromContext>;

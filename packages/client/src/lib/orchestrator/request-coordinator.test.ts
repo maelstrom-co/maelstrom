@@ -332,6 +332,8 @@ describe('RequestCoordinator', () => {
       );
       expect(reported).toHaveBeenCalledWith({
         error: disconnected,
+        requestId: MessageId('req-1'),
+        durationMs: expect.any(Number),
         timestamp: expect.any(Number),
       });
       expect(errorLog).toHaveBeenCalledWith(

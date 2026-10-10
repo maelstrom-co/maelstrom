@@ -13,6 +13,7 @@ import {
   type SidechannelEvent,
 } from '@maelstrom-co/protocol';
 import {
+  type AdapterDiagnosticObservation,
   type RealtimeInstance,
   RealtimeSession,
   RealtimeSessionMemory,
@@ -138,6 +139,35 @@ class Peer extends EventTarget {
   close() {}
 }
 const cleanup: (() => Promise<void>)[] = [];
+
+test('the provider classifies grounding diagnostics at its send site without prose inference', async () => {
+  const h = await harness();
+  const observations: AdapterDiagnosticObservation[] = [];
+  const release = h.adapter.diagnostics.subscribe((observation) =>
+    observations.push(observation),
+  );
+  const initial = h.channel.sent.find(
+    (event) => event.type === 'session.thinking.append',
+  );
+  if (initial)
+    h.channel.event('session.thinking.appended', {
+      client_event_id: initial.event_id,
+      start_ms: 0,
+      end_ms: 0,
+    });
+  h.adapter.injectGrounding('UI text with no diagnostic prefix or revision');
+  expect(
+    observations.map((observation) => observation.metadata),
+  ).toContainEqual(
+    expect.objectContaining({
+      type: 'session.thinking.append',
+      direction: 'sent',
+      contextKind: 'ui_snapshot',
+    }),
+  );
+  expect(JSON.stringify(observations)).not.toMatch(/UI text|snapshotRevision/);
+  release();
+});
 test('optional grounding failure keeps voice connected and permits a later context refresh', async () => {
   let unavailable = true;
   const h = await harness({

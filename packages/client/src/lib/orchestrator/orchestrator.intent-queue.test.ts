@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import {
   type ChartRequestMessage,
+  type DiagnosticEvent,
   err,
   InstanceId,
   type MaelstromResponse,
@@ -61,9 +62,67 @@ describe('Orchestrator intent queue', () => {
   }
 
   for (const ingress of ['queued', 'immediate', 'flush', 'timer'] as const) {
+    it(`correlates ${ingress} diagnostics through atomic Action settlement`, async () => {
+      const { client, sent, responses } = await setup();
+      const diagnosticEvents: DiagnosticEvent[] = [];
+      client.diagnostics.subscribe(({ event }) => diagnosticEvents.push(event));
+      const action = deferred<ActionResult>();
+      const runner = mock(() => action.promise);
+      client.commandProcessor.registerRunner(InstanceId('active'), {
+        show: runner,
+      });
+      client.chartManager.setDimensions({ columns: 10, rows: 6 });
+      const ticket =
+        ingress === 'queued' ? client.enqueueIntent('show active') : undefined;
+      const immediate =
+        ingress === 'immediate'
+          ? client.processIntent('show active')
+          : undefined;
+      const flush = ingress === 'flush' ? client.flushUpdates() : undefined;
+      if (ingress === 'timer') await clock.tickAsync(350);
+      else await flushMicrotasks();
+      expect(sent).toHaveLength(1);
+      const requestId = sent[0].id;
+      responses[0].resolve(createMockResponse(requestId, 'active', 'show'));
+      await flushMicrotasks();
+      expect(runner).toHaveBeenCalledTimes(1);
+      expect(client.intentScheduler.store.state.phase).toBe('applying');
+      expect(
+        diagnosticEvents
+          .filter((event) => event.kind === 'client.command.queued')
+          .map((event) => event.requestId),
+      ).toEqual([requestId, requestId]);
+      expect(
+        diagnosticEvents.some(
+          (event) => event.kind === 'client.response.applied',
+        ),
+      ).toBe(false);
+      action.resolve(ok(undefined));
+      await flushMicrotasks();
+      if (ticket) expect((await ticket.result).status).toBe('applied');
+      if (immediate) expect((await immediate).requestId).toBe(requestId);
+      if (flush) expect((await flush)?.requestId).toBe(requestId);
+      expect(
+        diagnosticEvents.filter(
+          (event) => event.kind === 'client.response.applied',
+        ),
+      ).toMatchObject([
+        { requestId, metadata: { actionFailures: 0, skippedActions: 0 } },
+      ]);
+      expect(
+        diagnosticEvents
+          .filter((event) => event.kind === 'client.command.completed')
+          .map((event) => event.requestId),
+      ).toEqual([requestId, requestId]);
+    });
+
     for (const lifecycle of ['replace', 'dispose'] as const) {
       it(`fences ${ingress} response when applying notification triggers ${lifecycle}`, async () => {
         const { client, sent, responses } = await setup();
+        const diagnosticEvents: DiagnosticEvent[] = [];
+        client.diagnostics.subscribe(({ event }) =>
+          diagnosticEvents.push(event),
+        );
         const runner = mock(() => ok(undefined));
         const commands = mock(() => {});
         client.commandProcessor.registerRunner(InstanceId('stale'), {
@@ -119,6 +178,18 @@ describe('Orchestrator intent queue', () => {
         expect(client.commandProcessor.store.state.instances.size).toBe(0);
         expect(commands).not.toHaveBeenCalled();
         expect(runner).not.toHaveBeenCalled();
+        expect(
+          diagnosticEvents.some(
+            (event) =>
+              event.kind === 'client.response.discarded' &&
+              event.requestId === sent[0].id,
+          ),
+        ).toBe(true);
+        expect(
+          diagnosticEvents.some(
+            (event) => event.kind === 'client.response.applied',
+          ),
+        ).toBe(false);
         if (ticket) expect((await ticket.result).status).toBe('unknown');
         if (immediate)
           expect(await immediate).toEqual(
@@ -155,6 +226,8 @@ describe('Orchestrator intent queue', () => {
     const { client, sent, responses } = await setup({
       intentQueue: { activeTimeoutMs: 50 },
     });
+    const diagnosticEvents: DiagnosticEvent[] = [];
+    client.diagnostics.subscribe(({ event }) => diagnosticEvents.push(event));
     const commands = mock(() => {});
     client.commandProcessor.events.on('command_start', commands);
     let observed = false;
@@ -172,6 +245,13 @@ describe('Orchestrator intent queue', () => {
     expect((await ticket.result).status).toBe('unknown');
     expect(client.commandProcessor.store.state.instances.size).toBe(0);
     expect(commands).not.toHaveBeenCalled();
+    expect(
+      diagnosticEvents.some(
+        (event) =>
+          event.kind === 'client.response.discarded' &&
+          event.requestId === sent[0].id,
+      ),
+    ).toBe(true);
     subscription.unsubscribe();
   });
 

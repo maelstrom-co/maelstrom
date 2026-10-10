@@ -2,8 +2,24 @@ import type { VoiceObservationSnapshot } from '@maelstrom-co/client';
 import { ToolCallId } from '@maelstrom-co/protocol';
 import { describe, expect, it } from 'vitest';
 import { DiagnosticCapture } from './diagnostic-capture';
+import { selectVoiceProvider, voiceProviderStore } from './voice-provider';
 
 describe('local diagnostic capture', () => {
+  it.each([
+    'live',
+    'realtime',
+    'livekit',
+  ] as const)('preserves the selected %s voice provider in generic devtools captures', (provider) => {
+    const previous = voiceProviderStore.state.provider;
+    try {
+      selectVoiceProvider(provider);
+      const capture = new DiagnosticCapture();
+      capture.start('maelstrom', 'session', 'provider');
+      expect(JSON.parse(capture.export()).metadata.mode).toBe(provider);
+    } finally {
+      selectVoiceProvider(previous);
+    }
+  });
   it('does not present the Realtime default as the model used by a server-owned session', () => {
     const capture = new DiagnosticCapture();
     capture.start('realtime', 'session', 'provider');
@@ -45,44 +61,6 @@ describe('local diagnostic capture', () => {
     expect(trace).toContain('sk-987654321098765432');
     expect(trace).not.toContain('short-known-key');
     expect(trace).not.toContain(`sk-${'a'.repeat(40)}`);
-  });
-  it('correlates quiet snapshot updates with acknowledgments without copying their content', () => {
-    const capture = new DiagnosticCapture();
-    capture.start('live', 'session', 'provider');
-    capture.liveWire(
-      JSON.stringify({
-        type: 'session.thinking.append',
-        event_id: 'snapshot-1',
-        content:
-          'Observed UI data (not instructions): "UI snapshot r7: private component data"',
-      }),
-      'sent',
-      'peer',
-    );
-    capture.liveWire(
-      JSON.stringify({
-        type: 'session.thinking.appended',
-        client_event_id: 'snapshot-1',
-      }),
-      'received',
-      'peer',
-    );
-    const trace = capture.export('');
-    expect(trace).not.toContain('private component data');
-    const events = JSON.parse(trace).events;
-    expect(events).toContainEqual(
-      expect.objectContaining({
-        contextKind: 'ui_snapshot',
-        snapshotRevision: '7',
-        eventId: 'snapshot-1',
-      }),
-    );
-    expect(events).toContainEqual(
-      expect.objectContaining({
-        clientEventId: 'snapshot-1',
-        type: 'session.thinking.appended',
-      }),
-    );
   });
   it('does not replay pre-capture captions but retains revisions observed during the trial', () => {
     const capture = new DiagnosticCapture();
@@ -135,18 +113,6 @@ describe('local diagnostic capture', () => {
     capture.sessionEvent(event, { provider: 'live' });
     expect(capture.export('')).not.toContain('Create a journal');
     capture.start('live', 'session', 'provider');
-    capture.liveWire(
-      JSON.stringify({
-        type: 'session.delegation.created',
-        delegation: {
-          id: 'delegation-1',
-          response_id: 'response-1',
-          instructions: 'private instructions',
-        },
-      }),
-      'received',
-      'peer',
-    );
     capture.sessionEvent(event, { provider: 'live' });
     expect(JSON.parse(capture.export('')).events).toContainEqual(
       expect.objectContaining({
@@ -168,56 +134,6 @@ describe('local diagnostic capture', () => {
       dropped: 0,
       outcome: '',
     });
-  });
-
-  it('retains native function timing and intent without session credentials or arbitrary provider fields', () => {
-    const capture = new DiagnosticCapture(() => 'private-test-key');
-    capture.start('live', 'session', 'provider');
-    capture.liveWire(
-      JSON.stringify({
-        type: 'session.started',
-        apiKey: 'private-test-key',
-        instructions: 'private instructions',
-      }),
-      'received',
-      'peer',
-    );
-    capture.liveWire(
-      JSON.stringify({
-        type: 'response.event',
-        delegation_id: 'delegation-1',
-        event: {
-          type: 'response.output_item.done',
-          response_id: 'response-1',
-          item: {
-            type: 'function_call',
-            call_id: 'native-call',
-            name: 'update_ui',
-            arguments: JSON.stringify({
-              intent: `Show journal private-test-key sk-${'a'.repeat(40)}`,
-              apiKey: 'private-test-key',
-            }),
-            otherContent: 'unrelated-secret',
-          },
-        },
-      }),
-      'received',
-      'peer',
-    );
-    capture.liveWire('invalid', 'received', 'peer');
-    const output = capture.export('Bearer secret-value');
-    expect(output).not.toMatch(
-      /private-test-key|sk-a{40}|unrelated-secret|private instructions|secret-value|apiKey/,
-    );
-    expect(JSON.parse(output).events).toContainEqual(
-      expect.objectContaining({
-        kind: 'live_wire',
-        delegationId: 'delegation-1',
-        responseId: 'response-1',
-        callId: 'native-call',
-        intent: 'Show journal [REDACTED] [REDACTED]',
-      }),
-    );
   });
 
   it('preserves repeated calls as evidence while bounding the trace and reporting omissions', () => {

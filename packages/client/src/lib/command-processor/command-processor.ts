@@ -20,7 +20,7 @@ import { Store } from '@tanstack/store';
 import type { Unsubscribe } from '../types.js';
 import { Logger } from '../utils/logger.js';
 import { type EventSubscriber, TypedEmitter } from '../utils/typed-emitter.js';
-import { ActionManager } from './action-manager.js';
+import { ActionManager, type ActionProgress } from './action-manager.js';
 import type {
   ActionRunner,
   BatchExecutionResult,
@@ -38,6 +38,23 @@ import { applyLayout } from './layout-manager.js';
  * Event map for CommandProcessor lifecycle events.
  */
 export type CommandProcessorEvents = {
+  /** Readiness and handler start progress, correlated to the owning command. */
+  action_progress: {
+    /** Command that owns this readiness or execution stage. */ command: Command;
+    /** Local Action progress. */ progress: ActionProgress;
+  };
+  /** Queue insertion, including work queued while another command is active. */
+  command_queued: {
+    /** Command added to the sequential queue. */ command: Command;
+    /** Local monotonic enqueue time. */ timestamp: number;
+  };
+  /** Results include successful and skipped Actions, rather than failures alone. */
+  actions_completed: {
+    /** Command whose Action plan settled. */ command: Command;
+    /** Includes success, failure, and readiness skips. */ result: BatchExecutionResult;
+    /** Local monotonic completion time. */ timestamp: number;
+  };
+
   /** Fired when a command begins processing. */
   command_start: {
     /** The command that began processing. */
@@ -250,11 +267,18 @@ export class CommandProcessor {
     if (this.#emitter.disposed) {
       throw new Error('CommandProcessor is disposed');
     }
-    if (this.store.state.status !== 'idle') {
-      this.#commandQueue.push(item);
-      return;
-    }
-    void this.#runEventLoop(item);
+
+    const start =
+      this.store.state.status === 'idle' && this.#commandQueue.length === 0;
+    this.#commandQueue.push(item);
+    for (const command of item.commands)
+      this.#emitter.emit('command_queued', {
+        command,
+        timestamp: performance.now(),
+      });
+    if (!start) return;
+    const first = this.#commandQueue.shift();
+    if (first) void this.#runEventLoop(first);
   }
 
   /**
@@ -474,7 +498,14 @@ export class CommandProcessor {
         case 'execute_actions': {
           actionResult = await this.#actionManager.executeActions(
             command.executionPlan,
+            (progress) =>
+              this.#emitter.emit('action_progress', { command, progress }),
           );
+          this.#emitter.emit('actions_completed', {
+            command,
+            result: actionResult,
+            timestamp: performance.now(),
+          });
           for (const record of actionResult.actions) {
             if (record.skipped || !record.result.ok) {
               this.#actionErrors.set(

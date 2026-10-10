@@ -24,6 +24,8 @@ import {
 } from './playground-frames';
 
 export interface DispatchContext {
+  /** Optional development frame handler on the existing connection. */
+  readonly handle?: (engine: Engine, raw: unknown) => Promise<string | null>;
   /** Whether this connection has completed a handshake in the current lifetime. */
   readonly helloReceived: boolean;
   /**
@@ -120,6 +122,10 @@ export async function dispatchFrame(
     };
   }
 
+  if (ctx.handle) {
+    const wire = await ctx.handle(engine, raw);
+    return wire ? { kind: 'reply', wire } : { kind: 'none' };
+  }
   const reply = await handleEnvelope(engine, raw);
   return reply
     ? { kind: 'reply', wire: encodeEnvelope(reply) }

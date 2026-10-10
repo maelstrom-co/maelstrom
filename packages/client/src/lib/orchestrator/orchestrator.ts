@@ -23,7 +23,6 @@ import {
   type VariantName,
   type VesselMutationReason,
 } from '@maelstrom-co/protocol';
-
 import { ChartManager } from '../chart-manager/chart-manager.js';
 import { CommandProcessor } from '../command-processor/command-processor.js';
 import { ConnectionManager } from '../connection-manager/connection-manager.js';
@@ -34,6 +33,7 @@ import type {
   PushConnector,
 } from '../connection-manager/connector.types.js';
 import { isAcknowledgedAssistantConnector } from '../connection-manager/connector.types.js';
+import { DiagnosticChannel } from '../diagnostic-channel.js';
 import type { Unsubscribe } from '../types.js';
 import { UpdateCoordinator } from '../update-coordination/update-coordinator.js';
 import { Logger } from '../utils/logger.js';
@@ -126,6 +126,8 @@ type FencedSend =
  * declare.
  */
 export class Orchestrator {
+  /** Optional diagnostic observation, isolated from application operations. */
+  readonly diagnostics: DiagnosticChannel;
   #connector: EngineConnector;
   // Not `readonly`: a setter replaces this object rather than writing through
   // it, so every field can stay `readonly` and the compiler rejects the
@@ -153,7 +155,6 @@ export class Orchestrator {
   // subscription without touching the three that belong to internal
   // microkernels and outlive any connector.
   #unsubPush: (() => void) | null = null;
-  #requestCounter = 0;
   #connectorEpoch = 0;
   // Vessel mutations invoked while disconnected/reconnecting are held here
   // instead of flushed into a closed connector; replayed once
@@ -165,6 +166,7 @@ export class Orchestrator {
   constructor(connector: EngineConnector, options: OrchestratorOptions = {}) {
     this.#connector = connector;
     this.#config = resolveOrchestratorOptions(options);
+    this.diagnostics = new DiagnosticChannel(this.#config.sessionId);
     this.#logger = new Logger(this.#config.debug, 'Orchestrator');
     this.#intentScheduler = new IntentScheduler(options.intentQueue ?? {}, {
       ready: () =>
@@ -316,6 +318,7 @@ export class Orchestrator {
     }
 
     this.#setupSubscriptions();
+    this.#setupDiagnostics();
   }
 
   // ==========================================================================
@@ -527,11 +530,15 @@ export class Orchestrator {
       this.#intentScheduler.applying();
       const reason = isFenced('application notification completed');
       if (reason) {
+        this.#discardResponse(request.id, reason);
         this.#recoverFencedRequest(pendingUpdates);
         if (reason === 'superseded') throw new ConnectorSupersededError();
         return outcome.response;
       }
-      const settlement = this.#dispatchSettledResponse(outcome.response);
+      const settlement = this.#dispatchSettledResponse(
+        outcome.response,
+        request.id,
+      );
       applying = true;
       this.#immediateResponseDelivered = true;
       void settlement.finally(() => {
@@ -590,7 +597,10 @@ export class Orchestrator {
       const isFenced = this.#captureFence(`Response ${request.id}`);
       const outcome = await this.#sendFenced(request, pendingUpdates);
       if (outcome.kind !== 'ok' || !live()) {
-        if (outcome.kind === 'ok') this.#recoverFencedRequest(pendingUpdates);
+        if (outcome.kind === 'ok') {
+          this.#discardResponse(request.id, 'retired');
+          this.#recoverFencedRequest(pendingUpdates);
+        }
         this.#requestCoordinator.resolveFlushPromises(null);
         return {
           status: 'unknown',
@@ -601,14 +611,19 @@ export class Orchestrator {
         };
       }
       this.#intentScheduler.applying();
-      if (isFenced('application notification completed') || !live()) {
+      const reason = isFenced('application notification completed');
+      if (reason || !live()) {
+        this.#discardResponse(request.id, reason ?? 'retired');
         this.#recoverFencedRequest(pendingUpdates);
         return {
           status: 'unknown',
           error: new Error('Intent response fenced'),
         };
       }
-      const settlement = await this.#dispatchSettledResponse(outcome.response);
+      const settlement = await this.#dispatchSettledResponse(
+        outcome.response,
+        request.id,
+      );
       this.#requestCoordinator.resolveFlushPromises(outcome.response);
       return settlement.status === 'applied'
         ? { status: 'applied', response: outcome.response }
@@ -668,12 +683,14 @@ export class Orchestrator {
       const outcome = await this.#sendFenced(request, updates);
       if (outcome.kind !== 'ok') return null;
       this.#intentScheduler.applying();
-      if (isFenced('application notification completed')) {
+      const reason = isFenced('application notification completed');
+      if (reason) {
+        this.#discardResponse(request.id, reason);
         this.#recoverFencedRequest(updates);
         return null;
       }
       try {
-        await this.#dispatchSettledResponse(outcome.response);
+        await this.#dispatchSettledResponse(outcome.response, request.id);
       } catch (error) {
         this.#logger.error('Timer-flush dispatch failed', error);
         throw error;
@@ -970,6 +987,7 @@ export class Orchestrator {
     this.#requestCoordinator.setConnector(next);
 
     this.#attachPushSubscription();
+    this.#refreshDiagnosticConnector();
   }
 
   // ==========================================================================
@@ -986,6 +1004,17 @@ export class Orchestrator {
 
     this.#isDisposed = true;
     this.#intentScheduler.retire('disposed');
+    for (const [requestId, phase] of this.#diagnosticPending)
+      this.diagnostics.emit(
+        phase === 'request'
+          ? 'client.response.discarded'
+          : 'client.response.abandoned',
+        { reason: 'disposed', phase },
+        undefined,
+        requestId,
+      );
+    this.#diagnosticPending.clear();
+    this.diagnostics.emit('client.disposed');
     for (const unsub of this.#unsubscribers) {
       unsub();
     }
@@ -1001,6 +1030,7 @@ export class Orchestrator {
     this.#vesselManager.dispose();
     this.#commandProcessor.dispose();
     this.#pendingMutations = [];
+    this.diagnostics.dispose();
   }
 
   // ==========================================================================
@@ -1082,8 +1112,16 @@ export class Orchestrator {
         // entire engine-authored layout, so it must be at least as visible as
         // the applied one.
         this.#logger.info('Received push message');
-        if (isFenced()) return;
-        this.#dispatchResponse(response);
+        const requestId = MessageId();
+        const reason = isFenced();
+        this.diagnostics.emit(
+          reason ? 'client.response.discarded' : 'client.response.received',
+          { source: 'push', reason: reason ?? null },
+          () => response,
+          requestId,
+        );
+        if (reason) return;
+        this.#dispatchResponse(response, requestId);
       },
     );
   }
@@ -1160,11 +1198,13 @@ export class Orchestrator {
       const error = toError(err);
       const reason = isFenced(`send rejected: ${error.message}`);
       if (!reason) throw err;
+      this.#discardResponse(request.id, reason);
       this.#recoverFencedRequest(ownedUpdates);
       return { kind: 'rejected', reason, error };
     }
     const reason = isFenced('response arrived after the fence closed');
     if (reason) {
+      this.#discardResponse(request.id, reason);
       this.#recoverFencedRequest(ownedUpdates);
       return { kind: 'stale', reason, response };
     }
@@ -1227,22 +1267,298 @@ export class Orchestrator {
     }
   }
 
-  #dispatchSettledResponse(response: MaelstromResponse) {
+  #dispatchSettledResponse(response: MaelstromResponse, requestId?: MessageId) {
+    const layoutCommand = {
+      kind: 'set_layout' as const,
+      layout: response.layout,
+      requestId,
+    };
+    const actionsCommand = {
+      kind: 'execute_actions' as const,
+      executionPlan: response.executionPlan,
+      requestId,
+    };
+    if (this.diagnostics.observed) {
+      if (requestId) this.#diagnosticPending.set(requestId, 'commands');
+      this.diagnostics.emit('client.response.queued', {}, undefined, requestId);
+      let failures = 0;
+      let skipped = 0;
+      const releases: (() => void)[] = [];
+      const finish = () => {
+        if (requestId) this.#diagnosticPending.delete(requestId);
+        for (const release of releases) {
+          try {
+            release();
+          } catch {
+            /* Release every diagnostic subscription. */
+          }
+        }
+      };
+      releases.push(
+        this.#commandProcessor.events.on('actions_completed', (e) => {
+          if (e.command === actionsCommand) {
+            failures = e.result.failureCount;
+            skipped = e.result.skippedCount;
+          }
+        }),
+        this.#commandProcessor.events.on('processing_error', (e) => {
+          if (e.command === layoutCommand || e.command === actionsCommand) {
+            this.diagnostics.emit(
+              'client.response.failed',
+              {},
+              () => ({ error: e.error.message }),
+              requestId,
+            );
+            finish();
+          }
+        }),
+        this.#commandProcessor.events.on('command_complete', (e) => {
+          if (e.command === actionsCommand) {
+            this.diagnostics.emit(
+              'client.response.applied',
+              { actionFailures: failures, skippedActions: skipped },
+              () => this.getStructuralSnapshot(),
+              requestId,
+            );
+            finish();
+          }
+        }),
+      );
+    }
     return this.#commandProcessor.dispatchSettled(
-      { kind: 'set_layout', layout: response.layout },
-      { kind: 'execute_actions', executionPlan: response.executionPlan },
+      layoutCommand,
+      actionsCommand,
     );
   }
 
-  #dispatchResponse(response: MaelstromResponse): void {
-    this.#commandProcessor.dispatch(
-      { kind: 'set_layout', layout: response.layout },
-      { kind: 'execute_actions', executionPlan: response.executionPlan },
+  #dispatchResponse(response: MaelstromResponse, requestId?: MessageId): void {
+    void this.#dispatchSettledResponse(response, requestId);
+  }
+
+  #discardResponse(requestId: MessageId, reason: string): void {
+    this.#diagnosticPending.delete(requestId);
+    this.diagnostics.emit(
+      'client.response.discarded',
+      { reason },
+      undefined,
+      requestId,
     );
+  }
+
+  #releaseDiagnosticConnector?: () => void;
+  #diagnosticCapture = false;
+  #diagnosticPending = new Map<MessageId, 'request' | 'commands'>();
+  #refreshDiagnosticConnector(): void {
+    try {
+      this.#releaseDiagnosticConnector?.();
+    } catch {
+      /* Optional cleanup cannot prevent connector replacement. */
+    }
+    this.#releaseDiagnosticConnector = undefined;
+    const connector = this.#connector as EngineConnector & {
+      subscribeDiagnostics?: (
+        listener: (
+          event: import('@maelstrom-co/protocol').DiagnosticEvent,
+        ) => void,
+      ) => () => void;
+      setDiagnosticContent?: (enabled: boolean) => void;
+    };
+    if (!this.diagnostics.observed || !connector.subscribeDiagnostics) return;
+    try {
+      const release = connector.subscribeDiagnostics((event) =>
+        this.diagnostics.emit(
+          event.kind,
+          { ...event.metadata, serverAt: event.at },
+          () => event.content,
+          event.requestId,
+        ),
+      );
+      this.#releaseDiagnosticConnector = combineReleases([
+        release,
+        () => connector.setDiagnosticContent?.(false),
+      ]);
+      connector.setDiagnosticContent?.(this.#diagnosticCapture);
+    } catch (error) {
+      this.#releaseDiagnosticConnector?.();
+      this.#releaseDiagnosticConnector = undefined;
+      this.diagnostics.emit(
+        'client.diagnostics.unavailable',
+        { source: 'server' },
+        () => ({ error: toError(error).message }),
+      );
+    }
+  }
+
+  #setupDiagnostics(): void {
+    this.diagnostics.addSource(() => {
+      const requests = this.#requestCoordinator.events;
+      const commands = this.#commandProcessor.events;
+      const releaseControl = this.diagnostics.observeControls((event) => {
+        if (event.kind !== 'devtools.capture.changed') return;
+        this.#diagnosticCapture = event.metadata.enabled === true;
+        const connector = this.#connector as EngineConnector & {
+          setDiagnosticContent?: (enabled: boolean) => void;
+        };
+        try {
+          connector.setDiagnosticContent?.(this.#diagnosticCapture);
+        } catch (error) {
+          this.#releaseDiagnosticConnector?.();
+          this.#releaseDiagnosticConnector = undefined;
+          this.diagnostics.emit(
+            'client.diagnostics.unavailable',
+            { source: 'server' },
+            () => ({ error: toError(error).message }),
+          );
+        }
+      });
+      this.#refreshDiagnosticConnector();
+      return combineReleases([
+        () => this.#diagnosticPending.clear(),
+        releaseControl,
+        () => {
+          this.#releaseDiagnosticConnector?.();
+          this.#releaseDiagnosticConnector = undefined;
+        },
+        requests.on('processing_started', (e) => {
+          this.#diagnosticPending.set(e.requestId, 'request');
+          this.diagnostics.emit(
+            'client.request.started',
+            {},
+            () => e.message,
+            e.requestId,
+          );
+        }),
+        requests.on('processing_completed', (e) =>
+          this.diagnostics.emit(
+            'client.response.received',
+            { durationMs: e.durationMs, source: 'request' },
+            () => e.response,
+            e.requestId,
+          ),
+        ),
+        requests.on('error', (e) => {
+          this.#diagnosticPending.delete(e.requestId);
+          this.diagnostics.emit(
+            'client.request.failed',
+            { durationMs: e.durationMs },
+            () => ({ error: e.error.message }),
+            e.requestId,
+          );
+        }),
+        commands.on('action_progress', (e) =>
+          this.diagnostics.emit(
+            `client.action.${e.progress.phase}`,
+            { ...e.progress },
+            undefined,
+            e.command.requestId,
+          ),
+        ),
+        commands.on('command_queued', (e) =>
+          this.diagnostics.emit(
+            'client.command.queued',
+            { command: e.command.kind },
+            () => e.command,
+            e.command.requestId,
+          ),
+        ),
+        commands.on('command_start', (e) =>
+          this.diagnostics.emit(
+            'client.command.started',
+            { command: e.command.kind },
+            undefined,
+            e.command.requestId,
+          ),
+        ),
+        commands.on('command_complete', (e) =>
+          this.diagnostics.emit(
+            'client.command.completed',
+            { command: e.command.kind, durationMs: e.duration },
+            () => this.getStructuralSnapshot(),
+            e.command.requestId,
+          ),
+        ),
+        commands.on('processing_error', (e) =>
+          this.diagnostics.emit(
+            'client.command.failed',
+            { command: e.command.kind },
+            () => ({ error: e.error.message }),
+            e.command.requestId,
+          ),
+        ),
+        commands.on('batch_abandoned', (e) =>
+          this.diagnostics.emit(
+            'client.batch.abandoned',
+            { count: e.abandoned.length },
+            () => e.abandoned,
+            e.failed.requestId,
+          ),
+        ),
+        commands.on('actions_completed', (e) => {
+          for (const action of e.result.actions)
+            this.diagnostics.emit(
+              'client.action.completed',
+              {
+                instanceId: action.instanceId,
+                action: action.action,
+                outcome: action.skipped
+                  ? 'skipped'
+                  : action.result.ok
+                    ? 'succeeded'
+                    : 'failed',
+                durationMs: action.duration,
+              },
+              () =>
+                action.result.ok
+                  ? undefined
+                  : { error: action.result.error.message },
+              e.command.requestId,
+            );
+        }),
+        this.#connectionManager.events.on('connection_status_changed', (e) =>
+          this.diagnostics.emit('client.connection.changed', {
+            status: e.status,
+          }),
+        ),
+        this.#connectionManager.events.on('connection_attempt', (event) =>
+          this.diagnostics.emit('client.connection.attempt', { ...event }),
+        ),
+        this.#connectionManager.events.on('connection_error', (event) =>
+          this.diagnostics.emit(
+            'client.connection.failed',
+            { attempt: event.attempt },
+            () => ({ error: event.error.message }),
+          ),
+        ),
+        this.#connectionManager.events.on('circuit_opened', (event) =>
+          this.diagnostics.emit('client.connection.circuit_opened', {
+            ...event,
+          }),
+        ),
+        this.#connectionManager.events.on('circuit_closed', () =>
+          this.diagnostics.emit('client.connection.circuit_closed'),
+        ),
+        this.#connectionManager.events.on('circuit_half_open', () =>
+          this.diagnostics.emit('client.connection.circuit_half_open'),
+        ),
+        this.#chartManager.events.on('dimensions_changed', () =>
+          this.diagnostics.emit(
+            'client.chart.resized',
+            {},
+            () => this.#chartManager.store.state.chartDimensions,
+          ),
+        ),
+        this.#vesselManager.events.on('vessel_registered', () =>
+          this.diagnostics.emit('client.vessel.registered'),
+        ),
+        this.#vesselManager.events.on('vessel_unregistered', () =>
+          this.diagnostics.emit('client.vessel.unregistered'),
+        ),
+      ]);
+    });
   }
 
   #newRequest(updates: UpdateReason[]): ChartRequestMessage {
-    const messageId = this.#nextRequestId();
+    const messageId = MessageId();
     const request = buildChartRequest({
       updates,
       instances: this.#commandProcessor.store.state.instances,
@@ -1256,13 +1572,6 @@ export class Orchestrator {
       id: messageId,
       request,
     });
-  }
-
-  // The id format (`req-<epoch_ms>-<counter>`) is the contract that history
-  // and the request correlator both index on. Centralizing here means a
-  // single edit to change the recipe.
-  #nextRequestId(): MessageId {
-    return MessageId(`req-${Date.now()}-${++this.#requestCounter}`);
   }
 }
 
@@ -1345,4 +1654,16 @@ function validateTilingSeedInvariants(layout: TilingLayout): void {
       );
     }
   }
+}
+
+function combineReleases(releases: (() => void)[]): () => void {
+  return () => {
+    for (const release of releases) {
+      try {
+        release();
+      } catch {
+        /* Release every independent diagnostic subscription. */
+      }
+    }
+  };
 }

@@ -19,6 +19,13 @@ Maelstrom is distributed as scoped packages so you can install only the layers y
 | `@maelstrom-co/client` | Framework-agnostic client — Orchestrator, connectors, managers |
 | `@maelstrom-co/protocol` | Shared types, Zod schemas, message definitions |
 | `@maelstrom-co/engine` | Server-side LLM decision engine |
+| `@maelstrom-co/react-devtools` | Optional React extension for development diagnostics |
+| `@maelstrom-co/devtools` | Optional framework-independent collector, capture store, and browser panel |
+
+DevTools is optional. React applications install `@maelstrom-co/react-devtools`;
+other integrations use `@maelstrom-co/devtools`. Use the same release or PR preview
+as your other Maelstrom packages. Follow [Debug applications with DevTools](/guides/devtools/)
+for installation, recording, and the explicit browser opt-in for production builds.
 
 ## Minimal installs by use case
 

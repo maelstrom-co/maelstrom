@@ -5,6 +5,7 @@ import {
 } from '@maelstrom-co/connectors';
 import type {
   ChartRequestMessage,
+  DiagnosticEvent,
   EnvelopeError,
   MaelstromResponse,
   MessageId as MessageIdType,
@@ -159,6 +160,38 @@ export class WebSocketConnector implements AcknowledgedAssistantConnector {
   // still correctly ignored.
   #liveSocket: WebSocket | null = null;
   #sessionId: SessionId | null = null;
+  #diagnosticListeners = new Set<(event: DiagnosticEvent) => void>();
+  #diagnosticContent = false;
+  /** Observes optional server traces and enables forwarding only while subscribed. */
+  subscribeDiagnostics(listener: (event: DiagnosticEvent) => void): () => void {
+    this.#diagnosticListeners.add(listener);
+    this.#sendDiagnosticSubscription();
+    return () => {
+      this.#diagnosticListeners.delete(listener);
+      this.#sendDiagnosticSubscription();
+    };
+  }
+  /** Enables server content forwarding only for an explicit local capture. */
+  setDiagnosticContent(enabled: boolean): void {
+    this.#diagnosticContent = enabled;
+    this.#sendDiagnosticSubscription();
+  }
+  #sendDiagnosticSubscription(): void {
+    if (this.#ws?.readyState !== WebSocket.OPEN || !this.#sessionId) return;
+    try {
+      this.#ws.send(
+        JSON.stringify({
+          type: 'client.diagnostics.subscribe',
+          id: crypto.randomUUID(),
+          sessionId: this.#sessionId,
+          enabled: this.#diagnosticListeners.size > 0,
+          includeContent: this.#diagnosticContent,
+        }),
+      );
+    } catch {
+      /* A closed diagnostic subscription cannot change transport behavior. */
+    }
+  }
   #correlator = new RequestCorrelator();
   // Separate correlator so getHistory replies (typed as SessionHistoryEntry[]) cannot
   // collide with chart_request replies (typed as MaelstromResponse) on the
@@ -243,6 +276,8 @@ export class WebSocketConnector implements AcknowledgedAssistantConnector {
           cleanup();
           try {
             this.#onOpen?.((data) => this.#ws?.send(data), sessionId);
+            if (this.#diagnosticListeners.size)
+              this.#sendDiagnosticSubscription();
           } catch (err) {
             // cleanup() already tore down the open/error/close listeners, so a
             // throw here has no other path back to the promise — without this
@@ -610,6 +645,18 @@ export class WebSocketConnector implements AcknowledgedAssistantConnector {
 
     const envelope = decoded.value;
     switch (envelope.type) {
+      case 'engine.diagnostics.event': {
+        if (socket !== this.#ws || envelope.event.sessionId !== this.#sessionId)
+          return;
+        for (const listener of this.#diagnosticListeners) {
+          try {
+            listener(envelope.event);
+          } catch {
+            /* Optional observer. */
+          }
+        }
+        return;
+      }
       case 'engine.maelstrom.response': {
         // requestId is already a branded MessageId from the codec, and the
         // response is schema-validated — the first point in the client where

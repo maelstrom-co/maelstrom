@@ -33,14 +33,23 @@ type FlushResolver = {
  * Event payloads emitted by RequestCoordinator.
  */
 export type RequestCoordinatorEvents = {
-  processing_started: { requestId: MessageId; timestamp: number };
-  processing_completed: {
-    requestId: MessageId;
-    response: MaelstromResponse;
-    durationMs: number;
-    timestamp: number;
+  /** A transport-independent request begins. */ processing_started: {
+    /** Correlation identity from the request envelope. */ requestId: MessageId;
+    /** Request content; diagnostic consumers retain it only during explicit capture. */ message: ChartRequestMessage;
+    /** Local monotonic start time. */ timestamp: number;
   };
-  error: { error: Error; timestamp: number };
+  /** Transport receipt, independent of client application outcome. */ processing_completed: {
+    /** Correlation identity from the request envelope. */ requestId: MessageId;
+    /** Received Engine decision. */ response: MaelstromResponse;
+    /** Local round-trip duration. */ durationMs: number;
+    /** Local monotonic receipt time. */ timestamp: number;
+  };
+  /** A live request failed before transport completion. */ error: {
+    /** Original transport failure. */ error: Error;
+    /** Failed request identity. */ requestId: MessageId;
+    /** Local elapsed request duration. */ durationMs: number;
+    /** Local monotonic error time. */ timestamp: number;
+  };
 };
 
 /**
@@ -111,6 +120,7 @@ export class RequestCoordinator {
 
     this.#emitter.emit('processing_started', {
       requestId,
+      message,
       timestamp: startTime,
     });
 
@@ -136,6 +146,8 @@ export class RequestCoordinator {
 
         this.#emitter.emit('error', {
           error,
+          requestId,
+          durationMs: performance.now() - startTime,
           timestamp: performance.now(),
         });
       }

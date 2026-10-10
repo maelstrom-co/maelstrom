@@ -12,7 +12,17 @@
  * via the shared dispatchFrame core in `./dispatch`.
  */
 import { HEARTBEAT_PONG_FRAME } from '@maelstrom-co/connectors';
-import type { Engine } from '@maelstrom-co/engine';
+import {
+  createDiagnosticConnection,
+  type DiagnosticConnection,
+  type Engine,
+  handleEnvelope,
+} from '@maelstrom-co/engine';
+import {
+  decodeClientEnvelope,
+  encodeEnvelope,
+  isErr,
+} from '@maelstrom-co/protocol';
 import { dispatchFrame } from './dispatch';
 import { engineMetadataFrame } from './engine-model';
 import { buildLocalEngine, buildSharedEngine } from './local-planner';
@@ -49,6 +59,7 @@ export function truncateCloseReason(reason: string, maxBytes = 123): string {
 }
 
 export interface SocketData {
+  diagnostics?: DiagnosticConnection;
   helloReceived: boolean;
   reportMetadata?: boolean;
   browserApiKey?: string;
@@ -78,10 +89,32 @@ export function createWebSocketHandlers(
     open(ws) {
       if (ws.data.reportMetadata) ws.send(engineMetadataFrame());
     },
+    close(ws) {
+      ws.data.diagnostics?.dispose();
+    },
     async message(ws, raw) {
       const browserApiKey = ws.data.browserApiKey;
       const result = await dispatchFrame(raw, {
         helloReceived: ws.data.helloReceived,
+        handle: async (engine, frame) => {
+          const decoded = decodeClientEnvelope(frame);
+          if (!ws.data.diagnostics && !isErr(decoded))
+            ws.data.diagnostics = createDiagnosticConnection(engine, {
+              enabled: ws.data.reportMetadata === true,
+              sessionId: decoded.value.sessionId,
+              send: (wire) => {
+                ws.send(
+                  redactSecrets(wire, [
+                    ...secrets,
+                    ...(ws.data.browserApiKey ? [ws.data.browserApiKey] : []),
+                  ]),
+                );
+              },
+            });
+          if (ws.data.diagnostics) return ws.data.diagnostics.handle(frame);
+          const reply = await handleEnvelope(engine, frame);
+          return reply ? encodeEnvelope(reply) : null;
+        },
         getEngine: () => sharedEngine ?? ws.data.browserEngine ?? null,
         // Bun never hibernates, so a connection here has either helloed
         // in this lifetime or never at all.

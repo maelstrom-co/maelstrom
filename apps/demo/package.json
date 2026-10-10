@@ -276,7 +276,9 @@
     "react": "catalog:",
     "react-dom": "catalog:",
     "tailwind-merge": "^3.5.0",
-    "zod": "catalog:"
+    "zod": "catalog:",
+    "@maelstrom-co/react-devtools": "0.1.0-alpha.5",
+    "@maelstrom-co/devtools": "0.1.0-alpha.5"
   },
   "devDependencies": {
     "@effect/platform-bun": "catalog:",

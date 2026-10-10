@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import type {
+  AdapterDiagnosticObservation,
   AdapterVoiceObservation,
   RealtimeTransportAdapter,
 } from '@maelstrom-co/realtime';
@@ -155,6 +156,186 @@ function harness(
     },
   };
 }
+
+test('provider diagnostics keep arguments lazy and project only supported native evidence', async () => {
+  const h = harness();
+  const source: RealtimeTransportAdapter<LiveSessionConfig> = h.transport;
+  const observations: AdapterDiagnosticObservation[] = [];
+  const release = source.diagnostics?.subscribe((observation) =>
+    observations.push(observation),
+  );
+  const ready = h.start();
+  await tick();
+  h.started();
+  await ready;
+  h.peer.channel.event('response.event', {
+    delegation_id: 'delegation-1',
+    event: {
+      type: 'response.output_item.done',
+      response_id: 'response-1',
+      item: {
+        type: 'function_call',
+        call_id: 'call-1',
+        name: 'update_ui',
+        arguments: JSON.stringify({
+          intent: `private words sk-${'a'.repeat(40)}`,
+          apiKey: 'provider-secret',
+        }),
+        extra: 'unrelated-content',
+      },
+    },
+  });
+  expect(observations).toHaveLength(1);
+  expect(observations[0]?.metadata).toMatchObject({
+    direction: 'received',
+    delegationId: 'delegation-1',
+    responseId: 'response-1',
+    callId: 'call-1',
+    tool: 'update_ui',
+  });
+  expect(JSON.stringify(observations)).not.toMatch(
+    /private words|provider-secret|unrelated-content|arguments|intent/,
+  );
+  expect(observations[0]?.readContent?.()).toEqual({
+    intent: 'private words [REDACTED]',
+  });
+  expect(observations[0]?.providerGeneration).toBe(1);
+  release?.();
+});
+
+test('diagnostic failures cannot change native sends and failed sends are not reported as successful', async () => {
+  const h = harness();
+  const observations: AdapterDiagnosticObservation[] = [];
+  const errors: unknown[] = [];
+  h.transport.on((event) => {
+    if (event.type === 'error') errors.push(event.error);
+  });
+  h.transport.diagnostics.subscribe(async () => {
+    throw new Error('optional rejection');
+  });
+  h.transport.diagnostics.subscribe(() => ({
+    // biome-ignore lint/suspicious/noThenProperty: Observer results may fail during thenable assimilation.
+    get then() {
+      throw new Error('optional then getter');
+    },
+  }));
+  h.transport.diagnostics.subscribe((observation) =>
+    observations.push(observation),
+  );
+  const ready = h.start();
+  await tick();
+  h.started();
+  await ready;
+  const nativeMessages: string[] = [];
+  h.peer.channel.addEventListener('message', () =>
+    nativeMessages.push('received'),
+  );
+  h.peer.channel.event('session.delegation.created', {
+    delegation: { id: 'delegation-1', response_id: 'response-1' },
+  });
+  h.transport.send({ type: 'response.create', event_id: 'continuation-1' }, 1);
+  await tick();
+  expect(errors).toEqual([]);
+  expect(nativeMessages).toEqual(['received']);
+  expect(h.peer.channel.sent).toEqual(['response.create']);
+  expect(
+    observations.map((observation) => [
+      observation.metadata.type,
+      observation.metadata.direction,
+    ]),
+  ).toEqual([
+    ['session.delegation.created', 'received'],
+    ['response.create', 'sent'],
+  ]);
+  h.peer.channel.send = () => {
+    throw new Error('native send failure');
+  };
+  expect(() =>
+    h.transport.send(
+      { type: 'response.create', event_id: 'failed-continuation' },
+      1,
+    ),
+  ).toThrow();
+  expect(observations).toHaveLength(2);
+  expect(h.transport.getSnapshot().state).toBe('error');
+});
+
+test('semantic context tags correlate acknowledgments without reading context prose', async () => {
+  const h = harness();
+  const observations: AdapterDiagnosticObservation[] = [];
+  h.transport.diagnostics.subscribe((observation) =>
+    observations.push(observation),
+  );
+  const ready = h.start();
+  await tick();
+  h.started();
+  await ready;
+  h.transport.send(
+    {
+      type: 'session.thinking.append',
+      event_id: 'context-1',
+      delegation_id: null,
+      content: 'private context without a diagnostic prefix',
+    },
+    1,
+    'ui_snapshot',
+  );
+  h.peer.channel.event('session.thinking.appended', {
+    client_event_id: 'context-1',
+  });
+  expect(observations.map((observation) => observation.metadata)).toMatchObject(
+    [
+      {
+        direction: 'sent',
+        type: 'session.thinking.append',
+        contextKind: 'ui_snapshot',
+        eventId: 'context-1',
+      },
+      {
+        direction: 'received',
+        type: 'session.thinking.appended',
+        clientEventId: 'context-1',
+      },
+    ],
+  );
+  expect(JSON.stringify(observations)).not.toMatch(
+    /private context|snapshotRevision/,
+  );
+  expect(observations[0]?.readContent?.()).toBeUndefined();
+});
+
+test('malformed function arguments preserve receipt facts without exposing arbitrary payloads', async () => {
+  const h = harness();
+  const observations: AdapterDiagnosticObservation[] = [];
+  const release = h.transport.diagnostics.subscribe((observation) =>
+    observations.push(observation),
+  );
+  const ready = h.start();
+  await tick();
+  h.started();
+  await ready;
+  h.peer.channel.event('response.event', {
+    event: {
+      type: 'response.output_item.done',
+      item: {
+        type: 'function_call',
+        call_id: 'malformed-call',
+        name: 'unknown-user-text',
+        arguments: '{broken',
+        privateField: 'private payload',
+      },
+    },
+  });
+  expect(observations[0]?.metadata.callId).toBe('malformed-call');
+  expect(observations[0]?.metadata.tool).toBeUndefined();
+  expect(observations[0]?.readContent?.()).toBeUndefined();
+  expect(JSON.stringify(observations)).not.toMatch(
+    /private payload|unknown-user-text|broken/,
+  );
+  release();
+  h.peer.channel.event('response.created', { response_id: 'not-observed' });
+  expect(observations).toHaveLength(1);
+});
 describe('startup cannot outlive its explicit generation', () => {
   test.each([
     'failed',

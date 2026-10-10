@@ -1,8 +1,10 @@
 // @vitest-environment happy-dom
 
 import { Orchestrator } from '@maelstrom-co/client';
+import { createDevtools, type Devtools } from '@maelstrom-co/devtools';
 import {
   SessionId as brandSessionId,
+  type DiagnosticMetadata,
   type SessionId,
   ToolCallId,
 } from '@maelstrom-co/protocol';
@@ -25,9 +27,9 @@ import { act, cleanup, render } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { createMockConnector } from './__tests__/mock-connector';
 import {
-  attachDemoVoice,
   demoVoiceOpening,
   demoVoiceSession,
+  registerDemoVoice,
 } from './demo-voice';
 import { diagnosticCapture } from './diagnostic-capture';
 import {
@@ -80,6 +82,8 @@ type Factory = (
   sessionId: SessionId,
 ) => RealtimeProviderAdapter;
 
+const collectors = new Set<Devtools>();
+
 /**
  * Mounts the demo's voice configuration on the public library extension, the
  * same way maelstrom.ts installs it, and drives it through useVoice().
@@ -90,6 +94,12 @@ function mountDemoVoice(
   greeting = 'hello',
   failSessionAttach: () => boolean = () => false,
 ) {
+  const diagnostics = createDevtools({
+    capture: diagnosticCapture,
+    maxActivityEvents: 1000,
+  });
+  diagnostics.attach(orchestrator);
+  collectors.add(diagnostics);
   const hooks = maelstromRealtime({
     providers: DEMO_VOICE_PROVIDERS,
     initialProvider: () => voiceProviderStore.state.provider,
@@ -98,7 +108,7 @@ function mountDemoVoice(
     onSession: (session, context) => {
       if (failSessionAttach())
         throw new Error('fixture session construction failure');
-      return attachDemoVoice(session, context);
+      return registerDemoVoice(session, context);
     },
   })({ useMaelstromContext: () => ({ orchestrator }) } as never);
   let latest: UseVoiceResult<DemoVoiceProvider> | undefined;
@@ -136,9 +146,7 @@ function mountDemoVoice(
     get providerInstanceId() {
       return details().providerInstanceId;
     },
-    get diagnostics() {
-      return details().diagnostics;
-    },
+    diagnostics,
     get memory() {
       return voice().session.memory;
     },
@@ -155,6 +163,8 @@ function newOrchestrator(connector = createMockConnector()) {
 
 afterEach(() => {
   cleanup();
+  for (const collector of collectors) collector.dispose();
+  collectors.clear();
   diagnosticCapture.clear();
   selectVoiceProvider('realtime');
 });
@@ -379,7 +389,11 @@ it.each([
   let nestedSwitch: Promise<void> | undefined;
   let settled = false;
   const unsubscribe = diagnostics.subscribe(() => {
-    if (diagnostics.getSnapshot().at(-1)?.state !== 'disconnecting') return;
+    if (
+      diagnostics.getSnapshot().activity.at(-1)?.kind !==
+      'voice.session.disconnecting'
+    )
+      return;
     nestedEnd = voice.voice().disconnect();
     nestedSwitch = voice.voice().switchProvider('realtime');
     void nestedSwitch.then(() => {
@@ -417,11 +431,15 @@ it('records the observed connection generation and distinguishes recreated provi
   await voice.connect();
   const starts = diagnostics
     .getSnapshot()
-    .filter((event) => event.state === 'connecting');
-  expect(starts.map((event) => event.generation)).toEqual([1, 2, 1]);
-  expect(starts[0]).toHaveProperty('providerInstanceId');
-  expect(starts[1]?.providerInstanceId).toBe(starts[0]?.providerInstanceId);
-  expect(starts[2]?.providerInstanceId).not.toBe(starts[0]?.providerInstanceId);
+    .activity.filter((event) => event.kind === 'voice.session.started');
+  expect(starts.map((event) => event.metadata.generation)).toEqual([1, 2, 1]);
+  expect(starts[0]).toHaveProperty('metadata.providerInstanceId');
+  expect(starts[1]?.metadata.providerInstanceId).toBe(
+    starts[0]?.metadata.providerInstanceId,
+  );
+  expect(starts[2]?.metadata.providerInstanceId).not.toBe(
+    starts[0]?.metadata.providerInstanceId,
+  );
   await voice.disconnect();
   orchestrator.dispose();
 });
@@ -475,40 +493,54 @@ it('retains bounded final and incomplete voice evidence across reconnect and pro
     return adapter;
   });
   const diagnostics = voice.diagnostics;
+  diagnosticCapture.start(
+    'maelstrom',
+    voice.memory.sessionId,
+    voice.providerInstanceId,
+  );
+  expect(JSON.parse(diagnosticCapture.export()).metadata).toMatchObject({
+    voiceModel: 'gpt-live-1',
+    managedModel: 'gpt-6-luna',
+    voiceModelSource: 'configured',
+  });
   await voice.connect();
   await voice.disconnect();
-  const first = diagnostics.getTransportHistory()[0];
+  const first = diagnostics.getSnapshot().transportHistory[0];
   expect(first).toMatchObject({
-    provider: 'live',
-    model: 'gpt-live-1',
-    backendModel: 'gpt-6-luna',
-    generation: 1,
-    usageSeconds: 7,
-    finalUsageSeconds: 7,
-    finalization: 'confirmed',
+    metadata: {
+      provider: 'live',
+      providerGeneration: 1,
+      usageSeconds: 7,
+      finalUsageSeconds: 7,
+      finalization: 'confirmed',
+    },
   });
   finalization = 'incomplete';
   await voice.connect();
-  expect(diagnostics.getTransportHistory()).toEqual([first]);
+  expect(
+    diagnostics.getSnapshot().transportHistory.map((event) => event.metadata),
+  ).toEqual([first?.metadata]);
   await voice.select('realtime');
-  expect(diagnostics.getTransportHistory()).toHaveLength(2);
-  expect(diagnostics.getTransportHistory()[1]).toMatchObject({
-    generation: 2,
-    finalization: 'incomplete',
-    usageSeconds: 7,
-  });
-  expect(diagnostics.getTransportHistory()[1]?.finalUsageSeconds).toBe(
-    undefined,
+  expect(diagnostics.getSnapshot().transportHistory).toHaveLength(2);
+  expect(diagnostics.getSnapshot().transportHistory[1]?.metadata).toMatchObject(
+    {
+      providerGeneration: 2,
+      finalization: 'incomplete',
+      usageSeconds: 7,
+    },
   );
+  expect(
+    diagnostics.getSnapshot().transportHistory[1]?.metadata.finalUsageSeconds,
+  ).toBe(undefined);
   await voice.select('live');
   for (let index = 0; index < 20; index++) {
     await voice.connect();
     await voice.disconnect();
   }
-  expect(diagnostics.getTransportHistory()).toHaveLength(16);
-  expect(JSON.stringify(diagnostics.getTransportHistory())).not.toMatch(
-    /private-final-config|closedEvent|instructions/,
-  );
+  expect(diagnostics.getSnapshot().transportHistory).toHaveLength(16);
+  expect(
+    JSON.stringify(diagnostics.getSnapshot().transportHistory),
+  ).not.toMatch(/private-final-config|closedEvent|instructions/);
   orchestrator.dispose();
 });
 
@@ -591,12 +623,16 @@ it('keeps submitted application outcomes after End voice and never delivers them
   expect(
     diagnostics
       .getSnapshot()
-      .some((event) => event.kind === 'engine_completed'),
+      .activity.some((event) => event.kind === 'client.response.applied'),
   ).toBe(true);
   expect(
     diagnostics
       .getSnapshot()
-      .some((event) => event.kind === 'tool_result' && event.id === callId),
+      .activity.some(
+        (event) =>
+          event.kind === 'voice.tool.result' &&
+          event.metadata.callId === callId,
+      ),
   ).toBe(true);
   await voice.disconnect();
   orchestrator.dispose();
@@ -620,39 +656,49 @@ it('records a call and a result for every tool, stamped with the session generat
       argumentsJson: '{"intent":"Arrange the workspace"}',
     });
     await vi.waitFor(() =>
-      expect(diagnostics.getSnapshot().at(-1)).toMatchObject({
-        kind: 'tool_result',
-        id: `${name}-call`,
+      expect(
+        diagnostics
+          .getSnapshot()
+          .activity.find(
+            (event) =>
+              event.kind === 'voice.tool.result' &&
+              event.metadata?.callId === `${name}-call`,
+          ),
+      ).toMatchObject({
+        kind: 'voice.tool.result',
+        metadata: { callId: `${name}-call` },
       }),
     );
   }
   const providerInstanceId = voice.providerInstanceId;
   const tools = diagnostics
     .getSnapshot()
-    .filter(
-      (entry) => entry.kind === 'tool_call' || entry.kind === 'tool_result',
+    .activity.filter(
+      (entry) =>
+        entry.kind === 'voice.tool.called' ||
+        entry.kind === 'voice.tool.result',
     )
-    .map(({ kind, id, tool, ok, generation, providerInstanceId }) => ({
+    .map(({ kind, metadata }) => ({
       kind,
-      id,
-      tool,
-      ok,
-      generation,
-      providerInstanceId,
+      callId: metadata.callId,
+      tool: metadata.tool,
+      ok: metadata.ok,
+      generation: metadata.generation,
+      providerInstanceId: metadata.providerInstanceId,
     }));
   expect(tools).toEqual(
     ['update_ui', 'get_ui_state', 'get_capabilities'].flatMap((name) => [
       {
-        kind: 'tool_call',
-        id: `${name}-call`,
+        kind: 'voice.tool.called',
+        callId: `${name}-call`,
         tool: name,
         ok: undefined,
         generation: 2,
         providerInstanceId,
       },
       {
-        kind: 'tool_result',
-        id: `${name}-call`,
+        kind: 'voice.tool.result',
+        callId: `${name}-call`,
         tool: undefined,
         ok: true,
         generation: 2,
@@ -663,15 +709,22 @@ it('records a call and a result for every tool, stamped with the session generat
   expect(
     diagnostics
       .getSnapshot()
-      .filter((entry) => entry.kind === 'voice_state')
-      .map((entry) => [entry.state, entry.generation]),
+      .activity.filter((entry) =>
+        [
+          'voice.session.started',
+          'voice.session.connected',
+          'voice.session.disconnecting',
+          'voice.session.disconnected',
+        ].includes(entry.kind),
+      )
+      .map((entry) => [entry.kind, entry.metadata.generation]),
   ).toEqual([
-    ['connecting', 1],
-    ['connected', 1],
-    ['disconnecting', 1],
-    ['disconnected', 1],
-    ['connecting', 2],
-    ['connected', 2],
+    ['voice.session.started', 1],
+    ['voice.session.connected', 1],
+    ['voice.session.disconnecting', 1],
+    ['voice.session.disconnected', 1],
+    ['voice.session.started', 2],
+    ['voice.session.connected', 2],
   ]);
   await voice.disconnect();
   orchestrator.dispose();
@@ -698,6 +751,7 @@ it('captures tool calls, observations, and settled work under the identity of th
     voice.providerInstanceId,
   );
   const callTool = async (adapter: Adapter, callId: string) => {
+    const applied = captured('client.response.applied').length;
     adapter.emit({
       type: 'tool_call',
       callId: ToolCallId(callId),
@@ -705,11 +759,13 @@ it('captures tool calls, observations, and settled work under the identity of th
       argumentsJson: '{"intent":"Arrange the workspace"}',
     });
     await vi.waitFor(() =>
-      expect(captured('application_settled').at(-1)).toBeDefined(),
+      expect(captured('client.response.applied')).toHaveLength(applied + 1),
     );
     await vi.waitFor(() =>
       expect(
-        captured('tool_result').some((entry) => entry.callId === callId),
+        captured('voice.tool.result').some(
+          (entry) => entry.metadata?.callId === callId,
+        ),
       ).toBe(true),
     );
   };
@@ -725,14 +781,12 @@ it('captures tool calls, observations, and settled work under the identity of th
 
   expect(second).not.toBe(first);
   expect(
-    captured('tool_call').map(
-      ({ callId, provider, providerInstanceId, generation }) => ({
-        callId,
-        provider,
-        providerInstanceId,
-        generation,
-      }),
-    ),
+    captured('voice.tool.called').map(({ metadata }) => ({
+      callId: metadata?.callId,
+      provider: metadata?.provider,
+      providerInstanceId: metadata?.providerInstanceId,
+      generation: metadata?.generation,
+    })),
   ).toEqual([
     {
       callId: 'first-call',
@@ -747,17 +801,17 @@ it('captures tool calls, observations, and settled work under the identity of th
       generation: 1,
     },
   ]);
-  const observations = captured('observations');
-  expect(observations.some((entry) => entry.providerInstanceId === first)).toBe(
-    true,
-  );
+  const observations = captured('voice.observations');
+  expect(
+    observations.some((entry) => entry.metadata?.providerInstanceId === first),
+  ).toBe(true);
   expect(
     capturedEvents()
       .slice(switchedAt)
-      .filter((entry) => entry.kind === 'observations')
-      .map(({ provider, providerInstanceId }) => [
-        provider,
-        providerInstanceId,
+      .filter((entry) => entry.kind === 'voice.observations')
+      .map(({ metadata }) => [
+        metadata?.provider,
+        metadata?.providerInstanceId,
       ]),
   ).toEqual(expect.arrayContaining([['realtime', second]]));
   expect(
@@ -765,18 +819,23 @@ it('captures tool calls, observations, and settled work under the identity of th
       .slice(switchedAt)
       .some(
         (entry) =>
-          entry.kind === 'observations' && entry.providerInstanceId === first,
+          entry.kind === 'voice.observations' &&
+          entry.metadata?.providerInstanceId === first,
       ),
   ).toBe(false);
-  expect(captured('application_settled').at(-1)).toMatchObject({
+  expect(captured('client.response.applied').at(-1)).toMatchObject({
     sessionId: voice.memory.sessionId,
-    providerInstanceId: second,
+    metadata: { clientId: voice.diagnostics.getSnapshot().sessions[0]?.id },
   });
   await voice.disconnect();
   orchestrator.dispose();
 });
 
-function capturedEvents(): Record<string, unknown>[] {
+function capturedEvents(): Array<{
+  kind: string;
+  sessionId?: string;
+  metadata?: DiagnosticMetadata;
+}> {
   return JSON.parse(diagnosticCapture.export()).events;
 }
 

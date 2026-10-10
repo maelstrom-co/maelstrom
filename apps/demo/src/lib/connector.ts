@@ -1,4 +1,7 @@
-import { DEFAULT_HEARTBEAT_INTERVAL_MS } from '@maelstrom-co/client';
+import {
+  DEFAULT_HEARTBEAT_INTERVAL_MS,
+  WebSocketConnector,
+} from '@maelstrom-co/client';
 import { SessionId } from '@maelstrom-co/protocol';
 // A wire literal both sides must agree on byte-for-byte, so it is imported
 // rather than restated here. playground-frames.ts is browser-safe (it pulls
@@ -8,23 +11,24 @@ import { PLAYGROUND_NOKEY_FRAME } from '../server/playground-frames';
 import { parsePlaygroundMetadata } from '../server/playground-metadata';
 import { withBrowserCalendarContext } from './calendar-context';
 import { diagnosticCapture } from './diagnostic-capture';
-import { DiagnosticConnector } from './diagnostic-connector';
 import { engineMetadata } from './engine-metadata';
 import { isHosted, usesBrowserKey } from './hosted-mode';
 import { playgroundKeyStore } from './playground-key-store';
 
-class DemoConnector extends DiagnosticConnector {
+class DemoConnector extends WebSocketConnector {
   private readonly metadataOwner: symbol;
-  constructor(options: ConstructorParameters<typeof DiagnosticConnector>[0]) {
+  constructor(options: ConstructorParameters<typeof WebSocketConnector>[0]) {
     const owner = Symbol('engine connection');
     super({
       ...options,
       onOpen: (send, sessionId) => {
-        engineMetadata.begin(owner);
+        if (import.meta.env.DEV) engineMetadata.begin(owner);
         options.onOpen?.(send, sessionId);
       },
       onFrame: (raw, send, sessionId, isCurrentConnection) => {
-        const metadata = parsePlaygroundMetadata(raw);
+        const metadata = import.meta.env.DEV
+          ? parsePlaygroundMetadata(raw)
+          : undefined;
         if (metadata) {
           if (isCurrentConnection === false) return true;
           engineMetadata.receive(owner, metadata);
@@ -49,7 +53,7 @@ class DemoConnector extends DiagnosticConnector {
     engineMetadata.clear(this.metadataOwner);
     return super.disconnect();
   }
-  override process(message: Parameters<DiagnosticConnector['process']>[0]) {
+  override process(message: Parameters<WebSocketConnector['process']>[0]) {
     return super.process(withBrowserCalendarContext(message));
   }
 }
@@ -182,7 +186,7 @@ export function createDemoConnector(options: CreateDemoConnectorOptions = {}) {
   );
 
   const diagnosticsUrl = new URL(wsUrl);
-  diagnosticsUrl.searchParams.set('diagnostics', '1');
+  if (import.meta.env.DEV) diagnosticsUrl.searchParams.set('diagnostics', '1');
   return new DemoConnector({
     url: diagnosticsUrl.toString(),
     // Client-side liveness detection: the DO answers each ping via

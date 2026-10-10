@@ -1,6 +1,7 @@
 ---
 import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro';
 import ArchitectureDiagram from '../../components/architecture/ArchitectureDiagram';
+import DevtoolsDiagram from '../../components/architecture/DevtoolsDiagram';
 
 // Authored as a standalone Starlight page (not a content-collection entry) so the
 // diagram can be a real Astro island: `starlight-llms-txt` renders every docs
@@ -117,6 +118,24 @@ import ArchitectureDiagram from '../../components/architecture/ArchitectureDiagr
     <code>client</code> orchestrates and <code>react</code> binds it to React, with
     the <code>demo</code> app consuming them on the browser side; and
     <code>engine</code> runs the decision on the server.
+  </p>
+
+  <h2>Observe the workflow with DevTools</h2>
+  <p>
+    DevTools observes the existing workflow. Its core package owns the bounded
+    collector, explicit content capture, and shared browser panel. The React
+    adapter owns attachment and mounting. Engine evidence crosses through the
+    protocol only when the server host authorizes forwarding for that connection.
+    Select an evidence path below to see who owns each step.
+  </p>
+
+  <DevtoolsDiagram client:load />
+
+  <p>
+    The default production entrypoints are inert. Explicit
+    <code>/production</code> imports enable browser tools in every build;
+    production Engine forwarding stays disabled. Follow the
+    <a href="/guides/devtools/">DevTools guide</a> for installation and recording.
   </p>
 
   <h2>Where to go next</h2>

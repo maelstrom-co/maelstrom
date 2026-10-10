@@ -21,6 +21,26 @@ provider key to the browser.
 Shared wire types and schemas live at
 `@maelstrom-co/realtime-protocol/openai-live`.
 
+## Inspect projected provider diagnostics
+
+The adapter and transport expose an optional `diagnostics` feed. Subscribing
+observes subsequent projected native receipts and successful sends. It does not
+connect the transport or acquire media. Diagnostic observer failures remain
+separate from transport errors.
+
+Metadata includes allowlisted envelope names, opaque correlation IDs, semantic
+context tags, and `providerGeneration`. It excludes instructions, configuration,
+arguments, and audio. Supported intent content stays behind `readContent` and
+requires explicit recording. Application redaction still applies to recorded data.
+
+React realtime forwards the feed to its owning client automatically. Other
+integrations use `attachRealtimeDiagnostics` from `@maelstrom-co/realtime`.
+DevTools displays these observations under `voice.provider.*`.
+
+The adapter tags UI and recovery context at the send site. It does not infer
+meaning or snapshot revisions from grounding text. Native provider generation
+and realtime session generation are independent counters.
+
 ## License
 
 [MIT](./LICENSE)

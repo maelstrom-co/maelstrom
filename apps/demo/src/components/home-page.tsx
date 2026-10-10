@@ -26,9 +26,7 @@ import { FirstRunHint } from './first-run-hint';
 import { IntentInput } from './intent-input';
 import { KeyDrawer } from './key-drawer';
 import { KeylessDemo } from './keyless-demo';
-import { RetainedCaptureDrawer } from './retained-capture-drawer';
 import { VesselOptionSync } from './vessel-option-sync';
-import { VoiceDebugDrawer } from './voice-debug-drawer';
 import { VoiceProviderSelect } from './voice-provider-select';
 
 export function HomePage() {
@@ -159,7 +157,7 @@ export function HomePage() {
           }}
         />
       )}
-      {!connector && <RetainedCaptureDrawer />}
+      <m.Devtools />
       {browserKeyMode && (
         <KeyDrawer
           isOpen={drawerOpen}
@@ -270,7 +268,6 @@ function DemoApp({
     <div className="demo-shell relative z-[2]">
       <DemoHeader>
         <VoiceProviderSelect />
-        <VoiceDebugDrawer />
         {browserKeyMode && (
           <button
             type="button"

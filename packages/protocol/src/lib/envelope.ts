@@ -1,7 +1,12 @@
 import { z } from 'zod';
-
 import type { Mutable } from './_drift-guards.ts';
 import { ActionName } from './action-name.ts';
+import {
+  type DiagnosticMessage,
+  DiagnosticMessageSchema,
+  type DiagnosticSubscription,
+  DiagnosticSubscriptionSchema,
+} from './diagnostics.ts';
 import {
   AssistantInjectionMessage,
   AssistantInjectionMessageSchema,
@@ -180,7 +185,8 @@ export type ClientEnvelope =
   | ChartRequestMessage
   | AssistantInjectionMessage
   | AcknowledgedAssistantMessage
-  | HistoryGetMessage;
+  | HistoryGetMessage
+  | DiagnosticSubscription;
 
 /**
  * Wire-format Zod parser for the {@link ClientEnvelope} union. Reuses
@@ -192,6 +198,7 @@ export const ClientEnvelopeSchema = z.discriminatedUnion('type', [
   ...EngineMessageSchema.options,
   AcknowledgedAssistantMessageSchema,
   HistoryGetMessageSchema,
+  DiagnosticSubscriptionSchema,
 ]);
 
 // ---------------------------------------------------------------------------
@@ -386,7 +393,8 @@ export type ServerEnvelope =
   | MaelstromResponseMessage
   | HistoryResponseMessage
   | AssistantMessageResultMessage
-  | EngineErrorMessage;
+  | EngineErrorMessage
+  | DiagnosticMessage;
 
 /**
  * Wire-format Zod parser for the {@link ServerEnvelope} union, dispatching on
@@ -397,6 +405,7 @@ export const ServerEnvelopeSchema = z.discriminatedUnion('type', [
   HistoryResponseMessageSchema,
   AssistantMessageResultMessageSchema,
   EngineErrorMessageSchema,
+  DiagnosticMessageSchema,
 ]);
 
 // ---------------------------------------------------------------------------

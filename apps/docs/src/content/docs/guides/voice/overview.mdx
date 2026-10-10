@@ -46,6 +46,13 @@ Each package runs in exactly one place. That is what keeps `OPENAI_API_KEY`, Liv
 | [`@maelstrom-co/realtime-livekit-server`](/reference/realtime-livekit-server/readme/)                      | Server  | Sign a short-lived grant for one LiveKit room           |
 | [`@maelstrom-co/realtime-livekit-agent`](/reference/realtime-livekit-agent/readme/)                        | Worker  | Run Deepgram STT and Cartesia TTS, with no LLM          |
 
+## Inspect voice events
+
+Inspect voice with [DevTools](/guides/devtools/#find-voice-and-connection-events).
+In **Requests**, choose **All events** and search for `voice.`.
+**Connections** separates voice provider lifetimes and connection generations.
+Transcripts require explicit recording; raw audio is never retained.
+
 ## Work with a coding agent
 
 Voice remains an optional input to the Engine's normal intent flow. When voice is part of the product goal, use the [voice integration prompt](/agents/prompts/maelstrom-voice-integration/) for a standalone task or select the optional voice lead skill from the [portable skill bundle](/agents/skills/). The workflow keeps provider-specific behavior and the browser/server/worker boundaries explicit.

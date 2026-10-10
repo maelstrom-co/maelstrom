@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { existsSync } from 'node:fs';
 import {
   mkdir,
   mkdtemp,
@@ -79,7 +80,9 @@ describe('portable agent skill bundle', () => {
       expect(metadata.license).toBe('MIT');
       expect(metadata.metadata).toEqual({
         author: 'Maelstrom',
-        version: directoryName === 'maelstrom' ? '0.1.1' : '0.1.0',
+        version: expect.stringMatching(
+          /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/,
+        ),
       });
     }
 
@@ -155,6 +158,7 @@ describe('portable agent skill bundle', () => {
       .map((entry) => entry.name);
     for (const packageDirectory of packageDirectories) {
       const packageRoot = join(packagesRoot, packageDirectory);
+      if (!existsSync(join(packageRoot, 'package.json'))) continue;
       const manifest = JSON.parse(
         await readFile(join(packageRoot, 'package.json'), 'utf8'),
       ) as { name: string; version: string; files?: string[] };

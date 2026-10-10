@@ -118,6 +118,8 @@ function discoverWorkspacePackages(): WorkspacePackage[] {
  */
 const BROWSER_PACKAGES = new Set([
   '@maelstrom-co/client',
+  '@maelstrom-co/devtools',
+  '@maelstrom-co/react-devtools',
   '@maelstrom-co/react',
   '@maelstrom-co/react-realtime',
   '@maelstrom-co/realtime',

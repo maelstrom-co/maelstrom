@@ -28,6 +28,48 @@ The core has a single entry point and carries no provider-specific code. Add a
 provider through its own packages, never through a subpath here. See
 [`docs/adr/0001-realtime-providers-come-in-two-kinds.md`](../../docs/adr/0001-realtime-providers-come-in-two-kinds.md).
 
+## Attach voice diagnostics without React
+
+Attach `attachRealtimeDiagnostics` to an existing session and its owning client
+before connecting. Supply a unique `providerInstanceId` for that session lifetime
+and keep it separate from the application session ID. React realtime performs
+this attachment automatically.
+
+```ts
+import type { Orchestrator } from '@maelstrom-co/client';
+import {
+  attachRealtimeDiagnostics,
+  type RealtimeProviderAdapter,
+  type RealtimeSession,
+} from '@maelstrom-co/realtime';
+
+export function observeVoice(
+  orchestrator: Orchestrator,
+  session: RealtimeSession,
+  adapter: RealtimeProviderAdapter,
+  provider: string,
+  providerInstanceId: string,
+) {
+  return attachRealtimeDiagnostics({
+    session,
+    adapter,
+    sink: orchestrator.diagnostics,
+    identity: { provider, providerInstanceId },
+  });
+}
+```
+
+Call the returned retirement function when replacing the session or removing its
+owner. It stops lifecycle, transcript, and provider observation immediately.
+Accepted tool results can still arrive under their original provider identity and
+session generation. Retirement does not wait for application work or disconnect
+the session.
+
+Collection sources activate only while the client channel has an observer.
+Transcript content stays lazy, and attachment does not replay earlier fragments.
+Provider diagnostics use a separate `providerGeneration` counter; it can differ
+from the session's `generation`. Uncorrelated outcomes leave generation unknown.
+
 ## Docs
 
 - Voice guide: https://docs.maelstrom-ai.co/guides/voice/overview/

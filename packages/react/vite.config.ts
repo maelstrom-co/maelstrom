@@ -6,6 +6,8 @@ import { defineConfig } from 'vite';
 export default defineConfig(() => ({
   root: __dirname,
   cacheDir: '../../node_modules/.vite/packages/react',
+  // Published components need a JSX runtime available in both React builds.
+  oxc: { jsx: { development: false } },
   plugins: [
     react(),
     dts({
@@ -33,6 +35,7 @@ export default defineConfig(() => ({
         'react',
         'react-dom',
         'react/jsx-runtime',
+        'react/jsx-dev-runtime',
         '@maelstrom-co/client',
         '@tanstack/react-store',
       ],

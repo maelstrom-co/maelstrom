@@ -363,24 +363,50 @@ If the LLM returns invalid JSON or unexpected structure:
 
 ---
 
-## Event System
+## Diagnostic observations
 
-The client emits events throughout the lifecycle for observability:
+The Orchestrator exposes a framework-independent `DiagnosticChannel` for optional
+observers. DevTools attaches before connection and retains bounded metadata.
+Content remains lazy until an explicit recording requests it. Diagnostic observer
+failures remain isolated from application work.
 
-| Event                    | When                                        |
-| ------------------------ | ------------------------------------------- |
-| `requestSent`            | Client sends request to engine              |
-| `responseReceived`       | Engine response arrives                     |
-| `actionStarted`          | Before executing an action                  |
-| `actionCompleted`        | After action completes (success or failure) |
-| `layoutApplied`          | After layout directives are applied         |
-| `connectionStateChanged` | Transport connection state changes          |
+| Diagnostic kind | Evidence |
+| --- | --- |
+| `client.request.started` | The client began a request. |
+| `client.response.received` | A response reached the client. |
+| `client.response.applied` | The client completed the response command batch. |
+| `client.action.completed` | An Action completed, failed, or was skipped. |
+| `client.connection.changed` | Engine transport state changed. |
+| `client.chart.resized` | Chart dimensions changed. |
 
-These enable:
+DevTools correlates requests by app lifetime and request ID. Response receipt and
+application completion remain distinct. Completion does not establish browser
+paint or audible speech. Optional realtime integrations publish projected voice
+evidence through the same channel, with separate provider lifetimes and generations.
 
-- Debugging during development
-- Analytics in production
-- UI feedback (spinners, etc.)
+The provider-neutral attachment lives in `realtime`. Framework bindings supply
+session lifetime and identity. Provider packages project their own native
+envelopes through an optional diagnostics feed; DevTools retains generic evidence
+without interpreting provider protocols. Session `generation` and native
+`providerGeneration` are independent. The panel does not infer a mapping between
+them. Accepted tool results preserve the generation captured before dispatch,
+including after reconnect or provider retirement.
+
+Authoritative client and Engine inputs preserve `SessionId` and `MessageId`.
+Projected diagnostic identifiers remain strings because redaction and import can
+remove their domain guarantees. Synthetic push correlations use a new local
+`MessageId` and remain labelled as push evidence.
+
+The server owns Engine observation and `createDiagnosticConnection`. An authorized
+host can forward evidence over the protocol through a compatible connector.
+Forwarding requires explicit host opt-in and connection-bound session identity;
+it stays disabled in production. The Engine never imports a browser DevTools package.
+
+The default DevTools production entrypoints are inert. Explicit `/production`
+imports enable browser tools in every build without changing server policy.
+See the [DevTools guide](https://docs.maelstrom-ai.co/guides/devtools/) for setup,
+recording, redaction, and inspection. These tools do not replace the application's
+production telemetry.
 
 ---
 
@@ -395,6 +421,7 @@ CONTRACT  protocol ◀───────────── realtime-protocol
 BROWSER   client ◀── realtime ◀── realtime-openai
              ▲                 ◀── realtime-livekit ──▶ realtime-vad
           react ◀── react-realtime
+          client ◀── devtools ◀── react-devtools ──▶ react
 
 SERVER    engine ◀── planner-llm    realtime-openai-server    realtime-livekit-server
                  ◀── planner-jev ◀── evals (private)
@@ -412,6 +439,8 @@ WORKER    realtime-livekit-agent
 - **planner-jev**: experimental server-only planner that composes Jev (TypeSafe) stages on the engine's planner seam. Depends on `engine` and `protocol`; the engine never depends on it
 - **evals**: private, unpublished live evals for the planners (whole-planner arms and single-stage evals). Depends on `planner-jev` (through its internal `_internal` and `_testing` subpaths), `planner-llm`, `engine` and `protocol`; nothing depends on it
 - **react** / **react-realtime**: React-specific bindings, optional
+- **devtools**: optional browser-side diagnostics collector, bounded capture store, import/export, and shared panel. Depends on `client` and `protocol`; framework adapters own lifecycle wiring
+- **react-devtools**: optional React extension that attaches the collector before Provider connection and mounts the shared panel. Depends on `react`, `client`, and `devtools`
 - **realtime**: browser-side realtime voice core; talks to the provider directly with ephemeral tokens, feeds intents into the client
 - **realtime-vad**: provider-neutral browser voice-activity detector; `MediaStream` in, speech boundaries out
 - **realtime-openai** / **realtime-livekit**: browser adapters implementing the `RealtimeProviderAdapter` seam

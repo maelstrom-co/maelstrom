@@ -52,6 +52,11 @@ export function withRetry<In>(
   return async (input, ctx) => {
     let attemptInput = input as Retryable<In>;
     for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+      ctx.instrument.event('planner.attempt', {
+        'maelstrom.attempt': attempt,
+        'maelstrom.request_id': ctx.origin.messageId,
+        'maelstrom.session_id': ctx.origin.sessionId,
+      });
       const result = await stage(attemptInput, ctx);
       if (isErr(result)) return result;
 

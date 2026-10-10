@@ -1,5 +1,6 @@
 import type { SessionId } from '@maelstrom-co/protocol';
 import { createMaelstrom } from '@maelstrom-co/react';
+import { devtools } from '@maelstrom-co/react-devtools/production';
 import { maelstromRealtime } from '@maelstrom-co/react-realtime';
 import type { RealtimeProviderAdapter } from '@maelstrom-co/realtime';
 import { LiveKitAdapter } from '@maelstrom-co/realtime-livekit';
@@ -17,8 +18,8 @@ import {
   DEMO_GREETING,
   DEMO_OPENAI_VOICE,
 } from './demo-greeting-tts';
-import { attachDemoVoice, demoVoiceOpening } from './demo-voice';
-import { createDiagnosticPeer } from './diagnostic-capture';
+import { demoVoiceOpening, registerDemoVoice } from './demo-voice';
+import { diagnosticCapture } from './diagnostic-capture';
 import { isHosted, usesBrowserKey } from './hosted-mode';
 import { HOSTED_VAD_MODEL } from './hosted-vad';
 import { createDemoLiveExchange } from './live-exchange';
@@ -83,10 +84,11 @@ export const m = createMaelstrom({
       createAdapter: ({ provider, sessionId }) =>
         createAdapter(provider, sessionId),
       opening: demoVoiceOpening(DEMO_GREETING),
-      onSession: attachDemoVoice,
+      onSession: registerDemoVoice,
     }),
   )
-  .with(orchestrationLegibility);
+  .with(orchestrationLegibility)
+  .with(devtools({ capture: diagnosticCapture }));
 
 function createAdapter(
   provider: DemoVoiceProvider,
@@ -128,7 +130,6 @@ function createAdapter(
 
 function createLiveAdapter(): OpenAILiveAdapter {
   return new OpenAILiveAdapter({
-    createPeer: createDiagnosticPeer,
     model: LIVE_MODEL,
     responses: { model: LIVE_BACKEND_MODEL },
     exchange: createDemoLiveExchange(

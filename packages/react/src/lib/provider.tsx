@@ -309,6 +309,15 @@ export function createProvider(
         return;
       }
 
+      const diagnosticReleases = [...contextPair.orchestratorObservers].map(
+        (attach) => {
+          try {
+            return attach(instance);
+          } catch {
+            return () => {};
+          }
+        },
+      );
       setOrchestrator(instance);
 
       // A refused command — a `set_layout` naming the same instance in two
@@ -348,9 +357,17 @@ export function createProvider(
       });
 
       return () => {
+        const disposal = instance.dispose();
+        for (const release of diagnosticReleases) {
+          try {
+            release();
+          } catch {
+            /* Release all observers and finish Provider teardown. */
+          }
+        }
         unsubProcessingError();
         unsubBatchAbandoned();
-        instance.dispose().catch((err) => {
+        disposal.catch((err) => {
           console.error('[Maelstrom] Dispose error:', err);
         });
       };

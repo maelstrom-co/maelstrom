@@ -108,12 +108,17 @@ export interface MediaEvent {
  * `update_ui` requests are separate {@link ToolOutcomeEvent}s published
  * between the two, and both kinds share `callId`.
  */
-export type ToolCallEvent = ToolCalledEvent | ToolResultEvent;
+export type ToolCallEvent =
+  | ToolCalledEvent
+  | ToolResultEvent
+  | ToolCancelledEvent;
 
 /** A provider tool call arrived and is about to be dispatched. */
 export interface ToolCalledEvent {
   /** Discriminant. */
   readonly type: 'tool.called';
+  /** Session generation captured before subscriber callbacks. Absent in legacy events. */
+  readonly generation?: number;
   /** Provider correlation identity of the call. */
   readonly callId: ToolCallId;
   /** Tool name as the provider sent it, including names the session does not know. */
@@ -132,12 +137,24 @@ export interface ToolCalledEvent {
 export interface ToolResultEvent {
   /** Discriminant. */
   readonly type: 'tool.result';
+  /** Original session generation, even when handling settles after reconnect. */
+  readonly generation?: number;
   /** Provider correlation identity of the call. */
   readonly callId: ToolCallId;
   /** Whether the tool succeeded; for `update_ui`, whether the change rendered. */
   readonly ok: boolean;
   /** Client-clock milliseconds from arrival until local handling finishes. */
   readonly latencyMs: number;
+}
+
+/** A call was observed but connection cancellation prevented its dispatch. */
+export interface ToolCancelledEvent {
+  /** Discriminant. */
+  readonly type: 'tool.cancelled';
+  /** Original session generation. */
+  readonly generation: number;
+  /** Provider correlation identity of the undispatched call. */
+  readonly callId: ToolCallId;
 }
 
 /** A measured duration of `update_ui` work, such as its render or its failure. */
