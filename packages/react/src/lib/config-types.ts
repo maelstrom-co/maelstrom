@@ -1,3 +1,4 @@
+import type { IntentQueueOptions } from '@maelstrom-co/client';
 import type {
   ChartMotionConfig,
   ResolvedChartMotionConfig,
@@ -9,6 +10,8 @@ import {
 
 /** Resolved config after merging factory defaults + Provider overrides */
 export interface ResolvedMaelstromConfig {
+  /** Client queue policy captured when the Provider mounts; later changes are ignored. */
+  intentQueue?: IntentQueueOptions;
   cellSizePx: number;
   tilingPaddingPx: number;
   debug: boolean;
@@ -56,6 +59,7 @@ export function resolveConfig(
   }
 
   return {
+    intentQueue: provider.intentQueue ?? factory.intentQueue,
     cellSizePx,
     tilingPaddingPx,
     debug: provider.debug ?? factory.debug ?? CONFIG_DEFAULTS.debug,

@@ -255,7 +255,7 @@ describe('typed assistant feedback', () => {
 
     expect(
       await screen.findByText(
-        'I can arrange your calendar, tasks, journal, weather, and routes.',
+        /Applied — I can arrange your calendar, tasks, journal, weather, and routes\./,
       ),
     ).toBeTruthy();
 
@@ -263,7 +263,7 @@ describe('typed assistant feedback', () => {
     await act(async () => session.emitState('connected'));
     expect(
       screen.queryByText(
-        'I can arrange your calendar, tasks, journal, weather, and routes.',
+        /Applied — I can arrange your calendar, tasks, journal, weather, and routes\./,
       ),
     ).toBeNull();
   });

@@ -1,4 +1,3 @@
-import { WireEngineError } from '@maelstrom-co/client';
 import { SessionId } from '@maelstrom-co/protocol';
 import { RealtimeVoiceError } from '@maelstrom-co/realtime';
 import { useStore } from '@tanstack/react-store';
@@ -22,31 +21,15 @@ import {
 } from '../lib/playground-key-store';
 import { useFlashInstances } from '../lib/use-touched-instances';
 import { voiceProviderStore } from '../lib/voice-provider';
-import { AssistantResponse } from './assistant-response';
-import { Captions } from './captions';
 import { DemoHeader } from './demo-header';
-import { FIRST_RUN_EXAMPLES, FirstRunHint } from './first-run-hint';
+import { FirstRunHint } from './first-run-hint';
+import { IntentInput } from './intent-input';
 import { KeyDrawer } from './key-drawer';
 import { KeylessDemo } from './keyless-demo';
 import { RetainedCaptureDrawer } from './retained-capture-drawer';
 import { VesselOptionSync } from './vessel-option-sync';
-import { VoiceControl } from './voice-control';
 import { VoiceDebugDrawer } from './voice-debug-drawer';
-import { VoiceErrorNote } from './voice-error-note';
 import { VoiceProviderSelect } from './voice-provider-select';
-
-/**
- * True for a text-path (chart_request) failure caused by a rejected OpenAI
- * key — the browser-key analogue of the voice path's TOKEN_MINT_FAILED. The
- * wire error's `code` is the engine's `ProviderError._tag`, which covers
- * every LLM-adapter failure (network, rate limit, bad key); the message
- * text is what actually narrows it to a rejected key.
- */
-function isInvalidKeyError(error: Error): boolean {
-  const code = error instanceof WireEngineError ? error.code : undefined;
-  if (code !== 'ProviderError') return false;
-  return /\b401\b|invalid api key|incorrect api key/i.test(error.message);
-}
 
 export function HomePage() {
   const hosted = isHosted();
@@ -358,172 +341,6 @@ function StatusIndicator() {
       {connectionStatus === 'error'
         ? 'Workspace error: reload'
         : connectionStatus}
-    </div>
-  );
-}
-
-interface IntentInputProps {
-  readonly onBlockedSubmit: () => void;
-  readonly onMintError: (message: string) => void;
-  readonly intent: string;
-  readonly onIntentChange: (intent: string) => void;
-  readonly resumeIntent: boolean;
-  readonly onResumeIntentHandled: () => void;
-}
-
-function IntentInput({
-  onBlockedSubmit,
-  onMintError,
-  intent,
-  onIntentChange,
-  resumeIntent,
-  onResumeIntentHandled,
-}: IntentInputProps) {
-  const {
-    processIntent,
-    isProcessing,
-    lastError,
-    lastResponse,
-    connectionStatus,
-  } = m.useMaelstrom();
-  const { state: voiceState } = m.useVoice();
-  const browserKeyMode = usesBrowserKey();
-  const apiKey = useStore(playgroundKeyStore, (state) => state.apiKey);
-  const needsKey = browserKeyMode && !apiKey;
-  // Last text actually submitted — read by the invalid-key effect below to
-  // restore the draft after handleSubmit's unconditional clear, since
-  // processIntent() resolving doesn't mean the request succeeded.
-  const submittedIntentRef = useRef('');
-
-  // Continues the intent the visitor already typed before the key drawer
-  // interrupted them, once the post-save reconnect actually lands —
-  // processIntent() throws if the socket isn't OPEN yet, so this can't fire
-  // on the mere presence of a key, only once the connection reports 'connected'.
-  useEffect(() => {
-    if (!resumeIntent || connectionStatus !== 'connected') return;
-    onResumeIntentHandled();
-    if (!intent.trim() || isProcessing) return;
-    // Mirrors handleSubmit's write below — the invalid-key effect restores
-    // from this ref regardless of which path submitted, and the keyEpoch
-    // remount that got us here already reset it to ''.
-    submittedIntentRef.current = intent;
-    // processIntent() never rejects (errors surface via lastError instead —
-    // see useMaelstrom's contract), but a floating promise still needs a
-    // .catch() as a backstop against that contract changing silently.
-    void processIntent(intent)
-      .then(() => onIntentChange(''))
-      .catch(() => undefined);
-    // Deps deliberately narrowed to [resumeIntent, connectionStatus]: intent
-    // and isProcessing are read at fire time, not tracked, because
-    // re-running on every keystroke would resubmit the draft.
-    // (No biome-ignore here — Biome's React domain detection doesn't fire on
-    // this app's "react": "catalog:" dependency, so
-    // useExhaustiveDependencies never flags this effect, and a suppression
-    // for a rule that isn't firing is itself flagged as an unused
-    // suppression under --error-on-warnings.)
-  }, [resumeIntent, connectionStatus]);
-
-  // Text-path analogue of DemoApp's voice-mint-failure effect: a
-  // chart_request that failed because OpenAI rejected the visitor's key
-  // should reopen the drawer with the same actionable message the voice
-  // path gets, not just leave the raw (redacted) engine error sitting under
-  // the intent input. `lastError` is this hook call's own local state (see
-  // useMaelstrom's contract), so this effect has to live wherever
-  // processIntent() is actually called — a sibling component's lastError is
-  // a different piece of state.
-  useEffect(() => {
-    if (!browserKeyMode || !lastError || !isInvalidKeyError(lastError)) return;
-    // handleSubmit already cleared the input unconditionally (processIntent
-    // never rejects) — restore what was actually submitted before reopening
-    // the drawer, so the visitor doesn't lose their draft to a rejected key.
-    onIntentChange(submittedIntentRef.current);
-    onMintError('Invalid API key.');
-  }, [browserKeyMode, lastError, onMintError, onIntentChange]);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!intent.trim() || isProcessing) return;
-    submittedIntentRef.current = intent;
-    if (needsKey) {
-      onBlockedSubmit();
-      return;
-    }
-
-    await processIntent(intent);
-    onIntentChange('');
-  };
-
-  // VoiceOrb owns its own click handler internally (no onClick prop) — a
-  // capture-phase listener on the wrapper intercepts the click before it
-  // reaches the orb's button when no key is on hand yet.
-  const handleOrbClickCapture = (e: React.MouseEvent) => {
-    if (!needsKey) return;
-    e.preventDefault();
-    e.stopPropagation();
-    onBlockedSubmit();
-  };
-
-  return (
-    <div
-      className="connected-input relative border-t p-3 bg-bg-1"
-      style={{ borderColor: 'var(--line)' }}
-    >
-      <AssistantResponse
-        isProcessing={isProcessing}
-        message={lastResponse?.userMessage}
-        voiceActive={voiceState !== 'idle' && voiceState !== 'error'}
-      />
-      <VoiceErrorNote />
-      {/* Captions stay in footer chrome (never under main): a chart-bottom
-          scrim covered vessel flash borders, and in-flow height changes here
-          would fire engine chart_resize. Captions always reserves a fixed band. */}
-      <Captions />
-      <div className="demo-voice-band mx-auto mb-2 flex h-24 w-full max-w-4xl items-center justify-between gap-3 sm:h-12">
-        <VoiceControl showOrb={false} />
-        <span
-          className="shrink-0 text-xs text-ink-3"
-          data-testid="ai-voice-disclosure"
-        >
-          AI-generated voice
-        </span>
-      </div>
-      <form onSubmit={handleSubmit} className="max-w-4xl mx-auto">
-        <div className="intent-row flex items-center gap-2">
-          <div onClickCapture={handleOrbClickCapture} className="mr-1 shrink-0">
-            <m.VoiceOrb size={44} className="voice-orb" />
-          </div>
-          <input
-            id="demo-intent"
-            name="intent"
-            type="text"
-            list="demo-intent-examples"
-            value={intent}
-            onChange={(e) => onIntentChange(e.target.value)}
-            placeholder="Tell Maelstrom what you want to arrange..."
-            className="intent-pill min-w-0 flex-1 px-4 py-2.5"
-            disabled={isProcessing}
-          />
-          <button
-            type="submit"
-            disabled={isProcessing || !intent.trim()}
-            className="btn btn-primary min-h-11 shrink-0 px-4 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isProcessing ? 'Processing...' : 'Send'}
-          </button>
-        </div>
-
-        <datalist id="demo-intent-examples">
-          {FIRST_RUN_EXAMPLES.map((suggestion) => (
-            <option key={suggestion} value={suggestion} />
-          ))}
-        </datalist>
-
-        {lastError && (
-          <div className="mt-2 text-sm text-pink">
-            Error: {lastError.message}
-          </div>
-        )}
-      </form>
     </div>
   );
 }

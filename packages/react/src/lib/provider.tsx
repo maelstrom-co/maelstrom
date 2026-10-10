@@ -1,5 +1,6 @@
 import type {
   EngineConnector,
+  IntentQueueOptions,
   OrchestratorOptions,
 } from '@maelstrom-co/client';
 import {
@@ -64,6 +65,13 @@ interface MaelstromProviderBaseProps {
    * re-renders all Maelstrom consumers.
    */
   motion?: ChartMotionConfig;
+  /**
+   * Mount-time shared FIFO policy, replacing the factory object. Defaults:
+   * 8 pending, 30s wait, 10s disconnected grace, 60s active result deadline.
+   * Invalid limits fail construction. Later changes are ignored; remount with
+   * a new key to change policy. Deadlines do not cancel active work.
+   */
+  intentQueue?: IntentQueueOptions;
   /**
    * Called on Orchestrator startup failures, connection failures,
    * processIntent failures, executeAction failures, and command-processing
@@ -160,6 +168,7 @@ export function createProvider(
     tilingPaddingPx,
     debug,
     motion,
+    intentQueue,
     onError,
     initialLayout,
     children,
@@ -172,8 +181,9 @@ export function createProvider(
           tilingPaddingPx,
           debug,
           motion,
+          intentQueue,
         }),
-      [cellSizePx, tilingPaddingPx, debug, motion],
+      [cellSizePx, tilingPaddingPx, debug, motion, intentQueue],
     );
 
     // Build registries once from static entries
@@ -277,6 +287,7 @@ export function createProvider(
         // option), which registering afterward could not be.
         vessels: vesselEntries.map((entry) => entry.vessel),
         debug: config.debug,
+        intentQueue: config.intentQueue,
       } as OrchestratorOptions;
 
       let instance: Orchestrator;
