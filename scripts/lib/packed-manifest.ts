@@ -3,7 +3,7 @@ import { lstatSync, realpathSync, type Stats } from 'node:fs';
 import { basename, join, resolve, sep } from 'node:path';
 
 /**
- * The trusted package namespace accepted by the privileged publisher. This is
+ * The required package namespace accepted by the privileged publisher. This is
  * deliberately independent of both artifact metadata and workspace discovery.
  */
 export const PACKED_PACKAGE_NAMES = Object.freeze([
@@ -25,6 +25,11 @@ export const PACKED_PACKAGE_NAMES = Object.freeze([
   '@maelstrom-co/realtime-protocol',
   '@maelstrom-co/realtime-vad',
   '@maelstrom-co/react-realtime',
+] as const);
+
+const OPTIONAL_DEVTOOLS_PACKAGES = Object.freeze([
+  '@maelstrom-co/devtools',
+  '@maelstrom-co/react-devtools',
 ] as const);
 
 export const MAX_PACKED_TARBALL_BYTES = 50 * 1024 * 1024;
@@ -106,13 +111,20 @@ export function parsePackedManifest(
 ): PackedPackage[] {
   if (!Array.isArray(input))
     throw new Error('Packed manifest must be an array');
-  if (input.length !== PACKED_PACKAGE_NAMES.length) {
+  if (
+    input.length !== PACKED_PACKAGE_NAMES.length &&
+    input.length !==
+      PACKED_PACKAGE_NAMES.length + OPTIONAL_DEVTOOLS_PACKAGES.length
+  ) {
     throw new Error(
-      `Packed manifest must contain exactly ${PACKED_PACKAGE_NAMES.length} packages`,
+      `Packed manifest must contain ${PACKED_PACKAGE_NAMES.length} packages or the complete devtools pair`,
     );
   }
 
-  const allowed = new Set<string>(PACKED_PACKAGE_NAMES);
+  const allowed = new Set<string>([
+    ...PACKED_PACKAGE_NAMES,
+    ...OPTIONAL_DEVTOOLS_PACKAGES,
+  ]);
   const names = new Set<string>();
   const tarballs = new Set<string>();
   const packages = input.map((value, index) => {
@@ -165,6 +177,14 @@ export function parsePackedManifest(
     if (!names.has(name))
       throw new Error(`Packed manifest is missing package: ${name}`);
   }
+  const devtoolsCount = OPTIONAL_DEVTOOLS_PACKAGES.filter((name) =>
+    names.has(name),
+  ).length;
+  if (
+    devtoolsCount !== 0 &&
+    devtoolsCount !== OPTIONAL_DEVTOOLS_PACKAGES.length
+  )
+    throw new Error('Packed manifest must include both devtools packages');
   return packages;
 }
 
