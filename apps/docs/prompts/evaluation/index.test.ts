@@ -30,6 +30,7 @@ import {
   extractPiAssistantText,
   gradeCandidate,
   isDisposableArtifactChange,
+  type RunResult,
   resolveCommand,
   runCommand,
   snapshotCandidate,
@@ -94,9 +95,84 @@ async function waitForFile(path: string): Promise<void> {
   throw new Error(`Timed out waiting for ${path}`);
 }
 
+async function waitForGraderPid(
+  path: string,
+  evaluation: Promise<RunResult>,
+  controller: AbortController,
+): Promise<number> {
+  const settled = evaluation.then(
+    (result) => ({ result, error: undefined }),
+    (error: unknown) => ({ result: undefined, error }),
+  );
+  // Runner, typecheck, and behavior each have their own 1500ms deadline.
+  const deadline = performance.now() + 5000;
+  try {
+    while (performance.now() < deadline) {
+      const outcome = await Promise.race([
+        settled,
+        new Promise<undefined>((resolveDelay) =>
+          setTimeout(() => resolveDelay(undefined), 10),
+        ),
+      ]);
+      if (outcome)
+        throw new Error('Evaluation settled before grader readiness');
+      let marker: string;
+      try {
+        marker = await readFile(path, 'utf8');
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
+        throw error;
+      }
+      const pid = Number(marker);
+      if (!/^\d+$/.test(marker) || !Number.isSafeInteger(pid) || pid <= 0)
+        throw new Error('Invalid grader PID marker');
+      if (!isProcessAlive(pid))
+        throw new Error('Grader exited before readiness');
+      return pid;
+    }
+    throw new Error('Timed out waiting for grader readiness');
+  } catch (error) {
+    controller.abort();
+    const outcome = await settled;
+    const result = outcome.result;
+    const grade = result?.manifest.candidateGrader as
+      | ReturnType<typeof candidateGraderEvidence>
+      | null
+      | undefined;
+    const evidence = result
+      ? {
+          status: result.status,
+          timedOut: result.timedOut,
+          cancelled: result.cancelled,
+          spawnError: result.spawnError ?? null,
+          inspectionError: result.inspectionError ?? null,
+          commands: grade?.commands.map((command) => ({
+            status: command.status,
+            timedOut: command.timedOut,
+            cancelled: command.cancelled,
+            spawnError: command.spawnError,
+            processEvidence: command.processEvidence,
+          })),
+        }
+      : { rejection: String(outcome.error).slice(-2000) };
+    throw new Error(
+      `${String(error)}; ${JSON.stringify(evidence).slice(-8000)}`,
+    );
+  }
+}
+
 describe('registered behavioral cases', () => {
-  for (const stage of ['typecheck', 'behavior'] as const) {
-    test(`cancelling ${stage} stops grading and preserves the cancellation in the report`, async () => {
+  for (const scenario of [
+    'typecheck',
+    'behavior',
+    'delayed behavior',
+    'early-exit behavior',
+  ] as const) {
+    const stage = scenario === 'typecheck' ? 'typecheck' : 'behavior';
+    const startupDelayMs = scenario === 'delayed behavior' ? 900 : 0;
+    test(scenario === 'early-exit behavior'
+      ? 'grader readiness fails promptly with early-exit command evidence'
+      : `cancelling ${scenario} stops grading and preserves the cancellation in the report`, async () => {
       const candidateRoot = join(root, 'conversion');
       await cp(
         join(import.meta.dir, '../acceptance/fixtures/migration-react'),
@@ -115,25 +191,30 @@ describe('registered behavioral cases', () => {
       await mkdir(bin, { recursive: true });
       const started = join(root, 'grader.pid');
       const laterCheck = join(root, 'behavior-started');
-      const hangingGrader = `#!/usr/bin/env node\nconst fs = require('node:fs'); fs.writeFileSync(${JSON.stringify(started)}, String(process.pid)); setInterval(() => {}, 1000);`;
+      const hangingGrader = `#!/usr/bin/env node\nconst fs = require('node:fs'); const marker = ${JSON.stringify(started)}; fs.writeFileSync(marker + '.tmp', String(process.pid)); fs.renameSync(marker + '.tmp', marker); setInterval(() => {}, 1000);`;
       await writeFile(
         join(bin, 'tsc'),
         stage === 'typecheck'
           ? hangingGrader
-          : '#!/usr/bin/env node\nprocess.exit(0);',
+          : `#!${startupDelayMs ? process.execPath : '/usr/bin/env node'}\nsetTimeout(() => process.exit(0), ${startupDelayMs});`,
         { mode: 0o700 },
       );
       await writeFile(
         join(bin, 'vitest'),
-        stage === 'behavior'
-          ? hangingGrader
-          : `#!/usr/bin/env node\nrequire('node:fs').writeFileSync(${JSON.stringify(laterCheck)}, 'started'); process.exit(1);`,
+        scenario === 'early-exit behavior'
+          ? '#!/usr/bin/env node\nconsole.error("fixture behavior failed before readiness"); process.exit(1);'
+          : stage === 'behavior'
+            ? hangingGrader
+            : `#!/usr/bin/env node\nrequire('node:fs').writeFileSync(${JSON.stringify(laterCheck)}, 'started'); process.exit(1);`,
         { mode: 0o700 },
       );
-      await fake(
-        "process.stdin.resume(); process.stdin.on('end', () => console.log('done'));",
+      await writeFile(
+        fakePi,
+        `#!${startupDelayMs ? process.execPath : '/usr/bin/env node'}\nprocess.stdin.resume(); process.stdin.on('end', () => setTimeout(() => console.log('done'), ${startupDelayMs}));`,
+        { mode: 0o700 },
       );
       const controller = new AbortController();
+      const evaluationStartedAt = performance.now();
       const evaluation = evaluateCase('react-conversion', {
         ...genericOptions(),
         candidateRoot,
@@ -142,17 +223,77 @@ describe('registered behavioral cases', () => {
         timeoutMs: 1500,
       });
       try {
-        await waitForFile(started);
+        if (scenario === 'early-exit behavior') {
+          await expect(
+            waitForGraderPid(started, evaluation, controller),
+          ).rejects.toThrow(
+            /Evaluation settled before grader readiness.*fixture behavior failed before readiness/,
+          );
+          expect(performance.now() - evaluationStartedAt).toBeLessThan(5000);
+          const result = await evaluation;
+          expect(result.status).toBe('completed');
+          expect(result.cancelled).toBe(false);
+          expect(result.manifest.candidateGrader).toMatchObject({
+            commands: [
+              {
+                exitCode: 0,
+                timedOut: false,
+                cancelled: false,
+                spawnError: null,
+              },
+              {
+                exitCode: 1,
+                timedOut: false,
+                cancelled: false,
+                spawnError: null,
+              },
+            ],
+          });
+          await expect(stat(started)).rejects.toThrow();
+          await expect(
+            stat(join(candidateRoot, '.evaluation-grade')),
+          ).rejects.toThrow();
+          return;
+        }
+        const pid = await waitForGraderPid(started, evaluation, controller);
+        expect(isProcessAlive(pid)).toBe(true);
+        if (startupDelayMs) {
+          expect(performance.now() - evaluationStartedAt).toBeGreaterThan(2000);
+        }
         controller.abort();
         const result = await evaluation;
         expect(result.status).toBe('cancelled');
         expect(result.cancelled).toBe(true);
+        expect(result.timedOut).toBe(false);
+        expect(result.spawnError).toBeUndefined();
+        expect(result.inspectionError).toBeUndefined();
         expect(result.manifest.candidateGrader).toMatchObject({
           harnessStatus: 'blocked',
           commands:
             stage === 'typecheck'
-              ? [{ cancelled: true }]
-              : [{ cancelled: false }, { cancelled: true }],
+              ? [
+                  {
+                    status: 'cancelled',
+                    cancelled: true,
+                    timedOut: false,
+                    spawnError: null,
+                  },
+                ]
+              : [
+                  {
+                    status: 'completed',
+                    exitCode: 0,
+                    cancelled: false,
+                    timedOut: false,
+                    spawnError: null,
+                  },
+                  {
+                    status: 'cancelled',
+                    cancelled: true,
+                    timedOut: false,
+                    spawnError: null,
+                  },
+                ],
         });
         expect(
           result.criteria.find(({ id }) => id === 'trusted-ui-behavior')
@@ -166,14 +307,23 @@ describe('registered behavioral cases', () => {
           stat(join(candidateRoot, '.evaluation-grade')),
         ).rejects.toThrow();
         await expect(stat(laterCheck)).rejects.toThrow();
-        expect(isProcessAlive(Number(await readFile(started, 'utf8')))).toBe(
-          false,
+        expect(isProcessAlive(pid)).toBe(false);
+        const { privateOutputDirectory } = result.manifest.security as {
+          privateOutputDirectory: string;
+        };
+        const persisted = JSON.parse(
+          await readFile(join(privateOutputDirectory, 'manifest.json'), 'utf8'),
         );
+        expect(persisted).toEqual(result.manifest);
+        expect(persisted.process).toMatchObject({
+          cancelled: true,
+          timedOut: false,
+        });
       } finally {
         controller.abort();
-        await evaluation;
+        await evaluation.catch(() => undefined);
       }
-    });
+    }, 10_000);
   }
 
   test('rejects candidate/output overlap and read-only candidates before creating output', async () => {
