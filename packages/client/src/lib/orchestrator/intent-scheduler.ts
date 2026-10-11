@@ -300,12 +300,21 @@ export class IntentScheduler {
         Math.max(0, deadline - Date.now()),
       );
     }
-    this.store.setState(() => ({
-      phase,
-      pendingCount: this.#pending.length,
-      capacity: this.#policy.capacity,
-      currentTicketId: this.#active?.ticket.id ?? null,
-    }));
+    const prev = this.store.state;
+    const currentTicketId = this.#active?.ticket.id ?? null;
+    if (
+      prev.phase !== phase ||
+      prev.pendingCount !== this.#pending.length ||
+      prev.capacity !== this.#policy.capacity ||
+      prev.currentTicketId !== currentTicketId
+    ) {
+      this.store.setState(() => ({
+        phase,
+        pendingCount: this.#pending.length,
+        capacity: this.#policy.capacity,
+        currentTicketId,
+      }));
+    }
     for (const [index, entry] of [...this.#pending].entries()) {
       if (
         !entry.done &&

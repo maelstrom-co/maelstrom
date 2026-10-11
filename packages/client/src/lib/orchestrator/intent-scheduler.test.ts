@@ -5,6 +5,7 @@ import { IntentScheduler } from './intent-scheduler.js';
 import type {
   IntentQueueOptions,
   IntentResult,
+  IntentSchedulerState,
 } from './intent-scheduler.types.js';
 
 function deferred<T>() {
@@ -44,6 +45,146 @@ describe('IntentScheduler', () => {
     schedulers.push(scheduler);
     scheduler.setConnected(true);
     return { scheduler, run, turns, automatic };
+  }
+
+  for (const phase of ['idle', 'sending', 'applying'] as const) {
+    it(`preserves the ${phase} snapshot across separately flushed unchanged wakes`, async () => {
+      const { scheduler, turns, run } = setup();
+      if (phase !== 'idle') scheduler.enqueue('active');
+      await flushMicrotasks();
+      if (phase === 'applying') scheduler.applying();
+      const snapshot = scheduler.store.state;
+      const observer = mock(() => {});
+      scheduler.store.subscribe(observer);
+      expect(snapshot.phase).toBe(phase);
+
+      for (let index = 0; index < 3; index++) {
+        scheduler.wake();
+        await flushMicrotasks();
+        scheduler.setConnected(true);
+        if (phase === 'applying') scheduler.applying();
+        await flushMicrotasks();
+        expect(scheduler.store.state).toBe(snapshot);
+        expect(observer).not.toHaveBeenCalled();
+      }
+      expect(run).toHaveBeenCalledTimes(phase === 'idle' ? 0 : 1);
+      turns[0]?.resolve(refused);
+      await flushMicrotasks();
+      expect(clock.countTimers()).toBe(0);
+    });
+  }
+
+  it('notifies real field transitions including an active-id-only deadline change', async () => {
+    const { scheduler, turns } = setup({ capacity: 3, activeTimeoutMs: 50 });
+    await flushMicrotasks();
+    const snapshots: IntentSchedulerState[] = [];
+    scheduler.store.subscribe(() => snapshots.push(scheduler.store.state));
+    const ticket = scheduler.enqueue('active');
+    await flushMicrotasks();
+    scheduler.applying();
+    await clock.tickAsync(50);
+    expect((await ticket.result).status).toBe('unknown');
+    expect(scheduler.acquire()).toBe(false);
+    turns[0].resolve(refused);
+    await flushMicrotasks();
+
+    expect(snapshots).toEqual([
+      { phase: 'idle', pendingCount: 1, capacity: 3, currentTicketId: null },
+      {
+        phase: 'sending',
+        pendingCount: 0,
+        capacity: 3,
+        currentTicketId: ticket.id,
+      },
+      {
+        phase: 'applying',
+        pendingCount: 0,
+        capacity: 3,
+        currentTicketId: ticket.id,
+      },
+      {
+        phase: 'applying',
+        pendingCount: 0,
+        capacity: 3,
+        currentTicketId: null,
+      },
+      { phase: 'idle', pendingCount: 0, capacity: 3, currentTicketId: null },
+    ]);
+    expect(new Set(snapshots).size).toBe(snapshots.length);
+    expect(clock.countTimers()).toBe(0);
+  });
+
+  it('keeps absolute max-wait expiry while unchanged wakes rearm the timer', async () => {
+    const { scheduler, run } = setup({ maxWaitMs: 100 });
+    expect(scheduler.acquire()).toBe(true);
+    const ticket = scheduler.enqueue('pending');
+    await flushMicrotasks();
+    const snapshot = scheduler.store.state;
+    const observer = mock(() => {});
+    const ticketObserver = mock(() => {});
+    scheduler.store.subscribe(observer);
+    ticket.store.subscribe(ticketObserver);
+
+    for (let index = 0; index < 4; index++) {
+      await clock.tickAsync(20);
+      scheduler.wake();
+      await flushMicrotasks();
+      expect(scheduler.store.state).toBe(snapshot);
+    }
+    await clock.tickAsync(19);
+    expect(ticket.store.state.status).toBe('queued');
+    expect(observer).not.toHaveBeenCalled();
+    await clock.tickAsync(1);
+    expect(await ticket.result).toEqual({
+      status: 'not_submitted',
+      reason: 'queue_expired',
+    });
+    expect(observer).toHaveBeenCalledTimes(1);
+    expect(ticketObserver).toHaveBeenCalledTimes(1);
+    expect(scheduler.store.state.pendingCount).toBe(0);
+    expect(run).not.toHaveBeenCalled();
+    expect(clock.countTimers()).toBe(0);
+  });
+
+  for (const reconnect of [false, true]) {
+    it(`updates an unchanged snapshot's grace deadline with reconnect=${reconnect}`, async () => {
+      const { scheduler, run } = setup({
+        connectionGraceMs: 20,
+        maxWaitMs: 100,
+      });
+      expect(scheduler.acquire()).toBe(true);
+      const ticket = scheduler.enqueue('pending');
+      await flushMicrotasks();
+      const snapshot = scheduler.store.state;
+      const observer = mock(() => {});
+      scheduler.store.subscribe(observer);
+      await clock.tickAsync(10);
+      scheduler.setConnected(false);
+      await flushMicrotasks();
+      expect(scheduler.store.state).toBe(snapshot);
+      await clock.tickAsync(10);
+      if (reconnect) {
+        scheduler.setConnected(true);
+        await flushMicrotasks();
+        expect(scheduler.store.state).toBe(snapshot);
+        await clock.tickAsync(10);
+        expect(ticket.store.state.status).toBe('queued');
+        await clock.tickAsync(69);
+      } else {
+        await clock.tickAsync(9);
+      }
+      expect(ticket.store.state.status).toBe('queued');
+      expect(observer).not.toHaveBeenCalled();
+      await clock.tickAsync(1);
+      expect(await ticket.result).toEqual({
+        status: 'not_submitted',
+        reason: reconnect ? 'queue_expired' : 'disconnected',
+      });
+      expect(observer).toHaveBeenCalledTimes(1);
+      expect(scheduler.store.state.pendingCount).toBe(0);
+      expect(run).not.toHaveBeenCalled();
+      expect(clock.countTimers()).toBe(0);
+    });
   }
 
   it('shares FIFO scopes, rejects full admission and does not let immediate work bypass users', async () => {
