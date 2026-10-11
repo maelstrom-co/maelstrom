@@ -174,6 +174,7 @@ export function createProvider(
     children,
   }: MaelstromProviderProps) {
     // Resolve config: Provider overrides → factory defaults → hardcoded defaults
+    const [mountIntentQueue] = useState(() => intentQueue);
     const config = useMemo(
       () =>
         resolveConfig(factoryConfig, {
@@ -181,9 +182,9 @@ export function createProvider(
           tilingPaddingPx,
           debug,
           motion,
-          intentQueue,
+          intentQueue: mountIntentQueue,
         }),
-      [cellSizePx, tilingPaddingPx, debug, motion, intentQueue],
+      [cellSizePx, tilingPaddingPx, debug, motion, mountIntentQueue],
     );
 
     // Build registries once from static entries

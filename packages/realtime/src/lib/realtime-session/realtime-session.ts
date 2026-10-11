@@ -497,6 +497,10 @@ export class RealtimeSession implements VoiceSession {
     if (epoch !== this.#connectEpoch) return;
 
     try {
+      // A bare adapter `error` state keeps the previous connection's scope.
+      // Retire its pending work before this connection takes ownership.
+      this.#intentScope?.retire();
+      if (epoch !== this.#connectEpoch) return;
       this.#intentScope = this.#instance.createIntentScope?.();
       // Still inside the initiating user gesture: no await has occurred, so the
       // unlock begins synchronously after re-entrant notifications are fenced.

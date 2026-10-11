@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import {
   type EngineConnector,
   type IntentQueueOptions,
+  type IntentScope,
   Orchestrator,
 } from '@maelstrom-co/client';
 import {
@@ -17,9 +18,11 @@ import {
   VesselId,
 } from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
+import { GreetingCoordinator } from '../greeting-coordinator.js';
 import { RealtimeVoiceError } from '../realtime-voice-error.js';
 import type {
   RealtimeAdapterEvent,
+  RealtimeGreetingAdapter,
   RealtimeProviderAdapter,
   ToolResult,
 } from './provider-adapter.types.js';
@@ -42,7 +45,9 @@ const sessionId = SessionId('voice-queue');
 function adapter() {
   const handlers = new Set<(event: RealtimeAdapterEvent) => void>();
   const results: Array<{ callId: ToolCallId; result: ToolResult }> = [];
-  const instance: RealtimeProviderAdapter = {
+  const instance: RealtimeProviderAdapter & RealtimeGreetingAdapter = {
+    activateAudio: () => {},
+    speakAssistantText: async () => 'accepted',
     observations: { subscribe: () => () => {} },
     connect: async () => {},
     disconnect: async () => {},
@@ -98,7 +103,7 @@ describe('RealtimeSession shared intent admission', () => {
     clock.uninstall();
   });
 
-  async function setup(policy: IntentQueueOptions = {}) {
+  async function setup(policy: IntentQueueOptions = {}, greeting = false) {
     const sent: ChartRequestMessage[] = [];
     const pending: ReturnType<typeof deferred<MaelstromResponse>>[] = [];
     const connector: EngineConnector = {
@@ -121,8 +126,13 @@ describe('RealtimeSession shared intent admission', () => {
     });
     cleanup.push(() => client.dispose());
     await client.connect();
+    const scopes: IntentScope[] = [];
     const bridge: RealtimeInstance = {
-      createIntentScope: () => client.createIntentScope(),
+      createIntentScope: () => {
+        const scope = client.createIntentScope();
+        scopes.push(scope);
+        return scope;
+      },
       submitIntent: async () => {
         throw new Error('Queued bridge used legacy admission');
       },
@@ -146,6 +156,14 @@ describe('RealtimeSession shared intent admission', () => {
       sessionId,
       instance: bridge,
       adapter: provider.instance,
+      ...(greeting
+        ? {
+            greeting: {
+              text: 'Hello.',
+              coordinator: new GreetingCoordinator(),
+            },
+          }
+        : {}),
     });
     cleanup.push(() => session.dispose());
     const events: SessionEvent[] = [];
@@ -156,6 +174,7 @@ describe('RealtimeSession shared intent admission', () => {
       session,
       provider,
       bridge,
+      scopes,
       connector,
       sent,
       pending,
@@ -393,6 +412,119 @@ describe('RealtimeSession shared intent admission', () => {
       ToolCallId('pending'),
     ]);
   });
+
+  it('retires the old pending voice scope on bare-error reconnect without releasing active ownership', async () => {
+    const state = await setup();
+    state.provider.call('active-old');
+    await clock.tickAsync(0);
+    state.provider.call('pending-old');
+    const typed = state.client.enqueueIntent('typed');
+    const other = state.client.createIntentScope().enqueueIntent('other-scope');
+    state.provider.emit({ type: 'state', state: 'error' });
+    await state.session.connect();
+    await clock.tickAsync(0);
+    expect(state.session.memory.find(ToolCallId('pending-old'))).toMatchObject({
+      status: 'not_submitted',
+      summary: 'This request was not submitted (owner_retired).',
+    });
+    expect(state.session.memory.find(ToolCallId('active-old'))?.status).toBe(
+      'submitted',
+    );
+    state.provider.call('new-voice');
+    await clock.tickAsync(0);
+    expect(state.sent).toHaveLength(1);
+    expect(state.provider.results).toHaveLength(0);
+    await state.finish(0);
+    expect(state.session.memory.find(ToolCallId('active-old'))?.status).toBe(
+      'completed',
+    );
+    for (const [index, intent] of [
+      'typed',
+      'other-scope',
+      'new-voice',
+    ].entries()) {
+      expect(
+        state.sent[index + 1].request.context.updateReasons,
+      ).toContainEqual({
+        type: 'user_intent',
+        intent,
+      });
+      await state.finish(index + 1);
+    }
+    expect((await typed.result).status).toBe('applied');
+    expect((await other.result).status).toBe('applied');
+    expect(state.sent).toHaveLength(4);
+    expect(state.provider.results.map((value) => value.callId)).toEqual([
+      ToolCallId('new-voice'),
+    ]);
+  });
+
+  for (const reconnect of [false, true]) {
+    it(`fences synchronous retirement-triggered disconnect with reconnect=${reconnect}`, async () => {
+      const state = await setup({}, true);
+      const active = state.client.enqueueIntent('typed-active');
+      await clock.tickAsync(0);
+      const old = state.scopes[0].enqueueIntent('old-voice');
+      const connect = spyOn(state.provider.instance, 'connect');
+      const activate = spyOn(state.provider.instance, 'activateAudio');
+      const subscribe = spyOn(state.provider.instance, 'on');
+      let ending: Promise<void> | undefined;
+      let continuation: Promise<void> | undefined;
+      let notifications = 0;
+      const subscription = old.store.subscribe(() => {
+        if (old.store.state.status !== 'not_submitted') return;
+        notifications++;
+        ending = state.session.disconnect();
+        continuation = ending.then(async () => {
+          if (reconnect) await state.session.connect();
+        });
+      });
+      try {
+        state.provider.emit({ type: 'state', state: 'error' });
+        const outer = state.session.connect();
+        expect(notifications).toBe(1);
+        expect(ending).toBeDefined();
+        expect(state.scopes).toHaveLength(1);
+        expect(activate).not.toHaveBeenCalled();
+        expect(subscribe).not.toHaveBeenCalled();
+        expect(connect).not.toHaveBeenCalled();
+        await outer;
+        await continuation;
+        expect(await old.result).toEqual({
+          status: 'not_submitted',
+          reason: 'owner_retired',
+        });
+        expect(state.session.state).toBe(reconnect ? 'connected' : 'idle');
+        expect(state.scopes).toHaveLength(reconnect ? 2 : 1);
+        expect(activate).toHaveBeenCalledTimes(reconnect ? 1 : 0);
+        expect(subscribe).toHaveBeenCalledTimes(reconnect ? 1 : 0);
+        expect(connect).toHaveBeenCalledTimes(reconnect ? 1 : 0);
+        if (reconnect) {
+          state.provider.call('replacement-pending');
+          await state.session.disconnect();
+          await clock.tickAsync(0);
+          expect(
+            state.session.memory.find(ToolCallId('replacement-pending')),
+          ).toMatchObject({
+            status: 'not_submitted',
+            summary: 'This request was not submitted (owner_retired).',
+          });
+        }
+        expect(state.sent).toHaveLength(1);
+        await state.finish(0);
+        expect((await active.result).status).toBe('applied');
+        expect(state.sent).toHaveLength(1);
+        expect(state.provider.results).toHaveLength(0);
+      } finally {
+        subscription.unsubscribe();
+        await ending;
+        await continuation;
+        connect.mockRestore();
+        activate.mockRestore();
+        subscribe.mockRestore();
+      }
+    });
+  }
 
   it('reports full and expired admission truthfully without fabricated submissions', async () => {
     const state = await setup({ capacity: 1, maxWaitMs: 1000 });

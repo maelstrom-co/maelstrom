@@ -10,7 +10,7 @@ import type {
 } from '@maelstrom-co/protocol';
 import FakeTimers from '@sinonjs/fake-timers';
 import { act, cleanup, render } from '@testing-library/react';
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import { createMockConnector } from './__tests__/mock-connector.js';
 import { createMaelstrom } from './create-maelstrom.js';
 import type { MaelstromState } from './maelstrom-state-types.js';
@@ -183,6 +183,66 @@ it('forwards factory policy, replaces it at Provider mount, and ignores later po
     status: 'not_submitted',
     reason: 'disposed',
   });
+});
+
+it('keeps context stable for inline mount-only queue policy while other config remains dynamic', async () => {
+  const { connector } = slowConnector();
+  const m = createMaelstrom({ vessels: [] }).with((context) => ({
+    useContext: context.useMaelstromContext,
+  }));
+  let context!: ReturnType<typeof m.useContext>;
+  let renders = 0;
+  const Probe = memo(() => {
+    context = m.useContext();
+    renders++;
+    return null;
+  });
+  let view!: ReturnType<typeof render>;
+  await act(async () => {
+    view = render(
+      <m.Provider connector={connector} intentQueue={{ capacity: 4 }}>
+        <Probe />
+      </m.Provider>,
+    );
+  });
+  const mounted = context;
+  const mountedRenders = renders;
+  for (const capacity of [4, 8]) {
+    await act(async () => {
+      view.rerender(
+        <m.Provider connector={connector} intentQueue={{ capacity }}>
+          <Probe />
+        </m.Provider>,
+      );
+    });
+    expect(context).toBe(mounted);
+    expect(renders).toBe(mountedRenders);
+    expect(context.orchestrator.intentScheduler.store.state.capacity).toBe(4);
+  }
+  await act(async () => {
+    view.rerender(
+      <m.Provider
+        connector={connector}
+        intentQueue={{ capacity: 8 }}
+        cellSizePx={90}
+        tilingPaddingPx={12}
+        debug
+        motion={{ disabled: true }}
+      >
+        <Probe />
+      </m.Provider>,
+    );
+  });
+  expect(context).not.toBe(mounted);
+  expect(context.orchestrator).toBe(mounted.orchestrator);
+  expect(context.config).toMatchObject({
+    intentQueue: { capacity: 4 },
+    cellSizePx: 90,
+    tilingPaddingPx: 12,
+    debug: true,
+    motion: { disabled: true },
+  });
+  expect(renders).toBeGreaterThan(mountedRenders);
 });
 
 it('observes immediate refusal, error identity, and a new ticket without stale completion', async () => {
