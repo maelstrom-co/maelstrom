@@ -1,32 +1,22 @@
 /**
  * Chooses the local dev server's planner from the environment:
- * `MAELSTROM_PLANNER=llm` (the default), `jev` (the frozen Jev POC),
+ * `MAELSTROM_PLANNER=llm` (the default), `jev` (the frozen Jev POC) or
  * `jev-composed-pairs` (the experimental Jev planner that composes the
- * layout from pair answers), or `decisions` and `decisions-composed-pairs`
- * (the same two planners answered by OpenAI Decisions). The hosted Worker
- * never reads this; it always plans with the LLM.
+ * layout from pair answers). The hosted Worker never reads this; it always
+ * plans with the LLM.
  */
 import type { Engine } from '@maelstrom-co/engine';
 import {
-  createDecisionsPlaygroundEngine,
   createJevPlaygroundEngine,
   createPlaygroundEngine,
-  type DecisionsPlannerName,
   type JevPlannerName,
 } from './engine-config';
 import { createDemoOpenaiChat, ENGINE_MODEL } from './engine-model';
 import { createRedactingLogger, redactSecrets } from './redact';
 
-export type LocalPlannerName = 'llm' | JevPlannerName | DecisionsPlannerName;
+export type LocalPlannerName = 'llm' | JevPlannerName;
 
 const JEV_PLANNERS: readonly JevPlannerName[] = ['jev', 'jev-composed-pairs'];
-// The Decisions planners' default model; the package's root entry exports no model constant.
-const DECISIONS_MODEL = 'gpt-6-luna';
-
-const DECISIONS_PLANNERS: readonly DecisionsPlannerName[] = [
-  'decisions',
-  'decisions-composed-pairs',
-];
 
 export interface SharedEngineResult {
   readonly engine: Engine | null;
@@ -88,13 +78,11 @@ export function buildSharedEngine(
  * Builds the engine every local socket shares. `llm` keeps today's
  * behaviour: a server `OPENAI_API_KEY` builds a shared engine, otherwise each
  * visitor supplies a browser key. `jev` and `jev-composed-pairs` need
- * `TYPESAFE_API_KEY`, a pinned `JEV_MODEL` and a server `OPENAI_API_KEY`;
- * `decisions` and `decisions-composed-pairs` need only the server
- * `OPENAI_API_KEY`. None of them has a browser-key flow.
+ * `TYPESAFE_API_KEY`, a pinned `JEV_MODEL` and a server `OPENAI_API_KEY`,
+ * and have no browser-key flow.
  *
- * @throws {Error} On an unknown `MAELSTROM_PLANNER`, a missing staged
- *   planner setting, or a staged engine that fails to build. Secrets are
- *   redacted.
+ * @throws {Error} On an unknown `MAELSTROM_PLANNER`, a missing Jev
+ *   setting, or a Jev engine that fails to build. Secrets are redacted.
  */
 export function buildLocalEngine(
   env: Readonly<Record<string, string | undefined>>,
@@ -125,11 +113,9 @@ export function buildLocalEngine(
       secrets,
     };
   }
-  if (isDecisionsPlanner(planner))
-    return buildDecisionsEngine(planner, openaiKey, env, secrets, logger);
   if (!isJevPlanner(planner))
     throw new Error(
-      `MAELSTROM_PLANNER must be llm, jev, jev-composed-pairs, decisions or decisions-composed-pairs, got "${redactSecrets(planner, secrets)}".`,
+      `MAELSTROM_PLANNER must be llm, jev or jev-composed-pairs, got "${redactSecrets(planner, secrets)}".`,
     );
 
   if (!typesafeKey)
@@ -183,52 +169,4 @@ export function buildLocalEngine(
 
 function isJevPlanner(planner: string): planner is JevPlannerName {
   return (JEV_PLANNERS as readonly string[]).includes(planner);
-}
-
-function isDecisionsPlanner(planner: string): planner is DecisionsPlannerName {
-  return (DECISIONS_PLANNERS as readonly string[]).includes(planner);
-}
-
-function buildDecisionsEngine(
-  planner: DecisionsPlannerName,
-  openaiKey: string,
-  env: Readonly<Record<string, string | undefined>>,
-  secrets: readonly string[],
-  logger: ReturnType<typeof createRedactingLogger>,
-): LocalEngine {
-  if (!openaiKey)
-    throw new Error(
-      `MAELSTROM_PLANNER=${planner} requires a server OPENAI_API_KEY for Decisions, the reply and the fallback.`,
-    );
-  const logReplies = env.DECISIONS_LOG_REPLIES?.trim() === '1';
-  let engine: Engine;
-  try {
-    engine = createDecisionsPlaygroundEngine({
-      planner,
-      adapter: createDemoOpenaiChat(openaiKey),
-      logger,
-      decisions: { apiKey: openaiKey, logReplies },
-    });
-  } catch (error) {
-    throw new Error(
-      redactSecrets(
-        error instanceof Error ? error.message : String(error),
-        secrets,
-      ),
-    );
-  }
-  logger.info('local_planner.ready', {
-    planner,
-    decisionsModel: DECISIONS_MODEL,
-    llmModel: ENGINE_MODEL,
-    logReplies,
-    status: 'ready',
-  });
-  return {
-    engine,
-    initError: null,
-    planner,
-    helloReceived: true,
-    secrets,
-  };
 }

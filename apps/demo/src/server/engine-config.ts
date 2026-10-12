@@ -17,12 +17,8 @@ import {
   createEngine,
   createInMemoryStore,
   type Engine,
-  type Planner,
 } from '@maelstrom-co/engine';
 import {
-  type DecisionsOptions,
-  decisionsComposedPairsPlanner,
-  decisionsPlanner,
   jevComposedPairsPlanner,
   jevPlanner,
   type TypeSafeOptions,
@@ -81,31 +77,15 @@ export function createPlaygroundEngine(
 /**
  * The Jev planners `MAELSTROM_PLANNER` selects: `jev` is the frozen POC,
  * `jev-composed-pairs` the experimental planner that composes the layout
- * from Jev's answers about pairs of instances. Their OpenAI Decisions
- * siblings are {@link DecisionsPlannerName}.
+ * from Jev's answers about pairs of instances.
  */
 export type JevPlannerName = 'jev' | 'jev-composed-pairs';
-
-/**
- * The OpenAI Decisions planners `MAELSTROM_PLANNER` selects: `decisions`
- * asks the POC's questions, `decisions-composed-pairs` the composed pairs
- * planner's, both answered by OpenAI Decisions instead of TypeSafe Jev.
- */
-export type DecisionsPlannerName = 'decisions' | 'decisions-composed-pairs';
 
 export interface JevPlaygroundEngineOptions extends PlaygroundEngineOptions {
   /** Which Jev planner plans. Defaults to `jev`. */
   readonly planner?: JevPlannerName;
   /** TypeSafe key and pinned Jev model. Local server only. */
   readonly typesafe: TypeSafeOptions;
-}
-
-export interface DecisionsPlaygroundEngineOptions
-  extends PlaygroundEngineOptions {
-  /** Which Decisions planner plans. Defaults to `decisions`. */
-  readonly planner?: DecisionsPlannerName;
-  /** OpenAI key and reply logging for Decisions. Local server only. */
-  readonly decisions: DecisionsOptions;
 }
 
 /**
@@ -118,49 +98,17 @@ export interface DecisionsPlaygroundEngineOptions
 export function createJevPlaygroundEngine(
   options: JevPlaygroundEngineOptions,
 ): Engine {
-  const planner =
-    options.planner === 'jev-composed-pairs'
-      ? jevComposedPairsPlanner
-      : jevPlanner;
-  return createStagedPlaygroundEngine(options, (shared) =>
-    planner({ typesafe: options.typesafe, ...shared }),
-  );
-}
-
-/**
- * The local Decisions engine (`MAELSTROM_PLANNER=decisions` or
- * `decisions-composed-pairs`): OpenAI Decisions answers the staged
- * planner's questions, and any deferral, a refusal included, re-plans with
- * the same `llmPlanner` the default engine uses, under `retry: false` as
- * for Jev.
- */
-export function createDecisionsPlaygroundEngine(
-  options: DecisionsPlaygroundEngineOptions,
-): Engine {
-  const planner =
-    options.planner === 'decisions-composed-pairs'
-      ? decisionsComposedPairsPlanner
-      : decisionsPlanner;
-  return createStagedPlaygroundEngine(options, (shared) =>
-    planner({ decisions: options.decisions, ...shared }),
-  );
-}
-
-type StagedPlannerOptions = Pick<
-  Parameters<typeof jevPlanner>[0],
-  'adapter' | 'modelOptions' | 'fallback'
->;
-
-function createStagedPlaygroundEngine(
-  options: PlaygroundEngineOptions,
-  planner: (shared: StagedPlannerOptions) => Planner,
-): Engine {
   const modelOptions =
     options.modelOptions === undefined
       ? {}
       : { modelOptions: options.modelOptions };
+  const planner =
+    options.planner === 'jev-composed-pairs'
+      ? jevComposedPairsPlanner
+      : jevPlanner;
   return createEngine({
     planner: planner({
+      typesafe: options.typesafe,
       adapter: options.adapter,
       ...modelOptions,
       fallback: llmPlanner({
