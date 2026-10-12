@@ -20,6 +20,7 @@
     "@effect/sql-d1": "4.0.2",
     "@effect/platform-bun": "4.0.2",
     "@effect/platform-node": "4.0.2",
+    "@pgrabovets/json-view": "^2.8.1",
     "@sinonjs/fake-timers": "^15.1.1",
     "@tailwindcss/vite": "^4.2.2",
     "@tanstack/ai": "^0.65.1",
@@ -52,7 +53,8 @@
     "typescript": "~5.9.2",
     "vite": "^8.0.13",
     "vite-tsconfig-paths": "^5.1.4",
-    "zod": "^4.3.6"
+    "zod": "^4.3.6",
+    "solid-js": "^1.9.9"
   },
   "devDependencies": {
     "@babel/core": "^7.14.5",

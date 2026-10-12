@@ -1,0 +1,72 @@
+{
+  "name": "@maelstrom-co/devtools",
+  "version": "0.1.0-alpha.5",
+  "description": "Development diagnostics and shared browser inspector for Maelstrom.",
+  "keywords": [
+    "maelstrom",
+    "devtools",
+    "diagnostics"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    "./package.json": "./package.json",
+    "./production": {
+      "@maelstrom-co/source": "./src/production.ts",
+      "types": "./dist/production.d.ts",
+      "default": "./dist/production.js"
+    },
+    ".": {
+      "@maelstrom-co/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "development": "./dist/index.js",
+      "default": "./dist/disabled.js"
+    }
+  },
+  "files": [
+    "dist",
+    "skills",
+    "!**/*.tsbuildinfo"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/maelstrom-co/maelstrom.git",
+    "directory": "packages/devtools"
+  },
+  "homepage": "https://maelstrom-ai.co",
+  "bugs": {
+    "url": "https://github.com/maelstrom-co/maelstrom/issues"
+  },
+  "author": "Maelstrom (https://maelstrom-ai.co)",
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "dependencies": {
+    "@maelstrom-co/client": "0.1.0-alpha.5",
+    "@maelstrom-co/protocol": "0.1.0-alpha.5",
+    "@pgrabovets/json-view": "catalog:",
+    "solid-js": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {},
+  "nx": {
+    "targets": {
+      "typecheck": {
+        "command": "tsc -p tsconfig.lib.json --noEmit && tsc -p tsconfig.spec.json --noEmit",
+        "options": {
+          "cwd": "{projectRoot}"
+        }
+      },
+      "test": {
+        "command": "bun test",
+        "options": {
+          "cwd": "{projectRoot}"
+        }
+      }
+    }
+  }
+}

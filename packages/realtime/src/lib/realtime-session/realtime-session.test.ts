@@ -3402,6 +3402,7 @@ describe('RealtimeSession tool events on the session event stream', () => {
     expect(seen).toEqual([
       {
         type: 'tool.called',
+        generation: 1,
         callId,
         name: 'update_ui',
         argumentsJson: '{"intent":"show labs"}',
@@ -3413,7 +3414,13 @@ describe('RealtimeSession tool events on the session event stream', () => {
         intent: 'show labs',
         summary: 'The screen is empty.',
       },
-      { type: 'tool.result', callId, ok: true, latencyMs: expect.any(Number) },
+      {
+        type: 'tool.result',
+        generation: 1,
+        callId,
+        ok: true,
+        latencyMs: expect.any(Number),
+      },
     ]);
   });
 
@@ -3464,7 +3471,10 @@ describe('RealtimeSession tool events on the session event stream', () => {
     });
     await flushMicrotasks();
 
-    expect(seen.map((event) => event.type)).toEqual(['tool.called']);
+    expect(seen.map((event) => event.type)).toEqual([
+      'tool.called',
+      'tool.cancelled',
+    ]);
     expect(adapter.toolResults).toEqual([]);
   });
 

@@ -1,6 +1,6 @@
 ---
 id: maelstrom-observability
-prompt_version: 0.1.0
+prompt_version: 0.1.1
 compatibility:
   sdk:
     "@maelstrom-co/client": "0.1.0-alpha.4"
@@ -12,6 +12,12 @@ Question or operational goal: [GOAL]
 Telemetry conventions: [SYSTEM OR "inspect"]
 Relevant integration paths: [PATHS OR "discover"]
 Implementation authorized: [YES / NO]
+
+For a local inspection goal, check existing DevTools metadata before adding
+custom listeners. Verify the installed DevTools version and its package-owned
+guide. Content recording requires authorization to retain application data.
+Keep operational reporting in the application's telemetry system; DevTools
+provides local inspection and explicit recordings.
 
 Inspect package versions and the current integration before changing code. Find
 the event types and payloads in the installed SDK exports, declarations, source,

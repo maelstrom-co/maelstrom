@@ -999,15 +999,24 @@ export class RealtimeSession implements VoiceSession {
     call: Extract<RealtimeAdapterEvent, { type: 'tool_call' }>,
   ): Promise<void> {
     const epoch = this.#connectEpoch;
+    const generation = this.#generation;
     this.#logger.debug('session: tool_call received', call);
     const startedAt = Date.now();
     this.#events.publish({
       type: 'tool.called',
+      generation,
       callId: call.callId,
       name: call.name,
       argumentsJson: call.argumentsJson,
     });
-    if (epoch !== this.#connectEpoch) return;
+    if (epoch !== this.#connectEpoch) {
+      this.#events.publish({
+        type: 'tool.cancelled',
+        generation,
+        callId: call.callId,
+      });
+      return;
+    }
 
     let ok = false;
     try {
@@ -1041,6 +1050,7 @@ export class RealtimeSession implements VoiceSession {
 
     this.#events.publish({
       type: 'tool.result',
+      generation,
       callId: call.callId,
       ok,
       latencyMs: Date.now() - startedAt,

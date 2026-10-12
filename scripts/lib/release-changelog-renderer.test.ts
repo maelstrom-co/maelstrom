@@ -1,9 +1,25 @@
 import { describe, expect, it } from 'bun:test';
+import { resolve } from 'node:path';
 import type { ChangelogChange } from 'nx/release/changelog-renderer';
 import { GithubRemoteReleaseClient } from 'nx/src/command-line/release/utils/remote-release-clients/github';
 import ReleaseChangelogRenderer, {
   scopeChangesToReleaseProjects,
 } from './release-changelog-renderer.ts';
+
+it('loads under the Node runtime used by preview versioning', () => {
+  const node = Bun.which('node');
+  if (!node) throw new Error('Node is required to verify the release CLI.');
+  const child = Bun.spawnSync(
+    [
+      node,
+      '--input-type=module',
+      '--eval',
+      'import Renderer from "./scripts/lib/release-changelog-renderer.ts"; if (typeof Renderer !== "function") throw new Error("Renderer did not load");',
+    ],
+    { cwd: resolve(import.meta.dir, '../..') },
+  );
+  expect(child.exitCode, child.stderr.toString()).toBe(0);
+});
 
 function change(shortHash: string | undefined): ChangelogChange {
   return {

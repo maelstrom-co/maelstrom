@@ -15,6 +15,10 @@ import { assertNever } from './assert-never.js';
 import { createChartRequestDedup } from './chart-request-dedup.js';
 import type { EngineConfig } from './config.js';
 import { resolveConfig } from './config.js';
+import {
+  EngineDiagnosticEmitter,
+  type EngineDiagnosticObserver,
+} from './diagnostics.js';
 import type { EngineError } from './errors.js';
 import { cancellationError, historyError, validationError } from './errors.js';
 import type { HistoryManager } from './history/history-manager.js';
@@ -81,6 +85,8 @@ import {
  * requests that may reach different instances.
  */
 export interface Engine {
+  /** Observes development evidence. Overlapping session/request IDs suppress stages and content. Hosts must opt in before forwarding. */
+  observeDiagnostics?: (observer: EngineDiagnosticObserver) => () => void;
   /**
    * Routes on `message.type`:
    *
@@ -199,6 +205,7 @@ export interface Engine {
  * ```
  */
 export function createEngine(config: EngineConfig): Engine {
+  const diagnosticsEmitter = new EngineDiagnosticEmitter();
   const validated = validateEngineConfig(config);
   const {
     planner: configuredPlanner,
@@ -264,22 +271,55 @@ export function createEngine(config: EngineConfig): Engine {
       request,
       history: historyContext.value,
     };
-    const validate = createCandidateValidator({
+    const validateCandidate = createCandidateValidator({
       request,
       enumSnapshot,
       messageId: message.id,
       logger,
     });
+    const validate: CandidateValidator = (candidate) => {
+      const report = validateCandidate(candidate);
+      diagnosticsEmitter.emit(
+        message.sessionId,
+        message.id,
+        'engine.candidate.validated',
+        { outcome: report.ok ? 'succeeded' : 'failed' },
+        () => report,
+      );
+      return report;
+    };
     const ctx: StageContext = {
       signal,
       logger,
-      instrument,
+      instrument: diagnosticsEmitter.instrument(
+        instrument,
+        message.sessionId,
+        message.id,
+      ),
       origin: input,
       validate,
       enumSnapshot,
     };
 
+    const start = performance.now();
+    diagnosticsEmitter.emit(
+      message.sessionId,
+      message.id,
+      'engine.planner.started',
+      {},
+      () => input,
+    );
     const planned = await runPlanner(planner, input, ctx, validate);
+    diagnosticsEmitter.emit(
+      message.sessionId,
+      message.id,
+      'engine.planner.completed',
+      {
+        durationMs: performance.now() - start,
+        outcome: planned.ok ? 'succeeded' : 'failed',
+      },
+      () => planned,
+    );
     if (isErr(planned)) {
       return planned;
     }
@@ -291,6 +331,18 @@ export function createEngine(config: EngineConfig): Engine {
     // drives the level so blank-UI responses (`unrecoverable`) cross default
     // `warn`-threshold paging filters.
     const { diagnostics, ...response } = planned.value;
+    diagnosticsEmitter.emit(
+      message.sessionId,
+      message.id,
+      'engine.validation.completed',
+      {
+        dropped: diagnostics.droppedLayoutEntries.length,
+        skipped: diagnostics.skippedActions.length,
+        warnings: diagnostics.warnings.length,
+        retry: diagnostics.retryHint.recommend,
+      },
+      () => diagnostics,
+    );
     if (
       diagnostics.skippedActions.length > 0 ||
       diagnostics.droppedLayoutEntries.length > 0 ||
@@ -330,6 +382,7 @@ export function createEngine(config: EngineConfig): Engine {
   });
 
   return {
+    observeDiagnostics: (observer) => diagnosticsEmitter.subscribe(observer),
     async handle(rawMessage, signal) {
       // Wire-format validation runs first. Smart constructors enforce envelope
       // invariants on programmatic construction (timestamp finite, brand
@@ -344,8 +397,17 @@ export function createEngine(config: EngineConfig): Engine {
       const message = validated.value;
 
       switch (message.type) {
-        case 'chart_request':
-          return dedup.handle(message, signal);
+        case 'chart_request': {
+          const releaseDiagnostics = diagnosticsEmitter.trackRequest(
+            message.sessionId,
+            message.id,
+          );
+          try {
+            return await dedup.handle(message, signal);
+          } finally {
+            releaseDiagnostics();
+          }
+        }
         case 'assistant_message': {
           if (history === undefined) {
             return err(validationError('history not configured', 'history'));

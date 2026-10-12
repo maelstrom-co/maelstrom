@@ -1,14 +1,17 @@
 import { execFile, execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import DefaultChangelogRenderer, {
-  type ChangelogChange,
-} from 'nx/release/changelog-renderer';
+import type { ChangelogChange } from 'nx/release/changelog-renderer';
 import { createProjectGraphAsync } from 'nx/src/project-graph/project-graph';
 import { findMatchingProjects } from 'nx/src/utils/find-matching-projects';
 import { workspaceRoot } from 'nx/src/utils/workspace-root';
 import { findReleaseAuthorOverride } from './release-author-overrides.ts';
+
+const { default: DefaultChangelogRenderer } = createRequire(import.meta.url)(
+  'nx/release/changelog-renderer',
+) as typeof import('nx/release/changelog-renderer');
 
 type ChangedFilesForCommit = (commit: string) => readonly string[];
 type ReleaseProject = { name: string; root: string };

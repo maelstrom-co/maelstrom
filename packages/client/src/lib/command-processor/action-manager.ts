@@ -10,6 +10,7 @@ import {
 
 import { isPromise, type Unsubscribe } from '../types.js';
 import { Logger } from '../utils/logger.js';
+import { notifyObserver } from '../utils/notify-observer.js';
 import type {
   ActionRecord,
   ActionRunner,
@@ -17,6 +18,18 @@ import type {
   BatchExecutionResult,
   ExecutableAction,
 } from './action-runner.types.js';
+
+/** One readiness or execution stage observed without changing Action behavior. */
+export interface ActionProgress {
+  /** Target Instance. */ readonly instanceId: InstanceId;
+  /** Action name when a specific handler starts. */ readonly action?: ActionName;
+  /** Readiness and execution are distinct stages. */ readonly phase:
+    | 'waiting'
+    | 'ready'
+    | 'unavailable'
+    | 'started';
+  /** Local elapsed duration for readiness. */ readonly durationMs?: number;
+}
 
 /**
  * ActionManager handles action execution for vessel instances.
@@ -52,6 +65,7 @@ import type {
  * console.log(`Executed ${result.actions.length} actions`);
  * ```
  */
+
 export class ActionManager {
   #runners: Map<InstanceId, AnyActionRunner> = new Map();
   #readinessWaiters: Map<InstanceId, Set<(ready: boolean) => void>> = new Map();
@@ -214,7 +228,11 @@ export class ActionManager {
    */
   async executeActions(
     executionPlan: readonly ActionExecution[],
+    observe?: (progress: ActionProgress) => void,
   ): Promise<BatchExecutionResult> {
+    const report = observe
+      ? (progress: ActionProgress) => notifyObserver(observe, progress)
+      : undefined;
     if (executionPlan.length === 0) {
       return {
         actions: [],
@@ -237,11 +255,18 @@ export class ActionManager {
       Array.from(actionsByInstance.entries()).map(
         async ([instanceId, actionDefs]) => {
           // Wait for runner to be ready before executing
+          const readinessStart = performance.now();
+          report?.({ instanceId, phase: 'waiting' });
           const isReady = await this.waitForReady(
             instanceId,
             this.#readinessTimeoutMs,
           );
 
+          report?.({
+            instanceId,
+            phase: isReady ? 'ready' : 'unavailable',
+            durationMs: performance.now() - readinessStart,
+          });
           if (!isReady) {
             this.#warn(
               `No runner registered for instance "${instanceId}", skipping ${actionDefs.length} actions`,
@@ -263,7 +288,7 @@ export class ActionManager {
             runner,
           }));
 
-          return this.#executeInstanceActions(instanceId, actions);
+          return this.#executeInstanceActions(instanceId, actions, report);
         },
       ),
     );
@@ -366,6 +391,7 @@ export class ActionManager {
   async #executeInstanceActions(
     instanceId: InstanceId,
     actions: ExecutableAction[],
+    observe?: (progress: ActionProgress) => void,
   ): Promise<ActionRecord[]> {
     const records: ActionRecord[] = [];
 
@@ -408,6 +434,7 @@ export class ActionManager {
           `Executing action "${execution.action}" on instance "${instanceId}"`,
         );
 
+        observe?.({ instanceId, action: execution.action, phase: 'started' });
         const handlerResult = handler(execution.params);
 
         // Handle both sync (Result) and async (Promise<Result>) handlers

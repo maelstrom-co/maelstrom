@@ -1,8 +1,12 @@
 import type { IntentQueueOptions } from '@maelstrom-co/client';
 import { createChart } from './chart/chart.js';
 import type { ChartMotionConfig } from './chart/motion/motion-config.js';
+import type { ConfigOverrides } from './config-types.js';
 import type { MaelstromContextPair } from './context.js';
-import { createMaelstromContext } from './context.js';
+import {
+  createMaelstromContext,
+  createOrchestratorObservers,
+} from './context.js';
 import type {
   ExtensionOutput,
   MaelstromExtension,
@@ -80,7 +84,7 @@ export function createMaelstrom<const T extends readonly AnyVesselEntry[]>(
     updateVessel: createUpdateVessel<T>(contextPair),
   };
 
-  return makeWithable<T, object>(base, contextPair);
+  return makeWithable<T, object>(base, contextPair, factoryConfig);
 }
 
 function makeWithable<
@@ -89,11 +93,16 @@ function makeWithable<
 >(
   instance: Omit<MaelstromInstance<T, Ext>, 'with'>,
   contextPair: MaelstromContextPair,
+  factoryConfig: ConfigOverrides,
 ): MaelstromInstance<T, Ext> {
   function withMethod<NewExt extends ExtensionOutput>(
     ext: MaelstromExtension<NewExt>,
   ): MaelstromInstance<T, Ext & NewExt> {
-    const additions = ext(contextPair as MaelstromExtensionContext);
+    const branchContext = {
+      ...contextPair,
+      ...createOrchestratorObservers(contextPair.orchestratorObservers),
+    };
+    const additions = ext(branchContext as MaelstromExtensionContext);
     for (const key in additions) {
       if (key in instance) {
         warnOnce(
@@ -103,11 +112,17 @@ function makeWithable<
       }
     }
     return makeWithable<T, Ext & NewExt>(
-      { ...instance, ...additions } as Omit<
-        MaelstromInstance<T, Ext & NewExt>,
-        'with'
-      >,
-      contextPair,
+      {
+        ...instance,
+        Provider: createProvider(
+          branchContext,
+          instance.vessels,
+          factoryConfig,
+        ),
+        ...additions,
+      } as Omit<MaelstromInstance<T, Ext & NewExt>, 'with'>,
+      branchContext,
+      factoryConfig,
     );
   }
 

@@ -8,6 +8,12 @@ import PromptDisclosure from '../../../../components/PromptDisclosure.astro';
 
 Maelstrom surfaces failures through a small, deliberate set of channels. This guide shows you where each kind of error lands and how to build UI around it.
 
+Use [DevTools](/guides/devtools/) to inspect the failing request before changing
+its error handling. **Requests** separates response receipt, layout application,
+and failed or skipped Actions. **Connections** shows transport evidence.
+Start a recording before reproducing a problem when supported content is needed;
+automatic activity contains metadata only.
+
 <Aside type="tip" title="Use with a coding agent">
   To investigate a concrete issue, use the [Maelstrom debugging prompt](/agents/prompts/maelstrom-debugging/) with the symptom and redacted evidence. It is for diagnosis from repository and runtime evidence before changing code; it does not authorize a fix by itself. For narrowly scoped event reporting, use the [observability prompt](/agents/prompts/maelstrom-observability/); it requires event and payload evidence from the installed SDK.
   <PromptDisclosure id="maelstrom-debugging" />
@@ -26,7 +32,7 @@ Frame your handling around where the failure originates. Each surface has a dist
 | --- | --- | --- |
 | [Engine / processing](/understanding/engine/) | `useMaelstrom().lastError` (plus `onError`) | A `processIntent` call fails: the engine rejects, the request times out, or response handling throws. |
 | [Connector](/understanding/connectors/) | `useMaelstrom().connectionStatus` + `connectionError` (plus `onError` on initial connect) | The transport fails to connect or the Orchestrator fails to start. Mid-session drops update `connectionStatus`/`connectionError` only; they do not reach `onError`. |
-| [Vessel runtime](/understanding/vessel-state-machine/) | The built-in `ErrorBoundary` | A *lazy* vessel's render throws or its chunk fails to load. Eagerly-registered vessels rely on your own React error boundary. |
+| [Vessel runtime](/understanding/vessel-state-machine/) | The built-in `ErrorBoundary` | A *lazy* vessel's render throws or its chunk fails to load. Eagerly registered vessels rely on your own React error boundary. |
 
 The first two are reactive state you read in your own components. The third is automatic and internal, covered below.
 
@@ -134,7 +140,7 @@ This is **automatic and internal**: there is nothing to wire up, and almost noth
 - The same caught error is forwarded to your Provider `onError` callback, so you still get to log or report it.
 
 <Aside type="caution">
-  The `ErrorBoundary` and its fallback card are **not exported** and the Chart wires them only around **lazy** vessels; eagerly-registered (non-lazy) vessels render without a boundary, so a throw there propagates to your own nearest React error boundary. The only knobs you control are the Provider `onError` callback and the per-vessel loading component (see [Lazy Loading](/guides/react/lazy-loading/)). The fallback card markup, the retry mechanism, and the boundary placement are all internal. If you need a custom error card for a non-lazy vessel, add your own React error boundary around it.
+  The `ErrorBoundary` and its fallback card are **not exported** and the Chart wires them only around **lazy** vessels; eagerly registered (non-lazy) vessels render without a boundary, so a throw there propagates to your own nearest React error boundary. The only knobs you control are the Provider `onError` callback and the per-vessel loading component (see [Lazy Loading](/guides/react/lazy-loading/)). The fallback card markup, the retry mechanism, and the boundary placement are all internal. If you need a custom error card for a non-lazy vessel, add your own React error boundary around it.
 </Aside>
 
 ## Retry UX

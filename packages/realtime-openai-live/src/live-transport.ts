@@ -1,5 +1,6 @@
 import type {
   AdapterAudioStreams,
+  AdapterDiagnosticSource,
   AdapterVoiceObservation,
   AdapterVoiceObservations,
   RealtimeAdapterEvent,
@@ -16,6 +17,7 @@ import {
   type LiveSessionExchange,
   LiveTransportError,
 } from '@maelstrom-co/realtime-protocol/openai-live';
+import { type LiveContextKind, LiveDiagnostics } from './live-diagnostics.js';
 
 /** Browser transport configuration. Factories must return exclusively owned resources. */
 export interface LiveTransportOptions {
@@ -122,6 +124,9 @@ type Run = {
 export class OpenAILiveTransport
   implements RealtimeTransportAdapter<LiveSessionConfig>
 {
+  private readonly diagnosticFeed = new LiveDiagnostics();
+  /** Optional projected native evidence; subscribing never starts media or transport work. */
+  readonly diagnostics: AdapterDiagnosticSource = this.diagnosticFeed;
   private run?: Run;
   private generation = 0;
   private snapshot: LiveTransportSnapshot = {
@@ -248,7 +253,11 @@ export class OpenAILiveTransport
   }
 
   /** Submits one command only to the supplied generation. There is no queue, retry, or success acknowledgment. */
-  send(command: LiveCommand, generation: number): void {
+  send(
+    command: LiveCommand,
+    generation: number,
+    contextKind?: LiveContextKind,
+  ): void {
     const run = this.run;
     if (
       !run?.connected ||
@@ -273,6 +282,7 @@ export class OpenAILiveTransport
       this.fail(run, new LiveTransportError('send_failed'));
       throw new LiveTransportError('send_failed');
     }
+    this.diagnosticFeed.emit(command, 'sent', run.id, contextKind);
   }
 
   /** Stops participation promptly, then drains session.closed for a bounded interval. Never waits for host tool work. */
@@ -426,6 +436,8 @@ export class OpenAILiveTransport
           JSON.parse(message.data),
         );
         if (!parsed.success) throw new Error();
+        this.diagnosticFeed.emit(parsed.data, 'received', run.id);
+        if (!this.current(run)) return;
         this.receive(run, parsed.data as LiveServerEvent);
       } catch {
         this.fail(run, new LiveTransportError('invalid_event'));

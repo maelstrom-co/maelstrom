@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+import { existsSync } from 'node:fs';
 import { readdir, readFile } from 'node:fs/promises';
 import { dirname, join, resolve, sep } from 'node:path';
 import ts from 'typescript';
@@ -14,6 +15,7 @@ test('each shipped SDK guide has local task recipes whose examples compile again
   let guideCount = 0;
   for (const entry of packages.filter((entry) => entry.isDirectory())) {
     const packageRoot = join(root, 'packages', entry.name);
+    if (!existsSync(join(packageRoot, 'package.json'))) continue;
     const manifest = JSON.parse(
       await readFile(join(packageRoot, 'package.json'), 'utf8'),
     );
@@ -70,7 +72,7 @@ test('each shipped SDK guide has local task recipes whose examples compile again
       }
     }
   }
-  expect(guideCount).toBe(14);
+  expect(guideCount).toBe(16);
   const options: ts.CompilerOptions = {
     strict: true,
     noEmit: true,

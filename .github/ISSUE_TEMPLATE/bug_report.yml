@@ -68,3 +68,15 @@ body:
       description: Logs, screenshots, repo links, anything else relevant.
     validations:
       required: false
+
+  - type: textarea
+    id: devtools
+    attributes:
+      label: DevTools Evidence (Optional)
+      description: |
+        If DevTools is available, include the request ID, observed stages, or a recording from the reproduction.
+        Follow the [DevTools guide](https://docs.maelstrom-ai.co/guides/devtools/#record-and-reopen-a-problem).
+        Inspect and redact any recording before sharing it. Built-in redaction does not cover all application data.
+        A recording is optional; you can report a bug without installing DevTools or recording content.
+    validations:
+      required: false

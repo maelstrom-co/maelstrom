@@ -18,7 +18,10 @@ import type {
   RealtimeSessionMemory,
   SummarizeFn,
 } from '@maelstrom-co/realtime';
-import { RealtimeSession } from '@maelstrom-co/realtime';
+import {
+  attachRealtimeDiagnostics,
+  RealtimeSession,
+} from '@maelstrom-co/realtime';
 import {
   type ReactElement,
   useCallback,
@@ -552,7 +555,9 @@ function buildSession<Provider>(
   const sessionId = memory.sessionId;
   const init: RealtimeSessionInit<Provider> = { sessionId, provider };
   const adapter = options.createAdapter(init);
+  let releaseDiagnostics: (() => void) | undefined;
   try {
+    const diagnosticInstanceId = crypto.randomUUID();
     const opening = options.opening
       ? options.opening(init)
       : {
@@ -582,17 +587,30 @@ function buildSession<Provider>(
         ? { greeting: { text: opening.greeting.text, coordinator } }
         : {}),
     });
+    releaseDiagnostics = attachRealtimeDiagnostics({
+      session,
+      adapter,
+      sink: orchestrator.diagnostics,
+      identity: {
+        provider: typeof provider === 'string' ? provider : 'custom',
+        providerInstanceId: diagnosticInstanceId,
+      },
+    });
     const release = options.onSession?.(session, {
       ...init,
       orchestrator,
-      instanceId: crypto.randomUUID(),
+      instanceId: diagnosticInstanceId,
       adapter,
     });
     return {
       session,
-      release: typeof release === 'function' ? release : undefined,
+      release: () => {
+        releaseDiagnostics?.();
+        if (typeof release === 'function') release();
+      },
     };
   } catch (error) {
+    releaseDiagnostics?.();
     releaseAdapter(adapter);
     throw error;
   }

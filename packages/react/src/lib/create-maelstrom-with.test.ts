@@ -35,7 +35,7 @@ describe('createMaelstrom().with()', () => {
     expect(m.b).toBe('two');
   });
 
-  it('each extension receives the same contextPair (identity check)', () => {
+  it('extensions share React context while lifecycle registrations remain branch-local', () => {
     const capturedPairs: MaelstromExtensionContext[] = [];
     const extA: MaelstromExtension<{ a: 1 }> = (ctx) => {
       capturedPairs.push(ctx);
@@ -49,7 +49,13 @@ describe('createMaelstrom().with()', () => {
       .with(extA)
       .with(extB);
     expect(capturedPairs).toHaveLength(2);
-    expect(capturedPairs[0]).toBe(capturedPairs[1]);
+    expect(capturedPairs[0]).not.toBe(capturedPairs[1]);
+    expect(capturedPairs[0]?.useMaelstromContext).toBe(
+      capturedPairs[1]?.useMaelstromContext,
+    );
+    expect(capturedPairs[0]?.onOrchestrator).not.toBe(
+      capturedPairs[1]?.onOrchestrator,
+    );
   });
 
   it('.with() returns an instance that still supports further .with() chaining', () => {

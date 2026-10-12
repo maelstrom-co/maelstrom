@@ -43,7 +43,11 @@
               },
               "@maelstrom-co/realtime-vad/config": {
                 "message": "Server and worker packages may not import @maelstrom-co/realtime-vad/config — it's a browser package. See packages/realtime-protocol/src/layer-boundary.test.ts for the enforced layering rule."
-              }
+              },
+              "@maelstrom-co/devtools": "Browser diagnostics are forbidden in server/worker packages. See packages/realtime-protocol/src/layer-boundary.test.ts.",
+              "@maelstrom-co/react-devtools": "Browser diagnostics are forbidden in server/worker packages. See packages/realtime-protocol/src/layer-boundary.test.ts.",
+              "@maelstrom-co/devtools/production": "Browser diagnostics are forbidden in server/worker packages. See packages/realtime-protocol/src/layer-boundary.test.ts.",
+              "@maelstrom-co/react-devtools/production": "Browser diagnostics are forbidden in server/worker packages. See packages/realtime-protocol/src/layer-boundary.test.ts."
             }
           }
         }

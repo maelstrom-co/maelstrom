@@ -11,6 +11,10 @@ import {
   resolveDocsSourceRef,
 } from './src/lib/docs-source-links.js';
 
+const [devtoolsTypeDoc, devtoolsTypeDocSidebarGroup] =
+  createStarlightTypeDocPlugin();
+const [reactDevtoolsTypeDoc, reactDevtoolsTypeDocSidebarGroup] =
+  createStarlightTypeDocPlugin();
 const [reactTypeDoc, reactTypeDocSidebarGroup] = createStarlightTypeDocPlugin();
 const [clientTypeDoc, clientTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
@@ -124,6 +128,11 @@ export default defineConfig({
 - \`@maelstrom-co/client\` — Framework-agnostic client (Orchestrator, Connectors, ChartManager)
 - \`@maelstrom-co/protocol\` — Shared types, Zod schemas, message contract
 - \`@maelstrom-co/engine\` — LLM decision engine (createEngine, LLMProvider)
+- \`@maelstrom-co/react-devtools\` — Optional React diagnostics extension (devtools, m.Devtools)
+- \`@maelstrom-co/devtools\` — Optional framework-independent collector, explicit capture, and shared browser panel
+
+## DevTools
+Use the DevTools guide for request, layout, voice, and recording inspection. Automatic activity contains metadata; content requires explicit recording. Default production entrypoints are inert. The /production entrypoints opt into browser tools in every build; Engine forwarding needs separate host authorization and stays disabled in production.
 `,
           // The Architecture Overview is an interactive Astro island living at a
           // src/pages route (outside the docs content collection, so the island
@@ -134,7 +143,7 @@ export default defineConfig({
               label: 'Architecture Overview',
               url: 'https://docs.maelstrom-ai.co/understanding/architecture/',
               description:
-                'Interactive walkthrough of the runtime feedback loop between the browser client, the protocol contract, and the server engine, plus the load-bearing layout-before-actions apply order.',
+                'Interactive walkthrough of the browser, protocol, and Engine request loop, the layout-before-actions order, and optional DevTools evidence paths.',
             },
           ],
           customSets: [
@@ -162,6 +171,20 @@ export default defineConfig({
             'getting-started/core-concepts',
           ],
           demote: ['community/changelog'],
+        }),
+        devtoolsTypeDoc({
+          entryPoints: ['../../packages/devtools/src/index.ts'],
+          tsconfig: '../../packages/devtools/tsconfig.lib.json',
+          output: 'reference/devtools',
+          sidebar: { label: '@maelstrom-co/devtools', collapsed: true },
+          typeDoc: multiEntryTypeDocOptions,
+        }),
+        reactDevtoolsTypeDoc({
+          entryPoints: ['../../packages/react-devtools/src/index.ts'],
+          tsconfig: '../../packages/react-devtools/tsconfig.lib.json',
+          output: 'reference/react-devtools',
+          sidebar: { label: '@maelstrom-co/react-devtools', collapsed: true },
+          typeDoc: multiEntryTypeDocOptions,
         }),
         reactTypeDoc({
           entryPoints: ['../../packages/react/src/index.ts'],
@@ -403,6 +426,7 @@ export default defineConfig({
         {
           label: 'Guides',
           items: [
+            { slug: 'guides/devtools' },
             {
               label: 'Voice',
               items: [
@@ -463,6 +487,8 @@ export default defineConfig({
           label: 'API Reference',
           items: [
             reactTypeDocSidebarGroup,
+            devtoolsTypeDocSidebarGroup,
+            reactDevtoolsTypeDocSidebarGroup,
             clientTypeDocSidebarGroup,
             connectorsTypeDocSidebarGroup,
             protocolTypeDocSidebarGroup,

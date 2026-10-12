@@ -1,0 +1,149 @@
+.devtools-map {
+  container-type: inline-size;
+  padding: 1.25rem;
+  border: 1px solid var(--sl-color-gray-5);
+  border-radius: 0.75rem;
+  background: var(--sl-color-gray-7);
+}
+
+.devtools-map h3 {
+  margin-top: 0;
+}
+
+.devtools-map__choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+}
+
+.devtools-map__choices legend {
+  margin-bottom: 0.5rem;
+  padding: 0;
+  font-size: 0.875rem;
+}
+
+.devtools-map__choices button {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--sl-color-gray-4);
+  border-radius: 0.5rem;
+  background: var(--sl-color-gray-6);
+  color: var(--sl-color-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.devtools-map__choices button[aria-pressed='true'] {
+  border-color: var(--sl-color-accent);
+  background: var(--sl-color-accent-low);
+  color: var(--sl-color-accent-high);
+}
+
+.devtools-map__choices button:focus-visible {
+  outline: 2px solid var(--sl-color-accent);
+  outline-offset: 3px;
+}
+
+.devtools-map .devtools-map__flow {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1.5rem;
+  padding: 0;
+  list-style: none;
+}
+
+.devtools-map .devtools-map__step {
+  position: relative;
+  margin: 0;
+  padding: 0.875rem;
+  border: 1px solid var(--sl-color-gray-4);
+  border-radius: 0.5rem;
+  background: var(--sl-color-bg);
+  overflow-wrap: anywhere;
+}
+
+.devtools-map__step:not(:last-child)::after {
+  position: absolute;
+  top: 50%;
+  right: -1.5rem;
+  width: 1.5rem;
+  color: var(--sl-color-accent-high);
+  text-align: center;
+  content: '→';
+  animation: devtools-evidence-flow 2.4s ease-in-out;
+}
+
+.devtools-map__step:nth-child(2)::after {
+  animation-delay: 0.4s;
+}
+
+.devtools-map__step:nth-child(3)::after {
+  animation-delay: 0.8s;
+}
+
+.devtools-map__owner {
+  display: block;
+  margin-bottom: 0.5rem;
+  color: var(--sl-color-gray-2);
+  font-size: 0.75rem;
+}
+
+.devtools-map__step strong {
+  display: block;
+  font-size: 0.95rem;
+}
+
+.devtools-map__step p {
+  margin-top: 0.5rem;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.devtools-map__binding {
+  font-size: 0.875rem;
+}
+
+.devtools-map__fallback summary {
+  cursor: pointer;
+}
+
+.devtools-map__fallback section {
+  margin-top: 1.5rem;
+}
+
+@keyframes devtools-evidence-flow {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 1; }
+}
+
+@container (max-width: 46rem) {
+  .devtools-map .devtools-map__flow {
+    grid-template-columns: 1fr;
+  }
+
+  .devtools-map__step:not(:last-child)::after {
+    top: auto;
+    right: 50%;
+    bottom: -1.5rem;
+    transform: translateX(50%);
+    content: '↓';
+  }
+}
+
+@media (prefers-reduced-motion: reduce), print {
+  .devtools-map__step:not(:last-child)::after {
+    animation: none;
+  }
+}
+
+@media print {
+  .devtools-map__choices {
+    display: none;
+  }
+
+  .devtools-map__fallback::details-content {
+    content-visibility: visible;
+  }
+}

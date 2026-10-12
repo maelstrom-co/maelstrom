@@ -6,6 +6,7 @@ export type {
   ChartSize,
 } from './lib/chart.ts';
 export { ChartDimensionsSchema } from './lib/chart.ts';
+export * from './lib/diagnostics.ts';
 export type { EngineMessage, EngineMessageBase } from './lib/engine-message.ts';
 export {
   AssistantInjectionMessage,
@@ -110,6 +111,8 @@ export {
 export type { Result } from './lib/result.ts';
 export { err, isErr, isOk, ok, unwrap } from './lib/result.ts';
 export { sanitizeControlChars } from './lib/sanitize-control-chars.ts';
+export type { DiagnosticSanitizerOptions } from './lib/sanitize-diagnostics.ts';
+export { sanitizeDiagnosticValue } from './lib/sanitize-diagnostics.ts';
 export {
   ActionExecutionSchema,
   ChartPositionSchema,

@@ -61,6 +61,7 @@ Both calls reject on transport or LLM errors — wrap in try/catch in real apps.
 - Quick start: https://docs.maelstrom-ai.co/getting-started/quick-start/
 - Core concepts: https://docs.maelstrom-ai.co/getting-started/core-concepts/
 - Client guides: https://docs.maelstrom-ai.co/guides/client/custom-connectors/
+- Optional DevTools: [attach a framework-independent collector](https://docs.maelstrom-ai.co/guides/devtools/#use-the-core-without-react) with `@maelstrom-co/devtools` before connecting the Orchestrator.
 - API reference: https://docs.maelstrom-ai.co/reference/client/readme/
 
 ## License

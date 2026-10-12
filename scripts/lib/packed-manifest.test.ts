@@ -114,12 +114,7 @@ describe('release package coverage', () => {
 
     expect(parsePackedManifest(entries, '1.2.3')).toEqual(entries);
     expect(packages.map((pkg) => pkg.name).sort()).toEqual(
-      [
-        ...PACKED_PACKAGE_NAMES,
-        ...(packages.some((pkg) => pkg.name === '@maelstrom-co/devtools')
-          ? ['@maelstrom-co/devtools', '@maelstrom-co/react-devtools']
-          : []),
-      ].sort(),
+      [...PACKED_PACKAGE_NAMES].sort(),
     );
     expect(entries.map((pkg) => pkg.name)).toContain(
       '@maelstrom-co/realtime-openai-live',
@@ -131,43 +126,21 @@ describe('release package coverage', () => {
 });
 
 describe('validatePackedManifest policy', () => {
-  test('accepts existing releases and the complete devtools preview pair without opening the namespace', () => {
-    const legacy = manifest();
-    const devtools = [
-      '@maelstrom-co/devtools',
-      '@maelstrom-co/react-devtools',
-    ].map((name, index) => ({
-      name,
-      version: '1.2.3',
-      tarball: `devtools-${index}.tgz`,
-    }));
-    expect(parsePackedManifest(legacy, '1.2.3')).toEqual(legacy);
-    expect(parsePackedManifest([...legacy, ...devtools], '1.2.3')).toEqual([
-      ...legacy,
-      ...devtools,
-    ]);
-    expect(() =>
-      parsePackedManifest([...legacy, devtools[0]], '1.2.3'),
-    ).toThrow();
-    expect(() =>
-      parsePackedManifest([...legacy.slice(2), ...devtools], '1.2.3'),
-    ).toThrow();
+  test('rejects a release that omits both newly published devtools packages', () => {
+    const entries = manifest().filter(
+      ({ name }) =>
+        name !== '@maelstrom-co/devtools' &&
+        name !== '@maelstrom-co/react-devtools',
+    );
+    expect(() => parsePackedManifest(entries, '1.2.3')).toThrow();
+  });
+  test.each([
+    '@maelstrom-co/devtools',
+    '@maelstrom-co/react-devtools',
+  ])('rejects a release missing the required %s artifact', (missing) => {
     expect(() =>
       parsePackedManifest(
-        [
-          ...legacy,
-          ...devtools.map((entry) => ({ ...entry, version: 'other' })),
-        ],
-        '1.2.3',
-      ),
-    ).toThrow();
-    expect(() =>
-      parsePackedManifest(
-        [
-          ...legacy,
-          devtools[0],
-          { ...devtools[1], name: '@maelstrom-co/unknown' },
-        ],
+        manifest().filter(({ name }) => name !== missing),
         '1.2.3',
       ),
     ).toThrow();

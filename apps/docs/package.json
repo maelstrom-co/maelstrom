@@ -64,7 +64,9 @@
     "tailwindcss": "catalog:",
     "typedoc": "^0.28.0",
     "typedoc-plugin-markdown": "^4.6.0",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "@maelstrom-co/devtools": "workspace:*",
+    "@maelstrom-co/react-devtools": "workspace:*"
   },
   "nx": {
     "implicitDependencies": [
@@ -84,7 +86,9 @@
       "@maelstrom-co/realtime-vad",
       "@maelstrom-co/realtime-livekit",
       "@maelstrom-co/realtime-livekit-server",
-      "@maelstrom-co/realtime-livekit-agent"
+      "@maelstrom-co/realtime-livekit-agent",
+      "@maelstrom-co/devtools",
+      "@maelstrom-co/react-devtools"
     ],
     "targets": {
       "build": {

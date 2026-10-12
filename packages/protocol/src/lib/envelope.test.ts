@@ -22,7 +22,7 @@ import { InstanceId } from './instance.js';
 import { MessageId } from './message.js';
 import type { ChartRequest } from './request.js';
 import type { MaelstromResponse } from './response.js';
-import { isErr } from './result.js';
+import { isErr, ok } from './result.js';
 import { SessionId } from './session.js';
 import type { SessionHistoryEntry } from './session-history-entry.js';
 
@@ -440,8 +440,37 @@ describe('EngineMessage ↔ ClientEnvelope', () => {
   test('the direction schemas are the same discriminated-union contract', () => {
     // Guards against a member silently dropping out of a union: the schema a
     // host would safeParse against must accept exactly what the codec accepts.
-    expect(ClientEnvelopeSchema.options).toHaveLength(4);
-    expect(ServerEnvelopeSchema.options).toHaveLength(4);
+    expect(ClientEnvelopeSchema.options).toHaveLength(5);
+    expect(ServerEnvelopeSchema.options).toHaveLength(5);
+  });
+
+  test('diagnostic subscriptions remain transport control and diagnostic events retain request correlation', () => {
+    const subscription = {
+      type: 'client.diagnostics.subscribe' as const,
+      id: MessageId('diagnostic-control'),
+      sessionId: SessionId('session-1'),
+      enabled: true,
+      includeContent: false,
+    };
+    expect(decodeClientEnvelope(subscription)).toEqual(ok(subscription));
+    const frame = {
+      type: 'engine.diagnostics.event' as const,
+      event: {
+        id: 'event-1',
+        kind: 'engine.planner.attempt',
+        sessionId: 'session-1',
+        requestId: 'request-1',
+        at: 1,
+        metadata: { attempt: 1 },
+      },
+    };
+    expect(decodeServerEnvelope(frame)).toEqual(ok(frame));
+    expect(
+      decodeServerEnvelope({
+        ...frame,
+        event: { ...frame.event, metadata: { attempt: Infinity } },
+      }).ok,
+    ).toBe(false);
   });
 });
 

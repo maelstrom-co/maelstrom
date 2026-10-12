@@ -6,7 +6,11 @@ import type {
   VoiceMediaObservation,
   VoiceSessionState,
 } from '@maelstrom-co/client';
-import type { MessageId, ToolCallId } from '@maelstrom-co/protocol';
+import type {
+  DiagnosticMetadata,
+  MessageId,
+  ToolCallId,
+} from '@maelstrom-co/protocol';
 import type { VoiceRecoverySnapshot } from './realtime-session-memory.js';
 
 /**
@@ -192,6 +196,8 @@ export type ToolResult =
  * implemented transport. RealtimeSession requires RealtimeProviderAdapter.
  */
 export interface RealtimeTransportAdapter<Options = AdapterConnectOptions> {
+  /** Optional projected provider evidence. Subscription enables diagnostics without starting transport work. */
+  readonly diagnostics?: AdapterDiagnosticSource;
   /** Optional continuous media and transcript evidence. */
   readonly observations?: AdapterVoiceObservations;
   /** Starts one explicit connection attempt from a user action. */
@@ -206,6 +212,8 @@ export interface RealtimeTransportAdapter<Options = AdapterConnectOptions> {
 
 /** A transport with the implemented Maelstrom tool and grounding integration. */
 export interface RealtimeProviderAdapter extends RealtimeTransportAdapter {
+  /** Optional transport facts. Native generation is independent of RealtimeSession generation. */
+  getTransportSnapshot?(): AdapterTransportSnapshot;
   /**
    * Continuous transcript and media evidence, separate from the legacy
    * exhaustive event union. Every adapter defines the feed; each event kind
@@ -248,6 +256,44 @@ export interface RealtimeProviderAdapter extends RealtimeTransportAdapter {
    * value to binding/UI code only while retained `turnMode` is `manual`.
    */
   readonly turnControl?: AdapterTurnControl;
+}
+
+/** Projected provider facts, separate from raw native envelopes and voice media. */
+export interface AdapterDiagnosticObservation {
+  /** Provider-local category; consumers place it beneath a reserved voice namespace. */
+  readonly kind: string;
+  /** Native provider generation, independent of the session's generation. */
+  readonly providerGeneration: number;
+  /** Scalar facts without prompts, arguments, instructions, credentials, or audio. */
+  readonly metadata: DiagnosticMetadata;
+  /** Allowlisted application content, evaluated only by explicit recording. */
+  readonly readContent?: () => unknown;
+}
+
+/** Optional provider diagnostics. Observers cannot change provider behavior. */
+export interface AdapterDiagnosticSource {
+  /** Observes subsequent projected facts until released; no raw envelopes are exposed. */
+  subscribe(
+    observer: (observation: AdapterDiagnosticObservation) => void,
+  ): Unsubscribe;
+}
+
+/** Provider-neutral transport facts available for diagnostic projection. */
+export interface AdapterTransportSnapshot {
+  /** Native attempt count, independent of the session's generation. */
+  readonly generation: number;
+  /** Provider-reported lifecycle state. */
+  readonly state: string;
+  /** Reported cumulative usage when available. */
+  readonly usageSeconds?: number;
+  /** Reported final usage when available. */
+  readonly finalUsageSeconds?: number;
+  /** Reported context fraction when available. */
+  readonly contextUsageRatio?: number;
+  /** Provider finalization state when available. */
+  readonly finalization?: string;
+  /** Playback acceptance state when available; not proof of audibility. */
+  readonly playback?: string;
 }
 
 /** Continuous provider evidence. This channel never implies a legacy final turn. */

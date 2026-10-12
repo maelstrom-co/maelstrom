@@ -130,6 +130,8 @@ export async function handleEnvelope(
 
   try {
     switch (envelope.type) {
+      case 'client.diagnostics.subscribe':
+        return null;
       case 'chart_request': {
         const result = await engine.handle(envelope);
         if (isErr(result)) {

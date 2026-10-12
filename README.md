@@ -223,6 +223,12 @@ drive. The comparison docs carry the full tables and
 | [`@maelstrom-co/client`](https://docs.maelstrom-ai.co/reference/client/readme/) | Framework-agnostic orchestrator, connectors, and layout |
 | [`@maelstrom-co/engine`](https://docs.maelstrom-ai.co/reference/engine/readme/) | The LLM decision core, built on TanStack AI |
 | [`@maelstrom-co/protocol`](https://docs.maelstrom-ai.co/reference/protocol/readme/) | Shared types, zod schemas, and the message contract |
+| [`@maelstrom-co/react-devtools`](https://docs.maelstrom-ai.co/reference/react-devtools/readme/) | Optional React extension for request, layout, voice, and recording inspection |
+| [`@maelstrom-co/devtools`](https://docs.maelstrom-ai.co/reference/devtools/readme/) | Optional framework-independent diagnostics collector, capture store, and browser panel |
+
+Use the [DevTools guide](https://docs.maelstrom-ai.co/guides/devtools/) to inspect
+your application and record a problem. DevTools collects metadata automatically;
+content requires explicit recording. The default production entrypoints are inert.
 
 Voice is opt-in and ships separately. Start with
 [Run the voice demo locally](https://docs.maelstrom-ai.co/tutorials/run-voice-locally/) —

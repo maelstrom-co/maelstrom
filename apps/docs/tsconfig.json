@@ -22,6 +22,12 @@
   ],
   "references": [
     {
+      "path": "../../packages/react-devtools"
+    },
+    {
+      "path": "../../packages/devtools"
+    },
+    {
       "path": "../../packages/realtime-vad"
     },
     {

@@ -60,6 +60,7 @@ export {
   createTilingSplitNode,
   parseTilingTree,
 } from './lib/chart-manager/tiling.js';
+export type { ActionProgress } from './lib/command-processor/action-manager.js';
 // Action Manager
 export { ActionManager } from './lib/command-processor/action-manager.js';
 export type { ActionResult } from './lib/command-processor/action-result.js';
@@ -120,6 +121,8 @@ export type { HttpConnectorOptions } from './lib/connection-manager/connectors/h
 export { HttpConnector } from './lib/connection-manager/connectors/http-connector.js';
 export type { WebSocketConnectorOptions } from './lib/connection-manager/connectors/web-socket-connector.js';
 export { WebSocketConnector } from './lib/connection-manager/connectors/web-socket-connector.js';
+export type { DiagnosticObservation } from './lib/diagnostic-channel.js';
+export { DiagnosticChannel } from './lib/diagnostic-channel.js';
 // Orchestrator
 export { buildChartRequest } from './lib/orchestrator/build-chart-request.js';
 export { ConnectorSupersededError } from './lib/orchestrator/connector-superseded-error.js';

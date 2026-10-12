@@ -9,11 +9,13 @@ import { basename, join, resolve, sep } from 'node:path';
 export const PACKED_PACKAGE_NAMES = Object.freeze([
   '@maelstrom-co/client',
   '@maelstrom-co/connectors',
+  '@maelstrom-co/devtools',
   '@maelstrom-co/engine',
   '@maelstrom-co/planner-jev',
   '@maelstrom-co/planner-llm',
   '@maelstrom-co/protocol',
   '@maelstrom-co/react',
+  '@maelstrom-co/react-devtools',
   '@maelstrom-co/realtime',
   '@maelstrom-co/realtime-livekit',
   '@maelstrom-co/realtime-livekit-agent',
@@ -25,11 +27,6 @@ export const PACKED_PACKAGE_NAMES = Object.freeze([
   '@maelstrom-co/realtime-protocol',
   '@maelstrom-co/realtime-vad',
   '@maelstrom-co/react-realtime',
-] as const);
-
-const OPTIONAL_DEVTOOLS_PACKAGES = Object.freeze([
-  '@maelstrom-co/devtools',
-  '@maelstrom-co/react-devtools',
 ] as const);
 
 export const MAX_PACKED_TARBALL_BYTES = 50 * 1024 * 1024;
@@ -111,20 +108,13 @@ export function parsePackedManifest(
 ): PackedPackage[] {
   if (!Array.isArray(input))
     throw new Error('Packed manifest must be an array');
-  if (
-    input.length !== PACKED_PACKAGE_NAMES.length &&
-    input.length !==
-      PACKED_PACKAGE_NAMES.length + OPTIONAL_DEVTOOLS_PACKAGES.length
-  ) {
+  if (input.length !== PACKED_PACKAGE_NAMES.length) {
     throw new Error(
-      `Packed manifest must contain ${PACKED_PACKAGE_NAMES.length} packages or the complete devtools pair`,
+      `Packed manifest must contain exactly ${PACKED_PACKAGE_NAMES.length} packages`,
     );
   }
 
-  const allowed = new Set<string>([
-    ...PACKED_PACKAGE_NAMES,
-    ...OPTIONAL_DEVTOOLS_PACKAGES,
-  ]);
+  const allowed = new Set<string>(PACKED_PACKAGE_NAMES);
   const names = new Set<string>();
   const tarballs = new Set<string>();
   const packages = input.map((value, index) => {
@@ -177,14 +167,6 @@ export function parsePackedManifest(
     if (!names.has(name))
       throw new Error(`Packed manifest is missing package: ${name}`);
   }
-  const devtoolsCount = OPTIONAL_DEVTOOLS_PACKAGES.filter((name) =>
-    names.has(name),
-  ).length;
-  if (
-    devtoolsCount !== 0 &&
-    devtoolsCount !== OPTIONAL_DEVTOOLS_PACKAGES.length
-  )
-    throw new Error('Packed manifest must include both devtools packages');
   return packages;
 }
 

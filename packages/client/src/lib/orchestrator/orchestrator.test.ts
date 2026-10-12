@@ -10,6 +10,7 @@ import {
 import {
   ActionName,
   type ChartRequestMessage,
+  type DiagnosticEvent,
   err,
   InstanceId,
   type MaelstromResponse,
@@ -50,6 +51,74 @@ import { RequestInFlightError } from './request-in-flight-error.js';
 // ============================================================================
 // Test helpers
 // ============================================================================
+
+it('reattached diagnostics never discard work that completed without observers', async () => {
+  let response = Promise.withResolvers<MaelstromResponse>();
+  const { orchestrator } = createTestOrchestrator(
+    createMockConnector({ process: () => response.promise }),
+  );
+  const later: DiagnosticEvent[] = [];
+  let detach = () => {};
+  try {
+    await orchestrator.connect();
+    for (let cycle = 0; cycle < 3; cycle++) {
+      const observed: DiagnosticEvent[] = [];
+      detach = orchestrator.diagnostics.subscribe(({ event }) =>
+        observed.push(event),
+      );
+      const pending = orchestrator.processIntent(
+        'apply during observation gap',
+      );
+      const started = observed.find(
+        (event) => event.kind === 'client.request.started',
+      );
+      if (!started?.requestId) throw new Error('Expected an observed request');
+      detach();
+      const requestId = MessageId(started.requestId);
+      response.resolve(createMockEmptyResponse(requestId));
+      expect((await pending).requestId).toBe(requestId);
+      expect((await orchestrator.commandProcessor.waitForIdle()).ok).toBe(true);
+      response = Promise.withResolvers<MaelstromResponse>();
+    }
+    detach = orchestrator.diagnostics.subscribe(({ event }) =>
+      later.push(event),
+    );
+    await orchestrator.dispose();
+    expect(
+      later.filter((event) => event.kind === 'client.response.discarded'),
+    ).toEqual([]);
+  } finally {
+    detach();
+    await orchestrator.dispose();
+  }
+});
+
+it('keeps request correlation unique across clients sharing a session and timestamp', async () => {
+  const ids: MessageId[] = [];
+  const connector = () =>
+    createMockConnector({
+      process: async (message) => {
+        ids.push(message.id);
+        return createMockEmptyResponse(message.id);
+      },
+    });
+  const options = { sessionId: SessionId('shared-diagnostic-session') };
+  const first = createTestOrchestrator(connector(), options).orchestrator;
+  const second = createTestOrchestrator(connector(), options).orchestrator;
+  const clock = spyOn(Date, 'now').mockReturnValue(1234567890);
+  try {
+    await Promise.all([first.connect(), second.connect()]);
+    await Promise.all([
+      first.processIntent('first client'),
+      second.processIntent('second client'),
+    ]);
+    expect(ids).toHaveLength(2);
+    expect(ids[0]).not.toBe(ids[1]);
+  } finally {
+    clock.mockRestore();
+    await Promise.all([first.dispose(), second.dispose()]);
+  }
+});
 
 function createMockPushConnector(
   overrides: Partial<PushConnector> = {},

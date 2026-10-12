@@ -71,6 +71,12 @@
     },
     {
       "path": "./packages/connectors"
+    },
+    {
+      "path": "./packages/react-devtools"
+    },
+    {
+      "path": "./packages/devtools"
     }
   ],
   "compilerOptions": {}

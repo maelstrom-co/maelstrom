@@ -25,6 +25,10 @@ export interface MaelstromExtensionContextValue {
  * fields, but only those listed here are part of the supported contract.
  */
 export interface MaelstromExtensionContext {
+  /** Observes this extension branch and its descendants before Provider connection; returns registration cleanup. */
+  onOrchestrator?: (
+    attach: (orchestrator: Orchestrator) => () => void,
+  ) => () => void;
   useMaelstromContext: () => MaelstromExtensionContextValue;
 }
 

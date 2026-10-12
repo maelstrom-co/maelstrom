@@ -18,7 +18,11 @@
               "@maelstrom-co/realtime-vad": "Browser imports violate packages/realtime-protocol/src/layer-boundary.test.ts.",
               "@maelstrom-co/realtime-vad/asset-manifest": "Browser imports violate packages/realtime-protocol/src/layer-boundary.test.ts.",
               "@maelstrom-co/realtime-vad/assets": "Browser imports violate packages/realtime-protocol/src/layer-boundary.test.ts.",
-              "@maelstrom-co/realtime-vad/config": "Browser imports violate packages/realtime-protocol/src/layer-boundary.test.ts."
+              "@maelstrom-co/realtime-vad/config": "Browser imports violate packages/realtime-protocol/src/layer-boundary.test.ts.",
+              "@maelstrom-co/devtools": "Browser diagnostics are forbidden in server/worker packages. See packages/realtime-protocol/src/layer-boundary.test.ts.",
+              "@maelstrom-co/react-devtools": "Browser diagnostics are forbidden in server/worker packages. See packages/realtime-protocol/src/layer-boundary.test.ts.",
+              "@maelstrom-co/devtools/production": "Browser diagnostics are forbidden in server/worker packages. See packages/realtime-protocol/src/layer-boundary.test.ts.",
+              "@maelstrom-co/react-devtools/production": "Browser diagnostics are forbidden in server/worker packages. See packages/realtime-protocol/src/layer-boundary.test.ts."
             }
           }
         }

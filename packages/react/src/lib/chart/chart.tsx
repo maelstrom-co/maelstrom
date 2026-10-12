@@ -110,6 +110,7 @@ export function createChart(
   interface VesselRendererProps {
     instance: VesselInstance;
     style: CSSProperties;
+    highlighted?: boolean;
     /**
      * Present when this render is an exit ghost rather than a live instance.
      * Carries the resolved motion config so the wrapper can run its exit
@@ -119,7 +120,12 @@ export function createChart(
   }
 
   const VesselRenderer = memo(
-    function VesselRenderer({ instance, style, exiting }: VesselRendererProps) {
+    function VesselRenderer({
+      instance,
+      style,
+      exiting,
+      highlighted,
+    }: VesselRendererProps) {
       const {
         orchestrator,
         componentRegistry,
@@ -253,8 +259,13 @@ export function createChart(
 
       return (
         <div
-          style={style}
+          style={
+            highlighted
+              ? { ...style, outline: '2px solid #20c6a3', outlineOffset: -2 }
+              : style
+          }
           data-instance-id={instance.instanceId}
+          data-devtools-highlighted={highlighted ? '' : undefined}
           data-exiting={exiting ? '' : undefined}
           ref={ref}
         >
@@ -266,6 +277,7 @@ export function createChart(
       if (prev.instance.instanceId !== next.instance.instanceId) return false;
       if (prev.instance.variant !== next.instance.variant) return false;
       if (prev.instance.vesselId !== next.instance.vesselId) return false;
+      if (prev.highlighted !== next.highlighted) return false;
       // A change in exiting-ness (undefined <-> a resolved motion config) must
       // force a re-render even if style hasn't settled yet — that's the render
       // that mounts the ref the exit effect fires against. `config.motion`
@@ -370,6 +382,40 @@ export function createChart(
     const { orchestrator, config, chartMountedRef } = useMaelstromContext();
     const containerRef = useRef<HTMLDivElement>(null);
     const [isDuplicate, setIsDuplicate] = useState(false);
+    const [overlayState, setOverlayState] = useState<{
+      owner: typeof orchestrator;
+      enabled: boolean;
+    }>();
+    const [highlightState, setHighlightState] = useState<{
+      owner: typeof orchestrator;
+      instanceId?: string;
+    }>();
+    const devtoolsOverlays =
+      overlayState?.owner === orchestrator && overlayState.enabled;
+    const highlightedInstance =
+      highlightState?.owner === orchestrator
+        ? highlightState.instanceId
+        : undefined;
+    useEffect(
+      () =>
+        orchestrator.diagnostics.observeControls((event) => {
+          if (event.kind === 'devtools.overlays.changed')
+            setOverlayState({
+              owner: orchestrator,
+              enabled: event.metadata.enabled === true,
+            });
+          if (event.kind === 'devtools.instance.changed')
+            setHighlightState({
+              owner: orchestrator,
+              instanceId:
+                event.metadata.enabled === true &&
+                typeof event.metadata.instanceId === 'string'
+                  ? event.metadata.instanceId
+                  : undefined,
+            });
+        }),
+      [orchestrator],
+    );
 
     // Guard: only one Chart per Provider
     useEffect(() => {
@@ -608,7 +654,7 @@ export function createChart(
 
       return (
         <div ref={containerRef} className={className} style={containerStyle}>
-          {config.debug && columns > 0 && rows > 0 && (
+          {(config.debug || devtoolsOverlays) && columns > 0 && rows > 0 && (
             <GridDebugOverlay columns={columns} rows={rows} />
           )}
           {withCollisionKeys(renderEntries).map((entry) => (
@@ -617,6 +663,10 @@ export function createChart(
               instance={entry.instance}
               style={entry.style}
               exiting={entry.exiting}
+              highlighted={
+                !entry.exiting &&
+                entry.instance.instanceId === highlightedInstance
+              }
             />
           ))}
           {children}
@@ -686,9 +736,15 @@ export function createChart(
               instance={entry.instance}
               style={entry.style}
               exiting={entry.exiting}
+              highlighted={
+                !entry.exiting &&
+                entry.instance.instanceId === highlightedInstance
+              }
             />
           ))}
-          {config.debug && <TilingDebugOverlay tiles={computedTiles} />}
+          {(config.debug || devtoolsOverlays) && (
+            <TilingDebugOverlay tiles={computedTiles} />
+          )}
           {children}
         </div>
       );

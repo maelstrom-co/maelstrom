@@ -68,6 +68,7 @@ export function App() {
 - Quick start: https://docs.maelstrom-ai.co/getting-started/quick-start/
 - Core concepts: https://docs.maelstrom-ai.co/getting-started/core-concepts/
 - React guides: https://docs.maelstrom-ai.co/guides/react/creating-vessels/
+- Optional DevTools: [inspect requests, layouts, voice events, and recordings](https://docs.maelstrom-ai.co/guides/devtools/) with `@maelstrom-co/react-devtools`.
 - API reference: https://docs.maelstrom-ai.co/reference/react/readme/
 
 ## License

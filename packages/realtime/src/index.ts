@@ -14,6 +14,8 @@
 
 export type { ConnectAttempt } from './lib/connect-race-guard.js';
 export { ConnectRaceGuard } from './lib/connect-race-guard.js';
+export type { RealtimeDiagnosticAttachment } from './lib/diagnostics.js';
+export { attachRealtimeDiagnostics } from './lib/diagnostics.js';
 export type {
   GreetingCoordinatorLifecycle,
   GreetingCoordinatorSnapshot,
@@ -25,7 +27,10 @@ export { groundedDebounce } from './lib/realtime-session/grounding-debounce.js';
 export type {
   AdapterAudioStreams,
   AdapterConnectOptions,
+  AdapterDiagnosticObservation,
+  AdapterDiagnosticSource,
   AdapterGeneratedOpening,
+  AdapterTransportSnapshot,
   AdapterTurnControl,
   AdapterVoiceObservation,
   AdapterVoiceObservations,
@@ -67,6 +72,7 @@ export type {
   TimingEvent,
   ToolCallEvent,
   ToolCalledEvent,
+  ToolCancelledEvent,
   ToolLaterOutcomeEvent,
   ToolLaterOutcomeType,
   ToolOutcomeEvent,
