@@ -51,7 +51,8 @@
     "@maelstrom-co/protocol": "0.1.0-alpha.5"
   },
   "devDependencies": {
-    "@sinonjs/fake-timers": "catalog:"
+    "@sinonjs/fake-timers": "catalog:",
+    "@tanstack/store": "catalog:"
   },
   "nx": {
     "targets": {

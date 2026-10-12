@@ -1,4 +1,6 @@
 import type {
+  IntentResult,
+  IntentScope,
   TranscriptEntry,
   UIStructuralSnapshot,
   Unsubscribe,
@@ -106,36 +108,14 @@ const BACKEND_INSTRUCTIONS = `You are the managed UI tool backend for Maelstrom.
 
 const DEFAULT_GROUNDING_DEBOUNCE_MS = 1000;
 
-const BUSY_SUMMARY =
-  'Still applying the previous change — try again in a moment.';
+const BUSY_SUMMARY = 'The application is busy. This request was not submitted.';
 
 const APPLY_FAILED_SUMMARY = 'Something went wrong applying that change.';
-
-const SUPERSEDED_SUMMARY = 'Superseded by a newer request.';
-
-// isProcessing (guards RequestInFlightError) clears before the orchestrator's
-// response has finished dispatching to the command queue, so a retry can
-// lose the race and throw RequestInFlightError again even right after
-// waitForIdle() resolves — bound the retries rather than looping forever.
-const MAX_BARGE_IN_ATTEMPTS = 5;
-const BARGE_IN_RETRY_DELAY_MS = 200;
 
 // ~100 tokens — the design budget for a grounding push. injectGrounding is a
 // realtime-voice sidechannel, not a chat turn; an unbounded summary would
 // blow that budget silently since `summarize` is caller-injectable.
 const GROUNDING_MAX_CHARS = 400;
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/** A queued `update_ui` call awaiting retry once the in-flight request settles — latest-wins, so at most one exists at a time. */
-interface QueuedIntent {
-  readonly epoch: number;
-  readonly callId: ToolCallId;
-  readonly intent: string;
-  readonly resolve: (ok: boolean) => void;
-}
 
 interface ConnectionSubscriptions {
   opening?: Unsubscribe;
@@ -201,25 +181,19 @@ function defaultSummarize(
  * learns is published on {@link RealtimeSession.events}, which also feeds the
  * `onEvent` sidechannel.
  *
- * Concurrent `update_ui` calls (a model can emit a second while the first is
- * still being applied — the natural way a voice UI corrects itself mid-request)
- * use latest-wins queueing: if the instance rejects `submitIntent` with
- * `RequestInFlightError` because a prior intent is still applying, the new
- * call becomes the session's single pending queued intent instead of being
- * answered immediately. A call that was already queued when a newer one
- * arrives is answered right away with a "superseded" result and dropped —
- * only the most recent barge-in survives. Once the in-flight request settles,
- * the queued intent is retried; because a settled command queue doesn't
- * guarantee the orchestrator is ready to accept a new intent, the retry can
- * lose the race and is attempted a bounded number of times before the call is
- * answered as busy instead of retried forever. The raw exception never
- * reaches the adapter either way.
+ * Instances with `createIntentScope` share the application's bounded FIFO with
+ * typed input. Each connection owns only its pending work; disconnect retires
+ * that work without cancelling a submitted turn. Tickets provide exact batch
+ * outcomes, so no global idle wait or busy retry is added here. Legacy instances
+ * are called once: busy is not-submitted, and transport uncertainty never
+ * authorizes automatic replay.
  *
  * @example
  * ```ts
  * const session = new RealtimeSession({
  *   adapter,
  *   instance: {
+ *     createIntentScope: () => orchestrator.createIntentScope(),
  *     submitIntent: (intent) =>
  *       orchestrator
  *         .processIntent(intent)
@@ -258,8 +232,8 @@ export class RealtimeSession implements VoiceSession {
   #lastConnectEpoch = 0;
   /**
    * Recovery evidence retained independently of provider delivery. It may be
-   * shared with other sessions of the same Maelstrom session identity and
-   * outlives this one until {@link RealtimeSession.dispose}.
+   * shared with other sessions of the same Maelstrom session identity. Active
+   * application outcomes remain observable even after this session is disposed.
    */
   readonly memory: RealtimeSessionMemory;
   readonly #generatedOpening: string | undefined;
@@ -289,8 +263,7 @@ export class RealtimeSession implements VoiceSession {
   readonly #transcriptHandlers = new Set<(t: TranscriptEntry) => void>();
   readonly #turnModeHandlers = new Set<(event: TurnModeEvent) => void>();
   readonly #greetingStateHandlers = new Set<(state: GreetingState) => void>();
-  #queuedIntent: QueuedIntent | undefined;
-  #bargeInLoopRunning = false;
+  #intentScope: IntentScope | undefined;
   #groundingClampWarned = false;
   #lastError: unknown;
   // Bumped by disconnect() and at the start of every connect() attempt so a
@@ -524,6 +497,11 @@ export class RealtimeSession implements VoiceSession {
     if (epoch !== this.#connectEpoch) return;
 
     try {
+      // A bare adapter `error` state keeps the previous connection's scope.
+      // Retire its pending work before this connection takes ownership.
+      this.#intentScope?.retire();
+      if (epoch !== this.#connectEpoch) return;
+      this.#intentScope = this.#instance.createIntentScope?.();
       // Still inside the initiating user gesture: no await has occurred, so the
       // unlock begins synchronously after re-entrant notifications are fenced.
       this.#greetingAdapter?.activateAudio();
@@ -696,9 +674,9 @@ export class RealtimeSession implements VoiceSession {
 
   /**
    * Retires this session for good. It starts {@link RealtimeSession.disconnect},
-   * then detaches the shared memory, so requests that settle later no longer
-   * write recovery evidence from a retired session. Later `connect()` calls
-   * reject. Repeated calls retain the first disconnect's result, including a
+   * then detaches shared memory after outstanding application outcomes settle.
+   * Submitted work retains truthful recovery evidence without provider delivery.
+   * Later `connect()` calls reject. Repeated calls retain the first disconnect's result, including a
    * rejection, without repeating provider teardown or lifecycle notifications.
    */
   dispose(): Promise<void> {
@@ -707,7 +685,7 @@ export class RealtimeSession implements VoiceSession {
     this.#disposal = ending;
     if (!this.#disposed) {
       this.#disposed = true;
-      this.#releaseMemory();
+      if (this.#outcomeIntents.size === 0) this.#releaseMemory();
     }
     return ending;
   }
@@ -737,26 +715,19 @@ export class RealtimeSession implements VoiceSession {
 
   #cleanupConnection(): unknown[] {
     const subscriptions = this.#subscriptions;
+    const scope = this.#intentScope;
     this.#subscriptions = undefined;
-    const errors = subscriptions ? releaseSubscriptions(subscriptions) : [];
+    this.#intentScope = undefined;
+    const errors: unknown[] = [];
+    try {
+      scope?.retire();
+    } catch (error) {
+      errors.push(error);
+    }
+    if (subscriptions) errors.push(...releaseSubscriptions(subscriptions));
     this.#pushGrounding.cancel();
     this.#greetingController?.abort();
     this.#greetingController = undefined;
-    // Dropped silently, not answered: the adapter this call would have
-    // replied on is going away too. The retry loop (if any is mid-wait)
-    // notices the identity mismatch on its next wake and stops on its own.
-    // We can't sendToolResult — the adapter is going away — but the local
-    // promise still must settle, or any awaiter of it hangs forever; resolve
-    // it `false` before clearing.
-    if (this.#queuedIntent) {
-      this.#recordOutcome(
-        this.#queuedIntent.callId,
-        'not_submitted',
-        'Voice ended before this queued request was submitted.',
-      );
-      this.#queuedIntent.resolve(false);
-    }
-    this.#queuedIntent = undefined;
     return errors;
   }
 
@@ -974,6 +945,12 @@ export class RealtimeSession implements VoiceSession {
         void this.#handleToolCall(event);
         break;
       case 'state':
+        if (event.state === 'idle') {
+          this.#connectEpoch++;
+          const errors = this.#cleanupConnection();
+          this.#resetGreetingAfterConnectionEnd();
+          if (errors.length > 0) this.#lastError = connectionFailure(errors);
+        }
         this.#setState(event.state);
         break;
       case 'turn_mode':
@@ -1059,6 +1036,8 @@ export class RealtimeSession implements VoiceSession {
       });
     }
     this.#outcomeIntents.delete(call.callId);
+    if (this.#disposed && this.#outcomeIntents.size === 0)
+      this.#releaseMemory();
 
     this.#events.publish({
       type: 'tool.result',
@@ -1098,6 +1077,9 @@ export class RealtimeSession implements VoiceSession {
 
     this.#logger.debug('update_ui: submitting intent', intent);
     this.#outcomeIntents.set(callId, intent);
+    const scope = this.#intentScope;
+    if (scope) return this.#handleQueuedUpdate(epoch, callId, intent, scope);
+
     this.#events.publish({
       type: 'tool.submitted',
       callId,
@@ -1115,19 +1097,6 @@ export class RealtimeSession implements VoiceSession {
       // Domain-data boundary: only the plain intent string crosses here.
       outcome = (await this.#instance.submitIntent(intent)) ?? {};
     } catch (error) {
-      // Fires on the routine barge-in path (queued) as well as genuine
-      // pipeline failures — kept at debug level so the expected-busy case
-      // doesn't spam always-on output.
-      this.#logger.debug('update_ui: submitIntent rejected', error);
-      // Barge-in: the instance throws while a prior intent is still in
-      // flight. Never let that exception reach the adapter — queue this
-      // call as the latest-wins pending intent and retry once the prior
-      // request settles, instead of answering busy immediately.
-      // Also match the stable duck-typed code, not just `instanceof`: an
-      // external consumer whose @maelstrom-co/client copy diverges from
-      // this package's (a dual-package hazard) would have `instanceof`
-      // silently false for a genuine in-flight rejection, turning every
-      // barge-in into a hard failure instead of a queued retry.
       if (
         error instanceof RequestInFlightError ||
         (error !== null &&
@@ -1135,18 +1104,13 @@ export class RealtimeSession implements VoiceSession {
           'code' in error &&
           (error as { code?: unknown }).code === 'request_in_flight')
       ) {
-        if (epoch !== this.#connectEpoch) {
-          this.#recordOutcome(callId, 'not_submitted');
-          return false;
-        }
-        this.#recordOutcome(callId, 'queued');
-        if (epoch !== this.#connectEpoch) {
-          this.#recordOutcome(callId, 'not_submitted');
-          return false;
-        }
-        return new Promise<boolean>((resolve) => {
-          this.#enqueueBargeIn({ epoch, callId, intent, resolve });
-        });
+        await this.#sendUpdateUIResult(
+          epoch,
+          callId,
+          { ok: false, summary: BUSY_SUMMARY },
+          'not_submitted',
+        );
+        return false;
       }
       // A transport rejection can follow Engine admission. It does not prove
       // application failure and must not invite an automatic retry.
@@ -1219,7 +1183,9 @@ export class RealtimeSession implements VoiceSession {
     epoch: number,
     callId: ToolCallId,
     result: UpdateUIToolResult,
-    status: VoiceRecoveryOutcome['status'] = result.ok ? 'completed' : 'failed',
+    status: Exclude<VoiceRecoveryOutcome['status'], 'submitted'> = result.ok
+      ? 'completed'
+      : 'failed',
   ): Promise<void> {
     this.#recordOutcome(callId, status, result.userMessage ?? result.summary);
     return this.#deliverToolResult(epoch, callId, result);
@@ -1227,20 +1193,11 @@ export class RealtimeSession implements VoiceSession {
 
   #recordOutcome(
     id: ToolCallId,
-    status: VoiceRecoveryOutcome['status'],
+    status: Exclude<VoiceRecoveryOutcome['status'], 'submitted'>,
     summary?: string,
   ): void {
     const intent = this.#outcomeIntents.get(id);
     if (intent === undefined) return;
-    if (status === 'submitted') {
-      this.#events.publish({
-        type: 'tool.submitted',
-        callId: id,
-        intent,
-        retry: true,
-      });
-      return;
-    }
     this.#events.publish({
       type: OUTCOME_EVENT_TYPES[status],
       callId: id,
@@ -1256,7 +1213,10 @@ export class RealtimeSession implements VoiceSession {
   ): Promise<void> {
     if (epoch !== this.#connectEpoch) return;
     try {
-      await this.#adapter.sendToolResult(callId, result);
+      // Provider delivery cannot hold local application settlement hostage.
+      void this.#adapter.sendToolResult(callId, result).catch(() => {
+        this.#logger.warn('provider result delivery failed');
+      });
     } catch {
       this.#logger.warn('provider result delivery failed');
     }
@@ -1301,210 +1261,66 @@ export class RealtimeSession implements VoiceSession {
     return instance.waitForIdle().then(() => ok(undefined));
   }
 
-  // Latest-wins: replaces whatever was queued, answering the call it bumps
-  // right away. #queuedIntent stays assigned to an entry for its whole
-  // pending lifetime (across every waitForIdle() wait, up to the point a
-  // submit attempt is actually made) so a newer call can still supersede it
-  // mid-wait — only once a submit is in flight does superseding stop making
-  // sense, since the change may already be committed.
-  #enqueueBargeIn(entry: QueuedIntent): void {
-    const superseded = this.#queuedIntent;
-    this.#queuedIntent = entry;
-    if (superseded) {
-      void this.#sendUpdateUIResult(
-        superseded.epoch,
-        superseded.callId,
-        {
-          ok: false,
-          summary: SUPERSEDED_SUMMARY,
-        },
-        'not_submitted',
-      ).then(() => {
-        superseded.resolve(false);
-      });
-    }
-    if (!this.#bargeInLoopRunning) {
-      this.#bargeInLoopRunning = true;
-      void this.#runBargeInLoop();
-    }
-  }
-
-  // Singleton loop: only ever one running, driven purely off #queuedIntent so
-  // a newer call enqueued while this is mid-wait is picked up without a
-  // second loop starting. Each queued entry gets its own bounded attempt
-  // count — resolving one way or another (superseded/applied/failed/busy)
-  // always clears #queuedIntent first so a call arriving during the final
-  // sendToolResult await queues cleanly for the next iteration instead of
-  // being mistaken for a supersede of the entry that's finishing.
-  async #runBargeInLoop(): Promise<void> {
-    try {
-      let attempt = 0;
-      while (this.#queuedIntent) {
-        const entry = this.#queuedIntent;
-        attempt += 1;
-        // Deliberately the void wait: this settle belongs to the burst that
-        // was already running when the barge-in queued, so a failure in it
-        // answers the call that queued this one, never this one.
-        try {
-          await this.#instance.waitForIdle();
-        } catch {
-          if (this.#queuedIntent === entry) {
-            this.#queuedIntent = undefined;
-            await this.#sendUpdateUIResult(
-              entry.epoch,
-              entry.callId,
-              {
-                ok: false,
-                summary:
-                  'Could not confirm that the application is ready. No queued request was submitted.',
-              },
-              'not_submitted',
-            );
-            entry.resolve(false);
-          }
-          attempt = 0;
-          continue;
-        }
-        if (this.#queuedIntent !== entry) {
-          attempt = 0;
-          continue; // superseded while waiting — already answered, nothing to do
-        }
-
-        const renderStart = Date.now();
-        let userMessage: string | undefined;
-        const epoch = entry.epoch;
-        this.#queuedIntent = undefined;
-        this.#recordOutcome(entry.callId, 'submitted');
-        if (epoch !== this.#connectEpoch) {
-          this.#recordOutcome(entry.callId, 'not_submitted');
-          entry.resolve(false);
-          continue;
-        }
-        try {
-          ({ userMessage } =
-            (await this.#instance.submitIntent(entry.intent)) ?? {});
-        } catch (error) {
-          const notAdmitted =
-            error instanceof RequestInFlightError ||
-            (error !== null &&
-              typeof error === 'object' &&
-              'code' in error &&
-              error.code === 'request_in_flight');
-          if (epoch !== this.#connectEpoch) {
-            this.#recordOutcome(
-              entry.callId,
-              notAdmitted ? 'not_submitted' : 'unknown',
-              notAdmitted
-                ? 'The application rejected this request as busy before admission.'
-                : 'The application result could not be confirmed. Do not retry automatically.',
-            );
-            entry.resolve(false);
-            attempt = 0;
-            continue;
-          }
-          if (!notAdmitted) {
-            this.#publishTiming('update_ui.error', renderStart);
-            await this.#sendUpdateUIResult(
-              entry.epoch,
-              entry.callId,
-              {
-                ok: false,
-                summary: APPLY_FAILED_SUMMARY,
-              },
-              'unknown',
-            );
-            entry.resolve(false);
-            attempt = 0;
-            continue;
-          }
-          if (attempt >= MAX_BARGE_IN_ATTEMPTS) {
-            await this.#sendUpdateUIResult(
-              entry.epoch,
-              entry.callId,
-              {
-                ok: false,
-                summary: BUSY_SUMMARY,
-              },
-              'not_submitted',
-            );
-            entry.resolve(false);
-            attempt = 0;
-            continue;
-          }
-          if (this.#queuedIntent) {
-            await this.#sendUpdateUIResult(
-              entry.epoch,
-              entry.callId,
-              {
-                ok: false,
-                summary: SUPERSEDED_SUMMARY,
-              },
-              'not_submitted',
-            );
-            entry.resolve(false);
-            attempt = 0;
-            continue;
-          }
-          this.#queuedIntent = entry;
-          this.#recordOutcome(entry.callId, 'queued');
-          await delay(BARGE_IN_RETRY_DELAY_MS);
-          continue;
-        }
-
-        let settled: Result<void, Error>;
-        try {
-          settled = await this.#settleAfterSubmit();
-        } catch {
-          await this.#sendUpdateUIResult(
-            entry.epoch,
-            entry.callId,
-            {
-              ok: false,
-              summary:
-                'The application result could not be confirmed. Do not retry automatically.',
-            },
-            'unknown',
-          );
-          entry.resolve(false);
-          attempt = 0;
-          continue;
-        }
-        if (!settled.ok) {
-          this.#publishTiming('update_ui.error', renderStart);
-          await this.#sendUpdateUIResult(
-            entry.epoch,
-            entry.callId,
-            {
-              ok: false,
-              summary: APPLY_FAILED_SUMMARY,
-            },
-            'unknown',
-          );
-          entry.resolve(false);
-          attempt = 0;
-          continue;
-        }
-        this.#publishTiming('update_ui.render', renderStart);
-        try {
-          await this.#sendUpdateUIResult(
-            entry.epoch,
-            entry.callId,
-            this.#settledUpdateResult(userMessage),
-          );
-          entry.resolve(true);
-        } catch {
-          await this.#sendUpdateUIResult(entry.epoch, entry.callId, {
-            ok: false,
-            summary:
-              'The application result could not be confirmed. Do not retry automatically.',
-          });
-          entry.resolve(false);
-        }
-        attempt = 0;
+  async #handleQueuedUpdate(
+    epoch: number,
+    callId: ToolCallId,
+    intent: string,
+    scope: IntentScope,
+  ): Promise<boolean> {
+    const started = Date.now();
+    const ticket = scope.enqueueIntent(intent);
+    let previous: string | undefined;
+    const observe = () => {
+      const status = ticket.store.state.status;
+      if (status === previous) return;
+      const initiallyDispatched =
+        previous === undefined &&
+        ticket.accepted &&
+        (status === 'applied' || status === 'failed' || status === 'unknown');
+      previous = status;
+      if (status === 'queued') this.#recordOutcome(callId, 'queued');
+      if (status === 'processing' || initiallyDispatched) {
+        this.#events.publish({
+          type: 'tool.submitted',
+          callId,
+          intent,
+          retry: false,
+        });
       }
+    };
+    const subscription = ticket.store.subscribe(observe);
+    let result: IntentResult;
+    try {
+      observe();
+      result = await ticket.result;
     } finally {
-      this.#bargeInLoopRunning = false;
+      subscription.unsubscribe();
     }
+    this.#publishTiming(
+      result.status === 'applied' ? 'update_ui.render' : 'update_ui.error',
+      started,
+    );
+    if (result.status === 'applied') {
+      await this.#sendUpdateUIResult(
+        epoch,
+        callId,
+        this.#settledUpdateResult(result.response.userMessage),
+      );
+      return true;
+    }
+    const summary =
+      result.status === 'not_submitted'
+        ? `This request was not submitted (${result.reason}).`
+        : result.status === 'failed'
+          ? APPLY_FAILED_SUMMARY
+          : 'The application result could not be confirmed. Do not retry automatically.';
+    await this.#sendUpdateUIResult(
+      epoch,
+      callId,
+      { ok: false, summary },
+      result.status,
+    );
+    return false;
   }
 
   async #handleGetUIState(epoch: number, callId: ToolCallId): Promise<boolean> {

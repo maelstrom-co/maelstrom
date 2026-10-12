@@ -1,3 +1,4 @@
+import type { IntentQueueOptions } from '@maelstrom-co/client';
 import { createChart } from './chart/chart.js';
 import type { ChartMotionConfig } from './chart/motion/motion-config.js';
 import type { MaelstromContextPair } from './context.js';
@@ -45,6 +46,13 @@ export interface CreateMaelstromConfig<T extends readonly AnyVesselEntry[]> {
    * overrides this as a whole object (no per-field merge).
    */
   motion?: ChartMotionConfig;
+  /**
+   * Mount-time shared FIFO policy. Defaults: 8 pending, 30s queue wait,
+   * 10s disconnected grace, 60s active result deadline. The deadline does not
+   * cancel work. Provider overrides replace this object; remount to change it.
+   * Invalid limits fail Provider construction, as in the client SDK.
+   */
+  intentQueue?: IntentQueueOptions;
 }
 
 /** Create a Maelstrom instance with Provider, hooks, and typed vessel access */
@@ -57,6 +65,7 @@ export function createMaelstrom<const T extends readonly AnyVesselEntry[]>(
     tilingPaddingPx: config.tilingPaddingPx,
     debug: config.debug,
     motion: config.motion,
+    intentQueue: config.intentQueue,
   };
 
   const base = {

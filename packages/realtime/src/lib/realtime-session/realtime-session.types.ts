@@ -1,6 +1,7 @@
 import type {
   AssistantMessageOutcome,
   CapabilitySnapshot,
+  IntentScope,
   Result,
   UIStructuralSnapshot,
   Unsubscribe,
@@ -35,8 +36,8 @@ export interface SubmitIntentResult {
 /**
  * The minimal bridge `RealtimeSession` needs from a Maelstrom instance.
  * `Orchestrator` maps onto this via a small wrapper (`submitIntent` ->
- * `processIntent`, `waitForIdle` and `waitForIdleResult` ->
- * `commandProcessor.waitForIdle`) — this interface exists so the realtime
+ * `processIntent`, `createIntentScope` -> the shared scheduler scope, and idle
+ * waits -> `commandProcessor.waitForIdle`) — this interface exists so the realtime
  * package depends on a narrow seam rather than the whole `Orchestrator`
  * surface. `getStructuralSnapshot` backs the
  * `get_ui_state` pull (what's on screen); `getCapabilitySnapshot` backs the
@@ -45,13 +46,24 @@ export interface SubmitIntentResult {
  * `submitIntent` resolves with a {@link SubmitIntentResult} carrying the
  * engine's conversational `userMessage`, so the session can speak the engine's
  * own reply instead of a structural summary once the change settles. It still
- * rejects with `RequestInFlightError` while a prior intent is applying — that
- * contract drives the barge-in queue and is unchanged.
+ * rejects with `RequestInFlightError` while a prior intent is applying. Legacy
+ * instances are attempted once and report busy as not-submitted, without retry.
+ * Supply `createIntentScope` for bounded cross-source FIFO and exact outcomes.
  */
 export interface RealtimeInstance {
   /** Optional application-wide current work observations, including non-voice input. */
   readonly applicationWork?: VoiceApplicationWorkSource;
+  /**
+   * Creates one connection-owned lifetime backed by the application's shared
+   * scheduler. Preferred over submitIntent when present. Retirement settles only
+   * pending work; active results remain observable after voice ends. Ticket
+   * results include response application settlement and must never reject.
+   * Queue capacity, wait and connection-loss bounds belong to the client policy.
+   */
+  createIntentScope?(): IntentScope;
+  /** Legacy immediate admission; called once, with no busy retry or FIFO guarantee. */
   submitIntent(intent: string): Promise<SubmitIntentResult>;
+  /** Legacy global settle wait, unused for scoped ticket results. */
   waitForIdle(): Promise<void>;
   /**
    * Result-bearing settle wait, preferred over {@link RealtimeInstance.waitForIdle}

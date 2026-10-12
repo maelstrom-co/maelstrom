@@ -1,3 +1,4 @@
+import type { EnqueueIntentOptions } from '@maelstrom-co/client';
 import { type MaelstromResponse, toError } from '@maelstrom-co/protocol';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import type { MaelstromContextPair } from './context.js';
@@ -37,6 +38,12 @@ export function createUseMaelstrom(contextPair: MaelstromContextPair) {
       [orchestrator, onErrorRef, config.debug],
     );
 
+    const enqueueIntent = useCallback(
+      (intent: string, options?: EnqueueIntentOptions) =>
+        orchestrator.enqueueIntent(intent, options),
+      [orchestrator],
+    );
+
     // Keep refs for values managed by React state (not external stores)
     // so they can be read inside buildSnapshot without stale closures
     const processIntentRef = useRef(processIntent);
@@ -50,6 +57,7 @@ export function createUseMaelstrom(contextPair: MaelstromContextPair) {
       () => [
         orchestrator.connectionManager.store,
         orchestrator.requestCoordinator.store,
+        orchestrator.intentScheduler.store,
       ],
       [orchestrator],
     );
@@ -59,6 +67,8 @@ export function createUseMaelstrom(contextPair: MaelstromContextPair) {
       const reqState = orchestrator.requestCoordinator.store.state;
       return {
         processIntent: processIntentRef.current,
+        enqueueIntent,
+        intentScheduler: orchestrator.intentScheduler.store.state,
         connectionStatus: connState.connectionStatus,
         connectionError: connState.connectionError,
         isProcessing: reqState.isProcessing,

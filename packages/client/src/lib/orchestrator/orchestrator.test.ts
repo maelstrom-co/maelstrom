@@ -1882,8 +1882,8 @@ describe('Orchestrator', () => {
       const dispatchError = new Error('command processor exploded');
       const dispatchSpy = spyOn(
         orchestrator.commandProcessor,
-        'dispatch',
-      ).mockImplementation(() => {
+        'dispatchSettled',
+      ).mockImplementationOnce(() => {
         throw dispatchError;
       });
       const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
@@ -2302,7 +2302,7 @@ describe('Orchestrator', () => {
   // --------------------------------------------------------------------------
 
   describe('invokeAction compensating revert mutation (MAE-328 fix A)', () => {
-    it('schedules a second vessel_mutation announcing the revert once the original mutation already flushed', async () => {
+    it('retains the original and compensating mutations until local action settlement', async () => {
       const instanceId = InstanceId('i-1');
       // A custom response (not createMockResponse, which only ever includes
       // a single hardcoded 'instance-1' entry) whose layout echoes back
@@ -2361,12 +2361,11 @@ describe('Orchestrator', () => {
       // before advancing the clock.
       await flushMicrotasks();
 
-      // Advance past the debounce delay so the ORIGINAL mutation flushes to
-      // the engine — the runner is still pending at this point.
+      // Snapshots now wait for local action settlement, retaining both reasons.
       await clock.tickAsync(350);
-      expect(connector.process).toHaveBeenCalledTimes(1);
+      expect(connector.process).toHaveBeenCalledTimes(0);
 
-      // The slow runner now fails, well after its mutation already shipped.
+      // The slow runner fails before the retained mutation can send.
       resolveExpand?.(err(new Error('boom')));
       await orchestrator.commandProcessor.waitForIdle();
       await waitFor(
@@ -2445,9 +2444,9 @@ describe('Orchestrator', () => {
       await intentPromise;
       expect(orchestrator.requestCoordinator.isProcessing).toBe(false);
 
-      // A fresh debounce cycle (started by the requeue) should now deliver
-      // the previously-scheduled mutation.
-      await clock.tickAsync(400);
+      // The response's missing runner settles at 500ms; only then can the
+      // retained mutation send, without another debounce/requeue cycle.
+      await clock.tickAsync(550);
       expect(connector.process).toHaveBeenCalledTimes(2);
 
       const secondEnvelope = (connector.process as ReturnType<typeof mock>).mock
@@ -2601,6 +2600,8 @@ describe('Orchestrator', () => {
 
       await orchestrator.processIntent('first');
       orchestrator.setLayoutMode('grid');
+      await orchestrator.commandProcessor.waitForIdle();
+      await flushMicrotasks();
       await orchestrator.processIntent('second');
 
       expect(sent[0].request.context.layoutMode).toBe('tiling');
@@ -2632,6 +2633,8 @@ describe('Orchestrator', () => {
       );
 
       orchestrator.setLayoutMode('grid');
+      await orchestrator.commandProcessor.waitForIdle();
+      await flushMicrotasks();
       await orchestrator.processIntent('second');
 
       // The wire schema rejects a request whose layout.type disagrees with

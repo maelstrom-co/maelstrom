@@ -338,6 +338,7 @@
       },
       "devDependencies": {
         "@sinonjs/fake-timers": "catalog:",
+        "@tanstack/store": "catalog:",
       },
     },
     "packages/realtime-livekit": {

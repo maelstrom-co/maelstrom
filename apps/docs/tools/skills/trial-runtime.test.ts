@@ -45,6 +45,14 @@ async function childTerminated(pid: number): Promise<boolean> {
   }
 }
 
+function killFixtureProcess(pid: number): void {
+  try {
+    process.kill(pid, 'SIGKILL');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
+  }
+}
+
 test('termination checks accept zombies but reject running, sleeping, and stopped processes', () => {
   for (const state of ['Z', 'X'])
     expect(terminatedLinuxProcess(`42 (fixture (child)) ${state} 1 2 3`)).toBe(
@@ -56,35 +64,95 @@ test('termination checks accept zombies but reject running, sleeping, and stoppe
     );
 });
 
-test('a timed-out trial stops its child from executing even when Linux has not reaped its PID', async () => {
+test.each([
+  0, 750,
+])('a timed-out trial stops its child from executing even when Linux has not reaped its PID (startup delay %dms)', async (startupDelayMs) => {
   const root = await mkdtemp(join(tmpdir(), 'trial-process-'));
+  const readyPath = join(root, 'child.json');
+  const timeoutMs = 10_000;
+  let parentPid: number | undefined;
+  let childPid: number | undefined;
+  const started = performance.now();
+  const trial = runTrialProcess(
+    root,
+    [
+      Bun.which('node') ?? '/usr/bin/node',
+      '-e',
+      `setTimeout(() => {
+          require('node:child_process').spawn(process.execPath, ['-e', \`
+            const fs = require('node:fs');
+            fs.writeFileSync(process.argv[1] + '.tmp', JSON.stringify({
+              parentPid: process.ppid, childPid: process.pid
+            }));
+            fs.renameSync(process.argv[1] + '.tmp', process.argv[1]);
+            setInterval(() => {}, 1000);
+          \`, process.argv[1]], { stdio: 'ignore' });
+        }, Number(process.argv[2]));
+        setInterval(() => {}, 1000);`,
+      readyPath,
+      String(startupDelayMs),
+    ],
+    process.env,
+    join(root, 'stdout'),
+    join(root, 'stderr'),
+    timeoutMs,
+  ).then(
+    () => undefined,
+    (error: unknown) => error,
+  );
   try {
-    const pidPath = join(root, 'child.pid');
-    await expect(
-      runTrialProcess(
-        root,
-        [
-          Bun.which('node') ?? '/usr/bin/node',
-          '-e',
-          'const child=require("node:child_process").spawn(process.execPath,["-e","setInterval(()=>{},1000)"],{stdio:"ignore"});require("node:fs").writeFileSync(process.argv[1],String(child.pid));setInterval(()=>{},1000)',
-          pidPath,
-        ],
-        process.env,
-        join(root, 'stdout'),
-        join(root, 'stderr'),
-        500,
-      ),
-    ).rejects.toThrow('timed out');
-    const pid = Number(await readFile(pidPath, 'utf8'));
-    expect(Number.isSafeInteger(pid) && pid > 0).toBe(true);
-    const deadline = Date.now() + 2000;
-    while (!(await childTerminated(pid)) && Date.now() < deadline)
+    // Observe the descendant executing before the real process-group deadline.
+    const startupDeadline = performance.now() + 5000;
+    let ready: string;
+    for (;;) {
+      try {
+        ready = await readFile(readyPath, 'utf8');
+        break;
+      } catch (error) {
+        if (
+          (error as NodeJS.ErrnoException).code !== 'ENOENT' ||
+          performance.now() >= startupDeadline
+        )
+          throw error;
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+    }
+    const pids = JSON.parse(ready);
+    for (const pid of [pids.parentPid, pids.childPid])
+      expect(Number.isSafeInteger(pid) && pid > 1).toBe(true);
+    parentPid = pids.parentPid;
+    childPid = pids.childPid;
+    expect(childPid).not.toBe(parentPid);
+    expect(await childTerminated(pids.parentPid)).toBe(false);
+    expect(await childTerminated(pids.childPid)).toBe(false);
+    expect(performance.now() - started).toBeLessThan(timeoutMs);
+    const outcome = await trial;
+    expect(outcome).toBeInstanceOf(Error);
+    expect(outcome).toHaveProperty(
+      'message',
+      expect.stringContaining('timed out'),
+    );
+    expect(performance.now() - started).toBeGreaterThanOrEqual(timeoutMs);
+    const deadline = performance.now() + 2000;
+    while (
+      !(await childTerminated(pids.childPid)) &&
+      performance.now() < deadline
+    )
       await new Promise((resolve) => setTimeout(resolve, 25));
-    expect(await childTerminated(pid)).toBe(true);
+    expect(await childTerminated(pids.childPid)).toBe(true);
+    expect(await childTerminated(pids.parentPid)).toBe(true);
   } finally {
-    await rm(root, { recursive: true, force: true });
+    try {
+      for (const pid of [parentPid && -parentPid, childPid]) {
+        if (!pid) continue;
+        killFixtureProcess(pid);
+      }
+      await trial;
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   }
-});
+}, 25_000);
 
 test('the snapshot records directories, link targets, and modes, not only file content', async () => {
   const root = await mkdtemp(join(tmpdir(), 'trial-snapshot-'));

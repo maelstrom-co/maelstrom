@@ -33,6 +33,7 @@ export type {
 export type { MaelstromInstance } from './lib/maelstrom-instance-types.js';
 export type { MaelstromState } from './lib/maelstrom-state-types.js';
 export type { MaelstromProviderProps } from './lib/provider.js';
+export { useIntentSubmission } from './lib/use-intent-submission.js';
 export { vessel } from './lib/vessel.js';
 export type {
   LazyVesselComponentLoader,

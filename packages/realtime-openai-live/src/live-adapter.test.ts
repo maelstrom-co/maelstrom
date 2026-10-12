@@ -6,6 +6,7 @@ import {
 } from '@maelstrom-co/client';
 import { createEngine, type PlannerCandidate } from '@maelstrom-co/engine';
 import {
+  type ChartRequestMessage,
   InstanceId,
   ok,
   SessionId,
@@ -1019,31 +1020,137 @@ test('an exact duplicate function identity at the same output slot dispatches on
   expect(h.channel.continues()).toHaveLength(1);
 });
 
-test('existing latest-wins busy behavior answers superseded calls without a Live queue', async () => {
-  const idle = deferred<void>();
-  let busy = true;
-  const submitted: string[] = [];
-  const h = await harness({
-    submitIntent: async (intent) => {
-      if (busy) throw new RequestInFlightError();
-      submitted.push(intent);
-      return {};
+async function scopedHarness() {
+  const requests: ChartRequestMessage[] = [];
+  const responses: ReturnType<typeof deferred<{ userMessage: string }>>[] = [];
+  const connector: EngineConnector = {
+    capabilities: { voice: false, streaming: false, stateful: false },
+    connect: async () => {},
+    disconnect: async () => {},
+    subscribe: () => () => {},
+    addAssistantMessage: async () => {},
+    getHistory: async () => [],
+    process: async (request) => {
+      requests.push(request);
+      const response = deferred<{ userMessage: string }>();
+      responses.push(response);
+      const { userMessage } = await response.promise;
+      return {
+        type: 'maelstrom_response',
+        requestId: request.id,
+        userMessage,
+        rationale: 'fixture',
+        executionPlan: [],
+        layout: { type: 'tiling', tree: [], instances: [] },
+      };
     },
-    waitForIdle: () => idle.promise,
+  };
+  const orchestrator = new Orchestrator(connector, {
+    sessionId: SessionId('application'),
   });
+  cleanup.push(() => orchestrator.dispose());
+  await orchestrator.connect();
+  const submitIntent = mock(async () => {
+    throw new Error('Scoped admission must not use legacy submission');
+  });
+  const waitForIdle = mock(async () => {
+    throw new Error('Scoped tickets must not use global idle');
+  });
+  const h = await harness({
+    createIntentScope: () => orchestrator.createIntentScope(),
+    submitIntent,
+    waitForIdle,
+    getStructuralSnapshot: () => orchestrator.getStructuralSnapshot(),
+    getCapabilitySnapshot: () => orchestrator.getCapabilitySnapshot(),
+    onSettled: (cb) => orchestrator.onSettled(cb),
+  });
+  return {
+    ...h,
+    orchestrator,
+    responses,
+    submitIntent,
+    waitForIdle,
+    dispatched: () =>
+      requests.flatMap((request) =>
+        request.request.context.updateReasons.flatMap((reason) =>
+          reason.type === 'user_intent' ? [reason.intent] : [],
+        ),
+      ),
+  };
+}
+
+test('scoped Live calls wait behind application work and apply in FIFO order without supersession', async () => {
+  const h = await scopedHarness();
+  const blocker = h.orchestrator.enqueueIntent('typed blocker');
+  await tick();
   h.channel.begin();
   h.channel.call('first', 'update_ui', '{"intent":"first"}');
   h.channel.call('last', 'update_ui', '{"intent":"last"}');
   h.channel.done();
   await tick();
-  busy = false;
-  idle.resolve();
+  expect(h.dispatched()).toEqual(['typed blocker']);
+  expect(h.orchestrator.intentScheduler.store.state.pendingCount).toBe(2);
+  expect(h.session.memory.getSnapshot().outcomes.map((o) => o.status)).toEqual([
+    'queued',
+    'queued',
+  ]);
+  expect(h.channel.outputs()).toHaveLength(0);
+  h.responses[0]!.resolve({ userMessage: 'Blocker applied' });
+  expect((await blocker.result).status).toBe('applied');
   await tick();
-  expect(submitted).toEqual(['last']);
+  expect(h.dispatched()).toEqual(['typed blocker', 'first']);
+  expect(h.channel.outputs()).toHaveLength(0);
+  h.responses[1]!.resolve({ userMessage: 'First applied' });
+  await tick();
+  expect(h.dispatched()).toEqual(['typed blocker', 'first', 'last']);
+  expect(h.channel.outputs()).toHaveLength(0);
+  h.responses[2]!.resolve({ userMessage: 'Last applied' });
+  await tick();
+  expect(h.channel.outputs().map((e) => e.item.call_id)).toEqual([
+    'first',
+    'last',
+  ]);
+  expect(
+    h.channel.outputs().map((e) => JSON.parse(e.item.output)),
+  ).toMatchObject([
+    { ok: true, userMessage: 'First applied' },
+    { ok: true, userMessage: 'Last applied' },
+  ]);
+  expect(h.session.memory.getSnapshot().outcomes.map((o) => o.status)).toEqual([
+    'completed',
+    'completed',
+  ]);
+  expect(h.channel.continues()).toHaveLength(1);
+  expect(h.submitIntent).not.toHaveBeenCalled();
+  expect(h.waitForIdle).not.toHaveBeenCalled();
+});
+
+test('a legacy busy instance is attempted once and remains not submitted after idle', async () => {
+  const idle = deferred<void>();
+  const submitIntent = mock(async () => {
+    throw new RequestInFlightError();
+  });
+  const waitForIdle = mock(() => idle.promise);
+  const h = await harness({ submitIntent, waitForIdle });
+  h.channel.begin();
+  h.channel.call('busy');
+  h.channel.done();
+  await tick();
+  expect(submitIntent).toHaveBeenCalledTimes(1);
+  expect(h.session.memory.getSnapshot().outcomes[0]?.status).toBe(
+    'not_submitted',
+  );
   expect(h.channel.outputs().map((e) => JSON.parse(e.item.output).ok)).toEqual([
     false,
-    true,
   ]);
+  idle.resolve();
+  await tick();
+  expect(submitIntent).toHaveBeenCalledTimes(1);
+  expect(waitForIdle).not.toHaveBeenCalled();
+  expect(h.session.memory.getSnapshot().outcomes[0]?.status).toBe(
+    'not_submitted',
+  );
+  expect(h.channel.outputs()).toHaveLength(1);
   expect(h.channel.continues()).toHaveLength(1);
 });
 
@@ -1115,31 +1222,38 @@ test('reentrant disconnect during dispatch stops remaining unsubmitted calls', a
   expect(h.channel.continues()).toHaveLength(0);
 });
 
-test('an admitted busy retry retains its settled outcome when voice closes mid-submit', async () => {
-  const idle = deferred<void>();
-  const submitted = deferred<{ userMessage: string }>();
-  let attempts = 0;
-  const h = await harness({
-    submitIntent: () => {
-      if (++attempts === 1) return Promise.reject(new RequestInFlightError());
-      return submitted.promise;
-    },
-    waitForIdle: () => idle.promise,
-  });
+test('an admitted scoped call retains its settled outcome when voice closes mid-submit', async () => {
+  const h = await scopedHarness();
+  const blocker = h.orchestrator.enqueueIntent('typed blocker');
+  await tick();
   h.channel.begin();
-  h.channel.call('retry');
+  h.channel.call('queued');
   h.channel.done();
   await tick();
-  idle.resolve();
+  expect(h.session.memory.getSnapshot().outcomes[0]?.status).toBe('queued');
+  expect(h.dispatched()).toEqual(['typed blocker']);
+  h.responses[0]!.resolve({ userMessage: 'Blocker applied' });
+  expect((await blocker.result).status).toBe('applied');
   await tick();
-  expect(attempts).toBe(2);
+  expect(h.dispatched()).toEqual(['typed blocker', 'show labs']);
+  expect(h.session.memory.getSnapshot().outcomes[0]?.status).toBe('submitted');
   await h.session.disconnect();
-  submitted.resolve({ userMessage: 'Applied' });
+  h.responses[1]!.resolve({ userMessage: 'Applied' });
   await tick();
+  expect(h.session.memory.getSnapshot().outcomes[0]).toMatchObject({
+    status: 'completed',
+    summary: 'Applied',
+  });
   expect(h.events.filter((e) => e.type === 'tool_result')).toMatchObject([
     { ok: true },
   ]);
   expect(h.channel.outputs()).toHaveLength(0);
+  expect(h.channel.continues()).toHaveLength(0);
+  const next = await h.connect();
+  expect(JSON.stringify(h.config().input)).toContain('completed');
+  expect(next.outputs()).toHaveLength(0);
+  expect(next.continues()).toHaveLength(0);
+  expect(h.dispatched()).toEqual(['typed blocker', 'show labs']);
 });
 
 test('a direct submission transport rejection preserves uncertainty across reconnect without replay', async () => {
@@ -1182,45 +1296,51 @@ test('a direct submission transport rejection preserves uncertainty across recon
   expect(attempts).toBe(1);
 });
 
-for (const busy of [false, true]) {
-  test(`a late admitted retry rejection preserves ${busy ? 'confirmed non-admission' : 'uncertainty'} without touching replacement work`, async () => {
-    const idle = deferred<void>();
-    const submitted = deferred<{ userMessage: string }>();
-    let attempts = 0;
-    const h = await harness({
-      submitIntent: () => {
-        if (++attempts === 1) return Promise.reject(new RequestInFlightError());
-        return submitted.promise;
-      },
-      waitForIdle: () => idle.promise,
-    });
+for (const pending of [false, true]) {
+  test(`scoped ${pending ? 'pending retirement' : 'late transport rejection'} preserves ${pending ? 'confirmed non-admission' : 'uncertainty'} without touching replacement work`, async () => {
+    const h = await scopedHarness();
+    const blocker = h.orchestrator.enqueueIntent('typed blocker');
+    await tick();
     h.channel.begin();
-    h.channel.call('retry');
+    h.channel.call('queued');
     h.channel.done();
     await tick();
-    idle.resolve();
-    await tick();
-    expect(attempts).toBe(2);
-    expect(h.session.memory.getSnapshot().outcomes[0]?.status).toBe(
-      'submitted',
-    );
+    expect(h.dispatched()).toEqual(['typed blocker']);
+    expect(h.session.memory.getSnapshot().outcomes[0]?.status).toBe('queued');
+    if (!pending) {
+      h.responses[0]!.resolve({ userMessage: 'Blocker applied' });
+      expect((await blocker.result).status).toBe('applied');
+      await tick();
+      expect(h.dispatched()).toEqual(['typed blocker', 'show labs']);
+      expect(h.session.memory.getSnapshot().outcomes[0]?.status).toBe(
+        'submitted',
+      );
+    }
     await h.session.disconnect();
     const next = await h.connect();
-    submitted.reject(
-      busy
-        ? new RequestInFlightError()
-        : new Error('transport lost after submission'),
-    );
+    if (pending) {
+      h.responses[0]!.resolve({ userMessage: 'Blocker applied' });
+      expect((await blocker.result).status).toBe('applied');
+    } else {
+      h.responses[1]!.reject(new Error('transport lost after submission'));
+    }
     await tick();
-    const status = busy ? 'not_submitted' : 'unknown';
+    const status = pending ? 'not_submitted' : 'unknown';
     expect(h.session.memory.getSnapshot().outcomes[0]?.status).toBe(status);
-    expect(
-      next.sent.some(
-        (command) =>
-          'content' in command &&
-          command.content.includes(`"status":"${status}"`),
-      ),
-    ).toBe(true);
+    if (pending) {
+      expect(JSON.stringify(h.config().input)).toContain('not_submitted');
+      expect(h.session.memory.getSnapshot().outcomes[0]?.summary).toContain(
+        'owner_retired',
+      );
+    } else {
+      expect(
+        next.sent.some(
+          (command) =>
+            'content' in command &&
+            command.content.includes('"status":"unknown"'),
+        ),
+      ).toBe(true);
+    }
     expect(h.session.state).toBe('connected');
     expect(h.session.lastError).toBeUndefined();
     expect(next.outputs()).toHaveLength(0);
@@ -1239,7 +1359,11 @@ for (const busy of [false, true]) {
     expect(JSON.stringify(h.config().input)).toContain(status);
     expect(restored.outputs()).toHaveLength(0);
     expect(restored.continues()).toHaveLength(0);
-    expect(attempts).toBe(2);
+    expect(h.dispatched()).toEqual(
+      pending ? ['typed blocker'] : ['typed blocker', 'show labs'],
+    );
+    expect(h.submitIntent).not.toHaveBeenCalled();
+    expect(h.waitForIdle).not.toHaveBeenCalled();
   });
 }
 
