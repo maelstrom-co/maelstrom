@@ -356,6 +356,12 @@ Rules:
 - Before each group of tool calls, write one short sentence saying what you are doing (it is shown as progress).
 - Finish with one or two short sentences for the customer. No markdown.`;
 
+/**
+ * Appended to {@link AGENT_SYSTEM_PROMPT} when the loop model may call
+ * several tools in one turn.
+ */
+export const PARALLEL_TOOLS_HINT = `- Request lookups that do not depend on each other in the same turn, as parallel tool calls: for example get_past_orders together with search_products, or get_past_orders together with get_cart. Wait for a result only when the next call needs a value from it, such as a SKU from the past orders for find_similar_products.`;
+
 function defineAgentTool<TSchema extends z.ZodObject>(spec: {
   name: string;
   description: string;

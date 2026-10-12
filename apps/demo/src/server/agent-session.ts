@@ -21,7 +21,11 @@ import {
 } from '@tanstack/ai';
 import { createOpenaiChat, type OpenAIChatModel } from '@tanstack/ai-openai';
 import { z } from 'zod';
-import type { PlannerIntent, RequiredAction } from './agent-planner';
+import type {
+  PlannerCallOrigin,
+  PlannerIntent,
+  RequiredAction,
+} from './agent-planner';
 import type {
   AgentChartSnapshot,
   AgentInputFrame,
@@ -41,6 +45,7 @@ import {
   type AgentToolHooks,
   actionExecution,
   chartWithLayout,
+  PARALLEL_TOOLS_HINT,
   type ShowOutcome,
   type ShowRequest,
   visibleInstanceOf,
@@ -74,6 +79,26 @@ export const AGENT_MODEL = agentEnv.AGENT_MODEL?.trim() || DEFAULT_ENGINE_MODEL;
  */
 const LOOP_REASONING_EFFORT = agentEnv.AGENT_REASONING_EFFORT?.trim() || 'low';
 const ROUTER_REASONING_EFFORT = 'none';
+
+/**
+ * `AGENT_PARALLEL_TOOLS=0` makes the loop model call one tool per turn;
+ * otherwise (the default) it may call several in one turn and the system
+ * prompt asks it to request independent lookups together.
+ */
+const PARALLEL_TOOLS = agentEnv.AGENT_PARALLEL_TOOLS?.trim() !== '0';
+const LOOP_SYSTEM_PROMPT = PARALLEL_TOOLS
+  ? `${AGENT_SYSTEM_PROMPT}\n${PARALLEL_TOOLS_HINT}`
+  : AGENT_SYSTEM_PROMPT;
+
+// Shows that tools queue during one tool phase reach the Planner queue in
+// this order, so the latest order lands before catalog results whatever
+// order the model called the tools in.
+const SHOW_ORDER: Readonly<Partial<Record<PlannerCallOrigin, number>>> = {
+  get_past_orders: 0,
+  find_similar_products: 1,
+  search_products: 1,
+  show_ui: 2,
+};
 
 /**
  * How a turn picks between one Planner call and the tool loop: `luna` asks
@@ -128,6 +153,8 @@ export class AgentSession {
   #inputCount = 0;
   #turn: TurnRecorder | null = null;
   #lastPlannerMessage = '';
+  // Fire-and-forget shows of the current tool phase, queued at its end.
+  readonly #heldShows: ShowRequest[] = [];
 
   constructor(options: AgentSessionOptions) {
     this.#host = options.host;
@@ -409,11 +436,14 @@ export class AgentSession {
     });
     const stream = chat({
       adapter: this.#adapter,
-      systemPrompts: [AGENT_SYSTEM_PROMPT, this.#screenSummary()],
+      systemPrompts: [LOOP_SYSTEM_PROMPT, this.#screenSummary()],
       messages: this.#messages,
       tools,
       agentLoopStrategy: maxIterations(MAX_LOOP_ITERATIONS),
-      modelOptions: { reasoning: { effort: LOOP_REASONING_EFFORT } },
+      modelOptions: {
+        reasoning: { effort: LOOP_REASONING_EFFORT },
+        parallel_tool_calls: PARALLEL_TOOLS,
+      },
       abortController,
       middleware: [
         {
@@ -422,7 +452,7 @@ export class AgentSession {
           onConfig: (_context, config) => {
             const notes = this.#pendingNotes.splice(0);
             return {
-              systemPrompts: [AGENT_SYSTEM_PROMPT, this.#screenSummary()],
+              systemPrompts: [LOOP_SYSTEM_PROMPT, this.#screenSummary()],
               ...(notes.length > 0
                 ? { messages: [...config.messages, ...notes] }
                 : {}),
@@ -430,6 +460,10 @@ export class AgentSession {
           },
           onIteration: () => {
             turn.modelTurns++;
+          },
+          onToolPhaseComplete: (_context, info) => {
+            if (info.toolCalls.length > 1) turn.parallelToolTurns++;
+            this.#releaseShows();
           },
           onBeforeToolCall: async () => {
             if (!routeGate || (await routeGate) !== 'ui_only') return;
@@ -476,6 +510,7 @@ export class AgentSession {
       if (!gate.abortedForUiOnly) throw error;
     } finally {
       gate.settled = true;
+      this.#releaseShows();
     }
     if (gate.abortedForUiOnly) {
       const index = this.#messages.lastIndexOf(userMessage);
@@ -503,9 +538,12 @@ export class AgentSession {
   #toolContext(): AgentToolContext {
     return {
       show: (request) => {
-        void this.#show(request);
+        this.#heldShows.push(request);
       },
-      showAndWait: (request) => this.#show(request),
+      showAndWait: (request) => {
+        this.#releaseShows();
+        return this.#show(request);
+      },
       waitForScreen: () => this.#waitForScreen(),
       runActions: (executionPlan, origin) =>
         this.#host.enqueue(`direct:${origin}`, async () => {
@@ -519,7 +557,10 @@ export class AgentSession {
             throw new Error('No chart snapshot from the browser');
           return applied.chart;
         }),
-      callClientTool: (tool, args) => this.#callClientTool(tool, args),
+      callClientTool: (tool, args) => {
+        this.#releaseShows();
+        return this.#callClientTool(tool, args);
+      },
       facts: () => this.#facts,
       rememberFacts: (facts) => {
         this.#facts = { ...this.#facts, ...facts };
@@ -633,7 +674,33 @@ export class AgentSession {
     return applied;
   }
 
+  /**
+   * Queues the held shows, latest order first. Runs at the end of each tool
+   * phase and before anything that waits, so a held show never waits on a
+   * later one or on the customer.
+   */
+  #releaseShows(): void {
+    if (this.#heldShows.length === 0) return;
+    const shows = this.#heldShows
+      .splice(0)
+      .map((request, index) => ({ request, index }))
+      .sort(
+        (a, b) =>
+          (SHOW_ORDER[a.request.origin] ?? 3) -
+            (SHOW_ORDER[b.request.origin] ?? 3) || a.index - b.index,
+      );
+    if (shows.length > 1)
+      this.#host.timing('shows.release', {
+        turn: this.#turnNumber,
+        order: shows.map(({ request }) => request.origin).join(','),
+        reordered:
+          shows.some(({ index }, position) => index !== position) || undefined,
+      });
+    for (const { request } of shows) void this.#show(request);
+  }
+
   async #waitForScreen(): Promise<AgentChartSnapshot> {
+    this.#releaseShows();
     const chart = await this.#host.idle();
     if (!chart) throw new Error('No chart snapshot from the browser');
     return chart;
@@ -672,6 +739,8 @@ export class AgentSession {
       firstUiPushMs: metrics.firstUiMs,
       plannerCalls: metrics.plannerCalls.length,
       modelTurns: metrics.modelTurns,
+      parallelToolTurns: turn.parallelToolTurns,
+      parallelTools: PARALLEL_TOOLS,
     });
     const {
       timeline: _timeline,
@@ -733,6 +802,8 @@ class TurnRecorder {
   routerMs: number | null = null;
   firstUiMs: number | null = null;
   modelTurns = 0;
+  // Tool phases in which the model called more than one tool.
+  parallelToolTurns = 0;
   readonly plannerCalls: AgentTimedStep[] = [];
   readonly toolCalls: AgentTimedStep[] = [];
   readonly timeline: AgentTimelineEvent[] = [];
