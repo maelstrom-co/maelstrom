@@ -1,26 +1,27 @@
 import { describe, expect, it, spyOn } from 'bun:test';
 import type {
   CapabilitySnapshot,
+  IntentResult,
+  IntentSnapshot,
+  IntentSubmission,
   TimedTranscriptFragment,
   UIStructuralSnapshot,
   VoiceSession,
 } from '@maelstrom-co/client';
 import { RequestInFlightError } from '@maelstrom-co/client';
-import type {
-  MessageId,
-  Result,
-  SidechannelEvent,
-} from '@maelstrom-co/protocol';
+import type { Result, SidechannelEvent } from '@maelstrom-co/protocol';
 import {
   ActionName,
   err,
   InstanceId,
+  MessageId,
   ok,
   SessionId,
   ToolCallId,
   VariantName,
   VesselId,
 } from '@maelstrom-co/protocol';
+import { Store } from '@tanstack/store';
 import { GreetingCoordinator } from '../greeting-coordinator.js';
 import { RealtimeVoiceError } from '../realtime-voice-error.js';
 import type {
@@ -3509,6 +3510,180 @@ describe('RealtimeSession tool events on the session event stream', () => {
     await flushMicrotasks();
 
     expect(seen).toEqual(['session.started', 'session.connected']);
+  });
+});
+
+describe('RealtimeSession initially settled scoped tickets', () => {
+  const applied: IntentResult = {
+    status: 'applied',
+    response: {
+      type: 'maelstrom_response',
+      requestId: MessageId('already-applied'),
+      userMessage: 'Cleared',
+      rationale: '',
+      layout: { type: 'tiling', tree: [], instances: [] },
+      executionPlan: [],
+    },
+  };
+
+  for (const [status, accepted] of [
+    ['applied', true],
+    ['failed', true],
+    ['unknown', true],
+    ['not_submitted', true],
+    ['not_submitted', false],
+  ] as const) {
+    it(`retains initial ${status} with accepted=${accepted} across reconnect without inventing queued work`, async () => {
+      const { session, adapter, instance } = makeHarness();
+      const result: IntentResult =
+        status === 'applied'
+          ? applied
+          : status === 'not_submitted'
+            ? { status, reason: accepted ? 'queue_expired' : 'queue_full' }
+            : { status, error: new Error(status) };
+      const store = new Store<IntentSnapshot>(result);
+      const ticket: IntentSubmission = {
+        id: 'settled-ticket',
+        accepted,
+        store,
+        result: Promise.resolve(result),
+      };
+      let admissions = 0;
+      Object.assign(instance, {
+        createIntentScope: () => ({
+          enqueueIntent: () => {
+            admissions++;
+            return ticket;
+          },
+          retire: () => {},
+        }),
+      });
+      const events: SessionEvent[] = [];
+      session.events.subscribe((event) => events.push(event));
+      try {
+        await session.connect();
+        adapter.emitToolCall({
+          callId: 'settled-call',
+          name: 'update_ui',
+          argumentsJson: JSON.stringify({ intent: 'clear screen' }),
+        });
+        await flushMicrotasks();
+        const summary =
+          status === 'applied'
+            ? 'The screen is empty.'
+            : status === 'failed'
+              ? 'Something went wrong applying that change.'
+              : status === 'unknown'
+                ? 'The application result could not be confirmed. Do not retry automatically.'
+                : `This request was not submitted (${accepted ? 'queue_expired' : 'queue_full'}).`;
+        expect(adapter.toolResults).toEqual([
+          {
+            callId: 'settled-call',
+            output: {
+              ok: status === 'applied',
+              summary,
+              ...(status === 'applied' ? { userMessage: 'Cleared' } : {}),
+            },
+          },
+        ]);
+        expect(store.state).toBe(result);
+        expect(events.filter((event) => event.type === 'tool.queued')).toEqual(
+          [],
+        );
+        expect(
+          events.filter((event) => event.type === 'tool.submitted'),
+        ).toEqual(
+          status === 'not_submitted'
+            ? []
+            : [
+                {
+                  type: 'tool.submitted',
+                  callId: ToolCallId('settled-call'),
+                  intent: 'clear screen',
+                  retry: false,
+                },
+              ],
+        );
+        const outcomes = [
+          {
+            id: ToolCallId('settled-call'),
+            intent: 'clear screen',
+            status: status === 'applied' ? 'completed' : status,
+            summary: status === 'applied' ? 'Cleared' : summary,
+          },
+        ] as const;
+        expect(session.memory.getSnapshot().outcomes).toEqual(outcomes);
+        await session.disconnect();
+        await session.connect();
+        expect(adapter.connectOptions).toHaveLength(2);
+        expect(
+          adapter.connectOptions[1].getRecoveryContext?.().outcomes,
+        ).toEqual(outcomes);
+        expect(session.memory.getSnapshot().outcomes).toEqual(outcomes);
+        expect(admissions).toBe(1);
+        expect(instance.submitted).toEqual([]);
+        expect(adapter.toolResults).toHaveLength(1);
+      } finally {
+        await session.dispose();
+      }
+    });
+  }
+
+  it('records ordinary queued and processing observations once before the terminal result', async () => {
+    const { session, adapter, instance } = makeHarness();
+    const store = new Store<IntentSnapshot>({
+      status: 'queued',
+      queuePosition: 1,
+    });
+    let settle!: (result: IntentResult) => void;
+    const ticket: IntentSubmission = {
+      id: 'pending-ticket',
+      accepted: true,
+      store,
+      result: new Promise((resolve) => {
+        settle = resolve;
+      }),
+    };
+    Object.assign(instance, {
+      createIntentScope: () => ({
+        enqueueIntent: () => ticket,
+        retire: () => {},
+      }),
+    });
+    const events: SessionEvent[] = [];
+    session.events.subscribe((event) => events.push(event));
+    try {
+      await session.connect();
+      adapter.emitToolCall({
+        callId: 'pending-call',
+        name: 'update_ui',
+        argumentsJson: '{"intent":"clear screen"}',
+      });
+      store.setState(() => ({ status: 'queued', queuePosition: 1 }));
+      store.setState(() => ({ status: 'processing', queuePosition: null }));
+      store.setState(() => ({ status: 'processing', queuePosition: null }));
+      store.setState(() => applied);
+      settle(applied);
+      await flushMicrotasks();
+      expect(
+        events
+          .filter((event) => event.type.startsWith('tool.'))
+          .map((event) => event.type),
+      ).toEqual([
+        'tool.called',
+        'tool.queued',
+        'tool.submitted',
+        'tool.completed',
+        'tool.result',
+      ]);
+      expect(session.memory.find(ToolCallId('pending-call'))?.status).toBe(
+        'completed',
+      );
+      expect(adapter.toolResults).toHaveLength(1);
+    } finally {
+      settle(applied);
+      await session.dispose();
+    }
   });
 });
 

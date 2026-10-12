@@ -1273,9 +1273,13 @@ export class RealtimeSession implements VoiceSession {
     const observe = () => {
       const status = ticket.store.state.status;
       if (status === previous) return;
+      const initiallyDispatched =
+        previous === undefined &&
+        ticket.accepted &&
+        (status === 'applied' || status === 'failed' || status === 'unknown');
       previous = status;
       if (status === 'queued') this.#recordOutcome(callId, 'queued');
-      if (status === 'processing') {
+      if (status === 'processing' || initiallyDispatched) {
         this.#events.publish({
           type: 'tool.submitted',
           callId,

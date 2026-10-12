@@ -123,7 +123,12 @@ describe('recoveryMemorySubscriber', () => {
       });
     const before = memory.getSnapshot();
 
-    handle({ type: 'tool.completed', callId: evicted, intent: 'old' });
+    for (const type of [
+      'tool.completed',
+      'tool.failed',
+      'tool.unconfirmed',
+    ] as const)
+      handle({ type, callId: evicted, intent: 'old' });
     handle({
       type: 'tool.submitted',
       callId: evicted,
@@ -139,11 +144,16 @@ describe('recoveryMemorySubscriber', () => {
     const memory = new RealtimeSessionMemory(sessionId);
     const handle = recoveryMemorySubscriber(memory);
 
-    handle({
-      type: 'tool.failed',
-      callId: ToolCallId('never-submitted'),
-      intent: 'show labs',
-    });
+    for (const type of [
+      'tool.completed',
+      'tool.failed',
+      'tool.unconfirmed',
+    ] as const)
+      handle({
+        type,
+        callId: ToolCallId(type),
+        intent: 'show labs',
+      });
 
     expect(memory.getSnapshot().outcomes).toEqual([]);
   });
@@ -167,16 +177,20 @@ describe('recoveryMemorySubscriber', () => {
     ]);
   });
 
-  it('never rewrites terminal uncertainty with late success or submission', () => {
-    const memory = new RealtimeSessionMemory(sessionId);
-    const handle = recoveryMemorySubscriber(memory);
-    const callId = ToolCallId('late');
-    handle({ type: 'tool.queued', callId, intent: 'one' });
-    handle({ type: 'tool.unconfirmed', callId, intent: 'one' });
-    handle({ type: 'tool.completed', callId, intent: 'one' });
-    handle({ type: 'tool.submitted', callId, intent: 'one', retry: false });
-    expect(memory.find(callId)?.status).toBe('unknown');
-  });
+  for (const admission of ['tool.queued', 'tool.submitted'] as const) {
+    it(`never rewrites terminal uncertainty after ${admission} with late success or submission`, () => {
+      const memory = new RealtimeSessionMemory(sessionId);
+      const handle = recoveryMemorySubscriber(memory);
+      const callId = ToolCallId('late');
+      handle({ type: admission, callId, intent: 'one', retry: false });
+      handle({ type: 'tool.unconfirmed', callId, intent: 'one' });
+      const before = memory.getSnapshot();
+      handle({ type: 'tool.completed', callId, intent: 'one' });
+      handle({ type: 'tool.submitted', callId, intent: 'one', retry: false });
+      expect(memory.find(callId)?.status).toBe('unknown');
+      expect(memory.getSnapshot()).toEqual(before);
+    });
+  }
 
   it('does not resurrect an evicted queued request at its first dispatch', () => {
     const memory = new RealtimeSessionMemory(sessionId);
