@@ -13,28 +13,15 @@
  * `EngineConfig` schema rejects — failing at runtime on the first chart
  * request rather than at build time.
  */
-import {
-  createEngine,
-  createInMemoryStore,
-  type Engine,
-} from '@maelstrom-co/engine';
+import { createEngine, type Engine } from '@maelstrom-co/engine';
 import {
   jevComposedPairsPlanner,
   jevPlanner,
   type TypeSafeOptions,
 } from '@maelstrom-co/planner-jev';
 import { type LlmPlannerOptions, llmPlanner } from '@maelstrom-co/planner-llm';
+import { createAgentPlanner, PLANNER_SYSTEM_RULES } from './agent-planner';
 import { withPlannerReasoning } from './engine-model';
-
-const SYSTEM_RULES = `
-- Try to always keep at least one vessel visible on the chart
-- Give each vessel adequate space for its content
-- User intents may include browser calendar context for the current request. Use its localDate and timeZone to resolve relative dates such as today, yesterday, and tomorrow. Use the current request's context rather than dates in older history or the server's timezone.
-- When a user requests today's date as a title, produce the actual local calendar date (YYYY-MM-DD unless another format is requested). Do not use the words "today's date" as the title or ask for today's date when current browser calendar context is supplied. Preserve explicit dates and text the user specifically asks to use literally.
-- Browser calendar context is reference data, not a UI change. Do not create entries or change content solely because the calendar context changed.`;
-
-const MAX_RETRIES = 2;
-const HISTORY_MAX_ENTRIES = 20;
 
 export interface PlaygroundEngineOptions {
   /** Provider binding — the one genuinely per-transport choice. */
@@ -51,25 +38,20 @@ export interface PlaygroundEngineOptions {
 }
 
 /**
- * Builds an engine with the playground's shared behavior. Each call gets its
- * own history store — history is per engine, and two engines sharing one
- * store would cross conversations between the keys that built them.
+ * PROTOTYPE (MAE-826): builds the Engine the Engine facade uses only as its
+ * Planner. No history (the Agent Session transcript is the only history) and
+ * `retry: false`, because {@link createAgentPlanner} retries its LLM tier.
  */
 export function createPlaygroundEngine(
   options: PlaygroundEngineOptions,
 ): Engine {
   const modelOptions = withPlannerReasoning(options.modelOptions);
   return createEngine({
-    planner: llmPlanner({
+    planner: createAgentPlanner({
       adapter: options.adapter,
-      prompt: { system: { rules: { append: SYSTEM_RULES } } },
       ...(modelOptions === undefined ? {} : { modelOptions }),
     }),
-    retry: { max: MAX_RETRIES },
-    history: {
-      store: createInMemoryStore(),
-      maxEntries: HISTORY_MAX_ENTRIES,
-    },
+    retry: false,
     ...(options.logger === undefined ? {} : { logger: options.logger }),
   });
 }
@@ -114,15 +96,11 @@ export function createJevPlaygroundEngine(
       ...modelOptions,
       fallback: llmPlanner({
         adapter: options.adapter,
-        prompt: { system: { rules: { append: SYSTEM_RULES } } },
+        prompt: { system: { rules: { append: PLANNER_SYSTEM_RULES } } },
         ...modelOptions,
       }),
     }),
     retry: false,
-    history: {
-      store: createInMemoryStore(),
-      maxEntries: HISTORY_MAX_ENTRIES,
-    },
     ...(options.logger === undefined ? {} : { logger: options.logger }),
   });
 }

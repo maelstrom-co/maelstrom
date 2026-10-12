@@ -66,7 +66,7 @@ describe('buildLocalEngine', () => {
     expect(createEngineMock).not.toHaveBeenCalled();
   });
 
-  it('builds the LLM engine with the default retry policy when a server key is set', () => {
+  it('builds the LLM engine with retry off, since the Planner retries itself, when a server key is set', () => {
     createEngineMock.mockReturnValue(stubEngine());
     const local = quietly(() =>
       buildLocalEngine({ OPENAI_API_KEY: OPENAI_KEY }),
@@ -74,7 +74,8 @@ describe('buildLocalEngine', () => {
     expect(local.planner).toBe('llm');
     expect(local.engine).not.toBeNull();
     expect(local.helloReceived).toBe(true);
-    expect(createEngineMock.mock.calls[0]?.[0].retry).toEqual({ max: 2 });
+    expect(createEngineMock.mock.calls[0]?.[0].retry).toBe(false);
+    expect(createEngineMock.mock.calls[0]?.[0].history).toBeUndefined();
   });
 
   it('rejects an unknown planner', () => {

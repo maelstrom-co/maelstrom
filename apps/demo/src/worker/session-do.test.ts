@@ -442,6 +442,7 @@ describe('SessionDO', () => {
 
     await does.webSocketMessage(b as never, OTHER_HELLO);
     createEngineMock.mockClear();
+    llmPlannerMock.mockClear();
     await does.webSocketMessage(b as never, CHART_REQUEST);
 
     // A sessionId is correlation data, not a secret, so anyone who obtains
@@ -450,13 +451,14 @@ describe('SessionDO', () => {
     // positively that the engine built for B's dispatch was built from
     // B_KEY — asserting only "not A_KEY" would also pass for an engine
     // built from an empty string, undefined, or a stale third key.
+    // The Planner wraps llmPlanner (MAE-826), so read the adapter from the
+    // llmPlanner call that built B's engine.
     expect(createEngineMock).toHaveBeenCalledTimes(1);
-    const adapterKeys = createEngineMock.mock.calls.map(
+    const adapterKeys = llmPlannerMock.mock.calls.map(
       (c) =>
-        (c[0] as { planner: { adapter: { __testApiKey: string } } }).planner
-          .adapter.__testApiKey,
+        (c[0] as { adapter: { __testApiKey: string } }).adapter.__testApiKey,
     );
-    expect(adapterKeys.every((k) => k === B_KEY)).toBe(true);
+    expect(adapterKeys).toEqual([B_KEY]);
   });
 
   it('does not let an engine construction failure surface the key it was built from, or escape webSocketMessage as an unhandled exception', async () => {
