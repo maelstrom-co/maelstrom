@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 
 import {
   createEngine,
+  type Planner,
   type PlannerCandidate,
   type PlanningInput,
   type Retryable,
@@ -29,11 +30,20 @@ import {
 } from '../__test-helpers__/mock-chat.js';
 import { fallbackCandidate } from '../__test-helpers__/poc-fixtures.js';
 import {
+  type DecisionsScript,
+  scriptedDecisionsAsk,
+} from '../__test-helpers__/scripted-decisions-fetch.js';
+import {
+  type Payload,
   type Script,
   scriptedFetch,
   TEST_MODEL,
 } from '../__test-helpers__/scripted-fetch.js';
-import { jevComposedPairsPlanner } from './jev-composed-pairs.js';
+import {
+  buildJevComposedPairsPlanner,
+  jevComposedPairsPlanner,
+} from './jev-composed-pairs.js';
+import { createStageDeps } from './jev-stage-planner.js';
 
 installMockChat();
 
@@ -90,6 +100,36 @@ describe('jevComposedPairsPlanner through createEngine', () => {
   });
 });
 
+describe('buildJevComposedPairsPlanner on a Decisions client', () => {
+  test('sends the same evaluations and ships the same response as on TypeSafe', async () => {
+    mockChat.mockResolvedValue({ userMessage: 'Stacked.' });
+    const script = answering('above', 0.9);
+    const decisions = await runOnDecisions(
+      makeRequest(STACKED_REQUEST),
+      script,
+    );
+    mockChat.mockReset();
+    mockChat.mockResolvedValue({ userMessage: 'Stacked.' });
+    const typesafe = await run(makeRequest(STACKED_REQUEST), script);
+    expect(decisions.calls.length).toBeGreaterThan(1);
+    expect(plain(decisions.calls.map(withoutModel))).toEqual(
+      plain(typesafe.calls.map(withoutModel)),
+    );
+    expect(decisions.response).toEqual(typesafe.response);
+  });
+
+  test('a refusal on the select call runs the fallback once', async () => {
+    mockChat.mockResolvedValue({ userMessage: 'unused' });
+    const { response, fallbackCalls, calls } = await runOnDecisions(
+      makeRequest(STACKED_REQUEST),
+      () => ({ refuse: ['scope'] }),
+    );
+    expect(calls).toHaveLength(1);
+    expect(fallbackCalls).toBe(1);
+    expect(response?.userMessage).toBe('from the fallback');
+  });
+});
+
 /** Hides the map and journal, plans no actions and answers every pair question with `relation`. */
 function answering(relation: string, spatial: number): Script {
   const talk = conversation({
@@ -117,17 +157,14 @@ function asksPairs(payload: { readonly questions: object }): boolean {
   return Object.keys(payload.questions).some((id) => id.startsWith('pair/'));
 }
 
+function withoutModel({ model: _model, ...rest }: Payload) {
+  return rest;
+}
+
 async function run(request: ChartRequest, script: Script) {
   const { fetch, calls } = scriptedFetch(script);
-  let fallbackCalls = 0;
-  const fallback: Stage<Retryable<PlanningInput>, PlannerCandidate> = async (
-    input,
-  ) => {
-    fallbackCalls += 1;
-    return ok(fallbackCandidate(input.request));
-  };
-  const engine = createEngine({
-    planner: jevComposedPairsPlanner({
+  return plan(request, calls, (fallback) =>
+    jevComposedPairsPlanner({
       typesafe: {
         apiKey: 'typesafe-test-key',
         model: TEST_MODEL,
@@ -137,6 +174,38 @@ async function run(request: ChartRequest, script: Script) {
       adapter: dummyAdapter,
       fallback,
     }),
+  );
+}
+
+async function runOnDecisions(request: ChartRequest, script: DecisionsScript) {
+  const { ask, calls } = scriptedDecisionsAsk(script);
+  return plan(request, calls, (fallback) =>
+    buildJevComposedPairsPlanner(
+      createStageDeps(
+        ask,
+        { adapter: dummyAdapter, fallback },
+        'StageDepsOptions',
+      ),
+    ),
+  );
+}
+
+async function plan(
+  request: ChartRequest,
+  calls: readonly Payload[],
+  build: (
+    fallback: Stage<Retryable<PlanningInput>, PlannerCandidate>,
+  ) => Planner,
+) {
+  let fallbackCalls = 0;
+  const fallback: Stage<Retryable<PlanningInput>, PlannerCandidate> = async (
+    input,
+  ) => {
+    fallbackCalls += 1;
+    return ok(fallbackCandidate(input.request));
+  };
+  const engine = createEngine({
+    planner: build(fallback),
     retry: false,
     logger: silentLogger,
   });

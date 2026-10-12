@@ -6,12 +6,7 @@ import * as rootApi from './index.js';
 
 test('the root entry exposes only the shipped planners', () => {
   expect(Object.keys(rootApi).sort()).toEqual(
-    [
-      'jevPlanner',
-      'jevComposedPairsPlanner',
-      'decisionsPlanner',
-      'decisionsComposedPairsPlanner',
-    ].sort(),
+    ['jevPlanner', 'jevComposedPairsPlanner'].sort(),
   );
 });
 
@@ -58,8 +53,6 @@ test('_internal exposes the runtime values @maelstrom-co/evals composes', () => 
       'createTypeSafeClient',
       'createDecisionsClient',
       'DECISIONS_MODEL',
-      'buildDecisionsPlanner',
-      'buildDecisionsComposedPairsPlanner',
       'createStageDeps',
     ].sort(),
   );

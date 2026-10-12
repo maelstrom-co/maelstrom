@@ -206,7 +206,7 @@ export async function runPocCaseOnDecisions(
       createStageDeps(
         ask,
         { adapter: dummyAdapter, fallback },
-        'DecisionsPlannerOptions',
+        'StageDepsOptions',
       ),
     ),
   );

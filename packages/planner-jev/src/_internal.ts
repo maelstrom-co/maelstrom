@@ -19,8 +19,6 @@ export {
   DECISIONS_MODEL,
   type DecisionsClientOptions,
 } from './lib/openai-decisions-client.js';
-export { buildDecisionsComposedPairsPlanner } from './lib/planners/decisions-composed-pairs.js';
-export { buildDecisionsPlanner } from './lib/planners/decisions-planner.js';
 export { buildJevComposedPairsPlanner } from './lib/planners/jev-composed-pairs.js';
 export {
   buildJevStagePlanner,

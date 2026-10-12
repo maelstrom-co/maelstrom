@@ -7,8 +7,9 @@ import {
   POC_CASES,
   type PocRun,
   runPocCase,
+  runPocCaseOnDecisions,
 } from '../__test-helpers__/poc-fixtures.js';
-import { jevPlanner } from '../jev-planner.js';
+import { buildJevPlanner, jevPlanner } from '../jev-planner.js';
 import { buildJevUngatedStepwisePlanner } from '../planners-experimental/jev-ungated-stepwise.js';
 import { createJevDeps } from './stage-deps.js';
 
@@ -42,6 +43,21 @@ describe('frozen POC snapshot', () => {
       });
   });
 
+  describe('jev-poc on a Decisions client', () => {
+    for (const fixture of POC_CASES)
+      test(`${fixture.name} sends the pinned evaluations and ships the pinned candidate`, async () => {
+        const run = await runPocCaseOnDecisions(fixture, buildJevPlanner);
+        if (UPDATE) return;
+        const expected = pinned[fixture.name] as PocRun;
+        expect(run.evaluations.map(withoutModel)).toEqual(
+          expected.evaluations.map(withoutModel),
+        );
+        expect(run.completions).toEqual(expected.completions);
+        expect(run.fallbackCalls).toBe(expected.fallbackCalls);
+        expect(run.response).toEqual(expected.response);
+      });
+  });
+
   // Holds only while the stage library still matches the POC.
   describe('jev-ungated-stepwise matches the POC today', () => {
     for (const fixture of POC_CASES)
@@ -71,3 +87,7 @@ describe('frozen POC snapshot', () => {
     );
   });
 });
+
+function withoutModel({ model: _model, ...rest }: { model: string }) {
+  return rest;
+}
