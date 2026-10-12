@@ -47,6 +47,7 @@ import {
 } from './agent-session-tools';
 import type { EngineFacade, UiApplied } from './engine-facade';
 import { DEFAULT_ENGINE_MODEL, onEngineModelCall } from './engine-model';
+import { SHOP_SIDE_EFFECT_ACTIONS } from './keep-layout-action-planner';
 import {
   type ObservedCall,
   type ObservedCallStart,
@@ -57,16 +58,6 @@ const MAX_LOOP_ITERATIONS = 12;
 const CLIENT_TOOL_TIMEOUT_MS = 120_000;
 const HISTORY_MAX_MESSAGES = 40;
 const SCREEN_NOTE_PREFIX = '[screen]';
-
-// Cart and order side effects run only when a deterministic tool requires
-// them; any the Planner adds on its own are dropped.
-const SIDE_EFFECT_ACTIONS = new Set([
-  'addToCart',
-  'removeFromCart',
-  'updateCartQuantity',
-  'clearCart',
-  'placeOrder',
-]);
 
 const agentEnv =
   typeof process !== 'undefined'
@@ -849,9 +840,10 @@ type EnforcedPlan =
   | { readonly ok: false; readonly error: string };
 
 /**
- * Keeps cart and order side effects deterministic: drops any the Planner
- * added on its own, and makes each required action appear exactly once with
- * exactly its parameters, on a visible instance of its vessel.
+ * Keeps cart and order side effects deterministic: they run only when a
+ * deterministic tool requires them. Drops any the Planner added on its own,
+ * and makes each required action appear exactly once with exactly its
+ * parameters, on a visible instance of its vessel.
  */
 function enforceSideEffects(
   response: MaelstromResponse,
@@ -862,13 +854,13 @@ function enforceSideEffects(
   const dropped = response.executionPlan
     .filter(
       (action) =>
-        SIDE_EFFECT_ACTIONS.has(action.action) &&
+        SHOP_SIDE_EFFECT_ACTIONS.has(action.action) &&
         !requiredNames.has(action.action),
     )
     .map((action) => action.action);
   let executionPlan = response.executionPlan.filter(
     (action) =>
-      !SIDE_EFFECT_ACTIONS.has(action.action) ||
+      !SHOP_SIDE_EFFECT_ACTIONS.has(action.action) ||
       requiredNames.has(action.action),
   );
   const patched: string[] = [];

@@ -43,6 +43,18 @@ const SCOPE_QUESTION = 'scope';
 const ONE_ACTION = 'one_action';
 const MAX_OPTIONS = 250;
 
+/**
+ * Cart and order mutations. Like every non-idempotent action, they ship only
+ * as required actions from the loop, never from a decision-model pick.
+ */
+export const SHOP_SIDE_EFFECT_ACTIONS: ReadonlySet<string> = new Set([
+  'addToCart',
+  'removeFromCart',
+  'updateCartQuantity',
+  'clearCart',
+  'placeOrder',
+]);
+
 /** Structured facts the loop attaches to an intent, e.g. `{ latestOrderSku, similarSkus }`. */
 export type IntentMetadata = Readonly<Record<string, unknown>>;
 
@@ -215,7 +227,7 @@ export type KeepLayoutHandoff =
   | 'parameter_missing'
   | 'parameter_needs_generated_text'
   | 'parameter_not_offered'
-  | 'side_effect_param_not_explicit'
+  | 'side_effect_not_required'
   | 'layout_no_longer_fits'
   | 'validation_rejected';
 
@@ -256,6 +268,11 @@ export interface KeepLayoutActionPlannerOptions {
   readonly userMessage?: (pick: KeepLayoutPick) => string;
   /** How an enum value is described to the decision model. Defaults to {@link shopOptionLabel}. */
   readonly optionLabel?: (parameterName: string, value: unknown) => string;
+  /**
+   * Whether an action is a side effect a decision-model pick must never
+   * ship. Defaults to non-idempotent actions plus {@link SHOP_SIDE_EFFECT_ACTIONS}.
+   */
+  readonly isSideEffect?: (action: VesselAction) => boolean;
   /** Called once per request with what the tier did. */
   readonly onOutcome?: (
     input: PlanningInput,
@@ -268,11 +285,11 @@ export interface KeepLayoutActionPlannerOptions {
  * call. Otherwise one decision call picks the action and its parameters.
  * Defers on: more than one update reason or a non-intent reason, a grid
  * layout, decision timeout or failure, `needs_screen_change` (screen change
- * or several steps), a target Vessel that is not visible, an action the
- * Vessel's current variant does not offer, a parameter that is missing or
- * needs generated text, a side-effect parameter not given explicitly, a
- * layout that no longer fits after the transition, or a candidate
- * validation would heal.
+ * or several steps), a side effect the decision model picked (side effects
+ * ship only as required actions), a target Vessel that is not visible, an
+ * action the Vessel's current variant does not offer, a parameter that is
+ * missing or needs generated text, a layout that no longer fits after the
+ * transition, or a candidate validation would heal.
  */
 export function keepLayoutActionPlanner(
   options: KeepLayoutActionPlannerOptions,
@@ -281,6 +298,7 @@ export function keepLayoutActionPlanner(
   const minConfidence = options.minConfidence ?? 0;
   const writeMessage = options.userMessage ?? shopUserMessage;
   const optionLabel = options.optionLabel ?? shopOptionLabel;
+  const isSideEffect = options.isSideEffect ?? isShopSideEffect;
 
   return async (input, ctx) => {
     let outcome: Omit<KeepLayoutOutcome, 'handoff' | 'detail'> = {
@@ -428,7 +446,7 @@ export function keepLayoutActionPlanner(
     }
 
     if (!options.decider) return handOff('decision_unconfigured');
-    const actions = actionOptions(request.vessels);
+    const actions = actionOptions(request.vessels, isSideEffect);
     const parameters = parameterQuestions(
       request.vessels,
       ctx,
@@ -497,6 +515,8 @@ export function keepLayoutActionPlanner(
       return handOff('low_confidence', pickAnswer.confidence.toFixed(2));
     const picked = actions.get(pickAnswer.choice);
     if (!picked) return handOff('decision_error', 'unknown action option');
+    if (picked.sideEffect)
+      return handOff('side_effect_not_required', pickAnswer.choice);
 
     const target = visibleTarget(picked.vessel.id);
     if (typeof target === 'string') return handOff(target);
@@ -510,11 +530,9 @@ export function keepLayoutActionPlanner(
     for (const parameter of definition.parameters ?? []) {
       const bound = bindParameter(
         parameter,
-        definition,
         metadata,
         reply[parameterQuestionId(parameter.name)],
         parameters.get(parameterQuestionId(parameter.name)),
-        intent,
         ctx,
         request.vessels,
       );
@@ -597,6 +615,7 @@ interface ActionOption {
   readonly vessel: Vessel;
   readonly actionName: VesselAction['name'];
   readonly description: string;
+  readonly sideEffect: boolean;
 }
 
 interface ParameterSlot {
@@ -610,7 +629,10 @@ type Binding =
   | { readonly kind: 'omit' }
   | { readonly kind: 'handoff'; readonly handoff: KeepLayoutHandoff };
 
-function actionOptions(vessels: readonly Vessel[]): Map<string, ActionOption> {
+function actionOptions(
+  vessels: readonly Vessel[],
+  isSideEffect: (action: VesselAction) => boolean,
+): Map<string, ActionOption> {
   const options = new Map<string, ActionOption>();
   for (const vessel of vessels)
     for (const variant of Object.values(vessel.variants))
@@ -621,6 +643,7 @@ function actionOptions(vessels: readonly Vessel[]): Map<string, ActionOption> {
           vessel,
           actionName: action.name,
           description: `${vessel.name}: ${action.description}`,
+          sideEffect: isSideEffect(action),
         });
       }
   return options;
@@ -747,11 +770,9 @@ function parameterQuestions(
 
 function bindParameter(
   parameter: ActionParameter,
-  action: VesselAction,
   metadata: IntentMetadata,
   answer: DecisionAnswer | undefined,
   slot: ParameterSlot | undefined,
-  intent: string,
   ctx: StageContext,
   vessels: readonly Vessel[],
 ): Binding {
@@ -778,14 +799,11 @@ function bindParameter(
   const value = slot.values.get(answer.choice);
   if (!accepts(parameter, allowed, value))
     return { kind: 'handoff', handoff: 'parameter_not_offered' };
-  // A side effect only runs with values the caller stated, never a model pick.
-  if (
-    !action.idempotent &&
-    typeof value === 'string' &&
-    !intent.toLowerCase().includes(value.toLowerCase())
-  )
-    return { kind: 'handoff', handoff: 'side_effect_param_not_explicit' };
   return { kind: 'value', value };
+}
+
+function isShopSideEffect(action: VesselAction): boolean {
+  return !action.idempotent || SHOP_SIDE_EFFECT_ACTIONS.has(action.name);
 }
 
 function enumValuesOf(

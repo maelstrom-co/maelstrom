@@ -226,27 +226,23 @@ const CASES: readonly Case[] = [
       params: { sku: 'DOG-DRY-NORTHPAW-LEAN-28' },
     }),
   },
+  // Side effects picked by the decision model hand off: they ship only as
+  // required actions from the loop, even with every parameter stated.
   {
     fixture: 'full',
     intent: 'Add the Summit Trail Healthy Weight food to the cart',
     metadata: { sku: 'DOG-DRY-SUMMIT-HW-30', quantity: 1 },
-    expect: light({
-      action: 'cart.addToCart',
-      params: { sku: 'DOG-DRY-SUMMIT-HW-30', quantity: 1 },
-    }),
+    expect: handoff('side_effect_not_required'),
   },
   {
     fixture: 'full',
     intent: 'Add 2 bags of DOG-DRY-NORTHPAW-LEAN-28 to my cart',
-    expect: light({
-      action: 'cart.addToCart',
-      params: { sku: 'DOG-DRY-NORTHPAW-LEAN-28', quantity: 2 },
-    }),
+    expect: handoff('side_effect_not_required'),
   },
   {
     fixture: 'full',
     intent: 'Add the lean turkey kibble to my cart',
-    expect: handoff('side_effect_param_not_explicit'),
+    expect: handoff('side_effect_not_required'),
   },
   {
     fixture: 'full',
@@ -256,12 +252,12 @@ const CASES: readonly Case[] = [
   {
     fixture: 'full',
     intent: 'Empty my cart',
-    expect: light({ action: 'cart.clearCart' }),
+    expect: handoff('side_effect_not_required'),
   },
   {
     fixture: 'full',
     intent: 'Place the order, the customer approved it',
-    expect: light({ action: 'checkout.placeOrder' }),
+    expect: handoff('side_effect_not_required'),
   },
   {
     fixture: 'full',
@@ -294,7 +290,7 @@ const CASES: readonly Case[] = [
     fixture: 'browse',
     intent: 'Add DOG-DRY-SUMMIT-HW-30 to my cart',
     metadata: { sku: 'DOG-DRY-SUMMIT-HW-30', quantity: 1 },
-    expect: handoff('target_not_visible', 'needs_screen_change'),
+    expect: handoff('side_effect_not_required', 'needs_screen_change'),
   },
   {
     fixture: 'browse',
@@ -332,7 +328,7 @@ const CASES: readonly Case[] = [
   {
     fixture: 'deep',
     intent: 'Place the order, the customer approved it',
-    expect: handoff('action_not_offered_at_variant', 'needs_screen_change'),
+    expect: handoff('side_effect_not_required', 'needs_screen_change'),
   },
   {
     fixture: 'narrow',
