@@ -225,6 +225,7 @@ drive. The comparison docs carry the full tables and
 | [`@maelstrom-co/protocol`](https://docs.maelstrom-ai.co/reference/protocol/readme/) | Shared types, zod schemas, and the message contract |
 | [`@maelstrom-co/react-devtools`](https://docs.maelstrom-ai.co/reference/react-devtools/readme/) | Optional React extension for request, layout, voice, and recording inspection |
 | [`@maelstrom-co/devtools`](https://docs.maelstrom-ai.co/reference/devtools/readme/) | Optional framework-independent diagnostics collector, capture store, and browser panel |
+| [`@maelstrom-co/telemetry`](https://docs.maelstrom-ai.co/reference/telemetry/readme/) | Optional operational facts and bounded application-owned sink delivery |
 
 Use the [DevTools guide](https://docs.maelstrom-ai.co/guides/devtools/) to inspect
 your application and record a problem. DevTools collects metadata automatically;

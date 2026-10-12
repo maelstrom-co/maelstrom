@@ -131,7 +131,7 @@ const BROWSER_PACKAGES = new Set([
 
 /**
  * Classifies a package into its layer:
- *  - contract: the two dependency-free leaves everything else may depend on
+ *  - contract: shared leaves usable from every runtime layer
  *  - server: names ending in `-server`, `@maelstrom-co/engine`, and anything
  *    unrecognized
  *  - worker: names ending in `-agent`
@@ -141,6 +141,7 @@ function classify(name: string): Layer {
   if (
     name === '@maelstrom-co/protocol' ||
     name === '@maelstrom-co/realtime-protocol' ||
+    name === '@maelstrom-co/telemetry' ||
     // Shared client/host wire contracts (heartbeat frames, close-code
     // semantics): a contract leaf so engine hosts import it directly instead
     // of reaching into browser-side @maelstrom-co/client.
