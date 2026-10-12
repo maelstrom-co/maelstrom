@@ -1,7 +1,7 @@
 {
   "name": "@maelstrom-co/planner-jev",
   "version": "0.1.0-alpha.5",
-  "description": "Experimental server-only Maelstrom planners that let TypeSafe Jev or OpenAI Decisions decide selection, actions and tiling layout, with a small LLM call for the user message.",
+  "description": "Experimental server-only Maelstrom planner that lets TypeSafe Jev decide selection, actions and tiling layout, with a small LLM call for the user message.",
   "keywords": [
     "maelstrom",
     "ai",
