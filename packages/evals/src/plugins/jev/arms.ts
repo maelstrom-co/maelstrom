@@ -71,12 +71,7 @@ export function jevArms(typesafe: TypeSafeSettings): readonly JevArm[] {
       kind: 'jev-poc',
       requiredEnv: JEV_ENV,
       replayShape: 'poc',
-      build: (deps) =>
-        buildJevPlanner({
-          typesafe: { ...typesafe(), onCall: deps.onCall },
-          adapter: deps.adapter('complete'),
-          fallback: deps.fallback,
-        }),
+      build: (deps) => buildJevPlanner(jevDeps(typesafe, deps)),
     },
     library(
       'jev-ungated-stepwise-preset-inline',

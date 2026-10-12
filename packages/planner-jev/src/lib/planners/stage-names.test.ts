@@ -33,7 +33,7 @@ const options: JevDepsOptions = {
 };
 
 const BUILDERS: readonly (readonly [string, () => Planner])[] = [
-  ['buildJevPlanner', () => buildJevPlanner(options)],
+  ['buildJevPlanner', () => buildJevPlanner(createJevDeps(options))],
   [
     'buildJevComposedPairsPlanner',
     () => buildJevComposedPairsPlanner(createJevDeps(options)),
