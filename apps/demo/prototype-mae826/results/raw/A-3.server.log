@@ -1,0 +1,127 @@
+[engine] local_planner.ready {
+  planner: "llm",
+  agentPlanner: "llm",
+  lightDecider: true,
+  llmModel: "gpt-6-luna",
+  status: "ready",
+}
+[demo ws] engine server listening on ws://localhost:3051/ws
+[timing] conn=92b0ff2c input turn=1 kind=user_text
+[timing] conn=92b0ff2c router turn=1 mode=jev route=needs_tools ms=267
+[timing] conn=92b0ff2c tool turn=1 name=get_past_orders ms=0 sinceInputMs=3229
+[timing] conn=92b0ff2c queue.start job=get_past_orders ahead=0 queueWaitMs=0
+[engine] Processing chart_request {
+  messageId: "Sky7UDDcZa3A03t2ObtJV",
+  sessionId: "smoke-1791799509731",
+  layoutMode: "tiling",
+}
+[timing] conn=92b0ff2c tool turn=1 name=find_similar_products ms=1 sinceInputMs=5173
+[engine] LLM response received {
+  messageId: "Sky7UDDcZa3A03t2ObtJV",
+}
+[engine] Simulated variant transition: instance "orders-main" (orders) "list" -> "detail"
+[timing] conn=92b0ff2c planner turn=1 origin=get_past_orders queueWaitMs=0 plannerMs=3470 ok=true
+[timing] conn=92b0ff2c ui.push turn=1 origin=get_past_orders source=planner sinceInputMs=6700
+[timing] conn=92b0ff2c ui.applied turn=1 origin=get_past_orders source=planner sinceInputMs=6702 ackMs=1
+[timing] conn=92b0ff2c queue.start job=find_similar_products ahead=1 queueWaitMs=1528
+[engine] Processing chart_request {
+  messageId: "uh9vEuQsNdx8VDRshauRg",
+  sessionId: "smoke-1791799509731",
+  layoutMode: "tiling",
+}
+[engine] LLM response received {
+  messageId: "uh9vEuQsNdx8VDRshauRg",
+}
+[timing] conn=92b0ff2c planner turn=1 origin=find_similar_products queueWaitMs=1528 plannerMs=2663 ok=true
+[timing] conn=92b0ff2c ui.push turn=1 origin=find_similar_products source=planner sinceInputMs=9365
+[timing] conn=92b0ff2c ui.applied turn=1 origin=find_similar_products source=planner sinceInputMs=9366 ackMs=1
+[timing] conn=92b0ff2c queue.start job=add_to_cart ahead=1 queueWaitMs=1675
+[engine] Processing chart_request {
+  messageId: "mwZ5ShLbIAelvshgnhTsJ",
+  sessionId: "smoke-1791799509731",
+  layoutMode: "tiling",
+}
+[engine] LLM response received {
+  messageId: "mwZ5ShLbIAelvshgnhTsJ",
+}
+[timing] conn=92b0ff2c planner turn=1 origin=add_to_cart queueWaitMs=1675 plannerMs=2689 ok=true required=1
+[timing] conn=92b0ff2c ui.push turn=1 origin=add_to_cart source=planner sinceInputMs=12057
+[timing] conn=92b0ff2c ui.applied turn=1 origin=add_to_cart source=planner sinceInputMs=12058 ackMs=1
+[timing] conn=92b0ff2c tool turn=1 name=add_to_cart ms=4368 sinceInputMs=12058
+[timing] conn=92b0ff2c queue.start job=place_order ahead=0 queueWaitMs=0
+[engine] Processing chart_request {
+  messageId: "AQBTqDUnS4DksGXPiPmRq",
+  sessionId: "smoke-1791799509731",
+  layoutMode: "tiling",
+}
+[engine] LLM response received {
+  messageId: "AQBTqDUnS4DksGXPiPmRq",
+}
+[engine] Simulated variant transition: instance "checkout-main" (checkout) "review" -> "confirmation"
+[timing] conn=92b0ff2c planner turn=1 origin=place_order queueWaitMs=0 plannerMs=2909 ok=true required=1
+[timing] conn=92b0ff2c ui.push turn=1 origin=place_order source=planner sinceInputMs=17565
+[timing] conn=92b0ff2c ui.applied turn=1 origin=place_order source=planner sinceInputMs=17566 ackMs=1
+[timing] conn=92b0ff2c tool turn=1 name=place_order ms=2912 sinceInputMs=17566
+[agent-session] history roles user,assistant,tool,assistant,tool,assistant,tool,user,user,user,assistant,tool,user,assistant
+[timing] conn=92b0ff2c turn.done turn=1 ok=true route=needs_tools totalMs=18853 firstUiPushMs=6700 plannerCalls=4 modelTurns=5 parallelToolTurns=0 parallelTools=false
+[agent-session] turn done {"route":"needs_tools","routerMs":267,"firstUiMs":6700,"plannerCalls":[{"name":"get_past_orders: Open the customer's most recent order, ORD-10455, ","ms":3470},{"name":"find_similar_products: Show the catalog with products similar to SKU DOG-","ms":2663},{"name":"add_to_cart: Add 1 x Summit Trail Healthy Weight Chicken & Barl","ms":2689},{"name":"place_order: Place the order the customer just approved on the ","ms":2909}],"toolCalls":[{"name":"get_past_orders","ms":0},{"name":"find_similar_products","ms":1},{"name":"add_to_cart","ms":4368},{"name":"place_order","ms":2912}],"modelTurns":5,"totalMs":18853}
+       0ms turn.start
+       0ms router.start jev jev-1.13.0
+     268ms router.end jev needs_tools confidence=1 in=439 out=34
+     268ms router.decided needs_tools
+     283ms loop1.start low
+    2234ms loop1.first_output
+    3226ms loop1.end 2942ms in=945 cached=0 reasoning=31 out=78
+    3229ms tool.get_past_orders.start
+    3229ms tool.get_past_orders.end
+    3230ms planner.enqueue get_past_orders Open the customer's most recent order, ORD-10455, in the orders vessel so they c
+    3230ms planner.dequeue get_past_orders
+    3240ms planner1.start low
+    3242ms loop2.start low
+    4756ms loop2.first_output
+    4982ms planner1.first_output
+    5171ms loop2.end 1929ms in=1352 cached=0 reasoning=0 out=43
+    5172ms tool.find_similar_products.start
+    5173ms tool.find_similar_products.end
+    5173ms planner.enqueue find_similar_products Show the catalog with products similar to SKU DOG-DRY-SUMMIT-ADULT-30 with lower
+    5178ms loop3.start low
+    6692ms loop3.first_output
+    6696ms planner1.end 3456ms in=7431 cached=7428 reasoning=0 out=206
+    6700ms planner.end ok
+    6700ms ui.push planner get_past_orders showOrderDetails
+    6702ms ui.ack
+    6702ms planner.dequeue find_similar_products
+    6705ms planner2.start low
+    7605ms planner2.first_output
+    7689ms loop3.end 2511ms in=1701 cached=1349 reasoning=30 out=111
+    7690ms tool.add_to_cart.start
+    7691ms planner.enqueue add_to_cart Add 1 x Summit Trail Healthy Weight Chicken & Barley (SKU DOG-DRY-SUMMIT-HW-30) 
+    9364ms planner2.end 2659ms in=7469 cached=7466 reasoning=0 out=204
+    9365ms planner.end ok
+    9365ms ui.push planner find_similar_products findSimilarProducts
+    9366ms ui.ack
+    9366ms planner.dequeue add_to_cart
+    9368ms planner3.start low
+   10161ms planner3.first_output
+   12052ms planner3.end 2684ms in=7459 cached=7456 reasoning=0 out=211
+   12055ms planner.end ok
+   12057ms ui.push planner add_to_cart addToCart
+   12058ms ui.ack
+   12058ms tool.add_to_cart.end
+   12060ms loop4.start low
+   13969ms loop4.first_output
+   14654ms loop4.end 2594ms in=1975 cached=0 reasoning=14 out=64
+   14655ms tool.place_order.start
+   14656ms planner.enqueue place_order Place the order the customer just approved on the checkout and show its confirma
+   14656ms planner.dequeue place_order
+   14658ms planner4.start low
+   16077ms planner4.first_output
+   17562ms planner4.end 2904ms in=7411 cached=7408 reasoning=23 out=204
+   17565ms planner.end ok
+   17565ms ui.push planner place_order placeOrder
+   17566ms ui.ack
+   17566ms tool.place_order.end
+   17570ms loop5.start low
+   18283ms loop5.first_output
+   18851ms loop5.end 1281ms in=2093 cached=0 reasoning=0 out=28
+   18853ms done ok

@@ -1,0 +1,127 @@
+[engine] local_planner.ready {
+  planner: "llm",
+  agentPlanner: "llm",
+  lightDecider: true,
+  llmModel: "gpt-6-luna",
+  status: "ready",
+}
+[demo ws] engine server listening on ws://localhost:3051/ws
+[timing] conn=68719e30 input turn=1 kind=user_text
+[timing] conn=68719e30 router turn=1 mode=jev route=needs_tools ms=267
+[timing] conn=68719e30 tool turn=1 name=get_past_orders ms=0 sinceInputMs=2035
+[timing] conn=68719e30 queue.start job=get_past_orders ahead=0 queueWaitMs=0
+[engine] Processing chart_request {
+  messageId: "UEe1yqmfkHlUouY4mbIdt",
+  sessionId: "smoke-1791799466746",
+  layoutMode: "tiling",
+}
+[timing] conn=68719e30 tool turn=1 name=find_similar_products ms=1 sinceInputMs=4895
+[engine] LLM response received {
+  messageId: "UEe1yqmfkHlUouY4mbIdt",
+}
+[engine] Simulated variant transition: instance "orders-main" (orders) "list" -> "detail"
+[timing] conn=68719e30 planner turn=1 origin=get_past_orders queueWaitMs=0 plannerMs=3634 ok=true
+[timing] conn=68719e30 ui.push turn=1 origin=get_past_orders source=planner sinceInputMs=5670
+[timing] conn=68719e30 ui.applied turn=1 origin=get_past_orders source=planner sinceInputMs=5672 ackMs=1
+[timing] conn=68719e30 queue.start job=find_similar_products ahead=1 queueWaitMs=776
+[engine] Processing chart_request {
+  messageId: "HcgFMS_14CgjZqjgXxdqw",
+  sessionId: "smoke-1791799466746",
+  layoutMode: "tiling",
+}
+[engine] LLM response received {
+  messageId: "HcgFMS_14CgjZqjgXxdqw",
+}
+[timing] conn=68719e30 planner turn=1 origin=find_similar_products queueWaitMs=776 plannerMs=2671 ok=true
+[timing] conn=68719e30 ui.push turn=1 origin=find_similar_products source=planner sinceInputMs=8343
+[timing] conn=68719e30 ui.applied turn=1 origin=find_similar_products source=planner sinceInputMs=8355 ackMs=11
+[timing] conn=68719e30 queue.start job=add_to_cart ahead=1 queueWaitMs=2133
+[engine] Processing chart_request {
+  messageId: "NjnQOObDeaIv7DGKFf7ty",
+  sessionId: "smoke-1791799466746",
+  layoutMode: "tiling",
+}
+[engine] LLM response received {
+  messageId: "NjnQOObDeaIv7DGKFf7ty",
+}
+[timing] conn=68719e30 planner turn=1 origin=add_to_cart queueWaitMs=2133 plannerMs=3060 ok=true required=1
+[timing] conn=68719e30 ui.push turn=1 origin=add_to_cart source=planner sinceInputMs=11416
+[timing] conn=68719e30 ui.applied turn=1 origin=add_to_cart source=planner sinceInputMs=11416 ackMs=1
+[timing] conn=68719e30 tool turn=1 name=add_to_cart ms=5195 sinceInputMs=11416
+[timing] conn=68719e30 queue.start job=place_order ahead=0 queueWaitMs=0
+[engine] Processing chart_request {
+  messageId: "0hGQJC3fdU_ZW5TvNzvIE",
+  sessionId: "smoke-1791799466746",
+  layoutMode: "tiling",
+}
+[engine] LLM response received {
+  messageId: "0hGQJC3fdU_ZW5TvNzvIE",
+}
+[engine] Simulated variant transition: instance "checkout-main" (checkout) "review" -> "confirmation"
+[timing] conn=68719e30 planner turn=1 origin=place_order queueWaitMs=0 plannerMs=2246 ok=true required=1
+[timing] conn=68719e30 ui.push turn=1 origin=place_order source=planner sinceInputMs=18441
+[timing] conn=68719e30 ui.applied turn=1 origin=place_order source=planner sinceInputMs=18442 ackMs=1
+[timing] conn=68719e30 tool turn=1 name=place_order ms=2249 sinceInputMs=18442
+[agent-session] history roles user,assistant,tool,assistant,tool,assistant,tool,user,user,user,assistant,tool,user,assistant
+[timing] conn=68719e30 turn.done turn=1 ok=true route=needs_tools totalMs=20574 firstUiPushMs=5670 plannerCalls=4 modelTurns=5 parallelToolTurns=0 parallelTools=false
+[agent-session] turn done {"route":"needs_tools","routerMs":267,"firstUiMs":5670,"plannerCalls":[{"name":"get_past_orders: Open the customer's most recent order, ORD-10455, ","ms":3634},{"name":"find_similar_products: Show the catalog with products similar to SKU DOG-","ms":2671},{"name":"add_to_cart: Add 1 x Northpaw Lean Turkey & Oatmeal (SKU DOG-DR","ms":3060},{"name":"place_order: Place the order the customer just approved on the ","ms":2246}],"toolCalls":[{"name":"get_past_orders","ms":0},{"name":"find_similar_products","ms":1},{"name":"add_to_cart","ms":5195},{"name":"place_order","ms":2249}],"modelTurns":5,"totalMs":20574}
+       0ms turn.start
+       1ms router.start jev jev-1.13.0
+     267ms router.end jev needs_tools confidence=1 in=439 out=34
+     267ms router.decided needs_tools
+     276ms loop1.start low
+    1421ms loop1.first_output
+    2033ms loop1.end 1757ms in=945 cached=0 reasoning=19 out=66
+    2035ms tool.get_past_orders.start
+    2035ms tool.get_past_orders.end
+    2036ms planner.enqueue get_past_orders Open the customer's most recent order, ORD-10455, in the orders vessel so they c
+    2036ms planner.dequeue get_past_orders
+    2043ms planner1.start low
+    2049ms loop2.start low
+    3969ms loop2.first_output
+    4003ms planner1.first_output
+    4891ms loop2.end 2842ms in=1352 cached=1349 reasoning=81 out=160
+    4893ms tool.find_similar_products.start
+    4895ms tool.find_similar_products.end
+    4896ms planner.enqueue find_similar_products Show the catalog with products similar to SKU DOG-DRY-SUMMIT-ADULT-30 with lower
+    4898ms loop3.start low
+    5666ms planner1.end 3623ms in=7431 cached=7428 reasoning=0 out=199
+    5670ms planner.end ok
+    5670ms ui.push planner get_past_orders showOrderDetails
+    5672ms ui.ack
+    5672ms planner.dequeue find_similar_products
+    5674ms planner2.start low
+    5877ms loop3.first_output
+    6220ms loop3.end 1322ms in=1735 cached=1349 reasoning=0 out=34
+    6221ms tool.add_to_cart.start
+    6222ms planner.enqueue add_to_cart Add 1 x Northpaw Lean Turkey & Oatmeal (SKU DOG-DRY-NORTHPAW-LEAN-28) to the car
+    6569ms planner2.first_output
+    8339ms planner2.end 2665ms in=7469 cached=7466 reasoning=0 out=220
+    8343ms planner.end ok
+    8343ms ui.push planner find_similar_products findSimilarProducts
+    8355ms ui.ack
+    8355ms planner.dequeue add_to_cart
+    8357ms planner3.start low
+    9736ms planner3.first_output
+   11414ms planner3.end 3057ms in=7462 cached=3702 reasoning=25 out=223
+   11415ms planner.end ok
+   11416ms ui.push planner add_to_cart addToCart
+   11416ms ui.ack
+   11416ms tool.add_to_cart.end
+   11418ms loop4.start low
+   15564ms loop4.first_output
+   16193ms loop4.end 4775ms in=1963 cached=0 reasoning=17 out=62
+   16193ms tool.place_order.start
+   16194ms planner.enqueue place_order Place the order the customer just approved on the checkout and show its confirma
+   16194ms planner.dequeue place_order
+   16197ms planner4.start low
+   16945ms planner4.first_output
+   18431ms planner4.end 2234ms in=7411 cached=3702 reasoning=0 out=168
+   18441ms planner.end ok
+   18441ms ui.push planner place_order placeOrder
+   18442ms ui.ack
+   18442ms tool.place_order.end
+   18444ms loop5.start low
+   20168ms loop5.first_output
+   20572ms loop5.end 2128ms in=2070 cached=0 reasoning=0 out=30
+   20574ms done ok

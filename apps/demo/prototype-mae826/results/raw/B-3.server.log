@@ -1,0 +1,111 @@
+[engine] local_planner.ready {
+  planner: "llm",
+  agentPlanner: "composed",
+  lightDecider: true,
+  llmModel: "gpt-6-luna",
+  status: "ready",
+}
+[demo ws] engine server listening on ws://localhost:3052/ws
+[timing] conn=8263c479 input turn=1 kind=user_text
+[timing] conn=8263c479 router turn=1 mode=jev route=needs_tools ms=294
+[timing] conn=8263c479 tool turn=1 name=get_past_orders ms=1 sinceInputMs=2125
+[timing] conn=8263c479 queue.start job=get_past_orders ahead=0 queueWaitMs=0
+[engine] Processing chart_request {
+  messageId: "QPBX-jQt32iutVeS5o3sD",
+  sessionId: "smoke-1791799529377",
+  layoutMode: "tiling",
+}
+[engine] Simulated variant transition: instance "orders-main" (orders) "list" -> "detail"
+[planner-tier] {"origin":"get_past_orders","messageId":"QPBX-jQt32iutVeS5o3sD","sessionId":"smoke-1791799529377","tier":"light","handoff":null,"handoffDetail":null,"via":"decision","action":"orders.showMostRecentOrder","params":{},"confidence":0.66,"decisionMs":230,"lightMs":235,"llmMs":null,"totalMs":235,"error":null}
+[timing] planner.tier origin=get_past_orders tier=light via=decision light=235ms decision=230ms llm=-ms total=235ms action=orders.showMostRecentOrder handoff=-
+[timing] conn=8263c479 planner turn=1 origin=get_past_orders queueWaitMs=0 plannerMs=240 ok=true
+[timing] conn=8263c479 ui.push turn=1 origin=get_past_orders source=planner sinceInputMs=2368
+[timing] conn=8263c479 ui.applied turn=1 origin=get_past_orders source=planner sinceInputMs=2369 ackMs=1
+[timing] conn=8263c479 tool turn=1 name=find_similar_products ms=1 sinceInputMs=3904
+[timing] conn=8263c479 queue.start job=find_similar_products ahead=0 queueWaitMs=0
+[engine] Processing chart_request {
+  messageId: "8JK5OTw7uOCKSHvQ9mBW7",
+  sessionId: "smoke-1791799529377",
+  layoutMode: "tiling",
+}
+[planner-tier] {"origin":"find_similar_products","messageId":"8JK5OTw7uOCKSHvQ9mBW7","sessionId":"smoke-1791799529377","tier":"light","handoff":null,"handoffDetail":null,"via":"decision","action":"catalog.findSimilarProducts","params":{"sku":"DOG-DRY-SUMMIT-ADULT-30","lowerFatOnly":true},"confidence":1,"decisionMs":244,"lightMs":246,"llmMs":null,"totalMs":246,"error":null}
+[timing] planner.tier origin=find_similar_products tier=light via=decision light=246ms decision=244ms llm=-ms total=246ms action=catalog.findSimilarProducts handoff=-
+[timing] conn=8263c479 planner turn=1 origin=find_similar_products queueWaitMs=0 plannerMs=249 ok=true
+[timing] conn=8263c479 ui.push turn=1 origin=find_similar_products source=planner sinceInputMs=4154
+[timing] conn=8263c479 ui.applied turn=1 origin=find_similar_products source=planner sinceInputMs=4154 ackMs=1
+[timing] conn=8263c479 queue.start job=add_to_cart ahead=0 queueWaitMs=0
+[engine] Processing chart_request {
+  messageId: "imrO7L4c3M3k2CaX8JWvn",
+  sessionId: "smoke-1791799529377",
+  layoutMode: "tiling",
+}
+[planner-tier] {"origin":"add_to_cart","messageId":"imrO7L4c3M3k2CaX8JWvn","sessionId":"smoke-1791799529377","tier":"light","handoff":null,"handoffDetail":null,"via":"required_actions","action":"cart.addToCart","params":{"sku":"DOG-DRY-SUMMIT-HW-30","quantity":1},"confidence":null,"decisionMs":null,"lightMs":0,"llmMs":null,"totalMs":0,"error":null}
+[timing] planner.tier origin=add_to_cart tier=light via=required_actions light=0ms decision=-ms llm=-ms total=0ms action=cart.addToCart handoff=-
+[timing] conn=8263c479 planner turn=1 origin=add_to_cart queueWaitMs=0 plannerMs=2 ok=true required=1
+[timing] conn=8263c479 ui.push turn=1 origin=add_to_cart source=planner sinceInputMs=7707
+[timing] conn=8263c479 ui.applied turn=1 origin=add_to_cart source=planner sinceInputMs=7708 ackMs=0
+[timing] conn=8263c479 tool turn=1 name=add_to_cart ms=3 sinceInputMs=7708
+[timing] conn=8263c479 queue.start job=place_order ahead=0 queueWaitMs=0
+[engine] Processing chart_request {
+  messageId: "LAZLb162qNOafrNQsnwxu",
+  sessionId: "smoke-1791799529377",
+  layoutMode: "tiling",
+}
+[engine] Simulated variant transition: instance "checkout-main" (checkout) "review" -> "confirmation"
+[planner-tier] {"origin":"place_order","messageId":"LAZLb162qNOafrNQsnwxu","sessionId":"smoke-1791799529377","tier":"light","handoff":null,"handoffDetail":null,"via":"required_actions","action":"checkout.placeOrder","params":{},"confidence":null,"decisionMs":null,"lightMs":2,"llmMs":null,"totalMs":2,"error":null}
+[timing] planner.tier origin=place_order tier=light via=required_actions light=2ms decision=-ms llm=-ms total=2ms action=checkout.placeOrder handoff=-
+[timing] conn=8263c479 planner turn=1 origin=place_order queueWaitMs=0 plannerMs=4 ok=true required=1
+[timing] conn=8263c479 ui.push turn=1 origin=place_order source=planner sinceInputMs=9244
+[timing] conn=8263c479 ui.applied turn=1 origin=place_order source=planner sinceInputMs=9245 ackMs=1
+[timing] conn=8263c479 tool turn=1 name=place_order ms=8 sinceInputMs=9245
+[agent-session] history roles user,assistant,tool,assistant,tool,user,assistant,tool,user,user,assistant,tool,user,assistant
+[timing] conn=8263c479 turn.done turn=1 ok=true route=needs_tools totalMs=10742 firstUiPushMs=2368 plannerCalls=4 modelTurns=5 parallelToolTurns=0 parallelTools=false
+[agent-session] turn done {"route":"needs_tools","routerMs":294,"firstUiMs":2368,"plannerCalls":[{"name":"get_past_orders: Open the customer's most recent order, ORD-10455, ","ms":240},{"name":"find_similar_products: Show the catalog with products similar to SKU DOG-","ms":249},{"name":"add_to_cart: Add 1 x Summit Trail Healthy Weight Chicken & Barl","ms":2},{"name":"place_order: Place the order the customer just approved on the ","ms":4}],"toolCalls":[{"name":"get_past_orders","ms":1},{"name":"find_similar_products","ms":1},{"name":"add_to_cart","ms":3},{"name":"place_order","ms":8}],"modelTurns":5,"totalMs":10742}
+       0ms turn.start
+       1ms router.start jev jev-1.13.0
+     295ms router.end jev needs_tools confidence=1 in=439 out=34
+     295ms router.decided needs_tools
+     321ms loop1.start low
+    1481ms loop1.first_output
+    2113ms loop1.end 1792ms in=945 cached=0 reasoning=26 out=75
+    2124ms tool.get_past_orders.start
+    2125ms tool.get_past_orders.end
+    2126ms planner.enqueue get_past_orders Open the customer's most recent order, ORD-10455, in the orders vessel so they c
+    2127ms planner.dequeue get_past_orders
+    2136ms loop2.start low
+    2367ms planner.end ok
+    2368ms ui.push planner get_past_orders showMostRecentOrder
+    2369ms ui.ack
+    3338ms loop2.first_output
+    3902ms loop2.end 1766ms in=1354 cached=0 reasoning=9 out=88
+    3903ms tool.find_similar_products.start
+    3904ms tool.find_similar_products.end
+    3905ms planner.enqueue find_similar_products Show the catalog with products similar to SKU DOG-DRY-SUMMIT-ADULT-30 with lower
+    3905ms planner.dequeue find_similar_products
+    3909ms loop3.start low
+    4154ms planner.end ok
+    4154ms ui.push planner find_similar_products findSimilarProducts
+    4154ms ui.ack
+    6640ms loop3.first_output
+    7703ms loop3.end 3794ms in=1779 cached=0 reasoning=87 out=160
+    7704ms tool.add_to_cart.start
+    7705ms planner.enqueue add_to_cart Add 1 x Summit Trail Healthy Weight Chicken & Barley (SKU DOG-DRY-SUMMIT-HW-30) 
+    7705ms planner.dequeue add_to_cart
+    7707ms planner.end ok
+    7707ms ui.push planner add_to_cart addToCart
+    7708ms ui.ack
+    7708ms tool.add_to_cart.end
+    7709ms loop4.start low
+    9006ms loop4.first_output
+    9236ms loop4.end 1527ms in=1983 cached=1776 reasoning=0 out=15
+    9237ms tool.place_order.start
+    9239ms planner.enqueue place_order Place the order the customer just approved on the checkout and show its confirma
+    9239ms planner.dequeue place_order
+    9244ms planner.end ok
+    9244ms ui.push planner place_order placeOrder
+    9245ms ui.ack
+    9245ms tool.place_order.end
+    9246ms loop5.start low
+   10192ms loop5.first_output
+   10742ms loop5.end 1496ms in=2055 cached=0 reasoning=0 out=41
+   10742ms done ok

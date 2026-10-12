@@ -1,0 +1,114 @@
+[engine] local_planner.ready {
+  planner: "llm",
+  agentPlanner: "composed",
+  lightDecider: true,
+  llmModel: "gpt-6-luna",
+  status: "ready",
+}
+[demo ws] engine server listening on ws://localhost:3053/ws
+[timing] conn=7c3fbc32 input turn=1 kind=user_text
+[timing] conn=7c3fbc32 router turn=1 mode=jev route=needs_tools ms=269
+[timing] conn=7c3fbc32 tool turn=1 name=get_past_orders ms=0 sinceInputMs=1871
+[timing] conn=7c3fbc32 queue.start job=get_past_orders ahead=0 queueWaitMs=0
+[engine] Processing chart_request {
+  messageId: "BE0fjlEwKuafxibHJ9RKk",
+  sessionId: "smoke-1791799456261",
+  layoutMode: "tiling",
+}
+[timing] conn=7c3fbc32 tool turn=1 name=get_cart ms=6 sinceInputMs=1877
+[engine] Simulated variant transition: instance "orders-main" (orders) "list" -> "detail"
+[planner-tier] {"origin":"get_past_orders","messageId":"BE0fjlEwKuafxibHJ9RKk","sessionId":"smoke-1791799456261","tier":"light","handoff":null,"handoffDetail":null,"via":"decision","action":"orders.showMostRecentOrder","params":{},"confidence":0.7,"decisionMs":229,"lightMs":233,"llmMs":null,"totalMs":233,"error":null}
+[timing] planner.tier origin=get_past_orders tier=light via=decision light=233ms decision=229ms llm=-ms total=233ms action=orders.showMostRecentOrder handoff=-
+[timing] conn=7c3fbc32 planner turn=1 origin=get_past_orders queueWaitMs=0 plannerMs=237 ok=true
+[timing] conn=7c3fbc32 ui.push turn=1 origin=get_past_orders source=planner sinceInputMs=2109
+[timing] conn=7c3fbc32 ui.applied turn=1 origin=get_past_orders source=planner sinceInputMs=2110 ackMs=1
+[timing] conn=7c3fbc32 tool turn=1 name=find_similar_products ms=0 sinceInputMs=3454
+[timing] conn=7c3fbc32 queue.start job=find_similar_products ahead=0 queueWaitMs=0
+[engine] Processing chart_request {
+  messageId: "41e-dJzsKqbea6mMz_Hrt",
+  sessionId: "smoke-1791799456261",
+  layoutMode: "tiling",
+}
+[planner-tier] {"origin":"find_similar_products","messageId":"41e-dJzsKqbea6mMz_Hrt","sessionId":"smoke-1791799456261","tier":"light","handoff":null,"handoffDetail":null,"via":"decision","action":"catalog.findSimilarProducts","params":{"sku":"DOG-DRY-SUMMIT-ADULT-30","lowerFatOnly":true},"confidence":1,"decisionMs":272,"lightMs":273,"llmMs":null,"totalMs":273,"error":null}
+[timing] planner.tier origin=find_similar_products tier=light via=decision light=273ms decision=272ms llm=-ms total=273ms action=catalog.findSimilarProducts handoff=-
+[timing] conn=7c3fbc32 planner turn=1 origin=find_similar_products queueWaitMs=0 plannerMs=274 ok=true
+[timing] conn=7c3fbc32 ui.push turn=1 origin=find_similar_products source=planner sinceInputMs=3728
+[timing] conn=7c3fbc32 ui.applied turn=1 origin=find_similar_products source=planner sinceInputMs=3729 ackMs=0
+[timing] conn=7c3fbc32 queue.start job=add_to_cart ahead=0 queueWaitMs=0
+[engine] Processing chart_request {
+  messageId: "eiF64AA-9SpCmv7BNF-jA",
+  sessionId: "smoke-1791799456261",
+  layoutMode: "tiling",
+}
+[planner-tier] {"origin":"add_to_cart","messageId":"eiF64AA-9SpCmv7BNF-jA","sessionId":"smoke-1791799456261","tier":"light","handoff":null,"handoffDetail":null,"via":"required_actions","action":"cart.addToCart","params":{"sku":"DOG-DRY-SUMMIT-HW-30","quantity":1},"confidence":null,"decisionMs":null,"lightMs":0,"llmMs":null,"totalMs":0,"error":null}
+[timing] planner.tier origin=add_to_cart tier=light via=required_actions light=0ms decision=-ms llm=-ms total=0ms action=cart.addToCart handoff=-
+[timing] conn=7c3fbc32 planner turn=1 origin=add_to_cart queueWaitMs=0 plannerMs=1 ok=true required=1
+[timing] conn=7c3fbc32 ui.push turn=1 origin=add_to_cart source=planner sinceInputMs=5664
+[timing] conn=7c3fbc32 ui.applied turn=1 origin=add_to_cart source=planner sinceInputMs=5665 ackMs=1
+[timing] conn=7c3fbc32 tool turn=1 name=add_to_cart ms=3 sinceInputMs=5665
+[timing] conn=7c3fbc32 queue.start job=place_order ahead=0 queueWaitMs=0
+[engine] Processing chart_request {
+  messageId: "JjpXI-9sozmrc3urtbvlJ",
+  sessionId: "smoke-1791799456261",
+  layoutMode: "tiling",
+}
+[engine] Simulated variant transition: instance "checkout-main" (checkout) "review" -> "confirmation"
+[planner-tier] {"origin":"place_order","messageId":"JjpXI-9sozmrc3urtbvlJ","sessionId":"smoke-1791799456261","tier":"light","handoff":null,"handoffDetail":null,"via":"required_actions","action":"checkout.placeOrder","params":{},"confidence":null,"decisionMs":null,"lightMs":0,"llmMs":null,"totalMs":0,"error":null}
+[timing] planner.tier origin=place_order tier=light via=required_actions light=0ms decision=-ms llm=-ms total=0ms action=checkout.placeOrder handoff=-
+[timing] conn=7c3fbc32 planner turn=1 origin=place_order queueWaitMs=0 plannerMs=1 ok=true required=1
+[timing] conn=7c3fbc32 ui.push turn=1 origin=place_order source=planner sinceInputMs=8331
+[timing] conn=7c3fbc32 ui.applied turn=1 origin=place_order source=planner sinceInputMs=8332 ackMs=0
+[timing] conn=7c3fbc32 tool turn=1 name=place_order ms=2 sinceInputMs=8332
+[agent-session] history roles user,assistant,tool,tool,assistant,tool,user,assistant,tool,user,user,assistant,tool,user,assistant
+[timing] conn=7c3fbc32 turn.done turn=1 ok=true route=needs_tools totalMs=9769 firstUiPushMs=2109 plannerCalls=4 modelTurns=5 parallelToolTurns=1 parallelTools=true
+[agent-session] turn done {"route":"needs_tools","routerMs":269,"firstUiMs":2109,"plannerCalls":[{"name":"get_past_orders: Open the customer's most recent order, ORD-10455, ","ms":237},{"name":"find_similar_products: Show the catalog with products similar to SKU DOG-","ms":274},{"name":"add_to_cart: Add 1 x Summit Trail Healthy Weight Chicken & Barl","ms":1},{"name":"place_order: Place the order the customer just approved on the ","ms":1}],"toolCalls":[{"name":"get_past_orders","ms":0},{"name":"get_cart","ms":6},{"name":"find_similar_products","ms":0},{"name":"add_to_cart","ms":3},{"name":"place_order","ms":2}],"modelTurns":5,"totalMs":9769}
+       0ms turn.start
+       1ms router.start jev jev-1.13.0
+     270ms router.end jev needs_tools confidence=1 in=439 out=34
+     270ms router.decided needs_tools
+     287ms loop1.start low
+    1146ms loop1.first_output
+    1868ms loop1.end 1581ms in=938 cached=0 reasoning=0 out=76
+    1870ms tool.get_past_orders.start
+    1871ms tool.get_past_orders.end
+    1871ms tool.get_cart.start
+    1871ms planner.enqueue get_past_orders Open the customer's most recent order, ORD-10455, in the orders vessel so they c
+    1871ms planner.dequeue get_past_orders
+    1877ms tool.get_cart.end
+    1880ms loop2.start low
+    2109ms planner.end ok
+    2109ms ui.push planner get_past_orders showMostRecentOrder
+    2110ms ui.ack
+    2774ms loop2.first_output
+    3453ms loop2.end 1573ms in=1397 cached=0 reasoning=10 out=85
+    3453ms tool.find_similar_products.start
+    3454ms tool.find_similar_products.end
+    3454ms planner.enqueue find_similar_products Show the catalog with products similar to SKU DOG-DRY-SUMMIT-ADULT-30 with lower
+    3454ms planner.dequeue find_similar_products
+    3456ms loop3.start low
+    3728ms planner.end ok
+    3728ms ui.push planner find_similar_products findSimilarProducts
+    3729ms ui.ack
+    4820ms loop3.first_output
+    5661ms loop3.end 2205ms in=1818 cached=0 reasoning=41 out=113
+    5662ms tool.add_to_cart.start
+    5662ms planner.enqueue add_to_cart Add 1 x Summit Trail Healthy Weight Chicken & Barley (SKU DOG-DRY-SUMMIT-HW-30) 
+    5662ms planner.dequeue add_to_cart
+    5664ms planner.end ok
+    5664ms ui.push planner add_to_cart addToCart
+    5665ms ui.ack
+    5665ms tool.add_to_cart.end
+    5666ms loop4.start low
+    8109ms loop4.first_output
+    8329ms loop4.end 2663ms in=2021 cached=1815 reasoning=0 out=14
+    8329ms tool.place_order.start
+    8330ms planner.enqueue place_order Place the order the customer just approved on the checkout and show its confirma
+    8330ms planner.dequeue place_order
+    8331ms planner.end ok
+    8331ms ui.push planner place_order placeOrder
+    8332ms ui.ack
+    8332ms tool.place_order.end
+    8333ms loop5.start low
+    9122ms loop5.first_output
+    9769ms loop5.end 1436ms in=2093 cached=0 reasoning=0 out=42
+    9769ms done ok

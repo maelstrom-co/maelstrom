@@ -1,0 +1,104 @@
+Decision model: TypeSafe Jev jev-1.13.0 (real calls).
+ 1 correct_light    300ms full   "Show me my most recent order"
+     expected LIGHT orders.showMostRecentOrder {} | orders.showOrderDetails {"orderId":"ORD-10455"}
+     got      LIGHT via decision orders.showMostRecentOrder {} confidence=0.98
+ 2 correct_light    231ms full   "Open order ORD-10388"
+     expected LIGHT orders.showOrderDetails {"orderId":"ORD-10388"}
+     got      LIGHT via decision orders.showOrderDetails {"orderId":"ORD-10388"} confidence=0.96
+ 3 correct_light    263ms full   "Show lower-fat options similar to the dog food Sam usually buys"
+     expected LIGHT catalog.findSimilarProducts {"sku":"DOG-DRY-SUMMIT-ADULT-30","lowerFatOnly":true}
+     got      LIGHT via decision catalog.findSimilarProducts {"sku":"DOG-DRY-SUMMIT-ADULT-30","lowerFatOnly":true} confidence=1.00
+ 4 correct_light    275ms full   "Find dog food like Summit Trail Adult Chicken & Brown Rice"
+     expected LIGHT catalog.findSimilarProducts {"sku":"DOG-DRY-SUMMIT-ADULT-30"}
+     got      LIGHT via decision catalog.findSimilarProducts {"sku":"DOG-DRY-SUMMIT-ADULT-30"} confidence=0.66
+ 5 correct_light    229ms full   "Show dry cat food"
+     expected LIGHT catalog.searchProducts {"species":"cat","foodType":"dry"}
+     got      LIGHT via decision catalog.searchProducts {"species":"cat","foodType":"dry"} confidence=0.98
+ 6 correct_light    265ms full   "Show dog food with at most 12% fat"
+     expected LIGHT catalog.searchProducts {"species":"dog","maxFatPercent":12}
+     got      LIGHT via decision catalog.searchProducts {"species":"dog","maxFatPercent":12} confidence=1.00
+ 7 correct_light    317ms full   "Show the details of Northpaw Lean Turkey & Oatmeal"
+     expected LIGHT catalog.showProductDetails {"sku":"DOG-DRY-NORTHPAW-LEAN-28"}
+     got      LIGHT via decision catalog.showProductDetails {"sku":"DOG-DRY-NORTHPAW-LEAN-28"} confidence=0.95
+ 8 correct_handoff  319ms full   "Add the Summit Trail Healthy Weight food to the cart"
+     expected HANDOFF side_effect_not_required
+     got      HANDOFF side_effect_not_required (cart.addToCart) [picked cart.addToCart ]
+ 9 correct_handoff  256ms full   "Add 2 bags of DOG-DRY-NORTHPAW-LEAN-28 to my cart"
+     expected HANDOFF side_effect_not_required
+     got      HANDOFF side_effect_not_required (cart.addToCart) [picked cart.addToCart ]
+10 correct_handoff  236ms full   "Add the lean turkey kibble to my cart"
+     expected HANDOFF side_effect_not_required
+     got      HANDOFF side_effect_not_required (cart.addToCart) [picked cart.addToCart ]
+11 missed_light     231ms full   "Clear the search and list the whole catalog"
+     expected LIGHT catalog.clearSearch {}
+     got      HANDOFF needs_screen_change (several_actions) [picked catalog.clearSearch ]
+12 correct_handoff  252ms full   "Empty my cart"
+     expected HANDOFF side_effect_not_required
+     got      HANDOFF side_effect_not_required (cart.clearCart) [picked cart.clearCart ]
+13 correct_handoff  242ms full   "Place the order, the customer approved it"
+     expected HANDOFF side_effect_not_required
+     got      HANDOFF side_effect_not_required (checkout.placeOrder) [picked checkout.placeOrder ]
+14 correct_handoff  271ms full   "Search the catalog for salmon"
+     expected HANDOFF parameter_needs_generated_text
+     got      HANDOFF parameter_needs_generated_text (query) [picked catalog.searchProducts {}]
+15 correct_handoff  272ms full   "Make the catalog bigger"
+     expected HANDOFF needs_screen_change
+     got      HANDOFF needs_screen_change (screen_change) [picked catalog.searchProducts ]
+16 correct_handoff  263ms full   "Hide the checkout"
+     expected HANDOFF needs_screen_change
+     got      HANDOFF needs_screen_change (screen_change) [picked needs_screen_change ]
+17 correct_handoff  239ms full   "Open my last order and show lower-fat alternatives to what is in it"
+     expected HANDOFF needs_screen_change
+     got      HANDOFF needs_screen_change (several_actions) [picked catalog.findSimilarProducts ]
+18 correct_handoff  250ms full   "Show a map of pet stores near me"
+     expected HANDOFF needs_screen_change
+     got      HANDOFF needs_screen_change (screen_change) [picked needs_screen_change ]
+19 correct_handoff  251ms browse "Add DOG-DRY-SUMMIT-HW-30 to my cart"
+     expected HANDOFF side_effect_not_required | needs_screen_change
+     got      HANDOFF side_effect_not_required (cart.addToCart) [picked cart.addToCart ]
+20 correct_handoff  281ms browse "Take me to checkout"
+     expected HANDOFF any reason
+     got      HANDOFF needs_screen_change (screen_change) [picked checkout.returnToCheckoutReview ]
+21 correct_light    237ms browse "Show lower-fat options similar to my usual dog food"
+     expected LIGHT catalog.findSimilarProducts {"sku":"DOG-DRY-SUMMIT-ADULT-30","lowerFatOnly":true}
+     got      LIGHT via decision catalog.findSimilarProducts {"sku":"DOG-DRY-SUMMIT-ADULT-30","lowerFatOnly":true} confidence=1.00
+22 correct_light    247ms deep   "Go back to my list of orders"
+     expected LIGHT orders.backToOrderList {}
+     got      LIGHT via decision orders.backToOrderList {} confidence=0.98
+23 correct_light    244ms deep   "Back to the checkout review"
+     expected LIGHT checkout.returnToCheckoutReview {}
+     got      LIGHT via decision checkout.returnToCheckoutReview {} confidence=1.00
+24 correct_light    226ms deep   "Show me my most recent order"
+     expected LIGHT orders.showMostRecentOrder {} | orders.showOrderDetails {"orderId":"ORD-10455"}
+     got      LIGHT via decision orders.showMostRecentOrder {} confidence=0.95
+25 correct_handoff  235ms deep   "Place the order, the customer approved it"
+     expected HANDOFF side_effect_not_required | needs_screen_change
+     got      HANDOFF side_effect_not_required (checkout.placeOrder) [picked checkout.placeOrder ]
+26 correct_handoff  254ms narrow "Show lower-fat options similar to DOG-DRY-SUMMIT-ADULT-30"
+     expected HANDOFF layout_no_longer_fits
+     got      HANDOFF layout_no_longer_fits [picked catalog.findSimilarProducts {"sku":"DOG-DRY-SUMMIT-ADULT-30","lowerFatOnly":true}]
+27 correct_light      -ms full   "Add Summit Trail Healthy Weight to the cart"
+     expected LIGHT cart.addToCart {"sku":"DOG-DRY-SUMMIT-HW-30","quantity":1}
+     got      LIGHT via required_actions cart.addToCart {"sku":"DOG-DRY-SUMMIT-HW-30","quantity":1} confidence=-
+28 correct_handoff    -ms browse "Add Summit Trail Healthy Weight to the cart"
+     expected HANDOFF target_not_visible
+     got      HANDOFF target_not_visible (cart) [picked cart.addToCart {"sku":"DOG-DRY-SUMMIT-HW-30","quantity":1}]
+29 correct_light      -ms full   "Place the order the customer approved"
+     expected LIGHT checkout.placeOrder {}
+     got      LIGHT via required_actions checkout.placeOrder {} confidence=-
+30 correct_handoff    -ms deep   "Place the order the customer approved"
+     expected HANDOFF action_not_offered_at_variant
+     got      HANDOFF action_not_offered_at_variant (checkout.placeOrder at confirmation) [picked checkout.placeOrder {}]
+
+Summary (30 intents, Jev)
+  light answered        13/30
+  light accuracy        13/13 answered correctly (100%)
+  wrong light answers   0 (shipped a wrong action or parameter, or should have handed off)
+  light recall          13/14 light-expected intents answered correctly
+  missed light          1 (handed off although the light tier should answer)
+  handoff rate          17/30 (57%), expected 16/30
+  handoff reason wrong  0 (handed off correctly, unexpected reason)
+  handoff reasons       side_effect_not_required=7, needs_screen_change=6, parameter_needs_generated_text=1, layout_no_longer_fits=1, target_not_visible=1, action_not_offered_at_variant=1
+  light tier latency    p50 248ms, max 318ms (answered via decision call, decision + validation)
+  decision call latency p50 252ms, max 319ms (all 26 decision calls)
+  required-action path  p50 0ms, max 0ms (answered, no model call)

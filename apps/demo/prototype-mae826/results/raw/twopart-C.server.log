@@ -1,0 +1,136 @@
+[engine] local_planner.ready {
+  planner: "llm",
+  agentPlanner: "composed",
+  lightDecider: true,
+  llmModel: "gpt-6-luna",
+  status: "ready",
+}
+[demo ws] engine server listening on ws://localhost:3054/ws
+[timing] conn=981aed80 input turn=1 kind=user_text
+[timing] conn=981aed80 router turn=1 mode=jev route=needs_tools ms=341
+[timing] conn=981aed80 tool turn=1 name=get_past_orders ms=1 sinceInputMs=2899
+[timing] conn=981aed80 tool turn=1 name=search_products ms=1 sinceInputMs=2902
+[timing] conn=981aed80 shows.release turn=1 order=get_past_orders,search_products
+[timing] conn=981aed80 queue.start job=get_past_orders ahead=0 queueWaitMs=0
+[engine] Processing chart_request {
+  messageId: "lB4aBCvy-rYbNH6dDlMno",
+  sessionId: "smoke-1791799579304",
+  layoutMode: "tiling",
+}
+[engine] Simulated variant transition: instance "orders-main" (orders) "list" -> "detail"
+[planner-tier] {"origin":"get_past_orders","messageId":"lB4aBCvy-rYbNH6dDlMno","sessionId":"smoke-1791799579304","tier":"light","handoff":null,"handoffDetail":null,"via":"decision","action":"orders.showMostRecentOrder","params":{},"confidence":0.55,"decisionMs":340,"lightMs":350,"llmMs":null,"totalMs":350,"error":null}
+[timing] planner.tier origin=get_past_orders tier=light via=decision light=350ms decision=340ms llm=-ms total=350ms action=orders.showMostRecentOrder handoff=-
+[timing] conn=981aed80 planner turn=1 origin=get_past_orders queueWaitMs=0 plannerMs=355 ok=true
+[timing] conn=981aed80 ui.push turn=1 origin=get_past_orders source=planner sinceInputMs=3263
+[timing] conn=981aed80 ui.applied turn=1 origin=get_past_orders source=planner sinceInputMs=3264 ackMs=1
+[timing] conn=981aed80 queue.start job=search_products ahead=1 queueWaitMs=361
+[engine] Processing chart_request {
+  messageId: "g2piAumTeGMXm-L7EuTxX",
+  sessionId: "smoke-1791799579304",
+  layoutMode: "tiling",
+}
+[engine] Planner stage deferred, running fallback {
+  messageId: "g2piAumTeGMXm-L7EuTxX",
+  reason: "keep_layout/parameter_needs_generated_text (query)",
+}
+[timing] conn=981aed80 tool turn=1 name=search_products ms=2 sinceInputMs=7235
+[timing] conn=981aed80 tool turn=1 name=search_products ms=0 sinceInputMs=7236
+[timing] conn=981aed80 shows.release turn=1 order=search_products,search_products
+[engine] LLM response received {
+  messageId: "g2piAumTeGMXm-L7EuTxX",
+}
+[planner-tier] {"origin":"search_products","messageId":"g2piAumTeGMXm-L7EuTxX","sessionId":"smoke-1791799579304","tier":"llm","handoff":"parameter_needs_generated_text","handoffDetail":"query","via":"decision","action":"catalog.searchProducts","params":{},"confidence":0.87,"decisionMs":228,"lightMs":230,"llmMs":4271,"totalMs":4501,"error":null}
+[timing] planner.tier origin=search_products tier=llm via=decision light=230ms decision=228ms llm=4271ms total=4501ms action=catalog.searchProducts handoff=parameter_needs_generated_text
+[timing] conn=981aed80 planner turn=1 origin=search_products queueWaitMs=361 plannerMs=4505 ok=true
+[timing] conn=981aed80 ui.push turn=1 origin=search_products source=planner sinceInputMs=7770
+[timing] conn=981aed80 ui.applied turn=1 origin=search_products source=planner sinceInputMs=7774 ackMs=4
+[timing] conn=981aed80 queue.start job=search_products ahead=1 queueWaitMs=539
+[engine] Processing chart_request {
+  messageId: "8TusGS8VkrhEffgNWhNaJ",
+  sessionId: "smoke-1791799579304",
+  layoutMode: "tiling",
+}
+[engine] Planner stage deferred, running fallback {
+  messageId: "8TusGS8VkrhEffgNWhNaJ",
+  reason: "keep_layout/parameter_needs_generated_text (query)",
+}
+[engine] LLM response received {
+  messageId: "8TusGS8VkrhEffgNWhNaJ",
+}
+[planner-tier] {"origin":"search_products","messageId":"8TusGS8VkrhEffgNWhNaJ","sessionId":"smoke-1791799579304","tier":"llm","handoff":"parameter_needs_generated_text","handoffDetail":"query","via":"decision","action":"catalog.searchProducts","params":{},"confidence":0.96,"decisionMs":349,"lightMs":350,"llmMs":3875,"totalMs":4226,"error":null}
+[timing] planner.tier origin=search_products tier=llm via=decision light=350ms decision=349ms llm=3875ms total=4226ms action=catalog.searchProducts handoff=parameter_needs_generated_text
+[timing] conn=981aed80 planner turn=1 origin=search_products queueWaitMs=539 plannerMs=4229 ok=true
+[timing] conn=981aed80 ui.push turn=1 origin=search_products source=planner sinceInputMs=12004
+[timing] conn=981aed80 ui.applied turn=1 origin=search_products source=planner sinceInputMs=12005 ackMs=1
+[timing] conn=981aed80 queue.start job=search_products ahead=2 queueWaitMs=4770
+[engine] Processing chart_request {
+  messageId: "vnNESijlJGyMKW8KXDK8p",
+  sessionId: "smoke-1791799579304",
+  layoutMode: "tiling",
+}
+[engine] Planner stage deferred, running fallback {
+  messageId: "vnNESijlJGyMKW8KXDK8p",
+  reason: "keep_layout/parameter_needs_generated_text (query)",
+}
+[engine] LLM response received {
+  messageId: "vnNESijlJGyMKW8KXDK8p",
+}
+[planner-tier] {"origin":"search_products","messageId":"vnNESijlJGyMKW8KXDK8p","sessionId":"smoke-1791799579304","tier":"llm","handoff":"parameter_needs_generated_text","handoffDetail":"query","via":"decision","action":"catalog.searchProducts","params":{},"confidence":0.92,"decisionMs":224,"lightMs":227,"llmMs":4568,"totalMs":4795,"error":null}
+[timing] planner.tier origin=search_products tier=llm via=decision light=227ms decision=224ms llm=4568ms total=4795ms action=catalog.searchProducts handoff=parameter_needs_generated_text
+[timing] conn=981aed80 planner turn=1 origin=search_products queueWaitMs=4770 plannerMs=4797 ok=true
+[timing] conn=981aed80 ui.push turn=1 origin=search_products source=planner sinceInputMs=16803
+[timing] conn=981aed80 ui.applied turn=1 origin=search_products source=planner sinceInputMs=16807 ackMs=4
+[agent-session] history roles user,assistant,tool,tool,assistant,tool,tool,user,assistant
+[timing] conn=981aed80 turn.done turn=1 ok=true route=needs_tools totalMs=16810 firstUiPushMs=3263 plannerCalls=4 modelTurns=3 parallelToolTurns=2 parallelTools=true
+[agent-session] turn done {"route":"needs_tools","routerMs":341,"firstUiMs":3263,"plannerCalls":[{"name":"get_past_orders: Open the customer's most recent order, ORD-10455, ","ms":355},{"name":"search_products: Show the catalog with the search results for {\"que","ms":4505},{"name":"search_products: Show the catalog with the search results for {\"que","ms":4229},{"name":"search_products: Show the catalog with the search results for {\"que","ms":4797}],"toolCalls":[{"name":"get_past_orders","ms":1},{"name":"search_products","ms":1},{"name":"search_products","ms":2},{"name":"search_products","ms":0}],"modelTurns":3,"totalMs":16810}
+       0ms turn.start
+       1ms router.start jev jev-1.13.0
+     342ms router.end jev needs_tools confidence=1 in=428 out=34
+     342ms router.decided needs_tools
+     354ms loop1.start low
+    1798ms loop1.first_output
+    2890ms loop1.end 2536ms in=929 cached=0 reasoning=0 out=98
+    2898ms tool.get_past_orders.start
+    2899ms tool.get_past_orders.end
+    2901ms tool.search_products.start
+    2902ms tool.search_products.end
+    2903ms planner.enqueue get_past_orders Open the customer's most recent order, ORD-10455, in the orders vessel so they c
+    2904ms planner.enqueue search_products Show the catalog with the search results for {"query":"dog food cheaper alternat
+    2904ms planner.dequeue get_past_orders
+    2911ms loop2.start low
+    3262ms planner.end ok
+    3263ms ui.push planner get_past_orders showMostRecentOrder
+    3264ms ui.ack
+    3265ms planner.dequeue search_products
+    3509ms planner1.start low
+    6085ms loop2.first_output
+    6088ms planner1.first_output
+    7223ms loop2.end 4312ms in=2035 cached=0 reasoning=102 out=237
+    7233ms tool.search_products.start
+    7235ms tool.search_products.end
+    7236ms tool.search_products.start
+    7236ms tool.search_products.end
+    7236ms planner.enqueue search_products Show the catalog with the search results for {"query":"affordable adult dry dog 
+    7236ms planner.enqueue search_products Show the catalog with the search results for {"query":"affordable indoor adult c
+    7237ms loop3.start low
+    7761ms planner1.end 4252ms in=7537 cached=3702 reasoning=26 out=224
+    7770ms planner.end ok
+    7770ms ui.push planner search_products searchProducts
+    7774ms ui.ack
+    7775ms planner.dequeue search_products
+    8130ms planner2.start low
+    9862ms planner2.first_output
+   10289ms loop3.first_output
+   11241ms loop3.end 4004ms in=3171 cached=0 reasoning=0 out=87
+   12001ms planner2.end 3871ms in=7528 cached=3702 reasoning=19 out=218
+   12004ms planner.end ok
+   12004ms ui.push planner search_products searchProducts
+   12005ms ui.ack
+   12006ms planner.dequeue search_products
+   12238ms planner3.start low
+   14898ms planner3.first_output
+   16797ms planner3.end 4559ms in=7506 cached=3702 reasoning=0 out=199
+   16803ms planner.end ok
+   16803ms ui.push planner search_products searchProducts
+   16807ms ui.ack
+   16810ms done ok

@@ -1,0 +1,114 @@
+[engine] local_planner.ready {
+  planner: "llm",
+  agentPlanner: "composed",
+  lightDecider: true,
+  llmModel: "gpt-6-luna",
+  status: "ready",
+}
+[demo ws] engine server listening on ws://localhost:3053/ws
+[timing] conn=77782038 input turn=1 kind=user_text
+[timing] conn=77782038 router turn=1 mode=jev route=needs_tools ms=325
+[timing] conn=77782038 tool turn=1 name=get_past_orders ms=0 sinceInputMs=2321
+[timing] conn=77782038 queue.start job=get_past_orders ahead=0 queueWaitMs=0
+[engine] Processing chart_request {
+  messageId: "qzwlmnYfgaePUqYIWjsSI",
+  sessionId: "smoke-1791799540819",
+  layoutMode: "tiling",
+}
+[timing] conn=77782038 tool turn=1 name=get_cart ms=7 sinceInputMs=2328
+[engine] Simulated variant transition: instance "orders-main" (orders) "list" -> "detail"
+[planner-tier] {"origin":"get_past_orders","messageId":"qzwlmnYfgaePUqYIWjsSI","sessionId":"smoke-1791799540819","tier":"light","handoff":null,"handoffDetail":null,"via":"decision","action":"orders.showMostRecentOrder","params":{},"confidence":0.72,"decisionMs":236,"lightMs":240,"llmMs":null,"totalMs":241,"error":null}
+[timing] planner.tier origin=get_past_orders tier=light via=decision light=240ms decision=236ms llm=-ms total=241ms action=orders.showMostRecentOrder handoff=-
+[timing] conn=77782038 planner turn=1 origin=get_past_orders queueWaitMs=0 plannerMs=245 ok=true
+[timing] conn=77782038 ui.push turn=1 origin=get_past_orders source=planner sinceInputMs=2568
+[timing] conn=77782038 ui.applied turn=1 origin=get_past_orders source=planner sinceInputMs=2568 ackMs=1
+[timing] conn=77782038 tool turn=1 name=find_similar_products ms=0 sinceInputMs=4383
+[timing] conn=77782038 queue.start job=find_similar_products ahead=0 queueWaitMs=0
+[engine] Processing chart_request {
+  messageId: "J9o1m8mFFTwrgDYFpbm5d",
+  sessionId: "smoke-1791799540819",
+  layoutMode: "tiling",
+}
+[planner-tier] {"origin":"find_similar_products","messageId":"J9o1m8mFFTwrgDYFpbm5d","sessionId":"smoke-1791799540819","tier":"light","handoff":null,"handoffDetail":null,"via":"decision","action":"catalog.findSimilarProducts","params":{"sku":"DOG-DRY-SUMMIT-ADULT-30","lowerFatOnly":true},"confidence":1,"decisionMs":255,"lightMs":256,"llmMs":null,"totalMs":256,"error":null}
+[timing] planner.tier origin=find_similar_products tier=light via=decision light=256ms decision=255ms llm=-ms total=256ms action=catalog.findSimilarProducts handoff=-
+[timing] conn=77782038 planner turn=1 origin=find_similar_products queueWaitMs=0 plannerMs=258 ok=true
+[timing] conn=77782038 ui.push turn=1 origin=find_similar_products source=planner sinceInputMs=4641
+[timing] conn=77782038 ui.applied turn=1 origin=find_similar_products source=planner sinceInputMs=4642 ackMs=1
+[timing] conn=77782038 queue.start job=add_to_cart ahead=0 queueWaitMs=0
+[engine] Processing chart_request {
+  messageId: "tjWP-It946eItwZ6-hHI_",
+  sessionId: "smoke-1791799540819",
+  layoutMode: "tiling",
+}
+[planner-tier] {"origin":"add_to_cart","messageId":"tjWP-It946eItwZ6-hHI_","sessionId":"smoke-1791799540819","tier":"light","handoff":null,"handoffDetail":null,"via":"required_actions","action":"cart.addToCart","params":{"sku":"DOG-DRY-NORTHPAW-LEAN-28","quantity":1},"confidence":null,"decisionMs":null,"lightMs":0,"llmMs":null,"totalMs":0,"error":null}
+[timing] planner.tier origin=add_to_cart tier=light via=required_actions light=0ms decision=-ms llm=-ms total=0ms action=cart.addToCart handoff=-
+[timing] conn=77782038 planner turn=1 origin=add_to_cart queueWaitMs=0 plannerMs=1 ok=true required=1
+[timing] conn=77782038 ui.push turn=1 origin=add_to_cart source=planner sinceInputMs=9092
+[timing] conn=77782038 ui.applied turn=1 origin=add_to_cart source=planner sinceInputMs=9093 ackMs=1
+[timing] conn=77782038 tool turn=1 name=add_to_cart ms=4 sinceInputMs=9093
+[timing] conn=77782038 queue.start job=place_order ahead=0 queueWaitMs=0
+[engine] Processing chart_request {
+  messageId: "z6cJWtUmXHW553s0kDZTm",
+  sessionId: "smoke-1791799540819",
+  layoutMode: "tiling",
+}
+[engine] Simulated variant transition: instance "checkout-main" (checkout) "review" -> "confirmation"
+[planner-tier] {"origin":"place_order","messageId":"z6cJWtUmXHW553s0kDZTm","sessionId":"smoke-1791799540819","tier":"light","handoff":null,"handoffDetail":null,"via":"required_actions","action":"checkout.placeOrder","params":{},"confidence":null,"decisionMs":null,"lightMs":0,"llmMs":null,"totalMs":0,"error":null}
+[timing] planner.tier origin=place_order tier=light via=required_actions light=0ms decision=-ms llm=-ms total=0ms action=checkout.placeOrder handoff=-
+[timing] conn=77782038 planner turn=1 origin=place_order queueWaitMs=0 plannerMs=1 ok=true required=1
+[timing] conn=77782038 ui.push turn=1 origin=place_order source=planner sinceInputMs=11490
+[timing] conn=77782038 ui.applied turn=1 origin=place_order source=planner sinceInputMs=11490 ackMs=0
+[timing] conn=77782038 tool turn=1 name=place_order ms=3 sinceInputMs=11490
+[agent-session] history roles user,assistant,tool,tool,assistant,tool,user,assistant,tool,user,user,assistant,tool,user,assistant
+[timing] conn=77782038 turn.done turn=1 ok=true route=needs_tools totalMs=13353 firstUiPushMs=2568 plannerCalls=4 modelTurns=5 parallelToolTurns=1 parallelTools=true
+[agent-session] turn done {"route":"needs_tools","routerMs":325,"firstUiMs":2568,"plannerCalls":[{"name":"get_past_orders: Open the customer's most recent order, ORD-10455, ","ms":245},{"name":"find_similar_products: Show the catalog with products similar to SKU DOG-","ms":258},{"name":"add_to_cart: Add 1 x Northpaw Lean Turkey & Oatmeal (SKU DOG-DR","ms":1},{"name":"place_order: Place the order the customer just approved on the ","ms":1}],"toolCalls":[{"name":"get_past_orders","ms":0},{"name":"get_cart","ms":7},{"name":"find_similar_products","ms":0},{"name":"add_to_cart","ms":4},{"name":"place_order","ms":3}],"modelTurns":5,"totalMs":13353}
+       0ms turn.start
+       1ms router.start jev jev-1.13.0
+     326ms router.end jev needs_tools confidence=1 in=439 out=34
+     326ms router.decided needs_tools
+     334ms loop1.start low
+    1579ms loop1.first_output
+    2318ms loop1.end 1984ms in=938 cached=0 reasoning=0 out=74
+    2321ms tool.get_past_orders.start
+    2321ms tool.get_past_orders.end
+    2322ms tool.get_cart.start
+    2322ms planner.enqueue get_past_orders Open the customer's most recent order, ORD-10455, in the orders vessel so they c
+    2322ms planner.dequeue get_past_orders
+    2328ms tool.get_cart.end
+    2330ms loop2.start low
+    2567ms planner.end ok
+    2568ms ui.push planner get_past_orders showMostRecentOrder
+    2568ms ui.ack
+    3428ms loop2.first_output
+    4382ms loop2.end 2052ms in=1395 cached=0 reasoning=10 out=86
+    4383ms tool.find_similar_products.start
+    4383ms tool.find_similar_products.end
+    4383ms planner.enqueue find_similar_products Show the catalog with products similar to SKU DOG-DRY-SUMMIT-ADULT-30 with lower
+    4383ms planner.dequeue find_similar_products
+    4386ms loop3.start low
+    4641ms planner.end ok
+    4641ms ui.push planner find_similar_products findSimilarProducts
+    4642ms ui.ack
+    8172ms loop3.first_output
+    9088ms loop3.end 4702ms in=1817 cached=0 reasoning=61 out=136
+    9089ms tool.add_to_cart.start
+    9089ms planner.enqueue add_to_cart Add 1 x Northpaw Lean Turkey & Oatmeal (SKU DOG-DRY-NORTHPAW-LEAN-28) to the car
+    9090ms planner.dequeue add_to_cart
+    9091ms planner.end ok
+    9092ms ui.push planner add_to_cart addToCart
+    9093ms ui.ack
+    9093ms tool.add_to_cart.end
+    9094ms loop4.start low
+   11226ms loop4.first_output
+   11487ms loop4.end 2393ms in=2022 cached=1814 reasoning=0 out=15
+   11488ms tool.place_order.start
+   11489ms planner.enqueue place_order Place the order the customer just approved on the checkout and show its confirma
+   11489ms planner.dequeue place_order
+   11490ms planner.end ok
+   11490ms ui.push planner place_order placeOrder
+   11490ms ui.ack
+   11490ms tool.place_order.end
+   11491ms loop5.start low
+   12842ms loop5.first_output
+   13350ms loop5.end 1859ms in=2094 cached=0 reasoning=0 out=35
+   13353ms done ok
