@@ -1,11 +1,16 @@
-// PROTOTYPE (MAE-825): throwaway agent loop, never merge.
+// PROTOTYPE (MAE-825, MAE-826): throwaway agent loop, never merge.
 /**
  * Tools the Agent Session loop can call. Catalog and order lookups run on the
  * server from fixtures; cart reads and approvals run in the browser through
- * `agent.tool.request`; every screen change goes through the Planner or a
- * direct `agent.ui` action push.
+ * `agent.tool.request`; every screen change goes through the Planner. Data
+ * tools queue their own show when they return. Cart and order tools hand the
+ * Planner required actions the session enforces, so side effects never
+ * depend on a model's guess.
  */
-import type { ActionExecution } from '@maelstrom-co/protocol';
+import type {
+  ActionExecution,
+  MaelstromResponse,
+} from '@maelstrom-co/protocol';
 import { type AnyTool, toolDefinition } from '@tanstack/ai';
 import { z } from 'zod';
 import {
@@ -14,31 +19,62 @@ import {
   SEED_ORDERS,
 } from '../lib/pet-shop-fixtures';
 import { findSimilarProducts, searchProducts } from '../vessels/catalog.store';
+import type { PlannerCallOrigin, RequiredAction } from './agent-planner';
 import type {
   AgentChartSnapshot,
   ClientToolName,
 } from './agent-session-frames';
 
+const toolEnv =
+  typeof process !== 'undefined'
+    ? process.env
+    : ({} as Record<string, string | undefined>);
+
+/**
+ * Measurement only: `AGENT_DIRECT_PUSH=1` restores the MAE-825 direct pushes
+ * (catalog actions, add_to_cart, place_order) that skip the Planner. Off by
+ * default, and always off in the Worker: the Planner is the only path for UI
+ * changes.
+ */
+export const DIRECT_PUSH = toolEnv.AGENT_DIRECT_PUSH?.trim() === '1';
+
 export type ToolVisibility =
   | { readonly visibility: 'shown'; readonly label: string }
   | { readonly visibility: 'silent' };
 
+/** One UI change a tool asks the Planner for. */
+export interface ShowRequest {
+  readonly origin: PlannerCallOrigin;
+  readonly intent: string;
+  /** Ids and SKUs the Planner should use, e.g. `{ latestOrderSkus, similarSkus }`. */
+  readonly metadata: Readonly<Record<string, unknown>>;
+  readonly requiredActions?: readonly RequiredAction[];
+}
+
+export type ShowOutcome =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly error: string };
+
 /** What a tool may do to the session it runs in. */
 export interface AgentToolContext {
-  /** Asks the Planner for one UI change and returns before it lands. */
-  readonly showUi: (intent: string) => string;
-  /** Resolves with the chart once every UI change sent so far is applied. */
+  /** Queues one Planner call and returns before it lands. */
+  readonly show: (request: ShowRequest) => void;
+  /** Queues one Planner call and resolves once the browser applied it. */
+  readonly showAndWait: (request: ShowRequest) => Promise<ShowOutcome>;
+  /** Resolves with the chart once every queued UI change is applied. */
   readonly waitForScreen: () => Promise<AgentChartSnapshot>;
-  /** Runs a Planner call and waits until the browser applied it. */
-  readonly showUiAndWait: (intent: string) => Promise<AgentChartSnapshot>;
-  /** Pushes vessel actions without a layout change and waits for them to apply. */
+  /** Measurement only ({@link DIRECT_PUSH}): pushes actions without the Planner. */
   readonly runActions: (
     executionPlan: readonly ActionExecution[],
+    origin: PlannerCallOrigin,
   ) => Promise<AgentChartSnapshot>;
   readonly callClientTool: (
     tool: ClientToolName,
     args: unknown,
   ) => Promise<unknown>;
+  /** Facts the session gathered so far, sent with free-form shows. */
+  readonly facts: () => Readonly<Record<string, unknown>>;
+  readonly rememberFacts: (facts: Record<string, unknown>) => void;
 }
 
 /** Hooks the session wraps every tool call with, for progress and timing. */
@@ -60,8 +96,8 @@ export const AGENT_TOOLS: readonly AgentTool[] = [
       "List the customer's past pet-food orders, newest first, with every line item SKU, product name, quantity and price. Use it to find what they usually buy.",
     inputSchema: z.object({}),
     visibility: { visibility: 'shown', label: 'Looking up your past orders…' },
-    run: async () =>
-      SEED_ORDERS.map((order) => ({
+    run: async (_input, context) => {
+      const orders = SEED_ORDERS.map((order) => ({
         orderId: order.id,
         placedOn: order.placedOn,
         items: order.items.map((item) => ({
@@ -70,7 +106,21 @@ export const AGENT_TOOLS: readonly AgentTool[] = [
           quantity: item.quantity,
           fatPercent: productBySku(item.sku)?.fatPercent,
         })),
-      })),
+      }));
+      const latest = orders[0];
+      if (!latest) return { shown: 'nothing', orders };
+      const facts = {
+        latestOrderId: latest.orderId,
+        latestOrderSkus: latest.items.map((item) => item.sku),
+      };
+      context.rememberFacts(facts);
+      context.show({
+        origin: 'get_past_orders',
+        intent: `Open the customer's most recent order, ${latest.orderId}, in the orders vessel so they can see what they usually buy.`,
+        metadata: facts,
+      });
+      return { shown: 'the most recent order, on screen shortly', orders };
+    },
   }),
   defineAgentTool({
     name: 'search_products',
@@ -85,13 +135,24 @@ export const AGENT_TOOLS: readonly AgentTool[] = [
     visibility: { visibility: 'shown', label: 'Searching the catalog…' },
     run: async (input, context) => {
       const results = searchProducts(input).map(summarizeProduct);
-      const shown = await showInCatalog(
-        context,
-        'searchProducts',
-        { ...input },
-        `Show the catalog with the search results for ${JSON.stringify(input)}.`,
-      );
-      return { shown, results };
+      const intent = `Show the catalog with the search results for ${JSON.stringify(input)}.`;
+      if (DIRECT_PUSH) {
+        const shown = await showInCatalog(
+          context,
+          'search_products',
+          'searchProducts',
+          { ...input },
+          intent,
+        );
+        return { shown, results };
+      }
+      const facts = {
+        searchFilters: { ...input },
+        searchResultSkus: results.map((product) => product.sku),
+      };
+      context.rememberFacts(facts);
+      context.show({ origin: 'search_products', intent, metadata: facts });
+      return { shown: 'the results, on screen shortly', results };
     },
   }),
   defineAgentTool({
@@ -111,19 +172,36 @@ export const AGENT_TOOLS: readonly AgentTool[] = [
         ...(lowerFatOnly === undefined ? {} : { lowerFatOnly }),
         ...(maxFatPercent === undefined ? {} : { maxFatPercent }),
       };
-      const shown = await showInCatalog(
-        context,
-        'findSimilarProducts',
-        { sku, ...filters },
-        `Show the catalog with products similar to SKU ${sku}${lowerFatOnly ? ' with lower fat' : ''}${maxFatPercent === undefined ? '' : ` at most ${maxFatPercent}% fat`}.`,
-      );
+      const similar = findSimilarProducts(reference, {
+        lowerFatOnly,
+        maxFatPercent,
+      }).map(summarizeProduct);
+      const intent = `Show the catalog with products similar to SKU ${reference.sku}${lowerFatOnly ? ' with lower fat' : ''}${maxFatPercent === undefined ? '' : ` at most ${maxFatPercent}% fat`}.`;
+      if (DIRECT_PUSH) {
+        const shown = await showInCatalog(
+          context,
+          'find_similar_products',
+          'findSimilarProducts',
+          { sku, ...filters },
+          intent,
+        );
+        return { shown, reference: summarizeProduct(reference), similar };
+      }
+      const facts = {
+        referenceSku: reference.sku,
+        ...filters,
+        similarSkus: similar.map((product) => product.sku),
+      };
+      context.rememberFacts(facts);
+      context.show({
+        origin: 'find_similar_products',
+        intent,
+        metadata: facts,
+      });
       return {
-        shown,
+        shown: 'the similar products, on screen shortly',
         reference: summarizeProduct(reference),
-        similar: findSimilarProducts(reference, {
-          lowerFatOnly,
-          maxFatPercent,
-        }).map(summarizeProduct),
+        similar,
       };
     },
   }),
@@ -146,10 +224,31 @@ export const AGENT_TOOLS: readonly AgentTool[] = [
   defineAgentTool({
     name: 'show_ui',
     description:
-      'Rearrange the screen through the slow layout planner (several seconds). Describe the desired screen in plain words, naming the vessels (orders, catalog, cart, checkout) and any vessel action to run, e.g. "Open my most recent order next to the catalog". Do NOT use it for catalog results (search_products and find_similar_products show those) or cart changes (add_to_cart). Returns immediately; the screen updates in the background.',
-    inputSchema: z.object({ intent: z.string() }),
+      'Rearrange the screen through the layout planner. Describe the desired screen in plain words, naming the vessels (orders, catalog, cart, checkout) and any vessel action to run, e.g. "Open order ORD-10421 next to the catalog". Pass the order id or SKUs it is about. Do NOT use it for the latest order or catalog results (get_past_orders, search_products and find_similar_products show those) or cart changes (add_to_cart). Returns immediately; the screen updates in the background.',
+    inputSchema: z.object({
+      intent: z.string(),
+      orderId: z
+        .string()
+        .nullish()
+        .describe('Order id the change is about, if any.'),
+      skus: z
+        .array(z.string())
+        .nullish()
+        .describe('Product SKUs the change is about, if any.'),
+    }),
     visibility: { visibility: 'shown', label: 'Arranging the screen…' },
-    run: async ({ intent }, context) => context.showUi(intent),
+    run: async ({ intent, orderId, skus }, context) => {
+      context.show({
+        origin: 'show_ui',
+        intent,
+        metadata: {
+          ...context.facts(),
+          ...(orderId ? { orderId } : {}),
+          ...(skus && skus.length > 0 ? { skus } : {}),
+        },
+      });
+      return 'Screen change requested; it will appear shortly. Continue.';
+    },
   }),
   defineAgentTool({
     name: 'add_to_cart',
@@ -163,19 +262,40 @@ export const AGENT_TOOLS: readonly AgentTool[] = [
     run: async ({ sku, quantity }, context) => {
       const product = productBySku(sku);
       if (!product) return { ok: false, error: `Unknown SKU ${sku}` };
-      const cartInstance = await ensureVesselOnScreen(
-        context,
-        'cart',
-        'Show the cart vessel so the customer can see it.',
-      );
-      if (!cartInstance) return { ok: false, error: 'Cart is not on screen' };
-      await context.runActions([
-        actionExecution(cartInstance, 'addToCart', {
-          sku: product.sku,
-          quantity: quantity ?? 1,
-        }),
-      ]);
-      return { ok: true, added: product.name, quantity: quantity ?? 1 };
+      const units = quantity ?? 1;
+      if (DIRECT_PUSH) {
+        const cartInstance = await ensureVesselOnScreen(
+          context,
+          'add_to_cart',
+          'cart',
+          'Show the cart vessel so the customer can see it.',
+        );
+        if (!cartInstance) return { ok: false, error: 'Cart is not on screen' };
+        await context.runActions(
+          [
+            actionExecution(cartInstance, 'addToCart', {
+              sku: product.sku,
+              quantity: units,
+            }),
+          ],
+          'add_to_cart',
+        );
+        return { ok: true, added: product.name, quantity: units };
+      }
+      const outcome = await context.showAndWait({
+        origin: 'add_to_cart',
+        intent: `Add ${units} x ${product.name} (SKU ${product.sku}) to the cart and keep the cart visible.`,
+        metadata: { sku: product.sku, quantity: units },
+        requiredActions: [
+          {
+            vesselId: 'cart',
+            action: 'addToCart',
+            params: { sku: product.sku, quantity: units },
+          },
+        ],
+      });
+      if (!outcome.ok) return { ok: false, error: outcome.error };
+      return { ok: true, added: product.name, quantity: units };
     },
   }),
   defineAgentTool({
@@ -187,6 +307,7 @@ export const AGENT_TOOLS: readonly AgentTool[] = [
     run: async (_input, context) => {
       const checkoutInstance = await ensureVesselOnScreen(
         context,
+        'place_order',
         'checkout',
         'Show the checkout review vessel next to the cart.',
       );
@@ -202,9 +323,23 @@ export const AGENT_TOOLS: readonly AgentTool[] = [
         question: `Place this order for ${cart.totalText ?? 'the cart total'}?`,
       })) as { approved?: boolean };
       if (!answer.approved) return { ok: false, declined: true };
-      await context.runActions([
-        actionExecution(checkoutInstance, 'placeOrder', {}),
-      ]);
+      if (DIRECT_PUSH) {
+        await context.runActions(
+          [actionExecution(checkoutInstance, 'placeOrder', {})],
+          'place_order',
+        );
+        return { ok: true, placed: true };
+      }
+      const outcome = await context.showAndWait({
+        origin: 'place_order',
+        intent:
+          'Place the order the customer just approved on the checkout and show its confirmation.',
+        metadata: cart.totalText ? { cartTotal: cart.totalText } : {},
+        requiredActions: [
+          { vesselId: 'checkout', action: 'placeOrder', params: {} },
+        ],
+      });
+      if (!outcome.ok) return { ok: false, error: outcome.error };
       return { ok: true, placed: true };
     },
   }),
@@ -214,9 +349,10 @@ export const AGENT_SYSTEM_PROMPT = `You are the shopping assistant for a pet-foo
 The customer is Sam Rivera (dog Biscuit, adult Labrador; cat Miso, indoor adult).
 Rules:
 - Look up data with get_past_orders, search_products, find_similar_products and get_cart. Never invent SKUs.
-- search_products and find_similar_products also show their results in the catalog on screen, instantly. Never call show_ui to show catalog results.
-- Change the screen otherwise ONLY with show_ui, add_to_cart and place_order. Use show_ui only for layout changes no other tool covers (for example opening an order or resizing). show_ui is slow and asynchronous: call it at most once per request, then keep working.
+- get_past_orders puts the most recent order on screen, and search_products and find_similar_products put their results in the catalog on screen, by themselves as soon as they return. Never call show_ui for those.
+- Change the screen otherwise ONLY with show_ui, add_to_cart and place_order. Use show_ui only for layout changes no other tool covers (for example opening an older order, product details or resizing). show_ui is asynchronous: call it at most once per request, pass the order id or SKUs it is about, then keep working.
 - Never place an order without place_order, which asks the customer for approval itself. Only call place_order when the customer asked to check out or buy.
+- Messages starting with [screen] are notes from the UI about what the screen shows now, not words from the customer.
 - Before each group of tool calls, write one short sentence saying what you are doing (it is shown as progress).
 - Finish with one or two short sentences for the customer. No markdown.`;
 
@@ -268,37 +404,8 @@ function withoutNulls<T extends object>(input: T): WithoutNulls<T> {
   ) as WithoutNulls<T>;
 }
 
-// Bypasses the Planner for measurement only: the design keeps the Planner
-// as the single path for UI changes.
-async function showInCatalog(
-  context: AgentToolContext,
-  action: string,
-  params: Record<string, unknown>,
-  fallbackIntent: string,
-): Promise<'catalog' | 'queued'> {
-  const chart = await context.waitForScreen();
-  const catalogInstance = visibleInstanceOf(chart, 'catalog');
-  if (!catalogInstance) {
-    context.showUi(fallbackIntent);
-    return 'queued';
-  }
-  await context.runActions([actionExecution(catalogInstance, action, params)]);
-  return 'catalog';
-}
-
-async function ensureVesselOnScreen(
-  context: AgentToolContext,
-  vesselId: string,
-  intent: string,
-): Promise<string | null> {
-  const before = await context.waitForScreen();
-  const existing = visibleInstanceOf(before, vesselId);
-  if (existing) return existing;
-  const after = await context.showUiAndWait(intent);
-  return visibleInstanceOf(after, vesselId);
-}
-
-function visibleInstanceOf(
+/** The first visible instance of `vesselId`, or null. */
+export function visibleInstanceOf(
   chart: AgentChartSnapshot,
   vesselId: string,
 ): string | null {
@@ -314,7 +421,26 @@ function visibleInstanceOf(
   );
 }
 
-function actionExecution(
+/** `chart` with `layout` applied; a tiling layout also declares the instances. */
+export function chartWithLayout(
+  chart: AgentChartSnapshot,
+  layout: MaelstromResponse['layout'],
+): AgentChartSnapshot {
+  return {
+    ...chart,
+    layout,
+    instances:
+      layout.type === 'tiling'
+        ? layout.instances.map(({ instanceId, vesselId, variant }) => ({
+            instanceId,
+            vesselId,
+            variant,
+          }))
+        : chart.instances,
+  };
+}
+
+export function actionExecution(
   instanceId: string,
   action: string,
   params: Record<string, unknown>,
@@ -322,6 +448,45 @@ function actionExecution(
   // MaelstromResponse actions carry parsed `params`; `paramsJson` is only the
   // LLM structured-output shape, and the browser ignores it.
   return { instanceId, action, params } as unknown as ActionExecution;
+}
+
+// Measurement only (DIRECT_PUSH): bypasses the Planner when the catalog is
+// already visible.
+async function showInCatalog(
+  context: AgentToolContext,
+  origin: PlannerCallOrigin,
+  action: string,
+  params: Record<string, unknown>,
+  fallbackIntent: string,
+): Promise<'catalog' | 'queued'> {
+  const chart = await context.waitForScreen();
+  const catalogInstance = visibleInstanceOf(chart, 'catalog');
+  if (!catalogInstance) {
+    context.show({ origin, intent: fallbackIntent, metadata: { ...params } });
+    return 'queued';
+  }
+  await context.runActions(
+    [actionExecution(catalogInstance, action, params)],
+    origin,
+  );
+  return 'catalog';
+}
+
+async function ensureVesselOnScreen(
+  context: AgentToolContext,
+  origin: PlannerCallOrigin,
+  vesselId: string,
+  intent: string,
+): Promise<string | null> {
+  const before = await context.waitForScreen();
+  const existing = visibleInstanceOf(before, vesselId);
+  if (existing) return existing;
+  await context.showAndWait({
+    origin,
+    intent,
+    metadata: context.facts(),
+  });
+  return visibleInstanceOf(await context.waitForScreen(), vesselId);
 }
 
 function summarizeProduct(product: Product) {

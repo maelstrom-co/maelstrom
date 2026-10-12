@@ -6,19 +6,14 @@
  * implementation of the handshake/heartbeat/dispatch ordering instead of two
  * that are free to drift.
  */
-import {
-  type Engine,
-  handleEnvelope,
-  recoverCorrelation,
-} from '@maelstrom-co/engine';
+import { type Engine, recoverCorrelation } from '@maelstrom-co/engine';
 import {
   decodeClientEnvelope,
   EngineErrorMessage,
   encodeEnvelope,
   isErr,
 } from '@maelstrom-co/protocol';
-import type { AgentSession } from './agent-session';
-import { isAgentClientFrame } from './agent-session-frames';
+import type { EngineFacade } from './engine-facade';
 import {
   classifyIncomingFrame,
   type PlaygroundHelloFrame,
@@ -49,12 +44,11 @@ export interface DispatchContext {
   /** Error text for the engine-null reply, chosen by the transport. */
   readonly engineUnavailableReason: string;
   /**
-   * PROTOTYPE (MAE-825): resolves this connection's Agent Session, which
-   * pushes its own frames. Absent or null means the transport has none.
+   * PROTOTYPE (MAE-826): resolves this connection's Engine facade around
+   * `engine`. Every engine-bound frame goes to it, and it sends every reply
+   * and event itself.
    */
-  readonly getAgentSession?: (
-    engine: Engine,
-  ) => AgentSession | null | Promise<AgentSession | null>;
+  readonly getFacade: (engine: Engine) => EngineFacade | Promise<EngineFacade>;
 }
 
 export type DispatchResult =
@@ -129,14 +123,7 @@ export async function dispatchFrame(
     };
   }
 
-  if (isAgentClientFrame(parsed)) {
-    const session = await ctx.getAgentSession?.(engine);
-    if (session) session.receive(parsed);
-    return { kind: 'none' };
-  }
-
-  const reply = await handleEnvelope(engine, raw);
-  return reply
-    ? { kind: 'reply', wire: encodeEnvelope(reply) }
-    : { kind: 'none' };
+  const facade = await ctx.getFacade(engine);
+  await facade.handle(raw);
+  return { kind: 'none' };
 }

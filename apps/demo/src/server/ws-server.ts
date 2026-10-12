@@ -7,14 +7,14 @@
  * browser's memory-only key through playground.hello and each connection
  * owns its engine.
  *
- * Speaks the same handleEnvelope/encodeEnvelope loop from @maelstrom-co/engine
- * and @maelstrom-co/protocol as the hosted transport (`src/worker/session-do.ts`),
- * via the shared dispatchFrame core in `./dispatch`.
+ * Shares the dispatchFrame core in `./dispatch` with the hosted transport
+ * (`src/worker/session-do.ts`): every engine-bound frame goes to the
+ * connection's Engine facade (`./engine-facade`, PROTOTYPE MAE-826).
  */
 import { HEARTBEAT_PONG_FRAME } from '@maelstrom-co/connectors';
 import type { Engine } from '@maelstrom-co/engine';
-import { AgentSession } from './agent-session';
 import { dispatchFrame } from './dispatch';
+import { EngineFacade } from './engine-facade';
 import { engineMetadataFrame } from './engine-model';
 import { buildLocalEngine, buildSharedEngine } from './local-planner';
 import { redactSecrets } from './redact';
@@ -55,8 +55,8 @@ export interface SocketData {
   browserApiKey?: string;
   browserEngine?: Engine | null;
   browserEngineInitError?: string | null;
-  /** PROTOTYPE (MAE-825): this connection's Agent Session, built on first use. */
-  agentSession?: AgentSession;
+  /** PROTOTYPE (MAE-826): this connection's Engine facade, built on first use. */
+  facade?: EngineFacade;
 }
 
 export interface WebSocketHandlerDeps {
@@ -100,21 +100,22 @@ export function createWebSocketHandlers(
           ws.data.browserEngineInitError ??
           sharedEngineInitError ??
           'engine unavailable',
-        getAgentSession: (engine) => {
-          const apiKey = agentApiKey || ws.data.browserApiKey;
-          if (!apiKey) return null;
-          ws.data.agentSession ??= new AgentSession({
-            engine,
-            apiKey,
-            send: (wire) =>
-              ws.send(
-                redactSecrets(wire, [
-                  ...secrets,
-                  ...(ws.data.browserApiKey ? [ws.data.browserApiKey] : []),
-                ]),
-              ),
-          });
-          return ws.data.agentSession;
+        getFacade: (engine) => {
+          if (ws.data.facade?.planner !== engine) {
+            const apiKey = agentApiKey || ws.data.browserApiKey;
+            ws.data.facade = new EngineFacade({
+              planner: engine,
+              ...(apiKey ? { apiKey } : {}),
+              send: (wire) =>
+                ws.send(
+                  redactSecrets(wire, [
+                    ...secrets,
+                    ...(ws.data.browserApiKey ? [ws.data.browserApiKey] : []),
+                  ]),
+                ),
+            });
+          }
+          return ws.data.facade;
         },
       });
 

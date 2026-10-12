@@ -1,17 +1,15 @@
-// PROTOTYPE (MAE-825): throwaway agent loop, never merge.
+// PROTOTYPE (MAE-825, MAE-826): throwaway agent loop, never merge.
 /**
- * One Agent Session per connection: a stateful conversation that runs a
- * multi-step tool-calling loop and delegates every UI change to the existing
- * stateless Planner (the Engine), one Planner call per "show X". In-memory
- * only: no durability, resume or budgets.
+ * One Agent Session per connection, hosted by the Engine facade: a stateful
+ * conversation that runs a multi-step tool-calling loop and asks the
+ * stateless Planner for every UI change through the facade's single queue.
+ * Planner results come back here first; this session writes `agent.ui` to
+ * the browser and records what the screen shows in its transcript, the only
+ * history. In-memory only: no durability, resume or budgets.
  */
-import type { Engine } from '@maelstrom-co/engine';
-import {
-  type ActionExecution,
-  ChartRequestMessage,
-  ChartRequestSchema,
-  isErr,
-  SessionId,
+import type {
+  ActionExecution,
+  MaelstromResponse,
 } from '@maelstrom-co/protocol';
 import {
   type AnyTextAdapter,
@@ -23,15 +21,17 @@ import {
 } from '@tanstack/ai';
 import { createOpenaiChat, type OpenAIChatModel } from '@tanstack/ai-openai';
 import { z } from 'zod';
+import type { PlannerIntent, RequiredAction } from './agent-planner';
 import type {
   AgentChartSnapshot,
-  AgentClientFrame,
   AgentInputFrame,
   AgentModelCall,
   AgentServerFrame,
   AgentTimedStep,
   AgentTimelineEvent,
+  AgentToolResultFrame,
   AgentTurnMetrics,
+  AgentUiFrame,
   ClientToolName,
 } from './agent-session-frames';
 import {
@@ -39,7 +39,13 @@ import {
   AGENT_TOOLS,
   type AgentToolContext,
   type AgentToolHooks,
+  actionExecution,
+  chartWithLayout,
+  type ShowOutcome,
+  type ShowRequest,
+  visibleInstanceOf,
 } from './agent-session-tools';
+import type { EngineFacade, UiApplied } from './engine-facade';
 import { DEFAULT_ENGINE_MODEL, onEngineModelCall } from './engine-model';
 import {
   type ObservedCall,
@@ -49,8 +55,18 @@ import {
 
 const MAX_LOOP_ITERATIONS = 12;
 const CLIENT_TOOL_TIMEOUT_MS = 120_000;
-const UI_APPLIED_TIMEOUT_MS = 15_000;
 const HISTORY_MAX_MESSAGES = 40;
+const SCREEN_NOTE_PREFIX = '[screen]';
+
+// Cart and order side effects run only when a deterministic tool requires
+// them; any the Planner adds on its own are dropped.
+const SIDE_EFFECT_ACTIONS = new Set([
+  'addToCart',
+  'removeFromCart',
+  'updateCartQuantity',
+  'clearCart',
+  'placeOrder',
+]);
 
 const agentEnv =
   typeof process !== 'undefined'
@@ -99,33 +115,31 @@ ui_only: ${UI_ONLY_DESCRIPTION}
 needs_tools: ${NEEDS_TOOLS_DESCRIPTION}`;
 
 export interface AgentSessionOptions {
-  readonly engine: Engine;
+  /** The Engine facade hosting this session: Planner queue, chart and client events. */
+  readonly host: EngineFacade;
   readonly apiKey: string;
-  /** Pushes a frame to this connection. The transport redacts secrets. */
-  readonly send: (wire: string) => void;
 }
 
 export class AgentSession {
-  readonly #engine: Engine;
+  readonly #host: EngineFacade;
   readonly #adapter: AnyTextAdapter;
-  readonly #send: (wire: string) => void;
   readonly #messages: ModelMessage[] = [];
+  // Transcript lines that arrived mid-turn, added at the next safe point.
+  readonly #pendingNotes: ModelMessage[] = [];
   readonly #pendingClientTools = new Map<
     string,
     { resolve: (value: unknown) => void; reject: (error: Error) => void }
   >();
-  readonly #pendingUiApplied = new Map<string, (error?: string) => void>();
-  #chart: AgentChartSnapshot | null = null;
-  #uiQueue: Promise<void> = Promise.resolve();
+  #facts: Record<string, unknown> = {};
   #turnActive = false;
   #turnId = '';
+  #turnNumber = 0;
   #inputCount = 0;
   #turn: TurnRecorder | null = null;
   #lastPlannerMessage = '';
 
   constructor(options: AgentSessionOptions) {
-    this.#engine = options.engine;
-    this.#send = options.send;
+    this.#host = options.host;
     this.#adapter = observeOpenaiCalls(
       createAgentChat(AGENT_MODEL as OpenAIChatModel, options.apiKey),
       (start) =>
@@ -133,28 +147,44 @@ export class AgentSession {
     );
   }
 
-  /** Routes one inbound Agent Session frame. Never throws. */
-  receive(frame: AgentClientFrame): void {
-    switch (frame.type) {
-      case 'agent.input':
-        void this.#startTurn(frame);
-        return;
-      case 'agent.tool.result': {
-        const pending = this.#pendingClientTools.get(frame.callId);
-        if (!pending) return;
-        this.#pendingClientTools.delete(frame.callId);
-        if (frame.ok) pending.resolve(frame.value);
-        else pending.reject(new Error(frame.error));
-        return;
-      }
-      case 'agent.ui.applied': {
-        this.#chart = frame.chart;
-        const resolve = this.#pendingUiApplied.get(frame.uiId);
-        this.#pendingUiApplied.delete(frame.uiId);
-        resolve?.(frame.error);
-        return;
-      }
+  /** Starts a turn for user input, or answers busy while one runs. Never throws. */
+  startTurn(frame: AgentInputFrame): void {
+    void this.#startTurn(frame);
+  }
+
+  receiveToolResult(frame: AgentToolResultFrame): void {
+    const pending = this.#pendingClientTools.get(frame.callId);
+    if (!pending) return;
+    this.#pendingClientTools.delete(frame.callId);
+    if (frame.ok) pending.resolve(frame.value);
+    else pending.reject(new Error(frame.error));
+  }
+
+  /**
+   * Adds one line to the transcript: now when idle, or at the next safe
+   * point (before the next loop model call, or at turn end) during a turn.
+   */
+  addTranscriptNote(content: string, role: 'user' | 'assistant'): void {
+    const message: ModelMessage = { role, content };
+    if (this.#turnActive) {
+      this.#pendingNotes.push(message);
+      return;
     }
+    this.#messages.push(message);
+    this.#trimHistory();
+  }
+
+  /** Records what the screen shows after a Planner call, as one transcript line. */
+  noteScreen(
+    origin: string,
+    plannerMessage: string,
+    chart: AgentChartSnapshot | null,
+    error?: string,
+  ): void {
+    this.addTranscriptNote(
+      `${SCREEN_NOTE_PREFIX} ${origin}: ${error ? `failed (${error}), screen unchanged` : JSON.stringify(plannerMessage)}. ${describeScreen(chart)}`,
+      'user',
+    );
   }
 
   async #startTurn(frame: AgentInputFrame): Promise<void> {
@@ -172,10 +202,14 @@ export class AgentSession {
     }
     this.#turnActive = true;
     this.#turnId = frame.turnId;
-    this.#chart = frame.chart;
+    this.#turnNumber++;
     const turn = new TurnRecorder();
     this.#turn = turn;
     turn.mark('turn.start');
+    this.#host.timing('input', {
+      turn: this.#turnNumber,
+      kind: frame.input.kind,
+    });
     this.#lastPlannerMessage = '';
     if (this.#inputCount++ === 0)
       this.#push({ type: 'agent.progress', text: 'Working on it…' });
@@ -235,6 +269,12 @@ export class AgentSession {
     });
     turn.routerMs = round(performance.now() - started);
     turn.mark('router.decided', route);
+    this.#host.timing('router', {
+      turn: this.#turnNumber,
+      mode: ROUTER_MODE,
+      route,
+      ms: turn.routerMs,
+    });
     return route;
   }
 
@@ -301,7 +341,7 @@ export class AgentSession {
   }
 
   // Plain user and assistant text only: a tool message without its call
-  // makes the structured-output request invalid.
+  // makes the structured-output request invalid. Screen notes stay out.
   #recentText(): ModelMessage[] {
     return this.#messages
       .filter(
@@ -309,15 +349,21 @@ export class AgentSession {
           (message.role === 'user' || message.role === 'assistant') &&
           !message.toolCalls?.length &&
           typeof message.content === 'string' &&
-          message.content.length > 0,
+          message.content.length > 0 &&
+          !message.content.startsWith(SCREEN_NOTE_PREFIX),
       )
       .slice(-4);
   }
 
   async #runFastRoute(text: string): Promise<string> {
-    this.#showUi(text);
-    await this.#waitForScreen();
-    const reply = this.#lastPlannerMessage || 'Done.';
+    const outcome = await this.#show({
+      origin: 'fast_route',
+      intent: text,
+      metadata: this.#facts,
+    });
+    const reply = outcome.ok
+      ? this.#lastPlannerMessage || 'Done.'
+      : 'I could not change the screen this time.';
     this.#remember(text, reply);
     return reply;
   }
@@ -345,6 +391,12 @@ export class AgentSession {
       onToolEnd: (name, ms) => {
         turn.mark(`tool.${name}.end`);
         turn.toolCalls.push({ name, ms: round(ms) });
+        this.#host.timing('tool', {
+          turn: this.#turnNumber,
+          name,
+          ms: round(ms),
+          sinceInputMs: turn.sinceStart(),
+        });
       },
     };
     const tools = AGENT_TOOLS.map((tool) =>
@@ -374,6 +426,17 @@ export class AgentSession {
       abortController,
       middleware: [
         {
+          // Before every model call: the latest screen, plus the screen
+          // notes of UI changes applied since the previous call.
+          onConfig: (_context, config) => {
+            const notes = this.#pendingNotes.splice(0);
+            return {
+              systemPrompts: [AGENT_SYSTEM_PROMPT, this.#screenSummary()],
+              ...(notes.length > 0
+                ? { messages: [...config.messages, ...notes] }
+                : {}),
+            };
+          },
           onIteration: () => {
             turn.modelTurns++;
           },
@@ -448,139 +511,141 @@ export class AgentSession {
 
   #toolContext(): AgentToolContext {
     return {
-      showUi: (intent) => {
-        this.#showUi(intent);
-        return 'Screen change requested; it will appear shortly. Continue.';
+      show: (request) => {
+        void this.#show(request);
       },
+      showAndWait: (request) => this.#show(request),
       waitForScreen: () => this.#waitForScreen(),
-      showUiAndWait: async (intent) => {
-        this.#showUi(intent);
-        return this.#waitForScreen();
-      },
-      runActions: (executionPlan) =>
-        new Promise((resolve, reject) => {
-          this.#enqueueUi(async () => {
-            const error = await this.#pushDirectActions(executionPlan);
-            if (error)
-              reject(new Error(`Action failed in the browser: ${error}`));
-            else if (this.#chart) resolve(this.#chart);
-            else reject(new Error('No chart snapshot from the browser'));
-          });
+      runActions: (executionPlan, origin) =>
+        this.#host.enqueue(`direct:${origin}`, async () => {
+          const applied = await this.#pushUi(
+            { source: 'direct', userMessage: '', executionPlan },
+            origin,
+          );
+          if (applied.error)
+            throw new Error(`Action failed in the browser: ${applied.error}`);
+          if (!applied.chart)
+            throw new Error('No chart snapshot from the browser');
+          return applied.chart;
         }),
       callClientTool: (tool, args) => this.#callClientTool(tool, args),
+      facts: () => this.#facts,
+      rememberFacts: (facts) => {
+        this.#facts = { ...this.#facts, ...facts };
+      },
     };
   }
 
-  #showUi(intent: string): void {
-    this.#turn?.mark('planner.enqueue', intent.slice(0, 80));
-    this.#enqueueUi(() => this.#plannerUi(intent));
-  }
-
-  // Serialized so each Planner call sees the chart the previous one produced.
-  #enqueueUi(job: () => Promise<void>): void {
-    this.#uiQueue = this.#uiQueue.then(job).catch((error: unknown) => {
-      console.warn(
-        '[agent-session] ui change failed:',
-        error instanceof Error ? error.message : error,
-      );
-    });
-  }
-
-  async #waitForScreen(): Promise<AgentChartSnapshot> {
-    await this.#uiQueue;
-    if (!this.#chart) throw new Error('No chart snapshot from the browser');
-    return this.#chart;
-  }
-
-  async #plannerUi(intent: string): Promise<void> {
-    const chart = this.#chart;
-    if (!chart) throw new Error('No chart snapshot from the browser');
+  /**
+   * Queues one Planner call. Its result comes back here first: side effects
+   * are enforced before the change reaches the browser, and the applied
+   * chart is recorded as a screen note.
+   */
+  #show(request: ShowRequest): Promise<ShowOutcome> {
     const turn = this.#turn;
-    const parsed = ChartRequestSchema.safeParse({
-      type: 'chart_request',
-      context: {
-        updateReasons: [{ type: 'user_intent', intent }],
-        chartDimensions: chart.chartDimensions,
-        layoutMode: chart.layoutMode,
-      },
-      instances: chart.instances,
-      vessels: chart.vessels,
-      layout: chart.layout,
-    });
-    if (!parsed.success)
-      throw new Error(`Chart snapshot rejected: ${parsed.error.message}`);
-
-    const started = performance.now();
-    turn?.mark('planner.dequeue');
-    const unsubscribe = onEngineModelCall((start) =>
-      turn?.modelCall('planner', start),
+    const turnNumber = this.#turnNumber;
+    const intent: PlannerIntent = {
+      origin: request.origin,
+      intent: request.intent,
+      metadata: request.metadata,
+      requiredActions: request.requiredActions ?? [],
+    };
+    turn?.mark(
+      'planner.enqueue',
+      `${request.origin} ${request.intent.slice(0, 80)}`,
     );
-    const result = await this.#engine
-      .handle(
-        ChartRequestMessage({
-          sessionId: SessionId(chart.sessionId),
-          request: parsed.data as Parameters<
-            typeof ChartRequestMessage
-          >[0]['request'],
-        }),
-      )
-      .finally(unsubscribe);
-    turn?.mark('planner.end', isErr(result) ? 'error' : 'ok');
-    turn?.plannerCalls.push({
-      name: intent.slice(0, 60),
-      ms: round(performance.now() - started),
-    });
-    if (isErr(result)) throw new Error(result.error.message);
-    if (result.value.type !== 'chart_response')
-      throw new Error(`Unexpected engine output ${result.value.type}`);
-    const response = result.value.response;
-    this.#lastPlannerMessage = response.userMessage;
-    await this.#pushUiAndAwaitApplied({
-      source: 'planner',
-      userMessage: response.userMessage,
-      layout: response.layout,
-      executionPlan: response.executionPlan,
+    return this.#host.enqueue(request.origin, async (queueWaitMs) => {
+      const chart = this.#host.chart;
+      if (!chart)
+        return { ok: false, error: 'No chart snapshot from the browser' };
+      turn?.mark('planner.dequeue', request.origin);
+      const unsubscribe = onEngineModelCall((start) =>
+        turn?.modelCall('planner', start),
+      );
+      const planned = await this.#host
+        .callPlanner(intent, chart, { queueWaitMs, turn: turnNumber })
+        .finally(unsubscribe);
+      turn?.mark('planner.end', planned.ok ? 'ok' : 'error');
+      turn?.plannerCalls.push({
+        name: `${request.origin}: ${request.intent.slice(0, 50)}`,
+        ms: planned.plannerMs,
+      });
+      if (!planned.ok) {
+        this.noteScreen(request.origin, '', chart, planned.error);
+        return { ok: false, error: planned.error };
+      }
+      const reviewed = enforceSideEffects(
+        planned.response,
+        chart,
+        intent.requiredActions,
+      );
+      if (!reviewed.ok) {
+        turn?.mark('planner.rejected', reviewed.error);
+        this.noteScreen(request.origin, '', chart, reviewed.error);
+        return { ok: false, error: reviewed.error };
+      }
+      if (reviewed.patched.length > 0 || reviewed.dropped.length > 0)
+        turn?.mark(
+          'planner.enforced',
+          `patched=${reviewed.patched.join(',')} dropped=${reviewed.dropped.join(',')}`,
+        );
+      this.#lastPlannerMessage = planned.response.userMessage;
+      const applied = await this.#pushUi(
+        {
+          source: 'planner',
+          userMessage: planned.response.userMessage,
+          layout: planned.response.layout,
+          executionPlan: reviewed.executionPlan,
+        },
+        request.origin,
+      );
+      const error = applied.timedOut ? 'browser did not ack' : applied.error;
+      this.noteScreen(
+        request.origin,
+        planned.response.userMessage,
+        applied.chart,
+        error,
+      );
+      return error ? { ok: false, error } : { ok: true };
     });
   }
 
-  #pushDirectActions(
-    executionPlan: readonly ActionExecution[],
-  ): Promise<string | undefined> {
-    return this.#pushUiAndAwaitApplied({
-      source: 'direct',
-      userMessage: '',
-      executionPlan,
-    });
-  }
-
-  /** Resolves with the browser's apply error, if any, once it acked. */
-  #pushUiAndAwaitApplied(
-    change: Omit<
-      Extract<AgentServerFrame, { type: 'agent.ui' }>,
-      'type' | 'uiId'
-    >,
-  ): Promise<string | undefined> {
-    const uiId = crypto.randomUUID();
+  async #pushUi(
+    change: Omit<AgentUiFrame, 'type' | 'uiId'>,
+    origin: string,
+  ): Promise<UiApplied> {
     const turn = this.#turn;
+    const turnNumber = this.#turnNumber;
     turn?.markFirstUi();
     turn?.mark(
       'ui.push',
-      `${change.source} ${change.executionPlan.map((action) => action.action).join(',') || 'layout'}`,
+      `${change.source} ${origin} ${change.executionPlan.map((action) => action.action).join(',') || 'layout'}`,
     );
-    const applied = new Promise<string | undefined>((resolve) => {
-      const timer = setTimeout(() => {
-        this.#pendingUiApplied.delete(uiId);
-        turn?.mark('ui.ack', 'timeout');
-        resolve(undefined);
-      }, UI_APPLIED_TIMEOUT_MS);
-      this.#pendingUiApplied.set(uiId, (error) => {
-        clearTimeout(timer);
-        turn?.mark('ui.ack', error);
-        resolve(error);
-      });
+    this.#host.timing('ui.push', {
+      turn: turnNumber,
+      origin,
+      source: change.source,
+      sinceInputMs: turn?.sinceStart(),
     });
-    this.#push({ type: 'agent.ui', uiId, ...change });
+    const applied = await this.#host.pushUi(change);
+    turn?.mark('ui.ack', applied.timedOut ? 'timeout' : applied.error);
+    // The visible UI change: the browser applied it and sent its chart back.
+    this.#host.timing('ui.applied', {
+      turn: turnNumber,
+      origin,
+      source: change.source,
+      sinceInputMs: turn?.sinceStart(),
+      ackMs: applied.ackMs,
+      timedOut: applied.timedOut || undefined,
+      error: applied.error,
+    });
     return applied;
+  }
+
+  async #waitForScreen(): Promise<AgentChartSnapshot> {
+    const chart = await this.#host.idle();
+    if (!chart) throw new Error('No chart snapshot from the browser');
+    return chart;
   }
 
   #callClientTool(tool: ClientToolName, args: unknown): Promise<unknown> {
@@ -608,6 +673,15 @@ export class AgentSession {
     const turn = this.#requireTurn();
     turn.mark('done', ok ? 'ok' : 'failed');
     const metrics = turn.toMetrics();
+    this.#host.timing('turn.done', {
+      turn: this.#turnNumber,
+      ok,
+      route: metrics.route,
+      totalMs: metrics.totalMs,
+      firstUiPushMs: metrics.firstUiMs,
+      plannerCalls: metrics.plannerCalls.length,
+      modelTurns: metrics.modelTurns,
+    });
     const {
       timeline: _timeline,
       modelCalls: _modelCalls,
@@ -626,15 +700,12 @@ export class AgentSession {
     });
     this.#turn = null;
     this.#turnActive = false;
+    this.#messages.push(...this.#pendingNotes.splice(0));
+    this.#trimHistory();
   }
 
   #screenSummary(): string {
-    const chart = this.#chart;
-    if (!chart) return 'Screen: unknown.';
-    const lines = chart.instances.map(
-      (instance) => `- ${instance.vesselId} (${instance.variant})`,
-    );
-    return `Vessel instances currently on the chart:\n${lines.join('\n') || '- none'}`;
+    return `Screen now: ${describeScreen(this.#host.chart)}`;
   }
 
   #remember(text: string, reply: string): void {
@@ -661,7 +732,7 @@ export class AgentSession {
   }
 
   #push(frame: AgentServerFrame): void {
-    this.#send(JSON.stringify(frame));
+    this.#host.emit(frame);
   }
 }
 
@@ -753,6 +824,90 @@ function createAgentChat(
 
 function round(ms: number): number {
   return Math.round(ms);
+}
+
+/** One line: which vessels are visible, in which variant, and which are hidden. */
+function describeScreen(chart: AgentChartSnapshot | null): string {
+  if (!chart) return 'Screen unknown.';
+  const visible: string[] = [];
+  const hidden: string[] = [];
+  for (const instance of chart.instances) {
+    if (visibleInstanceOf(chart, instance.vesselId) === instance.instanceId)
+      visible.push(`${instance.vesselId} (${instance.variant})`);
+    else hidden.push(instance.vesselId);
+  }
+  return `Visible: ${visible.join(', ') || 'nothing'}. Hidden: ${hidden.join(', ') || 'nothing'}.`;
+}
+
+type EnforcedPlan =
+  | {
+      readonly ok: true;
+      readonly executionPlan: readonly ActionExecution[];
+      readonly patched: readonly string[];
+      readonly dropped: readonly string[];
+    }
+  | { readonly ok: false; readonly error: string };
+
+/**
+ * Keeps cart and order side effects deterministic: drops any the Planner
+ * added on its own, and makes each required action appear exactly once with
+ * exactly its parameters, on a visible instance of its vessel.
+ */
+function enforceSideEffects(
+  response: MaelstromResponse,
+  chart: AgentChartSnapshot,
+  required: readonly RequiredAction[],
+): EnforcedPlan {
+  const requiredNames = new Set(required.map((action) => action.action));
+  const dropped = response.executionPlan
+    .filter(
+      (action) =>
+        SIDE_EFFECT_ACTIONS.has(action.action) &&
+        !requiredNames.has(action.action),
+    )
+    .map((action) => action.action);
+  let executionPlan = response.executionPlan.filter(
+    (action) =>
+      !SIDE_EFFECT_ACTIONS.has(action.action) ||
+      requiredNames.has(action.action),
+  );
+  const patched: string[] = [];
+  const after = chartWithLayout(chart, response.layout);
+  for (const action of required) {
+    const instanceId = visibleInstanceOf(after, action.vesselId);
+    if (!instanceId)
+      return {
+        ok: false,
+        error: `the Planner's layout does not show the ${action.vesselId}`,
+      };
+    const matches = executionPlan.filter(
+      (planned) => planned.action === action.action,
+    );
+    const [only] = matches;
+    if (
+      matches.length === 1 &&
+      only?.instanceId === instanceId &&
+      sameParams(only.params, action.params)
+    )
+      continue;
+    executionPlan = [
+      ...executionPlan.filter((planned) => planned.action !== action.action),
+      actionExecution(instanceId, action.action, { ...action.params }),
+    ];
+    patched.push(action.action);
+  }
+  return { ok: true, executionPlan, patched, dropped };
+}
+
+function sameParams(
+  actual: Readonly<Record<string, unknown>> | undefined,
+  expected: Readonly<Record<string, unknown>>,
+): boolean {
+  const sorted = (params: Readonly<Record<string, unknown>>) =>
+    JSON.stringify(
+      Object.entries(params).sort(([a], [b]) => a.localeCompare(b)),
+    );
+  return sorted(actual ?? {}) === sorted(expected);
 }
 
 function formatUsage(call: AgentModelCall): string {

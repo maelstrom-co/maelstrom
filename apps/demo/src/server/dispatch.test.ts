@@ -35,6 +35,9 @@ const base = {
   getEngine: () => null,
   wasHelloed: false,
   engineUnavailableReason: 'session engine unavailable',
+  getFacade: () => {
+    throw new Error('no frame in this suite reaches an engine');
+  },
 };
 
 describe('dispatchFrame', () => {
