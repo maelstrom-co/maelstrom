@@ -6,6 +6,7 @@
  * plans with the LLM.
  */
 import type { Engine } from '@maelstrom-co/engine';
+import { agentPlannerMode } from './agent-planner';
 import {
   createJevPlaygroundEngine,
   createPlaygroundEngine,
@@ -50,6 +51,7 @@ export interface LocalEngine extends SharedEngineResult {
 export function buildSharedEngine(
   apiKey: string,
   secrets: readonly string[] = [apiKey],
+  env?: Readonly<Record<string, string | undefined>>,
 ): SharedEngineResult {
   try {
     // Same redacting logger as hosted: OpenAI 401s can echo the key into
@@ -59,6 +61,7 @@ export function buildSharedEngine(
       engine: createPlaygroundEngine({
         adapter: createDemoOpenaiChat(apiKey),
         logger: createRedactingLogger(secrets),
+        ...(env === undefined ? {} : { env }),
       }),
       initError: null,
     };
@@ -95,10 +98,14 @@ export function buildLocalEngine(
 
   if (planner === 'llm') {
     const shared = openaiKey
-      ? buildSharedEngine(openaiKey, secrets)
+      ? buildSharedEngine(openaiKey, secrets, env)
       : { engine: null, initError: 'No server OpenAI key configured.' };
     logger.info('local_planner.ready', {
       planner: 'llm',
+      agentPlanner: agentPlannerMode(env),
+      lightDecider: Boolean(
+        env.TYPESAFE_API_KEY?.trim() && env.JEV_MODEL?.trim(),
+      ),
       llmModel: ENGINE_MODEL,
       status: openaiKey
         ? shared.engine

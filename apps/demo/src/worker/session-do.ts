@@ -47,13 +47,14 @@ import {
 import { encodeEnvelope } from '@maelstrom-co/protocol';
 import { Effect, Layer, ManagedRuntime } from 'effect';
 import * as Result from 'effect/Result';
+import type { PlannerEnv } from '../server/agent-planner';
 import { dispatchFrame, encodeEngineErrorReply } from '../server/dispatch';
 import { EngineFacade } from '../server/engine-facade';
 import { engineMetadataFrame } from '../server/engine-model';
 import { resolvePreHelloDispatch } from '../server/playground-frames';
 import { redactSecrets } from '../server/redact';
 import { Connections, ConnectionsLive } from './session/connections';
-import { EngineBuildError, EngineFactoryLive } from './session/engine-factory';
+import { EngineBuildError, engineFactoryLive } from './session/engine-factory';
 import { Engines, EnginesLive } from './session/engines';
 
 // Sent while a rehello this connection has not yet answered is outstanding.
@@ -79,11 +80,14 @@ export type PlaygroundEnv = Env;
 // shared state — each instance's ManagedRuntime.make below performs its own
 // layer build with fresh service closures, which is what makes wake-from-
 // hibernation reconstruction (constructor re-runs, memory empty) work.
-const enginesLive = Layer.provide(EnginesLive, EngineFactoryLive);
-const sessionLayer = Layer.mergeAll(ConnectionsLive, enginesLive);
+const sessionLayer = (env: PlaygroundEnv) =>
+  Layer.mergeAll(
+    ConnectionsLive,
+    Layer.provide(EnginesLive, engineFactoryLive(stringBindings(env))),
+  );
 
 export class SessionDO extends DurableObject<PlaygroundEnv> {
-  readonly #runtime = ManagedRuntime.make(sessionLayer);
+  readonly #runtime = ManagedRuntime.make(sessionLayer(this.env));
   // PROTOTYPE (MAE-826): in-memory only, lost on hibernation. Untested hosted.
   readonly #facades = new WeakMap<WebSocket, EngineFacade>();
 
@@ -318,4 +322,14 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
   #send(ws: WebSocket, wire: string, key: string | null): void {
     ws.send(redactSecrets(wire, key ?? undefined));
   }
+}
+
+// PROTOTYPE (MAE-826): the Planner reads string settings only; object
+// bindings such as the Durable Object namespace are left out.
+function stringBindings(env: PlaygroundEnv): PlannerEnv {
+  return Object.fromEntries(
+    Object.entries((env ?? {}) as Record<string, unknown>).filter(
+      (entry): entry is [string, string] => typeof entry[1] === 'string',
+    ),
+  );
 }

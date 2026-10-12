@@ -1,9 +1,9 @@
 // PROTOTYPE (MAE-826): throwaway Engine facade work, never merge.
 /**
  * The one place the Engine facade's Planner is composed, plus the structured
- * intent the facade attaches to every Planner call. A composed Planner (light
- * tier first, full LLM Planner as fallback) replaces the body of
- * {@link createAgentPlanner} and reads {@link plannerIntentOf}.
+ * intent the facade attaches to every Planner call. `AGENT_PLANNER` picks the
+ * composition: `composed` (the default) runs the keep-layout light tier first
+ * and falls back to the full LLM Planner, `llm` runs the LLM Planner alone.
  */
 import {
   type Planner,
@@ -11,6 +11,8 @@ import {
   withRetry,
 } from '@maelstrom-co/engine';
 import { type LlmPlannerOptions, llmPlanner } from '@maelstrom-co/planner-llm';
+import { createComposedPlanner, logPlannerRecord } from './composed-planner';
+import { keepLayoutDeciderFromEnv } from './keep-layout-action-planner';
 
 /** Rules appended to the LLM Planner's system prompt. */
 export const PLANNER_SYSTEM_RULES = `
@@ -24,27 +26,66 @@ export const PLANNER_SYSTEM_RULES = `
 
 const LLM_MAX_RETRIES = 2;
 
+/** Which Planner composition `AGENT_PLANNER` selects. */
+export type AgentPlannerMode = 'composed' | 'llm';
+
+/** Environment variables, passed in because the Worker has no `process.env`. */
+export type PlannerEnv = Readonly<Record<string, string | undefined>>;
+
 export interface AgentPlannerOptions {
   readonly adapter: LlmPlannerOptions['adapter'];
   readonly modelOptions?: LlmPlannerOptions['modelOptions'];
+  /**
+   * Reads `AGENT_PLANNER`, plus `TYPESAFE_API_KEY` and `JEV_MODEL` for the
+   * light tier's decision model. Without a decision model the light tier
+   * ships only required actions and hands everything else to the LLM tier.
+   */
+  readonly env?: PlannerEnv;
 }
 
 /**
  * The Planner every Engine facade calls. Build the Engine around it with
  * `retry: false` and no history: the LLM tier retries itself, and the Agent
  * Session transcript is the only history.
+ *
+ * @throws {Error} On an `AGENT_PLANNER` other than `composed` or `llm`.
  */
 export function createAgentPlanner(options: AgentPlannerOptions): Planner {
-  return withRetry(
-    llmPlanner({
-      adapter: options.adapter,
-      prompt: { system: { rules: { append: PLANNER_SYSTEM_RULES } } },
-      ...(options.modelOptions === undefined
-        ? {}
-        : { modelOptions: options.modelOptions }),
-    }),
-    { max: LLM_MAX_RETRIES },
-  );
+  const env = options.env ?? {};
+  const llm = llmPlanner({
+    adapter: options.adapter,
+    prompt: { system: { rules: { append: PLANNER_SYSTEM_RULES } } },
+    ...(options.modelOptions === undefined
+      ? {}
+      : { modelOptions: options.modelOptions }),
+  });
+  if (agentPlannerMode(env) === 'llm')
+    return withRetry(llm, { max: LLM_MAX_RETRIES });
+  return createComposedPlanner({
+    decider: keepLayoutDeciderFromEnv(env),
+    llmPlanner: llm,
+    llmRetries: LLM_MAX_RETRIES,
+    light: { intentOf: plannerIntentOf },
+    log: false,
+    onRecord: (record) =>
+      logPlannerRecord(record, {
+        origin:
+          plannerIntentOf({
+            messageId: record.messageId as PlanningInput['messageId'],
+          })?.origin ?? 'unknown',
+      }),
+  });
+}
+
+/**
+ * The composition `AGENT_PLANNER` selects; `composed` when unset.
+ *
+ * @throws {Error} On any other value.
+ */
+export function agentPlannerMode(env: PlannerEnv): AgentPlannerMode {
+  const mode = env.AGENT_PLANNER?.trim() || 'composed';
+  if (mode === 'composed' || mode === 'llm') return mode;
+  throw new Error(`AGENT_PLANNER must be composed or llm, got "${mode}"`);
 }
 
 /** Why the facade called the Planner. */

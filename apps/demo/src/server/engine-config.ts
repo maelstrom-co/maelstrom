@@ -20,7 +20,11 @@ import {
   type TypeSafeOptions,
 } from '@maelstrom-co/planner-jev';
 import { type LlmPlannerOptions, llmPlanner } from '@maelstrom-co/planner-llm';
-import { createAgentPlanner, PLANNER_SYSTEM_RULES } from './agent-planner';
+import {
+  createAgentPlanner,
+  PLANNER_SYSTEM_RULES,
+  type PlannerEnv,
+} from './agent-planner';
 import { withPlannerReasoning } from './engine-model';
 
 export interface PlaygroundEngineOptions {
@@ -35,6 +39,12 @@ export interface PlaygroundEngineOptions {
    */
   readonly logger?: Parameters<typeof createEngine>[0]['logger'];
   readonly modelOptions?: LlmPlannerOptions['modelOptions'];
+  /**
+   * PROTOTYPE (MAE-826): the transport's environment, read by
+   * {@link createAgentPlanner} for `AGENT_PLANNER` and the light tier's
+   * decision model.
+   */
+  readonly env?: PlannerEnv;
 }
 
 /**
@@ -50,6 +60,7 @@ export function createPlaygroundEngine(
     planner: createAgentPlanner({
       adapter: options.adapter,
       ...(modelOptions === undefined ? {} : { modelOptions }),
+      ...(options.env === undefined ? {} : { env: options.env }),
     }),
     retry: false,
     ...(options.logger === undefined ? {} : { logger: options.logger }),

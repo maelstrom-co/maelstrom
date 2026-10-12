@@ -12,6 +12,7 @@
 
 import type { Engine } from '@maelstrom-co/engine';
 import { Context, Data, Effect, Layer } from 'effect';
+import type { PlannerEnv } from '../../server/agent-planner';
 import { createPlaygroundEngine } from '../../server/engine-config';
 import { createDemoOpenaiChat } from '../../server/engine-model';
 import { createRedactingLogger, redact } from '../../server/redact';
@@ -46,24 +47,33 @@ export class EngineFactory extends Context.Service<
   EngineFactoryService
 >()('@maelstrom/demo/EngineFactory') {}
 
-export const EngineFactoryLive = Layer.effect(
-  EngineFactory,
-  Effect.gen(function* () {
-    const make = Effect.fn('EngineFactory.make')(function* (apiKey: string) {
-      return yield* Effect.try({
-        try: () =>
-          createPlaygroundEngine({
-            adapter: createDemoOpenaiChat(apiKey),
-            // observability.logs.persist is on: without this the default
-            // consoleLogger writes OpenAI's 401 key echo into retained logs.
-            logger: createRedactingLogger(apiKey),
-            modelOptions: { max_output_tokens: MAX_OUTPUT_TOKENS },
-          }),
-        catch: (cause) =>
-          new EngineBuildError({ message: redact(cause, apiKey).message }),
+/**
+ * The factory layer. PROTOTYPE (MAE-826): `env` is the Worker's string
+ * bindings, so `AGENT_PLANNER` and the light tier's TypeSafe settings reach
+ * the Planner as they do locally.
+ */
+export const engineFactoryLive = (
+  env: PlannerEnv = {},
+): Layer.Layer<EngineFactory> =>
+  Layer.effect(
+    EngineFactory,
+    Effect.gen(function* () {
+      const make = Effect.fn('EngineFactory.make')(function* (apiKey: string) {
+        return yield* Effect.try({
+          try: () =>
+            createPlaygroundEngine({
+              adapter: createDemoOpenaiChat(apiKey),
+              // observability.logs.persist is on: without this the default
+              // consoleLogger writes OpenAI's 401 key echo into retained logs.
+              logger: createRedactingLogger(apiKey),
+              modelOptions: { max_output_tokens: MAX_OUTPUT_TOKENS },
+              env,
+            }),
+          catch: (cause) =>
+            new EngineBuildError({ message: redact(cause, apiKey).message }),
+        });
       });
-    });
 
-    return EngineFactory.of({ make });
-  }),
-);
+      return EngineFactory.of({ make });
+    }),
+  );

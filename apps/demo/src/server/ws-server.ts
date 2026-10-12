@@ -124,10 +124,11 @@ export function createWebSocketHandlers(
           ws.send(HEARTBEAT_PONG_FRAME);
           return;
         case 'hello': {
-          const built = buildSharedEngine(result.frame.apiKey, [
-            ...secrets,
+          const built = buildSharedEngine(
             result.frame.apiKey,
-          ]);
+            [...secrets, result.frame.apiKey],
+            process.env,
+          );
           ws.data.browserApiKey = result.frame.apiKey;
           ws.data.browserEngine = built.engine;
           ws.data.browserEngineInitError = built.initError;

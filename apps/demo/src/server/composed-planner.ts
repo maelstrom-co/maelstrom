@@ -133,10 +133,27 @@ export function createComposedPlanner(
           : result.error.message
         : null,
     };
-    if (log) logRecord(record);
+    if (log) logPlannerRecord(record);
     options.onRecord?.(record);
     return result;
   };
+}
+
+/**
+ * Prints one call as a `[planner-tier]` JSON line and a `[timing] planner.tier`
+ * line, with `extra` fields (for example the call's origin) on both.
+ */
+export function logPlannerRecord(
+  record: PlannerCallRecord,
+  extra: Readonly<Record<string, string>> = {},
+): void {
+  console.log(`[planner-tier] ${JSON.stringify({ ...extra, ...record })}`);
+  const fields = Object.entries(extra)
+    .map(([key, value]) => ` ${key}=${value}`)
+    .join('');
+  console.log(
+    `[timing] planner.tier${fields} tier=${record.tier} via=${record.via ?? '-'} light=${record.lightMs}ms decision=${record.decisionMs ?? '-'}ms llm=${record.llmMs ?? '-'}ms total=${record.totalMs}ms action=${record.action ?? '-'} handoff=${record.handoff ?? '-'}`,
+  );
 }
 
 function timed<In extends object>(
@@ -151,11 +168,4 @@ function timed<In extends object>(
       times.set(input, Math.round(performance.now() - started));
     }
   };
-}
-
-function logRecord(record: PlannerCallRecord): void {
-  console.log(`[planner-tier] ${JSON.stringify(record)}`);
-  console.log(
-    `[timing] planner tier=${record.tier} via=${record.via ?? '-'} light=${record.lightMs}ms decision=${record.decisionMs ?? '-'}ms llm=${record.llmMs ?? '-'}ms total=${record.totalMs}ms action=${record.action ?? '-'} handoff=${record.handoff ?? '-'}`,
-  );
 }
