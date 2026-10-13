@@ -205,8 +205,8 @@ Every deferral logs `jev.defer` at info with `{ stage, reason, question }`, and 
 | `<stage>/option_cap` | A question had more than 255 options. |
 | `<stage>/provider_timeout` | A provider call took longer than its timeout (5 s by default). |
 | `<stage>/provider_network` | A provider call failed to connect. |
-| `<stage>/provider_http` | The provider answered with a non-2xx status. |
-| `<stage>/provider_invalid_reply` | The reply was too large, not JSON, or failed strict validation. |
+| `<stage>/provider_http` | The provider answered with a non-2xx status. The `jev.provider_failure` warn line's `failure` carries the status and the provider's error type and code. |
+| `<stage>/provider_invalid_reply` | The reply was too large, not JSON, or failed strict validation. The `jev.provider_failure` warn line's `failure` names the check that failed. |
 | `<stage>/provider_refusal` | Decisions refused a question. TypeSafe never refuses. |
 | `<stage>/low_confidence`, `<stage>/answer_missing` | Only with a confidence gate, or a reply missing a validated answer. |
 
@@ -215,6 +215,7 @@ Every deferral logs `jev.defer` at info with `{ stage, reason, question }`, and 
 ## Logs
 
 - `jev.call` (debug): stage, model, question ids, latency, outcome and token usage of every provider call (TypeSafe Jev or OpenAI Decisions).
+- `jev.provider_failure` (warn): stage, deferral reason and a short `detail` of every failed provider call, plus `failure`, the typed failure: `network`, `http` with the status and the provider's error type and code (each kept only when it is a short identifier), or `invalid_reply` with one reason tag (`oversize`, `malformed_json`, `wrong_type`, `out_of_range`, `missing_answer`, `key_mismatch`, `probability_sum`, `not_most_probable`, `model_echo`). It never holds provider text such as an error message.
 - `jev.answer` (debug): stage, question, choice and confidence of every answer read.
 - `jev.reply` (debug, opt-in via `logReplies` / `JEV_LOG_REPLIES=1`): the state and questions sent (the user's words included) and the raw reply, as JSON, before validation, so an invalid reply is visible too.
 - `jev.request` and `jev.result` (debug, same opt-in): the user's request at the start of each turn, and at the end the shipped candidate as JSON (reply text, layout tree, rationale) or the error tag. The candidate is the one from Jev or from the fallback, whichever ships.
