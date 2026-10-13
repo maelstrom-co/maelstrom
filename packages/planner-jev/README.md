@@ -204,7 +204,7 @@ Every deferral logs `jev.defer` at info with `{ stage, reason, question }`, and 
 | `llmComplete/invalid_layout` | Stage library only: a tree the LLM wrote on a hand-off is malformed, leaves out or adds an Instance, or breaks a minimum size. |
 | `<stage>/option_cap` | A question had more than 255 options. |
 | `<stage>/provider_timeout` | A provider call took longer than its timeout (5 s by default). |
-| `<stage>/provider_network` | A provider call failed to connect. |
+| `<stage>/provider_network` | A provider call failed to connect, or its reply body could not be read. |
 | `<stage>/provider_http` | The provider answered with a non-2xx status. The `jev.provider_failure` warn line's `failure` carries the status and the provider's error type and code. |
 | `<stage>/provider_invalid_reply` | The reply was too large, not JSON, or failed strict validation. The `jev.provider_failure` warn line's `failure` names the check that failed. |
 | `<stage>/provider_refusal` | Decisions refused a question. TypeSafe never refuses. |

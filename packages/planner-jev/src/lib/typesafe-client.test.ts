@@ -686,7 +686,9 @@ describe('createTypeSafeClient', () => {
 
   const failures: readonly (readonly [string, Step, CallOutcome])[] = [
     ['HTTP 500', { status: 500 }, 'provider_http'],
+    ['an HTTP 500 whose body stalls', 'stalled-error', 'provider_http'],
     ['a network failure', 'network', 'provider_network'],
+    ['a body that fails mid-read', 'reset', 'provider_network'],
     ['malformed JSON', { body: '{not json' }, 'provider_invalid_reply'],
     ['an oversized body', 'oversized', 'provider_invalid_reply'],
     [

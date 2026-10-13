@@ -15,6 +15,7 @@ import { join } from 'node:path';
 const NEUTRAL = [
   './ask.js',
   './defer.js',
+  './error-identifier.js',
   './questions.js',
   './reply-validation.js',
   '@maelstrom-co/engine',

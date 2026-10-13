@@ -10,6 +10,7 @@ import {
 import type {
   ProviderRequest,
   ProviderTransport,
+  TransportFailure,
   TransportResult,
 } from './provider-call.js';
 import type { Usage } from './questions.js';
@@ -215,18 +216,38 @@ describe.each(HARNESSES)('$name transport contract', (harness) => {
     expect(counted.bytes()).toBeLessThanOrEqual(8 * 1024);
   });
 
-  test.each<[string, Step]>([
-    ['a hanging request', 'hang'],
-    ['a body that stalls mid-stream', 'stall'],
-  ])('%s resolves to a failure soon after the signal aborts', async (_name, step) => {
+  test.each<[string, Step, TransportFailure]>([
+    ['a hanging request', 'hang', { kind: 'network' }],
+    ['a body that stalls mid-stream', 'stall', { kind: 'network' }],
+    [
+      'an error body that stalls mid-stream',
+      'stalled-error',
+      { kind: 'http', status: 500 },
+    ],
+  ])('%s resolves to its failure soon after the signal aborts', async (_name, step, expected) => {
     const controller = new AbortController();
     const pending = send(harness.fetchFor(step), controller.signal);
     await Bun.sleep(20);
-    const aborted = performance.now();
     controller.abort('timeout');
-    const result = await pending;
-    expect(performance.now() - aborted).toBeLessThan(200);
-    expect(result.ok).toBe(false);
+    expect(await settlesWithin(pending, 1000)).toEqual({
+      ok: false,
+      failure: expected,
+    });
+  });
+
+  test('an error body that stalls gives the status alone without waiting for the signal', async () => {
+    const result = send(harness.fetchFor('stalled-error'));
+    expect(await settlesWithin(result, 1000)).toEqual({
+      ok: false,
+      failure: { kind: 'http', status: 500 },
+    });
+  });
+
+  test('a body whose stream fails mid-read is a network failure', async () => {
+    expect(await send(harness.fetchFor('reset'))).toEqual({
+      ok: false,
+      failure: { kind: 'network' },
+    });
   });
 
   test.each<[string, Step]>([
@@ -351,6 +372,21 @@ describe('TypeSafe error bodies', () => {
 
 function typesafeErrorBody({ message, type, code }: ErrorBodyFields) {
   return { detail: { error_type: type, error_code: code, message } };
+}
+
+async function settlesWithin<T>(
+  pending: Promise<T>,
+  ms: number,
+): Promise<T | 'still pending'> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<'still pending'>((resolve) => {
+    timer = setTimeout(() => resolve('still pending'), ms);
+  });
+  try {
+    return await Promise.race([pending, late]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function recording(inner: typeof fetch) {

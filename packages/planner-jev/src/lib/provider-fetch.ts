@@ -1,8 +1,10 @@
+import { isErrorIdentifier } from './error-identifier.js';
 import type { TransportFailure } from './provider-call.js';
 import type { InvalidReplyReason } from './reply-validation.js';
 
 const MAX_RESPONSE_BYTES = 256 * 1024;
 const MAX_ERROR_BODY_BYTES = 4 * 1024;
+const ERROR_BODY_TIMEOUT_MS = 250;
 
 /**
  * The error type and code a provider names in a non-2xx body, exactly as
@@ -37,8 +39,10 @@ export type RawReplyResult =
  * at most 4 KB of its body parsed as JSON, never from raw text: `errorFields`
  * points at them in the provider's own error shape, and each is kept only
  * when it is a string of 1 to 64 characters from `[A-Za-z0-9_.:-]` that
- * does not contain `apiKey`. A body that is not JSON, or is over 4 KB, gives
- * the status alone. A 2xx body over 256 KB is `oversize` and one that is
+ * does not contain `apiKey`. A body that is not JSON, is over 4 KB or has
+ * not arrived within 250 ms gives the status alone, so a stalled error body
+ * never holds the failure back until `signal` aborts. A 2xx body over
+ * 256 KB is `oversize`, one whose read fails is `network` and one that is
  * not JSON is `malformed_json`. Never throws, and every read stops once
  * `signal` aborts.
  */
@@ -78,12 +82,11 @@ export async function postJson({
     return { ok: false, failure: { kind: 'network' } };
   }
   if (!response.ok) {
-    let text: string | undefined;
-    try {
-      text = await readBody(response, signal, MAX_ERROR_BODY_BYTES);
-    } catch {
-      text = undefined;
-    }
+    const text = await readBody(
+      response,
+      AbortSignal.any([signal, AbortSignal.timeout(ERROR_BODY_TIMEOUT_MS)]),
+      MAX_ERROR_BODY_BYTES,
+    ).catch(() => undefined);
     return {
       ok: false,
       failure: {
@@ -97,7 +100,7 @@ export async function postJson({
   try {
     text = await readBody(response, signal);
   } catch {
-    return invalidReply('malformed_json');
+    return { ok: false, failure: { kind: 'network' } };
   }
   if (text === undefined) return invalidReply('oversize');
   try {
@@ -151,8 +154,6 @@ export async function readBody(
   }
 }
 
-const SAFE_ERROR_FIELD = /^[A-Za-z0-9_.:-]{1,64}$/;
-
 function invalidReply(reason: InvalidReplyReason): RawReplyResult {
   return { ok: false, failure: { kind: 'invalid_reply', reason } };
 }
@@ -178,9 +179,7 @@ function checkedErrorFields(
 }
 
 function safeErrorField(value: unknown, secret: string): string | undefined {
-  return typeof value === 'string' &&
-    SAFE_ERROR_FIELD.test(value) &&
-    !value.includes(secret)
+  return isErrorIdentifier(value) && !value.includes(secret)
     ? value
     : undefined;
 }

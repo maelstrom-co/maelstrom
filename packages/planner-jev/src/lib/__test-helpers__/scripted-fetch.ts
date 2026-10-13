@@ -30,6 +30,9 @@ export interface Payload {
  * - `oversized`: a 200 body over 256 KB with its length declared
  * - `oversized-stream`: a 200 body over 256 KB streamed without a declared length
  * - `stall`: a 200 body that sends its first chunk and then never another
+ * - `reset`: a 200 body that sends its first chunk and then fails
+ * - `stalled-error`: a 500 response whose body sends its first chunk and
+ *   then never another
  * - `hang`: a request that never responds until its signal aborts
  * - `network`: a request that fails to connect
  */
@@ -46,6 +49,8 @@ export type Step =
   | 'oversized'
   | 'oversized-stream'
   | 'stall'
+  | 'reset'
+  | 'stalled-error'
   | 'hang'
   | 'network';
 
@@ -126,6 +131,21 @@ export function failureResponse(
           },
         }),
         { status: 200 },
+      ),
+    );
+  if (step === 'reset')
+    return Promise.resolve(
+      new Response(failingBody('{"model":'), { status: 200 }),
+    );
+  if (step === 'stalled-error')
+    return Promise.resolve(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode('{"error":'));
+          },
+        }),
+        { status: 500 },
       ),
     );
   if ('status' in step)
@@ -255,6 +275,23 @@ function chunkedBody(
         }
         controller.enqueue(bytes.slice(offset, offset + chunkBytes));
         offset += chunkBytes;
+      },
+    },
+    { highWaterMark: 0 },
+  );
+}
+
+function failingBody(firstChunk: string): ReadableStream<Uint8Array> {
+  let sent = false;
+  return new ReadableStream<Uint8Array>(
+    {
+      pull(controller) {
+        if (sent) {
+          controller.error(new TypeError('connection reset'));
+          return;
+        }
+        controller.enqueue(new TextEncoder().encode(firstChunk));
+        sent = true;
       },
     },
     { highWaterMark: 0 },

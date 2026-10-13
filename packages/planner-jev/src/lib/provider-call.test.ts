@@ -423,6 +423,30 @@ describe('createProviderCall transport failures', () => {
     ).toMatchObject({ stage: 'jevActions', reason: `jevActions/${code}` });
   });
 
+  test('an HTTP error type or code that is not a short identifier is dropped before logging', async () => {
+    const { ask, entries, ctx } = setup(() =>
+      failure({
+        kind: 'http',
+        status: 400,
+        errorType: 'Unrecognized request argument supplied: extra',
+        errorCode: 'unknown_parameter',
+      }),
+    );
+    const result = await ask('jevActions', evaluation, ctx());
+    expect(isErr(result) && result.error).toEqual({
+      _tag: 'Deferred',
+      reason: 'jevActions/provider_http',
+    });
+    expect(
+      entries.find((entry) => entry.msg === 'jev.provider_failure')?.data,
+    ).toEqual({
+      stage: 'jevActions',
+      reason: 'jevActions/provider_http',
+      detail: 'HTTP 400 (unknown_parameter)',
+      failure: { kind: 'http', status: 400, errorCode: 'unknown_parameter' },
+    });
+  });
+
   test('answers that fail validation defer provider_invalid_reply with the reason', async () => {
     const { ask, recorded, entries, ctx } = setup(() =>
       replied({ scope: validAnswers.scope }),

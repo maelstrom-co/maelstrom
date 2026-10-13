@@ -15,6 +15,7 @@ import type {
   ProviderFailureCode,
 } from './ask.js';
 import { deferAt } from './defer.js';
+import { isErrorIdentifier } from './error-identifier.js';
 import { overOptionCap, type QuestionText, type Usage } from './questions.js';
 import {
   type InvalidReplyReason,
@@ -64,10 +65,13 @@ export interface ProviderRequest {
 
 /**
  * Why a transport returned no reply. It holds no provider text, so it is
- * safe to log: `network` for a request that never got a response, `http`
- * for a non-2xx status with the provider's error type and code when they
- * parse as short identifiers, `invalid_reply` with the check the reply
- * failed.
+ * safe to log: `network` for a request that never got a response or a body
+ * that could not be read, `http` for a non-2xx status with the provider's
+ * error type and code when they parse as short identifiers,
+ * `invalid_reply` with the check the reply failed. {@link createProviderCall}
+ * drops an error type or code that is not a short identifier before it logs
+ * the failure, but only the transport knows the key, so the transport keeps
+ * it out of both.
  */
 export type TransportFailure =
   | { readonly kind: 'network' }
@@ -237,8 +241,9 @@ export function createProviderCall(options: ProviderCallOptions): Ask {
     const signal = ctx.signal
       ? AbortSignal.any([ctx.signal, timeout])
       : timeout;
-    const failed = (failure: TransportFailure) => {
+    const failed = (unchecked: TransportFailure) => {
       if (ctx.signal?.aborted) return cancelled();
+      const failure = withIdentifierFields(unchecked);
       if (timeout.aborted)
         return providerFailure(
           'provider_timeout',
@@ -390,4 +395,14 @@ function failureDetail(failure: TransportFailure): string {
   return fields.length > 0
     ? `HTTP ${failure.status} (${fields.join(', ')})`
     : `HTTP ${failure.status}`;
+}
+
+function withIdentifierFields(failure: TransportFailure): TransportFailure {
+  if (failure.kind !== 'http') return failure;
+  const { errorType, errorCode, ...rest } = failure;
+  return {
+    ...rest,
+    ...(isErrorIdentifier(errorType) && { errorType }),
+    ...(isErrorIdentifier(errorCode) && { errorCode }),
+  };
 }
