@@ -24,10 +24,12 @@ import {
   noul,
   score,
 } from './questions.js';
+import type { InvalidReplyReason } from './reply-validation.js';
 import {
   type CallOutcome,
   createTypeSafeClient,
   type JevCall,
+  type TypeSafeClientOptions,
   validateReply,
 } from './typesafe-client.js';
 
@@ -748,5 +750,170 @@ describe('createTypeSafeClient', () => {
     expect(caught).toBeInstanceOf(Error);
     expect((caught as Error).message).toMatch(pattern);
     expect((caught as Error).message).not.toContain(KEY);
+  });
+});
+
+describe('TypeSafe invalid reply reasons', () => {
+  const valid = () => buildReply(payload, { 'view/weather-main': 'hide' }, 0.8);
+  const scope = () => valid().answers.scope as Record<string, unknown>;
+  const withScope = (answer: unknown) => {
+    const reply = valid();
+    return { ...reply, answers: { ...reply.answers, scope: answer } };
+  };
+
+  test.each<[string, Step, InvalidReplyReason]>([
+    ['a non-JSON body', { body: '{not json' }, 'malformed_json'],
+    ['an oversized body', 'oversized', 'oversize'],
+    [
+      'a missing question id',
+      { reply: { ...valid(), answers: { scope: scope() } } },
+      'missing_answer',
+    ],
+    [
+      'an extra question id',
+      {
+        reply: { ...valid(), answers: { ...valid().answers, extra: scope() } },
+      },
+      'key_mismatch',
+    ],
+    [
+      'probabilities that do not sum to one',
+      {
+        reply: withScope({
+          ...scope(),
+          probabilities: { supported: 0.9, unsupported: 0.05, ambiguous: 0 },
+        }),
+      },
+      'probability_sum',
+    ],
+    [
+      'a different model',
+      { reply: { ...valid(), model: 'other' } },
+      'model_echo',
+    ],
+    [
+      'a chosen option without the highest probability',
+      {
+        reply: withScope({
+          ...scope(),
+          probabilities: { supported: 0.2, unsupported: 0.8, ambiguous: 0 },
+        }),
+      },
+      'not_most_probable',
+    ],
+    [
+      'a noul answer to a choice question',
+      { reply: withScope({ type: 'noul', noul: 0.4 }) },
+      'wrong_type',
+    ],
+    [
+      'a confidence outside [0, 1]',
+      { reply: withScope({ ...scope(), confidence: 1.5 }) },
+      'out_of_range',
+    ],
+  ])('%s defers provider_invalid_reply with its reason tag', async (_name, step, reason) => {
+    const { ask, logger, entries } = setup(() => step);
+    const result = await ask('jevActions', evaluation, ctx(logger));
+    expect(isErr(result) && result.error).toEqual({
+      _tag: 'Deferred',
+      reason: 'jevActions/provider_invalid_reply',
+    });
+    expect(
+      entries.find((entry) => entry.msg === 'jev.provider_failure')?.data,
+    ).toMatchObject({
+      reason: 'jevActions/provider_invalid_reply',
+      detail: `invalid reply (${reason})`,
+      failure: { kind: 'invalid_reply', reason },
+    });
+  });
+});
+
+describe('the TypeSafe key never leaks', () => {
+  test.each([
+    ['a missing key', { apiKey: '', model: TEST_MODEL }, /apiKey/],
+    ['an empty model', { apiKey: KEY, model: '' }, /model/],
+    [
+      'a bad endpoint',
+      { apiKey: KEY, model: TEST_MODEL, endpoint: 'nope' },
+      /endpoint/,
+    ],
+    [
+      'a bad fetch',
+      { apiKey: KEY, model: TEST_MODEL, fetch: 'nope' as never },
+      /fetch/,
+    ],
+    [
+      'a bad timeout',
+      { apiKey: KEY, model: TEST_MODEL, timeoutMs: 0 },
+      /timeoutMs/,
+    ],
+    [
+      'a bad onCall',
+      { apiKey: KEY, model: TEST_MODEL, onCall: 'nope' as never },
+      /onCall/,
+    ],
+    [
+      'a bad logReplies',
+      { apiKey: KEY, model: TEST_MODEL, logReplies: 'yes' as never },
+      /logReplies/,
+    ],
+  ])('construction rejects %s without echoing the key', (_name, options, pattern) => {
+    let caught: unknown;
+    try {
+      createTypeSafeClient(options as TypeSafeClientOptions);
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(Error);
+    expect((caught as Error).message).toMatch(/^Invalid TypeSafe option: /);
+    expect((caught as Error).message).toMatch(pattern);
+    expect((caught as Error).message).not.toContain(KEY);
+  });
+
+  test('a 401 whose body echoes the key reaches no error, log, instrument attribute or call record', async () => {
+    const echoing = (async () =>
+      new Response(
+        JSON.stringify({
+          error: {
+            message: `Incorrect API key provided: ${KEY}`,
+            type: KEY,
+            code: KEY,
+          },
+        }),
+        { status: 401 },
+      )) as unknown as typeof fetch;
+    const recorded: JevCall[] = [];
+    const ask = createTypeSafeClient({
+      apiKey: KEY,
+      model: TEST_MODEL,
+      fetch: echoing,
+      logReplies: true,
+      onCall: (call) => recorded.push(call),
+    });
+    const { logger, entries } = spyLogger();
+    const events: unknown[] = [];
+    const instrument: Instrument = {
+      stage: (_name, stage) => stage,
+      event: (name, attributes) => events.push({ name, attributes }),
+    };
+    const result = await ask(
+      'jevSelect',
+      evaluation,
+      makeContext(makeInput(makeRequest('hide the weather')), {
+        logger,
+        instrument,
+      }),
+    );
+    expect(isErr(result) && result.error).toEqual({
+      _tag: 'Deferred',
+      reason: 'jevSelect/provider_http',
+    });
+    const captured = JSON.stringify({ result, entries, events, recorded });
+    expect(captured).not.toContain(KEY);
+    expect(events).toHaveLength(1);
+    expect(
+      entries.find((entry) => entry.msg === 'jev.provider_failure')?.data
+        ?.failure,
+    ).toEqual({ kind: 'http', status: 401 });
   });
 });

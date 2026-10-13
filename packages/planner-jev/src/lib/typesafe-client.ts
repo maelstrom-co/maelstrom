@@ -1,37 +1,25 @@
-import { cancellationError } from '@maelstrom-co/engine';
-import { err, ok } from '@maelstrom-co/protocol';
+import { err, isOk, ok, type Result } from '@maelstrom-co/protocol';
+import type { WireAnswer } from '@tanstack/ai';
 
-import type {
-  Ask,
-  AskCall,
-  CallAnswer,
-  CallOutcome,
-  ProviderFailureCode,
-} from './ask.js';
-import { deferAt } from './defer.js';
+import type { Ask, AskCall } from './ask.js';
 import {
-  type Evaluation,
-  overOptionCap,
-  type Reply,
-  type ScoreQuestion,
-  type Usage,
-} from './questions.js';
+  createProviderCall,
+  type ProviderTransport,
+  postJson,
+  validateClientOptions,
+} from './provider-call.js';
+import type { Evaluation, Reply, Usage } from './questions.js';
 import {
-  choiceAnswer,
+  type InvalidReplyReason,
   isCount,
-  isProbability,
   isRecord,
-  levelAnswer,
-  noulAnswer,
-  readBody,
-  sameKeys,
+  validateWireAnswers,
   withoutProbabilities,
 } from './reply-validation.js';
 
 export type { Ask, CallAnswer, CallOutcome } from './ask.js';
 
 const DEFAULT_ENDPOINT = 'https://api.typesafe.ai/v1/systemone';
-const DEFAULT_TIMEOUT_MS = 5000;
 
 /** What the TypeSafe client reports about each call; the provider-neutral {@link AskCall}. */
 export type JevCall = AskCall;
@@ -70,129 +58,15 @@ export interface TypeSafeClientOptions {
  * @throws {Error} If an option is invalid. The message never contains the key.
  */
 export function createTypeSafeClient(options: TypeSafeClientOptions): Ask {
-  const config = validateOptions(options);
-  return async (stage, evaluation, ctx) => {
-    const questionIds = Object.keys(evaluation.questions);
-    const started = performance.now();
-    const report = (
-      outcome: CallOutcome,
-      usage?: Usage,
-      answers?: Readonly<Record<string, CallAnswer>>,
-    ) => {
-      const latencyMs = performance.now() - started;
-      ctx.logger.debug('jev.call', {
-        stage,
-        model: config.model,
-        questionIds,
-        latencyMs,
-        outcome,
-        ...(usage && {
-          inputTokens: usage.inputTokens,
-          outputTokens: usage.outputTokens,
-        }),
-      });
-      ctx.instrument.event('jev.call', {
-        'gen_ai.request.model': config.model,
-        ...(usage && {
-          'gen_ai.usage.input_tokens': usage.inputTokens,
-          'gen_ai.usage.output_tokens': usage.outputTokens,
-        }),
-        'maelstrom.stage': stage,
-        'maelstrom.outcome': outcome,
-        'maelstrom.latency_ms': latencyMs,
-        'maelstrom.question_ids': questionIds.join(','),
-      });
-      config.onCall?.({
-        stage,
-        questionIds,
-        latencyMs,
-        outcome,
-        ...(usage && { usage }),
-        ...(answers && { answers }),
-      });
-    };
-    const cancelled = () => {
-      report('cancelled');
-      return err(cancellationError('Jev call cancelled', ctx.signal?.reason));
-    };
-    const providerFailure = (code: ProviderFailureCode, detail: string) => {
-      report(code);
-      ctx.logger.warn('jev.provider_failure', {
-        stage,
-        reason: `${stage}/${code}`,
-        detail,
-      });
-      return deferAt(ctx, stage, code);
-    };
-
-    const tooLarge = overOptionCap(evaluation);
-    if (tooLarge !== undefined) {
-      report('option_cap');
-      return deferAt(ctx, stage, 'option_cap', tooLarge);
-    }
-    if (ctx.signal?.aborted) return cancelled();
-
-    const timeout = AbortSignal.timeout(config.timeoutMs);
-    const signal = ctx.signal
-      ? AbortSignal.any([ctx.signal, timeout])
-      : timeout;
-    const failed = (code: ProviderFailureCode, detail: string) => {
-      if (ctx.signal?.aborted) return cancelled();
-      if (timeout.aborted)
-        return providerFailure(
-          'provider_timeout',
-          `no reply within ${config.timeoutMs} ms`,
-        );
-      return providerFailure(code, detail);
-    };
-
-    let response: Response;
-    try {
-      response = await config.fetch(config.endpoint, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${config.apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: config.model,
-          state: evaluation.state,
-          questions: evaluation.questions,
-        }),
-        signal,
-      });
-    } catch {
-      return failed('provider_network', 'request failed');
-    }
-    if (!response.ok) {
-      void response.body?.cancel().catch(() => undefined);
-      return failed('provider_http', `HTTP ${response.status}`);
-    }
-
-    let raw: unknown;
-    try {
-      const body = await readBody(response, signal);
-      if (body === undefined)
-        return failed('provider_invalid_reply', 'response too large');
-      raw = JSON.parse(body);
-    } catch {
-      return failed('provider_invalid_reply', 'response unreadable');
-    }
-    if (config.logReplies)
-      // Console loggers cut nested objects short; JSON keeps every answer.
-      ctx.logger.debug('jev.reply', {
-        stage,
-        state: JSON.stringify(evaluation.state),
-        questions: JSON.stringify(evaluation.questions),
-        reply: JSON.stringify(raw),
-      });
-    const parsed = parseReply(raw, evaluation, config.model);
-    if (parsed === undefined)
-      return failed('provider_invalid_reply', 'reply failed validation');
-    if (ctx.signal?.aborted) return cancelled();
-    report('ok', parsed.usage, parsed.answers);
-    return ok(withoutProbabilities(parsed));
-  };
+  const config = validateClientOptions(options, 'TypeSafe', DEFAULT_ENDPOINT);
+  return createProviderCall({
+    label: 'Jev',
+    model: config.model,
+    timeoutMs: config.timeoutMs,
+    ...(config.onCall && { onCall: config.onCall }),
+    logReplies: config.logReplies,
+    transport: typesafeTransport(config),
+  });
 }
 
 /**
@@ -211,123 +85,88 @@ export function validateReply(
   evaluation: Evaluation,
   model: string,
 ): Reply | undefined {
-  const parsed = parseReply(raw, evaluation, model);
-  return parsed && withoutProbabilities(parsed);
+  const decoded = decodeReply(raw, model);
+  if (!isOk(decoded)) return undefined;
+  const answers = validateWireAnswers(decoded.value.answers, evaluation);
+  if (!isOk(answers)) return undefined;
+  return withoutProbabilities({
+    answers: answers.value,
+    usage: decoded.value.usage,
+  });
 }
 
-function parseReply(
+/**
+ * The transport for TypeSafe's System One endpoint. It sends the model,
+ * state and questions as one JSON object in that key order, and decodes
+ * the reply into TanStack wire answers, which TypeSafe's wire answers
+ * already are. A reply that is not an object, whose answers are not an
+ * object or whose usage counts are not integral is `malformed_json`, and a
+ * reply that echoes a model other than `model` is `model_echo`. TypeSafe
+ * never refuses, so `refusals` is always empty.
+ */
+export function typesafeTransport({
+  apiKey,
+  model,
+  endpoint,
+  fetch,
+}: {
+  /** TypeSafe API key. Server-side only. */
+  readonly apiKey: string;
+  /** Pinned Jev model id the reply must echo. */
+  readonly model: string;
+  /** Endpoint URL. */
+  readonly endpoint: string;
+  /** The fetch to send with. */
+  readonly fetch: typeof globalThis.fetch;
+}): ProviderTransport {
+  return {
+    async send(request, signal) {
+      const body = JSON.stringify({
+        model: request.model,
+        state: request.state,
+        questions: request.questions,
+      });
+      const posted = await postJson({ fetch, endpoint, apiKey, body, signal });
+      if (!posted.ok) return posted;
+      const decoded = decodeReply(posted.raw, model);
+      if (!isOk(decoded))
+        return {
+          ok: false,
+          failure: { kind: 'invalid_reply', reason: decoded.error },
+          raw: posted.raw,
+        };
+      return {
+        ok: true,
+        reply: { ...decoded.value, refusals: [], raw: posted.raw },
+      };
+    },
+  };
+}
+
+function decodeReply(
   raw: unknown,
-  evaluation: Evaluation,
   model: string,
-):
-  | { readonly answers: Record<string, CallAnswer>; readonly usage: Usage }
-  | undefined {
+): Result<
+  {
+    readonly answers: Readonly<Record<string, WireAnswer>>;
+    readonly usage: Usage;
+  },
+  InvalidReplyReason
+> {
   if (
     !isRecord(raw) ||
-    raw.model !== model ||
     !isRecord(raw.answers) ||
     !isRecord(raw.usage) ||
     !isCount(raw.usage.input_tokens) ||
     !isCount(raw.usage.output_tokens)
   )
-    return undefined;
-  if (!sameKeys(raw.answers, Object.keys(evaluation.questions)))
-    return undefined;
-  const answers: Record<string, CallAnswer> = Object.create(null);
-  for (const [id, question] of Object.entries(evaluation.questions)) {
-    const answer = raw.answers[id];
-    if (question.type === 'noul') {
-      if (
-        !isRecord(answer) ||
-        answer.type !== 'noul' ||
-        !isProbability(answer.noul)
-      )
-        return undefined;
-      answers[id] = noulAnswer(answer.noul);
-      continue;
-    }
-    if (question.type === 'score') {
-      const parsed = scoreAnswer(answer, question);
-      if (parsed === undefined) return undefined;
-      answers[id] = parsed;
-      continue;
-    }
-    if (!isRecord(answer) || answer.type !== 'choice') return undefined;
-    const parsed = choiceAnswer(
-      answer.choice,
-      answer.confidence,
-      answer.probabilities,
-      Object.keys(question.criteria),
-    );
-    if (parsed === undefined) return undefined;
-    answers[id] = parsed;
-  }
-  return {
-    answers,
+    return err('malformed_json');
+  if (raw.model !== model) return err('model_echo');
+  return ok({
+    answers: raw.answers as Record<string, WireAnswer>,
     usage: {
       inputTokens: raw.usage.input_tokens,
       outputTokens: raw.usage.output_tokens,
     },
-  };
-}
-
-function scoreAnswer(
-  answer: unknown,
-  question: ScoreQuestion,
-): CallAnswer | undefined {
-  const levelKeys = question.criteria.map((_, level) => String(level));
-  if (
-    !isRecord(answer) ||
-    answer.type !== 'score' ||
-    !isRecord(answer.legend) ||
-    !sameKeys(answer.legend, levelKeys)
-  )
-    return undefined;
-  const legend = answer.legend;
-  if (levelKeys.some((key, level) => legend[key] !== question.criteria[level]))
-    return undefined;
-  return levelAnswer(
-    answer.score,
-    answer.confidence,
-    answer.probabilities,
-    question.criteria.length,
-  );
-}
-
-function validateOptions(options: TypeSafeClientOptions) {
-  if (typeof options.apiKey !== 'string' || options.apiKey.length === 0)
-    throw new Error(
-      'Invalid TypeSafe option: apiKey must be a non-empty string',
-    );
-  if (typeof options.model !== 'string' || options.model.length === 0)
-    throw new Error(
-      'Invalid TypeSafe option: model must be a non-empty string',
-    );
-  const endpoint = options.endpoint ?? DEFAULT_ENDPOINT;
-  try {
-    new URL(endpoint);
-  } catch {
-    throw new Error('Invalid TypeSafe option: endpoint must be a URL');
-  }
-  if (options.fetch !== undefined && typeof options.fetch !== 'function')
-    throw new Error('Invalid TypeSafe option: fetch must be a function');
-  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0)
-    throw new Error('Invalid TypeSafe option: timeoutMs must be positive');
-  if (options.onCall !== undefined && typeof options.onCall !== 'function')
-    throw new Error('Invalid TypeSafe option: onCall must be a function');
-  if (
-    options.logReplies !== undefined &&
-    typeof options.logReplies !== 'boolean'
-  )
-    throw new Error('Invalid TypeSafe option: logReplies must be a boolean');
-  return {
-    apiKey: options.apiKey,
-    model: options.model,
-    endpoint,
-    fetch: options.fetch ?? fetch,
-    timeoutMs,
-    onCall: options.onCall,
-    logReplies: options.logReplies ?? false,
-  };
+  });
 }

@@ -22,7 +22,16 @@ export interface Payload {
  * What one scripted call returns: choices by question id (unlisted
  * questions take their first option), noul probabilities by question id
  * (unlisted nouls answer 0) and score levels by question id (unlisted
- * scores answer level 0), or a failure mode.
+ * scores answer level 0), or a failure mode:
+ * - `{ status, body? }`: a non-2xx response whose body is `body`, streamed
+ *   in 1 KB chunks without a declared length, or `provider error` as text
+ * - `{ body }`: a 200 response with exactly `body`
+ * - `{ reply }`: a 200 response with `reply` as JSON
+ * - `oversized`: a 200 body over 256 KB with its length declared
+ * - `oversized-stream`: a 200 body over 256 KB streamed without a declared length
+ * - `stall`: a 200 body that sends its first chunk and then never another
+ * - `hang`: a request that never responds until its signal aborts
+ * - `network`: a request that fails to connect
  */
 export type Step =
   | {
@@ -31,14 +40,20 @@ export type Step =
       readonly nouls?: Readonly<Record<string, number>>;
       readonly scores?: Readonly<Record<string, number>>;
     }
-  | { readonly status: number }
+  | { readonly status: number; readonly body?: string }
   | { readonly body: string }
   | { readonly reply: unknown }
   | 'oversized'
+  | 'oversized-stream'
+  | 'stall'
   | 'hang'
   | 'network';
 
 export type Script = (payload: Payload, call: number) => Step;
+
+type AnsweringStep = Extract<Step, { readonly choices: unknown }>;
+
+const OVERSIZED_BYTES = 256 * 1024 + 1;
 
 export const TEST_MODEL = 'jev-test';
 
@@ -52,37 +67,80 @@ export function scriptedFetch(
     const payload = JSON.parse(String(init?.body)) as Payload;
     calls.push(payload);
     const step = script(payload, calls.length - 1);
-    if (step === 'hang')
-      return new Promise<Response>((_resolve, reject) => {
-        init?.signal?.addEventListener(
-          'abort',
-          () => reject(new DOMException('aborted', 'AbortError')),
-          { once: true },
-        );
-      });
-    if (step === 'network') throw new TypeError('fetch failed');
-    if (step === 'oversized')
-      return new Response('x'.repeat(256 * 1024 + 1), { status: 200 });
-    if ('status' in step)
-      return new Response('provider error', { status: step.status });
-    if ('body' in step) return new Response(step.body, { status: 200 });
-    if ('reply' in step)
-      return new Response(JSON.stringify(step.reply), { status: 200 });
+    const failing = failureResponse(step, init?.signal);
+    if (failing) return failing;
     return new Response(
       JSON.stringify(
         buildReply(
           payload,
-          step.choices,
-          step.confidence ?? 1,
+          (step as AnsweringStep).choices,
+          (step as AnsweringStep).confidence ?? 1,
           model,
-          step.nouls,
-          step.scores,
+          (step as AnsweringStep).nouls,
+          (step as AnsweringStep).scores,
         ),
       ),
       { status: 200, headers: { 'content-type': 'application/json' } },
     );
   };
   return { fetch: handler as unknown as typeof fetch, calls };
+}
+
+/**
+ * The response to a scripted step that does not answer, or `undefined` for
+ * a step that answers. Shared by the TypeSafe and Decisions fakes, so every
+ * failure mode behaves the same on both.
+ */
+export function failureResponse(
+  step: Step | { readonly refuse: readonly string[] },
+  signal?: AbortSignal | null,
+): Promise<Response> | undefined {
+  if (step === 'hang')
+    return new Promise<Response>((_resolve, reject) => {
+      signal?.addEventListener(
+        'abort',
+        () => reject(new DOMException('aborted', 'AbortError')),
+        { once: true },
+      );
+    });
+  if (step === 'network') return Promise.reject(new TypeError('fetch failed'));
+  if (step === 'oversized')
+    return Promise.resolve(
+      new Response('x'.repeat(OVERSIZED_BYTES), {
+        status: 200,
+        headers: { 'content-length': String(OVERSIZED_BYTES) },
+      }),
+    );
+  if (step === 'oversized-stream')
+    return Promise.resolve(
+      new Response(chunkedBody('x'.repeat(OVERSIZED_BYTES), 16 * 1024), {
+        status: 200,
+      }),
+    );
+  if (step === 'stall')
+    return Promise.resolve(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode('{"model":'));
+          },
+        }),
+        { status: 200 },
+      ),
+    );
+  if ('status' in step)
+    return Promise.resolve(
+      step.body === undefined
+        ? new Response('provider error', { status: step.status })
+        : new Response(chunkedBody(step.body, 1024), { status: step.status }),
+    );
+  if ('body' in step)
+    return Promise.resolve(new Response(step.body, { status: 200 }));
+  if ('reply' in step)
+    return Promise.resolve(
+      new Response(JSON.stringify(step.reply), { status: 200 }),
+    );
+  return undefined;
 }
 
 /**
@@ -180,4 +238,25 @@ export function scriptedAsk(
     onCall: (call) => reported.push(call),
   });
   return { ask, calls, reported };
+}
+
+function chunkedBody(
+  text: string,
+  chunkBytes: number,
+): ReadableStream<Uint8Array> {
+  const bytes = new TextEncoder().encode(text);
+  let offset = 0;
+  return new ReadableStream<Uint8Array>(
+    {
+      pull(controller) {
+        if (offset >= bytes.length) {
+          controller.close();
+          return;
+        }
+        controller.enqueue(bytes.slice(offset, offset + chunkBytes));
+        offset += chunkBytes;
+      },
+    },
+    { highWaterMark: 0 },
+  );
 }

@@ -1,5 +1,5 @@
 import { cancellationError } from '@maelstrom-co/engine';
-import { err, ok } from '@maelstrom-co/protocol';
+import { err, isOk, ok } from '@maelstrom-co/protocol';
 
 import type {
   Ask,
@@ -9,6 +9,7 @@ import type {
   ProviderFailureCode,
 } from './ask.js';
 import { deferAt } from './defer.js';
+import { readBody } from './provider-call.js';
 import {
   type Evaluation,
   overOptionCap,
@@ -23,7 +24,6 @@ import {
   isRecord,
   levelAnswer,
   noulAnswer,
-  readBody,
   withoutProbabilities,
 } from './reply-validation.js';
 
@@ -329,24 +329,26 @@ function parseAnswer(
       Number.isSafeInteger(value) ? String(value) : undefined,
     );
     if (probabilities === undefined) return undefined;
-    return levelAnswer(
+    const level = levelAnswer(
       answer.score,
       answer.confidence,
       probabilities,
       question.criteria.length,
     );
+    return isOk(level) ? level.value : undefined;
   }
   if (answer.type !== 'choice') return undefined;
   const probabilities = probabilityRecord(answer.probabilities, (value) =>
     typeof value === 'string' ? value : undefined,
   );
   if (probabilities === undefined) return undefined;
-  return choiceAnswer(
+  const chosen = choiceAnswer(
     answer.choice,
     answer.confidence,
     probabilities,
     Object.keys(question.criteria),
   );
+  return isOk(chosen) ? chosen.value : undefined;
 }
 
 function probabilityRecord(

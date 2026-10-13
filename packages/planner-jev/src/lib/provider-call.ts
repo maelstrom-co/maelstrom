@@ -1,0 +1,547 @@
+import { cancellationError } from '@maelstrom-co/engine';
+import { err, isOk, ok } from '@maelstrom-co/protocol';
+import type { WireAnswer } from '@tanstack/ai';
+import type {
+  WireChoiceQuestion,
+  WireNoulQuestion,
+  WireScoreQuestion,
+} from '@tanstack/ai/adapters';
+
+import type {
+  Ask,
+  AskCall,
+  CallAnswer,
+  CallOutcome,
+  ProviderFailureCode,
+} from './ask.js';
+import { deferAt } from './defer.js';
+import { overOptionCap, type QuestionText, type Usage } from './questions.js';
+import {
+  type InvalidReplyReason,
+  isRecord,
+  validateWireAnswers,
+  withoutProbabilities,
+} from './reply-validation.js';
+
+const MAX_RESPONSE_BYTES = 256 * 1024;
+const MAX_ERROR_BODY_BYTES = 4 * 1024;
+const DEFAULT_TIMEOUT_MS = 5000;
+
+/**
+ * A choice question on the transport seam: TanStack's `WireChoiceQuestion`
+ * widened so an option description may be a structured {@link QuestionText}
+ * as well as a string.
+ */
+export interface ProviderChoiceQuestion
+  extends Omit<WireChoiceQuestion, 'criteria'> {
+  /** Option key to description, or `null` when the key is enough. */
+  readonly criteria: Readonly<Record<string, QuestionText | null>>;
+}
+
+/**
+ * A question as a transport receives it: a compatible superset of
+ * TanStack's `WireQuestion`, with one widening. A choice option description
+ * may be a structured {@link QuestionText} as well as a string. A transport
+ * that bridges to a TanStack evaluate adapter stringifies such descriptions
+ * before calling `adapter.evaluate()`.
+ */
+export type ProviderQuestion =
+  | ProviderChoiceQuestion
+  | WireScoreQuestion
+  | WireNoulQuestion;
+
+/**
+ * One provider request: the shape of TanStack's `EvaluateOptions` without
+ * `logger`, `modelOptions` and `abortSignal` (the signal is the second
+ * argument of {@link ProviderTransport.send}). `state` is `unknown`, wider
+ * than TanStack's `EvaluateState`, so a bridging transport narrows it.
+ */
+export interface ProviderRequest {
+  /** The model id the request names. */
+  readonly model: string;
+  /** Shared state every question judges. */
+  readonly state: unknown;
+  /** The questions, keyed by question id, in the evaluation's order. */
+  readonly questions: Readonly<Record<string, ProviderQuestion>>;
+}
+
+/**
+ * Why a transport returned no reply. It holds no provider text, so it is
+ * safe to log: `network` for a request that never got a response, `http`
+ * for a non-2xx status with the provider's error type and code when they
+ * parse as short identifiers, `invalid_reply` with the check the reply
+ * failed.
+ */
+export type TransportFailure =
+  | { readonly kind: 'network' }
+  | {
+      readonly kind: 'http';
+      /** The HTTP status. */
+      readonly status: number;
+      /** The provider's error type, when it is a short identifier free of any secret. */
+      readonly errorType?: string;
+      /** The provider's error code, when it is a short identifier free of any secret. */
+      readonly errorCode?: string;
+    }
+  | { readonly kind: 'invalid_reply'; readonly reason: InvalidReplyReason };
+
+/**
+ * A decoded provider reply: a superset of TanStack's
+ * `EvaluateAdapterResult`. The answers are only claimed to be TanStack wire
+ * answers and are still unvalidated: {@link createProviderCall} validates
+ * every answer against the asked question.
+ */
+export interface TransportReply {
+  /** The answers, keyed by question id, in TanStack's wire answer shapes. */
+  readonly answers: Readonly<Record<string, WireAnswer>>;
+  /** The ids of the refused questions. The other answers are kept. */
+  readonly refusals: readonly string[];
+  /** Token usage, present on a refusal too. */
+  readonly usage: Usage;
+  /** The parsed reply body, for `logReplies`. */
+  readonly raw: unknown;
+}
+
+/**
+ * What one {@link ProviderTransport.send} returns. A failure carries `raw`
+ * when the body parsed but did not decode.
+ */
+export type TransportResult =
+  | { readonly ok: true; readonly reply: TransportReply }
+  | {
+      readonly ok: false;
+      readonly failure: TransportFailure;
+      readonly raw?: unknown;
+    };
+
+/**
+ * Encodes a {@link ProviderRequest} for one provider, sends it and decodes
+ * the reply. A transport never throws for network, HTTP or body problems
+ * and returns them as a {@link TransportFailure} instead. It honours
+ * `signal`, which carries both the caller's abort and the timeout. It caps
+ * every body read, and it never puts a secret in a failure. Encoding errors
+ * may throw, and they reject the call.
+ */
+export interface ProviderTransport {
+  /** Sends `request` and resolves once the reply is decoded or has failed. */
+  send(request: ProviderRequest, signal: AbortSignal): Promise<TransportResult>;
+}
+
+/** Settings for {@link createProviderCall}. */
+export interface ProviderCallOptions {
+  /** Names the provider in the cancellation message, as in `Jev call cancelled`. */
+  readonly label: string;
+  /** The model id sent with every request and reported with every call. */
+  readonly model: string;
+  /** Per-call timeout in milliseconds, combined with the request's signal. */
+  readonly timeoutMs: number;
+  /** Called once per call, for instrumentation. */
+  readonly onCall?: (call: AskCall) => void;
+  /**
+   * Logs every parsed reply at debug as `jev.reply`, with the state and
+   * questions it answers, all as JSON strings, before validation.
+   */
+  readonly logReplies: boolean;
+  /** Sends each request to the provider. */
+  readonly transport: ProviderTransport;
+}
+
+/**
+ * An {@link Ask} that runs the provider call flow every planner provider
+ * shares around one {@link ProviderTransport}. A question over the option
+ * cap defers `option_cap` and an already aborted request is cancelled,
+ * both before anything is sent. A transport failure defers with its
+ * `provider_*` code (`provider_timeout` once the timeout has fired) and logs
+ * `jev.provider_failure` at warn with the typed `failure`. A refusal defers
+ * `provider_refusal` on the first refused question in question order without
+ * validating the other answers. Every other reply is validated against the
+ * asked questions, and an invalid one defers `provider_invalid_reply`. A
+ * user abort, which wins over the timeout, returns a `CancellationError`.
+ * Every call logs `jev.call` at debug, emits a `jev.call` instrument event
+ * and reaches `onCall`.
+ */
+export function createProviderCall(options: ProviderCallOptions): Ask {
+  const { label, model, timeoutMs, onCall, logReplies, transport } = options;
+  return async (stage, evaluation, ctx) => {
+    const questionIds = Object.keys(evaluation.questions);
+    const started = performance.now();
+    const report = (
+      outcome: CallOutcome,
+      usage?: Usage,
+      answers?: Readonly<Record<string, CallAnswer>>,
+    ) => {
+      const latencyMs = performance.now() - started;
+      ctx.logger.debug('jev.call', {
+        stage,
+        model,
+        questionIds,
+        latencyMs,
+        outcome,
+        ...(usage && {
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+        }),
+      });
+      ctx.instrument.event('jev.call', {
+        'gen_ai.request.model': model,
+        ...(usage && {
+          'gen_ai.usage.input_tokens': usage.inputTokens,
+          'gen_ai.usage.output_tokens': usage.outputTokens,
+        }),
+        'maelstrom.stage': stage,
+        'maelstrom.outcome': outcome,
+        'maelstrom.latency_ms': latencyMs,
+        'maelstrom.question_ids': questionIds.join(','),
+      });
+      onCall?.({
+        stage,
+        questionIds,
+        latencyMs,
+        outcome,
+        ...(usage && { usage }),
+        ...(answers && { answers }),
+      });
+    };
+    const cancelled = () => {
+      report('cancelled');
+      return err(
+        cancellationError(`${label} call cancelled`, ctx.signal?.reason),
+      );
+    };
+    const warn = (
+      code: CallOutcome,
+      detail: string,
+      failure?: TransportFailure,
+    ) =>
+      ctx.logger.warn('jev.provider_failure', {
+        stage,
+        reason: `${stage}/${code}`,
+        detail,
+        ...(failure && { failure }),
+      });
+    const providerFailure = (
+      code: ProviderFailureCode,
+      detail: string,
+      failure: TransportFailure,
+    ) => {
+      report(code);
+      warn(code, detail, failure);
+      return deferAt(ctx, stage, code);
+    };
+
+    const tooLarge = overOptionCap(evaluation);
+    if (tooLarge !== undefined) {
+      report('option_cap');
+      return deferAt(ctx, stage, 'option_cap', tooLarge);
+    }
+    if (ctx.signal?.aborted) return cancelled();
+
+    const timeout = AbortSignal.timeout(timeoutMs);
+    const signal = ctx.signal
+      ? AbortSignal.any([ctx.signal, timeout])
+      : timeout;
+    const failed = (failure: TransportFailure) => {
+      if (ctx.signal?.aborted) return cancelled();
+      if (timeout.aborted)
+        return providerFailure(
+          'provider_timeout',
+          `no reply within ${timeoutMs} ms`,
+          failure,
+        );
+      return providerFailure(
+        FAILURE_CODES[failure.kind],
+        failureDetail(failure),
+        failure,
+      );
+    };
+
+    const result = await transport.send(
+      { model, state: evaluation.state, questions: evaluation.questions },
+      signal,
+    );
+    if (logReplies && (result.ok || result.raw !== undefined))
+      // Console loggers cut nested objects short. JSON keeps every answer.
+      ctx.logger.debug('jev.reply', {
+        stage,
+        state: JSON.stringify(evaluation.state),
+        questions: JSON.stringify(evaluation.questions),
+        reply: JSON.stringify(result.ok ? result.reply.raw : result.raw),
+      });
+    if (!result.ok) return failed(result.failure);
+
+    const { reply } = result;
+    if (reply.refusals.length > 0) {
+      if (reply.refusals.some((id) => !questionIds.includes(id)))
+        return failed({ kind: 'invalid_reply', reason: 'key_mismatch' });
+      if (ctx.signal?.aborted) return cancelled();
+      const refused = questionIds.find((id) =>
+        reply.refusals.includes(id),
+      ) as string;
+      report('provider_refusal', reply.usage);
+      warn('provider_refusal', `refused ${refused}`);
+      return deferAt(ctx, stage, 'provider_refusal', refused);
+    }
+
+    const answers = validateWireAnswers(reply.answers, evaluation);
+    if (!isOk(answers))
+      return failed({ kind: 'invalid_reply', reason: answers.error });
+    if (ctx.signal?.aborted) return cancelled();
+    report('ok', reply.usage, answers.value);
+    return ok(
+      withoutProbabilities({ answers: answers.value, usage: reply.usage }),
+    );
+  };
+}
+
+/** What {@link postJson} returns: the parsed body, or why there is none. */
+export type RawReplyResult =
+  | { readonly ok: true; readonly raw: unknown }
+  | { readonly ok: false; readonly failure: TransportFailure };
+
+/**
+ * The fetch step every fetch transport shares. POSTs `body` as JSON with
+ * the key as a bearer token. A rejected fetch is a `network` failure. A
+ * non-2xx response is an `http` failure whose error type and code are read
+ * from at most 4 KB of its body, as JSON fields only and never as raw text,
+ * and kept only when each is a short identifier that does not contain
+ * `apiKey`. A 2xx body over 256 KB is `oversize` and one that is not JSON is
+ * `malformed_json`. Never throws, and every read stops once `signal`
+ * aborts.
+ */
+export async function postJson({
+  fetch,
+  endpoint,
+  apiKey,
+  body,
+  signal,
+}: {
+  readonly fetch: typeof globalThis.fetch;
+  readonly endpoint: string;
+  readonly apiKey: string;
+  readonly body: string;
+  readonly signal: AbortSignal;
+}): Promise<RawReplyResult> {
+  let response: Response;
+  try {
+    response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body,
+      signal,
+    });
+  } catch {
+    return { ok: false, failure: { kind: 'network' } };
+  }
+  if (!response.ok) {
+    let text: string | undefined;
+    try {
+      text = await readBody(response, signal, MAX_ERROR_BODY_BYTES);
+    } catch {
+      text = undefined;
+    }
+    return {
+      ok: false,
+      failure: {
+        kind: 'http',
+        status: response.status,
+        ...providerErrorFields(text, apiKey),
+      },
+    };
+  }
+  let text: string | undefined;
+  try {
+    text = await readBody(response, signal);
+  } catch {
+    return invalidReply('malformed_json');
+  }
+  if (text === undefined) return invalidReply('oversize');
+  try {
+    return { ok: true, raw: JSON.parse(text) };
+  } catch {
+    return invalidReply('malformed_json');
+  }
+}
+
+/**
+ * The response body as text, or `undefined` once it exceeds `maxBytes`
+ * (256 KB by default) by its declared length or while streaming. A pending
+ * read stops as soon as `signal` aborts.
+ *
+ * @throws {Error} If the body is missing, `signal` aborts or the stream fails.
+ */
+export async function readBody(
+  response: Response,
+  signal: AbortSignal,
+  maxBytes: number = MAX_RESPONSE_BYTES,
+): Promise<string | undefined> {
+  const length = response.headers.get('content-length');
+  if (length !== null && Number(length) > maxBytes) {
+    void response.body?.cancel().catch(() => undefined);
+    return undefined;
+  }
+  if (!response.body) throw new Error('response body missing');
+  const reader = response.body.getReader();
+  let onAbort: (() => void) | undefined;
+  const aborted = new Promise<never>((_resolve, reject) => {
+    onAbort = () => reject(new Error('request aborted'));
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+  aborted.catch(() => undefined);
+  const decoder = new TextDecoder();
+  let bytes = 0;
+  let text = '';
+  try {
+    for (;;) {
+      if (signal.aborted) throw new Error('request aborted');
+      const next = await Promise.race([reader.read(), aborted]);
+      if (next.done) break;
+      bytes += next.value.byteLength;
+      if (bytes > maxBytes) return undefined;
+      text += decoder.decode(next.value, { stream: true });
+    }
+    return text + decoder.decode();
+  } finally {
+    if (onAbort) signal.removeEventListener('abort', onAbort);
+    void reader.cancel().catch(() => undefined);
+  }
+}
+
+/** The settings both fetch-based provider clients take, with the model already resolved. */
+export interface ProviderClientOptions {
+  /** Provider API key. Server-side only, never logged or echoed in errors. */
+  readonly apiKey: string;
+  /** The resolved model id. */
+  readonly model: string;
+  /** Endpoint URL. Defaults to the provider's own. */
+  readonly endpoint?: string;
+  /** Transport, for tests. Defaults to the global `fetch`. */
+  readonly fetch?: typeof globalThis.fetch;
+  /** Per-call timeout in milliseconds. Defaults to 5000. */
+  readonly timeoutMs?: number;
+  /** Called once per call, for instrumentation. */
+  readonly onCall?: (call: AskCall) => void;
+  /** Logs every parsed reply at debug as `jev.reply`. Defaults to `false`. */
+  readonly logReplies?: boolean;
+}
+
+/** {@link ProviderClientOptions} once checked, with every default applied. */
+export interface ProviderClientConfig {
+  /** Provider API key. */
+  readonly apiKey: string;
+  /** The model id. */
+  readonly model: string;
+  /** Endpoint URL. */
+  readonly endpoint: string;
+  /** Transport. */
+  readonly fetch: typeof globalThis.fetch;
+  /** Per-call timeout in milliseconds. */
+  readonly timeoutMs: number;
+  /** Called once per call, for instrumentation. */
+  readonly onCall: ((call: AskCall) => void) | undefined;
+  /** Whether every parsed reply is logged. */
+  readonly logReplies: boolean;
+}
+
+/**
+ * Checks the options both provider clients share, in order `apiKey`,
+ * `model`, `endpoint`, `fetch`, `timeoutMs`, `onCall`, `logReplies`, and
+ * applies their defaults.
+ *
+ * @throws {Error} `Invalid <label> option: ...` naming the first invalid
+ * option. The message never contains the key.
+ */
+export function validateClientOptions(
+  options: ProviderClientOptions,
+  label: string,
+  defaultEndpoint: string,
+): ProviderClientConfig {
+  const invalid = (message: string) =>
+    new Error(`Invalid ${label} option: ${message}`);
+  if (typeof options.apiKey !== 'string' || options.apiKey.length === 0)
+    throw invalid('apiKey must be a non-empty string');
+  if (typeof options.model !== 'string' || options.model.length === 0)
+    throw invalid('model must be a non-empty string');
+  const endpoint = options.endpoint ?? defaultEndpoint;
+  try {
+    new URL(endpoint);
+  } catch {
+    throw invalid('endpoint must be a URL');
+  }
+  if (options.fetch !== undefined && typeof options.fetch !== 'function')
+    throw invalid('fetch must be a function');
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0)
+    throw invalid('timeoutMs must be positive');
+  if (options.onCall !== undefined && typeof options.onCall !== 'function')
+    throw invalid('onCall must be a function');
+  if (
+    options.logReplies !== undefined &&
+    typeof options.logReplies !== 'boolean'
+  )
+    throw invalid('logReplies must be a boolean');
+  return {
+    apiKey: options.apiKey,
+    model: options.model,
+    endpoint,
+    fetch: options.fetch ?? fetch,
+    timeoutMs,
+    onCall: options.onCall,
+    logReplies: options.logReplies ?? false,
+  };
+}
+
+const FAILURE_CODES = {
+  network: 'provider_network',
+  http: 'provider_http',
+  invalid_reply: 'provider_invalid_reply',
+} as const satisfies Record<TransportFailure['kind'], ProviderFailureCode>;
+
+const SAFE_ERROR_FIELD = /^[A-Za-z0-9_.:-]{1,64}$/;
+
+function failureDetail(failure: TransportFailure): string {
+  if (failure.kind === 'network') return 'request failed';
+  if (failure.kind === 'invalid_reply')
+    return `invalid reply (${failure.reason})`;
+  const fields = [failure.errorType, failure.errorCode].filter(
+    (field) => field !== undefined,
+  );
+  return fields.length > 0
+    ? `HTTP ${failure.status} (${fields.join(', ')})`
+    : `HTTP ${failure.status}`;
+}
+
+function invalidReply(reason: InvalidReplyReason): RawReplyResult {
+  return { ok: false, failure: { kind: 'invalid_reply', reason } };
+}
+
+function providerErrorFields(
+  text: string | undefined,
+  secret: string,
+): { errorType?: string; errorCode?: string } {
+  if (text === undefined) return {};
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return {};
+  }
+  if (!isRecord(parsed)) return {};
+  const source = isRecord(parsed.error) ? parsed.error : parsed;
+  const errorType = safeErrorField(source.type, secret);
+  const errorCode = safeErrorField(source.code, secret);
+  return {
+    ...(errorType !== undefined && { errorType }),
+    ...(errorCode !== undefined && { errorCode }),
+  };
+}
+
+function safeErrorField(value: unknown, secret: string): string | undefined {
+  return typeof value === 'string' &&
+    SAFE_ERROR_FIELD.test(value) &&
+    !value.includes(secret)
+    ? value
+    : undefined;
+}
