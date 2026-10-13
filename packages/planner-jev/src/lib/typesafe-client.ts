@@ -100,8 +100,10 @@ export function validateReply(
  * state and questions as one JSON object in that key order, and decodes
  * the reply into TanStack wire answers, which TypeSafe's wire answers
  * already are. A reply that is not an object, whose answers are not an
- * object or whose usage counts are not integral is `malformed_json`, and a
- * reply that echoes a model other than `model` is `model_echo`. An HTTP
+ * object, or whose usage is missing or does not hold non-negative integer
+ * token counts is `malformed_json`. Only a reply that passes those checks
+ * has its model echo checked, and one that echoes a model other than
+ * `model` is `model_echo`. An HTTP
  * failure reads its error type and code from TypeSafe's error body,
  * `detail.error_type` and `detail.error_code`. TypeSafe never refuses, so
  * `refusals` is always empty.

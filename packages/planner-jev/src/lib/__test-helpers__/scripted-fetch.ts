@@ -93,8 +93,8 @@ export function scriptedFetch(
 
 /**
  * The response to a scripted step that does not answer, or `undefined` for
- * a step that answers. Shared by the TypeSafe and Decisions fakes, so every
- * failure mode behaves the same on both.
+ * a step that answers. Shared by every scripted fetch fake, so each failure
+ * mode behaves the same on every provider.
  */
 export function failureResponse(
   step: Step | { readonly refuse: readonly string[] },

@@ -95,7 +95,11 @@ export type TransportFailure =
 export interface TransportReply {
   /** The answers, keyed by question id, in TanStack's wire answer shapes. */
   readonly answers: Readonly<Record<string, WireAnswer>>;
-  /** The ids of the refused questions. The other answers are kept. */
+  /**
+   * The ids of the refused questions. A transport returns the other answers
+   * it decoded, and {@link createProviderCall} ignores them when any
+   * question is refused.
+   */
   readonly refusals: readonly string[];
   /** Token usage, present on a refusal too. */
   readonly usage: Usage;
@@ -155,11 +159,13 @@ export interface ProviderCallOptions {
  * `provider_*` code (`provider_timeout` once the timeout has fired) and logs
  * `jev.provider_failure` at warn with the typed `failure`. A refusal defers
  * `provider_refusal` on the first refused question in question order without
- * validating the other answers. Every other reply is validated against the
- * asked questions, and an invalid one defers `provider_invalid_reply`. A
- * user abort, which wins over the timeout, returns a `CancellationError`.
- * Every call logs `jev.call` at debug, emits a `jev.call` instrument event
- * and reaches `onCall`.
+ * validating the other answers, and a refusal of a question that was not
+ * asked is an invalid reply (`key_mismatch`). Every other reply is validated
+ * against the asked questions, and an invalid one defers
+ * `provider_invalid_reply`. A user abort, which wins over the timeout,
+ * returns a `CancellationError`. Every call that does not reject logs
+ * `jev.call` at debug, emits a `jev.call` instrument event and reaches
+ * `onCall`. A transport that throws rejects the ask with none of these.
  */
 export function createProviderCall(options: ProviderCallOptions): Ask {
   const { label, model, timeoutMs, onCall, logReplies, transport } = options;
@@ -295,7 +301,7 @@ export function createProviderCall(options: ProviderCallOptions): Ask {
   };
 }
 
-/** The settings both fetch-based provider clients take, with the model already resolved. */
+/** The settings a fetch-based provider client takes, with the model already resolved. */
 export interface ProviderClientOptions {
   /** Provider API key. Server-side only, never logged or echoed in errors. */
   readonly apiKey: string;
@@ -332,7 +338,7 @@ export interface ProviderClientConfig {
 }
 
 /**
- * Checks the options both provider clients share, in order `apiKey`,
+ * Checks the options of a fetch-based provider client, in order `apiKey`,
  * `model`, `endpoint`, `fetch`, `timeoutMs`, `onCall`, `logReplies`, and
  * applies their defaults.
  *
