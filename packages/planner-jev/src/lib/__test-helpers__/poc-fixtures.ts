@@ -145,6 +145,22 @@ export const POC_CASES: readonly PocCase[] = [
   },
 ];
 
+/**
+ * {@link POC_CASES} for a planner whose select stage asks the screen scope
+ * questions. Unscripted, the screen question answers that the request
+ * adjusts the screen and every hide question answers no, so the hide case
+ * also answers its hide question yes.
+ */
+export const SCREEN_SCOPE_CASES: readonly PocCase[] = POC_CASES.map(
+  (fixture) =>
+    fixture.name === 'hide'
+      ? {
+          ...fixture,
+          script: { ...fixture.script, gates: { 'hide/tasks-main': 0.9 } },
+        }
+      : fixture,
+);
+
 /** A valid candidate for `request`, marked so tests can tell it shipped. */
 export function fallbackCandidate(
   request: ChartRequest,

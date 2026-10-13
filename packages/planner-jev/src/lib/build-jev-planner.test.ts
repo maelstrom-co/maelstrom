@@ -1,14 +1,15 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 
-import { installMockChat, mockChat } from '../__test-helpers__/mock-chat.js';
+import { installMockChat, mockChat } from './__test-helpers__/mock-chat.js';
 import {
   POC_CASES,
   type PocCase,
   type PocRun,
   runPocCase,
-} from '../__test-helpers__/poc-fixtures.js';
-import { createJevDeps } from '../stages/stage-deps.js';
-import { buildPocScreenScopePlanner } from './poc-screen-scope.js';
+} from './__test-helpers__/poc-fixtures.js';
+import { buildJevPlanner } from './jev-planner.js';
+import { selectGatedScreenScope } from './stages/select-gated-screen-scope.js';
+import { createJevDeps } from './stages/stage-deps.js';
 
 installMockChat();
 
@@ -16,10 +17,10 @@ afterEach(() => mockChat.mockReset());
 
 const hide = POC_CASES.find((fixture) => fixture.name === 'hide') as PocCase;
 const pinned: PocRun = await Bun.file(
-  new URL('../__test-helpers__/poc-evaluations/hide.json', import.meta.url),
+  new URL('./__test-helpers__/poc-evaluations/hide.json', import.meta.url),
 ).json();
 
-describe('buildPocScreenScopePlanner', () => {
+describe('buildJevPlanner', () => {
   test('asks the screen scope questions in its select call and ships what the POC ships on a whole-screen answer', async () => {
     const run = await runPocCase(
       {
@@ -29,7 +30,7 @@ describe('buildPocScreenScopePlanner', () => {
           select: { ...hide.script.select, screen: 'whole_screen' },
         },
       },
-      (options) => buildPocScreenScopePlanner(createJevDeps(options)),
+      (options) => buildJevPlanner(createJevDeps(options)),
     );
     const questions = Object.keys(run.evaluations[0]?.questions ?? {});
     expect(questions).toContain('screen');
@@ -49,8 +50,9 @@ describe('buildPocScreenScopePlanner', () => {
         },
       },
       (options) =>
-        buildPocScreenScopePlanner(createJevDeps(options), {
-          spelledOutActionsGate: true,
+        buildJevPlanner(createJevDeps(options), {
+          select: (ask) =>
+            selectGatedScreenScope(ask, { spelledOutActionsGate: true }),
         }),
     );
     expect(

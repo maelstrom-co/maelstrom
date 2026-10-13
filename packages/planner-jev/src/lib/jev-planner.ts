@@ -16,8 +16,8 @@ import { logTurns } from './log-turn.js';
 import { FALLBACK_RETRIES } from './planners/jev-stage-planner.js';
 import { jevActions } from './stages/jev-actions.js';
 import { jevLayout } from './stages/jev-layout.js';
-import { jevSelect } from './stages/jev-select.js';
 import { llmComplete } from './stages/llm-complete.js';
+import { selectGatedScreenScope } from './stages/select-gated-screen-scope.js';
 import { createJevDeps, type JevDeps } from './stages/stage-deps.js';
 import type { JevSelection } from './types.js';
 
@@ -61,22 +61,23 @@ export interface JevPlannerOptions {
 
 /** Stage factories that replace the POC's own in {@link buildJevPlanner}. */
 export interface PocStageOverrides {
-  /** The select stage in place of `jevSelect`. Its selection feeds `jevActions` unchanged. */
+  /** The select stage in place of `selectGatedScreenScope`. Its selection feeds `jevActions` unchanged. */
   readonly select?: (ask: Ask) => Stage<PlanningInput, JevSelection>;
 }
 
 /**
- * The frozen POC composition (select, actions, layout and the completion
- * call, with the LLM fallback) over `deps`, whose `ask` may be any
- * provider's client, with any stage in `overrides` in place of the POC's
- * own. Stages are named for `StageContext.instrument`. {@link jevPlanner}
- * is this with the TypeSafe client and no overrides.
+ * The POC composition (the screen scope select, actions, layout and the
+ * completion call, with the LLM fallback) over `deps`, whose `ask` may be
+ * any provider's client, with any stage in `overrides` in place of the
+ * POC's own. The select stage is `selectGatedScreenScope` with its default
+ * options. Stages are named for `StageContext.instrument`.
+ * {@link jevPlanner} is this with the TypeSafe client and no overrides.
  */
 export function buildJevPlanner(
   deps: JevDeps,
   overrides: PocStageOverrides = {},
 ): Planner {
-  const select = overrides.select ?? jevSelect;
+  const select = overrides.select ?? selectGatedScreenScope;
   return withFallback(
     pipeline(
       named(STAGE_NAME.jevSelect, select(deps.ask)),
@@ -91,11 +92,15 @@ export function buildJevPlanner(
 /**
  * A tiling planner that lets TypeSafe's Jev model answer multiple-choice
  * questions for which instances to show, hide, delete or create, which
- * actions to run with which parameters, and which layout to use. One small
- * LLM call then writes the `userMessage`, fills parameter values the request
- * states in a form Jev could not pick, and asks the user for values it does
- * not state. Any deferral (grid mode, an unsupported or ambiguous request, a
- * TypeSafe failure or timeout, a candidate validation rejects) re-plans the
+ * actions to run with which parameters, and which layout to use. The
+ * selection call also asks whether the request describes the whole screen
+ * or adjusts what is shown, and on an adjustment keeps every visible
+ * instance the request does not explicitly hide. One small LLM call then
+ * writes the `userMessage`, fills parameter values the request states in a
+ * form Jev could not pick, and asks the user for values it does not state.
+ * Any deferral (grid mode, an unsupported or ambiguous request, a request
+ * for generated content or for content already on screen, a TypeSafe
+ * failure or timeout, a candidate validation rejects) re-plans the
  * whole request with `fallback`, retried once on a recommended retry.
  *
  * Run the Engine with `retry: false` so the Jev pipeline is never re-run

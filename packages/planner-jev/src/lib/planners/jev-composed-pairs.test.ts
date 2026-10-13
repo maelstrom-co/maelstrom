@@ -52,6 +52,44 @@ afterEach(() => mockChat.mockReset());
 const STACKED_REQUEST = 'stack the calendar, the weather and the tasks';
 
 describe('jevComposedPairsPlanner through createEngine', () => {
+  test('asks the screen scope select, then the batched actions and the pairs', async () => {
+    mockChat.mockResolvedValue({ userMessage: 'Stacked.' });
+    const { calls } = await run(
+      makeRequest(STACKED_REQUEST),
+      answering('above', 0.9),
+    );
+    const [select, ...rest] = calls.map((call) => Object.keys(call.questions));
+    expect(select?.filter((id) => !id.startsWith('view/')).sort()).toEqual([
+      'gate/dependsOnScreen',
+      'gate/generatedContent',
+      'gate/needsActions',
+      'gate/spatial',
+      'hide/calendar-main',
+      'hide/tasks-main',
+      'hide/weather-main',
+      'new/calendar',
+      'new/journal',
+      'new/map',
+      'new/tasks',
+      'new/weather',
+      'scope',
+      'screen',
+    ]);
+    expect(rest.some((ids) => ids.some((id) => id.startsWith('pair/')))).toBe(
+      true,
+    );
+  });
+
+  test('keeps a visible instance whose hide question answers no when the screen is adjusted', async () => {
+    mockChat.mockResolvedValue({ userMessage: 'Stacked.' });
+    const { response, fallbackCalls } = await run(
+      makeRequest(STACKED_REQUEST),
+      answering('above', 0.9, { 'view/tasks-main': 'hide' }),
+    );
+    expect(response?.layout.tree).toContain('ID:tasks-main');
+    expect(fallbackCalls).toBe(0);
+  });
+
   test('ships the tree composed from the pair answers without the fallback', async () => {
     mockChat.mockResolvedValue({ userMessage: 'Stacked.' });
     const { response, fallbackCalls, calls } = await run(
@@ -131,8 +169,13 @@ describe('buildJevComposedPairsPlanner on a Decisions client', () => {
 });
 
 /** Hides the map and journal, plans no actions and answers every pair question with `relation`. */
-function answering(relation: string, spatial: number): Script {
+function answering(
+  relation: string,
+  spatial: number,
+  select?: Readonly<Record<string, string>>,
+): Script {
   const talk = conversation({
+    ...(select !== undefined && { select }),
     gates: {
       'gate/needsActions': 0.1,
       'gate/generatedContent': 0.1,

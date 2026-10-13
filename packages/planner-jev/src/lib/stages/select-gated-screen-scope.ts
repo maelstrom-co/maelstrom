@@ -16,13 +16,13 @@ import {
   type Reply,
   readAnswer,
 } from '../questions.js';
+import type { SelectedInstance } from '../types.js';
 import {
   GATE_THRESHOLD,
   NEEDS_ACTIONS_THRESHOLD,
   selectGated,
-} from '../stages/select-gated.js';
-import type { GatedSelection } from '../stages/stage-types.js';
-import type { SelectedInstance } from '../types.js';
+} from './select-gated.js';
+import type { GatedSelection } from './stage-types.js';
 
 const STAGE = STAGE_NAME.jevSelect;
 
@@ -40,8 +40,6 @@ const STAGE = STAGE_NAME.jevSelect;
  * questions decide, as in {@link selectGated}. Hidden and new instances
  * always follow their own questions. Defers exactly as {@link selectGated}
  * does.
- *
- * @experimental
  */
 export function selectGatedScreenScope(
   ask: Ask,
