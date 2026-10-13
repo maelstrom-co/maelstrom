@@ -26,10 +26,19 @@ Each item is a gap that must close upstream before a bridge transport around `ad
 
 The input type mismatch is not a gap to close upstream. A bridge transport stringifies structured option text and non-string state before it calls `adapter.evaluate()`, so that is bridge work rather than a switch criterion.
 
-A bridge transport is accepted when it passes `packages/planner-jev/src/lib/provider-transport-contract.test.ts` unchanged and both provider eval arms stay inside the bands the switch to one call flow was measured against: cheap correct, cheap wrong and fallback rate within one percentage point, and cheap path median latency within 10%. `decide()` itself stays out even then, because its validation is weaker than ours and its score value differs.
+A bridge transport is accepted when it passes every row of `packages/planner-jev/src/lib/provider-transport-contract.test.ts` with only a new harness entry added and no row removed or weakened, and both provider eval arms stay inside the bands of the baseline below: cheap correct, cheap wrong and fallback rate within one percentage point, and cheap path median latency within 10%. `decide()` itself stays out even then, because its validation is weaker than ours and its score value differs.
+
+The baseline is the switch to one call flow, measured with the eval suite `all` at `--repeats 3`, 465 turns per arm. Cheap correct is a turn with no fallback call that passes, cheap wrong one with no fallback call that does not, and fallback a turn with any fallback call, each as a share of all turns. Cheap p50 is the median turn time over the cheap turns.
+
+| Arm | Cheap correct | Cheap wrong | Fallback | Cheap p50 |
+| --- | --- | --- | --- | --- |
+| `jev-composed-pairs-screen-scope` (TypeSafe) | 69.2% | 12.7% | 18.1% | 2079 ms |
+| `decisions-composed-pairs-screen-scope-prose` (Decisions) | 53.1% | 25.8% | 21.1% | 2497 ms |
+
+Provider behaviour drifts between runs, so the switch itself was checked against the code before it, run at the same time.
 
 Upstream issue links: pending
 
 ## Consequences
 
-There is one call flow to maintain, and a contract suite that every transport passes, so a new provider or a bridge transport is measured against the same rows. No TanStack upgrade is tied to planner-jev, and a TanStack version bump stays independent of these clients because the flow imports TanStack AI for types only.
+There is one call flow to maintain, and a contract suite that every transport passes, so a new provider or a bridge transport is measured against the same rows. No TanStack upgrade is tied to planner-jev, and a TanStack version bump adds no runtime dependency to these clients, because the flow imports TanStack AI for types only. A change to the wire types still surfaces at typecheck.
