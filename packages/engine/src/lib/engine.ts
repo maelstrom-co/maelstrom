@@ -9,6 +9,7 @@ import type {
   SessionId,
 } from '@maelstrom-co/protocol';
 import { err, isErr, ok } from '@maelstrom-co/protocol';
+import { operationalKinds } from '@maelstrom-co/telemetry/integration';
 import type { ActionParameterEnumSnapshot } from './action-parameter-enum.js';
 import { buildActionParameterEnumSnapshot } from './action-parameter-enum.js';
 import { assertNever } from './assert-never.js';
@@ -18,6 +19,7 @@ import { resolveConfig } from './config.js';
 import {
   EngineDiagnosticEmitter,
   type EngineDiagnosticObserver,
+  type EngineMetadataObserver,
 } from './diagnostics.js';
 import type { EngineError } from './errors.js';
 import { cancellationError, historyError, validationError } from './errors.js';
@@ -27,6 +29,12 @@ import type { HistoryEntry } from './history/history-store.js';
 import { loadHistoryContext } from './history/load-history-context.js';
 import { toSessionHistoryEntry } from './history/wire-projection.js';
 import type { Logger } from './logger.js';
+import {
+  markUnexpectedFailure,
+  operationalOutcome,
+  thrownOutcome,
+  validationFailure,
+} from './operational-outcome.js';
 import type {
   FullValidatedCandidate,
   PlannerCandidate,
@@ -59,6 +67,19 @@ import {
   MAX_LOGGED_ENTRIES,
 } from './validation/llm-output/healed-layout.js';
 
+function isChartRequestCandidate(message: unknown): boolean {
+  try {
+    return (
+      message !== null &&
+      typeof message === 'object' &&
+      Object.getOwnPropertyDescriptor(message, 'type')?.value ===
+        'chart_request'
+    );
+  } catch {
+    return false;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Engine interface
 // ---------------------------------------------------------------------------
@@ -85,8 +106,10 @@ import {
  * requests that may reach different instances.
  */
 export interface Engine {
-  /** Observes development evidence. Overlapping session/request IDs suppress stages and content. Hosts must opt in before forwarding. */
+  /** Observes development evidence. Once overlapping session/request IDs are detected, diagnostic events are suppressed except engine.request.finished. Metadata observers are unaffected. Hosts must opt in before forwarding. */
   observeDiagnostics?: (observer: EngineDiagnosticObserver) => () => void;
+  /** Observes server-local metadata in every environment, without granting content or browser forwarding. */
+  observeMetadata?: (observer: EngineMetadataObserver) => () => void;
   /**
    * Routes on `message.type`:
    *
@@ -305,7 +328,7 @@ export function createEngine(config: EngineConfig): Engine {
     diagnosticsEmitter.emit(
       message.sessionId,
       message.id,
-      'engine.planner.started',
+      operationalKinds.enginePlannerStarted,
       {},
       () => input,
     );
@@ -313,10 +336,10 @@ export function createEngine(config: EngineConfig): Engine {
     diagnosticsEmitter.emit(
       message.sessionId,
       message.id,
-      'engine.planner.completed',
+      operationalKinds.enginePlannerCompleted,
       {
         durationMs: performance.now() - start,
-        outcome: planned.ok ? 'succeeded' : 'failed',
+        ...operationalOutcome(planned),
       },
       () => planned,
     );
@@ -383,7 +406,10 @@ export function createEngine(config: EngineConfig): Engine {
 
   return {
     observeDiagnostics: (observer) => diagnosticsEmitter.subscribe(observer),
+    observeMetadata: (observer) =>
+      diagnosticsEmitter.subscribeMetadata(observer),
     async handle(rawMessage, signal) {
+      const started = performance.now();
       // Wire-format validation runs first. Smart constructors enforce envelope
       // invariants on programmatic construction (timestamp finite, brand
       // non-empty), but wire-deserialized envelopes bypass those constructors.
@@ -391,6 +417,18 @@ export function createEngine(config: EngineConfig): Engine {
       // can trust the shape.
       const validated = validateEngineMessage(rawMessage);
       if (isErr(validated)) {
+        if (isChartRequestCandidate(rawMessage)) {
+          diagnosticsEmitter.emitMetadata(
+            operationalKinds.engineRequestStarted,
+          );
+          diagnosticsEmitter.emitMetadata(
+            operationalKinds.engineRequestCompleted,
+            {
+              ...validationFailure,
+              durationMs: performance.now() - started,
+            },
+          );
+        }
         logValidationFailure(logger, rawMessage, validated.error);
         return validated;
       }
@@ -402,8 +440,34 @@ export function createEngine(config: EngineConfig): Engine {
             message.sessionId,
             message.id,
           );
+          diagnosticsEmitter.emit(
+            message.sessionId,
+            message.id,
+            operationalKinds.engineRequestStarted,
+          );
           try {
-            return await dedup.handle(message, signal);
+            const result = await dedup.handle(message, signal);
+            diagnosticsEmitter.emit(
+              message.sessionId,
+              message.id,
+              operationalKinds.engineRequestCompleted,
+              {
+                ...operationalOutcome(result),
+                durationMs: performance.now() - started,
+              },
+            );
+            return result;
+          } catch (error) {
+            diagnosticsEmitter.emit(
+              message.sessionId,
+              message.id,
+              operationalKinds.engineRequestCompleted,
+              {
+                ...thrownOutcome(signal),
+                durationMs: performance.now() - started,
+              },
+            );
+            throw error;
           } finally {
             releaseDiagnostics();
           }
@@ -607,10 +671,12 @@ function plannerThrowError(
     );
   }
   logger.error('Planner threw', error, { messageId });
-  return validationError(
-    error instanceof Error ? error.message : String(error),
-    'planner',
-    error,
+  return markUnexpectedFailure(
+    validationError(
+      error instanceof Error ? error.message : String(error),
+      'planner',
+      error,
+    ),
   );
 }
 

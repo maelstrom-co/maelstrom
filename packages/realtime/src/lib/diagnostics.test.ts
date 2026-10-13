@@ -1,10 +1,12 @@
-import { afterEach, expect, test } from 'bun:test';
+import { afterEach, expect, spyOn, test } from 'bun:test';
 import { type DiagnosticObservation, Orchestrator } from '@maelstrom-co/client';
 import { type DiagnosticEvent, ToolCallId } from '@maelstrom-co/protocol';
+import { createTelemetry, type TelemetryRecord } from '@maelstrom-co/telemetry';
 import {
   type AdapterDiagnosticObservation,
   type AdapterVoiceObservation,
   attachRealtimeDiagnostics,
+  attachRealtimeTelemetry,
   type RealtimeAdapterEvent,
   type RealtimeInstance,
   type RealtimeProviderAdapter,
@@ -16,6 +18,370 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0)) await cleanup();
 });
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+function telemetryFixture() {
+  const records: TelemetryRecord[] = [];
+  const telemetry = createTelemetry({
+    sink: (batch) => {
+      records.push(...batch);
+    },
+  });
+  cleanups.push(async () => {
+    telemetry.dispose();
+  });
+  return { records, telemetry };
+}
+
+function pendingIntent() {
+  let resolve!: (value: Record<string, never>) => void;
+  const promise = new Promise<Record<string, never>>((yes) => {
+    resolve = yes;
+  });
+  return { promise, resolve };
+}
+
+test('voice telemetry never activates provider diagnostics, transcript snapshots, or content readers', async () => {
+  const h = harness();
+  Object.defineProperty(h.adapter, 'diagnostics', {
+    get() {
+      throw new Error('CANARY_provider_diagnostics');
+    },
+  });
+  Object.defineProperty(h.adapter, 'getTransportSnapshot', {
+    get() {
+      throw new Error('CANARY_transport_detail');
+    },
+  });
+  Object.defineProperty(h.session, 'observations', {
+    get() {
+      throw new Error('CANARY_transcript_snapshot');
+    },
+  });
+  const { records, telemetry } = telemetryFixture();
+  const retire = attachRealtimeTelemetry({
+    session: h.session,
+    telemetry,
+    providerCategory: 'custom',
+  });
+  await h.session.connect();
+  h.emit({
+    type: 'tool_call',
+    callId: ToolCallId('CANARY_call'),
+    name: 'get_ui_state',
+    argumentsJson: '{"CANARY_argument":true}',
+  });
+  await tick();
+  await telemetry.flush();
+  expect(records.map((record) => record.attributes.outcome)).toEqual([
+    'started',
+    'succeeded',
+  ]);
+  expect(JSON.stringify(records)).not.toContain('CANARY');
+  retire.release();
+});
+
+test('duplicate voice attachments share a lifetime and reject incompatible policies without replacing it', async () => {
+  const h = harness();
+  const { records, telemetry } = telemetryFixture();
+  const options = {
+    session: h.session,
+    telemetry,
+    providerCategory: 'custom' as const,
+  };
+  const first = attachRealtimeTelemetry(options);
+  const second = attachRealtimeTelemetry(options);
+  expect(() =>
+    attachRealtimeTelemetry({ ...options, providerCategory: 'livekit' }),
+  ).toThrow(RangeError);
+  expect(() =>
+    attachRealtimeTelemetry({ ...options, maxPendingTools: 1 }),
+  ).toThrow(RangeError);
+  first.release();
+  first.release();
+  await h.session.connect();
+  h.emit({
+    type: 'tool_call',
+    callId: ToolCallId('CANARY_call'),
+    name: 'get_ui_state',
+    argumentsJson: '{}',
+  });
+  await tick();
+  await telemetry.flush();
+  expect(records.map((record) => record.attributes.outcome)).toEqual([
+    'started',
+    'succeeded',
+  ]);
+  second.release();
+  second.release();
+  h.emit({
+    type: 'tool_call',
+    callId: ToolCallId('CANARY_other'),
+    name: 'get_ui_state',
+    argumentsJson: '{}',
+  });
+  await tick();
+  await telemetry.flush();
+  expect(records).toHaveLength(2);
+  expect(telemetry.enabled).toBe(true);
+});
+
+test.each([
+  'same_generation',
+  'reconnect',
+] as const)('accepted voice results preserve their original owner when call IDs repeat: %s', async (mode) => {
+  const first = pendingIntent();
+  const second = pendingIntent();
+  let submitted = 0;
+  const h = harness({
+    submitIntent: () => (++submitted === 1 ? first.promise : second.promise),
+  });
+  const { records, telemetry } = telemetryFixture();
+  let retire = attachRealtimeTelemetry({
+    session: h.session,
+    telemetry,
+    providerCategory: 'openai-live',
+  });
+  await h.session.connect();
+  const call = {
+    type: 'tool_call' as const,
+    callId: ToolCallId('CANARY_reused'),
+    name: 'update_ui',
+    argumentsJson: '{"intent":"CANARY_intent"}',
+  };
+  h.emit(call);
+  await tick();
+  retire.release();
+  if (mode === 'reconnect') {
+    await h.session.disconnect();
+    await h.session.connect();
+  }
+  retire = attachRealtimeTelemetry({
+    session: h.session,
+    telemetry,
+    providerCategory: 'livekit',
+  });
+  h.emit(call);
+  await tick();
+  first.resolve({});
+  await tick();
+  await telemetry.flush();
+  expect(
+    records
+      .filter((record) => record.attributes.outcome === 'succeeded')
+      .map((record) => record.attributes.provider),
+  ).toEqual(['openai-live']);
+  second.resolve({});
+  await tick();
+  await telemetry.flush();
+  expect(
+    records
+      .filter((record) => record.attributes.outcome === 'succeeded')
+      .map((record) => record.attributes.provider),
+  ).toEqual(['openai-live', 'livekit']);
+  expect(
+    records.filter((record) => record.attributes.outcome === 'started'),
+  ).toHaveLength(2);
+  expect(JSON.stringify(records)).not.toMatch(
+    /CANARY|callId|generation|providerInstanceId/,
+  );
+  retire.release();
+});
+
+test('a full pending-observation budget reports loss without evicting an accepted result or blocking work', async () => {
+  const first = pendingIntent();
+  const second = pendingIntent();
+  let submitted = 0;
+  const h = harness({
+    submitIntent: () => (++submitted === 1 ? first.promise : second.promise),
+  });
+  const { records, telemetry } = telemetryFixture();
+  const retire = attachRealtimeTelemetry({
+    session: h.session,
+    telemetry,
+    maxPendingTools: 1,
+  });
+  await h.session.connect();
+  const call = {
+    type: 'tool_call' as const,
+    callId: ToolCallId('CANARY_reused'),
+    name: 'update_ui',
+    argumentsJson: '{"intent":"CANARY_intent"}',
+  };
+  h.emit(call);
+  h.emit(call);
+  await tick();
+  expect(submitted).toBe(2);
+  second.resolve({});
+  await tick();
+  retire.release();
+  first.resolve({});
+  await tick();
+  await telemetry.flush();
+  expect(
+    records
+      .filter((record) => record.attributes.operation === 'voice.tool')
+      .map((record) => record.attributes.outcome),
+  ).toEqual(['started', 'succeeded']);
+  expect(
+    records
+      .filter((record) => record.attributes.operation === 'telemetry.source')
+      .map((record) => record.attributes.outcome),
+  ).toEqual(['discarded']);
+});
+
+test('retirement bounds never-settling tool observation and ignores completion after its drain deadline', async () => {
+  const pending = pendingIntent();
+  const h = harness({ submitIntent: () => pending.promise });
+  const { records, telemetry } = telemetryFixture();
+  const retire = attachRealtimeTelemetry({
+    session: h.session,
+    telemetry,
+    drainTimeoutMs: 10,
+  });
+  await h.session.connect();
+  h.emit({
+    type: 'tool_call',
+    callId: ToolCallId('CANARY_call'),
+    name: 'update_ui',
+    argumentsJson: '{"intent":"CANARY_intent"}',
+  });
+  await tick();
+  retire.release();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  await telemetry.flush();
+  expect(records.map((record) => record.attributes.operation)).toEqual([
+    'voice.tool',
+    'telemetry.source',
+  ]);
+  pending.resolve({});
+  await tick();
+  await telemetry.flush();
+  expect(records).toHaveLength(2);
+});
+
+test('undispatched cancellation reports no invented duration or provider failure', async () => {
+  let submitted = 0;
+  const h = harness({
+    submitIntent: async () => {
+      submitted++;
+      return {};
+    },
+  });
+  const { records, telemetry } = telemetryFixture();
+  h.session.events.subscribe((event) => {
+    if (event.type === 'tool.called') void h.session.disconnect();
+  });
+  const retire = attachRealtimeTelemetry({
+    session: h.session,
+    telemetry,
+  });
+  await h.session.connect();
+  h.emit({
+    type: 'tool_call',
+    callId: ToolCallId('CANARY_call'),
+    name: 'update_ui',
+    argumentsJson: '{"intent":"CANARY_intent"}',
+  });
+  await tick();
+  await telemetry.flush();
+  expect(submitted).toBe(0);
+  expect(records.map((record) => record.attributes.outcome)).toEqual([
+    'started',
+    'cancelled',
+  ]);
+  expect(records[1].measurements).toHaveLength(1);
+  retire.release();
+});
+
+test('an uncertain application result remains unknown instead of becoming a tool failure', async () => {
+  const h = harness({
+    submitIntent: async () => {
+      throw new Error('CANARY_transport');
+    },
+  });
+  const { records, telemetry } = telemetryFixture();
+  const retire = attachRealtimeTelemetry({
+    session: h.session,
+    telemetry,
+  });
+  await h.session.connect();
+  h.emit({
+    type: 'tool_call',
+    callId: ToolCallId('CANARY_call'),
+    name: 'update_ui',
+    argumentsJson: '{"intent":"CANARY_intent"}',
+  });
+  await tick();
+  await telemetry.flush();
+  expect(records.map((record) => record.attributes.outcome)).toEqual([
+    'started',
+    'unknown',
+  ]);
+  expect(JSON.stringify(records)).not.toContain('CANARY');
+  retire.release();
+});
+
+test('disabled voice telemetry adds no subscriptions or provider work', async () => {
+  const h = harness();
+  let subscribed = 0;
+  const original = h.session.events.subscribe;
+  h.session.events.subscribe = (listener) => {
+    subscribed++;
+    return original(listener);
+  };
+  attachRealtimeTelemetry({ session: h.session }).release();
+  attachRealtimeTelemetry({
+    session: h.session,
+    telemetry: createTelemetry(),
+  }).release();
+  expect(() =>
+    attachRealtimeTelemetry({
+      session: h.session,
+      maxPendingTools: 0,
+      drainTimeoutMs: 0,
+    }),
+  ).not.toThrow();
+  expect(() =>
+    attachRealtimeTelemetry({
+      session: h.session,
+      telemetry: createTelemetry(),
+      maxPendingTools: 0,
+      drainTimeoutMs: 0,
+    }),
+  ).not.toThrow();
+  expect(subscribed).toBe(0);
+  expect(h.providerSubscribers()).toBe(0);
+});
+
+test('local operational observation does not activate provider diagnostic or transcript collection', async () => {
+  const h = harness();
+  const releaseMetadata = h.client.diagnostics.subscribeMetadata(() => {});
+  expect(h.providerSubscribers()).toBe(0);
+  const releaseDiagnostics = h.client.diagnostics.subscribe(() => {});
+  expect(h.providerSubscribers()).toBe(1);
+  releaseDiagnostics();
+  expect(h.providerSubscribers()).toBe(0);
+  expect(h.client.diagnostics.observed).toBe(false);
+  expect(h.client.diagnostics.locallyObserved).toBe(true);
+  releaseMetadata();
+});
+
+test('a legacy source scheduler cannot override an explicit diagnostic capability denial', async () => {
+  const h = harness();
+  const retire = attachRealtimeDiagnostics({
+    session: h.session,
+    adapter: h.adapter,
+    identity: h.identity,
+    sink: {
+      observed: true,
+      diagnosticsObserved: false,
+      addSource: (start) => start(),
+      emit() {},
+    },
+  });
+  expect(h.providerSubscribers()).toBe(0);
+  retire();
+});
 
 function harness(override: Partial<RealtimeInstance> = {}) {
   const client = new Orchestrator({
@@ -362,4 +728,220 @@ test('late application outcomes retain call identity without inventing a current
       .generation,
   ).toBe(1);
   detach();
+});
+
+test('voice shutdown waits for accepted tool results before the final flush', async () => {
+  const pending = pendingIntent();
+  const h = harness({ submitIntent: () => pending.promise });
+  const { records, telemetry } = telemetryFixture();
+  const attachment = attachRealtimeTelemetry({
+    session: h.session,
+    telemetry,
+    drainTimeoutMs: 100,
+  });
+  await h.session.connect();
+  h.emit({
+    type: 'tool_call',
+    callId: ToolCallId('drain-call'),
+    name: 'update_ui',
+    argumentsJson: '{"intent":"test"}',
+  });
+  await tick();
+  let drained = false;
+  void attachment.drained.then(() => {
+    drained = true;
+  });
+  attachment.release();
+  await tick();
+  expect(drained).toBe(false);
+  pending.resolve({});
+  await attachment.drained;
+  await telemetry.flush();
+  telemetry.dispose();
+  expect(records.map((record) => record.attributes.outcome)).toEqual([
+    'started',
+    'succeeded',
+  ]);
+});
+
+test('successful voice drain cancels its timer and releases the only telemetry subscription', async () => {
+  const pending = pendingIntent();
+  const h = harness({ submitIntent: () => pending.promise });
+  let active = 0;
+  const subscribe = h.session.events.subscribe;
+  h.session.events.subscribe = (listener) => {
+    active++;
+    const release = subscribe(listener);
+    return () => {
+      active--;
+      release();
+    };
+  };
+  const { records, telemetry } = telemetryFixture();
+  const attachment = attachRealtimeTelemetry({
+    session: h.session,
+    telemetry,
+    drainTimeoutMs: 37,
+  });
+  expect(active).toBe(1);
+  await h.session.connect();
+  h.emit({
+    type: 'tool_call',
+    callId: ToolCallId('drain-success'),
+    name: 'update_ui',
+    argumentsJson: '{"intent":"test"}',
+  });
+  await tick();
+  const set = spyOn(globalThis, 'setTimeout');
+  const clear = spyOn(globalThis, 'clearTimeout');
+  try {
+    attachment.release();
+    const index = set.mock.calls.findIndex((args) => args[1] === 37);
+    expect(index).toBeGreaterThanOrEqual(0);
+    const timer = set.mock.results[index]?.value;
+    pending.resolve({});
+    await attachment.drained;
+    expect(clear.mock.calls.some((args) => args[0] === timer)).toBe(true);
+    expect(active).toBe(0);
+    await telemetry.flush();
+    expect(
+      records.map((record) => [
+        record.attributes.operation,
+        record.attributes.outcome,
+      ]),
+    ).toEqual([
+      ['voice.tool', 'started'],
+      ['voice.tool', 'succeeded'],
+    ]);
+  } finally {
+    pending.resolve({});
+    attachment.release();
+    set.mockRestore();
+    clear.mockRestore();
+  }
+});
+
+test('accepted voice outcomes remain visible as refusals after delivery disposal', async () => {
+  const pending = pendingIntent();
+  const h = harness({ submitIntent: () => pending.promise });
+  const { telemetry } = telemetryFixture();
+  const attachment = attachRealtimeTelemetry({ session: h.session, telemetry });
+  await h.session.connect();
+  h.emit({
+    type: 'tool_call',
+    callId: ToolCallId('disposed-delivery'),
+    name: 'update_ui',
+    argumentsJson: '{"intent":"test"}',
+  });
+  await tick();
+  await telemetry.flush();
+  telemetry.dispose();
+  attachment.release();
+  pending.resolve({});
+  await attachment.drained;
+  expect(telemetry.getSnapshot()).toMatchObject({
+    delivered: 1,
+    dropped: { disposed: 1 },
+  });
+});
+
+test.each([
+  'maxPendingTools',
+  'drainTimeoutMs',
+] as const)('enabled %s limits reject invalid values before subscribing', (field) => {
+  const h = harness();
+  const { telemetry } = telemetryFixture();
+  let subscriptions = 0;
+  const subscribe = h.session.events.subscribe;
+  h.session.events.subscribe = (listener) => {
+    subscriptions++;
+    return subscribe(listener);
+  };
+  for (const value of [
+    0,
+    -1,
+    1.5,
+    NaN,
+    Infinity,
+    field === 'maxPendingTools' ? 65_537 : 60_001,
+  ]) {
+    expect(() =>
+      attachRealtimeTelemetry({
+        session: h.session,
+        telemetry,
+        [field]: value,
+      }),
+    ).toThrow(RangeError);
+  }
+  expect(subscriptions).toBe(0);
+});
+
+test('legacy diagnostic sources stop reads and publication after capability revocation', async () => {
+  const h = harness();
+  let allowed = true;
+  const seen: string[] = [];
+  const release = attachRealtimeDiagnostics({
+    session: h.session,
+    adapter: h.adapter,
+    identity: h.identity,
+    sink: {
+      observed: true,
+      get diagnosticsObserved() {
+        return allowed;
+      },
+      addSource: (start) => start(),
+      emit: (kind) => {
+        seen.push(kind);
+      },
+    },
+  });
+  await h.session.connect();
+  const snapshots = spyOn(h.session.observations, 'getSnapshot');
+  try {
+    seen.length = 0;
+    allowed = false;
+    h.provider({ kind: 'private', providerGeneration: 1, metadata: {} });
+    h.fragment('CANARY_fragment');
+    expect(seen).toEqual([]);
+    expect(snapshots).not.toHaveBeenCalled();
+  } finally {
+    snapshots.mockRestore();
+    release();
+  }
+});
+
+test('voice diagnostic events stay out of client metadata subscriptions', async () => {
+  const h = harness();
+  const metadata: string[] = [];
+  const releaseMetadata = h.client.diagnostics.subscribeMetadata((kind) => {
+    metadata.push(kind);
+  });
+  const diagnostics: string[] = [];
+  const releaseDiagnostics = h.client.diagnostics.subscribe(({ event }) => {
+    diagnostics.push(event.kind);
+  });
+  const { records, telemetry } = telemetryFixture();
+  const attachment = attachRealtimeTelemetry({ session: h.session, telemetry });
+  try {
+    await h.session.connect();
+    h.emit({
+      type: 'tool_call',
+      callId: ToolCallId('diagnostic-only'),
+      name: 'get_ui_state',
+      argumentsJson: '{}',
+    });
+    await tick();
+    await telemetry.flush();
+    expect(diagnostics).toContain('voice.tool.result');
+    expect(metadata.filter((kind) => kind.startsWith('voice.'))).toEqual([]);
+    expect(records.map((r) => r.attributes.outcome)).toEqual([
+      'started',
+      'succeeded',
+    ]);
+  } finally {
+    attachment.release();
+    await attachment.drained;
+    releaseDiagnostics();
+    releaseMetadata();
+  }
 });

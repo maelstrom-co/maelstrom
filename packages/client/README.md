@@ -56,6 +56,32 @@ await orchestrator.processIntent('show me a greeting');
 
 Both calls reject on transport or LLM errors — wrap in try/catch in real apps.
 
+## Operational telemetry
+
+`attachClientTelemetry(orchestrator, telemetry)` observes local request, atomic
+application, and Action outcomes through `@maelstrom-co/telemetry`. Attach before
+connecting. It enables neither remote Engine diagnostics nor content capture.
+The attachment returns `{ release, drained }`. Stop producing work, release every
+attachment, and await its drain before the final application-owned flush and disposal.
+Repeated attachments share one subscription
+until their last release. Omitted or disabled telemetry does not subscribe.
+
+Use `DiagnosticChannel.diagnosticsObserved` and `addDiagnosticSource` for full
+diagnostics. The deprecated `observed` and `addSource` aliases retain those
+semantics. `locallyObserved` includes metadata and full diagnostic consumers;
+`addLocalSource` starts local producer work for either kind of consumer.
+Forwarded Engine and attached voice evidence use `emitDiagnostic` and never
+notify local metadata subscribers.
+
+Cancellation reported by a structured connector remains separate from failure.
+Application duration uses the local command-start and settlement boundaries;
+it does not prove browser paint. Unknown classifications stay unknown.
+`ConnectorError` supplies explicit cancellation, transport, timeout, or
+invalid-response provenance. Error names alone do not establish cancellation. HTTP error status alone leaves the failure category unknown.
+Disposal cancels pending requests; only received responses can count as discarded
+applications.
+See the [telemetry package](../telemetry/README.md) for the sink contract and limits.
+
 ## Docs
 
 - Quick start: https://docs.maelstrom-ai.co/getting-started/quick-start/

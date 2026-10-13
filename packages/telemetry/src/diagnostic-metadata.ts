@@ -1,14 +1,19 @@
+import { operationalKinds } from './operational-kinds.js';
 import type {
+  TelemetryErrorCategory,
   TelemetryFact,
   TelemetryOutcome,
   TelemetryProvider,
 } from './types.js';
 
+import { telemetryErrorCategories } from './vocabulary.js';
+
 const terminalOperations = {
-  'client.action.completed': 'client.action',
-  'engine.planner.completed': 'engine.plan',
-  'engine.stage.completed': 'engine.stage',
-  'voice.tool.result': 'voice.tool',
+  [operationalKinds.clientActionCompleted]: 'client.action',
+  [operationalKinds.engineRequestCompleted]: 'engine.request',
+  [operationalKinds.enginePlannerCompleted]: 'engine.plan',
+  [operationalKinds.engineStageCompleted]: 'engine.stage',
+  [operationalKinds.voiceToolResult]: 'voice.tool',
 } as const;
 
 function duration(
@@ -20,12 +25,18 @@ function duration(
     : undefined;
 }
 
-function terminal(
-  value: unknown,
-): 'succeeded' | 'failed' | 'skipped' | undefined {
-  return value === 'succeeded' || value === 'failed' || value === 'skipped'
+function terminal(value: unknown): TelemetryOutcome | undefined {
+  return value === 'succeeded' ||
+    value === 'failed' ||
+    value === 'skipped' ||
+    value === 'cancelled' ||
+    value === 'unknown'
     ? value
     : undefined;
+}
+
+function errorCategory(value: unknown): TelemetryErrorCategory | undefined {
+  return telemetryErrorCategories.find((category) => category === value);
 }
 
 function applicationOutcome(
@@ -62,77 +73,92 @@ export function projectDiagnosticMetadata(
     let outcome: TelemetryOutcome;
     let timed = false;
     switch (kind) {
-      case 'client.request.started':
+      case operationalKinds.voiceTelemetryDropped:
+        operation = 'telemetry.source';
+        outcome = 'discarded';
+        break;
+      case operationalKinds.clientRequestStarted:
         operation = 'client.request';
         outcome = 'started';
         break;
-      case 'client.response.received':
+      case operationalKinds.clientResponseReceived:
         if (metadata.source !== 'request') return undefined;
         operation = 'client.request';
         outcome = 'succeeded';
         timed = true;
         break;
-      case 'client.request.failed':
+      case operationalKinds.clientRequestFailed:
         operation = 'client.request';
+        outcome = terminal(metadata.outcome) ?? 'failed';
+        timed = true;
+        break;
+      case operationalKinds.clientResponseApplied:
+        operation = 'client.apply';
+        outcome = applicationOutcome(metadata);
+        timed = true;
+        break;
+      case operationalKinds.clientResponseFailed:
+        operation = 'client.apply';
         outcome = 'failed';
         timed = true;
         break;
-      case 'client.response.applied':
-        operation = 'client.apply';
-        outcome = applicationOutcome(metadata);
-        break;
-      case 'client.response.failed':
-        operation = 'client.apply';
-        outcome = 'failed';
-        break;
-      case 'client.response.discarded':
+      case operationalKinds.clientResponseDiscarded:
         operation = 'client.apply';
         outcome = 'discarded';
         break;
-      case 'client.action.completed': {
+      case operationalKinds.clientActionCompleted: {
         const result = terminal(metadata.outcome);
         operation = 'client.action';
         outcome = result ?? 'unknown';
         timed = true;
         break;
       }
-      case 'engine.planner.started':
+      case operationalKinds.engineRequestStarted:
+        operation = 'engine.request';
+        outcome = 'started';
+        break;
+      case operationalKinds.enginePlannerStarted:
         operation = 'engine.plan';
         outcome = 'started';
         break;
-      case 'engine.planner.completed':
-      case 'engine.stage.completed': {
+      case operationalKinds.engineRequestCompleted:
+      case operationalKinds.enginePlannerCompleted:
+      case operationalKinds.engineStageCompleted: {
         const result = terminal(metadata.outcome);
         operation =
-          kind === 'engine.planner.completed' ? 'engine.plan' : 'engine.stage';
+          kind === operationalKinds.engineRequestCompleted
+            ? 'engine.request'
+            : kind === operationalKinds.enginePlannerCompleted
+              ? 'engine.plan'
+              : 'engine.stage';
         outcome = result ?? 'unknown';
         timed = true;
         break;
       }
-      case 'engine.stage.started':
+      case operationalKinds.engineStageStarted:
         operation = 'engine.stage';
         outcome = 'started';
         break;
-      case 'engine.stage.failed':
+      case operationalKinds.engineStageFailed:
         operation = 'engine.stage';
-        outcome = 'failed';
+        outcome = terminal(metadata.outcome) ?? 'failed';
         timed = true;
         break;
-      case 'voice.tool.called':
+      case operationalKinds.voiceToolCalled:
         operation = 'voice.tool';
         outcome = 'started';
         break;
-      case 'voice.tool.result':
+      case operationalKinds.voiceToolResult: {
+        const ok = metadata.ok;
         operation = 'voice.tool';
         outcome =
-          typeof metadata.ok === 'boolean'
-            ? metadata.ok
-              ? 'succeeded'
-              : 'failed'
+          typeof ok === 'boolean'
+            ? (terminal(metadata.outcome) ?? (ok ? 'succeeded' : 'unknown'))
             : 'unknown';
         timed = true;
         break;
-      case 'voice.tool.cancelled':
+      }
+      case operationalKinds.voiceToolCancelled:
         operation = 'voice.tool';
         outcome = 'cancelled';
         break;
@@ -140,12 +166,24 @@ export function projectDiagnosticMetadata(
         return undefined;
     }
     const durationMs = timed ? duration(metadata) : undefined;
-    return {
+    const base = {
       operation,
-      outcome,
       ...(provider === undefined ? {} : { provider }),
       ...(durationMs === undefined ? {} : { durationMs }),
     };
+    if (
+      outcome === 'failed' ||
+      outcome === 'skipped' ||
+      outcome === 'unknown'
+    ) {
+      const category = errorCategory(metadata.errorCategory);
+      return {
+        ...base,
+        outcome,
+        ...(category === undefined ? {} : { errorCategory: category }),
+      };
+    }
+    return { ...base, outcome };
   } catch {
     if (!Object.hasOwn(terminalOperations, kind)) return undefined;
     return {

@@ -20,6 +20,12 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./integration": {
+      "@maelstrom-co/source": "./src/integration.ts",
+      "types": "./dist/integration.d.ts",
+      "import": "./dist/integration.js",
+      "default": "./dist/integration.js"
     }
   },
   "files": [

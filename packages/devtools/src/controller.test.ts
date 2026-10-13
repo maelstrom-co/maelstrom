@@ -631,16 +631,22 @@ test('disposal records a correlated terminal outcome before pending transport wo
     .getSnapshot()
     .activity.find((event) => event.kind === 'client.request.started');
   await client.dispose();
+  expect(
+    groupRequests(panelEvents(tools.getSnapshot().activity))[0]?.status,
+  ).toBe('cancelled');
   finish(response());
   await pending;
   expect(
     tools
       .getSnapshot()
-      .activity.find((event) => event.kind === 'client.response.discarded'),
+      .activity.find((event) => event.kind === 'client.request.failed'),
   ).toMatchObject({
     requestId: request?.requestId,
-    metadata: { reason: 'disposed' },
+    metadata: { reason: 'disposed', outcome: 'cancelled' },
   });
+  expect(
+    groupRequests(panelEvents(tools.getSnapshot().activity))[0]?.status,
+  ).toBe('cancelled');
 });
 
 test('automatic snapshots retain structural registry facts while explicit inspection reads full definitions', () => {

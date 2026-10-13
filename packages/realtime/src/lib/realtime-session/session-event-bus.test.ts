@@ -214,3 +214,31 @@ const unexpectedReports: unknown[] = [];
 function reportingBus(): SessionEventBus {
   return new SessionEventBus((error) => unexpectedReports.push(error));
 }
+it.each([
+  'async',
+  'thenable',
+  'getter',
+  'reporter',
+] as const)('optional rejected %s observers cannot terminate the process or delay healthy facts', (mode) => {
+  const probe = `
+    import { SessionEventBus } from './session-event-bus.ts';
+    const mode = ${JSON.stringify(mode)};
+    const bus = new SessionEventBus(mode === 'reporter' ? async () => { throw new Error('reporter rejected'); } : () => {});
+    if (mode === 'async') bus.subscribe(async () => { throw new Error('observer rejected'); });
+    else if (mode === 'thenable') bus.subscribe(() => ({ then(resolve, reject) { reject(new Error('thenable rejected')); } }));
+    else if (mode === 'getter') bus.subscribe(() => ({ get then() { throw new Error('then getter failed'); } }));
+    else bus.subscribe(() => { throw new Error('observer failed'); });
+    let delivered = 0;
+    bus.subscribe(() => { delivered++; });
+    bus.publish({type:'session.connected', generation:1});
+    if (delivered !== 1) throw new Error('Healthy delivery changed');
+    await new Promise(resolve => setTimeout(resolve, 10));
+    console.log('healthy');
+  `;
+  const child = Bun.spawnSync(
+    [process.execPath, '--no-env-file', '--eval', probe],
+    { cwd: import.meta.dir },
+  );
+  expect(child.exitCode, child.stderr.toString()).toBe(0);
+  expect(child.stdout.toString().trim()).toBe('healthy');
+});

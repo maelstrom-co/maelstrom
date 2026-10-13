@@ -4,10 +4,45 @@ Operational telemetry contracts and bounded delivery for browser and server
 applications. The package has no runtime dependencies. Applications own their
 telemetry SDK, exporter, destination, and retention policy.
 
-The package does not attach to the client, Engine, or voice session. Producers
-submit selected facts through `record`. `projectDiagnosticMetadata` translates
-an explicit allowlist of existing metadata without subscribing to diagnostics.
+Producer packages provide explicit attachment APIs. They use telemetry's shared
+`attachTelemetrySource` helper from `/integration` to share subscriptions and project selected
+metadata into facts. Producers submit those facts through `record`.
 Automatic producer attachment and detailed traces are outside this API.
+
+Producer packages provide explicit attachments:
+
+| Package | Attachment | Scope |
+| --- | --- | --- |
+| `@maelstrom-co/client` | `attachClientTelemetry` | Local request, application, and Action outcomes |
+| `@maelstrom-co/engine` | `attachEngineTelemetry` | Whole requests, planning, and nested stages |
+| `@maelstrom-co/realtime` | `attachRealtimeTelemetry` | Owned voice tool outcomes and source loss |
+
+Attach before work begins. Repeated attachments to the same producer and telemetry
+share a subscription. Release them independently; only the final release retires
+the source. The producer never disposes the application-owned telemetry instance.
+Initially disabled telemetry adds no subscriptions. An enabled attachment remains
+owned by the caller until released, including after exporter failure or disposal.
+Applications that share a telemetry instance also share its capacity and exporter
+failure policy. Use separate instances for independent application lifetimes.
+Attached producers continue reporting refused facts after delivery stops, so local
+disabled and disposed counters remain useful. Startup and cleanup failures emit
+`telemetry.source` / `discarded`. Failed callbacks cannot export further facts;
+failed cleanup can retain an inert listener. Cleanup is not retried.
+
+Every attachment returns `{ release, drained }`. Stop producing work, release every
+shared reference, and await `drained` before the final flush and disposal.
+Client and Engine sources drain when the final reference releases. Voice sources
+also await accepted tool outcomes or report loss at their drain deadline.
+Releasing one reference does not complete the shared drain while another remains.
+A scope that borrows telemetry releases its attachments; the application that
+created telemetry owns the final flush and disposal.
+
+The package root exports application contracts and delivery. The
+`@maelstrom-co/telemetry/integration` subpath exports producer attachment helpers,
+metadata projection, and built-in observation types. Producer integrations must
+preserve source identity across attachments so references share one subscription.
+Built-in observation fields have checked types; application-defined diagnostic
+kinds remain extensible. Runtime projection still validates and allowlists exports.
 
 ## Export records
 
@@ -135,7 +170,8 @@ credentials, queue bounds, retries, and persistence guarantees.
 
 ## Metadata projection
 
-`projectDiagnosticMetadata(kind, metadata, provider?)` accepts only an event kind
+`projectDiagnosticMetadata(kind, metadata, provider?)`, exported from
+`@maelstrom-co/telemetry/integration`, accepts only an event kind
 and metadata. It accepts no diagnostic envelope or content reader. It returns a
 `TelemetryFact` for supported request, application, Action, planning, stage,
 and voice tool observations. Recognized terminal events with missing or invalid

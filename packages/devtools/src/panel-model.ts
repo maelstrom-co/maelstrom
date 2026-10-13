@@ -99,6 +99,7 @@ export type RequestStatus =
   | 'applied'
   | 'applied-with-issues'
   | 'failed'
+  | 'cancelled'
   | 'discarded'
   | 'abandoned';
 export interface RequestTrace {
@@ -190,7 +191,11 @@ export function groupRequests(events: readonly PanelEvent[]): RequestTrace[] {
       ? terminalStatuses[event.kind]
       : undefined;
     if (terminal) {
-      trace.status = terminal;
+      trace.status =
+        event.kind === 'client.request.failed' &&
+        event.metadata.outcome === 'cancelled'
+          ? 'cancelled'
+          : terminal;
       if (terminal === 'applied') {
         trace.failedActions = numeric(event.metadata.actionFailures);
         trace.skippedActions = numeric(event.metadata.skippedActions);
@@ -214,6 +219,7 @@ export const statusLabels: Readonly<Record<RequestStatus, string>> = {
   applied: 'Applied',
   'applied-with-issues': 'Applied with Action issues',
   failed: 'Failed',
+  cancelled: 'Cancelled',
   discarded: 'Discarded',
   abandoned: 'Abandoned',
 };
@@ -240,6 +246,11 @@ const eventLabels: Readonly<Record<string, string>> = {
   'client.diagnostics.unavailable': 'Server diagnostics unavailable',
 };
 export function eventLabel(event: PanelEvent): string {
+  if (
+    event.kind === 'client.request.failed' &&
+    event.metadata.outcome === 'cancelled'
+  )
+    return 'Request cancelled';
   if (event.kind.startsWith('client.command.')) {
     const command = text(event.metadata.command);
     return `${command === 'set_layout' ? 'Layout' : command === 'execute_actions' ? 'Actions' : humanize(command ?? 'Command')} ${event.kind.split('.').at(-1)}`;

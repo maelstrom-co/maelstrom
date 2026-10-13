@@ -14,8 +14,14 @@
 
 export type { ConnectAttempt } from './lib/connect-race-guard.js';
 export { ConnectRaceGuard } from './lib/connect-race-guard.js';
-export type { RealtimeDiagnosticAttachment } from './lib/diagnostics.js';
-export { attachRealtimeDiagnostics } from './lib/diagnostics.js';
+export type {
+  RealtimeDiagnosticAttachment,
+  RealtimeTelemetryAttachment,
+} from './lib/diagnostics.js';
+export {
+  attachRealtimeDiagnostics,
+  attachRealtimeTelemetry,
+} from './lib/diagnostics.js';
 export type {
   GreetingCoordinatorLifecycle,
   GreetingCoordinatorSnapshot,

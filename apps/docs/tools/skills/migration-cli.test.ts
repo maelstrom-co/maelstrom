@@ -58,6 +58,31 @@ test('dependency download caches are not copied into sealed source consumers', a
   }
 });
 
+test('prepared consumers resolve the client operational dependency without installing DevTools', async () => {
+  for (const arm of ['baseline', 'treatment']) {
+    const consumer = join(base, arm);
+    const resolved = Bun.spawnSync(
+      [
+        Bun.which('node') ?? '/usr/bin/node',
+        '-e',
+        "process.stdout.write(require.resolve('@maelstrom-co/telemetry/package.json'))",
+      ],
+      { cwd: consumer, env: { PATH: '/usr/bin:/bin' } },
+    );
+    expect(resolved.exitCode, resolved.stderr.toString()).toBe(0);
+    expect(
+      resolved.stdout
+        .toString()
+        .startsWith(join(consumer, 'node_modules/@maelstrom-co/telemetry/')),
+    ).toBe(true);
+    const metadata = JSON.parse(
+      await readFile(resolved.stdout.toString(), 'utf8'),
+    );
+    expect(metadata.dependencies).toEqual({});
+    expect(await readdir(join(consumer, 'vendor'))).not.toContain('devtools');
+  }
+});
+
 test('prepared guide receipts require the complete instructions rather than one introductory line', async () => {
   const prepared = JSON.parse(
     await readFile(join(base, 'protected/prepared.json'), 'utf8'),

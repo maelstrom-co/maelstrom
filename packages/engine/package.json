@@ -50,6 +50,7 @@
     "registry": "https://npm.pkg.github.com"
   },
   "dependencies": {
+    "@maelstrom-co/telemetry": "0.1.0-alpha.5",
     "@maelstrom-co/protocol": "0.1.0-alpha.5",
     "zod": "catalog:"
   },

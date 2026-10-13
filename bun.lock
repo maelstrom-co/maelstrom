@@ -236,6 +236,7 @@
       "dependencies": {
         "@maelstrom-co/connectors": "0.1.0-alpha.5",
         "@maelstrom-co/protocol": "0.1.0-alpha.5",
+        "@maelstrom-co/telemetry": "0.1.0-alpha.5",
         "@tanstack/store": "catalog:",
       },
       "devDependencies": {
@@ -265,6 +266,7 @@
       "version": "0.1.0-alpha.5",
       "dependencies": {
         "@maelstrom-co/protocol": "0.1.0-alpha.5",
+        "@maelstrom-co/telemetry": "0.1.0-alpha.5",
         "zod": "catalog:",
       },
     },
@@ -369,6 +371,7 @@
       "dependencies": {
         "@maelstrom-co/client": "0.1.0-alpha.5",
         "@maelstrom-co/protocol": "0.1.0-alpha.5",
+        "@maelstrom-co/telemetry": "0.1.0-alpha.5",
       },
       "devDependencies": {
         "@sinonjs/fake-timers": "catalog:",

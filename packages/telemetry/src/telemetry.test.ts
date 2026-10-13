@@ -24,10 +24,8 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
-async function turn() {
-  await Promise.resolve();
-  await Promise.resolve();
-  await Promise.resolve();
+function nextTask(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve));
 }
 
 describe('operational telemetry delivery', () => {
@@ -79,18 +77,20 @@ describe('operational telemetry delivery', () => {
     'dispose',
   ] as const)('exporters can distinguish %s aborts', async (reason) => {
     clock = FakeTimers.install({ toFake: ['setTimeout', 'clearTimeout'] });
+    const started = deferred();
     let signal: AbortSignal | undefined;
     const pending = deferred();
     const telemetry = createTelemetry({
       exportTimeoutMs: 10,
       sink: (_batch, abort) => {
         signal = abort;
+        started.resolve();
         return pending.promise;
       },
     });
     try {
       telemetry.record(fact);
-      await turn();
+      await started.promise;
       if (reason === 'dispose') telemetry.dispose();
       else await clock.tickAsync(10);
       expect(signal?.reason).toMatchObject(
@@ -277,17 +277,19 @@ describe('operational telemetry delivery', () => {
 
   test('capacity includes the active export and rejects new facts without evicting accepted work', async () => {
     const pending = deferred();
+    const started = deferred();
     const batches: (readonly TelemetryRecord[])[] = [];
     const telemetry = createTelemetry({
       capacity: 2,
       batchSize: 1,
       sink: (batch) => {
         batches.push(batch);
+        started.resolve();
         return batches.length === 1 ? pending.promise : undefined;
       },
     });
     telemetry.record(fact);
-    await turn();
+    await started.promise;
     telemetry.record({ ...fact, outcome: 'skipped' });
     telemetry.record({ ...fact, outcome: 'failed' });
     expect(telemetry.getSnapshot()).toMatchObject({
@@ -447,10 +449,13 @@ describe('operational telemetry delivery', () => {
     clock = FakeTimers.install({ toFake: ['setTimeout', 'clearTimeout'] });
     const active = deferred();
     const later = deferred();
+    const started = deferred();
     const telemetry = createTelemetry({
       sink: (batch) => {
-        if (batch.some((record) => record.attributes.outcome === 'succeeded'))
+        if (batch.some((record) => record.attributes.outcome === 'succeeded')) {
+          started.resolve();
           return active.promise;
+        }
         if (batch.some((record) => record.attributes.outcome === 'failed'))
           return later.promise;
         return undefined;
@@ -458,7 +463,7 @@ describe('operational telemetry delivery', () => {
     });
     try {
       telemetry.record(fact);
-      await turn();
+      await started.promise;
       telemetry.record({ ...fact, outcome: 'skipped' });
       const expired = telemetry.flush(5);
       telemetry.record({ ...fact, outcome: 'cancelled' });
@@ -542,7 +547,7 @@ describe('operational telemetry delivery', () => {
     telemetry.dispose();
     telemetry.record(fact);
     expect((await flushed).outcome).toBe('disposed');
-    await turn();
+    await nextTask();
     expect(calls).toBe(0);
     expect(telemetry.getSnapshot()).toMatchObject({
       state: 'disposed',
@@ -556,20 +561,22 @@ describe('operational telemetry delivery', () => {
 
   test('disposal aborts one export and ignores its late rejection without double counting', async () => {
     const pending = deferred();
+    const started = deferred();
     let signal: AbortSignal | undefined;
     const telemetry = createTelemetry({
       batchSize: 1,
       sink: (_batch, input) => {
         signal = input;
+        started.resolve();
         return pending.promise;
       },
     });
     telemetry.record(fact);
     telemetry.record(fact);
-    await turn();
+    await started.promise;
     telemetry.dispose();
     pending.reject(new Error('CANARY_late_error'));
-    await turn();
+    await nextTask();
     expect(signal?.aborted).toBe(true);
     expect(telemetry.getSnapshot()).toMatchObject({
       delivered: 0,
@@ -586,7 +593,7 @@ describe('operational telemetry delivery', () => {
         return 'custom';
       },
     });
-    await turn();
+    await nextTask();
     expect(telemetry.getSnapshot()).toMatchObject({
       state: 'disposed',
       accepted: 0,

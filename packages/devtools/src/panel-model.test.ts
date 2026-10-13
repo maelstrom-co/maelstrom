@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 import { DiagnosticCapture } from './capture.js';
 import {
+  eventLabel,
   groupRequests,
   inspectState,
   panelEvents,
@@ -345,4 +346,16 @@ test('malformed or redacted projections remain readable as unavailable evidence'
       capture: { events: [null, 'unrecognized', { kind: 'fixture' }] },
     }).events,
   ).toHaveLength(1);
+});
+
+test('cancelled request evidence stays distinct from a failed request in the panel', () => {
+  const events = panelEvents([
+    event('client.request.started'),
+    event('client.request.failed', 'app-a', 'request', {
+      outcome: 'cancelled',
+      reason: 'disposed',
+    }),
+  ]);
+  expect(groupRequests(events)[0]?.status).toBe('cancelled');
+  expect(eventLabel(events[1])).toBe('Request cancelled');
 });

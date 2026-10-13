@@ -13,6 +13,7 @@ export type {
   DiagnosticConnection,
   DiagnosticConnectionOptions,
   EngineDiagnosticObserver,
+  EngineMetadataObserver,
 } from './lib/diagnostics.js';
 export { createDiagnosticConnection } from './lib/diagnostics.js';
 export type { Engine } from './lib/engine.js';
@@ -91,6 +92,10 @@ export {
   finalVariants,
   legalActions,
 } from './lib/response/execution-plan/final-variants.js';
+export {
+  attachEngineTelemetry,
+  type EngineTelemetrySource,
+} from './lib/telemetry.js';
 // Update reasons
 export { isResizeOnlyBatch } from './lib/update-reasons.js';
 // Validation

@@ -122,7 +122,13 @@ export async function prepareMigration(output: string) {
   const catalog = rootManifest.catalog;
   const template = join(evidence, 'initial');
   await mkdir(join(template, 'src'), { recursive: true });
-  const packageNames = ['protocol', 'client', 'react', 'connectors'];
+  const packageNames = [
+    'protocol',
+    'client',
+    'react',
+    'connectors',
+    'telemetry',
+  ];
   const dependencies: Record<string, string> = {};
   const sdkVersions: Record<string, string> = {};
   for (const name of packageNames) {
@@ -136,7 +142,8 @@ export async function prepareMigration(output: string) {
       join(source, 'README.md'),
       join(destination, 'README.md'),
     );
-    await materialize(join(source, 'skills'), join(destination, 'skills'));
+    if (manifest.files?.includes('skills'))
+      await materialize(join(source, 'skills'), join(destination, 'skills'));
     delete manifest.devDependencies;
     delete manifest.nx;
     for (const [dep, version] of Object.entries(manifest.dependencies ?? {})) {

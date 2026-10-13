@@ -403,6 +403,26 @@ A response with a partial layout and a partial execution plan is **not** recomme
 
 ---
 
+## Operational telemetry
+
+`attachEngineTelemetry(engine, telemetry)` observes server-local metadata in every
+environment. Import the attachment from `@maelstrom-co/engine` and create the
+application-owned delivery instance with `@maelstrom-co/telemetry`.
+
+Attach before requests. The attachment returns `{ release, drained }`. Stop accepting
+work, release every attachment, and await its drain before the final flush and disposal. This enables
+neither content capture nor Engine-to-browser forwarding. Whole request handling,
+planning, and nested stages have independent local durations. Idempotent followers
+count handled requests while one shared planner run produces one planning outcome.
+Cancellation stays separate from failure; deferred stages count as skipped work.
+Unexpected planner and stage throws count as unknown failures while retaining the
+existing Engine error shape. Genuine validation failures keep their validation
+category. Stage-authored instrument events remain diagnostic evidence; only
+Engine-owned events contribute operational counts.
+
+The application owns SDKs, exporters, flush, and disposal. See the
+[telemetry package](../telemetry/README.md) for the sink contract and limits.
+
 ## Errors
 
 `Engine.handle()` returns a `Result<EngineOutput, EngineError>`. The error union:

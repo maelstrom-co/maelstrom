@@ -49,6 +49,7 @@ import {
   type ToolLaterOutcomeType,
 } from './session-event-bus.js';
 import { sidechannelSubscriber } from './sidechannel-subscriber.js';
+import { type ToolInvocation, tagToolInvocation } from './tool-invocation.js';
 import {
   observationStoreSubscriber,
   VoiceObservationStore,
@@ -285,10 +286,11 @@ export class RealtimeSession implements VoiceSession {
       epoch: number,
       callId: ToolCallId,
       argumentsJson: string,
+      invocation: ToolInvocation,
     ) => Promise<boolean>
   > = {
-    update_ui: (epoch, callId, argumentsJson) =>
-      this.#handleUpdateUI(epoch, callId, argumentsJson),
+    update_ui: (epoch, callId, argumentsJson, invocation) =>
+      this.#handleUpdateUI(epoch, callId, argumentsJson, invocation),
     get_ui_state: (epoch, callId) => this.#handleGetUIState(epoch, callId),
     get_capabilities: (epoch, callId) =>
       this.#handleGetCapabilities(epoch, callId),
@@ -1002,19 +1004,35 @@ export class RealtimeSession implements VoiceSession {
     const generation = this.#generation;
     this.#logger.debug('session: tool_call received', call);
     const startedAt = Date.now();
-    this.#events.publish({
-      type: 'tool.called',
-      generation,
-      callId: call.callId,
-      name: call.name,
-      argumentsJson: call.argumentsJson,
-    });
+    const monotonicStart = performance.now();
+    const invocation: ToolInvocation = {
+      id: Symbol(),
+      result: { outcome: 'unknown' },
+    };
+    this.#events.publish(
+      tagToolInvocation(
+        {
+          type: 'tool.called',
+          generation,
+          callId: call.callId,
+          name: call.name,
+          argumentsJson: call.argumentsJson,
+        },
+        invocation,
+      ),
+    );
     if (epoch !== this.#connectEpoch) {
-      this.#events.publish({
-        type: 'tool.cancelled',
-        generation,
-        callId: call.callId,
-      });
+      invocation.result = { outcome: 'cancelled' };
+      this.#events.publish(
+        tagToolInvocation(
+          {
+            type: 'tool.cancelled',
+            generation,
+            callId: call.callId,
+          },
+          invocation,
+        ),
+      );
       return;
     }
 
@@ -1025,14 +1043,19 @@ export class RealtimeSession implements VoiceSession {
           epoch,
           call.callId,
           call.argumentsJson,
+          invocation,
         );
       } else {
+        invocation.result = { outcome: 'failed', errorCategory: 'validation' };
         await this.#deliverToolResult(epoch, call.callId, {
           ok: false,
           summary: `Unknown tool "${call.name}".`,
         });
       }
     } catch {
+      if (call.name !== 'update_ui') {
+        invocation.result = { outcome: 'failed', errorCategory: 'application' };
+      }
       this.#recordOutcome(
         call.callId,
         'unknown',
@@ -1048,13 +1071,20 @@ export class RealtimeSession implements VoiceSession {
     if (this.#disposed && this.#outcomeIntents.size === 0)
       this.#releaseMemory();
 
-    this.#events.publish({
-      type: 'tool.result',
-      generation,
-      callId: call.callId,
-      ok,
-      latencyMs: Date.now() - startedAt,
-    });
+    if (ok) invocation.result = { outcome: 'succeeded' };
+    invocation.durationMs = performance.now() - monotonicStart;
+    this.#events.publish(
+      tagToolInvocation(
+        {
+          type: 'tool.result',
+          generation,
+          callId: call.callId,
+          ok,
+          latencyMs: Date.now() - startedAt,
+        },
+        invocation,
+      ),
+    );
   }
 
   /** Returns whether the update applied successfully (for the sidechannel result event). */
@@ -1062,6 +1092,7 @@ export class RealtimeSession implements VoiceSession {
     epoch: number,
     callId: ToolCallId,
     argumentsJson: string,
+    invocation: ToolInvocation,
   ): Promise<boolean> {
     this.#logger.debug('update_ui: parsing arguments', argumentsJson);
     let intent: string;
@@ -1078,6 +1109,7 @@ export class RealtimeSession implements VoiceSession {
       intent = value;
     } catch (error) {
       this.#logger.warn('update_ui: bad arguments', error);
+      invocation.result = { outcome: 'failed', errorCategory: 'validation' };
       await this.#sendUpdateUIResult(epoch, callId, {
         ok: false,
         summary: 'Could not understand that request.',
@@ -1088,7 +1120,8 @@ export class RealtimeSession implements VoiceSession {
     this.#logger.debug('update_ui: submitting intent', intent);
     this.#outcomeIntents.set(callId, intent);
     const scope = this.#intentScope;
-    if (scope) return this.#handleQueuedUpdate(epoch, callId, intent, scope);
+    if (scope)
+      return this.#handleQueuedUpdate(epoch, callId, intent, scope, invocation);
 
     this.#events.publish({
       type: 'tool.submitted',
@@ -1097,6 +1130,7 @@ export class RealtimeSession implements VoiceSession {
       retry: false,
     });
     if (epoch !== this.#connectEpoch) {
+      invocation.result = { outcome: 'cancelled' };
       this.#recordOutcome(callId, 'not_submitted');
       return false;
     }
@@ -1114,6 +1148,7 @@ export class RealtimeSession implements VoiceSession {
           'code' in error &&
           (error as { code?: unknown }).code === 'request_in_flight')
       ) {
+        invocation.result = { outcome: 'skipped', errorCategory: 'readiness' };
         await this.#sendUpdateUIResult(
           epoch,
           callId,
@@ -1276,6 +1311,7 @@ export class RealtimeSession implements VoiceSession {
     callId: ToolCallId,
     intent: string,
     scope: IntentScope,
+    invocation: ToolInvocation,
   ): Promise<boolean> {
     const started = Date.now();
     const ticket = scope.enqueueIntent(intent);
@@ -1317,6 +1353,19 @@ export class RealtimeSession implements VoiceSession {
         this.#settledUpdateResult(result.response.userMessage),
       );
       return true;
+    }
+    if (result.status === 'not_submitted') {
+      invocation.result =
+        result.reason === 'disposed' ||
+        result.reason === 'connector_replaced' ||
+        result.reason === 'owner_retired'
+          ? { outcome: 'cancelled' }
+          : { outcome: 'skipped', errorCategory: 'readiness' };
+    } else {
+      invocation.result =
+        result.status === 'failed'
+          ? { outcome: 'failed', errorCategory: 'application' }
+          : { outcome: result.status };
     }
     const summary =
       result.status === 'not_submitted'

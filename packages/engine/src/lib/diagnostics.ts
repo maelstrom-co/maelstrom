@@ -10,8 +10,17 @@ import {
   isErr,
   sanitizeDiagnosticValue,
 } from '@maelstrom-co/protocol';
+import type {
+  ObservationArguments,
+  TelemetryMetadataObserver,
+} from '@maelstrom-co/telemetry/integration';
+import {
+  MetadataObservers,
+  operationalKinds,
+} from '@maelstrom-co/telemetry/integration';
 import type { Engine } from './engine.js';
 import { handleEnvelope } from './envelope-handler.js';
+import { operationalOutcome, thrownOutcome } from './operational-outcome.js';
 import type { Instrument } from './planner/instrument.js';
 
 /** Optional Engine observer. Content remains lazy until explicitly requested. */
@@ -20,8 +29,12 @@ export type EngineDiagnosticObserver = (
   readContent?: () => unknown,
 ) => void;
 
+/** Raw server-local producer scalars for operational projection, without envelopes or content readers. */
+export type EngineMetadataObserver = TelemetryMetadataObserver;
+
 export class EngineDiagnosticEmitter {
   private readonly listeners = new Set<EngineDiagnosticObserver>();
+  private readonly metadataListeners = new MetadataObservers();
   private readonly requests = new Map<
     SessionId,
     Map<MessageId, { active: number; ambiguous: boolean }>
@@ -56,6 +69,19 @@ export class EngineDiagnosticEmitter {
       this.listeners.delete(listener);
     };
   }
+
+  subscribeMetadata(listener: EngineMetadataObserver): () => void {
+    return this.metadataListeners.subscribe(listener);
+  }
+  emit<Kind extends string>(
+    sessionId: SessionId,
+    requestId: MessageId,
+    kind: Kind,
+    ...args: [
+      ...ObservationArguments<NoInfer<Kind>>,
+      readContent?: () => unknown,
+    ]
+  ): void;
   emit(
     sessionId: SessionId,
     requestId: MessageId,
@@ -63,8 +89,14 @@ export class EngineDiagnosticEmitter {
     metadata: DiagnosticMetadata = {},
     readContent?: () => unknown,
   ): void {
-    if (this.requests.get(sessionId)?.get(requestId)?.ambiguous) return;
     this.publish(sessionId, requestId, kind, metadata, readContent);
+  }
+  emitMetadata<Kind extends string>(
+    kind: Kind,
+    ...args: ObservationArguments<NoInfer<Kind>>
+  ): void;
+  emitMetadata(kind: string, metadata: DiagnosticMetadata = {}): void {
+    this.metadataListeners.emit(kind, metadata);
   }
   private publish(
     sessionId: SessionId,
@@ -73,7 +105,22 @@ export class EngineDiagnosticEmitter {
     metadata: DiagnosticMetadata = {},
     readContent?: () => unknown,
   ): void {
-    if (!this.listeners.size) return;
+    this.emitMetadata(kind, metadata);
+    this.publishDiagnostic(sessionId, requestId, kind, metadata, readContent);
+  }
+  private publishDiagnostic(
+    sessionId: SessionId,
+    requestId: MessageId,
+    kind: string,
+    metadata: DiagnosticMetadata,
+    readContent?: () => unknown,
+  ): void {
+    if (
+      !this.listeners.size ||
+      (kind !== 'engine.request.finished' &&
+        this.requests.get(sessionId)?.get(requestId)?.ambiguous)
+    )
+      return;
     const event: DiagnosticEvent = {
       id: crypto.randomUUID(),
       sessionId,
@@ -101,11 +148,17 @@ export class EngineDiagnosticEmitter {
     sessionId: SessionId,
     requestId: MessageId,
   ): Instrument {
-    if (this.listeners.size === 0) return base;
+    if (this.listeners.size === 0 && this.metadataListeners.size === 0)
+      return base;
     return {
       event: (name, attributes) => {
         base.event(name, attributes);
-        this.emit(sessionId, requestId, `engine.${name}`, attributes);
+        this.publishDiagnostic(
+          sessionId,
+          requestId,
+          `engine.${name}`,
+          attributes,
+        );
       },
       stage: (name, stage) => {
         const wrapped = base.stage(name, stage);
@@ -114,7 +167,7 @@ export class EngineDiagnosticEmitter {
           this.emit(
             sessionId,
             requestId,
-            'engine.stage.started',
+            operationalKinds.engineStageStarted,
             { stage: name },
             () => input,
           );
@@ -123,11 +176,11 @@ export class EngineDiagnosticEmitter {
             this.emit(
               sessionId,
               requestId,
-              'engine.stage.completed',
+              operationalKinds.engineStageCompleted,
               {
                 stage: name,
                 durationMs: performance.now() - start,
-                outcome: result.ok ? 'succeeded' : 'failed',
+                ...operationalOutcome(result),
               },
               () => result,
             );
@@ -136,8 +189,12 @@ export class EngineDiagnosticEmitter {
             this.emit(
               sessionId,
               requestId,
-              'engine.stage.failed',
-              { stage: name, durationMs: performance.now() - start },
+              operationalKinds.engineStageFailed,
+              {
+                stage: name,
+                durationMs: performance.now() - start,
+                ...thrownOutcome(ctx.signal),
+              },
               () => ({
                 error: error instanceof Error ? error.message : String(error),
               }),
