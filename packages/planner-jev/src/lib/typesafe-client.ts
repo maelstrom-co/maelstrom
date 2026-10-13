@@ -63,7 +63,7 @@ export function createTypeSafeClient(options: TypeSafeClientOptions): Ask {
     label: 'Jev',
     model: config.model,
     timeoutMs: config.timeoutMs,
-    ...(config.onCall && { onCall: config.onCall }),
+    onCall: config.onCall,
     logReplies: config.logReplies,
     transport: typesafeTransport(config),
   });
@@ -102,22 +102,19 @@ export function validateReply(
  * already are. A reply that is not an object, whose answers are not an
  * object, or whose usage is missing or does not hold non-negative integer
  * token counts is `malformed_json`. Only a reply that passes those checks
- * has its model echo checked, and one that echoes a model other than
- * `model` is `model_echo`. An HTTP
+ * has its model echo checked, and one that echoes a model other than the
+ * requested one is `model_echo`. An HTTP
  * failure reads its error type and code from TypeSafe's error body,
  * `detail.error_type` and `detail.error_code`. TypeSafe never refuses, so
  * `refusals` is always empty.
  */
 export function typesafeTransport({
   apiKey,
-  model,
   endpoint,
   fetch,
 }: {
   /** TypeSafe API key. Server-side only. */
   readonly apiKey: string;
-  /** Pinned Jev model id the reply must echo. */
-  readonly model: string;
   /** Endpoint URL. */
   readonly endpoint: string;
   /** The fetch to send with. */
@@ -139,7 +136,7 @@ export function typesafeTransport({
         errorFields: typesafeErrorFields,
       });
       if (!posted.ok) return posted;
-      const decoded = decodeReply(posted.raw, model);
+      const decoded = decodeReply(posted.raw, request.model);
       if (!isOk(decoded))
         return {
           ok: false,

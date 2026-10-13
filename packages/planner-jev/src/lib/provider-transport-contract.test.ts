@@ -67,7 +67,6 @@ const HARNESSES: TransportHarness[] = [
     build: (fetch, apiKey) =>
       typesafeTransport({
         apiKey,
-        model: TEST_MODEL,
         endpoint: ENDPOINT,
         fetch,
       }),
@@ -319,7 +318,6 @@ describe('TypeSafe error bodies', () => {
   const send = (status: number, body: unknown) =>
     typesafeTransport({
       apiKey: KEY,
-      model: TEST_MODEL,
       endpoint: ENDPOINT,
       fetch: scriptedFetch(() => ({ status, body: JSON.stringify(body) }))
         .fetch,

@@ -216,7 +216,7 @@ export function createProviderCall(options: ProviderCallOptions): Ask {
       );
     };
     const warn = (
-      code: CallOutcome,
+      code: ProviderFailureCode | 'provider_refusal',
       detail: string,
       failure?: TransportFailure,
     ) =>

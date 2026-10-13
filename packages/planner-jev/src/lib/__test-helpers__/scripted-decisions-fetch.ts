@@ -48,11 +48,9 @@ export type DecisionsStep =
       readonly scores?: Readonly<Record<string, number>>;
     };
 
-type AnsweringDecisionsStep = Extract<
-  DecisionsStep,
-  { readonly choices?: unknown; readonly refuse?: unknown }
-> &
-  object;
+type AnsweringDecisionsStep =
+  | Extract<Step, { readonly choices: unknown }>
+  | Extract<DecisionsStep, { readonly refuse: unknown }>;
 
 /** A {@link Script} whose steps may also refuse questions. */
 export type DecisionsScript = (payload: Payload, call: number) => DecisionsStep;

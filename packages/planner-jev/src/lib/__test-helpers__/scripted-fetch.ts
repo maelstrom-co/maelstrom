@@ -74,15 +74,16 @@ export function scriptedFetch(
     const step = script(payload, calls.length - 1);
     const failing = failureResponse(step, init?.signal);
     if (failing) return failing;
+    const answering = step as AnsweringStep;
     return new Response(
       JSON.stringify(
         buildReply(
           payload,
-          (step as AnsweringStep).choices,
-          (step as AnsweringStep).confidence ?? 1,
+          answering.choices,
+          answering.confidence ?? 1,
           model,
-          (step as AnsweringStep).nouls,
-          (step as AnsweringStep).scores,
+          answering.nouls,
+          answering.scores,
         ),
       ),
       { status: 200, headers: { 'content-type': 'application/json' } },
