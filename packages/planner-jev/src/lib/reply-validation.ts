@@ -148,10 +148,15 @@ export function levelAnswer(
  * Validates TypeSafe-shaped wire answers, keyed by question id, against the
  * questions asked: missing ids first (`missing_answer`), then extra ids
  * (`key_mismatch`), then each question in order. A noul answer must carry a
- * probability, a choice answer must pass {@link choiceAnswer} and a score
- * answer must echo its question's levels in order in its legend and pass
- * {@link levelAnswer}. Returns the answers as {@link CallAnswer}s with their
- * probabilities.
+ * probability, and it is read as a `yes` or `no` choice. A choice answer
+ * must pass {@link choiceAnswer}: the choice is one of its question's
+ * options, the probabilities cover exactly those options and sum to one
+ * within 0.02, and the chosen option is the most probable. A score answer
+ * must echo its question's levels in order in its legend and pass
+ * {@link levelAnswer}: the probabilities cover exactly those levels and sum
+ * to one within 0.02, and the score lies between 0 and the top level. It
+ * keeps its score and per-level probabilities. Returns the answers as
+ * {@link CallAnswer}s with their probabilities.
  */
 export function validateWireAnswers(
   answers: unknown,

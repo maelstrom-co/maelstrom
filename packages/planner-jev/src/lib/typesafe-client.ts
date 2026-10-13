@@ -8,13 +8,11 @@ import {
   validateClientOptions,
 } from './provider-call.js';
 import { type ErrorFieldsExtractor, postJson } from './provider-fetch.js';
-import type { Evaluation, Reply, Usage } from './questions.js';
+import type { Usage } from './questions.js';
 import {
   type InvalidReplyReason,
   isCount,
   isRecord,
-  validateWireAnswers,
-  withoutProbabilities,
 } from './reply-validation.js';
 
 export type { Ask, CallAnswer, CallOutcome } from './ask.js';
@@ -48,10 +46,12 @@ export interface TypeSafeClientOptions {
 
 /**
  * An {@link Ask} that sends each evaluation to TypeSafe's System One
- * endpoint and validates the reply strictly (see {@link validateReply}).
- * A question over the option cap defers `option_cap` before any call; a
+ * endpoint and validates the reply strictly: {@link typesafeTransport}
+ * decodes it and checks its usage and model echo, and
+ * {@link createProviderCall} checks every answer against its question. A
+ * question over the option cap defers `option_cap` before any call. A
  * timeout, network failure, non-2xx status or invalid reply defers with the
- * matching `provider_*` code and logs `jev.provider_failure` at warn; a user
+ * matching `provider_*` code and logs `jev.provider_failure` at warn. A user
  * abort returns a `CancellationError`. Every call logs `jev.call` at debug,
  * emits a `jev.call` instrument event and reaches `onCall`.
  *
@@ -70,43 +70,14 @@ export function createTypeSafeClient(options: TypeSafeClientOptions): Ask {
 }
 
 /**
- * Strict reply check: the model is echoed, the answers cover exactly the
- * asked question ids, each choice is one of its question's options, the
- * probabilities cover exactly those options and sum to 1 within 0.02, the
- * chosen option has the highest probability, each noul answer is a
- * probability, each score answer echoes its question's levels in order in
- * its legend with probabilities over exactly those levels summing to 1
- * within 0.02 and a score between 0 and the top level, and usage is
- * integral. A noul answer is read as a `yes` or `no` choice and a score
- * answer keeps its score and per-level probabilities (see `Answer`).
- */
-export function validateReply(
-  raw: unknown,
-  evaluation: Evaluation,
-  model: string,
-): Reply | undefined {
-  const decoded = decodeReply(raw, model);
-  if (!isOk(decoded)) return undefined;
-  const answers = validateWireAnswers(decoded.value.answers, evaluation);
-  if (!isOk(answers)) return undefined;
-  return withoutProbabilities({
-    answers: answers.value,
-    usage: decoded.value.usage,
-  });
-}
-
-/**
  * The transport for TypeSafe's System One endpoint. It sends the model,
  * state and questions as one JSON object in that key order, and decodes
- * the reply into TanStack wire answers, which TypeSafe's wire answers
- * already are. A reply that is not an object, whose answers are not an
- * object, or whose usage is missing or does not hold non-negative integer
- * token counts is `malformed_json`. Only a reply that passes those checks
- * has its model echo checked, and one that echoes a model other than the
- * requested one is `model_echo`. An HTTP
- * failure reads its error type and code from TypeSafe's error body,
- * `detail.error_type` and `detail.error_code`. TypeSafe never refuses, so
- * `refusals` is always empty.
+ * the reply with {@link decodeReply} into TanStack wire answers, which
+ * TypeSafe's wire answers already are. It leaves the answers unchecked, and
+ * {@link createProviderCall} then validates each one strictly against its
+ * question. An HTTP failure reads its error type and code from TypeSafe's
+ * error body, `detail.error_type` and `detail.error_code`. TypeSafe never
+ * refuses, so `refusals` is always empty.
  */
 export function typesafeTransport({
   apiKey,
@@ -151,17 +122,22 @@ export function typesafeTransport({
   };
 }
 
-const typesafeErrorFields: ErrorFieldsExtractor = (body) =>
-  isRecord(body) && isRecord(body.detail)
-    ? { type: body.detail.error_type, code: body.detail.error_code }
-    : {};
-
-function decodeReply(
+/**
+ * Decodes a parsed TypeSafe reply body into its wire answers and usage, or
+ * the reason it is invalid. A body that is not an object, whose answers are
+ * not an object, or whose usage is missing or does not hold non-negative
+ * integer token counts is `malformed_json`. Only a body that passes those
+ * checks has its model echo checked, and one that echoes a model other than
+ * `model` is `model_echo`. The answers themselves are not checked.
+ */
+export function decodeReply(
   raw: unknown,
   model: string,
 ): Result<
   {
+    /** The answers, keyed by question id, still unchecked. */
     readonly answers: Readonly<Record<string, WireAnswer>>;
+    /** Token usage. */
     readonly usage: Usage;
   },
   InvalidReplyReason
@@ -183,3 +159,8 @@ function decodeReply(
     },
   });
 }
+
+const typesafeErrorFields: ErrorFieldsExtractor = (body) =>
+  isRecord(body) && isRecord(body.detail)
+    ? { type: body.detail.error_type, code: body.detail.error_code }
+    : {};
