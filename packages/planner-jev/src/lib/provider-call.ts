@@ -68,10 +68,10 @@ export interface ProviderRequest {
  * safe to log: `network` for a request that never got a response or a body
  * that could not be read, `http` for a non-2xx status with the provider's
  * error type and code when they parse as short identifiers,
- * `invalid_reply` with the check the reply failed. {@link createProviderCall}
- * drops an error type or code that is not a short identifier before it logs
- * the failure, but only the transport knows the key, so the transport keeps
- * it out of both.
+ * `invalid_reply` with the check the reply failed. Before it logs the
+ * failure, {@link createProviderCall} rebuilds it from the fields named here
+ * and drops an error type or code that is not a short identifier, but only
+ * the transport knows the key, so the transport keeps it out of both.
  */
 export type TransportFailure =
   | { readonly kind: 'network' }
@@ -125,7 +125,8 @@ export type TransportResult =
  * and returns them as a {@link TransportFailure} instead. It honours
  * `signal`, which carries both the caller's abort and the timeout. It caps
  * every body read, and it never puts a secret in a failure. Encoding errors
- * may throw, and they reject the call.
+ * may throw. {@link createProviderCall} then reports the call as
+ * `transport_error` and rejects with the thrown error, which it never logs.
  */
 export interface ProviderTransport {
   /** Sends `request` and resolves once the reply is decoded or has failed. */
@@ -163,9 +164,12 @@ export interface ProviderCallOptions {
  * asked is an invalid reply (`key_mismatch`). Every other reply is validated
  * against the asked questions, and an invalid one defers
  * `provider_invalid_reply`. A user abort, which wins over the timeout,
- * returns a `CancellationError`. Every call that does not reject logs
- * `jev.call` at debug, emits a `jev.call` instrument event and reaches
- * `onCall`. A transport that throws rejects the ask with none of these.
+ * returns a `CancellationError`. A transport that throws reports
+ * `transport_error`, logs `jev.provider_failure` at warn with a fixed
+ * `detail` and no `reason` or `failure`, and rejects the ask with the thrown
+ * error. A throw after a user abort returns the `CancellationError` instead.
+ * Every call logs `jev.call` at debug, emits a `jev.call` instrument event
+ * and reaches `onCall`.
  */
 export function createProviderCall(options: ProviderCallOptions): Ask {
   const { label, model, timeoutMs, onCall, logReplies, transport } = options;
@@ -249,7 +253,7 @@ export function createProviderCall(options: ProviderCallOptions): Ask {
       : timeout;
     const failed = (unchecked: TransportFailure) => {
       if (ctx.signal?.aborted) return cancelled();
-      const failure = withIdentifierFields(unchecked);
+      const failure = loggableFailure(unchecked);
       if (timeout.aborted)
         return providerFailure(
           'provider_timeout',
@@ -263,10 +267,23 @@ export function createProviderCall(options: ProviderCallOptions): Ask {
       );
     };
 
-    const result = await transport.send(
-      { model, state: evaluation.state, questions: evaluation.questions },
-      signal,
-    );
+    let result: TransportResult;
+    try {
+      result = await transport.send(
+        { model, state: evaluation.state, questions: evaluation.questions },
+        signal,
+      );
+    } catch (error) {
+      if (ctx.signal?.aborted) return cancelled();
+      report('transport_error');
+      // The thrown error can echo the state or a secret, so only this fixed
+      // text is logged.
+      ctx.logger.warn('jev.provider_failure', {
+        stage,
+        detail: 'transport threw',
+      });
+      throw error;
+    }
     if (logReplies && (result.ok || result.raw !== undefined))
       // Console loggers cut nested objects short. JSON keeps every answer.
       ctx.logger.debug('jev.reply', {
@@ -403,11 +420,16 @@ function failureDetail(failure: TransportFailure): string {
     : `HTTP ${failure.status}`;
 }
 
-function withIdentifierFields(failure: TransportFailure): TransportFailure {
-  if (failure.kind !== 'http') return failure;
-  const { errorType, errorCode, ...rest } = failure;
+// Rebuilt from named fields so nothing else a transport attaches at runtime
+// reaches the log.
+function loggableFailure(failure: TransportFailure): TransportFailure {
+  if (failure.kind === 'network') return { kind: 'network' };
+  if (failure.kind === 'invalid_reply')
+    return { kind: 'invalid_reply', reason: failure.reason };
+  const { status, errorType, errorCode } = failure;
   return {
-    ...rest,
+    kind: 'http',
+    status,
     ...(isErrorIdentifier(errorType) && { errorType }),
     ...(isErrorIdentifier(errorCode) && { errorCode }),
   };

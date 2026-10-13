@@ -464,6 +464,64 @@ describe('createProviderCall transport failures', () => {
     });
   });
 
+  test.each<[string, Record<string, unknown>, TransportFailure]>([
+    [
+      'a network failure',
+      { kind: 'network', message: 'secret' },
+      { kind: 'network' },
+    ],
+    [
+      'an HTTP failure',
+      {
+        kind: 'http',
+        status: 400,
+        errorType: 'invalid_request_error',
+        errorCode: 'unknown_parameter',
+        message: 'secret',
+        apiKey: 'secret',
+      },
+      {
+        kind: 'http',
+        status: 400,
+        errorType: 'invalid_request_error',
+        errorCode: 'unknown_parameter',
+      },
+    ],
+    [
+      'an invalid reply',
+      { kind: 'invalid_reply', reason: 'oversize', message: 'secret' },
+      { kind: 'invalid_reply', reason: 'oversize' },
+    ],
+  ])('%s logs only its known fields', async (_name, extended, logged) => {
+    const { ask, entries, ctx } = setup(() =>
+      failure(extended as unknown as TransportFailure),
+    );
+    await ask('jevActions', evaluation, ctx());
+    const warn = entries.find((entry) => entry.msg === 'jev.provider_failure');
+    expect(warn?.data?.failure).toEqual(logged);
+    expect(Object.keys(warn?.data?.failure ?? {}).sort()).toEqual(
+      Object.keys(logged).sort(),
+    );
+    expect(JSON.stringify(warn?.data)).not.toContain('secret');
+  });
+
+  test('a timeout logs only the known fields of the failure', async () => {
+    const { ask, entries, ctx } = setup(
+      afterAbort(
+        failure({
+          kind: 'network',
+          message: 'secret',
+        } as unknown as TransportFailure),
+      ),
+      { timeoutMs: 20 },
+    );
+    await ask('jevLayout', evaluation, ctx());
+    expect(
+      entries.find((entry) => entry.msg === 'jev.provider_failure')?.data
+        ?.failure,
+    ).toEqual({ kind: 'network' });
+  });
+
   test('answers that fail validation defer provider_invalid_reply with the reason', async () => {
     const { ask, recorded, entries, ctx } = setup(() =>
       replied({ scope: validAnswers.scope }),
@@ -484,15 +542,60 @@ describe('createProviderCall transport failures', () => {
     });
   });
 
-  test('a transport that throws rejects the ask without a deferral', async () => {
-    const { ask, recorded, entries, ctx } = setup(() => {
-      throw new Error('render failed');
+  test('a transport that throws reports transport_error, warns and rethrows without a deferral', async () => {
+    const thrown = new Error('render failed on secret state');
+    const { ask, recorded, events, entries, ctx } = setup(() => {
+      throw thrown;
     });
-    await expect(ask('jevSelect', evaluation, ctx())).rejects.toThrow(
-      'render failed',
-    );
+    await expect(ask('jevSelect', evaluation, ctx())).rejects.toBe(thrown);
     expect(entries.some((entry) => entry.msg === 'jev.defer')).toBe(false);
-    expect(recorded).toHaveLength(0);
+
+    const call = entries.find((entry) => entry.msg === 'jev.call');
+    expect(call?.level).toBe('debug');
+    expect(call?.data).toMatchObject({
+      stage: 'jevSelect',
+      outcome: 'transport_error',
+    });
+    expect(call?.data).not.toHaveProperty('inputTokens');
+    expect(events).toHaveLength(1);
+    expect(events[0]?.attributes).toMatchObject({
+      'maelstrom.stage': 'jevSelect',
+      'maelstrom.outcome': 'transport_error',
+    });
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0]).toMatchObject({
+      stage: 'jevSelect',
+      questionIds: ['scope', 'view/weather-main'],
+      outcome: 'transport_error',
+    });
+    expect(recorded[0]).not.toHaveProperty('usage');
+    expect(recorded[0]).not.toHaveProperty('answers');
+
+    const warn = entries.find((entry) => entry.msg === 'jev.provider_failure');
+    expect(warn?.level).toBe('warn');
+    expect(warn?.data).toEqual({
+      stage: 'jevSelect',
+      detail: 'transport threw',
+    });
+    expect(JSON.stringify(entries)).not.toContain('secret');
+  });
+
+  test('a transport that throws after a user abort returns the CancellationError', async () => {
+    const controller = new AbortController();
+    const { ask, recorded, entries, ctx } = setup(() => {
+      controller.abort('user left');
+      throw new Error('aborted');
+    });
+    const result = await ask('jevSelect', evaluation, ctx(controller.signal));
+    expect(isErr(result) && result.error).toMatchObject({
+      _tag: 'CancellationError',
+      message: 'Jev call cancelled',
+      reason: 'user left',
+    });
+    expect(recorded.map((call) => call.outcome)).toEqual(['cancelled']);
+    expect(entries.some((entry) => entry.msg === 'jev.provider_failure')).toBe(
+      false,
+    );
   });
 });
 
