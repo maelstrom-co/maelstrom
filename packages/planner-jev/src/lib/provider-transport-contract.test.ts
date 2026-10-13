@@ -212,7 +212,25 @@ describe.each(HARNESSES)('$name transport contract', (harness) => {
       ok: false,
       failure: { kind: 'http', status: 400 },
     });
-    expect(counted.bytes()).toBeLessThanOrEqual(8 * 1024);
+    expect(counted.bytes()).toBeLessThanOrEqual(5 * 1024);
+  });
+
+  test('an error body declared over 4 KB gives the status alone without reading it', async () => {
+    const body = JSON.stringify(
+      harness.errorBody({
+        type: 'invalid_request_error',
+        code: 'too_long',
+        message: 'x'.repeat(64 * 1024),
+      }),
+    );
+    const counted = counting(
+      harness.fetchFor({ status: 400, body, declaredLength: true }),
+    );
+    expect(await send(counted.fetch)).toEqual({
+      ok: false,
+      failure: { kind: 'http', status: 400 },
+    });
+    expect(counted.bytes()).toBe(0);
   });
 
   test.each<[string, Step, TransportFailure]>([

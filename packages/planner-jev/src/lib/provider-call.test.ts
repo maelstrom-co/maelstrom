@@ -242,6 +242,23 @@ describe('createProviderCall timeout and cancellation', () => {
     });
     expect(recorded.map((call) => call.outcome)).toEqual(['cancelled']);
   });
+
+  test('an abort after a refusal returns the CancellationError', async () => {
+    const controller = new AbortController();
+    const { ask, recorded, entries, ctx } = setup(() => {
+      controller.abort('user left');
+      return replied(validAnswers, ['scope']);
+    });
+    const result = await ask('jevSelect', evaluation, ctx(controller.signal));
+    expect(isErr(result) && result.error).toMatchObject({
+      _tag: 'CancellationError',
+      message: 'Jev call cancelled',
+    });
+    expect(recorded.map((call) => call.outcome)).toEqual(['cancelled']);
+    expect(entries.some((entry) => entry.msg === 'jev.provider_failure')).toBe(
+      false,
+    );
+  });
 });
 
 describe('createProviderCall reporting', () => {

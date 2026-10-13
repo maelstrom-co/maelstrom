@@ -23,8 +23,9 @@ export interface Payload {
  * questions take their first option), noul probabilities by question id
  * (unlisted nouls answer 0) and score levels by question id (unlisted
  * scores answer level 0), or a failure mode:
- * - `{ status, body? }`: a non-2xx response whose body is `body`, streamed
- *   in 1 KB chunks without a declared length, or `provider error` as text
+ * - `{ status, body?, declaredLength? }`: a non-2xx response whose body is
+ *   `body`, streamed in 1 KB chunks with its length declared only when
+ *   `declaredLength` is set, or `provider error` as text
  * - `{ body }`: a 200 response with exactly `body`
  * - `{ reply }`: a 200 response with `reply` as JSON
  * - `oversized`: a 200 body over 256 KB with its length declared
@@ -43,7 +44,11 @@ export type Step =
       readonly nouls?: Readonly<Record<string, number>>;
       readonly scores?: Readonly<Record<string, number>>;
     }
-  | { readonly status: number; readonly body?: string }
+  | {
+      readonly status: number;
+      readonly body?: string;
+      readonly declaredLength?: boolean;
+    }
   | { readonly body: string }
   | { readonly reply: unknown }
   | 'oversized'
@@ -153,7 +158,16 @@ export function failureResponse(
     return Promise.resolve(
       step.body === undefined
         ? new Response('provider error', { status: step.status })
-        : new Response(chunkedBody(step.body, 1024), { status: step.status }),
+        : new Response(chunkedBody(step.body, 1024), {
+            status: step.status,
+            ...(step.declaredLength && {
+              headers: {
+                'content-length': String(
+                  new TextEncoder().encode(step.body).byteLength,
+                ),
+              },
+            }),
+          }),
     );
   if ('body' in step)
     return Promise.resolve(new Response(step.body, { status: 200 }));

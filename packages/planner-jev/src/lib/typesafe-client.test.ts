@@ -738,18 +738,34 @@ describe('createTypeSafeClient', () => {
       /endpoint/,
     ],
     [
+      'a bad fetch',
+      { apiKey: KEY, model: TEST_MODEL, fetch: 'nope' as never },
+      /fetch/,
+    ],
+    [
       'a bad timeout',
       { apiKey: KEY, model: TEST_MODEL, timeoutMs: 0 },
       /timeoutMs/,
     ],
+    [
+      'a bad onCall',
+      { apiKey: KEY, model: TEST_MODEL, onCall: 'nope' as never },
+      /onCall/,
+    ],
+    [
+      'a bad logReplies',
+      { apiKey: KEY, model: TEST_MODEL, logReplies: 'yes' as never },
+      /logReplies/,
+    ],
   ])('construction rejects %s without echoing the key', (_name, options, pattern) => {
     let caught: unknown;
     try {
-      createTypeSafeClient(options);
+      createTypeSafeClient(options as TypeSafeClientOptions);
     } catch (error) {
       caught = error;
     }
     expect(caught).toBeInstanceOf(Error);
+    expect((caught as Error).message).toMatch(/^Invalid TypeSafe option: /);
     expect((caught as Error).message).toMatch(pattern);
     expect((caught as Error).message).not.toContain(KEY);
   });
@@ -794,6 +810,23 @@ describe('TypeSafe invalid reply reasons', () => {
       'model_echo',
     ],
     [
+      'a reply without usage',
+      { reply: { model: TEST_MODEL, answers: valid().answers } },
+      'malformed_json',
+    ],
+    [
+      'fractional input tokens',
+      {
+        reply: { ...valid(), usage: { input_tokens: 1.5, output_tokens: 2 } },
+      },
+      'malformed_json',
+    ],
+    [
+      'answers that are not an object',
+      { reply: { ...valid(), answers: [] } },
+      'malformed_json',
+    ],
+    [
       'a chosen option without the highest probability',
       {
         reply: withScope({
@@ -831,47 +864,6 @@ describe('TypeSafe invalid reply reasons', () => {
 });
 
 describe('the TypeSafe key never leaks', () => {
-  test.each([
-    ['a missing key', { apiKey: '', model: TEST_MODEL }, /apiKey/],
-    ['an empty model', { apiKey: KEY, model: '' }, /model/],
-    [
-      'a bad endpoint',
-      { apiKey: KEY, model: TEST_MODEL, endpoint: 'nope' },
-      /endpoint/,
-    ],
-    [
-      'a bad fetch',
-      { apiKey: KEY, model: TEST_MODEL, fetch: 'nope' as never },
-      /fetch/,
-    ],
-    [
-      'a bad timeout',
-      { apiKey: KEY, model: TEST_MODEL, timeoutMs: 0 },
-      /timeoutMs/,
-    ],
-    [
-      'a bad onCall',
-      { apiKey: KEY, model: TEST_MODEL, onCall: 'nope' as never },
-      /onCall/,
-    ],
-    [
-      'a bad logReplies',
-      { apiKey: KEY, model: TEST_MODEL, logReplies: 'yes' as never },
-      /logReplies/,
-    ],
-  ])('construction rejects %s without echoing the key', (_name, options, pattern) => {
-    let caught: unknown;
-    try {
-      createTypeSafeClient(options as TypeSafeClientOptions);
-    } catch (error) {
-      caught = error;
-    }
-    expect(caught).toBeInstanceOf(Error);
-    expect((caught as Error).message).toMatch(/^Invalid TypeSafe option: /);
-    expect((caught as Error).message).toMatch(pattern);
-    expect((caught as Error).message).not.toContain(KEY);
-  });
-
   test('a 401 whose body echoes the key reaches no error, log, instrument attribute or call record', async () => {
     const echoing = (async () =>
       new Response(

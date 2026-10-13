@@ -202,6 +202,20 @@ describe('levelAnswer', () => {
       'out_of_range',
     ],
     [
+      'a non-numeric confidence',
+      1,
+      'high',
+      { '0': 0, '1': 1, '2': 0 },
+      'malformed_json',
+    ],
+    [
+      'a non-numeric probability',
+      1,
+      0.5,
+      { '0': 0, '1': '1', '2': 0 },
+      'malformed_json',
+    ],
+    [
       'probabilities missing a level',
       1,
       0.5,
