@@ -181,7 +181,7 @@ export function jevRows(): readonly ReportRow[] {
       }),
     ),
     {
-      label: 'Jev call latency p50 / p95 (ms)',
+      label: 'Stage call latency p50 / p95 (ms)',
       section: 'latency',
       cell: (s) => {
         const { jevCall } = jev(s).latency;
@@ -189,7 +189,7 @@ export function jevRows(): readonly ReportRow[] {
       },
     },
     {
-      label: 'Jev calls / input / output tokens',
+      label: 'Stage calls / input / output tokens',
       section: 'tokens',
       cell: (s) => {
         const { jev: usage } = jev(s).tokens;
@@ -197,7 +197,7 @@ export function jevRows(): readonly ReportRow[] {
       },
     },
     {
-      label: 'Jev calls per turn',
+      label: 'Stage calls per turn',
       section: 'tokens',
       cell: (s) => {
         const { jev: usage } = jev(s).tokens;
@@ -205,7 +205,7 @@ export function jevRows(): readonly ReportRow[] {
       },
     },
     {
-      label: 'Jev tokens per turn (input / output)',
+      label: 'Stage tokens per turn (input / output)',
       section: 'tokens',
       cell: (s) => {
         const { jev: usage } = jev(s).tokens;

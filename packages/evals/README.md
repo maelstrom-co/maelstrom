@@ -110,7 +110,7 @@ bun --conditions=@maelstrom-co/source packages/evals/src/eval-stages/cli.ts --st
 
 ### Comparing providers
 
-The Decisions plugin exists to compare OpenAI Decisions with TypeSafe Jev answering the same stage questions. A stage comparison is two stage eval runs on the same suite, variants and repeats, read side by side:
+The Decisions plugin exists to compare OpenAI Decisions with TypeSafe Jev answering the same stage questions. A stage comparison is two stage-eval runs on the same suite, variants and repeats, read side by side:
 
 ```sh
 bunx nx run @maelstrom-co/evals:eval-stages -- --stage select --variant gated --suite all --repeats 3 --out "$EVAL_OUT/stage-select-jev"
@@ -127,7 +127,7 @@ A full comparison is one run with every arm side by side, plus `paired.md`:
 bunx nx run @maelstrom-co/evals:eval -- --arm baseline --arm jev-poc --arm decisions-poc --arm jev-gated-per-instance-composed-pairs-gate-and-defer-inline --arm decisions-composed-pairs --suite all --repeats 3 --out "$EVAL_OUT/full-comparison"
 ```
 
-The nx targets run in `packages/evals`, so pass an absolute `--out` (`EVAL_OUT` above). Keep the stage evals at `--concurrency 1` (the default; the full-planner eval has no such flag) and run each Jev and Decisions pair back to back, so latency is not inflated and load hits both alike. The completion call and the fallback use `--model` for every arm alike. In the full-planner report the rows labelled "Jev calls", "Jev call latency" and "Jev tokens" are shared by both plugins and count Decisions calls in a Decisions column; the stage eval report labels its call rows with the module's provider (`Decisions calls per turn`). A Decisions refusal of any question defers the stage as `<stage>/provider_refusal`, shown among the fallback reasons.
+The nx targets run in `packages/evals`, so pass an absolute `--out` (`EVAL_OUT` above). Keep the stage evals at `--concurrency 1` (the default; the full-planner eval has no such flag) and run each Jev and Decisions pair back to back, so latency is not inflated and load hits both alike. The completion call and the fallback use `--model` for every arm alike. In the full-planner report the rows labelled "Stage calls", "Stage call latency" and "Stage tokens" are shared by both plugins and count TypeSafe calls in a Jev column and Decisions calls in a Decisions column; the stage-eval report labels its call rows with the module's provider (`Decisions calls per turn`). A Decisions refusal of any question defers the stage as `<stage>/provider_refusal`, shown among the fallback reasons.
 
 ### Reading the report
 
@@ -141,13 +141,13 @@ The nx targets run in `packages/evals`, so pass an absolute `--out` (`EVAL_OUT` 
 - **llmComplete fill rate**: filled `stated_elsewhere` slots over all such slots; a `param_unfilled` deferral counts all of its turn's slots as unfilled.
 - **Gates**: for arms whose select stage asks gates, false positives and negatives over the turns whose live select call answered them, each gate answering yes from the select stage's own threshold: `needsActions` against whether the scenario expects any action, `spatial` against its spatial tag. Without gate answers the spatial row shows how many turns are tagged spatial and how many are non-spatial controls.
 - **Arrangement turns reaching jevLayout**: planned turns with arrangement rules whose layout stage ran or was replayed, rather than an earlier stage deferring.
-- **Jev calls per turn**: TypeSafe calls over all turns of the arm.
-- **Latency**: p50 and p95 of the whole turn, each live stage (replayed stages show `replayed`), each Jev call and each LLM call by role.
-- **Tokens**: Jev usage from its replies, in total and per turn, and OpenAI usage per role (`planner`, `fallback`, `complete`), recorded by wrapping the text adapter.
+- **Stage calls per turn**: provider calls (TypeSafe or Decisions) over all turns of the arm.
+- **Latency**: p50 and p95 of the whole turn, each live stage (replayed stages show `replayed`), each stage call and each LLM call by role.
+- **Tokens**: stage call usage from the provider replies, in total and per turn, and OpenAI usage per role (`planner`, `fallback`, `complete`), recorded by wrapping the text adapter.
 
 ### Grader (secondary)
 
-`src/core/grader.ts` rates each shipped response of a planned scenario with one judge call, a TypeSafe call asking two `score` questions of five descriptive levels each: `request_satisfied` (did everything the user asked happen, and nothing else) and `arrangement_match` (does the layout match the stated arrangement, or with none stated, keep the previous one or use a sensible default). The state it reads is the user's intent, the layout before and after in words (`src/core/verbalize-tree.ts`), the shipped execution plan and the user message. A score is the fractional level normalised to 0 to 1. A dimension whose two most probable levels are within 0.15 of each other is asked twice more on its own and scores the mean of the three samples. Grading runs after the turn's latency is measured, on its own TypeSafe client: its usage is reported in the grader rows and never in an arm's Jev tokens. A failed grade (provider error, deferral, or `grader/exception: <message>` when the judge throws, with the judge calls made before it) is recorded in the turn's `grader` field and counted, and never changes the turn or any rule-based metric.
+`src/core/grader.ts` rates each shipped response of a planned scenario with one judge call, a TypeSafe call asking two `score` questions of five descriptive levels each: `request_satisfied` (did everything the user asked happen, and nothing else) and `arrangement_match` (does the layout match the stated arrangement, or with none stated, keep the previous one or use a sensible default). The state it reads is the user's intent, the layout before and after in words (`src/core/verbalize-tree.ts`), the shipped execution plan and the user message. A score is the fractional level normalised to 0 to 1. A dimension whose two most probable levels are within 0.15 of each other is asked twice more on its own and scores the mean of the three samples. Grading runs after the turn's latency is measured, on its own TypeSafe client: its usage is reported in the grader rows and never in an arm's stage tokens. A failed grade (provider error, deferral, or `grader/exception: <message>` when the judge throws, with the judge calls made before it) is recorded in the turn's `grader` field and counted, and never changes the turn or any rule-based metric.
 
 The rule-based pass stays the primary metric. The grader reads the LLM-written `userMessage` and the plan, so it may prefer fluent messages and plans shaped like Jev's own (self-preference). That is why it is secondary and must be validated before it appears in a report:
 
