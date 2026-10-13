@@ -9,9 +9,10 @@ import { dirname, join, relative, resolve } from 'node:path';
  * `@tanstack/ai` test mock or reach the build externals. The call flow never
  * reads the fetch step, so a transport that does not fetch, such as a bridge
  * to a TanStack evaluate adapter, carries none of it. The fetch step reads
- * the call flow for its seam types only. The two provider clients share code
- * only through these two modules, so neither client's import graph reaches
- * the other.
+ * the call flow for its seam types only. Neither provider client's import
+ * graph, type imports included, reaches the other client, so either can be
+ * replaced or deleted alone. The Decisions client must not reach
+ * `jev-planner.ts` either, because that module builds the TypeSafe client.
  */
 
 const NEUTRAL = [

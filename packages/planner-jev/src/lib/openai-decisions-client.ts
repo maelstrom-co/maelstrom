@@ -63,7 +63,9 @@ export interface DecisionsClientOptions {
  * A refusal of any question defers `provider_refusal` on the first refused
  * question and logs `jev.provider_failure` at warn. A reply that refuses any
  * question is read as a refusal before the completeness and per-answer
- * checks, so its other answers need not be present or valid. A question over
+ * checks, so its other answers need not be present or decode. The reply
+ * must still be well formed, answer only asked questions, each at most once,
+ * and carry integral usage. A question over
  * the option cap defers `option_cap` before any call; a timeout, network
  * failure, non-2xx status or invalid reply defers with the matching
  * `provider_*` code; a user abort returns a `CancellationError`. Every call
@@ -111,11 +113,12 @@ export function createDecisionsClient(options: DecisionsClientOptions): Ask {
  * `malformed_json`. An answer to a question that was not asked, or a second
  * answer to the same question, is `key_mismatch`. Refused questions are
  * listed in `refusals`, and once any question is refused the other answers
- * are kept only where they decode. Otherwise an answer of the wrong kind for
- * its question is `wrong_type`, a choice probability keyed by a non-string
- * value or of an unknown answer type is `malformed_json`, and a repeated
- * probability key or a score probability keyed by anything but a safe
- * integer is `key_mismatch`. The reply need not echo the model. An HTTP
+ * are kept only where they decode. Otherwise an answer of an unknown type is
+ * `malformed_json`, an answer of the wrong kind for its question is
+ * `wrong_type`, probabilities that are not an array of objects, or a choice
+ * probability keyed by a non-string value, are `malformed_json`, and a
+ * repeated probability key or a score probability keyed by anything but a
+ * safe integer is `key_mismatch`. The reply need not echo the model. An HTTP
  * failure reads its error type and code from OpenAI's error body,
  * `error.type` and `error.code`.
  */
