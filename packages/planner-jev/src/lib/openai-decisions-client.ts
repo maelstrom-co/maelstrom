@@ -114,13 +114,15 @@ export function createDecisionsClient(options: DecisionsClientOptions): Ask {
  * `malformed_json`. An answer to a question that was not asked, or a second
  * answer to the same question, is `key_mismatch`. Refused questions are
  * listed in `refusals`, and once any question is refused the other answers
- * are kept only where they decode. Otherwise an answer of an unknown type is
- * `malformed_json`, an answer of the wrong kind for its question is
- * `wrong_type`, probabilities that are not an array of objects, or a choice
- * probability keyed by a non-string value, are `malformed_json`, and a
- * repeated probability key or a score probability keyed by anything but a
- * safe integer is `key_mismatch`. The reply need not echo the model. An HTTP
- * failure reads its error type and code from OpenAI's error body,
+ * are kept only where they decode. Otherwise a reply that leaves an asked
+ * question unanswered is `missing_answer`, and the answers are then checked
+ * in question order, whatever order the reply lists them in: an answer of an
+ * unknown type is `malformed_json`, an answer of the wrong kind for its
+ * question is `wrong_type`, probabilities that are not an array of objects,
+ * or a choice probability keyed by a non-string value, are `malformed_json`,
+ * and a repeated probability key or a score probability keyed by anything
+ * but a safe integer is `key_mismatch`. The reply need not echo the model.
+ * An HTTP failure reads its error type and code from OpenAI's error body,
  * `error.type` and `error.code`.
  */
 export function decisionsTransport({
@@ -246,9 +248,13 @@ function decodeReply(
     byName.set(entry.name, entry);
     if (entry.type === 'refusal') refusals.push(entry.name);
   }
+  const asked = Object.keys(questions);
+  if (refusals.length === 0 && asked.some((name) => !byName.has(name)))
+    return err('missing_answer');
   const answers: Record<string, WireAnswer> = Object.create(null);
-  for (const [name, entry] of byName) {
-    if (entry.type === 'refusal') continue;
+  for (const name of asked) {
+    const entry = byName.get(name);
+    if (entry === undefined || entry.type === 'refusal') continue;
     const answer = wireAnswer(entry, questions[name] as ProviderQuestion);
     if (isOk(answer)) answers[name] = answer.value;
     else if (refusals.length === 0) return answer;

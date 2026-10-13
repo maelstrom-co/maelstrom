@@ -442,6 +442,33 @@ describe('reply validation', () => {
       'missing_answer',
     ],
     [
+      'a missing answer next to an answer of the wrong kind',
+      (r: Raw) =>
+        replace(
+          {
+            ...r,
+            answers: r.answers.filter(
+              (answer) => answer.name !== 'size/weather-main',
+            ),
+          },
+          'scope',
+          { type: 'predicate', probability: 0.5 } as never,
+        ),
+      'missing_answer',
+    ],
+    [
+      'two faulty answers listed against question order, tagged by the first asked',
+      (r: Raw) => {
+        const faulty = replace(
+          replace(r, 'scope', { type: 'predicate', probability: 0.5 } as never),
+          'size/weather-main',
+          { probabilities: 'not an array' } as never,
+        );
+        return { ...faulty, answers: [...faulty.answers].reverse() };
+      },
+      'wrong_type',
+    ],
+    [
       'an extra answer',
       (r: Raw) => ({
         ...r,
