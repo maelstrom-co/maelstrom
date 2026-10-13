@@ -1,23 +1,29 @@
 import type { LLMContextMessage } from '@maelstrom-co/engine';
-import type {
-  ChartDimensions,
-  TilingNode,
-  UpdateReason,
-  Vessel,
+import {
+  type ChartDimensions,
+  ChartDimensionsSchema,
+  type TilingNode,
+  TilingNodeSchema,
+  type UpdateReason,
+  UpdateReasonSchema,
+  type Vessel,
+  VesselSchema,
 } from '@maelstrom-co/protocol';
+import { z } from 'zod';
 
 import { describeLayout } from './stages/layout-describe.js';
 
 /**
  * Renders a value for a Decisions call. The select stage's state (an
  * object with `intent`, `instances` and `vessels` arrays) becomes short
- * plain prose: the user's requests verbatim (or that there is none, and
- * for a bare resize that what is shown stays), one line per instance
- * mutation, the earlier conversation turns, the visible and hidden
+ * plain prose: the reasons for the update in the order they arrived (the
+ * user's requests verbatim, chart resizes and instance mutations), that
+ * there is no request when there is none, that what is shown stays when
+ * every reason is a resize, the earlier conversation turns, the visible and hidden
  * instances by name and id, the layout in words, the chart size, and one
  * line per widget type with its description, views and action names, but
- * no action parameter schemas. Any other value is `JSON.stringify`d
- * unchanged. Pass it as `render` to `createDecisionsClient`.
+ * no action parameter schemas. Any other value, including a state with a
+ * malformed entry, is `JSON.stringify`d unchanged. Pass it as `render` to `createDecisionsClient`.
  *
  * @experimental
  */
@@ -51,37 +57,46 @@ interface SelectState {
   readonly vessels: readonly Vessel[];
 }
 
+const SelectStateSchema = z.object({
+  intent: z.array(UpdateReasonSchema),
+  history: z
+    .array(
+      z.object({ role: z.enum(['user', 'assistant']), content: z.string() }),
+    )
+    .optional(),
+  chartDimensions: ChartDimensionsSchema.optional(),
+  currentLayout: z.array(TilingNodeSchema).optional(),
+  instances: z.array(
+    z.object({
+      instanceId: z.string(),
+      vesselId: z.string(),
+      variant: z.string(),
+      visible: z.boolean(),
+    }),
+  ),
+  vessels: z.array(VesselSchema),
+});
+
 function isSelectState(value: unknown): value is SelectState {
-  if (typeof value !== 'object' || value === null) return false;
-  const record = value as Record<string, unknown>;
-  return (
-    Array.isArray(record.intent) &&
-    Array.isArray(record.instances) &&
-    Array.isArray(record.vessels)
-  );
+  return SelectStateSchema.safeParse(value).success;
 }
 
 function requestLines(reasons: readonly UpdateReason[]): string[] {
-  const requests = reasons.flatMap((reason) =>
-    reason.type === 'user_intent' ? [`"${reason.intent}"`] : [],
-  );
-  const lines =
-    requests.length === 1
-      ? [`The user's latest request: ${requests[0]}`]
-      : requests.length > 1
-        ? [
-            "The user's latest requests, in order:",
-            ...requests.map((request) => `- ${request}`),
-          ]
-        : ['There is no new request from the user.'];
-  for (const reason of reasons) {
-    if (reason.type === 'chart_resize')
-      lines.push(
-        `The chart was resized from ${size(reason.previous)} to ${size(reason.current)}.${requests.length === 0 ? ' Only the size changed: keep showing what is shown now.' : ''}`,
-      );
-    if (reason.type === 'vessel_mutation')
-      lines.push(`${reason.instanceId} changed: ${reason.changes}.`);
-  }
+  const hasRequest = reasons.some((reason) => reason.type === 'user_intent');
+  const lines = hasRequest ? [] : ['There is no new request from the user.'];
+  if (reasons.length === 1)
+    lines.push(...reasons.map((reason) => reasonLine(reason, 'alone')));
+  if (reasons.length > 1)
+    lines.push(
+      'What happened since the last turn, in order:',
+      ...reasons.map((reason) => `- ${reasonLine(reason, 'listed')}`),
+    );
+  if (
+    reasons.length > 0 &&
+    reasons.every((reason) => reason.type === 'chart_resize')
+  )
+    lines[lines.length - 1] +=
+      ' Only the size changed: keep showing what is shown now.';
   return lines;
 }
 
@@ -146,4 +161,20 @@ function widgetTypeLines(vessels: readonly Vessel[]): string[] {
 
 function size(dimensions: ChartDimensions): string {
   return `${dimensions.columns} columns by ${dimensions.rows} rows`;
+}
+
+function reasonLine(
+  reason: UpdateReason,
+  position: 'alone' | 'listed',
+): string {
+  switch (reason.type) {
+    case 'user_intent':
+      return position === 'alone'
+        ? `The user's latest request: "${reason.intent}"`
+        : `The user asked: "${reason.intent}"`;
+    case 'chart_resize':
+      return `The chart was resized from ${size(reason.previous)} to ${size(reason.current)}.`;
+    case 'vessel_mutation':
+      return `${reason.instanceId} changed: ${reason.changes}.`;
+  }
 }

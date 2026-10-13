@@ -113,14 +113,10 @@ describe('renderSelectStateAsProse', () => {
         { role: 'assistant', content: 'Your tasks are on screen.' },
       ],
     });
-    expect(prose).toContain(
-      'The user\'s latest requests, in order:\n- "Add the map."\n- "Then hide the weather."',
-    );
-    expect(prose).toContain(
-      'The chart was resized from 12 columns by 8 rows to 8 columns by 8 rows.',
+    expect(prose).toStartWith(
+      'What happened since the last turn, in order:\n- The user asked: "Add the map."\n- The chart was resized from 12 columns by 8 rows to 8 columns by 8 rows.\n- tasks-main changed: checked "Buy milk".\n- The user asked: "Then hide the weather."\n\n',
     );
     expect(prose).not.toContain('keep showing what is shown now');
-    expect(prose).toContain('tasks-main changed: checked "Buy milk".');
     expect(prose).toContain(
       'Earlier in the conversation:\nUser: Show my tasks.\nAssistant: Your tasks are on screen.',
     );
@@ -140,6 +136,66 @@ describe('renderSelectStateAsProse', () => {
     expect(prose).toStartWith(
       'There is no new request from the user.\nThe chart was resized from 30 columns by 18 rows to 12 columns by 20 rows. Only the size changed: keep showing what is shown now.',
     );
+  });
+
+  test('renders the reasons in the order they arrived', () => {
+    const prose = renderSelectStateAsProse({
+      ...selectState,
+      intent: [
+        {
+          type: 'chart_resize',
+          previous: { columns: 12, rows: 8 },
+          current: { columns: 8, rows: 8 },
+        },
+        { type: 'user_intent', intent: 'Add the map.' },
+        {
+          type: 'vessel_mutation',
+          instanceId: 'tasks-main',
+          changes: 'checked "Buy milk"',
+        },
+      ],
+    });
+    const resize = prose.indexOf('The chart was resized');
+    const request = prose.indexOf('"Add the map."');
+    const mutation = prose.indexOf('tasks-main changed');
+    expect(resize).toBeGreaterThanOrEqual(0);
+    expect(request).toBeGreaterThan(resize);
+    expect(mutation).toBeGreaterThan(request);
+  });
+
+  test('says only the size changed only when every reason is a resize', () => {
+    const resize = {
+      type: 'chart_resize',
+      previous: { columns: 12, rows: 8 },
+      current: { columns: 8, rows: 8 },
+    };
+    const mutation = {
+      type: 'vessel_mutation',
+      instanceId: 'tasks-main',
+      changes: 'checked "Buy milk"',
+    };
+    const render = (intent: readonly object[]) =>
+      renderSelectStateAsProse({ ...selectState, intent });
+    expect(render([mutation])).not.toContain('Only the size changed');
+    expect(render([resize, mutation])).not.toContain('Only the size changed');
+    expect(render([resize, resize])).toContain(
+      'Only the size changed: keep showing what is shown now.',
+    );
+  });
+
+  test('falls back to JSON when an entry of the state is malformed', () => {
+    const malformed = [
+      { ...selectState, intent: [null] },
+      { ...selectState, intent: [{ type: 'user_intent' }] },
+      { ...selectState, intent: [{ type: 'chart_resize', previous: {} }] },
+      { ...selectState, intent: [{ type: 'vessel_mutation', changes: 1 }] },
+      { ...selectState, instances: [{ instanceId: 'map-main' }] },
+      { ...selectState, vessels: [{ id: 'map' }] },
+      { ...selectState, history: [null] },
+      { ...selectState, chartDimensions: { columns: 'wide' } },
+    ];
+    for (const state of malformed)
+      expect(renderSelectStateAsProse(state)).toBe(JSON.stringify(state));
   });
 
   test('names an instance of an unknown widget type by its type id', () => {
