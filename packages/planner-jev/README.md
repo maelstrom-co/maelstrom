@@ -57,6 +57,8 @@ Decisions can refuse a question. A refusal of any question makes the call defer 
 
 The client emits the same `jev.call`, `jev.provider_failure` and (with `logReplies`) `jev.reply` logs, and the same `jev.call` instrument event, as the TypeSafe client.
 
+Both clients share one call flow (`createProviderCall` in `src/lib/provider-call.ts`) and differ only in how they encode the request and decode the reply. [ADR 0004](../../docs/adr/0004-planner-providers-share-one-call-flow.md) records when a TanStack AI evaluate adapter could replace either.
+
 ## Stage library
 
 The stage library composes named planners from interchangeable stages with `pipeline(...)`, each wrapped in the same fallback. Every stage keeps the POC's stage names (`jevSelect`, `jevActions`, `jevLayout`, `llmComplete`), so deferral reasons, the report and replay treat them alike. The eval runs every planner as an arm.
