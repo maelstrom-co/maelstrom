@@ -874,10 +874,10 @@ describe('the TypeSafe key never leaks', () => {
     const echoing = (async () =>
       new Response(
         JSON.stringify({
-          error: {
-            message: `Incorrect API key provided: ${KEY}`,
-            type: KEY,
-            code: KEY,
+          detail: {
+            error_type: 'authentication_error',
+            error_code: KEY,
+            message: `Invalid API key: ${KEY}`,
           },
         }),
         { status: 401 },
@@ -914,6 +914,6 @@ describe('the TypeSafe key never leaks', () => {
     expect(
       entries.find((entry) => entry.msg === 'jev.provider_failure')?.data
         ?.failure,
-    ).toEqual({ kind: 'http', status: 401 });
+    ).toEqual({ kind: 'http', status: 401, errorType: 'authentication_error' });
   });
 });

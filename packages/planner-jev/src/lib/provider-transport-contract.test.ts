@@ -43,12 +43,20 @@ interface TransportHarness {
     apiKey: string,
   ) => ProviderTransport;
   readonly fetchFor: (step: Step) => typeof globalThis.fetch;
+  /** An error body in this provider's own shape, holding the given fields. */
+  readonly errorBody: (fields: ErrorBodyFields) => unknown;
   readonly refusingFetch?: (
     refuse: readonly string[],
   ) => typeof globalThis.fetch;
   readonly request: ProviderRequest;
   readonly requestBody: string;
   readonly usage: Usage;
+}
+
+interface ErrorBodyFields {
+  readonly message?: string;
+  readonly type?: string;
+  readonly code?: string;
 }
 
 const HARNESSES: TransportHarness[] = [
@@ -63,6 +71,7 @@ const HARNESSES: TransportHarness[] = [
         fetch,
       }),
     fetchFor: (step) => scriptedFetch(() => step).fetch,
+    errorBody: typesafeErrorBody,
     request,
     requestBody:
       '{"model":"jev-test","state":{"intent":"hide the weather"},"questions":{"scope":{"type":"choice","instructions":"Is it supported?","criteria":{"supported":"yes","unsupported":"no"}},"needsActions":{"type":"noul","instructions":"Does it need actions?"},"satisfied":{"type":"score","instructions":"Did the response do what was asked?","criteria":["Nothing happened","Some of it happened","All of it"]}}}',
@@ -172,13 +181,13 @@ describe.each(HARNESSES)('$name transport contract', (harness) => {
   });
 
   test('a JSON error body gives its type and code', async () => {
-    const body = JSON.stringify({
-      error: {
+    const body = JSON.stringify(
+      harness.errorBody({
         message: 'Unrecognized request argument supplied: extra',
         type: 'invalid_request_error',
         code: 'unknown_parameter',
-      },
-    });
+      }),
+    );
     expect(await send(harness.fetchFor({ status: 400, body }))).toEqual({
       ok: false,
       failure: {
@@ -191,13 +200,13 @@ describe.each(HARNESSES)('$name transport contract', (harness) => {
   });
 
   test('a JSON error body over 4 KB gives the status alone and stops reading at 4 KB', async () => {
-    const body = JSON.stringify({
-      error: {
+    const body = JSON.stringify(
+      harness.errorBody({
         type: 'invalid_request_error',
         code: 'too_long',
         message: 'x'.repeat(64 * 1024),
-      },
-    });
+      }),
+    );
     const counted = counting(harness.fetchFor({ status: 400, body }));
     expect(await send(counted.fetch)).toEqual({
       ok: false,
@@ -250,13 +259,13 @@ describe.each(HARNESSES)('$name transport contract', (harness) => {
     const everywhere = await send(
       harness.fetchFor({
         status: 401,
-        body: JSON.stringify({
-          error: {
+        body: JSON.stringify(
+          harness.errorBody({
             message: `Incorrect API key provided: ${KEY}`,
             type: KEY,
             code: KEY,
-          },
-        }),
+          }),
+        ),
       }),
     );
     expect(everywhere).toEqual({
@@ -268,13 +277,13 @@ describe.each(HARNESSES)('$name transport contract', (harness) => {
     const benignCode: TransportResult = await send(
       harness.fetchFor({
         status: 401,
-        body: JSON.stringify({
-          error: {
+        body: JSON.stringify(
+          harness.errorBody({
             message: `Incorrect API key provided: ${KEY}`,
             type: KEY,
             code: 'invalid_api_key',
-          },
-        }),
+          }),
+        ),
       }),
     );
     expect(benignCode).toEqual({
@@ -284,6 +293,65 @@ describe.each(HARNESSES)('$name transport contract', (harness) => {
     expect(JSON.stringify(benignCode)).not.toContain(KEY);
   });
 });
+
+describe('TypeSafe error bodies', () => {
+  const send = (status: number, body: unknown) =>
+    typesafeTransport({
+      apiKey: KEY,
+      model: TEST_MODEL,
+      endpoint: ENDPOINT,
+      fetch: scriptedFetch(() => ({ status, body: JSON.stringify(body) }))
+        .fetch,
+    }).send(request, new AbortController().signal);
+
+  test('a 401 in the live TypeSafe shape gives its error type', async () => {
+    expect(
+      await send(401, {
+        detail: {
+          error_type: 'authentication_error',
+          message: 'Invalid API key',
+        },
+      }),
+    ).toEqual({
+      ok: false,
+      failure: { kind: 'http', status: 401, errorType: 'authentication_error' },
+    });
+  });
+
+  test('a key in the error type and message is dropped', async () => {
+    const result = await send(401, {
+      detail: {
+        error_type: KEY,
+        message: `Invalid API key: ${KEY}`,
+      },
+    });
+    expect(result).toEqual({
+      ok: false,
+      failure: { kind: 'http', status: 401 },
+    });
+    expect(JSON.stringify(result)).not.toContain(KEY);
+  });
+
+  test.each<[string, unknown]>([
+    [
+      'the OpenAI shape',
+      { error: { type: 'invalid_request_error', code: 'unknown_parameter' } },
+    ],
+    [
+      'top-level fields',
+      { type: 'invalid_request_error', code: 'unknown_parameter' },
+    ],
+  ])('an error body in %s gives the status alone', async (_name, body) => {
+    expect(await send(400, body)).toEqual({
+      ok: false,
+      failure: { kind: 'http', status: 400 },
+    });
+  });
+});
+
+function typesafeErrorBody({ message, type, code }: ErrorBodyFields) {
+  return { detail: { error_type: type, error_code: code, message } };
+}
 
 function recording(inner: typeof fetch) {
   const bodies: string[] = [];

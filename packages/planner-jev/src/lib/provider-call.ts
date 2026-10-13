@@ -18,13 +18,10 @@ import { deferAt } from './defer.js';
 import { overOptionCap, type QuestionText, type Usage } from './questions.js';
 import {
   type InvalidReplyReason,
-  isRecord,
   validateWireAnswers,
   withoutProbabilities,
 } from './reply-validation.js';
 
-const MAX_RESPONSE_BYTES = 256 * 1024;
-const MAX_ERROR_BODY_BYTES = 4 * 1024;
 const DEFAULT_TIMEOUT_MS = 5000;
 
 /**
@@ -293,122 +290,6 @@ export function createProviderCall(options: ProviderCallOptions): Ask {
   };
 }
 
-/** What {@link postJson} returns: the parsed body, or why there is none. */
-export type RawReplyResult =
-  | { readonly ok: true; readonly raw: unknown }
-  | { readonly ok: false; readonly failure: TransportFailure };
-
-/**
- * The fetch step every fetch transport shares. POSTs `body` as JSON with
- * the key as a bearer token. A rejected fetch is a `network` failure. A
- * non-2xx response is an `http` failure whose error type and code are read
- * from at most 4 KB of its body, as JSON fields only and never as raw text,
- * and kept only when each is a short identifier that does not contain
- * `apiKey`. A 2xx body over 256 KB is `oversize` and one that is not JSON is
- * `malformed_json`. Never throws, and every read stops once `signal`
- * aborts.
- */
-export async function postJson({
-  fetch,
-  endpoint,
-  apiKey,
-  body,
-  signal,
-}: {
-  readonly fetch: typeof globalThis.fetch;
-  readonly endpoint: string;
-  readonly apiKey: string;
-  readonly body: string;
-  readonly signal: AbortSignal;
-}): Promise<RawReplyResult> {
-  let response: Response;
-  try {
-    response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body,
-      signal,
-    });
-  } catch {
-    return { ok: false, failure: { kind: 'network' } };
-  }
-  if (!response.ok) {
-    let text: string | undefined;
-    try {
-      text = await readBody(response, signal, MAX_ERROR_BODY_BYTES);
-    } catch {
-      text = undefined;
-    }
-    return {
-      ok: false,
-      failure: {
-        kind: 'http',
-        status: response.status,
-        ...providerErrorFields(text, apiKey),
-      },
-    };
-  }
-  let text: string | undefined;
-  try {
-    text = await readBody(response, signal);
-  } catch {
-    return invalidReply('malformed_json');
-  }
-  if (text === undefined) return invalidReply('oversize');
-  try {
-    return { ok: true, raw: JSON.parse(text) };
-  } catch {
-    return invalidReply('malformed_json');
-  }
-}
-
-/**
- * The response body as text, or `undefined` once it exceeds `maxBytes`
- * (256 KB by default) by its declared length or while streaming. A pending
- * read stops as soon as `signal` aborts.
- *
- * @throws {Error} If the body is missing, `signal` aborts or the stream fails.
- */
-export async function readBody(
-  response: Response,
-  signal: AbortSignal,
-  maxBytes: number = MAX_RESPONSE_BYTES,
-): Promise<string | undefined> {
-  const length = response.headers.get('content-length');
-  if (length !== null && Number(length) > maxBytes) {
-    void response.body?.cancel().catch(() => undefined);
-    return undefined;
-  }
-  if (!response.body) throw new Error('response body missing');
-  const reader = response.body.getReader();
-  let onAbort: (() => void) | undefined;
-  const aborted = new Promise<never>((_resolve, reject) => {
-    onAbort = () => reject(new Error('request aborted'));
-    signal.addEventListener('abort', onAbort, { once: true });
-  });
-  aborted.catch(() => undefined);
-  const decoder = new TextDecoder();
-  let bytes = 0;
-  let text = '';
-  try {
-    for (;;) {
-      if (signal.aborted) throw new Error('request aborted');
-      const next = await Promise.race([reader.read(), aborted]);
-      if (next.done) break;
-      bytes += next.value.byteLength;
-      if (bytes > maxBytes) return undefined;
-      text += decoder.decode(next.value, { stream: true });
-    }
-    return text + decoder.decode();
-  } finally {
-    if (onAbort) signal.removeEventListener('abort', onAbort);
-    void reader.cancel().catch(() => undefined);
-  }
-}
-
 /** The settings both fetch-based provider clients take, with the model already resolved. */
 export interface ProviderClientOptions {
   /** Provider API key. Server-side only, never logged or echoed in errors. */
@@ -499,8 +380,6 @@ const FAILURE_CODES = {
   invalid_reply: 'provider_invalid_reply',
 } as const satisfies Record<TransportFailure['kind'], ProviderFailureCode>;
 
-const SAFE_ERROR_FIELD = /^[A-Za-z0-9_.:-]{1,64}$/;
-
 function failureDetail(failure: TransportFailure): string {
   if (failure.kind === 'network') return 'request failed';
   if (failure.kind === 'invalid_reply')
@@ -511,37 +390,4 @@ function failureDetail(failure: TransportFailure): string {
   return fields.length > 0
     ? `HTTP ${failure.status} (${fields.join(', ')})`
     : `HTTP ${failure.status}`;
-}
-
-function invalidReply(reason: InvalidReplyReason): RawReplyResult {
-  return { ok: false, failure: { kind: 'invalid_reply', reason } };
-}
-
-function providerErrorFields(
-  text: string | undefined,
-  secret: string,
-): { errorType?: string; errorCode?: string } {
-  if (text === undefined) return {};
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    return {};
-  }
-  if (!isRecord(parsed)) return {};
-  const source = isRecord(parsed.error) ? parsed.error : parsed;
-  const errorType = safeErrorField(source.type, secret);
-  const errorCode = safeErrorField(source.code, secret);
-  return {
-    ...(errorType !== undefined && { errorType }),
-    ...(errorCode !== undefined && { errorCode }),
-  };
-}
-
-function safeErrorField(value: unknown, secret: string): string | undefined {
-  return typeof value === 'string' &&
-    SAFE_ERROR_FIELD.test(value) &&
-    !value.includes(secret)
-    ? value
-    : undefined;
 }

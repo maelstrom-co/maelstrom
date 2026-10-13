@@ -9,7 +9,7 @@ import type {
   ProviderFailureCode,
 } from './ask.js';
 import { deferAt } from './defer.js';
-import { readBody } from './provider-call.js';
+import { readBody } from './provider-fetch.js';
 import {
   type Evaluation,
   overOptionCap,

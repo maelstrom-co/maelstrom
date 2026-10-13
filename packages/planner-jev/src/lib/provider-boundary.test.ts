@@ -3,15 +3,16 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 /**
- * The shared provider call flow stays provider-neutral: it reads only the
- * neutral planner modules, and TanStack AI only for types, so a value import
- * cannot break under the process-wide `@tanstack/ai` test mock or reach the
- * build externals.
+ * The shared provider call flow and the shared fetch step stay
+ * provider-neutral: each reads only the neutral planner modules, and TanStack
+ * AI only for types, so a value import cannot break under the process-wide
+ * `@tanstack/ai` test mock or reach the build externals. The call flow never
+ * reads the fetch step, so a transport that does not fetch, such as a bridge
+ * to a TanStack evaluate adapter, carries none of it. The fetch step reads
+ * the call flow for its seam types only.
  */
 
-const PROVIDER_CALL = join(import.meta.dir, 'provider-call.ts');
-
-const ALLOWED = [
+const NEUTRAL = [
   './ask.js',
   './defer.js',
   './questions.js',
@@ -22,15 +23,32 @@ const ALLOWED = [
   '@tanstack/ai/adapters',
 ];
 
-const TYPE_ONLY = ['@tanstack/ai', '@tanstack/ai/adapters'];
+const TANSTACK_AI = ['@tanstack/ai', '@tanstack/ai/adapters'];
+
+const SHARED_MODULES = [
+  {
+    file: 'provider-call.ts',
+    allowed: NEUTRAL,
+    typeOnly: TANSTACK_AI,
+  },
+  {
+    file: 'provider-fetch.ts',
+    allowed: [...NEUTRAL, './provider-call.js'],
+    typeOnly: [...TANSTACK_AI, './provider-call.js'],
+  },
+];
 
 const IMPORT_STATEMENT =
   /^\s*(import|export)\s+(type\s+)?(?:[^'";]*?\bfrom\s*)?['"]([^'"]+)['"]/gm;
 
 const DYNAMIC_IMPORT = /\bimport\s*\(\s*['"]([^'"]+)['"]/g;
 
-describe('provider call boundary', () => {
-  const source = readFileSync(PROVIDER_CALL, 'utf8');
+describe.each(SHARED_MODULES)('$file boundary', ({
+  file,
+  allowed,
+  typeOnly,
+}) => {
+  const source = readFileSync(join(import.meta.dir, file), 'utf8');
   const statements = [...source.matchAll(IMPORT_STATEMENT)].map(
     ([, , typeKeyword, specifier]) => ({
       specifier: specifier as string,
@@ -46,17 +64,20 @@ describe('provider call boundary', () => {
     const outside = [
       ...statements.map(({ specifier }) => specifier),
       ...[...source.matchAll(DYNAMIC_IMPORT)].map(([, specifier]) => specifier),
-    ].filter((specifier) => !ALLOWED.includes(specifier as string));
+    ].filter((specifier) => !allowed.includes(specifier as string));
     expect(outside).toEqual([]);
   });
 
-  test('TanStack AI is imported for types only', () => {
+  test('TanStack AI, and the call flow from the fetch step, are imported for types only', () => {
     const valueImports = statements.filter(
-      ({ specifier, typeOnly }) => TYPE_ONLY.includes(specifier) && !typeOnly,
+      ({ specifier, typeOnly: isType }) =>
+        typeOnly.includes(specifier) && !isType,
     );
     expect(valueImports).toEqual([]);
   });
+});
 
+describe('import reader', () => {
   test('reads type and value imports, multi-line ones included', () => {
     const sample = `import type {\n  A,\n} from '@tanstack/ai';\nimport { b } from './ask.js';\nexport { c } from "./defer.js";\nimport './questions.js';`;
     expect(

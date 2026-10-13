@@ -5,9 +5,9 @@ import type { Ask, AskCall } from './ask.js';
 import {
   createProviderCall,
   type ProviderTransport,
-  postJson,
   validateClientOptions,
 } from './provider-call.js';
+import { type ErrorFieldsExtractor, postJson } from './provider-fetch.js';
 import type { Evaluation, Reply, Usage } from './questions.js';
 import {
   type InvalidReplyReason,
@@ -101,8 +101,10 @@ export function validateReply(
  * the reply into TanStack wire answers, which TypeSafe's wire answers
  * already are. A reply that is not an object, whose answers are not an
  * object or whose usage counts are not integral is `malformed_json`, and a
- * reply that echoes a model other than `model` is `model_echo`. TypeSafe
- * never refuses, so `refusals` is always empty.
+ * reply that echoes a model other than `model` is `model_echo`. An HTTP
+ * failure reads its error type and code from TypeSafe's error body,
+ * `detail.error_type` and `detail.error_code`. TypeSafe never refuses, so
+ * `refusals` is always empty.
  */
 export function typesafeTransport({
   apiKey,
@@ -126,7 +128,14 @@ export function typesafeTransport({
         state: request.state,
         questions: request.questions,
       });
-      const posted = await postJson({ fetch, endpoint, apiKey, body, signal });
+      const posted = await postJson({
+        fetch,
+        endpoint,
+        apiKey,
+        body,
+        signal,
+        errorFields: typesafeErrorFields,
+      });
       if (!posted.ok) return posted;
       const decoded = decodeReply(posted.raw, model);
       if (!isOk(decoded))
@@ -142,6 +151,11 @@ export function typesafeTransport({
     },
   };
 }
+
+const typesafeErrorFields: ErrorFieldsExtractor = (body) =>
+  isRecord(body) && isRecord(body.detail)
+    ? { type: body.detail.error_type, code: body.detail.error_code }
+    : {};
 
 function decodeReply(
   raw: unknown,
