@@ -48,32 +48,9 @@ export function sameKeys(
   );
 }
 
-/** Whether `value` is a finite number in [0, 1]. */
-export function isProbability(value: unknown): value is number {
-  return (
-    typeof value === 'number' &&
-    Number.isFinite(value) &&
-    value >= 0 &&
-    value <= 1
-  );
-}
-
 /** Whether `value` is a non-negative safe integer, such as a token count. */
 export function isCount(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
-}
-
-/**
- * A noul answer from the probability of yes: `yes` from one half up, with
- * its distance from one half scaled to [0, 1] as the confidence.
- */
-export function noulAnswer(probability: number): CallAnswer {
-  return {
-    choice: probability >= 0.5 ? 'yes' : 'no',
-    confidence: Math.abs(2 * probability - 1),
-    probability,
-    probabilities: { yes: probability, no: 1 - probability },
-  };
 }
 
 /**
@@ -264,4 +241,22 @@ function replyAnswer({
 
 function sumsToOne(total: number): boolean {
   return Math.abs(total - 1) <= 0.02;
+}
+
+function isProbability(value: unknown): value is number {
+  return (
+    typeof value === 'number' &&
+    Number.isFinite(value) &&
+    value >= 0 &&
+    value <= 1
+  );
+}
+
+function noulAnswer(probability: number): CallAnswer {
+  return {
+    choice: probability >= 0.5 ? 'yes' : 'no',
+    confidence: Math.abs(2 * probability - 1),
+    probability,
+    probabilities: { yes: probability, no: 1 - probability },
+  };
 }

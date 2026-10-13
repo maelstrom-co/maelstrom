@@ -87,7 +87,7 @@ export function createDecisionsClient(options: DecisionsClientOptions): Ask {
     label: 'Decisions',
     model: config.model,
     timeoutMs: config.timeoutMs,
-    ...(config.onCall && { onCall: config.onCall }),
+    onCall: config.onCall,
     logReplies: config.logReplies,
     transport: decisionsTransport({
       apiKey: config.apiKey,
@@ -233,16 +233,15 @@ function decodeReply(
     outputTokens: raw.usage.output_tokens,
   };
   const byName = new Map<string, Record<string, unknown>>();
+  const refusals: string[] = [];
   for (const entry of raw.answers as unknown[]) {
     if (!isRecord(entry) || typeof entry.name !== 'string')
       return err('malformed_json');
     if (!Object.hasOwn(questions, entry.name) || byName.has(entry.name))
       return err('key_mismatch');
     byName.set(entry.name, entry);
+    if (entry.type === 'refusal') refusals.push(entry.name);
   }
-  const refusals = [...byName.keys()].filter(
-    (name) => byName.get(name)?.type === 'refusal',
-  );
   const answers: Record<string, WireAnswer> = Object.create(null);
   for (const [name, entry] of byName) {
     if (entry.type === 'refusal') continue;
