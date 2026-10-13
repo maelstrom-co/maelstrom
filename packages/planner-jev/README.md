@@ -57,7 +57,7 @@ Decisions can refuse a question. A refusal of any question makes the call defer 
 
 The client emits the same `jev.call`, `jev.provider_failure` and (with `logReplies`) `jev.reply` logs, and the same `jev.call` instrument event, as the TypeSafe client.
 
-Both clients share one call flow (`createProviderCall` in `src/lib/provider-call.ts`) and differ only in how they encode the request and decode the reply. [ADR 0004](../../docs/adr/0004-planner-providers-share-one-call-flow.md) records when a TanStack AI evaluate adapter could replace either.
+Both clients share one call flow (`createProviderCall` in `src/lib/provider-call.ts`) and one fetch step (`postJson` in `src/lib/provider-fetch.ts`). They differ only in how they encode the request, decode the reply and find the error type and code in an error body. [ADR 0004](../../docs/adr/0004-planner-providers-share-one-call-flow.md) records when a TanStack AI evaluate adapter could replace either.
 
 ## Stage library
 
