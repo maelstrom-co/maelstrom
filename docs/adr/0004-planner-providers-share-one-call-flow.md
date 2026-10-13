@@ -37,8 +37,6 @@ The baseline is the switch to one call flow, measured with the eval suite `all` 
 
 Provider behaviour drifts between runs, so the switch itself was checked against the code before it, run at the same time.
 
-Upstream issue links: pending
-
 ## Consequences
 
 There is one call flow to maintain, and a contract suite that every transport passes, so a new provider or a bridge transport is measured against the same rows. No TanStack upgrade is tied to planner-jev, and a TanStack version bump adds no runtime dependency to these clients, because the flow imports TanStack AI for types only. A change to the wire types still surfaces at typecheck.
