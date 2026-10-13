@@ -458,14 +458,18 @@ describe('reply validation', () => {
     ],
     [
       'two faulty answers listed against question order, tagged by the first asked',
-      (r: Raw) => {
-        const faulty = replace(
-          replace(r, 'scope', { type: 'predicate', probability: 0.5 } as never),
-          'size/weather-main',
-          { probabilities: 'not an array' } as never,
-        );
-        return { ...faulty, answers: [...faulty.answers].reverse() };
-      },
+      (r: Raw) => ({
+        ...r,
+        answers: r.answers
+          .map((answer) => {
+            if (answer.name === 'scope')
+              return { ...answer, type: 'predicate', probability: 0.5 };
+            if (answer.name === 'size/weather-main')
+              return { ...answer, probabilities: 'not an array' };
+            return answer;
+          })
+          .reverse(),
+      }),
       'wrong_type',
     ],
     [
