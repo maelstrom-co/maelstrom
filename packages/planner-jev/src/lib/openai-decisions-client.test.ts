@@ -33,6 +33,7 @@ import {
   type Question,
   score,
 } from './questions.js';
+import type { InvalidReplyReason } from './reply-validation.js';
 
 const KEY = 'decisions-secret-key-value';
 
@@ -184,6 +185,18 @@ describe('the Decisions request', () => {
         { value: 'below', description: 'below' },
       ],
     });
+  });
+
+  test('a render that throws rejects the call before any fetch', async () => {
+    const { ask, calls, logger } = setup(() => ({ choices: {} }), {
+      render: () => {
+        throw new Error('render failed');
+      },
+    });
+    await expect(ask('jevSelect', evaluation, ctx(logger))).rejects.toThrow(
+      'render failed',
+    );
+    expect(calls).toHaveLength(0);
   });
 
   test('sends the key only in the Authorization header and defaults to gpt-6-luna', async () => {
@@ -384,7 +397,7 @@ describe('reply validation', () => {
     expect(isOk(await ask('jevSelect', evaluation, ctx(logger)))).toBe(true);
   });
 
-  test.each([
+  const invalidReplies: readonly (readonly [string, (r: Raw) => unknown])[] = [
     ['answers that are not an array', (r: Raw) => ({ ...r, answers: {} })],
     [
       'a missing answer',
@@ -494,7 +507,11 @@ describe('reply validation', () => {
       'non-integral usage',
       (r: Raw) => ({ ...r, usage: { input_tokens: 1.5, output_tokens: 0 } }),
     ],
-  ])('rejects %s as provider_invalid_reply', async (_name, mutate) => {
+  ];
+
+  test.each(
+    invalidReplies,
+  )('rejects %s as provider_invalid_reply', async (_name, mutate) => {
     const { ask, recorded, logger } = setup(replying(mutate(valid())));
     const result = await ask('jevSelect', evaluation, ctx(logger));
     expect(isErr(result) && result.error).toEqual({
@@ -502,6 +519,54 @@ describe('reply validation', () => {
       reason: 'jevSelect/provider_invalid_reply',
     });
     expect(recorded[0]?.outcome).toBe('provider_invalid_reply');
+  });
+
+  const reasons: Readonly<Record<string, InvalidReplyReason>> = {
+    'answers that are not an array': 'malformed_json',
+    'a missing answer': 'missing_answer',
+    'an extra answer': 'key_mismatch',
+    'a duplicate answer': 'key_mismatch',
+    'an answer without a name': 'malformed_json',
+    'a predicate answer to a choice question': 'wrong_type',
+    'a choice answer to a predicate question': 'wrong_type',
+    'a choice answer to a score question': 'wrong_type',
+    'a choice outside the options': 'key_mismatch',
+    'choice probabilities that do not sum to one': 'probability_sum',
+    'a choice without the highest probability': 'not_most_probable',
+    'a choice probability listed twice': 'key_mismatch',
+    'a predicate probability outside [0, 1]': 'out_of_range',
+    'a score out of range': 'out_of_range',
+    'score probabilities over a level that does not exist': 'key_mismatch',
+    'score probabilities keyed by label only': 'key_mismatch',
+    'missing usage': 'malformed_json',
+    'non-integral usage': 'malformed_json',
+  };
+
+  test('every invalid reply case has a reason tag', () => {
+    expect(invalidReplies.map(([name]) => name).sort()).toEqual(
+      Object.keys(reasons).sort(),
+    );
+  });
+
+  test.each(
+    invalidReplies.map(
+      ([name, mutate]) => [name, reasons[name], mutate] as const,
+    ),
+  )('tags %s as %s', async (_name, reason, mutate) => {
+    const { ask, logger, entries } = setup(replying(mutate(valid())));
+    const result = await ask('jevSelect', evaluation, ctx(logger));
+    expect(isErr(result) && result.error).toEqual({
+      _tag: 'Deferred',
+      reason: 'jevSelect/provider_invalid_reply',
+    });
+    expect(
+      entries.find((entry) => entry.msg === 'jev.provider_failure')?.data,
+    ).toEqual({
+      stage: 'jevSelect',
+      reason: 'jevSelect/provider_invalid_reply',
+      detail: `invalid reply (${reason})`,
+      failure: { kind: 'invalid_reply', reason },
+    });
   });
 });
 
@@ -540,6 +605,29 @@ describe('refusals', () => {
       inputTokens: 11,
       outputTokens: 0,
     });
+  });
+
+  test('a refusal next to a malformed answer still defers provider_refusal with usage', async () => {
+    const refusing = buildDecisionsReply(payload(evaluation), {
+      refuse: ['view/weather-main'],
+      model: DECISIONS_MODEL,
+    });
+    const reply = {
+      ...refusing,
+      answers: refusing.answers.map((answer) =>
+        answer.name === 'scope'
+          ? { ...answer, probabilities: 'not an array' }
+          : answer,
+      ),
+    };
+    const { ask, recorded, logger } = setup(replying(reply));
+    const result = await ask('jevSelect', evaluation, ctx(logger));
+    expect(isErr(result) && result.error).toEqual({
+      _tag: 'Deferred',
+      reason: 'jevSelect/provider_refusal',
+    });
+    expect(recorded[0]?.outcome).toBe('provider_refusal');
+    expect(recorded[0]?.usage).toEqual({ inputTokens: 11, outputTokens: 0 });
   });
 
   test('defers on the first refused question in question order', async () => {
@@ -767,7 +855,11 @@ describe('the key never leaks', () => {
     const echoing = (async () =>
       new Response(
         JSON.stringify({
-          error: { message: `Incorrect API key provided: ${KEY}` },
+          error: {
+            message: `Incorrect API key provided: ${KEY}`,
+            type: KEY,
+            code: 'invalid_api_key',
+          },
         }),
         { status: 401 },
       )) as unknown as typeof fetch;
@@ -800,5 +892,9 @@ describe('the key never leaks', () => {
     expect(captured).not.toContain(KEY);
     expect(entries.length).toBeGreaterThan(0);
     expect(events).toHaveLength(1);
+    expect(
+      entries.find((entry) => entry.msg === 'jev.provider_failure')?.data
+        ?.failure,
+    ).toEqual({ kind: 'http', status: 401, errorCode: 'invalid_api_key' });
   });
 });

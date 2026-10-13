@@ -1,13 +1,23 @@
 import { describe, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import type { WireAnswer } from '@tanstack/ai';
 
+import {
+  type DecisionsRequest,
+  type DecisionsStep,
+  decisionsPayload,
+  scriptedDecisionsFetch,
+} from './__test-helpers__/scripted-decisions-fetch.js';
 import {
   type Step,
   scriptedFetch,
   TEST_MODEL,
 } from './__test-helpers__/scripted-fetch.js';
+import { decisionsTransport } from './openai-decisions-client.js';
 import type {
+  ProviderQuestion,
   ProviderRequest,
   ProviderTransport,
   TransportFailure,
@@ -36,6 +46,17 @@ const request: ProviderRequest = {
   },
 };
 
+const recordedDecisions = JSON.parse(
+  readFileSync(
+    join(
+      import.meta.dir,
+      '__test-helpers__/decisions-replies/select-gated.json',
+    ),
+    'utf8',
+  ),
+) as { request: DecisionsRequest };
+const decodedDecisions = decisionsPayload(recordedDecisions.request);
+
 interface TransportHarness {
   readonly name: string;
   readonly canRefuse: boolean;
@@ -49,8 +70,9 @@ interface TransportHarness {
   readonly refusingFetch?: (
     refuse: readonly string[],
   ) => typeof globalThis.fetch;
-  readonly request: ProviderRequest;
-  readonly requestBody: string;
+  /** A request whose encoding is pinned byte for byte by `pinnedBody`. */
+  readonly pinnedRequest: ProviderRequest;
+  readonly pinnedBody: string;
   readonly usage: Usage;
 }
 
@@ -72,19 +94,45 @@ const HARNESSES: TransportHarness[] = [
       }),
     fetchFor: (step) => scriptedFetch(() => step).fetch,
     errorBody: typesafeErrorBody,
-    request,
-    requestBody:
+    pinnedRequest: request,
+    pinnedBody:
       '{"model":"jev-test","state":{"intent":"hide the weather"},"questions":{"scope":{"type":"choice","instructions":"Is it supported?","criteria":{"supported":"yes","unsupported":"no"}},"needsActions":{"type":"noul","instructions":"Does it need actions?"},"satisfied":{"type":"score","instructions":"Did the response do what was asked?","criteria":["Nothing happened","Some of it happened","All of it"]}}}',
     usage: { inputTokens: 11, outputTokens: 2 },
   },
+  {
+    name: 'Decisions',
+    canRefuse: true,
+    build: (fetch, apiKey) =>
+      decisionsTransport({
+        apiKey,
+        endpoint: ENDPOINT,
+        fetch,
+        render: (value) => JSON.stringify(value),
+      }),
+    fetchFor: (step) => scriptedDecisionsFetch(() => step).fetch,
+    errorBody: openaiErrorBody,
+    refusingFetch: (refuse) =>
+      scriptedDecisionsFetch((): DecisionsStep => ({ ...ANSWERING, refuse }))
+        .fetch,
+    pinnedRequest: {
+      model: recordedDecisions.request.model,
+      state: decodedDecisions.state,
+      questions: decodedDecisions.questions as unknown as Record<
+        string,
+        ProviderQuestion
+      >,
+    },
+    pinnedBody: JSON.stringify(recordedDecisions.request),
+    usage: { inputTokens: 11, outputTokens: 0 },
+  },
 ];
 
-const ANSWERING: Step = {
+const ANSWERING = {
   choices: { scope: 'unsupported' },
   confidence: 0.6,
   nouls: { needsActions: 0.25 },
   scores: { satisfied: 2 },
-};
+} satisfies Step;
 
 const EXPECTED_ANSWERS: Record<string, WireAnswer> = {
   scope: {
@@ -110,12 +158,14 @@ describe.each(HARNESSES)('$name transport contract', (harness) => {
   const send = (
     fetch: typeof globalThis.fetch,
     signal: AbortSignal = new AbortController().signal,
-  ) => harness.build(fetch, KEY).send(harness.request, signal);
+  ) => harness.build(fetch, KEY).send(request, signal);
 
   test('sends exactly the pinned request body', async () => {
-    const recorded = recording(harness.fetchFor(ANSWERING));
-    await send(recorded.fetch);
-    expect(recorded.bodies).toEqual([harness.requestBody]);
+    const recorded = recording(harness.fetchFor({ status: 500 }));
+    await harness
+      .build(recorded.fetch, KEY)
+      .send(harness.pinnedRequest, new AbortController().signal);
+    expect(recorded.bodies).toEqual([harness.pinnedBody]);
     expect(recorded.headers[0]).toEqual({
       authorization: `Bearer ${KEY}`,
       'content-type': 'application/json',
@@ -123,11 +173,9 @@ describe.each(HARNESSES)('$name transport contract', (harness) => {
   });
 
   test('decodes a valid reply into wire answers, usage and the raw reply', async () => {
-    const fetch = harness.fetchFor(ANSWERING);
-    const raw: unknown = await (
-      await fetch(ENDPOINT, { method: 'POST', body: harness.requestBody })
-    ).json();
-    const result = await send(fetch);
+    const recorded = recording(harness.fetchFor(ANSWERING));
+    const result = await send(recorded.fetch);
+    const raw: unknown = await recorded.responses[0]?.json();
     expect(result).toEqual({
       ok: true,
       reply: {
@@ -390,6 +438,10 @@ function typesafeErrorBody({ message, type, code }: ErrorBodyFields) {
   return { detail: { error_type: type, error_code: code, message } };
 }
 
+function openaiErrorBody({ message, type, code }: ErrorBodyFields) {
+  return { error: { message, type, code } };
+}
+
 async function settlesWithin<T>(
   pending: Promise<T>,
   ms: number,
@@ -408,12 +460,15 @@ async function settlesWithin<T>(
 function recording(inner: typeof fetch) {
   const bodies: string[] = [];
   const headers: Record<string, string>[] = [];
+  const responses: Response[] = [];
   const fetch = (async (url: string | URL | Request, init?: RequestInit) => {
     bodies.push(String(init?.body));
     headers.push(Object.fromEntries(new Headers(init?.headers).entries()));
-    return inner(url, init);
+    const response = await inner(url, init);
+    responses.push(response.clone() as Response);
+    return response;
   }) as typeof globalThis.fetch;
-  return { fetch, bodies, headers };
+  return { fetch, bodies, headers, responses };
 }
 
 function counting(inner: typeof fetch) {
