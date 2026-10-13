@@ -105,7 +105,8 @@ export function createDecisionsClient(options: DecisionsClientOptions): Ask {
  * `input` text, nouls as predicates, choices with one value per option key
  * and scores with one level per score level, labelled `"0"` upwards, with
  * `render` applied to the state and every non-string question text. A
- * throwing `render` rejects `send` before anything is sent.
+ * throwing `render` rejects `send` before anything is sent, so the call is
+ * reported as `transport_error` and rejects with that error.
  *
  * It decodes the reply into TanStack wire answers keyed by question id. A
  * reply whose answers are not an array, whose usage counts are not integral,

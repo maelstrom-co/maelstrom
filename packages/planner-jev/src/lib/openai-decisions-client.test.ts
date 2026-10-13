@@ -187,16 +187,40 @@ describe('the Decisions request', () => {
     });
   });
 
-  test('a render that throws rejects the call before any fetch', async () => {
-    const { ask, calls, logger } = setup(() => ({ choices: {} }), {
-      render: () => {
-        throw new Error('render failed');
+  test('a render that throws reports transport_error, warns and rejects the call before any fetch', async () => {
+    const thrown = new Error('render failed on secret state');
+    const { ask, calls, recorded, logger, entries } = setup(
+      () => ({ choices: {} }),
+      {
+        render: () => {
+          throw thrown;
+        },
       },
-    });
-    await expect(ask('jevSelect', evaluation, ctx(logger))).rejects.toThrow(
-      'render failed',
+    );
+    await expect(ask('jevSelect', evaluation, ctx(logger))).rejects.toBe(
+      thrown,
     );
     expect(calls).toHaveLength(0);
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0]).toMatchObject({
+      stage: 'jevSelect',
+      outcome: 'transport_error',
+    });
+    expect(recorded[0]).not.toHaveProperty('usage');
+    const call = entries.find((entry) => entry.msg === 'jev.call');
+    expect(call?.level).toBe('debug');
+    expect(call?.data).toMatchObject({
+      stage: 'jevSelect',
+      outcome: 'transport_error',
+    });
+    const warn = entries.find((entry) => entry.msg === 'jev.provider_failure');
+    expect(warn?.level).toBe('warn');
+    expect(warn?.data).toEqual({
+      stage: 'jevSelect',
+      detail: 'transport threw',
+    });
+    expect(entries.some((entry) => entry.msg === 'jev.defer')).toBe(false);
+    expect(JSON.stringify(entries)).not.toContain('secret');
   });
 
   test('sends the key only in the Authorization header and defaults to gpt-6-luna', async () => {
