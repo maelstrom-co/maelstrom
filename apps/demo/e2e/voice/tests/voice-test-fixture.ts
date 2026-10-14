@@ -3,9 +3,20 @@ import { createVoiceTestDriver } from './voice-test-driver.ts';
 
 export const test = base.extend<{
   readonly voiceDriver: ReturnType<typeof createVoiceTestDriver>;
+  readonly assistantSource: 'remote' | 'greeting';
+  readonly microphoneSource: 'app' | 'controlled-reference';
 }>({
-  voiceDriver: async ({ page }, use, testInfo) => {
-    const driver = createVoiceTestDriver(page);
+  assistantSource: ['remote', { option: true }],
+  microphoneSource: ['app', { option: true }],
+  voiceDriver: async (
+    { page, assistantSource, microphoneSource },
+    use,
+    testInfo,
+  ) => {
+    const driver = createVoiceTestDriver(page, {
+      assistantSource,
+      microphoneSource,
+    });
     try {
       await use(driver);
     } finally {

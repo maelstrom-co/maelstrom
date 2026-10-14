@@ -1,5 +1,10 @@
 import assert from 'node:assert/strict';
 import { type Page, test } from '@playwright/test';
+import { computeBargeInMeasurement } from './barge-in-measurement.ts';
+import {
+  type BargeInObserverWindow,
+  installBargeInObserver,
+} from './barge-in-observer.ts';
 import type { BrowserAudioTimelineSnapshot } from './shared-audio-capture.ts';
 import { installSharedAudioTimeline } from './shared-audio-capture.ts';
 import { createVoiceTestDriver } from './voice-test-driver.ts';
@@ -835,4 +840,161 @@ test('bounds snapshot readiness when the assistant stream never attaches', async
   assert.ok(result);
   assert.match(result.message, /readiness timed out/);
   assert.ok(result.elapsedMs < 2_500, `timeout took ${result.elapsedMs} ms`);
+});
+
+test('barge-in uses captured PCM endpoints with bounded lifecycle corroboration', async ({
+  page,
+}) => {
+  await prepareAudioPage(page);
+  await page.evaluate(installSharedAudioTimeline);
+  await page.evaluate(installBargeInObserver);
+  await page.evaluate(() => {
+    const button = document.createElement('button');
+    button.textContent = 'Start synthetic interruption';
+    document.body.append(button);
+    button.addEventListener('click', () => {
+      void (async () => {
+        const producer = new AudioContext({ sampleRate: 48_000 });
+        await producer.resume();
+        const microphone = producer.createMediaStreamDestination();
+        const assistant = producer.createMediaStreamDestination();
+        const target = window as Window & {
+          __voiceAudioTimeline?: {
+            testAttachMicrophone(stream: MediaStream): Promise<void>;
+            waitForReady(): Promise<void>;
+          };
+          __bargeInReady?: boolean;
+          __bargeInError?: string;
+        };
+        const timeline = target.__voiceAudioTimeline;
+        if (!timeline) throw new Error('Shared timeline is missing.');
+        await timeline.testAttachMicrophone(microphone.stream);
+        const audio = document.createElement('audio');
+        document.body.append(audio);
+        audio.srcObject = assistant.stream;
+        await audio.play();
+        await timeline.waitForReady();
+        const connection = new RTCPeerConnection();
+        const channel = connection.createDataChannel('oai-events');
+        channel.dispatchEvent(
+          new MessageEvent('message', {
+            data: JSON.stringify({
+              type: 'output_audio_buffer.started',
+              response_id: 'synthetic-r1',
+            }),
+          }),
+        );
+        const firstAt = producer.currentTime + 0.25;
+        const tone = (destination: AudioNode, start: number, stop: number) => {
+          const buffer = producer.createBuffer(
+            1,
+            producer.sampleRate * 2,
+            producer.sampleRate,
+          );
+          const samples = buffer.getChannelData(0);
+          for (let frame = 0; frame < samples.length; frame++) {
+            const time = frame / producer.sampleRate;
+            if (time >= start && time < stop)
+              samples[frame] = 0.35 * Math.sin(2 * Math.PI * 440 * time);
+          }
+          const source = producer.createBufferSource();
+          source.buffer = buffer;
+          source.connect(destination);
+          source.start(firstAt);
+        };
+        tone(assistant, 0.1, 0.6);
+        tone(microphone, 0.4, 0.8);
+        setTimeout(() => {
+          channel.dispatchEvent(
+            new MessageEvent('message', {
+              data: JSON.stringify({
+                type: 'output_audio_buffer.cleared',
+                response_id: 'synthetic-r1',
+              }),
+            }),
+          );
+          target.__bargeInReady = true;
+          connection.close();
+        }, 950);
+      })().catch((error: unknown) => {
+        (window as Window & { __bargeInError?: string }).__bargeInError =
+          String(error);
+      });
+    });
+  });
+  await page
+    .getByRole('button', { name: 'Start synthetic interruption' })
+    .click();
+  await page.waitForFunction(() => {
+    const target = window as Window & {
+      __bargeInReady?: boolean;
+      __bargeInError?: string;
+    };
+    if (target.__bargeInError) throw new Error(target.__bargeInError);
+    return target.__bargeInReady;
+  });
+  await page.waitForTimeout(1_100);
+  const captured = await page.evaluate(async () => {
+    const target = window as BargeInObserverWindow & {
+      __voiceAudioTimeline?: {
+        snapshot(): Promise<BrowserAudioTimelineSnapshot>;
+        dispose(): Promise<void>;
+      };
+    };
+    if (!target.__voiceAudioTimeline || !target.__voiceBargeInObserver)
+      throw new Error('Capture hooks are missing.');
+    const snapshot = await target.__voiceAudioTimeline.snapshot();
+    const observation = target.__voiceBargeInObserver.snapshot();
+    target.__voiceBargeInObserver.dispose();
+    await target.__voiceAudioTimeline.dispose();
+    return { snapshot, observation };
+  });
+  const input = wavPcm(Buffer.from(captured.snapshot.inputWavBase64, 'base64'));
+  const output = wavPcm(
+    Buffer.from(captured.snapshot.assistantWavBase64, 'base64'),
+  );
+  let onset = -1;
+  for (
+    let frame = 0;
+    frame < input.pcm.length / (2 * input.channels);
+    frame++
+  ) {
+    if (
+      Math.abs(input.pcm.readInt16LE(frame * input.channels * 2)) / 32768 >=
+      0.01
+    ) {
+      onset = frame;
+      break;
+    }
+  }
+  const result = computeBargeInMeasurement({
+    assistantPcm16: output.pcm,
+    assistantChannels: output.channels,
+    sampleRate: captured.snapshot.sampleRate,
+    humanOnsetSample: onset,
+    missingBlocks: captured.snapshot.missingBlocks,
+    targetResponseId: 'synthetic-r1',
+    events: captured.observation.events.map((event) => ({
+      ...event,
+      frame: event.frame - captured.snapshot.startFrame,
+    })),
+    droppedEvents: captured.observation.dropped,
+  });
+  assert.equal(
+    result.status,
+    'measured',
+    result.reason ?? 'Expected measured synthetic interruption.',
+  );
+  const latencyFrames =
+    (result.assistantStopSample ?? Number.NaN) -
+    (result.humanOnsetSample ?? Number.NaN);
+  const nominalFrames = Math.round(captured.snapshot.sampleRate * 0.2);
+  // Allow one 10ms stream buffer and one threshold-crossing PCM frame.
+  const maximumDeltaFrames =
+    Math.round(captured.snapshot.sampleRate * 0.01) + 1;
+  assert.ok(
+    Number.isSafeInteger(latencyFrames) &&
+      Math.abs(latencyFrames - nominalFrames) <= maximumDeltaFrames,
+    JSON.stringify(result),
+  );
 });

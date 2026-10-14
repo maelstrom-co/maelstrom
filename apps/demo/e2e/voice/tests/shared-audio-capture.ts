@@ -28,14 +28,35 @@ export type BrowserAudioTimelineSnapshot = {
   readonly assistantWavBase64: string;
 };
 
-export async function installSharedAudioTimeline(): Promise<void> {
+export type SharedAudioCaptureOptions = {
+  readonly assistantSource?: 'remote' | 'greeting';
+  readonly microphoneSource?: 'app' | 'controlled-reference';
+};
+
+export function installSharedAudioTimeline(
+  configuration: SharedAudioCaptureOptions,
+): Promise<void>;
+export function installSharedAudioTimeline(): Promise<void>;
+export async function installSharedAudioTimeline(
+  configuration: SharedAudioCaptureOptions = {},
+): Promise<void> {
+  const options = configuration ?? {};
   const target = window as Window & {
+    __voiceReferenceMicrophone?: {
+      acquire(
+        native: MediaDevices['getUserMedia'],
+        app: MediaStream,
+      ): Promise<MediaStream>;
+      dispose(): void;
+    };
     __voiceAudioTimeline?: {
       waitForReady(): Promise<void>;
       snapshot(): Promise<BrowserAudioTimelineSnapshot>;
       mark(): Promise<number>;
+      sampleFrame(): number | null;
       assistantMonitor(fromFrame: number): Promise<AssistantAudioActivity>;
       testAttachMicrophone(stream: MediaStream): Promise<void>;
+      attachGreeting(stream: MediaStream): void;
       dispose?(): Promise<void>;
     };
     __voiceTestObserve?: (event: {
@@ -75,6 +96,9 @@ export async function installSharedAudioTimeline(): Promise<void> {
   let assistantSourceConnected = false;
   let assistantStream: MediaStream | undefined;
   let assistantAttachPromise: Promise<void> | undefined;
+  let greetingBus: GainNode | undefined;
+  let greetingSilence: ConstantSourceNode | undefined;
+  let workletArmed = false;
   const pendingAcquisitions = new Set<Promise<MediaStream>>();
   const mutedState = new Map<HTMLMediaElement, boolean>();
   let captureArmed = false;
@@ -125,6 +149,7 @@ export async function installSharedAudioTimeline(): Promise<void> {
       constructor() {
         super();
         this.armed = false;
+        this.reportedArm = false;
         this.warmupQuanta = 0;
         this.assistantConnected = false;
         this.microphoneConnected = false;
@@ -215,6 +240,10 @@ export async function installSharedAudioTimeline(): Promise<void> {
           if (this.warmupQuanta === 8) this.port.postMessage({ warmed: true });
           return true;
         }
+        if (!this.reportedArm) {
+          this.reportedArm = true;
+          this.port.postMessage({armed: true});
+        }
         const micLeft = microphone[0];
         const micRight = microphone[1];
         const assistantLeft = assistant[0];
@@ -270,12 +299,12 @@ export async function installSharedAudioTimeline(): Promise<void> {
           if (micRight) this.inputRight[at] = micRight[i];
           if (assistantLeft) {
             this.assistantLeft[at] = assistantLeft[i];
-            if (left) left[i] = assistantLeft[i];
+            if (left && ${options.assistantSource !== 'greeting'}) left[i] = assistantLeft[i];
           }
           if (assistantRight) {
             this.assistantRight[at] = assistantRight[i];
-            if (right) right[i] = assistantRight[i];
-          } else if (assistantLeft && right) {
+            if (right && ${options.assistantSource !== 'greeting'}) right[i] = assistantRight[i];
+          } else if (assistantLeft && right && ${options.assistantSource !== 'greeting'}) {
             right[i] = assistantLeft[i];
           }
           const assistantLeftSample = assistantLeft?.[i] ?? 0;
@@ -348,6 +377,11 @@ export async function installSharedAudioTimeline(): Promise<void> {
           resolveWarmed = resolve;
         });
         recorder.port.onmessage = ({ data }) => {
+          if (data.armed) {
+            workletArmed = true;
+            if (options.assistantSource === 'greeting') resolveReady();
+            return;
+          }
           if (typeof data.assistantMonitorResponse === 'number') {
             const resolveMonitor = assistantMonitorResolvers.get(
               data.assistantMonitorResponse,
@@ -490,7 +524,7 @@ export async function installSharedAudioTimeline(): Promise<void> {
         return;
       }
       recorder.port.postMessage('arm');
-      resolveReady();
+      if (options.assistantSource !== 'greeting') resolveReady();
       void target
         .__voiceTestObserve?.({
           type: 'audio-capture-ready',
@@ -531,6 +565,18 @@ export async function installSharedAudioTimeline(): Promise<void> {
     microphoneTrack = track;
     microphoneSourceConnected = true;
     worklet.port.postMessage('microphone-connected');
+    if (options.assistantSource === 'greeting') {
+      greetingBus = audioContext.createGain();
+      greetingBus.channelCount = 2;
+      greetingBus.channelCountMode = 'explicit';
+      greetingBus.connect(worklet, 0, 1);
+      greetingSilence = audioContext.createConstantSource();
+      greetingSilence.offset.value = 0;
+      greetingSilence.connect(greetingBus);
+      greetingSilence.start();
+      assistantSourceConnected = true;
+      worklet.port.postMessage('assistant-connected');
+    }
     readyIfAttached();
   };
 
@@ -574,7 +620,25 @@ export async function installSharedAudioTimeline(): Promise<void> {
   );
   navigator.mediaDevices.getUserMedia = async (...args) => {
     const acquisition = originalGetUserMedia(...args).then(async (stream) => {
-      if (!disposed) await attachMicrophone(stream);
+      if (!disposed) {
+        if (options.microphoneSource === 'controlled-reference') {
+          try {
+            const reference = target.__voiceReferenceMicrophone;
+            if (!reference)
+              throw new Error('Controlled reference hook is unavailable.');
+            const captured = await reference.acquire(
+              originalGetUserMedia,
+              stream,
+            );
+            if (!disposed) await attachMicrophone(captured);
+          } catch {
+            reportFailure('controlled-reference-unavailable');
+            rejectReady(
+              problem ?? new Error('Controlled reference is unavailable.'),
+            );
+          }
+        } else await attachMicrophone(stream);
+      }
       return stream;
     });
     pendingAcquisitions.add(acquisition);
@@ -597,6 +661,7 @@ export async function installSharedAudioTimeline(): Promise<void> {
   const nativePlay = HTMLMediaElement.prototype.play;
   HTMLMediaElement.prototype.play = function () {
     if (
+      options.assistantSource === 'greeting' ||
       !(this instanceof HTMLAudioElement) ||
       !(this.srcObject instanceof MediaStream)
     )
@@ -617,7 +682,11 @@ export async function installSharedAudioTimeline(): Promise<void> {
     get: srcObjectDescriptor.get,
     set(value: MediaProvider | null) {
       nativeSrcObjectSetter.call(this, value);
-      if (this instanceof HTMLAudioElement && value instanceof MediaStream) {
+      if (
+        options.assistantSource !== 'greeting' &&
+        this instanceof HTMLAudioElement &&
+        value instanceof MediaStream
+      ) {
         void attachAssistant(this, value).catch((_error) => {
           reportFailure('assistant-track-attachment-failed');
           rejectReady(
@@ -654,6 +723,27 @@ export async function installSharedAudioTimeline(): Promise<void> {
   target.__voiceAudioTimeline = {
     waitForReady,
     testAttachMicrophone: attachMicrophone,
+    attachGreeting(stream) {
+      if (
+        options.assistantSource !== 'greeting' ||
+        !context ||
+        !greetingBus ||
+        !workletArmed ||
+        assistantStream
+      )
+        throw new Error(
+          'Greeting capture must attach once after its silent bus is armed.',
+        );
+      const source = context.createMediaStreamSource(stream);
+      source.connect(greetingBus);
+      assistantStream = stream;
+    },
+    sampleFrame: () =>
+      captureArmed &&
+      context &&
+      (options.assistantSource !== 'greeting' || workletArmed)
+        ? Math.round(context.currentTime * context.sampleRate)
+        : null,
     async mark() {
       await waitForReady();
       const worklet = recorder;
@@ -712,6 +802,9 @@ export async function installSharedAudioTimeline(): Promise<void> {
         'srcObject',
         srcObjectDescriptor,
       );
+      greetingSilence?.stop();
+      if (options.microphoneSource === 'controlled-reference')
+        target.__voiceReferenceMicrophone?.dispose();
       recorder?.disconnect();
       await Promise.race([
         Promise.allSettled([

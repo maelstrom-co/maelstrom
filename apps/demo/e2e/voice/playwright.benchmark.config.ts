@@ -7,6 +7,8 @@ export default defineConfig({
   testMatch: [
     '**/voice-benchmark.live.e2e.ts',
     '**/shared-audio-capture.live.e2e.ts',
+    '**/greeting-audio-capture.live.e2e.ts',
+    '**/controlled-reference-capture.live.e2e.ts',
   ],
   workers: 1,
   fullyParallel: false,
