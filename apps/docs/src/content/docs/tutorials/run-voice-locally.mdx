@@ -7,7 +7,7 @@ import { Aside } from "@astrojs/starlight/components";
 
 By the end of this tutorial you will talk to the repository demo, watch the UI rearrange itself, and hear it describe what it just did.
 
-This is the shortest path to hearing Maelstrom speak. Realtime voice is what the demo runs by default, so there is one command, and the only key you add is an OpenAI one.
+This tutorial explicitly selects **OpenAI Realtime** for a server-held-key setup. Fresh visits otherwise select **GPT-Live**, which uses a different credential flow. The only provider key needed for this Realtime checkpoint is an OpenAI one.
 
 This is a learning checkpoint, not a deployment. The demo mint route is development-only and is not deployable.
 
@@ -28,7 +28,7 @@ This is a learning checkpoint, not a deployment. The demo mint route is developm
   any deployment.
 </Aside>
 
-1. Copy the root `.env.example` to `.env`. Fill in `OPENAI_API_KEY`. Leave everything else as it is — the Deepgram, Cartesia, and LiveKit values belong to the [cascade tutorial](/tutorials/run-the-cascade-locally/), and this one never reads them.
+1. Copy the root `.env.example` to `.env`. Set `OPENAI_API_KEY` and uncomment `VITE_VOICE_PROVIDER=realtime`. Leave `DEMO_LOCAL_SERVER_KEY=0`; authenticated local Live is a different setup. The Deepgram, Cartesia, and LiveKit values belong to the [cascade tutorial](/tutorials/run-the-cascade-locally/).
 2. From the repository root, start the demo:
 
    ```bash
@@ -39,7 +39,7 @@ This is a learning checkpoint, not a deployment. The demo mint route is developm
 
 ## Take a turn
 
-Open [http://localhost:3000](http://localhost:3000) and connect voice. The browser asks for microphone permission — allow it.
+Open [http://localhost:3000](http://localhost:3000), confirm the selector shows **OpenAI Realtime**, and connect voice. The browser asks for microphone permission — allow it.
 
 Now just talk. There is no button to hold. OpenAI decides where your turn ends, so ask for something the demo can show and then stop speaking.
 
@@ -47,7 +47,7 @@ Three things should happen in order: your words appear as a transcript, the UI r
 
 Watch that order. The model speaks *after* the screen changes, never before — it is describing a layout it has already been told about, rather than predicting one. That is [the settle wait](/understanding/voice-architecture/#why-the-boundary-holds) doing its job.
 
-Try one more thing: start a new request while it is still speaking. The provider handles the interruption, and if your second intent arrives while the first is still being applied, the session keeps the newer one instead of queueing both.
+Try one more thing: start a new request while it is still speaking. Audio interruption does not cancel a UI request. Accepted voice and typed requests share a bounded FIFO: the second waits for the first to settle, then runs against the current UI. A full or expired queue reports the request as not submitted; an unknown outcome is not permission to retry automatically.
 
 If nothing is spoken back, check the terminal running `nx dev demo`. A rejected mint is reported there, and an expired or unauthorized `OPENAI_API_KEY` is the usual cause.
 
@@ -55,7 +55,15 @@ If nothing is spoken back, check the terminal running `nx dev demo`. A rejected 
 
 You did not write any of this, but three parts of it are worth knowing before you build your own.
 
-**The demo chose the provider for you.** It selects OpenAI unless the client is built with `VITE_VOICE_PROVIDER=livekit`, which `apps/demo/.env.livekit` sets and the `dev-livekit` target uses. Both modes reach the same `m.useVoice()` hook and the same Vessels; only the adapter differs.
+**You selected Realtime explicitly.** `VITE_VOICE_PROVIDER=realtime` changes the initial provider; the selector can switch it at runtime. All three providers reach the same `m.useVoice()` hook and Vessels.
+
+| Provider | Initial selection | Credential custody | First endpoint and model to inspect |
+| --- | --- | --- | --- |
+| GPT-Live | Default on fresh visits | Browser-supplied key goes directly to OpenAI for voice; server-held key requires authenticated, loopback-only local mode | Browser: `/v1/live/sessions`; local server: `/api/live-session`; `gpt-live-1` with `gpt-6-luna` Responses backend |
+| OpenAI Realtime | `VITE_VOICE_PROVIDER=realtime`, or select it manually | Local server mints a short-lived credential; browser-key mode mints directly with OpenAI | Local: `/api/realtime-token`; browser: `/v1/realtime/client_secrets`; default `gpt-realtime-2.1` |
+| LiveKit cascade | `dev-livekit` sets `VITE_VOICE_PROVIDER=livekit`; unavailable in hosted mode | Server signs room grants; LiveKit, Deepgram, and Cartesia keys stay in the server/worker | Demo `getLivekitToken` server function and LiveKit room connection; Deepgram `nova-3`, Cartesia `sonic-3` |
+
+Browser-key mode also supplies the key separately to the Engine for planning; browser-direct voice does not mean the entire demo keeps it exclusively in the browser. For local GPT-Live, follow the [demo README](https://github.com/maelstrom-co/maelstrom/blob/main/apps/demo/README.md#optional-gpt-live-with-a-local-server-key).
 
 **Your key never reached the browser.** The browser posted to `/api/realtime-token`, and the server minted a short-lived credential from `OPENAI_API_KEY` and returned only that. The same server-held key also synthesizes the one fixed greeting through a development-only same-origin TTS route (`gpt-4o-mini-tts` / recommended `cedar` voice / WAV). Ordinary Realtime conversation audio still goes from the browser straight to OpenAI over WebRTC, so it never passed through the process you started. Both mint and greeting TTS routes are development-only — replace them before any deployment. The [OpenAI Realtime guide](/guides/voice/openai-realtime/) shows the route you would deploy in place of the demo's.
 
@@ -65,6 +73,7 @@ You did not write any of this, but three parts of it are worth knowing before yo
 
 ## Next steps
 
+- [OpenAI Live setup and recovery](/guides/voice/live-opening-recovery/) — use the default provider in your own integration
 - [OpenAI Realtime](/guides/voice/openai-realtime/) — build the deployable integration, with an authenticated mint route
 - [Run the cascade demo locally](/tutorials/run-the-cascade-locally/) — the same demo with speech recognition and synthesis you operate
 - [The voice boundary](/understanding/voice-architecture/) — why a voice model never plans your UI

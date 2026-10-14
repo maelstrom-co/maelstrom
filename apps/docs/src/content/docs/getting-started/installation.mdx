@@ -87,14 +87,21 @@ The demo engine uses OpenAI. Set the following environment variables:
 ```bash
 # .env
 ENGINE_MODEL=                  # Optional — defaults to gpt-6-luna
-OPENAI_API_KEY=your-key        # Demo engine + realtime voice mint
-OPENAI_REALTIME_MODEL=         # Optional — defaults to gpt-realtime-2.1
+OPENAI_API_KEY=your-key        # Server-held demo engine + optional voice key
+VITE_VOICE_PROVIDER=realtime  # Explicit Realtime setup; fresh visits otherwise default to GPT-Live
+OPENAI_REALTIME_MODEL=         # Optional Realtime override — defaults to gpt-realtime-2.1
 WS_PORT=3001                   # Optional — WebSocket port (defaults to 3001)
 ```
 
 <Aside type="tip">
   The demo engine uses `@tanstack/ai-openai` with `gpt-6-luna` by default. Access to that model is organization/project-specific — if your key cannot call it, set `ENGINE_MODEL` to a model your project can use. You can also switch providers entirely by changing the engine adapter; see [Use a custom LLM provider](/guides/engine/custom-llm-providers/).
 </Aside>
+
+This environment selects OpenAI Realtime for voice. GPT-Live uses a different
+exchange and requires authenticated local opt-in for a server-held key; follow
+the [demo setup](https://github.com/maelstrom-co/maelstrom/blob/main/apps/demo/README.md#optional-gpt-live-with-a-local-server-key).
+Browser-key mode is also available; it sends voice requests directly to OpenAI
+and supplies the key separately to the Engine for planning.
 
 ## Next steps
 

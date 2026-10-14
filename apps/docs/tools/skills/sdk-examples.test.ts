@@ -6,7 +6,7 @@ import ts from 'typescript';
 
 const root = resolve(import.meta.dir, '../../../..');
 
-test('each shipped SDK guide has local task recipes whose examples compile against its published declarations', async () => {
+test('shipped SDK recipes and voice README examples compile against published declarations', async () => {
   const paths: Record<string, string[]> = {};
   const examples = new Map<string, string>();
   const packages = await readdir(join(root, 'packages'), {
@@ -73,6 +73,41 @@ test('each shipped SDK guide has local task recipes whose examples compile again
     }
   }
   expect(guideCount).toBe(16);
+  const liveGuide = await readFile(
+    join(
+      root,
+      'apps/docs/src/content/docs/guides/voice/live-opening-recovery.mdx',
+    ),
+    'utf8',
+  );
+  for (const name of [
+    'realtime',
+    'react-realtime',
+    'realtime-openai-live',
+    'realtime-openai-live-server',
+  ]) {
+    const readme = await readFile(
+      join(root, 'packages', name, 'README.md'),
+      'utf8',
+    );
+    const blocks = [...readme.matchAll(/```(?:ts|tsx)\n([\s\S]*?)\n```/g)];
+    expect(blocks.length).toBeGreaterThan(0);
+    for (const [index, match] of blocks.entries()) {
+      if (name.startsWith('realtime-openai-live'))
+        expect(liveGuide).toContain(match[1]);
+      examples.set(
+        join(
+          root,
+          'apps/docs',
+          '__sdk_examples__',
+          `${name}-readme-${index}.tsx`,
+        ),
+        (name === 'realtime'
+          ? "declare const session: import('@maelstrom-co/realtime').RealtimeSession;\ndeclare const telemetry: import('@maelstrom-co/telemetry').Telemetry;\n"
+          : '') + match[1],
+      );
+    }
+  }
   const options: ts.CompilerOptions = {
     strict: true,
     noEmit: true,

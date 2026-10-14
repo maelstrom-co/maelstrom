@@ -5,7 +5,7 @@ Why the voice packages are shaped the way they are.
 This document argues for the design. It is not a build guide and not a type
 listing, because both already exist and both stay current on their own:
 
-- To **build** with voice, follow the [LiveKit cascade guide](https://docs.maelstrom-ai.co/guides/voice/livekit-cascade/) or the [OpenAI Realtime guide](https://docs.maelstrom-ai.co/guides/voice/openai-realtime/).
+- To **build** with voice, follow the [OpenAI Live setup and recovery guide](https://docs.maelstrom-ai.co/guides/voice/live-opening-recovery/), [OpenAI Realtime guide](https://docs.maelstrom-ai.co/guides/voice/openai-realtime/), or [LiveKit cascade guide](https://docs.maelstrom-ai.co/guides/voice/livekit-cascade/).
 - To **understand how voice behaves**, read [the voice boundary](https://docs.maelstrom-ai.co/understanding/voice-architecture/) and [turn detection in the browser](https://docs.maelstrom-ai.co/understanding/browser-vad-and-barge-in/).
 - For **exact shapes**, read the generated [API reference](https://docs.maelstrom-ai.co/reference/realtime/readme/).
 
@@ -53,9 +53,13 @@ never imports its server sibling. Nothing reachable from a browser bundle can
 reach code that touches a key, because the browser package has no path to the
 server package at all. Reverse that edge and key custody stops being structural.
 
-**Providers as sibling packages.** `realtime-openai` and `realtime-livekit`
-implement the provider-neutral seam from `realtime`. Importing one provider does
-not drag another provider's SDK into the bundle, and the core never branches on
+**Providers as sibling packages.** `realtime-openai-live`, `realtime-openai`,
+and `realtime-livekit` implement the provider-neutral seam from `realtime`.
+Live and Realtime are speech-native providers; LiveKit is a cascade. The Live
+browser package receives a host-owned SDP exchange; `realtime-openai-live-server`
+performs that exchange with a server-held key, rather than minting a Realtime
+client secret. Importing one provider does not drag another provider's SDK into
+the bundle, and the core never branches on
 provider identity, so another adapter is an addition rather than a conditional.
 
 **`realtime-livekit` apart from `realtime`.** LiveKit is optional transport
@@ -129,8 +133,8 @@ provide them.
 
 ## Why grounding is rewritten, never edited
 
-The OpenAI adapter keeps exactly one grounding message in the conversation, at a
-stable id. On each update it deletes that item and inserts a replacement.
+The OpenAI Realtime adapter keeps exactly one grounding message in the
+conversation, at a stable id. On each update it deletes that item and inserts a replacement.
 
 Updating it in place would be the obvious optimisation, and it would quietly
 remove the property the design depends on. Recreating the item moves it to the
@@ -168,21 +172,28 @@ confirms its own application batch, not merely network completion or global idle
 
 ## Where the keys live
 
-Provider credentials stay in the server-side process that needs them. The OpenAI
-key exists only in its minter and authorises the upstream request. LiveKit's key
-and secret exist in both the token endpoint that signs room tokens and the agent
-worker that registers with LiveKit. Deepgram and Cartesia keys exist only in that
-worker. The browser receives short-lived, narrowly scoped credentials instead,
-and each adapter is handed a mint function rather than a provider key — so no
-session-layer code path can leak one, because no session-layer code path ever
-holds one.
+Application-owned provider credentials stay in the server-side process that
+needs them. OpenAI Realtime uses a server minter to issue a short-lived browser
+credential. OpenAI Live uses a server exchange to return an SDP answer, not a
+Realtime client secret. LiveKit's key and secret exist in both its token endpoint
+and registering agent worker; Deepgram and Cartesia keys exist only in that
+worker. Browser adapters receive mint/exchange callbacks, never an application
+server key, and never import their server siblings.
+
+The demo also offers an explicit visitor-owned-key mode. The browser uses that
+key directly with OpenAI for voice and supplies it separately to the Engine for
+planning; it remains in memory, not browser storage. This is not permission to
+embed an application-owned secret in a bundle. Local server-key Live requires
+an authenticated, loopback-only Vite exchange; the standalone Start route and
+hosted mode reject it. See the [demo setup](https://github.com/maelstrom-co/maelstrom/blob/main/apps/demo/README.md#optional-gpt-live-with-a-local-server-key).
 
 One gap is deliberate and worth stating plainly rather than burying: **the
 minters do not authenticate callers.** They validate shape and sign a
 credential; they have no opinion about who is allowed to ask. Authentication,
 authorisation, origin policy, and rate limiting belong to the route that wraps
-the minter, and that route is the application's to write. The repository's demo
-routes do not implement them and are not deployable.
+the minter, and that route is the application's to write. The demo Realtime and
+LiveKit mint routes do not authenticate callers and are not deployable. Its authenticated local Live exchange is still a development
+boundary, not a production host integration.
 
 Production deployments must also keep every credential-bearing hop encrypted
 and redirect-free: browser-to-mint routes use HTTPS, LiveKit connections use
@@ -207,11 +218,22 @@ which makes it honest but not harmless: they are still importable, and external
 code that grows around a placeholder will make the real shape harder to choose.
 Settling that seam is a joint design decision, not a unilateral change.
 
-The sidechannel is emitter-only. Every tool round-trip is mirrored onto a
-callback, but nothing in this repository consumes it. The schema is additive-only
-because a metering or telemetry consumer would ride on it, and its timestamps are
-client-clock and skew-prone by contract — any receiver correlating across clients
-must stamp its own receipt time.
+## Session events and the compatibility sidechannel
+
+`RealtimeSession.events` is the public additive event stream used by observation
+stores, recovery memory, diagnostics, and operational telemetry. Delivery is
+synchronous in publish order with no replay; subscribe before connecting, and
+read `session.observations` for retained evidence. Subscribers must ignore unknown
+variants so future additive events do not break them. Subscriber failures are
+isolated from other observers.
+
+The legacy `onEvent` callback is a `SidechannelEvent` projection of that stream,
+not a separate emitter-only system. It carries selected tool, transcript, and
+timing facts, not every session event. Client-clock timestamps are skew-prone;
+receivers correlating across clients must stamp receipt time themselves.
+Timestamped transcript fragments are evidence, not completed conversational turns
+or proof that audio was heard. React consumers use `useVoiceObservations()`;
+non-React consumers subscribe to the session's observations or events.
 
 ## Why the greeting is recorded before it is spoken
 
@@ -246,7 +268,8 @@ When the user clicks the voice orb, `RealtimeSession.connect()` calls
 `adapter.activateAudio()` synchronously in the click handler so Web Audio unlock
 work begins before any async handshake. Failures after a successful provider-item
 send settle as `accepted` (terminal); only pre-send failures return `not_started`.
-The keyless demo uses the same boundary when the first browser key is saved: it
+With OpenAI Realtime selected, the keyless demo uses the same boundary when the
+first browser key is saved: it
 pre-activates one OpenAI adapter during that save gesture, hands that exact
 adapter to the remounted session, and then connects without requiring another
 orb click.
@@ -286,11 +309,14 @@ After Engine insertion or provider handoff, the existing history can remain at
 most once; local work aborts, the exact microphone enabled values are restored,
 and reconnect does not replay the greeting.
 
-Skip is the reliable immediate-control path in this phase. It does not add
-spoken greeting interruption, local VAD, pre-roll, or a real-device acoustic
-claim. Mobile timing, echo removal, VAD accuracy, and first-phoneme preservation
-remain unverified. Diagnostics continue to exclude audio, transcript content,
-streams and tracks, device identity, and complete media settings.
+Skip is the reliable immediate-control path. Separately, OpenAI Realtime's
+optional `greetingInterruption` uses local VAD and bounded pre-roll during fixed
+greeting playback. It is default-off in the SDK and enabled by the demo; after
+greeting settlement, server VAD owns ordinary conversation again. This experiment
+does not establish real-device acoustic effectiveness. Mobile timing, echo
+removal, VAD accuracy, and first-phoneme preservation remain unverified. These
+playout and interruption diagnostics exclude audio, transcript content, streams
+and tracks, device identity, and complete media settings.
 
 Debug-only OpenAI playout diagnostics project WebRTC receiver counters into
 fixed packet-loss, concealment, rate-adjustment, and jitter-delay categories.
@@ -363,14 +389,14 @@ status machinery (`tts_done` / `tts_error`), so barge-in and state collapse
 semantics are unchanged. Stale data from a torn-down room is dropped by a
 room-currency guard on the adapter's `DataReceived` handler.
 
-### Manual verification (both providers)
+### Manual verification (fixed-greeting providers)
 
 Verify before you trust. Run these steps in order.
 
 1. **Prerequisites.** Valid provider credentials. The LiveKit path additionally
    needs the agent worker running (`bun --cwd apps/demo run dev-livekit` runs
    both; `voice-worker.ts` sits on top of `ws-server`).
-2. **OpenAI** (`bun --cwd apps/demo run dev`). Confirm the AI-voice disclosure is
+2. **OpenAI Realtime** (`VITE_VOICE_PROVIDER=realtime bunx nx dev demo` from the repository root). Confirm the AI-voice disclosure is
    visible before interaction. Delay Engine readiness, save the first browser
    key (or click the orb for an existing session), and confirm
    that the compact “Connecting…” / “Preparing greeting…” treatment remains
@@ -420,4 +446,5 @@ session, build the next adapter and session, and release the old session's
 
 These seams preserve Engine acknowledgement → provider handoff → synthesis →
 provider playout-start caption ordering, existing privacy constraints, and LiveKit
-behavior. They add no acoustic or spoken-interruption claim.
+behavior. The separate OpenAI greeting-interruption experiment shares the neutral
+VAD runtime; ordering tests do not establish acoustic effectiveness.

@@ -23,7 +23,7 @@ One thing crosses from the voice provider into Maelstrom and becomes planning in
 
 Nothing else the model holds can follow it. Its transcript, its belief about the layout, the audio itself — none of it is planning input. Voice providers do not supply Vessel IDs, Actions, Instance state, or layout coordinates, because there is no field to put them in.
 
-The Maelstrom client then supplies what the model cannot know: the current Chart snapshot, built at the moment the intent arrives. Instances, Variants, and chart dimensions in grid cells. The Engine plans from that snapshot and from the sentence — never from the speaker's account of the screen.
+The Maelstrom client then supplies what the model cannot know: the current Chart snapshot, built when the request is dispatched. Accepted voice and typed requests share a bounded FIFO, so a waiting request uses the state after earlier application work settles, not its arrival-time state. Instances, Variants, and chart dimensions in grid cells. The Engine plans from that snapshot and from the sentence — never from the speaker's account of the screen.
 
 ## The model may read, but never plan
 
@@ -62,7 +62,7 @@ Maelstrom's shipped cascade passes through eight stages. The intent stops being 
 1. The adapter admits the turn's microphone audio to a LiveKit room.
 2. The Deepgram worker publishes one final transcript for the turn.
 3. `LiveKitAdapter` converts that transcript into an `update_ui` call carrying only the natural-language intent — the boundary crossing.
-4. `RealtimeSession` submits it to the client, which captures the current Instances, Variants, and chart dimensions.
+4. `RealtimeSession` enqueues it with the client. At dispatch, after earlier application work settles, the client captures the current Instances, Variants, and chart dimensions.
 5. The Engine plans against that client-built snapshot and returns the normal Execution Plan and Layout Directives.
 6. For a successful update, `RealtimeSession` waits for rendering to settle before returning the result. Malformed arguments and genuine submission failures return immediately.
 7. The adapter sends the result text on the LiveKit `speak` topic.
@@ -96,6 +96,7 @@ Choose **cascade** when recognition or synthesis needs independent specializatio
 Either way the boundary is the same, so the choice is reversible. You are picking a speech pipeline, not an architecture.
 
 <CardGrid>
+  <LinkCard title="OpenAI Live" href="/guides/voice/live-opening-recovery/" description="Speech-native Live with a managed Responses backend, a server-owned session exchange, and explicit recovery." />
   <LinkCard title="OpenAI Realtime" href="/guides/voice/openai-realtime/" description="Build the realtime mode: a server-minted credential and browser-direct WebRTC." />
   <LinkCard title="LiveKit cascade" href="/guides/voice/livekit-cascade/" description="Build the cascade: a room Grant, a model-free worker, and browser-owned turn detection with manual fallback." />
   <LinkCard title="Architecture Overview" href="/understanding/architecture/" description="The client and Engine request loop that both voice modes reuse unchanged." />

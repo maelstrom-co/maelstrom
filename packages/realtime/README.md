@@ -16,9 +16,12 @@ This package hosts the provider-neutral session logic that turns adapter events
 into Maelstrom intents, waits for successful UI updates to render before
 returning their result, and keeps structural grounding separate from Engine
 planning. Provider transports ship as sibling packages such as
-`@maelstrom-co/realtime-openai` and `@maelstrom-co/realtime-livekit`.
+`@maelstrom-co/realtime-openai-live`, `@maelstrom-co/realtime-openai`, and
+`@maelstrom-co/realtime-livekit`.
 
 - **`@maelstrom-co/realtime`** — provider-neutral `RealtimeSession`, adapter contract, and typed fatal errors
+- **`@maelstrom-co/realtime-openai-live`** — OpenAI Live browser adapter with a managed Responses backend
+- **`@maelstrom-co/realtime-openai-live-server`** — server-only SDP exchange; never import into a browser
 - **`@maelstrom-co/realtime-openai`** — OpenAI Realtime browser adapter
 - **`@maelstrom-co/realtime-livekit`** — LiveKit browser adapter
 
@@ -27,6 +30,53 @@ Application code supplies a `RealtimeProviderAdapter` to `RealtimeSession`, or p
 The core has a single entry point and carries no provider-specific code. Add a
 provider through its own packages, never through a subpath here. See
 [`docs/adr/0001-realtime-providers-come-in-two-kinds.md`](../../docs/adr/0001-realtime-providers-come-in-two-kinds.md).
+
+## Migrate custom adapters to observations
+
+`RealtimeProviderAdapter.observations` is required. The lower-level
+`RealtimeTransportAdapter.observations` remains optional; a transport alone does
+not satisfy the Maelstrom provider contract. An adapter without evidence can
+start with this feed, keeping unreported media state `unknown`:
+
+```ts
+import type { AdapterVoiceObservations } from '@maelstrom-co/realtime';
+
+export const observations: AdapterVoiceObservations = {
+  subscribe: () => () => {},
+};
+```
+
+Expose it as your adapter's `readonly observations` property. For a transcript-only
+provider, expose a `TranscriptObservationFeed` instead and feed it from your native
+transcript callbacks:
+
+```ts
+import { TranscriptObservationFeed } from '@maelstrom-co/realtime';
+
+export const observations = new TranscriptObservationFeed();
+observations.restart(); // Once per new connection, before accepting callbacks.
+observations.append('utterance-1', 'user', 'Show ');
+observations.complete('utterance-1', 'user', 'Show my calendar');
+```
+
+Use stable utterance IDs so deltas and completion revise one fragment. Drop stale
+connection callbacks before writing the feed. Its timestamps are local receipt
+times, not measured media timestamps. Fragments, including final fragments, are
+**timestamped evidence, not completed turns or proof of audibility**. Do not
+manufacture legacy transcript turns from them.
+
+[`RealtimeSession.events`](https://docs.maelstrom-ai.co/reference/realtime/classes/realtimesession/)
+is synchronous, additive, and has no replay. Ignore unknown variants and subscribe
+before connecting; use `session.observations` for retained snapshots. React exposes
+that same evidence through
+[`useVoiceObservations()`](https://docs.maelstrom-ai.co/reference/react-realtime/readme/).
+Legacy `onEvent` is only a compatibility projection of selected session events.
+
+Accepted voice requests share the client's bounded FIFO with typed input when
+`createIntentScope` is available. Snapshots are built at dispatch. Disconnect
+retires the connection's pending work, not submitted Engine requests or Actions.
+Generic integrations without scoped admission call the immediate API once and
+report busy as not submitted; they do not poll, supersede, or automatically retry.
 
 ## Attach voice diagnostics without React
 
@@ -126,6 +176,7 @@ See the [telemetry package](../telemetry/README.md) for delivery policy.
 ## Docs
 
 - Voice guide: https://docs.maelstrom-ai.co/guides/voice/overview/
+- OpenAI Live setup and recovery: https://docs.maelstrom-ai.co/guides/voice/live-opening-recovery/
 - API reference: https://docs.maelstrom-ai.co/reference/realtime/readme/
 - Architecture: https://docs.maelstrom-ai.co/understanding/architecture/
 

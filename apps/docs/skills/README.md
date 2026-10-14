@@ -83,6 +83,39 @@ apps/docs/skills/
     └── voice-lifecycle-and-turn-taking.md
 ```
 
-The build-generated bundle also includes the exact canonical `docs/realtime-voice-architecture.md`, `docs/architecture.md`, and `docs/adr/0001`–`0003` Markdown under `references/canonical-voice/docs/` and `maelstrom-voice-integration/references/canonical-voice/docs/`; these files are projected read-only at build time, not maintained copies. Each `@maelstrom-co/*` SDK package ships its API guide under its own `skills/` directory. The owning installed package's `package.json` is the version authority; the guide does not duplicate a version field. Maelstrom-specific API names must still be verified against the consumer project's installed exports, declarations, source, tests, and version-specific provider documentation. The bundle does not imply that an API exists in every SDK version or that external provider documentation is version-matched. Voice references are optional and do not imply that a provider is selected or supported. No skill assumes repository-internal absolute paths, starts agents, or performs side effects without the task's authorization.
+The build-generated bundle also includes the exact canonical `docs/realtime-voice-architecture.md`, `docs/architecture.md`, and `docs/adr/0001`–`0003` Markdown under `references/canonical-voice/docs/` and `maelstrom-voice-integration/references/canonical-voice/docs/`; these files are projected read-only at build time, not maintained copies. Packages listed as **Shipped** in the SDK guide coverage table below include their API guide under `skills/`. For packages marked **Not shipped**, inspect the installed manifest, exports, declarations, and runtime JavaScript instead; Intent cannot load a guide that the package does not contain. Source and tests are separate repository resources and may not be published. If needed, obtain them from the repository revision matching the installed release, not from the current default branch. The owning installed package's `package.json` is the version authority; the guide does not duplicate a version field. Maelstrom-specific API names must still be verified against the consumer project's installed exports, declarations, and runtime JavaScript, supplemented where needed by revision-matched repository source/tests and version-specific provider documentation. The bundle does not imply that an API exists in every SDK version or that external provider documentation is version-matched. Voice references are optional and do not imply that a provider is selected or supported. No skill assumes repository-internal absolute paths, starts agents, or performs side effects without the task's authorization.
+
+## SDK guide coverage
+
+This inventory covers publishable SDK packages in this revision, not the private
+`@maelstrom-co/evals` workspace. Guide availability is independent of provider
+support. When upgrading, inspect the installed manifest rather than assuming this
+inventory matches an older or newer release.
+
+| Package | API guide |
+| --- | --- |
+| `@maelstrom-co/client` | Shipped |
+| `@maelstrom-co/connectors` | Shipped |
+| `@maelstrom-co/devtools` | Shipped |
+| `@maelstrom-co/engine` | Shipped |
+| `@maelstrom-co/protocol` | Shipped |
+| `@maelstrom-co/react` | Shipped |
+| `@maelstrom-co/react-devtools` | Shipped |
+| `@maelstrom-co/react-realtime` | Shipped |
+| `@maelstrom-co/realtime` | Shipped |
+| `@maelstrom-co/realtime-livekit` | Shipped |
+| `@maelstrom-co/realtime-livekit-agent` | Shipped |
+| `@maelstrom-co/realtime-livekit-server` | Shipped |
+| `@maelstrom-co/realtime-openai` | Shipped |
+| `@maelstrom-co/realtime-openai-server` | Shipped |
+| `@maelstrom-co/realtime-protocol` | Shipped |
+| `@maelstrom-co/realtime-vad` | Shipped |
+| `@maelstrom-co/realtime-openai-live` | Not shipped |
+| `@maelstrom-co/realtime-openai-live-server` | Not shipped |
+| `@maelstrom-co/planner-llm` | Not shipped |
+| `@maelstrom-co/planner-jev` | Not shipped |
+| `@maelstrom-co/telemetry` | Not shipped |
+
+## Trial coverage
 
 Representative task inputs and expected outcomes are in [`trials/README.md`](trials/README.md). These are structural routing scenarios, not completed model trials; behavioral compliance requires executing them with a named agent/runtime and reviewing its output and diff.

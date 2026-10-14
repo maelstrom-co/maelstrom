@@ -46,7 +46,7 @@ Read the order rather than the steps. Muting playback and dropping the utterance
 
 Dropping the utterance id is the part that is easy to miss. The worker may finish speaking the old response and report it complete, long after you interrupted. Invalidating the id before the cancel goes out is what makes that late report ignorable rather than a state change that stomps on the turn you just started.
 
-A speech start can also arrive while the session is `thinking` with a response still in flight, rather than while it is `speaking`. These are different situations, and the adapter serializes them: interruption and turn opening cannot overlap, and a fast speech end cannot overtake a start that has not finished. `RealtimeSession` keeps the newest intent rather than queueing every correction, and still returns one result per call.
+A speech start can also arrive while the session is `thinking` with a response still in flight, rather than while it is `speaking`. These are different situations, and the adapter serializes them: interruption and turn opening cannot overlap, and a fast speech end cannot overtake a start that has not finished. Accepted voice and typed intents share the client's bounded FIFO. Audio interruption does not supersede accepted UI work: a correction waits for earlier application work to settle. Disconnect retires only that voice connection's pending requests, not active Engine work.
 
 ## Why a turn carries audio from before it started
 

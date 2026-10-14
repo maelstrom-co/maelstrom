@@ -101,6 +101,11 @@ const GUIDE_ROUTES: readonly DocsRoute[] = [
     heading: 'OpenAI Realtime',
   },
   {
+    name: 'Live setup and recovery guide',
+    path: '/guides/voice/live-opening-recovery/',
+    heading: 'Add a Live opening and explicit reconnect',
+  },
+  {
     name: 'LiveKit guide',
     path: '/guides/voice/livekit-cascade/',
     heading: 'LiveKit cascade',
@@ -140,6 +145,16 @@ const REFERENCE_ROUTES: readonly DocsRoute[] = [
     name: '@maelstrom-co/react-realtime landing',
     path: '/reference/react-realtime/readme/',
     heading: '@maelstrom-co/react-realtime',
+  },
+  {
+    name: '@maelstrom-co/realtime-openai-live landing',
+    path: '/reference/realtime-openai-live/readme/',
+    heading: '@maelstrom-co/realtime-openai-live',
+  },
+  {
+    name: '@maelstrom-co/realtime-openai-live-server landing',
+    path: '/reference/realtime-openai-live-server/readme/',
+    heading: '@maelstrom-co/realtime-openai-live-server',
   },
   {
     name: '@maelstrom-co/realtime-openai-server landing',

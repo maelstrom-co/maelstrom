@@ -15,11 +15,67 @@ Browser WebRTC transport and Maelstrom UI tool integration for OpenAI Live.
 
 Both implementations receive a host-owned `exchange` callback for the SDP
 exchange. The companion `@maelstrom-co/realtime-openai-live-server` package
-performs the upstream exchange with a server-held OpenAI key. Never pass a
-provider key to the browser.
+performs the upstream exchange with a server-held OpenAI key. Never pass an
+application-owned provider key to the browser. The demo's visitor-owned-key
+mode is a separate explicit custody choice, not a deployment default.
 
 Shared wire types and schemas live at
 `@maelstrom-co/realtime-protocol/openai-live`.
+
+## Connect from the browser
+
+Install matching versions of `@maelstrom-co/realtime-openai-live`,
+`@maelstrom-co/realtime-protocol`, `@maelstrom-co/realtime`,
+`@maelstrom-co/react-realtime`, and `@maelstrom-co/react`. Implement the
+[server route](https://docs.maelstrom-ai.co/guides/voice/live-opening-recovery/#server-route)
+first; this callback sends no provider key.
+
+```ts
+import { createMaelstrom } from '@maelstrom-co/react';
+import { maelstromRealtime } from '@maelstrom-co/react-realtime';
+import { OpenAILiveAdapter } from '@maelstrom-co/realtime-openai-live';
+import {
+  LiveExchangeResponseSchema,
+  type LiveSessionExchange,
+} from '@maelstrom-co/realtime-protocol/openai-live';
+
+const exchange: LiveSessionExchange = async (offer, signal) => {
+  const response = await fetch('/api/live-session', {
+    method: 'POST',
+    credentials: 'same-origin',
+    redirect: 'error',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(offer),
+    signal: AbortSignal.any([signal, AbortSignal.timeout(30_000)]),
+  });
+  if (response.status !== 201) throw new Error('Live exchange failed');
+  return LiveExchangeResponseSchema.parse(await response.json());
+};
+
+export const m = createMaelstrom({ vessels: [] }).with(
+  maelstromRealtime({
+    createAdapter: () => new OpenAILiveAdapter({
+      model: 'gpt-live-1',
+      responses: { model: 'gpt-6-luna' },
+      exchange,
+    }),
+    generatedOpening: { instructions: 'In English, introduce yourself.' },
+  }),
+);
+```
+
+Replace the empty registry with your Vessel entries and mount `m.Provider` with
+your existing Engine connector and `m.Chart`. Inside that Provider, render
+`m.VoiceOrb`, or read `connect` from `m.useVoice()` during render and call that
+function from a user gesture. Observe its
+`state` and `error`; a ready transport does not prove an Engine update or audible
+speech. Use `m.useVoiceObservations()` for timestamped evidence, not completed
+turns. Requires a secure context, microphone permission, and access to both models.
+
+The host route must authorize the session configuration, not merely validate its
+shape. Do not retry session creation automatically: an aborted exchange may
+already have created a paid session. Continue with the
+[Live setup, opening, and recovery guide](https://docs.maelstrom-ai.co/guides/voice/live-opening-recovery/).
 
 ## Inspect projected provider diagnostics
 
