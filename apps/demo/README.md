@@ -42,7 +42,7 @@ cp .env.example .env
 
 Choose where the demo keeps your OpenAI key:
 
-- Set `OPENAI_API_KEY` in `.env` to keep the key on the local server. The server uses it for text planning, short-lived realtime voice credentials, and the fixed greeting.
+- Set `OPENAI_API_KEY` in `.env` to keep the key on the local server. Text planning works immediately. For voice, either select OpenAI Realtime or enable [authenticated local GPT-Live](#optional-gpt-live-with-a-local-server-key); setting the key alone does not enable the default Live exchange.
 - Leave `OPENAI_API_KEY` empty to enter the key in the browser drawer. The key stays in memory until you reload or close the page. Voice calls OpenAI directly, while the local WebSocket server keeps the key and its text-planning Engine in memory for that connection.
 
 ```dotenv
@@ -52,9 +52,7 @@ OPENAI_API_KEY=<redacted>
 ENGINE_MODEL=
 ```
 
-The server-owned greeting route is development-only: bodyless same-origin POST, exact fixed payload, process-local cache, and at most three upstream attempts in a 60-second window. The budget resets after the window elapses and after a validated response is cached; it is not a general speech API or production distributed abuse protection.
-
-The UI shows a compact disclosure next to the voice orb: “AI-generated voice”. Browser-key mode calls OpenAI speech and client-secret endpoints directly from the browser; the key never touches browser storage.
+The UI shows a compact disclosure next to the voice orb: “AI-generated voice”. GPT-Live generates its introduction in the live session. OpenAI Realtime uses separate fixed-greeting TTS. Browser-key voice calls OpenAI directly; the key never touches browser storage, but is supplied separately to the Engine for planning.
 
 The repository ignores `.env`. Never commit it or paste its contents into logs, issues, or other shared material. Keep examples empty or redacted as shown above.
 
@@ -64,9 +62,9 @@ From the repository root, start both baseline processes with the canonical comma
 bunx nx dev demo
 ```
 
-The command builds the required workspace packages, then starts:
+The command builds the required workspace packages, then starts the Bun Engine host and Vite browser app.
 
-The mint route this path uses (`src/routes/api/realtime-token.ts`) is
+The optional OpenAI Realtime mint route (`src/routes/api/realtime-token.ts`) is
 development-only, for the same reason the LiveKit one below is: it does not
 authenticate the caller, and it forwards the request body to the minter, so the
 caller chooses the model. Replace it with the server-owned route from the
@@ -75,7 +73,9 @@ before any deployment. The fixed greeting TTS route
 (`src/routes/api/demo-greeting-tts.ts`) is likewise development-only and must not
 be treated as production abuse protection.
 
-**Greeting TTS troubleshooting.** If the caption appears but there is no audio,
+The Realtime greeting route accepts only a bodyless same-origin POST with a fixed payload. It uses a process-local WAV cache and allows at most three upstream attempts per 60-second window; a validated cached response resets the budget. This is not production distributed abuse protection.
+
+**OpenAI Realtime greeting TTS troubleshooting.** If the caption appears but there is no audio,
 confirm the browser allowed microphone/autoplay after clicking the voice orb, check that
 `POST /api/demo-greeting-tts` returned `audio/wav`, and verify `OPENAI_API_KEY`
 can call `/v1/audio/speech`. A second greeting after reconnect within the same
@@ -86,19 +86,6 @@ The `nx` commands in this README run from the repository root. Commands shown
 as `bun run ...` under the LiveKit section run from `apps/demo/`.
 
 The terminal is ready when the Vite output shows `http://localhost:3000` and the Engine host output shows `ws://localhost:3001/ws`. Neither process should exit.
-
-This is the repository's development-only LiveKit checkpoint. It exercises the
-browser adapter and local worker, but its mint route is not a production token
-boundary. For deployment, follow the
-[LiveKit cascade guide](https://docs.maelstrom-ai.co/guides/voice/livekit-cascade/)
-after validating the local path.
-
-1. Install and run a LiveKit server in dev mode:
-
-   ```bash
-   brew install livekit   # or download a release: https://github.com/livekit/livekit/releases
-   livekit-server --dev
-   ```
 
 ## Optional: GPT-Live with a local server key
 
@@ -202,7 +189,19 @@ The LiveKit cascade is also optional. It requires a local LiveKit server plus re
 
 ## How voice works
 
-The browser holds the OpenAI realtime session directly, authenticated by a short-lived token minted by `/api/realtime-token`. The model has one write path: an `update_ui` tool call carrying a plain-text intent, which follows the same path as typed input. The Engine plans against the app's own state, never the model's beliefs about the screen. The model receives the tool result only after rendering settles, so it does not narrate a change before it appears. See [`docs/realtime-voice-architecture.md`](../../docs/realtime-voice-architecture.md) for the full design.
+Voice has three provider choices across two pipeline kinds: speech-native Live/Realtime and the LiveKit STT/TTS cascade.
+
+| Provider | Initial selection | Credential custody | First endpoint and model to inspect |
+| --- | --- | --- | --- |
+| GPT-Live | Default on fresh visits | Browser-supplied key goes directly to OpenAI for voice; server-held key requires authenticated, loopback-only local mode | Browser: `/v1/live/sessions`; local server: `/api/live-session`; `gpt-live-1` with `gpt-6-luna` Responses backend |
+| OpenAI Realtime | `VITE_VOICE_PROVIDER=realtime`, or select it manually | Local server mints a short-lived credential; browser-key mode mints directly with OpenAI | Local: `/api/realtime-token`; browser: `/v1/realtime/client_secrets`; default `gpt-realtime-2.1` |
+| LiveKit cascade | `dev-livekit` sets `VITE_VOICE_PROVIDER=livekit`; unavailable in hosted mode | Server signs room grants; LiveKit, Deepgram, and Cartesia keys stay in the server/worker | Demo `getLivekitToken` server function and LiveKit room connection; Deepgram `nova-3`, Cartesia `sonic-3` |
+
+Browser-key mode also supplies the key separately to the Engine for planning. Never expose an application-owned provider key in a browser build.
+
+Every provider reaches the same plain-text `update_ui` intent path. Accepted voice and typed requests share the client's bounded FIFO. The Engine plans against the app snapshot captured at dispatch, never the voice model's beliefs. Successful tool results wait for layout and Action settlement. Interrupting audio does not cancel submitted UI work; disconnect retires only that voice connection's pending requests. See [`docs/realtime-voice-architecture.md`](../../docs/realtime-voice-architecture.md).
+
+The local Realtime and LiveKit mint routes are development-only, not production authentication boundaries. The Live exchange has a separate authenticated local-only mode. For deployment, use the provider guides and enforce host authentication, authorization, configuration policy, HTTPS, and rate limits.
 
 ## Debug overlays
 
@@ -237,16 +236,21 @@ remains disabled; browser diagnostics and capture remain available.
 - **Port 3000 or 3001 is occupied:** stop the process using that port, then run the canonical startup command again. Do not work around the conflict by changing the documented ports or command.
 - **Weather shows fixture data:** the demo could not reach Open-Meteo, so it silently uses canned values.
 - **Map tiles are blank:** confirm network access to `tiles.openfreemap.org`.
-- **OpenAI voice cannot start:** confirm that the optional OpenAI credential is present in `.env`, then allow microphone access for the site and retry the orb.
+- **GPT-Live cannot start:** check the selected provider and key mode. Browser-key mode needs Live and Responses model access. Server-key mode also requires the local opt-in, password, and loopback authentication above; inspect `/api/live-session` before explicitly reconnecting. No automatic paid-session retry occurs.
+- **OpenAI Realtime cannot start:** confirm the selector shows Realtime, inspect `/api/realtime-token` in server-key mode or `/v1/realtime/client_secrets` in browser-key mode, and check model access and microphone permission.
 - **LiveKit reports missing environment variables:** provide the optional `DEEPGRAM_API_KEY`, `CARTESIA_API_KEY`, and LiveKit settings described above.
 - **LiveKit reports `ECONNREFUSED ws://localhost:7880`:** start `livekit-server --dev` before starting the LiveKit variant.
 - **A LiveKit token configuration fails:** `LIVEKIT_TOKEN_TTL` must be a bare number of seconds or an integer followed by `s`, `m`, `h`, or `d`; its default is `15m`.
-- **The LiveKit agent rejects its flush timeout:** `MAELSTROM_STT_FLUSH_TIMEOUT_MS` must be a positive number; its default is `2000`.
+- **The LiveKit agent rejects its drain timeout:** `MAELSTROM_STT_DRAIN_TIMEOUT_MS` defaults to `5000` when unset or empty. It must be finite, positive, and no greater than `60000`. It bounds Deepgram stream draining after `endInput()` and derives the successor's pending-audio budget; it is not an empty-turn flush fallback.
 
 Press `Ctrl-C` once in the startup terminal to stop both baseline processes. Delete `.env` afterward only if you also want to remove the local credentials; otherwise keep the ignored file for the next run.
 
 ## Further reading
 
+- [OpenAI Live setup and recovery](https://docs.maelstrom-ai.co/guides/voice/live-opening-recovery/) — browser/server exchange, generated opening, and explicit reconnect
+- [OpenAI Realtime guide](https://docs.maelstrom-ai.co/guides/voice/openai-realtime/) — ephemeral credentials and fixed greetings
+- [`CONTRIBUTING.md`](../../CONTRIBUTING.md) — private packages and preview releases
+- [`infra/platform/README.md`](../../infra/platform/README.md) — Alchemy deployment and state ownership
 - [LiveKit cascade guide](https://docs.maelstrom-ai.co/guides/voice/livekit-cascade/) — browser integration first, then the production token and worker checkpoint
 - [`packages/realtime-livekit-agent/README.md`](../../packages/realtime-livekit-agent/README.md) — voice agent worker internals
 - [`packages/realtime-livekit/README.md`](../../packages/realtime-livekit/README.md) — adapter VAD configuration and asset deployment

@@ -97,7 +97,8 @@ const headings = [
 
     <section aria-labelledby="sdk-heading">
       <h2 id="sdk-heading">Load installed SDK guidance</h2>
-      <p>The workflow bundle is independent of SDK dependencies. Package API guides live under <code>node_modules/@maelstrom-co/&lt;package&gt;/skills/</code>. The installed package's manifest is the version authority.</p>
+      <p>The workflow bundle is independent of SDK dependencies. When shipped, package API guides live under <code>node_modules/@maelstrom-co/&lt;package&gt;/skills/</code>. The installed package's manifest is the version authority.</p>
+      <p>Guides are not currently shipped by <code>realtime-openai-live</code>, <code>realtime-openai-live-server</code>, <code>planner-llm</code>, <code>planner-jev</code>, or <code>telemetry</code>. For those packages, inspect the installed manifest, exports, declarations, and runtime JavaScript. Source and tests may not be published; obtain them separately from the repository revision matching the installed release when needed, not from the current default branch. See the <a href={`${sourceFile}#sdk-guide-coverage`}>SDK guide coverage inventory</a>; a missing guide does not mean the package is unsupported.</p>
       <p>After SDK installation, add a reviewed Intent development dependency and commit the lockfile. Intent setup is optional for the first planning task.</p>
       <pre><code>bun add --dev --exact @tanstack/intent@0.5.3</code></pre>
       <p>Run setup in an interactive terminal. Review the permitted package sources and generated guidance before confirming. It writes package permissions and agent instructions; it does not install a Maelstrom SDK.</p>
@@ -125,7 +126,7 @@ const headings = [
       <dl>
         <dt>The installer lists the skill, but the agent does not</dt><dd>Check the selected agent, project directory, trust/skill permissions, and reload behavior. Ask it to read the installed entry file. Do not treat a global installation as a project installation.</dd>
         <dt>A referenced file is missing</dt><dd>Refresh from the generated ZIP and copy the complete procedure directory. A copied <code>SKILL.md</code> from GitHub does not include build-generated references.</dd>
-        <dt>Intent finds no guides</dt><dd>Check that the SDK is installed, run from the owning workspace, and review <code>intent.skills</code>/<code>intent.exclude</code>. Planning can continue without SDK APIs.</dd>
+        <dt>Intent finds no guides</dt><dd>First check whether the installed package ships a guide. For a listed exception, inspect its installed API artifacts instead. Otherwise check the workspace, installation, and <code>intent.skills</code>/<code>intent.exclude</code>. Planning can continue without SDK APIs.</dd>
         <dt>A guide disagrees with an API</dt><dd>Check the installed package manifest, exported declarations, and runtime entrypoint. Runtime JavaScript can be bundled in <code>dist/index.js</code>; declaration subpaths do not imply matching JavaScript files.</dd>
         <dt>The agent loads the wrong workflow</dt><dd>State the primary outcome and authority explicitly. Ask it to load <code>maelstrom</code>, select one procedure, and report which installed guide supports its API claims.</dd>
         <dt>The bundle cannot be downloaded</dt><dd>Check the download response and docs deployment. Use the manual download only from a build with the required references. SDK package access is a separate <a href="/getting-started/install-beta/">private beta setup</a>.</dd>

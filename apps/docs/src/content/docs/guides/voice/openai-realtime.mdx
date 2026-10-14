@@ -366,7 +366,7 @@ Every response — success, denial, malformed JSON, mapped mint failure, unexpec
 | Grant validation fails          | Reject the response; do not pass partial data to the adapter.                                                               |
 | Microphone permission is denied | Explain how to enable site microphone permission, then let the user call `connect()` again.                                 |
 | WebRTC connection fails         | Show the session's `error` state, disconnect stale UI controls, and offer a deliberate reconnect.                           |
-| A UI update is superseded       | Let the latest voice correction proceed; the superseded call still receives a result, so no manual retry is required.       |
+| A UI update is queued or not submitted | Accepted requests run FIFO after earlier application work settles. Full, expired, or retired pending requests report not submitted. An unknown outcome does not authorize an automatic retry. |
 
 ## What you get without asking
 

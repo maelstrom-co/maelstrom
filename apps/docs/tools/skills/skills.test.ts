@@ -149,7 +149,16 @@ describe('portable agent skill bundle', () => {
     expect(Object.keys(archive).sort()).toEqual([...expectedPaths].sort());
   });
 
-  test('SDK API guides ship with their owning package and match its exact version', async () => {
+  test('SDK guide inventory covers every publishable package and matches shipped artifacts', async () => {
+    const readme = await readFile(join(skillsRoot, 'README.md'), 'utf8');
+    const inventory = new Map(
+      [
+        ...readme.matchAll(
+          /\| `(@maelstrom-co\/[^`]+)` \| (Shipped|Not shipped) \|/g,
+        ),
+      ].map((match) => [match[1], match[2]]),
+    );
+    const visited: string[] = [];
     const packagesRoot = resolve(import.meta.dir, '../../../../packages');
     const packageDirectories = (
       await readdir(packagesRoot, { withFileTypes: true })
@@ -161,8 +170,20 @@ describe('portable agent skill bundle', () => {
       if (!existsSync(join(packageRoot, 'package.json'))) continue;
       const manifest = JSON.parse(
         await readFile(join(packageRoot, 'package.json'), 'utf8'),
-      ) as { name: string; version: string; files?: string[] };
-      if (!manifest.files?.includes('skills')) continue;
+      ) as {
+        name: string;
+        version: string;
+        private?: boolean;
+        files?: string[];
+      };
+      if (manifest.private) continue;
+      visited.push(manifest.name);
+      const shipsGuide = manifest.files?.includes('skills') ?? false;
+      expect(inventory.get(manifest.name)).toBe(
+        shipsGuide ? 'Shipped' : 'Not shipped',
+      );
+      expect(existsSync(join(packageRoot, 'skills'))).toBe(shipsGuide);
+      if (!shipsGuide) continue;
       const guideDirectory = `maelstrom-${manifest.name.replace('@maelstrom-co/', '')}-sdk`;
       const guideSource = await readFile(
         join(packageRoot, 'skills', guideDirectory, 'SKILL.md'),
@@ -176,6 +197,7 @@ describe('portable agent skill bundle', () => {
         'package.json` version as the version authority',
       );
     }
+    expect([...inventory.keys()].sort()).toEqual(visited.sort());
   });
 
   test('empty project install, update, and removal manage only the consumer artifact', async () => {
@@ -396,7 +418,7 @@ describe('portable agent skill bundle', () => {
     const readme = await readFile(join(skillsRoot, 'README.md'), 'utf8');
     const taskRows = readme
       .split('\n')
-      .filter((line) => line.startsWith('| ') && line.includes('maelstrom-'));
+      .filter((line) => line.startsWith('| ') && line.includes('/SKILL.md'));
     expect(taskRows).toHaveLength(expectedProcedures.length);
     for (const row of taskRows) {
       expect(row.match(/\]\(maelstrom-[a-z-]+\/SKILL\.md\)/g)).toHaveLength(1);
