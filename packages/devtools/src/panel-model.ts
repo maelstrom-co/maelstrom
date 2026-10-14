@@ -5,6 +5,8 @@ import {
   TilingNodeSchema,
   tilingLeafInstanceId,
 } from '@maelstrom-co/protocol';
+import type { TelemetryErrorCategory } from '@maelstrom-co/telemetry';
+import { projectDiagnosticMetadata } from '@maelstrom-co/telemetry/integration';
 import { identity } from './diagnostic-identity.js';
 
 export { identity } from './diagnostic-identity.js';
@@ -52,6 +54,64 @@ export interface PanelEvent {
   content: unknown;
   raw: Fields;
   index: number;
+}
+
+export const errorCategories: Readonly<
+  Record<TelemetryErrorCategory, { label: string; explanation: string }>
+> = {
+  transport: {
+    label: 'Transport',
+    explanation: 'Communication with a service failed.',
+  },
+  validation: {
+    label: 'Validation',
+    explanation: 'Input or a response did not satisfy the expected contract.',
+  },
+  timeout: {
+    label: 'Timeout',
+    explanation: 'The operation exceeded its time limit.',
+  },
+  readiness: {
+    label: 'Readiness',
+    explanation: 'An Instance was not ready to run the Action.',
+  },
+  application: {
+    label: 'Application',
+    explanation: 'Client response application or Action execution failed.',
+  },
+  provider: { label: 'Provider', explanation: 'A provider operation failed.' },
+  unknown: {
+    label: 'Unknown',
+    explanation: 'The producer could not classify the problem.',
+  },
+};
+export interface EventIssue {
+  eventKey: string;
+  outcome: 'failed' | 'skipped' | 'unknown';
+  category?: TelemetryErrorCategory;
+}
+export function eventIssue(event: PanelEvent): EventIssue | undefined {
+  const fact = projectDiagnosticMetadata(event.kind, event.metadata);
+  if (
+    fact?.outcome === 'failed' ||
+    fact?.outcome === 'skipped' ||
+    fact?.outcome === 'unknown'
+  )
+    return {
+      eventKey: event.key,
+      outcome: fact.outcome,
+      category: fact.errorCategory,
+    };
+  if (
+    event.metadata.outcome !== 'cancelled' &&
+    (event.kind === 'engine.planner.failed' ||
+      event.kind === 'client.command.failed' ||
+      event.kind === 'client.connection.failed' ||
+      (event.kind === 'engine.candidate.validated' &&
+        event.metadata.outcome === 'failed'))
+  )
+    return { eventKey: event.key, outcome: 'failed' };
+  return undefined;
 }
 
 export function panelEvents(values: readonly unknown[]): PanelEvent[] {
@@ -102,6 +162,12 @@ export type RequestStatus =
   | 'cancelled'
   | 'discarded'
   | 'abandoned';
+export interface EngineTiming {
+  eventKey: string;
+  kind: 'request' | 'planning' | 'stage';
+  label: string;
+  durationMs?: number;
+}
 export interface RequestTrace {
   key: string;
   requestId: string;
@@ -112,6 +178,9 @@ export interface RequestTrace {
   missingStart: boolean;
   transportMs?: number;
   applicationMs?: number;
+  commandMs?: number;
+  engineTimings: EngineTiming[];
+  issues: EventIssue[];
   succeededActions: number;
   observedFailedActions: number;
   observedSkippedActions: number;
@@ -144,6 +213,8 @@ export function groupRequests(events: readonly PanelEvent[]): RequestTrace[] {
         status: 'awaiting',
         push: false,
         missingStart: true,
+        engineTimings: [],
+        issues: [],
         succeededActions: 0,
         observedFailedActions: 0,
         observedSkippedActions: 0,
@@ -153,6 +224,26 @@ export function groupRequests(events: readonly PanelEvent[]): RequestTrace[] {
     }
     trace.events.push(event);
     trace.lastIndex = event.index;
+    const issue = eventIssue(event);
+    if (issue) trace.issues.push(issue);
+    const engineTiming: Pick<EngineTiming, 'kind' | 'label'> | undefined =
+      event.kind === 'engine.request.completed'
+        ? { kind: 'request', label: 'Engine request' }
+        : event.kind === 'engine.planner.completed'
+          ? { kind: 'planning', label: 'Planning' }
+          : event.kind === 'engine.stage.completed' ||
+              event.kind === 'engine.stage.failed'
+            ? {
+                kind: 'stage',
+                label: `Stage: ${text(event.metadata.stage) ?? 'Not reported'}`,
+              }
+            : undefined;
+    if (engineTiming)
+      trace.engineTimings.push({
+        eventKey: event.key,
+        ...engineTiming,
+        durationMs: numeric(event.metadata.durationMs),
+      });
     if (event.kind === 'client.request.started') {
       trace.missingStart = false;
       const reasons = list(
@@ -177,10 +268,15 @@ export function groupRequests(events: readonly PanelEvent[]): RequestTrace[] {
     }
     if (event.kind === 'client.request.failed')
       trace.transportMs = numeric(event.metadata.durationMs);
+    if (
+      event.kind === 'client.response.applied' ||
+      event.kind === 'client.response.failed'
+    )
+      trace.applicationMs = numeric(event.metadata.durationMs);
     if (event.kind === 'client.command.completed') {
       const elapsed = numeric(event.metadata.durationMs);
       if (elapsed !== undefined)
-        trace.applicationMs = (trace.applicationMs ?? 0) + elapsed;
+        trace.commandMs = (trace.commandMs ?? 0) + elapsed;
     }
     if (event.kind === 'client.action.completed') {
       if (event.metadata.outcome === 'succeeded') trace.succeededActions++;

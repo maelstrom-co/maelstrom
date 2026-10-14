@@ -278,6 +278,7 @@ export class ActionManager {
               result: ok(undefined),
               duration: 0,
               skipped: true,
+              errorCategory: 'readiness' as const,
             }));
           }
 
@@ -409,6 +410,7 @@ export class ActionManager {
           result: ok(undefined),
           duration: 0,
           skipped: true,
+          errorCategory: 'readiness',
         });
         continue;
       }
@@ -425,10 +427,12 @@ export class ActionManager {
           result: ok(undefined),
           duration: 0,
           skipped: true,
+          errorCategory: 'application',
         });
         continue;
       }
 
+      let timedOut = false;
       try {
         this.#logger.debug(
           `Executing action "${execution.action}" on instance "${instanceId}"`,
@@ -444,6 +448,9 @@ export class ActionManager {
               handlerResult,
               instanceId,
               execution.action,
+              () => {
+                timedOut = true;
+              },
             )
           : handlerResult;
 
@@ -458,6 +465,7 @@ export class ActionManager {
           action: execution.action,
           result,
           duration,
+          ...(result.ok ? {} : { errorCategory: 'application' as const }),
         });
       } catch (error) {
         const duration = performance.now() - startTime;
@@ -472,6 +480,7 @@ export class ActionManager {
           action: execution.action,
           result: err(toError(error)),
           duration,
+          errorCategory: timedOut ? 'timeout' : 'application',
         });
       }
     }
@@ -492,12 +501,14 @@ export class ActionManager {
     promise: Promise<T>,
     instanceId: InstanceId,
     action: ActionName,
+    onTimeout: () => void,
   ): Promise<T> {
     if (this.#executionTimeoutMs <= 0) return promise;
 
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
     const timeoutPromise = new Promise<never>((_, reject) => {
       timeoutId = setTimeout(() => {
+        onTimeout();
         reject(
           new Error(
             `Action "${action}" on instance "${instanceId}" timed out after ${this.#executionTimeoutMs}ms`,

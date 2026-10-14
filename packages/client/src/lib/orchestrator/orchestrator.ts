@@ -1319,6 +1319,7 @@ export class Orchestrator {
             this.diagnostics.emit(
               operationalKinds.clientResponseFailed,
               {
+                errorCategory: 'application',
                 ...(started === undefined
                   ? {}
                   : { durationMs: performance.now() - started }),
@@ -1590,11 +1591,14 @@ export class Orchestrator {
               {
                 instanceId: action.instanceId,
                 action: action.action,
-                outcome: action.skipped
-                  ? 'skipped'
+                ...(action.skipped
+                  ? { outcome: 'skipped', errorCategory: action.errorCategory }
                   : action.result.ok
-                    ? 'succeeded'
-                    : 'failed',
+                    ? { outcome: 'succeeded' }
+                    : {
+                        outcome: 'failed',
+                        errorCategory: action.errorCategory,
+                      }),
                 durationMs: action.duration,
               },
               () =>

@@ -87,11 +87,34 @@ before executing the response's Actions.
 | Applied | The client completed the response command batch. | Inspect the resulting structure and Action outcomes. |
 | Applied with Action issues | The batch completed with failed or skipped Actions. | Inspect each Action's outcome and readiness evidence. |
 | Failed | The client reported a request or application failure. | Inspect the error; supported details require recording. |
+| Cancelled | The request ended through cancellation. | Inspect its reason; cancellation is separate from failure. |
 | Discarded or abandoned | Work became stale or ended before completion. | Inspect the reported reason and app lifetime. |
 
 An applied outcome does not establish browser paint, animation completion, or
 audible speech. Missing or evicted stages remain partial evidence. Durations use
 the emitting process's clock; server and browser timestamps are independent.
+
+Use **Issue category** to find timeout, transport, validation, readiness,
+application, provider, or unknown problems. **Category not reported** finds
+issue events without a recognized category, including older recordings. The
+filter works in **Requests** and **All events**. A request can contain a failed
+attempt and still finish successfully. Read its final outcome alongside
+**Observed issues**. Category explanations use metadata and need no recording
+or telemetry exporter; full error content still requires explicit recording.
+
+Compare **Request round-trip** with **Client application** to locate delays.
+Round-trip includes the wait for the Engine response. Client application covers
+the whole response batch. Open **Timings and evidence coverage** for retained
+command work and individual Engine request, planning, and stage durations.
+Nested timings overlap, so do not add them. Older recordings can report command
+work without whole application time; the panel leaves that time as **Not reported**.
+
+Check the evidence coverage before drawing conclusions. A retained start and
+outcome do not prove that every intermediate event survived. A missing outcome
+can mean work is still running or the outcome is outside the evidence window.
+Dropped or evicted counts cover the evidence source across app instances; they
+do not identify which requests lost events. Voice telemetry source loss and
+exporter delivery health are separate from these DevTools history counts.
 
 The request list, readable details, and JSON pane scroll independently. Use the
 JSON pane's **Tree** presentation to explore collapsible sections, or **Raw JSON**

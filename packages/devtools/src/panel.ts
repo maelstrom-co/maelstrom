@@ -3,6 +3,7 @@ import { render } from 'solid-js/web';
 import { captureImportFileBytes } from './capture-import.js';
 import { createJsonInspector } from './json-inspector.js';
 import {
+  errorCategories,
   type Fields,
   groupRequests,
   identity,
@@ -34,6 +35,7 @@ interface PanelPreferences {
   tab: Tab;
   selected: string;
   query: string;
+  issueCategory?: string;
   requestKey: string;
   expandedRequest?: string;
   eventKey: string;
@@ -248,6 +250,7 @@ function Panel(tools: Devtools): HTMLElement {
     return previous.inspection;
   }
   function switchSource(next: Source): void {
+    preferences.issueCategory = 'all';
     preferences.requestKey = '';
     preferences.eventKey = '';
     preferences.instanceKey = '';
@@ -435,6 +438,27 @@ function Panel(tools: Devtools): HTMLElement {
     preferences.eventKey = '';
     setQuery(filter.value);
   });
+  const issueCategory = element('select');
+  issueCategory.setAttribute('aria-label', 'Issue category');
+  for (const [value, label] of [
+    ['all', 'All issue categories'],
+    ...Object.entries(errorCategories).map(([key, category]) => [
+      key,
+      category.label,
+    ]),
+    ['unreported', 'Category not reported'],
+  ]) {
+    const option = element('option', label);
+    option.value = value;
+    issueCategory.append(option);
+  }
+  issueCategory.addEventListener('change', () => {
+    preferences.issueCategory = issueCategory.value;
+    preferences.requestKey = '';
+    preferences.eventKey = '';
+    pageSize = 50;
+    refresh();
+  });
   const mode = element('select');
   mode.setAttribute('aria-label', 'Activity view');
   const grouped = element('option', 'Requests');
@@ -480,6 +504,7 @@ function Panel(tools: Devtools): HTMLElement {
   toolbar.append(
     mode,
     filter,
+    issueCategory,
     overlayLabel,
     highlightLabel,
     jsonLabel,
@@ -701,7 +726,7 @@ function Panel(tools: Devtools): HTMLElement {
         (status.active || status.count === 0)) ||
       (currentSource === 'imported' && state.imported === null)
     ) {
-      setSource('live');
+      switchSource('live');
       return;
     }
     preferences.open = open();
@@ -875,6 +900,9 @@ function Panel(tools: Devtools): HTMLElement {
     mode.hidden = currentTab !== 'Requests';
     mode.value = preferences.allEvents ? 'events' : 'requests';
     filter.hidden = currentTab !== 'Requests';
+    if (filter.value !== query()) filter.value = query();
+    issueCategory.hidden = currentTab !== 'Requests';
+    issueCategory.value = preferences.issueCategory ?? 'all';
     overlayLabel.hidden =
       currentSource !== 'live' || currentTab === 'Recordings';
     highlightLabel.hidden =
@@ -979,6 +1007,7 @@ function Panel(tools: Devtools): HTMLElement {
       appLabel,
       clientId: selected(),
       query: query(),
+      issueCategory: preferences.issueCategory,
       requestKey: preferences.requestKey,
       eventKey: preferences.eventKey,
       instanceKey: preferences.instanceKey,
@@ -1036,6 +1065,7 @@ function Panel(tools: Devtools): HTMLElement {
       ...inspectionSignature,
       selected(),
       query(),
+      preferences.issueCategory,
       preferences.requestKey,
       preferences.eventKey,
       preferences.instanceKey,

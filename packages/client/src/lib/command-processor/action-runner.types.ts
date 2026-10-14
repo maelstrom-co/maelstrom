@@ -15,6 +15,7 @@ import type {
   InstanceId,
   VesselDefinition,
 } from '@maelstrom-co/protocol';
+import type { TelemetryErrorCategory } from '@maelstrom-co/telemetry';
 
 import type { ActionResult } from './action-result.js';
 
@@ -179,6 +180,8 @@ export interface ActionRecord {
   result: ActionResult;
   duration: number;
   skipped?: boolean;
+  /** Producer-known cause of skipped or failed work; omitted when unavailable. */
+  errorCategory?: TelemetryErrorCategory;
 }
 
 /**

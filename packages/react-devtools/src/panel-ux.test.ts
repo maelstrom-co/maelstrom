@@ -8,6 +8,7 @@ import {
 import {
   ActionName,
   defineVessel,
+  err,
   InstanceId,
   ok,
   SessionId,
@@ -84,6 +85,507 @@ function collector() {
   cleanups.push(() => tools.dispose());
   return tools;
 }
+
+test('request timings distinguish whole application, command work, and nested Engine durations', async () => {
+  const tools = collector();
+  const { client } = await clientFor(tools);
+  tools.clear();
+  for (const [kind, metadata] of [
+    ['client.request.started', {}],
+    [
+      'engine.stage.completed',
+      { stage: 'plan', durationMs: 18, outcome: 'succeeded' },
+    ],
+    ['engine.planner.completed', { durationMs: 20, outcome: 'succeeded' }],
+    ['engine.request.completed', { durationMs: 25, outcome: 'succeeded' }],
+    ['client.response.received', { source: 'request', durationMs: 40 }],
+    ['client.command.completed', { durationMs: 8 }],
+    [
+      'client.response.applied',
+      { durationMs: 12, actionFailures: 0, skippedActions: 0 },
+    ],
+  ] as const)
+    client.diagnostics.emitDiagnostic(kind, metadata, undefined, 'timed');
+  const { shadow } = mount(tools);
+  const content = shadow.querySelector('.content-pane')!;
+  const facts = Object.fromEntries(
+    Array.from(content.querySelectorAll('dl > div')).map((item) => [
+      item.querySelector('dt')?.textContent,
+      item.querySelector('dd')?.textContent,
+    ]),
+  );
+  expect(facts['Request round-trip']).toBe('40 ms');
+  expect(facts['Client application']).toBe('12 ms');
+  expect(facts['Observed command work']).toBe('8 ms');
+  expect(facts['Engine request']).toBe('25 ms');
+  expect(facts.Planning).toBe('20 ms');
+  expect(facts['Stage: plan']).toBe('18 ms');
+  expect(content.textContent).toContain('Nested timings overlap');
+});
+
+test('large timing histories render in batches without hiding summary measurements or changing selection', async () => {
+  const tools = collector();
+  const { client } = await clientFor(tools);
+  tools.clear();
+  for (let index = 0; index < 450; index++)
+    client.diagnostics.emitDiagnostic(
+      'engine.stage.completed',
+      {
+        stage: `step-${index}`,
+        durationMs: index,
+        outcome: 'succeeded',
+      },
+      undefined,
+      'many-timings',
+    );
+  client.diagnostics.emitDiagnostic(
+    'engine.planner.completed',
+    { durationMs: 500, outcome: 'succeeded' },
+    undefined,
+    'many-timings',
+  );
+  client.diagnostics.emitDiagnostic(
+    'engine.request.completed',
+    { durationMs: 600, outcome: 'succeeded' },
+    undefined,
+    'many-timings',
+  );
+  const { shadow, click } = mount(tools);
+  const stages = () =>
+    Array.from(shadow.querySelectorAll('.content-pane dt')).filter((node) =>
+      node.textContent?.startsWith('Stage:'),
+    );
+  expect(stages()).toHaveLength(200);
+  const summary = Object.fromEntries(
+    Array.from(shadow.querySelectorAll('.content-pane dl > div')).map(
+      (node) => [
+        node.querySelector('dt')?.textContent,
+        node.querySelector('dd')?.textContent,
+      ],
+    ),
+  );
+  expect(summary.Planning).toBe('500 ms');
+  expect(summary['Engine request']).toBe('600 ms');
+  expect(shadow.querySelector('.content-pane')?.textContent).toContain(
+    'Showing 200 of 450 stage timings',
+  );
+  const raw = shadow.querySelector('.json-raw')?.textContent;
+  click('Show more stage timings');
+  expect(stages()).toHaveLength(400);
+  expect(shadow.querySelector('.json-raw')?.textContent).toBe(raw);
+  client.diagnostics.emitDiagnostic(
+    'client.request.started',
+    {},
+    undefined,
+    'other',
+  );
+  expect(stages()).toHaveLength(400);
+  click('Show more stage timings');
+  expect(stages()).toHaveLength(450);
+  expect(stages().at(-1)?.textContent).toBe('Stage: step-449');
+  expect(shadow.querySelector('.content-pane')?.textContent).toContain(
+    'Showing 450 of 450 stage timings',
+  );
+  expect(
+    Array.from(
+      shadow.querySelectorAll<HTMLButtonElement>('.content-pane button'),
+    ).find((button) => button.textContent === 'Show more stage timings')
+      ?.disabled,
+  ).toBe(true);
+  expect(tools.getSnapshot().requestActivity).toHaveLength(453);
+  const choose = (label: string) => {
+    const row = Array.from(
+      shadow.querySelectorAll<HTMLButtonElement>('.list-pane button'),
+    ).find((button) => button.textContent?.includes(label));
+    if (!row) throw new Error(`Missing request ${label}`);
+    fireEvent.click(row);
+  };
+  choose('Request other');
+  expect(stages()).toHaveLength(0);
+  choose('Request many-timin');
+  expect(stages()).toHaveLength(200);
+});
+
+test('category filtering finds failed attempts without classifying cancelled requests as failures', async () => {
+  const tools = collector();
+  const { client } = await clientFor(tools);
+  tools.clear();
+  client.diagnostics.emitDiagnostic(
+    'client.request.failed',
+    { outcome: 'failed', errorCategory: 'timeout' },
+    undefined,
+    'timed-out',
+  );
+  client.diagnostics.emitDiagnostic(
+    'client.request.failed',
+    { outcome: 'failed' },
+    undefined,
+    'legacy',
+  );
+  client.diagnostics.emitDiagnostic(
+    'client.request.failed',
+    { outcome: 'cancelled', errorCategory: 'timeout' },
+    undefined,
+    'cancelled',
+  );
+  client.diagnostics.emitDiagnostic(
+    'engine.stage.failed',
+    { outcome: 'failed', errorCategory: 'timeout', stage: 'plan' },
+    undefined,
+    'recovered',
+  );
+  client.diagnostics.emitDiagnostic(
+    'client.response.applied',
+    { actionFailures: 0, skippedActions: 0 },
+    undefined,
+    'recovered',
+  );
+  const { shadow, select } = mount(tools);
+  expect(shadow.querySelector('.content-pane')?.textContent).toContain(
+    'Applied',
+  );
+  expect(shadow.querySelector('.content-pane')?.textContent).toContain(
+    'The operation exceeded its time limit.',
+  );
+  select('Issue category', 'timeout');
+  const list = shadow.querySelector('.list-pane')!;
+  expect(list.textContent).toContain('timed-out');
+  expect(list.textContent).toContain('recovered');
+  expect(list.textContent).not.toContain('cancelled');
+  expect(list.textContent).not.toContain('legacy');
+  select('Issue category', 'unreported');
+  expect(list.textContent).toContain('legacy');
+  expect(list.textContent).not.toContain('timed-out');
+  expect(shadow.querySelector('.content-pane')?.textContent).toContain(
+    'Category not reported',
+  );
+  select('Activity view', 'events');
+  select('Issue category', 'timeout');
+  expect(list.querySelectorAll('button')).toHaveLength(2);
+  expect(shadow.querySelector('.content-pane')?.textContent).toContain(
+    'The operation exceeded its time limit.',
+  );
+});
+
+test('switching evidence clears category filtering before selecting the new source', async () => {
+  const tools = collector();
+  const { client } = await clientFor(tools);
+  tools.clear();
+  tools.startCapture();
+  client.diagnostics.emitDiagnostic(
+    'client.request.failed',
+    { outcome: 'failed', errorCategory: 'timeout' },
+    undefined,
+    'timeout',
+  );
+  client.diagnostics.emitDiagnostic(
+    'client.response.applied',
+    { actionFailures: 0, skippedActions: 0 },
+    undefined,
+    'success',
+  );
+  tools.stopCapture();
+  const { shadow, select } = mount(tools);
+  select('Issue category', 'timeout');
+  expect(shadow.querySelector('.content-pane h3')?.textContent).toBe(
+    'Request timeout',
+  );
+  select('Evidence source', 'recording');
+  expect(
+    shadow.querySelector<HTMLSelectElement>('[aria-label="Issue category"]')
+      ?.value,
+  ).toBe('all');
+  expect(shadow.querySelector('.content-pane h3')?.textContent).toBe(
+    'Request success',
+  );
+});
+
+test('matching issues survive the display limit when the same request stays selected', async () => {
+  const tools = collector();
+  const { client } = await clientFor(tools);
+  tools.clear();
+  for (let index = 0; index < 30; index++)
+    client.diagnostics.emitDiagnostic(
+      'client.command.failed',
+      {},
+      undefined,
+      'many-issues',
+    );
+  for (let index = 0; index < 32; index++)
+    client.diagnostics.emitDiagnostic(
+      'engine.stage.failed',
+      { outcome: 'failed', errorCategory: 'timeout' },
+      undefined,
+      'many-issues',
+    );
+  const { shadow, select } = mount(tools);
+  const issues = () =>
+    Array.from(
+      shadow.querySelectorAll('.content-pane .row-button'),
+      (node) => node.textContent ?? '',
+    );
+  expect(issues()).toHaveLength(30);
+  expect(issues().every((text) => text.includes('Category not reported'))).toBe(
+    true,
+  );
+  select('Issue category', 'timeout');
+  expect(issues()).toHaveLength(30);
+  expect(issues().every((text) => text.includes('Timeout'))).toBe(true);
+  expect(shadow.querySelector('.content-pane')?.textContent).toContain(
+    '2 more issue events',
+  );
+  select('Issue category', 'unreported');
+  expect(issues()).toHaveLength(30);
+  expect(issues().every((text) => text.includes('Category not reported'))).toBe(
+    true,
+  );
+  expect(shadow.querySelector('.content-pane')?.textContent).not.toContain(
+    'more issue events',
+  );
+});
+
+test('actual Action results reach readiness and application filters without guessing legacy categories', async () => {
+  const tools = collector();
+  const client = new Orchestrator(connector(), {
+    vessels: [vessel],
+    readyTimeoutMs: 1,
+  });
+  const detach = tools.attach(client);
+  cleanups.push(() => client.dispose(), detach);
+  await client.connect();
+  tools.clear();
+  await client.enqueueIntent('wait for runner').result;
+  const { shadow, select } = mount(tools);
+  select('Issue category', 'readiness');
+  expect(shadow.querySelector('.content-pane')?.textContent).toContain(
+    'Skipped · Readiness',
+  );
+  client.commandProcessor.registerRunner(instanceId, {});
+  await client.enqueueIntent('missing handler').result;
+  select('Issue category', 'application');
+  expect(shadow.querySelector('.content-pane')?.textContent).toContain(
+    'Skipped · Application',
+  );
+  client.commandProcessor.registerRunner(instanceId, {
+    increment: () => err(new Error('private handler failure')),
+  });
+  await client.enqueueIntent('handler failed').result;
+  select('Issue category', 'all');
+  select('Issue category', 'application');
+  expect(shadow.querySelector('.content-pane')?.textContent).toContain(
+    'Failed · Application',
+  );
+  expect(shadow.textContent).not.toContain('private handler failure');
+  client.diagnostics.emitDiagnostic(
+    'client.action.completed',
+    { outcome: 'skipped' },
+    undefined,
+    'legacy',
+  );
+  select('Issue category', 'unreported');
+  expect(shadow.querySelector('.list-pane')?.textContent).toContain('legacy');
+  expect(shadow.querySelector('.content-pane')?.textContent).toContain(
+    'Category not reported',
+  );
+});
+
+test.each([
+  'close import',
+  'clear recording',
+  'start recording',
+] as const)('automatic source fallback resets filters and selection after %s', async (transition) => {
+  const tools = collector();
+  const { client } = await clientFor(tools);
+  tools.clear();
+  tools.startCapture();
+  client.diagnostics.emitDiagnostic(
+    'client.request.failed',
+    { outcome: 'failed', errorCategory: 'timeout' },
+    undefined,
+    'old-recording',
+  );
+  tools.stopCapture();
+  if (transition === 'close import') tools.importCapture(tools.exportCapture());
+  client.diagnostics.emitDiagnostic(
+    'client.response.applied',
+    { actionFailures: 0, skippedActions: 0 },
+    undefined,
+    'live-success',
+  );
+  const { shadow, select } = mount(tools);
+  select(
+    'Evidence source',
+    transition === 'close import' ? 'imported' : 'recording',
+  );
+  select('Issue category', 'timeout');
+  select('Activity view', 'events');
+  const search = shadow.querySelector<HTMLInputElement>(
+    '[aria-label="Filter diagnostic evidence"]',
+  )!;
+  fireEvent.input(search, { target: { value: 'old-recording' } });
+  expect(
+    shadow.querySelector<HTMLSelectElement>('[aria-label="Evidence source"]')
+      ?.value,
+  ).toBe(transition === 'close import' ? 'imported' : 'recording');
+  if (transition === 'close import') tools.closeImport();
+  else if (transition === 'clear recording') tools.capture.clear();
+  else tools.startCapture();
+  expect(
+    shadow.querySelector<HTMLSelectElement>('[aria-label="Evidence source"]')
+      ?.value,
+  ).toBe('live');
+  expect(
+    shadow.querySelector<HTMLSelectElement>('[aria-label="Issue category"]')
+      ?.value,
+  ).toBe('all');
+  expect(
+    shadow.querySelector<HTMLSelectElement>('[aria-label="Activity view"]')
+      ?.value,
+  ).toBe('requests');
+  expect(search.value).toBe('');
+  expect(shadow.querySelector('.content-pane h3')?.textContent).toBe(
+    'Request live-success',
+  );
+});
+
+test('partial command failures remain inspectable through the unreported category filter', async () => {
+  const tools = collector();
+  const { client } = await clientFor(tools);
+  tools.clear();
+  client.diagnostics.emitDiagnostic(
+    'client.command.failed',
+    { command: 'set_layout' },
+    undefined,
+    'partial-failure',
+  );
+  const { shadow, select } = mount(tools);
+  select('Issue category', 'unreported');
+  expect(shadow.querySelector('.list-pane')?.textContent).toContain(
+    'partial-fa',
+  );
+  expect(shadow.querySelector('.content-pane')?.textContent).toContain(
+    'Category not reported',
+  );
+  select('Activity view', 'events');
+  expect(shadow.querySelector('.list-pane button')).not.toBeNull();
+  expect(shadow.querySelector('.content-pane')?.textContent).toContain(
+    'Error content was not recorded.',
+  );
+});
+
+test('uncategorized connection failures stay visible with recording guidance before any request exists', async () => {
+  const tools = collector();
+  const { client } = await clientFor(tools);
+  tools.clear();
+  let contentReads = 0;
+  client.diagnostics.emit('client.connection.failed', { attempt: 1 }, () => {
+    contentReads++;
+    return { error: 'private connection error' };
+  });
+  const { shadow, select } = mount(tools);
+  select('Activity view', 'events');
+  select('Issue category', 'unreported');
+  expect(shadow.querySelector('.list-pane')?.textContent).toContain(
+    'Engine connection failed',
+  );
+  expect(shadow.querySelector('.content-pane')?.textContent).toContain(
+    'Category not reported',
+  );
+  expect(shadow.querySelector('.content-pane')?.textContent).toContain(
+    'Error content was not recorded.',
+  );
+  expect(shadow.textContent).not.toContain('private connection error');
+  expect(contentReads).toBe(0);
+  select('Issue category', 'transport');
+  expect(shadow.querySelector('.list-pane button')).toBeNull();
+});
+
+test.each([
+  'voice.session.error',
+  'engine.error',
+])('recording guidance for %s does not invent an outcome or promise error text', async (kind) => {
+  const tools = collector();
+  const { client } = await clientFor(tools);
+  tools.clear();
+  client.diagnostics.emitDiagnostic(kind, { generation: 1 });
+  const { shadow, select } = mount(tools);
+  select('Activity view', 'events');
+  expect(shadow.querySelector('.content-pane')?.textContent).toContain(
+    'Event details were not recorded.',
+  );
+  expect(shadow.querySelector('.content-pane')?.textContent).not.toContain(
+    'Failed ·',
+  );
+  tools.startCapture();
+  client.diagnostics.emitDiagnostic(kind, { generation: 2 }, () => ({
+    type: 'session.error',
+    generation: 2,
+  }));
+  tools.stopCapture();
+  select('Evidence source', 'recording');
+  select('Activity view', 'events');
+  const filter = shadow.querySelector<HTMLInputElement>(
+    '[aria-label="Filter diagnostic evidence"]',
+  )!;
+  fireEvent.input(filter, { target: { value: kind } });
+  expect(shadow.querySelector('.content-pane')?.textContent).toContain(
+    'No error message is available in this event.',
+  );
+  expect(shadow.querySelector('.content-pane')?.textContent).not.toContain(
+    'were not recorded',
+  );
+  select('Evidence source', 'live');
+  client.diagnostics.emitDiagnostic(kind, { outcome: 'cancelled' });
+  select('Activity view', 'events');
+  expect(shadow.querySelector('.content-pane')?.textContent).not.toContain(
+    'Start a recording',
+  );
+});
+
+test('evidence coverage separates retained endpoints from source-wide history loss', async () => {
+  const tools = createDevtools({ initialIsOpen: true, maxRequestEvents: 3 });
+  cleanups.push(() => tools.dispose());
+  const { client } = await clientFor(tools);
+  tools.clear();
+  client.diagnostics.emitDiagnostic(
+    'client.request.started',
+    {},
+    undefined,
+    'partial',
+  );
+  const { shadow } = mount(tools);
+  const content = () =>
+    shadow.querySelector('.content-pane')?.textContent ?? '';
+  expect(content()).toContain('No terminal client outcome is retained');
+  expect(content()).not.toContain('Start and outcome retained');
+  client.diagnostics.emitDiagnostic(
+    'client.response.applied',
+    { actionFailures: 0, skippedActions: 0 },
+    undefined,
+    'partial',
+  );
+  expect(content()).toContain('Start and outcome retained');
+  client.diagnostics.emitDiagnostic(
+    'engine.stage.completed',
+    { stage: 'plan', outcome: 'succeeded' },
+    undefined,
+    'partial',
+  );
+  client.diagnostics.emitDiagnostic(
+    'engine.request.completed',
+    { outcome: 'succeeded' },
+    undefined,
+    'partial',
+  );
+  expect(content()).toContain(
+    'Partial evidence: the request start is not retained.',
+  );
+  expect(content()).toContain(
+    '1 event dropped or evicted across this evidence source',
+  );
+  expect(content()).not.toContain('Start and outcome retained');
+  expect(content()).toContain('does not identify which requests lost events');
+});
 
 test('uncorrelated tool outcomes remain evidence without inventing a connection', async () => {
   const tools = collector();

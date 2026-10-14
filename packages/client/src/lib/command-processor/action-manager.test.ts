@@ -19,6 +19,68 @@ import type {
 const i1 = InstanceId('instance-1');
 const i2 = InstanceId('instance-2');
 
+it('Action summaries distinguish unavailable runners from missing handlers', async () => {
+  const manager = new ActionManager({ readinessTimeoutMs: 1 });
+  try {
+    const plan = [{ instanceId: i1, action: ActionName('testAction') }];
+    const unavailable = await manager.executeActions(plan);
+    expect(unavailable.actions[0]).toMatchObject({
+      skipped: true,
+      errorCategory: 'readiness',
+    });
+    manager.registerRunner(i1, {});
+    const missingHandler = await manager.executeActions(plan);
+    expect(missingHandler.actions[0]).toMatchObject({
+      skipped: true,
+      errorCategory: 'application',
+    });
+  } finally {
+    manager.dispose();
+  }
+});
+
+it('only the owning execution deadline classifies a timeout', async () => {
+  const manager = new ActionManager({ executionTimeoutMs: 5 });
+  const plan = [{ instanceId: i1, action: ActionName('testAction') }];
+  try {
+    manager.registerRunner(i1, {
+      testAction: () => new Promise<never>(() => {}),
+    });
+    const timed = await manager.executeActions(plan);
+    expect(timed.actions[0].errorCategory).toBe('timeout');
+    const timeoutResult = timed.actions[0].result;
+    if (timeoutResult.ok) throw new Error('Expected execution timeout');
+    manager.registerRunner(i1, {
+      testAction: () => {
+        throw timeoutResult.error;
+      },
+    });
+    expect((await manager.executeActions(plan)).actions[0].errorCategory).toBe(
+      'application',
+    );
+    manager.registerRunner(i1, {
+      testAction: () => err(new Error('Timed out after 5ms')),
+    });
+    expect((await manager.executeActions(plan)).actions[0].errorCategory).toBe(
+      'application',
+    );
+    manager.registerRunner(i1, {
+      testAction: async () => {
+        throw new Error('Async handler failure');
+      },
+    });
+    expect((await manager.executeActions(plan)).actions[0].errorCategory).toBe(
+      'application',
+    );
+    manager.registerRunner(i1, { testAction: () => ok(undefined) });
+    expect(
+      (await manager.executeActions(plan)).actions[0].errorCategory,
+    ).toBeUndefined();
+  } finally {
+    manager.dispose();
+  }
+});
+
 // Mock vessel for testing
 const mockVessel = defineVessel({
   id: 'test',
