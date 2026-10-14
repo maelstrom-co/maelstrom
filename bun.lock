@@ -150,6 +150,7 @@
         "@maelstrom-co/realtime-openai-server": "workspace:*",
         "@maelstrom-co/realtime-protocol": "workspace:*",
         "@maelstrom-co/realtime-vad": "workspace:*",
+        "@maelstrom-co/telemetry": "workspace:*",
         "@playwright/test": "^1.61.1",
         "@tailwindcss/vite": "catalog:",
         "@testing-library/react": "^16.1.0",
@@ -475,6 +476,14 @@
       "dependencies": {
         "@ricky0123/vad-web": "catalog:",
         "onnxruntime-web": "catalog:",
+      },
+    },
+    "packages/telemetry": {
+      "name": "@maelstrom-co/telemetry",
+      "version": "0.1.0-alpha.5",
+      "devDependencies": {
+        "@sinonjs/fake-timers": "catalog:",
+        "@types/sinonjs__fake-timers": "^15.0.1",
       },
     },
     "tools/astro-plugin": {
@@ -1397,6 +1406,8 @@
     "@maelstrom-co/realtime-protocol": ["@maelstrom-co/realtime-protocol@workspace:packages/realtime-protocol"],
 
     "@maelstrom-co/realtime-vad": ["@maelstrom-co/realtime-vad@workspace:packages/realtime-vad"],
+
+    "@maelstrom-co/telemetry": ["@maelstrom-co/telemetry@workspace:packages/telemetry"],
 
     "@maelstrom-co/www": ["@maelstrom-co/www@workspace:apps/www"],
 
@@ -4813,6 +4824,8 @@
     "@maelstrom-co/realtime/@sinonjs/fake-timers": ["@sinonjs/fake-timers@15.4.0", "", { "dependencies": { "@sinonjs/commons": "^3.0.1" } }, "sha512-DsG+8/LscQIQg68J6Ef3dv10u6nVyetYn923s3/sus5eaGfTo1of5WMZSLf0UJc9KDuKPilPH0UDJCjvNbDNCA=="],
 
     "@maelstrom-co/realtime-openai/@sinonjs/fake-timers": ["@sinonjs/fake-timers@15.4.0", "", { "dependencies": { "@sinonjs/commons": "^3.0.1" } }, "sha512-DsG+8/LscQIQg68J6Ef3dv10u6nVyetYn923s3/sus5eaGfTo1of5WMZSLf0UJc9KDuKPilPH0UDJCjvNbDNCA=="],
+
+    "@maelstrom-co/telemetry/@sinonjs/fake-timers": ["@sinonjs/fake-timers@15.4.0", "", { "dependencies": { "@sinonjs/commons": "^3.0.1" } }, "sha512-DsG+8/LscQIQg68J6Ef3dv10u6nVyetYn923s3/sus5eaGfTo1of5WMZSLf0UJc9KDuKPilPH0UDJCjvNbDNCA=="],
 
     "@maplibre/maplibre-gl-style-spec/@mapbox/unitbezier": ["@mapbox/unitbezier@1.0.0", "", {}, "sha512-fqd515fjBmANKGGsQ286E2Wvj/XvDFpGzwJxq4CI6jMQue6Oy04uCKp+JWKF00xRTmk6cEu1jPJ9p3xqH8YWqQ=="],
 

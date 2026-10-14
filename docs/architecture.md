@@ -408,6 +408,13 @@ See the [DevTools guide](https://docs.maelstrom-ai.co/guides/devtools/) for setu
 recording, redaction, and inspection. These tools do not replace the application's
 production telemetry.
 
+`@maelstrom-co/telemetry` defines operational facts and bounded sink delivery for
+browser and server consumers. It has no runtime dependencies. Its fixed field
+allowlist excludes content, identifiers, arbitrary labels, and error text.
+Applications own SDKs and exporters. The package does not attach producers or
+enable remote diagnostics. Its metadata projector reuses selected producer facts
+without depending on diagnostic envelopes or content readers.
+
 ---
 
 ## Package Dependencies
@@ -417,6 +424,7 @@ anything browser-side; a minter and its adapter meet only in the contract layer.
 
 ```
 CONTRACT  protocol ◀───────────── realtime-protocol
+          telemetry (optional operational contract and sink delivery)
              ▲                             ▲
 BROWSER   client ◀── realtime ◀── realtime-openai
              ▲                 ◀── realtime-livekit ──▶ realtime-vad
@@ -432,6 +440,7 @@ WORKER    realtime-livekit-agent
 ### Rationale for the package structure
 
 - **protocol**: Foundation - types and message contract shared by all
+- **telemetry**: optional operational contract and bounded application-owned sink delivery; usable from every layer without browser, framework, or exporter dependencies
 - **realtime-protocol**: the realtime contract leaf — token-grant types, mint-failure taxonomy, wire topics. Depends on nothing but `protocol` and `zod`, so a minter can import it without pulling in a browser SDK
 - **client**: Framework-agnostic client, can be used anywhere
 - **engine**: Server-side only; planner seam, validation and orchestration, with no LLM provider dependency

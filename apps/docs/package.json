@@ -66,7 +66,8 @@
     "typedoc-plugin-markdown": "^4.6.0",
     "typescript": "catalog:",
     "@maelstrom-co/devtools": "workspace:*",
-    "@maelstrom-co/react-devtools": "workspace:*"
+    "@maelstrom-co/react-devtools": "workspace:*",
+    "@maelstrom-co/telemetry": "workspace:*"
   },
   "nx": {
     "implicitDependencies": [
@@ -88,7 +89,8 @@
       "@maelstrom-co/realtime-livekit-server",
       "@maelstrom-co/realtime-livekit-agent",
       "@maelstrom-co/devtools",
-      "@maelstrom-co/react-devtools"
+      "@maelstrom-co/react-devtools",
+      "@maelstrom-co/telemetry"
     ],
     "targets": {
       "build": {

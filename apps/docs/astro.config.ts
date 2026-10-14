@@ -22,6 +22,8 @@ const [connectorsTypeDoc, connectorsTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
 const [protocolTypeDoc, protocolTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
+const [telemetryTypeDoc, telemetryTypeDocSidebarGroup] =
+  createStarlightTypeDocPlugin();
 const [engineTypeDoc, engineTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
 const [plannerLlmTypeDoc, plannerLlmTypeDocSidebarGroup] =
@@ -127,6 +129,7 @@ export default defineConfig({
 - \`@maelstrom-co/react\` — React bindings (createMaelstrom, vessel, Provider, Chart)
 - \`@maelstrom-co/client\` — Framework-agnostic client (Orchestrator, Connectors, ChartManager)
 - \`@maelstrom-co/protocol\` — Shared types, Zod schemas, message contract
+- \`@maelstrom-co/telemetry\` — Opt-in operational facts and bounded application-owned sink delivery
 - \`@maelstrom-co/engine\` — LLM decision engine (createEngine, LLMProvider)
 - \`@maelstrom-co/react-devtools\` — Optional React diagnostics extension (devtools, m.Devtools)
 - \`@maelstrom-co/devtools\` — Optional framework-independent collector, explicit capture, and shared browser panel
@@ -171,6 +174,13 @@ Use the DevTools guide for request, layout, voice, and recording inspection. Aut
             'getting-started/core-concepts',
           ],
           demote: ['community/changelog'],
+        }),
+        telemetryTypeDoc({
+          entryPoints: ['../../packages/telemetry/src/index.ts'],
+          tsconfig: '../../packages/telemetry/tsconfig.lib.json',
+          output: 'reference/telemetry',
+          sidebar: { label: '@maelstrom-co/telemetry', collapsed: true },
+          typeDoc: multiEntryTypeDocOptions,
         }),
         devtoolsTypeDoc({
           entryPoints: ['../../packages/devtools/src/index.ts'],
@@ -492,6 +502,7 @@ Use the DevTools guide for request, layout, voice, and recording inspection. Aut
             clientTypeDocSidebarGroup,
             connectorsTypeDocSidebarGroup,
             protocolTypeDocSidebarGroup,
+            telemetryTypeDocSidebarGroup,
             engineTypeDocSidebarGroup,
             plannerLlmTypeDocSidebarGroup,
             {

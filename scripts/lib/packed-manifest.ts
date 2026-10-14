@@ -27,6 +27,7 @@ export const PACKED_PACKAGE_NAMES = Object.freeze([
   '@maelstrom-co/realtime-protocol',
   '@maelstrom-co/realtime-vad',
   '@maelstrom-co/react-realtime',
+  '@maelstrom-co/telemetry',
 ] as const);
 
 export const MAX_PACKED_TARBALL_BYTES = 50 * 1024 * 1024;

@@ -255,15 +255,16 @@ describe('published Alchemy CLI legacy state reads', () => {
     expectDiagnostics(stderr, ['acquisition', 'lazy', 'listStacks']);
   });
 
-  test.each([
-    'acquisition',
-    'lazy',
-    'read',
-  ] as const)('propagates %s failures without printing a successful state result', async (fail) => {
-    for (const argv of [
-      legacyGet(),
-      ['state', 'stacks', 'state.run.ts', '--profile', 'preview-ci'],
-    ]) {
+  for (const command of ['get', 'stacks'] as const) {
+    test.each([
+      'acquisition',
+      'lazy',
+      'read',
+    ] as const)(`propagates %s failures from ${command} without printing a successful state result`, async (fail) => {
+      const argv =
+        command === 'get'
+          ? legacyGet()
+          : ['state', 'stacks', 'state.run.ts', '--profile', 'preview-ci'];
       const { run } = await fixture(false, true, { diagnostics: true, fail });
       const { stdout, stderr, calls } = await run(argv);
       expect(stdout).not.toContain('workerName');
@@ -274,8 +275,8 @@ describe('published Alchemy CLI legacy state reads', () => {
         fail === 'acquisition' ? ['acquisition'] : ['acquisition', 'lazy'],
       );
       expect(calls).toEqual([]);
-    }
-  });
+    });
+  }
 
   test('reads deployment state with the legacy flag grammar', async () => {
     const { run } = await fixture();
@@ -345,13 +346,17 @@ describe('published Alchemy CLI legacy state reads', () => {
     ]);
   });
 
-  test('uses ambient and env-file profiles when the profile flag is absent', async () => {
+  test('uses the ambient profile when the profile flag is absent', async () => {
     const ambient = await fixture();
     const argv = legacyGet().slice(0, -2);
     expect(JSON.parse((await ambient.run(argv)).stdout).profile).toBe(
       'ambient-profile',
     );
+  });
+
+  test('uses the env-file profile when the profile flag is absent', async () => {
     const dotenv = await fixture();
+    const argv = legacyGet().slice(0, -2);
     expect(
       JSON.parse(
         (await dotenv.run([...argv, '--env-file', 'fixture.env'], true)).stdout,

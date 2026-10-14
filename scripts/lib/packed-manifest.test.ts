@@ -137,6 +137,7 @@ describe('validatePackedManifest policy', () => {
   test.each([
     '@maelstrom-co/devtools',
     '@maelstrom-co/react-devtools',
+    '@maelstrom-co/telemetry',
   ])('rejects a release missing the required %s artifact', (missing) => {
     expect(() =>
       parsePackedManifest(
