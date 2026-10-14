@@ -20,14 +20,27 @@ describe('the Decisions plugin', () => {
       'decisions-select',
       'decisions-actions',
       'decisions-layout',
+      'decisions-select-prose',
     ]);
     const jevModules = jevPlugin.stageModules ?? [];
-    for (const [index, module] of modules.entries()) {
+    for (const [index, module] of modules.slice(0, 3).entries()) {
       expect(module.provider).toBe('Decisions');
       expect(module.requiredEnv).toEqual(['OPENAI_API_KEY']);
       expect(module.stage).toBe(jevModules[index]?.stage ?? '');
       expect(module.variants).toEqual(jevModules[index]?.variants ?? []);
     }
+  });
+
+  test('offers the prose select stage eval on the select module and its variants', () => {
+    const modules = decisionsPlugin.stageModules ?? [];
+    const select = modules.find((module) => module.name === 'decisions-select');
+    const prose = modules.find(
+      (module) => module.name === 'decisions-select-prose',
+    );
+    expect(prose?.provider).toBe('Decisions');
+    expect(prose?.requiredEnv).toEqual(['OPENAI_API_KEY']);
+    expect(prose?.stage).toBe(select?.stage ?? '');
+    expect(prose?.variants).toEqual(select?.variants ?? []);
   });
 
   test('prints the Decisions model and offers no judge, defaults or aliases', () => {

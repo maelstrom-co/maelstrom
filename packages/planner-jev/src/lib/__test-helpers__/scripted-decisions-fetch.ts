@@ -107,7 +107,8 @@ export function scriptedDecisionsFetch(
 
 /**
  * Decodes a Decisions request into the TypeSafe-shaped payload: the state
- * parsed from `input`, predicates as nouls, choices with their options as
+ * parsed from `input` (the text itself when it is not a JSON object, as
+ * under a prose render), predicates as nouls, choices with their options as
  * `criteria` and scores with their levels as the `criteria` array. A
  * description or instruction that renders a JSON object is parsed back, so
  * the payload matches the TypeSafe client's under the default render.
@@ -140,7 +141,7 @@ export function decisionsPayload(request: DecisionsRequest): Payload {
   }
   return {
     model: request.model,
-    state: JSON.parse(request.input),
+    state: unrendered(request.input),
     questions,
   } as unknown as Payload;
 }

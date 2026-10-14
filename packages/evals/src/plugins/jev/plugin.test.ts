@@ -39,7 +39,11 @@ describe('the Jev plugin', () => {
       stage: 'jevSelect',
       provider: 'Jev',
       requiredEnv: ['TYPESAFE_API_KEY', 'JEV_MODEL'],
-      variants: ['gated'],
+      variants: [
+        'gated',
+        'gated-screen-scope',
+        'gated-screen-scope-spelled-out-actions',
+      ],
     });
     expect(jevPlugin.stageModules?.[1]).toMatchObject({
       stage: 'jevActions',

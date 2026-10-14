@@ -26,11 +26,16 @@ export {
   type JevStages,
   type StageDepsOptions,
 } from './lib/planners/jev-stage-planner.js';
+export {
+  buildComposedPairsScreenScopePlanner,
+  type ComposedPairsScreenScopeOptions,
+} from './lib/planners-experimental/composed-pairs-screen-scope.js';
 export { buildJevGatedBatchedPlanner } from './lib/planners-experimental/jev-gated-batched.js';
 export { buildJevGatedStepwisePlanner } from './lib/planners-experimental/jev-gated-stepwise.js';
 export { buildJevUngatedBatchedPlanner } from './lib/planners-experimental/jev-ungated-batched.js';
 export { buildJevUngatedBatchedPerInstancePlanner } from './lib/planners-experimental/jev-ungated-batched-per-instance.js';
 export { buildJevUngatedStepwisePlanner } from './lib/planners-experimental/jev-ungated-stepwise.js';
+export { buildPocScreenScopePlanner } from './lib/planners-experimental/poc-screen-scope.js';
 export {
   type Evaluation,
   intentText,
@@ -38,6 +43,7 @@ export {
   type Question,
   score,
 } from './lib/questions.js';
+export { renderSelectStateAsProse } from './lib/select-state-prose.js';
 export { actionPlanOf } from './lib/stages/action-plan.js';
 export { actionsBatchedPerInstance } from './lib/stages/actions-batched-per-instance.js';
 export { completeLayoutInline } from './lib/stages/complete-layout-inline.js';
@@ -70,6 +76,7 @@ export type {
   ActionPlan2,
   GateAnswer,
   GatedActionPlan,
+  GatedSelection,
   LayoutDecision,
   LayoutSource,
   LayoutStage,
@@ -78,8 +85,16 @@ export type {
 } from './lib/stages/stage-types.js';
 export { actionsStepwise } from './lib/stages-experimental/actions-stepwise.js';
 export { completeLayoutParallel } from './lib/stages-experimental/complete-layout-parallel.js';
+export {
+  layoutComposedPairsAnswerableFractions,
+  withAnswerableFractions,
+} from './lib/stages-experimental/layout-composed-pairs-answerable-fractions.js';
 export { layoutPreset } from './lib/stages-experimental/layout-preset.js';
 export { layoutPresetOrLlm } from './lib/stages-experimental/layout-preset-or-llm.js';
+export {
+  type ScreenScopeOptions,
+  selectGatedScreenScope,
+} from './lib/stages-experimental/select-gated-screen-scope.js';
 export { selectUngated } from './lib/stages-experimental/select-ungated.js';
 export type {
   AnswerRecord,

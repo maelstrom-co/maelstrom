@@ -10,6 +10,7 @@ import {
   withRetry,
 } from '@maelstrom-co/engine';
 import type { AnyTextAdapter } from '@tanstack/ai';
+import type { Ask } from './ask.js';
 import { STAGE_NAME } from './defer.js';
 import { logTurns } from './log-turn.js';
 import { FALLBACK_RETRIES } from './planners/jev-stage-planner.js';
@@ -18,6 +19,7 @@ import { jevLayout } from './stages/jev-layout.js';
 import { jevSelect } from './stages/jev-select.js';
 import { llmComplete } from './stages/llm-complete.js';
 import { createJevDeps, type JevDeps } from './stages/stage-deps.js';
+import type { JevSelection } from './types.js';
 
 export { FALLBACK_RETRIES };
 
@@ -57,16 +59,27 @@ export interface JevPlannerOptions {
   readonly fallback: Stage<Retryable<PlanningInput>, PlannerCandidate>;
 }
 
+/** Stage factories that replace the POC's own in {@link buildJevPlanner}. */
+export interface PocStageOverrides {
+  /** The select stage in place of `jevSelect`. Its selection feeds `jevActions` unchanged. */
+  readonly select?: (ask: Ask) => Stage<PlanningInput, JevSelection>;
+}
+
 /**
  * The frozen POC composition (select, actions, layout and the completion
  * call, with the LLM fallback) over `deps`, whose `ask` may be any
- * provider's client. Stages are named for `StageContext.instrument`.
- * {@link jevPlanner} is this with the TypeSafe client.
+ * provider's client, with any stage in `overrides` in place of the POC's
+ * own. Stages are named for `StageContext.instrument`. {@link jevPlanner}
+ * is this with the TypeSafe client and no overrides.
  */
-export function buildJevPlanner(deps: JevDeps): Planner {
+export function buildJevPlanner(
+  deps: JevDeps,
+  overrides: PocStageOverrides = {},
+): Planner {
+  const select = overrides.select ?? jevSelect;
   return withFallback(
     pipeline(
-      named(STAGE_NAME.jevSelect, jevSelect(deps.ask)),
+      named(STAGE_NAME.jevSelect, select(deps.ask)),
       named(STAGE_NAME.jevActions, jevActions(deps.ask)),
       named(STAGE_NAME.jevLayout, jevLayout(deps.ask)),
       named(STAGE_NAME.llmComplete, llmComplete(deps.llm)),

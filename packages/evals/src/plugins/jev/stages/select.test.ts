@@ -16,6 +16,7 @@ import { typesafeClientBuilder } from '../client-builder.js';
 import { typesafeSettings } from '../typesafe-settings.js';
 import {
   renderGateErrorsSection,
+  renderSelectionSection,
   type SelectModule,
   type SelectTurnDetail,
   selectModuleWith,
@@ -25,6 +26,12 @@ const QUIET_GATES = {
   'gate/needsActions': 0.1,
   'gate/generatedContent': 0.1,
   'gate/spatial': 0.9,
+};
+
+const SWAP_SELECTION = {
+  'view/map-main': 'keep',
+  'view/weather-main': 'hide',
+  'view/tasks-main': 'hide',
 };
 
 async function run(
@@ -82,6 +89,7 @@ describe('select stage eval', () => {
     const { records, payloads } = await run(
       ['swap'],
       conversation({
+        select: SWAP_SELECTION,
         gates: { ...QUIET_GATES, 'gate/needsActions': 0.9 },
       }),
     );
@@ -104,10 +112,149 @@ describe('select stage eval', () => {
     });
   });
 
+  test('fails a turn whose selection hides an instance the scenario keeps visible', async () => {
+    const { records } = await run(
+      ['show-hidden'],
+      conversation({
+        select: { 'view/map-main': 'keep', 'view/weather-main': 'hide' },
+        gates: { ...QUIET_GATES, 'gate/spatial': 0.1 },
+      }),
+    );
+    const [record] = records;
+    expect(record?.outcome).toBe('fail');
+    expect(record?.failures).toEqual([
+      'Selected visible: expected ["calendar-main","map-main","tasks-main","weather-main"], received ["calendar-main","map-main","tasks-main"]',
+    ]);
+    expect(record?.detail?.selection).toEqual({
+      expectedVisible: [
+        'calendar-main',
+        'map-main',
+        'tasks-main',
+        'weather-main',
+      ],
+      visible: ['calendar-main', 'map-main', 'tasks-main'],
+      pass: false,
+    });
+  });
+
+  test('records the selected visible instances of a turn whose selection matches', async () => {
+    const { records } = await run(
+      ['show-hidden'],
+      conversation({
+        select: { 'view/map-main': 'keep' },
+        gates: { ...QUIET_GATES, 'gate/spatial': 0.1 },
+      }),
+    );
+    const [record] = records;
+    expect(record?.outcome).toBe('pass');
+    expect(record?.detail?.selection).toEqual({
+      expectedVisible: [
+        'calendar-main',
+        'map-main',
+        'tasks-main',
+        'weather-main',
+      ],
+      visible: ['calendar-main', 'map-main', 'tasks-main', 'weather-main'],
+      pass: true,
+    });
+  });
+
+  test('reports selection accuracy per variant, and every wrong visible set', async () => {
+    const wrong = await run(
+      ['show-hidden'],
+      conversation({
+        select: { 'view/map-main': 'keep', 'view/weather-main': 'hide' },
+        gates: { ...QUIET_GATES, 'gate/spatial': 0.1 },
+      }),
+    );
+    const right = await run(
+      ['swap'],
+      conversation({ select: SWAP_SELECTION, gates: QUIET_GATES }),
+    );
+    const deferred = await run(
+      ['swap'],
+      conversation({ select: { scope: 'ambiguous' }, gates: QUIET_GATES }),
+    );
+    const section = renderSelectionSection(
+      [...wrong.records, ...right.records, ...deferred.records],
+      ['gated'],
+    );
+    expect(section).toContain('| gated | 3 | 1 | 1 | 1 |');
+    expect(section).toContain(
+      '| show-hidden | development | gated | 1 | calendar-main, map-main, tasks-main, weather-main | calendar-main, map-main, tasks-main |',
+    );
+    expect(section).toContain(
+      '| swap | development | gated | 1 | calendar-main, map-main | deferred jevSelect/scope_ambiguous |',
+    );
+  });
+
+  test('runs the screen scope variant, which keeps the untargeted widgets of an additive request', async () => {
+    const transport = scriptedFetch(
+      conversation({
+        select: {
+          screen: 'adds_or_adjusts',
+          'view/map-main': 'keep',
+          'view/weather-main': 'hide',
+        },
+        gates: { ...QUIET_GATES, 'gate/spatial': 0.1 },
+      }),
+    );
+    const module = selectModuleWith({
+      client: typesafeClientBuilder(
+        typesafeSettings({
+          apiKey: 'typesafe-test-key',
+          model: TEST_MODEL,
+          fetch: transport.fetch,
+        }),
+      ),
+    });
+    expect(Object.keys(module.variants)).toEqual([
+      'gated',
+      'gated-screen-scope',
+      'gated-screen-scope-spelled-out-actions',
+    ]);
+    const [record] = (await runStageEval(module, {
+      scenarios: selectScenarios('all', ['show-hidden']),
+      variants: ['gated-screen-scope'],
+      repeats: 1,
+    })) as StageTurnRecord<SelectTurnDetail>[];
+    expect(Object.keys(transport.calls[0]?.questions ?? {})).toContain(
+      'screen',
+    );
+    expect(record?.outcome).toBe('pass');
+    expect(record?.detail?.selection?.visible).toEqual([
+      'calendar-main',
+      'map-main',
+      'tasks-main',
+      'weather-main',
+    ]);
+  });
+
+  test('judges only the gates of a scenario that expects no visible set', async () => {
+    const [swap] = selectScenarios('all', ['swap']);
+    if (swap === undefined) throw new Error('no swap scenario');
+    const { visible: _, ...expected } = swap.expected;
+    const { records } = await runOn(
+      [{ ...swap, expected }],
+      conversation({
+        select: {
+          'view/map-main': 'keep',
+          'view/weather-main': 'keep',
+          'view/tasks-main': 'keep',
+        },
+        gates: QUIET_GATES,
+      }),
+    );
+    const [record] = records;
+    expect(record?.outcome).toBe('pass');
+    expect(record?.failures).toEqual([]);
+    expect(record?.detail?.selection).toBeUndefined();
+  });
+
   test('passes when every expected gate matches', async () => {
     const { records } = await run(
       ['swap'],
-      conversation({ gates: QUIET_GATES }),
+      conversation({ select: SWAP_SELECTION, gates: QUIET_GATES }),
     );
     expect(records[0]?.outcome).toBe('pass');
     expect(records[0]?.detail?.deferral).toBeUndefined();
@@ -124,6 +271,7 @@ describe('select stage eval', () => {
     expect(record?.outcome).toBe('fail');
     expect(record?.failures).toEqual([
       'generatedContent: expected no, answered yes (p=0.90)',
+      'Selected visible: no selection, the stage deferred jevSelect/scope_unsupported',
     ]);
     expect(record?.detail?.deferral).toBe('jevSelect/scope_unsupported');
     expect(Object.keys(record?.detail?.gates ?? {})).toEqual([
@@ -145,6 +293,7 @@ describe('select stage eval', () => {
     expect(record?.outcome).toBe('fail');
     expect(record?.failures).toEqual([
       'dependsOnScreen: expected no, answered yes (p=0.90)',
+      'Selected visible: no selection, the stage deferred jevSelect/screen_content_unavailable',
     ]);
     expect(record?.detail?.deferral).toBe(
       'jevSelect/screen_content_unavailable',
@@ -219,7 +368,10 @@ describe('select stage eval', () => {
       conversation({ select: { scope: 'ambiguous' }, gates: QUIET_GATES }),
     );
     const [record] = records;
-    expect(record?.outcome).toBe('pass');
+    expect(record?.outcome).toBe('fail');
+    expect(record?.failures).toEqual([
+      'Selected visible: no selection, the stage deferred jevSelect/scope_ambiguous',
+    ]);
     expect(record?.detail?.deferral).toBe('jevSelect/scope_ambiguous');
     expect(Object.keys(record?.detail?.gates ?? {})).toEqual([
       'needsActions',
@@ -243,11 +395,17 @@ describe('select stage eval', () => {
   test('lists the misses of one gate by rising probability', async () => {
     const high = await run(
       ['swap'],
-      conversation({ gates: { ...QUIET_GATES, 'gate/needsActions': 0.9 } }),
+      conversation({
+        select: SWAP_SELECTION,
+        gates: { ...QUIET_GATES, 'gate/needsActions': 0.9 },
+      }),
     );
     const low = await run(
       ['swap'],
-      conversation({ gates: { ...QUIET_GATES, 'gate/needsActions': 0.6 } }),
+      conversation({
+        select: SWAP_SELECTION,
+        gates: { ...QUIET_GATES, 'gate/needsActions': 0.6 },
+      }),
     );
     const section = renderGateErrorsSection(
       [...high.records, ...low.records],
