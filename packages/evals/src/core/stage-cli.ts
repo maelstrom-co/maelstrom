@@ -14,11 +14,14 @@ const WORKSPACE_ROOT = resolve(import.meta.dir, '../../../..');
  * `--stage`) on the selected scenarios and writes its report. `argv` is
  * `process.argv`. Exits with 1 on a usage error and 2 when the module's
  * environment variables are missing.
+ *
+ * @throws {Error} When two of `modules` share a name, before reading `argv`.
  */
 export async function runStageEvalCli(
   modules: readonly RegisteredStageEval[],
   argv: readonly string[],
 ): Promise<void> {
+  assertUniqueStageModules(modules);
   const { values: parsed } = parseArgs({
     args: argv.slice(2),
     options: {
@@ -126,6 +129,23 @@ export async function runStageEvalCli(
     stage.reportSections(records, variants),
   );
   console.log(`Report written to ${out}/report.md`);
+}
+
+/**
+ * Refuses a registry where two stage modules share a `--stage` name, since
+ * the CLI would silently run only the first.
+ *
+ * @throws {Error} Naming the first name registered twice.
+ */
+export function assertUniqueStageModules(
+  modules: readonly RegisteredStageEval[],
+): void {
+  const seen = new Set<string>();
+  for (const module of modules) {
+    if (seen.has(module.name))
+      throw new Error(`stage module ${module.name} is registered twice`);
+    seen.add(module.name);
+  }
 }
 
 function describe(

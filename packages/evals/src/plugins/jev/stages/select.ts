@@ -7,7 +7,6 @@ import {
 } from '@maelstrom-co/engine';
 import {
   type Ask,
-  createTypeSafeClient,
   type GateAnswer,
   readGateAnswers,
   SELECTION_GATES,
@@ -22,12 +21,13 @@ import type {
   StageEvalModule,
   StageTurnRecord,
 } from '../../../core/stage-eval.js';
-import { expectedGateAnswers } from '../gold-inputs.js';
 import {
-  TYPESAFE_ENV,
-  type TypeSafeSettings,
-  typesafeSettings,
-} from '../typesafe-settings.js';
+  askRecordingState,
+  type ClientBuilder,
+  typesafeClientBuilder,
+} from '../client-builder.js';
+import { expectedGateAnswers } from '../gold-inputs.js';
+import { typesafeSettings } from '../typesafe-settings.js';
 
 /** What the gated select stage decided on one turn: every gate answer, and its deferral if it deferred. */
 export interface GateReading {
@@ -46,7 +46,7 @@ export interface SelectTurnDetail {
   readonly deferral?: string;
 }
 
-/** What every select stage variant runs on: the TypeSafe client of the turn. */
+/** What every select stage variant runs on: the provider client of the turn. */
 export interface SelectDeps {
   readonly ask: Ask;
 }
@@ -73,8 +73,10 @@ export type SelectModule = StageEvalModule<
 
 /** What {@link selectModuleWith} takes. */
 export interface SelectModuleOptions {
-  /** TypeSafe settings; the environment's when absent. */
-  readonly typesafe?: TypeSafeSettings;
+  /** The provider client; TypeSafe on the environment's settings when absent. */
+  readonly client?: ClientBuilder;
+  /** The `--stage` name; `select` when absent. */
+  readonly name?: string;
 }
 
 /**
@@ -91,26 +93,17 @@ export interface SelectModuleOptions {
 export function selectModuleWith(
   options: SelectModuleOptions = {},
 ): SelectModule {
-  const typesafe = options.typesafe ?? typesafeSettings();
+  const client = options.client ?? typesafeClientBuilder(typesafeSettings());
   return {
-    name: 'select',
+    name: options.name ?? 'select',
     stage: STAGE_NAME.jevSelect,
-    provider: 'Jev',
-    requiredEnv: TYPESAFE_ENV,
+    provider: client.provider,
+    requiredEnv: client.requiredEnv,
     variants: SELECT_VARIANTS,
-    makeDeps: (onCall) => ({
-      ask: (stage, evaluation, ctx) =>
-        createTypeSafeClient({
-          ...typesafe(),
-          onCall: (call) => {
-            const recorded = { ...call, state: evaluation.state };
-            onCall(recorded);
-          },
-        })(stage, evaluation, ctx),
-    }),
+    makeDeps: (onCall) => ({ ask: askRecordingState(client, onCall) }),
     configure: async () => ({
       module: selectModuleWith(options),
-      meta: { jevModel: typesafe().model, inputs: 'scenario request' },
+      meta: { ...client.meta(), inputs: 'scenario request' },
     }),
     prepare: async (scenario, ctx) =>
       Object.keys(judgedGates(scenario)).length === 0
@@ -123,7 +116,7 @@ export function selectModuleWith(
   };
 }
 
-/** {@link selectModuleWith} on the environment's TypeSafe settings. */
+/** {@link selectModuleWith} on TypeSafe with the environment's settings. */
 export const selectModule: SelectModule = selectModuleWith();
 
 /** Scores one turn's gate answers against `scenario` (see {@link selectModuleWith}). */

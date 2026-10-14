@@ -3,7 +3,6 @@ import {
   type AnswerRecord,
   type Ask,
   type ComposedPairsRecord,
-  createTypeSafeClient,
   type GateAnswer,
   type GatedActionPlan,
   type LayoutDecision,
@@ -25,6 +24,11 @@ import type { Scenario } from '../../../core/scenarios.js';
 import { scoreLayout } from '../../../core/score.js';
 import type { Judgement, StageEvalModule } from '../../../core/stage-eval.js';
 import { jevArms } from '../arms.js';
+import {
+  askRecordingState,
+  type ClientBuilder,
+  typesafeClientBuilder,
+} from '../client-builder.js';
 import { goldInputs, layoutDeferralGoldInputs } from '../gold-inputs.js';
 import {
   renderArrangementNotAskedSection,
@@ -39,11 +43,7 @@ import {
   loadRecordedSpatialSignal,
   type RecordedSpatialSignal,
 } from '../recorded-spatial.js';
-import {
-  TYPESAFE_ENV,
-  type TypeSafeSettings,
-  typesafeSettings,
-} from '../typesafe-settings.js';
+import { typesafeSettings } from '../typesafe-settings.js';
 
 /** A layout decision as some stages return it, with the composed-pairs record. */
 export type LayoutOutput = LayoutDecision & {
@@ -70,7 +70,7 @@ export interface LayoutTurnDetail {
   readonly arrangementNotAsked?: { readonly changed: boolean };
 }
 
-/** What every layout stage variant runs on: the TypeSafe client of the turn. */
+/** What every layout stage variant runs on: the provider client of the turn. */
 export interface LayoutDeps {
   readonly ask: Ask;
 }
@@ -114,14 +114,32 @@ export const EXPECTED_UNSTATED_LAYOUT_DEFERRAL = 'jevLayout/spatial_not_stated';
 
 /** Where {@link layoutModuleWith} takes the stage's client and spatial gate from. */
 export interface LayoutModuleOptions {
-  /** TypeSafe settings for every turn's client; the environment's when absent. */
-  readonly typesafe?: TypeSafeSettings;
+  /** The provider client of every turn; TypeSafe on the environment's settings when absent. */
+  readonly client?: ClientBuilder;
+  /** The `--stage` name; `layout` when absent. */
+  readonly name?: string;
+  /** The arms `--spatial-records-arm` accepts; {@link JEV_SPATIAL_RECORDS_ARMS} when absent. */
+  readonly spatialRecordsArms?: SpatialRecordsArms;
   /**
    * The spatial gate a live planner answered, per scenario turn; a turn it
    * holds no gate for keeps the gold gate. Every gate is gold when absent.
    */
   readonly spatialSignal?: RecordedSpatialSignal;
 }
+
+/** The arms whose recorded spatial gates `--spatial-records-arm` may name. */
+export interface SpatialRecordsArms {
+  /** Every arm name the flag accepts. */
+  readonly names: () => readonly string[];
+  /** The arm read when the flag is absent. */
+  readonly fallback: string;
+}
+
+/** Every Jev arm, read by default from the composed pairs arm. */
+export const JEV_SPATIAL_RECORDS_ARMS: SpatialRecordsArms = {
+  names: () => jevArms(typesafeSettings()).map((arm) => arm.name),
+  fallback: DEFAULT_SPATIAL_RECORDS_ARM,
+};
 
 /** The module {@link layoutModuleWith} builds. */
 export type LayoutModule = StageEvalModule<
@@ -149,23 +167,16 @@ export function layoutModuleWith(
   options: LayoutModuleOptions = {},
 ): LayoutModule {
   const { spatialSignal } = options;
-  const typesafe = options.typesafe ?? typesafeSettings();
+  const client = options.client ?? typesafeClientBuilder(typesafeSettings());
+  const spatialRecordsArms =
+    options.spatialRecordsArms ?? JEV_SPATIAL_RECORDS_ARMS;
   return {
-    name: 'layout',
+    name: options.name ?? 'layout',
     stage: STAGE_NAME.jevLayout,
-    provider: 'Jev',
-    requiredEnv: TYPESAFE_ENV,
+    provider: client.provider,
+    requiredEnv: client.requiredEnv,
     variants: LAYOUT_VARIANTS,
-    makeDeps: (onCall) => ({
-      ask: (stage, evaluation, ctx) =>
-        createTypeSafeClient({
-          ...typesafe(),
-          onCall: (call) => {
-            const recorded = { ...call, state: evaluation.state };
-            onCall(recorded);
-          },
-        })(stage, evaluation, ctx),
-    }),
+    makeDeps: (onCall) => ({ ask: askRecordingState(client, onCall) }),
     flags: {
       'spatial-signal': { type: 'string', default: 'gold' },
       'spatial-records': { type: 'string' },
@@ -173,7 +184,7 @@ export function layoutModuleWith(
     },
     configure: async (values, run) => {
       const signal = values['spatial-signal'];
-      const meta = { jevModel: typesafe().model, inputs: 'gold' };
+      const meta = { ...client.meta(), inputs: 'gold' };
       if (
         signal !== 'recorded-live' &&
         (values['spatial-records'] !== undefined ||
@@ -195,9 +206,9 @@ export function layoutModuleWith(
           '--spatial-signal recorded-live needs --spatial-records <records.json of a full planner eval>',
         );
       const arm = String(
-        values['spatial-records-arm'] ?? DEFAULT_SPATIAL_RECORDS_ARM,
+        values['spatial-records-arm'] ?? spatialRecordsArms.fallback,
       );
-      const known = jevArms(typesafe).map((registered) => registered.name);
+      const known = spatialRecordsArms.names();
       if (!known.includes(arm))
         throw new Error(
           `--spatial-records-arm: unknown arm ${arm}; known arms: ${known.join(', ')}`,
@@ -255,13 +266,13 @@ export function layoutModuleWith(
     judge: judgeLayout,
     reportSections: (records, variants) =>
       [
-        renderArrangementNotAskedSection(records, variants),
-        renderComposedPairsSection(records, variants),
+        renderArrangementNotAskedSection(records, variants, client.provider),
+        renderComposedPairsSection(records, variants, client.provider),
       ].flatMap((section) => section ?? []),
   };
 }
 
-/** {@link layoutModuleWith} on the environment's TypeSafe settings, with every gate gold. */
+/** {@link layoutModuleWith} on TypeSafe with the environment's settings, with every gate gold. */
 export const layoutModule: LayoutModule = layoutModuleWith();
 
 /** Scores one layout decision on `input` against `scenario` (see {@link layoutModule}). */

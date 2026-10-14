@@ -6,6 +6,7 @@ import { join, resolve } from 'node:path';
 import { selectScenarios } from '../../core/scenarios.js';
 import { registerStageEval } from '../../core/stage-eval.js';
 import { jevArms } from './arms.js';
+import { typesafeClientBuilder } from './client-builder.js';
 import {
   DEFAULT_SPATIAL_RECORDS_ARM,
   loadRecordedSpatialSignal,
@@ -147,7 +148,9 @@ describe('recorded spatial signal', () => {
 
 describe('the layout stage eval spatial flags', () => {
   const layout = registerStageEval(
-    layoutModuleWith({ typesafe: typesafeSettings({ model: 'test-model' }) }),
+    layoutModuleWith({
+      client: typesafeClientBuilder(typesafeSettings({ model: 'test-model' })),
+    }),
   );
   const run = { scenarios: selectScenarios('all', ['swap']), repeats: 2 };
   const swapGate = { answer: 'yes', probability: 0.9, confidence: 0.9 };

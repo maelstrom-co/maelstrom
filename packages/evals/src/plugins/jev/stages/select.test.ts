@@ -12,6 +12,7 @@ import {
   runStageEval,
   type StageTurnRecord,
 } from '../../../core/stage-eval.js';
+import { typesafeClientBuilder } from '../client-builder.js';
 import { typesafeSettings } from '../typesafe-settings.js';
 import {
   renderGateErrorsSection,
@@ -41,11 +42,13 @@ async function runOn(
 ) {
   const transport = scriptedFetch(script);
   const scripted = selectModuleWith({
-    typesafe: typesafeSettings({
-      apiKey: 'typesafe-test-key',
-      model: TEST_MODEL,
-      fetch: transport.fetch,
-    }),
+    client: typesafeClientBuilder(
+      typesafeSettings({
+        apiKey: 'typesafe-test-key',
+        model: TEST_MODEL,
+        fetch: transport.fetch,
+      }),
+    ),
   });
   const module: SelectModule =
     droppedAnswer === undefined

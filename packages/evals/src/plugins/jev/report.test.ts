@@ -128,7 +128,7 @@ describe('the Jev summary fields', () => {
       '| jevActions latency p50 / p95 (ms) | replayed | n/a |',
     );
     expect(markdown).toContain(
-      '| Jev tokens per turn (input / output) | 3.8 / 0.5 | n/a |',
+      '| Stage tokens per turn (input / output) | 3.8 / 0.5 | n/a |',
     );
     expect(markdown).toContain(
       '| Spatial gate false positives / negatives | n/a (1 spatial, 0 controls) | n/a (0 spatial, 0 controls) |',
@@ -216,7 +216,7 @@ describe('gate errors', () => {
     expect(summary?.arrangementReachedLayout).toEqual({ count: 1, total: 2 });
   });
 
-  test('renders the gate rows and Jev calls per turn', () => {
+  test('renders the gate rows and stage calls per turn', () => {
     const markdown = renderMarkdown(
       summarize(records, plugins),
       {},
@@ -231,7 +231,7 @@ describe('gate errors', () => {
     expect(markdown).toContain(
       '| Arrangement turns reaching jevLayout | 1/2 (50.0%) |',
     );
-    expect(markdown).toContain('| Jev calls per turn | 0.00 |');
+    expect(markdown).toContain('| Stage calls per turn | 0.00 |');
   });
 
   test('decides each gate from its own threshold, not the raw pick', () => {
@@ -269,7 +269,7 @@ describe('gate errors', () => {
 });
 
 describe('grader usage', () => {
-  test('stays out of the arm’s Jev tokens', () => {
+  test('stays out of the arm’s stage tokens', () => {
     const summary = jevOf([
       record({
         scenarioId: 'a',

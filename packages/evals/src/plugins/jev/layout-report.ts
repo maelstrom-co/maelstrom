@@ -143,11 +143,13 @@ const SIZE_RULE = /\b(weightRatio|dominant)\(/;
  * The composed-pairs section: gating routes, hand-off causes, the chosen
  * candidate's rank, pair relations against the scenario's reference tree,
  * how often the reference was among the top candidates, and the median
- * score margin. `undefined` when no variant recorded a composed-pairs turn.
+ * score margin, with the module's calls labelled `provider`. `undefined`
+ * when no variant recorded a composed-pairs turn.
  */
 export function renderComposedPairsSection(
   records: readonly StageTurnRecord<LayoutTurnDetail>[],
   variants: readonly string[],
+  provider: string,
 ): string | undefined {
   const summaries = variants.flatMap(
     (variant) => summarizeComposedPairs(records, variant) ?? [],
@@ -167,7 +169,7 @@ export function renderComposedPairsSection(
     'instances_changed',
   ] as const)
     row(
-      `Route ${route}: turns (Jev calls)`,
+      `Route ${route}: turns (${provider} calls)`,
       (s) => `${s.routes[route].turns} (${s.routes[route].calls})`,
     );
   row('Hand-off: too_many_instances', (s) =>
@@ -219,12 +221,14 @@ export function renderComposedPairsSection(
 /**
  * The turns that ask no arrangement (see
  * `LayoutTurnDetail.arrangementNotAsked`): how many ran per variant, how
- * many changed the layout, and what they cost in Jev calls and tokens.
- * `undefined` when no turn asks no arrangement.
+ * many changed the layout, and what they cost in calls and tokens of the
+ * module's client, labelled `provider`. `undefined` when no turn asks no
+ * arrangement.
  */
 export function renderArrangementNotAskedSection(
   records: readonly StageTurnRecord<LayoutTurnDetail>[],
   variants: readonly string[],
+  provider: string,
 ): string | undefined {
   const turns = records.filter((record) => record.detail?.arrangementNotAsked);
   if (turns.length === 0) return undefined;
@@ -275,11 +279,11 @@ export function renderArrangementNotAskedSection(
       STAGE_RATIO,
     ),
   );
-  row('Jev calls per turn', (own) =>
+  row(`${provider} calls per turn`, (own) =>
     perTurn(own, (record) => record.calls.length, 2),
   );
   row(
-    'Jev tokens per turn (input / output)',
+    `${provider} tokens per turn (input / output)`,
     (own) =>
       `${perTurn(own, tokens('inputTokens'), 0)} / ${perTurn(own, tokens('outputTokens'), 0)}`,
   );
