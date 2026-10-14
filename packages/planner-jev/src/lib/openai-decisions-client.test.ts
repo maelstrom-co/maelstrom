@@ -33,6 +33,7 @@ import {
   type Question,
   score,
 } from './questions.js';
+import type { InvalidReplyReason } from './reply-validation.js';
 
 const KEY = 'decisions-secret-key-value';
 
@@ -186,6 +187,42 @@ describe('the Decisions request', () => {
     });
   });
 
+  test('a render that throws reports transport_error, warns and rejects the call before any fetch', async () => {
+    const thrown = new Error('render failed on secret state');
+    const { ask, calls, recorded, logger, entries } = setup(
+      () => ({ choices: {} }),
+      {
+        render: () => {
+          throw thrown;
+        },
+      },
+    );
+    await expect(ask('jevSelect', evaluation, ctx(logger))).rejects.toBe(
+      thrown,
+    );
+    expect(calls).toHaveLength(0);
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0]).toMatchObject({
+      stage: 'jevSelect',
+      outcome: 'transport_error',
+    });
+    expect(recorded[0]).not.toHaveProperty('usage');
+    const call = entries.find((entry) => entry.msg === 'jev.call');
+    expect(call?.level).toBe('debug');
+    expect(call?.data).toMatchObject({
+      stage: 'jevSelect',
+      outcome: 'transport_error',
+    });
+    const warn = entries.find((entry) => entry.msg === 'jev.provider_failure');
+    expect(warn?.level).toBe('warn');
+    expect(warn?.data).toEqual({
+      stage: 'jevSelect',
+      detail: 'transport threw',
+    });
+    expect(entries.some((entry) => entry.msg === 'jev.defer')).toBe(false);
+    expect(JSON.stringify(entries)).not.toContain('secret');
+  });
+
   test('sends the key only in the Authorization header and defaults to gpt-6-luna', async () => {
     let headers: Headers | undefined;
     let url: unknown;
@@ -248,7 +285,9 @@ describe('recorded live replies', () => {
         logger,
       } = setup(replying(recorded.body));
       const result = await ask('jevLayout', asked, ctx(logger));
-      expect(requests[0]).toEqual(recorded.request);
+      expect(JSON.stringify(requests[0])).toBe(
+        JSON.stringify(recorded.request),
+      );
 
       const refused = REFUSED_FIXTURES[file];
       if (refused !== undefined) {
@@ -384,14 +423,54 @@ describe('reply validation', () => {
     expect(isOk(await ask('jevSelect', evaluation, ctx(logger)))).toBe(true);
   });
 
-  test.each([
-    ['answers that are not an array', (r: Raw) => ({ ...r, answers: {} })],
+  const invalidReplies: readonly (readonly [
+    string,
+    (r: Raw) => unknown,
+    InvalidReplyReason,
+  ])[] = [
+    [
+      'answers that are not an array',
+      (r: Raw) => ({ ...r, answers: {} }),
+      'malformed_json',
+    ],
     [
       'a missing answer',
       (r: Raw) => ({
         ...r,
         answers: r.answers.filter((answer) => answer.name !== 'scope'),
       }),
+      'missing_answer',
+    ],
+    [
+      'a missing answer next to an answer of the wrong kind',
+      (r: Raw) =>
+        replace(
+          {
+            ...r,
+            answers: r.answers.filter(
+              (answer) => answer.name !== 'size/weather-main',
+            ),
+          },
+          'scope',
+          { type: 'predicate', probability: 0.5 } as never,
+        ),
+      'missing_answer',
+    ],
+    [
+      'two faulty answers listed against question order, tagged by the first asked',
+      (r: Raw) => ({
+        ...r,
+        answers: r.answers
+          .map((answer) => {
+            if (answer.name === 'scope')
+              return { ...answer, type: 'predicate', probability: 0.5 };
+            if (answer.name === 'size/weather-main')
+              return { ...answer, probabilities: 'not an array' };
+            return answer;
+          })
+          .reverse(),
+      }),
+      'wrong_type',
     ],
     [
       'an extra answer',
@@ -399,31 +478,38 @@ describe('reply validation', () => {
         ...r,
         answers: [...r.answers, { ...r.answers[0], name: 'extra' }],
       }),
+      'key_mismatch',
     ],
     [
       'a duplicate answer',
       (r: Raw) => ({ ...r, answers: [...r.answers, r.answers[0]] }),
+      'key_mismatch',
     ],
     [
       'an answer without a name',
       (r: Raw) => replace(r, 'scope', { name: 1 as never }),
+      'malformed_json',
     ],
     [
       'a predicate answer to a choice question',
       (r: Raw) =>
         replace(r, 'scope', { type: 'predicate', probability: 0.5 } as never),
+      'wrong_type',
     ],
     [
       'a choice answer to a predicate question',
       (r: Raw) => replace(r, 'gate/needsActions', { type: 'choice' } as never),
+      'wrong_type',
     ],
     [
       'a choice answer to a score question',
       (r: Raw) => replace(r, 'size/weather-main', { type: 'choice' } as never),
+      'wrong_type',
     ],
     [
       'a choice outside the options',
       (r: Raw) => replace(r, 'scope', { choice: 'maybe' } as never),
+      'key_mismatch',
     ],
     [
       'choice probabilities that do not sum to one',
@@ -435,6 +521,7 @@ describe('reply validation', () => {
             { value: 'ambiguous', probability: 0 },
           ],
         } as never),
+      'probability_sum',
     ],
     [
       'a choice without the highest probability',
@@ -446,6 +533,7 @@ describe('reply validation', () => {
             { value: 'ambiguous', probability: 0 },
           ],
         } as never),
+      'not_most_probable',
     ],
     [
       'a choice probability listed twice',
@@ -457,15 +545,18 @@ describe('reply validation', () => {
             { value: 'ambiguous', probability: 0 },
           ],
         } as never),
+      'key_mismatch',
     ],
     [
       'a predicate probability outside [0, 1]',
       (r: Raw) =>
         replace(r, 'gate/needsActions', { probability: 1.2 } as never),
+      'out_of_range',
     ],
     [
       'a score out of range',
       (r: Raw) => replace(r, 'size/weather-main', { score: 2.5 } as never),
+      'out_of_range',
     ],
     [
       'score probabilities over a level that does not exist',
@@ -477,6 +568,7 @@ describe('reply validation', () => {
             { value: 3, label: '3', probability: 1 },
           ],
         } as never),
+      'key_mismatch',
     ],
     [
       'score probabilities keyed by label only',
@@ -488,20 +580,102 @@ describe('reply validation', () => {
             { label: '2', probability: 1 },
           ],
         } as never),
+      'key_mismatch',
     ],
-    ['missing usage', (r: Raw) => ({ ...r, usage: undefined })],
+    [
+      'missing usage',
+      (r: Raw) => ({ ...r, usage: undefined }),
+      'malformed_json',
+    ],
     [
       'non-integral usage',
       (r: Raw) => ({ ...r, usage: { input_tokens: 1.5, output_tokens: 0 } }),
+      'malformed_json',
     ],
-  ])('rejects %s as provider_invalid_reply', async (_name, mutate) => {
-    const { ask, recorded, logger } = setup(replying(mutate(valid())));
+    [
+      'an answer that is not an object',
+      (r: Raw) => ({ ...r, answers: [null, ...r.answers] }),
+      'malformed_json',
+    ],
+    [
+      'an answer of an unknown type',
+      (r: Raw) => replace(r, 'scope', { type: 'text' } as never),
+      'malformed_json',
+    ],
+    [
+      'choice probabilities that are not an array',
+      (r: Raw) =>
+        replace(r, 'scope', { probabilities: 'not an array' } as never),
+      'malformed_json',
+    ],
+    [
+      'a probability entry that is not an object',
+      (r: Raw) =>
+        replace(r, 'scope', {
+          probabilities: [null, { value: 'supported', probability: 1 }],
+        } as never),
+      'malformed_json',
+    ],
+    [
+      'a choice probability keyed by a number',
+      (r: Raw) =>
+        replace(r, 'scope', {
+          probabilities: [
+            { value: 1, probability: 1 },
+            { value: 'unsupported', probability: 0 },
+            { value: 'ambiguous', probability: 0 },
+          ],
+        } as never),
+      'malformed_json',
+    ],
+    [
+      'a predicate probability given as a string',
+      (r: Raw) =>
+        replace(r, 'gate/needsActions', { probability: '0.5' } as never),
+      'malformed_json',
+    ],
+    [
+      'a choice answer without a confidence',
+      (r: Raw) => replace(r, 'scope', { confidence: undefined } as never),
+      'malformed_json',
+    ],
+    [
+      'a choice given as a number',
+      (r: Raw) => replace(r, 'scope', { choice: 1 } as never),
+      'malformed_json',
+    ],
+    [
+      'a score probability given as a string',
+      (r: Raw) =>
+        replace(r, 'size/weather-main', {
+          probabilities: [
+            { value: 0, label: '0', probability: 0 },
+            { value: 1, label: '1', probability: 0 },
+            { value: 2, label: '2', probability: '1' },
+          ],
+        } as never),
+      'malformed_json',
+    ],
+  ];
+
+  test.each(
+    invalidReplies,
+  )('rejects %s as provider_invalid_reply tagged with its reason', async (_name, mutate, reason) => {
+    const { ask, recorded, logger, entries } = setup(replying(mutate(valid())));
     const result = await ask('jevSelect', evaluation, ctx(logger));
     expect(isErr(result) && result.error).toEqual({
       _tag: 'Deferred',
       reason: 'jevSelect/provider_invalid_reply',
     });
     expect(recorded[0]?.outcome).toBe('provider_invalid_reply');
+    expect(
+      entries.find((entry) => entry.msg === 'jev.provider_failure')?.data,
+    ).toEqual({
+      stage: 'jevSelect',
+      reason: 'jevSelect/provider_invalid_reply',
+      detail: `invalid reply (${reason})`,
+      failure: { kind: 'invalid_reply', reason },
+    });
   });
 });
 
@@ -542,10 +716,37 @@ describe('refusals', () => {
     });
   });
 
-  test('defers on the first refused question in question order', async () => {
-    const { ask, logger, entries } = setup(() => ({
+  test('a refusal next to a malformed answer still defers provider_refusal with usage', async () => {
+    const refusing = buildDecisionsReply(payload(evaluation), {
+      refuse: ['view/weather-main'],
+      model: DECISIONS_MODEL,
+    });
+    const reply = {
+      ...refusing,
+      answers: refusing.answers.map((answer) =>
+        answer.name === 'scope'
+          ? { ...answer, probabilities: 'not an array' }
+          : answer,
+      ),
+    };
+    const { ask, recorded, logger } = setup(replying(reply));
+    const result = await ask('jevSelect', evaluation, ctx(logger));
+    expect(isErr(result) && result.error).toEqual({
+      _tag: 'Deferred',
+      reason: 'jevSelect/provider_refusal',
+    });
+    expect(recorded[0]?.outcome).toBe('provider_refusal');
+    expect(recorded[0]?.usage).toEqual({ inputTokens: 11, outputTokens: 0 });
+  });
+
+  test('defers on the first refused question in question order, not reply order', async () => {
+    const refusing = buildDecisionsReply(payload(evaluation), {
       refuse: ['size/weather-main', 'scope'],
-    }));
+      model: DECISIONS_MODEL,
+    });
+    const { ask, logger, entries } = setup(
+      replying({ ...refusing, answers: [...refusing.answers].reverse() }),
+    );
     await ask('jevLayout', evaluation, ctx(logger));
     expect(
       entries.find((entry) => entry.msg === 'jev.defer')?.data?.question,
@@ -767,7 +968,11 @@ describe('the key never leaks', () => {
     const echoing = (async () =>
       new Response(
         JSON.stringify({
-          error: { message: `Incorrect API key provided: ${KEY}` },
+          error: {
+            message: `Incorrect API key provided: ${KEY}`,
+            type: KEY,
+            code: 'invalid_api_key',
+          },
         }),
         { status: 401 },
       )) as unknown as typeof fetch;
@@ -800,5 +1005,9 @@ describe('the key never leaks', () => {
     expect(captured).not.toContain(KEY);
     expect(entries.length).toBeGreaterThan(0);
     expect(events).toHaveLength(1);
+    expect(
+      entries.find((entry) => entry.msg === 'jev.provider_failure')?.data
+        ?.failure,
+    ).toEqual({ kind: 'http', status: 401, errorCode: 'invalid_api_key' });
   });
 });

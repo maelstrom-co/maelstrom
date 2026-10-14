@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join, relative, resolve } from 'node:path';
 
 /**
  * The shared provider call flow and the shared fetch step stay
@@ -9,7 +9,10 @@ import { join } from 'node:path';
  * `@tanstack/ai` test mock or reach the build externals. The call flow never
  * reads the fetch step, so a transport that does not fetch, such as a bridge
  * to a TanStack evaluate adapter, carries none of it. The fetch step reads
- * the call flow for its seam types only.
+ * the call flow for its seam types only. Neither provider client's import
+ * graph, type imports included, reaches the other client, so either can be
+ * replaced or deleted alone. The Decisions client must not reach
+ * `jev-planner.ts` either, because that module builds the TypeSafe client.
  */
 
 const NEUTRAL = [
@@ -94,3 +97,43 @@ describe('import reader', () => {
     ]);
   });
 });
+
+describe('provider client boundary', () => {
+  test.each([
+    ['openai-decisions-client.ts', ['typesafe-client.ts', 'jev-planner.ts']],
+    ['typesafe-client.ts', ['openai-decisions-client.ts']],
+  ])('the import graph of %s, type imports included, never reaches %p', (entry, forbidden) => {
+    const reached = importGraph(join(import.meta.dir, entry));
+    expect(reached).toContain('provider-call.ts');
+    expect(reached.filter((file) => forbidden.includes(file))).toEqual([]);
+  });
+});
+
+function importGraph(entry: string): string[] {
+  const seen = new Set<string>([entry]);
+  const pending = [entry];
+  for (let file = pending.pop(); file !== undefined; file = pending.pop()) {
+    const source = readFileSync(file, 'utf8');
+    const specifiers = [
+      ...[...source.matchAll(IMPORT_STATEMENT)].map(
+        ([, , , specifier]) => specifier,
+      ),
+      ...[...source.matchAll(DYNAMIC_IMPORT)].map(([, specifier]) => specifier),
+    ];
+    for (const specifier of specifiers) {
+      if (specifier === undefined || !specifier.startsWith('.')) continue;
+      const target = resolveModule(dirname(file), specifier);
+      if (target === undefined || seen.has(target)) continue;
+      seen.add(target);
+      pending.push(target);
+    }
+  }
+  return [...seen].map((file) => relative(import.meta.dir, file));
+}
+
+function resolveModule(from: string, specifier: string): string | undefined {
+  const base = resolve(from, specifier.replace(/\.js$/, ''));
+  return [`${base}.ts`, `${base}.tsx`, join(base, 'index.ts')].find((path) =>
+    existsSync(path),
+  );
+}

@@ -110,14 +110,7 @@ export async function postJson({
   }
 }
 
-/**
- * The response body as text, or `undefined` once it exceeds `maxBytes`
- * (256 KB by default) by its declared length or while streaming. A pending
- * read stops as soon as `signal` aborts.
- *
- * @throws {Error} If the body is missing, `signal` aborts or the stream fails.
- */
-export async function readBody(
+async function readBody(
   response: Response,
   signal: AbortSignal,
   maxBytes: number = MAX_RESPONSE_BYTES,

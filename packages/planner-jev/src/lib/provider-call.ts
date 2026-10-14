@@ -170,6 +170,9 @@ export interface ProviderCallOptions {
  * error. A throw after a user abort returns the `CancellationError` instead.
  * Every call logs `jev.call` at debug, emits a `jev.call` instrument event
  * and reaches `onCall`.
+ *
+ * `docs/adr/0004-planner-providers-share-one-call-flow.md` lists when a
+ * TanStack AI evaluate adapter may replace a fetch transport.
  */
 export function createProviderCall(options: ProviderCallOptions): Ask {
   const { label, model, timeoutMs, onCall, logReplies, transport } = options;

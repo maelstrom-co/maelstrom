@@ -7,16 +7,17 @@ import type { Answer, Evaluation, Question, Reply } from './questions.js';
  * Why a provider reply failed validation, one tag per check:
  * - `oversize`: the body exceeds 256 KB by its declared length or while streaming
  * - `malformed_json`: the body is not JSON, or the reply or an answer lacks a
- *   field or has a field of the wrong shape, such as missing answers, a
- *   non-numeric value or usage that is not a non-negative integer
+ *   field or has a field of the wrong shape, such as missing answers, an
+ *   answer without a name, a non-numeric value or usage that is not a
+ *   non-negative integer
  * - `wrong_type`: an answer kind does not match its question's kind
  * - `out_of_range`: a confidence or probability outside [0, 1], or a score
  *   outside its levels
  * - `missing_answer`: an asked question has no answer
  * - `key_mismatch`: an answer to or a refusal of a question that was not
- *   asked, a chosen option or a probability key outside the question's
- *   options or levels, or a score legend that does not echo the levels in
- *   order
+ *   asked, a second answer to the same question, a chosen option or a
+ *   probability key outside the question's options or levels, a probability
+ *   listed twice, or a score legend that does not echo the levels in order
  * - `probability_sum`: the probabilities do not sum to one within 0.02
  * - `not_most_probable`: the chosen option is not the most probable one
  * - `model_echo`: the reply echoes a different model than the one asked
@@ -48,32 +49,9 @@ export function sameKeys(
   );
 }
 
-/** Whether `value` is a finite number in [0, 1]. */
-export function isProbability(value: unknown): value is number {
-  return (
-    typeof value === 'number' &&
-    Number.isFinite(value) &&
-    value >= 0 &&
-    value <= 1
-  );
-}
-
 /** Whether `value` is a non-negative safe integer, such as a token count. */
 export function isCount(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
-}
-
-/**
- * A noul answer from the probability of yes: `yes` from one half up, with
- * its distance from one half scaled to [0, 1] as the confidence.
- */
-export function noulAnswer(probability: number): CallAnswer {
-  return {
-    choice: probability >= 0.5 ? 'yes' : 'no',
-    confidence: Math.abs(2 * probability - 1),
-    probability,
-    probabilities: { yes: probability, no: 1 - probability },
-  };
 }
 
 /**
@@ -264,4 +242,22 @@ function replyAnswer({
 
 function sumsToOne(total: number): boolean {
   return Math.abs(total - 1) <= 0.02;
+}
+
+function isProbability(value: unknown): value is number {
+  return (
+    typeof value === 'number' &&
+    Number.isFinite(value) &&
+    value >= 0 &&
+    value <= 1
+  );
+}
+
+function noulAnswer(probability: number): CallAnswer {
+  return {
+    choice: probability >= 0.5 ? 'yes' : 'no',
+    confidence: Math.abs(2 * probability - 1),
+    probability,
+    probabilities: { yes: probability, no: 1 - probability },
+  };
 }

@@ -1,37 +1,26 @@
-import { cancellationError } from '@maelstrom-co/engine';
-import { err, isOk, ok } from '@maelstrom-co/protocol';
+import { err, isOk, ok, type Result } from '@maelstrom-co/protocol';
+import type { WireAnswer } from '@tanstack/ai';
 
-import type {
-  Ask,
-  AskCall,
-  CallAnswer,
-  CallOutcome,
-  ProviderFailureCode,
-} from './ask.js';
-import { deferAt } from './defer.js';
-import { readBody } from './provider-fetch.js';
+import type { Ask, AskCall } from './ask.js';
 import {
-  type Evaluation,
-  overOptionCap,
-  type Question,
-  type QuestionText,
-  type Usage,
-} from './questions.js';
+  createProviderCall,
+  type ProviderQuestion,
+  type ProviderRequest,
+  type ProviderTransport,
+  type TransportReply,
+  validateClientOptions,
+} from './provider-call.js';
+import { type ErrorFieldsExtractor, postJson } from './provider-fetch.js';
 import {
-  choiceAnswer,
+  type InvalidReplyReason,
   isCount,
-  isProbability,
   isRecord,
-  levelAnswer,
-  noulAnswer,
-  withoutProbabilities,
 } from './reply-validation.js';
 
 /** The default Decisions model. */
 export const DECISIONS_MODEL = 'gpt-6-luna';
 
 const DEFAULT_ENDPOINT = 'https://api.openai.com/v1/decisions';
-const DEFAULT_TIMEOUT_MS = 5000;
 
 /** Connection settings for OpenAI's Decisions endpoint. */
 export interface DecisionsClientOptions {
@@ -74,7 +63,9 @@ export interface DecisionsClientOptions {
  * A refusal of any question defers `provider_refusal` on the first refused
  * question and logs `jev.provider_failure` at warn. A reply that refuses any
  * question is read as a refusal before the completeness and per-answer
- * checks, so its other answers need not be present or valid. A question over
+ * checks, so its other answers need not be present or decode. The reply
+ * must still be well formed, answer only asked questions, each at most once,
+ * and carry integral usage. A question over
  * the option cap defers `option_cap` before any call; a timeout, network
  * failure, non-2xx status or invalid reply defers with the matching
  * `provider_*` code; a user abort returns a `CancellationError`. Every call
@@ -87,154 +78,113 @@ export interface DecisionsClientOptions {
  * @throws {Error} If an option is invalid. The message never contains the key.
  */
 export function createDecisionsClient(options: DecisionsClientOptions): Ask {
-  const config = validateOptions(options);
-  return async (stage, evaluation, ctx) => {
-    const questionIds = Object.keys(evaluation.questions);
-    const started = performance.now();
-    const report = (
-      outcome: CallOutcome,
-      usage?: Usage,
-      answers?: Readonly<Record<string, CallAnswer>>,
-    ) => {
-      const latencyMs = performance.now() - started;
-      ctx.logger.debug('jev.call', {
-        stage,
-        model: config.model,
-        questionIds,
-        latencyMs,
-        outcome,
-        ...(usage && {
-          inputTokens: usage.inputTokens,
-          outputTokens: usage.outputTokens,
-        }),
-      });
-      ctx.instrument.event('jev.call', {
-        'gen_ai.request.model': config.model,
-        ...(usage && {
-          'gen_ai.usage.input_tokens': usage.inputTokens,
-          'gen_ai.usage.output_tokens': usage.outputTokens,
-        }),
-        'maelstrom.stage': stage,
-        'maelstrom.outcome': outcome,
-        'maelstrom.latency_ms': latencyMs,
-        'maelstrom.question_ids': questionIds.join(','),
-      });
-      config.onCall?.({
-        stage,
-        questionIds,
-        latencyMs,
-        outcome,
-        ...(usage && { usage }),
-        ...(answers && { answers }),
-      });
-    };
-    const cancelled = () => {
-      report('cancelled');
-      return err(
-        cancellationError('Decisions call cancelled', ctx.signal?.reason),
-      );
-    };
-    const warn = (code: CallOutcome, detail: string) =>
-      ctx.logger.warn('jev.provider_failure', {
-        stage,
-        reason: `${stage}/${code}`,
-        detail,
-      });
-    const providerFailure = (code: ProviderFailureCode, detail: string) => {
-      report(code);
-      warn(code, detail);
-      return deferAt(ctx, stage, code);
-    };
+  const config = validateClientOptions(
+    { ...options, model: options.model ?? DECISIONS_MODEL },
+    'Decisions',
+    DEFAULT_ENDPOINT,
+  );
+  if (options.render !== undefined && typeof options.render !== 'function')
+    throw new Error('Invalid Decisions option: render must be a function');
+  return createProviderCall({
+    label: 'Decisions',
+    model: config.model,
+    timeoutMs: config.timeoutMs,
+    onCall: config.onCall,
+    logReplies: config.logReplies,
+    transport: decisionsTransport({
+      apiKey: config.apiKey,
+      endpoint: config.endpoint,
+      fetch: config.fetch,
+      render: options.render ?? ((value: unknown) => JSON.stringify(value)),
+    }),
+  });
+}
 
-    const tooLarge = overOptionCap(evaluation);
-    if (tooLarge !== undefined) {
-      report('option_cap');
-      return deferAt(ctx, stage, 'option_cap', tooLarge);
-    }
-    if (ctx.signal?.aborted) return cancelled();
-
-    const timeout = AbortSignal.timeout(config.timeoutMs);
-    const signal = ctx.signal
-      ? AbortSignal.any([ctx.signal, timeout])
-      : timeout;
-    const failed = (code: ProviderFailureCode, detail: string) => {
-      if (ctx.signal?.aborted) return cancelled();
-      if (timeout.aborted)
-        return providerFailure(
-          'provider_timeout',
-          `no reply within ${config.timeoutMs} ms`,
-        );
-      return providerFailure(code, detail);
-    };
-
-    const body = JSON.stringify(
-      decisionsRequest(evaluation, config.model, config.render),
-    );
-    let response: Response;
-    try {
-      response = await config.fetch(config.endpoint, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${config.apiKey}`,
-          'Content-Type': 'application/json',
-        },
+/**
+ * The transport for OpenAI's Decisions endpoint. It sends the state as the
+ * `input` text, nouls as predicates, choices with one value per option key
+ * and scores with one level per score level, labelled `"0"` upwards, with
+ * `render` applied to the state and every non-string question text. A
+ * throwing `render` rejects `send` before anything is sent, so the call is
+ * reported as `transport_error` and rejects with that error.
+ *
+ * It decodes the reply into TanStack wire answers keyed by question id. A
+ * reply whose answers are not an array, whose usage counts are not integral,
+ * or with an answer that is not an object or has no string name is
+ * `malformed_json`. An answer to a question that was not asked, or a second
+ * answer to the same question, is `key_mismatch`. Refused questions are
+ * listed in `refusals`, and once any question is refused the other answers
+ * are kept only where they decode. Otherwise a reply that leaves an asked
+ * question unanswered is `missing_answer`, and the answers are then checked
+ * in question order, whatever order the reply lists them in: an answer of an
+ * unknown type is `malformed_json`, an answer of the wrong kind for its
+ * question is `wrong_type`, probabilities that are not an array of objects,
+ * or a choice probability keyed by a non-string value, are `malformed_json`,
+ * and a repeated probability key or a score probability keyed by anything
+ * but a safe integer is `key_mismatch`. The reply need not echo the model.
+ * An HTTP failure reads its error type and code from OpenAI's error body,
+ * `error.type` and `error.code`.
+ */
+export function decisionsTransport({
+  apiKey,
+  endpoint,
+  fetch,
+  render,
+}: {
+  /** OpenAI API key. Server-side only. */
+  readonly apiKey: string;
+  /** Endpoint URL. */
+  readonly endpoint: string;
+  /** The fetch to send with. */
+  readonly fetch: typeof globalThis.fetch;
+  /** Turns the state and every non-string question text into text. */
+  readonly render: (value: unknown) => string;
+}): ProviderTransport {
+  return {
+    async send(request, signal) {
+      const body = JSON.stringify(decisionsRequest(request, render));
+      const posted = await postJson({
+        fetch,
+        endpoint,
+        apiKey,
         body,
         signal,
+        errorFields: openaiErrorFields,
       });
-    } catch {
-      return failed('provider_network', 'request failed');
-    }
-    if (!response.ok) {
-      void response.body?.cancel().catch(() => undefined);
-      return failed('provider_http', `HTTP ${response.status}`);
-    }
-
-    let raw: unknown;
-    try {
-      const text = await readBody(response, signal);
-      if (text === undefined)
-        return failed('provider_invalid_reply', 'response too large');
-      raw = JSON.parse(text);
-    } catch {
-      return failed('provider_invalid_reply', 'response unreadable');
-    }
-    if (config.logReplies)
-      // Console loggers cut nested objects short; JSON keeps every answer.
-      ctx.logger.debug('jev.reply', {
-        stage,
-        state: JSON.stringify(evaluation.state),
-        questions: JSON.stringify(evaluation.questions),
-        reply: JSON.stringify(raw),
-      });
-    const parsed = parseReply(raw, evaluation);
-    if (parsed === undefined)
-      return failed('provider_invalid_reply', 'reply failed validation');
-    if (ctx.signal?.aborted) return cancelled();
-    if ('refused' in parsed) {
-      report('provider_refusal', parsed.usage);
-      warn('provider_refusal', `refused ${parsed.refused}`);
-      return deferAt(ctx, stage, 'provider_refusal', parsed.refused);
-    }
-    report('ok', parsed.usage, parsed.answers);
-    return ok(withoutProbabilities(parsed));
+      if (!posted.ok) return posted;
+      const decoded = decodeReply(posted.raw, request.questions);
+      if (!isOk(decoded))
+        return {
+          ok: false,
+          failure: { kind: 'invalid_reply', reason: decoded.error },
+          raw: posted.raw,
+        };
+      return { ok: true, reply: { ...decoded.value, raw: posted.raw } };
+    },
   };
 }
 
-type ParsedReply =
-  | { readonly answers: Record<string, CallAnswer>; readonly usage: Usage }
-  | { readonly refused: string; readonly usage: Usage };
+const openaiErrorFields: ErrorFieldsExtractor = (body) =>
+  isRecord(body) && isRecord(body.error)
+    ? { type: body.error.type, code: body.error.code }
+    : {};
+
+const WIRE_KINDS: Readonly<Record<string, ProviderQuestion['type']>> = {
+  predicate: 'noul',
+  choice: 'choice',
+  score: 'score',
+};
 
 function decisionsRequest(
-  evaluation: Evaluation,
-  model: string,
+  request: ProviderRequest,
   render: (value: unknown) => string,
 ) {
   const text = (value: unknown) =>
     typeof value === 'string' ? value : render(value);
   return {
-    model,
-    input: text(evaluation.state),
-    questions: Object.entries(evaluation.questions).map(([name, question]) =>
+    model: request.model,
+    input: text(request.state),
+    questions: Object.entries(request.questions).map(([name, question]) =>
       decisionsQuestion(name, question, text),
     ),
   };
@@ -242,8 +192,8 @@ function decisionsRequest(
 
 function decisionsQuestion(
   name: string,
-  question: Question,
-  text: (value: QuestionText) => string,
+  question: ProviderQuestion,
+  text: (value: unknown) => string,
 ) {
   if (question.type === 'noul')
     return {
@@ -272,10 +222,10 @@ function decisionsQuestion(
   };
 }
 
-function parseReply(
+function decodeReply(
   raw: unknown,
-  evaluation: Evaluation,
-): ParsedReply | undefined {
+  questions: Readonly<Record<string, ProviderQuestion>>,
+): Result<Omit<TransportReply, 'raw'>, InvalidReplyReason> {
   if (
     !isRecord(raw) ||
     !Array.isArray(raw.answers) ||
@@ -283,127 +233,86 @@ function parseReply(
     !isCount(raw.usage.input_tokens) ||
     !isCount(raw.usage.output_tokens)
   )
-    return undefined;
-  const usage: Usage = {
+    return err('malformed_json');
+  const usage = {
     inputTokens: raw.usage.input_tokens,
     outputTokens: raw.usage.output_tokens,
   };
   const byName = new Map<string, Record<string, unknown>>();
-  for (const answer of raw.answers as unknown[]) {
-    if (
-      !isRecord(answer) ||
-      typeof answer.name !== 'string' ||
-      !Object.hasOwn(evaluation.questions, answer.name) ||
-      byName.has(answer.name)
-    )
-      return undefined;
-    byName.set(answer.name, answer);
+  const refusals: string[] = [];
+  for (const entry of raw.answers as unknown[]) {
+    if (!isRecord(entry) || typeof entry.name !== 'string')
+      return err('malformed_json');
+    if (!Object.hasOwn(questions, entry.name) || byName.has(entry.name))
+      return err('key_mismatch');
+    byName.set(entry.name, entry);
+    if (entry.type === 'refusal') refusals.push(entry.name);
   }
-  const ids = Object.keys(evaluation.questions);
-  const refused = ids.find((id) => byName.get(id)?.type === 'refusal');
-  if (refused !== undefined) return { refused, usage };
-  if (byName.size !== ids.length) return undefined;
-
-  const answers: Record<string, CallAnswer> = Object.create(null);
-  for (const [id, question] of Object.entries(evaluation.questions)) {
-    const parsed = parseAnswer(byName.get(id), question);
-    if (parsed === undefined) return undefined;
-    answers[id] = parsed;
+  const asked = Object.keys(questions);
+  if (refusals.length === 0 && asked.some((name) => !byName.has(name)))
+    return err('missing_answer');
+  const answers: Record<string, WireAnswer> = Object.create(null);
+  for (const name of asked) {
+    const entry = byName.get(name);
+    if (entry === undefined || entry.type === 'refusal') continue;
+    const answer = wireAnswer(entry, questions[name] as ProviderQuestion);
+    if (isOk(answer)) answers[name] = answer.value;
+    else if (refusals.length === 0) return answer;
   }
-  return { answers, usage };
+  return ok({ answers, refusals, usage });
 }
 
-function parseAnswer(
-  answer: Record<string, unknown> | undefined,
-  question: Question,
-): CallAnswer | undefined {
-  if (answer === undefined) return undefined;
-  if (question.type === 'noul') {
-    if (answer.type !== 'predicate' || !isProbability(answer.probability))
-      return undefined;
-    return noulAnswer(answer.probability);
-  }
+function wireAnswer(
+  entry: Record<string, unknown>,
+  question: ProviderQuestion,
+): Result<WireAnswer, InvalidReplyReason> {
+  const kind =
+    typeof entry.type === 'string' && Object.hasOwn(WIRE_KINDS, entry.type)
+      ? WIRE_KINDS[entry.type]
+      : undefined;
+  if (kind === undefined) return err('malformed_json');
+  if (kind !== question.type) return err('wrong_type');
+  if (question.type === 'noul')
+    return ok({ type: 'noul', noul: entry.probability as number });
   if (question.type === 'score') {
-    if (answer.type !== 'score') return undefined;
-    const probabilities = probabilityRecord(answer.probabilities, (value) =>
-      Number.isSafeInteger(value) ? String(value) : undefined,
+    const probabilities = probabilityRecord(entry.probabilities, (value) =>
+      Number.isSafeInteger(value) ? ok(String(value)) : err('key_mismatch'),
     );
-    if (probabilities === undefined) return undefined;
-    const level = levelAnswer(
-      answer.score,
-      answer.confidence,
-      probabilities,
-      question.criteria.length,
-    );
-    return isOk(level) ? level.value : undefined;
+    if (!isOk(probabilities)) return probabilities;
+    return ok({
+      type: 'score',
+      score: entry.score as number,
+      confidence: entry.confidence as number,
+      probabilities: probabilities.value,
+      legend: Object.fromEntries(
+        question.criteria.map((level, index) => [String(index), level]),
+      ),
+    });
   }
-  if (answer.type !== 'choice') return undefined;
-  const probabilities = probabilityRecord(answer.probabilities, (value) =>
-    typeof value === 'string' ? value : undefined,
+  const probabilities = probabilityRecord(entry.probabilities, (value) =>
+    typeof value === 'string' ? ok(value) : err('malformed_json'),
   );
-  if (probabilities === undefined) return undefined;
-  const chosen = choiceAnswer(
-    answer.choice,
-    answer.confidence,
-    probabilities,
-    Object.keys(question.criteria),
-  );
-  return isOk(chosen) ? chosen.value : undefined;
+  if (!isOk(probabilities)) return probabilities;
+  return ok({
+    type: 'choice',
+    choice: entry.choice as string,
+    confidence: entry.confidence as number,
+    probabilities: probabilities.value,
+  });
 }
 
 function probabilityRecord(
   entries: unknown,
-  keyOf: (value: unknown) => string | undefined,
-): Record<string, unknown> | undefined {
-  if (!Array.isArray(entries)) return undefined;
-  const record: Record<string, unknown> = Object.create(null);
+  keyOf: (value: unknown) => Result<string, InvalidReplyReason>,
+): Result<Record<string, number>, InvalidReplyReason> {
+  if (!Array.isArray(entries)) return err('malformed_json');
+  const record: Record<string, number> = Object.create(null);
   for (const entry of entries as unknown[]) {
-    if (!isRecord(entry)) return undefined;
+    if (!isRecord(entry)) return err('malformed_json');
     const key = keyOf(entry.value);
-    if (key === undefined || Object.hasOwn(record, key)) return undefined;
-    record[key] = entry.probability;
+    if (!isOk(key)) return key;
+    if (Object.hasOwn(record, key.value)) return err('key_mismatch');
+    record[key.value] = entry.probability as number;
   }
-  return record;
-}
-
-function validateOptions(options: DecisionsClientOptions) {
-  if (typeof options.apiKey !== 'string' || options.apiKey.length === 0)
-    throw new Error(
-      'Invalid Decisions option: apiKey must be a non-empty string',
-    );
-  const model = options.model ?? DECISIONS_MODEL;
-  if (typeof model !== 'string' || model.length === 0)
-    throw new Error(
-      'Invalid Decisions option: model must be a non-empty string',
-    );
-  const endpoint = options.endpoint ?? DEFAULT_ENDPOINT;
-  try {
-    new URL(endpoint);
-  } catch {
-    throw new Error('Invalid Decisions option: endpoint must be a URL');
-  }
-  if (options.fetch !== undefined && typeof options.fetch !== 'function')
-    throw new Error('Invalid Decisions option: fetch must be a function');
-  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0)
-    throw new Error('Invalid Decisions option: timeoutMs must be positive');
-  if (options.onCall !== undefined && typeof options.onCall !== 'function')
-    throw new Error('Invalid Decisions option: onCall must be a function');
-  if (
-    options.logReplies !== undefined &&
-    typeof options.logReplies !== 'boolean'
-  )
-    throw new Error('Invalid Decisions option: logReplies must be a boolean');
-  if (options.render !== undefined && typeof options.render !== 'function')
-    throw new Error('Invalid Decisions option: render must be a function');
-  return {
-    apiKey: options.apiKey,
-    model,
-    endpoint,
-    fetch: options.fetch ?? fetch,
-    timeoutMs,
-    onCall: options.onCall,
-    logReplies: options.logReplies ?? false,
-    render: options.render ?? ((value: unknown) => JSON.stringify(value)),
-  };
+  return ok(record);
 }
