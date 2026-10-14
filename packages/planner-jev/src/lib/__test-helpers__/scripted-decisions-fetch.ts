@@ -2,6 +2,7 @@ import type { AskCall } from '../ask.js';
 import { createDecisionsClient } from '../openai-decisions-client.js';
 import {
   buildReply,
+  failureResponse,
   type Payload,
   type Script,
   type Step,
@@ -47,6 +48,10 @@ export type DecisionsStep =
       readonly scores?: Readonly<Record<string, number>>;
     };
 
+type AnsweringDecisionsStep =
+  | Extract<Step, { readonly choices: unknown }>
+  | Extract<DecisionsStep, { readonly refuse: unknown }>;
+
 /** A {@link Script} whose steps may also refuse questions. */
 export type DecisionsScript = (payload: Payload, call: number) => DecisionsStep;
 
@@ -72,31 +77,18 @@ export function scriptedDecisionsFetch(
     const payload = decisionsPayload(request);
     calls.push(payload);
     const step: DecisionsStep = script(payload, calls.length - 1);
-    if (step === 'hang')
-      return new Promise<Response>((_resolve, reject) => {
-        init?.signal?.addEventListener(
-          'abort',
-          () => reject(new DOMException('aborted', 'AbortError')),
-          { once: true },
-        );
-      });
-    if (step === 'network') throw new TypeError('fetch failed');
-    if (step === 'oversized')
-      return new Response('x'.repeat(256 * 1024 + 1), { status: 200 });
-    if ('status' in step)
-      return new Response('provider error', { status: step.status });
-    if ('body' in step) return new Response(step.body, { status: 200 });
-    if ('reply' in step)
-      return new Response(JSON.stringify(step.reply), { status: 200 });
+    const failing = failureResponse(step, init?.signal);
+    if (failing) return failing;
+    const answering = step as AnsweringDecisionsStep;
     return new Response(
       JSON.stringify(
         buildDecisionsReply(payload, {
-          choices: step.choices ?? {},
-          confidence: step.confidence ?? 1,
+          choices: answering.choices ?? {},
+          confidence: answering.confidence ?? 1,
           model,
-          nouls: step.nouls ?? {},
-          scores: step.scores ?? {},
-          refuse: 'refuse' in step ? step.refuse : [],
+          nouls: answering.nouls ?? {},
+          scores: answering.scores ?? {},
+          refuse: 'refuse' in answering ? answering.refuse : [],
         }),
       ),
       { status: 200, headers: { 'content-type': 'application/json' } },

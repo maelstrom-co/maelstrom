@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import type { Instrument, InstrumentAttributes } from '@maelstrom-co/engine';
-import { isErr, isOk } from '@maelstrom-co/protocol';
+import { err, isErr, isOk, ok, type Result } from '@maelstrom-co/protocol';
 
 import {
   makeContext,
@@ -22,13 +22,20 @@ import {
   type Evaluation,
   MAX_CHOICES,
   noul,
+  type Reply,
   score,
 } from './questions.js';
 import {
+  type InvalidReplyReason,
+  validateWireAnswers,
+  withoutProbabilities,
+} from './reply-validation.js';
+import {
   type CallOutcome,
   createTypeSafeClient,
+  decodeReply,
   type JevCall,
-  validateReply,
+  type TypeSafeClientOptions,
 } from './typesafe-client.js';
 
 const KEY = 'typesafe-secret-key-value';
@@ -83,20 +90,42 @@ function ctx(
   });
 }
 
-describe('validateReply', () => {
+function decodeAndValidate(
+  raw: unknown,
+  asked: Evaluation,
+): Result<Reply, InvalidReplyReason> {
+  const decoded = decodeReply(raw, TEST_MODEL);
+  if (!isOk(decoded)) return decoded;
+  const answers = validateWireAnswers(decoded.value.answers, asked);
+  if (!isOk(answers)) return answers;
+  return ok(
+    withoutProbabilities({
+      answers: answers.value,
+      usage: decoded.value.usage,
+    }),
+  );
+}
+
+function acceptedReply(raw: unknown, asked: Evaluation): Reply {
+  const checked = decodeAndValidate(raw, asked);
+  if (!isOk(checked)) throw new Error(`reply rejected as ${checked.error}`);
+  return checked.value;
+}
+
+describe('decoding and validating a TypeSafe reply', () => {
   const valid = () => buildReply(payload, { 'view/weather-main': 'hide' }, 0.8);
 
   test('accepts a well-formed reply and keeps usage', () => {
-    const reply = validateReply(valid(), evaluation, TEST_MODEL);
-    expect(reply?.answers['view/weather-main']).toEqual({
+    const reply = acceptedReply(valid(), evaluation);
+    expect(reply.answers['view/weather-main']).toEqual({
       choice: 'hide',
       confidence: 0.8,
     });
-    expect(reply?.usage).toEqual({ inputTokens: 11, outputTokens: 2 });
+    expect(reply.usage).toEqual({ inputTokens: 11, outputTokens: 2 });
   });
 
   test('keeps every option probability on a choice answer, out of its spread and JSON', () => {
-    const answer = validateReply(valid(), evaluation, TEST_MODEL)?.answers[
+    const answer = acceptedReply(valid(), evaluation).answers[
       'view/weather-main'
     ];
     expect(answer?.probabilities).toEqual({ keep: 0, hide: 1, delete: 0 });
@@ -107,10 +136,13 @@ describe('validateReply', () => {
     });
   });
 
-  test.each([
+  test.each<
+    [string, (r: ReturnType<typeof valid>) => unknown, InvalidReplyReason]
+  >([
     [
       'a different model',
       (r: ReturnType<typeof valid>) => ({ ...r, model: 'other' }),
+      'model_echo',
     ],
     [
       'a missing question id',
@@ -118,6 +150,7 @@ describe('validateReply', () => {
         ...r,
         answers: { scope: r.answers.scope },
       }),
+      'missing_answer',
     ],
     [
       'an extra question id',
@@ -125,6 +158,7 @@ describe('validateReply', () => {
         ...r,
         answers: { ...r.answers, extra: r.answers.scope },
       }),
+      'key_mismatch',
     ],
     [
       'a choice outside the criteria',
@@ -135,6 +169,7 @@ describe('validateReply', () => {
           scope: { ...r.answers.scope, choice: 'maybe' },
         },
       }),
+      'key_mismatch',
     ],
     [
       'probabilities over the wrong options',
@@ -148,6 +183,7 @@ describe('validateReply', () => {
           },
         },
       }),
+      'key_mismatch',
     ],
     [
       'probabilities that do not sum to one',
@@ -161,6 +197,7 @@ describe('validateReply', () => {
           },
         },
       }),
+      'probability_sum',
     ],
     [
       'a chosen option without the highest probability',
@@ -174,6 +211,7 @@ describe('validateReply', () => {
           },
         },
       }),
+      'not_most_probable',
     ],
     [
       'a confidence outside [0, 1]',
@@ -184,6 +222,7 @@ describe('validateReply', () => {
           scope: { ...r.answers.scope, confidence: 1.5 },
         },
       }),
+      'out_of_range',
     ],
     [
       'non-integer usage',
@@ -191,6 +230,7 @@ describe('validateReply', () => {
         ...r,
         usage: { input_tokens: 1.5, output_tokens: 2 },
       }),
+      'malformed_json',
     ],
     [
       'a non-choice answer type',
@@ -198,15 +238,14 @@ describe('validateReply', () => {
         ...r,
         answers: { ...r.answers, scope: { ...r.answers.scope, type: 'text' } },
       }),
+      'wrong_type',
     ],
-  ])('rejects %s', (_name, mutate) => {
-    expect(validateReply(mutate(valid()), evaluation, TEST_MODEL)).toBe(
-      undefined,
-    );
+  ])('rejects %s', (_name, mutate, reason) => {
+    expect(decodeAndValidate(mutate(valid()), evaluation)).toEqual(err(reason));
   });
 });
 
-describe('validateReply with noul questions', () => {
+describe('decoding and validating noul answers', () => {
   const gated: Evaluation = {
     state: { intent: 'set the weather to Warsaw' },
     questions: {
@@ -226,21 +265,25 @@ describe('validateReply with noul questions', () => {
     });
 
   test('reads a noul answer as a yes/no choice carrying its probability', () => {
-    expect(validateReply(reply(0.75), gated, TEST_MODEL)?.answers).toEqual({
+    expect(acceptedReply(reply(0.75), gated).answers).toEqual({
       scope: { choice: 'supported', confidence: 0.9 },
       needsActions: { choice: 'yes', confidence: 0.5, probability: 0.75 },
     });
-    expect(
-      validateReply(reply(0.1), gated, TEST_MODEL)?.answers.needsActions,
-    ).toEqual({ choice: 'no', confidence: 0.8, probability: 0.1 });
-    expect(
-      validateReply(reply(0.5), gated, TEST_MODEL)?.answers.needsActions,
-    ).toEqual({ choice: 'yes', confidence: 0, probability: 0.5 });
+    expect(acceptedReply(reply(0.1), gated).answers.needsActions).toEqual({
+      choice: 'no',
+      confidence: 0.8,
+      probability: 0.1,
+    });
+    expect(acceptedReply(reply(0.5), gated).answers.needsActions).toEqual({
+      choice: 'yes',
+      confidence: 0,
+      probability: 0.5,
+    });
   });
 
-  test.each([
-    ['a noul outside [0, 1]', { type: 'noul', noul: 1.2 }],
-    ['a missing noul value', { type: 'noul' }],
+  test.each<[string, unknown, InvalidReplyReason]>([
+    ['a noul outside [0, 1]', { type: 'noul', noul: 1.2 }, 'out_of_range'],
+    ['a missing noul value', { type: 'noul' }, 'malformed_json'],
     [
       'a choice answer to a noul question',
       {
@@ -249,30 +292,29 @@ describe('validateReply with noul questions', () => {
         confidence: 1,
         probabilities: { yes: 1 },
       },
+      'wrong_type',
     ],
-  ])('rejects %s', (_name, answer) => {
+  ])('rejects %s', (_name, answer, reason) => {
     const raw = reply(0.8);
     expect(
-      validateReply(
+      decodeAndValidate(
         { ...raw, answers: { ...raw.answers, needsActions: answer } },
         gated,
-        TEST_MODEL,
       ),
-    ).toBe(undefined);
+    ).toEqual(err(reason));
   });
 
   test('rejects a noul answer to a choice question', () => {
     const raw = reply(0.8);
     expect(
-      validateReply(
+      decodeAndValidate(
         {
           ...raw,
           answers: { ...raw.answers, scope: { type: 'noul', noul: 0.9 } },
         },
         gated,
-        TEST_MODEL,
       ),
-    ).toBe(undefined);
+    ).toEqual(err('wrong_type'));
   });
 
   test('onCall reports a noul answer with yes and no probabilities', async () => {
@@ -290,7 +332,7 @@ describe('validateReply with noul questions', () => {
   });
 });
 
-describe('validateReply with score questions', () => {
+describe('decoding and validating score answers', () => {
   const LEVELS = ['Nothing happened', 'Some of it happened', 'All of it'];
   const graded: Evaluation = {
     state: { intent: 'hide the weather' },
@@ -328,7 +370,7 @@ describe('validateReply with score questions', () => {
   });
 
   test('reads a score answer with its fractional score and per-level probabilities', () => {
-    expect(validateReply(raw(), graded, TEST_MODEL)?.answers).toEqual({
+    expect(acceptedReply(raw(), graded).answers).toEqual({
       scope: { choice: 'supported', confidence: 0.9 },
       satisfied: {
         choice: '1',
@@ -345,9 +387,9 @@ describe('validateReply with score questions', () => {
       score: 0.5,
       probabilities: { '0': 0.5, '1': 0.5, '2': 0 },
     };
-    expect(
-      validateReply(raw(tied), graded, TEST_MODEL)?.answers.satisfied?.choice,
-    ).toBe('0');
+    expect(acceptedReply(raw(tied), graded).answers.satisfied?.choice).toBe(
+      '0',
+    );
   });
 
   test('accepts probabilities that sum to one within 0.02', () => {
@@ -355,7 +397,7 @@ describe('validateReply with score questions', () => {
       ...scoreAnswer,
       probabilities: { '0': 0.01, '1': 0.57, '2': 0.43 },
     };
-    expect(validateReply(raw(near), graded, TEST_MODEL)).not.toBe(undefined);
+    expect(isOk(decodeAndValidate(raw(near), graded))).toBe(true);
   });
 
   test('accepts the end points of the score range', () => {
@@ -365,31 +407,34 @@ describe('validateReply with score questions', () => {
     ] as const) {
       const probabilities = { '0': 0, '1': 0, '2': 0, [level]: 1 };
       expect(
-        validateReply(
+        acceptedReply(
           raw({ ...scoreAnswer, score: value, probabilities }),
           graded,
-          TEST_MODEL,
-        )?.answers.satisfied?.score,
+        ).answers.satisfied?.score,
       ).toBe(value);
     }
   });
 
-  test.each([
+  test.each<[string, unknown, InvalidReplyReason]>([
     [
       'probabilities that sum well under one',
       { ...scoreAnswer, probabilities: { '0': 0, '1': 0.5, '2': 0.43 } },
+      'probability_sum',
     ],
     [
       'probabilities that sum well over one',
       { ...scoreAnswer, probabilities: { '0': 0.1, '1': 0.57, '2': 0.43 } },
+      'probability_sum',
     ],
     [
       'a probability outside [0, 1]',
       { ...scoreAnswer, probabilities: { '0': -0.2, '1': 0.77, '2': 0.43 } },
+      'out_of_range',
     ],
     [
       'probabilities missing a level',
       { ...scoreAnswer, probabilities: { '1': 0.57, '2': 0.43 } },
+      'key_mismatch',
     ],
     [
       'probabilities over an extra level',
@@ -397,6 +442,7 @@ describe('validateReply with score questions', () => {
         ...scoreAnswer,
         probabilities: { '0': 0, '1': 0.57, '2': 0.43, '3': 0 },
       },
+      'key_mismatch',
     ],
     [
       'levels echoed out of order',
@@ -404,6 +450,7 @@ describe('validateReply with score questions', () => {
         ...scoreAnswer,
         legend: { '0': LEVELS[1], '1': LEVELS[0], '2': LEVELS[2] },
       },
+      'key_mismatch',
     ],
     [
       'a level echoed with different text',
@@ -411,10 +458,12 @@ describe('validateReply with score questions', () => {
         ...scoreAnswer,
         legend: { '0': LEVELS[0], '1': 'Half of it', '2': LEVELS[2] },
       },
+      'key_mismatch',
     ],
     [
       'a legend missing a level',
       { ...scoreAnswer, legend: { '0': LEVELS[0], '1': LEVELS[1] } },
+      'key_mismatch',
     ],
     [
       'a legend with an extra level',
@@ -422,13 +471,34 @@ describe('validateReply with score questions', () => {
         ...scoreAnswer,
         legend: { '0': LEVELS[0], '1': LEVELS[1], '2': LEVELS[2], '3': 'x' },
       },
+      'key_mismatch',
     ],
-    ['a missing legend', { ...scoreAnswer, legend: undefined }],
-    ['a score below zero', { ...scoreAnswer, score: -0.1 }],
-    ['a score above the top level', { ...scoreAnswer, score: 2.1 }],
-    ['a non-numeric score', { ...scoreAnswer, score: '1.43' }],
-    ['a confidence outside [0, 1]', { ...scoreAnswer, confidence: 1.2 }],
-    ['a noul answer to a score question', { type: 'noul', noul: 0.4 }],
+    [
+      'a missing legend',
+      { ...scoreAnswer, legend: undefined },
+      'malformed_json',
+    ],
+    ['a score below zero', { ...scoreAnswer, score: -0.1 }, 'out_of_range'],
+    [
+      'a score above the top level',
+      { ...scoreAnswer, score: 2.1 },
+      'out_of_range',
+    ],
+    [
+      'a non-numeric score',
+      { ...scoreAnswer, score: '1.43' },
+      'malformed_json',
+    ],
+    [
+      'a confidence outside [0, 1]',
+      { ...scoreAnswer, confidence: 1.2 },
+      'out_of_range',
+    ],
+    [
+      'a noul answer to a score question',
+      { type: 'noul', noul: 0.4 },
+      'wrong_type',
+    ],
     [
       'a choice answer to a score question',
       {
@@ -437,20 +507,20 @@ describe('validateReply with score questions', () => {
         confidence: 0.35,
         probabilities: { '0': 0, '1': 0.57, '2': 0.43 },
       },
+      'wrong_type',
     ],
-  ])('rejects %s', (_name, answer) => {
-    expect(validateReply(raw(answer), graded, TEST_MODEL)).toBe(undefined);
+  ])('rejects %s', (_name, answer, reason) => {
+    expect(decodeAndValidate(raw(answer), graded)).toEqual(err(reason));
   });
 
   test('rejects a score answer to a choice question', () => {
     const built = raw();
     expect(
-      validateReply(
+      decodeAndValidate(
         { ...built, answers: { ...built.answers, scope: scoreAnswer } },
         graded,
-        TEST_MODEL,
       ),
-    ).toBe(undefined);
+    ).toEqual(err('wrong_type'));
   });
 
   test('onCall and the reply both carry the score answer', async () => {
@@ -684,7 +754,9 @@ describe('createTypeSafeClient', () => {
 
   const failures: readonly (readonly [string, Step, CallOutcome])[] = [
     ['HTTP 500', { status: 500 }, 'provider_http'],
+    ['an HTTP 500 whose body stalls', 'stalled-error', 'provider_http'],
     ['a network failure', 'network', 'provider_network'],
+    ['a body that fails mid-read', 'reset', 'provider_network'],
     ['malformed JSON', { body: '{not json' }, 'provider_invalid_reply'],
     ['an oversized body', 'oversized', 'provider_invalid_reply'],
     [
@@ -734,19 +806,176 @@ describe('createTypeSafeClient', () => {
       /endpoint/,
     ],
     [
+      'a bad fetch',
+      { apiKey: KEY, model: TEST_MODEL, fetch: 'nope' as never },
+      /fetch/,
+    ],
+    [
       'a bad timeout',
       { apiKey: KEY, model: TEST_MODEL, timeoutMs: 0 },
       /timeoutMs/,
     ],
+    [
+      'a bad onCall',
+      { apiKey: KEY, model: TEST_MODEL, onCall: 'nope' as never },
+      /onCall/,
+    ],
+    [
+      'a bad logReplies',
+      { apiKey: KEY, model: TEST_MODEL, logReplies: 'yes' as never },
+      /logReplies/,
+    ],
   ])('construction rejects %s without echoing the key', (_name, options, pattern) => {
     let caught: unknown;
     try {
-      createTypeSafeClient(options);
+      createTypeSafeClient(options as TypeSafeClientOptions);
     } catch (error) {
       caught = error;
     }
     expect(caught).toBeInstanceOf(Error);
+    expect((caught as Error).message).toMatch(/^Invalid TypeSafe option: /);
     expect((caught as Error).message).toMatch(pattern);
     expect((caught as Error).message).not.toContain(KEY);
+  });
+});
+
+describe('TypeSafe invalid reply reasons', () => {
+  const valid = () => buildReply(payload, { 'view/weather-main': 'hide' }, 0.8);
+  const scope = () => valid().answers.scope as Record<string, unknown>;
+  const withScope = (answer: unknown) => {
+    const reply = valid();
+    return { ...reply, answers: { ...reply.answers, scope: answer } };
+  };
+
+  test.each<[string, Step, InvalidReplyReason]>([
+    ['a non-JSON body', { body: '{not json' }, 'malformed_json'],
+    ['an oversized body', 'oversized', 'oversize'],
+    [
+      'a missing question id',
+      { reply: { ...valid(), answers: { scope: scope() } } },
+      'missing_answer',
+    ],
+    [
+      'an extra question id',
+      {
+        reply: { ...valid(), answers: { ...valid().answers, extra: scope() } },
+      },
+      'key_mismatch',
+    ],
+    [
+      'probabilities that do not sum to one',
+      {
+        reply: withScope({
+          ...scope(),
+          probabilities: { supported: 0.9, unsupported: 0.05, ambiguous: 0 },
+        }),
+      },
+      'probability_sum',
+    ],
+    [
+      'a different model',
+      { reply: { ...valid(), model: 'other' } },
+      'model_echo',
+    ],
+    [
+      'a reply without usage',
+      { reply: { model: TEST_MODEL, answers: valid().answers } },
+      'malformed_json',
+    ],
+    [
+      'fractional input tokens',
+      {
+        reply: { ...valid(), usage: { input_tokens: 1.5, output_tokens: 2 } },
+      },
+      'malformed_json',
+    ],
+    [
+      'answers that are not an object',
+      { reply: { ...valid(), answers: [] } },
+      'malformed_json',
+    ],
+    [
+      'a chosen option without the highest probability',
+      {
+        reply: withScope({
+          ...scope(),
+          probabilities: { supported: 0.2, unsupported: 0.8, ambiguous: 0 },
+        }),
+      },
+      'not_most_probable',
+    ],
+    [
+      'a noul answer to a choice question',
+      { reply: withScope({ type: 'noul', noul: 0.4 }) },
+      'wrong_type',
+    ],
+    [
+      'a confidence outside [0, 1]',
+      { reply: withScope({ ...scope(), confidence: 1.5 }) },
+      'out_of_range',
+    ],
+  ])('%s defers provider_invalid_reply with its reason tag', async (_name, step, reason) => {
+    const { ask, logger, entries } = setup(() => step);
+    const result = await ask('jevActions', evaluation, ctx(logger));
+    expect(isErr(result) && result.error).toEqual({
+      _tag: 'Deferred',
+      reason: 'jevActions/provider_invalid_reply',
+    });
+    expect(
+      entries.find((entry) => entry.msg === 'jev.provider_failure')?.data,
+    ).toMatchObject({
+      reason: 'jevActions/provider_invalid_reply',
+      detail: `invalid reply (${reason})`,
+      failure: { kind: 'invalid_reply', reason },
+    });
+  });
+});
+
+describe('the TypeSafe key never leaks', () => {
+  test('a 401 whose body echoes the key reaches no error, log, instrument attribute or call record', async () => {
+    const echoing = (async () =>
+      new Response(
+        JSON.stringify({
+          detail: {
+            error_type: 'authentication_error',
+            error_code: KEY,
+            message: `Invalid API key: ${KEY}`,
+          },
+        }),
+        { status: 401 },
+      )) as unknown as typeof fetch;
+    const recorded: JevCall[] = [];
+    const ask = createTypeSafeClient({
+      apiKey: KEY,
+      model: TEST_MODEL,
+      fetch: echoing,
+      logReplies: true,
+      onCall: (call) => recorded.push(call),
+    });
+    const { logger, entries } = spyLogger();
+    const events: unknown[] = [];
+    const instrument: Instrument = {
+      stage: (_name, stage) => stage,
+      event: (name, attributes) => events.push({ name, attributes }),
+    };
+    const result = await ask(
+      'jevSelect',
+      evaluation,
+      makeContext(makeInput(makeRequest('hide the weather')), {
+        logger,
+        instrument,
+      }),
+    );
+    expect(isErr(result) && result.error).toEqual({
+      _tag: 'Deferred',
+      reason: 'jevSelect/provider_http',
+    });
+    const captured = JSON.stringify({ result, entries, events, recorded });
+    expect(captured).not.toContain(KEY);
+    expect(events).toHaveLength(1);
+    expect(
+      entries.find((entry) => entry.msg === 'jev.provider_failure')?.data
+        ?.failure,
+    ).toEqual({ kind: 'http', status: 401, errorType: 'authentication_error' });
   });
 });

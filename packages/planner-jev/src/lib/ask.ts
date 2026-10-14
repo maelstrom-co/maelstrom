@@ -20,16 +20,18 @@ export type ProviderFailureCode =
   | 'provider_invalid_reply';
 
 /**
- * How one provider call ended: `ok`, `cancelled`, or the deferral code.
- * `provider_refusal` is an OpenAI Decisions refusal of a question; TypeSafe
- * never refuses.
+ * How one provider call ended: `ok`, `cancelled`, the deferral code, or
+ * `transport_error` when the transport threw and the call rejected with that
+ * error instead of deferring. `provider_refusal` is an OpenAI Decisions
+ * refusal of a question. TypeSafe never refuses.
  */
 export type CallOutcome =
   | 'ok'
   | 'cancelled'
   | 'option_cap'
   | ProviderFailureCode
-  | 'provider_refusal';
+  | 'provider_refusal'
+  | 'transport_error';
 
 /** One validated answer as {@link AskCall} reports it. */
 export interface CallAnswer extends Answer {
@@ -47,8 +49,8 @@ export interface AskCall {
   readonly latencyMs: number;
   /**
    * Token usage the provider reported. Present on `ok` and
-   * `provider_refusal`; absent when no valid reply arrived (`option_cap`,
-   * `cancelled` or a {@link ProviderFailureCode}).
+   * `provider_refusal`, absent when no valid reply arrived (`option_cap`,
+   * `cancelled`, `transport_error` or a {@link ProviderFailureCode}).
    */
   readonly usage?: Usage;
   /** How the call ended. */

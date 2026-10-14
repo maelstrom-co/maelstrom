@@ -68,7 +68,7 @@ Chosen code is what ships: the two planners that are exported and selectable in 
 | Folder | Holds |
 | --- | --- |
 | `src/lib/` | `jevPlanner` (`jev-planner.ts`) and the helpers every stage shares: questions, layouts, fit checks, deferral, the TypeSafe client. |
-| `src/lib/` (provider layer) | The provider-neutral `Ask`, call outcomes and answers (`ask.ts`), the reply checks both clients share (`reply-validation.ts`) and the OpenAI Decisions client (`openai-decisions-client.ts`). |
+| `src/lib/` (provider layer) | The provider-neutral `Ask`, call outcomes and answers (`ask.ts`), the call flow every provider shares around its transport (`provider-call.ts`), the fetch step every fetch transport shares, with its bounded body reads and error field check (`provider-fetch.ts`, `error-identifier.ts`), the reply checks (`reply-validation.ts`) and the OpenAI Decisions client (`openai-decisions-client.ts`). |
 | `src/lib/stages/` | Chosen stages: the frozen POC stages (`jev-select.ts`, `jev-actions.ts`, `jev-layout.ts`, `llm-complete.ts`), the composed pairs planner's stages (`select-gated.ts`, `actions-batched-per-instance.ts`, `layout-composed-pairs-gate-and-defer.ts` with its `-tree.ts` and `-sizes.ts` helpers, `complete-layout-inline.ts`) and the stage utilities both sides share (`stage-types.ts`, `stage-deps.ts`, `fan-out.ts`, `action-plan.ts`, `layout-describe.ts`). |
 | `src/lib/planners/` | Chosen planners: `jev-composed-pairs.ts` and the shared pipeline builder `jev-stage-planner.ts`. |
 | `src/lib/stages-experimental/` | Stages only experiments use. |
@@ -204,17 +204,18 @@ Every deferral logs `jev.defer` at info with `{ stage, reason, question }`, and 
 | `llmComplete/invalid_layout` | Stage library only: a tree the LLM wrote on a hand-off is malformed, leaves out or adds an Instance, or breaks a minimum size. |
 | `<stage>/option_cap` | A question had more than 255 options. |
 | `<stage>/provider_timeout` | A provider call took longer than its timeout (5 s by default). |
-| `<stage>/provider_network` | A provider call failed to connect. |
-| `<stage>/provider_http` | The provider answered with a non-2xx status. |
-| `<stage>/provider_invalid_reply` | The reply was too large, not JSON, or failed strict validation. |
+| `<stage>/provider_network` | A provider call failed to connect, or its reply body could not be read. |
+| `<stage>/provider_http` | The provider answered with a non-2xx status. The `jev.provider_failure` warn line's `failure` carries the status and the provider's error type and code. |
+| `<stage>/provider_invalid_reply` | The reply was too large, not JSON, or failed strict validation. The `jev.provider_failure` warn line's `failure` names the check that failed. |
 | `<stage>/provider_refusal` | Decisions refused a question. TypeSafe never refuses. |
 | `<stage>/low_confidence`, `<stage>/answer_missing` | Only with a confidence gate, or a reply missing a validated answer. |
 
-`provider_*` deferrals also log `jev.provider_failure` at warn. A user cancellation is a `CancellationError`, and a provider failure inside `llmComplete` is a `ProviderError`; neither falls back, because the fallback would hit the same provider.
+`provider_*` deferrals also log `jev.provider_failure` at warn. A user cancellation is a `CancellationError`, and a provider failure inside `llmComplete` is a `ProviderError`; neither falls back, because the fallback would hit the same provider. A provider transport that throws, for example on a request it cannot encode, does not defer either: the call is reported as `transport_error` and rejects with the thrown error.
 
 ## Logs
 
-- `jev.call` (debug): stage, model, question ids, latency, outcome and token usage of every provider call (TypeSafe Jev or OpenAI Decisions).
+- `jev.call` (debug): stage, model, question ids, latency, outcome and token usage of every provider call (TypeSafe Jev or OpenAI Decisions). The outcome is `ok`, `cancelled`, a deferral code, or `transport_error` when the transport threw.
+- `jev.provider_failure` (warn): stage, deferral reason and a short `detail` of every failed provider call. A failure the transport returned adds `failure`, the typed failure itself. Refusals and transports that throw do not add `failure`. On a timeout that is whatever the transport reported once it was aborted. The typed failure is `network`, `http` with the status and the error type and code from wherever that provider puts them in its error body (each kept only when it is a short identifier that does not contain the key), or `invalid_reply` with one reason tag (`oversize`, `malformed_json`, `wrong_type`, `out_of_range`, `missing_answer`, `key_mismatch`, `probability_sum`, `not_most_probable`, `model_echo`). It never holds free-form provider text such as an error message. A transport that threw logs only the stage and the fixed detail `transport threw`, never the thrown error.
 - `jev.answer` (debug): stage, question, choice and confidence of every answer read.
 - `jev.reply` (debug, opt-in via `logReplies` / `JEV_LOG_REPLIES=1`): the state and questions sent (the user's words included) and the raw reply, as JSON, before validation, so an invalid reply is visible too.
 - `jev.request` and `jev.result` (debug, same opt-in): the user's request at the start of each turn, and at the end the shipped candidate as JSON (reply text, layout tree, rationale) or the error tag. The candidate is the one from Jev or from the fallback, whichever ships.
