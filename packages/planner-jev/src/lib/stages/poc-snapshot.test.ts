@@ -24,7 +24,7 @@ const snapshotFile = (name: string) => join(SNAPSHOT_DIR, `${name}.json`);
 
 // Regenerate with UPDATE_POC_SNAPSHOT=1 only for a deliberate POC change.
 const UPDATE = process.env.UPDATE_POC_SNAPSHOT === '1';
-const pinned = await readPinned(SNAPSHOT_DIR);
+const pinned = await readPinned();
 const updated: Record<string, PocRun> = {};
 
 const originalPoc = (deps: JevDeps) =>
@@ -90,10 +90,10 @@ describe('frozen POC snapshot', () => {
   });
 });
 
-async function readPinned(dir: string): Promise<Record<string, PocRun>> {
+async function readPinned(): Promise<Record<string, PocRun>> {
   const runs: Record<string, PocRun> = {};
   for (const fixture of POC_CASES) {
-    const file = Bun.file(snapshotFile(fixture.name, dir));
+    const file = Bun.file(snapshotFile(fixture.name));
     if (await file.exists()) runs[fixture.name] = await file.json();
   }
   return runs;
