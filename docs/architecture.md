@@ -411,9 +411,32 @@ production telemetry.
 `@maelstrom-co/telemetry` defines operational facts and bounded sink delivery for
 browser and server consumers. It has no runtime dependencies. Its fixed field
 allowlist excludes content, identifiers, arbitrary labels, and error text.
-Applications own SDKs and exporters. The package does not attach producers or
-enable remote diagnostics. Its metadata projector reuses selected producer facts
-without depending on diagnostic envelopes or content readers.
+Applications own SDKs and exporters. Producer packages provide concrete attachment
+APIs through telemetry's `/integration` subscription and projection helpers.
+Its metadata projector uses selected producer facts without depending on diagnostic
+envelopes or content readers. Operational observation enables no remote diagnostics.
+
+Producer packages expose explicit telemetry attachments. Client metadata
+subscriptions keep local observations active without enabling diagnostic-only
+connector forwarding or content sources. Forwarded Engine and attached voice
+diagnostics bypass client metadata observers. Engine metadata remains server-local.
+`diagnosticsObserved` and `addDiagnosticSource` name full-diagnostic capabilities;
+the deprecated `observed` and `addSource` aliases preserve compatibility.
+`locallyObserved` includes metadata and full diagnostic consumers because both
+need local producer work. Realtime shares tool ownership across telemetry and
+diagnostics while keeping diagnostic collection separate. Private invocation
+identity preserves accepted results across reconnects and repeated tool call IDs.
+Retirement drains have bounded capacity and time. Every attachment returns
+`{ release, drained }`. The last release retires the shared subscription. Voice
+drains also await accepted tool outcomes or report deadline loss before flushing.
+Only the application that owns telemetry flushes and disposes it; borrowing scopes
+release their attachments. The core has no Effect dependency. Explicit ownership,
+tagged states, typed outcomes, and isolated callbacks use plain TypeScript.
+
+Built-in operational metadata types live beside their projection in telemetry's
+integration subpath. Custom diagnostic kinds remain extensible. Runtime allowlisting
+still protects the export contract. Client and Engine share metadata callback
+delivery; source activation, request identity, and producer policy remain local.
 
 ---
 

@@ -8,6 +8,21 @@ import type {
   TelemetrySnapshot,
 } from './types.js';
 
+type DeliveryState =
+  | { readonly status: 'active'; readonly phase: 'idle' | 'scheduled' }
+  | {
+      readonly status: 'active';
+      readonly phase: 'exporting';
+      readonly call: ExportCall;
+    }
+  | { readonly status: 'timed_out' | 'disposed' };
+
+function activeExport(state: DeliveryState): ExportCall | undefined {
+  return state.status === 'active' && state.phase === 'exporting'
+    ? state.call
+    : undefined;
+}
+
 const emptyDrops: TelemetryDrops = Object.freeze({
   invalid: 0,
   overflow: 0,
@@ -84,37 +99,35 @@ export function createTelemetry(options: TelemetryOptions = {}): Telemetry {
   const queue: QueueItem[] = [];
   const waiters = new Set<FlushWaiter>();
   const dropped = { ...emptyDrops };
-  let state: TelemetrySnapshot['state'] = 'active';
+  let state: DeliveryState = { status: 'active', phase: 'idle' };
   let accepted = 0;
   let completed = 0;
   let delivered = 0;
-  let scheduled = false;
-  let exporting: ExportCall | undefined;
 
   const getSnapshot = (): TelemetrySnapshot =>
     Object.freeze({
-      state,
+      state: state.status,
       accepted,
       delivered,
       queued: queue.length,
-      exporting: exporting?.items.length ?? 0,
+      exporting: activeExport(state)?.items.length ?? 0,
       dropped: Object.freeze({ ...dropped }),
     });
   const result = (
     outcome: TelemetryFlushResult['outcome'],
   ): TelemetryFlushResult => ({ outcome, snapshot: getSnapshot() });
   const refuseInactive = (): boolean => {
-    if (state === 'active') return false;
-    if (state === 'disposed') dropped.disposed++;
+    if (state.status === 'active') return false;
+    if (state.status === 'disposed') dropped.disposed++;
     else dropped.disabled++;
     return true;
   };
   const finishWaiters = () => {
     for (const waiter of waiters) {
       const outcome =
-        state === 'disposed'
+        state.status === 'disposed'
           ? 'disposed'
-          : state !== 'active'
+          : state.status !== 'active'
             ? 'disabled'
             : completed >= waiter.target
               ? 'settled'
@@ -126,12 +139,17 @@ export function createTelemetry(options: TelemetryOptions = {}): Telemetry {
     }
   };
   const schedule = () => {
-    if (scheduled || exporting || state !== 'active' || queue.length === 0)
+    if (
+      state.status !== 'active' ||
+      state.phase !== 'idle' ||
+      queue.length === 0
+    )
       return;
-    scheduled = true;
+    state = { status: 'active', phase: 'scheduled' };
     queueMicrotask(() => {
-      scheduled = false;
-      if (exporting || state !== 'active' || queue.length === 0) return;
+      if (state.status !== 'active' || state.phase !== 'scheduled') return;
+      state = { status: 'active', phase: 'idle' };
+      if (queue.length === 0) return;
       // A batch acknowledgement must not make an earlier flush wait for later arrivals.
       let count = batchSize;
       for (const waiter of waiters)
@@ -140,11 +158,11 @@ export function createTelemetry(options: TelemetryOptions = {}): Telemetry {
         items: queue.splice(0, count),
         abort: new AbortController(),
       };
-      exporting = call;
+      state = { status: 'active', phase: 'exporting', call };
       const settle = (failed: boolean) => {
-        if (exporting !== call) return;
+        if (activeExport(state) !== call) return;
         clearTimeout(call.timer);
-        exporting = undefined;
+        state = { status: 'active', phase: 'idle' };
         completed = call.items[call.items.length - 1].sequence;
         if (failed) dropped.exportError += call.items.length;
         else delivered += call.items.length;
@@ -152,11 +170,10 @@ export function createTelemetry(options: TelemetryOptions = {}): Telemetry {
         schedule();
       };
       call.timer = setTimeout(() => {
-        if (exporting !== call) return;
-        state = 'timed_out';
+        if (activeExport(state) !== call) return;
+        state = { status: 'timed_out' };
         dropped.timeout += call.items.length + queue.length;
         queue.length = 0;
-        exporting = undefined;
         call.abort.abort(
           new DOMException(
             'Telemetry exporter deadline exceeded',
@@ -167,7 +184,7 @@ export function createTelemetry(options: TelemetryOptions = {}): Telemetry {
       }, exportTimeoutMs);
       void Promise.resolve()
         .then(() => {
-          if (exporting !== call) return;
+          if (activeExport(state) !== call) return;
           return sink(
             Object.freeze(call.items.map((item) => item.record)),
             call.abort.signal,
@@ -182,7 +199,7 @@ export function createTelemetry(options: TelemetryOptions = {}): Telemetry {
 
   return {
     get enabled() {
-      return state === 'active';
+      return state.status === 'active';
     },
     record(fact) {
       if (refuseInactive()) return;
@@ -193,7 +210,7 @@ export function createTelemetry(options: TelemetryOptions = {}): Telemetry {
         dropped.invalid++;
         return;
       }
-      if (queue.length + (exporting?.items.length ?? 0) >= capacity) {
+      if (queue.length + (activeExport(state)?.items.length ?? 0) >= capacity) {
         dropped.overflow++;
         return;
       }
@@ -202,8 +219,9 @@ export function createTelemetry(options: TelemetryOptions = {}): Telemetry {
     },
     getSnapshot,
     flush(timeoutMs = 1_000) {
-      if (state === 'disposed') return Promise.resolve(result('disposed'));
-      if (state !== 'active') return Promise.resolve(result('disabled'));
+      if (state.status === 'disposed')
+        return Promise.resolve(result('disposed'));
+      if (state.status !== 'active') return Promise.resolve(result('disabled'));
       boundedInteger(timeoutMs, 60_000, 'timeoutMs');
       if (completed >= accepted) return Promise.resolve(result('settled'));
       const target = accepted;
@@ -221,12 +239,11 @@ export function createTelemetry(options: TelemetryOptions = {}): Telemetry {
       });
     },
     dispose() {
-      if (state === 'disposed') return;
-      state = 'disposed';
-      dropped.disposed += queue.length + (exporting?.items.length ?? 0);
+      if (state.status === 'disposed') return;
+      const call = activeExport(state);
+      state = { status: 'disposed' };
+      dropped.disposed += queue.length + (call?.items.length ?? 0);
       queue.length = 0;
-      const call = exporting;
-      exporting = undefined;
       if (call) {
         clearTimeout(call.timer);
         call.abort.abort(new DOMException('Telemetry disposed', 'AbortError'));

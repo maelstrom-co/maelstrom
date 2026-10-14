@@ -1,7 +1,7 @@
-export { projectDiagnosticMetadata } from './diagnostic-metadata.js';
 export { createTelemetry, noopTelemetry } from './telemetry.js';
 export type {
   Telemetry,
+  TelemetryAttachment,
   TelemetryAttributes,
   TelemetryDrops,
   TelemetryErrorCategory,

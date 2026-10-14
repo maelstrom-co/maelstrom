@@ -3,6 +3,152 @@ import { MessageId, SessionId } from '@maelstrom-co/protocol';
 import type { SetLayoutCommand } from './command-processor/command.types.js';
 import { DiagnosticChannel } from './diagnostic-channel.js';
 
+function builtInMetadataTypes(channel: DiagnosticChannel) {
+  // @ts-expect-error A built-in terminal observation needs outcome evidence.
+  channel.emit('client.action.completed');
+  channel.emit('client.response.received', {
+    source: 'request',
+    // @ts-expect-error Built-in request timing must use a number.
+    durationMs: '12',
+  });
+  // @ts-expect-error Built-in request completion must identify request or push evidence.
+  channel.emit('client.response.received', { source: 'remote' });
+  channel.emit('client.action.completed', {
+    outcome: 'succeeded',
+    // @ts-expect-error A successful Action cannot carry an error category.
+    errorCategory: 'timeout',
+  });
+  channel.emit('application.custom', { custom: 'metadata' });
+}
+void builtInMetadataTypes;
+
+test('refreshing a metadata subscription preserves one delivery per event and respects removal', () => {
+  const channel = new DiagnosticChannel(SessionId('metadata-refresh'));
+  const received: string[] = [];
+  let release = () => {};
+  let removePending = () => {};
+  const observer = (kind: string) => {
+    received.push(kind);
+    removePending();
+    if (received.length < 3) {
+      release();
+      release = channel.subscribeMetadata(observer);
+    }
+  };
+  release = channel.subscribeMetadata(observer);
+  removePending = channel.subscribeMetadata(() => {
+    received.push('removed observer');
+  });
+  try {
+    channel.emit('client.request.started');
+    expect(received).toEqual(['client.request.started']);
+    channel.emit('client.request.failed', { outcome: 'failed' });
+    expect(received).toEqual([
+      'client.request.started',
+      'client.request.failed',
+    ]);
+    release();
+    channel.emit('client.request.started');
+    expect(received).toHaveLength(2);
+  } finally {
+    channel.dispose();
+  }
+});
+
+test('adding operational observation preserves the full-diagnostic meaning of legacy sources and observed', () => {
+  const channel = new DiagnosticChannel(SessionId('legacy-capability'));
+  let diagnostics = 0;
+  channel.addSource(() => {
+    diagnostics++;
+    return () => {
+      diagnostics--;
+    };
+  });
+  const releaseMetadata = channel.subscribeMetadata(() => {});
+  expect(diagnostics).toBe(0);
+  expect(channel.observed).toBe(false);
+  const releaseDiagnostics = channel.subscribe(() => {});
+  expect(diagnostics).toBe(1);
+  expect(channel.observed).toBe(true);
+  releaseDiagnostics();
+  expect(diagnostics).toBe(0);
+  releaseMetadata();
+  channel.dispose();
+});
+
+test('operational observers activate local producers without granting diagnostic capabilities', () => {
+  const channel = new DiagnosticChannel(SessionId('metadata-only'));
+  let localStarts = 0;
+  let localStops = 0;
+  let diagnosticStarts = 0;
+  let diagnosticStops = 0;
+  channel.addLocalSource(() => {
+    localStarts++;
+    return () => {
+      localStops++;
+    };
+  });
+  channel.addDiagnosticSource(() => {
+    diagnosticStarts++;
+    return () => {
+      diagnosticStops++;
+    };
+  });
+  const metadata: unknown[][] = [];
+  const releaseMetadata = channel.subscribeMetadata((...args) => {
+    metadata.push(args);
+  });
+  expect(channel.observed).toBe(false);
+  expect(channel.locallyObserved).toBe(true);
+  expect(channel.diagnosticsObserved).toBe(false);
+  expect([localStarts, diagnosticStarts]).toEqual([1, 0]);
+  let contentReads = 0;
+  channel.emit(
+    'client.request.started',
+    { durationMs: 4 },
+    () => {
+      contentReads++;
+      return 'CANARY_intent';
+    },
+    'CANARY_request',
+  );
+  expect(metadata).toEqual([['client.request.started', { durationMs: 4 }]]);
+  expect(contentReads).toBe(0);
+  const releaseDiagnostics = channel.subscribe(() => {});
+  expect([localStarts, diagnosticStarts]).toEqual([1, 1]);
+  releaseDiagnostics();
+  expect(channel.diagnosticsObserved).toBe(false);
+  expect([localStops, diagnosticStops]).toEqual([0, 1]);
+  releaseMetadata();
+  expect([localStops, diagnosticStops]).toEqual([1, 1]);
+  expect(channel.observed).toBe(false);
+});
+
+test('metadata-only publication creates no diagnostic envelope or content capability', () => {
+  const channel = new DiagnosticChannel(SessionId('metadata-only'));
+  const observations: unknown[][] = [];
+  channel.subscribeMetadata((...args) => {
+    observations.push(args);
+  });
+  const original = crypto.randomUUID;
+  crypto.randomUUID = () => {
+    throw new Error('Unexpected diagnostic envelope');
+  };
+  try {
+    expect(() =>
+      channel.emit('client.action.completed', { outcome: 'skipped' }, () => {
+        throw new Error('CANARY_content');
+      }),
+    ).not.toThrow();
+  } finally {
+    crypto.randomUUID = original;
+  }
+  expect(observations).toEqual([
+    ['client.action.completed', { outcome: 'skipped' }],
+  ]);
+  channel.dispose();
+});
+
 test('authoritative identities stay distinct while forwarded identifiers remain projected', () => {
   const sessionId = SessionId('application-session');
   const messageId = MessageId('application-request');
@@ -16,7 +162,7 @@ test('authoritative identities stay distinct while forwarded identifiers remain 
   const observations: { sessionId: string; requestId?: string }[] = [];
   channel.subscribe(({ event }) => observations.push(event));
   channel.emit('client.request.started', {}, undefined, messageId);
-  channel.emit('engine.stage.completed', {}, undefined, '[REDACTED]');
+  channel.emitDiagnostic('engine.stage.completed', {}, undefined, '[REDACTED]');
   expect(observations).toMatchObject([
     { sessionId: 'application-session', requestId: 'application-request' },
     { sessionId: 'application-session', requestId: '[REDACTED]' },

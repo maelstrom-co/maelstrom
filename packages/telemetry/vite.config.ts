@@ -15,8 +15,8 @@ export default defineConfig({
     outDir: 'dist',
     emptyOutDir: true,
     lib: {
-      entry: 'src/index.ts',
-      fileName: 'index',
+      entry: { index: 'src/index.ts', integration: 'src/integration.ts' },
+      fileName: (_format, name) => `${name}.js`,
       formats: ['es'],
     },
   },

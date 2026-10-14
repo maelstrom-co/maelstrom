@@ -176,7 +176,10 @@ Use the DevTools guide for request, layout, voice, and recording inspection. Aut
           demote: ['community/changelog'],
         }),
         telemetryTypeDoc({
-          entryPoints: ['../../packages/telemetry/src/index.ts'],
+          entryPoints: [
+            '../../packages/telemetry/src/index.ts',
+            '../../packages/telemetry/src/integration.ts',
+          ],
           tsconfig: '../../packages/telemetry/tsconfig.lib.json',
           output: 'reference/telemetry',
           sidebar: { label: '@maelstrom-co/telemetry', collapsed: true },

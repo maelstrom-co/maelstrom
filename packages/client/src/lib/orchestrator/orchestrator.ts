@@ -23,6 +23,7 @@ import {
   type VariantName,
   type VesselMutationReason,
 } from '@maelstrom-co/protocol';
+import { operationalKinds } from '@maelstrom-co/telemetry/integration';
 import { ChartManager } from '../chart-manager/chart-manager.js';
 import { CommandProcessor } from '../command-processor/command-processor.js';
 import { ConnectionManager } from '../connection-manager/connection-manager.js';
@@ -57,6 +58,7 @@ import type {
   IntentScope,
   IntentSubmission,
 } from './intent-scheduler.types.js';
+import { operationalFailure } from './operational-outcome.js';
 import type {
   OrchestratorOptions,
   OrchestratorViewState,
@@ -1007,9 +1009,15 @@ export class Orchestrator {
     for (const [requestId, phase] of this.#diagnosticPending)
       this.diagnostics.emit(
         phase === 'request'
-          ? 'client.response.discarded'
-          : 'client.response.abandoned',
-        { reason: 'disposed', phase },
+          ? operationalKinds.clientRequestFailed
+          : phase === 'received'
+            ? operationalKinds.clientResponseDiscarded
+            : 'client.response.abandoned',
+        {
+          reason: 'disposed',
+          phase,
+          ...(phase === 'request' ? { outcome: 'cancelled' } : {}),
+        },
         undefined,
         requestId,
       );
@@ -1115,7 +1123,9 @@ export class Orchestrator {
         const requestId = MessageId();
         const reason = isFenced();
         this.diagnostics.emit(
-          reason ? 'client.response.discarded' : 'client.response.received',
+          reason
+            ? operationalKinds.clientResponseDiscarded
+            : operationalKinds.clientResponseReceived,
           { source: 'push', reason: reason ?? null },
           () => response,
           requestId,
@@ -1198,7 +1208,6 @@ export class Orchestrator {
       const error = toError(err);
       const reason = isFenced(`send rejected: ${error.message}`);
       if (!reason) throw err;
-      this.#discardResponse(request.id, reason);
       this.#recoverFencedRequest(ownedUpdates);
       return { kind: 'rejected', reason, error };
     }
@@ -1278,11 +1287,12 @@ export class Orchestrator {
       executionPlan: response.executionPlan,
       requestId,
     };
-    if (this.diagnostics.observed) {
+    if (this.diagnostics.locallyObserved) {
       if (requestId) this.#diagnosticPending.set(requestId, 'commands');
       this.diagnostics.emit('client.response.queued', {}, undefined, requestId);
       let failures = 0;
       let skipped = 0;
+      let started: number | undefined;
       const releases: (() => void)[] = [];
       const finish = () => {
         if (requestId) this.#diagnosticPending.delete(requestId);
@@ -1295,6 +1305,9 @@ export class Orchestrator {
         }
       };
       releases.push(
+        this.#commandProcessor.events.on('command_start', (e) => {
+          if (e.command === layoutCommand) started = performance.now();
+        }),
         this.#commandProcessor.events.on('actions_completed', (e) => {
           if (e.command === actionsCommand) {
             failures = e.result.failureCount;
@@ -1304,8 +1317,12 @@ export class Orchestrator {
         this.#commandProcessor.events.on('processing_error', (e) => {
           if (e.command === layoutCommand || e.command === actionsCommand) {
             this.diagnostics.emit(
-              'client.response.failed',
-              {},
+              operationalKinds.clientResponseFailed,
+              {
+                ...(started === undefined
+                  ? {}
+                  : { durationMs: performance.now() - started }),
+              },
               () => ({ error: e.error.message }),
               requestId,
             );
@@ -1315,8 +1332,14 @@ export class Orchestrator {
         this.#commandProcessor.events.on('command_complete', (e) => {
           if (e.command === actionsCommand) {
             this.diagnostics.emit(
-              'client.response.applied',
-              { actionFailures: failures, skippedActions: skipped },
+              operationalKinds.clientResponseApplied,
+              {
+                actionFailures: failures,
+                skippedActions: skipped,
+                ...(started === undefined
+                  ? {}
+                  : { durationMs: performance.now() - started }),
+              },
               () => this.getStructuralSnapshot(),
               requestId,
             );
@@ -1336,25 +1359,44 @@ export class Orchestrator {
   }
 
   #discardResponse(requestId: MessageId, reason: string): void {
+    if (this.#diagnosticPending.get(requestId) !== 'received') return;
     this.#diagnosticPending.delete(requestId);
     this.diagnostics.emit(
-      'client.response.discarded',
+      operationalKinds.clientResponseDiscarded,
       { reason },
       undefined,
       requestId,
     );
   }
 
-  #releaseDiagnosticConnector?: () => void;
+  #releaseDiagnosticConnector?: (retirementEpoch?: number) => void;
+  #diagnosticConnectorEpoch = 0;
+  #diagnosticSourceOwner?: symbol;
   #diagnosticCapture = false;
-  #diagnosticPending = new Map<MessageId, 'request' | 'commands'>();
-  #refreshDiagnosticConnector(): void {
+  #diagnosticPending = new Map<
+    MessageId,
+    'request' | 'received' | 'commands'
+  >();
+  #clearDiagnosticConnector(): number {
+    const epoch = ++this.#diagnosticConnectorEpoch;
+    const release = this.#releaseDiagnosticConnector;
+    this.#releaseDiagnosticConnector = undefined;
     try {
-      this.#releaseDiagnosticConnector?.();
+      release?.(epoch);
     } catch {
       /* Optional cleanup cannot prevent connector replacement. */
     }
-    this.#releaseDiagnosticConnector = undefined;
+    return epoch;
+  }
+
+  #refreshDiagnosticConnector(source = this.#diagnosticSourceOwner): void {
+    if (source !== this.#diagnosticSourceOwner) return;
+    const epoch = this.#clearDiagnosticConnector();
+    if (
+      epoch !== this.#diagnosticConnectorEpoch ||
+      source !== this.#diagnosticSourceOwner
+    )
+      return;
     const connector = this.#connector as EngineConnector & {
       subscribeDiagnostics?: (
         listener: (
@@ -1363,24 +1405,50 @@ export class Orchestrator {
       ) => () => void;
       setDiagnosticContent?: (enabled: boolean) => void;
     };
-    if (!this.diagnostics.observed || !connector.subscribeDiagnostics) return;
+    if (
+      !this.diagnostics.diagnosticsObserved ||
+      !connector.subscribeDiagnostics
+    )
+      return;
     try {
-      const release = connector.subscribeDiagnostics((event) =>
-        this.diagnostics.emit(
+      const releaseListener = connector.subscribeDiagnostics((event) => {
+        if (
+          epoch !== this.#diagnosticConnectorEpoch ||
+          source !== this.#diagnosticSourceOwner ||
+          !this.diagnostics.diagnosticsObserved
+        )
+          return;
+        this.diagnostics.emitDiagnostic(
           event.kind,
           { ...event.metadata, serverAt: event.at },
           () => event.content,
           event.requestId,
-        ),
-      );
-      this.#releaseDiagnosticConnector = combineReleases([
-        release,
-        () => connector.setDiagnosticContent?.(false),
-      ]);
+        );
+      });
+      const release = (retirementEpoch = epoch) =>
+        combineReleases([
+          releaseListener,
+          () => {
+            if (retirementEpoch === this.#diagnosticConnectorEpoch)
+              connector.setDiagnosticContent?.(false);
+          },
+        ])();
+      if (
+        epoch !== this.#diagnosticConnectorEpoch ||
+        source !== this.#diagnosticSourceOwner ||
+        !this.diagnostics.diagnosticsObserved
+      ) {
+        release();
+        return;
+      }
+      this.#releaseDiagnosticConnector = release;
       connector.setDiagnosticContent?.(this.#diagnosticCapture);
     } catch (error) {
-      this.#releaseDiagnosticConnector?.();
-      this.#releaseDiagnosticConnector = undefined;
+      if (
+        epoch === this.#diagnosticConnectorEpoch &&
+        source === this.#diagnosticSourceOwner
+      )
+        this.#clearDiagnosticConnector();
       this.diagnostics.emit(
         'client.diagnostics.unavailable',
         { source: 'server' },
@@ -1390,11 +1458,15 @@ export class Orchestrator {
   }
 
   #setupDiagnostics(): void {
-    this.diagnostics.addSource(() => {
-      const requests = this.#requestCoordinator.events;
-      const commands = this.#commandProcessor.events;
+    this.diagnostics.addDiagnosticSource(() => {
+      const source = Symbol();
+      this.#diagnosticSourceOwner = source;
       const releaseControl = this.diagnostics.observeControls((event) => {
-        if (event.kind !== 'devtools.capture.changed') return;
+        if (
+          source !== this.#diagnosticSourceOwner ||
+          event.kind !== 'devtools.capture.changed'
+        )
+          return;
         this.#diagnosticCapture = event.metadata.enabled === true;
         const connector = this.#connector as EngineConnector & {
           setDiagnosticContent?: (enabled: boolean) => void;
@@ -1402,8 +1474,8 @@ export class Orchestrator {
         try {
           connector.setDiagnosticContent?.(this.#diagnosticCapture);
         } catch (error) {
-          this.#releaseDiagnosticConnector?.();
-          this.#releaseDiagnosticConnector = undefined;
+          if (source === this.#diagnosticSourceOwner)
+            this.#clearDiagnosticConnector();
           this.diagnostics.emit(
             'client.diagnostics.unavailable',
             { source: 'server' },
@@ -1411,36 +1483,54 @@ export class Orchestrator {
           );
         }
       });
-      this.#refreshDiagnosticConnector();
+      this.#refreshDiagnosticConnector(source);
       return combineReleases([
-        () => this.#diagnosticPending.clear(),
         releaseControl,
         () => {
-          this.#releaseDiagnosticConnector?.();
-          this.#releaseDiagnosticConnector = undefined;
+          if (source !== this.#diagnosticSourceOwner) return;
+          this.#diagnosticSourceOwner = undefined;
+          this.#clearDiagnosticConnector();
         },
+      ]);
+    });
+    this.diagnostics.addLocalSource(() => {
+      const requests = this.#requestCoordinator.events;
+      const commands = this.#commandProcessor.events;
+      return combineReleases([
+        () => this.#diagnosticPending.clear(),
         requests.on('processing_started', (e) => {
           this.#diagnosticPending.set(e.requestId, 'request');
           this.diagnostics.emit(
-            'client.request.started',
+            operationalKinds.clientRequestStarted,
             {},
             () => e.message,
             e.requestId,
           );
         }),
-        requests.on('processing_completed', (e) =>
+        requests.on('processing_completed', (e) => {
+          if (
+            this.#isDisposed ||
+            this.#diagnosticPending.get(e.requestId) !== 'request'
+          )
+            return;
+          this.#diagnosticPending.set(e.requestId, 'received');
           this.diagnostics.emit(
-            'client.response.received',
+            operationalKinds.clientResponseReceived,
             { durationMs: e.durationMs, source: 'request' },
             () => e.response,
             e.requestId,
-          ),
-        ),
+          );
+        }),
         requests.on('error', (e) => {
+          if (
+            this.#isDisposed ||
+            this.#diagnosticPending.get(e.requestId) !== 'request'
+          )
+            return;
           this.#diagnosticPending.delete(e.requestId);
           this.diagnostics.emit(
-            'client.request.failed',
-            { durationMs: e.durationMs },
+            operationalKinds.clientRequestFailed,
+            { durationMs: e.durationMs, ...operationalFailure(e.error) },
             () => ({ error: e.error.message }),
             e.requestId,
           );
@@ -1496,7 +1586,7 @@ export class Orchestrator {
         commands.on('actions_completed', (e) => {
           for (const action of e.result.actions)
             this.diagnostics.emit(
-              'client.action.completed',
+              operationalKinds.clientActionCompleted,
               {
                 instanceId: action.instanceId,
                 action: action.action,

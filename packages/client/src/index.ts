@@ -109,10 +109,12 @@ export type {
   ConnectionStatus,
   ConnectorCapabilities,
   ConnectorEvent,
+  ConnectorFailureKind,
   EngineConnector,
   PushConnector,
 } from './lib/connection-manager/connector.types.js';
 export {
+  ConnectorError,
   isAcknowledgedAssistantConnector,
   WireEngineError,
 } from './lib/connection-manager/connector.types.js';
@@ -121,7 +123,10 @@ export type { HttpConnectorOptions } from './lib/connection-manager/connectors/h
 export { HttpConnector } from './lib/connection-manager/connectors/http-connector.js';
 export type { WebSocketConnectorOptions } from './lib/connection-manager/connectors/web-socket-connector.js';
 export { WebSocketConnector } from './lib/connection-manager/connectors/web-socket-connector.js';
-export type { DiagnosticObservation } from './lib/diagnostic-channel.js';
+export type {
+  DiagnosticMetadataObserver,
+  DiagnosticObservation,
+} from './lib/diagnostic-channel.js';
 export { DiagnosticChannel } from './lib/diagnostic-channel.js';
 // Orchestrator
 export { buildChartRequest } from './lib/orchestrator/build-chart-request.js';
@@ -154,6 +159,10 @@ export type {
 export { RequestCoordinator } from './lib/orchestrator/request-coordinator.js';
 export type { RequestCoordinatorOptions } from './lib/orchestrator/request-coordinator.types.js';
 export { RequestInFlightError } from './lib/orchestrator/request-in-flight-error.js';
+export {
+  attachClientTelemetry,
+  type ClientTelemetrySource,
+} from './lib/telemetry.js';
 // Types
 export type { Unsubscribe, VesselInstance } from './lib/types.js';
 export type { UpdateCoordinatorEvents } from './lib/update-coordination/update-coordinator.js';

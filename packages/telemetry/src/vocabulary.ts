@@ -2,8 +2,10 @@ export const telemetryOperations = [
   'client.request',
   'client.apply',
   'client.action',
+  'engine.request',
   'engine.plan',
   'engine.stage',
+  'telemetry.source',
   'voice.tool',
 ] as const;
 export const telemetryOutcomes = [

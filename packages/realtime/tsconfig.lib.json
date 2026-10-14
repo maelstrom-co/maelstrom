@@ -12,6 +12,7 @@
   },
   "include": ["src/**/*.ts"],
   "references": [
+    { "path": "../telemetry/tsconfig.lib.json" },
     {
       "path": "../protocol/tsconfig.lib.json"
     },

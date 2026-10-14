@@ -3,6 +3,11 @@ import type {
   DiagnosticMetadata,
   SessionId,
 } from '@maelstrom-co/protocol';
+import type {
+  ObservationArguments,
+  TelemetryMetadataObserver,
+} from '@maelstrom-co/telemetry/integration';
+import { MetadataObservers } from '@maelstrom-co/telemetry/integration';
 import { notifyObserver } from './utils/notify-observer.js';
 
 /** Lazy content stays unevaluated unless an observer explicitly records it. */
@@ -13,12 +18,16 @@ export interface DiagnosticObservation {
   readonly readContent?: () => unknown;
 }
 
+/** Raw producer scalars requiring an allowlist before export; no envelope or content capability is delivered. */
+export type DiagnosticMetadataObserver = TelemetryMetadataObserver;
+
 interface SourceActivation {
   stop?: () => void;
 }
 
 interface SourceRegistration {
   readonly start: () => () => void;
+  readonly diagnosticOnly: boolean;
   activation?: SourceActivation;
 }
 
@@ -28,6 +37,7 @@ export class DiagnosticChannel {
     (observation: DiagnosticObservation) => void
   >();
   private readonly sources = new Set<SourceRegistration>();
+  private readonly metadataListeners = new MetadataObservers();
   private readonly controls = new Set<(event: DiagnosticEvent) => void>();
   private readonly controlState = new Map<string, DiagnosticEvent>();
   private disposed = false;
@@ -35,9 +45,30 @@ export class DiagnosticChannel {
   /** Creates an isolated stream for one application session. */
   constructor(private readonly sessionId: SessionId) {}
 
-  /** Whether any diagnostic consumer is attached. */
+  /** Whether a full diagnostic consumer is attached. @deprecated Use diagnosticsObserved. */
   get observed(): boolean {
     return this.listeners.size > 0;
+  }
+
+  /** Whether local producer work has a metadata or full diagnostic consumer. */
+  get locallyObserved(): boolean {
+    return this.listeners.size > 0 || this.metadataListeners.size > 0;
+  }
+
+  /** Whether a consumer holds full diagnostics, including optional remote and capture sources. */
+  get diagnosticsObserved(): boolean {
+    return this.observed;
+  }
+
+  /** Observes local producer metadata; forwarded and diagnostic-only evidence is excluded. */
+  subscribeMetadata(listener: DiagnosticMetadataObserver): () => void {
+    if (this.disposed) return () => {};
+    const release = this.metadataListeners.subscribe(listener);
+    for (const source of [...this.sources]) this.startSource(source);
+    return () => {
+      release();
+      this.releaseInactiveSources();
+    };
   }
 
   /** Replays current controls and observes changes without keeping collection sources alive. */
@@ -57,29 +88,36 @@ export class DiagnosticChannel {
   ): () => void {
     if (this.disposed) return () => {};
     this.listeners.add(listener);
-    if (this.listeners.size === 1)
-      for (const source of [...this.sources]) this.startSource(source);
+    for (const source of [...this.sources]) this.startSource(source);
     return () => {
       this.listeners.delete(listener);
-      if (!this.observed) {
-        const active = [...this.sources].map(
-          (source) => [source, source.activation] as const,
-        );
-        // Cleanup may reattach observers before every old source has released.
-        for (const [source, activation] of active)
-          if (source.activation === activation) source.activation = undefined;
-        for (const [source, activation] of active)
-          this.stopSource(source, activation);
-      }
+      this.releaseInactiveSources();
     };
   }
 
-  /** Registers optional observation work, started only while diagnostics are observed. */
+  /** Registers full diagnostic observation work. @deprecated Use addDiagnosticSource. */
   addSource(start: () => () => void): () => void {
+    return this.registerSource(start, true);
+  }
+
+  /** Registers local metadata producer work, started for metadata or full diagnostic consumers. */
+  addLocalSource(start: () => () => void): () => void {
+    return this.registerSource(start, false);
+  }
+
+  /** Registers remote or content observation work available only to full diagnostic consumers. */
+  addDiagnosticSource(start: () => () => void): () => void {
+    return this.registerSource(start, true);
+  }
+
+  private registerSource(
+    start: () => () => void,
+    diagnosticOnly: boolean,
+  ): () => void {
     if (this.disposed) return () => {};
-    const source: SourceRegistration = { start };
+    const source: SourceRegistration = { start, diagnosticOnly };
     this.sources.add(source);
-    if (this.observed) this.startSource(source);
+    this.startSource(source);
     return () => {
       this.sources.delete(source);
       this.stopSource(source, source.activation);
@@ -87,13 +125,40 @@ export class DiagnosticChannel {
   }
 
   /** Emits an isolated observation. Observer failures never change application behavior. */
+  emit<Kind extends string>(
+    kind: Kind,
+    ...args: [
+      ...ObservationArguments<NoInfer<Kind>>,
+      readContent?: () => unknown,
+      requestId?: string,
+    ]
+  ): void;
   emit(
     kind: string,
     metadata: DiagnosticMetadata = {},
     readContent?: () => unknown,
     requestId?: string,
   ): void {
-    if (this.disposed || (!this.observed && !kind.startsWith('devtools.')))
+    if (
+      this.disposed ||
+      (!this.locallyObserved && !kind.startsWith('devtools.'))
+    )
+      return;
+    this.metadataListeners.emit(kind, metadata);
+    this.emitDiagnostic(kind, metadata, readContent, requestId);
+  }
+
+  /** Emits diagnostic-only evidence without notifying operational metadata observers. */
+  emitDiagnostic(
+    kind: string,
+    metadata: DiagnosticMetadata = {},
+    readContent?: () => unknown,
+    requestId?: string,
+  ): void {
+    if (
+      this.disposed ||
+      (!this.diagnosticsObserved && !kind.startsWith('devtools.'))
+    )
       return;
     const event: DiagnosticEvent = {
       id: crypto.randomUUID(),
@@ -121,9 +186,27 @@ export class DiagnosticChannel {
     const sources = [...this.sources];
     this.sources.clear();
     this.listeners.clear();
+    this.metadataListeners.clear();
     this.controls.clear();
     this.controlState.clear();
     for (const source of sources) this.stopSource(source, source.activation);
+  }
+
+  private sourceObserved(source: SourceRegistration): boolean {
+    return source.diagnosticOnly
+      ? this.diagnosticsObserved
+      : this.locallyObserved;
+  }
+
+  private releaseInactiveSources(): void {
+    const active = [...this.sources]
+      .filter((source) => !this.sourceObserved(source))
+      .map((source) => [source, source.activation] as const);
+    // Cleanup may reattach observers before every old source has released.
+    for (const [source, activation] of active)
+      if (source.activation === activation) source.activation = undefined;
+    for (const [source, activation] of active)
+      this.stopSource(source, activation);
   }
 
   private stopSource(
@@ -144,7 +227,7 @@ export class DiagnosticChannel {
   private startSource(source: SourceRegistration): void {
     if (
       this.disposed ||
-      !this.observed ||
+      !this.sourceObserved(source) ||
       !this.sources.has(source) ||
       source.activation
     )
@@ -156,7 +239,7 @@ export class DiagnosticChannel {
       const stop = start();
       if (
         this.disposed ||
-        !this.observed ||
+        !this.sourceObserved(source) ||
         !this.sources.has(source) ||
         source.activation !== activation
       )

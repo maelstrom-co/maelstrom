@@ -286,14 +286,32 @@ export class SessionEventBus implements SessionEventSource {
     for (const subscriber of [...this.#subscribers]) {
       if (!this.#subscribers.has(subscriber)) continue;
       try {
-        subscriber(event);
+        const result: unknown = subscriber(event);
+        if (
+          result !== null &&
+          (typeof result === 'object' || typeof result === 'function') &&
+          'then' in result
+        )
+          void Promise.resolve(result).catch((error) =>
+            this.#reportFailure(error, event),
+          );
       } catch (error) {
-        try {
-          this.#reportError(error, event);
-        } catch {
-          // A failing reporter must not stop delivery to later subscribers.
-        }
+        this.#reportFailure(error, event);
       }
+    }
+  }
+
+  #reportFailure(error: unknown, event: SessionEvent): void {
+    try {
+      const result: unknown = this.#reportError(error, event);
+      if (
+        result !== null &&
+        (typeof result === 'object' || typeof result === 'function') &&
+        'then' in result
+      )
+        void Promise.resolve(result).catch(() => {});
+    } catch {
+      // A failing reporter must not stop delivery to later subscribers.
     }
   }
 }

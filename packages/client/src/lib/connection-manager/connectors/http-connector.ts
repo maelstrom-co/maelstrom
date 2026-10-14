@@ -12,6 +12,20 @@ import type {
   ConnectorEvent,
   EngineConnector,
 } from '../connector.types.js';
+import {
+  ConnectorError,
+  markConnectorCancellation,
+} from '../connector.types.js';
+
+function transportFailure(error: unknown): Error {
+  if (error instanceof DOMException && error.name === 'AbortError')
+    return markConnectorCancellation(error);
+  return new ConnectorError(
+    'transport',
+    error instanceof Error ? error.message : String(error),
+    { cause: error },
+  );
+}
 
 /**
  * Configuration options for HTTP connector.
@@ -144,23 +158,32 @@ export class HttpConnector implements EngineConnector {
         },
         body: JSON.stringify(body),
         signal: controller.signal,
-      }).catch((err) => {
-        // Replace the opaque AbortError with a useful timeout message that
-        // names the endpoint and the configured timeout — matches the
-        // diagnostic quality of the WebSocket path's RequestCorrelator.
-        if (timedOut) {
-          throw new Error(`HTTP ${path} timed out after ${this.#timeout}ms`);
-        }
-        throw err;
+      }).catch((error) => {
+        throw transportFailure(error);
       });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`HTTP ${response.status}: ${errorText}`);
-      }
+      const text = await response.text().catch((error) => {
+        throw transportFailure(error);
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}: ${text}`);
 
-      const text = await response.text();
-      return (text ? JSON.parse(text) : undefined) as T;
+      try {
+        return (text ? JSON.parse(text) : undefined) as T;
+      } catch (error) {
+        throw new ConnectorError(
+          'invalid_response',
+          error instanceof Error ? error.message : String(error),
+          { cause: error },
+        );
+      }
+    } catch (error) {
+      if (timedOut)
+        throw new ConnectorError(
+          'timeout',
+          `HTTP ${path} timed out after ${this.#timeout}ms`,
+          { cause: error },
+        );
+      throw error;
     } finally {
       clearTimeout(timeoutId);
     }

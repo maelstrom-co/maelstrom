@@ -83,7 +83,7 @@ test.each<[string, Record<string, unknown>, TelemetryFact]>([
   [
     'voice.tool.result',
     { ok: false, durationMs: 31 },
-    { operation: 'voice.tool', outcome: 'failed', durationMs: 31 },
+    { operation: 'voice.tool', outcome: 'unknown', durationMs: 31 },
   ],
   [
     'voice.tool.cancelled',

@@ -551,3 +551,46 @@ export function isAcknowledgedAssistantConnector(
     typeof connector.addAssistantMessageAcknowledged === 'function'
   );
 }
+
+/** Connector-owned error or cancellation evidence, independent of unclassified application errors. */
+export type ConnectorFailureKind =
+  | 'cancelled'
+  | 'transport'
+  | 'timeout'
+  | 'invalid_response';
+
+/** An error or cancellation whose origin was established by a connector at the transport boundary. */
+export class ConnectorError extends Error {
+  /** Established failure origin; arbitrary error messages are never used for classification. */
+  readonly kind: ConnectorFailureKind;
+
+  /** Creates a classified connector failure while retaining its message and optional cause. */
+  constructor(
+    kind: ConnectorFailureKind,
+    message: string,
+    options?: ErrorOptions,
+  ) {
+    super(message, options);
+    this.name = 'ConnectorError';
+    this.kind = kind;
+  }
+}
+
+const connectorCancellations = new WeakSet<Error>();
+
+export function markConnectorCancellation<Failure extends Error>(
+  error: Failure,
+): Failure {
+  connectorCancellations.add(error);
+  return error;
+}
+
+export function connectorFailureKind(
+  error: Error,
+): ConnectorFailureKind | undefined {
+  return connectorCancellations.has(error)
+    ? 'cancelled'
+    : error instanceof ConnectorError
+      ? error.kind
+      : undefined;
+}

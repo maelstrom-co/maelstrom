@@ -166,3 +166,17 @@ export interface Telemetry {
   /** Abort delivery and drop pending records immediately. Flush first when delivery matters. */
   dispose(): void;
 }
+
+/** Raw producer metadata observation; projection determines the safe operational export. */
+export type TelemetryMetadataObserver = (
+  kind: string,
+  metadata: Readonly<Record<string, unknown>>,
+) => void;
+
+/** One reference to a producer subscription with an awaitable shared retirement barrier. */
+export interface TelemetryAttachment {
+  /** Release this reference once. The last release begins retirement of the shared source. */
+  release(): void;
+  /** Completes after the last reference releases and accepted outcomes or source-loss facts are published. Disabled attachments are already drained. */
+  readonly drained: Promise<void>;
+}

@@ -310,11 +310,16 @@ export function requestsView(context: ViewContext): RenderedView {
     'applied-with-issues':
       'The response batch completed with failed or skipped Actions.',
     failed: 'The client reported a request or response application failure.',
+    cancelled: 'The request was cancelled before a response was applied.',
     discarded: 'The client discarded this response. Inspect its reason below.',
     abandoned: 'Client work ended before the response batch completed.',
   };
   content.append(element('p', summary[selected.status], 'muted'));
-  if (selected.status === 'discarded' || selected.status === 'abandoned') {
+  if (
+    selected.status === 'discarded' ||
+    selected.status === 'abandoned' ||
+    selected.status === 'cancelled'
+  ) {
     const reason = selected.events
       .slice()
       .reverse()

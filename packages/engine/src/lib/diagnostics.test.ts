@@ -20,6 +20,69 @@ import {
 import type { Engine } from './engine.js';
 import { createEngine } from './engine.js';
 
+test('operational metadata preserves actual planner work when diagnostic IDs are ambiguous', () => {
+  const emitter = new EngineDiagnosticEmitter();
+  const operational: string[] = [];
+  const diagnostic: string[] = [];
+  emitter.subscribeMetadata((kind) => {
+    operational.push(kind);
+  });
+  emitter.subscribe((event) => {
+    diagnostic.push(event.kind);
+  });
+  const sessionId = SessionId('shared-session');
+  const requestId = MessageId('reused-request');
+  const first = emitter.trackRequest(sessionId, requestId);
+  const second = emitter.trackRequest(sessionId, requestId);
+  emitter.emit(sessionId, requestId, 'engine.planner.completed', {
+    outcome: 'succeeded',
+  });
+  emitter.emit(sessionId, requestId, 'engine.planner.completed', {
+    outcome: 'failed',
+  });
+  first();
+  second();
+  expect(
+    operational.filter((kind) => kind === 'engine.planner.completed'),
+  ).toHaveLength(2);
+  expect(
+    diagnostic.filter((kind) => kind === 'engine.planner.completed'),
+  ).toEqual([]);
+});
+
+test('production metadata observations need neither diagnostic envelopes nor lazy content', () => {
+  const emitter = new EngineDiagnosticEmitter();
+  const observations: unknown[][] = [];
+  emitter.subscribeMetadata((...args) => {
+    observations.push(args);
+  });
+  const original = crypto.randomUUID;
+  crypto.randomUUID = () => {
+    throw new Error('Unexpected diagnostic envelope');
+  };
+  try {
+    expect(() =>
+      emitter.emit(
+        SessionId('CANARY_session'),
+        MessageId('CANARY_request'),
+        'engine.stage.completed',
+        { stage: 'test', durationMs: 4, outcome: 'succeeded' },
+        () => {
+          throw new Error('CANARY_prompt');
+        },
+      ),
+    ).not.toThrow();
+  } finally {
+    crypto.randomUUID = original;
+  }
+  expect(observations).toEqual([
+    [
+      'engine.stage.completed',
+      { stage: 'test', durationMs: 4, outcome: 'succeeded' },
+    ],
+  ]);
+});
+
 const request = (id: string) =>
   ChartRequestMessage({
     id: MessageId(id),
