@@ -40,8 +40,15 @@ A per-user conversation, hosted by the Engine, in which an agent pursues the use
 _Avoid_: runtime, brain, orchestrator, harness
 
 **Agent Run**:
-One pass of an Agent Session's loop pursuing one goal, from the input that starts it to its finish. An Agent Session holds many Agent Runs.
+One pass of an Agent Session's loop pursuing the user's goals, from the input that starts it to its finish. Interruptions can amend its goals or add to them mid-run. An Agent Session holds many Agent Runs.
 _Avoid_: run (unqualified), request, turn
+
+**Interruption**:
+Input from the user that arrives while an Agent Run is in progress. It amends the run, adds an independent goal to it, answers its open question, or supersedes it.
+_Avoid_: barge-in (that is speech playback being cut, not an Agent Run)
+
+**Atomic Step**:
+A step of an Agent Run that an Interruption never cuts mid-way, such as a tool call with side effects or a UI change being applied. An Interruption takes effect only when no Atomic Step is in flight.
 
 **Tool**:
 A capability the Agent Session's loop model can call during an Agent Run. A Tool is either a Server Tool or a Client Tool. The model sees one list of Tools and never knows where a Tool runs.
