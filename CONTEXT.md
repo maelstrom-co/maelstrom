@@ -43,6 +43,19 @@ _Avoid_: runtime, brain, orchestrator, harness
 One pass of an Agent Session's loop pursuing one goal, from the input that starts it to its finish. An Agent Session holds many Agent Runs.
 _Avoid_: run (unqualified), request, turn
 
+**Tool**:
+A capability the Agent Session's loop model can call during an Agent Run. A Tool is either a Server Tool or a Client Tool. The model sees one list of Tools and never knows where a Tool runs.
+
+**Server Tool**:
+A Tool the app developer defines that runs where the Agent Session runs. Server Tools reach the app's backend data.
+
+**Client Tool**:
+A Tool that runs in the user's browser. Only the framework defines Client Tools: asking the user (ask_user) and the Vessel Queries.
+_Avoid_: frontend tool
+
+**Vessel Query**:
+A read-only request a Vessel declares alongside its Actions, answered from the Vessel's current state in the browser. Each Vessel Query becomes a Client Tool.
+
 **Execution Plan**:
 The ordered list of Actions the Planner decided to invoke in response to an update.
 _Avoid_: action list, plan (unqualified)
