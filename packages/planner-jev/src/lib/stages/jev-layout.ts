@@ -1,6 +1,7 @@
 import type { Stage } from '@maelstrom-co/engine';
 import { finalVariants } from '@maelstrom-co/engine';
 import { isErr, ok } from '@maelstrom-co/protocol';
+import type { Ask } from '../ask.js';
 import { deferAt, STAGE_NAME } from '../defer.js';
 import { type LayoutChoicesOptions, layoutChoices } from '../layouts.js';
 import {
@@ -10,7 +11,6 @@ import {
   recentHistory,
 } from '../questions.js';
 import type { JevActionPlan, JevLayoutPlan } from '../types.js';
-import type { Ask } from '../typesafe-client.js';
 
 const STAGE = STAGE_NAME.jevLayout;
 

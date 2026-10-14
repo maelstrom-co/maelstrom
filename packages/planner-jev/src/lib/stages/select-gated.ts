@@ -5,10 +5,9 @@ import type {
   StageContext,
 } from '@maelstrom-co/engine';
 import { isErr, isOk, ok, type Result } from '@maelstrom-co/protocol';
-
+import type { Ask } from '../ask.js';
 import { deferAt, STAGE_NAME } from '../defer.js';
 import { noul, type Question, type Reply, readAnswer } from '../questions.js';
-import type { Ask } from '../typesafe-client.js';
 import { jevSelect } from './jev-select.js';
 import type {
   GateAnswer,

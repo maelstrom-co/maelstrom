@@ -11,6 +11,7 @@ import {
   type VariantName,
   type VesselAction,
 } from '@maelstrom-co/protocol';
+import type { Ask } from '../ask.js';
 import { deferAt, STAGE_NAME } from '../defer.js';
 import {
   bindParameterChoices,
@@ -33,7 +34,6 @@ import type {
   PlannedAction,
   SelectedInstance,
 } from '../types.js';
-import type { Ask } from '../typesafe-client.js';
 import { actionPlanOf } from './action-plan.js';
 import { actionKey, keepFirstOfEachKey } from './duplicate-actions.js';
 import { askInChunks, type FanOutOptions } from './fan-out.js';
@@ -67,7 +67,7 @@ export type ActionsBatchedPerInstanceOptions = FanOutOptions;
  * measurement. Actions keep their order within an instance, not across
  * instances. The questions are split over as few concurrent calls as the
  * byte budget of {@link askInChunks} allows, since one call over all of them
- * can exceed what TypeSafe accepts. A resize-only request, or a
+ * can exceed what the provider accepts. A resize-only request, or a
  * `needsActions` gate answering no, plans no actions and makes no call.
  */
 export function actionsBatchedPerInstance(

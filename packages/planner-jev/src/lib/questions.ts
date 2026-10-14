@@ -7,7 +7,7 @@ import { type ChartRequest, ok, type Result } from '@maelstrom-co/protocol';
 
 import { deferAt, type StageName } from './defer.js';
 
-/** TypeSafe rejects a choice question with more options than this. */
+/** The most options a choice question may have; TypeSafe rejects more. */
 export const MAX_CHOICES = 255;
 
 /** The fewest levels a score question may have. */
@@ -29,7 +29,7 @@ export type JsonValue =
 
 /**
  * Instructions or an option description: plain text, or a JSON object
- * TypeSafe reads as structured text, such as
+ * the provider reads as structured text, such as
  * `{ "what": ..., "not_for": ..., "examples": [...] }` for options that are
  * easily confused.
  */
@@ -59,21 +59,21 @@ export interface ScoreQuestion {
   readonly criteria: readonly string[];
 }
 
-/** Any question TypeSafe answers: a choice, a yes/no noul or a score. */
+/** Any question a provider answers: a choice, a yes/no noul or a score. */
 export type Question = ChoiceQuestion | NoulQuestion | ScoreQuestion;
 
-/** One TypeSafe request: shared state plus the questions to answer about it. */
+/** One provider request: shared state plus the questions to answer about it. */
 export interface Evaluation {
   readonly state: unknown;
   readonly questions: Readonly<Record<string, Question>>;
 }
 
 /**
- * Jev's pick for one question. A noul answer picks `yes` when its
+ * The provider's pick for one question. A noul answer picks `yes` when its
  * probability of yes is at least one half, and its confidence is how far
  * that probability is from one half, scaled to [0, 1]. A score answer picks
  * its most probable level as a level number string (`"0"` is the lowest; a
- * tie picks the lower level) and keeps TypeSafe's confidence.
+ * tie picks the lower level) and keeps the provider's confidence.
  */
 export interface Answer {
   readonly choice: string;
@@ -98,13 +98,13 @@ export interface ScoreAnswer extends Answer {
   readonly probabilities: Readonly<Record<string, number>>;
 }
 
-/** Token usage TypeSafe reports for one call. */
+/** Token usage the provider reports for one call. */
 export interface Usage {
   readonly inputTokens: number;
   readonly outputTokens: number;
 }
 
-/** A validated TypeSafe reply. */
+/** A validated provider reply. */
 export interface Reply {
   readonly answers: Readonly<Record<string, Answer>>;
   readonly usage: Usage;

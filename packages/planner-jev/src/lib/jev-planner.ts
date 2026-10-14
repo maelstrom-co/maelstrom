@@ -12,17 +12,14 @@ import {
 import type { AnyTextAdapter } from '@tanstack/ai';
 import { STAGE_NAME } from './defer.js';
 import { logTurns } from './log-turn.js';
+import { FALLBACK_RETRIES } from './planners/jev-stage-planner.js';
 import { jevActions } from './stages/jev-actions.js';
 import { jevLayout } from './stages/jev-layout.js';
 import { jevSelect } from './stages/jev-select.js';
 import { llmComplete } from './stages/llm-complete.js';
-import {
-  createTypeSafeClient,
-  type TypeSafeClientOptions,
-} from './typesafe-client.js';
+import { createJevDeps, type JevDeps } from './stages/stage-deps.js';
 
-/** How many times the fallback is re-run when validation recommends a retry. */
-export const FALLBACK_RETRIES = 1;
+export { FALLBACK_RETRIES };
 
 /** Connection settings for TypeSafe's System One endpoint, which serves Jev. */
 export interface TypeSafeOptions {
@@ -61,36 +58,20 @@ export interface JevPlannerOptions {
 }
 
 /**
- * Builds the composition from TypeSafe client options, which may carry the
- * client's call hook. Stages are named for `StageContext.instrument`.
- * {@link jevPlanner} is this with the public options.
+ * The frozen POC composition (select, actions, layout and the completion
+ * call, with the LLM fallback) over `deps`, whose `ask` may be any
+ * provider's client. Stages are named for `StageContext.instrument`.
+ * {@link jevPlanner} is this with the TypeSafe client.
  */
-export function buildJevPlanner(
-  options: Omit<JevPlannerOptions, 'typesafe'> & {
-    readonly typesafe: TypeSafeClientOptions;
-  },
-): Planner {
-  if (typeof options.fallback !== 'function')
-    throw new Error('Invalid JevPlannerOptions: fallback must be a stage');
-  if (options.adapter === undefined || options.adapter === null)
-    throw new Error('Invalid JevPlannerOptions: adapter is required');
-  const ask = createTypeSafeClient(options.typesafe);
+export function buildJevPlanner(deps: JevDeps): Planner {
   return withFallback(
     pipeline(
-      named(STAGE_NAME.jevSelect, jevSelect(ask)),
-      named(STAGE_NAME.jevActions, jevActions(ask)),
-      named(STAGE_NAME.jevLayout, jevLayout(ask)),
-      named(
-        STAGE_NAME.llmComplete,
-        llmComplete({
-          adapter: options.adapter,
-          ...(options.modelOptions !== undefined && {
-            modelOptions: options.modelOptions,
-          }),
-        }),
-      ),
+      named(STAGE_NAME.jevSelect, jevSelect(deps.ask)),
+      named(STAGE_NAME.jevActions, jevActions(deps.ask)),
+      named(STAGE_NAME.jevLayout, jevLayout(deps.ask)),
+      named(STAGE_NAME.llmComplete, llmComplete(deps.llm)),
     ),
-    withRetry(options.fallback, { max: FALLBACK_RETRIES }),
+    withRetry(deps.fallback, { max: FALLBACK_RETRIES }),
   );
 }
 
@@ -127,6 +108,6 @@ export function buildJevPlanner(
  * ```
  */
 export function jevPlanner(options: JevPlannerOptions): Planner {
-  const planner = buildJevPlanner(options);
+  const planner = buildJevPlanner(createJevDeps(options));
   return options.typesafe.logReplies === true ? logTurns(planner) : planner;
 }

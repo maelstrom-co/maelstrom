@@ -47,6 +47,16 @@ Run the Engine with `retry: false`. The Jev pipeline is never re-run whole: `llm
 
 It is not the default: `jevPlanner` passed more holdout scenarios in the comparison eval. The demo selects it with `MAELSTROM_PLANNER=jev-composed-pairs` so the composed layout can be tried in a real UI.
 
+### OpenAI Decisions client (internal)
+
+Every planner builder takes its provider as an `Ask`, so the same stages can be answered by another typed-decision provider. The workspace-internal `createDecisionsClient` (from `_internal`) is one: it asks the same typed questions through OpenAI's Decisions API (public beta, `POST https://api.openai.com/v1/decisions`, model `gpt-6-luna`) so the eval can compare providers. It is not a shipped planner and the root entry does not export it.
+
+Questions map onto Decisions types: `noul` to `predicate`, `choice` to `choice` (one value per option key) and `score` to `score` (levels labelled "0" to "n-1", where the level is the most probable one, not the rounded fractional score). The evaluation state and every object-valued question text are rendered to text with `JSON.stringify`, unless the client's `render` option replaces that. Question ids and option keys are sent as-is.
+
+Decisions can refuse a question. A refusal of any question makes the call defer with `<stage>/provider_refusal`, naming the first refused question, and the fallback answers the turn. TypeSafe never refuses. In one recorded composed pairs layout call, Decisions deterministically refuses the benign `fraction_in_group/calendar-main` score question, so that call defers to the fallback.
+
+The client emits the same `jev.call`, `jev.provider_failure` and (with `logReplies`) `jev.reply` logs, and the same `jev.call` instrument event, as the TypeSafe client.
+
 ## Stage library
 
 The stage library composes named planners from interchangeable stages with `pipeline(...)`, each wrapped in the same fallback. Every stage keeps the POC's stage names (`jevSelect`, `jevActions`, `jevLayout`, `llmComplete`), so deferral reasons, the report and replay treat them alike. The eval runs every planner as an arm.
@@ -58,6 +68,7 @@ Chosen code is what ships: the two planners that are exported and selectable in 
 | Folder | Holds |
 | --- | --- |
 | `src/lib/` | `jevPlanner` (`jev-planner.ts`) and the helpers every stage shares: questions, layouts, fit checks, deferral, the TypeSafe client. |
+| `src/lib/` (provider layer) | The provider-neutral `Ask`, call outcomes and answers (`ask.ts`), the reply checks both clients share (`reply-validation.ts`) and the OpenAI Decisions client (`openai-decisions-client.ts`). |
 | `src/lib/stages/` | Chosen stages: the frozen POC stages (`jev-select.ts`, `jev-actions.ts`, `jev-layout.ts`, `llm-complete.ts`), the composed pairs planner's stages (`select-gated.ts`, `actions-batched-per-instance.ts`, `layout-composed-pairs-gate-and-defer.ts` with its `-tree.ts` and `-sizes.ts` helpers, `complete-layout-inline.ts`) and the stage utilities both sides share (`stage-types.ts`, `stage-deps.ts`, `fan-out.ts`, `action-plan.ts`, `layout-describe.ts`). |
 | `src/lib/planners/` | Chosen planners: `jev-composed-pairs.ts` and the shared pipeline builder `jev-stage-planner.ts`. |
 | `src/lib/stages-experimental/` | Stages only experiments use. |
@@ -192,17 +203,18 @@ Every deferral logs `jev.defer` at info with `{ stage, reason, question }`, and 
 | `jevActions/premise_mismatch` | Stage library only: a per-instance second action assumes a view the first action does not lead to. |
 | `llmComplete/invalid_layout` | Stage library only: a tree the LLM wrote on a hand-off is malformed, leaves out or adds an Instance, or breaks a minimum size. |
 | `<stage>/option_cap` | A question had more than 255 options. |
-| `<stage>/provider_timeout` | A TypeSafe call took longer than its timeout (5 s by default). |
-| `<stage>/provider_network` | A TypeSafe call failed to connect. |
-| `<stage>/provider_http` | TypeSafe answered with a non-2xx status. |
+| `<stage>/provider_timeout` | A provider call took longer than its timeout (5 s by default). |
+| `<stage>/provider_network` | A provider call failed to connect. |
+| `<stage>/provider_http` | The provider answered with a non-2xx status. |
 | `<stage>/provider_invalid_reply` | The reply was too large, not JSON, or failed strict validation. |
+| `<stage>/provider_refusal` | Decisions refused a question. TypeSafe never refuses. |
 | `<stage>/low_confidence`, `<stage>/answer_missing` | Only with a confidence gate, or a reply missing a validated answer. |
 
 `provider_*` deferrals also log `jev.provider_failure` at warn. A user cancellation is a `CancellationError`, and a provider failure inside `llmComplete` is a `ProviderError`; neither falls back, because the fallback would hit the same provider.
 
 ## Logs
 
-- `jev.call` (debug): stage, model, question ids, latency, outcome and token usage of every TypeSafe call.
+- `jev.call` (debug): stage, model, question ids, latency, outcome and token usage of every provider call (TypeSafe Jev or OpenAI Decisions).
 - `jev.answer` (debug): stage, question, choice and confidence of every answer read.
 - `jev.reply` (debug, opt-in via `logReplies` / `JEV_LOG_REPLIES=1`): the state and questions sent (the user's words included) and the raw reply, as JSON, before validation, so an invalid reply is visible too.
 - `jev.request` and `jev.result` (debug, same opt-in): the user's request at the start of each turn, and at the end the shipped candidate as JSON (reply text, layout tree, rationale) or the error tag. The candidate is the one from Jev or from the fallback, whichever ships.

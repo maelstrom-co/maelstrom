@@ -27,6 +27,13 @@ export {
   recordedAsk,
 } from './lib/__test-helpers__/layout-replay.js';
 export {
+  DECISIONS_TEST_MODEL,
+  type DecisionsScript,
+  type DecisionsStep,
+  scriptedDecisionsAsk,
+  scriptedDecisionsFetch,
+} from './lib/__test-helpers__/scripted-decisions-fetch.js';
+export {
   type Payload,
   type Script,
   scriptedAsk,

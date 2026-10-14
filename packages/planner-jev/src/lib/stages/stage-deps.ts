@@ -6,8 +6,9 @@ import type {
 } from '@maelstrom-co/engine';
 import type { AnyTextAdapter } from '@tanstack/ai';
 
+import type { Ask } from '../ask.js';
+import { createStageDeps } from '../planners/jev-stage-planner.js';
 import {
-  type Ask,
   createTypeSafeClient,
   type TypeSafeClientOptions,
 } from '../typesafe-client.js';
@@ -40,18 +41,9 @@ export interface JevDepsOptions {
  * @throws {Error} If `fallback` is not a stage or `adapter` is missing.
  */
 export function createJevDeps(options: JevDepsOptions): JevDeps {
-  if (typeof options.fallback !== 'function')
-    throw new Error('Invalid JevPlannerOptions: fallback must be a stage');
-  if (options.adapter === undefined || options.adapter === null)
-    throw new Error('Invalid JevPlannerOptions: adapter is required');
-  return {
-    ask: createTypeSafeClient(options.typesafe),
-    llm: {
-      adapter: options.adapter,
-      ...(options.modelOptions !== undefined && {
-        modelOptions: options.modelOptions,
-      }),
-    },
-    fallback: options.fallback,
-  };
+  return createStageDeps(
+    createTypeSafeClient(options.typesafe),
+    options,
+    'JevPlannerOptions',
+  );
 }

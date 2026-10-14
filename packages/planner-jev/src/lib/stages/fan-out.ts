@@ -4,26 +4,25 @@ import type {
   StageContext,
 } from '@maelstrom-co/engine';
 import { isErr, ok, type Result } from '@maelstrom-co/protocol';
-
+import type { Ask } from '../ask.js';
 import { deferAt, type StageName } from '../defer.js';
 import type { Answer, Evaluation, Question, Reply } from '../questions.js';
-import type { Ask } from '../typesafe-client.js';
 
 /**
- * The serialized request size one TypeSafe call is packed up to, in bytes.
- * Past some size TypeSafe rejects the body with `max_tokens_exceeded`,
- * which the client reports as `provider_http`. A live run put every
- * accepted request at or below 126 KB and every rejected one at 151 KB or
- * above, so this budget stays inside the range that was accepted rather
- * than just under the one that was not.
+ * The serialized request size one provider call is packed up to, in bytes.
+ * The budget was measured on TypeSafe: past some size TypeSafe rejects the
+ * body with `max_tokens_exceeded`, which its client reports as
+ * `provider_http`. A live run put every accepted request at or below 126 KB
+ * and every rejected one at 151 KB or above, so this budget stays inside the
+ * range that was accepted rather than just under the one that was not.
  */
 export const MAX_REQUEST_BYTES = 96 * 1024;
 
 /**
- * How many of one stage's chunked calls are in flight at once. TypeSafe has
- * never rate-limited this package and no other stage fans out, so the cap
- * stays low enough that a wide turn cannot open an unbounded number of
- * requests.
+ * How many of one stage's chunked calls are in flight at once, whichever
+ * provider answers them. TypeSafe has never rate-limited this package and
+ * no other stage fans out, so the cap stays low enough that a wide turn
+ * cannot open an unbounded number of requests.
  */
 export const MAX_CONCURRENT_CALLS = 4;
 
@@ -34,7 +33,7 @@ export interface FanOutOptions {
 }
 
 /**
- * Asks `evaluation` in as few TypeSafe calls as {@link MAX_REQUEST_BYTES}
+ * Asks `evaluation` in as few provider calls as {@link MAX_REQUEST_BYTES}
  * allows, at most {@link MAX_CONCURRENT_CALLS} of them in flight, and merges
  * the answers and token usage into one reply. Every call repeats the state,
  * and questions are answered independently of one another, so the answers
