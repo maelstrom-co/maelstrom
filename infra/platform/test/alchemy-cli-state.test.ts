@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -6,6 +6,10 @@ import { fileURLToPath } from 'node:url';
 const project = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const cli = join(project, 'node_modules/alchemy/bin/cli.js');
 const directories: string[] = [];
+
+// Each test spawns the real CLI, which cold-loads Alchemy for about a
+// second, and CI runs every project's tests in parallel.
+setDefaultTimeout(30_000);
 
 afterEach(async () => {
   await Promise.all(
