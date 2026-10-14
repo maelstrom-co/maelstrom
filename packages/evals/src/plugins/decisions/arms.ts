@@ -2,10 +2,12 @@ import {
   buildComposedPairsScreenScopePlanner,
   buildJevComposedPairsPlanner,
   buildJevPlanner,
-  buildPocScreenScopePlanner,
   createStageDeps,
   type JevCall,
   type JevDeps,
+  jevSelect,
+  selectGated,
+  selectGatedScreenScope,
 } from '@maelstrom-co/planner-jev/_internal';
 import type { ArmDeps } from '../../core/plugin.js';
 import type { JevArm } from '../jev/arms.js';
@@ -16,9 +18,10 @@ import type { ClientBuilder } from '../jev/client-builder.js';
  * Jev run's stages replay into it.
  *
  * - `decisions-poc` and `decisions-composed-pairs`: the twins of `jev-poc`
- *   and the composed pairs Jev arm, on `client`.
- * - `decisions-poc-prose`: the POC on `proseClient`, whose select state
- *   reads as prose rather than JSON.
+ *   and the composed pairs Jev arm, on `client`, with the select stages
+ *   those arms were first measured with (`jevSelect` and `selectGated`).
+ * - `decisions-poc-prose`: `decisions-poc` on `proseClient`, whose select
+ *   state reads as prose rather than JSON.
  * - `decisions-poc-screen-scope-prose`: the POC with the screen scope
  *   select on `proseClient`, the twin of `jev-poc-screen-scope`. That
  *   select also asks the gated select's four gate questions and adds its
@@ -42,21 +45,26 @@ export function decisionsArms(
       kind: 'decisions-poc',
       requiredEnv,
       replayShape: 'poc',
-      build: (deps) => buildJevPlanner(stageDeps(client, deps)),
+      build: (deps) =>
+        buildJevPlanner(stageDeps(client, deps), { select: jevSelect }),
     },
     {
       name: 'decisions-composed-pairs',
       kind: 'decisions',
       requiredEnv,
       replayShape: 'gated',
-      build: (deps) => buildJevComposedPairsPlanner(stageDeps(client, deps)),
+      build: (deps) =>
+        buildJevComposedPairsPlanner(stageDeps(client, deps), {
+          select: selectGated,
+        }),
     },
     {
       name: 'decisions-poc-prose',
       kind: 'decisions-poc',
       requiredEnv,
       replayShape: 'poc',
-      build: (deps) => buildJevPlanner(stageDeps(proseClient, deps)),
+      build: (deps) =>
+        buildJevPlanner(stageDeps(proseClient, deps), { select: jevSelect }),
     },
     {
       name: 'decisions-poc-screen-scope-prose',
@@ -64,8 +72,9 @@ export function decisionsArms(
       requiredEnv,
       replayShape: 'poc',
       build: (deps) =>
-        buildPocScreenScopePlanner(stageDeps(proseClient, deps), {
-          spelledOutActionsGate: true,
+        buildJevPlanner(stageDeps(proseClient, deps), {
+          select: (ask) =>
+            selectGatedScreenScope(ask, { spelledOutActionsGate: true }),
         }),
     },
     {

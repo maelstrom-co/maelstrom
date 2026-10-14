@@ -1,7 +1,6 @@
 import type { Planner } from '@maelstrom-co/engine';
 import {
   actionsBatchedPerInstance,
-  buildComposedPairsScreenScopePlanner,
   buildJevComposedPairsPlanner,
   buildJevGatedBatchedPlanner,
   buildJevGatedStepwisePlanner,
@@ -10,13 +9,13 @@ import {
   buildJevUngatedBatchedPerInstancePlanner,
   buildJevUngatedBatchedPlanner,
   buildJevUngatedStepwisePlanner,
-  buildPocScreenScopePlanner,
   completeLayoutInline,
   completeLayoutParallel,
   createJevDeps,
   type JevCall,
   type JevDeps,
   type JevStages,
+  jevSelect,
   layoutPreset,
   layoutPresetOrLlm,
   type Selection2,
@@ -48,7 +47,16 @@ const GATED_PER_INSTANCE = {
   actions: actionsBatchedPerInstance,
 } as const;
 
-/** The frozen POC and the stage-library planners, each an arm, on `typesafe`'s client. */
+/**
+ * The POC and the stage-library planners, each an arm, on `typesafe`'s
+ * client. `jev-poc` and
+ * `jev-gated-per-instance-composed-pairs-gate-and-defer-inline` keep the
+ * select stages they were first measured with (`jevSelect` and
+ * `selectGated`). `jev-poc-screen-scope` and
+ * `jev-composed-pairs-screen-scope` are the shipped `jevPlanner` and
+ * `jevComposedPairsPlanner`, whose select stage is
+ * `selectGatedScreenScope`.
+ */
 export function jevArms(typesafe: TypeSafeSettings): readonly JevArm[] {
   const library = (
     name: string,
@@ -73,13 +81,14 @@ export function jevArms(typesafe: TypeSafeSettings): readonly JevArm[] {
       kind: 'jev-poc',
       requiredEnv: JEV_ENV,
       replayShape: 'poc',
-      build: (deps) => buildJevPlanner(jevDeps(typesafe, deps)),
+      build: (deps) =>
+        buildJevPlanner(jevDeps(typesafe, deps), { select: jevSelect }),
     },
-    library('jev-poc-screen-scope', 'poc', (deps) =>
-      buildPocScreenScopePlanner(deps),
-    ),
-    library('jev-composed-pairs-screen-scope', 'gated', (deps) =>
-      buildComposedPairsScreenScopePlanner(deps),
+    library('jev-poc-screen-scope', 'poc', buildJevPlanner),
+    library(
+      'jev-composed-pairs-screen-scope',
+      'gated',
+      buildJevComposedPairsPlanner,
     ),
     library(
       'jev-ungated-stepwise-preset-inline',
@@ -124,7 +133,7 @@ export function jevArms(typesafe: TypeSafeSettings): readonly JevArm[] {
     library(
       'jev-gated-per-instance-composed-pairs-gate-and-defer-inline',
       'gated',
-      buildJevComposedPairsPlanner,
+      (deps) => buildJevComposedPairsPlanner(deps, { select: selectGated }),
     ),
     stagePlanner('jev-ungated-per-instance-preset-or-llm-inline', 'ungated', {
       select: selectUngated,

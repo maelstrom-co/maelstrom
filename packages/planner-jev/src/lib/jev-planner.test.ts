@@ -121,12 +121,60 @@ function shipped(result: Awaited<ReturnType<typeof run>>['result']) {
 const talk = (script: Conversation) => conversation(script);
 
 describe('jevPlanner through createEngine', () => {
+  test('asks the screen scope select, then the POC actions and layout', async () => {
+    mockChat.mockResolvedValue({ userMessage: 'Tasks are hidden.' });
+    const { calls } = await run(
+      makeRequest('hide the tasks'),
+      talk({
+        select: { 'view/tasks-main': 'hide' },
+        gates: { 'hide/tasks-main': 0.9 },
+        layout: 'row',
+      }),
+    );
+    expect(calls.map((call) => Object.keys(call.questions).sort())).toEqual([
+      [
+        'gate/dependsOnScreen',
+        'gate/generatedContent',
+        'gate/needsActions',
+        'gate/spatial',
+        'hide/calendar-main',
+        'hide/tasks-main',
+        'hide/weather-main',
+        'new/calendar',
+        'new/journal',
+        'new/map',
+        'new/tasks',
+        'new/weather',
+        'scope',
+        'screen',
+        'view/calendar-main',
+        'view/journal-main',
+        'view/map-main',
+        'view/tasks-main',
+        'view/weather-main',
+      ],
+      ['action/0'],
+      ['layout'],
+    ]);
+  });
+
+  test('keeps a visible instance the request does not hide when the screen is adjusted', async () => {
+    mockChat.mockResolvedValue({ userMessage: 'Tasks are hidden.' });
+    const { result, fallback } = await run(
+      makeRequest('hide the tasks'),
+      talk({ select: { 'view/tasks-main': 'hide' }, layout: 'row' }),
+    );
+    expect(shipped(result).layout.tree).toContain('ID:tasks-main');
+    expect(fallback.inputs).toHaveLength(0);
+  });
+
   test('a hide request ships Jev’s selection with the mocked message', async () => {
     mockChat.mockResolvedValue({ userMessage: 'Tasks are hidden.' });
     const { result, fallback, calls } = await run(
       makeRequest('hide the tasks'),
       talk({
         select: { 'view/tasks-main': 'hide' },
+        gates: { 'hide/tasks-main': 0.9 },
         layout: 'row',
       }),
     );

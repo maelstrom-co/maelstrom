@@ -98,7 +98,7 @@ describe('buildLocalEngine', () => {
     ).toThrow(`MAELSTROM_PLANNER=${planner} requires TYPESAFE_API_KEY.`);
   });
 
-  it('jev builds the frozen POC planner', () => {
+  it('jev builds the POC planner', () => {
     createEngineMock.mockReturnValue(stubEngine());
     const local = quietly(() =>
       buildLocalEngine({ MAELSTROM_PLANNER: 'jev', ...JEV_ENV }),

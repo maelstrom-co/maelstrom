@@ -9,9 +9,10 @@ import {
   runPocCase,
   runPocCaseOnDecisions,
 } from '../__test-helpers__/poc-fixtures.js';
-import { buildJevPlanner, jevPlanner } from '../jev-planner.js';
+import { buildJevPlanner } from '../jev-planner.js';
 import { buildJevUngatedStepwisePlanner } from '../planners-experimental/jev-ungated-stepwise.js';
-import { createJevDeps } from './stage-deps.js';
+import { jevSelect } from './jev-select.js';
+import { createJevDeps, type JevDeps } from './stage-deps.js';
 
 installMockChat();
 
@@ -23,30 +24,31 @@ const snapshotFile = (name: string) => join(SNAPSHOT_DIR, `${name}.json`);
 
 // Regenerate with UPDATE_POC_SNAPSHOT=1 only for a deliberate POC change.
 const UPDATE = process.env.UPDATE_POC_SNAPSHOT === '1';
-const pinned: Record<string, PocRun> = {};
-for (const fixture of POC_CASES) {
-  const file = Bun.file(snapshotFile(fixture.name));
-  if (await file.exists()) pinned[fixture.name] = await file.json();
-}
+const pinned = await readPinned();
 const updated: Record<string, PocRun> = {};
+
+const originalPoc = (deps: JevDeps) =>
+  buildJevPlanner(deps, { select: jevSelect });
 
 afterEach(() => mockChat.mockReset());
 
 describe('frozen POC snapshot', () => {
-  describe('jev-poc', () => {
+  describe('jev-poc with the original select', () => {
     for (const fixture of POC_CASES)
       test(`${fixture.name} sends the pinned evaluations and ships the pinned candidate`, async () => {
-        const run = await runPocCase(fixture, (options) => jevPlanner(options));
+        const run = await runPocCase(fixture, (options) =>
+          originalPoc(createJevDeps(options)),
+        );
         updated[fixture.name] = run;
         if (UPDATE) return;
         expect(run).toEqual(pinned[fixture.name] as PocRun);
       });
   });
 
-  describe('jev-poc on a Decisions client', () => {
+  describe('jev-poc with the original select on a Decisions client', () => {
     for (const fixture of POC_CASES)
       test(`${fixture.name} sends the pinned evaluations and ships the pinned candidate`, async () => {
-        const run = await runPocCaseOnDecisions(fixture, buildJevPlanner);
+        const run = await runPocCaseOnDecisions(fixture, originalPoc);
         if (UPDATE) return;
         const expected = pinned[fixture.name] as PocRun;
         expect(run.evaluations.map(withoutModel)).toEqual(
@@ -87,6 +89,15 @@ describe('frozen POC snapshot', () => {
     );
   });
 });
+
+async function readPinned(): Promise<Record<string, PocRun>> {
+  const runs: Record<string, PocRun> = {};
+  for (const fixture of POC_CASES) {
+    const file = Bun.file(snapshotFile(fixture.name));
+    if (await file.exists()) runs[fixture.name] = await file.json();
+  }
+  return runs;
+}
 
 function withoutModel({ model: _model, ...rest }: { model: string }) {
   return rest;

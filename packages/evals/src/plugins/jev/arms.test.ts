@@ -1,5 +1,13 @@
 import { describe, expect, test } from 'bun:test';
-import { dummyAdapter, TEST_MODEL } from '@maelstrom-co/planner-jev/_testing';
+import {
+  conversation,
+  dummyAdapter,
+  makeContext,
+  makeInput,
+  makeRequest,
+  scriptedFetch,
+  TEST_MODEL,
+} from '@maelstrom-co/planner-jev/_testing';
 import type { AnyTextAdapter } from '@tanstack/ai';
 import { defaultArms, resolveArms } from '../../core/arms.js';
 import type { ArmDeps } from '../../core/plugin.js';
@@ -99,6 +107,47 @@ describe('the Jev arms', () => {
       jevPluginWith({ typesafe: { model: 'jev-pinned' } }).meta?.(),
     ).toEqual({
       jevModel: 'jev-pinned',
+    });
+  });
+
+  test('the shipped planner arms ask the screen scope select and the arms first measured keep their own', async () => {
+    const asksScreen = async (name: string) => {
+      const { fetch, calls } = scriptedFetch(conversation({}));
+      const arm = jevArms(
+        typesafeSettings({
+          apiKey: 'typesafe-test-key',
+          model: TEST_MODEL,
+          fetch,
+        }),
+      ).find((candidate) => candidate.name === name);
+      const planner = arm?.build({
+        adapter: () => dummyAdapter,
+        fallback: async () => {
+          throw new Error('not called');
+        },
+        onCall: () => {},
+      });
+      const input = makeInput(makeRequest('hide the tasks'));
+      await planner?.(input, makeContext(input)).catch(() => undefined);
+      const [select] = calls;
+      if (select === undefined) throw new Error(`${name} asked nothing`);
+      return Object.keys(select.questions).includes('screen');
+    };
+    expect({
+      'jev-poc': await asksScreen('jev-poc'),
+      'jev-poc-screen-scope': await asksScreen('jev-poc-screen-scope'),
+      'jev-gated-per-instance-composed-pairs-gate-and-defer-inline':
+        await asksScreen(
+          'jev-gated-per-instance-composed-pairs-gate-and-defer-inline',
+        ),
+      'jev-composed-pairs-screen-scope': await asksScreen(
+        'jev-composed-pairs-screen-scope',
+      ),
+    }).toEqual({
+      'jev-poc': false,
+      'jev-poc-screen-scope': true,
+      'jev-gated-per-instance-composed-pairs-gate-and-defer-inline': false,
+      'jev-composed-pairs-screen-scope': true,
     });
   });
 });

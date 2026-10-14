@@ -75,7 +75,7 @@ export function createPlaygroundEngine(
 }
 
 /**
- * The Jev planners `MAELSTROM_PLANNER` selects: `jev` is the frozen POC,
+ * The Jev planners `MAELSTROM_PLANNER` selects: `jev` is the POC planner,
  * `jev-composed-pairs` the experimental planner that composes the layout
  * from Jev's answers about pairs of instances.
  */

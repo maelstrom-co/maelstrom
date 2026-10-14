@@ -12,14 +12,21 @@ export {
   STAGE_NAMES,
   type StageName,
 } from './lib/defer.js';
-export { buildJevPlanner, FALLBACK_RETRIES } from './lib/jev-planner.js';
+export {
+  buildJevPlanner,
+  FALLBACK_RETRIES,
+  type PocStageOverrides,
+} from './lib/jev-planner.js';
 export { type LeafRect, layoutFits, treeRects } from './lib/layout-fit.js';
 export {
   createDecisionsClient,
   DECISIONS_MODEL,
   type DecisionsClientOptions,
 } from './lib/openai-decisions-client.js';
-export { buildJevComposedPairsPlanner } from './lib/planners/jev-composed-pairs.js';
+export {
+  buildJevComposedPairsPlanner,
+  type ComposedPairsStageOverrides,
+} from './lib/planners/jev-composed-pairs.js';
 export {
   buildJevStagePlanner,
   createStageDeps,
@@ -35,7 +42,6 @@ export { buildJevGatedStepwisePlanner } from './lib/planners-experimental/jev-ga
 export { buildJevUngatedBatchedPlanner } from './lib/planners-experimental/jev-ungated-batched.js';
 export { buildJevUngatedBatchedPerInstancePlanner } from './lib/planners-experimental/jev-ungated-batched-per-instance.js';
 export { buildJevUngatedStepwisePlanner } from './lib/planners-experimental/jev-ungated-stepwise.js';
-export { buildPocScreenScopePlanner } from './lib/planners-experimental/poc-screen-scope.js';
 export {
   type Evaluation,
   intentText,
@@ -47,6 +53,7 @@ export { renderSelectStateAsProse } from './lib/select-state-prose.js';
 export { actionPlanOf } from './lib/stages/action-plan.js';
 export { actionsBatchedPerInstance } from './lib/stages/actions-batched-per-instance.js';
 export { completeLayoutInline } from './lib/stages/complete-layout-inline.js';
+export { jevSelect } from './lib/stages/jev-select.js';
 export {
   type ComposedPairsDecision,
   type ComposedPairsRecord,
@@ -71,6 +78,10 @@ export {
   SELECTION_GATES,
   selectGated,
 } from './lib/stages/select-gated.js';
+export {
+  type ScreenScopeOptions,
+  selectGatedScreenScope,
+} from './lib/stages/select-gated-screen-scope.js';
 export { createJevDeps, type JevDeps } from './lib/stages/stage-deps.js';
 export type {
   ActionPlan2,
@@ -91,10 +102,6 @@ export {
 } from './lib/stages-experimental/layout-composed-pairs-answerable-fractions.js';
 export { layoutPreset } from './lib/stages-experimental/layout-preset.js';
 export { layoutPresetOrLlm } from './lib/stages-experimental/layout-preset-or-llm.js';
-export {
-  type ScreenScopeOptions,
-  selectGatedScreenScope,
-} from './lib/stages-experimental/select-gated-screen-scope.js';
 export { selectUngated } from './lib/stages-experimental/select-ungated.js';
 export type {
   AnswerRecord,

@@ -56,7 +56,7 @@ test('_internal exposes the runtime values @maelstrom-co/evals composes', () => 
       'createStageDeps',
       'renderSelectStateAsProse',
       'selectGatedScreenScope',
-      'buildPocScreenScopePlanner',
+      'jevSelect',
       'buildComposedPairsScreenScopePlanner',
       'layoutComposedPairsAnswerableFractions',
       'withAnswerableFractions',
