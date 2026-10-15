@@ -603,13 +603,29 @@ describe('withRetry with skipReply and intentFacts', () => {
       calls += 1;
       return ok(clarification);
     };
+    let validations = 0;
+    const severeRetry: ValidatedCandidate = {
+      type: 'maelstrom_response',
+      requestId: MessageId('req-1'),
+      rationale: 'unused',
+      executionPlan: [],
+      layout: { type: 'grid', positions: [] },
+      diagnostics: recommending(),
+    };
 
     const result = await withRetry(stage, { max: 3 })(
       input,
-      makeStageContext({ origin: input }),
+      makeStageContext({
+        origin: input,
+        validate: () => {
+          validations += 1;
+          return ok(severeRetry);
+        },
+      }),
     );
 
     expect(isOk(result) && result.value).toBe(clarification);
+    expect(validations).toBe(0);
     expect(calls).toBe(1);
   });
 
