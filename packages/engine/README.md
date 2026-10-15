@@ -257,13 +257,26 @@ If every attempt produces `recommend === true`, the **last** attempt's response 
 
 ## Planners and stages
 
-`EngineConfig.planner` is a `Stage<PlanningInput, PlannerCandidate>`: a function from the request (plus context: signal, logger, instrument, the original request, and a `validate` callback) to a candidate response or a failure. `llmPlanner` from `@maelstrom-co/planner-llm` is the stage most consumers need, but the same `Stage` shape composes:
+`EngineConfig.planner` is a `ClarifyingPlanner`, a `Stage<PlanningInput, PlannerOutput>`: a function from the request (plus context: signal, logger, instrument, the original request, and a `validate` callback) to a candidate response or a failure. `llmPlanner` from `@maelstrom-co/planner-llm` is the stage most consumers need, but the same `Stage` shape composes:
 
 - **`pipeline(...stages)`** chains stages so each one's output feeds the next, typed end to end (up to nine stages). The first `Err` — a `Deferred` or an `EngineError` — stops the chain.
 - **`withFallback(primary, fallback)`** runs `fallback` only when `primary` returns a `Deferred` (a stage abstaining from the request via `deferred(reason)`, checked with `isDeferred`). A real `EngineError` from `primary` is never masked.
 - **`withRetry(stage, { max })`** is the same combinator the Engine applies by default around `EngineConfig.planner`. It wraps a stage that produces a `PlannerCandidate` (typically the last stage of a pipeline) and retries it when healing recommends a retry. When you place it yourself, set `retry: false` on the Engine so the retries do not multiply.
 
 A `Deferred` that reaches the top of the configured planner with nothing to recover it becomes `Err(ValidationError)` on field `'planner'` — the Engine cannot ship a response without a candidate.
+
+### skipReply and needs-clarification
+
+A `ChartRequest` may set `skipReply: true` when its caller writes the reply itself, and may carry `intentFacts`, structured values the caller already knows. Both reach every stage unchanged through `input.request`, and `withRetry` and `withFallback` pass them through.
+
+The flag changes what validation accepts:
+
+- Without `skipReply`, a candidate must carry a non-blank `userMessage`. A needs-clarification result is `Err(ValidationError)` on field `'planner'`.
+- With `skipReply: true`, a candidate may omit `userMessage`, and a planner may return a `NeedsClarification` (`{ type: 'needs_clarification', question, options? }`, see `isNeedsClarification`) instead. Its diagnostics are empty and never recommend a retry, and `withRetry` returns it on the attempt that produced it.
+
+`PlannerCandidate` types `userMessage` as optional for this reason, and `PlannerOutput` is `PlannerCandidate | NeedsClarification`. A `Planner` that only returns candidates is still a valid `EngineConfig.planner`.
+
+`Engine.handle()` still answers with a `chart_response` whose `userMessage` is required. A `skipReply: true` request whose planner returns no `userMessage`, or a needs-clarification result, is refused with `Err(ValidationError)` on field `'skipReply'` until the Engine has a path that can return those outcomes.
 
 ```ts
 import { pipeline, withFallback } from '@maelstrom-co/engine';
@@ -361,7 +374,7 @@ Action-level problems (`SkippedAction`, exposed via `parseExecutionPlan`) are fi
 
 `Engine.handle()` returns `Err` only for genuinely unrecoverable conditions:
 
-- The LLM produced no `userMessage` at all.
+- The LLM produced no `userMessage` at all. With `skipReply: true` validation accepts that, but `handle()` still refuses to ship it (see [skipReply and needs-clarification](#skipreply-and-needs-clarification)).
 - The configured `layoutMode` is unsupported (programmer error).
 - A provider error / cancellation / history error occurred upstream (see `Errors` below).
 
