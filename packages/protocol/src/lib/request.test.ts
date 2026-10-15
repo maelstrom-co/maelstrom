@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import type { z } from 'zod';
+import { z } from 'zod';
 
 import { ActionName } from './action-name.js';
 import { InstanceId } from './instance.js';
@@ -7,7 +7,9 @@ import {
   ChartRequestSchema,
   ChartResizeReasonSchema,
   GridResponseSchema,
+  GridResponseWithoutReplySchema,
   TilingResponseSchema,
+  TilingResponseWithoutReplySchema,
   UpdateReasonSchema,
   UserIntentReasonSchema,
   VesselMutationReasonSchema,
@@ -423,6 +425,137 @@ describe('ChartRequestSchema', () => {
     if (result.success) {
       expect('extra' in result.data).toBe(false);
     }
+  });
+});
+
+describe('ChartRequestSchema skipReply and intentFacts', () => {
+  const parseThroughJson = (request: unknown): unknown =>
+    ChartRequestSchema.parse(
+      JSON.parse(JSON.stringify(ChartRequestSchema.parse(request))),
+    );
+
+  test('a request without either field parses and round-trips unchanged', () => {
+    const req = validChartRequest();
+    const parsed = ChartRequestSchema.parse(req);
+    expect<unknown>(parsed).toEqual(req);
+    expect('skipReply' in parsed).toBe(false);
+    expect('intentFacts' in parsed).toBe(false);
+    expect(parseThroughJson(req)).toEqual(req);
+  });
+
+  test.each([
+    true,
+    false,
+  ])('skipReply %p round-trips through parse and JSON', (skipReply) => {
+    const req = { ...validChartRequest(), skipReply };
+    expect(ChartRequestSchema.parse(req).skipReply).toBe(skipReply);
+    expect(parseThroughJson(req)).toEqual(req);
+  });
+
+  test('intentFacts round-trips through parse and JSON', () => {
+    const intentFacts = {
+      latestOrderSku: 'A123',
+      similarSkus: ['B456', 'C789'],
+      order: { total: 12.5, shipped: false, note: null },
+    };
+    const req = { ...validChartRequest(), skipReply: true, intentFacts };
+    expect<unknown>(ChartRequestSchema.parse(req).intentFacts).toEqual(
+      intentFacts,
+    );
+    expect(parseThroughJson(req)).toEqual(req);
+  });
+
+  test('rejects a non-boolean skipReply', () => {
+    const req = { ...validChartRequest(), skipReply: 'yes' };
+    expect(ChartRequestSchema.safeParse(req).success).toBe(false);
+  });
+
+  test.each<[string, unknown]>([
+    ['a function value', { lookup: () => 'A123' }],
+    ['an undefined value', { latestOrderSku: undefined }],
+    ['a nested undefined value', { order: { sku: undefined } }],
+    ['an array', ['A123']],
+    ['a string', 'A123'],
+  ])('rejects intentFacts holding %s', (_label, intentFacts) => {
+    const req = { ...validChartRequest(), intentFacts };
+    expect(ChartRequestSchema.safeParse(req).success).toBe(false);
+  });
+});
+
+describe('replyless response schemas', () => {
+  const withoutReply = <T extends { userMessage: string }>(payload: T) => {
+    const { userMessage: _omitted, ...rest } = payload;
+    return rest;
+  };
+
+  test('GridResponseWithoutReplySchema accepts a candidate with no userMessage', () => {
+    const payload = withoutReply(gridPayload({ positions: [] }));
+    const result = GridResponseWithoutReplySchema.safeParse(payload);
+    expect(result.success).toBe(true);
+    if (result.success) expect('userMessage' in result.data).toBe(false);
+  });
+
+  test('TilingResponseWithoutReplySchema accepts a candidate with no userMessage', () => {
+    const payload = withoutReply(tilingPayload({ tree: [], instances: [] }));
+    expect(TilingResponseWithoutReplySchema.safeParse(payload).success).toBe(
+      true,
+    );
+  });
+
+  test('replyless schemas keep a userMessage that is present', () => {
+    const result = GridResponseWithoutReplySchema.safeParse(
+      gridPayload({ positions: [] }),
+    );
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.userMessage).toBe('ok');
+  });
+
+  test('replyless schemas still reject a non-string userMessage', () => {
+    const payload = { ...gridPayload({ positions: [] }), userMessage: 42 };
+    expect(GridResponseWithoutReplySchema.safeParse(payload).success).toBe(
+      false,
+    );
+  });
+
+  test('replyless schemas still require the rest of the candidate', () => {
+    expect(
+      GridResponseWithoutReplySchema.safeParse({ layout: { positions: [] } })
+        .success,
+    ).toBe(false);
+    expect(
+      TilingResponseWithoutReplySchema.safeParse({
+        layout: { tree: [], instances: [] },
+      }).success,
+    ).toBe(false);
+  });
+
+  test('the strict schemas still reject a candidate with no userMessage', () => {
+    expect(
+      GridResponseSchema.safeParse(withoutReply(gridPayload({ positions: [] })))
+        .success,
+    ).toBe(false);
+    expect(
+      TilingResponseSchema.safeParse(
+        withoutReply(tilingPayload({ tree: [], instances: [] })),
+      ).success,
+    ).toBe(false);
+  });
+
+  test('the strict schemas keep userMessage required in their JSON schema', () => {
+    const required = (schema: z.ZodType) =>
+      (
+        z.toJSONSchema(schema, { io: 'input', unrepresentable: 'any' }) as {
+          required?: string[];
+        }
+      ).required ?? [];
+    expect(required(GridResponseSchema)).toContain('userMessage');
+    expect(required(TilingResponseSchema)).toContain('userMessage');
+    expect(required(GridResponseWithoutReplySchema)).not.toContain(
+      'userMessage',
+    );
+    expect(required(TilingResponseWithoutReplySchema)).not.toContain(
+      'userMessage',
+    );
   });
 });
 

@@ -7,8 +7,11 @@ import { ChartDimensionsSchema } from './chart.ts';
 // keeps IDE hover/jump-to-definition uniform across resolvers.
 import type { ChartRequestMessage } from './engine-message.ts';
 import type { InstanceId } from './instance.ts';
+import type { JsonValue } from './json-value.ts';
+import { JsonValueSchema } from './json-value.ts';
 import type { LayoutMode } from './layout.ts';
 import { MAX_EXECUTION_PLAN_ENTRIES } from './model-output-limits.ts';
+import type { NeedsClarification } from './needs-clarification.ts';
 import type { GridLayout, TilingLayout } from './response.ts';
 import { tilingLeafInstanceId } from './response.ts';
 import {
@@ -140,6 +143,22 @@ export interface ChartRequest {
   readonly vessels: readonly Vessel[];
   /** Current layout (mode-specific) */
   readonly layout: GridLayout | TilingLayout;
+  /**
+   * When `true`, the caller writes the user-facing reply itself, so the
+   * Planner may omit `userMessage` or return a {@link NeedsClarification}
+   * instead of a layout. Absent means `false`: the response carries a
+   * `userMessage`. Set by a caller that owns the conversation, such as an
+   * agent loop; clients rendering the reply leave it unset.
+   */
+  readonly skipReply?: boolean;
+  /**
+   * Structured facts the caller already learned about the intent, for
+   * example values read from tool results, keyed by a name the Planner can
+   * reason about. They are inputs to planning, not instructions: the Planner
+   * still chooses the Actions and their parameters. Absent means no facts.
+   * Set by the same caller that sets {@link ChartRequest.skipReply}.
+   */
+  readonly intentFacts?: Readonly<Record<string, JsonValue>>;
 }
 
 // ---------------------------------------------------------------------------
@@ -208,6 +227,69 @@ export const TilingResponseSchema = z.object({
 /** Parsed tiling-mode LLM output before Engine healing and envelope metadata. */
 export type TilingResponse = z.infer<typeof TilingResponseSchema>;
 
+const optionalUserMessage = z
+  .string()
+  .optional()
+  .describe(
+    'Optional response to the user. Omit it when the caller writes the reply itself.',
+  );
+
+/**
+ * {@link GridResponseSchema} with an optional `userMessage`, for a request
+ * that set {@link ChartRequest.skipReply}. Every other field keeps the strict
+ * schema's rules.
+ */
+export const GridResponseWithoutReplySchema = GridResponseSchema.extend({
+  userMessage: optionalUserMessage,
+});
+
+/** Grid-mode Planner output for a request that set `skipReply: true`. */
+export type GridResponseWithoutReply = z.infer<
+  typeof GridResponseWithoutReplySchema
+>;
+
+/**
+ * {@link TilingResponseSchema} with an optional `userMessage`, for a request
+ * that set {@link ChartRequest.skipReply}. Every other field keeps the strict
+ * schema's rules.
+ */
+export const TilingResponseWithoutReplySchema = TilingResponseSchema.extend({
+  userMessage: optionalUserMessage,
+});
+
+/** Tiling-mode Planner output for a request that set `skipReply: true`. */
+export type TilingResponseWithoutReply = z.infer<
+  typeof TilingResponseWithoutReplySchema
+>;
+
+/**
+ * The Planner output a request of type `R` may receive, chosen by its
+ * {@link ChartRequest.skipReply} flag:
+ *
+ * - flag absent or `false`: {@link GridResponse} or {@link TilingResponse},
+ *   both with a required `userMessage`
+ * - flag `true`: {@link GridResponseWithoutReply},
+ *   {@link TilingResponseWithoutReply} or {@link NeedsClarification}
+ * - flag only known as `boolean`: the `true` case, since the request may
+ *   have set it
+ *
+ * Distributes over a union of request types.
+ */
+export type PlannerOutputFor<R extends object> = R extends unknown
+  ? [SkipReplyFlagOf<R>] extends [false | undefined]
+    ? GridResponse | TilingResponse
+    : ReplylessPlannerOutput
+  : never;
+
+type SkipReplyFlagOf<R> = 'skipReply' extends keyof R
+  ? R['skipReply' & keyof R]
+  : undefined;
+
+type ReplylessPlannerOutput =
+  | GridResponseWithoutReply
+  | TilingResponseWithoutReply
+  | NeedsClarification;
+
 // ---------------------------------------------------------------------------
 // ChartRequest wire-format schema
 // ---------------------------------------------------------------------------
@@ -262,6 +344,8 @@ export const ChartRequestSchema = z
       RequestGridLayoutSchema,
       RequestTilingLayoutSchema,
     ]),
+    skipReply: z.boolean().optional(),
+    intentFacts: z.record(z.string(), JsonValueSchema).optional(),
   })
   .superRefine((req, ctx) => {
     if (req.layout.type !== req.context.layoutMode) {
