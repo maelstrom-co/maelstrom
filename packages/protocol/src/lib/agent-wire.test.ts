@@ -10,10 +10,19 @@ import {
   type AgentInput,
   AgentInputSchema,
 } from './agent-wire.js';
+import {
+  AgentEventMessage,
+  AgentInputMessage,
+  decodeClientEnvelope,
+  decodeServerEnvelope,
+  encodeEnvelope,
+} from './envelope.js';
 import { InstanceId } from './instance.js';
 import { MessageId } from './message.js';
 import type { ChartRequest } from './request.js';
 import type { MaelstromResponse } from './response.js';
+import { ok } from './result.js';
+import { SessionId } from './session.js';
 
 const chart = (): ChartRequest => ({
   type: 'chart_request',
@@ -299,6 +308,88 @@ describe('agent wire decode failures', () => {
         if (!result.success)
           expect(result.error.issues[0]?.path).toEqual(['version']);
       }
+    }
+  });
+});
+
+describe('agent wire through the Envelope codecs', () => {
+  const sessionId = SessionId('s-1');
+
+  for (const [type, input] of Object.entries(inputFixtures)) {
+    test(`client.agent.input carrying ${type}`, () => {
+      const frame = AgentInputMessage({
+        sessionId,
+        id: MessageId(`frame-${type}`),
+        input,
+      });
+      expect(decodeClientEnvelope(encodeEnvelope(frame))).toEqual(ok(frame));
+    });
+  }
+
+  for (const [type, event] of Object.entries(eventFixtures)) {
+    test(`engine.agent.event carrying ${type}`, () => {
+      const frame = AgentEventMessage({
+        sessionId,
+        id: MessageId(`frame-${type}`),
+        event,
+      });
+      expect(decodeServerEnvelope(encodeEnvelope(frame))).toEqual(ok(frame));
+    });
+  }
+
+  test('an unknown inner input type is an invalid_envelope naming the discriminator', () => {
+    const decoded = decodeClientEnvelope({
+      type: 'client.agent.input',
+      id: 'frame-1',
+      sessionId: 's-1',
+      input: { type: 'telepathy', version: AGENT_WIRE_VERSION },
+    });
+    expect(decoded.ok).toBe(false);
+    if (!decoded.ok) {
+      expect(decoded.error.kind).toBe('invalid_envelope');
+      expect(decoded.error.message).toContain('input.type');
+    }
+  });
+
+  test('an unknown inner event type is an invalid_envelope naming the discriminator', () => {
+    const decoded = decodeServerEnvelope({
+      type: 'engine.agent.event',
+      id: 'frame-1',
+      sessionId: 's-1',
+      event: { type: 'telepathy', version: AGENT_WIRE_VERSION },
+    });
+    expect(decoded.ok).toBe(false);
+    if (!decoded.ok) {
+      expect(decoded.error.kind).toBe('invalid_envelope');
+      expect(decoded.error.message).toContain('event.type');
+    }
+  });
+
+  test('a wrong inner input version is an invalid_envelope naming the field', () => {
+    const decoded = decodeClientEnvelope({
+      type: 'client.agent.input',
+      id: 'frame-1',
+      sessionId: 's-1',
+      input: { ...inputFixtures.utterance, version: 2 },
+    });
+    expect(decoded.ok).toBe(false);
+    if (!decoded.ok) {
+      expect(decoded.error.kind).toBe('invalid_envelope');
+      expect(decoded.error.message).toContain('input.version');
+    }
+  });
+
+  test('a wrong inner event version is an invalid_envelope naming the field', () => {
+    const decoded = decodeServerEnvelope({
+      type: 'engine.agent.event',
+      id: 'frame-1',
+      sessionId: 's-1',
+      event: { ...eventFixtures.finished, version: 2 },
+    });
+    expect(decoded.ok).toBe(false);
+    if (!decoded.ok) {
+      expect(decoded.error.kind).toBe('invalid_envelope');
+      expect(decoded.error.message).toContain('event.version');
     }
   });
 });

@@ -8,6 +8,8 @@ import type {
 } from '@maelstrom-co/protocol';
 import {
   AcknowledgedAssistantMessage,
+  AGENT_WIRE_VERSION,
+  AgentInputMessage,
   ChartRequestMessage,
   encodeEnvelope,
   err,
@@ -446,6 +448,42 @@ describe('handleEnvelope — client.history.get', () => {
     expect(reply.sessionId).toBe(sessionId);
     expect(reply.error).toBe('store down');
     expect(reply.code).toBe('HistoryError');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// client.agent.input
+// ---------------------------------------------------------------------------
+
+describe('handleEnvelope — client.agent.input', () => {
+  test('answers with a correlated engine.error without calling the engine', async () => {
+    const sessionId = SessionId('sess-1');
+    const messageId = MessageId('agent-1');
+
+    const reply = await handleEnvelope(
+      stubEngine({}),
+      encodeEnvelope(
+        AgentInputMessage({
+          sessionId,
+          id: messageId,
+          input: {
+            type: 'utterance',
+            version: AGENT_WIRE_VERSION,
+            inputId: MessageId('in-1'),
+            text: 'show my calendar',
+            chart: validChartRequest(),
+            source: 'text',
+          },
+        }),
+      ),
+    );
+
+    expect(reply?.type).toBe('engine.error');
+    if (reply?.type !== 'engine.error') return;
+    expect(reply.requestId).toBe(messageId);
+    expect(reply.sessionId).toBe(sessionId);
+    expect(reply.error).toBe('agent inputs are not supported yet');
+    expect(reply.code).toBe('UnsupportedInput');
   });
 });
 

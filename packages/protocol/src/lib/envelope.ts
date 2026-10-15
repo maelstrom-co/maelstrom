@@ -1,6 +1,12 @@
 import { z } from 'zod';
 import type { Mutable } from './_drift-guards.ts';
 import {
+  type AgentEvent,
+  AgentEventSchema,
+  type AgentInput,
+  AgentInputSchema,
+} from './agent-wire.ts';
+import {
   type DiagnosticMessage,
   DiagnosticMessageSchema,
   type DiagnosticSubscription,
@@ -114,6 +120,52 @@ export const AcknowledgedAssistantMessageSchema =
   });
 
 /**
+ * Wire-format Zod parser for {@link AgentInputMessage}. Validates the
+ * discriminator, the branded `id` / `sessionId`, and the inner
+ * {@link AgentInput}, including its `version`.
+ */
+export const AgentInputMessageSchema = z.object({
+  /** Frame discriminator. */
+  type: z.literal('client.agent.input'),
+  /** Frame id, unique per frame. */
+  id: MessageIdSchema,
+  /** Session whose Agent Session receives the input. */
+  sessionId: SessionIdSchema,
+  /** The agent input carried by this frame. */
+  input: AgentInputSchema,
+});
+
+/**
+ * A `client.agent.input` frame: carries one {@link AgentInput} from a client
+ * to the Agent Session of `sessionId`. The inner input keeps its own `type`
+ * discriminator, which cannot collide with transport frame types.
+ */
+export type AgentInputMessage = z.infer<typeof AgentInputMessageSchema>;
+
+/**
+ * Smart constructor for {@link AgentInputMessage}. Generates a fresh `id` via
+ * `MessageId()` when omitted.
+ *
+ * @example
+ * ```ts
+ * ws.send(encodeEnvelope(AgentInputMessage({ sessionId, input: utterance })));
+ * ```
+ */
+export const AgentInputMessage = (args: {
+  /** Session whose Agent Session receives the input. */
+  sessionId: SessionId;
+  /** The agent input to carry. */
+  input: AgentInput;
+  /** Frame id; generated when omitted. */
+  id?: MessageId;
+}): AgentInputMessage => ({
+  type: 'client.agent.input',
+  id: args.id ?? MessageId(),
+  sessionId: args.sessionId,
+  input: args.input,
+});
+
+/**
  * Every message a client may send to an engine host over the duplex stream.
  *
  * Every {@link ChartRequestMessage} / {@link AssistantInjectionMessage} —
@@ -128,7 +180,8 @@ export type ClientEnvelope =
   | AssistantInjectionMessage
   | AcknowledgedAssistantMessage
   | HistoryGetMessage
-  | DiagnosticSubscription;
+  | DiagnosticSubscription
+  | AgentInputMessage;
 
 /**
  * Wire-format Zod parser for the {@link ClientEnvelope} union. Reuses
@@ -141,6 +194,7 @@ export const ClientEnvelopeSchema = z.discriminatedUnion('type', [
   AcknowledgedAssistantMessageSchema,
   HistoryGetMessageSchema,
   DiagnosticSubscriptionSchema,
+  AgentInputMessageSchema,
 ]);
 
 // ---------------------------------------------------------------------------
@@ -327,16 +381,64 @@ export const EngineErrorMessageSchema = z.object({
 });
 
 /**
+ * Wire-format Zod parser for {@link AgentEventMessage}. Validates the
+ * discriminator, the branded `id` / `sessionId`, and the inner
+ * {@link AgentEvent}, including its `version`.
+ */
+export const AgentEventMessageSchema = z.object({
+  /** Frame discriminator. */
+  type: z.literal('engine.agent.event'),
+  /** Frame id, unique per frame. */
+  id: MessageIdSchema,
+  /** Session whose Agent Session emitted the event. */
+  sessionId: SessionIdSchema,
+  /** The agent event carried by this frame. */
+  event: AgentEventSchema,
+});
+
+/**
+ * An `engine.agent.event` frame: carries one {@link AgentEvent} from the Agent
+ * Session of `sessionId` to its client. Events are streamed, not correlated to
+ * a single request, so the frame has its own `id` rather than a `requestId`.
+ */
+export type AgentEventMessage = z.infer<typeof AgentEventMessageSchema>;
+
+/**
+ * Smart constructor for {@link AgentEventMessage}. Generates a fresh `id` via
+ * `MessageId()` when omitted.
+ *
+ * @example
+ * ```ts
+ * ws.send(encodeEnvelope(AgentEventMessage({ sessionId, event: finished })));
+ * ```
+ */
+export const AgentEventMessage = (args: {
+  /** Session whose Agent Session emitted the event. */
+  sessionId: SessionId;
+  /** The agent event to carry. */
+  event: AgentEvent;
+  /** Frame id; generated when omitted. */
+  id?: MessageId;
+}): AgentEventMessage => ({
+  type: 'engine.agent.event',
+  id: args.id ?? MessageId(),
+  sessionId: args.sessionId,
+  event: args.event,
+});
+
+/**
  * Every message an engine host may send to a client over the duplex stream:
  * a decision {@link MaelstromResponseMessage}, a {@link HistoryResponseMessage},
- * or an {@link EngineErrorMessage}. Discriminated on `type`.
+ * an {@link EngineErrorMessage}, or an {@link AgentEventMessage}, among others.
+ * Discriminated on `type`.
  */
 export type ServerEnvelope =
   | MaelstromResponseMessage
   | HistoryResponseMessage
   | AssistantMessageResultMessage
   | EngineErrorMessage
-  | DiagnosticMessage;
+  | DiagnosticMessage
+  | AgentEventMessage;
 
 /**
  * Wire-format Zod parser for the {@link ServerEnvelope} union, dispatching on
@@ -348,6 +450,7 @@ export const ServerEnvelopeSchema = z.discriminatedUnion('type', [
   AssistantMessageResultMessageSchema,
   EngineErrorMessageSchema,
   DiagnosticMessageSchema,
+  AgentEventMessageSchema,
 ]);
 
 // ---------------------------------------------------------------------------
