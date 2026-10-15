@@ -20,11 +20,9 @@ import type { EngineError } from '../errors.js';
 import { validationError } from '../errors.js';
 import type { Logger } from '../logger.js';
 import type { ProcessResponseInput } from '../response/response-processor.js';
-import {
-  buildDiagnostics,
-  processResponse,
-} from '../response/response-processor.js';
+import { processResponse } from '../response/response-processor.js';
 import type {
+  FullDiagnostics,
   FullValidatedCandidate,
   FullValidatedNeedsClarification,
   FullValidatedPlannerOutput,
@@ -92,6 +90,21 @@ export function createCandidateValidator(
   return validate;
 }
 
+const EMPTY_DIAGNOSTICS: FullDiagnostics = Object.freeze({
+  skippedActions: Object.freeze([]),
+  droppedLayoutEntries: Object.freeze([]),
+  warnings: Object.freeze([]),
+  retryHint: Object.freeze({ severity: 'none', recommend: false }),
+  counts: Object.freeze({
+    skippedActions: 0,
+    droppedLayoutEntries: 0,
+    warnings: 0,
+  }),
+  feedback: '',
+});
+
+// Stages can validate a clarification through ctx.validate, so this check
+// rejects one for a request without skipReply before any stage acts on it.
 function processNeedsClarification(
   { request, messageId, logger }: CandidateValidatorInput,
   output: NeedsClarification,
@@ -122,15 +135,7 @@ function processNeedsClarification(
     );
     return err(failure);
   }
-  return ok({
-    ...shape.data,
-    diagnostics: buildDiagnostics({
-      skippedActions: [],
-      droppedLayoutEntries: [],
-      warnings: [],
-      retryHint: { severity: 'none', recommend: false },
-    }),
-  });
+  return ok({ ...shape.data, diagnostics: EMPTY_DIAGNOSTICS });
 }
 
 // Heal helpers and exhaustiveness guards throw on Engine-internal invariant
