@@ -7,5 +7,9 @@
     "module": "preserve",
     "moduleResolution": "bundler"
   },
-  "include": ["**/*.ts", "../infra/platform/src/RateLimitContract.ts"]
+  "include": [
+    "**/*.ts",
+    "../infra/platform/src/RateLimitContract.ts",
+    "../apps/demo/e2e/voice/ci-metrics.ts"
+  ]
 }

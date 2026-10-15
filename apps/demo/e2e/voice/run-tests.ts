@@ -30,6 +30,9 @@ if (benchmark)
     repetitions: process.env.VOICE_BENCHMARK_REPETITIONS,
   });
 const voiceDevtoolsImage = 'ghcr.io/maelstrom-co/voice-devtools:0.1.0';
+const ciRunId = process.env.MAELSTROM_VOICE_CI_RUN_ID;
+if (ciRunId !== undefined && !/^[a-zA-Z0-9_-]{1,100}$/.test(ciRunId))
+  throw new Error('Invalid voice CI run identity.');
 const fixtures = ['only-tasks', 'put-it-back', 'open-calendar'] as const;
 const forwardedRunnerEnvironment = [
   'MAELSTROM_E2E_OPENAI_API_KEY',
@@ -136,6 +139,7 @@ async function prepareFixtures(
     const args = [
       'run',
       '--rm',
+      ...(ciRunId ? ['--label', `maelstrom.voice.ci=${ciRunId}`] : []),
       '--mount',
       mount(cacheDirectory, '/cache/tts2mic'),
       '--mount',
@@ -234,6 +238,7 @@ async function main(): Promise<number> {
       runnerName,
       '--label',
       label,
+      ...(ciRunId ? ['--label', `maelstrom.voice.ci=${ciRunId}`] : []),
       '--init',
       '--shm-size=1g',
     ];
@@ -244,6 +249,7 @@ async function main(): Promise<number> {
           'MAELSTROM_HOST',
           'VOICE_BENCHMARK_REPETITIONS',
           'VOICE_BENCHMARK_SINGLE_TURN',
+          'MAELSTROM_VOICE_CI_RUN_ID',
           ...(process.env.MAELSTROM_E2E_OPENAI_API_KEY
             ? ['MAELSTROM_E2E_OPENAI_API_KEY']
             : []),

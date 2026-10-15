@@ -14,10 +14,142 @@ const step = (workflow: string, name: string) => {
 };
 
 describe('preview workflows', () => {
+  test('manual voice benchmark dispatch is restricted to the default branch and an exact PR number', () => {
+    const workflow = read('deploy-preview.yml');
+    expect(workflow).toContain('workflow_dispatch:');
+    expect(workflow).toContain('pr_number:');
+    const job = workflow.slice(workflow.indexOf('  voice-benchmark:'));
+    expect(job).toContain("github.event_name == 'workflow_dispatch'");
+    expect(job).toContain(
+      "github.ref == format('refs/heads/{0}', github.event.repository.default_branch)",
+    );
+    expect(job).toContain('inputs.pr_number !=');
+    expect(job).toContain(
+      'github.event.pull_request.number || inputs.pr_number',
+    );
+    expect(job).toContain("github.event.pull_request.head.sha || ''");
+    expect(job).toContain('PREVIEW_WORKERS_DEV_SUFFIX:');
+  });
+
+  test('voice benchmarking reconciles either label change without cancelling lifecycle mutations', () => {
+    const workflow = read('deploy-preview.yml');
+    const job = workflow.slice(workflow.indexOf('\n  voice-benchmark:'));
+    expect(job).toContain('needs: deploy');
+    expect(job).toContain("needs.deploy.result == 'success'");
+    expect(workflow).toContain('types: [labeled, unlabeled]');
+    expect(job).toContain("github.event.action == 'labeled'");
+    expect(job).toContain("github.event.action == 'unlabeled'");
+    expect(job).toContain("github.event.label.name == 'bench-voice'");
+    expect(job).toContain("github.event.label.name == 'deploy-preview'");
+    expect(job).not.toContain(
+      'contains(github.event.pull_request.labels.*.name',
+    );
+    expect(job).toContain(
+      'github.event.pull_request.head.repo.full_name == github.repository',
+    );
+    expect(job).toContain(
+      `group: deploy-preview-pr-${expression('github.event.pull_request.number || inputs.pr_number')}`,
+    );
+    expect(job).toContain('cancel-in-progress: false');
+    expect(job).toContain('queue: max');
+    expect(job).toContain(`ref: ${expression('github.workflow_sha')}`);
+    expect(job).not.toContain('path: source');
+    expect(job).not.toContain('bun install');
+    expect(job).not.toContain('secrets.CLOUDFLARE');
+    expect(job).not.toContain('publish-preview');
+    expect(job).not.toContain('upload-artifact');
+    expect(job).not.toContain('continue-on-error');
+    const runner = step(
+      workflow,
+      'Run approved preview benchmarks and update p95 comment',
+    );
+    expect(runner).toContain('secrets.MAELSTROM_E2E_OPENAI_API_KEY');
+    expect(runner).toContain('secrets.ELEVENLABS_API_KEY');
+    expect(runner).toContain('scripts/voice-benchmark-ci.ts');
+    expect(step(workflow, 'Remove owned voice containers')).toContain(
+      'if: always()',
+    );
+    expect(
+      workflow.slice(
+        workflow.indexOf('  approve:'),
+        workflow.indexOf('  deploy:'),
+      ),
+    ).not.toContain('bench-voice');
+  });
+
+  test('benchmark label routing admits removals without admitting unrelated or untrusted events', () => {
+    const workflow = Bun.YAML.parse(read('deploy-preview.yml')) as {
+      on: { pull_request_target: { types: string[] } };
+      jobs: { 'voice-benchmark': { if: string } };
+    };
+    expect(workflow.on.pull_request_target.types).toEqual([
+      'labeled',
+      'unlabeled',
+    ]);
+    const evaluate = new Function(
+      'github',
+      'needs',
+      'inputs',
+      'always',
+      'cancelled',
+      'format',
+      `return (${workflow.jobs['voice-benchmark'].if});`,
+    );
+    const permits = (
+      action: string,
+      label: string,
+      overrides: Record<string, unknown> = {},
+      cancelled = false,
+    ) =>
+      evaluate(
+        {
+          event_name: 'pull_request_target',
+          repository: 'maelstrom-co/maelstrom',
+          event: {
+            sender: { type: 'User' },
+            action,
+            label: { name: label },
+            pull_request: {
+              state: 'open',
+              head: { repo: { full_name: 'maelstrom-co/maelstrom' } },
+            },
+            ...overrides,
+          },
+        },
+        { deploy: { result: 'skipped' } },
+        {},
+        () => true,
+        () => cancelled,
+        () => '',
+      );
+    for (const action of ['labeled', 'unlabeled']) {
+      for (const label of ['deploy-preview', 'bench-voice']) {
+        expect(permits(action, label)).toBe(true);
+        expect(permits(action, label, { sender: { type: 'Bot' } })).toBe(false);
+        for (const [state, repository] of [
+          ['closed', 'maelstrom-co/maelstrom'],
+          ['open', 'outsider/fork'],
+        ])
+          expect(
+            permits(action, label, {
+              pull_request: {
+                state,
+                head: { repo: { full_name: repository } },
+              },
+            }),
+          ).toBe(false);
+        expect(permits(action, label, {}, true)).toBe(false);
+      }
+    }
+    expect(permits('labeled', 'unrelated')).toBe(false);
+    expect(permits('unlabeled', 'unrelated')).toBe(false);
+    expect(permits('synchronize', 'bench-voice')).toBe(false);
+  });
+
   test('deploy records approval before the shared queue and isolates PR builds from credentials', () => {
     const workflow = read('deploy-preview.yml');
     expect(workflow).toContain('pull_request_target:');
-    expect(workflow).toContain('types: [labeled]');
+    expect(workflow).toContain('types: [labeled, unlabeled]');
     expect(workflow).toContain("github.event.sender.type == 'User'");
     expect(workflow).toContain("github.event.action == 'labeled'");
     expect(workflow).toContain("github.event.label.name == 'deploy-preview'");

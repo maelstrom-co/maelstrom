@@ -7,6 +7,7 @@ import {
 import { validatePreviewWorkerUrl } from './preview-worker-url.ts';
 
 const COMMENT_MARKER = '<!-- pr-preview-demo -->';
+export const VOICE_BENCHMARK_MARKER = '<!-- pr-voice-benchmark -->';
 const STATE_PATTERN = /<!-- pr-preview-state (\{[^\n]*\}) -->/;
 const LEGACY_DEPLOYED_PATTERN =
   /\*\*PR previews deployed\*\* for commit ([0-9a-f]{40})/;
@@ -43,6 +44,11 @@ export interface LifecycleDependencies {
   readonly writeOutput: (name: string, value: string) => void;
 }
 
+export type PreviewGithubDependencies = Pick<
+  LifecycleDependencies,
+  'fetch' | 'githubToken'
+> & { readonly signal?: AbortSignal };
+
 interface PreviewCommentState {
   readonly approvedSha?: string;
   readonly deployedSha?: string;
@@ -54,6 +60,7 @@ interface PullState {
   readonly headRef: string;
   readonly headRepository: string;
   readonly labeled: boolean;
+  readonly benchmarkLabeled: boolean;
 }
 
 interface PreviewComment {
@@ -110,14 +117,14 @@ const required = (
   return value;
 };
 
-const tokenFor = (dependencies: LifecycleDependencies) => {
+const tokenFor = (dependencies: PreviewGithubDependencies) => {
   const token = dependencies.githubToken?.trim();
   if (!token) throw new Error('A GitHub token is required');
   return token;
 };
 
 const githubRequest = async (
-  dependencies: LifecycleDependencies,
+  dependencies: PreviewGithubDependencies,
   repository: string,
   path: string,
   init: RequestInit = {},
@@ -130,7 +137,7 @@ const githubRequest = async (
   if (init.body !== undefined) headers.set('Content-Type', 'application/json');
   const response = await dependencies.fetch(
     `https://api.github.com/repos/${repository}${path}`,
-    { ...init, headers },
+    { ...init, headers, signal: dependencies.signal ?? init.signal },
   );
   if (!response.ok) {
     const detail = (await response.text())
@@ -154,7 +161,7 @@ const responseJson = async (response: Response, context: string) => {
 const readPull = async (
   repository: string,
   prNumber: string,
-  dependencies: LifecycleDependencies,
+  dependencies: PreviewGithubDependencies,
 ): Promise<PullState> => {
   const response = await githubRequest(
     dependencies,
@@ -187,10 +194,16 @@ const readPull = async (
     headRef: value.head.ref,
     headRepository: value.head.repo.full_name,
     labeled: value.labels.some((label) => label.name === 'deploy-preview'),
+    benchmarkLabeled: value.labels.some(
+      (label) => label.name === 'bench-voice',
+    ),
   };
 };
 
-const parseCommentEnvelope = (value: unknown): PreviewComment[] => {
+const parseCommentEnvelope = (
+  value: unknown,
+  marker = COMMENT_MARKER,
+): PreviewComment[] => {
   if (!Array.isArray(value)) {
     throw new Error('GitHub returned an invalid issue comments envelope');
   }
@@ -207,7 +220,7 @@ const parseCommentEnvelope = (value: unknown): PreviewComment[] => {
       throw new Error('GitHub returned an invalid issue comment');
     }
     if (
-      comment.body.includes(COMMENT_MARKER) &&
+      comment.body.includes(marker) &&
       comment.user.login === BOT_LOGIN &&
       comment.user.type === 'Bot'
     ) {
@@ -219,42 +232,73 @@ const parseCommentEnvelope = (value: unknown): PreviewComment[] => {
 
 const nextLink = (header: string | null) => {
   if (!header) return undefined;
+  const links: string[] = [];
   for (const section of header.split(',')) {
     const match = /^\s*<([^>]+)>;\s*rel="([^"]+)"\s*$/.exec(section);
-    if (match?.[2] === 'next') return match[1];
+    if (!match && /next/.test(section))
+      throw new Error('Malformed GitHub pagination');
+    if (match?.[2] === 'next' && match[1]) links.push(match[1]);
   }
-  return undefined;
+  if (links.length > 1) throw new Error('Ambiguous GitHub pagination');
+  return links[0];
+};
+
+const readGithubPages = async (
+  repository: string,
+  endpoint: string,
+  dependencies: PreviewGithubDependencies,
+) => {
+  let path = `${endpoint}?per_page=100`;
+  const visited = new Set<string>();
+  const values: unknown[] = [];
+  while (path) {
+    if (visited.has(path) || visited.size >= 50)
+      throw new Error('GitHub pagination is incomplete or cyclic');
+    visited.add(path);
+    const response = await githubRequest(dependencies, repository, path);
+    const page = await responseJson(response, endpoint);
+    if (!Array.isArray(page))
+      throw new Error('GitHub returned an invalid paginated envelope');
+    values.push(...page);
+    const next = nextLink(response.headers.get('link'));
+    if (!next) break;
+    const url = new URL(next);
+    const numericRepositoryPath = /^\/repositories\/[0-9]+(\/.*)$/.exec(
+      url.pathname,
+    );
+    if (
+      url.origin !== 'https://api.github.com' ||
+      (url.pathname !== `/repos/${repository}${endpoint}` &&
+        numericRepositoryPath?.[1] !== endpoint) ||
+      url.username ||
+      url.password
+    )
+      throw new Error(
+        'GitHub returned an invalid issue comments pagination URL',
+      );
+    path = `${endpoint}${url.search}`;
+  }
+  return values;
 };
 
 const readPreviewComment = async (
   repository: string,
   prNumber: string,
-  dependencies: LifecycleDependencies,
+  dependencies: PreviewGithubDependencies,
+  marker = COMMENT_MARKER,
+  strict = false,
 ) => {
-  let path = `/issues/${prNumber}/comments?per_page=100`;
-  let latest: PreviewComment | undefined;
-  while (path) {
-    const response = await githubRequest(dependencies, repository, path);
-    const comments = parseCommentEnvelope(
-      await responseJson(response, 'issue comments'),
-    );
-    latest = comments.at(-1) ?? latest;
-    const next = nextLink(response.headers.get('link'));
-    if (!next) break;
-    const url = new URL(next);
-    if (
-      url.origin !== 'https://api.github.com' ||
-      !url.pathname.startsWith(
-        `/repos/${repository}/issues/${prNumber}/comments`,
-      )
-    ) {
-      throw new Error(
-        'GitHub returned an invalid issue comments pagination URL',
-      );
-    }
-    path = `${url.pathname.replace(`/repos/${repository}`, '')}${url.search}`;
-  }
-  return latest;
+  const comments = parseCommentEnvelope(
+    await readGithubPages(
+      repository,
+      `/issues/${prNumber}/comments`,
+      dependencies,
+    ),
+    marker,
+  );
+  if (strict && comments.length > 1)
+    throw new Error('Multiple authoritative preview comments');
+  return comments.at(-1);
 };
 
 const validateCommentResponse = async (response: Response) => {
@@ -276,7 +320,7 @@ const upsertPreviewComment = async (
   prNumber: string,
   existing: PreviewComment | undefined,
   body: string,
-  dependencies: LifecycleDependencies,
+  dependencies: PreviewGithubDependencies,
 ) => {
   const path = existing
     ? `/issues/comments/${existing.id}`
@@ -328,6 +372,138 @@ export const parsePreviewComment = (body: string): PreviewCommentState => {
   }
   const legacy = LEGACY_DEPLOYED_PATTERN.exec(body)?.[1];
   return { approvedSha: undefined, deployedSha: legacy };
+};
+
+export interface VoiceBenchmarkContext {
+  readonly sha: string;
+  readonly url: string;
+  readonly requestId: number;
+  readonly comment?: PreviewComment;
+}
+
+export interface VoiceBenchmarkOptions {
+  readonly repository: string;
+  readonly prNumber: string;
+  readonly eventHeadSha?: string;
+  readonly workersDevSuffix: string;
+}
+
+export const readVoiceBenchmarkContext = async (
+  options: VoiceBenchmarkOptions,
+  dependencies: PreviewGithubDependencies,
+): Promise<VoiceBenchmarkContext | undefined> => {
+  validateRepository(options.repository);
+  validatePrNumber(options.prNumber);
+  if (options.eventHeadSha !== undefined)
+    validateSha('Benchmark head SHA', options.eventHeadSha);
+  const pull = await readPull(
+    options.repository,
+    options.prNumber,
+    dependencies,
+  );
+  if (
+    pull.state !== 'open' ||
+    pull.headRepository !== options.repository ||
+    (options.eventHeadSha !== undefined &&
+      pull.headSha !== options.eventHeadSha) ||
+    !pull.labeled ||
+    !pull.benchmarkLabeled
+  )
+    return undefined;
+  const preview = await readPreviewComment(
+    options.repository,
+    options.prNumber,
+    dependencies,
+    COMMENT_MARKER,
+    true,
+  );
+  const state = preview ? parsePreviewComment(preview.body) : {};
+  if (state.approvedSha !== pull.headSha || state.deployedSha !== pull.headSha)
+    return undefined;
+  const urls = [
+    ...(preview?.body ?? '').matchAll(/^\| Demo \| ([^|\n]+) \|$/gm),
+  ];
+  if (urls.length !== 1 || !urls[0]?.[1])
+    throw new Error('Approved demo URL is missing or ambiguous');
+  const url = validatePreviewWorkerUrl(
+    urls[0][1],
+    `maelstrom-playground-alchemy-pr-${options.prNumber}`,
+    options.workersDevSuffix,
+  );
+  const events = await readGithubPages(
+    options.repository,
+    `/issues/${options.prNumber}/events`,
+    dependencies,
+  );
+  const seen = new Set<number>();
+  const latest = new Map<string, { id: number; active: boolean }>();
+  for (const event of events) {
+    if (!isRecord(event) || typeof event.event !== 'string')
+      throw new Error('Invalid label event envelope');
+    if (event.event !== 'labeled' && event.event !== 'unlabeled') continue;
+    if (!isRecord(event.label) || typeof event.label.name !== 'string')
+      throw new Error('Invalid label event');
+    if (!['deploy-preview', 'bench-voice'].includes(event.label.name)) continue;
+    if (
+      typeof event.id !== 'number' ||
+      !Number.isSafeInteger(event.id) ||
+      event.id < 1 ||
+      seen.has(event.id)
+    )
+      throw new Error('Ambiguous benchmark label history');
+    seen.add(event.id);
+    const previous = latest.get(event.label.name);
+    if (!previous || event.id > previous.id)
+      latest.set(event.label.name, {
+        id: event.id,
+        active: event.event === 'labeled',
+      });
+  }
+  const deployment = latest.get('deploy-preview');
+  const benchmark = latest.get('bench-voice');
+  if (!deployment || !benchmark)
+    throw new Error('Benchmark label history is incomplete');
+  if (!deployment.active || !benchmark.active) return undefined;
+  const comment = await readPreviewComment(
+    options.repository,
+    options.prNumber,
+    dependencies,
+    VOICE_BENCHMARK_MARKER,
+    true,
+  );
+  return {
+    sha: pull.headSha,
+    url,
+    requestId: Math.max(deployment.id, benchmark.id),
+    comment,
+  };
+};
+
+export const saveVoiceBenchmarkComment = async (
+  options: VoiceBenchmarkOptions,
+  expected: VoiceBenchmarkContext,
+  body: string,
+  dependencies: PreviewGithubDependencies,
+) => {
+  if (!body.startsWith(`${VOICE_BENCHMARK_MARKER}\n`))
+    throw new Error('Invalid voice benchmark comment');
+  const current = await readVoiceBenchmarkContext(options, dependencies);
+  if (
+    !current ||
+    current.sha !== expected.sha ||
+    current.url !== expected.url ||
+    current.requestId !== expected.requestId ||
+    current.comment?.id !== expected.comment?.id ||
+    current.comment?.body !== expected.comment?.body
+  )
+    throw new Error('Benchmark eligibility or claim changed');
+  await upsertPreviewComment(
+    options.repository,
+    options.prNumber,
+    current.comment,
+    body,
+    dependencies,
+  );
 };
 
 const stateMarker = (state: PreviewCommentState) =>
