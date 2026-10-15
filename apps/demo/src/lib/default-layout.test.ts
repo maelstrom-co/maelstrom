@@ -4,7 +4,7 @@ import { type InstanceId, tilingLeafInstanceId } from '@maelstrom-co/protocol';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { calendarVessel } from '../vessels/calendar.vessel';
 import { tasksVessel } from '../vessels/tasks.vessel';
-import { DEFAULT_LAYOUT, NARROW_LAYOUT } from './default-layout';
+import { DEFAULT_LAYOUT, NARROW_LAYOUT, SHOP_LAYOUT } from './default-layout';
 
 // Walks the parsed tree, asserting every split node filled every child slot
 // its weights declare (a malformed tree — e.g. a 'V' with only one leaf —
@@ -86,5 +86,43 @@ describe('DEFAULT_LAYOUT', () => {
       new Set(['calendar-main', 'tasks-main']),
     );
     expect(NARROW_LAYOUT.instances).toEqual(DEFAULT_LAYOUT.instances);
+  });
+});
+
+describe('SHOP_LAYOUT', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('parses into a complete tiling tree of the orders and cart tiles', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const leaves = assertCompleteAndCollectLeaves(
+      parseTilingTree(SHOP_LAYOUT.tree),
+    );
+
+    expect(new Set(leaves)).toEqual(new Set(['orders-main', 'cart-main']));
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('declares exactly the instances its tree references', () => {
+    const declared = SHOP_LAYOUT.instances.map(
+      (instance) => instance.instanceId as string,
+    );
+    const leaves: InstanceId[] = SHOP_LAYOUT.tree
+      .map(tilingLeafInstanceId)
+      .filter((instanceId) => instanceId !== null);
+
+    expect(new Set(declared)).toEqual(new Set(leaves));
+    expect(declared.length).toBe(new Set(declared).size);
+  });
+
+  it('starts orders on its list and cart on its items', () => {
+    expect(
+      SHOP_LAYOUT.instances.map(({ vesselId, variant }) => [vesselId, variant]),
+    ).toEqual([
+      ['orders', 'list'],
+      ['cart', 'items'],
+    ]);
   });
 });
