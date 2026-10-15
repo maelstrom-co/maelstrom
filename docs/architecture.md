@@ -215,12 +215,16 @@ Messages travel as **envelopes** over the duplex stream. The `EngineMessage` var
 - `chart_request` (`ChartRequestMessage`): User intent + current state
 - `assistant_message` (`AssistantInjectionMessage`): Inject an assistant turn into session history
 - `client.history.get` (`HistoryGetMessage`): Ask the host to replay recorded session history
+- `client.agent.input` (`AgentInputMessage`): Wraps one `AgentInput` (`utterance`, `ui_applied`) under `input`
 
 **Engine → Client (`ServerEnvelope`):**
 
 - `engine.maelstrom.response` (`MaelstromResponseMessage`): Execution plan + layout directives
 - `engine.history.response` (`HistoryResponseMessage`): The recorded session-history entries
 - `engine.error` (`EngineErrorMessage`): A failure, correlated to the request when recoverable
+- `engine.agent.event` (`AgentEventMessage`): Wraps one `AgentEvent` (`placeholder`, `accepted`, `message`, `ui_change`, `finished`, `error`) under `event`
+
+The two agent wrapper frames carry `id` and `sessionId` like the other frames. The inner agent members keep their own `type` discriminator and carry `version: 1` (`AGENT_WIRE_VERSION`). Additive changes keep the version, and decoders reject any other value. Agent ids are branded: `RunId` names an Agent Run, `CallId` a call the loop expects an answer to (separate from the provider's `ToolCallId`), and `ChangeId` a UI change the browser acknowledges. The Engine currently answers `client.agent.input` with `engine.error`, and the connector warns on `engine.agent.event`.
 
 The **codec** owns parsing and validation: `encodeEnvelope` serializes any envelope, and `decodeClientEnvelope` / `decodeServerEnvelope` return a `Result` (never throw) — a malformed frame yields an `EnvelopeError` rather than a rejected promise, so a host or connector branches without a try/catch.
 

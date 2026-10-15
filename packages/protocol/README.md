@@ -72,6 +72,9 @@ Every identifier in Maelstrom is a branded string — structurally `string`, nom
 | `VesselId`     | No                  | A registered vessel type                  |
 | `VariantName`  | No                  | A state within a vessel                   |
 | `ActionName`   | No                  | A transition exposed by a variant         |
+| `RunId`        | No                  | One Agent Run                             |
+| `CallId`       | No                  | One agent loop call awaiting an answer    |
+| `ChangeId`     | No                  | One UI change the browser acknowledges    |
 
 ```ts
 import { SessionId, VesselId, MessageId } from '@maelstrom-co/protocol';
@@ -135,6 +138,21 @@ const injection = AssistantInjectionMessage({
 ```
 
 A non-finite `timestamp` (`NaN`, `±Infinity`) is rejected at construction — it would silently corrupt history ordering, which sorts by this field.
+
+### Agent wire frames
+
+The agent wire travels inside two wrapper frames. `client.agent.input` (`AgentInputMessage`) carries one `AgentInput` under `input`, and `engine.agent.event` (`AgentEventMessage`) carries one `AgentEvent` under `event`. Both frames carry `id` and `sessionId` and decode through `decodeClientEnvelope` / `decodeServerEnvelope`.
+
+```ts
+type AgentInput = { type: 'utterance' | 'ui_applied'; version: 1; ... };
+type AgentEvent = {
+  type: 'placeholder' | 'accepted' | 'message' | 'ui_change' | 'finished' | 'error';
+  version: 1;
+  ...
+};
+```
+
+Every member carries `version: 1` (`AGENT_WIRE_VERSION`). Additive changes keep the version, and a decoder rejects any other value with an `invalid_envelope` `EnvelopeError`. `CallId` is deliberately distinct from `ToolCallId`: provider tool call ids and agent loop call ids are separate id spaces.
 
 ---
 
