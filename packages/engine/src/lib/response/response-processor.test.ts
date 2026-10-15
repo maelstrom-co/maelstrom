@@ -12,6 +12,7 @@ import {
   type AuthorVessel,
   brandGridResponse,
   brandTilingResponse,
+  buildGridResponse,
   buildSkippedAction,
   type GridResponseAuthor,
   makeGridRequest,
@@ -21,6 +22,7 @@ import {
 } from '../__test-helpers__/fixtures.js';
 import { buildActionParameterEnumSnapshot } from '../action-parameter-enum.js';
 import type { Logger } from '../logger.js';
+import type { PlannerCandidate } from '../planner/candidate.js';
 import { processResponse as processResponseBranded } from './response-processor.js';
 
 // Discriminates an author response on its layout shape so each branch brands
@@ -2941,5 +2943,73 @@ describe('processResponse', () => {
         },
       ]);
     });
+  });
+});
+
+describe('processResponse userMessage and skipReply', () => {
+  const process = (
+    llmOutput: PlannerCandidate,
+    skipReply: boolean | undefined,
+  ): ReturnType<typeof processResponseBranded> => {
+    const request: ChartRequest =
+      skipReply === undefined
+        ? makeGridRequest()
+        : { ...makeGridRequest(), skipReply };
+    return processResponseBranded({
+      llmOutput,
+      request,
+      enumSnapshot: buildActionParameterEnumSnapshot(request.vessels),
+      messageId: MessageId('req-1'),
+      logger: silentLogger,
+    });
+  };
+
+  const withoutReply = (): PlannerCandidate => {
+    const { userMessage: _omitted, ...rest } = buildGridResponse();
+    return rest;
+  };
+
+  test.each([
+    ['absent', undefined],
+    ['false', false],
+  ])('a missing userMessage is a ParseError when skipReply is %s', (_case, skipReply) => {
+    const result = process(withoutReply(), skipReply);
+
+    expect(isErr(result)).toBe(true);
+    if (!isErr(result)) return;
+    expect(result.error).toMatchObject({
+      _tag: 'ParseError',
+      raw: 'userMessage',
+    });
+  });
+
+  test.each([
+    ['absent', undefined, ''],
+    ['false', false, ''],
+    ['absent', undefined, ' \t\n '],
+    ['false', false, ' \t\n '],
+  ])('a blank userMessage is a ParseError when skipReply is %s (%p)', (_case, skipReply, userMessage) => {
+    const result = process(buildGridResponse({ userMessage }), skipReply);
+
+    expect(isErr(result) && result.error._tag).toBe('ParseError');
+  });
+
+  test('a missing userMessage is accepted when skipReply is true', () => {
+    const result = process(withoutReply(), true);
+
+    expect(isOk(result)).toBe(true);
+    if (!isOk(result)) return;
+    expect('userMessage' in result.value).toBe(false);
+    expect(result.value.layout.type).toBe('grid');
+    expect(result.value.rationale).toBe('User asked for calendar');
+  });
+
+  test.each([
+    'Done',
+    '   ',
+  ])('a present userMessage %p passes through unchanged when skipReply is true', (userMessage) => {
+    const result = process(buildGridResponse({ userMessage }), true);
+
+    expect(isOk(result) && result.value.userMessage).toBe(userMessage);
   });
 });

@@ -59,7 +59,7 @@ export function processResponse({
   messageId,
   logger,
 }: ProcessResponseInput): Result<FullValidatedCandidate, EngineError> {
-  if (!llmOutput.userMessage?.trim()) {
+  if (request.skipReply !== true && !llmOutput.userMessage?.trim()) {
     return err(parseError('LLM response missing userMessage', 'userMessage'));
   }
 
@@ -143,7 +143,9 @@ export function processResponse({
   return ok({
     type: 'maelstrom_response',
     requestId: messageId,
-    userMessage: llmOutput.userMessage,
+    ...(llmOutput.userMessage === undefined
+      ? {}
+      : { userMessage: llmOutput.userMessage }),
     rationale: llmOutput.rationale,
     executionPlan,
     layout,

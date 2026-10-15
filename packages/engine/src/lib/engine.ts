@@ -37,10 +37,12 @@ import {
 } from './operational-outcome.js';
 import type {
   FullValidatedCandidate,
-  PlannerCandidate,
+  FullValidatedPlannerOutput,
+  PlannerOutput,
 } from './planner/candidate.js';
+import { isNeedsClarification } from './planner/candidate.js';
 import type {
-  Planner,
+  ClarifyingPlanner,
   PlanningInput,
   StageContext,
   StageError,
@@ -127,7 +129,10 @@ export interface Engine {
    * fault, cancellation, prompt-build failure, invalid Action parameter
    * definitions in the Vessel catalog (field `'vessels'`), history error,
    * missing `userMessage`, a planner that deferred with no fallback or
-   * threw).
+   * threw). A request that set `skipReply: true` still ships only a
+   * response with a non-blank `userMessage`: a candidate without one, or a
+   * needs-clarification result, is `Err(ValidationError)` on field
+   * `'skipReply'`, since a `chart_response` always carries a reply.
    * Layout problems heal into diagnostics rather than surfacing here — see
    * {@link EngineDiagnostics} (planner stages see only a summary:
    * `retryHint`, `counts` and rendered `feedback`; detailed records stay
@@ -237,10 +242,10 @@ export function createEngine(config: EngineConfig): Engine {
     instrument,
     retry,
   } = resolveConfig(validated);
-  const planner: Planner =
+  const planner: ClarifyingPlanner =
     retry === false
       ? configuredPlanner
-      : withRetry<PlanningInput>(configuredPlanner, retry);
+      : withRetry<PlanningInput, PlannerOutput>(configuredPlanner, retry);
   const history: HistoryManager | undefined = historyConfig
     ? createHistoryManager(historyConfig)
     : undefined;
@@ -294,23 +299,20 @@ export function createEngine(config: EngineConfig): Engine {
       request,
       history: historyContext.value,
     };
-    const validateCandidate = createCandidateValidator({
+    const validate = createCandidateValidator({
       request,
       enumSnapshot,
       messageId: message.id,
       logger,
+      onValidated: (report) =>
+        diagnosticsEmitter.emit(
+          message.sessionId,
+          message.id,
+          'engine.candidate.validated',
+          { outcome: report.ok ? 'succeeded' : 'failed' },
+          () => report,
+        ),
     });
-    const validate: CandidateValidator = (candidate) => {
-      const report = validateCandidate(candidate);
-      diagnosticsEmitter.emit(
-        message.sessionId,
-        message.id,
-        'engine.candidate.validated',
-        { outcome: report.ok ? 'succeeded' : 'failed' },
-        () => report,
-      );
-      return report;
-    };
     const ctx: StageContext = {
       signal,
       logger,
@@ -346,6 +348,10 @@ export function createEngine(config: EngineConfig): Engine {
     if (isErr(planned)) {
       return planned;
     }
+    const shippable = requireShippableReply(planned.value, message.id, logger);
+    if (isErr(shippable)) {
+      return shippable;
+    }
 
     // Strip engine-internal diagnostics before crossing the engine boundary.
     // Anything healed silently here is the only operator-visible signal that
@@ -353,7 +359,7 @@ export function createEngine(config: EngineConfig): Engine {
     // drops and warnings would otherwise be invisible to observability. Severity
     // drives the level so blank-UI responses (`unrecoverable`) cross default
     // `warn`-threshold paging filters.
-    const { diagnostics, ...response } = planned.value;
+    const { diagnostics, ...response } = shippable.value;
     diagnosticsEmitter.emit(
       message.sessionId,
       message.id,
@@ -577,11 +583,11 @@ export function createEngine(config: EngineConfig): Engine {
  * is not healed twice.
  */
 async function runPlanner(
-  planner: Planner,
+  planner: ClarifyingPlanner,
   input: PlanningInput,
   ctx: StageContext,
   validate: CandidateValidator,
-): Promise<Result<FullValidatedCandidate, EngineError>> {
+): Promise<Result<FullValidatedPlannerOutput, EngineError>> {
   try {
     const planned: unknown = await planner(input, ctx);
     if (!isStageResult(planned)) {
@@ -619,7 +625,7 @@ async function runPlanner(
 // escaping handle() as an error value without a _tag.
 function isStageResult(
   value: unknown,
-): value is Result<PlannerCandidate, StageError> {
+): value is Result<PlannerOutput, StageError> {
   if (typeof value !== 'object' || value === null) return false;
   if (!('ok' in value) || typeof value.ok !== 'boolean') return false;
   if (value.ok) return 'value' in value;
@@ -631,6 +637,51 @@ function isStageResult(
     '_tag' in error &&
     typeof error._tag === 'string'
   );
+}
+
+// A chart_response always carries a reply, and nothing on this path sets
+// skipReply for the client, so a replyless outcome is refused here instead of
+// widening the wire response.
+function requireShippableReply(
+  outcome: FullValidatedPlannerOutput,
+  messageId: MessageId,
+  logger: Logger,
+): Result<
+  FullValidatedCandidate & { readonly userMessage: string },
+  EngineError
+> {
+  if (isNeedsClarification(outcome)) {
+    return refuseReplylessOutcome(
+      'a needs-clarification result',
+      messageId,
+      logger,
+    );
+  }
+  const { userMessage } = outcome;
+  if (userMessage === undefined || userMessage.trim() === '') {
+    return refuseReplylessOutcome(
+      'a response without userMessage',
+      messageId,
+      logger,
+    );
+  }
+  return ok({ ...outcome, userMessage });
+}
+
+function refuseReplylessOutcome(
+  outcome: string,
+  messageId: MessageId,
+  logger: Logger,
+): Result<never, EngineError> {
+  const failure = validationError(
+    `skipReply is not supported on this path yet: the planner returned ${outcome}, and a chart_response must carry a userMessage`,
+    'skipReply',
+  );
+  logger.warn('Refused a skipReply outcome the Engine cannot ship', {
+    messageId,
+    outcome,
+  });
+  return err(failure);
 }
 
 // Custom stages may not log their own failures; one line per request keeps

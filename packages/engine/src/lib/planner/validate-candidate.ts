@@ -1,9 +1,18 @@
-import type { ChartRequest, MessageId, Result } from '@maelstrom-co/protocol';
+import type {
+  ChartRequest,
+  MessageId,
+  NeedsClarification,
+  Result,
+} from '@maelstrom-co/protocol';
 import {
   err,
   GridResponseSchema,
+  GridResponseWithoutReplySchema,
   isErr,
+  NeedsClarificationSchema,
+  ok,
   TilingResponseSchema,
+  TilingResponseWithoutReplySchema,
 } from '@maelstrom-co/protocol';
 
 import type { ActionParameterEnumSnapshot } from '../action-parameter-enum.js';
@@ -11,8 +20,18 @@ import type { EngineError } from '../errors.js';
 import { validationError } from '../errors.js';
 import type { Logger } from '../logger.js';
 import type { ProcessResponseInput } from '../response/response-processor.js';
-import { processResponse } from '../response/response-processor.js';
-import type { FullValidatedCandidate, PlannerCandidate } from './candidate.js';
+import {
+  buildDiagnostics,
+  processResponse,
+} from '../response/response-processor.js';
+import type {
+  FullValidatedCandidate,
+  FullValidatedNeedsClarification,
+  FullValidatedPlannerOutput,
+  PlannerCandidate,
+  PlannerOutput,
+} from './candidate.js';
+import { isNeedsClarification } from './candidate.js';
 import type { ValidateCandidate } from './stage.js';
 
 export interface CandidateValidatorInput {
@@ -20,12 +39,20 @@ export interface CandidateValidatorInput {
   readonly enumSnapshot: ActionParameterEnumSnapshot;
   readonly messageId: MessageId;
   readonly logger: Logger;
+  /** Called with every report the validator returns, cached ones included. */
+  readonly onValidated?: (
+    report: Result<FullValidatedPlannerOutput, EngineError>,
+  ) => void;
 }
 
-/** A {@link ValidateCandidate} whose results keep the full diagnostics. */
-export type CandidateValidator = (
-  candidate: PlannerCandidate,
-) => Result<FullValidatedCandidate, EngineError>;
+/**
+ * A {@link ValidateCandidate} whose results keep the full diagnostics. It
+ * also accepts a needs-clarification result, which only the Engine passes in.
+ */
+export interface CandidateValidator {
+  (candidate: PlannerCandidate): Result<FullValidatedCandidate, EngineError>;
+  (candidate: PlannerOutput): Result<FullValidatedPlannerOutput, EngineError>;
+}
 
 /**
  * Builds the request-scoped {@link ValidateCandidate}. Each candidate object
@@ -37,20 +64,73 @@ export function createCandidateValidator(
   input: CandidateValidatorInput,
 ): CandidateValidator {
   const cache = new WeakMap<
-    PlannerCandidate,
-    Result<FullValidatedCandidate, EngineError>
+    PlannerOutput,
+    Result<FullValidatedPlannerOutput, EngineError>
   >();
-  const validate: CandidateValidator = (candidate) => {
+  function validate(
+    candidate: PlannerCandidate,
+  ): Result<FullValidatedCandidate, EngineError>;
+  function validate(
+    candidate: PlannerOutput,
+  ): Result<FullValidatedPlannerOutput, EngineError>;
+  function validate(
+    candidate: PlannerOutput,
+  ): Result<FullValidatedPlannerOutput, EngineError> {
     // A misbehaving stage can hand over a primitive, which a WeakMap cannot
     // key; processing it still yields an Err instead of a throw.
     const cacheable = typeof candidate === 'object' && candidate !== null;
-    const cached = cacheable ? cache.get(candidate) : undefined;
-    if (cached !== undefined) return cached;
-    const result = processCandidate({ ...input, llmOutput: candidate });
-    if (cacheable) cache.set(candidate, result);
+    let result = cacheable ? cache.get(candidate) : undefined;
+    if (result === undefined) {
+      result = isNeedsClarification(candidate)
+        ? processNeedsClarification(input, candidate)
+        : processCandidate({ ...input, llmOutput: candidate });
+      if (cacheable) cache.set(candidate, result);
+    }
+    input.onValidated?.(result);
     return result;
-  };
+  }
   return validate;
+}
+
+function processNeedsClarification(
+  { request, messageId, logger }: CandidateValidatorInput,
+  output: NeedsClarification,
+): Result<FullValidatedNeedsClarification, EngineError> {
+  if (request.skipReply !== true) {
+    const failure = validationError(
+      'planner returned a needs-clarification result, which requires a request with skipReply: true',
+      'planner',
+    );
+    logger.error(
+      'Planner returned a needs-clarification result without skipReply',
+      failure,
+      { messageId },
+    );
+    return err(failure);
+  }
+  const shape = NeedsClarificationSchema.safeParse(output);
+  if (!shape.success) {
+    const failure = validationError(
+      `planner result does not match the needs-clarification schema: ${shape.error.message}`,
+      'planner',
+      shape.error,
+    );
+    logger.error(
+      'Planner result does not match the needs-clarification schema',
+      failure,
+      { messageId },
+    );
+    return err(failure);
+  }
+  return ok({
+    ...shape.data,
+    diagnostics: buildDiagnostics({
+      skippedActions: [],
+      droppedLayoutEntries: [],
+      warnings: [],
+      retryHint: { severity: 'none', recommend: false },
+    }),
+  });
 }
 
 // Heal helpers and exhaustiveness guards throw on Engine-internal invariant
@@ -61,8 +141,7 @@ function processCandidate(
 ): Result<FullValidatedCandidate, EngineError> {
   const { messageId, logger, request, llmOutput } = input;
   const mode = request.context.layoutMode;
-  const schema = mode === 'grid' ? GridResponseSchema : TilingResponseSchema;
-  const shape = schema.safeParse(llmOutput);
+  const shape = responseSchemaFor(request).safeParse(llmOutput);
   if (!shape.success) {
     const failure = validationError(
       `planner candidate does not match the ${mode} response schema: ${shape.error.message}`,
@@ -98,4 +177,12 @@ function processCandidate(
       ),
     );
   }
+}
+
+function responseSchemaFor(request: ChartRequest) {
+  const replyless = request.skipReply === true;
+  if (request.context.layoutMode === 'grid') {
+    return replyless ? GridResponseWithoutReplySchema : GridResponseSchema;
+  }
+  return replyless ? TilingResponseWithoutReplySchema : TilingResponseSchema;
 }

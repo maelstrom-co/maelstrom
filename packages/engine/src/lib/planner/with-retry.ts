@@ -1,7 +1,8 @@
 import { isErr } from '@maelstrom-co/protocol';
 
 import { logAtSeverity } from '../severity-router.js';
-import type { PlannerCandidate } from './candidate.js';
+import type { PlannerCandidate, PlannerOutput } from './candidate.js';
+import { isNeedsClarification } from './candidate.js';
 import type { Retryable, RetryFeedback, Stage } from './stage.js';
 
 /** Retry budget for {@link withRetry}. */
@@ -24,6 +25,10 @@ export interface WithRetryOptions {
  * returned at once without using the budget. When the budget runs out, the
  * last candidate ships as-is: healing keeps it renderable.
  *
+ * A needs-clarification result is returned unchanged on the attempt that
+ * produced it, without validation or retry: it has no layout to heal, and
+ * the Engine decides whether the request allows it.
+ *
  * The signal is not checked between attempts; each attempt is responsible
  * for observing it.
  *
@@ -31,6 +36,10 @@ export interface WithRetryOptions {
  * `Retries exhausted` (the last only when `max > 0`), at a level derived from
  * the retry severity.
  *
+ * @typeParam In - The input the wrapped stage receives, before retry feedback is added.
+ * @typeParam Out - What the wrapped stage produces: a {@link PlannerCandidate}
+ *   by default, or any {@link PlannerOutput} for a stage that may ask for
+ *   clarification. The wrapper returns the same type.
  * @throws {Error} If `options.max` is not a non-negative integer.
  *
  * @example
@@ -39,10 +48,10 @@ export interface WithRetryOptions {
  * const planner = withRetry(modelPlanner, { max: 1 });
  * ```
  */
-export function withRetry<In>(
-  stage: Stage<Retryable<In>, PlannerCandidate>,
+export function withRetry<In, Out extends PlannerOutput = PlannerCandidate>(
+  stage: Stage<Retryable<In>, Out>,
   options: WithRetryOptions,
-): Stage<In, PlannerCandidate> {
+): Stage<In, Out> {
   const maxRetries = options.max;
   if (!Number.isInteger(maxRetries) || maxRetries < 0) {
     throw new Error(
@@ -60,7 +69,10 @@ export function withRetry<In>(
       const result = await stage(attemptInput, ctx);
       if (isErr(result)) return result;
 
-      const report = ctx.validate(result.value);
+      const candidate: PlannerOutput = result.value;
+      if (isNeedsClarification(candidate)) return result;
+
+      const report = ctx.validate(candidate);
       if (isErr(report)) return report;
 
       const { diagnostics } = report.value;
@@ -87,7 +99,7 @@ export function withRetry<In>(
 
       const retry: RetryFeedback = {
         attempt: attempt + 1,
-        previous: result.value,
+        previous: candidate,
         diagnostics,
       };
       attemptInput = { ...input, retry };

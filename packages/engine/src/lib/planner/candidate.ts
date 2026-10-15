@@ -1,7 +1,8 @@
 import type {
-  GridResponse,
+  GridResponseWithoutReply,
   MaelstromResponse,
-  TilingResponse,
+  NeedsClarification,
+  TilingResponseWithoutReply,
 } from '@maelstrom-co/protocol';
 
 import type { SkippedAction } from '../response/execution-plan/types.js';
@@ -16,13 +17,25 @@ import type {
  * request's layout mode, before the Engine heals and validates it. A grid
  * request expects a `GridResponse`; a tiling request a `TilingResponse`.
  *
+ * `userMessage` is optional in the type because a request that set
+ * `skipReply: true` may omit it. Without that flag the Engine still rejects
+ * a candidate whose `userMessage` is missing or blank.
+ *
  * A candidate is immutable. Validation results are cached per candidate
  * object, so a stage that wants a different plan must return a new object
  * rather than edit one it received or already validated.
  */
 export type PlannerCandidate =
-  | DeepReadonly<GridResponse>
-  | DeepReadonly<TilingResponse>;
+  | DeepReadonly<GridResponseWithoutReply>
+  | DeepReadonly<TilingResponseWithoutReply>;
+
+/**
+ * Everything a planner may return: a {@link PlannerCandidate}, or a
+ * {@link NeedsClarification} when it cannot proceed without asking the user.
+ * The Engine accepts a needs-clarification result only for a request that
+ * set `skipReply: true`.
+ */
+export type PlannerOutput = PlannerCandidate | NeedsClarification;
 
 /**
  * A summary of what healing changed in a candidate and whether another
@@ -55,7 +68,12 @@ export interface EngineDiagnostics {
  * request: the response that would ship, plus the diagnostics describing what
  * healing changed. The diagnostics never cross the Engine boundary.
  */
-export type ValidatedCandidate = MaelstromResponse & {
+export type ValidatedCandidate = Omit<MaelstromResponse, 'userMessage'> & {
+  /**
+   * The reply to the user. Always present unless the request set
+   * `skipReply: true`, in which case the planner may have omitted it.
+   */
+  readonly userMessage?: string;
   /** What healing changed, and whether a retry is recommended. */
   readonly diagnostics: EngineDiagnostics;
 };
@@ -73,6 +91,35 @@ export type DiagnosticRecords = Omit<FullDiagnostics, 'counts' | 'feedback'>;
 export type FullValidatedCandidate = ValidatedCandidate & {
   readonly diagnostics: FullDiagnostics;
 };
+
+/**
+ * A needs-clarification result the Engine accepted. Its diagnostics are
+ * empty and never recommend a retry: there is no layout to heal.
+ */
+export type FullValidatedNeedsClarification = NeedsClarification & {
+  readonly diagnostics: FullDiagnostics;
+};
+
+/** What the Engine's validator returns for any {@link PlannerOutput}. */
+export type FullValidatedPlannerOutput =
+  | FullValidatedCandidate
+  | FullValidatedNeedsClarification;
+
+/**
+ * Whether a planner output is a needs-clarification result rather than a
+ * layout candidate. Layout candidates carry no `type` field, so the
+ * discriminant alone decides.
+ */
+export function isNeedsClarification(
+  output: unknown,
+): output is NeedsClarification {
+  return (
+    typeof output === 'object' &&
+    output !== null &&
+    'type' in output &&
+    output.type === 'needs_clarification'
+  );
+}
 
 type DeepReadonly<T> = T extends
   | string

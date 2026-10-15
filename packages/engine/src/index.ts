@@ -58,8 +58,10 @@ export { consoleLogger } from './lib/logger.js';
 export type {
   EngineDiagnostics,
   PlannerCandidate,
+  PlannerOutput,
   ValidatedCandidate,
 } from './lib/planner/candidate.js';
+export { isNeedsClarification } from './lib/planner/candidate.js';
 // Planner stages
 export type {
   Instrument,
@@ -72,6 +74,7 @@ export {
 } from './lib/planner/instrument.js';
 export { pipeline } from './lib/planner/pipeline.js';
 export type {
+  ClarifyingPlanner,
   Deferred,
   Planner,
   PlanningInput,

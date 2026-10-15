@@ -1,6 +1,10 @@
 import { describe, expect, mock, test } from 'bun:test';
 
-import type { ChartRequest, EngineMessage } from '@maelstrom-co/protocol';
+import type {
+  ChartRequest,
+  EngineMessage,
+  NeedsClarification,
+} from '@maelstrom-co/protocol';
 import {
   AssistantInjectionMessage,
   ChartRequestMessage,
@@ -30,7 +34,7 @@ import { createEngine } from './engine.js';
 import { providerError } from './errors.js';
 import type { HistoryEntry, HistoryStore } from './history/history-store.js';
 import { createInMemoryStore } from './history/in-memory-store.js';
-import type { PlannerCandidate } from './planner/candidate.js';
+import type { PlannerCandidate, PlannerOutput } from './planner/candidate.js';
 import type { Instrument, InstrumentAttributes } from './planner/instrument.js';
 import { named, noopInstrument } from './planner/instrument.js';
 import { pipeline } from './planner/pipeline.js';
@@ -38,6 +42,7 @@ import type {
   Planner,
   PlanningInput,
   Retryable,
+  Stage,
   StageContext,
 } from './planner/stage.js';
 import { deferred } from './planner/stage.js';
@@ -938,6 +943,162 @@ describe('engine.handle — retry on retryHint.recommend', () => {
     if (!isErr(result)) return;
     expect(result.error._tag).toBe('ParseError');
     expect(calls()).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// skipReply and needs-clarification
+// ---------------------------------------------------------------------------
+
+describe('engine.handle — skipReply and needs-clarification', () => {
+  const clarification: NeedsClarification = {
+    type: 'needs_clarification',
+    question: 'Which order do you mean?',
+    options: ['The latest order', 'The order from last week'],
+  };
+
+  const replyless = (): PlannerCandidate => {
+    const { userMessage: _omitted, ...rest } = buildGridResponse();
+    return rest;
+  };
+
+  const requestWith = (skipReply: boolean | undefined): ChartRequest =>
+    skipReply === undefined
+      ? makeGridRequest()
+      : { ...makeGridRequest(), skipReply };
+
+  const answering = (
+    output: PlannerOutput,
+  ): {
+    readonly planner: Stage<PlanningInput, PlannerOutput>;
+    readonly inputs: PlanningInput[];
+  } => {
+    const inputs: PlanningInput[] = [];
+    return {
+      inputs,
+      planner: async (input) => {
+        inputs.push(input);
+        return ok(output);
+      },
+    };
+  };
+
+  test.each([
+    ['absent', undefined],
+    ['false', false],
+  ])('a response without userMessage is still an Err when skipReply is %s', async (_case, skipReply) => {
+    const engine = createEngine({
+      planner: answering(replyless()).planner,
+      logger: silentLogger,
+    });
+
+    const result = await engine.handle(
+      toChartRequestMessage(requestWith(skipReply)),
+    );
+
+    expect(isErr(result) && result.error).toMatchObject({
+      _tag: 'ValidationError',
+      field: 'planner',
+    });
+  });
+
+  test.each([
+    ['absent', undefined],
+    ['false', false],
+  ])('a blank userMessage is still a ParseError when skipReply is %s', async (_case, skipReply) => {
+    const engine = createEngine({
+      planner: answering(buildGridResponse({ userMessage: ' ' })).planner,
+      logger: silentLogger,
+    });
+
+    const result = await engine.handle(
+      toChartRequestMessage(requestWith(skipReply)),
+    );
+
+    expect(isErr(result) && result.error._tag).toBe('ParseError');
+  });
+
+  test.each([
+    ['absent', undefined],
+    ['false', false],
+  ])('a needs-clarification result is Err(ValidationError) naming skipReply when skipReply is %s', async (_case, skipReply) => {
+    const engine = createEngine({
+      planner: answering(clarification).planner,
+      logger: silentLogger,
+    });
+
+    const result = await engine.handle(
+      toChartRequestMessage(requestWith(skipReply)),
+    );
+
+    expect(isErr(result) && result.error).toMatchObject({
+      _tag: 'ValidationError',
+      field: 'planner',
+      message: expect.stringContaining('skipReply'),
+    });
+  });
+
+  test('a response with userMessage ships unchanged when skipReply is true', async () => {
+    const engine = createEngine({
+      planner: answering(buildGridResponse({ userMessage: 'Done' })).planner,
+      logger: silentLogger,
+    });
+
+    const result = await engine.handle(
+      toChartRequestMessage(requestWith(true)),
+    );
+
+    expect(isOk(result)).toBe(true);
+    if (!isOk(result) || result.value.type !== 'chart_response') return;
+    expect(result.value.response.userMessage).toBe('Done');
+    expect(result.value.response.layout.type).toBe('grid');
+  });
+
+  test.each([
+    ['a response without userMessage', replyless()],
+    ['a needs-clarification result', clarification],
+  ])('%s is accepted by validation but refused at the shipping boundary when skipReply is true', async (_case, output) => {
+    const { logger, entries } = spyLogger();
+    const { planner, inputs } = answering(output);
+    const engine = createEngine({ planner, logger, retry: { max: 3 } });
+
+    const result = await engine.handle(
+      toChartRequestMessage(requestWith(true)),
+    );
+
+    expect(inputs).toHaveLength(1);
+    expect(isErr(result) && result.error).toMatchObject({
+      _tag: 'ValidationError',
+      field: 'skipReply',
+      message: expect.stringContaining(
+        'skipReply is not supported on this path',
+      ),
+    });
+    expect(entries.map((entry) => entry.msg)).toContain(
+      'Refused a skipReply outcome the Engine cannot ship',
+    );
+  });
+
+  test('skipReply and intentFacts reach the planner as the client sent them', async () => {
+    const intentFacts = {
+      latestOrderSku: 'A123',
+      similarSkus: ['B456'],
+      order: { shipped: false, total: 12.5, note: null },
+    };
+    const { planner, inputs } = answering(buildGridResponse());
+    const engine = createEngine({ planner, logger: silentLogger });
+
+    await engine.handle(
+      toChartRequestMessage({
+        ...makeGridRequest(),
+        skipReply: true,
+        intentFacts,
+      }),
+    );
+
+    expect(inputs).toHaveLength(1);
+    expect(inputs[0]?.request.skipReply).toBe(true);
+    expect<unknown>(inputs[0]?.request.intentFacts).toEqual(intentFacts);
   });
 });
 

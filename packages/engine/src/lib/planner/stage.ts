@@ -14,6 +14,7 @@ import type { Logger } from '../logger.js';
 import type {
   EngineDiagnostics,
   PlannerCandidate,
+  PlannerOutput,
   ValidatedCandidate,
 } from './candidate.js';
 import type { Instrument } from './instrument.js';
@@ -56,8 +57,8 @@ export type StageError = Deferred | EngineError;
  * the Engine validates the candidate it ships. Results are cached per
  * candidate object for the request, so validating inside a stage costs
  * nothing extra when the same candidate reaches the Engine. A failure that
- * healing cannot absorb (for example a missing `userMessage`) is an `Err`;
- * nothing throws.
+ * healing cannot absorb (for example a missing `userMessage` on a request
+ * without `skipReply: true`) is an `Err`; nothing throws.
  *
  * Because results are cached by object identity, a candidate must not change
  * once it is validated: a stage that produces a different plan returns a new
@@ -125,6 +126,14 @@ export type Stage<In, Out> = (
  * `input.request`, for example.
  */
 export type Planner = Stage<PlanningInput, PlannerCandidate>;
+
+/**
+ * A {@link Planner} that may also answer with a needs-clarification result
+ * instead of a candidate. Every `Planner` is a `ClarifyingPlanner`. The
+ * Engine accepts the clarification only for a request that set
+ * `skipReply: true`.
+ */
+export type ClarifyingPlanner = Stage<PlanningInput, PlannerOutput>;
 
 /**
  * Why the previous attempt of a {@link withRetry}-wrapped stage was rejected.
