@@ -15,6 +15,7 @@
     "scripts/**/*.ts",
     "src/vessels/*.vessel.def.ts",
     "src/lib/locations.ts",
+    "src/lib/pet-shop-fixtures.ts",
     "src/lib/vessel-options.ts"
   ],
   "exclude": ["scripts/hosted-e2e-server.ts"],

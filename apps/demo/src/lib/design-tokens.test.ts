@@ -8,7 +8,17 @@ import {
   VESSEL_ACCENTS,
 } from './design-tokens';
 
-const ALL_VESSELS = ['calendar', 'weather', 'map', 'journal', 'tasks'] as const;
+const ALL_VESSELS = [
+  'calendar',
+  'weather',
+  'map',
+  'journal',
+  'tasks',
+  'orders',
+  'catalog',
+  'cart',
+  'checkout',
+] as const;
 
 const ALL_STATUS_KEYS: StatusKey[] = [
   'idle',
@@ -45,6 +55,13 @@ describe('VESSEL_ACCENTS', () => {
     expect(VESSEL_ACCENTS.map).toBe('brand-3');
     expect(VESSEL_ACCENTS.journal).toBe('green');
     expect(VESSEL_ACCENTS.tasks).toBe('amber');
+  });
+
+  it('gives the pet-shop vessels distinct accents from the shipped palette', () => {
+    expect(VESSEL_ACCENTS.orders).toBe('brand');
+    expect(VESSEL_ACCENTS.catalog).toBe('brand-2');
+    expect(VESSEL_ACCENTS.cart).toBe('amber');
+    expect(VESSEL_ACCENTS.checkout).toBe('green');
   });
 });
 
