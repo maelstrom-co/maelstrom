@@ -1054,17 +1054,44 @@ describe('engine.handle with skipReply and needs-clarification', () => {
     expect(result.value.response.layout.type).toBe('grid');
   });
 
+  const replylessTiling = (): PlannerCandidate => {
+    const { userMessage: _omitted, ...rest } = brandTilingResponse({
+      userMessage: 'unused',
+      rationale: 'Keep the calendar',
+      executionPlan: [],
+      layout: {
+        tree: ['calendar-main'],
+        instances: [
+          {
+            instanceId: 'calendar-main',
+            vesselId: 'calendar',
+            variant: 'month',
+          },
+        ],
+      },
+    });
+    return rest;
+  };
+
   test.each([
-    ['a response without userMessage', replyless()],
-    ['a needs-clarification result', clarification],
-  ])('%s is accepted by validation but refused at the shipping boundary when skipReply is true', async (_case, output) => {
+    ['a grid response without userMessage', replyless(), requestWith(true)],
+    [
+      'a grid response with a blank userMessage',
+      buildGridResponse({ userMessage: '   ' }),
+      requestWith(true),
+    ],
+    [
+      'a tiling response without userMessage',
+      replylessTiling(),
+      { ...makeTilingRequest(), skipReply: true },
+    ],
+    ['a needs-clarification result', clarification, requestWith(true)],
+  ])('%s is accepted by validation but refused at the shipping boundary when skipReply is true', async (_case, output, request) => {
     const { logger, entries } = spyLogger();
     const { planner, inputs } = answering(output);
     const engine = createEngine({ planner, logger, retry: { max: 3 } });
 
-    const result = await engine.handle(
-      toChartRequestMessage(requestWith(true)),
-    );
+    const result = await engine.handle(toChartRequestMessage(request));
 
     expect(inputs).toHaveLength(1);
     expect(isErr(result) && result.error).toMatchObject({
@@ -1077,6 +1104,54 @@ describe('engine.handle with skipReply and needs-clarification', () => {
     expect(entries.map((entry) => entry.msg)).toContain(
       'Refused a skipReply outcome the Engine cannot ship',
     );
+  });
+
+  const observedKinds = (
+    engine: ReturnType<typeof createEngine>,
+  ): { kind: string; outcome: unknown }[] => {
+    const events: { kind: string; outcome: unknown }[] = [];
+    engine.observeDiagnostics?.((event) => {
+      events.push({ kind: event.kind, outcome: event.metadata.outcome });
+    });
+    return events;
+  };
+
+  test('a refused replyless outcome reports the planner run as failed to diagnostics observers', async () => {
+    const engine = createEngine({
+      planner: answering(clarification).planner,
+      logger: silentLogger,
+    });
+    const events = observedKinds(engine);
+
+    const result = await engine.handle(
+      toChartRequestMessage(requestWith(true)),
+    );
+
+    expect(isErr(result)).toBe(true);
+    expect(
+      events.filter((event) => event.kind === 'engine.planner.completed'),
+    ).toEqual([{ kind: 'engine.planner.completed', outcome: 'failed' }]);
+    expect(events.map((event) => event.kind)).not.toContain(
+      'engine.validation.completed',
+    );
+  });
+
+  test.each([
+    ['true', true, 'succeeded'],
+    ['absent', undefined, 'failed'],
+  ])('a needs-clarification result emits one engine.candidate.validated event when skipReply is %s', async (_case, skipReply, outcome) => {
+    const engine = createEngine({
+      planner: answering(clarification).planner,
+      logger: silentLogger,
+      retry: { max: 3 },
+    });
+    const events = observedKinds(engine);
+
+    await engine.handle(toChartRequestMessage(requestWith(skipReply)));
+
+    expect(
+      events.filter((event) => event.kind === 'engine.candidate.validated'),
+    ).toEqual([{ kind: 'engine.candidate.validated', outcome }]);
   });
 
   test('skipReply and intentFacts reach the planner as the client sent them', async () => {

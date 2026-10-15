@@ -272,7 +272,7 @@ A `ChartRequest` may set `skipReply: true` when its caller writes the reply itse
 The flag changes what validation accepts:
 
 - Without `skipReply`, a candidate must carry a non-blank `userMessage`. A needs-clarification result is `Err(ValidationError)` on field `'planner'`.
-- With `skipReply: true`, a candidate may omit `userMessage`, and a planner may return a `NeedsClarification` (`{ type: 'needs_clarification', question, options? }`, see `isNeedsClarification`) instead. Its diagnostics are empty and never recommend a retry, and `withRetry` returns it on the attempt that produced it.
+- With `skipReply: true`, a candidate may omit `userMessage` (a blank one is dropped as if omitted), and a planner may return a `NeedsClarification` (`{ type: 'needs_clarification', question, options? }`, see `isNeedsClarification`) instead. Its diagnostics are empty and never recommend a retry, and `withRetry` returns it on the attempt that produced it.
 
 `PlannerCandidate` types `userMessage` as optional for this reason, and `PlannerOutput` is `PlannerCandidate | NeedsClarification`. A `Planner` that only returns candidates is still a valid `EngineConfig.planner`.
 

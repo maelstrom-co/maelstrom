@@ -3004,12 +3004,20 @@ describe('processResponse userMessage and skipReply', () => {
     expect(result.value.rationale).toBe('User asked for calendar');
   });
 
+  test('a non-blank userMessage passes through unchanged when skipReply is true', () => {
+    const result = process(buildGridResponse({ userMessage: 'Done' }), true);
+
+    expect(isOk(result) && result.value.userMessage).toBe('Done');
+  });
+
   test.each([
-    'Done',
-    '   ',
-  ])('a present userMessage %p passes through unchanged when skipReply is true', (userMessage) => {
+    '',
+    ' \t\n ',
+  ])('a blank userMessage %p is dropped when skipReply is true', (userMessage) => {
     const result = process(buildGridResponse({ userMessage }), true);
 
-    expect(isOk(result) && result.value.userMessage).toBe(userMessage);
+    expect(isOk(result)).toBe(true);
+    if (!isOk(result)) return;
+    expect('userMessage' in result.value).toBe(false);
   });
 });

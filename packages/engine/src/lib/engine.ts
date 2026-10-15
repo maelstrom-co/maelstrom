@@ -335,20 +335,20 @@ export function createEngine(config: EngineConfig): Engine {
       () => input,
     );
     const planned = await runPlanner(planner, input, ctx, validate);
+    const durationMs = performance.now() - start;
+    const shippable = isErr(planned)
+      ? planned
+      : requireShippableReply(planned.value, message.id, logger);
     diagnosticsEmitter.emit(
       message.sessionId,
       message.id,
       operationalKinds.enginePlannerCompleted,
       {
-        durationMs: performance.now() - start,
-        ...operationalOutcome(planned),
+        durationMs,
+        ...operationalOutcome(shippable),
       },
-      () => planned,
+      () => shippable,
     );
-    if (isErr(planned)) {
-      return planned;
-    }
-    const shippable = requireShippableReply(planned.value, message.id, logger);
     if (isErr(shippable)) {
       return shippable;
     }
@@ -639,9 +639,10 @@ function isStageResult(
   );
 }
 
-// A chart_response always carries a reply, and nothing on this path sets
-// skipReply for the client, so a replyless outcome is refused here instead of
-// widening the wire response.
+// A chart_response always carries a userMessage and has no shape for a
+// clarification, so replyless outcomes are refused here rather than widening
+// the wire response. Validation accepts these outcomes under skipReply, so
+// this is the Engine's ship boundary for them.
 function requireShippableReply(
   outcome: FullValidatedPlannerOutput,
   messageId: MessageId,
@@ -658,7 +659,7 @@ function requireShippableReply(
     );
   }
   const { userMessage } = outcome;
-  if (userMessage === undefined || userMessage.trim() === '') {
+  if (userMessage === undefined) {
     return refuseReplylessOutcome(
       'a response without userMessage',
       messageId,
@@ -674,7 +675,7 @@ function refuseReplylessOutcome(
   logger: Logger,
 ): Result<never, EngineError> {
   const failure = validationError(
-    `skipReply is not supported on this path yet: the planner returned ${outcome}, and a chart_response must carry a userMessage`,
+    `skipReply is not supported on this path: the planner returned ${outcome}, and a chart_response must carry a userMessage`,
     'skipReply',
   );
   logger.warn('Refused a skipReply outcome the Engine cannot ship', {
