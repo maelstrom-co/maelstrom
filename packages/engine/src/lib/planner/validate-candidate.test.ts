@@ -5,6 +5,7 @@ import {
   buildGridResponse,
   invalid,
   makeGridRequest,
+  makeTilingRequest,
 } from '../__test-helpers__/fixtures.js';
 import {
   makePlanningInput,
@@ -319,6 +320,52 @@ describe('createCandidateValidator with skipReply', () => {
     const validate = validatorFor(spyLogger().logger, skipReplyRequest(true));
 
     expect(validate(clarification)).toBe(validate(clarification));
+  });
+
+  test('a rejected needs-clarification result is validated and logged once per object', () => {
+    const { logger, entries } = spyLogger();
+    const validate = validatorFor(logger, skipReplyRequest(undefined));
+
+    const first = validate(clarification);
+    const second = validate(clarification);
+
+    expect(isErr(first)).toBe(true);
+    expect(second).toBe(first);
+    expect(entries).toHaveLength(1);
+  });
+
+  test('a needs-clarification result is accepted for a tiling request with skipReply', () => {
+    const validate = validatorFor(spyLogger().logger, {
+      ...makeTilingRequest(),
+      skipReply: true,
+    });
+
+    const result = validate(clarification);
+
+    expect(isOk(result)).toBe(true);
+    if (!isOk(result)) return;
+    expect(result.value).toMatchObject(clarification);
+    expect('layout' in result.value).toBe(false);
+    expect(result.value.diagnostics.retryHint.recommend).toBe(false);
+  });
+
+  test('onValidated receives the report on the first call and on every cached call', () => {
+    const request = skipReplyRequest(true);
+    const reports: unknown[] = [];
+    const validate = createCandidateValidator({
+      request,
+      enumSnapshot: buildActionParameterEnumSnapshot(request.vessels),
+      messageId: makePlanningInput(request).messageId,
+      logger: spyLogger().logger,
+      onValidated: (report) => reports.push(report),
+    });
+
+    const first = validate(clarification);
+    const second = validate(clarification);
+
+    expect(reports).toHaveLength(2);
+    expect(reports[0]).toBe(first);
+    expect(reports[1]).toBe(second);
   });
 
   test.each([

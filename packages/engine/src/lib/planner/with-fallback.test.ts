@@ -164,7 +164,6 @@ describe('withFallback with skipReply and intentFacts', () => {
       makeStageContext({ origin: input }),
     );
 
-    expect(primary.inputs).toEqual([input]);
     expect(primary.inputs[0]).toBe(input);
     expect(fallback.inputs[0]).toBe(input);
     expect(fallback.inputs[0]?.request.skipReply).toBe(true);

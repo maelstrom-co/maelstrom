@@ -56,11 +56,18 @@ declare const existingRetryable: Stage<
   PlannerCandidate
 >;
 declare const clarifyingPlanner: ClarifyingPlanner;
+declare const clarifyingRetryable: Stage<
+  Retryable<PlanningInput>,
+  PlannerOutput
+>;
 declare const clarification: NeedsClarification;
 
 // Compiled by `typecheck`; never executed. Planners written against the
-// reply-bearing output keep their types and still fit every Engine seam.
-function existingPlannerCases(): unknown[] {
+// reply-bearing output keep their types and still fit every Engine seam,
+// clarifying planners fit the Engine and survive withRetry and withFallback
+// as clarifying planners, and the ts-expect-error lines pin what must stay
+// rejected: a clarification is neither a Planner result nor a candidate.
+function plannerSeamTypeCases(): unknown[] {
   const fromGrid: PlannerCandidate = strictGrid;
   const fromTiling: PlannerCandidate = strictTiling;
   const configured: EngineConfig['planner'] = existingPlanner;
@@ -75,6 +82,15 @@ function existingPlannerCases(): unknown[] {
   const narrowed: Planner = clarifyingPlanner;
   // @ts-expect-error a needs-clarification result is not a layout candidate
   const notCandidate: PlannerCandidate = clarification;
+  const clarifyingRetried: ClarifyingPlanner = withRetry(clarifyingRetryable, {
+    max: 1,
+  });
+  const clarifyingFellBack: ClarifyingPlanner = withFallback(
+    clarifyingPlanner,
+    clarifyingPlanner,
+  );
+  // @ts-expect-error a retried clarifying planner is not a reply-only Planner
+  const retriedNarrowed: Planner = withRetry(clarifyingRetryable, { max: 1 });
   return [
     fromGrid,
     fromTiling,
@@ -85,6 +101,9 @@ function existingPlannerCases(): unknown[] {
     clarifyingConfigured,
     narrowed,
     notCandidate,
+    clarifyingRetried,
+    clarifyingFellBack,
+    retriedNarrowed,
   ];
 }
 
@@ -97,6 +116,6 @@ test('inline stages infer the intermediate type from the previous output', async
   );
 
   expect(typeof adjacencyCases).toBe('function');
-  expect(typeof existingPlannerCases).toBe('function');
+  expect(typeof plannerSeamTypeCases).toBe('function');
   expect(typeof planner).toBe('function');
 });
