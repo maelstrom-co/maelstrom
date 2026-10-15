@@ -10,6 +10,8 @@ import {
 import { HEARTBEAT_PONG_FRAME } from '@maelstrom-co/connectors';
 import {
   ActionName,
+  AGENT_WIRE_VERSION,
+  AgentEventMessage,
   decodeClientEnvelope,
   EngineErrorMessage,
   EnvelopeError,
@@ -20,6 +22,7 @@ import {
   type MaelstromResponse,
   MaelstromResponseMessage,
   MessageId,
+  RunId,
   type ServerEnvelope,
   type SessionHistoryEntry,
   SessionId,
@@ -803,6 +806,53 @@ describe('WebSocketConnector engine.error', () => {
       warnSpy.mockRestore();
       await connector.disconnect();
     }
+  });
+});
+
+describe('WebSocketConnector engine.agent.event', () => {
+  test('warns once, does not throw, and leaves a pending request untouched', async () => {
+    const connector = new WebSocketConnector({ url: 'ws://test' });
+    const ws = await connectAndOpen(connector);
+
+    const envelope = buildEnvelope(MessageId('agent-pending-1'));
+    const promise = connector.process(envelope);
+
+    const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      expect(() =>
+        emitServer(
+          ws,
+          AgentEventMessage({
+            sessionId: SessionId('session-1'),
+            event: {
+              type: 'message',
+              version: AGENT_WIRE_VERSION,
+              runId: RunId('run-1'),
+              turnId: 'turn-1',
+              delta: 'Hello',
+            },
+          }),
+        ),
+      ).not.toThrow();
+
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy.mock.calls[0][0]).toContain(
+        '[WebSocketConnector] engine.agent.event',
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
+
+    emitServer(
+      ws,
+      MaelstromResponseMessage({
+        requestId: envelope.id,
+        response: buildResponse(envelope.id, { userMessage: 'still pending' }),
+      }),
+    );
+    const response = await promise;
+    expect(response.userMessage).toBe('still pending');
+    await connector.disconnect();
   });
 });
 
