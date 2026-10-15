@@ -7,6 +7,7 @@ import { observeProtocol } from './evidence.ts';
 import { installGreetingAudioTap } from './greeting-audio-tap.ts';
 import type {
   AssistantAudioActivity,
+  AudioCaptureSetupDiagnostics,
   BrowserAudioTimelineSnapshot,
 } from './shared-audio-capture.ts';
 import { installSharedAudioTimeline } from './shared-audio-capture.ts';
@@ -93,6 +94,7 @@ export type VoicePageSnapshot = {
   readonly statusCount: number;
   readonly captionCounts: { readonly user: number; readonly assistant: number };
   readonly timeline?: BrowserAudioTimelineSnapshot;
+  readonly audioCaptureSetup?: AudioCaptureSetupDiagnostics | null;
 };
 
 type BrowserObservation =
@@ -143,6 +145,7 @@ type BrowserBridgeWindow = Window & {
     assistantMonitor(frame: number): Promise<AssistantAudioActivity>;
     waitForReady(): Promise<void>;
     snapshot(): Promise<BrowserAudioTimelineSnapshot>;
+    diagnostics?(): AudioCaptureSetupDiagnostics;
     dispose?(): Promise<void>;
   };
 };
@@ -936,6 +939,8 @@ export function createVoiceTestDriver(
           return {
             url: `${location.origin}${location.pathname}`,
             readyState: document.readyState,
+            audioCaptureSetup:
+              target.__voiceAudioTimeline?.diagnostics?.() ?? null,
             clock: {
               domain: 'browser-performance',
               elapsedMs: performance.now(),

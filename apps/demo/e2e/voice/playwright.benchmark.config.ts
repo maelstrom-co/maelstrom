@@ -9,6 +9,7 @@ export default defineConfig({
     '**/shared-audio-capture.live.e2e.ts',
     '**/greeting-audio-capture.live.e2e.ts',
     '**/controlled-reference-capture.live.e2e.ts',
+    '**/audio-capture-startup.live.e2e.ts',
   ],
   workers: 1,
   fullyParallel: false,

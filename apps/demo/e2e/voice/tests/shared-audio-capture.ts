@@ -1,9 +1,40 @@
 export type AssistantAudioActivity = {
   readonly activeMs: number;
   readonly silentTailMs: number;
+  readonly currentFrame?: number;
+  readonly lastActiveFrame?: number | null;
+};
+
+export type AudioCaptureSetupDiagnostics = {
+  readonly stage: string;
+  readonly errorName: string | null;
+  readonly greetingPreparedFrame: number | null;
+  readonly armedFrame: number | null;
+  readonly recording: {
+    readonly receivedBlocks: number;
+    readonly retainedBlocks: number;
+    readonly retainedFrames: number;
+    readonly storageLimitReached: boolean;
+    readonly missingBlocks: number;
+    readonly missingBlockReasons: BrowserAudioTimelineSnapshot['missingBlockReasons'];
+    readonly omittedFrameGapDetails: number;
+  };
+  readonly preparation: {
+    readonly policyMs: number;
+    readonly deadlineMs: number;
+    readonly elapsedMs: number | null;
+    readonly clockResets: number;
+    readonly continuousFrames: number;
+    readonly formatResets: number;
+    readonly absentInputQuanta: number;
+    readonly requestedFrame: number | null;
+    readonly firstCapturedFrame: number | null;
+    readonly timedOut: boolean;
+  };
 };
 
 export type BrowserAudioTimelineSnapshot = {
+  readonly setup?: AudioCaptureSetupDiagnostics;
   readonly sampleRate: number;
   readonly inputChannels: number;
   readonly assistantChannels: number;
@@ -31,6 +62,8 @@ export type BrowserAudioTimelineSnapshot = {
 export type SharedAudioCaptureOptions = {
   readonly assistantSource?: 'remote' | 'greeting';
   readonly microphoneSource?: 'app' | 'controlled-reference';
+  readonly setupTimeoutMs?: number;
+  readonly preparationTimeoutMs?: number;
 };
 
 export function installSharedAudioTimeline(
@@ -41,7 +74,33 @@ export async function installSharedAudioTimeline(
   configuration: SharedAudioCaptureOptions = {},
 ): Promise<void> {
   const options = configuration ?? {};
+  const setupTimeoutMs = options.setupTimeoutMs ?? 5_000;
+  const preparationTimeoutMs = options.preparationTimeoutMs ?? 5_000;
+  const preparationMs = 100;
+  if (!Number.isSafeInteger(setupTimeoutMs) || setupTimeoutMs < 1)
+    throw new Error('Invalid audio setup deadline.');
+  if (!Number.isSafeInteger(preparationTimeoutMs) || preparationTimeoutMs < 1)
+    throw new Error('Invalid audio input preparation deadline.');
+  const setup = {
+    preparation: {
+      policyMs: preparationMs,
+      deadlineMs: preparationTimeoutMs,
+      elapsedMs: null as number | null,
+      clockResets: 0,
+      continuousFrames: 0,
+      formatResets: 0,
+      absentInputQuanta: 0,
+      requestedFrame: null as number | null,
+      firstCapturedFrame: null as number | null,
+      timedOut: false,
+    },
+    stage: 'idle',
+    errorName: null as string | null,
+    greetingPreparedFrame: null as number | null,
+    armedFrame: null as number | null,
+  };
   const target = window as Window & {
+    __voiceGreetingAudio?: { captureStream(): MediaStream | null };
     __voiceReferenceMicrophone?: {
       acquire(
         native: MediaDevices['getUserMedia'],
@@ -56,7 +115,9 @@ export async function installSharedAudioTimeline(
       sampleFrame(): number | null;
       assistantMonitor(fromFrame: number): Promise<AssistantAudioActivity>;
       testAttachMicrophone(stream: MediaStream): Promise<void>;
-      attachGreeting(stream: MediaStream): void;
+      greetingCaptureReady(stream: MediaStream): boolean;
+      diagnostics(): AudioCaptureSetupDiagnostics;
+      testWorkletSource(): string;
       dispose?(): Promise<void>;
     };
     __voiceTestObserve?: (event: {
@@ -99,10 +160,14 @@ export async function installSharedAudioTimeline(
   let greetingBus: GainNode | undefined;
   let greetingSilence: ConstantSourceNode | undefined;
   let workletArmed = false;
+  let preparationStartedAt: number | undefined;
+  let preparationTimer: ReturnType<typeof setTimeout> | undefined;
   const pendingAcquisitions = new Set<Promise<MediaStream>>();
   const mutedState = new Map<HTMLMediaElement, boolean>();
   let captureArmed = false;
   let capturedSamples = 0;
+  let receivedBlocks = 0;
+  let storageLimitReached = false;
   let problem: Error | undefined;
   let expectedFrame: number | undefined;
   let missingBlocks = 0;
@@ -118,6 +183,24 @@ export async function installSharedAudioTimeline(
       deltaFrames: number;
     }[],
   };
+  const diagnostics = (): AudioCaptureSetupDiagnostics => ({
+    ...setup,
+    preparation: { ...setup.preparation },
+    recording: {
+      receivedBlocks,
+      retainedBlocks: blocks.length,
+      retainedFrames: capturedSamples,
+      storageLimitReached,
+      missingBlocks,
+      missingBlockReasons: {
+        ...missingBlockReasons,
+        frameGapDetails: [...missingBlockReasons.frameGapDetails],
+      },
+      omittedFrameGapDetails:
+        missingBlockReasons.frameGaps -
+        missingBlockReasons.frameGapDetails.length,
+    },
+  });
   let inputChannelCount: number | undefined;
   let assistantChannelCount: number | undefined;
   let inputChannelWidth = 0;
@@ -134,6 +217,7 @@ export async function installSharedAudioTimeline(
   const reportFailure = (reason: string) => {
     if (problem) return;
     problem = new Error(reason);
+    clearTimeout(preparationTimer);
     void target
       .__voiceTestObserve?.({
         type: 'audio-capture-failure',
@@ -149,7 +233,17 @@ export async function installSharedAudioTimeline(
       constructor() {
         super();
         this.armed = false;
-        this.reportedArm = false;
+        this.armRequested = false;
+        this.preparationCancelled = false;
+        this.preparationFrames = 0;
+        this.preparationQuanta = 0;
+        this.preparationLastFrame = undefined;
+        this.preparationMicChannels = undefined;
+        this.preparationAssistantChannels = undefined;
+        this.preparationClockResets = 0;
+        this.preparationFormatResets = 0;
+        this.preparationAbsentInputQuanta = 0;
+        this.requestedFrame = null;
         this.warmupQuanta = 0;
         this.assistantConnected = false;
         this.microphoneConnected = false;
@@ -162,7 +256,11 @@ export async function installSharedAudioTimeline(
         this.monitorCurrentFrame = 0;
         this.reset();
         this.port.onmessage = ({data}) => {
-          if (data === 'arm') this.armed = true;
+          if (data === 'arm' && !this.armRequested && !this.armed && !this.preparationCancelled) {
+            this.armRequested = true;
+            this.requestedFrame = currentFrame;
+          }
+          if (data === 'cancel-preparation' && !this.armed) this.preparationCancelled = true;
           if (data === 'microphone-connected') this.microphoneConnected = true;
           if (data === 'assistant-connected') this.assistantConnected = true;
           if (data === 'flush') {
@@ -235,14 +333,33 @@ export async function installSharedAudioTimeline(
         this.monitorCurrentFrame = currentFrame + frames;
         if (left) left.fill(0);
         if (right) right.fill(0);
+        for (let i = 0; i < frames; i++) {
+          if (left && ${options.assistantSource !== 'greeting'}) left[i] = assistant[0]?.[i] ?? 0;
+          if (right && ${options.assistantSource !== 'greeting'}) right[i] = assistant[1]?.[i] ?? assistant[0]?.[i] ?? 0;
+        }
         if (!this.armed) {
           this.warmupQuanta++;
           if (this.warmupQuanta === 8) this.port.postMessage({ warmed: true });
-          return true;
-        }
-        if (!this.reportedArm) {
-          this.reportedArm = true;
-          this.port.postMessage({armed: true});
+          if (!this.armRequested || this.preparationCancelled) return true;
+          const continuous = this.preparationLastFrame === undefined || currentFrame === this.preparationLastFrame;
+          const valid = this.microphoneConnected && this.assistantConnected && microphone.length >= 1 && microphone.length <= 2 && assistant.length >= 1 && assistant.length <= 2 && microphone.every(channel => channel.length === frames) && assistant.every(channel => channel.length === frames);
+          const sameFormat = this.preparationMicChannels === undefined || (microphone.length === this.preparationMicChannels && assistant.length === this.preparationAssistantChannels);
+          if (!continuous) this.preparationClockResets++;
+          if (!sameFormat) this.preparationFormatResets++;
+          if (!valid) this.preparationAbsentInputQuanta++;
+          if (!continuous || !sameFormat || !valid) this.preparationFrames = 0;
+          this.preparationLastFrame = currentFrame + frames;
+          this.preparationMicChannels = microphone.length;
+          this.preparationAssistantChannels = assistant.length;
+          this.preparationQuanta++;
+          if (this.preparationQuanta % 32 === 0)
+            this.port.postMessage({preparing: true, requestedFrame: this.requestedFrame, continuousFrames: this.preparationFrames, clockResets: this.preparationClockResets, formatResets: this.preparationFormatResets, absentInputQuanta: this.preparationAbsentInputQuanta});
+          if (!valid || this.preparationFrames < sampleRate * ${preparationMs} / 1000) {
+            if (valid) this.preparationFrames += frames;
+            return true;
+          }
+          this.armed = true;
+          this.port.postMessage({armed: true, frame: currentFrame, requestedFrame: this.requestedFrame, continuousFrames: this.preparationFrames, clockResets: this.preparationClockResets, formatResets: this.preparationFormatResets, absentInputQuanta: this.preparationAbsentInputQuanta});
         }
         const micLeft = microphone[0];
         const micRight = microphone[1];
@@ -299,13 +416,11 @@ export async function installSharedAudioTimeline(
           if (micRight) this.inputRight[at] = micRight[i];
           if (assistantLeft) {
             this.assistantLeft[at] = assistantLeft[i];
-            if (left && ${options.assistantSource !== 'greeting'}) left[i] = assistantLeft[i];
+
           }
           if (assistantRight) {
             this.assistantRight[at] = assistantRight[i];
-            if (right && ${options.assistantSource !== 'greeting'}) right[i] = assistantRight[i];
-          } else if (assistantLeft && right && ${options.assistantSource !== 'greeting'}) {
-            right[i] = assistantLeft[i];
+
           }
           const assistantLeftSample = assistantLeft?.[i] ?? 0;
           const assistantRightSample =
@@ -334,6 +449,29 @@ export async function installSharedAudioTimeline(
     registerProcessor('maelstrom-shared-audio-timeline', SharedTimelineRecorder);
   `;
 
+  const waitForSetup = async (operation: Promise<unknown>) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        operation,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () =>
+              reject(
+                new DOMException(
+                  'Audio setup deadline exceeded',
+                  'TimeoutError',
+                ),
+              ),
+            setupTimeoutMs,
+          );
+        }),
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
   const ensureGraph = async () => {
     if (disposed) throw new Error('Shared audio timeline was disposed');
     if (problem) throw problem;
@@ -341,13 +479,16 @@ export async function installSharedAudioTimeline(
     if (graphPromise) return graphPromise;
     graphPromise = (async () => {
       try {
+        setup.stage = 'construct-context';
         const audioContext = new AudioContext({
           sampleRate: 48_000,
           latencyHint: 'interactive',
         });
         context = audioContext;
-        await audioContext.resume();
+        setup.stage = 'resume-context';
+        await waitForSetup(audioContext.resume());
         if (disposed) throw new Error('Shared audio timeline was disposed');
+        setup.stage = 'sample-rate';
         if (audioContext.sampleRate !== 48_000)
           throw new Error(
             `Shared audio clock sample rate is ${audioContext.sampleRate}, expected 48000`,
@@ -356,11 +497,13 @@ export async function installSharedAudioTimeline(
           new Blob([workletSource], { type: 'text/javascript' }),
         );
         try {
-          await audioContext.audioWorklet.addModule(module);
+          setup.stage = 'load-worklet';
+          await waitForSetup(audioContext.audioWorklet.addModule(module));
         } finally {
           URL.revokeObjectURL(module);
         }
         if (disposed) throw new Error('Shared audio timeline was disposed');
+        setup.stage = 'construct-recorder';
         recorder = new AudioWorkletNode(
           audioContext,
           'maelstrom-shared-audio-timeline',
@@ -377,9 +520,52 @@ export async function installSharedAudioTimeline(
           resolveWarmed = resolve;
         });
         recorder.port.onmessage = ({ data }) => {
+          if (data.preparing) {
+            if (problem || disposed || workletArmed) return;
+            setup.preparation = {
+              ...setup.preparation,
+              requestedFrame: data.requestedFrame,
+              continuousFrames: data.continuousFrames,
+              clockResets: data.clockResets,
+              formatResets: data.formatResets,
+              absentInputQuanta: data.absentInputQuanta,
+              elapsedMs:
+                performance.now() - (preparationStartedAt ?? performance.now()),
+            };
+            return;
+          }
           if (data.armed) {
+            if (disposed) return;
+            const elapsedMs =
+              performance.now() - (preparationStartedAt ?? performance.now());
+            setup.armedFrame = data.frame;
+            setup.preparation = {
+              ...setup.preparation,
+              elapsedMs,
+              requestedFrame: data.requestedFrame,
+              firstCapturedFrame: data.frame,
+              clockResets: data.clockResets,
+              continuousFrames: data.continuousFrames,
+              formatResets: data.formatResets,
+              absentInputQuanta: data.absentInputQuanta,
+            };
+            if (problem) return;
+            if (elapsedMs > preparationTimeoutMs) {
+              failPreparation();
+              return;
+            }
+            clearTimeout(preparationTimer);
+            setup.stage = 'recording';
             workletArmed = true;
-            if (options.assistantSource === 'greeting') resolveReady();
+            resolveReady();
+            void target
+              .__voiceTestObserve?.({
+                type: 'audio-capture-ready',
+                source: 'shared-audio-timeline',
+                clock: performance.now(),
+                payload: { sampleRate: context?.sampleRate ?? 0 },
+              })
+              .catch(() => {});
             return;
           }
           if (typeof data.assistantMonitorResponse === 'number') {
@@ -389,6 +575,8 @@ export async function installSharedAudioTimeline(
             if (resolveMonitor) {
               assistantMonitorResolvers.delete(data.assistantMonitorResponse);
               resolveMonitor({
+                currentFrame: data.currentFrame,
+                lastActiveFrame: data.lastAssistantActiveFrame,
                 activeMs: data.activeMs,
                 silentTailMs:
                   data.lastAssistantActiveFrame === null
@@ -421,16 +609,18 @@ export async function installSharedAudioTimeline(
             }
             return;
           }
-          if (problem) return;
+          if (disposed) return;
+          receivedBlocks++;
           const nextEnd = data.frame + data.length;
           if (expectedFrame !== undefined && data.frame !== expectedFrame) {
             missingBlocks++;
             missingBlockReasons.frameGaps++;
-            missingBlockReasons.frameGapDetails.push({
-              expectedFrame,
-              actualFrame: data.frame,
-              deltaFrames: data.frame - expectedFrame,
-            });
+            if (!storageLimitReached)
+              missingBlockReasons.frameGapDetails.push({
+                expectedFrame,
+                actualFrame: data.frame,
+                deltaFrames: data.frame - expectedFrame,
+              });
           }
           expectedFrame = nextEnd;
           if (
@@ -471,44 +661,68 @@ export async function installSharedAudioTimeline(
             assistantChannelWidth,
             data.assistantChannels,
           );
-          blocks.push(data);
-          capturedSamples += data.length;
-          if (capturedSamples > audioContext.sampleRate * 600)
-            reportFailure('capture-exceeded-ten-minute-limit');
+          if (!storageLimitReached) {
+            blocks.push(data);
+            capturedSamples += data.length;
+            if (capturedSamples > audioContext.sampleRate * 600) {
+              storageLimitReached = true;
+              reportFailure('capture-exceeded-ten-minute-limit');
+            }
+          }
         };
+        setup.stage = 'connect-recorder';
         recorder.connect(audioContext.destination);
-        await Promise.race([
-          warmed,
-          new Promise<never>((_, reject) =>
-            setTimeout(
-              () =>
-                reject(
-                  new Error(
-                    'Shared AudioWorklet did not warm up before capture',
-                  ),
-                ),
-              1_000,
-            ),
-          ),
-        ]);
+        setup.stage = 'warm-worklet';
+        await waitForSetup(warmed);
+        setup.stage = 'graph-ready';
         if (disposed) throw new Error('Shared audio timeline was disposed');
         if (microphoneSourceConnected)
           recorder.port.postMessage('microphone-connected');
         if (assistantSourceConnected)
           recorder.port.postMessage('assistant-connected');
-      } catch (_error) {
+      } catch (error) {
+        const name =
+          error instanceof Error || error instanceof DOMException
+            ? error.name
+            : 'UnknownError';
+        setup.errorName = [
+          'Error',
+          'TypeError',
+          'SyntaxError',
+          'AbortError',
+          'NotSupportedError',
+          'NotAllowedError',
+          'InvalidStateError',
+          'SecurityError',
+          'NetworkError',
+          'TimeoutError',
+        ].includes(name)
+          ? name
+          : 'UnknownError';
         reportFailure(
           disposed
             ? 'capture-disposed-during-initialization'
-            : 'audio-context-initialization-failed',
+            : `audio-context-initialization-failed:${setup.stage}:${setup.errorName}`,
         );
         if (context && context.state !== 'closed')
-          await context.close().catch(() => {});
+          await waitForSetup(context.close()).catch(() => {});
         rejectReady(problem ?? new Error('Shared audio timeline failed'));
         throw problem ?? new Error('Shared audio timeline failed');
       }
     })();
     return graphPromise;
+  };
+
+  const failPreparation = () => {
+    if (workletArmed || disposed || problem) return;
+    setup.stage = 'settle-inputs';
+    setup.errorName = 'TimeoutError';
+    setup.preparation.timedOut = true;
+    setup.preparation.elapsedMs =
+      performance.now() - (preparationStartedAt ?? performance.now());
+    recorder?.port.postMessage('cancel-preparation');
+    reportFailure('audio-input-preparation-timeout');
+    rejectReady(problem ?? new Error('Audio input preparation timed out'));
   };
 
   const readyIfAttached = () => {
@@ -523,16 +737,10 @@ export async function installSharedAudioTimeline(
         rejectReady(new Error('Shared AudioWorklet did not initialize'));
         return;
       }
+      setup.stage = 'settle-inputs';
+      preparationStartedAt = performance.now();
+      preparationTimer = setTimeout(failPreparation, preparationTimeoutMs);
       recorder.port.postMessage('arm');
-      if (options.assistantSource !== 'greeting') resolveReady();
-      void target
-        .__voiceTestObserve?.({
-          type: 'audio-capture-ready',
-          source: 'shared-audio-timeline',
-          clock: performance.now(),
-          payload: { sampleRate: context?.sampleRate ?? 0 },
-        })
-        .catch(() => {});
     }
   };
 
@@ -558,6 +766,20 @@ export async function installSharedAudioTimeline(
     const worklet = recorder;
     if (!audioContext || !worklet)
       throw new Error('Shared microphone capture graph did not initialize');
+    const greetingStream =
+      options.assistantSource === 'greeting'
+        ? target.__voiceGreetingAudio?.captureStream()
+        : undefined;
+    if (options.assistantSource === 'greeting' && !greetingStream) {
+      reportFailure('greeting-stream-unprepared');
+      const failure =
+        problem ??
+        new Error(
+          'Greeting stream must be prepared by the unlock gesture before microphone capture.',
+        );
+      rejectReady(failure);
+      throw failure;
+    }
     const source = audioContext.createMediaStreamSource(
       new MediaStream([track]),
     );
@@ -565,7 +787,7 @@ export async function installSharedAudioTimeline(
     microphoneTrack = track;
     microphoneSourceConnected = true;
     worklet.port.postMessage('microphone-connected');
-    if (options.assistantSource === 'greeting') {
+    if (greetingStream) {
       greetingBus = audioContext.createGain();
       greetingBus.channelCount = 2;
       greetingBus.channelCountMode = 'explicit';
@@ -574,10 +796,18 @@ export async function installSharedAudioTimeline(
       greetingSilence.offset.value = 0;
       greetingSilence.connect(greetingBus);
       greetingSilence.start();
+      const greetingSource =
+        audioContext.createMediaStreamSource(greetingStream);
+      greetingSource.connect(greetingBus);
+      assistantStream = greetingStream;
+      setup.greetingPreparedFrame = Math.round(
+        audioContext.currentTime * audioContext.sampleRate,
+      );
       assistantSourceConnected = true;
       worklet.port.postMessage('assistant-connected');
     }
     readyIfAttached();
+    if (options.assistantSource === 'greeting') await ready;
   };
 
   const attachAssistant = (
@@ -697,17 +927,17 @@ export async function installSharedAudioTimeline(
     },
   });
 
-  const waitForReady = () =>
-    new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(
-        () =>
+  const waitForReady = () => {
+    if (preparationStartedAt !== undefined) return ready;
+    return new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        if (preparationStartedAt === undefined)
           reject(
             new Error(
               'Shared audio timeline readiness timed out before both tracks connected',
             ),
-          ),
-        1000,
-      );
+          );
+      }, 1_000);
       ready.then(
         () => {
           clearTimeout(timer);
@@ -719,29 +949,21 @@ export async function installSharedAudioTimeline(
         },
       );
     });
+  };
 
   target.__voiceAudioTimeline = {
     waitForReady,
     testAttachMicrophone: attachMicrophone,
-    attachGreeting(stream) {
-      if (
-        options.assistantSource !== 'greeting' ||
-        !context ||
-        !greetingBus ||
-        !workletArmed ||
-        assistantStream
-      )
-        throw new Error(
-          'Greeting capture must attach once after its silent bus is armed.',
-        );
-      const source = context.createMediaStreamSource(stream);
-      source.connect(greetingBus);
-      assistantStream = stream;
-    },
+    greetingCaptureReady: (stream) =>
+      options.assistantSource === 'greeting' &&
+      !disposed &&
+      !problem &&
+      workletArmed &&
+      assistantStream === stream,
+    diagnostics,
+    testWorkletSource: () => workletSource,
     sampleFrame: () =>
-      captureArmed &&
-      context &&
-      (options.assistantSource !== 'greeting' || workletArmed)
+      workletArmed && !problem && context
         ? Math.round(context.currentTime * context.sampleRate)
         : null,
     async mark() {
@@ -791,6 +1013,7 @@ export async function installSharedAudioTimeline(
     async dispose() {
       if (disposed) return;
       disposed = true;
+      clearTimeout(preparationTimer);
       target.__voiceAudioTimeline = undefined;
       rejectReady(new Error('Shared audio timeline was disposed'));
       for (const [element, wasMuted] of mutedState) element.muted = wasMuted;
@@ -859,6 +1082,7 @@ export async function installSharedAudioTimeline(
       const startFrame = firstBlock.frame;
       const endFrame = lastBlock.frame + lastBlock.length;
       return {
+        setup: diagnostics(),
         sampleRate,
         inputChannels,
         assistantChannels,

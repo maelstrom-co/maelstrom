@@ -10,11 +10,12 @@ export type GreetingAudioObservation = {
 
 export type GreetingAudioWindow = Window & {
   __voiceAudioTimeline?: {
-    attachGreeting(stream: MediaStream): void;
+    greetingCaptureReady(stream: MediaStream): boolean;
     sampleFrame(): number | null;
   };
   __voiceGreetingAudio?: {
     snapshot(): GreetingAudioObservation;
+    captureStream(): MediaStream | null;
     dispose(): void;
   };
 };
@@ -26,11 +27,9 @@ export function installGreetingAudioTap(): void {
   const nativeStart = AudioBufferSourceNode.prototype.start;
   const nativeStop = AudioBufferSourceNode.prototype.stop;
   const directSources = new WeakSet<AudioBufferSourceNode>();
-  const sources = new Map<
-    AudioBufferSourceNode,
-    MediaStreamAudioDestinationNode
-  >();
+  const sources = new Set<AudioBufferSourceNode>();
   let unlockContext: BaseAudioContext | undefined;
+  let tap: MediaStreamAudioDestinationNode | undefined;
   let selected: AudioBufferSourceNode | undefined;
   let naturalEndTime: number | undefined;
   let audibleDurationMs: number | null = null;
@@ -61,15 +60,18 @@ export function installGreetingAudioTap(): void {
       return result;
     }
     try {
-      const tap = this.context.createMediaStreamDestination();
-      sources.set(this, tap);
+      sources.add(this);
       if (sources.size !== 1) {
         fail('multiple-greeting-source-candidates');
         return result;
       }
-      if (!target.__voiceAudioTimeline)
-        throw new Error('Greeting capture timeline is unavailable.');
-      target.__voiceAudioTimeline.attachGreeting(tap.stream);
+      if (
+        !tap ||
+        !target.__voiceAudioTimeline?.greetingCaptureReady(tap.stream)
+      )
+        throw new Error(
+          'Greeting capture was not prepared before source connection.',
+        );
       Reflect.apply(nativeConnect, this, [tap]);
       selected = this;
     } catch {
@@ -91,6 +93,13 @@ export function installGreetingAudioTap(): void {
       if (unlockContext && unlockContext !== this.context)
         fail('multiple-unlock-contexts');
       unlockContext ??= this.context;
+      if (!tap && unlockContext instanceof AudioContext) {
+        try {
+          tap = unlockContext.createMediaStreamDestination();
+        } catch {
+          fail('greeting-stream-preparation-failed');
+        }
+      }
     }
     if (this !== selected) return;
     const [when = 0, offset = 0, duration] = args;
@@ -148,6 +157,7 @@ export function installGreetingAudioTap(): void {
   AudioBufferSourceNode.prototype.start = start;
   AudioBufferSourceNode.prototype.stop = stop;
   target.__voiceGreetingAudio = {
+    captureStream: () => tap?.stream ?? null,
     snapshot: () => ({
       sourceCount: sources.size,
       failure,
@@ -166,14 +176,14 @@ export function installGreetingAudioTap(): void {
         AudioBufferSourceNode.prototype.start = nativeStart;
       if (AudioBufferSourceNode.prototype.stop === stop)
         AudioBufferSourceNode.prototype.stop = nativeStop;
-      for (const [source, tap] of sources) {
+      for (const source of sources) {
         try {
-          source.disconnect(tap);
+          if (tap) source.disconnect(tap);
         } catch {
           /* The player may already have disconnected its source. */
         }
-        for (const track of tap.stream.getTracks()) track.stop();
       }
+      for (const track of tap?.stream.getTracks() ?? []) track.stop();
       sources.clear();
       delete target.__voiceGreetingAudio;
     },

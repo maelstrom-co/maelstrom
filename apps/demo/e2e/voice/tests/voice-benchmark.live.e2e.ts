@@ -22,6 +22,10 @@ import {
 } from './barge-in-observer.ts';
 import { assessBargeInRun, completeBargeInReport } from './barge-in-report.ts';
 import {
+  selectRealtimeBeforeVoiceConnection,
+  waitForFixedGreetingSettlement,
+} from './barge-in-setup.ts';
+import {
   summarizeVoiceBenchmark,
   type VoiceBenchmarkRecord,
 } from './benchmark-metrics.ts';
@@ -52,7 +56,10 @@ import {
   replyWav,
   silentTailMs,
 } from './reply-recorder.ts';
-import type { BrowserAudioTimelineSnapshot } from './shared-audio-capture.ts';
+import type {
+  AudioCaptureSetupDiagnostics,
+  BrowserAudioTimelineSnapshot,
+} from './shared-audio-capture.ts';
 import {
   type AudioTimelineMeasurement,
   computeAudioTimelineMeasurement,
@@ -73,6 +80,10 @@ import {
   type VadValidation,
   validateVadPayload,
 } from './single-turn-validity.ts';
+import {
+  sampleTaskBargeInGate,
+  type TaskBargeInGate,
+} from './task-barge-in-gate.ts';
 import {
   attachVoiceBenchmarkFailureStatus,
   installAssistantCaptionMutationObserver,
@@ -666,6 +677,10 @@ test.describe('voice benchmark', () => {
             'responseLatency turn sample indices address both attached full-session WAVs; absolute AudioContext frame = sampleClockStartFrame + sample index',
           sharedClock:
             'AudioWorklet currentFrame sample positions; human and assistant PCM are chunked from the same processor invocation and continuous session origin',
+          captureInitialization: {
+            revision: 2,
+            setup: audioTimeline?.setup ?? null,
+          },
           sampleClockStartFrame: audioTimeline?.startFrame ?? null,
           sampleClockEndFrame: audioTimeline?.endFrame ?? null,
           t0SampleFrame:
@@ -805,8 +820,11 @@ test.describe('voice benchmark', () => {
         ) {
           let measurement = invalidBargeIn('Interruption was not captured.');
           let audioTimeline: BrowserAudioTimelineSnapshot | undefined;
+          let captureSetup: AudioCaptureSetupDiagnostics | undefined;
           let observation: BargeInObserverSnapshot = { events: [], dropped: 0 };
           let targetResponseId: string | null = null;
+          const taskGate: { value: TaskBargeInGate | null } = { value: null };
+          let greetingSettledBeforePrimer = false;
           let startFrame: number | null = null;
           let endFrame: number | null = null;
           let playbackObservation = {};
@@ -858,25 +876,17 @@ test.describe('voice benchmark', () => {
             );
             requireNonemptyFixtureVad(fixtureVad, sourceMetadata);
             await voiceDriver.navigate(baseURL);
-            if (isGreeting) {
-              const provider = page.getByRole('combobox', {
-                name: 'Voice provider',
-                exact: true,
-              });
-              await provider.selectOption('realtime', { timeout: 30_000 });
-              await expect(provider).toHaveValue('realtime');
-            }
+            await selectRealtimeBeforeVoiceConnection(page);
             await startVoiceDemoFromKeylessLanding(
               page,
               process.env.MAELSTROM_E2E_OPENAI_API_KEY,
             );
-            if (isGreeting)
-              await expect(
-                page.getByRole('combobox', {
-                  name: 'Voice provider',
-                  exact: true,
-                }),
-              ).toHaveValue('realtime');
+            await expect(
+              page.getByRole('combobox', {
+                name: 'Voice provider',
+                exact: true,
+              }),
+            ).toHaveValue('realtime');
             const orb = page.locator('button.voice-orb');
             await expect(orb).toHaveCount(1, { timeout: 30_000 });
             if (
@@ -900,6 +910,10 @@ test.describe('voice benchmark', () => {
               throw new Error(
                 'Controlled injected-audio reference was not verified.',
               );
+            if (!isGreeting) {
+              await waitForFixedGreetingSettlement(page);
+              greetingSettledBeforePrimer = true;
+            }
             const primerStart = isGreeting
               ? 0
               : await voiceDriver.markPlaybackStart();
@@ -915,36 +929,44 @@ test.describe('voice benchmark', () => {
               );
               parseCompletedPlayback((await primer.completed()).stdout);
             }
-            await expect
-              .poll(
-                async () => {
-                  const activity =
-                    await voiceDriver.assistantActivity(primerStart);
-                  return (
-                    activity.activeMs >= 300 &&
-                    activity.silentTailMs <=
-                      bargeInPolicy.maximumPreOnsetQuietMs
-                  );
-                },
-                { timeout: 30_000, intervals: [20] },
-              )
-              .toBe(true);
-            if (!isGreeting) {
-              observation = await page.evaluate(
-                () =>
-                  (
-                    window as BargeInObserverWindow
-                  ).__voiceBargeInObserver?.snapshot() ?? {
-                    events: [],
-                    dropped: 0,
+            if (isGreeting) {
+              await expect
+                .poll(
+                  async () => {
+                    const activity =
+                      await voiceDriver.assistantActivity(primerStart);
+                    return (
+                      activity.activeMs >= 300 &&
+                      activity.silentTailMs <=
+                        bargeInPolicy.maximumPreOnsetQuietMs
+                    );
                   },
-              );
-              targetResponseId =
-                observation.events
-                  .filter(
-                    (event) => event.type === 'output_audio_buffer.started',
-                  )
-                  .at(-1)?.responseId ?? null;
+                  { timeout: 30_000, intervals: [20] },
+                )
+                .toBe(true);
+            } else {
+              await expect
+                .poll(
+                  async () => {
+                    taskGate.value = await voiceDriver.evaluate(
+                      'task-response:prelaunch-gate',
+                      sampleTaskBargeInGate,
+                      {
+                        primerFrame: primerStart,
+                        minimumActiveMs: 300,
+                        maximumQuietMs: bargeInPolicy.maximumPreOnsetQuietMs,
+                      },
+                    );
+                    return taskGate.value !== null;
+                  },
+                  { timeout: 30_000, intervals: [20] },
+                )
+                .toBe(true);
+              if (!taskGate.value)
+                throw new Error(
+                  'No current identified task response was speaking before injection.',
+                );
+              targetResponseId = taskGate.value.responseId;
             }
             const captionsBefore = isGreeting
               ? await page
@@ -952,7 +974,9 @@ test.describe('voice benchmark', () => {
                   .locator('[data-role="assistant"]')
                   .allTextContents()
               : [];
-            startFrame = await voiceDriver.markPlaybackStart();
+            startFrame =
+              taskGate.value?.playbackMarkerFrame ??
+              (await voiceDriver.markPlaybackStart());
             const startedAt = performance.now();
             const interrupt = voiceDriver.startPlayback(
               binary,
@@ -1155,6 +1179,29 @@ test.describe('voice benchmark', () => {
               'Benchmark setup, playback, capture, or VAD failed.',
             );
           } finally {
+            if (!isGreeting)
+              observation = await page
+                .evaluate(
+                  () =>
+                    (
+                      window as BargeInObserverWindow
+                    ).__voiceBargeInObserver?.snapshot() ?? {
+                      events: [],
+                      dropped: 0,
+                    },
+                )
+                .catch(() => observation);
+            captureSetup = await page
+              .evaluate(() =>
+                (
+                  window as Window & {
+                    __voiceAudioTimeline?: {
+                      diagnostics(): AudioCaptureSetupDiagnostics;
+                    };
+                  }
+                ).__voiceAudioTimeline?.diagnostics(),
+              )
+              .catch(() => undefined);
             referenceCapture ??= await page
               .evaluate(() =>
                 (
@@ -1178,14 +1225,26 @@ test.describe('voice benchmark', () => {
             attempts.push({
               repetition,
               targetResponseId,
+              inputGate: taskGate.value,
+              greetingSettledBeforePrimer,
               startFrame,
               endFrame,
               sampleClockStartFrame: audioTimeline?.startFrame ?? null,
               sampleClockEndFrame: audioTimeline?.endFrame ?? null,
               captureIntegrity: {
-                blockCount: audioTimeline?.blockCount ?? null,
-                missingBlocks: audioTimeline?.missingBlocks ?? null,
-                missingBlockReasons: audioTimeline?.missingBlockReasons ?? null,
+                setup: captureSetup ?? audioTimeline?.setup ?? null,
+                blockCount:
+                  audioTimeline?.blockCount ??
+                  captureSetup?.recording.retainedBlocks ??
+                  null,
+                missingBlocks:
+                  audioTimeline?.missingBlocks ??
+                  captureSetup?.recording.missingBlocks ??
+                  null,
+                missingBlockReasons:
+                  audioTimeline?.missingBlockReasons ??
+                  captureSetup?.recording.missingBlockReasons ??
+                  null,
               },
               observation,
               referenceCapture,
@@ -1195,6 +1254,17 @@ test.describe('voice benchmark', () => {
                 capturedVad,
                 playbackWindow,
                 selectedOnsetSample,
+                gateToCapturedOnsetMs:
+                  selectedOnsetSample !== null &&
+                  taskGate.value?.observedFrame !== null &&
+                  taskGate.value?.observedFrame !== undefined &&
+                  audioTimeline
+                    ? ((audioTimeline.startFrame +
+                        selectedOnsetSample -
+                        taskGate.value.observedFrame) *
+                        1000) /
+                      audioTimeline.sampleRate
+                    : null,
               },
               ...(isGreeting ? { greetingPlayback, followupCapture } : {}),
               measurement,
@@ -1242,6 +1312,12 @@ test.describe('voice benchmark', () => {
           repetitions: selection.repetitions,
           policy: bargeInPolicy,
           context: {
+            captureInitialization: {
+              revision: 2,
+              preparationMs: 100,
+              policy:
+                'Record once after connected inputs have continuous frames and stable supported formats; readiness requires processor acknowledgment. Preparation is excluded, early remote output may not be recorded but is passed through, and every recorded discontinuity still invalidates measurement.',
+            },
             microphoneCapture:
               'Controlled Linux injected reference on the exact app-selected device; observed AEC/noise suppression/AGC disabled, app settings and enabled state checked unchanged across acquisition. Separate-stream settings checks do not prove unchanged acoustics. Not equivalent to prior app-processed captures.',
             humanOnset: {
@@ -1256,16 +1332,19 @@ test.describe('voice benchmark', () => {
             attribution: isGreeting
               ? 'Demo-specific: exactly one long direct-to-destination source in the one-sample silent-unlock context. Native stop >=50ms before source-clock expected speech end (last decoded sample >=0.01, excluding trailing silence) corroborates truncation; natural completion stays ambiguous. Not a general greeting API.'
               : 'Matching OpenAI output clear or cancelled response corroborates the stop; quiet without that evidence is ambiguous and excluded.',
+            selectedProvider:
+              'realtime (selected and asserted via public UI before key bootstrap/connection)',
             ...(isGreeting
               ? {
-                  selectedProvider:
-                    'realtime (selected and asserted via public UI before key bootstrap/connection)',
                   trigger:
                     'No primer. Inject open-calendar with zero lead-in once greeting has >=300ms captured activity and <=30ms quiet tail; actual onset must overlap captured greeting.',
                   followup:
                     'Retain separate physical speaker monitor until changed assistant caption, listening state and 1s output quiet, or a 30s timeout. This is a bounded diagnostic, not proof of task success.',
                 }
-              : {}),
+              : {
+                  trigger:
+                    'After the fixed greeting settles, play the unchanged primer once. Target only a fresh identified output after its marker; require >=300ms captured speech and <=30ms quiet tail, then mark and recheck the same response immediately before launching the full unchanged interruption fixture once. No observer/caption/fixture work between gate and launch.',
+                }),
             eventClock: isGreeting
               ? 'Native greeting start/stop calls sample the capture AudioContext clock; early-stop versus natural end uses only the source context clock. Primary latency uses captured PCM samples.'
               : 'Playback lifecycle diagnostics use AudioContext.currentTime at browser event receipt; primary latency uses captured PCM samples only.',

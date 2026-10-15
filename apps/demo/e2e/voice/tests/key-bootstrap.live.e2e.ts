@@ -1,5 +1,9 @@
 import { expect, test } from '@playwright/test';
 import {
+  selectRealtimeBeforeVoiceConnection,
+  waitForFixedGreetingSettlement,
+} from './barge-in-setup.ts';
+import {
   enterAndSubmitApiKey,
   startVoiceDemoFromKeylessLanding,
 } from './key-bootstrap.ts';
@@ -360,6 +364,52 @@ test('reports a missing start action on the key-required landing page', async ({
   await expect(
     startVoiceDemoFromKeylessLanding(page, nonSecretInput),
   ).rejects.toThrow('without its Start interactive demo action');
+});
+
+test('barge-in selects Realtime before connection and refuses to switch a connected session', async ({
+  page,
+}) => {
+  await page.setContent(
+    '<select aria-label="Voice provider"><option value="live">GPT-Live</option><option value="realtime">OpenAI Realtime</option></select><button class="voice-orb" data-state="idle">Start voice</button>',
+  );
+  await selectRealtimeBeforeVoiceConnection(page);
+  await expect(
+    page.getByRole('combobox', { name: 'Voice provider' }),
+  ).toHaveValue('realtime');
+  await page
+    .locator('button.voice-orb')
+    .evaluate((element) => element.setAttribute('data-state', 'connected'));
+  await expect(selectRealtimeBeforeVoiceConnection(page)).rejects.toThrow(
+    'unconnected voice session',
+  );
+});
+
+test('task primer waits for greeting settlement even when the active state label says Listening', async ({
+  page,
+}) => {
+  await page.setContent(
+    '<button class="voice-orb" data-state="listening">Voice on</button><span role="status">Listening</span><button id="skip">Skip greeting</button>',
+  );
+  await page.evaluate(() =>
+    setTimeout(() => {
+      document.getElementById('skip')?.remove();
+      document.body.dataset.greetingSettled = 'yes';
+    }, 150),
+  );
+  await waitForFixedGreetingSettlement(page, 2_000);
+  await expect(page.locator('body')).toHaveAttribute(
+    'data-greeting-settled',
+    'yes',
+  );
+});
+
+test('absence of Skip alone cannot qualify an unsettled task primer', async ({
+  page,
+}) => {
+  await page.setContent(
+    '<button class="voice-orb" data-state="connected">Voice on</button><span role="status">Voice on</span>',
+  );
+  await expect(waitForFixedGreetingSettlement(page, 150)).rejects.toThrow();
 });
 
 test('supports an unambiguous Add Key header opener outside the closed popup', async ({

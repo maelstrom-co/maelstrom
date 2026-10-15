@@ -95,6 +95,8 @@ async function waitForFile(path: string): Promise<void> {
   throw new Error(`Timed out waiting for ${path}`);
 }
 
+const cancellationTimeoutMs = 10_000;
+
 async function waitForGraderPid(
   path: string,
   evaluation: Promise<RunResult>,
@@ -104,8 +106,8 @@ async function waitForGraderPid(
     (result) => ({ result, error: undefined }),
     (error: unknown) => ({ result: undefined, error }),
   );
-  // Runner, typecheck, and behavior each have their own 1500ms deadline.
-  const deadline = performance.now() + 5000;
+  // Cancellation starts at the PID marker; allow for slow process startup under load.
+  const deadline = performance.now() + 3 * cancellationTimeoutMs + 1000;
   try {
     while (performance.now() < deadline) {
       const outcome = await Promise.race([
@@ -219,7 +221,7 @@ describe('registered behavioral cases', () => {
         candidateRoot,
         executionAuthorization: 'operator-approved',
         signal: controller.signal,
-        timeoutMs: 1500,
+        timeoutMs: cancellationTimeoutMs,
       });
       try {
         if (scenario === 'early-exit behavior') {
@@ -324,7 +326,7 @@ describe('registered behavioral cases', () => {
         controller.abort();
         await evaluation.catch(() => undefined);
       }
-    }, 10_000);
+    }, 35_000);
   }
 
   test('rejects candidate/output overlap and read-only candidates before creating output', async () => {

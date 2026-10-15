@@ -136,6 +136,21 @@ for (const mode of [
       await target.__voiceAudioTimeline.dispose();
       return { snapshot, observation };
     });
+    const setup = captured.snapshot.setup;
+    assert.ok(
+      setup &&
+        setup.greetingPreparedFrame !== null &&
+        setup.armedFrame !== null,
+    );
+    assert.ok(
+      setup.greetingPreparedFrame <= setup.armedFrame,
+      'The greeting stream must be connected before recording starts',
+    );
+    assert.equal(
+      setup.preparation.firstCapturedFrame,
+      captured.snapshot.startFrame,
+    );
+    assert.ok(setup.preparation.continuousFrames >= 4_800);
     const input = Buffer.from(captured.snapshot.inputWavBase64, 'base64');
     const assistant = Buffer.from(
       captured.snapshot.assistantWavBase64,
