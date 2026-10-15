@@ -950,7 +950,7 @@ describe('engine.handle — retry on retryHint.recommend', () => {
 // skipReply and needs-clarification
 // ---------------------------------------------------------------------------
 
-describe('engine.handle — skipReply and needs-clarification', () => {
+describe('engine.handle with skipReply and needs-clarification', () => {
   const clarification: NeedsClarification = {
     type: 'needs_clarification',
     question: 'Which order do you mean?',
