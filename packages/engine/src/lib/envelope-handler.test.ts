@@ -455,7 +455,7 @@ describe('handleEnvelope — client.history.get', () => {
 // client.agent.input
 // ---------------------------------------------------------------------------
 
-describe('handleEnvelope — client.agent.input', () => {
+describe('handleEnvelope: client.agent.input', () => {
   test('answers with a correlated engine.error without calling the engine', async () => {
     const sessionId = SessionId('sess-1');
     const messageId = MessageId('agent-1');
