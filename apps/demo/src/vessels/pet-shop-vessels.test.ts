@@ -1,5 +1,6 @@
 import { type ActionParameter, validateVessel } from '@maelstrom-co/protocol';
 import { describe, expect, it } from 'vitest';
+import { SHOP_LAYOUT } from '../lib/default-layout';
 import { CATALOG_SKUS } from '../lib/pet-shop-fixtures';
 import { cartVessel } from './cart.vessel.def';
 import { catalogVessel } from './catalog.vessel.def';
@@ -43,5 +44,17 @@ describe('pet-shop vessel definitions', () => {
     const parameters: readonly ActionParameter[] = addToCart?.parameters ?? [];
     const sku = parameters.find((parameter) => parameter.name === 'sku');
     expect(sku?.enum).toEqual([...CATALOG_SKUS]);
+  });
+
+  it('starts SHOP_LAYOUT with only orders and cart, each in a declared variant', () => {
+    expect(SHOP_LAYOUT.instances.map((i) => i.vesselId).sort()).toEqual([
+      'cart',
+      'orders',
+    ]);
+    for (const instance of SHOP_LAYOUT.instances) {
+      const vessel =
+        SHOP_VESSELS[instance.vesselId as keyof typeof SHOP_VESSELS];
+      expect(Object.keys(vessel.variants)).toContain(instance.variant);
+    }
   });
 });
