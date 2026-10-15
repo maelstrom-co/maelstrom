@@ -8,7 +8,9 @@ import type { Mutable } from './_drift-guards.ts';
  *
  * Only valid when the chart request set `skipReply: true`. A caller that
  * leaves `skipReply` unset expects a reply-bearing response, so the Engine
- * rejects this result on that path.
+ * rejects this result on that path. Engine validation accepts it when the
+ * flag is set, but `Engine.handle` currently refuses it even then with
+ * `Err(ValidationError)` on field `skipReply`.
  */
 export interface NeedsClarification {
   /** Discriminant that tells this result apart from a layout candidate. */

@@ -21,8 +21,7 @@ export type JsonValue =
  * carry, at any depth: an object property holding `undefined` or a function
  * fails the parse instead of being dropped on serialization.
  *
- * The parsed value is a fresh, mutable copy, the same way every other
- * protocol schema infers mutable output; it is assignable to
+ * The parsed value is a fresh, mutable copy that is assignable to
  * {@link JsonValue}.
  */
 export const JsonValueSchema: z.ZodType<Mutable<JsonValue>> = z.lazy(() =>

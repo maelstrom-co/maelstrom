@@ -15,7 +15,9 @@ import type {
 /**
  * The raw plan a planner produces: the structured output shape for the
  * request's layout mode, before the Engine heals and validates it. A grid
- * request expects a `GridResponse`; a tiling request a `TilingResponse`.
+ * request expects a `GridResponseWithoutReply`; a tiling request a
+ * `TilingResponseWithoutReply`. Both are the reply-bearing shapes with an
+ * optional `userMessage`.
  *
  * `userMessage` is optional in the type because a request that set
  * `skipReply: true` may omit it. Without that flag the Engine still rejects
@@ -32,8 +34,9 @@ export type PlannerCandidate =
 /**
  * Everything a planner may return: a {@link PlannerCandidate}, or a
  * {@link NeedsClarification} when it cannot proceed without asking the user.
- * The Engine accepts a needs-clarification result only for a request that
- * set `skipReply: true`.
+ * Validation accepts a needs-clarification result only for a request that
+ * set `skipReply: true`, and `Engine.handle` currently refuses it even then
+ * with `Err(ValidationError)` on field `skipReply`.
  */
 export type PlannerOutput = PlannerCandidate | NeedsClarification;
 
@@ -71,7 +74,9 @@ export interface EngineDiagnostics {
 export type ValidatedCandidate = Omit<MaelstromResponse, 'userMessage'> & {
   /**
    * The reply to the user. Always present unless the request set
-   * `skipReply: true`, in which case the planner may have omitted it.
+   * `skipReply: true`, in which case the planner may have omitted it. A blank
+   * reply under `skipReply: true` is dropped, so a present value is never
+   * blank.
    */
   readonly userMessage?: string;
   /** What healing changed, and whether a retry is recommended. */
@@ -107,8 +112,8 @@ export type FullValidatedPlannerOutput =
 
 /**
  * Whether a planner output is a needs-clarification result rather than a
- * layout candidate. Layout candidates carry no `type` field, so the
- * discriminant alone decides.
+ * layout candidate. Layout candidates carry no `type` field. The guard checks
+ * only the `type` discriminant and does not validate `question` or `options`.
  */
 export function isNeedsClarification(
   output: unknown,

@@ -147,8 +147,9 @@ export interface ChartRequest {
    * When `true`, the caller writes the user-facing reply itself, so the
    * Planner may omit `userMessage` or return a {@link NeedsClarification}
    * instead of a layout. Absent means `false`: the response carries a
-   * `userMessage`. Set by a caller that owns the conversation, such as an
-   * agent loop; clients rendering the reply leave it unset.
+   * `userMessage`. Clients rendering the reply leave it unset. `Engine.handle`
+   * does not yet ship replyless outcomes: it refuses them with a
+   * `ValidationError` on field `skipReply`.
    */
   readonly skipReply?: boolean;
   /**
@@ -156,7 +157,6 @@ export interface ChartRequest {
    * example values read from tool results, keyed by a name the Planner can
    * reason about. They are inputs to planning, not instructions: the Planner
    * still chooses the Actions and their parameters. Absent means no facts.
-   * Set by the same caller that sets {@link ChartRequest.skipReply}.
    */
   readonly intentFacts?: Readonly<Record<string, JsonValue>>;
 }

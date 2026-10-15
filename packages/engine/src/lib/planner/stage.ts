@@ -129,9 +129,10 @@ export type Planner = Stage<PlanningInput, PlannerCandidate>;
 
 /**
  * A {@link Planner} that may also answer with a needs-clarification result
- * instead of a candidate. Every `Planner` is a `ClarifyingPlanner`. The
- * Engine accepts the clarification only for a request that set
- * `skipReply: true`.
+ * instead of a candidate. Every `Planner` is a `ClarifyingPlanner`.
+ * Validation accepts the clarification only for a request that set
+ * `skipReply: true`, and `Engine.handle` currently refuses it even then with
+ * `Err(ValidationError)` on field `skipReply`.
  */
 export type ClarifyingPlanner = Stage<PlanningInput, PlannerOutput>;
 

@@ -13,8 +13,9 @@ export interface EngineConfig {
    * planner implementation as is, or compose stages with `pipeline` and
    * `withFallback`. The Engine heals and
    * validates whatever the planner returns against the request the client
-   * sent. A needs-clarification result is accepted only for a request that
-   * set `skipReply: true`.
+   * sent. Validation accepts a needs-clarification result only for a request
+   * that set `skipReply: true`, and `Engine.handle` currently refuses it even
+   * then with `Err(ValidationError)` on field `skipReply`.
    */
   readonly planner: ClarifyingPlanner;
   /** Optional logger (defaults to consoleLogger). Stages receive it as `StageContext.logger`. */
