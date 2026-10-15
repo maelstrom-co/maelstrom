@@ -4,6 +4,7 @@ import { act, cleanup, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FakeRealtimeSession } from '../lib/__tests__/fake-realtime-session';
 import { createMockConnector } from '../lib/__tests__/mock-connector';
+import { DemoMaelstromProvider } from '../lib/demo-maelstrom-context';
 import { selectVoiceProvider } from '../lib/voice-provider';
 
 // Keeps RealtimeVoiceError real (VoiceErrorNote's `instanceof` check must
@@ -56,9 +57,11 @@ afterEach(() => {
 function renderNote() {
   const connector = createMockConnector();
   const utils = render(
-    <m.Provider connector={connector}>
-      <VoiceErrorNote />
-    </m.Provider>,
+    <DemoMaelstromProvider maelstrom={m}>
+      <m.Provider connector={connector}>
+        <VoiceErrorNote />
+      </m.Provider>
+    </DemoMaelstromProvider>,
   );
   return { ...utils, session: must(FakeRealtimeSession.instances[0]) };
 }

@@ -1,6 +1,6 @@
 import { RealtimeVoiceError } from '@maelstrom-co/realtime';
+import { useDemoMaelstrom } from '../lib/demo-maelstrom-context';
 import { usesBrowserOpenAIVoice } from '../lib/hosted-mode';
-import { m } from '../lib/maelstrom';
 import { getVoiceErrorMessage } from './voice-error-copy';
 
 /**
@@ -10,7 +10,7 @@ import { getVoiceErrorMessage } from './voice-error-copy';
  * check server config, or just retry; disappears once state leaves `error`.
  */
 export function VoiceErrorNote() {
-  const { state, error, provider } = m.useVoice();
+  const { state, error, provider } = useDemoMaelstrom().useVoice();
 
   if (state !== 'error' || provider === 'live') return null;
 

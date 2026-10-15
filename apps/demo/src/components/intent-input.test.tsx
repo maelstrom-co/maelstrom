@@ -15,21 +15,25 @@ import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import { StrictMode, useState } from 'react';
 import { afterEach, expect, it, vi } from 'vitest';
 import {
+  type DemoMaelstrom,
+  DemoMaelstromProvider,
+} from '../lib/demo-maelstrom-context';
+import {
   clearPlaygroundKey,
   setPlaygroundKey,
 } from '../lib/playground-key-store';
+
+const INTENT_EXAMPLES = ['Plan my afternoon', 'Hide the weather'];
 
 let voiceState = 'idle';
 const m = createMaelstrom({ vessels: [] }).with((context) => ({
   useContext: context.useMaelstromContext,
 }));
-vi.doMock('../lib/maelstrom', () => ({
-  m: {
-    ...m,
-    useVoice: () => ({ state: voiceState }),
-    VoiceOrb: () => <button type="button">Voice</button>,
-  },
-}));
+const demoMaelstrom = {
+  ...m,
+  useVoice: () => ({ state: voiceState }),
+  VoiceOrb: () => <button type="button">Voice</button>,
+} as unknown as DemoMaelstrom;
 vi.doMock('../lib/hosted-mode', () => ({ usesBrowserKey: () => true }));
 vi.doMock('./voice-control', () => ({ VoiceControl: () => null }));
 vi.doMock('./voice-error-note', () => ({ VoiceErrorNote: () => null }));
@@ -87,14 +91,17 @@ async function setup(
         onBlockedSubmit={onBlockedSubmit}
         resumeIntent={resume}
         onResumeIntentHandled={onResumeIntentHandled}
+        examples={INTENT_EXAMPLES}
       />
     );
   }
   let view!: ReturnType<typeof render>;
   const tree = (key: string) => (
-    <m.Provider key={key} connector={connector} intentQueue={policy}>
-      <Composer />
-    </m.Provider>
+    <DemoMaelstromProvider maelstrom={demoMaelstrom}>
+      <m.Provider key={key} connector={connector} intentQueue={policy}>
+        <Composer />
+      </m.Provider>
+    </DemoMaelstromProvider>
   );
   await act(async () => {
     view = render(
@@ -133,6 +140,15 @@ async function setup(
     tree,
   };
 }
+
+it('offers the configured examples as intent suggestions', async () => {
+  const h = await setup();
+  const suggestions = Array.from(
+    h.view.container.querySelectorAll('#demo-intent-examples option'),
+    (option) => option.getAttribute('value'),
+  );
+  expect(suggestions).toEqual(INTENT_EXAMPLES);
+});
 
 it('keeps typing and Send usable during a 3s resize; shows FIFO queued, processing and applied without erasing new drafts', async () => {
   vi.useFakeTimers();

@@ -7,6 +7,7 @@ import {
   FakeRealtimeSession,
 } from '../lib/__tests__/fake-realtime-session';
 import { createMockConnector } from '../lib/__tests__/mock-connector';
+import { DemoMaelstromProvider } from '../lib/demo-maelstrom-context';
 import { selectVoiceProvider } from '../lib/voice-provider';
 
 vi.mock('@maelstrom-co/realtime', async (importOriginal) => ({
@@ -50,9 +51,11 @@ afterEach(() => {
 function renderCaptions() {
   const connector = createMockConnector();
   const utils = render(
-    <m.Provider connector={connector}>
-      <Captions />
-    </m.Provider>,
+    <DemoMaelstromProvider maelstrom={m}>
+      <m.Provider connector={connector}>
+        <Captions />
+      </m.Provider>
+    </DemoMaelstromProvider>,
   );
   return { ...utils, session: must(FakeRealtimeSession.instances[0]) };
 }

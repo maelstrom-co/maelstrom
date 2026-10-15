@@ -1,8 +1,10 @@
 // @vitest-environment happy-dom
 
 import { cleanup, render } from '@testing-library/react';
+import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createMockConnector } from '../lib/__tests__/mock-connector';
+import { DemoMaelstromProvider } from '../lib/demo-maelstrom-context';
 import {
   FIRST_RUN_EXAMPLES,
   FirstRunHint,
@@ -42,17 +44,33 @@ describe('FIRST_RUN_EXAMPLES', () => {
 });
 
 describe('FirstRunHint', () => {
-  it('renders the spoken-style examples on an empty, idle chart', () => {
+  function renderHint(hint: ReactNode) {
     const connector = createMockConnector();
-    const { getByTestId } = render(
-      <m.Provider connector={connector}>
-        <FirstRunHint />
-      </m.Provider>,
+    return render(
+      <DemoMaelstromProvider maelstrom={m}>
+        <m.Provider connector={connector}>{hint}</m.Provider>
+      </DemoMaelstromProvider>,
     );
+  }
+
+  it('renders the spoken-style examples on an empty, idle chart', () => {
+    const { getByTestId } = renderHint(<FirstRunHint />);
 
     const hint = getByTestId('first-run-hint');
     for (const example of FIRST_RUN_EXAMPLES) {
       expect(hint.textContent).toContain(example);
+    }
+  });
+
+  it('renders the examples it is given in place of the home examples', () => {
+    const { getByTestId } = renderHint(
+      <FirstRunHint examples={['Plan my afternoon']} />,
+    );
+
+    const hint = getByTestId('first-run-hint');
+    expect(hint.textContent).toContain('Plan my afternoon');
+    for (const example of FIRST_RUN_EXAMPLES) {
+      expect(hint.textContent).not.toContain(example);
     }
   });
 });

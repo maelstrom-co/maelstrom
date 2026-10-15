@@ -9,9 +9,9 @@ import {
   useRef,
   useState,
 } from 'react';
+import { useDemoMaelstrom } from '../lib/demo-maelstrom-context';
 import { demoVoiceSession } from '../lib/demo-voice';
 import { liveErrorMessage } from '../lib/live-exchange';
-import { m } from '../lib/maelstrom';
 import { getVoiceErrorStatusLabel } from './voice-error-copy';
 
 const STATE_LABEL: Record<VoiceSessionState, string> = {
@@ -57,6 +57,7 @@ interface VoiceControlProps {
  * precedence over the preparation label.
  */
 export function VoiceControl({ showOrb = true }: VoiceControlProps = {}) {
+  const maelstrom = useDemoMaelstrom();
   const {
     greetingState,
     state,
@@ -70,8 +71,8 @@ export function VoiceControl({ showOrb = true }: VoiceControlProps = {}) {
     connect,
     disconnect,
     switching,
-  } = m.useVoice();
-  const { snapshot } = m.useVoiceObservations();
+  } = maelstrom.useVoice();
+  const { snapshot } = maelstrom.useVoiceObservations();
   const isConnected = CONNECTED_STATES.has(state);
   const isPreparing =
     greetingState === 'preparing' && state !== 'idle' && state !== 'error';
@@ -142,7 +143,7 @@ export function VoiceControl({ showOrb = true }: VoiceControlProps = {}) {
 
   return (
     <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
-      {showOrb && <m.VoiceOrb size={20} />}
+      {showOrb && <maelstrom.VoiceOrb size={20} />}
       <div
         aria-live="polite"
         className={`flex min-w-0 items-center gap-2 text-xs font-medium ${

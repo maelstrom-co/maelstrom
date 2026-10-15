@@ -5,12 +5,11 @@ import {
 } from '@maelstrom-co/client';
 import { useStore } from '@tanstack/react-store';
 import { useEffect, useRef, useState } from 'react';
+import { useDemoMaelstrom } from '../lib/demo-maelstrom-context';
 import { usesBrowserKey } from '../lib/hosted-mode';
-import { m } from '../lib/maelstrom';
 import { playgroundKeyStore } from '../lib/playground-key-store';
 import { AssistantResponse } from './assistant-response';
 import { Captions } from './captions';
-import { FIRST_RUN_EXAMPLES } from './first-run-hint';
 import { VoiceControl } from './voice-control';
 import { VoiceErrorNote } from './voice-error-note';
 
@@ -34,6 +33,7 @@ interface IntentInputProps {
   readonly onIntentChange: (intent: string) => void;
   readonly resumeIntent: boolean;
   readonly onResumeIntentHandled: () => void;
+  readonly examples: readonly string[];
 }
 
 export function IntentInput({
@@ -43,9 +43,11 @@ export function IntentInput({
   onIntentChange,
   resumeIntent,
   onResumeIntentHandled,
+  examples,
 }: IntentInputProps) {
-  const { enqueueIntent, connectionStatus } = m.useMaelstrom();
-  const { state: voiceState } = m.useVoice();
+  const maelstrom = useDemoMaelstrom();
+  const { enqueueIntent, connectionStatus } = maelstrom.useMaelstrom();
+  const { state: voiceState } = maelstrom.useVoice();
   const voiceActive = voiceState !== 'idle' && voiceState !== 'error';
   const browserKeyMode = usesBrowserKey();
   const apiKey = useStore(playgroundKeyStore, (state) => state.apiKey);
@@ -181,7 +183,7 @@ export function IntentInput({
       <form onSubmit={handleSubmit} className="max-w-4xl mx-auto">
         <div className="intent-row flex items-center gap-2">
           <div onClickCapture={handleOrbClickCapture} className="mr-1 shrink-0">
-            <m.VoiceOrb size={44} className="voice-orb" />
+            <maelstrom.VoiceOrb size={44} className="voice-orb" />
           </div>
           <input
             id="demo-intent"
@@ -203,7 +205,7 @@ export function IntentInput({
         </div>
 
         <datalist id="demo-intent-examples">
-          {FIRST_RUN_EXAMPLES.map((suggestion) => (
+          {examples.map((suggestion) => (
             <option key={suggestion} value={suggestion} />
           ))}
         </datalist>

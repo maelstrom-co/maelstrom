@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createDemoConnector } from '../lib/connector';
 import { isDebugRequested } from '../lib/debug-mode';
 import { DEFAULT_LAYOUT, NARROW_LAYOUT } from '../lib/default-layout';
+import { DemoMaelstromProvider } from '../lib/demo-maelstrom-context';
 import { STATUS_COLORS } from '../lib/design-tokens';
 import { diagnosticCapture } from '../lib/diagnostic-capture';
 import {
@@ -22,7 +23,7 @@ import {
 import { useFlashInstances } from '../lib/use-touched-instances';
 import { voiceProviderStore } from '../lib/voice-provider';
 import { DemoHeader } from './demo-header';
-import { FirstRunHint } from './first-run-hint';
+import { FIRST_RUN_EXAMPLES, FirstRunHint } from './first-run-hint';
 import { IntentInput } from './intent-input';
 import { KeyDrawer } from './key-drawer';
 import { KeylessDemo } from './keyless-demo';
@@ -121,87 +122,89 @@ export function HomePage() {
   const debug = useMemo(() => isDebugRequested(), []);
 
   return (
-    <div ref={layoutHostRef} className="demo-layout-host">
-      {connector && layoutHostWidth !== null ? (
-        <m.Provider
-          key={keyEpoch}
-          sessionId={sessionId}
-          connector={connector}
-          initialLayout={initialLayout}
-          debug={debug}
-        >
-          <VesselOptionSync />
-          <DemoApp
+    <DemoMaelstromProvider maelstrom={m}>
+      <div ref={layoutHostRef} className="demo-layout-host">
+        {connector && layoutHostWidth !== null ? (
+          <m.Provider
+            key={keyEpoch}
+            sessionId={sessionId}
+            connector={connector}
+            initialLayout={initialLayout}
+            debug={debug}
+          >
+            <VesselOptionSync />
+            <DemoApp
+              onRequireKey={() => setDrawerOpen(true)}
+              onBlockedSubmit={() => {
+                setBlockedSubmit(true);
+                setDrawerOpen(true);
+              }}
+              onMintError={handleMintError}
+              intent={intent}
+              onIntentChange={setIntent}
+              resumeIntent={resumeIntent}
+              onResumeIntentHandled={() => setResumeIntent(false)}
+              autoStartVoice={autoStartVoice}
+              onAutoStartVoiceHandled={() => setAutoStartVoice(false)}
+            />
+          </m.Provider>
+        ) : connector ? null : (
+          <KeylessDemo
+            intent={intent}
+            onIntentChange={setIntent}
             onRequireKey={() => setDrawerOpen(true)}
             onBlockedSubmit={() => {
               setBlockedSubmit(true);
               setDrawerOpen(true);
             }}
-            onMintError={handleMintError}
-            intent={intent}
-            onIntentChange={setIntent}
-            resumeIntent={resumeIntent}
-            onResumeIntentHandled={() => setResumeIntent(false)}
-            autoStartVoice={autoStartVoice}
-            onAutoStartVoiceHandled={() => setAutoStartVoice(false)}
           />
-        </m.Provider>
-      ) : connector ? null : (
-        <KeylessDemo
-          intent={intent}
-          onIntentChange={setIntent}
-          onRequireKey={() => setDrawerOpen(true)}
-          onBlockedSubmit={() => {
-            setBlockedSubmit(true);
-            setDrawerOpen(true);
-          }}
-        />
-      )}
-      <m.Devtools />
-      {browserKeyMode && (
-        <KeyDrawer
-          isOpen={drawerOpen}
-          onClose={() => {
-            setDrawerOpen(false);
-            setKeyErrorMessage(null);
-            setBlockedSubmit(false);
-          }}
-          onSave={(key) => {
-            // Re-entering (or merely viewing) the same key from the header
-            // pill must not remount <m.Provider> mid-session — that would
-            // mint a fresh sessionId and drop everything the LLM has
-            // arranged so far. Only a genuine key change earns the reset.
-            const keyChanged = key !== playgroundKeyStore.state.apiKey;
-            const firstKey = playgroundKeyStore.state.apiKey === null;
-            if (keyChanged) diagnosticCapture.stop();
-            setPlaygroundKey(key);
-            setDrawerOpen(false);
-            setKeyErrorMessage(null);
-            if (!keyChanged) {
+        )}
+        <m.Devtools />
+        {browserKeyMode && (
+          <KeyDrawer
+            isOpen={drawerOpen}
+            onClose={() => {
+              setDrawerOpen(false);
+              setKeyErrorMessage(null);
               setBlockedSubmit(false);
-              return;
-            }
-            setResumeIntent(blockedSubmit && intent.trim().length > 0);
-            setAutoStartVoice(
-              firstKey &&
-                (voiceProviderStore.state.provider === 'live' ||
-                  prepareBrowserOpenAIVoice()),
-            );
-            setBlockedSubmit(false);
-            setKeyEpoch((e) => e + 1);
-          }}
-          onRemove={() => {
-            diagnosticCapture.stop();
-            clearPlaygroundKey();
-            setDrawerOpen(false);
-            setKeyErrorMessage(null);
-            setBlockedSubmit(false);
-            setKeyEpoch((e) => e + 1);
-          }}
-          errorMessage={keyErrorMessage}
-        />
-      )}
-    </div>
+            }}
+            onSave={(key) => {
+              // Re-entering (or merely viewing) the same key from the header
+              // pill must not remount <m.Provider> mid-session — that would
+              // mint a fresh sessionId and drop everything the LLM has
+              // arranged so far. Only a genuine key change earns the reset.
+              const keyChanged = key !== playgroundKeyStore.state.apiKey;
+              const firstKey = playgroundKeyStore.state.apiKey === null;
+              if (keyChanged) diagnosticCapture.stop();
+              setPlaygroundKey(key);
+              setDrawerOpen(false);
+              setKeyErrorMessage(null);
+              if (!keyChanged) {
+                setBlockedSubmit(false);
+                return;
+              }
+              setResumeIntent(blockedSubmit && intent.trim().length > 0);
+              setAutoStartVoice(
+                firstKey &&
+                  (voiceProviderStore.state.provider === 'live' ||
+                    prepareBrowserOpenAIVoice()),
+              );
+              setBlockedSubmit(false);
+              setKeyEpoch((e) => e + 1);
+            }}
+            onRemove={() => {
+              diagnosticCapture.stop();
+              clearPlaygroundKey();
+              setDrawerOpen(false);
+              setKeyErrorMessage(null);
+              setBlockedSubmit(false);
+              setKeyEpoch((e) => e + 1);
+            }}
+            errorMessage={keyErrorMessage}
+          />
+        )}
+      </div>
+    </DemoMaelstromProvider>
   );
 }
 
@@ -300,6 +303,7 @@ function DemoApp({
         onIntentChange={onIntentChange}
         resumeIntent={resumeIntent}
         onResumeIntentHandled={onResumeIntentHandled}
+        examples={FIRST_RUN_EXAMPLES}
       />
     </div>
   );

@@ -1,7 +1,7 @@
 import { useStore } from '@tanstack/react-store';
 import { useEffect, useState } from 'react';
+import { useDemoMaelstrom } from '../lib/demo-maelstrom-context';
 import { isHosted } from '../lib/hosted-mode';
-import { m } from '../lib/maelstrom';
 import {
   type DemoVoiceProvider,
   selectVoiceProvider,
@@ -45,7 +45,7 @@ export function KeylessVoiceProviderSelect() {
 }
 
 export function VoiceProviderSelect() {
-  const { provider, switching, switchProvider } = m.useVoice();
+  const { provider, switching, switchProvider } = useDemoMaelstrom().useVoice();
   const [switchFailed, setSwitchFailed] = useState(false);
   // The keyless page and key-save remounts start from the stored choice.
   useEffect(() => selectVoiceProvider(provider), [provider]);

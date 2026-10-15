@@ -14,23 +14,37 @@ import {
   render,
   within,
 } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { ReactElement, ReactNode } from 'react';
+import { afterEach, describe, expect, it } from 'vitest';
 import { EMPTY_VOICE_OBSERVATIONS } from '../lib/__tests__/fake-realtime-session';
+import {
+  type DemoMaelstrom,
+  DemoMaelstromProvider,
+} from '../lib/demo-maelstrom-context';
+import { VoiceControl } from './voice-control';
 
-// voice-control.tsx only touches `m.useVoice` and `m.VoiceOrb` — faking the
-// module boundary here isolates these tests from the real Provider/session
+// voice-control.tsx only touches the instance's voice hooks and `VoiceOrb` —
+// faking the instance here isolates these tests from the real Provider/session
 // wiring already covered by react-realtime's own test suite.
 let voiceResult: UseVoiceResult;
 
-vi.doMock('../lib/maelstrom', () => ({
-  m: {
-    useVoice: () => voiceResult,
-    useVoiceObservations: () => ({ snapshot: EMPTY_VOICE_OBSERVATIONS }),
-    VoiceOrb: () => <span data-testid="voice-orb" />,
-  },
-}));
+const demoMaelstrom = {
+  useVoice: () => voiceResult,
+  useVoiceObservations: () => ({ snapshot: EMPTY_VOICE_OBSERVATIONS }),
+  VoiceOrb: () => <span data-testid="voice-orb" />,
+} as unknown as DemoMaelstrom;
 
-const { VoiceControl } = await import('./voice-control');
+function DemoMaelstromWrapper({ children }: { children: ReactNode }) {
+  return (
+    <DemoMaelstromProvider maelstrom={demoMaelstrom}>
+      {children}
+    </DemoMaelstromProvider>
+  );
+}
+
+function renderVoiceControl(ui: ReactElement) {
+  return render(ui, { wrapper: DemoMaelstromWrapper });
+}
 
 function makeTurnControl(onEnd?: () => void): AdapterTurnControl & {
   startCalls: number;
@@ -106,7 +120,9 @@ describe('VoiceControl greeting Skip action', () => {
         skips += 1;
       },
     );
-    const { getAllByRole, queryAllByRole, rerender } = render(<VoiceControl />);
+    const { getAllByRole, queryAllByRole, rerender } = renderVoiceControl(
+      <VoiceControl />,
+    );
     const button = getAllByRole('button', {
       name: 'Skip greeting',
     })[0]! as HTMLButtonElement;
@@ -139,7 +155,7 @@ describe('VoiceControl greeting Skip action', () => {
         skips += 1;
       },
     );
-    const { getByRole } = render(<VoiceControl />);
+    const { getByRole } = renderVoiceControl(<VoiceControl />);
     const button = getByRole('button', {
       name: 'Skip greeting',
     }) as HTMLButtonElement;
@@ -167,9 +183,8 @@ describe('VoiceControl greeting Skip action', () => {
       undefined,
       'preparing',
     );
-    const { getByRole, getByText, getAllByRole, container } = render(
-      <VoiceControl />,
-    );
+    const { getByRole, getByText, getAllByRole, container } =
+      renderVoiceControl(<VoiceControl />);
     const button = getByRole('button', {
       name: 'Skip greeting',
     }) as HTMLButtonElement;
@@ -194,7 +209,7 @@ describe('VoiceControl greeting Skip action', () => {
       undefined,
       'preparing',
     );
-    const { queryByRole } = render(<VoiceControl />);
+    const { queryByRole } = renderVoiceControl(<VoiceControl />);
     expect(queryByRole('button', { name: 'Skip greeting' })).toBeNull();
   });
 
@@ -213,7 +228,7 @@ describe('VoiceControl greeting Skip action', () => {
         undefined,
         'skipped',
       );
-      const { container, unmount } = render(<VoiceControl />);
+      const { container, unmount } = renderVoiceControl(<VoiceControl />);
       expect(container.textContent).toContain(label);
       unmount();
     }
@@ -238,7 +253,7 @@ describe('VoiceControl greeting Skip action', () => {
       error,
     };
 
-    const { getByRole, container } = render(<VoiceControl />);
+    const { getByRole, container } = renderVoiceControl(<VoiceControl />);
 
     expect(getByRole('status').textContent).toContain(expected);
     expect(container.textContent).not.toContain(
@@ -259,7 +274,9 @@ describe('VoiceControl hold-to-talk button', () => {
       undefined,
       'preparing',
     );
-    const { getAllByRole, getByRole, queryByRole } = render(<VoiceControl />);
+    const { getAllByRole, getByRole, queryByRole } = renderVoiceControl(
+      <VoiceControl />,
+    );
 
     expect(getAllByRole('status')).toHaveLength(1);
     expect(getByRole('status').textContent).toContain(label);
@@ -278,7 +295,9 @@ describe('VoiceControl hold-to-talk button', () => {
       undefined,
       'preparing',
     );
-    const { getAllByRole, getByRole, queryByRole } = render(<VoiceControl />);
+    const { getAllByRole, getByRole, queryByRole } = renderVoiceControl(
+      <VoiceControl />,
+    );
 
     expect(getAllByRole('status')).toHaveLength(1);
     expect(getByRole('status').textContent).toContain(label);
@@ -294,7 +313,7 @@ describe('VoiceControl hold-to-talk button', () => {
         undefined,
         'preparing',
       );
-      const { container, unmount } = render(<VoiceControl />);
+      const { container, unmount } = renderVoiceControl(<VoiceControl />);
       expect(container.textContent).toContain(
         state === 'error' ? 'Voice error' : 'Voice off',
       );
@@ -317,7 +336,7 @@ describe('VoiceControl hold-to-talk button', () => {
         undefined,
         'settled',
       );
-      const { container, unmount } = render(<VoiceControl />);
+      const { container, unmount } = renderVoiceControl(<VoiceControl />);
       expect(container.textContent).toContain(label);
       unmount();
     }
@@ -332,9 +351,8 @@ describe('VoiceControl hold-to-talk button', () => {
       new Error('VAD unavailable'),
       'preparing',
     );
-    const { getAllByRole, getByRole, queryByRole, container } = render(
-      <VoiceControl />,
-    );
+    const { getAllByRole, getByRole, queryByRole, container } =
+      renderVoiceControl(<VoiceControl />);
 
     expect(getAllByRole('status')).toHaveLength(1);
     expect(getByRole('status').textContent).toContain('Preparing greeting…');
@@ -349,7 +367,7 @@ describe('VoiceControl hold-to-talk button', () => {
   it('renders the inline orb by default', () => {
     voiceResult = makeVoiceResult('connected', undefined, 'automatic');
 
-    const { getByTestId } = render(<VoiceControl />);
+    const { getByTestId } = renderVoiceControl(<VoiceControl />);
 
     expect(getByTestId('voice-orb')).toBeDefined();
   });
@@ -357,7 +375,9 @@ describe('VoiceControl hold-to-talk button', () => {
   it('can hide the inline orb when the shell already renders one', () => {
     voiceResult = makeVoiceResult('connected', undefined, 'automatic');
 
-    const { queryByTestId } = render(<VoiceControl showOrb={false} />);
+    const { queryByTestId } = renderVoiceControl(
+      <VoiceControl showOrb={false} />,
+    );
 
     expect(queryByTestId('voice-orb')).toBeNull();
   });
@@ -366,7 +386,7 @@ describe('VoiceControl hold-to-talk button', () => {
     const turnControl = makeTurnControl();
     voiceResult = makeVoiceResult('connected', turnControl);
 
-    const { container } = render(<VoiceControl />);
+    const { container } = renderVoiceControl(<VoiceControl />);
     const button = getHoldButton(container);
     expect(button.tagName).toBe('BUTTON');
 
@@ -388,7 +408,7 @@ describe('VoiceControl hold-to-talk button', () => {
     // pointer leaves the button.
     voiceResult = makeVoiceResult('connected', turnControl);
 
-    const { container } = render(<VoiceControl />);
+    const { container } = renderVoiceControl(<VoiceControl />);
     const button = getHoldButton(container);
 
     await act(async () => {
@@ -407,7 +427,7 @@ describe('VoiceControl hold-to-talk button', () => {
     const turnControl = makeTurnControl();
     voiceResult = makeVoiceResult('connected', turnControl);
 
-    const { container } = render(<VoiceControl />);
+    const { container } = renderVoiceControl(<VoiceControl />);
     const button = getHoldButton(container);
 
     await act(async () => {
@@ -424,7 +444,7 @@ describe('VoiceControl hold-to-talk button', () => {
     const turnControl = makeTurnControl();
     voiceResult = makeVoiceResult('connected', turnControl);
 
-    const { container } = render(<VoiceControl />);
+    const { container } = renderVoiceControl(<VoiceControl />);
     const button = getHoldButton(container);
 
     await act(async () => {
@@ -441,7 +461,7 @@ describe('VoiceControl hold-to-talk button', () => {
     const turnControl = makeTurnControl();
     voiceResult = makeVoiceResult('connected', turnControl);
 
-    const { container } = render(<VoiceControl />);
+    const { container } = renderVoiceControl(<VoiceControl />);
     const button = getHoldButton(container);
 
     await act(async () => {
@@ -461,7 +481,7 @@ describe('VoiceControl hold-to-talk button', () => {
     const turnControl = makeTurnControl();
     voiceResult = makeVoiceResult('connected', turnControl);
 
-    const { container } = render(<VoiceControl />);
+    const { container } = renderVoiceControl(<VoiceControl />);
     const button = getHoldButton(container);
     let capturedId: number | undefined;
     button.setPointerCapture = (pointerId: number) => {
@@ -479,7 +499,7 @@ describe('VoiceControl hold-to-talk button', () => {
     const turnControl = makeTurnControl();
     voiceResult = makeVoiceResult('connected', turnControl);
 
-    const { container } = render(<VoiceControl />);
+    const { container } = renderVoiceControl(<VoiceControl />);
     const button = getHoldButton(container);
 
     await act(async () => {
@@ -497,7 +517,7 @@ describe('VoiceControl hold-to-talk button', () => {
     const turnControl = makeTurnControl();
     voiceResult = makeVoiceResult('connected', turnControl);
 
-    const { container } = render(<VoiceControl />);
+    const { container } = renderVoiceControl(<VoiceControl />);
     const button = getHoldButton(container);
 
     await act(async () => {
@@ -515,7 +535,7 @@ describe('VoiceControl hold-to-talk button', () => {
     const turnControl = makeTurnControl();
     voiceResult = makeVoiceResult('connected', turnControl);
 
-    const { container } = render(<VoiceControl />);
+    const { container } = renderVoiceControl(<VoiceControl />);
     const button = getHoldButton(container);
 
     await act(async () => {
@@ -535,7 +555,7 @@ describe('VoiceControl hold-to-talk button', () => {
     const turnControl = makeTurnControl();
     voiceResult = makeVoiceResult('connected', turnControl);
 
-    const { container } = render(<VoiceControl />);
+    const { container } = renderVoiceControl(<VoiceControl />);
     const button = getHoldButton(container);
 
     await act(async () => {
@@ -553,7 +573,7 @@ describe('VoiceControl hold-to-talk button', () => {
     const turnControl = makeTurnControl();
     voiceResult = makeVoiceResult('connected', turnControl);
 
-    const { container } = render(<VoiceControl />);
+    const { container } = renderVoiceControl(<VoiceControl />);
     const button = getHoldButton(container);
 
     await act(async () => {
@@ -578,7 +598,7 @@ describe('VoiceControl hold-to-talk button', () => {
     const turnControl = makeTurnControl();
     voiceResult = makeVoiceResult('connected', turnControl);
 
-    const { container, rerender } = render(<VoiceControl />);
+    const { container, rerender } = renderVoiceControl(<VoiceControl />);
     const button = getHoldButton(container);
 
     await act(async () => {
@@ -619,7 +639,7 @@ describe('VoiceControl hold-to-talk button', () => {
     });
     voiceResult = makeVoiceResult('connected', turnControl);
 
-    const { container, rerender } = render(<VoiceControl />);
+    const { container, rerender } = renderVoiceControl(<VoiceControl />);
     renderedContainer = container;
     const button = getHoldButton(container);
 
@@ -658,7 +678,7 @@ describe('VoiceControl hold-to-talk button', () => {
     });
     voiceResult = makeVoiceResult('connected', turnControl);
 
-    const { container, rerender } = render(<VoiceControl />);
+    const { container, rerender } = renderVoiceControl(<VoiceControl />);
     renderedContainer = container;
     const button = getHoldButton(container);
 
@@ -688,7 +708,7 @@ describe('VoiceControl hold-to-talk button', () => {
     const turnControl = makeTurnControl();
     voiceResult = makeVoiceResult('connected', turnControl);
 
-    const { container, unmount } = render(<VoiceControl />);
+    const { container, unmount } = renderVoiceControl(<VoiceControl />);
     const button = getHoldButton(container);
 
     await act(async () => {
@@ -710,7 +730,7 @@ describe('VoiceControl hold-to-talk button', () => {
     const turnControl = makeTurnControl();
     voiceResult = makeVoiceResult('connected', turnControl);
 
-    const { container, unmount } = render(<VoiceControl />);
+    const { container, unmount } = renderVoiceControl(<VoiceControl />);
     const button = getHoldButton(container);
 
     await act(async () => {
@@ -732,7 +752,7 @@ describe('VoiceControl hold-to-talk button', () => {
     const turnControl = makeTurnControl();
     voiceResult = makeVoiceResult('connected', turnControl);
 
-    const { rerender } = render(<VoiceControl />);
+    const { rerender } = renderVoiceControl(<VoiceControl />);
 
     voiceResult = makeVoiceResult('connected', turnControl, 'automatic');
     await act(async () => {
@@ -745,7 +765,7 @@ describe('VoiceControl hold-to-talk button', () => {
   it('does not render the hold-to-talk button when turnControl is absent', async () => {
     voiceResult = makeVoiceResult('connected', undefined);
 
-    const { container } = render(<VoiceControl />);
+    const { container } = renderVoiceControl(<VoiceControl />);
     const root = must(container.firstChild as HTMLElement | null);
 
     expect(
@@ -757,7 +777,7 @@ describe('VoiceControl hold-to-talk button', () => {
     const turnControl = makeTurnControl();
     voiceResult = makeVoiceResult('connected', turnControl, 'automatic');
 
-    const { container } = render(<VoiceControl />);
+    const { container } = renderVoiceControl(<VoiceControl />);
     const root = must(container.firstChild as HTMLElement | null);
 
     expect(
@@ -769,7 +789,7 @@ describe('VoiceControl hold-to-talk button', () => {
     const turnControl = makeTurnControl();
     voiceResult = makeVoiceResult('connected', turnControl, 'manual');
 
-    const { container } = render(<VoiceControl />);
+    const { container } = renderVoiceControl(<VoiceControl />);
 
     expect(getHoldButton(container)).toBeDefined();
     expect(container.textContent).not.toContain(
@@ -794,7 +814,7 @@ describe('VoiceControl hold-to-talk button', () => {
       diagnostic,
     );
 
-    const { container } = render(<VoiceControl />);
+    const { container } = renderVoiceControl(<VoiceControl />);
 
     expect(getHoldButton(container)).toBeDefined();
     expect(container.textContent).toContain(
