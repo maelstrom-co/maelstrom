@@ -1,5 +1,9 @@
 import {
   duration,
+  type EngineTiming,
+  type EventIssue,
+  errorCategories,
+  eventIssue,
   eventLabel,
   type Fields,
   fields,
@@ -102,6 +106,7 @@ export interface ViewContext {
   appLabel(id: string): string;
   clientId: string;
   query: string;
+  issueCategory?: string;
   requestKey: string;
   eventKey: string;
   instanceKey: string;
@@ -125,6 +130,48 @@ export interface RenderedView {
   selectedInstance?: { clientId: string; instanceId: string };
   selectedRequestKey?: string;
   contentIdentity?: readonly unknown[];
+}
+
+function issueDescription(issue: EventIssue): string {
+  const category = issue.category && errorCategories[issue.category];
+  return `${humanize(issue.outcome)} · ${category?.label ?? 'Category not reported'}. ${category?.explanation ?? 'This event has no recognized error category.'}`;
+}
+
+function matchesCategory(
+  issue: EventIssue | undefined,
+  category?: string,
+): boolean {
+  return (
+    !category ||
+    category === 'all' ||
+    Boolean(issue && (issue.category ?? 'unreported') === category)
+  );
+}
+
+function stageTimingsView(timings: readonly EngineTiming[]): HTMLElement {
+  const section = element('section');
+  section.setAttribute('aria-label', 'Engine stage timings');
+  const rows = factList([]);
+  const status = element('p', undefined, 'muted small');
+  status.setAttribute('role', 'status');
+  let shown = 0;
+  const more = button('Show more stage timings', showMore);
+  function showMore(): void {
+    const end = Math.min(shown + 200, timings.length);
+    const batch = factList(
+      timings
+        .slice(shown, end)
+        .map((timing) => [timing.label, duration(timing.durationMs)]),
+    );
+    rows.append(...Array.from(batch.children));
+    shown = end;
+    status.textContent = `Showing ${shown} of ${timings.length} stage timings`;
+    more.disabled = shown === timings.length;
+  }
+  showMore();
+  section.append(element('h4', 'Engine stages'), rows, status);
+  if (timings.length > 200) section.append(more);
+  return section;
 }
 
 function eventDetails(event: PanelEvent, context: ViewContext): HTMLElement {
@@ -155,6 +202,8 @@ function eventDetails(event: PanelEvent, context: ViewContext): HTMLElement {
     ]);
   }
   if (values.length) detail.append(table(values));
+  const issue = eventIssue(event);
+  if (issue) detail.append(element('p', issueDescription(issue), 'warning'));
   const instanceId = text(event.metadata.instanceId);
   const clientId = event.clientId;
   if (clientId && instanceId)
@@ -165,11 +214,18 @@ function eventDetails(event: PanelEvent, context: ViewContext): HTMLElement {
     );
   const error = text(fields(event.content).error);
   if (error) detail.append(element('p', error, 'warning'));
-  else if (/failed|error/.test(event.kind))
+  else if (
+    event.metadata.outcome !== 'cancelled' &&
+    (issue?.outcome === 'failed' ||
+      event.kind === 'voice.session.error' ||
+      event.kind === 'engine.error')
+  )
     detail.append(
       element(
         'p',
-        'Error content was not recorded. Start a recording before reproducing the problem to retain supported details.',
+        event.content !== undefined
+          ? 'No error message is available in this event. Recording retains only the details supplied by its source.'
+          : `${issue?.outcome === 'failed' ? 'Error content was' : 'Event details were'} not recorded. Start a recording before reproducing the problem to retain supported details.`,
         'muted small',
       ),
     );
@@ -197,7 +253,11 @@ export function requestsView(context: ViewContext): RenderedView {
   );
   if (context.allEvents) {
     const events = scoped
-      .filter((event) => searchable(event, context.query))
+      .filter(
+        (event) =>
+          searchable(event, context.query) &&
+          matchesCategory(eventIssue(event), context.issueCategory),
+      )
       .slice()
       .reverse();
     const selected =
@@ -244,11 +304,16 @@ export function requestsView(context: ViewContext): RenderedView {
   }
   const requests = groupRequests(scoped).filter(
     (request) =>
-      !context.query ||
-      `${request.requestId} ${request.intent ?? ''} ${statusLabels[request.status]} ${context.appLabel(request.clientId)}`
-        .toLowerCase()
-        .includes(context.query.toLowerCase()) ||
-      request.events.some((event) => searchable(event, context.query)),
+      (!context.issueCategory ||
+        context.issueCategory === 'all' ||
+        request.issues.some((issue) =>
+          matchesCategory(issue, context.issueCategory),
+        )) &&
+      (!context.query ||
+        `${request.requestId} ${request.intent ?? ''} ${statusLabels[request.status]} ${context.appLabel(request.clientId)}`
+          .toLowerCase()
+          .includes(context.query.toLowerCase()) ||
+        request.events.some((event) => searchable(event, context.query))),
   );
   const selected = context.requestKey
     ? requests.find((request) => request.key === context.requestKey)
@@ -315,6 +380,46 @@ export function requestsView(context: ViewContext): RenderedView {
     abandoned: 'Client work ended before the response batch completed.',
   };
   content.append(element('p', summary[selected.status], 'muted'));
+  const matchingIssues = selected.issues.filter((issue) =>
+    matchesCategory(issue, context.issueCategory),
+  );
+  if (matchingIssues.length) {
+    const issues = element('section');
+    issues.append(
+      element('h3', 'Observed issues'),
+      element(
+        'p',
+        'These events describe individual operations. A later request outcome can still succeed.',
+        'muted small',
+      ),
+    );
+    for (const issue of matchingIssues.slice(0, 30)) {
+      const event = selected.events.find(
+        (event) => event.key === issue.eventKey,
+      );
+      if (!event) continue;
+      const issueButton = button(
+        `${eventLabel(event)}: ${issueDescription(issue)}`,
+        () => context.selectEvent(event.key),
+        'row-button',
+      );
+      issueButton.dataset.focusKey = `issue:${event.key}`;
+      issueButton.setAttribute(
+        'aria-pressed',
+        String(context.eventKey === event.key),
+      );
+      issues.append(issueButton);
+    }
+    if (matchingIssues.length > 30)
+      issues.append(
+        element(
+          'p',
+          `${matchingIssues.length - 30} more issue events. Use All events to inspect them.`,
+          'muted small',
+        ),
+      );
+    content.append(issues);
+  }
   if (
     selected.status === 'discarded' ||
     selected.status === 'abandoned' ||
@@ -339,13 +444,27 @@ export function requestsView(context: ViewContext): RenderedView {
       `${selected.succeededActions} observed Actions succeeded · ${selected.observedFailedActions} failed · ${selected.observedSkippedActions} skipped`,
       'muted small',
     ),
+    factList([
+      [
+        'Request round-trip',
+        selected.push
+          ? 'Not applicable (push)'
+          : duration(selected.transportMs),
+      ],
+      ['Client application', duration(selected.applicationMs)],
+    ]),
   );
   const coverage = element('details', undefined, 'help');
   coverage.append(
     element('summary', 'Timings and evidence coverage'),
     factList([
-      ['Transport', duration(selected.transportMs)],
-      ['Observed command work', duration(selected.applicationMs)],
+      ['Observed command work', duration(selected.commandMs)],
+      ...selected.engineTimings
+        .filter((timing) => timing.kind !== 'stage')
+        .map((timing): [string, string] => [
+          timing.label,
+          duration(timing.durationMs),
+        ]),
       [
         'Observed Actions · succeeded / failed / skipped',
         `${selected.succeededActions} / ${selected.observedFailedActions} / ${selected.observedSkippedActions}`,
@@ -356,11 +475,55 @@ export function requestsView(context: ViewContext): RenderedView {
       ],
     ]),
   );
+  const stageTimings = selected.engineTimings.filter(
+    (timing) => timing.kind === 'stage',
+  );
+  if (stageTimings.length) coverage.append(stageTimingsView(stageTimings));
   if (selected.missingStart)
     content.append(
       element(
         'p',
         'Partial evidence: the request start is not retained.',
+        'warning',
+      ),
+    );
+  const missingOutcome =
+    selected.status === 'awaiting' || selected.status === 'received';
+  if (missingOutcome)
+    content.append(
+      element(
+        'p',
+        'No terminal client outcome is retained. Work may still be running, or its outcome may be outside this evidence window.',
+        'warning',
+      ),
+    );
+  else if (!selected.missingStart)
+    content.append(
+      element(
+        'p',
+        selected.push
+          ? 'Push receipt and outcome retained. Intermediate events may still be missing.'
+          : 'Start and outcome retained. Intermediate events may still be missing.',
+        'muted small',
+      ),
+    );
+  const dropped =
+    context.evidence.droppedRequestEvents ?? context.evidence.dropped;
+  const omitted =
+    context.evidence.omittedRequestEvents ?? context.evidence.omitted;
+  if (dropped)
+    coverage.append(
+      element(
+        'p',
+        `${dropped} ${dropped === 1 ? 'event' : 'events'} dropped or evicted across this evidence source. This count does not identify which requests lost events.`,
+        'warning',
+      ),
+    );
+  if (omitted)
+    coverage.append(
+      element(
+        'p',
+        `${omitted} earlier events are omitted by the viewer limit across this evidence source.`,
         'warning',
       ),
     );
@@ -451,7 +614,11 @@ export function requestsView(context: ViewContext): RenderedView {
   coverage.append(
     element(
       'p',
-      'An applied outcome means the client command batch finished. It does not establish a browser paint, animation completion, or audible playback. Timings come from their emitting process; command work excludes queue time.',
+      'Request round-trip includes the wait for the Engine response. Client application measures the response batch. Command work is the sum of retained command durations and excludes queue time. Nested timings overlap; do not add them together. Each duration uses its emitting process clock.',
+    ),
+    element(
+      'p',
+      'Applied means the client command batch finished. It does not establish a browser paint, animation completion, or audible playback.',
     ),
   );
   content.append(coverage);
@@ -469,9 +636,12 @@ export function requestsView(context: ViewContext): RenderedView {
     contentIdentity: [
       'request',
       selected.key,
+      context.issueCategory,
       context.eventKey,
       context.expandedRequest,
       context.clientId,
+      dropped,
+      omitted,
       ...selected.events.map((event) => event.raw),
       ...context.evidence.apps.flatMap((app) => [app.id, app.active]),
     ],

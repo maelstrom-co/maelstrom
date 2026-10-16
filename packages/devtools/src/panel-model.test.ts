@@ -59,6 +59,90 @@ test('receipt and Engine completion do not claim that the UI applied a response'
   expect(request.applicationMs).toBeUndefined();
 });
 
+test('whole application time stays separate from nested command work and server clocks', () => {
+  const [request] = groupRequests(
+    panelEvents([
+      event('client.request.started'),
+      event('engine.request.completed', 'app-a', 'request', {
+        durationMs: 80,
+        serverAt: 999999,
+      }),
+      event('client.response.received', 'app-a', 'request', {
+        durationMs: 100,
+      }),
+      event('client.command.completed', 'app-a', 'request', { durationMs: 4 }),
+      event('client.command.completed', 'app-a', 'request', { durationMs: 6 }),
+      event('client.response.applied', 'app-a', 'request', {
+        durationMs: 35,
+        actionFailures: 0,
+        skippedActions: 0,
+      }),
+    ]),
+  );
+  expect(request.applicationMs).toBe(35);
+  expect(request.commandMs).toBe(10);
+  expect(request.transportMs).toBe(100);
+});
+
+test('Engine timing retains repeated attempts without adding nested stages together', () => {
+  const [request] = groupRequests(
+    panelEvents([
+      event('engine.stage.completed', 'app-a', 'request', {
+        stage: 'validate',
+        durationMs: 3,
+      }),
+      event('engine.stage.failed', 'app-a', 'request', {
+        stage: 'plan',
+        durationMs: 5,
+      }),
+      event('engine.stage.completed', 'app-a', 'request', {
+        stage: 'plan',
+        durationMs: 7,
+      }),
+      event('engine.planner.completed', 'app-a', 'request', { durationMs: 20 }),
+      event('engine.request.completed', 'app-a', 'request', { durationMs: 30 }),
+    ]),
+  );
+  expect(
+    request.engineTimings.map(({ label, durationMs }) => [label, durationMs]),
+  ).toEqual([
+    ['Stage: validate', 3],
+    ['Stage: plan', 5],
+    ['Stage: plan', 7],
+    ['Planning', 20],
+    ['Engine request', 30],
+  ]);
+  expect(request.applicationMs).toBeUndefined();
+  expect(request.transportMs).toBeUndefined();
+});
+
+test('legacy and invalid durations leave whole application time unknown', () => {
+  const [legacy] = groupRequests(
+    panelEvents([
+      event('client.command.completed', 'app-a', 'request', { durationMs: 8 }),
+      event('client.response.applied'),
+    ]),
+  );
+  expect(legacy.applicationMs).toBeUndefined();
+  expect(legacy.commandMs).toBe(8);
+  const [failed] = groupRequests(
+    panelEvents([
+      event('client.response.failed', 'app-a', 'request', { durationMs: 12 }),
+    ]),
+  );
+  expect(failed.applicationMs).toBe(12);
+  const [invalid] = groupRequests(
+    panelEvents([
+      event('client.response.applied', 'app-a', 'request', { durationMs: -1 }),
+      event('engine.planner.completed', 'app-a', 'request', {
+        durationMs: '10',
+      }),
+    ]),
+  );
+  expect(invalid.applicationMs).toBeUndefined();
+  expect(invalid.engineTimings[0].durationMs).toBeUndefined();
+});
+
 test('a completed response keeps skipped and failed Actions visible', () => {
   const [request] = groupRequests(
     panelEvents([
@@ -90,6 +174,71 @@ test('a retried Engine failure cannot override a later client application outcom
     ]),
   );
   expect(request.status).toBe('applied');
+});
+
+test('structured issues explain failures without recasting cancellation or recovered attempts as request failure', () => {
+  const [request] = groupRequests(
+    panelEvents([
+      event('engine.stage.failed', 'app-a', 'request', {
+        outcome: 'failed',
+        errorCategory: 'timeout',
+      }),
+      event('client.action.completed', 'app-a', 'request', {
+        outcome: 'skipped',
+        errorCategory: 'readiness',
+      }),
+      event('client.action.completed', 'app-a', 'request', {
+        outcome: 'unknown',
+        errorCategory: 'new-category',
+      }),
+      event('client.response.applied', 'app-a', 'request', {
+        actionFailures: 0,
+        skippedActions: 1,
+      }),
+    ]),
+  );
+  expect(
+    request.issues.map(({ outcome, category }) => [outcome, category]),
+  ).toEqual([
+    ['failed', 'timeout'],
+    ['skipped', 'readiness'],
+    ['unknown', undefined],
+  ]);
+  expect(request.status).toBe('applied-with-issues');
+  const [cancelled] = groupRequests(
+    panelEvents([
+      event('client.request.failed', 'app-a', 'cancelled', {
+        outcome: 'cancelled',
+        errorCategory: 'timeout',
+      }),
+    ]),
+  );
+  expect(cancelled.issues).toEqual([]);
+  expect(cancelled.status).toBe('cancelled');
+});
+
+test('diagnostic-only failures remain discoverable when a partial recording lacks an operational outcome', () => {
+  const [request] = groupRequests(
+    panelEvents([
+      event('client.command.failed'),
+      event('engine.candidate.validated', 'app-a', 'request', {
+        outcome: 'failed',
+      }),
+      event('engine.candidate.validated', 'app-a', 'request', {
+        outcome: 'succeeded',
+      }),
+      event('engine.planner.failed', 'app-a', 'request', {
+        outcome: 'cancelled',
+      }),
+    ]),
+  );
+  expect(
+    request.issues.map(({ outcome, category }) => [outcome, category]),
+  ).toEqual([
+    ['failed', undefined],
+    ['failed', undefined],
+  ]);
+  expect(request.status).toBe('awaiting');
 });
 
 test('missing request starts stay visible as partial evidence, while push responses need no start', () => {

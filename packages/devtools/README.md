@@ -35,6 +35,21 @@ client application, skipped Actions, and failures remain distinct. All events
 keeps observations without a request association accessible. JSON accompanies
 the readable summaries.
 
+Issue category filters structured failures, skipped work, and unknown outcomes
+in Requests and All events. A failed attempt can remain visible after a request
+succeeds. The shared telemetry metadata projection supplies the interpretation;
+the panel needs no telemetry sink or exporter.
+
+Request round-trip and whole client application durations stay separate from
+summed command work and individual Engine timings. Nested timings overlap.
+Missing durations remain unreported. Retained start and outcome events do not
+prove that intermediate evidence is complete. History loss counts cover the
+evidence source and cannot identify which requests lost events.
+
+Engine stage timings render in batches of 200. Use Show more stage timings to
+reveal additional retained stages. Request and planning measurements remain
+visible independently of this limit.
+
 The request list, phase details, and JSON pane scroll independently. The JSON
 pane defaults to a collapsible tree. Use Raw JSON for highlighted, copyable JSON.
 Expand all and Collapse all control the tree. Switching presentations preserves

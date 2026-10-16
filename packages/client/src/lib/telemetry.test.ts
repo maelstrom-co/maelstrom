@@ -620,6 +620,10 @@ test('a rejected layout counts an application failure after a successful request
     expect(
       records.some((r) => r.attributes.errorCategory === 'transport'),
     ).toBe(false);
+    expect(
+      records.find((r) => r.attributes.operation === 'client.apply')?.attributes
+        .errorCategory,
+    ).toBe('application');
   } finally {
     release();
     telemetry.dispose();

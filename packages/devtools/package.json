@@ -48,6 +48,7 @@
   "dependencies": {
     "@maelstrom-co/client": "0.1.0-alpha.5",
     "@maelstrom-co/protocol": "0.1.0-alpha.5",
+    "@maelstrom-co/telemetry": "0.1.0-alpha.5",
     "@pgrabovets/json-view": "catalog:",
     "solid-js": "catalog:",
     "zod": "catalog:"
