@@ -61,7 +61,7 @@ jobs:
           vale_flags: --no-global
           version: 3.18.0
 
-      - uses: nrwl/nx-set-shas@afb73a62d26e41464e9254689e1fd6122ee683c1 # v5.0.1
+      - uses: nrwl/nx-set-shas@e602fada7ad5987b0f7b1905e7a99ea1c661514c # v5.1.0
 
       # Browsers install per machine, not per project, so this one step covers
       # both the docs and www e2e suites.
