@@ -2,7 +2,13 @@ name: Deploy PR Preview
 
 on:
   pull_request_target:
-    types: [labeled]
+    types: [labeled, unlabeled]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Open same-repository PR number with an approved deployment
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -202,3 +208,70 @@ jobs:
           bun_hash="$(/usr/bin/sha256sum "$BUN_EXECUTABLE")"
           test "${bun_hash%% *}" = "$TRUSTED_BUN_SHA256"
           "$BUN_EXECUTABLE" --config=scripts/preview-lifecycle.bunfig.toml --no-env-file --no-install scripts/preview-lifecycle.ts finish-deployment
+
+  voice-benchmark:
+    name: Voice Benchmark
+    needs: deploy
+    # A label added during deployment is absent from the original event payload.
+    # Label removals also reconcile live state after any earlier run has stopped.
+    # Both labels and the approved/deployed SHA are checked live under the lock.
+    if: >-
+      always() && !cancelled()
+      && ((github.event_name == 'pull_request_target'
+           && github.event.sender.type == 'User'
+           && github.event.pull_request.state == 'open'
+           && github.event.pull_request.head.repo.full_name == github.repository
+           && (needs.deploy.result == 'success'
+               || ((github.event.action == 'labeled' || github.event.action == 'unlabeled')
+                   && (github.event.label.name == 'bench-voice'
+                       || github.event.label.name == 'deploy-preview'))))
+          || (github.event_name == 'workflow_dispatch'
+              && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+              && inputs.pr_number != ''))
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
+      pull-requests: write
+    concurrency:
+      group: deploy-preview-pr-${{ github.event.pull_request.number || inputs.pr_number }}
+      cancel-in-progress: false
+      # actionlint 1.7.12 predates GitHub's concurrency queue support.
+      queue: max
+    env:
+      MAELSTROM_VOICE_CI_RUN_ID: pr-${{ github.event.pull_request.number || inputs.pr_number }}-run-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - name: Checkout trusted benchmark code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+
+      - name: Authenticate voice tool image pull
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin > /dev/null
+
+      - name: Run approved preview benchmarks and update p95 comment
+        env:
+          BASH_ENV: /dev/null
+          BUN_OPTIONS: ''
+          NODE_OPTIONS: ''
+          GH_TOKEN: ${{ github.token }}
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha || '' }}
+          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
+          PREVIEW_WORKERS_DEV_SUFFIX: ${{ vars.CLOUDFLARE_PREVIEW_WORKERS_DEV_SUFFIX }}
+          MAELSTROM_E2E_OPENAI_API_KEY: ${{ secrets.MAELSTROM_E2E_OPENAI_API_KEY }}
+          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+          ELEVENLABS_VOICE_ID: ${{ secrets.ELEVENLABS_VOICE_ID }}
+        run: bun --config=scripts/preview-lifecycle.bunfig.toml --no-env-file --no-install scripts/voice-benchmark-ci.ts
+
+      - name: Remove owned voice containers
+        if: always()
+        run: bun --config=scripts/preview-lifecycle.bunfig.toml --no-env-file --no-install scripts/voice-benchmark-ci.ts cleanup

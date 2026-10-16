@@ -162,7 +162,9 @@ try {
       benchmark
         ? '/work/artifacts/benchmark-results'
         : '/work/artifacts/playwright',
-      '--reporter=line,html',
+      benchmark && process.env.MAELSTROM_VOICE_CI_RUN_ID
+        ? `--reporter=line,html,${join(root, 'ci-reporter.ts')}`
+        : '--reporter=line,html',
       ...process.argv.slice(2).filter((argument) => argument !== '--benchmark'),
     ],
     {
