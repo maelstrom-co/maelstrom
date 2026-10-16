@@ -34,6 +34,11 @@ Inspector shows a schematic Chart and the selected Instance's Variant and
 registered Actions. Selecting a live Instance highlights its owning Chart.
 Connections separates app lifetimes, Engine connection state, and voice evidence.
 
+To inspect delivery from existing application telemetry, pass
+`devtools({ telemetry })`. The shared Telemetry tab reads local counters while
+visible. See [telemetry delivery](../devtools/README.md#inspect-telemetry-delivery)
+for ownership, refresh, and recording boundaries.
+
 Each mounted Provider creates an app instance. The App instance selector filters
 inspection; ended instances can remain as retained history. Voice providers are
 separate. The selector is hidden when only one app identity is present.

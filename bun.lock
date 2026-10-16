@@ -77,6 +77,7 @@
         "@maelstrom-co/realtime-openai-server": "workspace:*",
         "@maelstrom-co/realtime-protocol": "workspace:*",
         "@maelstrom-co/realtime-vad": "workspace:*",
+        "@maelstrom-co/telemetry": "workspace:*",
         "@tanstack/ai": "catalog:",
         "@tanstack/ai-gemini": "catalog:",
         "@tanstack/ai-openai": "catalog:",

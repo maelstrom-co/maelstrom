@@ -1,3 +1,4 @@
+import type { DevtoolsOptions } from '@maelstrom-co/devtools';
 import { SessionId } from '@maelstrom-co/protocol';
 import type {
   MaelstromRealtimeBaseOptions,
@@ -22,6 +23,7 @@ const state = vi.hoisted(() => ({
   extension: {},
   orchestrationExtension: {},
   devtoolsExtension: {},
+  devtoolsOptions: undefined as DevtoolsOptions | undefined,
   installedExtensions: [] as unknown[],
   realtimeOptions: undefined as DemoRealtimeOptions | undefined,
   liveKitAdapterOptions: [] as unknown[],
@@ -85,7 +87,10 @@ vi.mock('./orchestration-legibility', () => ({
   orchestrationLegibility: state.orchestrationExtension,
 }));
 vi.mock('@maelstrom-co/react-devtools/production', () => ({
-  devtools: () => state.devtoolsExtension,
+  devtools: (options: DevtoolsOptions) => {
+    state.devtoolsOptions = options;
+    return state.devtoolsExtension;
+  },
 }));
 vi.mock('./voice/get-livekit-token', () => ({
   getLivekitToken: () => Promise.resolve(),
@@ -161,8 +166,12 @@ describe('demo voice provider wiring', () => {
     expect(state.installedExtensions).toEqual([
       state.extension,
       state.orchestrationExtension,
+      expect.any(Function),
       state.devtoolsExtension,
     ]);
+    expect(state.devtoolsOptions?.telemetry?.getSnapshot).toBeTypeOf(
+      'function',
+    );
   });
 
   it('configures adapter-owned browser VAD for LiveKit', () => {

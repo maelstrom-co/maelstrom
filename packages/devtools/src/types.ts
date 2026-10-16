@@ -1,5 +1,6 @@
 import type { Orchestrator } from '@maelstrom-co/client';
 import type { DiagnosticEvent } from '@maelstrom-co/protocol';
+import type { Telemetry } from '@maelstrom-co/telemetry';
 import type { CaptureOptions, DiagnosticCapture } from './capture.js';
 
 /** Configuration shared by every framework adapter. */
@@ -24,6 +25,8 @@ export interface DevtoolsOptions {
   readonly redact?: (value: unknown) => unknown;
   /** Optional event filter applied before retention. */
   readonly filter?: (event: DiagnosticEvent) => boolean;
+  /** Application-owned synchronous telemetry reader. The Telemetry tab reads immediately and every second while visible. No exporter lifecycle or recording access is granted. */
+  readonly telemetry?: Pick<Telemetry, 'getSnapshot'>;
 }
 
 /** One Provider lifetime, retained after detachment for inspection. */

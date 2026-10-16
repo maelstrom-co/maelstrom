@@ -78,6 +78,34 @@ Custom recording readers can cache event projections by
 `DiagnosticCapture.getEvidenceRevision()`. Redaction and evidence changes advance
 that revision. Note edits update `getSnapshot().outcome` independently.
 
+## Inspect telemetry delivery
+
+Pass an existing application-owned telemetry instance to inspect its local queue
+and delivery counters. This fragment uses your configured `telemetry` instance:
+
+```ts
+const tools = createDevtools({ telemetry });
+```
+
+Open Telemetry to read accepted, queued, exporting, and acknowledged facts,
+plus loss counts by reason. Exporter acknowledgement does not prove backend
+persistence. These totals cover the supplied instance's lifetime across its
+attached producers. App instance and evidence filters do not apply.
+
+The delivery flow separates Lifetime totals from Now queue sizes. The loss ledger
+shows reported losses first; Show all loss counters reveals zero-valued reasons.
+Scope & counting rules explains the boundaries. Expanded details stay open during
+refreshes. Motion indicates active exporting and respects reduced-motion settings.
+
+The option requires only synchronous `getSnapshot()`. The panel reads immediately
+when you open Telemetry and every second while that tab is visible. Closing the
+panel, changing tabs, or releasing its final mount stops these reads. Missing or
+invalid snapshots show an unavailable state without retaining stale counts.
+
+DevTools never creates, flushes, disposes, or attaches producers to telemetry.
+It renders only fixed state and counter fields. Counters stay outside diagnostic
+snapshots and recordings. The application still owns exporters and their lifecycle.
+
 ## Forward optional Engine evidence
 
 Create one server helper per authorized connection. This server-side fragment

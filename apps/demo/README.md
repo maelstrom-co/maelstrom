@@ -230,6 +230,19 @@ remains disabled; browser diagnostics and capture remain available.
 
 **Recording tip:** macOS's Reduce Motion setting (System Settings → Accessibility → Display) disables the demo's choreography through `prefers-reduced-motion`.
 
+The Telemetry tab shows local delivery counters from the demo's browser clients.
+Submit a typed or voice-driven request, then check Accepted and Exporter
+acknowledged. The demo writes safe operational batches to the browser console
+under `demo.telemetry.batch`; enable verbose console messages to inspect them.
+Acknowledged means that this local console sink consumed the batch. The demo
+does not send these records to a remote telemetry service.
+
+Counters span Provider remounts within the page and reset on reload. Provider
+unmount releases its observation; hot replacement releases all attachments,
+drains and flushes accepted facts, then disposes the old telemetry instance.
+Server rendering creates no active telemetry. Engine and voice-provider-only
+facts are not attached to this browser reader. Recordings remain separate.
+
 ## Troubleshooting and shutdown
 
 - **The browser shows `connected`, but an intent returns an Engine error:** confirm that `.env` contains a valid `OPENAI_API_KEY`. The WebSocket connection can succeed even when the OpenAI credential required to process requests is missing.
