@@ -220,6 +220,44 @@ should be idempotent. Its `filter` callback excludes events before retention;
 this differs from the panel's search filter. Set `enabled: false` to disable
 collection and mounting.
 
+## Inspect telemetry delivery
+
+If your application already owns a configured
+[`Telemetry`](/reference/telemetry/packages/telemetry/src/interfaces/telemetry/) instance, pass it to
+DevTools. Replace `devtools()` in the installation example with this fragment:
+
+```ts
+devtools({ telemetry });
+```
+
+Open **Telemetry**. Check **Queued** and **Exporting** for pending work,
+**Exporter acknowledged** for acknowledged facts, and **Loss ledger** for local
+loss counts. Acknowledgement does not prove backend persistence. These counts
+cover the supplied telemetry instance across its attached producers. They do
+not identify missing request events or voice source observations.
+
+The flow labels current queue sizes as **Now** and cumulative counts as **Lifetime**.
+The loss ledger highlights nonzero reasons. Select **Show all loss counters** to
+inspect every reason. Open **Scope & counting rules** for interpretation limits;
+both disclosures stay open while counters refresh.
+
+The supplied `getSnapshot()` must return synchronously. DevTools calls it when you
+open the tab and every second while the tab is visible. Changing tabs, closing
+the panel, or unmounting its final copy stops these reads. A missing reader shows
+**No telemetry reader supplied**. A failed or invalid read shows **unavailable**;
+the next refresh can recover.
+
+**Disabled** means no sink was configured. **Timed out** means the exporter
+deadline stopped delivery; the application must create a replacement telemetry
+instance to resume. **Disposed** means the application ended that instance.
+**Active** can still have failed batches, so inspect loss counts too.
+
+The view always shows live totals, including when you have an imported recording
+open elsewhere in the panel. App instance and evidence filters do not apply.
+These counters are not added to recordings. DevTools never creates an exporter,
+attaches producers, flushes, or disposes telemetry. Keep those operations in the
+application that owns the instance.
+
 ## Enable tools in preview and production
 
 The default import is inert in production. To expose browser diagnostics in

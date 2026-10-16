@@ -25,10 +25,17 @@ import {
   requestsView,
   type ViewContext,
 } from './panel-views.js';
+import { telemetryView } from './telemetry-view.js';
 import type { Devtools, DevtoolsSnapshot } from './types.js';
 
 type Source = 'live' | 'recording' | 'imported';
-const tabs = ['Requests', 'Inspector', 'Connections', 'Recordings'] as const;
+const tabs = [
+  'Requests',
+  'Inspector',
+  'Connections',
+  'Recordings',
+  'Telemetry',
+] as const;
 type Tab = (typeof tabs)[number];
 interface PanelPreferences {
   open: boolean;
@@ -682,7 +689,11 @@ function Panel(tools: Devtools): HTMLElement {
     toolbar,
     errorView,
   );
-  body.append(controls, recording, workspace);
+  const telemetry = telemetryView(
+    tools.options.telemetry,
+    () => open() && tab() === 'Telemetry',
+  );
+  body.append(controls, recording, workspace, telemetry);
   panel.append(resize, header, tabList, body);
   root.append(trigger, panel);
   root.addEventListener('keydown', (event) => {
@@ -714,6 +725,10 @@ function Panel(tools: Devtools): HTMLElement {
       'Record a reproducible problem',
       'Start, reproduce, stop, then inspect or export. Live activity alone does not retain prompts or arguments.',
     ],
+    Telemetry: [
+      'Is telemetry being delivered?',
+      'Inspect local queue, exporter acknowledgements, and lost facts from the application-owned telemetry instance.',
+    ],
   };
   createEffect(() => {
     revision();
@@ -744,6 +759,45 @@ function Panel(tools: Devtools): HTMLElement {
       cachedRecording = undefined;
       cachedImport = undefined;
       importedReference = undefined;
+      previousSignature = [];
+      lastRendered = undefined;
+      navigation.replaceChildren();
+      content.replaceChildren();
+      jsonInspector.clear();
+      return;
+    }
+    const viewingTelemetry = currentTab === 'Telemetry';
+    telemetry.hidden = !viewingTelemetry;
+    sourceLabel.hidden = viewingTelemetry;
+    help.hidden = viewingTelemetry;
+    title.hidden = viewingTelemetry;
+    description.hidden = viewingTelemetry;
+    for (const node of tabButtons) {
+      const active = node.textContent === currentTab;
+      node.setAttribute('aria-selected', String(active));
+      node.tabIndex = active ? 0 : -1;
+    }
+    body.setAttribute(
+      'aria-labelledby',
+      tabButtons[tabs.indexOf(currentTab)].id,
+    );
+    title.textContent = purpose[currentTab][0];
+    description.textContent = purpose[currentTab][1];
+    if (viewingTelemetry) {
+      for (const node of [
+        scopeLabel,
+        singleScope,
+        sourceBanner,
+        activeNotice,
+        warning,
+        toolbar,
+        errorView,
+        recording,
+        workspace,
+      ])
+        node.hidden = true;
+      tools.setHighlightedInstance?.();
+      inspections.clear();
       previousSignature = [];
       lastRendered = undefined;
       navigation.replaceChildren();
@@ -886,17 +940,6 @@ function Panel(tools: Devtools): HTMLElement {
     recordedOption.disabled = status.active || status.count === 0;
     importedOption.disabled = state.imported === null;
     sourceSelect.value = currentSource;
-    for (const node of tabButtons) {
-      const active = node.textContent === currentTab;
-      node.setAttribute('aria-selected', String(active));
-      node.tabIndex = active ? 0 : -1;
-    }
-    body.setAttribute(
-      'aria-labelledby',
-      tabButtons[tabs.indexOf(currentTab)].id,
-    );
-    title.textContent = purpose[currentTab][0];
-    description.textContent = purpose[currentTab][1];
     mode.hidden = currentTab !== 'Requests';
     mode.value = preferences.allEvents ? 'events' : 'requests';
     filter.hidden = currentTab !== 'Requests';

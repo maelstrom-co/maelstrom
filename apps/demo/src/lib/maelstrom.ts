@@ -18,6 +18,7 @@ import {
   DEMO_GREETING,
   DEMO_OPENAI_VOICE,
 } from './demo-greeting-tts';
+import { createDemoTelemetry } from './demo-telemetry';
 import { demoVoiceOpening, registerDemoVoice } from './demo-voice';
 import { diagnosticCapture } from './diagnostic-capture';
 import { isHosted, usesBrowserKey } from './hosted-mode';
@@ -74,6 +75,9 @@ export function prepareBrowserOpenAIVoice(): boolean {
   return true;
 }
 
+const demoTelemetry = createDemoTelemetry();
+if (import.meta.hot) import.meta.hot.dispose(() => demoTelemetry.dispose());
+
 export const m = createMaelstrom({
   vessels,
 })
@@ -88,7 +92,13 @@ export const m = createMaelstrom({
     }),
   )
   .with(orchestrationLegibility)
-  .with(devtools({ capture: diagnosticCapture }));
+  .with(demoTelemetry.extension)
+  .with(
+    devtools({
+      capture: diagnosticCapture,
+      telemetry: demoTelemetry.telemetry,
+    }),
+  );
 
 function createAdapter(
   provider: DemoVoiceProvider,

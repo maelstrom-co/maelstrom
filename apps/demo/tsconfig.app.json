@@ -37,6 +37,9 @@
   ],
   "references": [
     {
+      "path": "../../packages/telemetry/tsconfig.lib.json"
+    },
+    {
       "path": "../../packages/devtools/tsconfig.lib.json"
     },
     {
