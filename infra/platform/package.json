@@ -36,7 +36,7 @@
   "devDependencies": {
     "@distilled.cloud/aws": "1.0.0-rc.13",
     "@distilled.cloud/cloudflare": "1.0.0-rc.13",
-    "@types/bun": "*",
+    "@types/bun": "1.4.3",
     "drizzle-kit": "1.0.0-rc.5-ab785fc",
     "jsonc-parser": "3.3.1",
     "typescript": "catalog:"
