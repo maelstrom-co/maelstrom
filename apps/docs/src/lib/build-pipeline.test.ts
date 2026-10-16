@@ -3,6 +3,13 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
+test('docs process-control tests run without competing Nx tasks', async () => {
+  const manifest = await Bun.file(
+    new URL('../../package.json', import.meta.url),
+  ).json();
+  expect(manifest.nx.targets.test.parallelism).toBe(false);
+});
+
 test('docs typechecking cannot regenerate reference pages while the site build reads them', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'docs-task-order-'));
   const graphPath = join(directory, 'tasks.json');

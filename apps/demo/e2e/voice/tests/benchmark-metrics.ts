@@ -1,3 +1,7 @@
+import {
+  type BargeInMeasurement,
+  summarizeBargeIn,
+} from './barge-in-measurement.ts';
 import type { AudioTimelineMeasurement } from './shared-audio-timeline.ts';
 
 export type VoiceBenchmarkRecord = {
@@ -17,7 +21,7 @@ export type VoiceBenchmarkRecord = {
   };
   readonly assistantCapturedAudioActiveMs: number;
   readonly measurements: {
-    readonly bargeIn: 'unsupported';
+    readonly bargeIn: 'unsupported' | BargeInMeasurement;
     readonly assistantTranscriptWordCount: 'unsupported';
     readonly assistantSpeechWpm: 'unsupported';
   };
@@ -36,6 +40,13 @@ export function summarizeVoiceBenchmark(
     .map((turn) => turn.latencyMs)
     .filter((value): value is number => value !== null)
     .sort((a, b) => a - b);
+  const bargeIn = summarizeBargeIn(
+    records.flatMap((record) =>
+      record.measurements.bargeIn === 'unsupported'
+        ? []
+        : [record.measurements.bargeIn],
+    ),
+  );
   const percentile = (values: readonly number[], rank: number) =>
     values.length === 0 ? null : values[Math.ceil(rank * values.length) - 1];
   const median = (values: readonly number[]) => {
@@ -59,6 +70,7 @@ export function summarizeVoiceBenchmark(
       median: median(latencyValues),
       p95: percentile(latencyValues, 0.95),
     },
+    bargeIn,
     unsupported: {
       responseLatency:
         responseLatency.status === 'measured'
@@ -71,7 +83,9 @@ export function summarizeVoiceBenchmark(
             responseLatency.reason ||
             'Some or all human turns were unsupported.',
       bargeIn:
-        'Unavailable: this benchmark does not identify a reliable interruption boundary in the human and assistant waveforms.',
+        bargeIn.latencyMs.sampleCount > 0
+          ? null
+          : 'No corroborated barge-in stops were measured in this benchmark lane.',
       assistantTranscriptWordCount:
         'Unavailable: UI captions are not a reliable transcript measurement API.',
       assistantSpeechWpm:

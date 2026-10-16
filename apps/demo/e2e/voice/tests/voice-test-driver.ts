@@ -2,9 +2,12 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import type { Page } from '@playwright/test';
 import { initialNavigationURL } from '../runner-target.ts';
+import { installControlledMicrophoneReference } from './controlled-reference-microphone.ts';
 import { observeProtocol } from './evidence.ts';
+import { installGreetingAudioTap } from './greeting-audio-tap.ts';
 import type {
   AssistantAudioActivity,
+  AudioCaptureSetupDiagnostics,
   BrowserAudioTimelineSnapshot,
 } from './shared-audio-capture.ts';
 import { installSharedAudioTimeline } from './shared-audio-capture.ts';
@@ -91,6 +94,7 @@ export type VoicePageSnapshot = {
   readonly statusCount: number;
   readonly captionCounts: { readonly user: number; readonly assistant: number };
   readonly timeline?: BrowserAudioTimelineSnapshot;
+  readonly audioCaptureSetup?: AudioCaptureSetupDiagnostics | null;
 };
 
 type BrowserObservation =
@@ -134,11 +138,14 @@ type BrowserObservation =
 type BrowserBridgeWindow = Window & {
   __voiceTestObserve?: (event: BrowserObservation) => Promise<void>;
   __voiceTestCleanup?: () => void;
+  __voiceGreetingAudio?: { dispose(): void };
+  __voiceReferenceMicrophone?: { dispose(): void };
   __voiceAudioTimeline?: {
     mark(): Promise<number>;
     assistantMonitor(frame: number): Promise<AssistantAudioActivity>;
     waitForReady(): Promise<void>;
     snapshot(): Promise<BrowserAudioTimelineSnapshot>;
+    diagnostics?(): AudioCaptureSetupDiagnostics;
     dispose?(): Promise<void>;
   };
 };
@@ -208,6 +215,8 @@ export type VoiceDriverOptions = {
   readonly pageId?: string;
   readonly bufferCapacity?: number;
   readonly nodeNow?: () => number;
+  readonly assistantSource?: 'remote' | 'greeting';
+  readonly microphoneSource?: 'app' | 'controlled-reference';
 };
 
 export type VoiceTestCapabilities = {
@@ -786,9 +795,22 @@ export function createVoiceTestDriver(
         throw terminalError ?? new Error('Voice test driver is unavailable');
       if (captureAudio) {
         const audioScript = trackBrowserSetup(
-          page.addInitScript(installSharedAudioTimeline),
+          page.addInitScript(installSharedAudioTimeline, {
+            assistantSource: options.assistantSource ?? 'remote',
+            microphoneSource: options.microphoneSource ?? 'app',
+          }),
         );
         await awaitActive(audioScript);
+        if (options.microphoneSource === 'controlled-reference')
+          await awaitActive(
+            trackBrowserSetup(
+              page.addInitScript(installControlledMicrophoneReference),
+            ),
+          );
+        if (options.assistantSource === 'greeting')
+          await awaitActive(
+            trackBrowserSetup(page.addInitScript(installGreetingAudioTap)),
+          );
       }
       if (disposed || pageClosed)
         throw terminalError ?? new Error('Voice test driver is unavailable');
@@ -917,6 +939,8 @@ export function createVoiceTestDriver(
           return {
             url: `${location.origin}${location.pathname}`,
             readyState: document.readyState,
+            audioCaptureSetup:
+              target.__voiceAudioTimeline?.diagnostics?.() ?? null,
             clock: {
               domain: 'browser-performance',
               elapsedMs: performance.now(),
@@ -1019,6 +1043,8 @@ export function createVoiceTestDriver(
                   const target = window as BrowserBridgeWindow;
                   target.__voiceTestCleanup?.();
                   target.__voiceTestCleanup = undefined;
+                  target.__voiceGreetingAudio?.dispose();
+                  target.__voiceReferenceMicrophone?.dispose();
                   await target.__voiceAudioTimeline?.dispose?.();
                   target.__voiceTestObserve = undefined;
                 }),

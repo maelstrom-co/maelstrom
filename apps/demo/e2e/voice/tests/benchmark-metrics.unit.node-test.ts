@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  type BargeInMeasurement,
+  invalidBargeIn,
+} from './barge-in-measurement.ts';
+import {
   summarizeVoiceBenchmark,
   type VoiceBenchmarkRecord,
 } from './benchmark-metrics.ts';
@@ -45,6 +49,36 @@ test('averages the middle samples for an even-count median', () => {
       .assistantCapturedAudioActiveMs.median,
     20,
   );
+});
+
+test('summarizes barge-in attempts without changing legacy audio metrics', () => {
+  const measured = {
+    status: 'measured' as const,
+    humanOnsetSample: 800,
+    assistantStopSample: 1_000,
+    latencyMs: 200,
+    reason: null,
+  } satisfies BargeInMeasurement;
+  const records: VoiceBenchmarkRecord[] = [
+    record(10, 1),
+    {
+      ...record(20, 2),
+      measurements: { ...record(20, 2).measurements, bargeIn: measured },
+    },
+    {
+      ...record(30, 3),
+      measurements: {
+        ...record(30, 3).measurements,
+        bargeIn: invalidBargeIn('missing samples'),
+      },
+    },
+  ];
+  const summary = summarizeVoiceBenchmark(records, unsupportedLatency);
+  assert.equal(summary.bargeIn.attemptCount, 2);
+  assert.equal(summary.bargeIn.latencyMs.median, 200);
+  assert.equal(summary.bargeIn.counts.invalid, 1);
+  assert.equal(summary.unsupported.bargeIn, null);
+  assert.equal(summary.assistantCapturedAudioActiveMs.median, 20);
 });
 
 test('uses null percentiles for no samples', () => {

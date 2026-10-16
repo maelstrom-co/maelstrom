@@ -1,4 +1,5 @@
 import { execFile, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -10,9 +11,32 @@ import {
   singleTurnDiagnosticRetries,
 } from '../benchmark-selection.ts';
 import {
+  bargeInPolicy,
+  computeBargeInMeasurement,
+  invalidBargeIn,
+} from './barge-in-measurement.ts';
+import {
+  type BargeInObserverSnapshot,
+  type BargeInObserverWindow,
+  installBargeInObserver,
+} from './barge-in-observer.ts';
+import { assessBargeInRun, completeBargeInReport } from './barge-in-report.ts';
+import {
+  selectRealtimeBeforeVoiceConnection,
+  waitForFixedGreetingSettlement,
+} from './barge-in-setup.ts';
+import {
   summarizeVoiceBenchmark,
   type VoiceBenchmarkRecord,
 } from './benchmark-metrics.ts';
+import type {
+  ControlledReferenceObservation,
+  ControlledReferenceWindow,
+} from './controlled-reference-microphone.ts';
+import type {
+  GreetingAudioObservation,
+  GreetingAudioWindow,
+} from './greeting-audio-tap.ts';
 import {
   canStartNextFullScenarioInput,
   monitorFullScenarioLeadIn,
@@ -26,8 +50,16 @@ import {
   parseCompletedPlayback,
   serializePlaybackObservation,
 } from './playback-observability.ts';
-import { nonSilentMs, recordReplies, silentTailMs } from './reply-recorder.ts';
-import type { BrowserAudioTimelineSnapshot } from './shared-audio-capture.ts';
+import {
+  nonSilentMs,
+  recordReplies,
+  replyWav,
+  silentTailMs,
+} from './reply-recorder.ts';
+import type {
+  AudioCaptureSetupDiagnostics,
+  BrowserAudioTimelineSnapshot,
+} from './shared-audio-capture.ts';
 import {
   type AudioTimelineMeasurement,
   computeAudioTimelineMeasurement,
@@ -48,6 +80,10 @@ import {
   type VadValidation,
   validateVadPayload,
 } from './single-turn-validity.ts';
+import {
+  sampleTaskBargeInGate,
+  type TaskBargeInGate,
+} from './task-barge-in-gate.ts';
 import {
   attachVoiceBenchmarkFailureStatus,
   installAssistantCaptionMutationObserver,
@@ -641,6 +677,10 @@ test.describe('voice benchmark', () => {
             'responseLatency turn sample indices address both attached full-session WAVs; absolute AudioContext frame = sampleClockStartFrame + sample index',
           sharedClock:
             'AudioWorklet currentFrame sample positions; human and assistant PCM are chunked from the same processor invocation and continuous session origin',
+          captureInitialization: {
+            revision: 2,
+            setup: audioTimeline?.setup ?? null,
+          },
           sampleClockStartFrame: audioTimeline?.startFrame ?? null,
           sampleClockEndFrame: audioTimeline?.endFrame ?? null,
           t0SampleFrame:
@@ -734,4 +774,611 @@ test.describe('voice benchmark', () => {
         `Single-turn diagnostic attempt is invalid: ${singleTurnFailureReason}`,
       );
   });
+
+  for (const scenario of ['task-response', 'greeting'] as const) {
+    test.describe(`${scenario} barge-in`, () => {
+      const isGreeting = scenario === 'greeting';
+      test.use({
+        assistantSource: isGreeting ? 'greeting' : 'remote',
+        microphoneSource: 'controlled-reference',
+      });
+      test('prerecorded barge-in interruptions', async ({
+        page,
+        voiceDriver,
+      }, testInfo) => {
+        const selection = selectVoiceBenchmark({
+          singleTurn: process.env.VOICE_BENCHMARK_SINGLE_TURN,
+          repetitions: process.env.VOICE_BENCHMARK_REPETITIONS,
+        });
+        test.skip(
+          selection.singleTurn,
+          'Single-turn diagnostics retain exactly one playback.',
+        );
+        testInfo.setTimeout(
+          setupBudgetMs + selection.repetitions * perScenarioBudgetMs,
+        );
+        const binary = process.env.TTS2MIC_BIN;
+        if (
+          !binary ||
+          process.platform !== 'linux' ||
+          !process.env.PULSE_SERVER
+        )
+          throw new Error(
+            'Run through the Linux/PulseAudio benchmark container with TTS2MIC_BIN.',
+          );
+        if (!isGreeting) await page.addInitScript(installBargeInObserver);
+        const prefix = isGreeting ? 'greeting-barge-in' : 'barge-in';
+        const records: VoiceBenchmarkRecord[] = [];
+        const attempts: unknown[] = [];
+        let infrastructureError: unknown;
+        const baseURL =
+          process.env.MAELSTROM_BASE_URL || 'http://localhost:3000';
+        for (
+          let repetition = 1;
+          repetition <= selection.repetitions;
+          repetition++
+        ) {
+          let measurement = invalidBargeIn('Interruption was not captured.');
+          let audioTimeline: BrowserAudioTimelineSnapshot | undefined;
+          let captureSetup: AudioCaptureSetupDiagnostics | undefined;
+          let observation: BargeInObserverSnapshot = { events: [], dropped: 0 };
+          let targetResponseId: string | null = null;
+          const taskGate: { value: TaskBargeInGate | null } = { value: null };
+          let greetingSettledBeforePrimer = false;
+          let startFrame: number | null = null;
+          let endFrame: number | null = null;
+          let playbackObservation = {};
+          let assistantActiveMs = 0;
+          let greetingPlayback: GreetingAudioObservation | undefined;
+          let referenceCapture: ControlledReferenceObservation | undefined;
+          let fixtureVad: VadValidation | null = null;
+          let capturedVad: VadValidation | null = null;
+          let selectedOnsetSample: number | null = null;
+          let playbackWindow: {
+            startSample: number;
+            endSample: number;
+          } | null = null;
+          let fixtureSha256: string | null = null;
+          let followupCapture: 'not-requested' | 'quiet' | 'timeout' =
+            'not-requested';
+          const speakerCapture = isGreeting
+            ? recordReplies(
+                'tts2mic_rx.monitor',
+                setupBudgetMs + perScenarioBudgetMs,
+              )
+            : undefined;
+          try {
+            const sourceWav = await readFile(fixture('open-calendar'));
+            const sourceMetadata = getPcm16WavMetadata(sourceWav);
+            fixtureSha256 = createHash('sha256')
+              .update(sourceWav)
+              .digest('hex');
+            await testInfo.attach(`${prefix}-${repetition}-fixture.wav`, {
+              body: sourceWav,
+              contentType: 'audio/wav',
+            });
+            const { stdout: sourceVadStdout } = await exec(
+              binary,
+              [
+                'vad',
+                '--file',
+                fixture('open-calendar'),
+                '--threshold',
+                String(vadThreshold),
+                '--padding',
+                vadPadding,
+              ],
+              { timeout: 60_000, encoding: 'utf8', maxBuffer: 1024 * 1024 },
+            );
+            fixtureVad = validateVadPayload(
+              decodeVadPayload(sourceVadStdout),
+              sourceMetadata.frameCount,
+            );
+            requireNonemptyFixtureVad(fixtureVad, sourceMetadata);
+            await voiceDriver.navigate(baseURL);
+            await selectRealtimeBeforeVoiceConnection(page);
+            await startVoiceDemoFromKeylessLanding(
+              page,
+              process.env.MAELSTROM_E2E_OPENAI_API_KEY,
+            );
+            await expect(
+              page.getByRole('combobox', {
+                name: 'Voice provider',
+                exact: true,
+              }),
+            ).toHaveValue('realtime');
+            const orb = page.locator('button.voice-orb');
+            await expect(orb).toHaveCount(1, { timeout: 30_000 });
+            if (
+              ['idle', 'error'].includes(
+                (await orb.getAttribute('data-state')) ?? '',
+              )
+            )
+              await orb.click();
+            await expect(orb).toHaveAttribute(
+              'data-state',
+              /^(?:connected|listening|thinking|speaking)$/,
+              { timeout: 30_000 },
+            );
+            await voiceDriver.waitForAudioReady();
+            referenceCapture = await page.evaluate(() =>
+              (
+                window as ControlledReferenceWindow
+              ).__voiceReferenceMicrophone?.snapshot(),
+            );
+            if (referenceCapture?.status !== 'verified')
+              throw new Error(
+                'Controlled injected-audio reference was not verified.',
+              );
+            if (!isGreeting) {
+              await waitForFixedGreetingSettlement(page);
+              greetingSettledBeforePrimer = true;
+            }
+            const primerStart = isGreeting
+              ? 0
+              : await voiceDriver.markPlaybackStart();
+            if (!isGreeting) {
+              const primer = voiceDriver.startPlayback(
+                binary,
+                fixture('only-tasks'),
+                {
+                  delayMs: tts2micPlaybackLeadInMs,
+                  timeoutMs: 20_000,
+                  maxOutputBytes: 1024 * 1024,
+                },
+              );
+              parseCompletedPlayback((await primer.completed()).stdout);
+            }
+            if (isGreeting) {
+              await expect
+                .poll(
+                  async () => {
+                    const activity =
+                      await voiceDriver.assistantActivity(primerStart);
+                    return (
+                      activity.activeMs >= 300 &&
+                      activity.silentTailMs <=
+                        bargeInPolicy.maximumPreOnsetQuietMs
+                    );
+                  },
+                  { timeout: 30_000, intervals: [20] },
+                )
+                .toBe(true);
+            } else {
+              await expect
+                .poll(
+                  async () => {
+                    taskGate.value = await voiceDriver.evaluate(
+                      'task-response:prelaunch-gate',
+                      sampleTaskBargeInGate,
+                      {
+                        primerFrame: primerStart,
+                        minimumActiveMs: 300,
+                        maximumQuietMs: bargeInPolicy.maximumPreOnsetQuietMs,
+                      },
+                    );
+                    return taskGate.value !== null;
+                  },
+                  { timeout: 30_000, intervals: [20] },
+                )
+                .toBe(true);
+              if (!taskGate.value)
+                throw new Error(
+                  'No current identified task response was speaking before injection.',
+                );
+              targetResponseId = taskGate.value.responseId;
+            }
+            const captionsBefore = isGreeting
+              ? await page
+                  .getByTestId('captions')
+                  .locator('[data-role="assistant"]')
+                  .allTextContents()
+              : [];
+            startFrame =
+              taskGate.value?.playbackMarkerFrame ??
+              (await voiceDriver.markPlaybackStart());
+            const startedAt = performance.now();
+            const interrupt = voiceDriver.startPlayback(
+              binary,
+              fixture('open-calendar'),
+              {
+                delayMs: 0,
+                timeoutMs: 20_000,
+                maxOutputBytes: 1024 * 1024,
+              },
+            );
+            const completed = parseCompletedPlayback(
+              (await interrupt.completed()).stdout,
+            );
+            endFrame = await voiceDriver.markPlaybackStart();
+            playbackObservation = serializePlaybackObservation(
+              sourceMetadata,
+              completed,
+              performance.now() - startedAt,
+              startFrame,
+              endFrame,
+            );
+            await new Promise<void>((resolve) =>
+              setTimeout(
+                resolve,
+                bargeInPolicy.maximumStopLatencyMs +
+                  bargeInPolicy.quietConfirmationMs +
+                  bargeInPolicy.resumeGuardMs +
+                  bargeInPolicy.cancellationGraceMs,
+              ),
+            );
+            if (isGreeting && speakerCapture) {
+              followupCapture = 'timeout';
+              await expect
+                .poll(
+                  async () => {
+                    speakerCapture.check();
+                    const captions = await page
+                      .getByTestId('captions')
+                      .locator('[data-role="assistant"]')
+                      .allTextContents();
+                    const changed =
+                      captions.length !== captionsBefore.length ||
+                      captions.some(
+                        (text, index) => text !== captionsBefore[index],
+                      );
+                    const state = await orb.getAttribute('data-state');
+                    return (
+                      changed &&
+                      ['connected', 'listening'].includes(state ?? '') &&
+                      silentTailMs(speakerCapture.pcm()) >= 1_000
+                    );
+                  },
+                  { timeout: 30_000 },
+                )
+                .toBe(true)
+                .then(() => {
+                  followupCapture = 'quiet';
+                })
+                .catch(() => {});
+              speakerCapture.check();
+            }
+            audioTimeline = await voiceDriver.snapshotAudio();
+            if (isGreeting) {
+              greetingPlayback = await page.evaluate(() =>
+                (
+                  window as GreetingAudioWindow
+                ).__voiceGreetingAudio?.snapshot(),
+              );
+              if (!greetingPlayback || greetingPlayback.startedAtFrame === null)
+                throw new Error(
+                  'No classified greeting source start was captured.',
+                );
+            } else {
+              observation = await page.evaluate(
+                () =>
+                  (
+                    window as BargeInObserverWindow
+                  ).__voiceBargeInObserver?.snapshot() ?? {
+                    events: [],
+                    dropped: 0,
+                  },
+              );
+            }
+            await speakerCapture?.stop();
+            const inputWav = Buffer.from(
+              audioTimeline.inputWavBase64,
+              'base64',
+            );
+            const assistantWav = Buffer.from(
+              audioTimeline.assistantWavBase64,
+              'base64',
+            );
+            await testInfo.attach(`${prefix}-${repetition}-human-input.wav`, {
+              body: inputWav,
+              contentType: 'audio/wav',
+            });
+            await testInfo.attach(
+              `${prefix}-${repetition}-assistant-output.wav`,
+              {
+                body: assistantWav,
+                contentType: 'audio/wav',
+              },
+            );
+            const input = decodePCM16Wav(inputWav);
+            const output = decodePCM16Wav(assistantWav);
+            const frames = input.pcm.length / (2 * input.channels);
+            if (
+              input.sampleRate !== audioTimeline.sampleRate ||
+              output.sampleRate !== audioTimeline.sampleRate ||
+              frames !== audioTimeline.endFrame - audioTimeline.startFrame ||
+              output.pcm.length / (2 * output.channels) !== frames
+            )
+              throw new Error(
+                'Barge-in capture did not validate against the shared sample clock.',
+              );
+            const directory = await mkdtemp(
+              join(tmpdir(), 'voice-barge-in-vad-'),
+            );
+            try {
+              const inputPath = join(directory, 'human-input.wav');
+              await writeFile(inputPath, inputWav);
+              const { stdout } = await exec(
+                binary,
+                [
+                  'vad',
+                  '--file',
+                  inputPath,
+                  '--threshold',
+                  String(vadThreshold),
+                  '--padding',
+                  vadPadding,
+                ],
+                { timeout: 60_000, encoding: 'utf8', maxBuffer: 1024 * 1024 },
+              );
+              const vad = validateVadPayload(decodeVadPayload(stdout), frames);
+              capturedVad = vad;
+              if (
+                !vad.valid ||
+                vad.sampleRate !== input.sampleRate ||
+                vad.channels !== input.channels
+              )
+                throw new Error(
+                  'Barge-in captured VAD sample clock is invalid.',
+                );
+              const sampleClockStartFrame = audioTimeline.startFrame;
+              const playbackStartSample = startFrame - sampleClockStartFrame;
+              const playbackEndSample = endFrame - sampleClockStartFrame;
+              playbackWindow = {
+                startSample: playbackStartSample,
+                endSample: playbackEndSample,
+              };
+              const onset = vad.segments.find(
+                (segment) =>
+                  segment.startSample >= playbackStartSample &&
+                  segment.startSample < playbackEndSample,
+              )?.startSample;
+              selectedOnsetSample = onset ?? null;
+              measurement =
+                onset === undefined
+                  ? invalidBargeIn(
+                      'No human speech onset was detected in the interruption playback window.',
+                    )
+                  : computeBargeInMeasurement({
+                      assistantPcm16: output.pcm,
+                      assistantChannels: output.channels,
+                      sampleRate: audioTimeline.sampleRate,
+                      humanOnsetSample: onset,
+                      missingBlocks: audioTimeline.missingBlocks,
+                      targetResponseId,
+                      events: observation.events.map((event) => ({
+                        ...event,
+                        frame: event.frame - sampleClockStartFrame,
+                      })),
+                      droppedEvents: observation.dropped,
+                      ...(greetingPlayback
+                        ? {
+                            greetingPlayback: {
+                              sourceCount: greetingPlayback.sourceCount,
+                              failure: greetingPlayback.failure,
+                              stoppedEarly: greetingPlayback.stoppedEarly,
+                              stoppedAtSample:
+                                greetingPlayback.stoppedAtFrame === null
+                                  ? null
+                                  : greetingPlayback.stoppedAtFrame -
+                                    sampleClockStartFrame,
+                            },
+                          }
+                        : {}),
+                    });
+              assistantActiveMs = (
+                await voiceDriver.assistantActivity(startFrame)
+              ).activeMs;
+            } finally {
+              await rm(directory, { recursive: true, force: true });
+            }
+            voiceDriver.assertHealthy('barge-in benchmark');
+          } catch (error) {
+            infrastructureError ??= error;
+            measurement = invalidBargeIn(
+              'Benchmark setup, playback, capture, or VAD failed.',
+            );
+          } finally {
+            if (!isGreeting)
+              observation = await page
+                .evaluate(
+                  () =>
+                    (
+                      window as BargeInObserverWindow
+                    ).__voiceBargeInObserver?.snapshot() ?? {
+                      events: [],
+                      dropped: 0,
+                    },
+                )
+                .catch(() => observation);
+            captureSetup = await page
+              .evaluate(() =>
+                (
+                  window as Window & {
+                    __voiceAudioTimeline?: {
+                      diagnostics(): AudioCaptureSetupDiagnostics;
+                    };
+                  }
+                ).__voiceAudioTimeline?.diagnostics(),
+              )
+              .catch(() => undefined);
+            referenceCapture ??= await page
+              .evaluate(() =>
+                (
+                  window as ControlledReferenceWindow
+                ).__voiceReferenceMicrophone?.snapshot(),
+              )
+              .catch(() => undefined);
+            records.push({
+              scenario: isGreeting
+                ? 'greeting-interrupted-by-open-calendar'
+                : 'only-tasks-interrupted-by-open-calendar',
+              repetition,
+              ...playbackObservation,
+              assistantCapturedAudioActiveMs: assistantActiveMs,
+              measurements: {
+                bargeIn: measurement,
+                assistantTranscriptWordCount: 'unsupported',
+                assistantSpeechWpm: 'unsupported',
+              },
+            });
+            attempts.push({
+              repetition,
+              targetResponseId,
+              inputGate: taskGate.value,
+              greetingSettledBeforePrimer,
+              startFrame,
+              endFrame,
+              sampleClockStartFrame: audioTimeline?.startFrame ?? null,
+              sampleClockEndFrame: audioTimeline?.endFrame ?? null,
+              captureIntegrity: {
+                setup: captureSetup ?? audioTimeline?.setup ?? null,
+                blockCount:
+                  audioTimeline?.blockCount ??
+                  captureSetup?.recording.retainedBlocks ??
+                  null,
+                missingBlocks:
+                  audioTimeline?.missingBlocks ??
+                  captureSetup?.recording.missingBlocks ??
+                  null,
+                missingBlockReasons:
+                  audioTimeline?.missingBlockReasons ??
+                  captureSetup?.recording.missingBlockReasons ??
+                  null,
+              },
+              observation,
+              referenceCapture,
+              onsetEvidence: {
+                fixtureSha256,
+                fixtureVad,
+                capturedVad,
+                playbackWindow,
+                selectedOnsetSample,
+                gateToCapturedOnsetMs:
+                  selectedOnsetSample !== null &&
+                  taskGate.value?.observedFrame !== null &&
+                  taskGate.value?.observedFrame !== undefined &&
+                  audioTimeline
+                    ? ((audioTimeline.startFrame +
+                        selectedOnsetSample -
+                        taskGate.value.observedFrame) *
+                        1000) /
+                      audioTimeline.sampleRate
+                    : null,
+              },
+              ...(isGreeting ? { greetingPlayback, followupCapture } : {}),
+              measurement,
+            });
+            if (speakerCapture) {
+              await speakerCapture.stop();
+              await testInfo.attach(
+                `${prefix}-${repetition}-speaker-monitor.wav`,
+                {
+                  body: replyWav(speakerCapture.pcm()),
+                  contentType: 'audio/wav',
+                },
+              );
+            }
+            await page
+              .evaluate(() =>
+                (
+                  window as BargeInObserverWindow
+                ).__voiceBargeInObserver?.dispose(),
+              )
+              .catch(() => {});
+            await page
+              .getByRole('button', { name: 'Stop voice', exact: true })
+              .click({ timeout: 1500 })
+              .catch(() => {});
+          }
+          if (infrastructureError) break;
+        }
+        const assessment = assessBargeInRun(
+          records.flatMap((record) =>
+            record.measurements.bargeIn === 'unsupported'
+              ? []
+              : [record.measurements.bargeIn],
+          ),
+          selection.repetitions,
+        );
+        const report = {
+          schemaVersion: 2,
+          status: assessment.status,
+          validation: assessment,
+          benchmark: isGreeting
+            ? 'playwright-voice-greeting-barge-in'
+            : 'playwright-voice-barge-in',
+          provider: 'openai-realtime',
+          repetitions: selection.repetitions,
+          policy: bargeInPolicy,
+          context: {
+            captureInitialization: {
+              revision: 2,
+              preparationMs: 100,
+              policy:
+                'Record once after connected inputs have continuous frames and stable supported formats; readiness requires processor acknowledgment. Preparation is excluded, early remote output may not be recorded but is passed through, and every recorded discontinuity still invalidates measurement.',
+            },
+            microphoneCapture:
+              'Controlled Linux injected reference on the exact app-selected device; observed AEC/noise suppression/AGC disabled, app settings and enabled state checked unchanged across acquisition. Separate-stream settings checks do not prove unchanged acoustics. Not equivalent to prior app-processed captures.',
+            humanOnset: {
+              source: 'captured-reference VAD',
+              threshold: vadThreshold,
+              padding: vadPadding,
+              refinement: 'none; no fixture or playback-time backdating',
+            },
+            capture: isGreeting
+              ? 'Microphone and demo-local Web Audio greeting sidebranch on one sample clock; native speaker path unchanged, capture output silent. Cross-context tap buffering is included: this is tap cessation, not exact native-speaker cessation. Remote replies are separate in speaker-monitor WAV.'
+              : 'Shared-clock browser PCM sent toward the output sink, not physical audibility.',
+            attribution: isGreeting
+              ? 'Demo-specific: exactly one long direct-to-destination source in the one-sample silent-unlock context. Native stop >=50ms before source-clock expected speech end (last decoded sample >=0.01, excluding trailing silence) corroborates truncation; natural completion stays ambiguous. Not a general greeting API.'
+              : 'Matching OpenAI output clear or cancelled response corroborates the stop; quiet without that evidence is ambiguous and excluded.',
+            selectedProvider:
+              'realtime (selected and asserted via public UI before key bootstrap/connection)',
+            ...(isGreeting
+              ? {
+                  trigger:
+                    'No primer. Inject open-calendar with zero lead-in once greeting has >=300ms captured activity and <=30ms quiet tail; actual onset must overlap captured greeting.',
+                  followup:
+                    'Retain separate physical speaker monitor until changed assistant caption, listening state and 1s output quiet, or a 30s timeout. This is a bounded diagnostic, not proof of task success.',
+                }
+              : {
+                  trigger:
+                    'After the fixed greeting settles, play the unchanged primer once. Target only a fresh identified output after its marker; require >=300ms captured speech and <=30ms quiet tail, then mark and recheck the same response immediately before launching the full unchanged interruption fixture once. No observer/caption/fixture work between gate and launch.',
+                }),
+            eventClock: isGreeting
+              ? 'Native greeting start/stop calls sample the capture AudioContext clock; early-stop versus natural end uses only the source context clock. Primary latency uses captured PCM samples.'
+              : 'Playback lifecycle diagnostics use AudioContext.currentTime at browser event receipt; primary latency uses captured PCM samples only.',
+            sampleOffsets:
+              'Measurement samples address each attempt WAV; diagnostic event frames are absolute AudioContext positions.',
+            failureRateDenominator:
+              'Measured + failed + timeout attempts; invalid and ambiguous attempts are counted separately.',
+          },
+          summary: summarizeVoiceBenchmark(
+            records,
+            unsupportedLatency(
+              'Response latency is measured separately in the fixed-scenario lane.',
+            ),
+            assessment.failedAttemptCount,
+          ),
+          attempts,
+          records,
+        };
+        await completeBargeInReport(
+          report,
+          assessment,
+          (value) =>
+            testInfo.attach(
+              isGreeting
+                ? 'voice-greeting-barge-in-benchmark.json'
+                : 'voice-barge-in-benchmark.json',
+              {
+                body: JSON.stringify(value, null, 2),
+                contentType: 'application/json',
+              },
+            ),
+          infrastructureError,
+        );
+      });
+    });
+  }
 });
