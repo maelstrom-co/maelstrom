@@ -529,7 +529,7 @@ test.each([
   )!;
   fireEvent.input(filter, { target: { value: kind } });
   expect(shadow.querySelector('.content-pane')?.textContent).toContain(
-    'No error message is available in this event.',
+    'This event has no error message.',
   );
   expect(shadow.querySelector('.content-pane')?.textContent).not.toContain(
     'were not recorded',
@@ -556,7 +556,7 @@ test('evidence coverage separates retained endpoints from source-wide history lo
   const { shadow } = mount(tools);
   const content = () =>
     shadow.querySelector('.content-pane')?.textContent ?? '';
-  expect(content()).toContain('No terminal client outcome is retained');
+  expect(content()).toContain('No final client outcome is available');
   expect(content()).not.toContain('Start and outcome retained');
   client.diagnostics.emitDiagnostic(
     'client.response.applied',
@@ -731,9 +731,9 @@ test('the live request view explains outcomes without reading intent content', a
   const tools = collector();
   await clientFor(tools);
   const { shadow, click } = mount(tools);
-  expect(shadow.textContent).toContain('Why did the UI change?');
+  expect(shadow.textContent).toContain('Request activity');
   expect(shadow.querySelector('.content-pane')?.textContent).toContain(
-    'The client completed the response command batch',
+    'The client finished applying the response commands',
   );
   expect(shadow.textContent).not.toContain('unrecorded private intent');
   click('Inspector');

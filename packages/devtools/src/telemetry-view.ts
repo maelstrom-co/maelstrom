@@ -41,7 +41,7 @@ export function telemetryView(
       view.replaceChildren(
         telemetryMessage(
           'No telemetry reader supplied',
-          'Connect your application-owned telemetry instance to inspect its delivery queue and loss counters.',
+          'Pass your app’s telemetry instance to DevTools to see its queue and loss counts.',
           true,
         ),
       );
@@ -64,7 +64,7 @@ export function telemetryView(
         view.replaceChildren(
           telemetryMessage(
             'Telemetry health is unavailable',
-            'The reader must return a synchronous telemetry snapshot. Retrying every second while this view is open.',
+            'The reader did not return a valid synchronous snapshot. DevTools retries every second while this view is open.',
           ),
         );
       }

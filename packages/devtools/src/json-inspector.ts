@@ -150,12 +150,12 @@ export function createJsonInspector(
         serialized,
       );
       redaction.textContent =
-        'Some fields were redacted, truncated, or projected.';
+        'Some values were redacted, shortened, or replaced.';
     } catch {
       if (tree) jsonview.destroy(tree);
       tree = undefined;
       raw.textContent = treeContent.textContent =
-        'The evidence could not be serialized.';
+        'Could not display this value as JSON.';
     }
   }
   choose(mode);

@@ -4,7 +4,7 @@ import {
   type DevtoolsOptions,
   mountDevtools,
 } from '@maelstrom-co/devtools/production';
-import { fireEvent } from '@testing-library/react';
+import { fireEvent, isInaccessible } from '@testing-library/react';
 
 const cleanups: Array<() => void> = [];
 afterEach(() => {
@@ -45,6 +45,26 @@ function snapshot() {
     },
   };
 }
+
+test('returning from telemetry restores the view heading and help to the accessibility tree', () => {
+  const { shadow, click } = mount({ telemetry: { getSnapshot: snapshot } });
+  const heading = Array.from(shadow.querySelectorAll('h2')).find(
+    (node) => node.textContent === 'Request activity',
+  )!;
+  const help = Array.from(shadow.querySelectorAll('summary')).find(
+    (node) => node.textContent === 'Using DevTools',
+  )!;
+  expect(heading).toBeDefined();
+  expect(help).toBeDefined();
+  expect(isInaccessible(heading)).toBe(false);
+  expect(isInaccessible(help)).toBe(false);
+  click('Telemetry');
+  expect(isInaccessible(heading)).toBe(true);
+  expect(isInaccessible(help)).toBe(true);
+  click('Requests');
+  expect(isInaccessible(heading)).toBe(false);
+  expect(isInaccessible(help)).toBe(false);
+});
 
 test('telemetry health explains local delivery without claiming backend persistence or adding recording evidence', () => {
   const { tools, shadow, click } = mount({
