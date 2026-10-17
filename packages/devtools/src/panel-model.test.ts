@@ -6,6 +6,7 @@ import {
   inspectState,
   panelEvents,
   recordingEvidence,
+  requestPhases,
 } from './panel-model.js';
 
 function event(
@@ -25,6 +26,117 @@ function event(
     content,
   };
 }
+
+test('phase measurements preserve independent attempts and never infer elapsed time from event clocks', () => {
+  const events = panelEvents([
+    {
+      ...event('client.request.started'),
+      at: 100,
+      metadata: { clientId: 'app-a', durationMs: 999 },
+    },
+    event('engine.stage.failed', 'app-a', 'request', {
+      stage: 'plan',
+      outcome: 'failed',
+      durationMs: 5,
+      serverAt: 900000,
+    }),
+    event('engine.stage.completed', 'app-a', 'request', {
+      stage: 'plan',
+      outcome: 'succeeded',
+      durationMs: 7,
+      serverAt: 2,
+    }),
+    event('client.response.received', 'app-a', 'request', {
+      source: 'request',
+      durationMs: 40,
+    }),
+    event('client.command.completed', 'app-a', 'request', {
+      command: 'set_layout',
+      durationMs: 3,
+    }),
+    event('client.action.completed', 'app-a', 'request', {
+      outcome: 'skipped',
+    }),
+    {
+      ...event('client.response.applied', 'app-a', 'request', {
+        durationMs: 12,
+        actionFailures: 0,
+        skippedActions: 1,
+      }),
+      at: 999999,
+    },
+  ]);
+  const phases = requestPhases(groupRequests(events)[0]);
+  expect(
+    phases.map(({ lane, outcome, durationMs }) => [lane, outcome, durationMs]),
+  ).toEqual([
+    ['Client request', 'Started', undefined],
+    ['Engine stage', 'Failed', 5],
+    ['Engine stage', 'Succeeded', 7],
+    ['Client request', 'Succeeded', 40],
+    ['Command', 'Completed', 3],
+    ['Action', 'Skipped', undefined],
+    ['Client application', 'Applied with Action issues', 12],
+  ]);
+  expect(phases.map((phase) => phase.eventKey)).toEqual(
+    events.map((item) => item.key),
+  );
+});
+
+test('phase timings retain measured readiness waits without inventing missing or invalid durations', () => {
+  const [request] = groupRequests(
+    panelEvents([
+      event('client.action.ready', 'app-a', 'request', { durationMs: 123 }),
+      event('client.action.unavailable', 'app-a', 'request', {
+        durationMs: 2500,
+      }),
+      event('client.action.ready', 'app-a', 'request', { durationMs: -1 }),
+      event('client.action.unavailable'),
+      event('client.action.waiting', 'app-a', 'request', { durationMs: 900 }),
+    ]),
+  );
+  expect(requestPhases(request).map((phase) => phase.durationMs)).toEqual([
+    123,
+    2500,
+    undefined,
+    undefined,
+    undefined,
+  ]);
+});
+
+test('candidate validation phases preserve rejected and accepted attempts without guessing absent outcomes', () => {
+  const [request] = groupRequests(
+    panelEvents([
+      event('engine.candidate.validated', 'app-a', 'request', {
+        outcome: 'failed',
+      }),
+      event('engine.candidate.validated', 'app-a', 'request', {
+        outcome: 'succeeded',
+      }),
+      event('engine.candidate.validated'),
+      event('engine.candidate.validated', 'app-a', 'request', {
+        outcome: 'unexpected',
+      }),
+    ]),
+  );
+  expect(requestPhases(request).map((phase) => phase.outcome)).toEqual([
+    'Failed',
+    'Succeeded',
+    'Not reported',
+    'Not reported',
+  ]);
+});
+
+test('a cancelled planner attempt is not relabelled as a failure in the phase view', () => {
+  const [request] = groupRequests(
+    panelEvents([
+      event('engine.planner.failed', 'app-a', 'request', {
+        outcome: 'cancelled',
+      }),
+    ]),
+  );
+  expect(requestPhases(request)[0].outcome).toBe('Cancelled');
+});
 
 test('equal request IDs from different app lifetimes never become one request', () => {
   const requests = groupRequests(

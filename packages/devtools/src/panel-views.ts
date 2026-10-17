@@ -17,6 +17,8 @@ import {
   type PanelEvent,
   type PanelEvidence,
   type RequestStatus,
+  type RequestTrace,
+  requestPhases,
   statusLabels,
   text,
 } from './panel-model.js';
@@ -108,12 +110,16 @@ export interface ViewContext {
   query: string;
   issueCategory?: string;
   requestKey: string;
+  pinnedRequest?: string;
+  pinRequest(key?: string): void;
+  phaseBars: boolean;
+  setPhaseBars(enabled: boolean): void;
+  phasePage?: { requestKey: string; index: number };
+  selectPhasePage(page: NonNullable<ViewContext['phasePage']>): void;
   eventKey: string;
   instanceKey: string;
   allEvents: boolean;
   pageSize: number;
-  expandedRequest?: string;
-  expandRequest(key?: string): void;
   live: boolean;
   inspect(app: PanelApp): unknown;
   selectRequest(key: string): void;
@@ -174,6 +180,117 @@ function stageTimingsView(timings: readonly EngineTiming[]): HTMLElement {
   return section;
 }
 
+function requestPhasesView(
+  request: RequestTrace,
+  current: PanelEvent | undefined,
+  context: ViewContext,
+): HTMLElement {
+  const section = element('section', undefined, 'request-phases');
+  section.append(
+    element('h3', 'Request phases'),
+    element(
+      'p',
+      'Observed order, not a shared clock. Bars compare reported durations; nested work overlaps.',
+      'muted small',
+    ),
+  );
+  const phases = requestPhases(request);
+  const maximum = phases.reduce(
+    (max, phase) => Math.max(max, phase.durationMs ?? 0),
+    0,
+  );
+  const table = element('table', undefined, 'phase-table');
+  table.setAttribute('aria-label', 'Request phases');
+  const header = element('thead'),
+    headings = element('tr'),
+    body = element('tbody');
+  for (const title of ['Phase / outcome', 'Duration']) {
+    const heading = element('th', title);
+    heading.scope = 'col';
+    headings.append(heading);
+  }
+  header.append(headings);
+  table.append(header, body);
+  const barsLabel = element('label', undefined, 'phase-display');
+  const bars = element('input');
+  bars.type = 'checkbox';
+  bars.checked = context.phaseBars;
+  table.dataset.bars = String(bars.checked);
+  bars.addEventListener('change', () => {
+    table.dataset.bars = String(bars.checked);
+    context.setPhaseBars(bars.checked);
+  });
+  barsLabel.append(bars, document.createTextNode('Show duration bars'));
+  const status = element('p', undefined, 'muted small');
+  const selectedIndex = phases.findIndex(
+    (phase) => phase.eventKey === context.eventKey,
+  );
+  const pageIndex = Math.min(
+    context.phasePage?.requestKey === request.key
+      ? context.phasePage.index
+      : Math.floor(Math.max(0, selectedIndex) / 200),
+    Math.max(0, Math.ceil(phases.length / 200) - 1),
+  );
+  const start = pageIndex * 200;
+  const end = Math.min(start + 200, phases.length);
+  for (const phase of phases.slice(start, end)) {
+    const row = element('tr'),
+      name = element('td'),
+      timing = element('td');
+    const select = button(
+      '',
+      () => context.selectEvent(phase.eventKey),
+      'phase-select',
+    );
+    select.dataset.focusKey = `phase:${phase.eventKey}`;
+    select.setAttribute(
+      'aria-pressed',
+      String(current?.key === phase.eventKey),
+    );
+    select.append(
+      element('span', phase.lane, 'phase-lane'),
+      element('span', phase.label),
+      element('span', phase.outcome, 'phase-result'),
+    );
+    name.append(select);
+    timing.append(element('span', duration(phase.durationMs)));
+    if (phase.durationMs !== undefined) {
+      const track = element('span', undefined, 'phase-track'),
+        bar = element('span', undefined, 'phase-bar');
+      track.setAttribute('aria-hidden', 'true');
+      bar.style.width = `${maximum > 0 ? (phase.durationMs / maximum) * 100 : 0}%`;
+      track.append(bar);
+      timing.append(track);
+    }
+    row.append(name, timing);
+    body.append(row);
+  }
+  status.textContent = `Showing ${start + 1}–${end} of ${phases.length} observed events`;
+  section.append(barsLabel, table, status);
+  if (phases.length > 200) {
+    const previous = button('Previous phases', () => {
+      if (pageIndex > 0)
+        context.selectPhasePage({
+          requestKey: request.key,
+          index: pageIndex - 1,
+        });
+    });
+    previous.setAttribute('aria-disabled', String(pageIndex === 0));
+    previous.dataset.focusKey = 'previous-phases';
+    const more = button('Show more phases', () => {
+      if (end < phases.length)
+        context.selectPhasePage({
+          requestKey: request.key,
+          index: pageIndex + 1,
+        });
+    });
+    more.setAttribute('aria-disabled', String(end === phases.length));
+    more.dataset.focusKey = 'more-phases';
+    section.append(previous, more);
+  }
+  return section;
+}
+
 function eventDetails(event: PanelEvent, context: ViewContext): HTMLElement {
   const detail = element('section');
   detail.append(element('h3', eventLabel(event)));
@@ -198,7 +315,9 @@ function eventDetails(event: PanelEvent, context: ViewContext): HTMLElement {
         ? duration(value)
         : value === null || value === undefined
           ? 'Not reported'
-          : String(value),
+          : typeof value === 'object'
+            ? JSON.stringify(value)
+            : String(value),
     ]);
   }
   if (values.length) detail.append(table(values));
@@ -302,7 +421,8 @@ export function requestsView(context: ViewContext): RenderedView {
       ],
     };
   }
-  const requests = groupRequests(scoped).filter(
+  const retainedRequests = groupRequests(scoped);
+  const requests = retainedRequests.filter(
     (request) =>
       (!context.issueCategory ||
         context.issueCategory === 'all' ||
@@ -318,6 +438,13 @@ export function requestsView(context: ViewContext): RenderedView {
   const selected = context.requestKey
     ? requests.find((request) => request.key === context.requestKey)
     : requests[0];
+  const pinned = requests.find(
+    (request) => request.key === context.pinnedRequest,
+  );
+  if (pinned) {
+    requests.splice(requests.indexOf(pinned), 1);
+    requests.unshift(pinned);
+  }
   for (const request of requests.slice(0, context.pageSize)) {
     const row = button(
       '',
@@ -344,18 +471,27 @@ export function requestsView(context: ViewContext): RenderedView {
         'row-detail',
       ),
     );
+    if (request.key === context.pinnedRequest) row.append(badge('Pinned'));
     navigation.append(row);
   }
   if (requests.length > context.pageSize)
     navigation.append(button('Show more requests', context.more));
   if (!selected) {
+    if (context.pinnedRequest)
+      content.append(button('Unpin request', () => context.pinRequest()));
     content.append(
       empty(
-        context.requestKey
-          ? 'The selected request is no longer retained or does not match this view. Select another request from the list.'
-          : scoped.length > 0
-            ? 'No matching requests. Choose All events to inspect connection or voice events. For recording events, first select the recording under Evidence.'
-            : 'No requests yet. Interact with your application to see how requests change its UI.',
+        context.pinnedRequest
+          ? retainedRequests.some(
+              (request) => request.key === context.pinnedRequest,
+            )
+            ? 'Pinned request is hidden by the current filters. Clear the filters to inspect it.'
+            : 'Pinned request evidence is no longer retained. Pinning keeps one identity, not a copy of its events. Unpin to select another request.'
+          : context.requestKey
+            ? 'The selected request is no longer retained or does not match this view. Select another request from the list.'
+            : scoped.length > 0
+              ? 'No matching requests. Choose All events to inspect connection or voice events. For recording events, first select the recording under Evidence.'
+              : 'No requests yet. Interact with your application to see how requests change its UI.',
       ),
     );
     return { navigation, content, raw: undefined, rawTitle: 'Selected event' };
@@ -384,6 +520,21 @@ export function requestsView(context: ViewContext): RenderedView {
     abandoned: 'Client work ended before the response batch completed.',
   };
   outcome.append(element('p', summary[selected.status], 'muted'));
+  const pin = button(
+    context.pinnedRequest === selected.key ? 'Unpin request' : 'Pin request',
+    () =>
+      context.pinRequest(
+        context.pinnedRequest === selected.key ? undefined : selected.key,
+      ),
+  );
+  pin.dataset.focusKey = 'pin-request';
+  pin.setAttribute(
+    'aria-pressed',
+    String(context.pinnedRequest === selected.key),
+  );
+  pin.title =
+    'Keep this request first in the list. Selecting another request clears the pin. Event retention limits still apply.';
+  outcome.append(pin);
   content.append(outcome);
   const matchingIssues = selected.issues.filter((issue) =>
     matchesCategory(issue, context.issueCategory),
@@ -540,82 +691,10 @@ export function requestsView(context: ViewContext): RenderedView {
         'muted small',
       ),
     );
-  content.append(element('h3', 'Observed stages'));
   const current =
     selected.events.find((event) => event.key === context.eventKey) ??
     selected.events.at(-1);
-  function timeline(events: readonly PanelEvent[]): HTMLElement {
-    const list = element('ol', undefined, 'timeline');
-    for (const event of events) {
-      const item = element('li');
-      const row = button('', () => context.selectEvent(event.key));
-      row.dataset.focusKey = `stage:${event.key}`;
-      row.setAttribute('aria-pressed', String(current?.key === event.key));
-      row.append(element('span', eventLabel(event)));
-      const bits = [
-        event.kind.startsWith('engine.') ? 'Engine' : undefined,
-        text(event.metadata.action),
-        text(event.metadata.outcome),
-        numeric(event.metadata.durationMs) === undefined
-          ? undefined
-          : duration(event.metadata.durationMs),
-      ].filter(Boolean);
-      if (bits.length)
-        row.append(element('span', bits.join(' · '), 'stage-meta'));
-      item.append(row);
-      list.append(item);
-    }
-    return list;
-  }
-  const milestones = selected.events.filter(
-    (event) =>
-      [
-        'client.request.started',
-        'client.request.failed',
-        'client.response.received',
-        'client.response.applied',
-        'client.response.failed',
-        'client.response.discarded',
-        'client.response.abandoned',
-        'client.action.completed',
-      ].includes(event.kind) ||
-      (event.kind === 'client.command.completed' &&
-        event.metadata.command === 'set_layout'),
-  );
-  const visibleMilestones = milestones.slice(0, 30);
-  const terminal = milestones.at(-1);
-  if (terminal && !visibleMilestones.includes(terminal))
-    visibleMilestones.push(terminal);
-  content.append(timeline(visibleMilestones));
-  const additional = selected.events.filter(
-    (event) => !visibleMilestones.includes(event),
-  );
-  if (additional.length) {
-    const details = element('details', undefined, 'help');
-    details.open =
-      context.expandedRequest === selected.key ||
-      Boolean(current && additional.includes(current) && context.eventKey);
-    details.addEventListener('toggle', () => {
-      if (details.isConnected)
-        context.expandRequest(details.open ? selected.key : undefined);
-    });
-    details.append(
-      element(
-        'summary',
-        `Queue, readiness, and Engine stages · ${additional.length}`,
-      ),
-      timeline(additional.slice(0, 200)),
-    );
-    if (additional.length > 200)
-      details.append(
-        element(
-          'p',
-          'Only the first 200 additional stages are shown. Use All events and the request filter to inspect the remaining evidence.',
-          'muted small',
-        ),
-      );
-    content.append(details);
-  }
+  content.append(requestPhasesView(selected, current, context));
   coverage.append(
     element(
       'p',
@@ -627,11 +706,7 @@ export function requestsView(context: ViewContext): RenderedView {
     ),
   );
   content.append(coverage);
-  if (
-    current &&
-    (text(current.metadata.instanceId) || text(fields(current.content).error))
-  )
-    content.append(eventDetails(current, context));
+  if (current) content.append(eventDetails(current, context));
   return {
     navigation,
     content,
@@ -641,9 +716,10 @@ export function requestsView(context: ViewContext): RenderedView {
     contentIdentity: [
       'request',
       selected.key,
+      context.pinnedRequest,
       context.issueCategory,
       context.eventKey,
-      context.expandedRequest,
+      context.phasePage,
       context.clientId,
       dropped,
       omitted,

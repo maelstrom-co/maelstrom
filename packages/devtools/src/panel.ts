@@ -44,7 +44,6 @@ interface PanelPreferences {
   query: string;
   issueCategory?: string;
   requestKey: string;
-  expandedRequest?: string;
   eventKey: string;
   instanceKey: string;
   allEvents: boolean;
@@ -54,6 +53,8 @@ interface PanelPreferences {
   highlight: boolean;
   json: boolean;
   jsonMode?: 'tree' | 'raw';
+  phaseBars?: boolean;
+  phasePage?: ViewContext['phasePage'];
   height?: number;
   labels: Map<string, string>;
   nextLabel: number;
@@ -97,6 +98,7 @@ function Panel(tools: Devtools): HTMLElement {
   );
   const [revision, setRevision] = createSignal(0);
   const [error, setError] = createSignal('');
+  let pinnedRequest: string | undefined;
   let captureEpoch = 0;
   let previousCapture = tools.capture.getSnapshot();
   let previousEvidenceRevision = tools.capture.getEvidenceRevision?.() ?? 0;
@@ -104,6 +106,7 @@ function Panel(tools: Devtools): HTMLElement {
   let cachedRecording: PanelEvidence | undefined;
   let recordingKey = '';
   let importedReference: unknown;
+  let previousImport = snapshot().imported;
   let cachedImport: PanelEvidence | undefined;
   let liveReference: DevtoolsSnapshot | undefined;
   let cachedLive: PanelEvidence | undefined;
@@ -113,6 +116,13 @@ function Panel(tools: Devtools): HTMLElement {
   >();
   const refresh = () => setRevision((value) => value + 1);
   const update = () => {
+    const nextSnapshot = tools.getSnapshot();
+    if (nextSnapshot.imported !== previousImport) {
+      if (source() === 'imported') clearRequestSelection();
+      previousImport = nextSnapshot.imported;
+      cachedImport = undefined;
+      importedReference = undefined;
+    }
     const next = tools.capture.getSnapshot();
     const evidenceRevision = tools.capture.getEvidenceRevision?.() ?? 0;
     if (evidenceRevision !== previousEvidenceRevision) {
@@ -130,13 +140,16 @@ function Panel(tools: Devtools): HTMLElement {
       (next.count === 0 && previousCapture.count > 0)
     ) {
       captureEpoch++;
+      if (source() === 'recording') {
+        clearRequestSelection();
+      }
       headerMetadata = undefined;
       cachedRecording = undefined;
       recordingKey = '';
     }
     previousCapture = next;
     previousEvidenceRevision = evidenceRevision;
-    setSnapshot(tools.getSnapshot());
+    setSnapshot(nextSnapshot);
     setCaptureStatus(next);
   };
   onCleanup(tools.subscribe(update));
@@ -256,10 +269,15 @@ function Panel(tools: Devtools): HTMLElement {
     }
     return previous.inspection;
   }
-  function switchSource(next: Source): void {
-    preferences.issueCategory = 'all';
+  function clearRequestSelection(): void {
+    pinnedRequest = undefined;
     preferences.requestKey = '';
     preferences.eventKey = '';
+    preferences.phasePage = undefined;
+  }
+  function switchSource(next: Source): void {
+    clearRequestSelection();
+    preferences.issueCategory = 'all';
     preferences.instanceKey = '';
     setSelected('all');
     setSource(next);
@@ -361,8 +379,7 @@ function Panel(tools: Devtools): HTMLElement {
   scopeLabel.append(selector);
   const singleScope = element('span', undefined, 'muted small');
   selector.addEventListener('change', () => {
-    preferences.requestKey = '';
-    preferences.eventKey = '';
+    clearRequestSelection();
     setSelected(selector.value);
     preferences.instanceKey = '';
     pageSize = 50;
@@ -441,7 +458,7 @@ function Panel(tools: Devtools): HTMLElement {
   filter.setAttribute('aria-label', 'Filter diagnostic evidence');
   filter.value = preferences.query;
   filter.addEventListener('input', () => {
-    preferences.requestKey = '';
+    if (!pinnedRequest) preferences.requestKey = '';
     preferences.eventKey = '';
     setQuery(filter.value);
   });
@@ -461,7 +478,7 @@ function Panel(tools: Devtools): HTMLElement {
   }
   issueCategory.addEventListener('change', () => {
     preferences.issueCategory = issueCategory.value;
-    preferences.requestKey = '';
+    if (!pinnedRequest) preferences.requestKey = '';
     preferences.eventKey = '';
     pageSize = 50;
     refresh();
@@ -1050,22 +1067,37 @@ function Panel(tools: Devtools): HTMLElement {
       query: query(),
       issueCategory: preferences.issueCategory,
       requestKey: preferences.requestKey,
+      pinnedRequest,
+      phaseBars: preferences.phaseBars ?? true,
+      phasePage: preferences.phasePage,
+      selectPhasePage: (page) => {
+        preferences.phasePage = page;
+        refresh();
+      },
+      setPhaseBars: (enabled) => {
+        preferences.phaseBars = enabled;
+      },
+      pinRequest: (key) => {
+        pinnedRequest = key;
+        preferences.requestKey = key ?? '';
+        preferences.eventKey = '';
+        refresh();
+      },
       eventKey: preferences.eventKey,
       instanceKey: preferences.instanceKey,
       allEvents: preferences.allEvents,
       pageSize,
-      expandedRequest: preferences.expandedRequest,
-      expandRequest: (key) => {
-        preferences.expandedRequest = key;
-      },
       live: currentSource === 'live',
       inspect,
       selectRequest: (key) => {
+        preferences.phasePage = undefined;
+        if (pinnedRequest !== key) pinnedRequest = undefined;
         preferences.requestKey = key;
         preferences.eventKey = '';
         refresh();
       },
       selectEvent: (key) => {
+        preferences.phasePage = undefined;
         preferences.eventKey = key;
         refresh();
       },
@@ -1076,12 +1108,14 @@ function Panel(tools: Devtools): HTMLElement {
           );
           return;
         }
+        clearRequestSelection();
         preferences.instanceKey = JSON.stringify([clientId, instanceId]);
         setSelected(clientId);
         setTab('Inspector');
         refresh();
       },
       selectApp: (clientId) => {
+        clearRequestSelection();
         setSelected(clientId);
         refresh();
       },
@@ -1108,7 +1142,9 @@ function Panel(tools: Devtools): HTMLElement {
       query(),
       preferences.issueCategory,
       preferences.requestKey,
+      pinnedRequest,
       preferences.eventKey,
+      preferences.phasePage,
       preferences.instanceKey,
       preferences.allEvents,
       pageSize,

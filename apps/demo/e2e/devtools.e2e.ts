@@ -1,5 +1,90 @@
 import { expect, test } from '@playwright/test';
 
+test('request phases support keyboard selection beside independently scrolling JSON', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Open Maelstrom Devtools' }).click();
+  const panel = page.getByRole('region', { name: 'Maelstrom Devtools' });
+  await panel.locator('input[type="file"]').setInputFiles({
+    name: 'phases.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from(
+      JSON.stringify({
+        schemaVersion: 2,
+        capture: {
+          schemaVersion: 1,
+          active: false,
+          metadata: {},
+          events: Array.from({ length: 205 }, (_, index) => ({
+            id: `phase-${index}`,
+            sessionId: 'browser-fixture',
+            requestId: 'long-request',
+            kind: 'engine.stage.completed',
+            at: index,
+            metadata: {
+              clientId: 'fixture-app',
+              stage: `step-${index}`,
+              outcome: 'succeeded',
+              durationMs: index,
+            },
+          })),
+        },
+      }),
+    ),
+  });
+  await expect(
+    page.getByRole('combobox', { name: 'Evidence source' }),
+  ).toHaveValue('imported');
+  await page.getByRole('button', { name: 'Pin request', exact: true }).click();
+  await page.getByRole('button', { name: 'Raw JSON', exact: true }).click();
+  const more = page.getByRole('button', {
+    name: 'Show more phases',
+    exact: true,
+  });
+  await more.focus();
+  await page.keyboard.press('Enter');
+  await expect(more).toBeFocused();
+  const phases = page.getByRole('table', {
+    name: 'Request phases',
+    exact: true,
+  });
+  await page.keyboard.press('Enter');
+  await expect(phases.locator('tbody tr')).toHaveCount(5);
+  const previous = page.getByRole('button', {
+    name: 'Previous phases',
+    exact: true,
+  });
+  await previous.focus();
+  await page.keyboard.press('Enter');
+  await expect(previous).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(phases.locator('tbody tr')).toHaveCount(200);
+  await more.focus();
+  await page.keyboard.press('Enter');
+  const last = phases.getByRole('button', { name: /step-204/ });
+  await last.focus();
+  await page.keyboard.press('Enter');
+  await expect(last).toHaveAttribute('aria-pressed', 'true');
+  const raw = page.getByRole('region', { name: 'Raw JSON', exact: true });
+  await expect(raw).toContainText('step-204');
+  const jsonScroll = await raw.evaluate((node) => node.scrollTop);
+  const details = page.getByRole('region', {
+    name: 'Diagnostic details',
+    exact: true,
+  });
+  await details.scrollIntoViewIfNeeded();
+  await details.hover();
+  await page.mouse.wheel(0, -100000);
+  await expect.poll(() => details.evaluate((node) => node.scrollTop)).toBe(0);
+  expect(await raw.evaluate((node) => node.scrollTop)).toBe(jsonScroll);
+  await page.getByRole('checkbox', { name: 'Show duration bars' }).uncheck();
+  await expect(phases.locator('.phase-track').first()).toBeHidden();
+  await raw.scrollIntoViewIfNeeded();
+  await expect(raw).toBeInViewport();
+  await expect(raw).toContainText('step-204');
+});
+
 test('recording notes use the visible question and imported read-only label as their accessible names', async ({
   page,
 }) => {
