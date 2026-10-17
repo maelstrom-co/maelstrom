@@ -554,6 +554,11 @@ Use the DevTools guide for request, layout, voice, and recording inspection. Aut
   ],
   vite: {
     plugins: [tailwindcss()],
+    environments: {
+      prerender: {
+        build: { rolldownOptions: { external: ['satteri'] } },
+      },
+    },
   },
   srcDir: './src',
   outDir: './dist',
