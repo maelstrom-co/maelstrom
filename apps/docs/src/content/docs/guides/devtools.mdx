@@ -170,8 +170,8 @@ highlights a live Instance or changes the application.
    with structural baselines. It retains supported subsequent content and cannot
    recover earlier prompts, transcripts, or Action arguments.
 3. **Select Stop, then Inspect recording.** Use the same readable views and JSON
-   to inspect the retained evidence. Add **Expected result and observed result**
-   notes to explain the problem. Notes are manual context, not an automated test.
+   to inspect the retained evidence. Use **What did you expect? What happened?**
+   to add a note about the problem. Notes are manual context, not an automated test.
 4. **Select Export JSON** to download the recording. Use **Open recording** to
    inspect a saved file. Imported evidence and notes are read-only.
 </Steps>
@@ -238,7 +238,7 @@ not identify missing request events or voice source observations.
 
 The flow labels current queue sizes as **Now** and cumulative counts as **Lifetime**.
 The loss ledger highlights nonzero reasons. Select **Show all loss counters** to
-inspect every reason. Open **Scope & counting rules** for interpretation limits;
+inspect every reason. Open **Scope and counting rules** for interpretation limits;
 both disclosures stay open while counters refresh.
 
 The supplied `getSnapshot()` must return synchronously. DevTools calls it when you

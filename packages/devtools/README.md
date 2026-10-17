@@ -94,7 +94,7 @@ attached producers. App instance and evidence filters do not apply.
 
 The delivery flow separates Lifetime totals from Now queue sizes. The loss ledger
 shows reported losses first; Show all loss counters reveals zero-valued reasons.
-Scope & counting rules explains the boundaries. Expanded details stay open during
+Scope and counting rules explains the boundaries. Expanded details stay open during
 refreshes. Motion indicates active exporting and respects reduced-motion settings.
 
 The option requires only synchronous `getSnapshot()`. The panel reads immediately

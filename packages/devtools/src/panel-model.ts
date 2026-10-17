@@ -65,7 +65,7 @@ export const errorCategories: Readonly<
   },
   validation: {
     label: 'Validation',
-    explanation: 'Input or a response did not satisfy the expected contract.',
+    explanation: 'Input or a response did not match the expected format.',
   },
   timeout: {
     label: 'Timeout',
@@ -77,7 +77,7 @@ export const errorCategories: Readonly<
   },
   application: {
     label: 'Application',
-    explanation: 'Client response application or Action execution failed.',
+    explanation: 'The client could not apply a response or run an Action.',
   },
   provider: { label: 'Provider', explanation: 'A provider operation failed.' },
   unknown: {

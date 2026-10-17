@@ -224,7 +224,7 @@ function eventDetails(event: PanelEvent, context: ViewContext): HTMLElement {
       element(
         'p',
         event.content !== undefined
-          ? 'No error message is available in this event. Recording retains only the details supplied by its source.'
+          ? 'This event has no error message. Recordings only keep details supplied by the source.'
           : `${issue?.outcome === 'failed' ? 'Error content was' : 'Event details were'} not recorded. Start a recording before reproducing the problem to retain supported details.`,
         'muted small',
       ),
@@ -354,13 +354,15 @@ export function requestsView(context: ViewContext): RenderedView {
         context.requestKey
           ? 'The selected request is no longer retained or does not match this view. Select another request from the list.'
           : scoped.length > 0
-            ? 'No correlated requests match this view. Choose All events for connection, voice, and legacy recording evidence.'
+            ? 'No matching requests. Choose All events to inspect connection or voice events. For recording events, first select the recording under Evidence.'
             : 'No requests yet. Interact with your application to see how requests change its UI.',
       ),
     );
     return { navigation, content, raw: undefined, rawTitle: 'Selected event' };
   }
-  content.append(
+  const outcome = element('header', undefined, 'request-outcome');
+  outcome.dataset.tone = tone(selected.status);
+  outcome.append(
     badge(statusLabels[selected.status], tone(selected.status)),
     element(
       'h3',
@@ -369,17 +371,20 @@ export function requestsView(context: ViewContext): RenderedView {
     ),
   );
   const summary: Record<RequestStatus, string> = {
-    awaiting: 'No client outcome has been observed yet.',
-    received: 'The response arrived. UI application has not yet been observed.',
-    applied: 'The client completed the response command batch.',
+    awaiting: 'Waiting for a client outcome.',
+    received:
+      'The response arrived. No application outcome has been reported yet.',
+    applied: 'The client finished applying the response commands.',
     'applied-with-issues':
-      'The response batch completed with failed or skipped Actions.',
-    failed: 'The client reported a request or response application failure.',
+      'The client finished applying the response. Some Actions failed or were skipped.',
+    failed:
+      'The client reported a failure while requesting or applying the response.',
     cancelled: 'The request was cancelled before a response was applied.',
     discarded: 'The client discarded this response. Inspect its reason below.',
     abandoned: 'Client work ended before the response batch completed.',
   };
-  content.append(element('p', summary[selected.status], 'muted'));
+  outcome.append(element('p', summary[selected.status], 'muted'));
+  content.append(outcome);
   const matchingIssues = selected.issues.filter((issue) =>
     matchesCategory(issue, context.issueCategory),
   );
@@ -389,7 +394,7 @@ export function requestsView(context: ViewContext): RenderedView {
       element('h3', 'Observed issues'),
       element(
         'p',
-        'These events describe individual operations. A later request outcome can still succeed.',
+        'An operation can fail even when the request later succeeds.',
         'muted small',
       ),
     );
@@ -493,7 +498,7 @@ export function requestsView(context: ViewContext): RenderedView {
     content.append(
       element(
         'p',
-        'No terminal client outcome is retained. Work may still be running, or its outcome may be outside this evidence window.',
+        'No final client outcome is available. Work may still be running, or its outcome may have left the retained history.',
         'warning',
       ),
     );
@@ -778,8 +783,8 @@ export function inspectorView(context: ViewContext): RenderedView {
       element(
         'p',
         state.tiles === null
-          ? 'A trustworthy layout diagram is unavailable. Instance details and JSON remain accessible.'
-          : 'The layout has no visible Instance leaves.',
+          ? 'There is not enough layout data to draw the Chart. Inspect the Instance details or JSON.'
+          : 'The layout has no visible Instances.',
         'muted',
       ),
     );
@@ -798,7 +803,7 @@ export function inspectorView(context: ViewContext): RenderedView {
         [
           'Visibility',
           selected.visible === undefined
-            ? 'Not established'
+            ? 'Unknown'
             : selected.visible
               ? 'Visible in layout'
               : 'Retained, hidden by layout',
@@ -823,7 +828,7 @@ export function inspectorView(context: ViewContext): RenderedView {
               .actions,
           )
             ? 'No Actions are declared for this Variant.'
-            : 'Action definitions were not retained. Live inspection or a recording baseline is needed.',
+            : 'Action definitions are missing. Use live inspection or a recording with a starting snapshot.',
           'muted small',
         ),
       );
@@ -863,11 +868,7 @@ export function inspectorView(context: ViewContext): RenderedView {
   }
   if (!state.vessels.length)
     registry.append(
-      element(
-        'p',
-        'Registry definitions are not available in this evidence.',
-        'muted',
-      ),
+      element('p', 'This source has no registry definitions.', 'muted'),
     );
   content.append(registry);
   return {
@@ -1041,11 +1042,11 @@ export function connectionsView(
     content.append(
       element(
         'p',
-        'No voice metadata is retained. Voice is optional and remains separate from the app-instance selector.',
+        'No voice metadata is available. When connected, voice providers appear here under their app instance.',
         'muted small',
       ),
     );
-  content.append(element('h3', 'Recent connection and voice observations'));
+  content.append(element('h3', 'Recent connection and voice events'));
   for (const event of events
     .filter(
       (event) =>

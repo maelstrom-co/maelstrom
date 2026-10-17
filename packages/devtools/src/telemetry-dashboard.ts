@@ -5,7 +5,7 @@ const number = new Intl.NumberFormat('en-US');
 const states = {
   active: [
     'Active',
-    'Accepting facts. Inspect the loss ledger for earlier delivery problems.',
+    'Accepting facts. Earlier delivery problems appear in the loss ledger.',
   ],
   disabled: [
     'Disabled',
@@ -87,7 +87,7 @@ export function createTelemetryDashboard() {
   const heading = element('div', undefined, 'telemetry-heading');
   const title = element('div');
   title.append(
-    element('p', 'Live counters · supplied instance', 'telemetry-eyebrow'),
+    element('p', 'Live counters · app telemetry', 'telemetry-eyebrow'),
     element('h2', 'Telemetry delivery'),
   );
   const state = element('dl', undefined, 'telemetry-state');
@@ -181,7 +181,7 @@ export function createTelemetryDashboard() {
 
   const guide = element('aside', undefined, 'telemetry-guide');
   guide.append(
-    element('span', 'READING THE FLOW', 'telemetry-eyebrow'),
+    element('span', 'Reading the counts', 'telemetry-eyebrow'),
     element('h3', 'What these counts mean'),
     element(
       'p',
@@ -195,7 +195,7 @@ export function createTelemetryDashboard() {
   );
   const scope = element('details', undefined, 'telemetry-limits');
   scope.append(
-    element('summary', 'Scope & counting rules'),
+    element('summary', 'Scope and counting rules'),
     element(
       'p',
       'These counters are not included in recordings. They cover the supplied telemetry instance across its producers, independent of app and evidence filters.',

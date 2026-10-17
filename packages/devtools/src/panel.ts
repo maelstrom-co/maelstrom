@@ -149,7 +149,7 @@ function Panel(tools: Devtools): HTMLElement {
       setError('');
     } catch {
       setError(
-        'The devtools operation could not be completed. Check the recording format, limits, and application redaction policy.',
+        'DevTools could not complete this action. Check the recording format, configured limits, and app redaction policy.',
       );
     }
   }
@@ -412,18 +412,18 @@ function Panel(tools: Devtools): HTMLElement {
     description = element('p', undefined, 'muted');
   const help = element('details', undefined, 'help');
   help.append(
-    element('summary', 'How to use these tools'),
+    element('summary', 'Using DevTools'),
     element(
       'p',
-      'Live activity keeps recent metadata automatically. Requests explain observed outcomes; All events includes connection, voice, and lower-level observations.',
+      'Live activity keeps recent metadata. Requests groups it by request. All events also shows connection, voice, and other events.',
     ),
     element(
       'p',
-      'Recordings add supported content only after Start recording. Reproduce the problem, stop, then inspect or export. Earlier prompts and arguments cannot be recovered.',
+      'Start a recording before reproducing a problem to capture supported content. Stop to inspect or export it. Earlier prompts and arguments cannot be recovered.',
     ),
     element(
       'p',
-      'Each attached Maelstrom client is an app instance. React creates one for each mounted Provider. Ended instances can remain as bounded history. Voice providers are shown separately in Connections.',
+      'Each attached client is an app instance. React creates one per mounted Provider. Recent history can include ended instances. Connections also shows voice providers.',
     ),
   );
   const sourceBanner = element('div', undefined, 'source-banner');
@@ -541,14 +541,14 @@ function Panel(tools: Devtools): HTMLElement {
     recordingFacts = element('div');
   const steps = element('ol', undefined, 'steps');
   for (const [heading, detail] of [
-    ['Start recording', 'Choose an app scope. Content capture begins now.'],
+    ['Start recording', 'Choose which app instances to record.'],
     [
       'Reproduce the problem',
-      'Use your application while supported evidence is recorded.',
+      'Use the app. Supported content is captured from this point.',
     ],
     [
       'Stop and inspect',
-      'Review requests and state, add a note, or export JSON.',
+      'Inspect the requests, add a note, and export JSON to share.',
     ],
   ]) {
     const step = element('li');
@@ -629,7 +629,7 @@ function Panel(tools: Devtools): HTMLElement {
     } catch {
       if (mounted)
         setError(
-          'Cannot open this recording. Use valid Maelstrom JSON within the configured size limits.',
+          'Could not open this file. Choose a Maelstrom recording within the configured size limit.',
         );
     }
     input.value = '';
@@ -651,12 +651,11 @@ function Panel(tools: Devtools): HTMLElement {
   );
   const noteLabel = element(
     'label',
-    'Expected result and observed result',
+    'What did you expect? What happened?',
     'recording-note',
   );
   const note = element('textarea');
   note.id = `${id}-note`;
-  note.setAttribute('aria-label', 'Recording note');
   noteLabel.htmlFor = note.id;
   note.placeholder = 'What did you expect, and what happened?';
   note.addEventListener('input', () => {
@@ -665,24 +664,21 @@ function Panel(tools: Devtools): HTMLElement {
   });
   const recordInfo = element(
     'p',
-    'Content stays in memory until Clear recording or page reload. Redaction and configured limits apply. Imported recordings never execute commands.',
+    'Recordings stay in memory until you clear them or reload the page. Redaction and size limits apply. Opening a recording does not run its commands.',
     'muted small',
   );
-  recording.append(
-    recordingStatus,
-    steps,
-    recordScopeLabel,
-    recordingActions,
-    recordingFacts,
-    noteLabel,
-    note,
-    recordInfo,
-  );
+  const recordingSetup = element('div', undefined, 'recording-setup');
+  const recordingReview = element('div', undefined, 'recording-review');
+  recordingSetup.append(steps, recordScopeLabel, recordingActions);
+  recordingReview.append(recordingFacts, noteLabel, note, recordInfo);
+  recording.append(recordingStatus, recordingSetup, recordingReview);
   const controls = element('div', undefined, 'panel-controls');
+  const viewHeading = element('div', undefined, 'view-heading');
+  const viewIntro = element('div');
+  viewIntro.append(title, description);
+  viewHeading.append(viewIntro, help);
   controls.append(
-    title,
-    description,
-    help,
+    viewHeading,
     sourceBanner,
     activeNotice,
     warning,
@@ -710,20 +706,20 @@ function Panel(tools: Devtools): HTMLElement {
   const recordingOptions = new Map<string, HTMLOptionElement>();
   const purpose: Record<Tab, readonly [string, string]> = {
     Requests: [
-      'Why did the UI change?',
-      'Read request outcomes and their observed stages. Switch to All events for connection, voice, and legacy evidence.',
+      'Request activity',
+      'Follow a request from start to outcome. All events shows events from the selected Evidence source. To inspect a recording, select it under Evidence, then choose All events.',
     ],
     Inspector: [
-      'What is on the screen?',
-      'Select an Instance in the layout to inspect its Vessel, Variant, and declared Actions.',
+      'Layout inspector',
+      'Select an Instance to see its Vessel, Variant, and available Actions.',
     ],
     Connections: [
-      'Which connections are involved?',
-      'Inspect Engine and optional voice evidence. App lifetimes and voice provider lifetimes stay separate.',
+      'Connections',
+      'Check Engine and voice connections. Each app and voice provider has its own lifetime.',
     ],
     Recordings: [
-      'Record a reproducible problem',
-      'Start, reproduce, stop, then inspect or export. Live activity alone does not retain prompts or arguments.',
+      'Recordings',
+      'Record a problem, or inspect a saved recording. Live activity keeps metadata only.',
     ],
     Telemetry: [
       'Is telemetry being delivered?',
@@ -767,6 +763,7 @@ function Panel(tools: Devtools): HTMLElement {
       return;
     }
     const viewingTelemetry = currentTab === 'Telemetry';
+    viewHeading.hidden = viewingTelemetry;
     telemetry.hidden = !viewingTelemetry;
     sourceLabel.hidden = viewingTelemetry;
     help.hidden = viewingTelemetry;
@@ -962,7 +959,7 @@ function Panel(tools: Devtools): HTMLElement {
     activeNotice.hidden = currentSource === 'live' || !status.active;
     activeNoticeText.textContent = `Live recording continues for ${recordingScope()} · ${status.count} events. `;
     warning.hidden = !(droppedEvents || omittedEvents || unknownApps.size);
-    warning.textContent = `${droppedEvents ? `${droppedEvents} older ${requestView ? 'request ' : ''}events were dropped or evicted. ` : ''}${omittedEvents ? `This viewer projects the latest ${MAX_VIEW_EVENTS} events; ${omittedEvents} earlier events are omitted from the view. ` : ''}${unknownApps.size ? 'Some app state is no longer retained; its events remain inspectable. ' : ''}Observed stages may be incomplete.`;
+    warning.textContent = `${droppedEvents ? `${droppedEvents} older ${requestView ? 'request ' : ''}events were dropped or evicted. ` : ''}${omittedEvents ? `This view shows the latest ${MAX_VIEW_EVENTS} events; ${omittedEvents} earlier events are omitted from the view. ` : ''}${unknownApps.size ? 'Some app state is no longer retained; its events remain inspectable. ' : ''}Observed stages may be incomplete.`;
     errorView.textContent = error();
     errorView.hidden = !error();
     recording.hidden = currentTab !== 'Recordings';
@@ -983,6 +980,7 @@ function Panel(tools: Devtools): HTMLElement {
     inspectRecording.disabled = status.active || status.count === 0;
     closeImport.hidden = state.imported === null;
     const viewingImport = currentSource === 'imported';
+    recording.dataset.source = currentSource;
     start.hidden = viewingImport;
     stop.hidden = viewingImport;
     clear.hidden = viewingImport;
@@ -1035,7 +1033,7 @@ function Panel(tools: Devtools): HTMLElement {
     note.disabled = !viewingImport && status.count === 0;
     noteLabel.textContent = viewingImport
       ? 'Recorded note (read-only)'
-      : 'Expected result and observed result';
+      : 'What did you expect? What happened?';
     if (currentTab === 'Recordings') {
       tools.setHighlightedInstance?.();
       previousSignature = [];
@@ -1074,7 +1072,7 @@ function Panel(tools: Devtools): HTMLElement {
       selectInstance: (clientId, instanceId) => {
         if (!data.apps.some((app) => app.id === clientId)) {
           setError(
-            'The app state for this event is no longer retained. Its recorded event JSON remains available.',
+            'App state is no longer available for this event. You can still inspect its JSON.',
           );
           return;
         }
