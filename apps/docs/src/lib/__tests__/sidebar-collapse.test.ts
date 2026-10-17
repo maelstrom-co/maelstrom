@@ -298,7 +298,7 @@ describe('animation marker', () => {
 describe('pinned sidebar width', () => {
   it('still matches the Starlight default it duplicates', () => {
     const starlightRoot = dirname(
-      Bun.resolveSync('@astrojs/starlight/package.json', import.meta.dir),
+      Bun.resolveSync('@astrojs/starlight', import.meta.dir),
     );
     const upstream = readFileSync(
       join(starlightRoot, 'style/props.css'),

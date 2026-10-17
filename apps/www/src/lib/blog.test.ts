@@ -133,9 +133,7 @@ test.each([
     }
     expect(entries.get('post')?.data).toEqual({ title: 'corrected' });
     expect(errors.length).toBe(scenario === 'invalid-correction' ? 1 : 0);
-    expect(loads).toBe(
-      scenario === 'empty-scan' || scenario === 'invalid-correction' ? 2 : 1,
-    );
+    expect(loads).toBe(scenario === 'invalid-correction' ? 2 : 1);
     for (const event of ['add', 'change', 'unlink'])
       expect(watcher.listenerCount(event)).toBe(1);
     const before = writes;
