@@ -156,7 +156,7 @@ describe('application infrastructure contract', () => {
       devDependencies?: Record<string, string>;
     };
     const catalog = root.catalog ?? {};
-    expect(catalog.effect).toBe('4.0.2');
+    expect(catalog.effect).toBe('4.0.5');
     expect(catalog['@effect/platform-node']).toBe(catalog.effect);
     expect(catalog['@effect/platform-bun']).toBe(catalog.effect);
     expect(catalog['@effect/sql-d1']).toBe(catalog.effect);
