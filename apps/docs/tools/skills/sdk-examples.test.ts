@@ -116,7 +116,6 @@ test('shipped SDK recipes and voice README examples compile against published de
     module: ts.ModuleKind.ESNext,
     moduleResolution: ts.ModuleResolutionKind.Bundler,
     jsx: ts.JsxEmit.ReactJSX,
-    baseUrl: root,
     paths,
   };
   const host = ts.createCompilerHost(options);
