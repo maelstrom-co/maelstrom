@@ -298,7 +298,7 @@
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react": "catalog:",
-    "alchemy": "2.0.0-beta.81",
+    "alchemy": "2.0.0-beta.83",
     "concurrently": "^10.0.5",
     "effect": "catalog:",
     "happy-dom": "catalog:",

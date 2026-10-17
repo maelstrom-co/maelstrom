@@ -547,7 +547,7 @@ describe('application infrastructure contract', () => {
     });
   });
 
-  test('installs the reviewed beta.81 ownership patch for every deployment', () => {
+  test('installs the reviewed beta.83 ownership patch for every deployment', () => {
     for (const path of [
       'apps/www/package.json',
       'apps/docs/package.json',
@@ -560,21 +560,21 @@ describe('application infrastructure contract', () => {
       };
       expect(
         manifest.dependencies?.alchemy ?? manifest.devDependencies?.alchemy,
-      ).toBe('2.0.0-beta.81');
+      ).toBe('2.0.0-beta.83');
     }
     const root = readJson('package.json') as {
       patchedDependencies?: Record<string, string>;
     };
-    const patchPath = 'patches/alchemy@2.0.0-beta.81.patch';
+    const patchPath = 'patches/alchemy@2.0.0-beta.83.patch';
     expect(root.patchedDependencies).toEqual({
-      'alchemy@2.0.0-beta.81': patchPath,
+      'alchemy@2.0.0-beta.83': patchPath,
     });
     expect(createHash('sha256').update(read(patchPath)).digest('hex')).toBe(
-      '6929f1342c370754b6477faf20d52e60879c4f2287580ff54816e24a9654c8b8',
+      '256d6c41733f6f55295ee6b28c17328513302a3f7e631e8a179bc60dacf552f1',
     );
     const lockfile = read('bun.lock');
-    expect(lockfile).toContain('alchemy@2.0.0-beta.81');
-    expect(lockfile).not.toContain('alchemy@2.0.0-beta.73');
+    expect(lockfile).toContain('alchemy@2.0.0-beta.83');
+    expect(lockfile).not.toContain('alchemy@2.0.0-beta.81');
     expect(lockfile).toContain(patchPath);
     expect([
       ...new Bun.Glob('patches/alchemy@*.patch').scanSync({

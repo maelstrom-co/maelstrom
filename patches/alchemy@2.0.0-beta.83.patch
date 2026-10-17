@@ -1,8 +1,7 @@
 diff --git a/lib/Plan.d.ts b/lib/Plan.d.ts
-index a5f31f3fe6673bc133c0d3cea0442e5d26977e3d..1a246e5deeaa43f19d34abaf49e5b0caa3d2b272 100644
 --- a/lib/Plan.d.ts
 +++ b/lib/Plan.d.ts
-@@ -23,6 +23,8 @@ export interface BindingNode<Data = any> extends ResourceBinding {
+@@ -23,6 +23,8 @@
      data: Data;
  }
  export interface BaseNode<R extends ResourceLike<string> = ResourceLike<string>> {
@@ -11,7 +10,7 @@ index a5f31f3fe6673bc133c0d3cea0442e5d26977e3d..1a246e5deeaa43f19d34abaf49e5b0ca
      resource: R;
      provider: ProviderService<R>;
      /**
-@@ -244,4 +246,4 @@ export declare class UnsatisfiedResourceCycle extends UnsatisfiedResourceCycle_b
+@@ -244,4 +246,4 @@
   * Print a plan in a human-readable format that shows the graph topology.
   */
  export declare const printPlan: (plan: Plan) => string;
@@ -19,10 +18,9 @@ index a5f31f3fe6673bc133c0d3cea0442e5d26977e3d..1a246e5deeaa43f19d34abaf49e5b0ca
 \ No newline at end of file
 +//# sourceMappingURL=Plan.d.ts.map
 diff --git a/lib/State/ResourceState.d.ts b/lib/State/ResourceState.d.ts
-index 8438dbaafa7b45679594098cf8eafff563dc60d0..580ace5dda2c54db1be374ccf4f49dc5c9bee421 100644
 --- a/lib/State/ResourceState.d.ts
 +++ b/lib/State/ResourceState.d.ts
-@@ -9,6 +9,10 @@ export type ResourceStatus = ResourceState["status"];
+@@ -9,6 +9,10 @@
  export type ReplacementResourceState = ReplacingResourceState | ReplacedResourceState;
  export type ReplacementOldResourceState = CreatingResourceState | CreatedResourceState | UpdatingReourceState | UpdatedResourceState | DeletingResourceState | ReplacementResourceState;
  interface BaseResourceState {
@@ -33,7 +31,7 @@ index 8438dbaafa7b45679594098cf8eafff563dc60d0..580ace5dda2c54db1be374ccf4f49dc5
      /**
       * Discriminator vs {@link ActionState}. Optional for back-compat: legacy
       * persisted rows have no `kind` field and are implicitly resources.
-@@ -120,4 +124,4 @@ export interface ReplacedResourceState extends BaseResourceState {
+@@ -120,4 +124,4 @@
      deleteFirst: boolean;
  }
  export {};
@@ -41,13 +39,15 @@ index 8438dbaafa7b45679594098cf8eafff563dc60d0..580ace5dda2c54db1be374ccf4f49dc5
 \ No newline at end of file
 +//# sourceMappingURL=ResourceState.d.ts.map
 diff --git a/src/AWS/ApiGateway/RestApi.ts b/src/AWS/ApiGateway/RestApi.ts
-index 91db1467662d4e797332ec8f09067de53b22c6e6..dc59a73e03401464fc38c8480ba7113186383c38 100644
 --- a/src/AWS/ApiGateway/RestApi.ts
 +++ b/src/AWS/ApiGateway/RestApi.ts
-@@ -300,6 +300,62 @@ export const RestApiProvider = () =>
+@@ -300,16 +300,37 @@
    Provider.effect(
      RestApi,
      Effect.gen(function* () {
+-      // Ensure — create the REST API in full and return its snapshot. Used by
+-      // `precreate` (cycle members) and by `reconcile` when the API is
+-      // missing (greenfield outside a cycle, or deleted out of band).
 +      const recoverApi = Effect.fn(function* (id: string, news: RestApiProps, instanceId: string) {
 +        const name = yield* generatedName(id, news);
 +        const internalTags = { ...(yield* createInternalTags(id)), "alchemy::instance": instanceId };
@@ -69,45 +69,29 @@ index 91db1467662d4e797332ec8f09067de53b22c6e6..dc59a73e03401464fc38c8480ba71131
 +        }
 +        return snapshotFromApi(observed);
 +      });
-+      const createApi = Effect.fn(function* (
-+        id: string,
-+        news: RestApiProps,
-+        session: { note: (message: string) => Effect.Effect<void> },
+       const createApi = Effect.fn(function* (
+         id: string,
+         news: RestApiProps,
+         session: { note: (message: string) => Effect.Effect<void> },
 +        instanceId: string,
-+      ) {
+       ) {
 +        const recovered = yield* recoverApi(id, news, instanceId);
 +        if (recovered) return recovered;
-+        const name = yield* generatedName(id, news);
+         const name = yield* generatedName(id, news);
+-        const internalTags = yield* createInternalTags(id);
 +        const internalTags = { ...(yield* createInternalTags(id)), "alchemy::instance": instanceId };
-+        const allTags = { ...news.tags, ...internalTags };
-+        const created = yield* retryOnApiStatusUpdating(
-+          ag.createRestApi({
-+            name,
-+            description: news.description,
-+            version: news.version,
-+            cloneFrom: news.cloneFrom,
-+            binaryMediaTypes: news.binaryMediaTypes,
-+            minimumCompressionSize: news.minimumCompressionSize,
-+            apiKeySource: news.apiKeySource,
-+            endpointConfiguration: news.endpointConfiguration,
-+            policy: news.policy,
-+            tags: allTags,
-+            disableExecuteApiEndpoint: news.disableExecuteApiEndpoint,
-+            securityPolicy: news.securityPolicy,
-+            endpointAccessMode: news.endpointAccessMode,
-+          }),
-+        );
-+        if (!created.id || !created.rootResourceId) {
-+          return yield* Effect.die("createRestApi missing id or rootResourceId");
-+        }
-+        yield* session.note(`Created REST API ${created.id}`);
-+        const full = yield* ag.getRestApi({ restApiId: created.id });
-+        return snapshotFromApi(full);
-+      });
+         const allTags = { ...news.tags, ...internalTags };
+         const created = yield* retryOnApiStatusUpdating(
+           ag.createRestApi({
+@@ -335,7 +356,6 @@
+         const full = yield* ag.getRestApi({ restApiId: created.id });
+         return snapshotFromApi(full);
+       });
+-
        return {
          stables: ["restApiId", "rootResourceId"] as const,
          diff: Effect.fn(function* ({ news: newsIn, olds }) {
-@@ -337,8 +393,8 @@ export const RestApiProvider = () =>
+@@ -373,8 +393,8 @@
                ),
              ),
            ),
@@ -118,7 +102,7 @@ index 91db1467662d4e797332ec8f09067de53b22c6e6..dc59a73e03401464fc38c8480ba71131
            const api = yield* ag
              .getRestApi({ restApiId: output.restApiId })
              .pipe(Effect.catchTag("NotFoundException", () => Effect.succeed(undefined)));
-@@ -355,67 +411,34 @@ export const RestApiProvider = () =>
+@@ -391,32 +411,33 @@
          // `Deployment` referencing `api.*` outputs will see a value produced
          // only after every bound child has settled, because the bindings on
          // the API force `create` to wait for them before returning.
@@ -128,32 +112,7 @@ index 91db1467662d4e797332ec8f09067de53b22c6e6..dc59a73e03401464fc38c8480ba71131
              return yield* Effect.die("RestApi props were not resolved");
            }
            const news = newsIn as RestApiProps;
--          const name = yield* generatedName(id, news);
--          const internalTags = yield* createInternalTags(id);
--          const allTags = { ...news.tags, ...internalTags };
--          const created = yield* retryOnApiStatusUpdating(
--            ag.createRestApi({
--              name,
--              description: news.description,
--              version: news.version,
--              cloneFrom: news.cloneFrom,
--              binaryMediaTypes: news.binaryMediaTypes,
--              minimumCompressionSize: news.minimumCompressionSize,
--              apiKeySource: news.apiKeySource,
--              endpointConfiguration: news.endpointConfiguration,
--              policy: news.policy,
--              tags: allTags,
--              disableExecuteApiEndpoint: news.disableExecuteApiEndpoint,
--              securityPolicy: news.securityPolicy,
--              endpointAccessMode: news.endpointAccessMode,
--            }),
--          );
--          if (!created.id || !created.rootResourceId) {
--            return yield* Effect.die("createRestApi missing id or rootResourceId");
--          }
--          yield* session.note(`Created REST API ${created.id}`);
--          const full = yield* ag.getRestApi({ restApiId: created.id });
--          return snapshotFromApi(full);
+-          return yield* createApi(id, news, session);
 +          return yield* createApi(id, news, session, instanceId);
          }),
 -        reconcile: Effect.fn(function* ({ id, news: newsIn, output, session }) {
@@ -164,51 +123,28 @@ index 91db1467662d4e797332ec8f09067de53b22c6e6..dc59a73e03401464fc38c8480ba71131
            }
            const news = newsIn as RestApiProps;
  
--          // RestApi has a `precreate` that always runs before `reconcile`
--          // for greenfield deployments — it creates the REST API in full
--          // so that `restApi.restApiId` is resolvable and child resources
--          // (Method, Resource, Authorizer) can register themselves back on
--          // the API via `restApi.bind`. By the time `reconcile` runs the id
--          // is populated; we never expect `output === undefined` here, but
--          // we still handle it defensively.
--          if (!output?.restApiId) {
--            return yield* Effect.die("RestApi reconcile reached without a precreate output");
--          }
--
 -          // Observe — fetch live cloud state. `output` is treated as a
--          // cache for the stable id only.
--          const observed = yield* ag
--            .getRestApi({ restApiId: output.restApiId })
--            .pipe(Effect.catchTag("NotFoundException", () => Effect.succeed(undefined)));
--          if (!observed?.id) {
-+          const observed = output?.restApiId
-+            ? yield* ag
-+                .getRestApi({ restApiId: output.restApiId })
-+                .pipe(Effect.catchTag("NotFoundException", () => Effect.succeed(undefined)))
-+            : undefined;
+-          // cache for the stable id only. Only cycle members are precreated,
+-          // so a greenfield create outside a cycle arrives without one.
+           const observed = output?.restApiId
+             ? yield* ag
+                 .getRestApi({ restApiId: output.restApiId })
+                 .pipe(Effect.catchTag("NotFoundException", () => Effect.succeed(undefined)))
+             : undefined;
+-          // Ensure — create the API when it is missing.
 +          if (output?.restApiId && !observed?.id) {
-             return yield* Effect.die(
-               `RestApi ${output.restApiId} disappeared between precreate and reconcile`,
-             );
-           }
--          const observedSnapshot = snapshotFromApi(observed);
-+          const observedSnapshot = observed?.id
-+            ? snapshotFromApi(observed)
++            return yield* Effect.die(
++              `RestApi ${output.restApiId} disappeared between precreate and reconcile`,
++            );
++          }
+           const observedSnapshot = observed?.id
+             ? snapshotFromApi(observed)
+-            : yield* createApi(id, news, session);
 +            : yield* createApi(id, news, session, instanceId);
-+          const restApiId = observedSnapshot.restApiId;
+           const restApiId = observedSnapshot.restApiId;
  
            // Sync mutable scalar fields — diff observed cloud state against
-           // desired and emit only the delta as PATCH operations.
-@@ -423,7 +446,7 @@ export const RestApiProvider = () =>
-           if (patches.length > 0) {
-             yield* retryOnApiStatusUpdating(
-               ag.updateRestApi({
--                restApiId: output.restApiId,
-+                restApiId,
-                 patchOperations: patches,
-               }),
-             );
-@@ -432,9 +455,14 @@ export const RestApiProvider = () =>
+@@ -434,7 +455,12 @@
            // Sync tags — observed ↔ desired so adoption converges without
            // fighting the existing tag set.
            const internalTags = yield* createInternalTags(id);
@@ -220,30 +156,12 @@ index 91db1467662d4e797332ec8f09067de53b22c6e6..dc59a73e03401464fc38c8480ba71131
 +            ...(recoveryInstance !== undefined ? { "alchemy::instance": recoveryInstance } : {}),
 +          };
            if (!deepEqual(observedSnapshot.tags, desiredTags)) {
--            const arn = restApiArn(region, output.restApiId);
-+            const arn = restApiArn(region, restApiId);
+             const arn = restApiArn(region, restApiId);
              yield* syncTags({
-               resourceArn: arn,
-               oldTags: observedSnapshot.tags,
-@@ -442,11 +470,11 @@ export const RestApiProvider = () =>
-             });
-           }
- 
--          yield* session.note(`Reconciled REST API ${output.restApiId}`);
-+          yield* session.note(`Reconciled REST API ${restApiId}`);
- 
-           // Re-read so the returned attributes reflect what's actually in
-           // the cloud after all sync steps.
--          const final = yield* ag.getRestApi({ restApiId: output.restApiId });
-+          const final = yield* ag.getRestApi({ restApiId });
-           if (!final.id) {
-             return yield* Effect.die("getRestApi missing id after reconcile");
-           }
 diff --git a/src/Apply.ts b/src/Apply.ts
-index 388b0904e9d6d591ad78856d7ebb4438273e8d51..ba7c64938990bd3ba03366284b1367508abb317a 100644
 --- a/src/Apply.ts
 +++ b/src/Apply.ts
-@@ -10,8 +10,9 @@ import * as Predicate from "effect/Predicate";
+@@ -11,8 +11,9 @@
  import type { Simplify } from "effect/Types";
  import type { ActionLike } from "./Action.ts";
  import { makeResolveContext } from "./ActionRuntimeContext.ts";
@@ -254,16 +172,16 @@ index 388b0904e9d6d591ad78856d7ebb4438273e8d51..ba7c64938990bd3ba03366284b136750
  import {
    Artifacts,
    ArtifactStore,
-@@ -25,7 +26,7 @@ import {
+@@ -26,7 +27,7 @@
    failCredentialsRequired,
    demandPlanCredentials,
  } from "./Auth/Demand.ts";
 -import { havePropsChanged, stripUnresolved } from "./Diff.ts";
 +import { havePropsChanged, isResolved, stripUnresolved } from "./Diff.ts";
  import type { Input } from "./Input.ts";
- import { generateInstanceId, InstanceId } from "./InstanceId.ts";
+ import { generateInstanceId } from "./InstanceId.ts";
  import * as Output from "./Output.ts";
-@@ -179,6 +180,22 @@ export const apply = <P extends Plan>(
+@@ -188,6 +189,22 @@
        const stack = yield* Stack;
        const stage = yield* Stage;
        const stackName = stack.name;
@@ -286,7 +204,7 @@ index 388b0904e9d6d591ad78856d7ebb4438273e8d51..ba7c64938990bd3ba03366284b136750
  
        const tracker: Record<string, ResourceTracker> = {};
        const terminalStatuses = new Map<
-@@ -513,6 +530,31 @@ const executeNode = (
+@@ -520,6 +537,31 @@
      const logicalId = node.resource.LogicalId;
      const namespace = node.resource.Namespace;
  
@@ -318,7 +236,7 @@ index 388b0904e9d6d591ad78856d7ebb4438273e8d51..ba7c64938990bd3ba03366284b136750
      const commit = <S extends ResourceState>(value: Omit<S, "namespace">) =>
        state.set({
          stack: stackName,
-@@ -534,6 +576,13 @@ const executeNode = (
+@@ -541,6 +583,13 @@
          value: {
            ...value,
            adoptionBlocked: value.adoptionBlocked ?? node.adoptionBlocked,
@@ -332,31 +250,22 @@ index 388b0904e9d6d591ad78856d7ebb4438273e8d51..ba7c64938990bd3ba03366284b136750
            props: stripUnresolved(value.props),
            bindings: stripUnresolved(value.bindings),
            namespace,
-@@ -772,7 +821,7 @@ const executeNode = (
-           yield* storeAndSignal({ output: attr, props: {}, bindings: [], instanceId });
-         }
- 
--        if (node.provider.precreate && attr === undefined) {
-+        if (inCycle && node.provider.precreate && attr === undefined) {
-           // Some resources need a placeholder physical resource before their real
-           // create can finish. Persist that stub so downstream evaluation can proceed.
-           yield* report("pre-creating");
-@@ -785,7 +834,10 @@ const executeNode = (
-               instanceId,
-               bindings: excludeDeletedBindings(node.bindings),
-             })
--            .pipe(instrumentLifecycle("precreate", fqn, node.resource.Type, logicalId, instanceId));
+@@ -797,7 +846,10 @@
+             instanceId,
+             bindings: excludeDeletedBindings(node.bindings),
+           })
+-          .pipe(instrumentLifecycle("precreate", fqn, node.resource.Type, logicalId, instanceId));
 +            .pipe(
 +              providePrecreatePolicy,
 +              instrumentLifecycle("precreate", fqn, node.resource.Type, logicalId, instanceId),
 +            );
-           yield* commit<CreatingResourceState>({
-             status: "creating",
-             fqn,
-@@ -1104,6 +1156,23 @@ const executeNode = (
-         // `created` state (rather than `replaced`) so Phase 2 has no old chain
-         // left to drain. `delete` is required to be idempotent, so a re-run
-         // after an interrupted apply simply re-converges.
+         yield* commit<CreatingResourceState>({
+           status: "creating",
+           fqn,
+@@ -1112,6 +1164,23 @@
+       // `created` state (rather than `replaced`) so Phase 2 has no old chain
+       // left to drain. `delete` is required to be idempotent, so a re-run
+       // after an interrupted apply simply re-converges.
 +        const readReplacement = Effect.fn(function* (news: Record<string, any>) {
 +          if (!node.provider.read) {
 +            return yield* Effect.die("Worker replacement requires an ownership reader");
@@ -374,14 +283,14 @@ index 388b0904e9d6d591ad78856d7ebb4438273e8d51..ba7c64938990bd3ba03366284b136750
 +          }
 +          return stripUnowned(observed);
 +        });
-         const deleteOldGenerations = (
-           old: ReplacementOldResourceState,
-         ): Effect.Effect<void, any, any> =>
-@@ -1136,7 +1205,18 @@ const executeNode = (
-             }
-           });
+       const deleteOldGenerations = (
+         old: ReplacementOldResourceState,
+       ): Effect.Effect<void, any, any> =>
+@@ -1144,7 +1213,18 @@
+           }
+         });
  
--        if (node.deleteFirst) {
+-      if (node.deleteFirst) {
 +        if (
 +          node.deleteFirst &&
 +          isLiveWorker &&
@@ -394,34 +303,26 @@ index 388b0904e9d6d591ad78856d7ebb4438273e8d51..ba7c64938990bd3ba03366284b136750
 +          yield* readReplacement(stripUnresolved(node.props));
 +        }
 +        if (node.deleteFirst && (!isLiveWorker || inCycle)) {
-           yield* scopedSession.note(
-             "Deleting previous resource before creating its replacement (deleteFirst)...",
-           );
-@@ -1151,7 +1231,7 @@ const executeNode = (
-           yield* storeAndSignal({ output: attr, props: {}, bindings: [], instanceId });
-         }
- 
--        if (node.provider.precreate && attr === undefined) {
-+        if (inCycle && node.provider.precreate && attr === undefined) {
-           yield* report("pre-creating");
-           attr = yield* node.provider
-             .precreate({
-@@ -1162,7 +1242,10 @@ const executeNode = (
-               instanceId,
-               bindings: excludeDeletedBindings(node.bindings),
-             })
--            .pipe(instrumentLifecycle("precreate", fqn, node.resource.Type, logicalId, instanceId));
+         yield* scopedSession.note(
+           "Deleting previous resource before creating its replacement (deleteFirst)...",
+         );
+@@ -1170,7 +1250,10 @@
+             instanceId,
+             bindings: excludeDeletedBindings(node.bindings),
+           })
+-          .pipe(instrumentLifecycle("precreate", fqn, node.resource.Type, logicalId, instanceId));
 +            .pipe(
 +              providePrecreatePolicy,
 +              instrumentLifecycle("precreate", fqn, node.resource.Type, logicalId, instanceId),
 +            );
-           yield* commit<ReplacingResourceState>({
-             status: "replacing",
-             fqn,
-@@ -1199,6 +1282,15 @@ const executeNode = (
-           yield* Output.evaluate(node.bindings, outputs),
-         );
+         yield* commit<ReplacingResourceState>({
+           status: "replacing",
+           fqn,
+@@ -1204,6 +1287,15 @@
+       const news = (yield* Output.evaluate(node.props, outputs)) as Record<string, any>;
  
+       const bindingOutputs = excludeDeletedBindings(yield* Output.evaluate(node.bindings, outputs));
++
 +        if (isLiveWorker && attr === undefined) {
 +          const observed = yield* readReplacement(news);
 +          if (!node.deleteFirst) attr = observed;
@@ -430,22 +331,59 @@ index 388b0904e9d6d591ad78856d7ebb4438273e8d51..ba7c64938990bd3ba03366284b136750
 +          yield* deleteOldGenerations(replState.old);
 +          attr = undefined;
 +        }
-+
-         attr = yield* node.provider
-           .reconcile({
-             id: logicalId,
-@@ -1850,6 +1942,10 @@ const collectGarbage = Effect.fn(function* (plan: Plan, session: PlanStatusSessi
+ 
+       attr = yield* node.provider
+         .reconcile({
+@@ -1506,6 +1598,11 @@
+   >,
+   session: PlanStatusSession,
+   state: {
++    get: (req: {
++      stack: string;
++      stage: string;
++      fqn: string;
++    }) => Effect.Effect<PersistedState | undefined, StateStoreError, never>;
+     set: <V extends PersistedState>(req: {
+       stack: string;
+       stage: string;
+@@ -1570,12 +1667,17 @@
+ 
+       tracker[fqn] = { output: attr, props: newProps, bindings: newBindings, instanceId };
+ 
++      // GC may have trimmed the generation chain since planning. Preserve only
++      // the current checkpoint's cleanup backlog and identity metadata.
++      const persisted = yield* state.get({ stack: stackName, stage, fqn });
++      const previous = persisted?.kind === "action" ? undefined : persisted;
+       yield* state.set({
+         stack: stackName,
+         stage,
+         fqn,
+         value: {
+-          status: "updated",
++          ...previous,
++          status: previous?.status === "replaced" ? "replaced" : "updated",
+           fqn,
+           logicalId,
+           instanceId,
+@@ -1596,7 +1698,7 @@
+           removalPolicy: node.resource.RemovalPolicy,
+           providerMode: node.mode,
+           adoptionBlocked: node.adoptionBlocked,
+-        } as UpdatedResourceState,
++        } as UpdatedResourceState | ReplacedResourceState,
+       });
+ 
+       terminalStatuses.set(fqn, {
+@@ -1862,6 +1964,8 @@
          const adoptionBlocked = isDeleteNode(node)
            ? node.state.adoptionBlocked
-           : node.old.adoptionBlocked;
-+        const workerIdentityResolved = isDeleteNode(node)
-+          ? node.state.workerIdentityResolved
-+          : node.old.workerIdentityResolved;
-+        const workerAccountId = recordedWorkerAccountId(isDeleteNode(node) ? node.state : node.old);
+           : generation.adoptionBlocked;
++        const workerIdentityResolved = generation.workerIdentityResolved;
++        const workerAccountId = recordedWorkerAccountId(generation);
          // Mutable: an attr-less row (interrupted create) may recover its
          // attributes from `provider.read` below, right before deletion.
          let attr = persistedAttr;
-@@ -1961,6 +2057,10 @@ const collectGarbage = Effect.fn(function* (plan: Plan, session: PlanStatusSessi
+@@ -1973,6 +2077,10 @@
  
          function deleteResourceBody() {
            return Effect.gen(function* () {
@@ -456,7 +394,7 @@ index 388b0904e9d6d591ad78856d7ebb4438273e8d51..ba7c64938990bd3ba03366284b136750
              if (isDeleteNode(node)) {
                yield* report(node.action === "orphaned" ? "orphaning" : "deleting");
                if (node.action === "orphaned") {
-@@ -2003,6 +2103,10 @@ const collectGarbage = Effect.fn(function* (plan: Plan, session: PlanStatusSessi
+@@ -2015,6 +2123,10 @@
                      "migrated predecessor. Any interrupted new physical " +
                      "resource must be identified and cleaned up manually.",
                  );
@@ -467,7 +405,7 @@ index 388b0904e9d6d591ad78856d7ebb4438273e8d51..ba7c64938990bd3ba03366284b136750
                } else if (provider.read) {
                  const recovered = yield* provider
                    .read({ id: logicalId, fqn, instanceId, olds: props as never, output: undefined })
-@@ -2064,6 +2168,8 @@ const collectGarbage = Effect.fn(function* (plan: Plan, session: PlanStatusSessi
+@@ -2076,6 +2188,8 @@
                  removalPolicy: node.resource.RemovalPolicy,
                  providerMode,
                  adoptionBlocked,
@@ -476,7 +414,7 @@ index 388b0904e9d6d591ad78856d7ebb4438273e8d51..ba7c64938990bd3ba03366284b136750
                });
              }
  
-@@ -2111,6 +2217,8 @@ const collectGarbage = Effect.fn(function* (plan: Plan, session: PlanStatusSessi
+@@ -2146,6 +2260,8 @@
                    bindings: excludeDeletedBindings(node.bindings),
                    removalPolicy: node.removalPolicy,
                    providerMode: node.providerMode,
@@ -486,10 +424,9 @@ index 388b0904e9d6d591ad78856d7ebb4438273e8d51..ba7c64938990bd3ba03366284b136750
                }
                yield* scopedSession.note(
 diff --git a/src/Cli/commands/state.ts b/src/Cli/commands/state.ts
-index 8f6f4c6c8a717c9c1b929de9ae54e572cfabc0e4..fd38ee6ca1bbb55aa0dca37590df237257e69d92 100644
 --- a/src/Cli/commands/state.ts
 +++ b/src/Cli/commands/state.ts
-@@ -2,15 +2,19 @@ import { Command, Flag } from "effect/cli";
+@@ -2,15 +2,19 @@
  import * as Argument from "effect/cli/Argument";
  import * as Console from "effect/Console";
  import * as Effect from "effect/Effect";
@@ -509,7 +446,7 @@ index 8f6f4c6c8a717c9c1b929de9ae54e572cfabc0e4..fd38ee6ca1bbb55aa0dca37590df2372
  import { confirmOrDecline } from "./confirm.ts";
  import { failWithHelp, UserInputError } from "./errors.ts";
  import { envFile, profile, yes } from "./flags.ts";
-@@ -89,6 +93,59 @@ const usingStore =
+@@ -89,6 +93,59 @@
        ),
      );
  
@@ -569,7 +506,7 @@ index 8f6f4c6c8a717c9c1b929de9ae54e572cfabc0e4..fd38ee6ca1bbb55aa0dca37590df2372
  const listCommand = Command.make(
    "list",
    { path: pathArgument, recursive, main: config, envFile, profile, backend },
-@@ -258,5 +315,5 @@ export const stateCommand = Command.make(
+@@ -258,5 +315,5 @@
    ),
  ).pipe(
    Command.withDescription("Inspect and manage deployment state"),
@@ -577,10 +514,9 @@ index 8f6f4c6c8a717c9c1b929de9ae54e572cfabc0e4..fd38ee6ca1bbb55aa0dca37590df2372
 +  Command.withSubcommands([listCommand, readCommand, getCommand, stacksCommand, deleteCommand, unsafeCommand]),
  );
 diff --git a/src/Cloudflare/Workers/WorkerProvider.ts b/src/Cloudflare/Workers/WorkerProvider.ts
-index b3dc2bd86c0772f4207b307bf08a82ae48ad768d..1220b6b0fcc8ad6810cd3c4a88812da86d4bfd4b 100644
 --- a/src/Cloudflare/Workers/WorkerProvider.ts
 +++ b/src/Cloudflare/Workers/WorkerProvider.ts
-@@ -14,7 +14,7 @@ import * as Predicate from "effect/Predicate";
+@@ -14,7 +14,7 @@
  import * as Redacted from "effect/Redacted";
  import * as Schedule from "effect/Schedule";
  import * as Stream from "effect/Stream";
@@ -589,7 +525,7 @@ index b3dc2bd86c0772f4207b307bf08a82ae48ad768d..1220b6b0fcc8ad6810cd3c4a88812da8
  import { dotAlchemyDirectory } from "../../AlchemyContext.ts";
  import * as Artifacts from "../../Artifacts.ts";
  import { havePropsChanged, isResolved, stripEffects } from "../../Diff.ts";
-@@ -73,6 +73,10 @@ class MissingDurableObjects extends Data.TaggedError("MissingDurableObjects")<{
+@@ -78,6 +78,10 @@
    expected: string[];
  }> {}
  
@@ -600,7 +536,7 @@ index b3dc2bd86c0772f4207b307bf08a82ae48ad768d..1220b6b0fcc8ad6810cd3c4a88812da8
  /**
   * A Durable Object class is being dropped from this Worker while a binding in
   * the same deploy still references it on another script — the class moved
-@@ -4582,14 +4586,36 @@ export const LiveWorkerProvider = () =>
+@@ -4785,14 +4789,36 @@
                crons: [],
              } satisfies Worker["Attributes"];
            }
@@ -645,7 +581,7 @@ index b3dc2bd86c0772f4207b307bf08a82ae48ad768d..1220b6b0fcc8ad6810cd3c4a88812da8
            if (news.namespace != null) {
              yield* Effect.logInfo(
                `Cloudflare Worker precreate: skipping stub for dispatch-namespace worker ${name}`,
-@@ -4612,7 +4638,6 @@ export const LiveWorkerProvider = () =>
+@@ -4815,7 +4841,6 @@
                crons: [],
              } satisfies Worker["Attributes"];
            }
@@ -653,7 +589,7 @@ index b3dc2bd86c0772f4207b307bf08a82ae48ad768d..1220b6b0fcc8ad6810cd3c4a88812da8
            const exportMap = news.exports ?? {};
            // A worker hosts Durable Object classes from two independent sources:
            // Effect-native DO *exports* (classes defined in the worker entry) and
-@@ -4654,29 +4679,10 @@ export const LiveWorkerProvider = () =>
+@@ -4861,31 +4886,10 @@
            yield* Effect.logInfo(
              `Cloudflare Worker precreate: durable objects ${JSON.stringify(durableObjects)}`,
            );
@@ -668,10 +604,12 @@ index b3dc2bd86c0772f4207b307bf08a82ae48ad768d..1220b6b0fcc8ad6810cd3c4a88812da8
 -            // worker the dispatch-namespace endpoints report a missing
 -            // script as `DispatchNamespaceScriptNotFound` (and a missing
 -            // namespace as `DispatchNamespaceNotFound`).
--            Effect.catchTag("WorkerNotFound", () => Effect.succeed(undefined)),
--            Effect.catchTag("WorkerHasNoVersions", () => Effect.succeed(undefined)),
--            Effect.catchTag("DispatchNamespaceScriptNotFound", () => Effect.succeed(undefined)),
--            Effect.catchTag("DispatchNamespaceNotFound", () => Effect.succeed(undefined)),
+-            Effect.catchTags({
+-              WorkerNotFound: () => Effect.succeed(undefined),
+-              WorkerHasNoVersions: () => Effect.succeed(undefined),
+-              DispatchNamespaceScriptNotFound: () => Effect.succeed(undefined),
+-              DispatchNamespaceNotFound: () => Effect.succeed(undefined),
+-            }),
 -          );
            let durableObjectNamespaces = getDurableObjects(existingSettings?.bindings);
  
@@ -683,7 +621,7 @@ index b3dc2bd86c0772f4207b307bf08a82ae48ad768d..1220b6b0fcc8ad6810cd3c4a88812da8
              yield* Effect.logInfo(`Cloudflare Worker precreate: reusing existing ${name}`);
            } else {
              yield* session.note("Pre-creating worker...", { kind: "status" });
-@@ -5001,14 +5007,14 @@ export const LiveWorkerProvider = () =>
+@@ -5226,18 +5230,16 @@
              // raises `OwnedBySomeoneElse`).
              return hasAlchemyWorkerTags(id, settings.tags ?? []) ? attrs : Unowned(attrs);
            },
@@ -694,21 +632,27 @@ index b3dc2bd86c0772f4207b307bf08a82ae48ad768d..1220b6b0fcc8ad6810cd3c4a88812da8
 -              // as "not deployed" — fall through to (re)create like NotFound.
 -              // The dispatch-namespace endpoints report the same conditions as
 -              // `DispatchNamespaceScriptNotFound` / `DispatchNamespaceNotFound`.
+-              Effect.catchTags({
+-                WorkerNotFound: () => Effect.succeed(undefined),
+-                WorkerHasNoVersions: () => Effect.succeed(undefined),
+-                DispatchNamespaceScriptNotFound: () => Effect.succeed(undefined),
+-                DispatchNamespaceNotFound: () => Effect.succeed(undefined),
+-              }),
 +              // Propagation lag is tolerable only for a trusted identity.
 +              // Without attributes, missing versions cannot prove absence.
-               Effect.catchTag("WorkerNotFound", () => Effect.succeed(undefined)),
--              Effect.catchTag("WorkerHasNoVersions", () => Effect.succeed(undefined)),
++              Effect.catchTag("WorkerNotFound", () => Effect.succeed(undefined)),
 +              Effect.catchTag("WorkerHasNoVersions", (error) =>
 +                output === undefined ? Effect.fail(error) : Effect.succeed(undefined),
 +              ),
-               Effect.catchTag("DispatchNamespaceScriptNotFound", () => Effect.succeed(undefined)),
-               Effect.catchTag("DispatchNamespaceNotFound", () => Effect.succeed(undefined)),
++              Effect.catchTag("DispatchNamespaceScriptNotFound", () => Effect.succeed(undefined)),
++              Effect.catchTag("DispatchNamespaceNotFound", () => Effect.succeed(undefined)),
              ),
+         ),
+         reconcile: Effect.fn(function* ({ id, fqn, news, olds, bindings, output, session }) {
 diff --git a/src/Plan.ts b/src/Plan.ts
-index 6907469ae6f1c0cb0e8e5be9b0badd901d76d834..7c9df920e492b809fe649195dd3edaf5db126044 100644
 --- a/src/Plan.ts
 +++ b/src/Plan.ts
-@@ -11,6 +11,7 @@ import { asEffect } from ".//Util/types.ts";
+@@ -12,6 +12,7 @@
  import { isAction, type ActionLike } from "./Action.ts";
  import { AdoptPolicy, OwnedBySomeoneElse, stripUnowned, Unowned } from "./AdoptPolicy.ts";
  import { AlchemyContext } from "./AlchemyContext.ts";
@@ -716,7 +660,7 @@ index 6907469ae6f1c0cb0e8e5be9b0badd901d76d834..7c9df920e492b809fe649195dd3edaf5
  import {
    Artifacts,
    ArtifactStore,
-@@ -107,6 +108,8 @@ export interface BindingNode<Data = any> extends ResourceBinding {
+@@ -109,6 +110,8 @@
  }
  
  export interface BaseNode<R extends ResourceLike<string> = ResourceLike<string>> {
@@ -725,7 +669,7 @@ index 6907469ae6f1c0cb0e8e5be9b0badd901d76d834..7c9df920e492b809fe649195dd3edaf5
    resource: R;
    provider: ProviderService<R>;
    /**
-@@ -485,6 +488,16 @@ const makePlan = <A>(
+@@ -487,6 +490,16 @@
        resourceFqns.map((fqn) => state.get({ stack: stackName, stage: stage, fqn })),
        { concurrency: "unbounded" },
      );
@@ -735,14 +679,14 @@ index 6907469ae6f1c0cb0e8e5be9b0badd901d76d834..7c9df920e492b809fe649195dd3edaf5
 +      const touched = !selected || selected.has(fqn) || resources.some((resource) =>
 +        resource.Type === "Cloudflare.Worker" && resource.FormerFqns?.includes(fqn),
 +      );
-+      if (touched && row && hasLiveWorkerAccount(row)) {
++      if (touched && row && row.kind !== "action" && hasLiveWorkerAccount(row)) {
 +        yield* assertWorkerAccount(row, yield* workerAccount);
 +      }
 +    }
  
      // Snapshot of every persisted row, keyed by FQN. The rename resolution
      // below reads from this map instead of issuing per-FQN `state.get`s —
-@@ -1310,6 +1323,9 @@ const makePlan = <A>(
+@@ -1316,6 +1329,9 @@
        // prior state — its row is reaped by `actionDeletions` below.)
        const { row: persistedRow, renamedFrom, renameMoved } = yield* getPersistedRow(resource);
        let oldState: ResourceState | undefined = persistedRow;
@@ -752,7 +696,7 @@ index 6907469ae6f1c0cb0e8e5be9b0badd901d76d834..7c9df920e492b809fe649195dd3edaf5
  
        // Engine-level adoption. When there is no prior state, always
        // consult `provider.read` (if implemented) so the engine — not
-@@ -1463,6 +1479,7 @@ const makePlan = <A>(
+@@ -1469,6 +1485,7 @@
        ) =>
          ({
            ...node,
@@ -760,7 +704,7 @@ index 6907469ae6f1c0cb0e8e5be9b0badd901d76d834..7c9df920e492b809fe649195dd3edaf5
            provider,
            resource,
            bindings: bindingDiffs,
-@@ -1475,7 +1492,9 @@ const makePlan = <A>(
+@@ -1481,7 +1498,9 @@
              provider.read &&
              !reusesMigratedFqn &&
              ((oldState === undefined && !isResolved(news)) ||
@@ -771,7 +715,7 @@ index 6907469ae6f1c0cb0e8e5be9b0badd901d76d834..7c9df920e492b809fe649195dd3edaf5
                ? { adopt: adoptThis }
                : undefined,
          }) as any as T;
-@@ -1501,7 +1520,16 @@ const makePlan = <A>(
+@@ -1507,7 +1526,16 @@
          // `output` is undefined (as it is here), so handing them
          // unresolved exprs crashes. Skip the probe — same behavior as
          // a read that found nothing — and re-drive the create.
@@ -790,10 +734,9 @@ index 6907469ae6f1c0cb0e8e5be9b0badd901d76d834..7c9df920e492b809fe649195dd3edaf5
              .read({
                id,
 diff --git a/src/State/ResourceState.ts b/src/State/ResourceState.ts
-index 493e714e33ae8c75acaeec8fa39b754af12e2b91..f606f3a78e1dcd56dba292de45c99242a22ea992 100644
 --- a/src/State/ResourceState.ts
 +++ b/src/State/ResourceState.ts
-@@ -57,6 +57,10 @@ interface BaseResourceState {
+@@ -57,6 +57,10 @@
    removalPolicy?: RemovalPolicy["Service"];
    /** Attr-less lookup could recover the predecessor migrated away from this FQN. */
    adoptionBlocked?: "migrated-fqn";
@@ -806,7 +749,6 @@ index 493e714e33ae8c75acaeec8fa39b754af12e2b91..f606f3a78e1dcd56dba292de45c99242
     *
 diff --git a/src/WorkerAccount.ts b/src/WorkerAccount.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..817d895c83f6e03b5c1d58f95591877b9088448b
 --- /dev/null
 +++ b/src/WorkerAccount.ts
 @@ -0,0 +1,81 @@
