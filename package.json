@@ -167,6 +167,6 @@
     "lodash": "4.18.1"
   },
   "patchedDependencies": {
-    "alchemy@2.0.0-beta.81": "patches/alchemy@2.0.0-beta.81.patch"
+    "alchemy@2.0.0-beta.83": "patches/alchemy@2.0.0-beta.83.patch"
   }
 }

@@ -272,12 +272,12 @@ Completed:
 7. Migrated demo PR previews and their isolated `SessionDO` namespaces to
    Alchemy.
 
-`alchemy@2.0.0-beta.81` includes deferred adoption from
+`alchemy@2.0.0-beta.83` includes deferred adoption from
 [alchemy-run/alchemy#1695](https://github.com/alchemy-run/alchemy/pull/1695).
-Its precreate path can still bypass those checks. Keep the local beta.81 patch.
-It backports the cycle-only precreation engine change and REST API compatibility
-change from [alchemy-run/alchemy#2015](https://github.com/alchemy-run/alchemy/pull/2015),
-which landed after beta.81. It also checks Worker ownership before cyclic
+Its precreate path can still bypass those checks. Keep the local beta.83 patch.
+Upstream includes the cycle-only precreation engine change from
+[alchemy-run/alchemy#2015](https://github.com/alchemy-run/alchemy/pull/2015).
+The patch retains REST API recovery and checks Worker ownership before cyclic
 precreation publishes attributes and checks Worker replacement identities before reconciliation.
 Unresolved cyclic Worker identities and unreadable ownership fail closed.
 Worker recovery from an attribute-free checkpoint requires matching, fully resolved
@@ -286,6 +286,8 @@ an identity from unmarked or incomplete Worker checkpoints. Those legacy or
 interrupted attempts can require manual cleanup. Recorded attributes remain trusted.
 Live Worker checkpoints also record the Cloudflare account before mutation.
 Planning, apply, and cleanup validate that account across replacement generations.
+Cyclic convergence preserves account metadata and generations whose deletion is
+still draining. Later applies retry cleanup without restoring already deleted generations.
 Legacy rows can use the account in their recorded attributes. An attribute-free
 row without an account requires manual identity recovery; changing profiles must
 not turn a same-tagged Worker in another account into a recovery candidate.
@@ -305,7 +307,7 @@ atomic create-if-absent operation.
 Version and preview Workers retain their separate upstream behavior.
 
 The patch also restores the read-only `state get` and `state stacks` interfaces
-absent from beta.81. They retain the arguments and output required by the trusted
+absent from beta.83. They retain the arguments and output required by the trusted
 deployment workflows and the operator runbook. Initialization diagnostics use
 `stderr`; successful reads write only the requested state output to `stdout`.
 Migrate those callers before removing the compatibility commands.
@@ -317,6 +319,8 @@ recreation after interrupted deletion.
 mocked HTTP, including an unmodified acyclic provider path that must refuse
 before any mutation request. `test/alchemy-worker-account.test.ts` checks
 serialized checkpoints, changed accounts, stale plans, and replacement cleanup.
+`test/alchemy-generation-draining.test.ts` checks cyclic convergence with deferred
+and completed cleanup, including a later retry of the draining generation.
 `test/alchemy-rest-api.test.ts` checks REST API creation recovery and generation
 isolation with mocked AWS requests. `test/alchemy-cli-state.test.ts` runs the
 published CLI against offline stores. It verifies argument compatibility, read-only access,
@@ -326,6 +330,13 @@ A dry-run cannot verify deferred apply checks. Run the credentialed CI verificat
 before merging, and follow the preview-first
 [state-store verification procedure](#state-store-bootstrap-rules) for the upgrade.
 
+Alchemy beta.83 deploys Durable Objects with declarative `exports`. After that
+deployment, Alchemy versions before beta.82 cannot redeploy the same Worker.
+Pin beta.83 on every machine and CI job before deploying the demo's `SessionDO`.
+The first deployment must send 100% of traffic to the new version. Follow the
+[upstream upgrade notes](https://github.com/alchemy-run/alchemy/blob/v2.0.0-beta.83/website/src/content/docs/blog/2026-10-12-beta-83.md#durable-objects-deploy-with-exports)
+and do not roll back to beta.81 after that deployment.
+
 `Cloudflare.Website.Astro` is deferred. In beta.73 it runs the Astro build in
 the credentialed deployment process and cannot scrub Cloudflare credentials or
 hash `DOCS_SOURCE_REF`. Docs therefore keeps its credential-free Nx build and
@@ -333,7 +344,7 @@ lets Alchemy upload only the resulting `dist` artifact.
 
 Alchemy, Effect, and the Cloudflare toolchain are one compatibility unit.
 The root catalog pins `effect`, `@effect/platform-node`,
-`@effect/platform-bun`, and `@effect/sql-d1` to `4.0.2`, satisfying Alchemy's
+`@effect/platform-bun`, and `@effect/sql-d1` to `4.0.5`, satisfying Alchemy's
 stable `^4.0.0` peers. App and infra packages take those through `catalog:`. Do not add
 `@effect/language-service` until a `tsconfig` plugin actually loads it.
 
@@ -379,8 +390,8 @@ outside the repository.
 ### State-store bootstrap rules
 
 Verify the shared state store before each Alchemy upgrade. Its protocol version
-is independent of the package version. In beta.81,
-[`STATE_STORE_VERSION`](https://github.com/alchemy-run/alchemy/blob/v2.0.0-beta.81/packages/alchemy/src/Cloudflare/StateStore/Api.ts)
+is independent of the package version. In beta.83,
+[`STATE_STORE_VERSION`](https://github.com/alchemy-run/alchemy/blob/v2.0.0-beta.83/packages/alchemy/src/Cloudflare/StateStore/Api.ts)
 is `7`. Both normal initialization and explicit bootstrap reuse a serving store
 when its `/version` matches. Bootstrap without `--force` does not redeploy that
 store merely because the Alchemy package changed.
