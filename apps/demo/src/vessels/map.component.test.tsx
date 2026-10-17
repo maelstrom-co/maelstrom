@@ -42,6 +42,7 @@ class FakePopup {
 }
 
 const mapInstances: FakeMap[] = [];
+const { setWorkerUrl } = vi.hoisted(() => ({ setWorkerUrl: vi.fn() }));
 
 class FakeMap {
   #handlers = new Map<string, Array<() => void>>();
@@ -50,6 +51,7 @@ class FakeMap {
   fitBoundsCalls: FakeLngLatBounds[] = [];
 
   constructor(_options?: unknown) {
+    expect(setWorkerUrl).toHaveBeenCalledWith('/assets/map-worker.js');
     mapInstances.push(this);
   }
 
@@ -91,12 +93,15 @@ class FakeMap {
 }
 
 vi.mock('maplibre-gl', () => ({
-  default: {
-    Map: FakeMap,
-    Marker: FakeMarker,
-    Popup: FakePopup,
-    LngLatBounds: FakeLngLatBounds,
-  },
+  Map: FakeMap,
+  Marker: FakeMarker,
+  Popup: FakePopup,
+  LngLatBounds: FakeLngLatBounds,
+  setWorkerUrl,
+}));
+
+vi.mock('maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url', () => ({
+  default: '/assets/map-worker.js',
 }));
 
 // jsdom/happy-dom don't implement ResizeObserver — this fake records the
@@ -142,6 +147,7 @@ function props(): TypedVesselProps<typeof mapVessel> {
 }
 
 beforeEach(() => {
+  setWorkerUrl.mockClear();
   mapActions.showOverview();
   mapInstances.length = 0;
   resizeObserverInstances.length = 0;
@@ -198,6 +204,13 @@ describe('mapActionRunner', () => {
 });
 
 describe('MapComponent smoke render', () => {
+  it('configures the bundled worker before creating a map so sources can load', () => {
+    render(<MapComponent {...props()} />);
+    expect(setWorkerUrl).toHaveBeenCalledExactlyOnceWith(
+      '/assets/map-worker.js',
+    );
+  });
+
   it('mounts without crashing with maplibre-gl mocked', () => {
     const { container } = render(<MapComponent {...props()} />);
     expect(container.textContent).toContain('places');

@@ -1,8 +1,9 @@
-import maplibregl from 'maplibre-gl';
+import * as maplibregl from 'maplibre-gl';
 import { useEffect, useRef } from 'react';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { err, ok } from '@maelstrom-co/protocol';
 import type { TypedVesselProps } from '@maelstrom-co/react';
+import mapWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 import { VesselCard } from '../components/vessel-card';
 import { ACCENT_HEX, VESSEL_ACCENTS } from '../lib/design-tokens';
 import {
@@ -158,6 +159,7 @@ export default function MapComponent({
     const container = containerRef.current;
     if (!container) return;
 
+    maplibregl.setWorkerUrl(mapWorkerUrl);
     const map = new maplibregl.Map({
       container,
       style: 'https://tiles.openfreemap.org/styles/dark',
