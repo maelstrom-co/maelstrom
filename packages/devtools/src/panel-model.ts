@@ -190,6 +190,81 @@ export interface RequestTrace {
   lastIndex: number;
 }
 
+export interface RequestPhase {
+  eventKey: string;
+  lane: string;
+  label: string;
+  outcome: string;
+  durationMs?: number;
+}
+
+function diagnosticPhaseOutcome(event: PanelEvent): string {
+  switch (event.kind) {
+    case 'engine.candidate.validated':
+      return event.metadata.outcome === 'failed' ||
+        event.metadata.outcome === 'succeeded'
+        ? humanize(event.metadata.outcome)
+        : 'Not reported';
+    case 'engine.planner.failed':
+      return event.metadata.outcome === 'cancelled' ? 'Cancelled' : 'Failed';
+    case 'client.command.completed':
+      return 'Completed';
+    case 'client.command.failed':
+      return 'Failed';
+    case 'client.response.abandoned':
+      return 'Abandoned';
+    default:
+      return 'Not reported';
+  }
+}
+
+export function requestPhases(request: RequestTrace): RequestPhase[] {
+  return request.events.map((event) => {
+    const fact = projectDiagnosticMetadata(event.kind, event.metadata);
+    const lane =
+      event.kind.startsWith('client.request.') ||
+      event.kind === 'client.response.received'
+        ? 'Client request'
+        : event.kind.startsWith('client.response.')
+          ? 'Client application'
+          : event.kind.startsWith('client.command.')
+            ? 'Command'
+            : event.kind.startsWith('client.action.')
+              ? 'Action'
+              : event.kind.startsWith('engine.request.')
+                ? 'Engine request'
+                : event.kind.startsWith('engine.planner.')
+                  ? 'Planning'
+                  : event.kind.startsWith('engine.stage.')
+                    ? 'Engine stage'
+                    : 'Other evidence';
+    const outcome =
+      fact?.outcome === 'succeeded_with_issues'
+        ? 'Applied with Action issues'
+        : fact
+          ? humanize(fact.outcome)
+          : diagnosticPhaseOutcome(event);
+    return {
+      eventKey: event.key,
+      lane,
+      label: [
+        eventLabel(event),
+        text(event.metadata.stage),
+        text(event.metadata.action),
+      ]
+        .filter(Boolean)
+        .join(' · '),
+      outcome,
+      durationMs:
+        event.kind === 'client.command.completed' ||
+        event.kind === 'client.action.ready' ||
+        event.kind === 'client.action.unavailable'
+          ? numeric(event.metadata.durationMs)
+          : fact?.durationMs,
+    };
+  });
+}
+
 const terminalStatuses: Readonly<Record<string, RequestStatus>> = {
   'client.response.applied': 'applied',
   'client.response.failed': 'failed',

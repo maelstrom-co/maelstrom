@@ -109,6 +109,13 @@ command work and individual Engine request, planning, and stage durations.
 Nested timings overlap, so do not add them. Older recordings can report command
 work without whole application time; the panel leaves that time as **Not reported**.
 
+Use **Request phases** to compare reported durations beside each event's phase
+and outcome. Select a row with the mouse or keyboard to open its evidence and
+JSON. Repeated Engine attempts remain separate rows in observed order. The bars
+share a duration scale; their positions do not represent a shared clock or
+non-overlapping work. Events without reported durations have no bar. Clear
+**Show duration bars** for a text table. Use **Show more phases** for longer histories.
+
 Check the evidence coverage before drawing conclusions. A retained start and
 outcome do not prove that every intermediate event survived. A missing outcome
 can mean work is still running or the outcome is outside the evidence window.
@@ -120,6 +127,18 @@ The request list, readable details, and JSON pane scroll independently. Use the
 JSON pane's **Tree** presentation to explore collapsible sections, or **Raw JSON**
 for highlighted text. Selection stays fixed while new requests arrive. If the
 selected trace expires, select another request from the list.
+
+Choose **Pin request** to keep one request at the top of the list while new
+activity arrives. A pin stores only the request identity. It does not extend
+event retention or start a recording. The panel reports when filters hide the
+pinned request or its evidence is no longer retained.
+
+Choose **Unpin request** or select another request to clear the pin. Changing
+**Evidence** or **App instance**, or replacing an imported recording, also clears
+it. Starting a new recording clears the pin while **Evidence** is set to
+**Current recording**. Pins in **Live activity** and **Imported recording** stay
+selected because their evidence is unchanged. Pins last until the panel unmounts.
+Closing and reopening the panel preserves the pin.
 
 ## Find voice and connection events
 
