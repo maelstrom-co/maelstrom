@@ -1,6 +1,6 @@
 {
   "name": "@maelstrom-co/react-devtools",
-  "version": "0.1.0-alpha.5",
+  "version": "0.1.0-alpha.6",
   "description": "React lifecycle adapter for Maelstrom development diagnostics.",
   "keywords": [
     "maelstrom",
@@ -46,14 +46,14 @@
     "registry": "https://npm.pkg.github.com"
   },
   "dependencies": {
-    "@maelstrom-co/client": "0.1.0-alpha.5",
-    "@maelstrom-co/devtools": "0.1.0-alpha.5",
-    "@maelstrom-co/react": "0.1.0-alpha.5"
+    "@maelstrom-co/client": "0.1.0-alpha.6",
+    "@maelstrom-co/devtools": "0.1.0-alpha.6",
+    "@maelstrom-co/react": "0.1.0-alpha.6"
   },
   "devDependencies": {
     "@testing-library/react": "catalog:",
     "happy-dom": "catalog:",
-    "@maelstrom-co/protocol": "0.1.0-alpha.5"
+    "@maelstrom-co/protocol": "0.1.0-alpha.6"
   },
   "peerDependencies": {
     "react": ">=18.0.0",

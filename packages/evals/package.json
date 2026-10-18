@@ -1,6 +1,6 @@
 {
   "name": "@maelstrom-co/evals",
-  "version": "0.1.0-alpha.5",
+  "version": "0.1.0-alpha.6",
   "description": "Live evals for Maelstrom planners: whole-planner arm comparisons through the engine and single-stage evals on gold inputs. Workspace-internal, never published.",
   "private": true,
   "license": "MIT",
@@ -9,10 +9,10 @@
   },
   "type": "module",
   "dependencies": {
-    "@maelstrom-co/engine": "0.1.0-alpha.5",
-    "@maelstrom-co/planner-jev": "0.1.0-alpha.5",
-    "@maelstrom-co/planner-llm": "0.1.0-alpha.5",
-    "@maelstrom-co/protocol": "0.1.0-alpha.5",
+    "@maelstrom-co/engine": "0.1.0-alpha.6",
+    "@maelstrom-co/planner-jev": "0.1.0-alpha.6",
+    "@maelstrom-co/planner-llm": "0.1.0-alpha.6",
+    "@maelstrom-co/protocol": "0.1.0-alpha.6",
     "@tanstack/ai": "catalog:",
     "@tanstack/ai-openai": "catalog:",
     "zod": "catalog:"

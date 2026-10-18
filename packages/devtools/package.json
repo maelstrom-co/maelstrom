@@ -1,6 +1,6 @@
 {
   "name": "@maelstrom-co/devtools",
-  "version": "0.1.0-alpha.5",
+  "version": "0.1.0-alpha.6",
   "description": "Development diagnostics and shared browser inspector for Maelstrom.",
   "keywords": [
     "maelstrom",
@@ -46,9 +46,9 @@
     "registry": "https://npm.pkg.github.com"
   },
   "dependencies": {
-    "@maelstrom-co/client": "0.1.0-alpha.5",
-    "@maelstrom-co/protocol": "0.1.0-alpha.5",
-    "@maelstrom-co/telemetry": "0.1.0-alpha.5",
+    "@maelstrom-co/client": "0.1.0-alpha.6",
+    "@maelstrom-co/protocol": "0.1.0-alpha.6",
+    "@maelstrom-co/telemetry": "0.1.0-alpha.6",
     "@pgrabovets/json-view": "catalog:",
     "solid-js": "catalog:",
     "zod": "catalog:"

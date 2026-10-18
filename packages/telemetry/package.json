@@ -1,6 +1,6 @@
 {
   "name": "@maelstrom-co/telemetry",
-  "version": "0.1.0-alpha.5",
+  "version": "0.1.0-alpha.6",
   "description": "Opt-in operational telemetry contracts and bounded sink delivery for Maelstrom.",
   "keywords": [
     "maelstrom",

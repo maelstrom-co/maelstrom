@@ -1,6 +1,6 @@
 {
   "name": "@maelstrom-co/engine",
-  "version": "0.1.0-alpha.5",
+  "version": "0.1.0-alpha.6",
   "description": "Maelstrom orchestration engine: validates, heals and executes a planner's candidate into a layout and an execution plan for the current chart state.",
   "keywords": [
     "maelstrom",
@@ -50,8 +50,8 @@
     "registry": "https://npm.pkg.github.com"
   },
   "dependencies": {
-    "@maelstrom-co/telemetry": "0.1.0-alpha.5",
-    "@maelstrom-co/protocol": "0.1.0-alpha.5",
+    "@maelstrom-co/telemetry": "0.1.0-alpha.6",
+    "@maelstrom-co/protocol": "0.1.0-alpha.6",
     "zod": "catalog:"
   },
   "nx": {
