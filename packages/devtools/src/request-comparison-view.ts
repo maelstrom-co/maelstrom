@@ -1,0 +1,270 @@
+import { button, element } from './panel-elements.js';
+import {
+  duration,
+  type RequestTrace,
+  requestEventCoverage,
+  requestPhases,
+  requestTimingComparison,
+} from './panel-model.js';
+import type {
+  ComparisonRequest,
+  ComparisonSide,
+  RenderedView,
+  RequestComparisonSelection,
+  ViewContext,
+} from './panel-views.js';
+
+function empty(message: string): HTMLElement {
+  return element('p', message, 'empty');
+}
+
+function comparisonTable(label: string, titles: readonly string[]) {
+  const table = element('table', undefined, 'comparison-timings');
+  table.setAttribute('aria-label', label);
+  const head = element('thead'),
+    row = element('tr'),
+    body = element('tbody');
+  for (const title of titles) {
+    const cell = element('th', title);
+    cell.scope = 'col';
+    row.append(cell);
+  }
+  head.append(row);
+  table.append(head, body);
+  return { table, body };
+}
+
+export function requestComparisonView(
+  context: ViewContext,
+  selection: RequestComparisonSelection,
+  retained: RequestTrace[],
+  visible: RequestTrace[],
+  navigation: HTMLElement,
+  renderDetails: (request: RequestTrace, context: ViewContext) => RenderedView,
+): RenderedView {
+  const content = element('section', undefined, 'request-comparison');
+  content.setAttribute('aria-label', 'Request comparison');
+  const header = element('header', undefined, 'comparison-header');
+  const stop = button('Exit comparison', () => context.setComparison());
+  stop.dataset.focusKey = 'exit-comparison';
+  header.append(element('h3', 'Compare requests'), stop);
+  content.append(
+    header,
+    element(
+      'p',
+      `Select a request in the list for ${selection.choosing.toUpperCase()}. Both identities stay selected through new activity. Retention limits still apply.`,
+      'muted small',
+    ),
+  );
+  const requests = {
+    a: retained.find((request) => request.key === selection.a.key),
+    b: retained.find((request) => request.key === selection.b?.key),
+  };
+  const phaseMaximumMs = [requests.a, requests.b].reduce(
+    (maximum, request) =>
+      request
+        ? requestPhases(request).reduce(
+            (max, phase) => Math.max(max, phase.durationMs ?? 0),
+            maximum,
+          )
+        : maximum,
+    0,
+  );
+  const { table: timings, body } = comparisonTable('Compared request timings', [
+    'Reported duration',
+    'A',
+    'B',
+    'B − A',
+  ]);
+  for (const { label, aMs, bMs, deltaMs } of requestTimingComparison(
+    requests.a,
+    requests.b,
+  )) {
+    const row = element('tr'),
+      title = element('th', label);
+    title.scope = 'row';
+    row.append(
+      title,
+      element('td', duration(aMs)),
+      element('td', duration(bMs)),
+      element(
+        'td',
+        deltaMs === undefined
+          ? 'Not comparable'
+          : `${deltaMs < 0 ? '−' : deltaMs > 0 ? '+' : ''}${duration(Math.abs(deltaMs))}`,
+      ),
+    );
+    body.append(row);
+  }
+  content.append(
+    timings,
+    element(
+      'p',
+      'Durations use each producer’s clock. Stages and Actions stay in separate observed sequences; rows do not pair attempts across requests.',
+      'muted small',
+    ),
+  );
+  const columns = element('div', undefined, 'comparison-columns');
+  const coverage = element('details');
+  coverage.dataset.disclosureKey = JSON.stringify([
+    'comparison-coverage',
+    selection.a.key,
+    selection.b?.key,
+  ]);
+  coverage.append(
+    element('summary', 'Compare observed event counts'),
+    element(
+      'p',
+      'Counts include repeated events. Not observed means absent from retained evidence, not proof that work did not occur.',
+      'muted small',
+    ),
+  );
+  const { table: coverageTable, body: coverageBody } = comparisonTable(
+    'Compared event coverage',
+    ['Event kind', 'A', 'B'],
+  );
+  const eventCoverage = requestEventCoverage(requests.a, requests.b);
+  for (const count of eventCoverage.slice(0, 50)) {
+    const row = element('tr'),
+      title = element('th', count.kind);
+    title.scope = 'row';
+    row.append(
+      title,
+      element(
+        'td',
+        !requests.a
+          ? 'Unavailable'
+          : count.a
+            ? String(count.a)
+            : 'Not observed',
+      ),
+      element(
+        'td',
+        !requests.b
+          ? 'Unavailable'
+          : count.b
+            ? String(count.b)
+            : 'Not observed',
+      ),
+    );
+    coverageBody.append(row);
+  }
+  coverage.append(coverageTable);
+  if (eventCoverage.length > 50)
+    coverage.append(
+      element(
+        'p',
+        `${eventCoverage.length - 50} more event kinds. Inspect each request’s phases for all retained events.`,
+        'muted small',
+      ),
+    );
+  content.append(coverage);
+  const rendered: Partial<Record<ComparisonSide, RenderedView>> = {};
+  const signature: unknown[] = [
+    'comparison',
+    selection,
+    context.query,
+    context.issueCategory,
+    context.clientId,
+  ];
+  for (const side of ['a', 'b'] as const) {
+    const slot = selection[side],
+      request = requests[side];
+    const column = element('section', undefined, 'comparison-column');
+    column.setAttribute('aria-label', `Comparison ${side.toUpperCase()}`);
+    column.tabIndex = 0;
+    column.dataset.focusKey = `comparison-column-${side}`;
+    column.dataset.scrollKey = JSON.stringify([side, slot?.key]);
+    const choose = button(`Choose ${side.toUpperCase()}`, () =>
+      context.setComparison({ ...selection, choosing: side }),
+    );
+    choose.dataset.focusKey = `choose-comparison-${side}`;
+    choose.setAttribute('aria-pressed', String(selection.choosing === side));
+    column.append(element('h3', side.toUpperCase()), choose);
+    if (slot) {
+      const [clientId, requestId] = JSON.parse(slot.key) as [string, string];
+      column.append(
+        element(
+          'p',
+          `${context.appLabel(clientId)} · ${clientId} · Request ${requestId}`,
+          'mono small',
+        ),
+      );
+    }
+    if (!slot) column.append(empty('Select a second request from the list.'));
+    else if (!request)
+      column.append(
+        empty(
+          'Selected request evidence is no longer retained. Choose another request.',
+        ),
+      );
+    else {
+      if (!visible.some((item) => item.key === request.key))
+        column.append(
+          element(
+            'p',
+            'This request is hidden from the list by the current filters. Its retained evidence remains available here.',
+            'muted small',
+          ),
+        );
+      const updateSlot = (patch: Partial<ComparisonRequest>) =>
+        context.setComparison({
+          ...selection,
+          [side]: { ...slot, ...patch },
+          inspecting: side,
+        });
+      const detail = renderDetails(request, {
+        ...context,
+        requestKey: request.key,
+        eventKey: slot.eventKey ?? '',
+        phasePage: slot.phasePage,
+        phaseMaximumMs,
+        phaseBars: slot.phaseBars ?? context.phaseBars,
+        setPhaseBars: (phaseBars) => updateSlot({ phaseBars }),
+        layoutView: slot.layoutView,
+        issueCategory: 'all',
+        selectEvent: (eventKey) =>
+          updateSlot({ eventKey, phasePage: undefined }),
+        selectPhasePage: (phasePage) => updateSlot({ phasePage }),
+        setLayoutView: (layoutView, eventKey) =>
+          updateSlot({
+            layoutView,
+            ...(eventKey ? { eventKey, phasePage: undefined } : {}),
+          }),
+      });
+      for (const node of detail.content.querySelectorAll<HTMLElement>(
+        '[data-focus-key]',
+      ))
+        node.dataset.focusKey = `comparison-${side}:${node.dataset.focusKey}`;
+      for (const [index, node] of Array.from(
+        detail.content.querySelectorAll('details'),
+      ).entries())
+        node.dataset.disclosureKey = JSON.stringify([
+          side,
+          slot.key,
+          node.dataset.disclosurePurpose ?? index,
+        ]);
+      const inspect = button(`Inspect ${side.toUpperCase()} JSON`, () =>
+        context.setComparison({ ...selection, inspecting: side }),
+      );
+      inspect.dataset.focusKey = `inspect-comparison-${side}`;
+      inspect.setAttribute(
+        'aria-pressed',
+        String(selection.inspecting === side),
+      );
+      column.append(inspect, detail.content);
+      rendered[side] = detail;
+      signature.push(...(detail.contentIdentity ?? []));
+    }
+    columns.append(column);
+  }
+  content.append(columns);
+  const inspected = rendered[selection.inspecting];
+  return {
+    navigation,
+    content,
+    raw: inspected?.raw,
+    rawTitle: `Comparison ${selection.inspecting.toUpperCase()} · Selected stage`,
+    contentIdentity: signature,
+  };
+}

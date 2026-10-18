@@ -198,6 +198,40 @@ export interface RequestPhase {
   durationMs?: number;
 }
 
+export function requestEventCoverage(
+  a: RequestTrace | undefined,
+  b: RequestTrace | undefined,
+) {
+  const counts = new Map<string, { kind: string; a: number; b: number }>();
+  for (const side of ['a', 'b'] as const)
+    for (const event of (side === 'a' ? a : b)?.events ?? []) {
+      const row = counts.get(event.kind) ?? { kind: event.kind, a: 0, b: 0 };
+      row[side]++;
+      counts.set(event.kind, row);
+    }
+  return [...counts.values()];
+}
+
+export function requestTimingComparison(
+  a: RequestTrace | undefined,
+  b: RequestTrace | undefined,
+) {
+  const measures = [
+    [
+      'Request round-trip',
+      a?.push ? undefined : a?.transportMs,
+      b?.push ? undefined : b?.transportMs,
+    ],
+    ['Client application', a?.applicationMs, b?.applicationMs],
+  ] as const;
+  return measures.map(([label, aMs, bMs]) => ({
+    label,
+    aMs,
+    bMs,
+    deltaMs: aMs === undefined || bMs === undefined ? undefined : bMs - aMs,
+  }));
+}
+
 function diagnosticPhaseOutcome(event: PanelEvent): string {
   switch (event.kind) {
     case 'engine.candidate.validated':

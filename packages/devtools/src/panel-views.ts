@@ -27,6 +27,7 @@ import {
   statusLabels,
   text,
 } from './panel-model.js';
+import { requestComparisonView } from './request-comparison-view.js';
 
 export { button, element } from './panel-elements.js';
 
@@ -98,8 +99,11 @@ export interface ViewContext {
   issueCategory?: string;
   requestKey: string;
   pinnedRequest?: string;
+  comparison?: RequestComparisonSelection;
+  setComparison(selection?: RequestComparisonSelection): void;
   pinRequest(key?: string): void;
   phaseBars: boolean;
+  phaseMaximumMs?: number;
   setPhaseBars(enabled: boolean): void;
   phasePage?: { requestKey: string; index: number };
   layoutView?: LayoutViewSelection;
@@ -116,6 +120,20 @@ export interface ViewContext {
   selectInstance(clientId: string, instanceId: string): void;
   selectApp(clientId: string): void;
   more(): void;
+}
+export type ComparisonSide = 'a' | 'b';
+export interface ComparisonRequest {
+  key: string;
+  phaseBars?: boolean;
+  eventKey?: string;
+  phasePage?: ViewContext['phasePage'];
+  layoutView?: LayoutViewSelection;
+}
+export interface RequestComparisonSelection {
+  a: ComparisonRequest;
+  b?: ComparisonRequest;
+  choosing: ComparisonSide;
+  inspecting: ComparisonSide;
 }
 export interface RenderedView {
   navigation?: HTMLElement;
@@ -179,15 +197,16 @@ function requestPhasesView(
     element('h3', 'Request phases'),
     element(
       'p',
-      'Observed order, not a shared clock. Bars compare reported durations; nested work overlaps.',
+      context.phaseMaximumMs === undefined
+        ? 'Observed order, not a shared clock. Bars compare reported durations; nested work overlaps.'
+        : 'Observed order, not a shared clock. Both requests share one duration scale. Nested work overlaps.',
       'muted small',
     ),
   );
   const phases = requestPhases(request);
-  const maximum = phases.reduce(
-    (max, phase) => Math.max(max, phase.durationMs ?? 0),
-    0,
-  );
+  const maximum =
+    context.phaseMaximumMs ??
+    phases.reduce((max, phase) => Math.max(max, phase.durationMs ?? 0), 0);
   const table = element('table', undefined, 'phase-table');
   table.setAttribute('aria-label', 'Request phases');
   const header = element('thead'),
@@ -441,7 +460,16 @@ export function requestsView(context: ViewContext): RenderedView {
       'row-button',
     );
     row.dataset.focusKey = `request:${request.key}`;
-    row.setAttribute('aria-pressed', String(selected?.key === request.key));
+    row.setAttribute(
+      'aria-pressed',
+      String(
+        context.comparison
+          ? [context.comparison.a.key, context.comparison.b?.key].includes(
+              request.key,
+            )
+          : selected?.key === request.key,
+      ),
+    );
     const heading = element('span', undefined, 'row-heading');
     heading.append(
       element(
@@ -461,10 +489,22 @@ export function requestsView(context: ViewContext): RenderedView {
       ),
     );
     if (request.key === context.pinnedRequest) row.append(badge('Pinned'));
+    for (const side of ['a', 'b'] as const)
+      if (context.comparison?.[side]?.key === request.key)
+        row.append(badge(side.toUpperCase()));
     navigation.append(row);
   }
   if (requests.length > context.pageSize)
     navigation.append(button('Show more requests', context.more));
+  if (context.comparison)
+    return requestComparisonView(
+      context,
+      context.comparison,
+      retainedRequests,
+      requests,
+      navigation,
+      requestDetailsView,
+    );
   if (!selected) {
     if (context.pinnedRequest)
       content.append(button('Unpin request', () => context.pinRequest()));
@@ -485,6 +525,14 @@ export function requestsView(context: ViewContext): RenderedView {
     );
     return { navigation, content, raw: undefined, rawTitle: 'Selected event' };
   }
+  return { navigation, ...requestDetailsView(selected, context) };
+}
+
+function requestDetailsView(
+  selected: RequestTrace,
+  context: ViewContext,
+): RenderedView {
+  const content = element('section');
   const outcome = element('header', undefined, 'request-outcome');
   outcome.dataset.tone = tone(selected.status);
   outcome.append(
@@ -523,7 +571,18 @@ export function requestsView(context: ViewContext): RenderedView {
   );
   pin.title =
     'Keep this request first in the list. Selecting another request clears the pin. Event retention limits still apply.';
-  outcome.append(pin);
+  if (!context.comparison) {
+    outcome.append(pin);
+    const compare = button('Compare request', () =>
+      context.setComparison({
+        a: { key: selected.key, eventKey: context.eventKey },
+        choosing: 'b',
+        inspecting: 'a',
+      }),
+    );
+    compare.dataset.focusKey = 'compare-request';
+    outcome.append(compare);
+  }
   content.append(outcome);
   const matchingIssues = selected.issues.filter((issue) =>
     matchesCategory(issue, context.issueCategory),
@@ -563,7 +622,15 @@ export function requestsView(context: ViewContext): RenderedView {
           'muted small',
         ),
       );
-    content.append(issues);
+    if (context.comparison) {
+      const disclosure = element('details');
+      disclosure.dataset.disclosurePurpose = 'issues';
+      disclosure.append(
+        element('summary', `Observed issues (${matchingIssues.length})`),
+        issues,
+      );
+      content.append(disclosure);
+    } else content.append(issues);
   }
   if (
     selected.status === 'discarded' ||
@@ -600,6 +667,7 @@ export function requestsView(context: ViewContext): RenderedView {
     ]),
   );
   const coverage = element('details', undefined, 'help');
+  coverage.dataset.disclosurePurpose = 'timings';
   coverage.append(
     element('summary', 'Timings and evidence coverage'),
     factList([
@@ -682,10 +750,28 @@ export function requestsView(context: ViewContext): RenderedView {
     );
   const current =
     selected.events.find((event) => event.key === context.eventKey) ??
-    selected.events.at(-1);
-  content.append(
-    layoutComparisonView(selected, context.evidence.events, context),
+    (context.comparison && context.eventKey
+      ? undefined
+      : selected.events.at(-1));
+  if (context.comparison && context.eventKey && !current)
+    content.append(
+      element(
+        'p',
+        'Selected phase is no longer retained. Select another phase to inspect its JSON.',
+        'warning',
+      ),
+    );
+  const layout = layoutComparisonView(
+    selected,
+    context.evidence.events,
+    context,
   );
+  if (context.comparison) {
+    const disclosure = element('details');
+    disclosure.dataset.disclosurePurpose = 'layout';
+    disclosure.append(element('summary', 'Layout changes'), layout);
+    content.append(disclosure);
+  } else content.append(layout);
   content.append(requestPhasesView(selected, current, context));
   coverage.append(
     element(
@@ -700,7 +786,6 @@ export function requestsView(context: ViewContext): RenderedView {
   content.append(coverage);
   if (current) content.append(eventDetails(current, context));
   return {
-    navigation,
     content,
     raw: current?.raw,
     rawTitle: 'Selected stage',

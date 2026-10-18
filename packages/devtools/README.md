@@ -46,6 +46,12 @@ Missing durations remain unreported. Retained start and outcome events do not
 prove that intermediate evidence is complete. History loss counts cover the
 evidence source and cannot identify which requests lost events.
 
+Choose Compare request, then select a second request to inspect both side by
+side. The comparison keeps each app lifetime, outcome, phase sequence, and
+selected JSON event separate. Selection survives incoming activity without
+extending retention. See the [DevTools guide](https://docs.maelstrom-ai.co/guides/devtools/#compare-two-requests)
+for comparison controls and timing limits.
+
 Engine stage timings render in batches of 200. Use Show more stage timings to
 reveal additional retained stages. Request and planning measurements remain
 visible independently of this limit.

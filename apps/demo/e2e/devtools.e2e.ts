@@ -30,6 +30,82 @@ async function openTelemetryFixture(page: Page, scenario = 'steady') {
   await page.getByRole('tab', { name: 'Telemetry', exact: true }).click();
 }
 
+async function openRequestComparisonFixture(page: Page) {
+  const bundle = execFileSync(
+    'bun',
+    [
+      'build',
+      fileURLToPath(
+        new URL('./fixtures/request-comparison.ts', import.meta.url),
+      ),
+      '--target=browser',
+      '--conditions=browser',
+      '--conditions=development',
+      '--conditions=@maelstrom-co/source',
+    ],
+    { encoding: 'utf8', maxBuffer: 5_000_000 },
+  );
+  await page.route('**/__comparison-fixture.js', (route) =>
+    route.fulfill({ contentType: 'text/javascript', body: bundle }),
+  );
+  await page.route(
+    (url) => url.pathname === '/__comparison-fixture/',
+    (route) =>
+      route.fulfill({
+        contentType: 'text/html',
+        body: '<!doctype html><html lang="en"><meta name="viewport" content="width=device-width,initial-scale=1"><script type="module" src="/__comparison-fixture.js"></script></html>',
+      }),
+  );
+  await page.goto('/__comparison-fixture/');
+  await page
+    .getByRole('combobox', { name: 'Evidence source', exact: true })
+    .selectOption('imported');
+  await page
+    .getByRole('button', { name: 'Compare request', exact: true })
+    .click();
+  await page
+    .locator('.list-pane')
+    .getByRole('button')
+    .filter({ has: page.getByText('Show the calendar', { exact: true }) })
+    .click();
+}
+
+test('comparison phase navigation preserves the other request’s scroll and event selection', async ({
+  page,
+}) => {
+  await openRequestComparisonFixture(page);
+  const a = page.getByRole('region', { name: 'Comparison A', exact: true });
+  const b = page.getByRole('region', { name: 'Comparison B', exact: true });
+  await page
+    .getByText('Compare observed event counts', { exact: true })
+    .click();
+  const aPhase = a
+    .getByRole('button', { name: /Engine stage failed · plan/ })
+    .first();
+  await aPhase.click();
+  await expect(
+    page.locator('details').filter({
+      has: page.getByText('Compare observed event counts', { exact: true }),
+    }),
+  ).toHaveAttribute('open', '');
+  const previousScroll = await a.evaluate((node) => node.scrollTop);
+  expect(previousScroll).toBeGreaterThan(0);
+  const bPhase = b
+    .getByRole('button', { name: /Engine stage completed · plan/ })
+    .first();
+  await bPhase.focus();
+  await page.keyboard.press('Enter');
+  await expect(
+    a.getByRole('button', { name: /Engine stage failed · plan/ }).first(),
+  ).toHaveAttribute('aria-pressed', 'true');
+  expect(await a.evaluate((node) => node.scrollTop)).toBe(previousScroll);
+  await page.getByRole('button', { name: 'Raw JSON', exact: true }).click();
+  const json = page.locator('.json-raw');
+  await expect(json).toContainText('a-stage-1');
+  await a.getByRole('button', { name: 'Inspect A JSON', exact: true }).click();
+  await expect(json).toContainText('b-stage-0');
+});
+
 test('telemetry axis labels remain inside the chart for fractional tick values', async ({
   page,
 }) => {

@@ -22,6 +22,7 @@ import {
   factList,
   inspectorView,
   type RenderedView,
+  type RequestComparisonSelection,
   requestsView,
   type ViewContext,
 } from './panel-views.js';
@@ -100,6 +101,7 @@ function Panel(tools: Devtools): HTMLElement {
   const [revision, setRevision] = createSignal(0);
   const [error, setError] = createSignal('');
   let pinnedRequest: string | undefined;
+  let comparison: RequestComparisonSelection | undefined;
   let captureEpoch = 0;
   let previousCapture = tools.capture.getSnapshot();
   let previousEvidenceRevision = tools.capture.getEvidenceRevision?.() ?? 0;
@@ -133,8 +135,10 @@ function Panel(tools: Devtools): HTMLElement {
         next.count < previousCapture.count ||
         (next.count === previousCapture.count &&
           next.dropped === previousCapture.dropped)
-      )
+      ) {
         headerMetadata = undefined;
+        if (source() === 'recording' && comparison) clearRequestSelection();
+      }
     }
     if (
       (next.active && !previousCapture.active) ||
@@ -272,6 +276,7 @@ function Panel(tools: Devtools): HTMLElement {
   }
   function clearRequestSelection(): void {
     pinnedRequest = undefined;
+    comparison = undefined;
     preferences.requestKey = '';
     preferences.eventKey = '';
     preferences.phasePage = undefined;
@@ -1070,6 +1075,19 @@ function Panel(tools: Devtools): HTMLElement {
       issueCategory: preferences.issueCategory,
       requestKey: preferences.requestKey,
       pinnedRequest,
+      comparison,
+      setComparison: (selection) => {
+        if (selection && !comparison) pinnedRequest = undefined;
+        if (!selection && comparison) {
+          const slot = comparison[comparison.inspecting] ?? comparison.a;
+          preferences.requestKey = slot.key;
+          preferences.eventKey = slot.eventKey ?? '';
+          preferences.phasePage = slot.phasePage;
+          preferences.layoutView = slot.layoutView;
+        }
+        comparison = selection;
+        refresh();
+      },
       phaseBars: preferences.phaseBars ?? true,
       phasePage: preferences.phasePage,
       layoutView: preferences.layoutView,
@@ -1101,6 +1119,17 @@ function Panel(tools: Devtools): HTMLElement {
       live: currentSource === 'live',
       inspect,
       selectRequest: (key) => {
+        if (comparison) {
+          const other = comparison.choosing === 'a' ? 'b' : 'a';
+          if (comparison[other]?.key === key) return;
+          comparison = {
+            ...comparison,
+            [comparison.choosing]: { key },
+            inspecting: comparison.choosing,
+          };
+          refresh();
+          return;
+        }
         preferences.layoutView = undefined;
         preferences.phasePage = undefined;
         if (pinnedRequest !== key) pinnedRequest = undefined;
@@ -1155,6 +1184,7 @@ function Panel(tools: Devtools): HTMLElement {
       preferences.issueCategory,
       preferences.requestKey,
       pinnedRequest,
+      comparison,
       preferences.eventKey,
       preferences.phasePage,
       preferences.layoutView,
@@ -1171,6 +1201,23 @@ function Panel(tools: Devtools): HTMLElement {
       const focused = shadow.activeElement as HTMLElement | null;
       const focusKey = focused?.dataset.focusKey;
       const previousRendered = lastRendered;
+      const scrollPositions = new Map(
+        Array.from(
+          content.querySelectorAll<HTMLElement>('[data-scroll-key]'),
+          (node) => [
+            node.dataset.scrollKey,
+            [node.scrollTop, node.scrollLeft] as const,
+          ],
+        ),
+      );
+      const disclosures = new Map(
+        Array.from(
+          content.querySelectorAll<HTMLDetailsElement>(
+            'details[data-disclosure-key]',
+          ),
+          (node) => [node.dataset.disclosureKey, node.open],
+        ),
+      );
       lastRendered =
         currentTab === 'Requests'
           ? requestsView(context)
@@ -1197,8 +1244,22 @@ function Panel(tools: Devtools): HTMLElement {
           (value, index) =>
             value !== previousRendered?.contentIdentity?.[index],
         )
-      )
+      ) {
+        for (const node of lastRendered.content.querySelectorAll<HTMLDetailsElement>(
+          'details[data-disclosure-key]',
+        ))
+          node.open = disclosures.get(node.dataset.disclosureKey) ?? node.open;
         content.replaceChildren(lastRendered.content);
+        for (const node of content.querySelectorAll<HTMLElement>(
+          '[data-scroll-key]',
+        )) {
+          const position = scrollPositions.get(node.dataset.scrollKey);
+          if (position) {
+            node.scrollTop = position[0];
+            node.scrollLeft = position[1];
+          }
+        }
+      }
       workspace.dataset.list = String(Boolean(lastRendered.navigation));
       navigation.hidden = !lastRendered.navigation;
       jsonInspector.set(lastRendered.raw, lastRendered.rawTitle);
@@ -1218,6 +1279,11 @@ function Panel(tools: Devtools): HTMLElement {
         });
     }
     workspace.dataset.json = String(preferences.json);
+    workspace.dataset.comparison = String(
+      currentTab === 'Requests' &&
+        !preferences.allEvents &&
+        Boolean(comparison),
+    );
     jsonPane.hidden = !preferences.json;
     const highlighted =
       currentTab === 'Inspector' &&
