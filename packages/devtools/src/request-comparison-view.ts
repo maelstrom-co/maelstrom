@@ -236,14 +236,6 @@ export function requestComparisonView(
         ),
       );
     else {
-      if (!visible.some((item) => item.key === request.key))
-        column.append(
-          element(
-            'p',
-            'This request is hidden from the list by the current filters. Its retained evidence remains available here.',
-            'muted small',
-          ),
-        );
       const updateSlot = (
         patch: Partial<ComparisonRequest>,
         inspectEvent = false,
@@ -286,6 +278,14 @@ export function requestComparisonView(
             Boolean(eventKey),
           ),
       });
+      if (!visible.some((item) => item.key === request.key))
+        detail.content.prepend(
+          element(
+            'p',
+            'This request is hidden from the list by the current filters. Its retained evidence remains available here.',
+            'muted small',
+          ),
+        );
       for (const node of detail.content.querySelectorAll<HTMLElement>(
         '[data-focus-key]',
       ))

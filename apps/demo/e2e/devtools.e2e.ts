@@ -227,6 +227,24 @@ test('long imported identities leave both request details and JSON reachable', a
     expect(jsonBox.y + jsonBox.height).toBeLessThanOrEqual(
       columnBox.y + columnBox.height,
     );
+    const tree = column.getByRole('region', {
+      name: `${side} event JSON: JSON tree`,
+      exact: true,
+    });
+    expect(await tree.evaluate((node) => node.clientHeight)).toBeGreaterThan(
+      90,
+    );
+    await column
+      .getByRole('button', {
+        name: `${side} event JSON: Raw JSON`,
+        exact: true,
+      })
+      .click();
+    const raw = column.getByRole('region', {
+      name: `${side} event JSON: Raw JSON`,
+      exact: true,
+    });
+    expect(await raw.evaluate((node) => node.clientHeight)).toBeGreaterThan(90);
     const identity = column.getByRole('region', {
       name: `${side} request identity`,
       exact: true,
@@ -237,6 +255,34 @@ test('long imported identities leave both request details and JSON reachable', a
       .poll(() => identity.evaluate((node) => node.scrollTop))
       .toBeGreaterThan(0);
     await expect(json).toContainText('request-');
+  }
+});
+
+test('filtered comparison requests keep their JSON inspectors reachable', async ({
+  page,
+}) => {
+  await openRequestComparisonFixture(page);
+  await page
+    .getByRole('searchbox', { name: 'Filter diagnostic evidence', exact: true })
+    .fill('not-a-retained-request');
+  for (const side of ['A', 'B']) {
+    const column = page.getByRole('region', {
+      name: `Comparison ${side}`,
+      exact: true,
+    });
+    await expect(column).toContainText('hidden from the list');
+    const json = column.getByRole('complementary', {
+      name: `${side} event JSON`,
+      exact: true,
+    });
+    const columnBox = await column.boundingBox();
+    const jsonBox = await json.boundingBox();
+    expect(columnBox).not.toBeNull();
+    expect(jsonBox).not.toBeNull();
+    if (!columnBox || !jsonBox) return;
+    expect(jsonBox.y + jsonBox.height).toBeLessThanOrEqual(
+      columnBox.y + columnBox.height,
+    );
   }
 });
 
