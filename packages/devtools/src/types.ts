@@ -25,7 +25,12 @@ export interface DevtoolsOptions {
   readonly redact?: (value: unknown) => unknown;
   /** Optional event filter applied before retention. */
   readonly filter?: (event: DiagnosticEvent) => boolean;
-  /** Application-owned synchronous telemetry reader. The Telemetry tab reads immediately and every second while visible. No exporter lifecycle or recording access is granted. */
+  /**
+   * Application-owned synchronous telemetry reader. The visible Telemetry tab reads
+   * immediately and every second, retaining up to 120 local samples until unmount.
+   * Reader changes, resets, failures, and pauses break rate continuity.
+   * No exporter lifecycle or recording access is granted.
+   */
   readonly telemetry?: Pick<Telemetry, 'getSnapshot'>;
 }
 

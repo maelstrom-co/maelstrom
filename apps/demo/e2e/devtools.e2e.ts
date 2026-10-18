@@ -1,4 +1,239 @@
-import { expect, test } from '@playwright/test';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { expect, type Page, test } from '@playwright/test';
+
+async function openTelemetryFixture(page: Page, scenario = 'steady') {
+  const bundle = execFileSync(
+    'bun',
+    [
+      'build',
+      fileURLToPath(new URL('./fixtures/telemetry.ts', import.meta.url)),
+      '--target=browser',
+      '--conditions=browser',
+      '--conditions=development',
+      '--conditions=@maelstrom-co/source',
+    ],
+    { encoding: 'utf8', maxBuffer: 5_000_000 },
+  );
+  await page.route('**/__telemetry-fixture.js', (route) =>
+    route.fulfill({ contentType: 'text/javascript', body: bundle }),
+  );
+  await page.route(
+    (url) => url.pathname === '/__telemetry-fixture/',
+    (route) =>
+      route.fulfill({
+        contentType: 'text/html',
+        body: '<!doctype html><html lang="en"><meta name="viewport" content="width=device-width,initial-scale=1"><script type="module" src="/__telemetry-fixture.js"></script></html>',
+      }),
+  );
+  await page.goto(`/__telemetry-fixture/?scenario=${scenario}`);
+  await page.getByRole('tab', { name: 'Telemetry', exact: true }).click();
+}
+
+test('telemetry axis labels remain inside the chart for fractional tick values', async ({
+  page,
+}) => {
+  await openTelemetryFixture(page);
+  const chart = page.getByRole('img', {
+    name: 'Queue depth and exporter activity',
+    exact: true,
+  });
+  await expect(chart).toContainText('20.5');
+  const clipped = await chart
+    .locator('text')
+    .evaluateAll((labels) =>
+      labels
+        .filter((label) => (label as SVGTextElement).getBBox().x < 0)
+        .map((label) => label.textContent),
+    );
+  expect(clipped).toEqual([]);
+});
+
+test('telemetry polling keeps a focused sample visible when the table overflows', async ({
+  page,
+}) => {
+  const now = new Date();
+  await page.clock.install({ time: now });
+  await page.clock.pauseAt(new Date(now.getTime() + 1000));
+  await openTelemetryFixture(page);
+  const table = page.getByRole('table', { name: 'Telemetry samples' });
+  const first = table.getByRole('button', {
+    name: 'Select telemetry sample 1',
+    exact: true,
+  });
+  await first.focus();
+  await page.clock.runFor(20000);
+  await expect(table.locator('tbody tr')).toHaveCount(21);
+  await expect(first).toBeFocused();
+  await expect(first).toBeInViewport({ ratio: 1 });
+  await page
+    .getByRole('button', { name: 'Follow latest', exact: true })
+    .focus();
+  await page.clock.runFor(1000);
+  expect(
+    await table.evaluate((node) => {
+      const scroll = node.parentElement;
+      if (!scroll)
+        throw new Error('Telemetry table must have a scroll container');
+      return scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop;
+    }),
+  ).toBeLessThanOrEqual(1);
+});
+
+test('an expired telemetry selection keeps retained samples reachable by Tab', async ({
+  page,
+}) => {
+  const now = new Date();
+  await page.clock.install({ time: now });
+  await page.clock.pauseAt(new Date(now.getTime() + 1000));
+  await openTelemetryFixture(page);
+  const table = page.getByRole('table', { name: 'Telemetry samples' });
+  await table
+    .getByRole('button', { name: 'Select telemetry sample 1', exact: true })
+    .click();
+  await page.clock.runFor(120000);
+  const follow = page.getByRole('button', {
+    name: 'Follow latest',
+    exact: true,
+  });
+  const details = page.getByRole('region', {
+    name: 'Selected telemetry sample',
+    exact: true,
+  });
+  await expect(follow).toBeFocused();
+  await expect(follow).toHaveAttribute('aria-pressed', 'false');
+  await expect(details).toContainText('Selected sample expired');
+  await expect(details.locator('pre')).toBeHidden();
+  const latest = table.getByRole('button', {
+    name: 'Select telemetry sample 121',
+    exact: true,
+  });
+  // Narrow charts can become native scroll-container Tab stops before the table.
+  for (let step = 0; step < 3; step++) {
+    await page.keyboard.press('Tab');
+    if (await latest.evaluate((node) => node.matches(':focus'))) break;
+  }
+  await expect(latest).toBeFocused();
+  await expect(latest).toBeInViewport({ ratio: 1 });
+  await expect(latest).toHaveAttribute('aria-pressed', 'false');
+  await expect(details).toContainText('Selected sample expired');
+  await page.keyboard.press('Home');
+  await expect(details.getByRole('heading', { level: 4 })).toContainText(
+    'Sample 2',
+  );
+  await expect(follow).toHaveAttribute('aria-pressed', 'false');
+});
+
+test('a horizontally scrolled telemetry chart selects the nearest observed time', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 320, height: 844 });
+  const now = new Date();
+  await page.clock.install({ time: now });
+  await page.clock.pauseAt(new Date(now.getTime() + 1000));
+  await openTelemetryFixture(page, 'advancing');
+  await page.clock.fastForward(3500);
+  await page.clock.fastForward(1250);
+  const chart = page.getByRole('img', {
+    name: 'Queue depth and exporter activity',
+    exact: true,
+  });
+  await chart.scrollIntoViewIfNeeded();
+  const figure = chart.locator('..');
+  await figure.hover();
+  await page.mouse.wheel(1000, 0);
+  await expect
+    .poll(() => figure.evaluate((node) => node.scrollLeft))
+    .toBeGreaterThan(0);
+  await expect
+    .poll(() =>
+      figure.evaluate(
+        (node) => node.scrollWidth - node.clientWidth - node.scrollLeft,
+      ),
+    )
+    .toBeLessThanOrEqual(1);
+  const bounds = await chart.boundingBox();
+  if (!bounds) throw new Error('Telemetry chart must be visible');
+  await page.mouse.click(
+    bounds.x + bounds.width * 0.75,
+    bounds.y + bounds.height / 2,
+  );
+  const details = page.getByRole('region', {
+    name: 'Selected telemetry sample',
+    exact: true,
+  });
+  await expect(details.getByRole('heading', { level: 4 })).toContainText(
+    'Sample 2',
+  );
+  expect(JSON.parse(await details.locator('pre').innerText()).accepted).toBe(
+    107,
+  );
+  await expect(
+    details.locator('[aria-label="Selected sample interval"]'),
+  ).toContainText('+7 · 2/s');
+});
+
+test('telemetry charts preserve selected samples and keyboard focus across polling', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Open Maelstrom Devtools' }).click();
+  const now = new Date();
+  await page.clock.install({ time: now });
+  await page.clock.pauseAt(new Date(now.getTime() + 1000));
+  await page.getByRole('tab', { name: 'Telemetry', exact: true }).click();
+  const trends = page.getByRole('region', {
+    name: 'Telemetry delivery trends',
+    exact: true,
+  });
+  const table = trends.getByRole('table', { name: 'Telemetry samples' });
+  await expect(table.locator('tbody tr')).toHaveCount(1);
+  const first = table.getByRole('button', {
+    name: 'Select telemetry sample 1',
+    exact: true,
+  });
+  const details = trends.getByRole('region', {
+    name: 'Selected telemetry sample',
+    exact: true,
+  });
+  await first.focus();
+  await page.clock.runFor(2000);
+  await expect(first).toBeFocused();
+  await page.keyboard.press('ArrowRight');
+  await expect(details.getByRole('heading', { level: 4 })).toContainText(
+    'Sample 2',
+  );
+  await first.focus();
+  await page.keyboard.press('Enter');
+  await page.clock.runFor(1000);
+  await expect(table.locator('tbody tr')).toHaveCount(4);
+  await expect(details.getByRole('heading', { level: 4 })).toContainText(
+    'Sample 1',
+  );
+  await expect(first).toBeFocused();
+  await page.keyboard.press('ArrowRight');
+  await expect(details.getByRole('heading', { level: 4 })).toContainText(
+    'Sample 2',
+  );
+  await expect(
+    table.getByRole('button', {
+      name: 'Select telemetry sample 2',
+      exact: true,
+    }),
+  ).toBeFocused();
+  expect(JSON.parse(await details.locator('pre').innerText())).toHaveProperty(
+    'dropped',
+  );
+  for (const title of [
+    'Queue depth and exporter activity',
+    'Local delivery rates',
+  ]) {
+    const chart = trends.getByRole('img', { name: title, exact: true });
+    await chart.scrollIntoViewIfNeeded();
+    await expect(chart).toBeInViewport();
+    expect((await chart.boundingBox())?.height).toBeGreaterThan(50);
+  }
+});
 
 test('request phases support keyboard selection beside independently scrolling JSON', async ({
   page,
