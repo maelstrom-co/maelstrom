@@ -10,6 +10,10 @@ import { projectDiagnosticMetadata } from '@maelstrom-co/telemetry/integration';
 import { identity } from './diagnostic-identity.js';
 
 export { identity } from './diagnostic-identity.js';
+export {
+  type RequestCounterpart,
+  requestCounterparts,
+} from './request-counterparts.js';
 
 export type Fields = Record<string, unknown>;
 export const MAX_VIEW_EVENTS = 10000;
@@ -479,8 +483,19 @@ export interface PanelEvidence {
   apps: PanelApp[];
   dropped?: number;
   omitted: number;
+  unreadableEvents?: number;
   note?: string;
   metadata: Fields;
+}
+
+export function countUnreadableEvents(values: readonly unknown[]): number {
+  return values
+    .slice(-MAX_VIEW_EVENTS)
+    .reduce<number>(
+      (count, value) =>
+        count + Number(identity(fields(value).kind) === undefined),
+      0,
+    );
 }
 
 export function recordingEvidence(value: unknown): PanelEvidence {
@@ -541,6 +556,7 @@ export function recordingEvidence(value: unknown): PanelEvidence {
     apps: [...apps.values()],
     dropped: numeric(capture.droppedEvents),
     omitted: Math.max(0, values.length - MAX_VIEW_EVENTS),
+    unreadableEvents: countUnreadableEvents(values),
     note: text(capture.outcome),
     metadata: fields(capture.metadata),
   };

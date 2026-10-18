@@ -3,6 +3,7 @@ import { render } from 'solid-js/web';
 import { captureImportFileBytes } from './capture-import.js';
 import { createJsonInspector } from './json-inspector.js';
 import {
+  countUnreadableEvents,
   errorCategories,
   type Fields,
   groupRequests,
@@ -56,6 +57,7 @@ interface PanelPreferences {
   jsonMode?: 'tree' | 'raw';
   phaseBars?: boolean;
   phasePage?: ViewContext['phasePage'];
+  stageTimingLimit?: ViewContext['stageTimingLimit'];
   layoutView?: ViewContext['layoutView'];
   height?: number;
   labels: Map<string, string>;
@@ -216,6 +218,9 @@ function Panel(tools: Devtools): HTMLElement {
         })),
         dropped: state.droppedActivityEvents,
         omitted: Math.max(0, state.activity.length - MAX_VIEW_EVENTS),
+        unreadableEvents:
+          countUnreadableEvents(state.activity) +
+          countUnreadableEvents(state.requestActivity),
         metadata: {},
       };
     }
@@ -280,6 +285,7 @@ function Panel(tools: Devtools): HTMLElement {
     preferences.requestKey = '';
     preferences.eventKey = '';
     preferences.phasePage = undefined;
+    preferences.stageTimingLimit = undefined;
     preferences.layoutView = undefined;
   }
   function switchSource(next: Source): void {
@@ -557,7 +563,18 @@ function Panel(tools: Devtools): HTMLElement {
     },
   );
   const jsonPane = jsonInspector.element;
-  onCleanup(jsonInspector.clear);
+  const comparisonInspectors = {
+    a: createJsonInspector('tree', () => {}, 'A content'),
+    b: createJsonInspector('tree', () => {}, 'B content'),
+  };
+  for (const inspector of Object.values(comparisonInspectors))
+    inspector.element.classList.add('comparison-json');
+  function clearJsonEvidence(): void {
+    jsonInspector.clear();
+    for (const inspector of Object.values(comparisonInspectors))
+      inspector.clear();
+  }
+  onCleanup(clearJsonEvidence);
   workspace.append(navigation, content, jsonPane);
 
   const recording = element('section', undefined, 'recording'),
@@ -783,7 +800,7 @@ function Panel(tools: Devtools): HTMLElement {
       lastRendered = undefined;
       navigation.replaceChildren();
       content.replaceChildren();
-      jsonInspector.clear();
+      clearJsonEvidence();
       return;
     }
     const viewingTelemetry = currentTab === 'Telemetry';
@@ -823,7 +840,7 @@ function Panel(tools: Devtools): HTMLElement {
       lastRendered = undefined;
       navigation.replaceChildren();
       content.replaceChildren();
-      jsonInspector.clear();
+      clearJsonEvidence();
       return;
     }
     if (state.imported === null) {
@@ -857,6 +874,8 @@ function Panel(tools: Devtools): HTMLElement {
         : (cachedRecording?.apps.map((app) => app.id) ?? [])),
     ]);
     const recordingId = text(recordingMetadata().providerInstanceId);
+    for (const slot of [comparison?.a, comparison?.b])
+      if (slot) currentIds.add((JSON.parse(slot.key) as [string, string])[0]);
     if (recordingId) currentIds.add(recordingId);
     if (recordingTarget() !== 'all') currentIds.add(recordingTarget());
     for (const key of preferences.labels.keys())
@@ -1064,7 +1083,7 @@ function Panel(tools: Devtools): HTMLElement {
       lastRendered = undefined;
       navigation.replaceChildren();
       content.replaceChildren();
-      jsonInspector.clear();
+      clearJsonEvidence();
       return;
     }
     const context: ViewContext = {
@@ -1077,12 +1096,25 @@ function Panel(tools: Devtools): HTMLElement {
       pinnedRequest,
       comparison,
       setComparison: (selection) => {
-        if (selection && !comparison) pinnedRequest = undefined;
+        if (selection && !comparison) {
+          pinnedRequest = undefined;
+          selection = {
+            ...selection,
+            a: {
+              ...selection.a,
+              phaseBars: preferences.phaseBars ?? true,
+              stageTimingLimit: preferences.stageTimingLimit,
+              layoutView: preferences.layoutView,
+            },
+          };
+        }
         if (!selection && comparison) {
           const slot = comparison[comparison.inspecting] ?? comparison.a;
           preferences.requestKey = slot.key;
           preferences.eventKey = slot.eventKey ?? '';
           preferences.phasePage = slot.phasePage;
+          preferences.phaseBars = slot.phaseBars ?? preferences.phaseBars;
+          preferences.stageTimingLimit = slot.stageTimingLimit;
           preferences.layoutView = slot.layoutView;
         }
         comparison = selection;
@@ -1090,6 +1122,10 @@ function Panel(tools: Devtools): HTMLElement {
       },
       phaseBars: preferences.phaseBars ?? true,
       phasePage: preferences.phasePage,
+      stageTimingLimit: preferences.stageTimingLimit,
+      setStageTimingLimit: (limit) => {
+        preferences.stageTimingLimit = limit;
+      },
       layoutView: preferences.layoutView,
       setLayoutView: (view, eventKey) => {
         preferences.layoutView = view;
@@ -1132,6 +1168,7 @@ function Panel(tools: Devtools): HTMLElement {
         }
         preferences.layoutView = undefined;
         preferences.phasePage = undefined;
+        preferences.stageTimingLimit = undefined;
         if (pinnedRequest !== key) pinnedRequest = undefined;
         preferences.requestKey = key;
         preferences.eventKey = '';
@@ -1263,7 +1300,29 @@ function Panel(tools: Devtools): HTMLElement {
       workspace.dataset.list = String(Boolean(lastRendered.navigation));
       navigation.hidden = !lastRendered.navigation;
       jsonInspector.set(lastRendered.raw, lastRendered.rawTitle);
-      if (focusKey && focused && !focused.isConnected)
+      for (const side of ['a', 'b'] as const) {
+        const inspector = comparisonInspectors[side];
+        const placeholder = content.querySelector<HTMLElement>(
+          `[data-comparison-content="${side}"]`,
+        );
+        if (!placeholder) {
+          inspector.clear();
+          continue;
+        }
+        if (!placeholder.contains(inspector.element))
+          placeholder.append(inspector.element);
+        const captured = lastRendered.comparisonContent?.[side];
+        inspector.set(
+          captured?.value,
+          'Content supplied by the source for this selected phase.',
+          !captured?.phaseAvailable
+            ? 'The selected phase is no longer available. Choose a retained phase.'
+            : currentSource === 'live'
+              ? 'Live activity contains metadata only. Record before reproducing the problem to retain supported content.'
+              : 'No content was retained for this phase. Earlier content cannot be recovered.',
+        );
+      }
+      if (focused && shadow.activeElement !== focused)
         queueMicrotask(() => {
           const currentFocus = document.activeElement;
           if (
@@ -1272,9 +1331,12 @@ function Panel(tools: Devtools): HTMLElement {
             currentFocus !== shadow.host
           )
             return;
-          const replacement = Array.from(
-            root.querySelectorAll<HTMLElement>('[data-focus-key]'),
-          ).find((node) => node.dataset.focusKey === focusKey);
+          if (shadow.activeElement && shadow.activeElement !== focused) return;
+          const replacement = focused.isConnected
+            ? focused
+            : Array.from(
+                root.querySelectorAll<HTMLElement>('[data-focus-key]'),
+              ).find((node) => node.dataset.focusKey === focusKey);
           replacement?.focus({ preventScroll: true });
         });
     }

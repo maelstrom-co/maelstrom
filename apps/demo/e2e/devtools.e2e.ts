@@ -2,12 +2,16 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { expect, type Page, test } from '@playwright/test';
 
-async function openTelemetryFixture(page: Page, scenario = 'steady') {
+async function openFixture(
+  page: Page,
+  fixture: 'telemetry' | 'request-comparison',
+  query = '',
+) {
   const bundle = execFileSync(
     'bun',
     [
       'build',
-      fileURLToPath(new URL('./fixtures/telemetry.ts', import.meta.url)),
+      fileURLToPath(new URL(`./fixtures/${fixture}.ts`, import.meta.url)),
       '--target=browser',
       '--conditions=browser',
       '--conditions=development',
@@ -15,48 +19,29 @@ async function openTelemetryFixture(page: Page, scenario = 'steady') {
     ],
     { encoding: 'utf8', maxBuffer: 5_000_000 },
   );
-  await page.route('**/__telemetry-fixture.js', (route) =>
+  const scriptPath = `/__${fixture}-fixture.js`;
+  const pagePath = `/__${fixture}-fixture/`;
+  await page.route(`**${scriptPath}`, (route) =>
     route.fulfill({ contentType: 'text/javascript', body: bundle }),
   );
   await page.route(
-    (url) => url.pathname === '/__telemetry-fixture/',
+    (url) => url.pathname === pagePath,
     (route) =>
       route.fulfill({
         contentType: 'text/html',
-        body: '<!doctype html><html lang="en"><meta name="viewport" content="width=device-width,initial-scale=1"><script type="module" src="/__telemetry-fixture.js"></script></html>',
+        body: `<!doctype html><html lang="en"><meta name="viewport" content="width=device-width,initial-scale=1"><script type="module" src="${scriptPath}"></script></html>`,
       }),
   );
-  await page.goto(`/__telemetry-fixture/?scenario=${scenario}`);
+  await page.goto(`${pagePath}${query}`);
+}
+
+async function openTelemetryFixture(page: Page, scenario = 'steady') {
+  await openFixture(page, 'telemetry', `?${new URLSearchParams({ scenario })}`);
   await page.getByRole('tab', { name: 'Telemetry', exact: true }).click();
 }
 
 async function openRequestComparisonFixture(page: Page) {
-  const bundle = execFileSync(
-    'bun',
-    [
-      'build',
-      fileURLToPath(
-        new URL('./fixtures/request-comparison.ts', import.meta.url),
-      ),
-      '--target=browser',
-      '--conditions=browser',
-      '--conditions=development',
-      '--conditions=@maelstrom-co/source',
-    ],
-    { encoding: 'utf8', maxBuffer: 5_000_000 },
-  );
-  await page.route('**/__comparison-fixture.js', (route) =>
-    route.fulfill({ contentType: 'text/javascript', body: bundle }),
-  );
-  await page.route(
-    (url) => url.pathname === '/__comparison-fixture/',
-    (route) =>
-      route.fulfill({
-        contentType: 'text/html',
-        body: '<!doctype html><html lang="en"><meta name="viewport" content="width=device-width,initial-scale=1"><script type="module" src="/__comparison-fixture.js"></script></html>',
-      }),
-  );
-  await page.goto('/__comparison-fixture/');
+  await openFixture(page, 'request-comparison');
   await page
     .getByRole('combobox', { name: 'Evidence source', exact: true })
     .selectOption('imported');
@@ -69,6 +54,80 @@ async function openRequestComparisonFixture(page: Page) {
     .filter({ has: page.getByText('Show the calendar', { exact: true }) })
     .click();
 }
+
+test('comparison presentation keeps keyboard focus, JSON selection, and revealed stage timings', async ({
+  page,
+}) => {
+  await openRequestComparisonFixture(page);
+  const a = page.getByRole('region', { name: 'Comparison A', exact: true });
+  const b = page.getByRole('region', { name: 'Comparison B', exact: true });
+  await page.getByRole('button', { name: 'Raw JSON', exact: true }).click();
+  await page
+    .getByRole('button', { name: 'Inspect B JSON', exact: true })
+    .click();
+  const json = page.getByRole('region', { name: 'Raw JSON', exact: true });
+  const selected = await json.innerText();
+  const bars = a.getByRole('checkbox', { name: 'Show duration bars' });
+  await bars.focus();
+  await page.keyboard.press('Space');
+  await expect(bars).toBeFocused();
+  await expect(json).toHaveText(selected);
+  await a.getByText('Timings and evidence coverage', { exact: true }).click();
+  await a
+    .getByRole('button', { name: 'Show more stage timings', exact: true })
+    .click();
+  await expect(a.getByRole('status')).toHaveText(
+    'Showing 205 of 205 stage timings',
+  );
+  await b.locator('.phase-select').first().click();
+  await expect(a.getByRole('status')).toHaveText(
+    'Showing 205 of 205 stage timings',
+  );
+});
+
+test('recorded comparison arguments can be explored together with independent JSON modes', async ({
+  page,
+}) => {
+  await openRequestComparisonFixture(page);
+  const a = page.getByRole('region', { name: 'Comparison A', exact: true });
+  const b = page.getByRole('region', { name: 'Comparison B', exact: true });
+  for (const side of [a, b]) {
+    await side
+      .getByRole('button', { name: 'Show more phases', exact: true })
+      .click();
+    await side.locator('.phase-select').filter({ hasText: 'open' }).click();
+    await side
+      .locator('summary')
+      .filter({ hasText: 'Recorded content' })
+      .click();
+  }
+  await a
+    .getByRole('button', { name: 'A content: Raw JSON', exact: true })
+    .click();
+  await expect(
+    a.getByRole('region', { name: 'A content: Raw JSON', exact: true }),
+  ).toContainText('Tuesday');
+  const tree = b.getByRole('region', {
+    name: 'B content: JSON tree',
+    exact: true,
+  });
+  await expect(tree).toBeVisible();
+  await expect(tree).toContainText('Monday');
+  await b
+    .getByRole('button', { name: 'B content: Collapse all', exact: true })
+    .click();
+  await expect(
+    b.getByRole('button', { name: 'B content: Expand root', exact: true }),
+  ).toHaveAttribute('aria-expanded', 'false');
+  await b
+    .getByRole('button', { name: 'B content: Expand root', exact: true })
+    .focus();
+  await page.keyboard.press('Enter');
+  await expect(tree).toContainText('Monday');
+  await expect(
+    a.getByRole('region', { name: 'A content: Raw JSON', exact: true }),
+  ).toBeVisible();
+});
 
 test('comparison phase navigation preserves the other request’s scroll and event selection', async ({
   page,
@@ -100,7 +159,7 @@ test('comparison phase navigation preserves the other request’s scroll and eve
   ).toHaveAttribute('aria-pressed', 'true');
   expect(await a.evaluate((node) => node.scrollTop)).toBe(previousScroll);
   await page.getByRole('button', { name: 'Raw JSON', exact: true }).click();
-  const json = page.locator('.json-raw');
+  const json = page.locator('[aria-label="JSON evidence"] .json-raw');
   await expect(json).toContainText('a-stage-1');
   await a.getByRole('button', { name: 'Inspect A JSON', exact: true }).click();
   await expect(json).toContainText('b-stage-0');
@@ -603,7 +662,9 @@ test('layout changes support keyboard inspection beside retained JSON', async ({
   await before.focus();
   await page.keyboard.press('Enter');
   await expect(before).toBeFocused();
-  await expect(panel.locator('.json-raw')).toContainText('before-layout');
+  await expect(
+    panel.locator('[aria-label="JSON evidence"] .json-raw'),
+  ).toContainText('before-layout');
   const change = comparison.getByRole('button', {
     name: 'calendar: Moved, Resized, Variant changed',
     exact: true,
@@ -611,7 +672,9 @@ test('layout changes support keyboard inspection beside retained JSON', async ({
   await change.focus();
   await page.keyboard.press('Enter');
   await expect(change).toBeFocused();
-  await expect(panel.locator('.json-raw')).toContainText('after-layout');
+  await expect(
+    panel.locator('[aria-label="JSON evidence"] .json-raw'),
+  ).toContainText('after-layout');
   await expect(comparison).toContainText(
     'Before: month · visible. After: week · visible.',
   );

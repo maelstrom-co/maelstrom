@@ -1,7 +1,9 @@
 import { button, element } from './panel-elements.js';
 import {
   duration,
+  fields,
   type RequestTrace,
+  requestCounterparts,
   requestEventCoverage,
   requestPhases,
   requestTimingComparison,
@@ -83,10 +85,17 @@ export function requestComparisonView(
     const row = element('tr'),
       title = element('th', label);
     title.scope = 'row';
+    const timing = (
+      request: RequestTrace | undefined,
+      ms: number | undefined,
+    ) =>
+      label === 'Request round-trip' && request?.push
+        ? 'Not applicable (push)'
+        : duration(ms);
     row.append(
       title,
-      element('td', duration(aMs)),
-      element('td', duration(bMs)),
+      element('td', timing(requests.a, aMs)),
+      element('td', timing(requests.b, bMs)),
       element(
         'td',
         deltaMs === undefined
@@ -100,7 +109,7 @@ export function requestComparisonView(
     timings,
     element(
       'p',
-      'Durations use each producer’s clock. Stages and Actions stay in separate observed sequences; rows do not pair attempts across requests.',
+      'Durations use each producer’s clock. Unmatched means absent from the other request’s retained evidence. Incomplete evidence stays unknown. Similar metadata does not pair attempts or prove that work did not occur.',
       'muted small',
     ),
   );
@@ -111,8 +120,10 @@ export function requestComparisonView(
     selection.a.key,
     selection.b?.key,
   ]);
+  const coverageSummary = element('summary', 'Compare observed event counts');
+  coverageSummary.dataset.focusKey = 'comparison-coverage';
   coverage.append(
-    element('summary', 'Compare observed event counts'),
+    coverageSummary,
     element(
       'p',
       'Counts include repeated events. Not observed means absent from retained evidence, not proof that work did not occur.',
@@ -160,6 +171,7 @@ export function requestComparisonView(
     );
   content.append(coverage);
   const rendered: Partial<Record<ComparisonSide, RenderedView>> = {};
+  const comparisonContent: NonNullable<RenderedView['comparisonContent']> = {};
   const signature: unknown[] = [
     'comparison',
     selection,
@@ -167,6 +179,26 @@ export function requestComparisonView(
     context.issueCategory,
     context.clientId,
   ];
+  const sourceEvents = [
+    ...context.evidence.events,
+    ...(context.evidence.requestEvents ?? []),
+  ];
+  const sourceIncomplete = Boolean(
+    context.evidence.unreadableEvents ||
+      context.evidence.droppedRequestEvents ||
+      context.evidence.dropped ||
+      context.evidence.omittedRequestEvents ||
+      context.evidence.omitted ||
+      sourceEvents.some(
+        (event) =>
+          (!event.requestId || !event.clientId) &&
+          (event.raw.requestId !== undefined ||
+            /^(?:client\.(?:request|response|command|action)|engine)\./.test(
+              event.kind,
+            )),
+      ),
+  );
+  signature.push(sourceIncomplete);
   for (const side of ['a', 'b'] as const) {
     const slot = selection[side],
       request = requests[side];
@@ -207,30 +239,47 @@ export function requestComparisonView(
             'muted small',
           ),
         );
-      const updateSlot = (patch: Partial<ComparisonRequest>) =>
+      const updateSlot = (
+        patch: Partial<ComparisonRequest>,
+        inspectEvent = false,
+      ) =>
         context.setComparison({
           ...selection,
           [side]: { ...slot, ...patch },
-          inspecting: side,
+          inspecting: inspectEvent ? side : selection.inspecting,
         });
       const detail = renderDetails(request, {
         ...context,
         requestKey: request.key,
         eventKey: slot.eventKey ?? '',
         phasePage: slot.phasePage,
+        stageTimingLimit: slot.stageTimingLimit,
+        setStageTimingLimit: (stageTimingLimit) =>
+          updateSlot({ stageTimingLimit }),
         phaseMaximumMs,
+        phaseCounterparts: {
+          other: side === 'a' ? 'b' : 'a',
+          events: requestCounterparts(
+            request,
+            requests[side === 'a' ? 'b' : 'a'],
+            sourceIncomplete,
+          ),
+        },
         phaseBars: slot.phaseBars ?? context.phaseBars,
         setPhaseBars: (phaseBars) => updateSlot({ phaseBars }),
         layoutView: slot.layoutView,
         issueCategory: 'all',
         selectEvent: (eventKey) =>
-          updateSlot({ eventKey, phasePage: undefined }),
+          updateSlot({ eventKey, phasePage: undefined }, true),
         selectPhasePage: (phasePage) => updateSlot({ phasePage }),
         setLayoutView: (layoutView, eventKey) =>
-          updateSlot({
-            layoutView,
-            ...(eventKey ? { eventKey, phasePage: undefined } : {}),
-          }),
+          updateSlot(
+            {
+              layoutView,
+              ...(eventKey ? { eventKey, phasePage: undefined } : {}),
+            },
+            Boolean(eventKey),
+          ),
       });
       for (const node of detail.content.querySelectorAll<HTMLElement>(
         '[data-focus-key]',
@@ -238,12 +287,16 @@ export function requestComparisonView(
         node.dataset.focusKey = `comparison-${side}:${node.dataset.focusKey}`;
       for (const [index, node] of Array.from(
         detail.content.querySelectorAll('details'),
-      ).entries())
+      ).entries()) {
         node.dataset.disclosureKey = JSON.stringify([
           side,
           slot.key,
           node.dataset.disclosurePurpose ?? index,
         ]);
+        const summary = node.querySelector('summary');
+        if (summary)
+          summary.dataset.focusKey = `disclosure:${node.dataset.disclosureKey}`;
+      }
       const inspect = button(`Inspect ${side.toUpperCase()} JSON`, () =>
         context.setComparison({ ...selection, inspecting: side }),
       );
@@ -252,6 +305,24 @@ export function requestComparisonView(
         'aria-pressed',
         String(selection.inspecting === side),
       );
+      comparisonContent[side] = {
+        value: fields(detail.raw).content,
+        phaseAvailable: detail.raw !== undefined,
+      };
+      const recorded = element('details');
+      recorded.open = comparisonContent[side].value !== undefined;
+      recorded.dataset.disclosureKey = JSON.stringify([
+        side,
+        slot.key,
+        'recorded-content',
+      ]);
+      const summary = element('summary', 'Recorded content');
+      summary.dataset.focusKey = `comparison-${side}:recorded-content`;
+      recorded.append(summary);
+      const placeholder = element('div');
+      placeholder.dataset.comparisonContent = side;
+      recorded.append(placeholder);
+      detail.content.querySelector('.request-outcome')?.after(recorded);
       column.append(inspect, detail.content);
       rendered[side] = detail;
       signature.push(...(detail.contentIdentity ?? []));
@@ -266,5 +337,6 @@ export function requestComparisonView(
     raw: inspected?.raw,
     rawTitle: `Comparison ${selection.inspecting.toUpperCase()} · Selected stage`,
     contentIdentity: signature,
+    comparisonContent,
   };
 }

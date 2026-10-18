@@ -158,6 +158,17 @@ Scroll each request independently. Select a phase to open that side's supporting
 event and JSON. Use **Inspect A JSON** or **Inspect B JSON** to return to the
 selected event on that side. Supported content still requires explicit recording.
 
+Open **Recorded content** in each column to compare captured arguments or response
+content together. Each side has its own tree and raw JSON controls. Live activity
+contains metadata only; viewing a request does not start a recording.
+
+Read **Other request** beside each phase to find one-sided observations.
+**Unmatched in retained evidence** means the other request has no compatible
+observation in its retained history. Incomplete or redacted evidence stays unknown.
+Similar metadata does not establish a matching attempt or Action invocation.
+Reported history loss also leaves missing counterparts unknown because the source
+does not identify which request lost an event.
+
 Use **Choose A** or **Choose B**, then select a request from the list to
 replace that side. Incoming activity preserves both identities. Filters change
 the list while selected requests remain inspectable. Eviction leaves an explicit
@@ -165,8 +176,9 @@ message and clears unavailable JSON; comparison does not extend retention.
 
 Choose **Exit comparison** to return to one request. Changing **Evidence** or
 **App instance**, replacing an imported recording, or unmounting the panel clears
-the comparison. Closing and reopening the panel preserves it.
-Changing a recording's redaction policy also clears the comparison.
+the comparison. Starting a new recording or changing its redaction policy also
+clears comparison while **Evidence** is set to **Current recording**.
+Closing and reopening the panel preserves the selected requests.
 
 ## Compare a request's layouts
 

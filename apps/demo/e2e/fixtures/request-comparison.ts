@@ -54,12 +54,18 @@ const events = ['a', 'b'].flatMap((app) => [
     source: 'request',
     durationMs: app === 'a' ? 90 : 340,
   }),
-  event(app, 'client.action.completed', `${app}-action`, {
-    action: 'open',
-    instanceId: 'calendar',
-    outcome: app === 'a' ? 'succeeded' : 'failed',
-    durationMs: 4,
-  }),
+  event(
+    app,
+    'client.action.completed',
+    `${app}-action`,
+    {
+      action: 'open',
+      instanceId: 'calendar',
+      outcome: app === 'a' ? 'succeeded' : 'failed',
+      durationMs: 4,
+    },
+    { arguments: { day: app === 'a' ? 'Monday' : 'Tuesday' } },
+  ),
   event(app, 'client.response.applied', `${app}-end`, {
     durationMs: app === 'a' ? 12 : 48,
     actionFailures: app === 'a' ? 0 : 1,

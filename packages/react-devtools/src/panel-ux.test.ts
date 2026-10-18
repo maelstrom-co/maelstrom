@@ -216,9 +216,10 @@ test('comparison identities survive new activity and eviction without showing a 
   expect(left.textContent).toContain('no longer retained');
   expect(right.textContent).toContain('no longer retained');
   click('Raw JSON');
-  expect(shadow.querySelector('.json-raw')?.textContent ?? '').not.toContain(
-    'new-',
-  );
+  expect(
+    shadow.querySelector('[aria-label="JSON evidence"] .json-raw')
+      ?.textContent ?? '',
+  ).not.toContain('new-');
   expect(tools.getSnapshot().requestActivity.length).toBeLessThanOrEqual(6);
 });
 
@@ -246,6 +247,9 @@ test.each([
   const { shadow, click, select } = mount(tools);
   select('Evidence source', 'imported');
   click('Compare request');
+  expect(
+    shadow.querySelector('[aria-label="Request comparison"]') !== null,
+  ).toBe(true);
   if (change === 'source') select('Evidence source', 'live');
   if (change === 'replacement') {
     click('Close');
@@ -333,13 +337,13 @@ test('comparison preserves repeated attempts and Actions while inspecting each r
   expect(right().textContent).toContain('No final client outcome');
   fireEvent.click(left().querySelector('.phase-select')!);
   click('Raw JSON');
-  expect(shadow.querySelector('.json-raw')?.textContent).toContain(
-    'recorded b',
-  );
+  expect(
+    shadow.querySelector('[aria-label="JSON evidence"] .json-raw')?.textContent,
+  ).toContain('recorded b');
   fireEvent.click(right().querySelectorAll('.phase-select')[3]);
-  expect(shadow.querySelector('.json-raw')?.textContent).toContain(
-    'recorded action a-1',
-  );
+  expect(
+    shadow.querySelector('[aria-label="JSON evidence"] .json-raw')?.textContent,
+  ).toContain('recorded action a-1');
   expect(
     left().querySelector('.phase-select')?.getAttribute('aria-pressed'),
   ).toBe('true');
@@ -347,9 +351,9 @@ test('comparison preserves repeated attempts and Actions while inspecting each r
     right().querySelectorAll('.phase-select')[3].getAttribute('aria-pressed'),
   ).toBe('true');
   click('Inspect A JSON');
-  expect(shadow.querySelector('.json-raw')?.textContent).toContain(
-    'recorded b',
-  );
+  expect(
+    shadow.querySelector('[aria-label="JSON evidence"] .json-raw')?.textContent,
+  ).toContain('recorded b');
   fireEvent.change(left().querySelector('input[type="checkbox"]')!, {
     target: { checked: false },
   });
@@ -392,9 +396,10 @@ test('a selected comparison phase expires without silently replacing its JSON', 
     shadow.querySelector('[aria-label="Comparison A"]')?.textContent,
   ).toContain('Selected phase is no longer retained');
   click('Raw JSON');
-  expect(shadow.querySelector('.json-raw')?.textContent ?? '').not.toContain(
-    'client.command.completed',
-  );
+  expect(
+    shadow.querySelector('[aria-label="JSON evidence"] .json-raw')
+      ?.textContent ?? '',
+  ).not.toContain('client.command.completed');
 });
 
 test('recorded request layouts explain added Instances and open their supporting JSON', async () => {
@@ -423,12 +428,12 @@ test('recorded request layouts explain added Instances and open their supporting
   ).toBe(2);
   fireEvent.click(shadow.querySelector('[aria-label="panel-counter: Added"]')!);
   click('Raw JSON');
-  expect(shadow.querySelector('.json-raw')?.textContent).toContain(
-    'layoutSnapshot',
-  );
-  expect(shadow.querySelector('.json-raw')?.textContent).toContain(
-    'client.response.applied',
-  );
+  expect(
+    shadow.querySelector('[aria-label="JSON evidence"] .json-raw')?.textContent,
+  ).toContain('layoutSnapshot');
+  expect(
+    shadow.querySelector('[aria-label="JSON evidence"] .json-raw')?.textContent,
+  ).toContain('client.response.applied');
   expect(tools.capture.getSnapshot().active).toBe(false);
 });
 
@@ -578,9 +583,9 @@ test.each([
   expect(selectedPhase?.textContent).toContain(
     before ? 'Layout started' : 'Response applied',
   );
-  expect(shadow.querySelector('.json-raw')?.textContent).toContain(
-    `"id": "${before ? 'before' : 'after'}"`,
-  );
+  expect(
+    shadow.querySelector('[aria-label="JSON evidence"] .json-raw')?.textContent,
+  ).toContain(`"id": "${before ? 'before' : 'after'}"`);
 });
 
 test.each([
@@ -623,7 +628,9 @@ test.each([
   click('Close');
   tools.importCapture(file('after', replacementRequest));
   reopen();
-  expect(shadow.querySelector('.json-raw')?.textContent).toContain('after');
+  expect(
+    shadow.querySelector('[aria-label="JSON evidence"] .json-raw')?.textContent,
+  ).toContain('after');
   expect(shadow.querySelector('.content-pane')?.textContent).not.toContain(
     'Unpin request',
   );
@@ -696,12 +703,12 @@ test('phase rows open their evidence while repeated attempts retain separate dur
   const first = phases?.querySelector('button');
   if (!first) throw new Error('Expected phase selection');
   fireEvent.click(first);
-  expect(shadow.querySelector('.json-raw')?.textContent).toContain(
-    'engine.stage.failed',
-  );
-  expect(shadow.querySelector('.json-raw')?.textContent).not.toContain(
-    'engine.stage.completed',
-  );
+  expect(
+    shadow.querySelector('[aria-label="JSON evidence"] .json-raw')?.textContent,
+  ).toContain('engine.stage.failed');
+  expect(
+    shadow.querySelector('[aria-label="JSON evidence"] .json-raw')?.textContent,
+  ).not.toContain('engine.stage.completed');
   expect(
     shadow.querySelector(
       'table[aria-label="Request phases"] button[aria-pressed="true"]',
@@ -741,9 +748,10 @@ test('pinning keeps a request above new activity and reports filtering and evict
   expect(shadow.querySelector('.content-pane')?.textContent).toContain(
     'Pinned request is hidden by the current filters',
   );
-  expect(shadow.querySelector('.json-raw')?.textContent ?? '').not.toContain(
-    'new-',
-  );
+  expect(
+    shadow.querySelector('[aria-label="JSON evidence"] .json-raw')
+      ?.textContent ?? '',
+  ).not.toContain('new-');
   fireEvent.input(filter, { target: { value: '' } });
   expect(shadow.querySelector('.content-pane h3')?.textContent).toBe(
     'Request pinned',
@@ -796,11 +804,15 @@ test('selecting a phase beyond the first batch keeps that phase visible and the 
   expect(
     shadow.querySelector<HTMLInputElement>('.phase-display input')?.checked,
   ).toBe(false);
-  expect(shadow.querySelector('.json-raw')?.textContent).toContain('step-204');
+  expect(
+    shadow.querySelector('[aria-label="JSON evidence"] .json-raw')?.textContent,
+  ).toContain('step-204');
   click('Previous phases');
   expect(table().querySelectorAll('tbody tr')).toHaveLength(200);
   expect(table().textContent).toContain('step-0');
-  expect(shadow.querySelector('.json-raw')?.textContent).toContain('step-204');
+  expect(
+    shadow.querySelector('[aria-label="JSON evidence"] .json-raw')?.textContent,
+  ).toContain('step-204');
   client.diagnostics.emitDiagnostic(
     'engine.stage.completed',
     { stage: 'step-205', outcome: 'succeeded', durationMs: 205 },
@@ -1003,10 +1015,14 @@ test('large timing histories render in batches without hiding summary measuremen
   expect(shadow.querySelector('.content-pane')?.textContent).toContain(
     'Showing 200 of 450 stage timings',
   );
-  const raw = shadow.querySelector('.json-raw')?.textContent;
+  const raw = shadow.querySelector(
+    '[aria-label="JSON evidence"] .json-raw',
+  )?.textContent;
   click('Show more stage timings');
   expect(stages()).toHaveLength(400);
-  expect(shadow.querySelector('.json-raw')?.textContent).toBe(raw);
+  expect(
+    shadow.querySelector('[aria-label="JSON evidence"] .json-raw')?.textContent,
+  ).toBe(raw);
   client.diagnostics.emitDiagnostic(
     'client.request.started',
     {},
@@ -1601,8 +1617,12 @@ test('JSON exploration preserves exact inert evidence and collapsed nodes during
   const { shadow, click } = mount(tools);
   click('Recordings');
   click('Inspect recording');
-  const raw = shadow.querySelector<HTMLPreElement>('.json-raw');
-  const tree = shadow.querySelector<HTMLElement>('.json-tree');
+  const raw = shadow.querySelector<HTMLPreElement>(
+    '[aria-label="JSON evidence"] .json-raw',
+  );
+  const tree = shadow.querySelector<HTMLElement>(
+    '[aria-label="JSON evidence"] .json-tree',
+  );
   if (!raw || !tree) throw new Error('Expected JSON presentations');
   expect(tree.hidden).toBe(false);
   expect(raw.hidden).toBe(true);
@@ -1639,16 +1659,21 @@ test('JSON exploration preserves exact inert evidence and collapsed nodes during
   click('Raw JSON');
   click('Close');
   click('◉ Maelstrom');
-  expect(shadow.querySelector('.json-raw')?.hasAttribute('hidden')).toBe(false);
+  expect(
+    shadow
+      .querySelector('[aria-label="JSON evidence"] .json-raw')
+      ?.hasAttribute('hidden'),
+  ).toBe(false);
   tools.capture.addRedactor((value) =>
     JSON.parse(JSON.stringify(value).replaceAll('quoted', 'masked')),
   );
-  expect(shadow.querySelector('.json-raw')?.textContent).not.toContain(
-    'quoted',
-  );
-  expect(shadow.querySelector('.json-tree')?.textContent).not.toContain(
-    'quoted',
-  );
+  expect(
+    shadow.querySelector('[aria-label="JSON evidence"] .json-raw')?.textContent,
+  ).not.toContain('quoted');
+  expect(
+    shadow.querySelector('[aria-label="JSON evidence"] .json-tree')
+      ?.textContent,
+  ).not.toContain('quoted');
 });
 
 test('recording scope stays pinned when the inspection filter changes', async () => {

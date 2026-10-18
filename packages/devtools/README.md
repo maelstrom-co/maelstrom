@@ -48,8 +48,10 @@ evidence source and cannot identify which requests lost events.
 
 Choose Compare request, then select a second request to inspect both side by
 side. The comparison keeps each app lifetime, outcome, phase sequence, and
-selected JSON event separate. Selection survives incoming activity without
-extending retention. See the [DevTools guide](https://docs.maelstrom-ai.co/guides/devtools/#compare-two-requests)
+selected JSON event separate. Each column can display its recorded content.
+Phase labels distinguish one-sided retained observations from unknown correspondence.
+Selection survives incoming activity without extending retention.
+See the [DevTools guide](https://docs.maelstrom-ai.co/guides/devtools/#compare-two-requests)
 for comparison controls and timing limits.
 
 Engine stage timings render in batches of 200. Use Show more stage timings to
