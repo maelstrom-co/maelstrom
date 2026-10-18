@@ -218,3 +218,140 @@ for (const viewport of [
     }
   });
 }
+
+test('layout changes support keyboard inspection beside retained JSON', async ({
+  page,
+}) => {
+  const snapshot = (after: boolean) => ({
+    version: 1,
+    instanceCount: 1,
+    instances: [
+      {
+        instanceId: 'calendar',
+        vesselId: 'calendar',
+        variant: after ? 'week' : 'month',
+      },
+    ],
+    layoutMode: 'grid',
+    chartDimensions: { columns: 8, rows: 4 },
+    layout: {
+      type: 'grid',
+      positions: [
+        {
+          instanceId: 'calendar',
+          position: { column: after ? 2 : 0, row: 0 },
+          size: { width: after ? 4 : 2, height: 4 },
+        },
+      ],
+    },
+  });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Open Maelstrom Devtools' }).click();
+  const panel = page.getByRole('region', { name: 'Maelstrom Devtools' });
+  await panel.locator('input[type="file"]').setInputFiles({
+    name: 'layout-comparison.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from(
+      JSON.stringify({
+        schemaVersion: 2,
+        capture: {
+          schemaVersion: 1,
+          active: false,
+          metadata: {},
+          events: [
+            {
+              id: 'before-layout',
+              at: 1,
+              sessionId: 'layout-fixture',
+              requestId: 'compare',
+              kind: 'client.command.started',
+              metadata: { clientId: 'fixture-app', command: 'set_layout' },
+              content: { layoutSnapshot: snapshot(false) },
+            },
+            {
+              id: 'after-layout',
+              at: 2,
+              sessionId: 'layout-fixture',
+              requestId: 'compare',
+              kind: 'client.response.applied',
+              metadata: { clientId: 'fixture-app' },
+              content: { layoutSnapshot: snapshot(true) },
+            },
+          ],
+        },
+      }),
+    ),
+  });
+  const comparison = panel.locator('[aria-label="Request layout comparison"]');
+  await expect(comparison).toContainText('Moved, Resized, Variant changed');
+  await page.getByRole('button', { name: 'Raw JSON', exact: true }).click();
+  const before = comparison.getByRole('button', {
+    name: 'Before Instance calendar: Moved, Resized, Variant changed',
+    exact: true,
+  });
+  await before.focus();
+  await page.keyboard.press('Enter');
+  await expect(before).toBeFocused();
+  await expect(panel.locator('.json-raw')).toContainText('before-layout');
+  const change = comparison.getByRole('button', {
+    name: 'calendar: Moved, Resized, Variant changed',
+    exact: true,
+  });
+  await change.focus();
+  await page.keyboard.press('Enter');
+  await expect(change).toBeFocused();
+  await expect(panel.locator('.json-raw')).toContainText('after-layout');
+  await expect(comparison).toContainText(
+    'Before: month · visible. After: week · visible.',
+  );
+  await expect(panel.locator('.content-pane')).toBeVisible();
+  await expect(panel.locator('.json-pane')).toBeVisible();
+  await panel.locator('input[type="file"]').setInputFiles({
+    name: 'first-grid-layout.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from(
+      JSON.stringify({
+        schemaVersion: 2,
+        capture: {
+          schemaVersion: 1,
+          active: false,
+          metadata: {},
+          events: [
+            {
+              id: 'empty-grid',
+              at: 1,
+              sessionId: 'layout-fixture',
+              requestId: 'first-grid',
+              kind: 'client.command.started',
+              metadata: { clientId: 'fixture-app', command: 'set_layout' },
+              content: {
+                layoutSnapshot: {
+                  ...snapshot(false),
+                  instanceCount: 0,
+                  instances: [],
+                  layout: null,
+                },
+              },
+            },
+            {
+              id: 'first-grid-after',
+              at: 2,
+              sessionId: 'layout-fixture',
+              requestId: 'first-grid',
+              kind: 'client.response.applied',
+              metadata: { clientId: 'fixture-app' },
+              content: { layoutSnapshot: snapshot(true) },
+            },
+          ],
+        },
+      }),
+    ),
+  });
+  await expect(comparison.locator('figcaption').first()).toContainText(
+    'Grid cells',
+  );
+  await expect(comparison).toContainText('No visible Instances');
+  await expect(
+    comparison.getByRole('table', { name: 'Instance layout changes' }),
+  ).toContainText('Added');
+});

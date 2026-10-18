@@ -11,6 +11,7 @@ import {
   projectCaptureEvents,
 } from './capture-import.js';
 import { createDevtools as createDisabledDevtools } from './disabled.js';
+import { layoutSnapshot } from './layout-snapshot.js';
 import { retainRequestEvents } from './request-history.js';
 import type { Devtools, DevtoolsOptions, DevtoolsSnapshot } from './types.js';
 
@@ -196,6 +197,53 @@ class Controller implements Devtools {
         if (!checked.success) return;
         const metadata: DiagnosticEvent = checked.data;
         if (this.options.filter && !this.options.filter(metadata)) return;
+        const recording =
+          this.capture.getSnapshot().active &&
+          (!this.selectedCapture || this.selectedCapture === id);
+        if (recording) {
+          try {
+            let recordedContent: unknown;
+            try {
+              const layoutEvidence =
+                event.requestId &&
+                ((event.kind === 'client.command.started' &&
+                  event.metadata.command === 'set_layout') ||
+                  event.kind === 'client.response.applied' ||
+                  event.kind === 'client.response.failed')
+                  ? layoutSnapshot(orchestrator)
+                  : undefined;
+              const evidence = content ? (content() ?? null) : undefined;
+              const structural =
+                event.kind === 'client.command.completed' ||
+                event.kind === 'client.response.applied';
+              const captured =
+                structural && evidence && typeof evidence === 'object'
+                  ? { ...evidence, retainedInstances: retainedInstances() }
+                  : evidence;
+              recordedContent =
+                content || layoutEvidence
+                  ? this.clean(
+                      layoutEvidence
+                        ? {
+                            ...(captured && typeof captured === 'object'
+                              ? captured
+                              : {}),
+                            layoutSnapshot: layoutEvidence,
+                          }
+                        : captured,
+                    )
+                  : undefined;
+            } catch {
+              /* Keep metadata when optional content cannot be captured safely. */
+            }
+            this.capture.record(event.kind, {
+              ...metadata,
+              content: recordedContent,
+            });
+          } catch {
+            /* Capture storage must not interrupt live metadata publication. */
+          }
+        }
         const activity = [...this.snapshot.activity, metadata];
         const limit = this.options.maxActivityEvents ?? 100;
         const requests = retainRequestEvents(
@@ -235,25 +283,6 @@ class Controller implements Devtools {
             this.snapshot.droppedActivityEvents +
             Math.max(0, activity.length - limit),
         });
-        if (
-          this.capture.getSnapshot().active &&
-          (!this.selectedCapture || this.selectedCapture === id)
-        ) {
-          const evidence = content ? (content() ?? null) : undefined;
-          const structural =
-            event.kind === 'client.command.completed' ||
-            event.kind === 'client.response.applied';
-          this.capture.record(event.kind, {
-            ...metadata,
-            content: content
-              ? this.clean(
-                  structural && evidence && typeof evidence === 'object'
-                    ? { ...evidence, retainedInstances: retainedInstances() }
-                    : evidence,
-                )
-              : undefined,
-          });
-        }
       } catch {
         /* Evidence failure must not change client work. */
       }

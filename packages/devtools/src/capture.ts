@@ -188,13 +188,21 @@ export class DiagnosticCapture {
   record(kind: string, fields: Fields) {
     if (!this.enabled || !this.state.active) return;
     try {
-      const entry = this.clean({
+      const candidate: Fields = {
         entryId: crypto.randomUUID(),
         kind,
         at: Date.now(),
         elapsedMs: performance.now() - this.startedMono,
         ...fields,
-      }) as Fields;
+      };
+      let entry: Fields;
+      try {
+        entry = this.clean(candidate) as Fields;
+      } catch {
+        if (candidate.content === undefined) return;
+        // Metadata must pass the same policies after optional content is removed.
+        entry = this.clean({ ...candidate, content: undefined }) as Fields;
+      }
       const size = JSON.stringify(entry).length;
       if (
         this.entries.length >= (this.options.maxEvents ?? MAX_EVENTS) ||

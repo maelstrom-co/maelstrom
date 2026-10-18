@@ -1,4 +1,9 @@
 import {
+  type LayoutViewSelection,
+  layoutComparisonView,
+} from './layout-comparison-view.js';
+import { button, element } from './panel-elements.js';
+import {
   duration,
   type EngineTiming,
   type EventIssue,
@@ -23,26 +28,8 @@ import {
   text,
 } from './panel-model.js';
 
-export function element<K extends keyof HTMLElementTagNameMap>(
-  tag: K,
-  value?: string,
-  className?: string,
-): HTMLElementTagNameMap[K] {
-  const node = document.createElement(tag);
-  if (value !== undefined) node.textContent = value;
-  if (className) node.className = className;
-  return node;
-}
-export function button(
-  label: string,
-  click: () => void,
-  className?: string,
-): HTMLButtonElement {
-  const node = element('button', label, className);
-  node.type = 'button';
-  node.addEventListener('click', click);
-  return node;
-}
+export { button, element } from './panel-elements.js';
+
 export function badge(label: string, tone = 'neutral'): HTMLElement {
   const node = element('span', label, 'badge');
   node.dataset.tone = tone;
@@ -115,6 +102,8 @@ export interface ViewContext {
   phaseBars: boolean;
   setPhaseBars(enabled: boolean): void;
   phasePage?: { requestKey: string; index: number };
+  layoutView?: LayoutViewSelection;
+  setLayoutView(view: LayoutViewSelection, eventKey?: string): void;
   selectPhasePage(page: NonNullable<ViewContext['phasePage']>): void;
   eventKey: string;
   instanceKey: string;
@@ -694,6 +683,9 @@ export function requestsView(context: ViewContext): RenderedView {
   const current =
     selected.events.find((event) => event.key === context.eventKey) ??
     selected.events.at(-1);
+  content.append(
+    layoutComparisonView(selected, context.evidence.events, context),
+  );
   content.append(requestPhasesView(selected, current, context));
   coverage.append(
     element(
@@ -720,6 +712,7 @@ export function requestsView(context: ViewContext): RenderedView {
       context.issueCategory,
       context.eventKey,
       context.phasePage,
+      context.layoutView,
       context.clientId,
       dropped,
       omitted,

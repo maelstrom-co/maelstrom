@@ -838,13 +838,6 @@ describe('the seeded first screen', () => {
   });
 
   it('lands on the default layout instead of the empty-chart hint', async () => {
-    // FirstRunHint's visibility condition is `isFirstRunHintVisible` — see
-    // first-run-hint.tsx for the exact predicate. Its absence right after
-    // mount is what proves DEFAULT_LAYOUT's seeded instances reached the
-    // store through the real <m.Provider> mount in routes/index.tsx —
-    // default-layout.test.ts only checks the constant in isolation, and
-    // would stay green even if `initialLayout={DEFAULT_LAYOUT}` were
-    // deleted from the route.
     vi.stubGlobal(
       'ResizeObserver',
       class {
@@ -879,26 +872,25 @@ describe('the seeded first screen', () => {
       render(<HomePage />);
     });
 
-    expect(connectorOverride.createCalls).toBe(1);
-    expect(screen.queryByTestId('first-run-hint')).toBeNull();
-    // Positive assertions: both seeded tiles actually rendered their
-    // content, which the hint's absence alone doesn't prove — a malformed
-    // tree, an unregistered vesselId, or a bad variant name would all leave
-    // the hint absent (instanceCount still 2) while the chart stays blank.
-    const calendar = must(
-      document.querySelector('[data-instance-id="calendar-main"]'),
-    );
-    const tasks = must(
-      document.querySelector('[data-instance-id="tasks-main"]'),
-    );
-    expect(calendar.textContent).toContain('Design review');
-    expect(tasks.textContent).toContain('Ship this sprint');
-    expect(
-      Number.parseFloat((calendar as HTMLElement).style.width),
-    ).toBeGreaterThan(0);
-    expect(
-      Number.parseFloat((tasks as HTMLElement).style.width),
-    ).toBeGreaterThan(0);
+    // The hint can disappear before lazy Vessel content resolves.
+    await waitFor(() => {
+      expect(connectorOverride.createCalls).toBe(1);
+      expect(screen.queryByTestId('first-run-hint')).toBeNull();
+      const calendar = must(
+        document.querySelector('[data-instance-id="calendar-main"]'),
+      );
+      const tasks = must(
+        document.querySelector('[data-instance-id="tasks-main"]'),
+      );
+      expect(calendar.textContent).toContain('Design review');
+      expect(tasks.textContent).toContain('Ship this sprint');
+      expect(
+        Number.parseFloat((calendar as HTMLElement).style.width),
+      ).toBeGreaterThan(0);
+      expect(
+        Number.parseFloat((tasks as HTMLElement).style.width),
+      ).toBeGreaterThan(0);
+    });
   });
 
   it('stacks the seeded vessels when the demo layout host is narrow', async () => {
