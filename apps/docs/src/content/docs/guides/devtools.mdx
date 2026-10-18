@@ -291,6 +291,28 @@ The loss ledger highlights nonzero reasons. Select **Show all loss counters** to
 inspect every reason. Open **Scope and counting rules** for interpretation limits;
 both disclosures stay open while counters refresh.
 
+### Read delivery trends
+
+Check **Delivery trends** for queue growth, exporter activity, and delivery rates.
+The charts retain up to 120 local read attempts. **Accepted in window**,
+**Acknowledged in window**, and **Lost in window** count changes during observed
+intervals. Rates use actual elapsed time, including delayed refreshes.
+The counters above the charts remain lifetime totals or current queue sizes.
+
+Select a time in either chart or a row in **Telemetry samples** to inspect its
+exact counters and loss reasons as JSON. Use the arrow keys to move between
+samples, or **Home** and **End** to select the oldest and newest retained samples.
+Select **Follow latest** to resume following new reads. If a selected sample
+expires, the inspector reports that its evidence is no longer retained.
+
+Close the view to pause sampling. Reopening it preserves retained history and
+marks the gap. Failed reads, counter resets, and a different `getSnapshot` method
+also break continuity. These gaps contribute no time or counter changes to
+window rates. A failed read remains visible after the reader recovers.
+
+Samples belong to the mounted panel and stay outside recordings. They describe
+delivery across the reader's producers and contain no request identities.
+
 The supplied `getSnapshot()` must return synchronously. DevTools calls it when you
 open the tab and every second while the tab is visible. Changing tabs, closing
 the panel, or unmounting its final copy stops these reads. A missing reader shows

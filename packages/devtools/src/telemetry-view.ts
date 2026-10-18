@@ -5,6 +5,8 @@ import {
   createTelemetryDashboard,
   telemetryMessage,
 } from './telemetry-dashboard.js';
+import { TelemetryHistory } from './telemetry-history.js';
+import { createTelemetryTrends } from './telemetry-trends.js';
 import type { DevtoolsOptions } from './types.js';
 
 const count = z.number().int().nonnegative();
@@ -32,6 +34,9 @@ export function telemetryView(
   view.setAttribute('aria-label', 'Telemetry delivery health');
   view.setAttribute('role', 'region');
   view.tabIndex = 0;
+  const history = new TelemetryHistory();
+  const trends = createTelemetryTrends();
+  const dashboard = createTelemetryDashboard(trends.element);
   createEffect(() => {
     if (!visible()) {
       view.replaceChildren();
@@ -47,10 +52,10 @@ export function telemetryView(
       );
       return;
     }
-    const dashboard = createTelemetryDashboard();
     const refresh = () => {
       try {
-        const value = source.getSnapshot();
+        const read = source.getSnapshot;
+        const value = read.call(source);
         const result = healthSnapshot.safeParse(value);
         if (!result.success) {
           // A JavaScript caller can supply an async reader despite the synchronous contract.
@@ -58,20 +63,24 @@ export function telemetryView(
           throw new Error('Invalid telemetry snapshot');
         }
         dashboard.update(result.data);
+        trends.update(
+          history.record(result.data, Date.now(), performance.now(), read),
+        );
         if (view.firstChild !== dashboard.element)
           view.replaceChildren(dashboard.element);
       } catch {
-        view.replaceChildren(
-          telemetryMessage(
-            'Telemetry health is unavailable',
-            'The reader did not return a valid synchronous snapshot. DevTools retries every second while this view is open.',
-          ),
-        );
+        dashboard.unavailable();
+        trends.update(history.unavailable(Date.now(), performance.now()));
+        if (view.firstChild !== dashboard.element)
+          view.replaceChildren(dashboard.element);
       }
     };
     refresh();
     const timer = setInterval(refresh, 1000);
-    onCleanup(() => clearInterval(timer));
+    onCleanup(() => {
+      clearInterval(timer);
+      history.pause();
+    });
   });
   return view;
 }

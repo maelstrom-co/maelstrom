@@ -28,9 +28,13 @@ function mount(options: DevtoolsOptions = {}) {
   return { tools, shadow, click, unmount };
 }
 
+type SnapshotState = ReturnType<
+  NonNullable<DevtoolsOptions['telemetry']>['getSnapshot']
+>['state'];
+
 function snapshot() {
   return {
-    state: 'active' as const,
+    state: 'active' as SnapshotState,
     accepted: 12,
     delivered: 7,
     queued: 2,
@@ -45,6 +49,465 @@ function snapshot() {
     },
   };
 }
+
+function observe(telemetry: NonNullable<DevtoolsOptions['telemetry']>) {
+  jest.useFakeTimers();
+  cleanups.push(() => jest.useRealTimers());
+  let elapsed = 0;
+  const clock = jest
+    .spyOn(performance, 'now')
+    .mockImplementation(() => elapsed);
+  cleanups.push(() => clock.mockRestore());
+  return {
+    ...mount({ telemetry }),
+    advanceTo(time: number, timerMs = 1000) {
+      elapsed = time;
+      jest.advanceTimersByTime(timerMs);
+    },
+  };
+}
+
+test('delivery trends use actual elapsed time and expose the exact sampled counters', () => {
+  let current = snapshot();
+  const { shadow, click, advanceTo } = observe({ getSnapshot: () => current });
+  click('Telemetry');
+  const trends = shadow.querySelector(
+    '[aria-label="Telemetry delivery trends"]',
+  );
+  expect(trends).not.toBeNull();
+  current = {
+    ...current,
+    accepted: 19,
+    delivered: 14,
+    queued: 4,
+    dropped: { ...current.dropped, overflow: 5 },
+  };
+  advanceTo(3500);
+  const totals = trends!.querySelector(
+    '[aria-label="Observed interval totals"]',
+  )!;
+  const values = Object.fromEntries(
+    Array.from(totals.querySelectorAll('div')).map((item) => [
+      item.querySelector('dt')?.textContent,
+      item.querySelector('dd')?.textContent,
+    ]),
+  );
+  expect(values).toEqual({
+    'Accepted in window': '+7 · 2/s',
+    'Acknowledged in window': '+7 · 2/s',
+    'Lost in window': '+2 · 0.57/s',
+  });
+  const selected = trends!.querySelector(
+    '[aria-label="Selected telemetry sample"]',
+  )!;
+  expect(JSON.parse(selected.querySelector('pre')!.textContent!)).toEqual(
+    current,
+  );
+  expect(trends!.textContent).toContain('3.5 s observed');
+});
+
+test('selected samples explain their own elapsed intervals beside exact lifetime counters', () => {
+  let current = snapshot();
+  const { shadow, click, advanceTo } = observe({ getSnapshot: () => current });
+  click('Telemetry');
+  current = {
+    ...current,
+    accepted: 19,
+    delivered: 14,
+    dropped: { ...current.dropped, overflow: 5 },
+  };
+  const second = current;
+  advanceTo(3500);
+  const details = shadow.querySelector(
+    '[aria-label="Selected telemetry sample"]',
+  )!;
+  const interval = details.querySelector(
+    '[aria-label="Selected sample interval"]',
+  );
+  expect(interval).not.toBeNull();
+  const values = () =>
+    Object.fromEntries(
+      Array.from(interval!.querySelectorAll('div')).map((item) => [
+        item.querySelector('dt')!.textContent,
+        item.querySelector('dd')!.textContent,
+      ]),
+    );
+  expect(values()).toEqual({
+    'Elapsed time': '3.5 s',
+    Accepted: '+7 · 2/s',
+    Acknowledged: '+7 · 2/s',
+    Lost: '+2 · 0.57/s',
+  });
+  current = {
+    ...current,
+    accepted: 24,
+    delivered: 15,
+    dropped: { ...current.dropped, overflow: 6 },
+  };
+  advanceTo(4750);
+  expect(values()).toEqual({
+    'Elapsed time': '1.25 s',
+    Accepted: '+5 · 4/s',
+    Acknowledged: '+1 · 0.8/s',
+    Lost: '+1 · 0.8/s',
+  });
+  fireEvent.click(
+    shadow.querySelector('[aria-label="Select telemetry sample 2"]')!,
+  );
+  expect(values()['Elapsed time']).toBe('3.5 s');
+  expect(values().Accepted).toBe('+7 · 2/s');
+  expect(JSON.parse(details.querySelector('pre')!.textContent!)).toEqual(
+    second,
+  );
+});
+
+test('returning to telemetry preserves history without attributing unobserved work to the window', () => {
+  let accepted = 12;
+  const { shadow, click, advanceTo } = observe({
+    getSnapshot: () => ({ ...snapshot(), accepted }),
+  });
+  click('Telemetry');
+  accepted = 14;
+  advanceTo(1000);
+  click('Requests');
+  accepted = 100;
+  advanceTo(6000, 5000);
+  click('Telemetry');
+  const trends = shadow.querySelector(
+    '[aria-label="Telemetry delivery trends"]',
+  )!;
+  expect(trends.textContent).toContain('View was hidden');
+  expect(trends.textContent).toContain('3 samples · 1 s observed');
+  expect(trends.textContent).toContain('+2 · 2/s');
+  accepted = 104;
+  advanceTo(7000);
+  expect(trends.textContent).toContain('4 samples · 2 s observed');
+  expect(trends.textContent).toContain('+6 · 3/s');
+  const queue = trends.querySelector(
+    'svg[aria-label="Queue depth and exporter activity"] path[data-series="Queued"]',
+  )!;
+  expect(queue.getAttribute('d')!.match(/M/g)).toHaveLength(2);
+});
+
+test.each([
+  'accepted',
+  'delivered',
+  'overflow',
+] as const)('a reset of %s starts a new interval instead of inventing a negative rate', (counter) => {
+  let current = snapshot();
+  const { shadow, click, advanceTo } = observe({ getSnapshot: () => current });
+  click('Telemetry');
+  current = {
+    ...current,
+    accepted: 16,
+    delivered: 9,
+    dropped: { ...current.dropped, overflow: 4 },
+  };
+  advanceTo(1000);
+  current = {
+    ...current,
+    accepted: counter === 'accepted' ? 0 : 116,
+    delivered: counter === 'delivered' ? 0 : 109,
+    dropped: {
+      ...current.dropped,
+      invalid: 51,
+      overflow: counter === 'overflow' ? 0 : 54,
+    },
+  };
+  advanceTo(2000);
+  const trends = shadow.querySelector(
+    '[aria-label="Telemetry delivery trends"]',
+  )!;
+  expect(trends.textContent).toContain('Counters reset');
+  expect(trends.textContent).toContain('3 samples · 1 s observed');
+  expect(trends.textContent).toContain('+4 · 4/s');
+  expect(trends.textContent).toContain('+2 · 2/s');
+  expect(trends.textContent).toContain('+1 · 1/s');
+});
+
+test('a replacement reader cannot turn another telemetry lifetime into a delivery spike', () => {
+  const telemetry = { getSnapshot: snapshot };
+  const { shadow, click, advanceTo } = observe(telemetry);
+  click('Telemetry');
+  let accepted = 120;
+  telemetry.getSnapshot = () => ({ ...snapshot(), accepted });
+  advanceTo(1000);
+  const trends = shadow.querySelector(
+    '[aria-label="Telemetry delivery trends"]',
+  )!;
+  expect(trends.textContent).toContain('Reader changed');
+  expect(trends.textContent).toContain('2 samples · 0 s observed');
+  accepted = 124;
+  advanceTo(2000);
+  expect(trends.textContent).toContain('+4 · 4/s');
+  expect(trends.textContent).toContain('3 samples · 1 s observed');
+});
+
+test('failed reads remain visible and recovery cannot bridge missing delivery evidence', () => {
+  let broken = false;
+  let accepted = 12;
+  const { shadow, click, advanceTo } = observe({
+    getSnapshot() {
+      if (broken) throw new Error('private exporter endpoint');
+      return { ...snapshot(), accepted };
+    },
+  });
+  click('Telemetry');
+  accepted = 13;
+  advanceTo(1000);
+  broken = true;
+  advanceTo(2000);
+  const trends = shadow.querySelector(
+    '[aria-label="Telemetry delivery trends"]',
+  );
+  expect(trends).not.toBeNull();
+  expect(trends!.textContent).toContain('Read unavailable');
+  expect(trends!.textContent).toContain('Counters unavailable for this sample');
+  expect(
+    isInaccessible(
+      trends!.querySelector('[aria-label="Selected sample interval"]')!,
+    ),
+  ).toBe(true);
+  expect(shadow.querySelector('[aria-label="Delivery flow"]')).toBeNull();
+  expect(shadow.textContent).not.toContain('private exporter endpoint');
+  broken = false;
+  accepted = 100;
+  advanceTo(3000);
+  expect(trends!.textContent).toContain('4 samples · 1 s observed');
+  expect(trends!.textContent).toContain('+1 · 1/s');
+  expect(trends!.textContent).toContain(
+    'No comparable interval: Read unavailable.',
+  );
+  accepted = 102;
+  advanceTo(4000);
+  expect(trends!.textContent).toContain('5 samples · 2 s observed');
+  expect(trends!.textContent).toContain('+3 · 1.5/s');
+  const queue = trends!.querySelector(
+    'svg[aria-label="Queue depth and exporter activity"] path[data-series="Queued"]',
+  )!;
+  expect(queue.getAttribute('d')!.match(/M/g)).toHaveLength(2);
+});
+
+test.each([
+  ['Queue depth and exporter activity', false, 2],
+  ['Local delivery rates', true, 3],
+] as const)('%s keeps an isolated observation visible after a failed read', (title, needsInterval, seriesCount) => {
+  let broken = false;
+  let accepted = 12;
+  const { shadow, click, advanceTo } = observe({
+    getSnapshot() {
+      if (broken) throw new Error('unavailable');
+      return { ...snapshot(), accepted };
+    },
+  });
+  click('Telemetry');
+  if (needsInterval) {
+    accepted = 19;
+    advanceTo(1000);
+  }
+  broken = true;
+  advanceTo(2000);
+  const chart = shadow.querySelector(`svg[aria-label="${title}"]`)!;
+  expect(chart.querySelectorAll('circle')).toHaveLength(seriesCount);
+  for (const path of chart.querySelectorAll('path')) {
+    expect(path.getAttribute('d')).toContain('M');
+    expect(path.getAttribute('d')).not.toContain('L');
+  }
+});
+
+test.each([
+  false,
+  true,
+])('trend retention bounds successful and unavailable reads (unavailable: %s)', (unavailable) => {
+  let accepted = 12;
+  const { shadow, click, advanceTo } = observe({
+    getSnapshot() {
+      if (unavailable) throw new Error('unavailable');
+      return { ...snapshot(), accepted };
+    },
+  });
+  click('Telemetry');
+  for (let index = 1; index <= 130; index++) {
+    accepted = 12 + index;
+    advanceTo(index * 1000);
+  }
+  const trends = shadow.querySelector(
+    '[aria-label="Telemetry delivery trends"]',
+  )!;
+  expect(trends.textContent).toContain('120 samples');
+  expect(trends.textContent).toContain('11 older samples expired');
+  if (!unavailable) {
+    expect(trends.textContent).toContain('119 s observed');
+    expect(trends.textContent).toContain('+119 · 1/s');
+  }
+});
+
+test('sample exploration keeps its evidence and keyboard focus while live telemetry grows', () => {
+  let current = snapshot();
+  const { shadow, click, advanceTo } = observe({ getSnapshot: () => current });
+  click('Telemetry');
+  const table = shadow.querySelector('[aria-label="Telemetry samples"]');
+  expect(table).not.toBeNull();
+  expect(
+    shadow.querySelector('svg[aria-label="Queue depth and exporter activity"]'),
+  ).not.toBeNull();
+  expect(
+    shadow.querySelector('svg[aria-label="Local delivery rates"]'),
+  ).not.toBeNull();
+  const first = table!.querySelector<HTMLButtonElement>(
+    '[aria-label="Select telemetry sample 1"]',
+  )!;
+  fireEvent.click(first);
+  first.focus();
+  current.dropped.overflow = 99;
+  current = { ...current, accepted: 19 };
+  advanceTo(1000);
+  const counters = () =>
+    JSON.parse(
+      shadow.querySelector('[aria-label="Selected telemetry sample"] pre')!
+        .textContent!,
+    );
+  expect(counters().accepted).toBe(12);
+  expect(counters().dropped.overflow).toBe(3);
+  expect(shadow.activeElement).toBe(first);
+  fireEvent.keyDown(first, { key: 'ArrowRight' });
+  const second = table!.querySelector(
+    '[aria-label="Select telemetry sample 2"]',
+  );
+  expect(shadow.activeElement).toBe(second);
+  expect(counters().accepted).toBe(19);
+  click('Follow latest');
+  current = { ...current, accepted: 23 };
+  advanceTo(2000);
+  expect(counters().accepted).toBe(23);
+  expect(table!.querySelectorAll('tbody tr')).toHaveLength(3);
+});
+
+test('arrow navigation starts at the focused row when follow mode advances without activation', () => {
+  const { shadow, click, advanceTo } = observe({ getSnapshot: snapshot });
+  click('Telemetry');
+  const first = shadow.querySelector<HTMLButtonElement>(
+    '[aria-label="Select telemetry sample 1"]',
+  )!;
+  first.focus();
+  advanceTo(1000);
+  advanceTo(2000);
+  expect(shadow.activeElement).toBe(first);
+  fireEvent.keyDown(first, { key: 'ArrowRight' });
+  expect(shadow.activeElement?.getAttribute('aria-label')).toBe(
+    'Select telemetry sample 2',
+  );
+});
+
+test('rates exclude an expired baseline even when it would dominate the retained chart', () => {
+  let accepted = 12;
+  const { shadow, click, advanceTo } = observe({
+    getSnapshot: () => ({ ...snapshot(), accepted }),
+  });
+  click('Telemetry');
+  for (let index = 1; index <= 130; index++) {
+    accepted = index < 11 ? 12 + index : 10000 + index - 11;
+    advanceTo(index * 1000);
+  }
+  const rates = shadow.querySelector('svg[aria-label="Local delivery rates"]')!;
+  expect(
+    Array.from(rates.querySelectorAll('text')).map(
+      (label) => label.textContent,
+    ),
+  ).toEqual(['0', '0.5', '1']);
+  fireEvent.click(
+    shadow.querySelector('[aria-label="Select telemetry sample 12"]')!,
+  );
+  const details = shadow.querySelector(
+    '[aria-label="Selected telemetry sample"]',
+  )!;
+  expect(details.textContent).toContain('The previous observation expired');
+  expect(
+    isInaccessible(
+      details.querySelector('[aria-label="Selected sample interval"]')!,
+    ),
+  ).toBe(true);
+});
+
+test.each([
+  'invalid',
+  'overflow',
+  'exportError',
+  'timeout',
+  'disabled',
+  'disposed',
+] as const)('%s losses remain visible even without newly accepted facts', (reason) => {
+  let current = snapshot();
+  const { shadow, click, advanceTo } = observe({ getSnapshot: () => current });
+  click('Telemetry');
+  current = {
+    ...current,
+    state:
+      reason === 'disposed'
+        ? 'disposed'
+        : reason === 'timeout' || reason === 'disabled'
+          ? 'timed_out'
+          : 'active',
+    dropped: { ...current.dropped, [reason]: current.dropped[reason] + 4 },
+  };
+  advanceTo(1000);
+  const totals = shadow.querySelector(
+    '[aria-label="Observed interval totals"]',
+  )!;
+  expect(totals.textContent).toContain('Lost in window+4 · 4/s');
+  expect(totals.textContent).toContain('Accepted in window+0 · 0/s');
+  const json = shadow.querySelector(
+    '[aria-label="Selected telemetry sample"] pre',
+  )!;
+  expect(JSON.parse(json.textContent!).dropped[reason]).toBe(
+    current.dropped[reason],
+  );
+});
+
+test('an expired selection reports missing evidence and restores a usable keyboard target', () => {
+  let accepted = 12;
+  const { shadow, click, advanceTo } = observe({
+    getSnapshot: () => ({ ...snapshot(), accepted }),
+  });
+  click('Telemetry');
+  const first = shadow.querySelector<HTMLButtonElement>(
+    '[aria-label="Select telemetry sample 1"]',
+  )!;
+  fireEvent.click(first);
+  first.focus();
+  for (let index = 1; index <= 130; index++) {
+    accepted = 12 + index;
+    advanceTo(index * 1000);
+  }
+  const details = shadow.querySelector(
+    '[aria-label="Selected telemetry sample"]',
+  )!;
+  expect(details.textContent).toContain('Selected sample expired');
+  expect(details.querySelector('pre')!.textContent).toBe('');
+  expect(shadow.activeElement?.textContent).toBe('Follow latest');
+  const latest = shadow.querySelector<HTMLButtonElement>(
+    '[aria-label="Select telemetry sample 131"]',
+  )!;
+  expect(latest.tabIndex).toBe(0);
+  expect(latest.getAttribute('aria-pressed')).toBe('false');
+  expect(
+    shadow
+      .querySelector('.telemetry-trend-heading button')!
+      .getAttribute('aria-pressed'),
+  ).toBe('false');
+  latest.focus();
+  fireEvent.keyDown(latest, { key: 'Home' });
+  expect(shadow.activeElement?.getAttribute('aria-label')).toBe(
+    'Select telemetry sample 12',
+  );
+  expect(JSON.parse(details.querySelector('pre')!.textContent!).accepted).toBe(
+    23,
+  );
+  click('Follow latest');
+  expect(JSON.parse(details.querySelector('pre')!.textContent!).accepted).toBe(
+    142,
+  );
+});
 
 test('returning from telemetry restores the view heading and help to the accessibility tree', () => {
   const { shadow, click } = mount({ telemetry: { getSnapshot: snapshot } });
@@ -76,10 +539,14 @@ test('telemetry health explains local delivery without claiming backend persiste
     '[aria-label="Telemetry delivery health"]',
   )!;
   const facts = Object.fromEntries(
-    Array.from(view.querySelectorAll('dl > div')).map((item) => [
-      item.querySelector('dt')?.textContent,
-      item.querySelector('dd')?.textContent,
-    ]),
+    Array.from(view.querySelectorAll('dl > div'))
+      .filter(
+        (item) => !item.closest('[aria-label="Telemetry delivery trends"]'),
+      )
+      .map((item) => [
+        item.querySelector('dt')?.textContent,
+        item.querySelector('dd')?.textContent,
+      ]),
   );
   expect(facts).toMatchObject({
     State: 'Active',
@@ -164,11 +631,12 @@ test('an unavailable reader clears stale counts, hides error text, and recovers 
   expect(() => jest.advanceTimersByTime(1000)).not.toThrow();
   expect(view.textContent).toContain('Telemetry health is unavailable');
   expect(view.textContent).not.toContain('private exporter endpoint');
-  expect(view.querySelector('dl')).toBeNull();
+  expect(view.querySelector('[aria-label="Delivery flow"]')).toBeNull();
   broken = false;
   jest.advanceTimersByTime(1000);
   expect(view.textContent).toContain('Exporter acknowledged');
-  expect(view.textContent).not.toContain('unavailable');
+  expect(view.textContent).not.toContain('Telemetry health is unavailable');
+  expect(view.querySelector('[aria-label="Delivery flow"]')).not.toBeNull();
 });
 
 test('custom readers cannot display arbitrary state text or malformed counters as health evidence', () => {
@@ -195,7 +663,7 @@ test('custom readers cannot display arbitrary state text or malformed counters a
     jest.advanceTimersByTime(1000);
     expect(view.textContent).toContain('Telemetry health is unavailable');
     expect(view.textContent).not.toContain('private endpoint');
-    expect(view.querySelector('dl')).toBeNull();
+    expect(view.querySelector('[aria-label="Delivery flow"]')).toBeNull();
   }
   value = {
     ...snapshot(),

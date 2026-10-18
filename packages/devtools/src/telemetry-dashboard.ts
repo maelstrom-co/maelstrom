@@ -82,7 +82,7 @@ function metric(
   return { card, value };
 }
 
-export function createTelemetryDashboard() {
+export function createTelemetryDashboard(trends: HTMLElement) {
   const root = element('div', undefined, 'telemetry-dashboard');
   const heading = element('div', undefined, 'telemetry-heading');
   const title = element('div');
@@ -211,11 +211,15 @@ export function createTelemetryDashboard() {
   );
   guide.append(scope);
   lower.append(ledger, guide);
+  const current = element('div');
+  current.append(status, flow);
+  const currentLower = element('div');
+  currentLower.append(lower);
   root.append(
     heading,
-    status,
-    flow,
-    lower,
+    current,
+    trends,
+    currentLower,
     element(
       'p',
       'Refreshes every second while this view is open · Flow is schematic',
@@ -224,6 +228,10 @@ export function createTelemetryDashboard() {
   );
 
   function update(snapshot: TelemetrySnapshot) {
+    state.hidden = false;
+    if (flow.parentElement !== current) current.replaceChildren(status, flow);
+    if (lower.parentElement !== currentLower)
+      currentLower.replaceChildren(lower);
     root.dataset.state = snapshot.state;
     root.dataset.exporting = String(
       snapshot.state === 'active' && snapshot.exporting > 0,
@@ -270,7 +278,22 @@ export function createTelemetryDashboard() {
     }
     updateDisclosure();
   }
-  return { element: root, update };
+  return {
+    element: root,
+    update,
+    unavailable() {
+      state.hidden = true;
+      root.dataset.state = 'unavailable';
+      root.dataset.exporting = 'false';
+      current.replaceChildren(
+        telemetryMessage(
+          'Telemetry health is unavailable',
+          'The reader did not return a valid synchronous snapshot. DevTools retries every second while this view is open.',
+        ),
+      );
+      currentLower.replaceChildren();
+    },
+  };
 }
 
 export function telemetryMessage(
