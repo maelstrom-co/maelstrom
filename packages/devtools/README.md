@@ -48,7 +48,8 @@ evidence source and cannot identify which requests lost events.
 
 Choose Compare request, then select a second request to inspect both side by
 side. The comparison keeps each app lifetime, outcome, phase sequence, and
-selected JSON event separate. Each column can display its recorded content.
+selected JSON event separate. Each column displays its full selected event,
+including metadata and any recorded content. Details and JSON scroll separately.
 Phase labels distinguish one-sided retained observations from unknown correspondence.
 Selection survives incoming activity without extending retention.
 See the [DevTools guide](https://docs.maelstrom-ai.co/guides/devtools/#compare-two-requests)

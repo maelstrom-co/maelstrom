@@ -564,8 +564,8 @@ function Panel(tools: Devtools): HTMLElement {
   );
   const jsonPane = jsonInspector.element;
   const comparisonInspectors = {
-    a: createJsonInspector('tree', () => {}, 'A content'),
-    b: createJsonInspector('tree', () => {}, 'B content'),
+    a: createJsonInspector('tree', () => {}, 'A event JSON'),
+    b: createJsonInspector('tree', () => {}, 'B event JSON'),
   };
   for (const inspector of Object.values(comparisonInspectors))
     inspector.element.classList.add('comparison-json');
@@ -851,6 +851,7 @@ function Panel(tools: Devtools): HTMLElement {
       inspections.clear();
     const data = evidence();
     const requestView = currentTab === 'Requests' && !preferences.allEvents;
+    const comparing = requestView && Boolean(comparison);
     const viewedEvents = requestView
       ? (data.requestEvents ?? data.events)
       : data.events;
@@ -1109,7 +1110,7 @@ function Panel(tools: Devtools): HTMLElement {
           };
         }
         if (!selection && comparison) {
-          const slot = comparison[comparison.inspecting] ?? comparison.a;
+          const slot = comparison[comparison.lastSelectedSide] ?? comparison.a;
           preferences.requestKey = slot.key;
           preferences.eventKey = slot.eventKey ?? '';
           preferences.phasePage = slot.phasePage;
@@ -1161,7 +1162,7 @@ function Panel(tools: Devtools): HTMLElement {
           comparison = {
             ...comparison,
             [comparison.choosing]: { key },
-            inspecting: comparison.choosing,
+            lastSelectedSide: comparison.choosing,
           };
           refresh();
           return;
@@ -1299,11 +1300,12 @@ function Panel(tools: Devtools): HTMLElement {
       }
       workspace.dataset.list = String(Boolean(lastRendered.navigation));
       navigation.hidden = !lastRendered.navigation;
-      jsonInspector.set(lastRendered.raw, lastRendered.rawTitle);
+      if (comparing) jsonInspector.clear();
+      else jsonInspector.set(lastRendered.raw, lastRendered.rawTitle);
       for (const side of ['a', 'b'] as const) {
         const inspector = comparisonInspectors[side];
         const placeholder = content.querySelector<HTMLElement>(
-          `[data-comparison-content="${side}"]`,
+          `[data-comparison-evidence="${side}"]`,
         );
         if (!placeholder) {
           inspector.clear();
@@ -1311,15 +1313,12 @@ function Panel(tools: Devtools): HTMLElement {
         }
         if (!placeholder.contains(inspector.element))
           placeholder.append(inspector.element);
-        const captured = lastRendered.comparisonContent?.[side];
         inspector.set(
-          captured?.value,
-          'Content supplied by the source for this selected phase.',
-          !captured?.phaseAvailable
-            ? 'The selected phase is no longer available. Choose a retained phase.'
-            : currentSource === 'live'
-              ? 'Live activity contains metadata only. Record before reproducing the problem to retain supported content.'
-              : 'No content was retained for this phase. Earlier content cannot be recovered.',
+          lastRendered.comparisonEvents?.[side],
+          currentSource === 'live'
+            ? 'Live event metadata. Content requires an explicit recording.'
+            : 'Full selected event, including any retained content.',
+          'The selected event is no longer retained. Choose another event.',
         );
       }
       if (focused && shadow.activeElement !== focused)
@@ -1340,13 +1339,10 @@ function Panel(tools: Devtools): HTMLElement {
           replacement?.focus({ preventScroll: true });
         });
     }
-    workspace.dataset.json = String(preferences.json);
-    workspace.dataset.comparison = String(
-      currentTab === 'Requests' &&
-        !preferences.allEvents &&
-        Boolean(comparison),
-    );
-    jsonPane.hidden = !preferences.json;
+    workspace.dataset.json = String(preferences.json && !comparing);
+    workspace.dataset.comparison = String(comparing);
+    workspace.dataset.comparisonJson = String(preferences.json);
+    jsonPane.hidden = !preferences.json || comparing;
     const highlighted =
       currentTab === 'Inspector' &&
       currentSource === 'live' &&

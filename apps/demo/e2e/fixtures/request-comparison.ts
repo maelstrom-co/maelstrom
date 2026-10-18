@@ -4,6 +4,11 @@ import {
 } from '@maelstrom-co/devtools/production';
 
 const tools = createDevtools({ initialIsOpen: true });
+const identitySuffix = new URLSearchParams(window.location.search).has(
+  'long-identities',
+)
+  ? `-${'x'.repeat(1000)}`
+  : '';
 const event = (
   app: string,
   kind: string,
@@ -13,9 +18,9 @@ const event = (
 ) => ({
   id,
   sessionId: 'fixture-session',
-  requestId: `request-${app}`,
+  requestId: `request-${app}${identitySuffix}`,
   kind,
-  metadata: { clientId: `app-${app}`, ...metadata },
+  metadata: { clientId: `app-${app}${identitySuffix}`, ...metadata },
   content,
 });
 const events = ['a', 'b'].flatMap((app) => [

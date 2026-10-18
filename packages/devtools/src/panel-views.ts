@@ -143,7 +143,7 @@ export interface RequestComparisonSelection {
   a: ComparisonRequest;
   b?: ComparisonRequest;
   choosing: ComparisonSide;
-  inspecting: ComparisonSide;
+  lastSelectedSide: ComparisonSide;
 }
 export interface RenderedView {
   navigation?: HTMLElement;
@@ -153,9 +153,7 @@ export interface RenderedView {
   selectedInstance?: { clientId: string; instanceId: string };
   selectedRequestKey?: string;
   contentIdentity?: readonly unknown[];
-  comparisonContent?: Partial<
-    Record<ComparisonSide, { value: unknown; phaseAvailable: boolean }>
-  >;
+  comparisonEvents?: Partial<Record<ComparisonSide, unknown>>;
 }
 
 function issueDescription(issue: EventIssue): string {
@@ -641,7 +639,7 @@ function requestDetailsView(
           },
         },
         choosing: 'b',
-        inspecting: 'a',
+        lastSelectedSide: 'a',
       }),
     );
     compare.dataset.focusKey = 'compare-request';
@@ -1285,6 +1283,7 @@ export function connectionsView(
       'row-button',
     );
     row.dataset.focusKey = `connection:${event.key}`;
+    row.setAttribute('aria-pressed', String(context.eventKey === event.key));
     content.append(row);
   }
   const selected = events.find((event) => event.key === context.eventKey);

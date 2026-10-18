@@ -36,6 +36,62 @@ const cleanups: Array<() => void | Promise<void>> = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
+
+test('Connections highlights the selected connection or voice event beside its JSON', () => {
+  const tools = collector();
+  tools.importCapture(
+    JSON.stringify({
+      schemaVersion: 2,
+      capture: {
+        schemaVersion: 1,
+        events: [
+          {
+            id: 'connection-selected',
+            sessionId: 'session',
+            kind: 'client.connection.changed',
+            metadata: { clientId: 'app', status: 'connected' },
+          },
+          {
+            id: 'voice-selected',
+            sessionId: 'session',
+            kind: 'voice.session.changed',
+            metadata: {
+              clientId: 'app',
+              providerInstanceId: 'voice',
+              state: 'connected',
+            },
+          },
+        ],
+      },
+    }),
+  );
+  const { shadow, click, select } = mount(tools);
+  select('Evidence source', 'imported');
+  click('Connections');
+  click('Raw JSON');
+  const row = (label: string) =>
+    Array.from(shadow.querySelectorAll('.content-pane button')).find((node) =>
+      node.textContent?.startsWith(label),
+    )!;
+  const json = () =>
+    shadow.querySelector('[aria-label="JSON evidence"] .json-raw')?.textContent;
+  fireEvent.click(row('Engine connection changed'));
+  expect(row('Engine connection changed').getAttribute('aria-pressed')).toBe(
+    'true',
+  );
+  expect(row('Voice session changed').getAttribute('aria-pressed')).toBe(
+    'false',
+  );
+  expect(json()).toContain('connection-selected');
+  fireEvent.click(row('Voice session changed'));
+  expect(row('Engine connection changed').getAttribute('aria-pressed')).toBe(
+    'false',
+  );
+  expect(row('Voice session changed').getAttribute('aria-pressed')).toBe(
+    'true',
+  );
+  expect(json()).toContain('voice-selected');
+});
 function connector(): EngineConnector {
   return {
     capabilities: { voice: false, streaming: false, stateful: false },
@@ -215,11 +271,10 @@ test('comparison identities survive new activity and eviction without showing a 
   expect(right.textContent).toContain('Request first');
   expect(left.textContent).toContain('no longer retained');
   expect(right.textContent).toContain('no longer retained');
-  click('Raw JSON');
-  expect(
-    shadow.querySelector('[aria-label="JSON evidence"] .json-raw')
-      ?.textContent ?? '',
-  ).not.toContain('new-');
+  expect(left.querySelector('[aria-label="A event JSON"]') === null).toBe(true);
+  expect(right.querySelector('[aria-label="B event JSON"]') === null).toBe(
+    true,
+  );
   expect(tools.getSnapshot().requestActivity.length).toBeLessThanOrEqual(6);
 });
 
@@ -336,28 +391,27 @@ test('comparison preserves repeated attempts and Actions while inspecting each r
   expect(left().textContent).toContain('Partial evidence');
   expect(right().textContent).toContain('No final client outcome');
   fireEvent.click(left().querySelector('.phase-select')!);
-  click('Raw JSON');
-  expect(
-    shadow.querySelector('[aria-label="JSON evidence"] .json-raw')?.textContent,
-  ).toContain('recorded b');
+  click('A event JSON: Raw JSON');
+  expect(left().querySelector('.json-raw')?.textContent).toContain(
+    'recorded b',
+  );
   fireEvent.click(right().querySelectorAll('.phase-select')[3]);
-  expect(
-    shadow.querySelector('[aria-label="JSON evidence"] .json-raw')?.textContent,
-  ).toContain('recorded action a-1');
+  click('B event JSON: Raw JSON');
+  expect(right().querySelector('.json-raw')?.textContent).toContain(
+    'recorded action a-1',
+  );
   expect(
     left().querySelector('.phase-select')?.getAttribute('aria-pressed'),
   ).toBe('true');
   expect(
     right().querySelectorAll('.phase-select')[3].getAttribute('aria-pressed'),
   ).toBe('true');
-  click('Inspect A JSON');
-  expect(
-    shadow.querySelector('[aria-label="JSON evidence"] .json-raw')?.textContent,
-  ).toContain('recorded b');
+  expect(left().querySelector('.json-raw')?.textContent).toContain(
+    'recorded b',
+  );
   fireEvent.change(left().querySelector('input[type="checkbox"]')!, {
     target: { checked: false },
   });
-  click('Inspect B JSON');
   expect(
     (left().querySelector('input[type="checkbox"]') as HTMLInputElement)
       .checked,
@@ -395,11 +449,11 @@ test('a selected comparison phase expires without silently replacing its JSON', 
   expect(
     shadow.querySelector('[aria-label="Comparison A"]')?.textContent,
   ).toContain('Selected phase is no longer retained');
-  click('Raw JSON');
+  click('A event JSON: Raw JSON');
   expect(
-    shadow.querySelector('[aria-label="JSON evidence"] .json-raw')
+    shadow.querySelector('[aria-label="A event JSON"] .json-raw')
       ?.textContent ?? '',
-  ).not.toContain('client.command.completed');
+  ).toContain('The selected event is no longer retained');
 });
 
 test('recorded request layouts explain added Instances and open their supporting JSON', async () => {

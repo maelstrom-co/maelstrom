@@ -1,7 +1,6 @@
 import { button, element } from './panel-elements.js';
 import {
   duration,
-  fields,
   type RequestTrace,
   requestCounterparts,
   requestEventCoverage,
@@ -10,7 +9,6 @@ import {
 } from './panel-model.js';
 import type {
   ComparisonRequest,
-  ComparisonSide,
   RenderedView,
   RequestComparisonSelection,
   ViewContext,
@@ -170,8 +168,7 @@ export function requestComparisonView(
       ),
     );
   content.append(coverage);
-  const rendered: Partial<Record<ComparisonSide, RenderedView>> = {};
-  const comparisonContent: NonNullable<RenderedView['comparisonContent']> = {};
+  const comparisonEvents: NonNullable<RenderedView['comparisonEvents']> = {};
   const signature: unknown[] = [
     'comparison',
     selection,
@@ -206,22 +203,30 @@ export function requestComparisonView(
     column.setAttribute('aria-label', `Comparison ${side.toUpperCase()}`);
     column.tabIndex = 0;
     column.dataset.focusKey = `comparison-column-${side}`;
-    column.dataset.scrollKey = JSON.stringify([side, slot?.key]);
     const choose = button(`Choose ${side.toUpperCase()}`, () =>
       context.setComparison({ ...selection, choosing: side }),
     );
     choose.dataset.focusKey = `choose-comparison-${side}`;
     choose.setAttribute('aria-pressed', String(selection.choosing === side));
-    column.append(element('h3', side.toUpperCase()), choose);
+    const sideHeader = element('header', undefined, 'comparison-side-header');
+    sideHeader.append(element('h3', side.toUpperCase()), choose);
+    column.append(sideHeader);
     if (slot) {
       const [clientId, requestId] = JSON.parse(slot.key) as [string, string];
-      column.append(
-        element(
-          'p',
-          `${context.appLabel(clientId)} · ${clientId} · Request ${requestId}`,
-          'mono small',
-        ),
+      const identity = element(
+        'p',
+        `${context.appLabel(clientId)} · ${clientId} · Request ${requestId}`,
+        'mono small comparison-identity',
       );
+      identity.setAttribute('role', 'region');
+      identity.setAttribute(
+        'aria-label',
+        `${side.toUpperCase()} request identity`,
+      );
+      identity.tabIndex = 0;
+      identity.dataset.focusKey = `comparison-${side}:identity`;
+      identity.dataset.scrollKey = JSON.stringify([side, slot.key, 'identity']);
+      column.append(identity);
     }
     if (!slot) column.append(empty('Select a second request from the list.'));
     else if (!request)
@@ -246,7 +251,7 @@ export function requestComparisonView(
         context.setComparison({
           ...selection,
           [side]: { ...slot, ...patch },
-          inspecting: inspectEvent ? side : selection.inspecting,
+          lastSelectedSide: inspectEvent ? side : selection.lastSelectedSide,
         });
       const detail = renderDetails(request, {
         ...context,
@@ -297,46 +302,30 @@ export function requestComparisonView(
         if (summary)
           summary.dataset.focusKey = `disclosure:${node.dataset.disclosureKey}`;
       }
-      const inspect = button(`Inspect ${side.toUpperCase()} JSON`, () =>
-        context.setComparison({ ...selection, inspecting: side }),
+      detail.content.classList.add('comparison-details');
+      detail.content.setAttribute('role', 'region');
+      detail.content.setAttribute(
+        'aria-label',
+        `${side.toUpperCase()} request details`,
       );
-      inspect.dataset.focusKey = `inspect-comparison-${side}`;
-      inspect.setAttribute(
-        'aria-pressed',
-        String(selection.inspecting === side),
-      );
-      comparisonContent[side] = {
-        value: fields(detail.raw).content,
-        phaseAvailable: detail.raw !== undefined,
-      };
-      const recorded = element('details');
-      recorded.open = comparisonContent[side].value !== undefined;
-      recorded.dataset.disclosureKey = JSON.stringify([
-        side,
-        slot.key,
-        'recorded-content',
-      ]);
-      const summary = element('summary', 'Recorded content');
-      summary.dataset.focusKey = `comparison-${side}:recorded-content`;
-      recorded.append(summary);
-      const placeholder = element('div');
-      placeholder.dataset.comparisonContent = side;
-      recorded.append(placeholder);
-      detail.content.querySelector('.request-outcome')?.after(recorded);
-      column.append(inspect, detail.content);
-      rendered[side] = detail;
+      detail.content.tabIndex = 0;
+      detail.content.dataset.focusKey = `comparison-${side}:details`;
+      detail.content.dataset.scrollKey = JSON.stringify([side, slot.key]);
+      comparisonEvents[side] = detail.raw;
+      const placeholder = element('div', undefined, 'comparison-evidence');
+      placeholder.dataset.comparisonEvidence = side;
+      column.append(detail.content, placeholder);
       signature.push(...(detail.contentIdentity ?? []));
     }
     columns.append(column);
   }
   content.append(columns);
-  const inspected = rendered[selection.inspecting];
   return {
     navigation,
     content,
-    raw: inspected?.raw,
-    rawTitle: `Comparison ${selection.inspecting.toUpperCase()} · Selected stage`,
+    raw: undefined,
+    rawTitle: 'Selected comparison events',
     contentIdentity: signature,
-    comparisonContent,
+    comparisonEvents,
   };
 }

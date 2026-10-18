@@ -4,7 +4,7 @@ import { expect, type Page, test } from '@playwright/test';
 
 async function openFixture(
   page: Page,
-  fixture: 'telemetry' | 'request-comparison',
+  fixture: 'telemetry' | 'request-comparison' | 'connection-events',
   query = '',
 ) {
   const bundle = execFileSync(
@@ -40,8 +40,8 @@ async function openTelemetryFixture(page: Page, scenario = 'steady') {
   await page.getByRole('tab', { name: 'Telemetry', exact: true }).click();
 }
 
-async function openRequestComparisonFixture(page: Page) {
-  await openFixture(page, 'request-comparison');
+async function openRequestComparisonFixture(page: Page, query = '') {
+  await openFixture(page, 'request-comparison', query);
   await page
     .getByRole('combobox', { name: 'Evidence source', exact: true })
     .selectOption('imported');
@@ -61,11 +61,14 @@ test('comparison presentation keeps keyboard focus, JSON selection, and revealed
   await openRequestComparisonFixture(page);
   const a = page.getByRole('region', { name: 'Comparison A', exact: true });
   const b = page.getByRole('region', { name: 'Comparison B', exact: true });
-  await page.getByRole('button', { name: 'Raw JSON', exact: true }).click();
-  await page
-    .getByRole('button', { name: 'Inspect B JSON', exact: true })
+  await b.locator('.phase-select').first().click();
+  await b
+    .getByRole('button', { name: 'B event JSON: Raw JSON', exact: true })
     .click();
-  const json = page.getByRole('region', { name: 'Raw JSON', exact: true });
+  const json = b.getByRole('region', {
+    name: 'B event JSON: Raw JSON',
+    exact: true,
+  });
   const selected = await json.innerText();
   const bars = a.getByRole('checkbox', { name: 'Show duration bars' });
   await bars.focus();
@@ -96,36 +99,51 @@ test('recorded comparison arguments can be explored together with independent JS
       .getByRole('button', { name: 'Show more phases', exact: true })
       .click();
     await side.locator('.phase-select').filter({ hasText: 'open' }).click();
-    await side
-      .locator('summary')
-      .filter({ hasText: 'Recorded content' })
-      .click();
   }
   await a
-    .getByRole('button', { name: 'A content: Raw JSON', exact: true })
+    .getByRole('button', { name: 'A event JSON: Raw JSON', exact: true })
     .click();
   await expect(
-    a.getByRole('region', { name: 'A content: Raw JSON', exact: true }),
+    a.getByRole('region', { name: 'A event JSON: Raw JSON', exact: true }),
   ).toContainText('Tuesday');
   const tree = b.getByRole('region', {
-    name: 'B content: JSON tree',
+    name: 'B event JSON: JSON tree',
     exact: true,
   });
   await expect(tree).toBeVisible();
   await expect(tree).toContainText('Monday');
   await b
-    .getByRole('button', { name: 'B content: Collapse all', exact: true })
+    .getByRole('button', { name: 'B event JSON: Collapse all', exact: true })
     .click();
   await expect(
-    b.getByRole('button', { name: 'B content: Expand root', exact: true }),
+    b.getByRole('button', { name: 'B event JSON: Expand root', exact: true }),
   ).toHaveAttribute('aria-expanded', 'false');
   await b
-    .getByRole('button', { name: 'B content: Expand root', exact: true })
+    .getByRole('button', { name: 'B event JSON: Expand root', exact: true })
     .focus();
   await page.keyboard.press('Enter');
   await expect(tree).toContainText('Monday');
   await expect(
-    a.getByRole('region', { name: 'A content: Raw JSON', exact: true }),
+    a.getByRole('region', { name: 'A event JSON: Raw JSON', exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole('checkbox', { name: 'Show JSON', exact: true })
+    .uncheck();
+  await expect(
+    a.getByRole('complementary', { name: 'A event JSON', exact: true }),
+  ).toBeHidden();
+  await expect(
+    b.getByRole('complementary', { name: 'B event JSON', exact: true }),
+  ).toBeHidden();
+  await page.getByRole('checkbox', { name: 'Show JSON', exact: true }).check();
+  await expect(
+    a.getByRole('complementary', { name: 'A event JSON', exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole('button', { name: 'Exit comparison', exact: true })
+    .click();
+  await expect(
+    page.getByRole('complementary', { name: 'JSON evidence', exact: true }),
   ).toBeVisible();
 });
 
@@ -135,6 +153,10 @@ test('comparison phase navigation preserves the other request’s scroll and eve
   await openRequestComparisonFixture(page);
   const a = page.getByRole('region', { name: 'Comparison A', exact: true });
   const b = page.getByRole('region', { name: 'Comparison B', exact: true });
+  const aDetails = a.getByRole('region', {
+    name: 'A request details',
+    exact: true,
+  });
   await page
     .getByText('Compare observed event counts', { exact: true })
     .click();
@@ -147,7 +169,7 @@ test('comparison phase navigation preserves the other request’s scroll and eve
       has: page.getByText('Compare observed event counts', { exact: true }),
     }),
   ).toHaveAttribute('open', '');
-  const previousScroll = await a.evaluate((node) => node.scrollTop);
+  const previousScroll = await aDetails.evaluate((node) => node.scrollTop);
   expect(previousScroll).toBeGreaterThan(0);
   const bPhase = b
     .getByRole('button', { name: /Engine stage completed · plan/ })
@@ -157,12 +179,95 @@ test('comparison phase navigation preserves the other request’s scroll and eve
   await expect(
     a.getByRole('button', { name: /Engine stage failed · plan/ }).first(),
   ).toHaveAttribute('aria-pressed', 'true');
-  expect(await a.evaluate((node) => node.scrollTop)).toBe(previousScroll);
+  expect(await aDetails.evaluate((node) => node.scrollTop)).toBe(
+    previousScroll,
+  );
+  await a
+    .getByRole('button', { name: 'A event JSON: Raw JSON', exact: true })
+    .click();
+  await b
+    .getByRole('button', { name: 'B event JSON: Raw JSON', exact: true })
+    .click();
+  await expect(
+    a.getByRole('region', { name: 'A event JSON: Raw JSON', exact: true }),
+  ).toContainText('b-stage-0');
+  await expect(
+    b.getByRole('region', { name: 'B event JSON: Raw JSON', exact: true }),
+  ).toContainText('a-stage-1');
+  await expect(
+    page.getByRole('complementary', { name: 'JSON evidence', exact: true }),
+  ).toBeHidden();
+});
+
+test('long imported identities leave both request details and JSON reachable', async ({
+  page,
+}) => {
+  await openRequestComparisonFixture(page, '?long-identities');
+  for (const side of ['A', 'B']) {
+    const column = page.getByRole('region', {
+      name: `Comparison ${side}`,
+      exact: true,
+    });
+    const details = column.getByRole('region', {
+      name: `${side} request details`,
+      exact: true,
+    });
+    const json = column.getByRole('complementary', {
+      name: `${side} event JSON`,
+      exact: true,
+    });
+    const columnBox = await column.boundingBox();
+    const detailsBox = await details.boundingBox();
+    const jsonBox = await json.boundingBox();
+    expect(columnBox).not.toBeNull();
+    expect(detailsBox).not.toBeNull();
+    expect(jsonBox).not.toBeNull();
+    if (!columnBox || !detailsBox || !jsonBox) return;
+    expect(detailsBox.height).toBeGreaterThan(100);
+    expect(jsonBox.y + jsonBox.height).toBeLessThanOrEqual(
+      columnBox.y + columnBox.height,
+    );
+    const identity = column.getByRole('region', {
+      name: `${side} request identity`,
+      exact: true,
+    });
+    await identity.focus();
+    await page.keyboard.press('End');
+    await expect
+      .poll(() => identity.evaluate((node) => node.scrollTop))
+      .toBeGreaterThan(0);
+    await expect(json).toContainText('request-');
+  }
+});
+
+test('Connections highlights the connection or voice event shown in JSON', async ({
+  page,
+}) => {
+  await openFixture(page, 'connection-events');
+  await page
+    .getByRole('combobox', { name: 'Evidence source', exact: true })
+    .selectOption('imported');
+  await page.getByRole('tab', { name: 'Connections', exact: true }).click();
   await page.getByRole('button', { name: 'Raw JSON', exact: true }).click();
-  const json = page.locator('[aria-label="JSON evidence"] .json-raw');
-  await expect(json).toContainText('a-stage-1');
-  await a.getByRole('button', { name: 'Inspect A JSON', exact: true }).click();
-  await expect(json).toContainText('b-stage-0');
+  const connection = page.getByRole('button', {
+    name: /^Engine connection changed/,
+  });
+  const voice = page.getByRole('button', { name: /^Voice session changed/ });
+  const json = page.getByRole('region', { name: 'Raw JSON', exact: true });
+  await connection.click();
+  await expect(connection).toHaveAttribute('aria-pressed', 'true');
+  await expect(voice).toHaveAttribute('aria-pressed', 'false');
+  await expect(json).toContainText('fixture-connection');
+  expect(
+    await connection.evaluate((node) => getComputedStyle(node).backgroundColor),
+  ).not.toBe(
+    await voice.evaluate((node) => getComputedStyle(node).backgroundColor),
+  );
+  await voice.focus();
+  await page.keyboard.press('Enter');
+  await expect(voice).toHaveAttribute('aria-pressed', 'true');
+  await expect(connection).toHaveAttribute('aria-pressed', 'false');
+  await expect(json).toContainText('fixture-voice');
 });
 
 test('telemetry axis labels remain inside the chart for fractional tick values', async ({

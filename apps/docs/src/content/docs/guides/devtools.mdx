@@ -154,12 +154,13 @@ Stages and repeated Actions remain separate sequences; rows do not identify
 matching attempts across requests.
 Duration bars use one scale across both requests.
 
-Scroll each request independently. Select a phase to open that side's supporting
-event and JSON. Use **Inspect A JSON** or **Inspect B JSON** to return to the
-selected event on that side. Supported content still requires explicit recording.
+Select a phase on each side to inspect two events together. Each request has its
+own details and event JSON inspector. Choosing another phase updates only that
+side's JSON. Scroll the details and JSON separately within each column.
 
-Open **Recorded content** in each column to compare captured arguments or response
-content together. Each side has its own tree and raw JSON controls. Live activity
+Use each inspector's tree or raw JSON controls to explore the full event,
+including metadata and any recorded content. **Show JSON** hides or shows both
+inspectors. The shared JSON pane is hidden during comparison. Live activity
 contains metadata only; viewing a request does not start a recording.
 
 Read **Other request** beside each phase to find one-sided observations.
@@ -218,6 +219,7 @@ In **Requests**, switch the activity selector to **All events** and search for
 are present. Search matches event kinds, request IDs, and metadata.
 
 Open **Connections** for Engine connection state and separate voice summaries.
+Select a connection or voice event to highlight its row and inspect its JSON.
 Voice evidence distinguishes provider lifetimes and connection generations.
 Connections labels session and provider generations separately. These counters
 can differ after a cancelled startup; matching numbers do not establish that
