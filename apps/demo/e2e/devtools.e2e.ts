@@ -225,6 +225,49 @@ test('a tall comparison shows the first phases without scrolling past duplicate 
   }
 });
 
+test('phase selection keeps its keyboard focus outline clear of comparison evidence', async ({
+  page,
+}) => {
+  await openRequestComparisonFixture(page);
+  for (const side of ['A', 'B'])
+    await page
+      .getByRole('region', { name: `Comparison ${side}`, exact: true })
+      .getByRole('button', { name: 'Show more phases', exact: true })
+      .click();
+  for (const width of [390, 768, 1101, 1280, 1440, 1695]) {
+    await page.setViewportSize({ width, height: 1394 });
+    for (const side of ['A', 'B']) {
+      const row = page
+        .getByRole('region', { name: `Comparison ${side}`, exact: true })
+        .locator('.phase-table tbody tr')
+        .filter({ hasText: 'Response applied' });
+      const phase = row.locator('.phase-select');
+      await phase.focus();
+      await page.keyboard.press('Enter');
+      await expect(phase).toHaveAttribute('aria-pressed', 'true');
+      const clearance = await row.evaluate((node) => {
+        const button = node.querySelector<HTMLElement>('.phase-select');
+        const duration = node.querySelectorAll('td')[1]?.firstElementChild;
+        if (!button || !duration) throw new Error('Phase evidence is missing');
+        const style = getComputedStyle(button);
+        const focusEdge =
+          button.getBoundingClientRect().right +
+          Number.parseFloat(style.outlineWidth) +
+          Number.parseFloat(style.outlineOffset);
+        return {
+          focused: button.matches(':focus-visible'),
+          pixels: duration.getBoundingClientRect().left - focusEdge,
+        };
+      });
+      expect(clearance.focused).toBe(true);
+      expect(
+        clearance.pixels,
+        `${side} duration at ${width}px`,
+      ).toBeGreaterThan(0);
+    }
+  }
+});
+
 test('comparison presentation keeps keyboard focus, JSON selection, and revealed stage timings', async ({
   page,
 }) => {
