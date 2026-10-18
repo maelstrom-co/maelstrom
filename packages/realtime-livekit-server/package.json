@@ -1,6 +1,6 @@
 {
   "name": "@maelstrom-co/realtime-livekit-server",
-  "version": "0.1.0-alpha.6",
+  "version": "0.1.0-alpha.7",
   "description": "Server-only minting of LiveKit room access tokens for Maelstrom. The server sibling of @maelstrom-co/realtime-livekit.",
   "keywords": [
     "maelstrom",
@@ -51,8 +51,8 @@
     "registry": "https://npm.pkg.github.com"
   },
   "dependencies": {
-    "@maelstrom-co/protocol": "0.1.0-alpha.6",
-    "@maelstrom-co/realtime-protocol": "0.1.0-alpha.6",
+    "@maelstrom-co/protocol": "0.1.0-alpha.7",
+    "@maelstrom-co/realtime-protocol": "0.1.0-alpha.7",
     "livekit-server-sdk": "^2.13.1",
     "zod": "catalog:"
   },

@@ -59,13 +59,13 @@
         "@fontsource/jetbrains-mono": "^5.2.8",
         "@maelstrom-co/client": "workspace:*",
         "@maelstrom-co/connectors": "workspace:*",
-        "@maelstrom-co/devtools": "0.1.0-alpha.5",
+        "@maelstrom-co/devtools": "workspace:*",
         "@maelstrom-co/engine": "workspace:*",
         "@maelstrom-co/planner-jev": "workspace:*",
         "@maelstrom-co/planner-llm": "workspace:*",
         "@maelstrom-co/protocol": "workspace:*",
         "@maelstrom-co/react": "workspace:*",
-        "@maelstrom-co/react-devtools": "0.1.0-alpha.5",
+        "@maelstrom-co/react-devtools": "workspace:*",
         "@maelstrom-co/react-realtime": "workspace:*",
         "@maelstrom-co/realtime": "workspace:*",
         "@maelstrom-co/realtime-livekit": "workspace:*",
@@ -234,11 +234,11 @@
     },
     "packages/client": {
       "name": "@maelstrom-co/client",
-      "version": "0.1.0-alpha.6",
+      "version": "0.1.0-alpha.7",
       "dependencies": {
-        "@maelstrom-co/connectors": "0.1.0-alpha.5",
-        "@maelstrom-co/protocol": "0.1.0-alpha.5",
-        "@maelstrom-co/telemetry": "0.1.0-alpha.5",
+        "@maelstrom-co/connectors": "0.1.0-alpha.7",
+        "@maelstrom-co/protocol": "0.1.0-alpha.7",
+        "@maelstrom-co/telemetry": "0.1.0-alpha.7",
         "@tanstack/store": "catalog:",
       },
       "devDependencies": {
@@ -247,18 +247,18 @@
     },
     "packages/connectors": {
       "name": "@maelstrom-co/connectors",
-      "version": "0.1.0-alpha.6",
+      "version": "0.1.0-alpha.7",
       "dependencies": {
-        "@maelstrom-co/protocol": "0.1.0-alpha.5",
+        "@maelstrom-co/protocol": "0.1.0-alpha.7",
       },
     },
     "packages/devtools": {
       "name": "@maelstrom-co/devtools",
-      "version": "0.1.0-alpha.6",
+      "version": "0.1.0-alpha.7",
       "dependencies": {
-        "@maelstrom-co/client": "0.1.0-alpha.5",
-        "@maelstrom-co/protocol": "0.1.0-alpha.5",
-        "@maelstrom-co/telemetry": "0.1.0-alpha.5",
+        "@maelstrom-co/client": "0.1.0-alpha.7",
+        "@maelstrom-co/protocol": "0.1.0-alpha.7",
+        "@maelstrom-co/telemetry": "0.1.0-alpha.7",
         "@pgrabovets/json-view": "catalog:",
         "solid-js": "catalog:",
         "zod": "catalog:",
@@ -266,21 +266,21 @@
     },
     "packages/engine": {
       "name": "@maelstrom-co/engine",
-      "version": "0.1.0-alpha.6",
+      "version": "0.1.0-alpha.7",
       "dependencies": {
-        "@maelstrom-co/protocol": "0.1.0-alpha.5",
-        "@maelstrom-co/telemetry": "0.1.0-alpha.5",
+        "@maelstrom-co/protocol": "0.1.0-alpha.7",
+        "@maelstrom-co/telemetry": "0.1.0-alpha.7",
         "zod": "catalog:",
       },
     },
     "packages/evals": {
       "name": "@maelstrom-co/evals",
-      "version": "0.1.0-alpha.6",
+      "version": "0.1.0-alpha.7",
       "dependencies": {
-        "@maelstrom-co/engine": "0.1.0-alpha.5",
-        "@maelstrom-co/planner-jev": "0.1.0-alpha.5",
-        "@maelstrom-co/planner-llm": "0.1.0-alpha.5",
-        "@maelstrom-co/protocol": "0.1.0-alpha.5",
+        "@maelstrom-co/engine": "0.1.0-alpha.7",
+        "@maelstrom-co/planner-jev": "0.1.0-alpha.7",
+        "@maelstrom-co/planner-llm": "0.1.0-alpha.7",
+        "@maelstrom-co/protocol": "0.1.0-alpha.7",
         "@tanstack/ai": "catalog:",
         "@tanstack/ai-openai": "catalog:",
         "zod": "catalog:",
@@ -288,27 +288,27 @@
     },
     "packages/planner-jev": {
       "name": "@maelstrom-co/planner-jev",
-      "version": "0.1.0-alpha.6",
+      "version": "0.1.0-alpha.7",
       "dependencies": {
-        "@maelstrom-co/engine": "0.1.0-alpha.5",
-        "@maelstrom-co/protocol": "0.1.0-alpha.5",
+        "@maelstrom-co/engine": "0.1.0-alpha.7",
+        "@maelstrom-co/protocol": "0.1.0-alpha.7",
         "@tanstack/ai": "catalog:",
         "zod": "catalog:",
       },
     },
     "packages/planner-llm": {
       "name": "@maelstrom-co/planner-llm",
-      "version": "0.1.0-alpha.6",
+      "version": "0.1.0-alpha.7",
       "dependencies": {
-        "@maelstrom-co/engine": "0.1.0-alpha.5",
-        "@maelstrom-co/protocol": "0.1.0-alpha.5",
+        "@maelstrom-co/engine": "0.1.0-alpha.7",
+        "@maelstrom-co/protocol": "0.1.0-alpha.7",
         "@tanstack/ai": "catalog:",
         "zod": "catalog:",
       },
     },
     "packages/protocol": {
       "name": "@maelstrom-co/protocol",
-      "version": "0.1.0-alpha.6",
+      "version": "0.1.0-alpha.7",
       "dependencies": {
         "nanoid": "catalog:",
         "zod": "catalog:",
@@ -316,10 +316,10 @@
     },
     "packages/react": {
       "name": "@maelstrom-co/react",
-      "version": "0.1.0-alpha.6",
+      "version": "0.1.0-alpha.7",
       "dependencies": {
-        "@maelstrom-co/client": "0.1.0-alpha.5",
-        "@maelstrom-co/protocol": "0.1.0-alpha.5",
+        "@maelstrom-co/client": "0.1.0-alpha.7",
+        "@maelstrom-co/protocol": "0.1.0-alpha.7",
         "@tanstack/react-store": "catalog:",
       },
       "devDependencies": {
@@ -334,14 +334,14 @@
     },
     "packages/react-devtools": {
       "name": "@maelstrom-co/react-devtools",
-      "version": "0.1.0-alpha.6",
+      "version": "0.1.0-alpha.7",
       "dependencies": {
-        "@maelstrom-co/client": "0.1.0-alpha.5",
-        "@maelstrom-co/devtools": "0.1.0-alpha.5",
-        "@maelstrom-co/react": "0.1.0-alpha.5",
+        "@maelstrom-co/client": "0.1.0-alpha.7",
+        "@maelstrom-co/devtools": "0.1.0-alpha.7",
+        "@maelstrom-co/react": "0.1.0-alpha.7",
       },
       "devDependencies": {
-        "@maelstrom-co/protocol": "0.1.0-alpha.5",
+        "@maelstrom-co/protocol": "0.1.0-alpha.7",
         "@testing-library/react": "catalog:",
         "happy-dom": "catalog:",
       },
@@ -352,12 +352,12 @@
     },
     "packages/react-realtime": {
       "name": "@maelstrom-co/react-realtime",
-      "version": "0.1.0-alpha.6",
+      "version": "0.1.0-alpha.7",
       "dependencies": {
-        "@maelstrom-co/client": "0.1.0-alpha.5",
-        "@maelstrom-co/protocol": "0.1.0-alpha.5",
-        "@maelstrom-co/react": "0.1.0-alpha.5",
-        "@maelstrom-co/realtime": "0.1.0-alpha.5",
+        "@maelstrom-co/client": "0.1.0-alpha.7",
+        "@maelstrom-co/protocol": "0.1.0-alpha.7",
+        "@maelstrom-co/react": "0.1.0-alpha.7",
+        "@maelstrom-co/realtime": "0.1.0-alpha.7",
       },
       "devDependencies": {
         "@testing-library/react": "catalog:",
@@ -370,11 +370,11 @@
     },
     "packages/realtime": {
       "name": "@maelstrom-co/realtime",
-      "version": "0.1.0-alpha.6",
+      "version": "0.1.0-alpha.7",
       "dependencies": {
-        "@maelstrom-co/client": "0.1.0-alpha.5",
-        "@maelstrom-co/protocol": "0.1.0-alpha.5",
-        "@maelstrom-co/telemetry": "0.1.0-alpha.5",
+        "@maelstrom-co/client": "0.1.0-alpha.7",
+        "@maelstrom-co/protocol": "0.1.0-alpha.7",
+        "@maelstrom-co/telemetry": "0.1.0-alpha.7",
       },
       "devDependencies": {
         "@sinonjs/fake-timers": "catalog:",
@@ -383,13 +383,13 @@
     },
     "packages/realtime-livekit": {
       "name": "@maelstrom-co/realtime-livekit",
-      "version": "0.1.0-alpha.6",
+      "version": "0.1.0-alpha.7",
       "dependencies": {
-        "@maelstrom-co/client": "0.1.0-alpha.5",
-        "@maelstrom-co/protocol": "0.1.0-alpha.5",
-        "@maelstrom-co/realtime": "0.1.0-alpha.5",
-        "@maelstrom-co/realtime-protocol": "0.1.0-alpha.5",
-        "@maelstrom-co/realtime-vad": "0.1.0-alpha.5",
+        "@maelstrom-co/client": "0.1.0-alpha.7",
+        "@maelstrom-co/protocol": "0.1.0-alpha.7",
+        "@maelstrom-co/realtime": "0.1.0-alpha.7",
+        "@maelstrom-co/realtime-protocol": "0.1.0-alpha.7",
+        "@maelstrom-co/realtime-vad": "0.1.0-alpha.7",
         "zod": "catalog:",
       },
       "devDependencies": {
@@ -402,34 +402,34 @@
     },
     "packages/realtime-livekit-agent": {
       "name": "@maelstrom-co/realtime-livekit-agent",
-      "version": "0.1.0-alpha.6",
+      "version": "0.1.0-alpha.7",
       "dependencies": {
         "@livekit/agents": "^1.4.8",
         "@livekit/agents-plugin-cartesia": "^1.4.8",
         "@livekit/agents-plugin-deepgram": "^1.4.8",
         "@livekit/rtc-node": "^0.13.29",
-        "@maelstrom-co/realtime-protocol": "0.1.0-alpha.5",
+        "@maelstrom-co/realtime-protocol": "0.1.0-alpha.7",
       },
     },
     "packages/realtime-livekit-server": {
       "name": "@maelstrom-co/realtime-livekit-server",
-      "version": "0.1.0-alpha.6",
+      "version": "0.1.0-alpha.7",
       "dependencies": {
-        "@maelstrom-co/protocol": "0.1.0-alpha.5",
-        "@maelstrom-co/realtime-protocol": "0.1.0-alpha.5",
+        "@maelstrom-co/protocol": "0.1.0-alpha.7",
+        "@maelstrom-co/realtime-protocol": "0.1.0-alpha.7",
         "livekit-server-sdk": "^2.13.1",
         "zod": "catalog:",
       },
     },
     "packages/realtime-openai": {
       "name": "@maelstrom-co/realtime-openai",
-      "version": "0.1.0-alpha.6",
+      "version": "0.1.0-alpha.7",
       "dependencies": {
-        "@maelstrom-co/client": "0.1.0-alpha.5",
-        "@maelstrom-co/protocol": "0.1.0-alpha.5",
-        "@maelstrom-co/realtime": "0.1.0-alpha.5",
-        "@maelstrom-co/realtime-protocol": "0.1.0-alpha.5",
-        "@maelstrom-co/realtime-vad": "0.1.0-alpha.5",
+        "@maelstrom-co/client": "0.1.0-alpha.7",
+        "@maelstrom-co/protocol": "0.1.0-alpha.7",
+        "@maelstrom-co/realtime": "0.1.0-alpha.7",
+        "@maelstrom-co/realtime-protocol": "0.1.0-alpha.7",
+        "@maelstrom-co/realtime-vad": "0.1.0-alpha.7",
       },
       "devDependencies": {
         "@sinonjs/fake-timers": "catalog:",
@@ -437,7 +437,7 @@
     },
     "packages/realtime-openai-live": {
       "name": "@maelstrom-co/realtime-openai-live",
-      "version": "0.1.0-alpha.6",
+      "version": "0.1.0-alpha.7",
       "dependencies": {
         "@maelstrom-co/protocol": "workspace:*",
         "@maelstrom-co/realtime": "workspace:*",
@@ -451,31 +451,31 @@
     },
     "packages/realtime-openai-live-server": {
       "name": "@maelstrom-co/realtime-openai-live-server",
-      "version": "0.1.0-alpha.6",
+      "version": "0.1.0-alpha.7",
       "dependencies": {
         "@maelstrom-co/realtime-protocol": "workspace:*",
       },
     },
     "packages/realtime-openai-server": {
       "name": "@maelstrom-co/realtime-openai-server",
-      "version": "0.1.0-alpha.6",
+      "version": "0.1.0-alpha.7",
       "dependencies": {
-        "@maelstrom-co/protocol": "0.1.0-alpha.5",
-        "@maelstrom-co/realtime-protocol": "0.1.0-alpha.5",
+        "@maelstrom-co/protocol": "0.1.0-alpha.7",
+        "@maelstrom-co/realtime-protocol": "0.1.0-alpha.7",
         "zod": "catalog:",
       },
     },
     "packages/realtime-protocol": {
       "name": "@maelstrom-co/realtime-protocol",
-      "version": "0.1.0-alpha.6",
+      "version": "0.1.0-alpha.7",
       "dependencies": {
-        "@maelstrom-co/protocol": "0.1.0-alpha.5",
+        "@maelstrom-co/protocol": "0.1.0-alpha.7",
         "zod": "catalog:",
       },
     },
     "packages/realtime-vad": {
       "name": "@maelstrom-co/realtime-vad",
-      "version": "0.1.0-alpha.6",
+      "version": "0.1.0-alpha.7",
       "bin": {
         "maelstrom-vad-assets": "./dist/bin/maelstrom-vad-assets.js",
       },
@@ -486,7 +486,7 @@
     },
     "packages/telemetry": {
       "name": "@maelstrom-co/telemetry",
-      "version": "0.1.0-alpha.6",
+      "version": "0.1.0-alpha.7",
       "devDependencies": {
         "@sinonjs/fake-timers": "catalog:",
         "@types/sinonjs__fake-timers": "^15.0.1",
