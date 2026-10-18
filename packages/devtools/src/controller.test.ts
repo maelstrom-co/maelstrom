@@ -14,6 +14,7 @@ import {
 } from '@maelstrom-co/protocol';
 import { DiagnosticCapture } from './capture.js';
 import { createDevtools } from './controller.js';
+import { requestLayoutComparison } from './layout-comparison.js';
 import {
   groupRequests,
   inspectState,
@@ -71,6 +72,283 @@ function connector(
 const releases: (() => void | Promise<void>)[] = [];
 afterEach(async () => {
   for (const release of releases.splice(0).reverse()) await release();
+});
+
+test('request layout baselines record actual client state and reopen without reapplying commands', async () => {
+  let calls = 0;
+  const { tools, client } = setup(
+    {},
+    connector(async (message) => {
+      calls++;
+      return response(message.id);
+    }),
+  );
+  await client.connect();
+  const appId = tools.getSnapshot().sessions[0].id;
+  tools.startCapture(appId);
+  await client.processIntent('Show the fixture');
+  await client.commandProcessor.waitForIdle();
+  tools.stopCapture();
+  const exported = tools.exportCapture();
+  const evidence = recordingEvidence(JSON.parse(exported));
+  const request = groupRequests(evidence.events)[0];
+  const comparison = requestLayoutComparison(request, evidence.events);
+  if (comparison.availability !== 'available')
+    throw new Error(comparison.reason);
+  expect(comparison.before.state.instances).toEqual([]);
+  expect(
+    comparison.after.state.instances.map((item) => item.instanceId),
+  ).toEqual([instanceId]);
+  expect(comparison.changes.map(({ kinds }) => kinds)).toEqual([['Added']]);
+  expect(JSON.stringify(tools.getSnapshot().requestActivity)).not.toContain(
+    'layoutSnapshot',
+  );
+  tools.importCapture(exported);
+  const imported = recordingEvidence(tools.getSnapshot().imported);
+  expect(
+    requestLayoutComparison(groupRequests(imported.events)[0], imported.events),
+  ).toEqual(comparison);
+  expect(tools.capture.getSnapshot().active).toBe(false);
+  expect(calls).toBe(1);
+});
+
+test('layout snapshots pass through application redaction before retention and export', async () => {
+  const { tools, client } = setup({
+    redact: (value) =>
+      JSON.parse(JSON.stringify(value).replaceAll(instanceId, '[REDACTED]')),
+  });
+  await client.connect();
+  tools.startCapture();
+  await client.processIntent('Show the fixture');
+  await client.commandProcessor.waitForIdle();
+  tools.stopCapture();
+  expect(tools.exportCapture()).not.toContain(instanceId);
+  const evidence = recordingEvidence(JSON.parse(tools.exportCapture()));
+  expect(
+    requestLayoutComparison(groupRequests(evidence.events)[0], evidence.events)
+      .availability,
+  ).toBe('unavailable');
+});
+
+test.each([
+  'reader',
+  'redactor',
+  'capture redactor',
+  'composed redactor',
+] as const)('content %s failures cannot hide a recorded request outcome', (failure) => {
+  const redact = (value: unknown) => {
+    if (
+      value !== null &&
+      typeof value === 'object' &&
+      ('layoutSnapshot' in value || 'content' in value)
+    )
+      throw new Error('Content redaction unavailable');
+    return value;
+  };
+  const capture =
+    failure === 'composed redactor' ? new DiagnosticCapture() : undefined;
+  capture?.addRedactor(redact);
+  const { tools, client } = setup({
+    redact: failure === 'redactor' ? redact : undefined,
+    capture: failure === 'capture redactor' ? { redact } : capture,
+  });
+  tools.startCapture();
+  const requestId = MessageId('capture-failure');
+  client.diagnostics.emitDiagnostic(
+    'client.request.started',
+    {},
+    undefined,
+    requestId,
+  );
+  client.diagnostics.emitDiagnostic(
+    'client.command.started',
+    { command: 'set_layout' },
+    undefined,
+    requestId,
+  );
+  client.diagnostics.emitDiagnostic(
+    'client.response.applied',
+    {},
+    () => {
+      if (failure === 'reader') throw new Error('Content unavailable');
+      return { result: 'private-capture-content' };
+    },
+    requestId,
+  );
+  const state = tools.getSnapshot();
+  const request = groupRequests(panelEvents(state.requestActivity)).find(
+    (request) => request.requestId === requestId,
+  );
+  expect(request?.status).toBe('applied');
+  expect(
+    state.activity.some(
+      (event) =>
+        event.requestId === requestId &&
+        event.kind === 'client.response.applied',
+    ),
+  ).toBe(true);
+  const exported = tools.exportCapture();
+  expect(exported).not.toContain('private-capture-content');
+  const recording = recordingEvidence(JSON.parse(exported));
+  const recorded = recording.events.filter(
+    (event) => event.requestId === requestId,
+  );
+  expect(recorded.map((event) => event.kind)).toEqual([
+    'client.request.started',
+    'client.command.started',
+    'client.response.applied',
+  ]);
+  expect(recorded.at(-1)?.content).toBeUndefined();
+  expect(groupRequests(recording.events)[0]?.status).toBe('applied');
+  tools.capture.addRedactor((value) => {
+    if (
+      value !== null &&
+      typeof value === 'object' &&
+      'requestId' in value &&
+      value.requestId === 'blocked-capture'
+    )
+      throw new Error('Metadata is not permitted');
+    return value;
+  });
+  client.diagnostics.emitDiagnostic(
+    'client.response.applied',
+    {},
+    () => ({ value: 'private-capture-content' }),
+    MessageId('blocked-capture'),
+  );
+  const protectedRecording = recordingEvidence(
+    JSON.parse(tools.exportCapture()),
+  );
+  expect(
+    protectedRecording.events.some(
+      (event) => event.requestId === 'blocked-capture',
+    ),
+  ).toBe(false);
+});
+
+test.each([
+  false,
+  true,
+])('capture limits leave missing completion evidence unavailable (content rejected: %s)', async (rejectContent) => {
+  const { tools, client } = setup({
+    capture: {
+      maxEvents: 5,
+      redact: rejectContent
+        ? (value) => {
+            if (
+              value !== null &&
+              typeof value === 'object' &&
+              'content' in value
+            )
+              throw new Error('Content is not permitted');
+            return value;
+          }
+        : undefined,
+    },
+  });
+  await client.connect();
+  tools.startCapture();
+  client.diagnostics.emitDiagnostic(
+    'client.command.started',
+    { command: 'set_layout' },
+    undefined,
+    'bounded',
+  );
+  for (let i = 0; i < 10; i++) client.diagnostics.emitDiagnostic('app.noise');
+  client.diagnostics.emitDiagnostic(
+    'client.response.applied',
+    {},
+    undefined,
+    'bounded',
+  );
+  tools.stopCapture();
+  const evidence = recordingEvidence(JSON.parse(tools.exportCapture()));
+  expect(evidence.events.length).toBe(5);
+  expect(evidence.dropped).toBeGreaterThan(0);
+  const request = groupRequests(evidence.events).find(
+    (request) => request.requestId === 'bounded',
+  );
+  expect(request).toBeDefined();
+  expect(
+    request!.events.some((event) => event.kind === 'client.response.applied'),
+  ).toBe(false);
+  expect(requestLayoutComparison(request!, evidence.events).availability).toBe(
+    'unavailable',
+  );
+});
+
+test('rejected layouts compare the actual surviving Chart instead of the proposed layout', async () => {
+  const { tools, client } = setup(
+    {},
+    connector(async (message) => {
+      const result = response(message.id);
+      if (result.layout.type !== 'tiling') throw new Error('Expected tiling');
+      return {
+        ...result,
+        layout: {
+          ...result.layout,
+          tree: ['V', tilingLeafToken(instanceId), tilingLeafToken(instanceId)],
+        },
+      };
+    }),
+  );
+  client.commandProcessor.setLayout(response().layout);
+  await client.commandProcessor.waitForIdle();
+  await client.connect();
+  tools.startCapture();
+  await client.processIntent('Try a rejected layout');
+  await client.commandProcessor.waitForIdle();
+  tools.stopCapture();
+  const evidence = recordingEvidence(JSON.parse(tools.exportCapture()));
+  const request = groupRequests(evidence.events)[0];
+  expect(request.status).toBe('failed');
+  const comparison = requestLayoutComparison(request, evidence.events);
+  if (comparison.availability !== 'available')
+    throw new Error(comparison.reason);
+  expect(comparison.changes).toEqual([]);
+  expect(comparison.after.state.tiles?.map((tile) => tile.instanceId)).toEqual([
+    instanceId,
+  ]);
+});
+
+test('a local layout applied while planning becomes the application baseline for the waiting request', async () => {
+  let entered = () => {},
+    release = () => {};
+  const planning = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const { tools, client } = setup(
+    {},
+    connector(async (message) => {
+      entered();
+      await gate;
+      return response(message.id);
+    }),
+  );
+  await client.connect();
+  tools.startCapture();
+  const request = client.processIntent('Keep the fixture');
+  await planning;
+  client.commandProcessor.setLayout(response().layout);
+  await client.commandProcessor.waitForIdle();
+  release();
+  await request;
+  await client.commandProcessor.waitForIdle();
+  tools.stopCapture();
+  const evidence = recordingEvidence(JSON.parse(tools.exportCapture()));
+  const comparison = requestLayoutComparison(
+    groupRequests(evidence.events)[0],
+    evidence.events,
+  );
+  if (comparison.availability !== 'available')
+    throw new Error(comparison.reason);
+  expect(
+    comparison.before.state.instances.map((item) => item.instanceId),
+  ).toEqual([instanceId]);
+  expect(comparison.changes).toEqual([]);
 });
 
 test('live and recorded inspection keep hidden retained Instances after a layout command', async () => {

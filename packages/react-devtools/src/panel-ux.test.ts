@@ -86,6 +86,192 @@ function collector() {
   return tools;
 }
 
+test('recorded request layouts explain added Instances and open their supporting JSON', async () => {
+  const tools = collector();
+  const { client } = await clientFor(tools);
+  client.commandProcessor.setLayout({
+    type: 'tiling',
+    tree: [],
+    instances: [],
+  });
+  await client.commandProcessor.waitForIdle();
+  const { shadow, click, select } = mount(tools);
+  click('Recordings');
+  click('Start recording');
+  await client.processIntent('Show the counter');
+  await client.commandProcessor.waitForIdle();
+  click('Stop');
+  click('Requests');
+  select('Evidence source', 'recording');
+  const comparison = shadow.querySelector(
+    '[aria-label="Request layout comparison"]',
+  );
+  expect(comparison?.textContent).toContain('Added');
+  expect(
+    comparison?.querySelectorAll('[aria-label$="Chart miniature"]').length,
+  ).toBe(2);
+  fireEvent.click(shadow.querySelector('[aria-label="panel-counter: Added"]')!);
+  click('Raw JSON');
+  expect(shadow.querySelector('.json-raw')?.textContent).toContain(
+    'layoutSnapshot',
+  );
+  expect(shadow.querySelector('.json-raw')?.textContent).toContain(
+    'client.response.applied',
+  );
+  expect(tools.capture.getSnapshot().active).toBe(false);
+});
+
+test('imported layout evidence remains readable when command metadata is structured', () => {
+  const tools = collector();
+  const snapshot = {
+    version: 1,
+    instanceCount: 1,
+    instances: [{ instanceId: 'one', vesselId: 'counter', variant: 'main' }],
+    layoutMode: 'tiling',
+    chartDimensions: { columns: 4, rows: 2 },
+    layout: { type: 'tiling', tree: ['ID:one'] },
+  };
+  tools.importCapture(
+    JSON.stringify({
+      schemaVersion: 2,
+      capture: {
+        schemaVersion: 1,
+        events: [
+          {
+            id: 'before',
+            sessionId: 'session',
+            requestId: 'request',
+            kind: 'client.command.started',
+            metadata: { clientId: 'app', command: 'set_layout' },
+            content: { layoutSnapshot: snapshot },
+          },
+          {
+            id: 'odd-command',
+            sessionId: 'session',
+            requestId: 'request',
+            kind: 'client.command.completed',
+            metadata: { clientId: 'app', command: { toString: null } },
+          },
+          {
+            id: 'after',
+            sessionId: 'session',
+            requestId: 'request',
+            kind: 'client.response.applied',
+            metadata: { clientId: 'app' },
+            content: {
+              layoutSnapshot: {
+                ...snapshot,
+                instances: [
+                  { instanceId: 'one', vesselId: 'counter', variant: 'week' },
+                ],
+              },
+            },
+          },
+        ],
+      },
+    }),
+  );
+  const { shadow, select } = mount(tools);
+  select('Evidence source', 'imported');
+  expect(
+    shadow.querySelector('[aria-label="Request layout comparison"]')
+      ?.textContent,
+  ).toContain('Variant changed');
+  expect(shadow.querySelector('.layout-evidence')?.textContent).toContain(
+    'Command completed',
+  );
+});
+
+test.each([
+  'before tile',
+  'after tile',
+  'change row',
+])('selecting a layout %s reveals its phase while layout paging preserves the phase page', (selection) => {
+  const tools = collector();
+  const instances = Array.from({ length: 201 }, (_, index) => ({
+    instanceId: `one-${index}`,
+    vesselId: 'counter',
+    variant: 'main',
+  }));
+  const snapshot = {
+    version: 1,
+    instanceCount: instances.length,
+    instances,
+    layoutMode: 'tiling',
+    chartDimensions: { columns: 4, rows: 2 },
+    layout: { type: 'tiling', tree: ['ID:one-0'] },
+  };
+  const identity = { sessionId: 'session', requestId: 'request' };
+  tools.importCapture(
+    JSON.stringify({
+      schemaVersion: 2,
+      capture: {
+        schemaVersion: 1,
+        events: [
+          {
+            ...identity,
+            id: 'before',
+            kind: 'client.command.started',
+            metadata: { clientId: 'app', command: 'set_layout' },
+            content: { layoutSnapshot: snapshot },
+          },
+          ...Array.from({ length: 205 }, (_, index) => ({
+            ...identity,
+            id: `step-${index}`,
+            kind: 'engine.stage.completed',
+            metadata: {
+              clientId: 'app',
+              stage: `step-${index}`,
+              outcome: 'succeeded',
+            },
+          })),
+          {
+            ...identity,
+            id: 'after',
+            kind: 'client.response.applied',
+            metadata: { clientId: 'app' },
+            content: {
+              layoutSnapshot: {
+                ...snapshot,
+                instances: instances.map((instance) => ({
+                  ...instance,
+                  variant: 'week',
+                })),
+              },
+            },
+          },
+        ],
+      },
+    }),
+  );
+  const { shadow, click, select } = mount(tools);
+  select('Evidence source', 'imported');
+  click('Raw JSON');
+  click('After');
+  click('Previous phases');
+  const before = selection === 'before tile';
+  if (before) click('Show more phases');
+  const phases = () =>
+    shadow.querySelector('table[aria-label="Request phases"]')!;
+  const retainedPage = before ? 'step-204' : 'step-0';
+  expect(phases().textContent).toContain(retainedPage);
+  click('More changes');
+  expect(phases().textContent).toContain(retainedPage);
+  const label =
+    selection === 'change row'
+      ? 'one-200: Variant changed'
+      : `${before ? 'Before' : 'After'} Instance one-0: Variant changed`;
+  fireEvent.click(shadow.querySelector(`[aria-label="${label}"]`)!);
+  const selectedPhase = phases().querySelector('button[aria-pressed="true"]');
+  expect(selectedPhase).not.toBeNull();
+  expect(selectedPhase?.textContent).toContain(
+    before ? 'Layout started' : 'Response applied',
+  );
+  expect(shadow.querySelector('.json-raw')?.textContent).toContain(
+    `"id": "${before ? 'before' : 'after'}"`,
+  );
+});
+
 test.each([
   'same-request',
   'different-request',

@@ -140,6 +140,37 @@ it. Starting a new recording clears the pin while **Evidence** is set to
 selected because their evidence is unchanged. Pins last until the panel unmounts.
 Closing and reopening the panel preserves the pin.
 
+## Compare a request's layouts
+
+Start a recording before reproducing a layout change. Stop the recording,
+select **Current recording** under **Evidence**, and select the request.
+**What changed in the Chart** shows the state before layout application and
+after the response finishes, including a failed application.
+
+Use the change table to find added, removed, shown, hidden, moved, or resized
+Instances and Variant changes. Hidden Instances remain retained by the client;
+removed Instances do not. Select an Instance in either miniature or the table
+to inspect its supporting snapshots, commands, outcomes, and JSON. Select
+**Before** or **After** to open the corresponding snapshot.
+
+The miniatures use reported Chart dimensions. Grid comparisons measure changes
+in cells; tiling comparisons use relative proportions. The diagrams are
+schematic and do not establish browser paint. Chart resizes and overlapping
+commands appear as attribution limits. Application-owned updates can also
+contribute to the observed changes.
+
+Layout snapshots require explicit recording and pass through redaction before
+retention and export. Open an exported recording to inspect the same comparison
+without running commands. Live activity and older recordings can lack these
+snapshots. Missing, redacted, truncated, or unsupported evidence leaves the
+comparison unavailable; the panel does not infer an empty Chart.
+
+Recording limits still apply. The viewer compares up to 1,000 retained
+Instances per snapshot and displays 200 changes per page. Each miniature draws
+up to 200 visible Instances. Select a change in the table to reveal its Instance
+when it lies outside that set. Geometry that exceeds the viewer's limits remains
+unavailable while supported structural changes remain readable.
+
 ## Find voice and connection events
 
 In **Requests**, switch the activity selector to **All events** and search for

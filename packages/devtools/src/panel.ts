@@ -55,6 +55,7 @@ interface PanelPreferences {
   jsonMode?: 'tree' | 'raw';
   phaseBars?: boolean;
   phasePage?: ViewContext['phasePage'];
+  layoutView?: ViewContext['layoutView'];
   height?: number;
   labels: Map<string, string>;
   nextLabel: number;
@@ -274,6 +275,7 @@ function Panel(tools: Devtools): HTMLElement {
     preferences.requestKey = '';
     preferences.eventKey = '';
     preferences.phasePage = undefined;
+    preferences.layoutView = undefined;
   }
   function switchSource(next: Source): void {
     clearRequestSelection();
@@ -1070,6 +1072,15 @@ function Panel(tools: Devtools): HTMLElement {
       pinnedRequest,
       phaseBars: preferences.phaseBars ?? true,
       phasePage: preferences.phasePage,
+      layoutView: preferences.layoutView,
+      setLayoutView: (view, eventKey) => {
+        preferences.layoutView = view;
+        if (eventKey) {
+          preferences.eventKey = eventKey;
+          preferences.phasePage = undefined;
+        }
+        refresh();
+      },
       selectPhasePage: (page) => {
         preferences.phasePage = page;
         refresh();
@@ -1090,6 +1101,7 @@ function Panel(tools: Devtools): HTMLElement {
       live: currentSource === 'live',
       inspect,
       selectRequest: (key) => {
+        preferences.layoutView = undefined;
         preferences.phasePage = undefined;
         if (pinnedRequest !== key) pinnedRequest = undefined;
         preferences.requestKey = key;
@@ -1145,6 +1157,7 @@ function Panel(tools: Devtools): HTMLElement {
       pinnedRequest,
       preferences.eventKey,
       preferences.phasePage,
+      preferences.layoutView,
       preferences.instanceKey,
       preferences.allEvents,
       pageSize,
