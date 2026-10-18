@@ -55,6 +55,176 @@ async function openRequestComparisonFixture(page: Page, query = '') {
     .click();
 }
 
+test('each view keeps most of the panel for evidence and its guidance available through help', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await openFixture(page, 'connection-events');
+  await page
+    .getByRole('combobox', { name: 'Evidence source', exact: true })
+    .selectOption('imported');
+  const panel = page.getByRole('region', {
+    name: 'Maelstrom Devtools',
+    exact: true,
+  });
+  for (const [tab, guidance] of [
+    ['Requests', 'Follow a request from start to outcome.'],
+    ['Inspector', 'Select an Instance to see its Vessel'],
+    ['Connections', 'Check Engine and voice connections.'],
+    ['Recordings', 'Record a problem, or inspect a saved recording.'],
+    ['Telemetry', undefined],
+  ] as const) {
+    await page.getByRole('tab', { name: tab, exact: true }).click();
+    const evidence =
+      tab === 'Telemetry'
+        ? page.getByRole('region', {
+            name: 'Telemetry delivery health',
+            exact: true,
+          })
+        : tab === 'Recordings'
+          ? page.locator('.recording')
+          : page.getByRole('region', {
+              name: 'Diagnostic details',
+              exact: true,
+            });
+    const panelBox = await panel.boundingBox();
+    const evidenceBox = await evidence.boundingBox();
+    expect(panelBox).not.toBeNull();
+    expect(evidenceBox).not.toBeNull();
+    if (!panelBox || !evidenceBox) return;
+    const visibleHeight =
+      Math.min(
+        panelBox.y + panelBox.height,
+        evidenceBox.y + evidenceBox.height,
+      ) - Math.max(panelBox.y, evidenceBox.y);
+    expect(visibleHeight, `${tab} evidence space`).toBeGreaterThan(
+      panelBox.height * 0.65,
+    );
+    if (guidance) {
+      const help = page.locator('details').filter({
+        has: page.getByText('Using DevTools', { exact: true }),
+      });
+      const summary = help.locator('summary');
+      await expect(summary).toBeVisible();
+      await summary.focus();
+      await expect(summary).toBeFocused();
+      await page.keyboard.press('Enter');
+      await expect(help).toHaveAttribute('open', '');
+      await expect(help.getByText(guidance, { exact: false })).toBeVisible();
+      await page.keyboard.press('Enter');
+      await expect(help).not.toHaveAttribute('open', '');
+    }
+  }
+});
+
+test('comparison keeps request details and both JSON inspectors visible as the panel grows', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1695, height: 1394 });
+  await openRequestComparisonFixture(page);
+  const viewport = page.getByRole('region', {
+    name: 'Diagnostic details',
+    exact: true,
+  });
+  for (const side of ['A', 'B'])
+    await page
+      .getByRole('button', {
+        name: `${side} event JSON: Raw JSON`,
+        exact: true,
+      })
+      .click();
+  for (const height of [620, 878]) {
+    const resize = page.getByRole('separator', { name: 'Resize devtools' });
+    const handle = await resize.boundingBox();
+    expect(handle).not.toBeNull();
+    if (!handle) return;
+    await page.mouse.move(
+      handle.x + handle.width / 2,
+      handle.y + handle.height / 2,
+    );
+    await page.mouse.down();
+    await page.mouse.move(handle.x + handle.width / 2, 1394 - height, {
+      steps: 8,
+    });
+    await page.mouse.up();
+    await viewport.focus();
+    await page.keyboard.press('Home');
+    await expect
+      .poll(() => viewport.evaluate((node) => node.scrollTop))
+      .toBe(0);
+    const bounds = await viewport.boundingBox();
+    expect(bounds).not.toBeNull();
+    if (!bounds) return;
+    for (const side of ['A', 'B']) {
+      const details = page.getByRole('region', {
+        name: `${side} request details`,
+        exact: true,
+      });
+      const json = page.getByRole('complementary', {
+        name: `${side} event JSON`,
+        exact: true,
+      });
+      for (const region of [details, json]) {
+        const box = await region.boundingBox();
+        expect(box).not.toBeNull();
+        if (!box) return;
+        expect(box.y).toBeGreaterThanOrEqual(bounds.y);
+        expect(box.y + box.height).toBeLessThanOrEqual(
+          bounds.y + bounds.height,
+        );
+      }
+      expect((await details.boundingBox())?.height).toBeGreaterThan(
+        height === 620 ? 120 : 300,
+      );
+      expect(
+        await json
+          .getByRole('region', {
+            name: `${side} event JSON: Raw JSON`,
+            exact: true,
+          })
+          .evaluate((node) => node.clientHeight),
+      ).toBeGreaterThan(100);
+    }
+  }
+});
+
+test('a tall comparison shows the first phases without scrolling past duplicate timing summaries', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1695, height: 1394 });
+  await openRequestComparisonFixture(page);
+  const resize = page.getByRole('separator', { name: 'Resize devtools' });
+  const handle = await resize.boundingBox();
+  expect(handle).not.toBeNull();
+  if (!handle) return;
+  await page.mouse.move(
+    handle.x + handle.width / 2,
+    handle.y + handle.height / 2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(handle.x + handle.width / 2, 516, { steps: 8 });
+  await page.mouse.up();
+  for (const side of ['A', 'B']) {
+    const details = page.getByRole('region', {
+      name: `${side} request details`,
+      exact: true,
+    });
+    expect(await details.evaluate((node) => node.scrollTop)).toBe(0);
+    const bounds = await details.boundingBox();
+    expect(bounds).not.toBeNull();
+    if (!bounds) return;
+    const secondPhase = await details
+      .locator('.phase-select')
+      .nth(1)
+      .boundingBox();
+    expect(secondPhase).not.toBeNull();
+    if (!secondPhase) return;
+    expect(secondPhase.y + secondPhase.height).toBeLessThanOrEqual(
+      bounds.y + bounds.height,
+    );
+  }
+});
+
 test('comparison presentation keeps keyboard focus, JSON selection, and revealed stage timings', async ({
   page,
 }) => {
@@ -250,11 +420,38 @@ test('long imported identities leave both request details and JSON reachable', a
       exact: true,
     });
     await identity.focus();
-    await page.keyboard.press('End');
+    await page.keyboard.press('ArrowRight');
     await expect
-      .poll(() => identity.evaluate((node) => node.scrollTop))
+      .poll(() => identity.evaluate((node) => node.scrollLeft))
       .toBeGreaterThan(0);
     await expect(json).toContainText('request-');
+  }
+});
+
+test('long request identities remain readable when horizontal scrolling reserves a gutter', async ({
+  page,
+}) => {
+  await openRequestComparisonFixture(
+    page,
+    '?long-identities&reserved-scrollbar-space',
+  );
+  for (const side of ['A', 'B']) {
+    const identity = page.getByRole('region', {
+      name: `${side} request identity`,
+      exact: true,
+    });
+    const geometry = await identity.evaluate((node) => {
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      const gutter = Number.parseFloat(getComputedStyle(node).paddingBottom);
+      return {
+        contentHeight: node.clientHeight - gutter,
+        textHeight: range.getBoundingClientRect().height,
+        gutter,
+      };
+    });
+    expect(geometry.gutter).toBe(17);
+    expect(geometry.contentHeight).toBeGreaterThanOrEqual(geometry.textHeight);
   }
 });
 

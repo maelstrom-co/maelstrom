@@ -228,16 +228,17 @@ function requestPhasesView(
   context: ViewContext,
 ): HTMLElement {
   const section = element('section', undefined, 'request-phases');
-  section.append(
-    element('h3', 'Request phases'),
-    element(
-      'p',
-      context.phaseMaximumMs === undefined
-        ? 'Observed order, not a shared clock. Bars compare reported durations; nested work overlaps.'
-        : 'Observed order, not a shared clock. Both requests share one duration scale. Nested work overlaps.',
-      'muted small',
-    ),
-  );
+  const phaseHeading = element('div', undefined, 'phase-heading');
+  phaseHeading.append(element('h3', 'Request phases'));
+  section.append(phaseHeading);
+  if (!context.comparison)
+    section.append(
+      element(
+        'p',
+        'Observed order, not a shared clock. Bars compare reported durations; nested work overlaps.',
+        'muted small',
+      ),
+    );
   const phases = requestPhases(request);
   const maximum =
     context.phaseMaximumMs ??
@@ -269,6 +270,7 @@ function requestPhasesView(
     context.setPhaseBars(bars.checked);
   });
   barsLabel.append(bars, document.createTextNode('Show duration bars'));
+  phaseHeading.append(barsLabel);
   const status = element('p', undefined, 'muted small');
   const pageIndex = requestPhasePage(request, context, phases);
   const start = pageIndex * 200;
@@ -324,7 +326,7 @@ function requestPhasesView(
     body.append(row);
   }
   status.textContent = `Showing ${start + 1}–${end} of ${phases.length} observed events`;
-  section.append(barsLabel, table, status);
+  section.append(table, status);
   if (phases.length > 200) {
     const previous = button('Previous phases', () => {
       if (pageIndex > 0)
@@ -718,16 +720,19 @@ function requestDetailsView(
       `${selected.succeededActions} observed Actions succeeded · ${selected.observedFailedActions} failed · ${selected.observedSkippedActions} skipped`,
       'muted small',
     ),
-    factList([
-      [
-        'Request round-trip',
-        selected.push
-          ? 'Not applicable (push)'
-          : duration(selected.transportMs),
-      ],
-      ['Client application', duration(selected.applicationMs)],
-    ]),
   );
+  if (!context.comparison)
+    content.append(
+      factList([
+        [
+          'Request round-trip',
+          selected.push
+            ? 'Not applicable (push)'
+            : duration(selected.transportMs),
+        ],
+        ['Client application', duration(selected.applicationMs)],
+      ]),
+    );
   const coverage = element('details', undefined, 'help');
   coverage.dataset.disclosurePurpose = 'timings';
   coverage.append(

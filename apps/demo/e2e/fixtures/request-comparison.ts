@@ -81,3 +81,12 @@ tools.importCapture(
   JSON.stringify({ schemaVersion: 2, capture: { schemaVersion: 1, events } }),
 );
 mountDevtools(tools);
+if (
+  new URLSearchParams(window.location.search).has('reserved-scrollbar-space')
+) {
+  const style = document.createElement('style');
+  style.textContent = '.comparison-identity{padding-bottom:17px}';
+  document
+    .querySelector('[data-maelstrom-devtools]')
+    ?.shadowRoot?.append(style);
+}

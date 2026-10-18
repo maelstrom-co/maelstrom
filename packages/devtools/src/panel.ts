@@ -401,8 +401,9 @@ function Panel(tools: Devtools): HTMLElement {
     setOpen(false);
     trigger.focus();
   });
-  const spacer = element('span', undefined, 'spacer');
-  header.append(brand, spacer, sourceLabel, scopeLabel, singleScope, close);
+  close.classList.add('header-close');
+  const headerControls = element('div', undefined, 'header-controls');
+  headerControls.append(sourceLabel, scopeLabel, singleScope);
   const tabList = element('div', undefined, 'tabs');
   tabList.setAttribute('role', 'tablist');
   tabList.setAttribute('aria-label', 'Diagnostic views');
@@ -435,6 +436,7 @@ function Panel(tools: Devtools): HTMLElement {
     setTab(tabs[next]);
     tabButtons[next].focus();
   });
+  header.append(brand, tabList, headerControls, close);
   const body = element('div', undefined, 'body');
   body.id = `${id}-body`;
   body.setAttribute('role', 'tabpanel');
@@ -443,6 +445,7 @@ function Panel(tools: Devtools): HTMLElement {
   const help = element('details', undefined, 'help');
   help.append(
     element('summary', 'Using DevTools'),
+    description,
     element(
       'p',
       'Live activity keeps recent metadata. Requests groups it by request. All events also shows connection, voice, and other events.',
@@ -546,6 +549,7 @@ function Panel(tools: Devtools): HTMLElement {
     highlightLabel,
     jsonLabel,
     activityStatus,
+    help,
   );
   const errorView = element('p', undefined, 'error');
   errorView.setAttribute('role', 'alert');
@@ -716,8 +720,8 @@ function Panel(tools: Devtools): HTMLElement {
   const controls = element('div', undefined, 'panel-controls');
   const viewHeading = element('div', undefined, 'view-heading');
   const viewIntro = element('div');
-  viewIntro.append(title, description);
-  viewHeading.append(viewIntro, help);
+  viewIntro.append(title);
+  viewHeading.append(viewIntro);
   controls.append(
     viewHeading,
     sourceBanner,
@@ -731,7 +735,7 @@ function Panel(tools: Devtools): HTMLElement {
     () => open() && tab() === 'Telemetry',
   );
   body.append(controls, recording, workspace, telemetry);
-  panel.append(resize, header, tabList, body);
+  panel.append(resize, header, body);
   root.append(trigger, panel);
   root.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && open()) {
@@ -1008,7 +1012,7 @@ function Panel(tools: Devtools): HTMLElement {
     errorView.hidden = !error();
     recording.hidden = currentTab !== 'Recordings';
     workspace.hidden = currentTab === 'Recordings';
-    toolbar.hidden = currentTab === 'Recordings';
+    toolbar.hidden = false;
     start.disabled =
       currentSource !== 'live' ||
       status.active ||

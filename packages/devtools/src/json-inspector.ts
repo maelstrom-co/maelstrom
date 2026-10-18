@@ -42,6 +42,13 @@ export function createJsonInspector(
   const label = (value: string) =>
     name === 'JSON evidence' ? value : `${name}: ${value}`;
   const description = element('p', undefined, 'muted small');
+  const heading = element('header', undefined, 'json-heading');
+  const about = element('details', undefined, 'json-help');
+  const aboutSummary = element('summary', 'Info');
+  aboutSummary.setAttribute('aria-label', label('About evidence'));
+  aboutSummary.dataset.focusKey = `${name}:info`;
+  about.append(aboutSummary, description);
+  heading.append(title, about);
   const redaction = element('p', undefined, 'muted small');
   const controls = element('div', undefined, 'json-controls');
   controls.setAttribute('role', 'group');
@@ -60,13 +67,13 @@ export function createJsonInspector(
   let mode = initialMode;
   let initialized = false;
   let previous: unknown;
-  const rawButton = button(label('Raw JSON'), () => choose('raw'));
-  const treeButton = button(label('Tree'), () => choose('tree'));
-  const expand = button(label('Expand all'), () => {
+  const rawButton = button('Raw JSON', () => choose('raw'));
+  const treeButton = button('Tree', () => choose('tree'));
+  const expand = button('Expand all', () => {
     if (tree) jsonview.expand(tree);
     updateTreeControls();
   });
-  const collapse = button(label('Collapse all'), () => {
+  const collapse = button('Collapse all', () => {
     if (tree) jsonview.collapse(tree);
     updateTreeControls();
   });
@@ -76,9 +83,11 @@ export function createJsonInspector(
     rawButton,
     expand,
     collapse,
-  ].entries())
+  ].entries()) {
+    control.setAttribute('aria-label', label(control.textContent ?? ''));
     control.dataset.focusKey = `${name}:control-${index}`;
-  root.append(title, description, controls, redaction, raw, treeContent);
+  }
+  root.append(heading, controls, redaction, raw, treeContent);
 
   function choose(next: JsonMode): void {
     mode = next;

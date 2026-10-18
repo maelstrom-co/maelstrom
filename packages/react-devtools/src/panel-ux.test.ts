@@ -309,7 +309,7 @@ test.each([
   if (change === 'replacement') {
     click('Close');
     tools.importCapture(capture);
-    click('◉ Maelstrom');
+    click('Open Maelstrom Devtools');
   }
   if (change === 'app') select('App instance', 'a');
   expect(shadow.querySelector('[aria-label="Request comparison"]')).toBeNull();
@@ -1618,7 +1618,7 @@ function mount(tools: Devtools) {
   if (!shadow) throw new Error('Expected shared panel');
   const click = (name: string) => {
     const target = Array.from(shadow.querySelectorAll('button')).find(
-      (node) => node.textContent === name,
+      (node) => (node.getAttribute('aria-label') ?? node.textContent) === name,
     );
     if (!target) throw new Error(`Missing button ${name}`);
     fireEvent.click(target);
@@ -1712,7 +1712,7 @@ test('JSON exploration preserves exact inert evidence and collapsed nodes during
   expect(raw.textContent).toBe(originalText);
   click('Raw JSON');
   click('Close');
-  click('◉ Maelstrom');
+  click('Open Maelstrom Devtools');
   expect(
     shadow
       .querySelector('[aria-label="JSON evidence"] .json-raw')

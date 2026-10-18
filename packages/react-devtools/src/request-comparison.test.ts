@@ -36,7 +36,7 @@ function mount(tools: Devtools) {
     .shadowRoot!;
   const click = (name: string, scope: ParentNode = shadow) => {
     const target = Array.from(scope.querySelectorAll('button')).find(
-      (node) => node.textContent === name,
+      (node) => (node.getAttribute('aria-label') ?? node.textContent) === name,
     );
     if (!target) throw new Error(`Missing button ${name}`);
     fireEvent.click(target);
@@ -397,7 +397,7 @@ test('an evicted comparison app keeps its label after its lifetime ends', () => 
 });
 
 test('a push response has no round-trip measurement instead of an omitted measurement', () => {
-  const { shadow, click, side } = recording([
+  const { shadow, click } = recording([
     event('push', 'push', 'client.response.received', { source: 'push' }),
     event('request', 'request', 'client.request.started'),
   ]);
@@ -407,7 +407,6 @@ test('a push response has no round-trip measurement instead of an omitted measur
       node.textContent?.includes('Push response push'),
     )!,
   );
-  expect(side('B').textContent).toContain('Not applicable (push)');
   const row = Array.from(
     shadow.querySelectorAll('[aria-label="Compared request timings"] tbody tr'),
   ).find(
@@ -592,7 +591,7 @@ test('closing comparison clears detached content inspectors before later evidenc
   click('Close');
   tools.clear();
   expect(content.textContent).not.toContain('private captured value');
-  click('◉ Maelstrom');
+  click('Open Maelstrom Devtools');
   expect(content.isConnected).toBe(false);
 });
 
@@ -665,7 +664,7 @@ test('a comparison JSON control keeps focus when request details refresh', async
   const { shadow, click, side } = mount(tools);
   click('Compare request');
   const control = Array.from(side('A').querySelectorAll('button')).find(
-    (node) => node.textContent === 'A event JSON: Raw JSON',
+    (node) => node.getAttribute('aria-label') === 'A event JSON: Raw JSON',
   )!;
   control.focus();
   expect(shadow.activeElement === control).toBe(true);

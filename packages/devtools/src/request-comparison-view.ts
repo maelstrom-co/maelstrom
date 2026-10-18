@@ -47,15 +47,30 @@ export function requestComparisonView(
   const header = element('header', undefined, 'comparison-header');
   const stop = button('Exit comparison', () => context.setComparison());
   stop.dataset.focusKey = 'exit-comparison';
-  header.append(element('h3', 'Compare requests'), stop);
-  content.append(
-    header,
+  const guidance = element('details', undefined, 'comparison-help');
+  guidance.dataset.disclosureKey = JSON.stringify([
+    'comparison-help',
+    selection.a.key,
+    selection.b?.key,
+  ]);
+  const guidanceSummary = element('summary', 'Comparison help');
+  guidanceSummary.dataset.focusKey = 'comparison-help';
+  guidance.append(
+    guidanceSummary,
     element(
       'p',
       `Select a request in the list for ${selection.choosing.toUpperCase()}. Both identities stay selected through new activity. Retention limits still apply.`,
       'muted small',
     ),
+    element(
+      'p',
+      'Durations use each producer’s clock. Both requests share one duration scale. Observed order is not a shared clock, and nested work overlaps. Unmatched means absent from the other request’s retained evidence. Incomplete evidence stays unknown. Similar metadata does not pair attempts or prove that work did not occur.',
+      'muted small',
+    ),
   );
+  header.append(element('h3', 'Compare requests'), stop, guidance);
+  const overview = element('div', undefined, 'comparison-overview');
+  overview.append(header);
   const requests = {
     a: retained.find((request) => request.key === selection.a.key),
     b: retained.find((request) => request.key === selection.b?.key),
@@ -103,14 +118,8 @@ export function requestComparisonView(
     );
     body.append(row);
   }
-  content.append(
-    timings,
-    element(
-      'p',
-      'Durations use each producer’s clock. Unmatched means absent from the other request’s retained evidence. Incomplete evidence stays unknown. Similar metadata does not pair attempts or prove that work did not occur.',
-      'muted small',
-    ),
-  );
+  overview.append(timings);
+  content.append(overview);
   const columns = element('div', undefined, 'comparison-columns');
   const coverage = element('details');
   coverage.dataset.disclosureKey = JSON.stringify([
@@ -208,9 +217,9 @@ export function requestComparisonView(
     );
     choose.dataset.focusKey = `choose-comparison-${side}`;
     choose.setAttribute('aria-pressed', String(selection.choosing === side));
+    choose.title = `Select a request in the list to replace ${side.toUpperCase()}.`;
     const sideHeader = element('header', undefined, 'comparison-side-header');
-    sideHeader.append(element('h3', side.toUpperCase()), choose);
-    column.append(sideHeader);
+    sideHeader.append(element('h3', side.toUpperCase()));
     if (slot) {
       const [clientId, requestId] = JSON.parse(slot.key) as [string, string];
       const identity = element(
@@ -226,8 +235,11 @@ export function requestComparisonView(
       identity.tabIndex = 0;
       identity.dataset.focusKey = `comparison-${side}:identity`;
       identity.dataset.scrollKey = JSON.stringify([side, slot.key, 'identity']);
-      column.append(identity);
+      identity.title = identity.textContent ?? '';
+      sideHeader.append(identity);
     }
+    sideHeader.append(choose);
+    column.append(sideHeader);
     if (!slot) column.append(empty('Select a second request from the list.'));
     else if (!request)
       column.append(
