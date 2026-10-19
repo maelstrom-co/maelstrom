@@ -26,6 +26,10 @@ import {
   waitForFixedGreetingSettlement,
 } from './barge-in-setup.ts';
 import {
+  type BargeInStimulus,
+  prepareBargeInStimulus,
+} from './barge-in-stimulus.ts';
+import {
   summarizeVoiceBenchmark,
   type VoiceBenchmarkRecord,
 } from './benchmark-metrics.ts';
@@ -37,6 +41,10 @@ import type {
   GreetingAudioObservation,
   GreetingAudioWindow,
 } from './greeting-audio-tap.ts';
+import {
+  greetingBargeInMinimumActiveMs,
+  isGreetingBargeInReady,
+} from './greeting-barge-in-gate.ts';
 import {
   canStartNextFullScenarioInput,
   monitorFullScenarioLeadIn,
@@ -83,6 +91,7 @@ import {
 import {
   sampleTaskBargeInGate,
   type TaskBargeInGate,
+  taskBargeInMinimumActiveMs,
 } from './task-barge-in-gate.ts';
 import {
   attachVoiceBenchmarkFailureStatus,
@@ -839,6 +848,7 @@ test.describe('voice benchmark', () => {
             endSample: number;
           } | null = null;
           let fixtureSha256: string | null = null;
+          let stimulus: BargeInStimulus | undefined;
           let followupCapture: 'not-requested' | 'quiet' | 'timeout' =
             'not-requested';
           const speakerCapture = isGreeting
@@ -875,6 +885,18 @@ test.describe('voice benchmark', () => {
               sourceMetadata.frameCount,
             );
             requireNonemptyFixtureVad(fixtureVad, sourceMetadata);
+            stimulus = await prepareBargeInStimulus({
+              scenario,
+              sourceWav,
+              fixtureVad,
+            });
+            await testInfo.attach(
+              `${prefix}-${repetition}-playback-fixture.wav`,
+              {
+                body: stimulus.wav,
+                contentType: 'audio/wav',
+              },
+            );
             await voiceDriver.navigate(baseURL);
             await selectRealtimeBeforeVoiceConnection(page);
             await startVoiceDemoFromKeylessLanding(
@@ -935,11 +957,7 @@ test.describe('voice benchmark', () => {
                   async () => {
                     const activity =
                       await voiceDriver.assistantActivity(primerStart);
-                    return (
-                      activity.activeMs >= 300 &&
-                      activity.silentTailMs <=
-                        bargeInPolicy.maximumPreOnsetQuietMs
-                    );
+                    return isGreetingBargeInReady(activity);
                   },
                   { timeout: 30_000, intervals: [20] },
                 )
@@ -953,7 +971,7 @@ test.describe('voice benchmark', () => {
                       sampleTaskBargeInGate,
                       {
                         primerFrame: primerStart,
-                        minimumActiveMs: 300,
+                        minimumActiveMs: taskBargeInMinimumActiveMs,
                         maximumQuietMs: bargeInPolicy.maximumPreOnsetQuietMs,
                       },
                     );
@@ -978,21 +996,17 @@ test.describe('voice benchmark', () => {
               taskGate.value?.playbackMarkerFrame ??
               (await voiceDriver.markPlaybackStart());
             const startedAt = performance.now();
-            const interrupt = voiceDriver.startPlayback(
-              binary,
-              fixture('open-calendar'),
-              {
-                delayMs: 0,
-                timeoutMs: 20_000,
-                maxOutputBytes: 1024 * 1024,
-              },
-            );
+            const interrupt = voiceDriver.startPlayback(binary, stimulus.path, {
+              delayMs: 0,
+              timeoutMs: 20_000,
+              maxOutputBytes: 1024 * 1024,
+            });
             const completed = parseCompletedPlayback(
               (await interrupt.completed()).stdout,
             );
             endFrame = await voiceDriver.markPlaybackStart();
             playbackObservation = serializePlaybackObservation(
-              sourceMetadata,
+              stimulus.metadata,
               completed,
               performance.now() - startedAt,
               startFrame,
@@ -1179,6 +1193,13 @@ test.describe('voice benchmark', () => {
               'Benchmark setup, playback, capture, or VAD failed.',
             );
           } finally {
+            try {
+              await stimulus?.cleanup();
+            } catch (error) {
+              // A cleanup failure must not replace a failed measurement or setup error.
+              if (measurement.status === 'measured')
+                infrastructureError ??= error;
+            }
             if (!isGreeting)
               observation = await page
                 .evaluate(
@@ -1251,6 +1272,7 @@ test.describe('voice benchmark', () => {
               onsetEvidence: {
                 fixtureSha256,
                 fixtureVad,
+                playbackFixture: stimulus?.evidence ?? null,
                 capturedVad,
                 playbackWindow,
                 selectedOnsetSample,
@@ -1334,16 +1356,17 @@ test.describe('voice benchmark', () => {
               : 'Matching OpenAI output clear or cancelled response corroborates the stop; quiet without that evidence is ambiguous and excluded.',
             selectedProvider:
               'realtime (selected and asserted via public UI before key bootstrap/connection)',
+            stimulus:
+              'Both interruption lanes prepare open-calendar before connecting by removing the prefix before its first source VAD segment. Source fixture hash, VAD and fixture.wav describe the original file. playbackFixture and playback-fixture.wav describe the played PCM16 suffix, with its hash, removed source frames and milliseconds. Records use played-file duration and frame count. VAD onset is not proof of preceding silence: a quiet initial phoneme may be clipped. Captured onset/window are never shifted by the trim. The only-tasks primer remains unchanged. Live improvement is unverified.',
             ...(isGreeting
               ? {
-                  trigger:
-                    'No primer. Inject open-calendar with zero lead-in once greeting has >=300ms captured activity and <=30ms quiet tail; actual onset must overlap captured greeting.',
+                  trigger: `Earlier-gate experiment (previously >=300ms). No primer. Prepare open-calendar by removing the prefix before its first source VAD segment. Once greeting has >=${greetingBargeInMinimumActiveMs}ms accumulated captured activity and 0–${bargeInPolicy.maximumPreOnsetQuietMs}ms quiet tail, inject that prepared stimulus once with zero lead-in; actual captured onset must still overlap greeting. Changed stimulus scheduling, not relaxed measurement validity.`,
                   followup:
                     'Retain separate physical speaker monitor until changed assistant caption, listening state and 1s output quiet, or a 30s timeout. This is a bounded diagnostic, not proof of task success.',
                 }
               : {
                   trigger:
-                    'After the fixed greeting settles, play the unchanged primer once. Target only a fresh identified output after its marker; require >=300ms captured speech and <=30ms quiet tail, then mark and recheck the same response immediately before launching the full unchanged interruption fixture once. No observer/caption/fixture work between gate and launch.',
+                    'Task-response earlier-gate experiment (previously >=300ms): after the fixed greeting settles, play the unchanged primer once. Target only a fresh identified output after its marker; require >=100ms captured activity and <=30ms quiet tail, then mark and recheck the same response immediately before launching the prepared VAD-prefix-trimmed interruption stimulus once with zero lead-in. No observer/caption/fixture work between gate and launch. Captured-onset overlap, interruption attribution, and all measurement validity checks are unchanged; live improvement is unverified.',
                 }),
             eventClock: isGreeting
               ? 'Native greeting start/stop calls sample the capture AudioContext clock; early-stop versus natural end uses only the source context clock. Primary latency uses captured PCM samples.'
