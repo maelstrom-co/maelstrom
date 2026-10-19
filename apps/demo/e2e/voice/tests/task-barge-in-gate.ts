@@ -1,6 +1,8 @@
 import type { BargeInObserverSnapshot } from './barge-in-observer.ts';
 import type { AssistantAudioActivity } from './shared-audio-capture.ts';
 
+export const taskBargeInMinimumActiveMs = 100;
+
 export type TaskBargeInGate = {
   readonly responseId: string;
   readonly responseStartedFrame: number;

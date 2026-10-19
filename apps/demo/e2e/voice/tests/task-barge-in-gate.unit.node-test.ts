@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { BargeInPlaybackEvent } from './barge-in-observer.ts';
-import { sampleTaskBargeInGate } from './task-barge-in-gate.ts';
+import {
+  sampleTaskBargeInGate,
+  taskBargeInMinimumActiveMs,
+} from './task-barge-in-gate.ts';
 
 const started = (
   frame: number,
@@ -113,6 +116,30 @@ test('stale speech or a changed response after the marker returns to waiting wit
     state.afterMark = () => state.events.push(started(190, 'replacement'));
     assert.equal(await sampleTaskBargeInGate(args), null);
   });
+});
+
+test('task readiness accepts 100ms on both checks and rejects less activity', async () => {
+  const taskArgs = {
+    ...args,
+    minimumActiveMs: taskBargeInMinimumActiveMs,
+  };
+  await fixture(async (state) => {
+    state.activities[0] = { activeMs: 100, silentTailMs: 30 };
+    state.activities[1] = { activeMs: 100, silentTailMs: 0 };
+    assert.equal((await sampleTaskBargeInGate(taskArgs))?.responseId, 'task');
+    assert.equal(state.marked, 1);
+  });
+  for (const activityIndex of [0, 1])
+    await fixture(async (state) => {
+      if (activityIndex === 1)
+        state.activities[0] = { activeMs: 100, silentTailMs: 0 };
+      state.activities[activityIndex] = {
+        activeMs: 99.999,
+        silentTailMs: 0,
+      };
+      assert.equal(await sampleTaskBargeInGate(taskArgs), null);
+      assert.equal(state.marked, activityIndex === 0 ? 0 : 1);
+    });
 });
 
 test('insufficient speech and invalid quiet-tail observations never qualify', async () => {

@@ -6,6 +6,8 @@ import {
   summarizeBargeIn,
 } from './barge-in-measurement.ts';
 import type { BargeInPlaybackEvent } from './barge-in-observer.ts';
+import { assessBargeInRun } from './barge-in-report.ts';
+import { isGreetingBargeInReady } from './greeting-barge-in-gate.ts';
 
 function fixture(channels = 1) {
   const pcm = Buffer.alloc(5_000 * 2 * channels);
@@ -66,6 +68,37 @@ test('rejects nonoverlapping interruption and unsupported capture clocks', () =>
       computeBargeInMeasurement({ ...fixture(), ...change }).status,
       'invalid',
     );
+});
+
+test('an earlier greeting gate cannot validate stale audio at captured onset even with a later native stop', () => {
+  const args = fixture();
+  args.assistantPcm16.fill(0, 0, 900 * 2);
+  assert.equal(
+    isGreetingBargeInReady({ activeMs: 100, silentTailMs: 17 }),
+    true,
+  );
+  const result = computeBargeInMeasurement({
+    ...args,
+    humanOnsetSample: 1_212,
+    targetResponseId: null,
+    events: [],
+    greetingPlayback: {
+      sourceCount: 1,
+      failure: null,
+      stoppedAtSample: 1_273,
+      stoppedEarly: true,
+    },
+  });
+  assert.deepEqual(result, {
+    status: 'invalid',
+    humanOnsetSample: 1_212,
+    assistantStopSample: null,
+    latencyMs: null,
+    reason: 'Assistant was not speaking at interruption onset.',
+  });
+  const assessment = assessBargeInRun([result], 1);
+  assert.equal(assessment.status, 'failed');
+  assert.equal(assessment.failedAttemptCount, 1);
 });
 
 test('keeps natural completion, missing attribution and unrelated cancellation ambiguous', () => {
