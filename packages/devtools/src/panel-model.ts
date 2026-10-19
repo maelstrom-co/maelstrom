@@ -9,12 +9,18 @@ import type { TelemetryErrorCategory } from '@maelstrom-co/telemetry';
 import { projectDiagnosticMetadata } from '@maelstrom-co/telemetry/integration';
 import { eventIdentity, identity } from './diagnostic-identity.js';
 import type { LiveEventKeys } from './live-event-keys.js';
+import {
+  type RequestStatus,
+  requestTerminalStatus,
+} from './request-lifecycle.js';
 
 export { identity } from './diagnostic-identity.js';
 export {
   type RequestCounterpart,
   requestCounterparts,
 } from './request-counterparts.js';
+export type { RequestStatus } from './request-lifecycle.js';
+export { voiceTimeline } from './voice-timeline.js';
 
 export type Fields = Record<string, unknown>;
 export const MAX_VIEW_EVENTS = 10000;
@@ -161,15 +167,6 @@ export function panelEvents(
   });
 }
 
-export type RequestStatus =
-  | 'awaiting'
-  | 'received'
-  | 'applied'
-  | 'applied-with-issues'
-  | 'failed'
-  | 'cancelled'
-  | 'discarded'
-  | 'abandoned';
 export interface EngineTiming {
   eventKey: string;
   kind: 'request' | 'planning' | 'stage';
@@ -307,14 +304,6 @@ export function requestPhases(request: RequestTrace): RequestPhase[] {
   });
 }
 
-const terminalStatuses: Readonly<Record<string, RequestStatus>> = {
-  'client.response.applied': 'applied',
-  'client.response.failed': 'failed',
-  'client.request.failed': 'failed',
-  'client.response.discarded': 'discarded',
-  'client.response.abandoned': 'abandoned',
-};
-
 export function groupRequests(events: readonly PanelEvent[]): RequestTrace[] {
   const requests = new Map<string, RequestTrace>();
   for (const event of events) {
@@ -400,9 +389,7 @@ export function groupRequests(events: readonly PanelEvent[]): RequestTrace[] {
       if (event.metadata.outcome === 'failed') trace.observedFailedActions++;
       if (event.metadata.outcome === 'skipped') trace.observedSkippedActions++;
     }
-    const terminal = Object.hasOwn(terminalStatuses, event.kind)
-      ? terminalStatuses[event.kind]
-      : undefined;
+    const terminal = requestTerminalStatus(event.kind);
     if (terminal) {
       trace.status =
         event.kind === 'client.request.failed' &&

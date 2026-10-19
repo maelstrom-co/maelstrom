@@ -1,18 +1,38 @@
+export type IdentityAvailability =
+  | 'reported'
+  | 'not-reported'
+  | 'redacted'
+  | 'truncated'
+  | 'unreadable';
+
+const markers = [
+  { name: 'REDACTED', reason: 'redacted' },
+  { name: 'TRUNCATED', reason: 'truncated' },
+  { name: 'CIRCULAR', reason: 'unreadable' },
+  { name: 'MAX_DEPTH', reason: 'unreadable' },
+] as const;
+
+export function identityAvailability(value: unknown): IdentityAvailability {
+  if (value === undefined || value === null || value === '')
+    return 'not-reported';
+  if (typeof value !== 'string') return 'unreadable';
+  const complete = /\[(REDACTED|TRUNCATED|CIRCULAR|MAX_DEPTH)[^\]]*\]/.exec(
+    value,
+  )?.[1];
+  const bracket = value.lastIndexOf('[');
+  const tail = bracket < 0 ? undefined : value.slice(bracket);
+  const marker = markers.find(({ name }) =>
+    complete
+      ? name === complete
+      : tail !== undefined && `[${name}]`.startsWith(tail),
+  );
+  return marker?.reason ?? 'reported';
+}
+
 export function identity(value: unknown): string | undefined {
-  const candidate =
-    typeof value === 'string' && value.length > 0 ? value : undefined;
-  if (!candidate) return undefined;
-  const bracket = candidate.lastIndexOf('[');
-  const tail = bracket < 0 ? undefined : candidate.slice(bracket);
-  return /\[(?:REDACTED|TRUNCATED|CIRCULAR|MAX_DEPTH)[^\]]*\]/.test(
-    candidate,
-  ) ||
-    (tail &&
-      ['[REDACTED]', '[TRUNCATED]', '[CIRCULAR]', '[MAX_DEPTH]'].some(
-        (marker) => marker.startsWith(tail),
-      ))
-    ? undefined
-    : candidate;
+  return typeof value === 'string' && identityAvailability(value) === 'reported'
+    ? value
+    : undefined;
 }
 
 export function eventIdentity(value: unknown): string | undefined {
