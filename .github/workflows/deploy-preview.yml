@@ -212,6 +212,7 @@ jobs:
   voice-benchmark:
     name: Voice Benchmark
     needs: deploy
+    environment: preview
     # A label added during deployment is absent from the original event payload.
     # Label removals also reconcile live state after any earlier run has stopped.
     # Both labels and the approved/deployed SHA are checked live under the lock.
