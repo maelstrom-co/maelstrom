@@ -78,7 +78,7 @@ The engine validates inputs at three boundaries and the LLM's output at a fourth
 3. **LLM structured output** — the JSON the model returns is parsed against the protocol schemas inside the adapter call. Schema-violating output surfaces as a `ProviderError`; a structurally valid response missing required content (such as an empty `userMessage`) surfaces as a `ParseError`.
 4. **LLM output coherence** — even a parseable response can be incoherent: positions overflowing the chart, unknown vessel/variant references, duplicate instance IDs, malformed tiling trees. This layer doesn't fail; it heals.
 
-A request may set `skipReply: true` when its caller writes the user-facing reply itself. Validation then accepts a response without `userMessage`, or a needs-clarification result that asks the user a question instead of changing the layout. `Engine.handle()` still returns only responses that carry a `userMessage`, so it refuses those outcomes with a `ValidationError` on field `skipReply`.
+A request may set `skipReply: true` when its caller writes the user-facing reply itself. Validation then accepts a response without `userMessage`, passes a supplied `userMessage` through unchanged even when it is blank, and accepts a needs-clarification result that asks the user a question instead of changing the layout. `Engine.handle()` still returns only responses that carry a non-blank `userMessage`, so it refuses an absent or blank reply and a needs-clarification result with a `ValidationError` on field `skipReply`.
 
 ### Heal, don't fail
 

@@ -272,13 +272,13 @@ A `ChartRequest` may set `skipReply: true` when its caller writes the reply itse
 The flag changes what validation accepts:
 
 - Without `skipReply`, a candidate must carry a non-blank `userMessage`. A needs-clarification result is `Err(ValidationError)` on field `'planner'`.
-- With `skipReply: true`, a candidate may omit `userMessage` (a blank one is dropped as if omitted), and a planner may return a `NeedsClarification` (`{ type: 'needs_clarification', question, options? }`, see `isNeedsClarification`) instead. Its diagnostics are empty and never recommend a retry, and `withRetry` returns it on the attempt that produced it.
+- With `skipReply: true`, a candidate may omit `userMessage` (a supplied one, even blank, is passed through unchanged), and a planner may return a `NeedsClarification` (`{ type: 'needs_clarification', question, options? }`, see `isNeedsClarification`) instead. Its diagnostics are empty and never recommend a retry, and `withRetry` returns it on the attempt that produced it.
 
 The types keep the two cases apart. `PlannerCandidate` and `ValidatedCandidate` always carry a `userMessage`. `ReplylessCandidate` and `ValidatedReplylessCandidate` are the same shapes with `userMessage` optional, and `PlannerOutput` is `PlannerCandidate | ReplylessCandidate | NeedsClarification`. In a stage, `ctx.validate` returns a `ValidatedCandidate` for a `PlannerCandidate` and a `ValidatedReplylessCandidate` for a `ReplylessCandidate`. It does not accept a `NeedsClarification`.
 
 A plain `Planner` keeps its strict types through the combinators: `withRetry`, `withFallback` and `pipeline` return a `Planner` for it, and its `RetryFeedback.previous` is a `PlannerCandidate`. A stage whose output is wider gets a result that is just as wide. For example, `withRetry` on a stage returning any `PlannerOutput` yields a `ClarifyingPlanner` and hands it `Retryable<In, ReplylessCandidate>` feedback. A `Planner` that only returns strict candidates is still a valid `EngineConfig.planner`.
 
-`Engine.handle()` still answers with a `chart_response` whose `userMessage` is required. A `skipReply: true` request whose planner returns no `userMessage`, or a needs-clarification result, is refused with `Err(ValidationError)` on field `'skipReply'` until the Engine has a path that can return those outcomes.
+`Engine.handle()` still answers with a `chart_response` whose `userMessage` is required. A `skipReply: true` request whose planner returns no `userMessage` or a blank one, or a needs-clarification result, is refused with `Err(ValidationError)` on field `'skipReply'` until the Engine has a path that can return those outcomes.
 
 ```ts
 import { pipeline, withFallback } from '@maelstrom-co/engine';

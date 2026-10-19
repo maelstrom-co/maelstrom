@@ -3013,11 +3013,11 @@ describe('processResponse userMessage and skipReply', () => {
   test.each([
     '',
     ' \t\n ',
-  ])('a blank userMessage %p is dropped when skipReply is true', (userMessage) => {
+  ])('a blank userMessage %p passes through unchanged when skipReply is true', (userMessage) => {
     const result = process(buildGridResponse({ userMessage }), true);
 
     expect(isOk(result)).toBe(true);
     if (!isOk(result)) return;
-    expect('userMessage' in result.value).toBe(false);
+    expect(result.value.userMessage).toBe(userMessage);
   });
 });

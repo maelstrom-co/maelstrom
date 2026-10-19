@@ -130,8 +130,8 @@ export interface Engine {
    * definitions in the Vessel catalog (field `'vessels'`), history error,
    * missing `userMessage`, a planner that deferred with no fallback or
    * threw). A request that set `skipReply: true` still ships only a
-   * response with a non-blank `userMessage`: a candidate without one, or a
-   * needs-clarification result, is `Err(ValidationError)` on field
+   * response with a non-blank `userMessage`: a candidate without one or with
+   * a blank one, or a needs-clarification result, is `Err(ValidationError)` on field
    * `'skipReply'`, since a `chart_response` always carries a reply.
    * Layout problems heal into diagnostics rather than surfacing here — see
    * {@link EngineDiagnostics} (planner stages see only a summary:
@@ -656,7 +656,7 @@ function requireShippableReply(
     );
   }
   const { userMessage } = outcome;
-  if (userMessage === undefined) {
+  if (userMessage === undefined || userMessage.trim() === '') {
     return refuseReplylessOutcome(
       'a response without userMessage',
       messageId,

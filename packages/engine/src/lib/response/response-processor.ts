@@ -59,10 +59,8 @@ export function processResponse({
   messageId,
   logger,
 }: ProcessResponseInput): Result<FullValidatedReplylessCandidate, EngineError> {
-  const userMessage = llmOutput.userMessage?.trim()
-    ? llmOutput.userMessage
-    : undefined;
-  if (request.skipReply !== true && userMessage === undefined) {
+  const { userMessage } = llmOutput;
+  if (request.skipReply !== true && !userMessage?.trim()) {
     return err(parseError('LLM response missing userMessage', 'userMessage'));
   }
 

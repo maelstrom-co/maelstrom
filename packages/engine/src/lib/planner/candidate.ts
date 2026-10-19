@@ -31,7 +31,8 @@ export type PlannerCandidate =
  * A {@link PlannerCandidate} that may omit `userMessage`, for a request that
  * set `skipReply: true`. A grid request expects a `GridResponseWithoutReply`;
  * a tiling request a `TilingResponseWithoutReply`. Without that flag the
- * Engine rejects a candidate whose `userMessage` is missing or blank.
+ * Engine rejects a candidate whose `userMessage` is missing or blank. With it,
+ * a supplied `userMessage` is kept unchanged, even when blank.
  *
  * Every {@link PlannerCandidate} is a `ReplylessCandidate`. Like a
  * `PlannerCandidate`, it is immutable: validation results are cached per
@@ -115,10 +116,10 @@ export type ValidatedReplylessCandidate = Omit<
   'userMessage'
 > & {
   /**
-   * The reply to the user. Always present unless the request set
-   * `skipReply: true`, in which case the planner may have omitted it. A blank
-   * reply under `skipReply: true` is dropped, so a present value is never
-   * blank.
+   * The reply to the user. Always present and non-blank unless the request
+   * set `skipReply: true`, in which case the planner may have omitted it and
+   * a supplied reply passes through unchanged, even when blank. The Engine
+   * refuses an absent or blank reply at the ship boundary.
    */
   readonly userMessage?: string;
   /** What healing changed, and whether a retry is recommended. */

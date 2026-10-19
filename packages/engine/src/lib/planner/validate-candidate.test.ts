@@ -292,6 +292,20 @@ describe('createCandidateValidator with skipReply', () => {
     ).toBe('Done');
   });
 
+  test('a strict candidate with a blank userMessage keeps that reply when skipReply is true', () => {
+    const validate = validatorFor(spyLogger().logger, skipReplyRequest(true));
+    const candidate: PlannerCandidate = buildGridResponse({
+      userMessage: '  ',
+    });
+
+    const result = validate(candidate);
+
+    expect(isOk(result)).toBe(true);
+    if (!isOk(result)) return;
+    expect(result.value.userMessage).toBe('  ');
+    expect(result.value.userMessage.trim()).toBe('');
+  });
+
   test('a needs-clarification result is accepted when skipReply is true', () => {
     const { logger, entries } = spyLogger();
     const validate = validatorFor(logger, skipReplyRequest(true));
