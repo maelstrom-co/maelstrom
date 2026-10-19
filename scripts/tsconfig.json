@@ -10,6 +10,7 @@
   "include": [
     "**/*.ts",
     "../infra/platform/src/RateLimitContract.ts",
-    "../apps/demo/e2e/voice/ci-metrics.ts"
+    "../apps/demo/e2e/voice/ci-metrics.ts",
+    "../apps/demo/e2e/voice/ci-diagnostics.ts"
   ]
 }

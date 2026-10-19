@@ -54,7 +54,9 @@ function fixture() {
     launches: 0,
   };
   const calls: { path: string; method: string }[] = [];
+  const logs: string[] = [];
   const dependencies: VoiceCiDependencies = {
+    log: (line) => logs.push(line),
     githubToken: 'not-a-secret',
     fetch: Object.assign(
       async (input: string | URL | Request, init?: RequestInit) => {
@@ -146,7 +148,7 @@ function fixture() {
   };
   const execute = () =>
     executeVoiceBenchmark(options, dependencies, new AbortController().signal);
-  return { state, calls, dependencies, execute };
+  return { state, calls, logs, dependencies, execute };
 }
 
 describe('voice benchmark CI eligibility and idempotence', () => {
@@ -363,6 +365,8 @@ describe('voice benchmark CI eligibility and idempotence', () => {
     ).toBe('failed');
     expect(f.state.comment?.body).toContain('Status: failed');
     expect(f.state.comment?.body).not.toContain('secret-canary');
+    expect(f.logs.join('\n')).toContain('"category":"unexpected-error"');
+    expect(f.logs.join('\n')).not.toContain('secret-canary');
     expect(f.state.comment?.body).not.toContain('1234');
     expect(
       await executeVoiceBenchmark(
@@ -379,6 +383,9 @@ describe('voice benchmark CI eligibility and idempotence', () => {
     f.state.failFinalWrite = true;
     await expect(f.execute()).rejects.toThrow();
     expect(parseVoiceClaim(f.state.comment?.body)?.status).toBe('started');
+    expect(f.logs.join('\n')).toContain(
+      '"phase":"publication","category":"unexpected-error"',
+    );
     expect(await f.execute()).toBe('skipped');
     expect(f.state.launches).toBe(1);
   });
@@ -431,6 +438,9 @@ describe('voice benchmark CI eligibility and idempotence', () => {
       ),
     ).toBe('failed');
     expect(aborted).toBe(true);
+    expect(f.logs.join('\n')).toContain(
+      '"phase":"claim-monitor","category":"claim-lost"',
+    );
     expect(parseVoiceClaim(f.state.comment?.body)?.status).toBe('started');
   });
 
@@ -514,6 +524,13 @@ describe('voice benchmark CI eligibility and idempotence', () => {
         ),
       ).toBe(scenario.result);
       expect(reads).toBe(scenario.checks.length);
+      expect(
+        f.logs.filter((line) =>
+          line.includes('"category":"claim-check-failed"'),
+        ),
+      ).toHaveLength(
+        scenario.checks.filter((check) => typeof check === 'number').length,
+      );
       expect(polls).toBe(
         scenario.checks.length + (scenario.result === 'passed' ? 1 : 0),
       );
@@ -751,6 +768,7 @@ describe('owned Docker cleanup', () => {
     const root = await mkdtemp(join(tmpdir(), 'voice-owned-run-'));
     const abort = new AbortController();
     const cleanups: string[] = [];
+    const logs: string[] = [];
     let completed = false;
     try {
       await mkdir(join(root, 'scripts'), { recursive: true });
@@ -775,6 +793,7 @@ describe('owned Docker cleanup', () => {
         },
         signal: abort.signal,
         terminationGraceMs: 100,
+        log: (line) => logs.push(line),
         cleanup: async (id) => {
           cleanups.push(id);
         },
@@ -806,6 +825,9 @@ describe('owned Docker cleanup', () => {
       abort.abort();
       expect(await outcome).toBeInstanceOf(Error);
       expect(completed).toBe(true);
+      expect(logs.join('\n')).toContain(
+        '"category":"cancelled","signal":"SIGKILL"',
+      );
       expect(owned?.key).toBe('test-key');
       expect(owned?.github).toBeUndefined();
       expect(owned?.cloudflare).toBeUndefined();

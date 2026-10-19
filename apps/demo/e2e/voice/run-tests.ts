@@ -15,6 +15,11 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { selectVoiceBenchmark } from './benchmark-selection.ts';
+import {
+  logVoiceDiagnostic,
+  type VoiceDiagnostic,
+  voiceDiagnosticConsumer,
+} from './ci-diagnostics.ts';
 import { resolveTtsCacheDir } from './tts-cache-dir.ts';
 
 process.umask(0o077);
@@ -33,6 +38,17 @@ const voiceDevtoolsImage = 'ghcr.io/maelstrom-co/voice-devtools:0.1.0';
 const ciRunId = process.env.MAELSTROM_VOICE_CI_RUN_ID;
 if (ciRunId !== undefined && !/^[a-zA-Z0-9_-]{1,100}$/.test(ciRunId))
   throw new Error('Invalid voice CI run identity.');
+let phase: VoiceDiagnostic['phase'] = 'initialization';
+const diagnostic = (
+  category: VoiceDiagnostic['category'],
+  details: Pick<VoiceDiagnostic, 'exitCode' | 'signal'> = {},
+) => {
+  if (ciRunId) logVoiceDiagnostic({ phase, category, ...details });
+};
+const beginPhase = (next: VoiceDiagnostic['phase']) => {
+  phase = next;
+  diagnostic('started');
+};
 const fixtures = ['only-tasks', 'put-it-back', 'open-calendar'] as const;
 const forwardedRunnerEnvironment = [
   'MAELSTROM_E2E_OPENAI_API_KEY',
@@ -67,7 +83,11 @@ function redact(text: string): string {
   return safe;
 }
 
-function runProcess(command: string, args: string[]): Promise<CommandResult> {
+function runProcess(
+  command: string,
+  args: string[],
+  forwardDiagnostics = false,
+): Promise<CommandResult> {
   return new Promise((resolveResult, reject) => {
     const child = spawn(command, args, {
       cwd: repositoryRoot,
@@ -78,17 +98,25 @@ function runProcess(command: string, args: string[]): Promise<CommandResult> {
     activeChild = child;
     let stdout = '';
     let stderr = '';
+    const consume = forwardDiagnostics ? voiceDiagnosticConsumer() : undefined;
     child.stdout?.setEncoding('utf8').on('data', (chunk: string) => {
       stdout += chunk;
+      consume?.(chunk);
     });
     child.stderr?.setEncoding('utf8').on('data', (chunk: string) => {
       stderr += chunk;
     });
     child.once('error', (error) => {
       if (activeChild === child) activeChild = undefined;
+      diagnostic('spawn-failed');
       reject(error);
     });
-    child.once('close', (code) => {
+    child.once('close', (code, signal) => {
+      if (signal) diagnostic('signal-exit', { signal });
+      else if (code !== 0)
+        diagnostic('nonzero-exit', {
+          ...(code !== null ? { exitCode: code } : {}),
+        });
       if (activeChild === child) activeChild = undefined;
       resolveResult({ code: code ?? 1, stdout, stderr });
     });
@@ -99,8 +127,12 @@ async function runDocker(
   args: string[],
   options: { readonly allowFailure?: boolean; readonly quiet?: boolean } = {},
 ): Promise<CommandResult> {
-  const result = await runProcess('docker', args);
-  if (!options.quiet) {
+  const result = await runProcess(
+    'docker',
+    args,
+    !!ciRunId && args[0] === 'start',
+  );
+  if (!options.quiet && !ciRunId) {
     if (result.stdout) process.stdout.write(redact(result.stdout));
     if (result.stderr) process.stderr.write(redact(result.stderr));
   }
@@ -120,6 +152,7 @@ function mount(source: string, destination: string, readOnly = false): string {
 }
 
 function onInterrupt(signal: NodeJS.Signals): void {
+  diagnostic('cancelled', { signal });
   receivedSignal = signal;
   activeChild?.kill('SIGTERM');
 }
@@ -199,6 +232,7 @@ async function collectArtifacts(runnerName: string): Promise<number> {
 }
 
 async function main(): Promise<number> {
+  beginPhase('fixtures');
   const runId = `${Date.now()}-${process.pid}-${randomUUID().slice(0, 8)}`;
   const label = `maelstrom.voice.run=${runId}`;
   const image = `maelstrom-voice-test:${runId}`;
@@ -227,10 +261,14 @@ async function main(): Promise<number> {
     await rm(artifactRoot, { recursive: true, force: true });
     await mkdir(artifactRoot, { recursive: true });
     await prepareFixtures(fixtureDirectory, cacheDirectory);
+    diagnostic('completed');
 
+    beginPhase('docker-build');
     console.log('Building voice E2E container.');
     await runDocker(['build', '--tag', image, voiceRoot]);
     imageBuilt = true;
+    diagnostic('completed');
+    beginPhase('docker-create');
 
     const createArgs = [
       'create',
@@ -275,22 +313,28 @@ async function main(): Promise<number> {
       );
     await runDocker(createArgs, { quiet: true });
     runnerCreated = true;
+    diagnostic('completed');
+    beginPhase('docker-start');
 
     console.log('Running Playwright voice scenarios in Docker.');
     const result = await runDocker(['start', '--attach', runnerName], {
       allowFailure: true,
     });
     testStatus = result.code;
+    if (testStatus === 0) diagnostic('completed');
     if (receivedSignal) testStatus = receivedSignal === 'SIGINT' ? 130 : 143;
   } catch (error) {
+    diagnostic(receivedSignal ? 'cancelled' : 'unexpected-error');
     const message = error instanceof Error ? error.message : String(error);
     process.stderr.write(`${redact(message)}\n`);
     testStatus = receivedSignal === 'SIGINT' ? 130 : receivedSignal ? 143 : 1;
   } finally {
+    beginPhase('artifacts');
     if (runnerCreated) {
       try {
         artifactStatus = await collectArtifacts(runnerName);
       } catch (error) {
+        diagnostic('unexpected-error');
         const message = error instanceof Error ? error.message : String(error);
         process.stderr.write(`${redact(message)}\n`);
         artifactStatus = 1;
@@ -299,25 +343,33 @@ async function main(): Promise<number> {
     try {
       await makeArtifactTreePrivate(artifactRoot);
     } catch {
+      diagnostic('unexpected-error');
       if (artifactStatus === 0) artifactStatus = 1;
     }
+    if (artifactStatus === 0) diagnostic('completed');
+    beginPhase('cleanup');
+    let cleanupFailed = false;
     if (runnerCreationAttempted) {
-      await runDocker(['rm', '--force', runnerName], {
+      const result = await runDocker(['rm', '--force', runnerName], {
         allowFailure: true,
         quiet: true,
       });
+      cleanupFailed ||= result.code !== 0;
     }
     if (imageBuilt) {
-      await runDocker(['image', 'rm', '--force', image], {
+      const result = await runDocker(['image', 'rm', '--force', image], {
         allowFailure: true,
         quiet: true,
       });
+      cleanupFailed ||= result.code !== 0;
     }
     await rm(fixtureDirectory, { recursive: true, force: true });
+    diagnostic(cleanupFailed ? 'cleanup-failed' : 'completed');
     process.removeListener('SIGINT', onSigint);
     process.removeListener('SIGTERM', onSigterm);
   }
 
+  beginPhase('artifacts');
   try {
     await access(reportPath);
     if (process.platform === 'darwin') {
@@ -329,11 +381,15 @@ async function main(): Promise<number> {
       }
     }
   } catch {
+    diagnostic('unexpected-error');
     if (testStatus === 0 && artifactStatus === 0) artifactStatus = 1;
   }
 
   return testStatus || artifactStatus;
 }
 
-const status = await main();
+const status = await main().catch((error) => {
+  diagnostic(phase === 'cleanup' ? 'cleanup-failed' : 'unexpected-error');
+  throw error;
+});
 process.exitCode = status;
