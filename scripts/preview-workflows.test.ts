@@ -31,6 +31,49 @@ describe('preview workflows', () => {
     expect(job).toContain('PREVIEW_WORKERS_DEV_SUFFIX:');
   });
 
+  test('fresh paid dispatches are opt-in and each inherited rerun is explicitly authorized', () => {
+    const workflow = Bun.YAML.parse(read('deploy-preview.yml')) as {
+      on: { workflow_dispatch: { inputs: Record<string, unknown> } };
+      jobs: {
+        'voice-benchmark': {
+          env: Record<string, string>;
+          steps: { name: string; env?: Record<string, string> }[];
+        };
+      };
+    };
+    expect(workflow.on.workflow_dispatch.inputs.new_benchmark_request).toEqual({
+      description:
+        'Allow a fresh paid benchmark on this dispatch and each rerun',
+      required: false,
+      type: 'boolean',
+      default: false,
+    });
+    const job = workflow.jobs['voice-benchmark'];
+    const runner = job.steps.find(
+      (step) =>
+        step.name === 'Run approved preview benchmarks and update p95 comment',
+    )!;
+    const authorization = runner.env!.VOICE_BENCHMARK_NEW_REQUEST!;
+    const evaluate = new Function(
+      'github',
+      'inputs',
+      `return (${authorization.slice(3, -2)});`,
+    );
+    for (const event_name of ['workflow_dispatch', 'pull_request_target'])
+      for (const new_benchmark_request of [undefined, false, true])
+        expect(evaluate({ event_name }, { new_benchmark_request })).toBe(
+          event_name === 'workflow_dispatch' && new_benchmark_request
+            ? 'true'
+            : 'false',
+        );
+    expect(job.env.MAELSTROM_VOICE_CI_RUN_ID).toContain(
+      expression('github.run_attempt'),
+    );
+    // The runner reads GitHub's native identities; inputs cannot override them.
+    expect(runner.env).not.toHaveProperty('GITHUB_RUN_ID');
+    expect(runner.env).not.toHaveProperty('GITHUB_RUN_ATTEMPT');
+  });
+
   test('voice benchmarking reconciles either label change without cancelling lifecycle mutations', () => {
     const workflow = read('deploy-preview.yml');
     const job = workflow.slice(workflow.indexOf('\n  voice-benchmark:'));

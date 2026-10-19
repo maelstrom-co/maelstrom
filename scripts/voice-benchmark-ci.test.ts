@@ -1,19 +1,23 @@
 import { describe, expect, test } from 'bun:test';
+import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   readVoiceBenchmarkContext,
   renderDeployedComment,
+  VOICE_BENCHMARK_ARCHIVE_MARKER,
   VOICE_BENCHMARK_MARKER,
 } from './preview-lifecycle.ts';
 import {
   cleanupVoiceContainers,
   executeVoiceBenchmark,
   parseVoiceClaim,
+  readManualVoiceRequest,
   renderVoiceComment,
   runOwnedBenchmark,
   type VoiceCiDependencies,
+  type VoiceCiOptions,
 } from './voice-benchmark-ci.ts';
 
 const sha = 'a'.repeat(40);
@@ -48,6 +52,11 @@ function fixture() {
       | { id: number; body: string; user: typeof bot }
       | undefined,
     extraComments: [] as { id: number; body: string; user: typeof bot }[],
+    archives: new Map<
+      number,
+      { id: number; body: string; user: typeof bot; issue_url: string }
+    >(),
+    nextArchiveId: 1000,
     history: undefined as unknown[] | undefined,
     pagination: undefined as string | undefined,
     failFinalWrite: false,
@@ -112,7 +121,29 @@ function fixture() {
             { id: 1, body, user: bot },
             ...(state.comment ? [state.comment] : []),
             ...state.extraComments,
+            ...state.archives.values(),
           ]);
+        }
+        if (method === 'GET' && /\/issues\/comments\/\d+$/.test(url.pathname)) {
+          const comment = state.archives.get(
+            Number(url.pathname.split('/').at(-1)),
+          );
+          return comment
+            ? Response.json(comment)
+            : new Response('', { status: 404 });
+        }
+        if (method === 'POST' && url.pathname.endsWith('/issues/42/comments')) {
+          const body = JSON.parse(String(init?.body)).body as string;
+          if (body.startsWith(VOICE_BENCHMARK_ARCHIVE_MARKER)) {
+            const archive = {
+              id: state.nextArchiveId++,
+              body,
+              user: bot,
+              issue_url: `https://api.github.com/repos/${repository}/issues/42`,
+            };
+            state.archives.set(archive.id, archive);
+            return Response.json(archive);
+          }
         }
         if (
           (method === 'POST' && url.pathname.endsWith('/issues/42/comments')) ||
@@ -132,7 +163,7 @@ function fixture() {
       globalThis.fetch,
     ),
     run: async () => {
-      expect(parseVoiceClaim(state.comment?.body)).toEqual({
+      expect(parseVoiceClaim(state.comment?.body)).toMatchObject({
         sha,
         requestId: state.request,
         status: 'started',
@@ -606,6 +637,7 @@ describe('voice benchmark CI eligibility and idempotence', () => {
       VOICE_BENCHMARK_MARKER,
       renderVoiceComment({ sha, requestId: 999, status: 'started' }),
       `${renderVoiceComment({ sha, requestId: 90, status: 'failed' })}\n<!-- voice-benchmark-state {} -->`,
+      `${renderVoiceComment({ sha, requestId: 90, status: 'failed' })}\n<!-- voice-benchmark-state corrupted -->`,
     ]) {
       const f = fixture();
       f.state.comment = { id: 2, body, user: bot };
@@ -760,6 +792,702 @@ describe('voice benchmark CI eligibility and idempotence', () => {
       ),
     ).toBe('failed');
     expect(parseVoiceClaim(f.state.comment?.body)?.requestId).toBe(100);
+  });
+});
+
+describe('explicit paid workflow attempts', () => {
+  const manualOptions = (
+    runId = '123456789',
+    runAttempt = '1',
+  ): VoiceCiOptions => ({
+    repository,
+    prNumber: '42',
+    workersDevSuffix: options.workersDevSuffix,
+    manualRequest: { runId, runAttempt },
+  });
+  const execute = (
+    f: ReturnType<typeof fixture>,
+    configuration = manualOptions(),
+    dependencies = f.dependencies,
+  ) =>
+    executeVoiceBenchmark(
+      configuration,
+      dependencies,
+      new AbortController().signal,
+    );
+
+  test('each opted-in Actions attempt runs once without replaying older attempts or label requests', async () => {
+    const f = fixture();
+    expect(await f.execute()).toBe('passed');
+    expect(await execute(f)).toBe('passed');
+    expect(await execute(f)).toBe('skipped');
+    expect(await execute(f, manualOptions('123456789', '2'))).toBe('passed');
+    expect(await execute(f)).toBe('skipped');
+    expect(await execute(f, manualOptions('123456789', '2'))).toBe('skipped');
+    expect(await f.execute()).toBe('skipped');
+    // A different dispatch cannot forget consumption of an earlier workflow.
+    expect(await execute(f, manualOptions('987654321'))).toBe('passed');
+    expect(await execute(f, manualOptions('123456789', '2'))).toBe('skipped');
+    expect(f.state.launches).toBe(4);
+    expect(parseVoiceClaim(f.state.comment?.body)).toMatchObject({
+      requestId: 100,
+      execution: 'manual:987654321:1',
+      consumed: [
+        `label:${sha}:100`,
+        'manual:123456789:1',
+        'manual:123456789:2',
+        'manual:987654321:1',
+      ],
+    });
+  });
+
+  test('a manual request also consumes an unclaimed label and retains attempts across new label epochs and heads', async () => {
+    const f = fixture();
+    expect(await execute(f)).toBe('passed');
+    expect(await f.execute()).toBe('skipped');
+    f.state.request++;
+    expect(await f.execute()).toBe('passed');
+    expect(await execute(f)).toBe('skipped');
+    f.state.sha = other;
+    f.state.approved = other;
+    f.state.deployed = other;
+    expect(await execute(f)).toBe('skipped');
+    const currentHead = {
+      ...f.dependencies,
+      run: async () => {
+        f.state.launches++;
+        return metrics;
+      },
+    };
+    expect(await execute(f, manualOptions('123456789', '2'), currentHead)).toBe(
+      'passed',
+    );
+    expect(
+      await execute(f, { ...options, eventHeadSha: other }, currentHead),
+    ).toBe('skipped');
+    expect(f.state.launches).toBe(3);
+  });
+
+  for (const status of ['started', 'completed', 'failed'] as const) {
+    test(`legacy ${status} consumption survives an explicit fresh attempt`, async () => {
+      const f = fixture();
+      f.state.comment = {
+        id: 2,
+        user: bot,
+        body: renderVoiceComment({ sha, requestId: 100, status }),
+      };
+      expect(await f.execute()).toBe('skipped');
+      expect(await execute(f)).toBe('passed');
+      expect(await f.execute()).toBe('skipped');
+      expect(await execute(f)).toBe('skipped');
+      expect(f.state.launches).toBe(1);
+    });
+  }
+
+  test('failed or abandoned manual attempts remain consumed but the next attempt may run', async () => {
+    for (const failPublication of [false, true]) {
+      const f = fixture();
+      // Prime the comment so final-write failure does not affect the initial POST.
+      expect(await f.execute()).toBe('passed');
+      const dependencies = {
+        ...f.dependencies,
+        run: async () => {
+          f.state.launches++;
+          if (failPublication) f.state.failFinalWrite = true;
+          throw new Error('failed benchmark');
+        },
+      };
+      if (failPublication)
+        await expect(
+          execute(f, manualOptions(), dependencies),
+        ).rejects.toThrow();
+      else
+        expect(await execute(f, manualOptions(), dependencies)).toBe('failed');
+      f.state.failFinalWrite = false;
+      expect(await execute(f)).toBe('skipped');
+      expect(await execute(f, manualOptions('123456789', '2'))).toBe('passed');
+      expect(await execute(f)).toBe('skipped');
+      expect(f.state.launches).toBe(3);
+    }
+  });
+
+  test('opt-in never bypasses PR, label, preview URL or approval eligibility', async () => {
+    for (const change of [
+      { bench: false },
+      { deploy: false },
+      { open: false },
+      { repository: 'outsider/fork' },
+      { approved: other },
+      { deployed: other },
+    ]) {
+      const f = fixture();
+      Object.assign(f.state, change);
+      expect(await execute(f)).toBe('skipped');
+      expect(f.state.launches).toBe(0);
+    }
+    const f = fixture();
+    await expect(
+      execute(f, { ...manualOptions(), workersDevSuffix: 'wrong.workers.dev' }),
+    ).rejects.toThrow('Preview state URL');
+    await expect(
+      execute(f, { ...manualOptions(), eventHeadSha: sha }),
+    ).rejects.toThrow('PR event head');
+    expect(f.state.launches).toBe(0);
+  });
+
+  for (const change of [
+    'bench',
+    'deploy',
+    'epoch',
+    'head',
+    'approval',
+    'claim',
+  ] as const) {
+    test(`manual work loses ownership on ${change}, cleans up, and cannot publish`, async () => {
+      const f = fixture();
+      const order: string[] = [];
+      const dependencies: VoiceCiDependencies = {
+        ...f.dependencies,
+        sleep: async () => {},
+        run: async (_context, signal) => {
+          f.state.launches++;
+          if (change === 'bench') f.state.bench = false;
+          if (change === 'deploy') f.state.deploy = false;
+          if (change === 'epoch') f.state.request++;
+          if (change === 'head') f.state.sha = other;
+          if (change === 'approval') f.state.approved = other;
+          if (change === 'claim') {
+            const claim = parseVoiceClaim(f.state.comment?.body)!;
+            f.state.comment!.body = renderVoiceComment({
+              ...claim,
+              execution: 'manual:123456789:2',
+              consumed: [...claim.consumed!, 'manual:123456789:2'],
+            });
+          }
+          await new Promise<void>((resolve) =>
+            signal.addEventListener('abort', () => resolve(), { once: true }),
+          );
+          order.push('aborted');
+          await Promise.resolve();
+          order.push('cleanup');
+          throw new Error('revoked');
+        },
+      };
+      expect(await execute(f, manualOptions(), dependencies)).toBe('failed');
+      expect(order).toEqual(['aborted', 'cleanup']);
+      expect(f.state.comment?.body).not.toContain('1234.0 ms');
+      expect(f.calls.filter((call) => call.method === 'PATCH')).toHaveLength(0);
+      if (change === 'epoch') {
+        expect(await execute(f)).toBe('skipped');
+        expect(
+          await execute(f, manualOptions('123456789', '2'), {
+            ...f.dependencies,
+            run: async (context, signal) => {
+              order.push('replacement');
+              return f.dependencies.run(context, signal);
+            },
+          }),
+        ).toBe('passed');
+        expect(order).toEqual(['aborted', 'cleanup', 'replacement']);
+      }
+    });
+  }
+
+  test('corrupted ledgers fail closed rather than forgetting requests', async () => {
+    const valid = {
+      sha,
+      requestId: 100,
+      status: 'completed',
+      version: 2,
+      execution: 'manual:1:1',
+      consumed: [`label:${sha}:100`, 'manual:1:1'],
+    };
+    for (const change of [
+      { status: ['completed'] },
+      { version: 3 },
+      { version: undefined },
+      { execution: undefined },
+      { consumed: undefined },
+      { consumed: [] },
+      { consumed: [1] },
+      { execution: 'manual:2:1' },
+      { consumed: ['manual:1:1'] },
+      { consumed: [...valid.consumed, 'manual:1:1'] },
+      { consumed: [...valid.consumed, `label:${sha}:101`] },
+      { consumed: [...valid.consumed, `label:${sha}:9007199254740992`] },
+      { consumed: [...valid.consumed, 'manual:01:1'] },
+      { consumed: [...valid.consumed, 'manual:1:1e3'] },
+      { extra: true },
+    ]) {
+      const f = fixture();
+      f.state.comment = {
+        id: 2,
+        user: bot,
+        body: `${VOICE_BENCHMARK_MARKER}\n<!-- voice-benchmark-state ${JSON.stringify({ ...valid, ...change })} -->`,
+      };
+      await expect(execute(f)).rejects.toThrow();
+      expect(f.state.launches).toBe(0);
+      expect(f.calls.some((call) => call.method !== 'GET')).toBe(false);
+    }
+  });
+
+  const fullLedger = () => {
+    const f = fixture();
+    const consumed = [
+      `label:${sha}:100`,
+      ...Array.from({ length: 255 }, (_, i) => `manual:${i + 1}:1`),
+    ];
+    f.state.comment = {
+      id: 2,
+      user: bot,
+      body: renderVoiceComment({
+        sha,
+        requestId: 100,
+        status: 'completed',
+        version: 2,
+        execution: 'manual:255:1',
+        consumed,
+      }),
+    };
+    return f;
+  };
+  const archiveBody = (overrides: Record<string, unknown> = {}) =>
+    `${VOICE_BENCHMARK_ARCHIVE_MARKER}\n${JSON.stringify({
+      version: 1,
+      repository,
+      prNumber: '42',
+      requestId: 100,
+      consumed: [`label:${sha}:100`, 'manual:1:1'],
+      previous: null,
+      ...overrides,
+    })}`;
+  const reference = (commentId: number, body: string) => ({
+    commentId,
+    sha256: createHash('sha256').update(body).digest('hex'),
+  });
+  const withArchive = (body = archiveBody()) => {
+    const f = fixture();
+    f.state.archives.set(1000, {
+      id: 1000,
+      body,
+      user: bot,
+      issue_url: `https://api.github.com/repos/${repository}/issues/42`,
+    });
+    f.state.comment = {
+      id: 2,
+      user: bot,
+      body: renderVoiceComment({
+        sha,
+        requestId: 100,
+        status: 'completed',
+        version: 3,
+        execution: 'manual:2:1',
+        consumed: [`label:${sha}:100`, 'manual:2:1'],
+        archive: reference(1000, body),
+      }),
+    };
+    return f;
+  };
+
+  test('ongoing attempts roll over multiple durable chunks without replaying old label or workflow requests', async () => {
+    const f = fullLedger();
+    expect(await execute(f, manualOptions('1'))).toBe('skipped');
+    for (let attempt = 1; attempt <= 515; attempt++)
+      expect(await execute(f, manualOptions('9000', String(attempt)))).toBe(
+        'passed',
+      );
+    expect(f.state.archives.size).toBe(3);
+    expect(f.state.launches).toBe(515);
+    const claim = parseVoiceClaim(f.state.comment?.body)!;
+    expect(claim.version).toBe(3);
+    expect(claim.consumed!.length).toBeLessThanOrEqual(256);
+    expect(f.state.comment!.body.length).toBeLessThan(60_000);
+    const newest = f.state.archives.get(claim.archive!.commentId)!;
+    expect(claim.archive).toEqual(reference(newest.id, newest.body));
+    expect(JSON.parse(newest.body.split('\n')[1]!).previous.commentId).toBe(
+      1001,
+    );
+    expect(
+      f.calls.filter(
+        (call) =>
+          call.method === 'PATCH' &&
+          call.path !== `/repos/${repository}/issues/comments/2`,
+      ),
+    ).toEqual([]);
+    f.calls.length = 0;
+    expect(await execute(f, manualOptions('1'))).toBe('skipped');
+    expect(await execute(f, manualOptions('9000', '1'))).toBe('skipped');
+    expect(await execute(f, manualOptions('9000', '300'))).toBe('skipped');
+    expect(await f.execute()).toBe('skipped');
+    expect(f.state.launches).toBe(515);
+    // Archives use direct reads, independent of pagination through historical comments.
+    expect(
+      f.calls.some(
+        (call) => call.path === `/repos/${repository}/issues/comments/1000`,
+      ),
+    ).toBe(true);
+    expect(
+      f.calls.some(
+        (call) => call.path === `/repos/${repository}/issues/comments/1002`,
+      ),
+    ).toBe(true);
+    // Older workflow IDs are not a global high-water mark: a new attempt is eligible.
+    expect(await execute(f, manualOptions('1', '2'))).toBe('passed');
+    expect(await execute(f, manualOptions('1', '2'))).toBe('skipped');
+    f.state.request++;
+    expect(await f.execute()).toBe('passed');
+    expect(await execute(f, manualOptions('9000', '1'))).toBe('skipped');
+    expect(f.state.launches).toBe(517);
+  });
+
+  test('archive is written and verified before the new claim; a lost archive response only leaves an orphan', async () => {
+    const f = fullLedger();
+    const before = f.state.comment!.body;
+    const order: string[] = [];
+    let fail = true;
+    const dependencies = {
+      ...f.dependencies,
+      fetch: Object.assign(
+        async (input: string | URL | Request, init?: RequestInit) => {
+          const response = await f.dependencies.fetch(input, init);
+          if (init?.method === 'POST') {
+            order.push('archive-write');
+            expect(f.state.comment!.body).toBe(before);
+            if (fail) {
+              fail = false;
+              return new Response('', { status: 500 });
+            }
+          }
+          if (
+            new URL(input.toString()).pathname.endsWith(
+              '/issues/comments/1001',
+            ) &&
+            !init?.method
+          )
+            order.push('archive-readback');
+          if (init?.method === 'PATCH') order.push('claim-write');
+          return response;
+        },
+        globalThis.fetch,
+      ),
+      run: async (
+        context: Parameters<VoiceCiDependencies['run']>[0],
+        signal: AbortSignal,
+      ) => {
+        order.push('paid-run');
+        expect(parseVoiceClaim(f.state.comment!.body)?.archive?.commentId).toBe(
+          1001,
+        );
+        return f.dependencies.run(context, signal);
+      },
+    };
+    await expect(execute(f, manualOptions(), dependencies)).rejects.toThrow();
+    expect(f.state.archives.size).toBe(1);
+    expect(f.state.comment!.body).toBe(before);
+    expect(f.state.launches).toBe(0);
+    expect(await execute(f, manualOptions(), dependencies)).toBe('passed');
+    expect(f.state.archives.size).toBe(2);
+    expect(order).toEqual([
+      'archive-write',
+      'archive-write',
+      'archive-readback',
+      'claim-write',
+      'paid-run',
+      'claim-write',
+    ]);
+    expect(await execute(f)).toBe('skipped');
+    expect(await execute(f, manualOptions('1'))).toBe('skipped');
+  });
+
+  for (const point of [
+    'readback',
+    'eligibility',
+    'before-claim',
+    'after-claim',
+    'claim-readback',
+  ] as const) {
+    test(`rollover failure at ${point} cannot discard history or duplicate paid execution`, async () => {
+      const f = fullLedger();
+      const before = f.state.comment!.body;
+      let injected = false;
+      let writtenClaim = false;
+      const dependencies = {
+        ...f.dependencies,
+        fetch: Object.assign(
+          async (input: string | URL | Request, init?: RequestInit) => {
+            const path = new URL(input.toString()).pathname;
+            if (
+              !injected &&
+              point === 'readback' &&
+              path.endsWith('/issues/comments/1000')
+            ) {
+              injected = true;
+              return new Response('', { status: 404 });
+            }
+            if (
+              !injected &&
+              point === 'before-claim' &&
+              init?.method === 'PATCH'
+            ) {
+              injected = true;
+              return new Response('', { status: 500 });
+            }
+            if (
+              !injected &&
+              point === 'claim-readback' &&
+              writtenClaim &&
+              path.endsWith('/pulls/42')
+            ) {
+              injected = true;
+              return new Response('', { status: 500 });
+            }
+            const response = await f.dependencies.fetch(input, init);
+            if (init?.method === 'POST' && point === 'eligibility') {
+              injected = true;
+              f.state.bench = false;
+            }
+            if (init?.method === 'PATCH') {
+              writtenClaim = true;
+              if (!injected && point === 'after-claim') {
+                injected = true;
+                return new Response('', { status: 500 });
+              }
+            }
+            return response;
+          },
+          globalThis.fetch,
+        ),
+      };
+      await expect(execute(f, manualOptions(), dependencies)).rejects.toThrow();
+      expect(injected).toBe(true);
+      expect(f.state.archives.size).toBe(1);
+      expect(f.state.launches).toBe(0);
+      f.state.bench = true;
+      if (point === 'after-claim' || point === 'claim-readback') {
+        expect(parseVoiceClaim(f.state.comment!.body)?.archive?.commentId).toBe(
+          1000,
+        );
+        expect(await execute(f)).toBe('skipped');
+      } else {
+        expect(f.state.comment!.body).toBe(before);
+        expect(await execute(f)).toBe('passed');
+      }
+      expect(await execute(f, manualOptions('1'))).toBe('skipped');
+    });
+  }
+
+  for (const problem of [
+    'missing',
+    'hash',
+    'author',
+    'repository',
+    'pr',
+    'id',
+    'public-marker',
+  ] as const) {
+    test(`${problem} archive envelope or contents fail closed, including for already consumed requests`, async () => {
+      const f = withArchive();
+      const comment = f.state.archives.get(1000)!;
+      if (problem === 'missing') f.state.archives.delete(1000);
+      if (problem === 'hash') comment.body += ' ';
+      if (problem === 'author')
+        comment.user = { login: 'contributor', type: 'User' };
+      if (problem === 'repository')
+        comment.issue_url = 'https://api.github.com/repos/other/repo/issues/42';
+      if (problem === 'pr')
+        comment.issue_url = `https://api.github.com/repos/${repository}/issues/43`;
+      if (problem === 'id') comment.id = 1001;
+      if (problem === 'public-marker') comment.body += VOICE_BENCHMARK_MARKER;
+      await expect(execute(f)).rejects.toThrow();
+      await expect(execute(f, manualOptions('1'))).rejects.toThrow();
+      expect(f.state.launches).toBe(0);
+      expect(f.calls.some((call) => call.method !== 'GET')).toBe(false);
+    });
+  }
+
+  test('archive traversal uses direct IDs even beyond fifty chunks', async () => {
+    const f = withArchive();
+    let previous: ReturnType<typeof reference> | null = null;
+    for (let index = 0; index < 60; index++) {
+      const body = archiveBody({
+        previous,
+        consumed: [`manual:${index + 1}:1`],
+      });
+      const id = 1000 + index;
+      f.state.archives.set(id, {
+        id,
+        body,
+        user: bot,
+        issue_url: `https://api.github.com/repos/${repository}/issues/42`,
+      });
+      previous = reference(id, body);
+    }
+    f.state.comment!.body = renderVoiceComment({
+      ...parseVoiceClaim(f.state.comment!.body)!,
+      archive: previous,
+    });
+    expect(await execute(f, manualOptions('1'))).toBe('skipped');
+    expect(
+      f.calls.filter((call) => /\/issues\/comments\/\d+$/.test(call.path)),
+    ).toHaveLength(60);
+    expect(f.state.launches).toBe(0);
+  });
+
+  for (const stage of ['create', 'readback'] as const) {
+    for (const defect of ['author', 'issue', 'body', 'id'] as const) {
+      test(`a changed ${stage} archive ${defect} cannot authorize the new claim`, async () => {
+        const f = fullLedger();
+        const before = f.state.comment!.body;
+        const dependencies = {
+          ...f.dependencies,
+          fetch: Object.assign(
+            async (input: string | URL | Request, init?: RequestInit) => {
+              const response = await f.dependencies.fetch(input, init);
+              if (
+                (stage === 'create' && init?.method === 'POST') ||
+                (stage === 'readback' &&
+                  new URL(input.toString()).pathname.endsWith(
+                    '/issues/comments/1000',
+                  ))
+              ) {
+                const data = (await response.json()) as Record<string, unknown>;
+                if (defect === 'author')
+                  data.user = { login: 'somebody', type: 'User' };
+                if (defect === 'issue')
+                  data.issue_url = `https://api.github.com/repos/${repository}/issues/43`;
+                if (defect === 'body') data.body = `${String(data.body)} `;
+                if (defect === 'id') data.id = 999;
+                return Response.json(data);
+              }
+              return response;
+            },
+            globalThis.fetch,
+          ),
+        };
+        await expect(
+          execute(f, manualOptions(), dependencies),
+        ).rejects.toThrow();
+        expect(f.state.comment!.body).toBe(before);
+        expect(f.state.launches).toBe(0);
+        expect(f.calls.some((call) => call.method === 'PATCH')).toBe(false);
+      });
+    }
+  }
+
+  test('invalid archive schemas, identities, predecessor hashes and cycles fail closed', async () => {
+    for (const body of [
+      `${VOICE_BENCHMARK_ARCHIVE_MARKER}\nnot JSON`,
+      ...[
+        { version: 2 },
+        { repository: 'other/repo' },
+        { prNumber: '43' },
+        { requestId: 101 },
+        { consumed: [] },
+        { consumed: ['bad'] },
+        { consumed: ['manual:1:1', 'manual:1:1'] },
+        { previous: { commentId: 1000, sha256: 'a'.repeat(64) } },
+        { previous: { commentId: 0, sha256: 'a'.repeat(64) } },
+        { previous: { commentId: 999, sha256: 'bad' } },
+        { previous: { commentId: 999, sha256: 'a'.repeat(64), extra: true } },
+        { previous: undefined },
+        { extra: true },
+      ].map(archiveBody),
+    ]) {
+      const f = withArchive(body);
+      await expect(execute(f)).rejects.toThrow();
+      expect(f.state.launches).toBe(0);
+    }
+    // A two-node loop must be rejected before revisiting a referenced comment.
+    const older = archiveBody({
+      previous: { commentId: 1000, sha256: 'a'.repeat(64) },
+    });
+    const newer = archiveBody({ previous: reference(1001, older) });
+    const f = withArchive(newer);
+    f.state.archives.set(1001, {
+      id: 1001,
+      body: older,
+      user: bot,
+      issue_url: `https://api.github.com/repos/${repository}/issues/42`,
+    });
+    await expect(execute(f)).rejects.toThrow('Cyclic');
+    expect(
+      f.calls.filter((call) => call.path.endsWith('/issues/comments/1000')),
+    ).toHaveLength(1);
+    // A valid older chunk with a wrong hash or newer label epoch is also rejected.
+    for (const previous of [
+      reference(1001, 'wrong'),
+      reference(1001, archiveBody({ requestId: 101 })),
+    ]) {
+      const g = withArchive(archiveBody({ previous }));
+      g.state.archives.set(1001, {
+        id: 1001,
+        body: archiveBody({ requestId: 101 }),
+        user: bot,
+        issue_url: `https://api.github.com/repos/${repository}/issues/42`,
+      });
+      await expect(execute(g)).rejects.toThrow();
+      expect(g.state.launches).toBe(0);
+    }
+  });
+
+  test('invalid public archive pointers cannot erase history', async () => {
+    for (const archive of [
+      undefined,
+      {},
+      { commentId: 1, sha256: 'bad' },
+      { commentId: -1, sha256: 'a'.repeat(64) },
+    ]) {
+      const f = withArchive();
+      const claim = { ...parseVoiceClaim(f.state.comment!.body), archive };
+      f.state.comment!.body =
+        `${VOICE_BENCHMARK_MARKER}\n<!-- voice-benchmark-state ${JSON.stringify(claim)} -->`;
+      await expect(execute(f)).rejects.toThrow();
+      expect(f.state.launches).toBe(0);
+    }
+  });
+
+  test('only an explicit dispatch opt-in reads the native run and attempt identities', () => {
+    const environment = {
+      VOICE_BENCHMARK_NEW_REQUEST: 'true',
+      GITHUB_EVENT_NAME: 'workflow_dispatch',
+      GITHUB_RUN_ID: '123456789',
+      GITHUB_RUN_ATTEMPT: '2',
+    };
+    expect(readManualVoiceRequest(environment)).toEqual({
+      runId: '123456789',
+      runAttempt: '2',
+    });
+    expect(readManualVoiceRequest({})).toBeUndefined();
+    expect(
+      readManualVoiceRequest({
+        ...environment,
+        VOICE_BENCHMARK_NEW_REQUEST: 'false',
+      }),
+    ).toBeUndefined();
+    for (const change of [
+      { VOICE_BENCHMARK_NEW_REQUEST: '' },
+      { VOICE_BENCHMARK_NEW_REQUEST: 'TRUE' },
+      { GITHUB_EVENT_NAME: 'pull_request_target' },
+      { GITHUB_EVENT_NAME: undefined },
+      ...['', '0', '-1', '1.5', '01', '1e3', '1\n', '1'.repeat(21)].flatMap(
+        (value) => [{ GITHUB_RUN_ID: value }, { GITHUB_RUN_ATTEMPT: value }],
+      ),
+    ])
+      expect(() =>
+        readManualVoiceRequest({ ...environment, ...change }),
+      ).toThrow();
+  });
+
+  test('invalid manual identities fail before any GitHub or paid request', async () => {
+    const f = fixture();
+    await expect(execute(f, manualOptions('invalid'))).rejects.toThrow(
+      'Invalid manual',
+    );
+    await expect(execute(f, manualOptions('123', '0'))).rejects.toThrow(
+      'Invalid manual',
+    );
+    expect(f.calls).toHaveLength(0);
+    expect(f.state.launches).toBe(0);
   });
 });
 

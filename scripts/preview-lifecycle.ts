@@ -8,6 +8,8 @@ import { validatePreviewWorkerUrl } from './preview-worker-url.ts';
 
 const COMMENT_MARKER = '<!-- pr-preview-demo -->';
 export const VOICE_BENCHMARK_MARKER = '<!-- pr-voice-benchmark -->';
+export const VOICE_BENCHMARK_ARCHIVE_MARKER =
+  '<!-- pr-voice-benchmark-archive -->';
 const STATE_PATTERN = /<!-- pr-preview-state (\{[^\n]*\}) -->/;
 const LEGACY_DEPLOYED_PATTERN =
   /\*\*PR previews deployed\*\* for commit ([0-9a-f]{40})/;
@@ -504,6 +506,83 @@ export const saveVoiceBenchmarkComment = async (
     body,
     dependencies,
   );
+};
+
+const validateVoiceArchiveComment = (
+  options: VoiceBenchmarkOptions,
+  value: unknown,
+): PreviewComment => {
+  if (
+    !isRecord(value) ||
+    typeof value.id !== 'number' ||
+    !Number.isSafeInteger(value.id) ||
+    value.id < 1 ||
+    typeof value.body !== 'string' ||
+    !value.body.startsWith(`${VOICE_BENCHMARK_ARCHIVE_MARKER}\n`) ||
+    value.body.includes(VOICE_BENCHMARK_MARKER) ||
+    value.issue_url !==
+      `https://api.github.com/repos/${options.repository}/issues/${options.prNumber}` ||
+    !isRecord(value.user) ||
+    value.user.login !== BOT_LOGIN ||
+    value.user.type !== 'Bot'
+  )
+    throw new Error('Invalid voice benchmark archive comment');
+  return { id: value.id, body: value.body };
+};
+
+/** Reads a referenced bot archive directly, verifying its repository and PR ownership. */
+export const readVoiceBenchmarkArchive = async (
+  options: VoiceBenchmarkOptions,
+  commentId: number,
+  dependencies: PreviewGithubDependencies,
+): Promise<PreviewComment> => {
+  validateRepository(options.repository);
+  validatePrNumber(options.prNumber);
+  if (!Number.isSafeInteger(commentId) || commentId < 1)
+    throw new Error('Invalid voice benchmark archive identity');
+  const response = await githubRequest(
+    dependencies,
+    options.repository,
+    `/issues/comments/${commentId}`,
+  );
+  const comment = validateVoiceArchiveComment(
+    options,
+    await responseJson(response, 'voice benchmark archive'),
+  );
+  if (comment.id !== commentId)
+    throw new Error('Voice benchmark archive identity changed');
+  return comment;
+};
+
+/** Appends an immutable archive; callers must durably reference it before dropping active history. */
+export const createVoiceBenchmarkArchive = async (
+  options: VoiceBenchmarkOptions,
+  body: string,
+  dependencies: PreviewGithubDependencies,
+): Promise<PreviewComment> => {
+  validateRepository(options.repository);
+  validatePrNumber(options.prNumber);
+  if (
+    !body.startsWith(`${VOICE_BENCHMARK_ARCHIVE_MARKER}\n`) ||
+    body.includes(VOICE_BENCHMARK_MARKER)
+  )
+    throw new Error('Invalid voice benchmark archive body');
+  const response = await githubRequest(
+    dependencies,
+    options.repository,
+    `/issues/${options.prNumber}/comments`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ body }),
+    },
+  );
+  const comment = validateVoiceArchiveComment(
+    options,
+    await responseJson(response, 'created voice benchmark archive'),
+  );
+  if (comment.body !== body)
+    throw new Error('Voice benchmark archive content changed');
+  return comment;
 };
 
 const stateMarker = (state: PreviewCommentState) =>

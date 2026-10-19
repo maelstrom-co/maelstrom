@@ -25,38 +25,131 @@ import {
   type VoiceBenchmarkContext,
   type VoiceBenchmarkOptions,
 } from './preview-lifecycle.ts';
+import {
+  archiveVoiceHistory,
+  parseVoiceConsumed,
+  parseVoiceHistoryReference,
+  readVoiceHistory,
+  VOICE_HISTORY_CHUNK_SIZE,
+  type VoiceHistoryReference,
+} from './voice-benchmark-history.ts';
 
-type Claim = {
+type LegacyClaim = {
   readonly sha: string;
   readonly requestId: number;
   readonly status: 'started' | 'completed' | 'failed';
 };
+
+type Claim = LegacyClaim & {
+  readonly version?: 2 | 3;
+  readonly archive?: VoiceHistoryReference | null;
+  readonly execution?: string;
+  readonly consumed?: readonly string[];
+};
+type DurableClaim = Claim & {
+  readonly version: 3;
+  readonly archive: VoiceHistoryReference | null;
+  readonly execution: string;
+  readonly consumed: readonly string[];
+};
+
+/** Explicit payment authorization for one Actions workflow run attempt. */
+export interface ManualVoiceRequest {
+  /** Repository workflow run identity, not the Docker cleanup identity. */
+  readonly runId: string;
+  /** Reruns have a new attempt; duplicate execution of an attempt is suppressed. */
+  readonly runAttempt: string;
+}
+
+/** Eligibility plus optional authorization for an additional paid run. */
+export interface VoiceCiOptions extends VoiceBenchmarkOptions {
+  /** Only supplied by an opted-in workflow_dispatch. Labels and approval still apply. */
+  readonly manualRequest?: ManualVoiceRequest;
+}
+
+const actionIdentity = (value: unknown): value is string =>
+  typeof value === 'string' && /^[1-9]\d{0,19}$/.test(value);
+const labelExecution = (claim: Pick<Claim, 'sha' | 'requestId'>) =>
+  `label:${claim.sha}:${claim.requestId}`;
+const manualExecution = (request: ManualVoiceRequest) => {
+  if (!actionIdentity(request.runId) || !actionIdentity(request.runAttempt))
+    throw new Error('Invalid manual benchmark identity');
+  return `manual:${request.runId}:${request.runAttempt}`;
+};
+
+/** Reads the trusted workflow opt-in; normal dispatches and label events retain deduplication. */
+export function readManualVoiceRequest(
+  environment: Readonly<Record<string, string | undefined>>,
+): ManualVoiceRequest | undefined {
+  const flag = environment.VOICE_BENCHMARK_NEW_REQUEST;
+  if (flag === undefined || flag === 'false') return undefined;
+  if (flag !== 'true' || environment.GITHUB_EVENT_NAME !== 'workflow_dispatch')
+    throw new Error('Invalid manual benchmark authorization');
+  const request = {
+    runId: environment.GITHUB_RUN_ID ?? '',
+    runAttempt: environment.GITHUB_RUN_ATTEMPT ?? '',
+  };
+  manualExecution(request);
+  return request;
+}
 
 export function parseVoiceClaim(body: string | undefined): Claim | undefined {
   if (body === undefined) return undefined;
   const matches = [
     ...body.matchAll(/<!-- voice-benchmark-state (\{[^\n]*\}) -->/g),
   ];
-  if (body.split(VOICE_BENCHMARK_MARKER).length !== 2 || matches.length !== 1)
+  if (
+    body.split(VOICE_BENCHMARK_MARKER).length !== 2 ||
+    body.split('<!-- voice-benchmark-state').length !== 2 ||
+    matches.length !== 1
+  )
     throw new Error('Invalid benchmark claim');
   const value: unknown = JSON.parse(matches[0]?.[1] ?? '');
   if (!value || typeof value !== 'object' || Array.isArray(value))
     throw new Error('Invalid benchmark claim');
   const claim = value as Record<string, unknown>;
   if (
-    Object.keys(claim).length !== 3 ||
     typeof claim.sha !== 'string' ||
     !/^[a-f0-9]{40}$/.test(claim.sha) ||
     typeof claim.requestId !== 'number' ||
     !Number.isSafeInteger(claim.requestId) ||
     claim.requestId < 1 ||
-    !['started', 'completed', 'failed'].includes(String(claim.status))
+    typeof claim.status !== 'string' ||
+    !['started', 'completed', 'failed'].includes(claim.status)
   )
     throw new Error('Invalid benchmark claim');
-  return {
+  const base: LegacyClaim = {
     sha: claim.sha,
     requestId: claim.requestId,
     status: claim.status as Claim['status'],
+  };
+  if (Object.keys(claim).length === 3) return base;
+  if (
+    !(
+      (claim.version === 2 &&
+        Object.keys(claim).length === 6 &&
+        !('archive' in claim)) ||
+      (claim.version === 3 && Object.keys(claim).length === 7)
+    ) ||
+    typeof claim.execution !== 'string'
+  )
+    throw new Error('Invalid benchmark consumption ledger');
+  const consumed = parseVoiceConsumed(claim.consumed, base.requestId);
+  const archive =
+    claim.version === 3 ? parseVoiceHistoryReference(claim.archive) : undefined;
+  if (
+    !consumed.includes(labelExecution(base)) ||
+    !consumed.includes(claim.execution) ||
+    (claim.execution !== labelExecution(base) &&
+      !claim.execution.startsWith('manual:'))
+  )
+    throw new Error('Benchmark claim is missing consumption evidence');
+  return {
+    ...base,
+    version: claim.version as 2 | 3,
+    ...(archive !== undefined ? { archive } : {}),
+    execution: claim.execution,
+    consumed,
   };
 }
 
@@ -89,18 +182,22 @@ const sameRequest = (
 const ownsClaim = (
   context: VoiceBenchmarkContext | undefined,
   expected: VoiceBenchmarkContext,
+  expectedClaim: DurableClaim,
 ) => {
   if (!sameRequest(context, expected)) return false;
   const claim = parseVoiceClaim(context?.comment?.body);
   return (
     claim?.sha === expected.sha &&
     claim.requestId === expected.requestId &&
+    claim.execution === expectedClaim.execution &&
+    (!expected.comment || context?.comment?.id === expected.comment.id) &&
+    context?.comment?.body === renderVoiceComment(expectedClaim) &&
     claim.status === 'started'
   );
 };
 
 export async function executeVoiceBenchmark(
-  options: VoiceBenchmarkOptions,
+  options: VoiceCiOptions,
   dependencies: VoiceCiDependencies,
   signal: AbortSignal,
 ): Promise<'passed' | 'failed' | 'skipped'> {
@@ -117,6 +214,11 @@ export async function executeVoiceBenchmark(
   let phase: VoiceDiagnostic['phase'] = 'context';
   try {
     report({ phase, category: 'started' });
+    const manual = options.manualRequest
+      ? manualExecution(options.manualRequest)
+      : undefined;
+    if (manual && options.eventHeadSha !== undefined)
+      throw new Error('Manual benchmark request cannot use a PR event head');
     const initial = await readVoiceBenchmarkContext(options, github());
     if (!initial) {
       report({ phase, category: 'ineligible' });
@@ -127,17 +229,43 @@ export async function executeVoiceBenchmark(
     const previous = parseVoiceClaim(initial.comment?.body);
     if (previous && previous.requestId > initial.requestId)
       throw new Error('Incomplete benchmark request history');
-    if (
-      previous?.sha === initial.sha &&
-      previous.requestId === initial.requestId
-    ) {
+    let active = new Set(
+      previous?.consumed ?? (previous ? [labelExecution(previous)] : []),
+    );
+    let archive = previous?.archive ?? null;
+    const consumed = await readVoiceHistory(
+      options,
+      initial.requestId,
+      [...active],
+      archive,
+      github,
+    );
+    const execution = manual ?? labelExecution(initial);
+    if (consumed.has(execution)) {
       report({ phase, category: 'already-claimed' });
       return 'skipped';
     }
-    const claim: Claim = {
+    // Manual execution consumes the label request too, without forgetting older
+    // attempts when the public results comment rolls into a new active chunk.
+    const next = new Set([...active, labelExecution(initial), execution]);
+    if (next.size > VOICE_HISTORY_CHUNK_SIZE) {
+      archive = await archiveVoiceHistory(
+        options,
+        initial.requestId,
+        [...active],
+        archive,
+        github,
+      );
+      active = new Set([labelExecution(initial), execution]);
+    } else active = next;
+    const claim: DurableClaim = {
       sha: initial.sha,
       requestId: initial.requestId,
       status: 'started',
+      version: 3,
+      archive,
+      execution,
+      consumed: [...active],
     };
     await saveVoiceBenchmarkComment(
       options,
@@ -146,7 +274,7 @@ export async function executeVoiceBenchmark(
       github(),
     );
     const claimed = await readVoiceBenchmarkContext(options, github());
-    if (!ownsClaim(claimed, initial) || !claimed) {
+    if (!ownsClaim(claimed, initial, claim) || !claimed) {
       report({ phase, category: 'claim-not-persisted' });
       throw new Error('Benchmark claim was not persisted');
     }
@@ -165,6 +293,7 @@ export async function executeVoiceBenchmark(
           owned = ownsClaim(
             await readVoiceBenchmarkContext(options, github(monitorSignal)),
             claimed,
+            claim,
           );
           consecutiveFailures = 0;
         } catch {
@@ -225,7 +354,7 @@ export async function executeVoiceBenchmark(
     report({ phase, category: 'started' });
     const current = await readVoiceBenchmarkContext(options, github());
     if (
-      !ownsClaim(current, claimed) ||
+      !ownsClaim(current, claimed, claim) ||
       !current ||
       current.comment?.id !== claimed.comment?.id ||
       current.comment?.body !== claimed.comment?.body
@@ -524,6 +653,7 @@ async function cli() {
           ? { eventHeadSha: process.env.EVENT_HEAD_SHA }
           : {}),
         workersDevSuffix: process.env.PREVIEW_WORKERS_DEV_SUFFIX ?? '',
+        manualRequest: readManualVoiceRequest(process.env),
       },
       {
         fetch,

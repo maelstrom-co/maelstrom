@@ -9,6 +9,11 @@ on:
         description: Open same-repository PR number with an approved deployment
         required: true
         type: string
+      new_benchmark_request:
+        description: Allow a fresh paid benchmark on this dispatch and each rerun
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -277,6 +282,7 @@ jobs:
           BUN_OPTIONS: ''
           NODE_OPTIONS: ''
           GH_TOKEN: ${{ github.token }}
+          VOICE_BENCHMARK_NEW_REQUEST: ${{ github.event_name == 'workflow_dispatch' && inputs.new_benchmark_request && 'true' || 'false' }}
           EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha || '' }}
           PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
           PREVIEW_WORKERS_DEV_SUFFIX: ${{ vars.CLOUDFLARE_PREVIEW_WORKERS_DEV_SUFFIX }}
