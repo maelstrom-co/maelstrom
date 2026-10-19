@@ -10,6 +10,10 @@ import { projectDiagnosticMetadata } from '@maelstrom-co/telemetry/integration';
 import { identity } from './diagnostic-identity.js';
 
 export { identity } from './diagnostic-identity.js';
+export {
+  type RequestCounterpart,
+  requestCounterparts,
+} from './request-counterparts.js';
 
 export type Fields = Record<string, unknown>;
 export const MAX_VIEW_EVENTS = 10000;
@@ -196,6 +200,40 @@ export interface RequestPhase {
   label: string;
   outcome: string;
   durationMs?: number;
+}
+
+export function requestEventCoverage(
+  a: RequestTrace | undefined,
+  b: RequestTrace | undefined,
+) {
+  const counts = new Map<string, { kind: string; a: number; b: number }>();
+  for (const side of ['a', 'b'] as const)
+    for (const event of (side === 'a' ? a : b)?.events ?? []) {
+      const row = counts.get(event.kind) ?? { kind: event.kind, a: 0, b: 0 };
+      row[side]++;
+      counts.set(event.kind, row);
+    }
+  return [...counts.values()];
+}
+
+export function requestTimingComparison(
+  a: RequestTrace | undefined,
+  b: RequestTrace | undefined,
+) {
+  const measures = [
+    [
+      'Request round-trip',
+      a?.push ? undefined : a?.transportMs,
+      b?.push ? undefined : b?.transportMs,
+    ],
+    ['Client application', a?.applicationMs, b?.applicationMs],
+  ] as const;
+  return measures.map(([label, aMs, bMs]) => ({
+    label,
+    aMs,
+    bMs,
+    deltaMs: aMs === undefined || bMs === undefined ? undefined : bMs - aMs,
+  }));
 }
 
 function diagnosticPhaseOutcome(event: PanelEvent): string {
@@ -445,8 +483,19 @@ export interface PanelEvidence {
   apps: PanelApp[];
   dropped?: number;
   omitted: number;
+  unreadableEvents?: number;
   note?: string;
   metadata: Fields;
+}
+
+export function countUnreadableEvents(values: readonly unknown[]): number {
+  return values
+    .slice(-MAX_VIEW_EVENTS)
+    .reduce<number>(
+      (count, value) =>
+        count + Number(identity(fields(value).kind) === undefined),
+      0,
+    );
 }
 
 export function recordingEvidence(value: unknown): PanelEvidence {
@@ -507,6 +556,7 @@ export function recordingEvidence(value: unknown): PanelEvidence {
     apps: [...apps.values()],
     dropped: numeric(capture.droppedEvents),
     omitted: Math.max(0, values.length - MAX_VIEW_EVENTS),
+    unreadableEvents: countUnreadableEvents(values),
     note: text(capture.outcome),
     metadata: fields(capture.metadata),
   };

@@ -1,5 +1,5 @@
 import jsonview from '@pgrabovets/json-view';
-import { button, element } from './panel-views.js';
+import { button, element } from './panel-elements.js';
 
 type JsonMode = 'tree' | 'raw';
 
@@ -34,23 +34,35 @@ function highlightedJson(serialized: string): DocumentFragment {
 export function createJsonInspector(
   initialMode: JsonMode,
   onModeChange: (mode: JsonMode) => void,
+  name = 'JSON evidence',
 ) {
   const root = element('aside', undefined, 'json-pane');
-  root.setAttribute('aria-label', 'JSON evidence');
-  const title = element('h3', 'JSON evidence');
+  root.setAttribute('aria-label', name);
+  const title = element('h3', name);
+  const label = (value: string) =>
+    name === 'JSON evidence' ? value : `${name}: ${value}`;
   const description = element('p', undefined, 'muted small');
+  const heading = element('header', undefined, 'json-heading');
+  const about = element('details', undefined, 'json-help');
+  const aboutSummary = element('summary', 'Info');
+  aboutSummary.setAttribute('aria-label', label('About evidence'));
+  aboutSummary.dataset.focusKey = `${name}:info`;
+  about.append(aboutSummary, description);
+  heading.append(title, about);
   const redaction = element('p', undefined, 'muted small');
   const controls = element('div', undefined, 'json-controls');
   controls.setAttribute('role', 'group');
-  controls.setAttribute('aria-label', 'JSON presentation');
+  controls.setAttribute('aria-label', label('JSON presentation'));
   const raw = element('pre', undefined, 'json-content json-raw');
   raw.tabIndex = 0;
   raw.setAttribute('role', 'region');
-  raw.setAttribute('aria-label', 'Raw JSON');
+  raw.setAttribute('aria-label', label('Raw JSON'));
+  raw.dataset.focusKey = `${name}:raw-content`;
   const treeContent = element('div', undefined, 'json-content json-tree');
   treeContent.tabIndex = 0;
   treeContent.setAttribute('role', 'region');
-  treeContent.setAttribute('aria-label', 'JSON tree');
+  treeContent.setAttribute('aria-label', label('JSON tree'));
+  treeContent.dataset.focusKey = `${name}:tree-content`;
   let tree: ReturnType<typeof jsonview.create> | undefined;
   let mode = initialMode;
   let initialized = false;
@@ -66,7 +78,16 @@ export function createJsonInspector(
     updateTreeControls();
   });
   controls.append(treeButton, rawButton, expand, collapse);
-  root.append(title, description, controls, redaction, raw, treeContent);
+  for (const [index, control] of [
+    treeButton,
+    rawButton,
+    expand,
+    collapse,
+  ].entries()) {
+    control.setAttribute('aria-label', label(control.textContent ?? ''));
+    control.dataset.focusKey = `${name}:control-${index}`;
+  }
+  root.append(heading, controls, redaction, raw, treeContent);
 
   function choose(next: JsonMode): void {
     mode = next;
@@ -85,13 +106,13 @@ export function createJsonInspector(
       toggle.setAttribute('role', 'button');
       toggle.tabIndex = 0;
       toggle.setAttribute('aria-expanded', String(node.isExpanded));
-      const label =
+      const section =
         node.depth === 0
           ? 'root'
           : (node.el?.querySelector('.json-key')?.textContent ?? 'section');
       toggle.setAttribute(
         'aria-label',
-        `${node.isExpanded ? 'Collapse' : 'Expand'} ${label}`,
+        label(`${node.isExpanded ? 'Collapse' : 'Expand'} ${section}`),
       );
     });
   }
@@ -117,14 +138,20 @@ export function createJsonInspector(
     redaction.hidden = true;
     expand.disabled = collapse.disabled = true;
   }
-  function set(value: unknown, label: string): void {
-    description.textContent = label;
-    if (initialized && previous === value) return;
+  function set(
+    value: unknown,
+    descriptionText: string,
+    empty = 'Choose a request stage, event, or Instance to inspect its JSON.',
+  ): void {
+    description.textContent = descriptionText;
+    if (initialized && previous === value) {
+      if (value === undefined)
+        raw.textContent = treeContent.textContent = empty;
+      return;
+    }
     clear();
     previous = value;
     initialized = true;
-    const empty =
-      'Choose a request stage, event, or Instance to inspect its JSON.';
     if (value === undefined) {
       raw.textContent = treeContent.textContent = empty;
       return;

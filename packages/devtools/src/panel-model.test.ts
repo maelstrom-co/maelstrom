@@ -6,7 +6,9 @@ import {
   inspectState,
   panelEvents,
   recordingEvidence,
+  requestEventCoverage,
   requestPhases,
+  requestTimingComparison,
 } from './panel-model.js';
 
 function event(
@@ -26,6 +28,82 @@ function event(
     content,
   };
 }
+
+test('request comparison leaves missing and push timings unknown and never combines nested server work', () => {
+  const requests = groupRequests(
+    panelEvents([
+      event('client.response.received', 'app-a', 'first', {
+        source: 'request',
+        durationMs: 0,
+      }),
+      event('client.response.applied', 'app-a', 'first', { durationMs: 12 }),
+      event('engine.request.completed', 'app-a', 'first', {
+        durationMs: 300,
+        serverAt: 9999,
+      }),
+      event('engine.stage.completed', 'app-a', 'first', {
+        durationMs: 80,
+        stage: 'plan',
+      }),
+      event('client.response.received', 'app-b', 'second', {
+        source: 'push',
+        durationMs: 50,
+      }),
+      event('client.response.applied', 'app-b', 'second'),
+    ]),
+  );
+  const a = requests.find((request) => request.clientId === 'app-a')!;
+  const b = requests.find((request) => request.clientId === 'app-b')!;
+  expect(requestTimingComparison(a, b)).toEqual([
+    { label: 'Request round-trip', aMs: 0, bMs: undefined, deltaMs: undefined },
+    {
+      label: 'Client application',
+      aMs: 12,
+      bMs: undefined,
+      deltaMs: undefined,
+    },
+  ]);
+  expect(
+    requestTimingComparison(a, undefined).every(
+      (row) => row.deltaMs === undefined,
+    ),
+  ).toBe(true);
+});
+
+test('comparison counts every observed attempt and reused Action ID without inventing counterparts', () => {
+  const [a] = groupRequests(
+    panelEvents([
+      event('engine.stage.failed'),
+      event('engine.stage.failed'),
+      event('engine.stage.completed'),
+      event('client.action.completed', 'app-a', 'request', {
+        action: 'open',
+        toolCallId: 'same',
+        outcome: 'succeeded',
+      }),
+      event('client.action.completed', 'app-a', 'request', {
+        action: 'open',
+        toolCallId: 'same',
+        outcome: 'failed',
+      }),
+    ]),
+  );
+  const [b] = groupRequests(
+    panelEvents([
+      event('engine.stage.completed'),
+      event('client.action.completed', 'app-a', 'request', {
+        action: 'open',
+        toolCallId: 'same',
+        outcome: 'succeeded',
+      }),
+    ]),
+  );
+  expect(requestEventCoverage(a, b)).toEqual([
+    { kind: 'engine.stage.failed', a: 2, b: 0 },
+    { kind: 'engine.stage.completed', a: 1, b: 1 },
+    { kind: 'client.action.completed', a: 2, b: 1 },
+  ]);
+});
 
 test('phase measurements preserve independent attempts and never infer elapsed time from event clocks', () => {
   const events = panelEvents([

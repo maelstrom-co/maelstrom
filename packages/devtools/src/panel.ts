@@ -3,6 +3,7 @@ import { render } from 'solid-js/web';
 import { captureImportFileBytes } from './capture-import.js';
 import { createJsonInspector } from './json-inspector.js';
 import {
+  countUnreadableEvents,
   errorCategories,
   type Fields,
   groupRequests,
@@ -22,6 +23,7 @@ import {
   factList,
   inspectorView,
   type RenderedView,
+  type RequestComparisonSelection,
   requestsView,
   type ViewContext,
 } from './panel-views.js';
@@ -55,6 +57,7 @@ interface PanelPreferences {
   jsonMode?: 'tree' | 'raw';
   phaseBars?: boolean;
   phasePage?: ViewContext['phasePage'];
+  stageTimingLimit?: ViewContext['stageTimingLimit'];
   layoutView?: ViewContext['layoutView'];
   height?: number;
   labels: Map<string, string>;
@@ -100,6 +103,7 @@ function Panel(tools: Devtools): HTMLElement {
   const [revision, setRevision] = createSignal(0);
   const [error, setError] = createSignal('');
   let pinnedRequest: string | undefined;
+  let comparison: RequestComparisonSelection | undefined;
   let captureEpoch = 0;
   let previousCapture = tools.capture.getSnapshot();
   let previousEvidenceRevision = tools.capture.getEvidenceRevision?.() ?? 0;
@@ -133,8 +137,10 @@ function Panel(tools: Devtools): HTMLElement {
         next.count < previousCapture.count ||
         (next.count === previousCapture.count &&
           next.dropped === previousCapture.dropped)
-      )
+      ) {
         headerMetadata = undefined;
+        if (source() === 'recording' && comparison) clearRequestSelection();
+      }
     }
     if (
       (next.active && !previousCapture.active) ||
@@ -212,6 +218,9 @@ function Panel(tools: Devtools): HTMLElement {
         })),
         dropped: state.droppedActivityEvents,
         omitted: Math.max(0, state.activity.length - MAX_VIEW_EVENTS),
+        unreadableEvents:
+          countUnreadableEvents(state.activity) +
+          countUnreadableEvents(state.requestActivity),
         metadata: {},
       };
     }
@@ -272,9 +281,11 @@ function Panel(tools: Devtools): HTMLElement {
   }
   function clearRequestSelection(): void {
     pinnedRequest = undefined;
+    comparison = undefined;
     preferences.requestKey = '';
     preferences.eventKey = '';
     preferences.phasePage = undefined;
+    preferences.stageTimingLimit = undefined;
     preferences.layoutView = undefined;
   }
   function switchSource(next: Source): void {
@@ -390,8 +401,9 @@ function Panel(tools: Devtools): HTMLElement {
     setOpen(false);
     trigger.focus();
   });
-  const spacer = element('span', undefined, 'spacer');
-  header.append(brand, spacer, sourceLabel, scopeLabel, singleScope, close);
+  close.classList.add('header-close');
+  const headerControls = element('div', undefined, 'header-controls');
+  headerControls.append(sourceLabel, scopeLabel, singleScope);
   const tabList = element('div', undefined, 'tabs');
   tabList.setAttribute('role', 'tablist');
   tabList.setAttribute('aria-label', 'Diagnostic views');
@@ -424,6 +436,7 @@ function Panel(tools: Devtools): HTMLElement {
     setTab(tabs[next]);
     tabButtons[next].focus();
   });
+  header.append(brand, tabList, headerControls, close);
   const body = element('div', undefined, 'body');
   body.id = `${id}-body`;
   body.setAttribute('role', 'tabpanel');
@@ -432,6 +445,7 @@ function Panel(tools: Devtools): HTMLElement {
   const help = element('details', undefined, 'help');
   help.append(
     element('summary', 'Using DevTools'),
+    description,
     element(
       'p',
       'Live activity keeps recent metadata. Requests groups it by request. All events also shows connection, voice, and other events.',
@@ -535,6 +549,7 @@ function Panel(tools: Devtools): HTMLElement {
     highlightLabel,
     jsonLabel,
     activityStatus,
+    help,
   );
   const errorView = element('p', undefined, 'error');
   errorView.setAttribute('role', 'alert');
@@ -552,7 +567,18 @@ function Panel(tools: Devtools): HTMLElement {
     },
   );
   const jsonPane = jsonInspector.element;
-  onCleanup(jsonInspector.clear);
+  const comparisonInspectors = {
+    a: createJsonInspector('tree', () => {}, 'A event JSON'),
+    b: createJsonInspector('tree', () => {}, 'B event JSON'),
+  };
+  for (const inspector of Object.values(comparisonInspectors))
+    inspector.element.classList.add('comparison-json');
+  function clearJsonEvidence(): void {
+    jsonInspector.clear();
+    for (const inspector of Object.values(comparisonInspectors))
+      inspector.clear();
+  }
+  onCleanup(clearJsonEvidence);
   workspace.append(navigation, content, jsonPane);
 
   const recording = element('section', undefined, 'recording'),
@@ -694,8 +720,8 @@ function Panel(tools: Devtools): HTMLElement {
   const controls = element('div', undefined, 'panel-controls');
   const viewHeading = element('div', undefined, 'view-heading');
   const viewIntro = element('div');
-  viewIntro.append(title, description);
-  viewHeading.append(viewIntro, help);
+  viewIntro.append(title);
+  viewHeading.append(viewIntro);
   controls.append(
     viewHeading,
     sourceBanner,
@@ -709,7 +735,7 @@ function Panel(tools: Devtools): HTMLElement {
     () => open() && tab() === 'Telemetry',
   );
   body.append(controls, recording, workspace, telemetry);
-  panel.append(resize, header, tabList, body);
+  panel.append(resize, header, body);
   root.append(trigger, panel);
   root.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && open()) {
@@ -778,7 +804,7 @@ function Panel(tools: Devtools): HTMLElement {
       lastRendered = undefined;
       navigation.replaceChildren();
       content.replaceChildren();
-      jsonInspector.clear();
+      clearJsonEvidence();
       return;
     }
     const viewingTelemetry = currentTab === 'Telemetry';
@@ -818,7 +844,7 @@ function Panel(tools: Devtools): HTMLElement {
       lastRendered = undefined;
       navigation.replaceChildren();
       content.replaceChildren();
-      jsonInspector.clear();
+      clearJsonEvidence();
       return;
     }
     if (state.imported === null) {
@@ -829,6 +855,7 @@ function Panel(tools: Devtools): HTMLElement {
       inspections.clear();
     const data = evidence();
     const requestView = currentTab === 'Requests' && !preferences.allEvents;
+    const comparing = requestView && Boolean(comparison);
     const viewedEvents = requestView
       ? (data.requestEvents ?? data.events)
       : data.events;
@@ -852,6 +879,8 @@ function Panel(tools: Devtools): HTMLElement {
         : (cachedRecording?.apps.map((app) => app.id) ?? [])),
     ]);
     const recordingId = text(recordingMetadata().providerInstanceId);
+    for (const slot of [comparison?.a, comparison?.b])
+      if (slot) currentIds.add((JSON.parse(slot.key) as [string, string])[0]);
     if (recordingId) currentIds.add(recordingId);
     if (recordingTarget() !== 'all') currentIds.add(recordingTarget());
     for (const key of preferences.labels.keys())
@@ -983,7 +1012,7 @@ function Panel(tools: Devtools): HTMLElement {
     errorView.hidden = !error();
     recording.hidden = currentTab !== 'Recordings';
     workspace.hidden = currentTab === 'Recordings';
-    toolbar.hidden = currentTab === 'Recordings';
+    toolbar.hidden = false;
     start.disabled =
       currentSource !== 'live' ||
       status.active ||
@@ -1059,7 +1088,7 @@ function Panel(tools: Devtools): HTMLElement {
       lastRendered = undefined;
       navigation.replaceChildren();
       content.replaceChildren();
-      jsonInspector.clear();
+      clearJsonEvidence();
       return;
     }
     const context: ViewContext = {
@@ -1070,8 +1099,38 @@ function Panel(tools: Devtools): HTMLElement {
       issueCategory: preferences.issueCategory,
       requestKey: preferences.requestKey,
       pinnedRequest,
+      comparison,
+      setComparison: (selection) => {
+        if (selection && !comparison) {
+          pinnedRequest = undefined;
+          selection = {
+            ...selection,
+            a: {
+              ...selection.a,
+              phaseBars: preferences.phaseBars ?? true,
+              stageTimingLimit: preferences.stageTimingLimit,
+              layoutView: preferences.layoutView,
+            },
+          };
+        }
+        if (!selection && comparison) {
+          const slot = comparison[comparison.lastSelectedSide] ?? comparison.a;
+          preferences.requestKey = slot.key;
+          preferences.eventKey = slot.eventKey ?? '';
+          preferences.phasePage = slot.phasePage;
+          preferences.phaseBars = slot.phaseBars ?? preferences.phaseBars;
+          preferences.stageTimingLimit = slot.stageTimingLimit;
+          preferences.layoutView = slot.layoutView;
+        }
+        comparison = selection;
+        refresh();
+      },
       phaseBars: preferences.phaseBars ?? true,
       phasePage: preferences.phasePage,
+      stageTimingLimit: preferences.stageTimingLimit,
+      setStageTimingLimit: (limit) => {
+        preferences.stageTimingLimit = limit;
+      },
       layoutView: preferences.layoutView,
       setLayoutView: (view, eventKey) => {
         preferences.layoutView = view;
@@ -1101,8 +1160,20 @@ function Panel(tools: Devtools): HTMLElement {
       live: currentSource === 'live',
       inspect,
       selectRequest: (key) => {
+        if (comparison) {
+          const other = comparison.choosing === 'a' ? 'b' : 'a';
+          if (comparison[other]?.key === key) return;
+          comparison = {
+            ...comparison,
+            [comparison.choosing]: { key },
+            lastSelectedSide: comparison.choosing,
+          };
+          refresh();
+          return;
+        }
         preferences.layoutView = undefined;
         preferences.phasePage = undefined;
+        preferences.stageTimingLimit = undefined;
         if (pinnedRequest !== key) pinnedRequest = undefined;
         preferences.requestKey = key;
         preferences.eventKey = '';
@@ -1155,6 +1226,7 @@ function Panel(tools: Devtools): HTMLElement {
       preferences.issueCategory,
       preferences.requestKey,
       pinnedRequest,
+      comparison,
       preferences.eventKey,
       preferences.phasePage,
       preferences.layoutView,
@@ -1171,6 +1243,23 @@ function Panel(tools: Devtools): HTMLElement {
       const focused = shadow.activeElement as HTMLElement | null;
       const focusKey = focused?.dataset.focusKey;
       const previousRendered = lastRendered;
+      const scrollPositions = new Map(
+        Array.from(
+          content.querySelectorAll<HTMLElement>('[data-scroll-key]'),
+          (node) => [
+            node.dataset.scrollKey,
+            [node.scrollTop, node.scrollLeft] as const,
+          ],
+        ),
+      );
+      const disclosures = new Map(
+        Array.from(
+          content.querySelectorAll<HTMLDetailsElement>(
+            'details[data-disclosure-key]',
+          ),
+          (node) => [node.dataset.disclosureKey, node.open],
+        ),
+      );
       lastRendered =
         currentTab === 'Requests'
           ? requestsView(context)
@@ -1197,12 +1286,46 @@ function Panel(tools: Devtools): HTMLElement {
           (value, index) =>
             value !== previousRendered?.contentIdentity?.[index],
         )
-      )
+      ) {
+        for (const node of lastRendered.content.querySelectorAll<HTMLDetailsElement>(
+          'details[data-disclosure-key]',
+        ))
+          node.open = disclosures.get(node.dataset.disclosureKey) ?? node.open;
         content.replaceChildren(lastRendered.content);
+        for (const node of content.querySelectorAll<HTMLElement>(
+          '[data-scroll-key]',
+        )) {
+          const position = scrollPositions.get(node.dataset.scrollKey);
+          if (position) {
+            node.scrollTop = position[0];
+            node.scrollLeft = position[1];
+          }
+        }
+      }
       workspace.dataset.list = String(Boolean(lastRendered.navigation));
       navigation.hidden = !lastRendered.navigation;
-      jsonInspector.set(lastRendered.raw, lastRendered.rawTitle);
-      if (focusKey && focused && !focused.isConnected)
+      if (comparing) jsonInspector.clear();
+      else jsonInspector.set(lastRendered.raw, lastRendered.rawTitle);
+      for (const side of ['a', 'b'] as const) {
+        const inspector = comparisonInspectors[side];
+        const placeholder = content.querySelector<HTMLElement>(
+          `[data-comparison-evidence="${side}"]`,
+        );
+        if (!placeholder) {
+          inspector.clear();
+          continue;
+        }
+        if (!placeholder.contains(inspector.element))
+          placeholder.append(inspector.element);
+        inspector.set(
+          lastRendered.comparisonEvents?.[side],
+          currentSource === 'live'
+            ? 'Live event metadata. Content requires an explicit recording.'
+            : 'Full selected event, including any retained content.',
+          'The selected event is no longer retained. Choose another event.',
+        );
+      }
+      if (focused && shadow.activeElement !== focused)
         queueMicrotask(() => {
           const currentFocus = document.activeElement;
           if (
@@ -1211,14 +1334,19 @@ function Panel(tools: Devtools): HTMLElement {
             currentFocus !== shadow.host
           )
             return;
-          const replacement = Array.from(
-            root.querySelectorAll<HTMLElement>('[data-focus-key]'),
-          ).find((node) => node.dataset.focusKey === focusKey);
+          if (shadow.activeElement && shadow.activeElement !== focused) return;
+          const replacement = focused.isConnected
+            ? focused
+            : Array.from(
+                root.querySelectorAll<HTMLElement>('[data-focus-key]'),
+              ).find((node) => node.dataset.focusKey === focusKey);
           replacement?.focus({ preventScroll: true });
         });
     }
-    workspace.dataset.json = String(preferences.json);
-    jsonPane.hidden = !preferences.json;
+    workspace.dataset.json = String(preferences.json && !comparing);
+    workspace.dataset.comparison = String(comparing);
+    workspace.dataset.comparisonJson = String(preferences.json);
+    jsonPane.hidden = !preferences.json || comparing;
     const highlighted =
       currentTab === 'Inspector' &&
       currentSource === 'live' &&

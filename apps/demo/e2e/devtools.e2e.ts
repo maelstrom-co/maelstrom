@@ -2,12 +2,16 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { expect, type Page, test } from '@playwright/test';
 
-async function openTelemetryFixture(page: Page, scenario = 'steady') {
+async function openFixture(
+  page: Page,
+  fixture: 'telemetry' | 'request-comparison' | 'connection-events',
+  query = '',
+) {
   const bundle = execFileSync(
     'bun',
     [
       'build',
-      fileURLToPath(new URL('./fixtures/telemetry.ts', import.meta.url)),
+      fileURLToPath(new URL(`./fixtures/${fixture}.ts`, import.meta.url)),
       '--target=browser',
       '--conditions=browser',
       '--conditions=development',
@@ -15,20 +19,542 @@ async function openTelemetryFixture(page: Page, scenario = 'steady') {
     ],
     { encoding: 'utf8', maxBuffer: 5_000_000 },
   );
-  await page.route('**/__telemetry-fixture.js', (route) =>
+  const scriptPath = `/__${fixture}-fixture.js`;
+  const pagePath = `/__${fixture}-fixture/`;
+  await page.route(`**${scriptPath}`, (route) =>
     route.fulfill({ contentType: 'text/javascript', body: bundle }),
   );
   await page.route(
-    (url) => url.pathname === '/__telemetry-fixture/',
+    (url) => url.pathname === pagePath,
     (route) =>
       route.fulfill({
         contentType: 'text/html',
-        body: '<!doctype html><html lang="en"><meta name="viewport" content="width=device-width,initial-scale=1"><script type="module" src="/__telemetry-fixture.js"></script></html>',
+        body: `<!doctype html><html lang="en"><meta name="viewport" content="width=device-width,initial-scale=1"><script type="module" src="${scriptPath}"></script></html>`,
       }),
   );
-  await page.goto(`/__telemetry-fixture/?scenario=${scenario}`);
+  await page.goto(`${pagePath}${query}`);
+}
+
+async function openTelemetryFixture(page: Page, scenario = 'steady') {
+  await openFixture(page, 'telemetry', `?${new URLSearchParams({ scenario })}`);
   await page.getByRole('tab', { name: 'Telemetry', exact: true }).click();
 }
+
+async function openRequestComparisonFixture(page: Page, query = '') {
+  await openFixture(page, 'request-comparison', query);
+  await page
+    .getByRole('combobox', { name: 'Evidence source', exact: true })
+    .selectOption('imported');
+  await page
+    .getByRole('button', { name: 'Compare request', exact: true })
+    .click();
+  await page
+    .locator('.list-pane')
+    .getByRole('button')
+    .filter({ has: page.getByText('Show the calendar', { exact: true }) })
+    .click();
+}
+
+test('each view keeps most of the panel for evidence and its guidance available through help', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await openFixture(page, 'connection-events');
+  await page
+    .getByRole('combobox', { name: 'Evidence source', exact: true })
+    .selectOption('imported');
+  const panel = page.getByRole('region', {
+    name: 'Maelstrom Devtools',
+    exact: true,
+  });
+  for (const [tab, guidance] of [
+    ['Requests', 'Follow a request from start to outcome.'],
+    ['Inspector', 'Select an Instance to see its Vessel'],
+    ['Connections', 'Check Engine and voice connections.'],
+    ['Recordings', 'Record a problem, or inspect a saved recording.'],
+    ['Telemetry', undefined],
+  ] as const) {
+    await page.getByRole('tab', { name: tab, exact: true }).click();
+    const evidence =
+      tab === 'Telemetry'
+        ? page.getByRole('region', {
+            name: 'Telemetry delivery health',
+            exact: true,
+          })
+        : tab === 'Recordings'
+          ? page.locator('.recording')
+          : page.getByRole('region', {
+              name: 'Diagnostic details',
+              exact: true,
+            });
+    const panelBox = await panel.boundingBox();
+    const evidenceBox = await evidence.boundingBox();
+    expect(panelBox).not.toBeNull();
+    expect(evidenceBox).not.toBeNull();
+    if (!panelBox || !evidenceBox) return;
+    const visibleHeight =
+      Math.min(
+        panelBox.y + panelBox.height,
+        evidenceBox.y + evidenceBox.height,
+      ) - Math.max(panelBox.y, evidenceBox.y);
+    expect(visibleHeight, `${tab} evidence space`).toBeGreaterThan(
+      panelBox.height * 0.65,
+    );
+    if (guidance) {
+      const help = page.locator('details').filter({
+        has: page.getByText('Using DevTools', { exact: true }),
+      });
+      const summary = help.locator('summary');
+      await expect(summary).toBeVisible();
+      await summary.focus();
+      await expect(summary).toBeFocused();
+      await page.keyboard.press('Enter');
+      await expect(help).toHaveAttribute('open', '');
+      await expect(help.getByText(guidance, { exact: false })).toBeVisible();
+      await page.keyboard.press('Enter');
+      await expect(help).not.toHaveAttribute('open', '');
+    }
+  }
+});
+
+test('comparison keeps request details and both JSON inspectors visible as the panel grows', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1695, height: 1394 });
+  await openRequestComparisonFixture(page);
+  const viewport = page.getByRole('region', {
+    name: 'Diagnostic details',
+    exact: true,
+  });
+  for (const side of ['A', 'B'])
+    await page
+      .getByRole('button', {
+        name: `${side} event JSON: Raw JSON`,
+        exact: true,
+      })
+      .click();
+  for (const height of [620, 878]) {
+    const resize = page.getByRole('separator', { name: 'Resize devtools' });
+    const handle = await resize.boundingBox();
+    expect(handle).not.toBeNull();
+    if (!handle) return;
+    await page.mouse.move(
+      handle.x + handle.width / 2,
+      handle.y + handle.height / 2,
+    );
+    await page.mouse.down();
+    await page.mouse.move(handle.x + handle.width / 2, 1394 - height, {
+      steps: 8,
+    });
+    await page.mouse.up();
+    await viewport.focus();
+    await page.keyboard.press('Home');
+    await expect
+      .poll(() => viewport.evaluate((node) => node.scrollTop))
+      .toBe(0);
+    const bounds = await viewport.boundingBox();
+    expect(bounds).not.toBeNull();
+    if (!bounds) return;
+    for (const side of ['A', 'B']) {
+      const details = page.getByRole('region', {
+        name: `${side} request details`,
+        exact: true,
+      });
+      const json = page.getByRole('complementary', {
+        name: `${side} event JSON`,
+        exact: true,
+      });
+      for (const region of [details, json]) {
+        const box = await region.boundingBox();
+        expect(box).not.toBeNull();
+        if (!box) return;
+        expect(box.y).toBeGreaterThanOrEqual(bounds.y);
+        expect(box.y + box.height).toBeLessThanOrEqual(
+          bounds.y + bounds.height,
+        );
+      }
+      expect((await details.boundingBox())?.height).toBeGreaterThan(
+        height === 620 ? 120 : 300,
+      );
+      expect(
+        await json
+          .getByRole('region', {
+            name: `${side} event JSON: Raw JSON`,
+            exact: true,
+          })
+          .evaluate((node) => node.clientHeight),
+      ).toBeGreaterThan(100);
+    }
+  }
+});
+
+test('a tall comparison shows the first phases without scrolling past duplicate timing summaries', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1695, height: 1394 });
+  await openRequestComparisonFixture(page);
+  const resize = page.getByRole('separator', { name: 'Resize devtools' });
+  const handle = await resize.boundingBox();
+  expect(handle).not.toBeNull();
+  if (!handle) return;
+  await page.mouse.move(
+    handle.x + handle.width / 2,
+    handle.y + handle.height / 2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(handle.x + handle.width / 2, 516, { steps: 8 });
+  await page.mouse.up();
+  for (const side of ['A', 'B']) {
+    const details = page.getByRole('region', {
+      name: `${side} request details`,
+      exact: true,
+    });
+    expect(await details.evaluate((node) => node.scrollTop)).toBe(0);
+    const bounds = await details.boundingBox();
+    expect(bounds).not.toBeNull();
+    if (!bounds) return;
+    const secondPhase = await details
+      .locator('.phase-select')
+      .nth(1)
+      .boundingBox();
+    expect(secondPhase).not.toBeNull();
+    if (!secondPhase) return;
+    expect(secondPhase.y + secondPhase.height).toBeLessThanOrEqual(
+      bounds.y + bounds.height,
+    );
+  }
+});
+
+test('phase selection keeps its keyboard focus outline clear of comparison evidence', async ({
+  page,
+}) => {
+  await openRequestComparisonFixture(page);
+  for (const side of ['A', 'B'])
+    await page
+      .getByRole('region', { name: `Comparison ${side}`, exact: true })
+      .getByRole('button', { name: 'Show more phases', exact: true })
+      .click();
+  for (const width of [390, 768, 1101, 1280, 1440, 1695]) {
+    await page.setViewportSize({ width, height: 1394 });
+    for (const side of ['A', 'B']) {
+      const row = page
+        .getByRole('region', { name: `Comparison ${side}`, exact: true })
+        .locator('.phase-table tbody tr')
+        .filter({ hasText: 'Response applied' });
+      const phase = row.locator('.phase-select');
+      await phase.focus();
+      await page.keyboard.press('Enter');
+      await expect(phase).toHaveAttribute('aria-pressed', 'true');
+      const clearance = await row.evaluate((node) => {
+        const button = node.querySelector<HTMLElement>('.phase-select');
+        const duration = node.querySelectorAll('td')[1]?.firstElementChild;
+        if (!button || !duration) throw new Error('Phase evidence is missing');
+        const style = getComputedStyle(button);
+        const focusEdge =
+          button.getBoundingClientRect().right +
+          Number.parseFloat(style.outlineWidth) +
+          Number.parseFloat(style.outlineOffset);
+        return {
+          focused: button.matches(':focus-visible'),
+          pixels: duration.getBoundingClientRect().left - focusEdge,
+        };
+      });
+      expect(clearance.focused).toBe(true);
+      expect(
+        clearance.pixels,
+        `${side} duration at ${width}px`,
+      ).toBeGreaterThan(0);
+    }
+  }
+});
+
+test('comparison presentation keeps keyboard focus, JSON selection, and revealed stage timings', async ({
+  page,
+}) => {
+  await openRequestComparisonFixture(page);
+  const a = page.getByRole('region', { name: 'Comparison A', exact: true });
+  const b = page.getByRole('region', { name: 'Comparison B', exact: true });
+  await b.locator('.phase-select').first().click();
+  await b
+    .getByRole('button', { name: 'B event JSON: Raw JSON', exact: true })
+    .click();
+  const json = b.getByRole('region', {
+    name: 'B event JSON: Raw JSON',
+    exact: true,
+  });
+  const selected = await json.innerText();
+  const bars = a.getByRole('checkbox', { name: 'Show duration bars' });
+  await bars.focus();
+  await page.keyboard.press('Space');
+  await expect(bars).toBeFocused();
+  await expect(json).toHaveText(selected);
+  await a.getByText('Timings and evidence coverage', { exact: true }).click();
+  await a
+    .getByRole('button', { name: 'Show more stage timings', exact: true })
+    .click();
+  await expect(a.getByRole('status')).toHaveText(
+    'Showing 205 of 205 stage timings',
+  );
+  await b.locator('.phase-select').first().click();
+  await expect(a.getByRole('status')).toHaveText(
+    'Showing 205 of 205 stage timings',
+  );
+});
+
+test('recorded comparison arguments can be explored together with independent JSON modes', async ({
+  page,
+}) => {
+  await openRequestComparisonFixture(page);
+  const a = page.getByRole('region', { name: 'Comparison A', exact: true });
+  const b = page.getByRole('region', { name: 'Comparison B', exact: true });
+  for (const side of [a, b]) {
+    await side
+      .getByRole('button', { name: 'Show more phases', exact: true })
+      .click();
+    await side.locator('.phase-select').filter({ hasText: 'open' }).click();
+  }
+  await a
+    .getByRole('button', { name: 'A event JSON: Raw JSON', exact: true })
+    .click();
+  await expect(
+    a.getByRole('region', { name: 'A event JSON: Raw JSON', exact: true }),
+  ).toContainText('Tuesday');
+  const tree = b.getByRole('region', {
+    name: 'B event JSON: JSON tree',
+    exact: true,
+  });
+  await expect(tree).toBeVisible();
+  await expect(tree).toContainText('Monday');
+  await b
+    .getByRole('button', { name: 'B event JSON: Collapse all', exact: true })
+    .click();
+  await expect(
+    b.getByRole('button', { name: 'B event JSON: Expand root', exact: true }),
+  ).toHaveAttribute('aria-expanded', 'false');
+  await b
+    .getByRole('button', { name: 'B event JSON: Expand root', exact: true })
+    .focus();
+  await page.keyboard.press('Enter');
+  await expect(tree).toContainText('Monday');
+  await expect(
+    a.getByRole('region', { name: 'A event JSON: Raw JSON', exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole('checkbox', { name: 'Show JSON', exact: true })
+    .uncheck();
+  await expect(
+    a.getByRole('complementary', { name: 'A event JSON', exact: true }),
+  ).toBeHidden();
+  await expect(
+    b.getByRole('complementary', { name: 'B event JSON', exact: true }),
+  ).toBeHidden();
+  await page.getByRole('checkbox', { name: 'Show JSON', exact: true }).check();
+  await expect(
+    a.getByRole('complementary', { name: 'A event JSON', exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole('button', { name: 'Exit comparison', exact: true })
+    .click();
+  await expect(
+    page.getByRole('complementary', { name: 'JSON evidence', exact: true }),
+  ).toBeVisible();
+});
+
+test('comparison phase navigation preserves the other request’s scroll and event selection', async ({
+  page,
+}) => {
+  await openRequestComparisonFixture(page);
+  const a = page.getByRole('region', { name: 'Comparison A', exact: true });
+  const b = page.getByRole('region', { name: 'Comparison B', exact: true });
+  const aDetails = a.getByRole('region', {
+    name: 'A request details',
+    exact: true,
+  });
+  await page
+    .getByText('Compare observed event counts', { exact: true })
+    .click();
+  const aPhase = a
+    .getByRole('button', { name: /Engine stage failed · plan/ })
+    .first();
+  await aPhase.click();
+  await expect(
+    page.locator('details').filter({
+      has: page.getByText('Compare observed event counts', { exact: true }),
+    }),
+  ).toHaveAttribute('open', '');
+  const previousScroll = await aDetails.evaluate((node) => node.scrollTop);
+  expect(previousScroll).toBeGreaterThan(0);
+  const bPhase = b
+    .getByRole('button', { name: /Engine stage completed · plan/ })
+    .first();
+  await bPhase.focus();
+  await page.keyboard.press('Enter');
+  await expect(
+    a.getByRole('button', { name: /Engine stage failed · plan/ }).first(),
+  ).toHaveAttribute('aria-pressed', 'true');
+  expect(await aDetails.evaluate((node) => node.scrollTop)).toBe(
+    previousScroll,
+  );
+  await a
+    .getByRole('button', { name: 'A event JSON: Raw JSON', exact: true })
+    .click();
+  await b
+    .getByRole('button', { name: 'B event JSON: Raw JSON', exact: true })
+    .click();
+  await expect(
+    a.getByRole('region', { name: 'A event JSON: Raw JSON', exact: true }),
+  ).toContainText('b-stage-0');
+  await expect(
+    b.getByRole('region', { name: 'B event JSON: Raw JSON', exact: true }),
+  ).toContainText('a-stage-1');
+  await expect(
+    page.getByRole('complementary', { name: 'JSON evidence', exact: true }),
+  ).toBeHidden();
+});
+
+test('long imported identities leave both request details and JSON reachable', async ({
+  page,
+}) => {
+  await openRequestComparisonFixture(page, '?long-identities');
+  for (const side of ['A', 'B']) {
+    const column = page.getByRole('region', {
+      name: `Comparison ${side}`,
+      exact: true,
+    });
+    const details = column.getByRole('region', {
+      name: `${side} request details`,
+      exact: true,
+    });
+    const json = column.getByRole('complementary', {
+      name: `${side} event JSON`,
+      exact: true,
+    });
+    const columnBox = await column.boundingBox();
+    const detailsBox = await details.boundingBox();
+    const jsonBox = await json.boundingBox();
+    expect(columnBox).not.toBeNull();
+    expect(detailsBox).not.toBeNull();
+    expect(jsonBox).not.toBeNull();
+    if (!columnBox || !detailsBox || !jsonBox) return;
+    expect(detailsBox.height).toBeGreaterThan(100);
+    expect(jsonBox.y + jsonBox.height).toBeLessThanOrEqual(
+      columnBox.y + columnBox.height,
+    );
+    const tree = column.getByRole('region', {
+      name: `${side} event JSON: JSON tree`,
+      exact: true,
+    });
+    expect(await tree.evaluate((node) => node.clientHeight)).toBeGreaterThan(
+      90,
+    );
+    await column
+      .getByRole('button', {
+        name: `${side} event JSON: Raw JSON`,
+        exact: true,
+      })
+      .click();
+    const raw = column.getByRole('region', {
+      name: `${side} event JSON: Raw JSON`,
+      exact: true,
+    });
+    expect(await raw.evaluate((node) => node.clientHeight)).toBeGreaterThan(90);
+    const identity = column.getByRole('region', {
+      name: `${side} request identity`,
+      exact: true,
+    });
+    await identity.focus();
+    await page.keyboard.press('ArrowRight');
+    await expect
+      .poll(() => identity.evaluate((node) => node.scrollLeft))
+      .toBeGreaterThan(0);
+    await expect(json).toContainText('request-');
+  }
+});
+
+test('long request identities remain readable when horizontal scrolling reserves a gutter', async ({
+  page,
+}) => {
+  await openRequestComparisonFixture(
+    page,
+    '?long-identities&reserved-scrollbar-space',
+  );
+  for (const side of ['A', 'B']) {
+    const identity = page.getByRole('region', {
+      name: `${side} request identity`,
+      exact: true,
+    });
+    const geometry = await identity.evaluate((node) => {
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      const gutter = Number.parseFloat(getComputedStyle(node).paddingBottom);
+      return {
+        contentHeight: node.clientHeight - gutter,
+        textHeight: range.getBoundingClientRect().height,
+        gutter,
+      };
+    });
+    expect(geometry.gutter).toBe(17);
+    expect(geometry.contentHeight).toBeGreaterThanOrEqual(geometry.textHeight);
+  }
+});
+
+test('filtered comparison requests keep their JSON inspectors reachable', async ({
+  page,
+}) => {
+  await openRequestComparisonFixture(page);
+  await page
+    .getByRole('searchbox', { name: 'Filter diagnostic evidence', exact: true })
+    .fill('not-a-retained-request');
+  for (const side of ['A', 'B']) {
+    const column = page.getByRole('region', {
+      name: `Comparison ${side}`,
+      exact: true,
+    });
+    await expect(column).toContainText('hidden from the list');
+    const json = column.getByRole('complementary', {
+      name: `${side} event JSON`,
+      exact: true,
+    });
+    const columnBox = await column.boundingBox();
+    const jsonBox = await json.boundingBox();
+    expect(columnBox).not.toBeNull();
+    expect(jsonBox).not.toBeNull();
+    if (!columnBox || !jsonBox) return;
+    expect(jsonBox.y + jsonBox.height).toBeLessThanOrEqual(
+      columnBox.y + columnBox.height,
+    );
+  }
+});
+
+test('Connections highlights the connection or voice event shown in JSON', async ({
+  page,
+}) => {
+  await openFixture(page, 'connection-events');
+  await page
+    .getByRole('combobox', { name: 'Evidence source', exact: true })
+    .selectOption('imported');
+  await page.getByRole('tab', { name: 'Connections', exact: true }).click();
+  await page.getByRole('button', { name: 'Raw JSON', exact: true }).click();
+  const connection = page.getByRole('button', {
+    name: /^Engine connection changed/,
+  });
+  const voice = page.getByRole('button', { name: /^Voice session changed/ });
+  const json = page.getByRole('region', { name: 'Raw JSON', exact: true });
+  await connection.click();
+  await expect(connection).toHaveAttribute('aria-pressed', 'true');
+  await expect(voice).toHaveAttribute('aria-pressed', 'false');
+  await expect(json).toContainText('fixture-connection');
+  expect(
+    await connection.evaluate((node) => getComputedStyle(node).backgroundColor),
+  ).not.toBe(
+    await voice.evaluate((node) => getComputedStyle(node).backgroundColor),
+  );
+  await voice.focus();
+  await page.keyboard.press('Enter');
+  await expect(voice).toHaveAttribute('aria-pressed', 'true');
+  await expect(connection).toHaveAttribute('aria-pressed', 'false');
+  await expect(json).toContainText('fixture-voice');
+});
 
 test('telemetry axis labels remain inside the chart for fractional tick values', async ({
   page,
@@ -527,7 +1053,9 @@ test('layout changes support keyboard inspection beside retained JSON', async ({
   await before.focus();
   await page.keyboard.press('Enter');
   await expect(before).toBeFocused();
-  await expect(panel.locator('.json-raw')).toContainText('before-layout');
+  await expect(
+    panel.locator('[aria-label="JSON evidence"] .json-raw'),
+  ).toContainText('before-layout');
   const change = comparison.getByRole('button', {
     name: 'calendar: Moved, Resized, Variant changed',
     exact: true,
@@ -535,7 +1063,9 @@ test('layout changes support keyboard inspection beside retained JSON', async ({
   await change.focus();
   await page.keyboard.press('Enter');
   await expect(change).toBeFocused();
-  await expect(panel.locator('.json-raw')).toContainText('after-layout');
+  await expect(
+    panel.locator('[aria-label="JSON evidence"] .json-raw'),
+  ).toContainText('after-layout');
   await expect(comparison).toContainText(
     'Before: month · visible. After: week · visible.',
   );

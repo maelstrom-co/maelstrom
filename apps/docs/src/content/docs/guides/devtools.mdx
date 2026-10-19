@@ -125,7 +125,9 @@ exporter delivery health are separate from these DevTools history counts.
 
 The request list, readable details, and JSON pane scroll independently. Use the
 JSON pane's **Tree** presentation to explore collapsible sections, or **Raw JSON**
-for highlighted text. Selection stays fixed while new requests arrive. If the
+for highlighted text. Open **Info** for the selected evidence's description.
+Open **Using DevTools** in the toolbar for guidance on the current view.
+Selection stays fixed while new requests arrive. If the
 selected trace expires, select another request from the list.
 
 Choose **Pin request** to keep one request at the top of the list while new
@@ -139,6 +141,48 @@ it. Starting a new recording clears the pin while **Evidence** is set to
 **Current recording**. Pins in **Live activity** and **Imported recording** stay
 selected because their evidence is unchanged. Pins last until the panel unmounts.
 Closing and reopening the panel preserves the pin.
+
+## Compare two requests
+
+Select a request in **Requests** and choose **Compare request**. It becomes
+**A**. Select a second request from the list for **B**. Both requests must belong
+to the selected **Evidence** source. Choose **All app instances** before
+comparing requests from different app lifetimes.
+
+Compare the outcomes and reported durations. **B − A** shows the difference
+when both requests report the same timing measure. Missing durations stay
+**Not reported**. Push responses have no request round-trip measurement.
+Stages and repeated Actions remain separate sequences; rows do not identify
+matching attempts across requests.
+Duration bars use one scale across both requests.
+Open **Comparison help** for selection guidance and measurement limits.
+
+Select a phase on each side to inspect two events together. Each request has its
+own details and event JSON inspector. Choosing another phase updates only that
+side's JSON. Scroll the details and JSON separately within each column.
+
+Use each inspector's tree or raw JSON controls to explore the full event,
+including metadata and any recorded content. **Show JSON** hides or shows both
+inspectors. The shared JSON pane is hidden during comparison. Live activity
+contains metadata only; viewing a request does not start a recording.
+
+Read **Other request** beside each phase to find one-sided observations.
+**Unmatched in retained evidence** means the other request has no compatible
+observation in its retained history. Incomplete or redacted evidence stays unknown.
+Similar metadata does not establish a matching attempt or Action invocation.
+Reported history loss also leaves missing counterparts unknown because the source
+does not identify which request lost an event.
+
+Use **Choose A** or **Choose B**, then select a request from the list to
+replace that side. Incoming activity preserves both identities. Filters change
+the list while selected requests remain inspectable. Eviction leaves an explicit
+message and clears unavailable JSON; comparison does not extend retention.
+
+Choose **Exit comparison** to return to one request. Changing **Evidence** or
+**App instance**, replacing an imported recording, or unmounting the panel clears
+the comparison. Starting a new recording or changing its redaction policy also
+clears comparison while **Evidence** is set to **Current recording**.
+Closing and reopening the panel preserves the selected requests.
 
 ## Compare a request's layouts
 
@@ -178,6 +222,7 @@ In **Requests**, switch the activity selector to **All events** and search for
 are present. Search matches event kinds, request IDs, and metadata.
 
 Open **Connections** for Engine connection state and separate voice summaries.
+Select a connection or voice event to highlight its row and inspect its JSON.
 Voice evidence distinguishes provider lifetimes and connection generations.
 Connections labels session and provider generations separately. These counters
 can differ after a cancelled startup; matching numbers do not establish that

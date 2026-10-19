@@ -21,12 +21,14 @@ import {
   type PanelApp,
   type PanelEvent,
   type PanelEvidence,
+  type RequestCounterpart,
   type RequestStatus,
   type RequestTrace,
   requestPhases,
   statusLabels,
   text,
 } from './panel-model.js';
+import { requestComparisonView } from './request-comparison-view.js';
 
 export { button, element } from './panel-elements.js';
 
@@ -98,10 +100,21 @@ export interface ViewContext {
   issueCategory?: string;
   requestKey: string;
   pinnedRequest?: string;
+  comparison?: RequestComparisonSelection;
+  setComparison(selection?: RequestComparisonSelection): void;
   pinRequest(key?: string): void;
   phaseBars: boolean;
+  phaseMaximumMs?: number;
+  phaseCounterparts?: {
+    other: ComparisonSide;
+    events: ReadonlyMap<string, RequestCounterpart>;
+  };
   setPhaseBars(enabled: boolean): void;
   phasePage?: { requestKey: string; index: number };
+  stageTimingLimit?: { requestKey: string; count: number };
+  setStageTimingLimit(
+    limit: NonNullable<ViewContext['stageTimingLimit']>,
+  ): void;
   layoutView?: LayoutViewSelection;
   setLayoutView(view: LayoutViewSelection, eventKey?: string): void;
   selectPhasePage(page: NonNullable<ViewContext['phasePage']>): void;
@@ -117,6 +130,21 @@ export interface ViewContext {
   selectApp(clientId: string): void;
   more(): void;
 }
+export type ComparisonSide = 'a' | 'b';
+export interface ComparisonRequest {
+  key: string;
+  phaseBars?: boolean;
+  eventKey?: string;
+  phasePage?: ViewContext['phasePage'];
+  stageTimingLimit?: ViewContext['stageTimingLimit'];
+  layoutView?: LayoutViewSelection;
+}
+export interface RequestComparisonSelection {
+  a: ComparisonRequest;
+  b?: ComparisonRequest;
+  choosing: ComparisonSide;
+  lastSelectedSide: ComparisonSide;
+}
 export interface RenderedView {
   navigation?: HTMLElement;
   content: HTMLElement;
@@ -125,6 +153,7 @@ export interface RenderedView {
   selectedInstance?: { clientId: string; instanceId: string };
   selectedRequestKey?: string;
   contentIdentity?: readonly unknown[];
+  comparisonEvents?: Partial<Record<ComparisonSide, unknown>>;
 }
 
 function issueDescription(issue: EventIssue): string {
@@ -143,16 +172,23 @@ function matchesCategory(
   );
 }
 
-function stageTimingsView(timings: readonly EngineTiming[]): HTMLElement {
+function stageTimingsView(
+  timings: readonly EngineTiming[],
+  initialLimit: number,
+  onMore: (count: number) => void,
+): HTMLElement {
   const section = element('section');
   section.setAttribute('aria-label', 'Engine stage timings');
   const rows = factList([]);
   const status = element('p', undefined, 'muted small');
   status.setAttribute('role', 'status');
   let shown = 0;
-  const more = button('Show more stage timings', showMore);
-  function showMore(): void {
-    const end = Math.min(shown + 200, timings.length);
+  const more = button('Show more stage timings', () =>
+    showMore(shown + 200, true),
+  );
+  more.dataset.focusKey = 'more-stage-timings';
+  function showMore(limit: number, remember: boolean): void {
+    const end = Math.min(limit, timings.length);
     const batch = factList(
       timings
         .slice(shown, end)
@@ -162,11 +198,28 @@ function stageTimingsView(timings: readonly EngineTiming[]): HTMLElement {
     shown = end;
     status.textContent = `Showing ${shown} of ${timings.length} stage timings`;
     more.disabled = shown === timings.length;
+    if (remember) onMore(shown);
   }
-  showMore();
+  showMore(initialLimit, false);
   section.append(element('h4', 'Engine stages'), rows, status);
   if (timings.length > 200) section.append(more);
   return section;
+}
+
+function requestPhasePage(
+  request: RequestTrace,
+  context: ViewContext,
+  phases = requestPhases(request),
+): number {
+  const selectedIndex = phases.findIndex(
+    (phase) => phase.eventKey === context.eventKey,
+  );
+  return Math.min(
+    context.phasePage?.requestKey === request.key
+      ? context.phasePage.index
+      : Math.floor(Math.max(0, selectedIndex) / 200),
+    Math.max(0, Math.ceil(phases.length / 200) - 1),
+  );
 }
 
 function requestPhasesView(
@@ -175,25 +228,31 @@ function requestPhasesView(
   context: ViewContext,
 ): HTMLElement {
   const section = element('section', undefined, 'request-phases');
-  section.append(
-    element('h3', 'Request phases'),
-    element(
-      'p',
-      'Observed order, not a shared clock. Bars compare reported durations; nested work overlaps.',
-      'muted small',
-    ),
-  );
+  const phaseHeading = element('div', undefined, 'phase-heading');
+  phaseHeading.append(element('h3', 'Request phases'));
+  section.append(phaseHeading);
+  if (!context.comparison)
+    section.append(
+      element(
+        'p',
+        'Observed order, not a shared clock. Bars compare reported durations; nested work overlaps.',
+        'muted small',
+      ),
+    );
   const phases = requestPhases(request);
-  const maximum = phases.reduce(
-    (max, phase) => Math.max(max, phase.durationMs ?? 0),
-    0,
-  );
+  const maximum =
+    context.phaseMaximumMs ??
+    phases.reduce((max, phase) => Math.max(max, phase.durationMs ?? 0), 0);
   const table = element('table', undefined, 'phase-table');
   table.setAttribute('aria-label', 'Request phases');
   const header = element('thead'),
     headings = element('tr'),
     body = element('tbody');
-  for (const title of ['Phase / outcome', 'Duration']) {
+  for (const title of [
+    'Phase / outcome',
+    'Duration',
+    ...(context.phaseCounterparts ? ['Other request'] : []),
+  ]) {
     const heading = element('th', title);
     heading.scope = 'col';
     headings.append(heading);
@@ -203,6 +262,7 @@ function requestPhasesView(
   const barsLabel = element('label', undefined, 'phase-display');
   const bars = element('input');
   bars.type = 'checkbox';
+  bars.dataset.focusKey = 'phase-bars';
   bars.checked = context.phaseBars;
   table.dataset.bars = String(bars.checked);
   bars.addEventListener('change', () => {
@@ -210,16 +270,9 @@ function requestPhasesView(
     context.setPhaseBars(bars.checked);
   });
   barsLabel.append(bars, document.createTextNode('Show duration bars'));
+  phaseHeading.append(barsLabel);
   const status = element('p', undefined, 'muted small');
-  const selectedIndex = phases.findIndex(
-    (phase) => phase.eventKey === context.eventKey,
-  );
-  const pageIndex = Math.min(
-    context.phasePage?.requestKey === request.key
-      ? context.phasePage.index
-      : Math.floor(Math.max(0, selectedIndex) / 200),
-    Math.max(0, Math.ceil(phases.length / 200) - 1),
-  );
+  const pageIndex = requestPhasePage(request, context, phases);
   const start = pageIndex * 200;
   const end = Math.min(start + 200, phases.length);
   for (const phase of phases.slice(start, end)) {
@@ -252,10 +305,28 @@ function requestPhasesView(
       timing.append(track);
     }
     row.append(name, timing);
+    if (context.phaseCounterparts) {
+      const other = context.phaseCounterparts.other.toUpperCase();
+      const labels: Record<RequestCounterpart, string> = {
+        unmatched: `Unmatched in retained ${other} evidence`,
+        unknown: 'Correspondence unknown',
+        incomplete: `Unknown — incomplete ${other} evidence`,
+        unavailable: `${other} evidence unavailable`,
+      };
+      row.append(
+        element(
+          'td',
+          labels[
+            context.phaseCounterparts.events.get(phase.eventKey) ?? 'unknown'
+          ],
+          'phase-counterpart',
+        ),
+      );
+    }
     body.append(row);
   }
   status.textContent = `Showing ${start + 1}–${end} of ${phases.length} observed events`;
-  section.append(barsLabel, table, status);
+  section.append(table, status);
   if (phases.length > 200) {
     const previous = button('Previous phases', () => {
       if (pageIndex > 0)
@@ -441,7 +512,16 @@ export function requestsView(context: ViewContext): RenderedView {
       'row-button',
     );
     row.dataset.focusKey = `request:${request.key}`;
-    row.setAttribute('aria-pressed', String(selected?.key === request.key));
+    row.setAttribute(
+      'aria-pressed',
+      String(
+        context.comparison
+          ? [context.comparison.a.key, context.comparison.b?.key].includes(
+              request.key,
+            )
+          : selected?.key === request.key,
+      ),
+    );
     const heading = element('span', undefined, 'row-heading');
     heading.append(
       element(
@@ -461,10 +541,22 @@ export function requestsView(context: ViewContext): RenderedView {
       ),
     );
     if (request.key === context.pinnedRequest) row.append(badge('Pinned'));
+    for (const side of ['a', 'b'] as const)
+      if (context.comparison?.[side]?.key === request.key)
+        row.append(badge(side.toUpperCase()));
     navigation.append(row);
   }
   if (requests.length > context.pageSize)
     navigation.append(button('Show more requests', context.more));
+  if (context.comparison)
+    return requestComparisonView(
+      context,
+      context.comparison,
+      retainedRequests,
+      requests,
+      navigation,
+      requestDetailsView,
+    );
   if (!selected) {
     if (context.pinnedRequest)
       content.append(button('Unpin request', () => context.pinRequest()));
@@ -485,6 +577,19 @@ export function requestsView(context: ViewContext): RenderedView {
     );
     return { navigation, content, raw: undefined, rawTitle: 'Selected event' };
   }
+  return { navigation, ...requestDetailsView(selected, context) };
+}
+
+function requestDetailsView(
+  selected: RequestTrace,
+  context: ViewContext,
+): RenderedView {
+  const current =
+    selected.events.find((event) => event.key === context.eventKey) ??
+    (context.comparison && context.eventKey
+      ? undefined
+      : selected.events.at(-1));
+  const content = element('section');
   const outcome = element('header', undefined, 'request-outcome');
   outcome.dataset.tone = tone(selected.status);
   outcome.append(
@@ -523,7 +628,25 @@ export function requestsView(context: ViewContext): RenderedView {
   );
   pin.title =
     'Keep this request first in the list. Selecting another request clears the pin. Event retention limits still apply.';
-  outcome.append(pin);
+  if (!context.comparison) {
+    outcome.append(pin);
+    const compare = button('Compare request', () =>
+      context.setComparison({
+        a: {
+          key: selected.key,
+          eventKey: current?.key,
+          phasePage: {
+            requestKey: selected.key,
+            index: requestPhasePage(selected, context),
+          },
+        },
+        choosing: 'b',
+        lastSelectedSide: 'a',
+      }),
+    );
+    compare.dataset.focusKey = 'compare-request';
+    outcome.append(compare);
+  }
   content.append(outcome);
   const matchingIssues = selected.issues.filter((issue) =>
     matchesCategory(issue, context.issueCategory),
@@ -563,7 +686,15 @@ export function requestsView(context: ViewContext): RenderedView {
           'muted small',
         ),
       );
-    content.append(issues);
+    if (context.comparison) {
+      const disclosure = element('details');
+      disclosure.dataset.disclosurePurpose = 'issues';
+      disclosure.append(
+        element('summary', `Observed issues (${matchingIssues.length})`),
+        issues,
+      );
+      content.append(disclosure);
+    } else content.append(issues);
   }
   if (
     selected.status === 'discarded' ||
@@ -589,17 +720,21 @@ export function requestsView(context: ViewContext): RenderedView {
       `${selected.succeededActions} observed Actions succeeded · ${selected.observedFailedActions} failed · ${selected.observedSkippedActions} skipped`,
       'muted small',
     ),
-    factList([
-      [
-        'Request round-trip',
-        selected.push
-          ? 'Not applicable (push)'
-          : duration(selected.transportMs),
-      ],
-      ['Client application', duration(selected.applicationMs)],
-    ]),
   );
+  if (!context.comparison)
+    content.append(
+      factList([
+        [
+          'Request round-trip',
+          selected.push
+            ? 'Not applicable (push)'
+            : duration(selected.transportMs),
+        ],
+        ['Client application', duration(selected.applicationMs)],
+      ]),
+    );
   const coverage = element('details', undefined, 'help');
+  coverage.dataset.disclosurePurpose = 'timings';
   coverage.append(
     element('summary', 'Timings and evidence coverage'),
     factList([
@@ -623,7 +758,17 @@ export function requestsView(context: ViewContext): RenderedView {
   const stageTimings = selected.engineTimings.filter(
     (timing) => timing.kind === 'stage',
   );
-  if (stageTimings.length) coverage.append(stageTimingsView(stageTimings));
+  if (stageTimings.length)
+    coverage.append(
+      stageTimingsView(
+        stageTimings,
+        context.stageTimingLimit?.requestKey === selected.key
+          ? context.stageTimingLimit.count
+          : 200,
+        (count) =>
+          context.setStageTimingLimit({ requestKey: selected.key, count }),
+      ),
+    );
   if (selected.missingStart)
     content.append(
       element(
@@ -680,12 +825,25 @@ export function requestsView(context: ViewContext): RenderedView {
         'muted small',
       ),
     );
-  const current =
-    selected.events.find((event) => event.key === context.eventKey) ??
-    selected.events.at(-1);
-  content.append(
-    layoutComparisonView(selected, context.evidence.events, context),
+  if (context.comparison && context.eventKey && !current)
+    content.append(
+      element(
+        'p',
+        'Selected phase is no longer retained. Select another phase to inspect its JSON.',
+        'warning',
+      ),
+    );
+  const layout = layoutComparisonView(
+    selected,
+    context.evidence.events,
+    context,
   );
+  if (context.comparison) {
+    const disclosure = element('details');
+    disclosure.dataset.disclosurePurpose = 'layout';
+    disclosure.append(element('summary', 'Layout changes'), layout);
+    content.append(disclosure);
+  } else content.append(layout);
   content.append(requestPhasesView(selected, current, context));
   coverage.append(
     element(
@@ -700,7 +858,6 @@ export function requestsView(context: ViewContext): RenderedView {
   content.append(coverage);
   if (current) content.append(eventDetails(current, context));
   return {
-    navigation,
     content,
     raw: current?.raw,
     rawTitle: 'Selected stage',
@@ -712,6 +869,7 @@ export function requestsView(context: ViewContext): RenderedView {
       context.issueCategory,
       context.eventKey,
       context.phasePage,
+      context.stageTimingLimit,
       context.layoutView,
       context.clientId,
       dropped,
@@ -1130,6 +1288,7 @@ export function connectionsView(
       'row-button',
     );
     row.dataset.focusKey = `connection:${event.key}`;
+    row.setAttribute('aria-pressed', String(context.eventKey === event.key));
     content.append(row);
   }
   const selected = events.find((event) => event.key === context.eventKey);
