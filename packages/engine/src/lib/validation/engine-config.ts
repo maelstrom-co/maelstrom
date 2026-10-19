@@ -5,7 +5,7 @@ import type { LLMContextMessage } from '../history/history-manager.js';
 import type { HistoryEntry, HistoryStore } from '../history/history-store.js';
 import type { Logger } from '../logger.js';
 import type { Instrument } from '../planner/instrument.js';
-import type { Planner } from '../planner/stage.js';
+import type { ClarifyingPlanner } from '../planner/stage.js';
 import { formatValidationIssues } from './format-validation-issues.js';
 
 // `T` is compile-time shape only — runtime only verifies that `v` is callable.
@@ -71,7 +71,7 @@ const retrySchema = z.union([
 
 const engineConfigSchema = z
   .object({
-    planner: functionSchema<Planner>(),
+    planner: functionSchema<ClarifyingPlanner>(),
     logger: loggerSchema.optional(),
     history: historySchema.optional(),
     instrument: instrumentSchema.optional(),

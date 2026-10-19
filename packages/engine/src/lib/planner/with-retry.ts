@@ -1,7 +1,12 @@
 import { isErr } from '@maelstrom-co/protocol';
 
 import { logAtSeverity } from '../severity-router.js';
-import type { PlannerCandidate } from './candidate.js';
+import type {
+  PlannerCandidate,
+  PlannerOutput,
+  ReplylessCandidate,
+} from './candidate.js';
+import { isNeedsClarification } from './candidate.js';
 import type { Retryable, RetryFeedback, Stage } from './stage.js';
 
 /** Retry budget for {@link withRetry}. */
@@ -31,6 +36,7 @@ export interface WithRetryOptions {
  * `Retries exhausted` (the last only when `max > 0`), at a level derived from
  * the retry severity.
  *
+ * @typeParam In - The input the wrapped stage receives, before retry feedback is added.
  * @throws {Error} If `options.max` is not a non-negative integer.
  *
  * @example
@@ -42,7 +48,40 @@ export interface WithRetryOptions {
 export function withRetry<In>(
   stage: Stage<Retryable<In>, PlannerCandidate>,
   options: WithRetryOptions,
-): Stage<In, PlannerCandidate> {
+): Stage<In, PlannerCandidate>;
+/**
+ * {@link withRetry} for a stage that may omit `userMessage`: the retry
+ * feedback carries the {@link ReplylessCandidate} the previous attempt
+ * produced, and the wrapper returns replyless candidates too.
+ *
+ * @typeParam In - The input the wrapped stage receives, before retry feedback is added.
+ * @throws {Error} If `options.max` is not a non-negative integer.
+ */
+export function withRetry<In>(
+  stage: Stage<Retryable<In, ReplylessCandidate>, ReplylessCandidate>,
+  options: WithRetryOptions,
+): Stage<In, ReplylessCandidate>;
+/**
+ * {@link withRetry} for a stage that may return any {@link PlannerOutput},
+ * including a needs-clarification result: the retry feedback carries the
+ * {@link ReplylessCandidate} the previous attempt produced, and the wrapper
+ * returns any `PlannerOutput` too.
+ *
+ * A needs-clarification result is returned unchanged on the attempt that
+ * produced it, without validation or retry: it has no layout to heal, and
+ * the Engine decides whether the request allows it.
+ *
+ * @typeParam In - The input the wrapped stage receives, before retry feedback is added.
+ * @throws {Error} If `options.max` is not a non-negative integer.
+ */
+export function withRetry<In>(
+  stage: Stage<Retryable<In, ReplylessCandidate>, PlannerOutput>,
+  options: WithRetryOptions,
+): Stage<In, PlannerOutput>;
+export function withRetry<In>(
+  stage: Stage<Retryable<In, ReplylessCandidate>, PlannerOutput>,
+  options: WithRetryOptions,
+): Stage<In, PlannerOutput> {
   const maxRetries = options.max;
   if (!Number.isInteger(maxRetries) || maxRetries < 0) {
     throw new Error(
@@ -50,7 +89,7 @@ export function withRetry<In>(
     );
   }
   return async (input, ctx) => {
-    let attemptInput = input as Retryable<In>;
+    let attemptInput = input as Retryable<In, ReplylessCandidate>;
     for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
       ctx.instrument.event('planner.attempt', {
         'maelstrom.attempt': attempt,
@@ -60,7 +99,10 @@ export function withRetry<In>(
       const result = await stage(attemptInput, ctx);
       if (isErr(result)) return result;
 
-      const report = ctx.validate(result.value);
+      const candidate: PlannerOutput = result.value;
+      if (isNeedsClarification(candidate)) return result;
+
+      const report = ctx.validate(candidate);
       if (isErr(report)) return report;
 
       const { diagnostics } = report.value;
@@ -85,9 +127,9 @@ export function withRetry<In>(
         return result;
       }
 
-      const retry: RetryFeedback = {
+      const retry: RetryFeedback<ReplylessCandidate> = {
         attempt: attempt + 1,
-        previous: result.value,
+        previous: candidate,
         diagnostics,
       };
       attemptInput = { ...input, retry };

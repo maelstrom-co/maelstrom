@@ -153,10 +153,27 @@ interface ChartRequest {
   instances: readonly VesselInstanceSnapshot[];
   vessels: readonly Vessel[];
   layout: GridLayout | TilingLayout;
+  skipReply?: boolean;
+  intentFacts?: Readonly<Record<string, JsonValue>>;
 }
 ```
 
 Identity (`id`), session binding (`sessionId`), and timestamp live on the surrounding envelope, not in this payload.
+
+### skipReply and intent facts
+
+Both fields are optional and absent by default. A client that renders the Planner's reply leaves them unset. They are for a caller that owns the conversation itself, such as an agent loop.
+
+- **`skipReply`** (default `false`): the caller writes what the user reads and hears, so the Planner may omit `userMessage` or answer with a `NeedsClarification` result instead of a layout. See [Planner output](#planner-output).
+- **`intentFacts`**: structured values the caller already learned about the intent, for example from tool results, keyed by a name the Planner can reason about. They are inputs to planning, not instructions. The Planner still chooses the Actions and their parameters. Every value must be a `JsonValue`, and `ChartRequestSchema` rejects anything JSON cannot carry, such as a function or an `undefined` property.
+
+```ts
+const request: ChartRequest = {
+  ...baseRequest,
+  skipReply: true,
+  intentFacts: { latestOrderSku: 'A123', similarSkus: ['B456'] },
+};
+```
 
 ### Update reasons
 
@@ -209,6 +226,29 @@ interface ActionExecution {
 ```
 
 `requestId` echoes the originating envelope `id` so callers can correlate without external bookkeeping. `executionPlan` lists action invocations to apply (in order) before the layout transition. `userMessage` is the natural-language summary the LLM produced for end users; `rationale` is the LLM's internal reasoning, useful for logging and debugging.
+
+`MaelstromResponse` always carries `userMessage`, whatever the request's `skipReply` flag.
+
+---
+
+## Planner output
+
+`GridResponseSchema` and `TilingResponseSchema` describe the structured output a Planner returns for a request without `skipReply`. Both require `userMessage`.
+
+For a request with `skipReply: true` the Planner may return one of these instead:
+
+- **`GridResponseWithoutReplySchema` / `TilingResponseWithoutReplySchema`**: the same shapes with an optional `userMessage`. The strict schemas stay unchanged.
+- **`NeedsClarificationSchema`**: a question for the user when the Planner cannot proceed without one. It carries no layout and no execution plan.
+
+```ts
+interface NeedsClarification {
+  type: 'needs_clarification';
+  question: string;            // never blank
+  options?: readonly string[]; // suggested answers, each non-blank
+}
+```
+
+`PlannerOutputFor<R>` turns that rule into a type. For a request type whose `skipReply` is absent or `false` it is the reply-bearing `GridResponse | TilingResponse`. For `skipReply: true`, or a flag only known as `boolean`, it is `GridResponseWithoutReply | TilingResponseWithoutReply | NeedsClarification`.
 
 ---
 
@@ -405,6 +445,8 @@ if (!parsed.success) {
 ```
 
 The schemas brand identifier fields via `.transform(...)`, so the parsed result carries `SessionId`, `MessageId`, `InstanceId`, etc. — no second pass needed.
+
+`JsonValueSchema` validates a `JsonValue`: a string, finite number, boolean, `null`, or an array or plain object of those, at any depth.
 
 ---
 

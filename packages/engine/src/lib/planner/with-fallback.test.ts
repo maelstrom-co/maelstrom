@@ -1,7 +1,11 @@
 import { describe, expect, test } from 'bun:test';
+import type { NeedsClarification } from '@maelstrom-co/protocol';
 import { err, isErr, isOk, ok } from '@maelstrom-co/protocol';
 
-import { buildGridResponse } from '../__test-helpers__/fixtures.js';
+import {
+  buildGridResponse,
+  makeGridRequest,
+} from '../__test-helpers__/fixtures.js';
 import {
   makePlanningInput,
   makeStageContext,
@@ -14,9 +18,11 @@ import {
   providerError,
   validationError,
 } from '../errors.js';
+import type { PlannerOutput } from './candidate.js';
 import type {
   Planner,
   PlanningInput,
+  Stage,
   StageContext,
   StageError,
 } from './stage.js';
@@ -119,5 +125,82 @@ describe('withFallback', () => {
 
     expect(isOk(result) && result.value).toBe(fallbackCandidate);
     expect(third.calls).toHaveLength(1);
+  });
+});
+
+describe('withFallback with skipReply and intentFacts', () => {
+  const skipReplyInput = (): PlanningInput =>
+    makePlanningInput({
+      ...makeGridRequest(),
+      skipReply: true,
+      intentFacts: { latestOrderSku: 'A123', similarSkus: ['B456'] },
+    });
+
+  const clarification: NeedsClarification = {
+    type: 'needs_clarification',
+    question: 'Which order do you mean?',
+    options: ['The latest order'],
+  };
+
+  function recordingStage(outcome: PlannerOutput | StageError): {
+    stage: Stage<PlanningInput, PlannerOutput>;
+    inputs: PlanningInput[];
+  } {
+    const inputs: PlanningInput[] = [];
+    const stage: Stage<PlanningInput, PlannerOutput> = async (input) => {
+      inputs.push(input);
+      return '_tag' in outcome ? err(outcome) : ok(outcome);
+    };
+    return { stage, inputs };
+  }
+
+  test('skipReply and intentFacts reach the primary and the fallback unchanged', async () => {
+    const primary = recordingStage(deferred('not mine'));
+    const fallback = recordingStage(fallbackCandidate);
+    const input = skipReplyInput();
+
+    await withFallback(primary.stage, fallback.stage)(
+      input,
+      makeStageContext({ origin: input }),
+    );
+
+    expect(primary.inputs[0]).toBe(input);
+    expect(fallback.inputs[0]).toBe(input);
+    expect(fallback.inputs[0]?.request.skipReply).toBe(true);
+    expect(fallback.inputs[0]?.request.intentFacts).toBe(
+      input.request.intentFacts,
+    );
+  });
+
+  test('a needs-clarification result from the primary comes back as the same object', async () => {
+    const fallback = recordingStage(fallbackCandidate);
+
+    const result = await withFallback(
+      recordingStage(clarification).stage,
+      fallback.stage,
+    )(skipReplyInput(), makeStageContext());
+
+    expect(isOk(result) && result.value).toBe(clarification);
+    expect(fallback.inputs).toHaveLength(0);
+  });
+
+  test('a needs-clarification result from the fallback comes back as the same object', async () => {
+    const result = await withFallback(
+      recordingStage(deferred('not mine')).stage,
+      recordingStage(clarification).stage,
+    )(skipReplyInput(), makeStageContext());
+
+    expect(isOk(result) && result.value).toBe(clarification);
+  });
+
+  test('a replyless candidate comes back as the same object', async () => {
+    const { userMessage: _omitted, ...candidate } = buildGridResponse();
+
+    const result = await withFallback(
+      recordingStage(candidate).stage,
+      recordingStage(fallbackCandidate).stage,
+    )(skipReplyInput(), makeStageContext());
+
+    expect(isOk(result) && result.value).toBe(candidate);
   });
 });

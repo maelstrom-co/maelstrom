@@ -20,8 +20,8 @@ import type { Logger } from '../logger.js';
 import type {
   DiagnosticRecords,
   FullDiagnostics,
-  FullValidatedCandidate,
-  PlannerCandidate,
+  FullValidatedReplylessCandidate,
+  ReplylessCandidate,
 } from '../planner/candidate.js';
 import { renderRetryDiagnostics } from '../planner/retry-diagnostics.js';
 import type {
@@ -43,7 +43,7 @@ import {
 import { buildGridLayout, buildTilingLayout } from './layout/index.js';
 
 export interface ProcessResponseInput {
-  readonly llmOutput: PlannerCandidate;
+  readonly llmOutput: ReplylessCandidate;
   readonly request: ChartRequest;
   /** Exact normalized enum values displayed for this Engine request. */
   readonly enumSnapshot: ActionParameterEnumSnapshot;
@@ -58,8 +58,9 @@ export function processResponse({
   enumSnapshot,
   messageId,
   logger,
-}: ProcessResponseInput): Result<FullValidatedCandidate, EngineError> {
-  if (!llmOutput.userMessage?.trim()) {
+}: ProcessResponseInput): Result<FullValidatedReplylessCandidate, EngineError> {
+  const { userMessage } = llmOutput;
+  if (request.skipReply !== true && !userMessage?.trim()) {
     return err(parseError('LLM response missing userMessage', 'userMessage'));
   }
 
@@ -143,7 +144,7 @@ export function processResponse({
   return ok({
     type: 'maelstrom_response',
     requestId: messageId,
-    userMessage: llmOutput.userMessage,
+    ...(userMessage === undefined ? {} : { userMessage }),
     rationale: llmOutput.rationale,
     executionPlan,
     layout,

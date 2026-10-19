@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import type { Result } from '@maelstrom-co/protocol';
+import type { NeedsClarification, Result } from '@maelstrom-co/protocol';
 import {
   ActionName,
   err,
@@ -10,7 +10,10 @@ import {
   ok,
 } from '@maelstrom-co/protocol';
 
-import { buildGridResponse } from '../__test-helpers__/fixtures.js';
+import {
+  buildGridResponse,
+  makeGridRequest,
+} from '../__test-helpers__/fixtures.js';
 import {
   makePlanningInput,
   makeStageContext,
@@ -36,6 +39,8 @@ import type {
   DiagnosticRecords,
   EngineDiagnostics,
   PlannerCandidate,
+  PlannerOutput,
+  ReplylessCandidate,
   ValidatedCandidate,
 } from './candidate.js';
 import type {
@@ -116,7 +121,7 @@ function recordingStage(
   const contexts: StageContext[] = [];
   const candidates: PlannerCandidate[] = [];
   const table = new Map<
-    PlannerCandidate,
+    ReplylessCandidate,
     Result<ValidatedCandidate, EngineError>
   >();
   let validations = 0;
@@ -564,5 +569,89 @@ describe('withRetry', () => {
         /withRetry: max must be a non-negative integer/,
       );
     });
+  });
+});
+
+describe('withRetry with skipReply and intentFacts', () => {
+  const skipReplyInput = (): PlanningInput =>
+    makePlanningInput({
+      ...makeGridRequest(),
+      skipReply: true,
+      intentFacts: { latestOrderSku: 'A123', similarSkus: ['B456'] },
+    });
+
+  test('skipReply and intentFacts reach the inner stage unchanged on the first attempt and on retries', async () => {
+    const rec = recordingStage([overflow, clean]);
+    const input = skipReplyInput();
+
+    await withRetry(rec.stage, { max: 3 })(input, rec.ctx);
+
+    expect(rec.inputs).toHaveLength(2);
+    expect(rec.inputs[0]).toBe(input);
+    expect(rec.inputs[1]?.request).toBe(input.request);
+    expect(rec.inputs[1]?.request.skipReply).toBe(true);
+    expect(rec.inputs[1]?.request.intentFacts).toBe(input.request.intentFacts);
+  });
+
+  test('a needs-clarification result comes back as the same object without a retry', async () => {
+    const clarification: NeedsClarification = {
+      type: 'needs_clarification',
+      question: 'Which order do you mean?',
+    };
+    const input = skipReplyInput();
+    let calls = 0;
+    const stage: Stage<
+      Retryable<PlanningInput, ReplylessCandidate>,
+      PlannerOutput
+    > = async () => {
+      calls += 1;
+      return ok(clarification);
+    };
+    let validations = 0;
+    const severeRetry: ValidatedCandidate = {
+      type: 'maelstrom_response',
+      requestId: MessageId('req-1'),
+      userMessage: 'unused',
+      rationale: 'unused',
+      executionPlan: [],
+      layout: { type: 'grid', positions: [] },
+      diagnostics: recommending(),
+    };
+
+    const result = await withRetry(stage, { max: 3 })(
+      input,
+      makeStageContext({
+        origin: input,
+        validate: () => {
+          validations += 1;
+          return ok(severeRetry);
+        },
+      }),
+    );
+
+    expect(isOk(result) && result.value).toBe(clarification);
+    expect(validations).toBe(0);
+    expect(calls).toBe(1);
+  });
+
+  test('a replyless candidate with skipReply comes back as the same object', async () => {
+    const { userMessage: _omitted, ...candidate } = buildGridResponse();
+    const input = skipReplyInput();
+    let calls = 0;
+    const stage: Stage<
+      Retryable<PlanningInput, ReplylessCandidate>,
+      ReplylessCandidate
+    > = async () => {
+      calls += 1;
+      return ok(candidate);
+    };
+
+    const result = await withRetry(stage, { max: 3 })(
+      input,
+      makeStageContext({ origin: input }),
+    );
+
+    expect(isOk(result) && result.value).toBe(candidate);
+    expect(calls).toBe(1);
   });
 });
