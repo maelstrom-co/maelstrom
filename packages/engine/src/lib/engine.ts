@@ -245,7 +245,7 @@ export function createEngine(config: EngineConfig): Engine {
   const planner: ClarifyingPlanner =
     retry === false
       ? configuredPlanner
-      : withRetry<PlanningInput, PlannerOutput>(configuredPlanner, retry);
+      : withRetry<PlanningInput>(configuredPlanner, retry);
   const history: HistoryManager | undefined = historyConfig
     ? createHistoryManager(historyConfig)
     : undefined;
@@ -647,10 +647,7 @@ function requireShippableReply(
   outcome: FullValidatedPlannerOutput,
   messageId: MessageId,
   logger: Logger,
-): Result<
-  FullValidatedCandidate & { readonly userMessage: string },
-  EngineError
-> {
+): Result<FullValidatedCandidate, EngineError> {
   if (isNeedsClarification(outcome)) {
     return refuseReplylessOutcome(
       'a needs-clarification result',

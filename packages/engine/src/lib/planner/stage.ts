@@ -15,7 +15,9 @@ import type {
   EngineDiagnostics,
   PlannerCandidate,
   PlannerOutput,
+  ReplylessCandidate,
   ValidatedCandidate,
+  ValidatedReplylessCandidate,
 } from './candidate.js';
 import type { Instrument } from './instrument.js';
 
@@ -63,10 +65,13 @@ export type StageError = Deferred | EngineError;
  * Because results are cached by object identity, a candidate must not change
  * once it is validated: a stage that produces a different plan returns a new
  * object. {@link PlannerCandidate} is deeply readonly to enforce this.
+ *
+ * A {@link PlannerCandidate} validates to a {@link ValidatedCandidate}; a
+ * {@link ReplylessCandidate} to a {@link ValidatedReplylessCandidate}, whose
+ * `userMessage` may be absent. A needs-clarification result is not a
+ * candidate and is not accepted here.
  */
-export type ValidateCandidate = (
-  candidate: PlannerCandidate,
-) => Result<ValidatedCandidate, EngineError>;
+export type ValidateCandidate = ValidateCandidateSignatures['validate'];
 
 /** Request-scoped services the Engine gives every stage of a {@link Planner}. */
 export interface StageContext {
@@ -128,10 +133,11 @@ export type Stage<In, Out> = (
 export type Planner = Stage<PlanningInput, PlannerCandidate>;
 
 /**
- * A {@link Planner} that may also answer with a needs-clarification result
- * instead of a candidate. Every `Planner` is a `ClarifyingPlanner`.
- * Validation accepts the clarification only for a request that set
- * `skipReply: true`, and `Engine.handle` currently refuses it even then with
+ * A {@link Planner} that may also answer with a {@link ReplylessCandidate} or
+ * a needs-clarification result: any {@link PlannerOutput}. Every `Planner` is
+ * a `ClarifyingPlanner`. Validation accepts a missing `userMessage` and a
+ * clarification only for a request that set `skipReply: true`, and
+ * `Engine.handle` currently refuses both even then with
  * `Err(ValidationError)` on field `skipReply`.
  */
 export type ClarifyingPlanner = Stage<PlanningInput, PlannerOutput>;
@@ -139,12 +145,18 @@ export type ClarifyingPlanner = Stage<PlanningInput, PlannerOutput>;
 /**
  * Why the previous attempt of a {@link withRetry}-wrapped stage was rejected.
  * Present only on retries.
+ *
+ * @typeParam Candidate - What the wrapped stage produces as a candidate:
+ *   {@link PlannerCandidate} by default, or {@link ReplylessCandidate} for a
+ *   stage that may omit `userMessage` or ask for clarification.
  */
-export interface RetryFeedback {
+export interface RetryFeedback<
+  Candidate extends ReplylessCandidate = PlannerCandidate,
+> {
   /** Retry number: 1 for the first retry. */
   readonly attempt: number;
   /** The candidate the previous attempt produced. Build a new candidate rather than editing it. */
-  readonly previous: PlannerCandidate;
+  readonly previous: Candidate;
   /** Heal diagnostics for {@link previous}, which recommended the retry. */
   readonly diagnostics: EngineDiagnostics;
 }
@@ -152,10 +164,17 @@ export interface RetryFeedback {
 /**
  * A stage input that {@link withRetry} may annotate with feedback about the
  * previous attempt. `retry` is absent on the first attempt.
+ *
+ * @typeParam In - The input the stage receives on its first attempt.
+ * @typeParam Candidate - The candidate type {@link RetryFeedback.previous}
+ *   carries: {@link PlannerCandidate} by default.
  */
-export type Retryable<In> = In & {
+export type Retryable<
+  In,
+  Candidate extends ReplylessCandidate = PlannerCandidate,
+> = In & {
   /** Feedback about the previous attempt; absent on the first attempt. */
-  readonly retry?: RetryFeedback;
+  readonly retry?: RetryFeedback<Candidate>;
 };
 
 /**
@@ -192,4 +211,15 @@ export function isDeferred(error: StageError): error is Deferred {
  */
 export function unhandledDeferralError(error: Deferred): ValidationError {
   return validationError(`planner deferred: ${error.reason}`, 'planner');
+}
+
+// Declared as methods so parameters stay bivariant: a validator that accepts
+// only strict candidates stays assignable to ValidateCandidate.
+interface ValidateCandidateSignatures {
+  validate(
+    candidate: PlannerCandidate,
+  ): Result<ValidatedCandidate, EngineError>;
+  validate(
+    candidate: ReplylessCandidate,
+  ): Result<ValidatedReplylessCandidate, EngineError>;
 }

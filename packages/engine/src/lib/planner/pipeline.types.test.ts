@@ -8,7 +8,11 @@ import { ok } from '@maelstrom-co/protocol';
 
 import { buildGridResponse } from '../__test-helpers__/fixtures.js';
 import type { EngineConfig } from '../config.js';
-import type { PlannerCandidate, PlannerOutput } from './candidate.js';
+import type {
+  PlannerCandidate,
+  PlannerOutput,
+  ReplylessCandidate,
+} from './candidate.js';
 import { pipeline } from './pipeline.js';
 import type {
   ClarifyingPlanner,
@@ -57,7 +61,7 @@ declare const existingRetryable: Stage<
 >;
 declare const clarifyingPlanner: ClarifyingPlanner;
 declare const clarifyingRetryable: Stage<
-  Retryable<PlanningInput>,
+  Retryable<PlanningInput, ReplylessCandidate>,
   PlannerOutput
 >;
 declare const clarification: NeedsClarification;

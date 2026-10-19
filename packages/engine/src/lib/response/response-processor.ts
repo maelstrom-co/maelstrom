@@ -20,8 +20,8 @@ import type { Logger } from '../logger.js';
 import type {
   DiagnosticRecords,
   FullDiagnostics,
-  FullValidatedCandidate,
-  PlannerCandidate,
+  FullValidatedReplylessCandidate,
+  ReplylessCandidate,
 } from '../planner/candidate.js';
 import { renderRetryDiagnostics } from '../planner/retry-diagnostics.js';
 import type {
@@ -43,7 +43,7 @@ import {
 import { buildGridLayout, buildTilingLayout } from './layout/index.js';
 
 export interface ProcessResponseInput {
-  readonly llmOutput: PlannerCandidate;
+  readonly llmOutput: ReplylessCandidate;
   readonly request: ChartRequest;
   /** Exact normalized enum values displayed for this Engine request. */
   readonly enumSnapshot: ActionParameterEnumSnapshot;
@@ -58,7 +58,7 @@ export function processResponse({
   enumSnapshot,
   messageId,
   logger,
-}: ProcessResponseInput): Result<FullValidatedCandidate, EngineError> {
+}: ProcessResponseInput): Result<FullValidatedReplylessCandidate, EngineError> {
   const userMessage = llmOutput.userMessage?.trim()
     ? llmOutput.userMessage
     : undefined;

@@ -22,7 +22,7 @@ import {
 } from '../__test-helpers__/fixtures.js';
 import { buildActionParameterEnumSnapshot } from '../action-parameter-enum.js';
 import type { Logger } from '../logger.js';
-import type { PlannerCandidate } from '../planner/candidate.js';
+import type { ReplylessCandidate } from '../planner/candidate.js';
 import { processResponse as processResponseBranded } from './response-processor.js';
 
 // Discriminates an author response on its layout shape so each branch brands
@@ -2948,7 +2948,7 @@ describe('processResponse', () => {
 
 describe('processResponse userMessage and skipReply', () => {
   const process = (
-    llmOutput: PlannerCandidate,
+    llmOutput: ReplylessCandidate,
     skipReply: boolean | undefined,
   ): ReturnType<typeof processResponseBranded> => {
     const request: ChartRequest =
@@ -2964,7 +2964,7 @@ describe('processResponse userMessage and skipReply', () => {
     });
   };
 
-  const withoutReply = (): PlannerCandidate => {
+  const withoutReply = (): ReplylessCandidate => {
     const { userMessage: _omitted, ...rest } = buildGridResponse();
     return rest;
   };

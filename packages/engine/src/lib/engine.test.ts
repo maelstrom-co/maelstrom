@@ -34,7 +34,11 @@ import { createEngine } from './engine.js';
 import { providerError } from './errors.js';
 import type { HistoryEntry, HistoryStore } from './history/history-store.js';
 import { createInMemoryStore } from './history/in-memory-store.js';
-import type { PlannerCandidate, PlannerOutput } from './planner/candidate.js';
+import type {
+  PlannerCandidate,
+  PlannerOutput,
+  ReplylessCandidate,
+} from './planner/candidate.js';
 import type { Instrument, InstrumentAttributes } from './planner/instrument.js';
 import { named, noopInstrument } from './planner/instrument.js';
 import { pipeline } from './planner/pipeline.js';
@@ -957,7 +961,7 @@ describe('engine.handle with skipReply and needs-clarification', () => {
     options: ['The latest order', 'The order from last week'],
   };
 
-  const replyless = (): PlannerCandidate => {
+  const replyless = (): ReplylessCandidate => {
     const { userMessage: _omitted, ...rest } = buildGridResponse();
     return rest;
   };
@@ -1054,7 +1058,7 @@ describe('engine.handle with skipReply and needs-clarification', () => {
     expect(result.value.response.layout.type).toBe('grid');
   });
 
-  const replylessTiling = (): PlannerCandidate => {
+  const replylessTiling = (): ReplylessCandidate => {
     const { userMessage: _omitted, ...rest } = brandTilingResponse({
       userMessage: 'unused',
       rationale: 'Keep the calendar',

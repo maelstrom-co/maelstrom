@@ -2,7 +2,11 @@ import type { Result } from '@maelstrom-co/protocol';
 import { err, isErr, ok } from '@maelstrom-co/protocol';
 
 import { cancellationError } from '../errors.js';
-import type { PlannerCandidate } from './candidate.js';
+import type {
+  PlannerCandidate,
+  PlannerOutput,
+  WidenedPlannerOutput,
+} from './candidate.js';
 import { stageName } from './instrument.js';
 import type { Planner, PlanningInput, Stage, StageError } from './stage.js';
 
@@ -10,7 +14,10 @@ import type { Planner, PlanningInput, Stage, StageError } from './stage.js';
  * Composes stages into a {@link Planner}, feeding each stage's output to the
  * next. The first stage takes {@link PlanningInput}, the last produces a
  * {@link PlannerCandidate}, and every adjacent pair must agree on the type in
- * between; a mismatch is a compile error at the offending argument.
+ * between; a mismatch is a compile error at the offending argument. A last
+ * stage that produces a wider {@link PlannerOutput} makes the result as wide,
+ * as {@link WidenedPlannerOutput} describes: for example a `ClarifyingPlanner`
+ * when it may ask for clarification.
  *
  * Every stage receives the same {@link StageContext}, and runs wrapped by
  * its {@link StageContext.instrument}: once per request, just before it
@@ -27,47 +34,49 @@ import type { Planner, PlanningInput, Stage, StageError } from './stage.js';
  * const planner = pipeline(selectVessels, arrangeLayout);
  * ```
  */
-export function pipeline(s1: Planner): Planner;
-export function pipeline<A>(
+export function pipeline<Out extends PlannerOutput>(
+  s1: Stage<PlanningInput, Out>,
+): Stage<PlanningInput, WidenedPlannerOutput<Out>>;
+export function pipeline<A, Out extends PlannerOutput>(
   s1: Stage<PlanningInput, A>,
-  s2: Stage<A, PlannerCandidate>,
-): Planner;
-export function pipeline<A, B>(
+  s2: Stage<A, Out>,
+): Stage<PlanningInput, WidenedPlannerOutput<Out>>;
+export function pipeline<A, B, Out extends PlannerOutput>(
   s1: Stage<PlanningInput, A>,
   s2: Stage<A, B>,
-  s3: Stage<B, PlannerCandidate>,
-): Planner;
-export function pipeline<A, B, C>(
+  s3: Stage<B, Out>,
+): Stage<PlanningInput, WidenedPlannerOutput<Out>>;
+export function pipeline<A, B, C, Out extends PlannerOutput>(
   s1: Stage<PlanningInput, A>,
   s2: Stage<A, B>,
   s3: Stage<B, C>,
-  s4: Stage<C, PlannerCandidate>,
-): Planner;
-export function pipeline<A, B, C, D>(
+  s4: Stage<C, Out>,
+): Stage<PlanningInput, WidenedPlannerOutput<Out>>;
+export function pipeline<A, B, C, D, Out extends PlannerOutput>(
   s1: Stage<PlanningInput, A>,
   s2: Stage<A, B>,
   s3: Stage<B, C>,
   s4: Stage<C, D>,
-  s5: Stage<D, PlannerCandidate>,
-): Planner;
-export function pipeline<A, B, C, D, E>(
+  s5: Stage<D, Out>,
+): Stage<PlanningInput, WidenedPlannerOutput<Out>>;
+export function pipeline<A, B, C, D, E, Out extends PlannerOutput>(
   s1: Stage<PlanningInput, A>,
   s2: Stage<A, B>,
   s3: Stage<B, C>,
   s4: Stage<C, D>,
   s5: Stage<D, E>,
-  s6: Stage<E, PlannerCandidate>,
-): Planner;
-export function pipeline<A, B, C, D, E, F>(
+  s6: Stage<E, Out>,
+): Stage<PlanningInput, WidenedPlannerOutput<Out>>;
+export function pipeline<A, B, C, D, E, F, Out extends PlannerOutput>(
   s1: Stage<PlanningInput, A>,
   s2: Stage<A, B>,
   s3: Stage<B, C>,
   s4: Stage<C, D>,
   s5: Stage<D, E>,
   s6: Stage<E, F>,
-  s7: Stage<F, PlannerCandidate>,
-): Planner;
-export function pipeline<A, B, C, D, E, F, G>(
+  s7: Stage<F, Out>,
+): Stage<PlanningInput, WidenedPlannerOutput<Out>>;
+export function pipeline<A, B, C, D, E, F, G, Out extends PlannerOutput>(
   s1: Stage<PlanningInput, A>,
   s2: Stage<A, B>,
   s3: Stage<B, C>,
@@ -75,9 +84,9 @@ export function pipeline<A, B, C, D, E, F, G>(
   s5: Stage<D, E>,
   s6: Stage<E, F>,
   s7: Stage<F, G>,
-  s8: Stage<G, PlannerCandidate>,
-): Planner;
-export function pipeline<A, B, C, D, E, F, G, H>(
+  s8: Stage<G, Out>,
+): Stage<PlanningInput, WidenedPlannerOutput<Out>>;
+export function pipeline<A, B, C, D, E, F, G, H, Out extends PlannerOutput>(
   s1: Stage<PlanningInput, A>,
   s2: Stage<A, B>,
   s3: Stage<B, C>,
@@ -86,9 +95,11 @@ export function pipeline<A, B, C, D, E, F, G, H>(
   s6: Stage<E, F>,
   s7: Stage<F, G>,
   s8: Stage<G, H>,
-  s9: Stage<H, PlannerCandidate>,
-): Planner;
-export function pipeline(...stages: readonly Stage<never, unknown>[]): Planner {
+  s9: Stage<H, Out>,
+): Stage<PlanningInput, WidenedPlannerOutput<Out>>;
+export function pipeline(
+  ...stages: readonly Stage<never, unknown>[]
+): Stage<PlanningInput, PlannerOutput> {
   const chain = stages as readonly Stage<unknown, unknown>[];
   return async (input, ctx) => {
     let value: unknown = input;
@@ -116,6 +127,6 @@ export function pipeline(...stages: readonly Stage<never, unknown>[]): Planner {
       if (isErr(result)) return result;
       value = result.value;
     }
-    return ok(value as PlannerCandidate);
+    return ok(value as PlannerOutput);
   };
 }

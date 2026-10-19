@@ -13,7 +13,7 @@ import {
 } from '../__test-helpers__/stage-context.js';
 import { buildActionParameterEnumSnapshot } from '../action-parameter-enum.js';
 import type { Logger } from '../logger.js';
-import type { PlannerCandidate } from './candidate.js';
+import type { PlannerCandidate, ReplylessCandidate } from './candidate.js';
 import { createCandidateValidator } from './validate-candidate.js';
 
 function validatorFor(
@@ -224,7 +224,7 @@ describe('createCandidateValidator with skipReply', () => {
       ? makeGridRequest()
       : { ...makeGridRequest(), skipReply };
 
-  const withoutReply = (): PlannerCandidate => {
+  const withoutReply = (): ReplylessCandidate => {
     const { userMessage: _omitted, ...rest } = buildGridResponse();
     return rest;
   };

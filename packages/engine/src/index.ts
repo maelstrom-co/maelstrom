@@ -59,7 +59,10 @@ export type {
   EngineDiagnostics,
   PlannerCandidate,
   PlannerOutput,
+  ReplylessCandidate,
   ValidatedCandidate,
+  ValidatedReplylessCandidate,
+  WidenedPlannerOutput,
 } from './lib/planner/candidate.js';
 export { isNeedsClarification } from './lib/planner/candidate.js';
 // Planner stages

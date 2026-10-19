@@ -1,7 +1,11 @@
 import { isErr } from '@maelstrom-co/protocol';
 
 import { logAtSeverity } from '../severity-router.js';
-import type { PlannerCandidate, PlannerOutput } from './candidate.js';
+import type {
+  PlannerCandidate,
+  PlannerOutput,
+  ReplylessCandidate,
+} from './candidate.js';
 import { isNeedsClarification } from './candidate.js';
 import type { Retryable, RetryFeedback, Stage } from './stage.js';
 
@@ -25,10 +29,6 @@ export interface WithRetryOptions {
  * returned at once without using the budget. When the budget runs out, the
  * last candidate ships as-is: healing keeps it renderable.
  *
- * A needs-clarification result is returned unchanged on the attempt that
- * produced it, without validation or retry: it has no layout to heal, and
- * the Engine decides whether the request allows it.
- *
  * The signal is not checked between attempts; each attempt is responsible
  * for observing it.
  *
@@ -37,9 +37,6 @@ export interface WithRetryOptions {
  * the retry severity.
  *
  * @typeParam In - The input the wrapped stage receives, before retry feedback is added.
- * @typeParam Out - What the wrapped stage produces: a {@link PlannerCandidate}
- *   by default, or any {@link PlannerOutput} for a stage that may ask for
- *   clarification. The wrapper returns the same type.
  * @throws {Error} If `options.max` is not a non-negative integer.
  *
  * @example
@@ -48,10 +45,43 @@ export interface WithRetryOptions {
  * const planner = withRetry(modelPlanner, { max: 1 });
  * ```
  */
-export function withRetry<In, Out extends PlannerOutput = PlannerCandidate>(
-  stage: Stage<Retryable<In>, Out>,
+export function withRetry<In>(
+  stage: Stage<Retryable<In>, PlannerCandidate>,
   options: WithRetryOptions,
-): Stage<In, Out> {
+): Stage<In, PlannerCandidate>;
+/**
+ * {@link withRetry} for a stage that may omit `userMessage`: the retry
+ * feedback carries the {@link ReplylessCandidate} the previous attempt
+ * produced, and the wrapper returns replyless candidates too.
+ *
+ * @typeParam In - The input the wrapped stage receives, before retry feedback is added.
+ * @throws {Error} If `options.max` is not a non-negative integer.
+ */
+export function withRetry<In>(
+  stage: Stage<Retryable<In, ReplylessCandidate>, ReplylessCandidate>,
+  options: WithRetryOptions,
+): Stage<In, ReplylessCandidate>;
+/**
+ * {@link withRetry} for a stage that may return any {@link PlannerOutput},
+ * including a needs-clarification result: the retry feedback carries the
+ * {@link ReplylessCandidate} the previous attempt produced, and the wrapper
+ * returns any `PlannerOutput` too.
+ *
+ * A needs-clarification result is returned unchanged on the attempt that
+ * produced it, without validation or retry: it has no layout to heal, and
+ * the Engine decides whether the request allows it.
+ *
+ * @typeParam In - The input the wrapped stage receives, before retry feedback is added.
+ * @throws {Error} If `options.max` is not a non-negative integer.
+ */
+export function withRetry<In>(
+  stage: Stage<Retryable<In, ReplylessCandidate>, PlannerOutput>,
+  options: WithRetryOptions,
+): Stage<In, PlannerOutput>;
+export function withRetry<In>(
+  stage: Stage<Retryable<In, ReplylessCandidate>, PlannerOutput>,
+  options: WithRetryOptions,
+): Stage<In, PlannerOutput> {
   const maxRetries = options.max;
   if (!Number.isInteger(maxRetries) || maxRetries < 0) {
     throw new Error(
@@ -59,7 +89,7 @@ export function withRetry<In, Out extends PlannerOutput = PlannerCandidate>(
     );
   }
   return async (input, ctx) => {
-    let attemptInput = input as Retryable<In>;
+    let attemptInput = input as Retryable<In, ReplylessCandidate>;
     for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
       ctx.instrument.event('planner.attempt', {
         'maelstrom.attempt': attempt,
@@ -97,7 +127,7 @@ export function withRetry<In, Out extends PlannerOutput = PlannerCandidate>(
         return result;
       }
 
-      const retry: RetryFeedback = {
+      const retry: RetryFeedback<ReplylessCandidate> = {
         attempt: attempt + 1,
         previous: candidate,
         diagnostics,

@@ -1,7 +1,9 @@
 import type {
+  GridResponse,
   GridResponseWithoutReply,
   MaelstromResponse,
   NeedsClarification,
+  TilingResponse,
   TilingResponseWithoutReply,
 } from '@maelstrom-co/protocol';
 
@@ -15,30 +17,58 @@ import type {
 /**
  * The raw plan a planner produces: the structured output shape for the
  * request's layout mode, before the Engine heals and validates it. A grid
- * request expects a `GridResponseWithoutReply`; a tiling request a
- * `TilingResponseWithoutReply`. Both are the reply-bearing shapes with an
- * optional `userMessage`.
- *
- * `userMessage` is optional in the type because a request that set
- * `skipReply: true` may omit it. Without that flag the Engine still rejects
- * a candidate whose `userMessage` is missing or blank.
+ * request expects a `GridResponse`; a tiling request a `TilingResponse`.
  *
  * A candidate is immutable. Validation results are cached per candidate
  * object, so a stage that wants a different plan must return a new object
  * rather than edit one it received or already validated.
  */
 export type PlannerCandidate =
+  | DeepReadonly<GridResponse>
+  | DeepReadonly<TilingResponse>;
+
+/**
+ * A {@link PlannerCandidate} that may omit `userMessage`, for a request that
+ * set `skipReply: true`. A grid request expects a `GridResponseWithoutReply`;
+ * a tiling request a `TilingResponseWithoutReply`. Without that flag the
+ * Engine rejects a candidate whose `userMessage` is missing or blank.
+ *
+ * Every {@link PlannerCandidate} is a `ReplylessCandidate`. Like a
+ * `PlannerCandidate`, it is immutable: validation results are cached per
+ * candidate object.
+ */
+export type ReplylessCandidate =
   | DeepReadonly<GridResponseWithoutReply>
   | DeepReadonly<TilingResponseWithoutReply>;
 
 /**
- * Everything a planner may return: a {@link PlannerCandidate}, or a
- * {@link NeedsClarification} when it cannot proceed without asking the user.
- * Validation accepts a needs-clarification result only for a request that
- * set `skipReply: true`, and `Engine.handle` currently refuses it even then
- * with `Err(ValidationError)` on field `skipReply`.
+ * Everything a planner may return: a {@link PlannerCandidate}, a
+ * {@link ReplylessCandidate}, or a {@link NeedsClarification} when it cannot
+ * proceed without asking the user. Validation accepts a replyless candidate
+ * without `userMessage` and a needs-clarification result only for a request
+ * that set `skipReply: true`, and `Engine.handle` currently refuses both even
+ * then with `Err(ValidationError)` on field `skipReply`.
  */
-export type PlannerOutput = PlannerCandidate | NeedsClarification;
+export type PlannerOutput =
+  | PlannerCandidate
+  | ReplylessCandidate
+  | NeedsClarification;
+
+/**
+ * The narrowest of {@link PlannerCandidate}, {@link ReplylessCandidate} and
+ * {@link PlannerOutput} that contains `Out`. `pipeline` types the planner it
+ * builds with it, so a pipeline whose last stage returns strict candidates
+ * is a plain `Planner`.
+ *
+ * @typeParam Out - What the last stage of a planner produces.
+ */
+export type WidenedPlannerOutput<Out extends PlannerOutput> = [Out] extends [
+  PlannerCandidate,
+]
+  ? PlannerCandidate
+  : [Out] extends [ReplylessCandidate]
+    ? ReplylessCandidate
+    : PlannerOutput;
 
 /**
  * A summary of what healing changed in a candidate and whether another
@@ -71,7 +101,19 @@ export interface EngineDiagnostics {
  * request: the response that would ship, plus the diagnostics describing what
  * healing changed. The diagnostics never cross the Engine boundary.
  */
-export type ValidatedCandidate = Omit<MaelstromResponse, 'userMessage'> & {
+export type ValidatedCandidate = MaelstromResponse & {
+  /** What healing changed, and whether a retry is recommended. */
+  readonly diagnostics: EngineDiagnostics;
+};
+
+/**
+ * A {@link ReplylessCandidate} after the Engine healed and validated it: a
+ * {@link ValidatedCandidate} whose `userMessage` may be absent.
+ */
+export type ValidatedReplylessCandidate = Omit<
+  MaelstromResponse,
+  'userMessage'
+> & {
   /**
    * The reply to the user. Always present unless the request set
    * `skipReply: true`, in which case the planner may have omitted it. A blank
@@ -98,6 +140,14 @@ export type FullValidatedCandidate = ValidatedCandidate & {
 };
 
 /**
+ * A {@link ValidatedReplylessCandidate} as the Engine sees it, with full
+ * diagnostics.
+ */
+export type FullValidatedReplylessCandidate = ValidatedReplylessCandidate & {
+  readonly diagnostics: FullDiagnostics;
+};
+
+/**
  * A needs-clarification result the Engine accepted. Its diagnostics are
  * empty and never recommend a retry: there is no layout to heal.
  */
@@ -108,6 +158,7 @@ export type FullValidatedNeedsClarification = NeedsClarification & {
 /** What the Engine's validator returns for any {@link PlannerOutput}. */
 export type FullValidatedPlannerOutput =
   | FullValidatedCandidate
+  | FullValidatedReplylessCandidate
   | FullValidatedNeedsClarification;
 
 /**

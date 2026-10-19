@@ -40,6 +40,7 @@ import type {
   EngineDiagnostics,
   PlannerCandidate,
   PlannerOutput,
+  ReplylessCandidate,
   ValidatedCandidate,
 } from './candidate.js';
 import type {
@@ -120,7 +121,7 @@ function recordingStage(
   const contexts: StageContext[] = [];
   const candidates: PlannerCandidate[] = [];
   const table = new Map<
-    PlannerCandidate,
+    ReplylessCandidate,
     Result<ValidatedCandidate, EngineError>
   >();
   let validations = 0;
@@ -599,7 +600,10 @@ describe('withRetry with skipReply and intentFacts', () => {
     };
     const input = skipReplyInput();
     let calls = 0;
-    const stage: Stage<Retryable<PlanningInput>, PlannerOutput> = async () => {
+    const stage: Stage<
+      Retryable<PlanningInput, ReplylessCandidate>,
+      PlannerOutput
+    > = async () => {
       calls += 1;
       return ok(clarification);
     };
@@ -607,6 +611,7 @@ describe('withRetry with skipReply and intentFacts', () => {
     const severeRetry: ValidatedCandidate = {
       type: 'maelstrom_response',
       requestId: MessageId('req-1'),
+      userMessage: 'unused',
       rationale: 'unused',
       executionPlan: [],
       layout: { type: 'grid', positions: [] },
@@ -634,8 +639,8 @@ describe('withRetry with skipReply and intentFacts', () => {
     const input = skipReplyInput();
     let calls = 0;
     const stage: Stage<
-      Retryable<PlanningInput>,
-      PlannerCandidate
+      Retryable<PlanningInput, ReplylessCandidate>,
+      ReplylessCandidate
     > = async () => {
       calls += 1;
       return ok(candidate);

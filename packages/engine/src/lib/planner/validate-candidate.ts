@@ -26,8 +26,10 @@ import type {
   FullValidatedCandidate,
   FullValidatedNeedsClarification,
   FullValidatedPlannerOutput,
+  FullValidatedReplylessCandidate,
   PlannerCandidate,
   PlannerOutput,
+  ReplylessCandidate,
 } from './candidate.js';
 import { isNeedsClarification } from './candidate.js';
 import type { ValidateCandidate } from './stage.js';
@@ -49,6 +51,9 @@ export interface CandidateValidatorInput {
  */
 export interface CandidateValidator {
   (candidate: PlannerCandidate): Result<FullValidatedCandidate, EngineError>;
+  (
+    candidate: ReplylessCandidate,
+  ): Result<FullValidatedReplylessCandidate, EngineError>;
   (candidate: PlannerOutput): Result<FullValidatedPlannerOutput, EngineError>;
 }
 
@@ -68,6 +73,9 @@ export function createCandidateValidator(
   function validate(
     candidate: PlannerCandidate,
   ): Result<FullValidatedCandidate, EngineError>;
+  function validate(
+    candidate: ReplylessCandidate,
+  ): Result<FullValidatedReplylessCandidate, EngineError>;
   function validate(
     candidate: PlannerOutput,
   ): Result<FullValidatedPlannerOutput, EngineError>;
@@ -143,7 +151,7 @@ function processNeedsClarification(
 // caller's Promise<Result> never rejects.
 function processCandidate(
   input: ProcessResponseInput,
-): Result<FullValidatedCandidate, EngineError> {
+): Result<FullValidatedReplylessCandidate, EngineError> {
   const { messageId, logger, request, llmOutput } = input;
   const mode = request.context.layoutMode;
   const shape = responseSchemaFor(request).safeParse(llmOutput);
