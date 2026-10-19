@@ -21,9 +21,10 @@ import {
   voiceDiagnosticConsumer,
 } from './ci-diagnostics.ts';
 import {
-  classifyDockerFailure,
-  dockerDiagnosticOperation,
-} from './docker-diagnostics.ts';
+  dockerOutputTokenEnvironment,
+  encodeDockerOutput,
+  logDockerOutput,
+} from './docker-output.ts';
 import { resolveTtsCacheDir } from './tts-cache-dir.ts';
 
 process.umask(0o077);
@@ -40,15 +41,14 @@ if (benchmark)
   });
 const voiceDevtoolsImage = 'ghcr.io/maelstrom-co/voice-devtools:0.1.0';
 const ciRunId = process.env.MAELSTROM_VOICE_CI_RUN_ID;
+const dockerOutputToken = process.env[dockerOutputTokenEnvironment];
+delete process.env[dockerOutputTokenEnvironment];
 if (ciRunId !== undefined && !/^[a-zA-Z0-9_-]{1,100}$/.test(ciRunId))
   throw new Error('Invalid voice CI run identity.');
 let phase: VoiceDiagnostic['phase'] = 'initialization';
 const diagnostic = (
   category: VoiceDiagnostic['category'],
-  details: Pick<
-    VoiceDiagnostic,
-    'exitCode' | 'signal' | 'dockerOperation' | 'dockerFailure'
-  > = {},
+  details: Pick<VoiceDiagnostic, 'exitCode' | 'signal'> = {},
 ) => {
   if (ciRunId) logVoiceDiagnostic({ phase, category, ...details });
 };
@@ -74,8 +74,6 @@ const privateEnvironment = [
 
 interface CommandResult {
   readonly code: number;
-  readonly exitCode: number | null;
-  readonly signal: NodeJS.Signals | null;
   readonly stdout: string;
   readonly stderr: string;
 }
@@ -127,13 +125,7 @@ function runProcess(
           ...(code !== null ? { exitCode: code } : {}),
         });
       if (activeChild === child) activeChild = undefined;
-      resolveResult({
-        code: code ?? 1,
-        exitCode: code,
-        signal,
-        stdout,
-        stderr,
-      });
+      resolveResult({ code: code ?? 1, stdout, stderr });
     });
   });
 }
@@ -152,12 +144,20 @@ async function runDocker(
     if (result.stderr) process.stderr.write(redact(result.stderr));
   }
   if (result.code !== 0) {
-    diagnostic('docker-failed', {
-      ...(result.exitCode !== null ? { exitCode: result.exitCode } : {}),
-      ...(result.signal ? { signal: result.signal } : {}),
-      dockerOperation: dockerDiagnosticOperation(args),
-      dockerFailure: classifyDockerFailure(result.stderr),
-    });
+    if (ciRunId) {
+      if (dockerOutputToken) {
+        const frame = encodeDockerOutput(
+          result,
+          dockerOutputToken,
+          process.env,
+        );
+        await new Promise<void>((resolveWrite, reject) => {
+          process.stdout.write(frame, (error) =>
+            error ? reject(error) : resolveWrite(),
+          );
+        });
+      } else logDockerOutput(result, process.env);
+    }
     if (!options.allowFailure)
       throw new Error(`docker ${args[0]} exited with status ${result.code}.`);
   }

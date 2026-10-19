@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { lstat, readFile, realpath } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -11,6 +12,11 @@ import {
   readCiMetrics,
   type VoiceCiMetrics,
 } from '../apps/demo/e2e/voice/ci-metrics.ts';
+import {
+  dockerOutputConsumer,
+  dockerOutputTokenEnvironment,
+  logDockerOutput,
+} from '../apps/demo/e2e/voice/docker-output.ts';
 import {
   type PreviewGithubDependencies,
   readVoiceBenchmarkContext,
@@ -254,14 +260,19 @@ export function validateVoiceRunId(value: string): string {
 async function docker(args: string[]): Promise<string> {
   const child = Bun.spawn(['docker', ...args], {
     stdout: 'pipe',
-    stderr: 'ignore',
+    stderr: 'pipe',
   });
-  const text = new Response(child.stdout).text();
+  const stdout = new Response(child.stdout).text();
+  const stderr = new Response(child.stderr).text();
   const timer = setTimeout(() => child.kill(9), 15_000);
   try {
-    if ((await child.exited) !== 0)
+    const code = await child.exited;
+    const output = { stdout: await stdout, stderr: await stderr };
+    if (code !== 0) {
+      logDockerOutput(output, process.env);
       throw new Error('Owned Docker cleanup failed');
-    return await text;
+    }
+    return output.stdout;
   } finally {
     clearTimeout(timer);
   }
@@ -333,7 +344,9 @@ export async function runOwnedBenchmark(options: {
   ])
     if (options.environment[name])
       environment[name] = options.environment[name];
+  const dockerOutputToken = randomBytes(32).toString('hex');
   Object.assign(environment, {
+    [dockerOutputTokenEnvironment]: dockerOutputToken,
     MAELSTROM_BASE_URL: options.target,
     MAELSTROM_VOICE_CI_RUN_ID: options.runId,
     VOICE_BENCHMARK_REPETITIONS: '1',
@@ -366,9 +379,15 @@ export async function runOwnedBenchmark(options: {
     report({ phase: 'benchmark', category: 'spawn-failed' });
     throw error;
   }
-  child.stdout
-    ?.setEncoding('utf8')
-    .on('data', voiceDiagnosticConsumer(options.log));
+  const consumeDiagnostics = voiceDiagnosticConsumer(options.log);
+  const consumeDockerOutput = dockerOutputConsumer(
+    dockerOutputToken,
+    (output) => logDockerOutput(output, options.environment, options.log),
+  );
+  child.stdout?.setEncoding('utf8').on('data', (chunk: string) => {
+    consumeDiagnostics(chunk);
+    consumeDockerOutput(chunk);
+  });
   const killGroup = (signal: NodeJS.Signals) => {
     if (!child.pid) return;
     try {
@@ -539,7 +558,7 @@ if (import.meta.main)
       category: 'unexpected-error',
     });
     console.error(
-      'Voice benchmark CI failed; no raw reports or credentials were published.',
+      'Voice benchmark CI failed; see diagnostics and failed Docker command output above.',
     );
     process.exitCode = 1;
   });
