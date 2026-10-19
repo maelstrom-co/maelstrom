@@ -3,6 +3,11 @@ import { lstat, readFile, realpath } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import {
+  logVoiceDiagnostic,
+  type VoiceDiagnostic,
+  voiceDiagnosticConsumer,
+} from '../apps/demo/e2e/voice/ci-diagnostics.ts';
+import {
   readCiMetrics,
   type VoiceCiMetrics,
 } from '../apps/demo/e2e/voice/ci-metrics.ts';
@@ -64,6 +69,7 @@ export interface VoiceCiDependencies extends PreviewGithubDependencies {
     signal: AbortSignal,
   ) => Promise<unknown>;
   readonly sleep: (milliseconds: number, signal: AbortSignal) => Promise<void>;
+  readonly log?: (line: string) => void;
 }
 
 const sameRequest = (
@@ -100,90 +106,143 @@ export async function executeVoiceBenchmark(
       ...(extra ? [extra] : []),
     ]),
   });
-  const initial = await readVoiceBenchmarkContext(options, github());
-  if (!initial) return 'skipped';
-  const previous = parseVoiceClaim(initial.comment?.body);
-  if (previous && previous.requestId > initial.requestId)
-    throw new Error('Incomplete benchmark request history');
-  if (previous?.sha === initial.sha && previous.requestId === initial.requestId)
-    return 'skipped';
-  const claim: Claim = {
-    sha: initial.sha,
-    requestId: initial.requestId,
-    status: 'started',
-  };
-  await saveVoiceBenchmarkComment(
-    options,
-    initial,
-    renderVoiceComment(claim),
-    github(),
-  );
-  const claimed = await readVoiceBenchmarkContext(options, github());
-  if (!ownsClaim(claimed, initial) || !claimed)
-    throw new Error('Benchmark claim was not persisted');
-  const stopMonitor = new AbortController();
-  const monitorSignal = AbortSignal.any([signal, stopMonitor.signal]);
-  const revoke = new AbortController();
-  let stale = false;
-  const monitor = (async () => {
-    let consecutiveFailures = 0;
-    while (!monitorSignal.aborted) {
-      await dependencies.sleep(30_000, monitorSignal);
-      if (monitorSignal.aborted) return;
-      let owned: boolean;
-      try {
-        owned = ownsClaim(
-          await readVoiceBenchmarkContext(options, github(monitorSignal)),
-          claimed,
-        );
-        consecutiveFailures = 0;
-      } catch {
+  const report = (event: VoiceDiagnostic) =>
+    logVoiceDiagnostic(event, dependencies.log);
+  let phase: VoiceDiagnostic['phase'] = 'context';
+  try {
+    report({ phase, category: 'started' });
+    const initial = await readVoiceBenchmarkContext(options, github());
+    if (!initial) {
+      report({ phase, category: 'ineligible' });
+      return 'skipped';
+    }
+    phase = 'claim';
+    report({ phase, category: 'started' });
+    const previous = parseVoiceClaim(initial.comment?.body);
+    if (previous && previous.requestId > initial.requestId)
+      throw new Error('Incomplete benchmark request history');
+    if (
+      previous?.sha === initial.sha &&
+      previous.requestId === initial.requestId
+    ) {
+      report({ phase, category: 'already-claimed' });
+      return 'skipped';
+    }
+    const claim: Claim = {
+      sha: initial.sha,
+      requestId: initial.requestId,
+      status: 'started',
+    };
+    await saveVoiceBenchmarkComment(
+      options,
+      initial,
+      renderVoiceComment(claim),
+      github(),
+    );
+    const claimed = await readVoiceBenchmarkContext(options, github());
+    if (!ownsClaim(claimed, initial) || !claimed) {
+      report({ phase, category: 'claim-not-persisted' });
+      throw new Error('Benchmark claim was not persisted');
+    }
+    report({ phase, category: 'completed' });
+    const stopMonitor = new AbortController();
+    const monitorSignal = AbortSignal.any([signal, stopMonitor.signal]);
+    const revoke = new AbortController();
+    let stale = false;
+    const monitor = (async () => {
+      let consecutiveFailures = 0;
+      while (!monitorSignal.aborted) {
+        await dependencies.sleep(30_000, monitorSignal);
         if (monitorSignal.aborted) return;
-        consecutiveFailures++;
-        if (consecutiveFailures < 3) continue;
-        owned = false;
+        let owned: boolean;
+        try {
+          owned = ownsClaim(
+            await readVoiceBenchmarkContext(options, github(monitorSignal)),
+            claimed,
+          );
+          consecutiveFailures = 0;
+        } catch {
+          if (monitorSignal.aborted) return;
+          report({ phase: 'claim-monitor', category: 'claim-check-failed' });
+          consecutiveFailures++;
+          if (consecutiveFailures < 3) continue;
+          owned = false;
+        }
+        if (monitorSignal.aborted) return;
+        if (!owned) {
+          report({ phase: 'claim-monitor', category: 'claim-lost' });
+          stale = true;
+          revoke.abort();
+          return;
+        }
       }
-      if (monitorSignal.aborted) return;
-      if (!owned) {
+    })().catch(() => {
+      if (!monitorSignal.aborted) {
+        report({ phase: 'claim-monitor', category: 'unexpected-error' });
         stale = true;
         revoke.abort();
-        return;
       }
+    });
+    let metrics: VoiceCiMetrics | undefined;
+    phase = 'benchmark';
+    report({ phase, category: 'started' });
+    try {
+      const result = await dependencies.run(
+        claimed,
+        AbortSignal.any([signal, revoke.signal]),
+      );
+      phase = 'metrics';
+      metrics = readCiMetrics(result);
+    } catch {
+      report({
+        phase,
+        category:
+          signal.aborted || revoke.signal.aborted
+            ? 'cancelled'
+            : phase === 'metrics'
+              ? 'metrics-invalid'
+              : 'unexpected-error',
+      });
+      metrics = undefined;
+    } finally {
+      stopMonitor.abort();
+      await monitor;
     }
-  })().catch(() => {
-    if (!monitorSignal.aborted) {
-      stale = true;
-      revoke.abort();
+    if (stale || signal.aborted) {
+      report({
+        phase: 'benchmark',
+        category: stale ? 'claim-lost' : 'cancelled',
+      });
+      return 'failed';
     }
-  });
-  let metrics: VoiceCiMetrics | undefined;
-  try {
-    metrics = readCiMetrics(
-      await dependencies.run(claimed, AbortSignal.any([signal, revoke.signal])),
+    phase = 'publication';
+    report({ phase, category: 'started' });
+    const current = await readVoiceBenchmarkContext(options, github());
+    if (
+      !ownsClaim(current, claimed) ||
+      !current ||
+      current.comment?.id !== claimed.comment?.id ||
+      current.comment?.body !== claimed.comment?.body
+    ) {
+      report({ phase, category: 'claim-lost' });
+      return 'failed';
+    }
+    const status = metrics ? 'completed' : 'failed';
+    await saveVoiceBenchmarkComment(
+      options,
+      current,
+      renderVoiceComment({ ...claim, status }, metrics),
+      github(),
     );
-  } catch {
-    metrics = undefined;
-  } finally {
-    stopMonitor.abort();
-    await monitor;
+    report({ phase, category: 'completed' });
+    return metrics ? 'passed' : 'failed';
+  } catch (error) {
+    report({
+      phase,
+      category: signal.aborted ? 'cancelled' : 'unexpected-error',
+    });
+    throw error;
   }
-  if (stale || signal.aborted) return 'failed';
-  const current = await readVoiceBenchmarkContext(options, github());
-  if (
-    !ownsClaim(current, claimed) ||
-    !current ||
-    current.comment?.id !== claimed.comment?.id ||
-    current.comment?.body !== claimed.comment?.body
-  )
-    return 'failed';
-  const status = metrics ? 'completed' : 'failed';
-  await saveVoiceBenchmarkComment(
-    options,
-    current,
-    renderVoiceComment({ ...claim, status }, metrics),
-    github(),
-  );
-  return metrics ? 'passed' : 'failed';
 }
 
 export function validateVoiceRunId(value: string): string {
@@ -237,11 +296,30 @@ export async function runOwnedBenchmark(options: {
   readonly signal: AbortSignal;
   readonly cleanup?: (runId: string) => Promise<void>;
   readonly terminationGraceMs?: number;
+  readonly log?: (line: string) => void;
 }): Promise<unknown> {
-  validateVoiceRunId(options.runId);
-  for (const name of ['MAELSTROM_E2E_OPENAI_API_KEY', 'ELEVENLABS_API_KEY'])
-    if (!options.environment[name]?.trim())
+  const report = (event: VoiceDiagnostic) =>
+    logVoiceDiagnostic(event, options.log);
+  try {
+    validateVoiceRunId(options.runId);
+  } catch (error) {
+    report({ phase: 'initialization', category: 'invalid-run-id' });
+    throw error;
+  }
+  report({ phase: 'credentials', category: 'started' });
+  for (const name of [
+    'MAELSTROM_E2E_OPENAI_API_KEY',
+    'ELEVENLABS_API_KEY',
+  ] as const)
+    if (!options.environment[name]?.trim()) {
+      report({
+        phase: 'credentials',
+        category: 'missing-credential',
+        credential: name,
+      });
       throw new Error('Missing voice benchmark credential');
+    }
+  report({ phase: 'credentials', category: 'completed' });
   const environment: NodeJS.ProcessEnv = {};
   for (const name of [
     'PATH',
@@ -261,24 +339,56 @@ export async function runOwnedBenchmark(options: {
     VOICE_BENCHMARK_REPETITIONS: '1',
     NX_NO_CLOUD: 'true',
   });
-  options.signal.throwIfAborted();
-  const child = spawn(
-    process.execPath,
-    [
-      '--config=scripts/preview-lifecycle.bunfig.toml',
-      '--no-env-file',
-      '--no-install',
-      'apps/demo/e2e/voice/run-tests.ts',
-      '--benchmark',
-    ],
-    { cwd: options.root, env: environment, stdio: 'ignore', detached: true },
-  );
+  if (options.signal.aborted) {
+    report({ phase: 'benchmark', category: 'cancelled' });
+    options.signal.throwIfAborted();
+  }
+  report({ phase: 'benchmark', category: 'started' });
+  let child: ReturnType<typeof spawn>;
+  try {
+    child = spawn(
+      process.execPath,
+      [
+        '--config=scripts/preview-lifecycle.bunfig.toml',
+        '--no-env-file',
+        '--no-install',
+        'apps/demo/e2e/voice/run-tests.ts',
+        '--benchmark',
+      ],
+      {
+        cwd: options.root,
+        env: environment,
+        stdio: ['ignore', 'pipe', 'ignore'],
+        detached: true,
+      },
+    );
+  } catch (error) {
+    report({ phase: 'benchmark', category: 'spawn-failed' });
+    throw error;
+  }
+  child.stdout
+    ?.setEncoding('utf8')
+    .on('data', voiceDiagnosticConsumer(options.log));
   const killGroup = (signal: NodeJS.Signals) => {
     if (!child.pid) return;
     try {
       process.kill(-child.pid, signal);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
+    }
+  };
+  const cleanup = async () => {
+    report({ phase: 'cleanup', category: 'started' });
+    try {
+      try {
+        killGroup('SIGKILL');
+      } finally {
+        await (options.cleanup ?? cleanupVoiceContainers)(options.runId);
+      }
+      report({ phase: 'cleanup', category: 'completed' });
+    } catch (error) {
+      report({ phase: 'cleanup', category: 'cleanup-failed' });
+      throw error;
     }
   };
   let hardKill: ReturnType<typeof setTimeout> | undefined;
@@ -292,51 +402,100 @@ export async function runOwnedBenchmark(options: {
   options.signal.addEventListener('abort', abort, { once: true });
   if (options.signal.aborted) abort();
   try {
-    const code = await new Promise<number>((resolveExit, reject) => {
-      child.once('error', reject);
-      child.once('close', (code) => resolveExit(code ?? 1));
+    const { code, signal } = await new Promise<{
+      code: number | null;
+      signal: NodeJS.Signals | null;
+    }>((resolveExit, reject) => {
+      child.once('error', (error) => {
+        report({ phase: 'benchmark', category: 'spawn-failed' });
+        reject(error);
+      });
+      child.once('close', (code, signal) => resolveExit({ code, signal }));
     });
-    if (code !== 0 || options.signal.aborted)
+    if (code !== 0 || options.signal.aborted) {
+      report({
+        phase: 'benchmark',
+        category: options.signal.aborted
+          ? 'cancelled'
+          : signal
+            ? 'signal-exit'
+            : 'nonzero-exit',
+        ...(code !== null ? { exitCode: code } : {}),
+        ...(signal ? { signal } : {}),
+      });
       throw new Error('Voice benchmark failed');
-    const file = resolve(
-      options.root,
-      'apps/demo/dist/docker-voice/voice-benchmark-metrics.json',
-    );
-    const stat = await lstat(file);
-    const expected = resolve(
-      await realpath(resolve(options.root, 'apps/demo/dist/docker-voice')),
-      'voice-benchmark-metrics.json',
-    );
-    if (
-      (await realpath(file)) !== expected ||
-      !stat.isFile() ||
-      stat.isSymbolicLink() ||
-      stat.size > 4096
-    )
-      throw new Error('Invalid CI metrics file');
-    return readCiMetrics(JSON.parse(await readFile(file, 'utf8')));
+    }
+    report({ phase: 'benchmark', category: 'completed' });
+    report({ phase: 'metrics', category: 'started' });
+    let metricsExist = false;
+    try {
+      const file = resolve(
+        options.root,
+        'apps/demo/dist/docker-voice/voice-benchmark-metrics.json',
+      );
+      const stat = await lstat(file);
+      metricsExist = true;
+      const expected = resolve(
+        await realpath(resolve(options.root, 'apps/demo/dist/docker-voice')),
+        'voice-benchmark-metrics.json',
+      );
+      if (
+        (await realpath(file)) !== expected ||
+        !stat.isFile() ||
+        stat.isSymbolicLink() ||
+        stat.size > 4096
+      )
+        throw new Error('Invalid CI metrics file');
+      const metrics = readCiMetrics(JSON.parse(await readFile(file, 'utf8')));
+      report({ phase: 'metrics', category: 'completed' });
+      return metrics;
+    } catch (error) {
+      report({
+        phase: 'metrics',
+        category:
+          !metricsExist && (error as NodeJS.ErrnoException)?.code === 'ENOENT'
+            ? 'metrics-missing'
+            : 'metrics-invalid',
+      });
+      throw error;
+    }
   } finally {
     options.signal.removeEventListener('abort', abort);
     if (hardKill) clearTimeout(hardKill);
-    try {
-      killGroup('SIGKILL');
-    } finally {
-      await (options.cleanup ?? cleanupVoiceContainers)(options.runId);
-    }
+    await cleanup();
   }
 }
 
 async function cli() {
-  const runId = validateVoiceRunId(process.env.MAELSTROM_VOICE_CI_RUN_ID ?? '');
+  let runId: string;
+  try {
+    runId = validateVoiceRunId(process.env.MAELSTROM_VOICE_CI_RUN_ID ?? '');
+  } catch (error) {
+    logVoiceDiagnostic({ phase: 'initialization', category: 'invalid-run-id' });
+    throw error;
+  }
   if (Bun.argv[2] === 'cleanup') {
-    await cleanupVoiceContainers(runId);
+    logVoiceDiagnostic({ phase: 'cleanup', category: 'started' });
+    try {
+      await cleanupVoiceContainers(runId);
+      logVoiceDiagnostic({ phase: 'cleanup', category: 'completed' });
+    } catch (error) {
+      logVoiceDiagnostic({ phase: 'cleanup', category: 'cleanup-failed' });
+      throw error;
+    }
     return;
   }
   const abort = new AbortController();
-  const interrupt = () => abort.abort();
+  const interrupt = () => {
+    logVoiceDiagnostic({ phase: 'benchmark', category: 'cancelled' });
+    abort.abort();
+  };
   process.once('SIGINT', interrupt);
   process.once('SIGTERM', interrupt);
-  const deadline = setTimeout(interrupt, 20 * 60_000);
+  const deadline = setTimeout(() => {
+    logVoiceDiagnostic({ phase: 'benchmark', category: 'deadline-exceeded' });
+    abort.abort();
+  }, 20 * 60_000);
   try {
     const result = await executeVoiceBenchmark(
       {
@@ -375,6 +534,10 @@ async function cli() {
 
 if (import.meta.main)
   await cli().catch(() => {
+    logVoiceDiagnostic({
+      phase: 'initialization',
+      category: 'unexpected-error',
+    });
     console.error(
       'Voice benchmark CI failed; no raw reports or credentials were published.',
     );

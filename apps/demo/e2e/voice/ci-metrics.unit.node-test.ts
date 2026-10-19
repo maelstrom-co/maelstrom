@@ -91,19 +91,29 @@ async function reporterFixture(
     reporter: VoiceCiReporter,
     root: string,
     result: () => Promise<unknown>,
+    logs: string[],
   ) => Promise<void>,
 ) {
   const root = await mkdtemp(join(tmpdir(), 'voice-ci-reporter-'));
   await mkdir(join(root, 'results'));
-  const reporter = new VoiceCiReporter();
+  const logs: string[] = [];
+  const reporter = new VoiceCiReporter({ log: (line) => logs.push(line) });
   reporter.onBegin({
     projects: [{ outputDir: join(root, 'results') }],
   } as Parameters<VoiceCiReporter['onBegin']>[0]);
   try {
-    await check(reporter, root, async () =>
-      JSON.parse(
-        await readFile(join(root, 'voice-benchmark-metrics.json'), 'utf8'),
-      ),
+    await check(
+      reporter,
+      root,
+      async () =>
+        JSON.parse(
+          await readFile(join(root, 'voice-benchmark-metrics.json'), 'utf8'),
+        ),
+      logs,
+    );
+    assert.doesNotMatch(
+      logs.join('\n'),
+      /never-export|audio-canary|sensitive-canary/,
     );
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -160,7 +170,7 @@ test('reporter emits only bounded scalar metrics, never raw JSON, captions, erro
 
 test('duplicates, missing reports, retries and any failed test produce only a failure envelope', async () => {
   for (const variant of ['duplicate', 'missing', 'retry', 'failure'])
-    await reporterFixture(async (reporter, _root, result) => {
+    await reporterFixture(async (reporter, _root, result, logs) => {
       const attachments = allAttachments();
       if (variant === 'duplicate' && attachments[0])
         attachments.push(attachments[0]);
@@ -180,6 +190,13 @@ test('duplicates, missing reports, retries and any failed test produce only a fa
         'failed',
       );
       assert.deepEqual(await result(), { schemaVersion: 1, status: 'failed' });
+      const category = {
+        duplicate: 'attachment-invalid',
+        missing: 'metrics-incomplete',
+        retry: 'test-retried',
+        failure: 'test-failed',
+      }[variant];
+      assert.ok(logs.some((line) => line.includes(`"category":"${category}"`)));
     });
 });
 
@@ -210,4 +227,35 @@ test('attachment names are an exact allowlist', () => {
     'voice-barge-in-benchmark.json',
     'voice-greeting-barge-in-benchmark.json',
   ]);
+});
+
+test('reporter failures never emit test titles, raw errors, attachment contents or paths', async () => {
+  await reporterFixture(async (reporter, _root, result, logs) => {
+    reporter.onError();
+    await reporter.onTestEnd(
+      { title: 'sensitive-canary' } as Parameters<
+        VoiceCiReporter['onTestEnd']
+      >[0],
+      {
+        status: 'failed',
+        retry: 0,
+        errors: [{ message: 'sensitive-canary' }],
+        attachments: [
+          {
+            name: 'voice-benchmark.json',
+            contentType: 'application/json',
+            body: Buffer.from('sensitive-canary'),
+          },
+        ],
+      } as Parameters<VoiceCiReporter['onTestEnd']>[1],
+    );
+    await reporter.onEnd({ status: 'failed' } as Parameters<
+      VoiceCiReporter['onEnd']
+    >[0]);
+    assert.deepEqual(await result(), { schemaVersion: 1, status: 'failed' });
+    assert.ok(logs.some((line) => line.includes('"category":"test-failed"')));
+    assert.ok(
+      logs.some((line) => line.includes('"category":"attachment-invalid"')),
+    );
+  });
 });
