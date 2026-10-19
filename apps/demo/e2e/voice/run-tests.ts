@@ -20,6 +20,10 @@ import {
   type VoiceDiagnostic,
   voiceDiagnosticConsumer,
 } from './ci-diagnostics.ts';
+import {
+  classifyDockerFailure,
+  dockerDiagnosticOperation,
+} from './docker-diagnostics.ts';
 import { resolveTtsCacheDir } from './tts-cache-dir.ts';
 
 process.umask(0o077);
@@ -41,7 +45,10 @@ if (ciRunId !== undefined && !/^[a-zA-Z0-9_-]{1,100}$/.test(ciRunId))
 let phase: VoiceDiagnostic['phase'] = 'initialization';
 const diagnostic = (
   category: VoiceDiagnostic['category'],
-  details: Pick<VoiceDiagnostic, 'exitCode' | 'signal'> = {},
+  details: Pick<
+    VoiceDiagnostic,
+    'exitCode' | 'signal' | 'dockerOperation' | 'dockerFailure'
+  > = {},
 ) => {
   if (ciRunId) logVoiceDiagnostic({ phase, category, ...details });
 };
@@ -67,6 +74,8 @@ const privateEnvironment = [
 
 interface CommandResult {
   readonly code: number;
+  readonly exitCode: number | null;
+  readonly signal: NodeJS.Signals | null;
   readonly stdout: string;
   readonly stderr: string;
 }
@@ -118,7 +127,13 @@ function runProcess(
           ...(code !== null ? { exitCode: code } : {}),
         });
       if (activeChild === child) activeChild = undefined;
-      resolveResult({ code: code ?? 1, stdout, stderr });
+      resolveResult({
+        code: code ?? 1,
+        exitCode: code,
+        signal,
+        stdout,
+        stderr,
+      });
     });
   });
 }
@@ -136,8 +151,15 @@ async function runDocker(
     if (result.stdout) process.stdout.write(redact(result.stdout));
     if (result.stderr) process.stderr.write(redact(result.stderr));
   }
-  if (result.code !== 0 && !options.allowFailure) {
-    throw new Error(`docker ${args[0]} exited with status ${result.code}.`);
+  if (result.code !== 0) {
+    diagnostic('docker-failed', {
+      ...(result.exitCode !== null ? { exitCode: result.exitCode } : {}),
+      ...(result.signal ? { signal: result.signal } : {}),
+      dockerOperation: dockerDiagnosticOperation(args),
+      dockerFailure: classifyDockerFailure(result.stderr),
+    });
+    if (!options.allowFailure)
+      throw new Error(`docker ${args[0]} exited with status ${result.code}.`);
   }
   return result;
 }

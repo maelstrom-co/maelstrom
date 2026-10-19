@@ -254,6 +254,18 @@ jobs:
         with:
           bun-version-file: .bun-version
 
+      - name: Check Docker daemon
+        run: |
+          if ! server_version="$(docker info --format '{{.ServerVersion}}' 2>/dev/null)"; then
+            echo '::error::Docker daemon unavailable; docker info failed.'
+            exit 1
+          fi
+          if [[ ! "$server_version" =~ ^[0-9]+(\.[0-9]+){1,2}([+-][[:alnum:]._-]+)?$ ]]; then
+            echo '::error::docker info returned an unexpected server version.'
+            exit 1
+          fi
+          printf 'Docker daemon is available (server version %s).\n' "$server_version"
+
       - name: Authenticate voice tool image pull
         env:
           GHCR_TOKEN: ${{ github.token }}
