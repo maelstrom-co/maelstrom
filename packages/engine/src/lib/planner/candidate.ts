@@ -62,7 +62,7 @@ export type PlannerOutput =
  *
  * @typeParam Out - What the last stage of a planner produces.
  */
-export type WidenedPlannerOutput<Out extends PlannerOutput> = [Out] extends [
+export type PipelineOutput<Out extends PlannerOutput> = [Out] extends [
   PlannerCandidate,
 ]
   ? PlannerCandidate

@@ -57,12 +57,12 @@ export type { Logger } from './lib/logger.js';
 export { consoleLogger } from './lib/logger.js';
 export type {
   EngineDiagnostics,
+  PipelineOutput,
   PlannerCandidate,
   PlannerOutput,
   ReplylessCandidate,
   ValidatedCandidate,
   ValidatedReplylessCandidate,
-  WidenedPlannerOutput,
 } from './lib/planner/candidate.js';
 export { isNeedsClarification } from './lib/planner/candidate.js';
 // Planner stages
