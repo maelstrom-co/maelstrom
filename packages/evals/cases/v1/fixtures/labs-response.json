@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "labs-response",
+  "kind": "legacy-response-state",
+  "synthetic": true,
+  "data": {
+    "vesselId": "labs",
+    "variants": ["trends", "list", "upload"],
+    "markerSlugs": ["hemoglobin", "platelets", "glucose"],
+    "instances": [
+      {
+        "instanceId": "labs-main",
+        "vesselId": "labs",
+        "variant": "trends"
+      }
+    ]
+  }
+}

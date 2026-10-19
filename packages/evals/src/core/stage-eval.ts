@@ -152,6 +152,15 @@ export interface StageTurnRecord<Detail = unknown> {
   readonly detail?: Detail;
   /** The deferral reason the scenario expects of the stage; absent when it expects an output. */
   readonly expectedDeferral?: string;
+  /** Opt-in evidence of a completed stage whose judge threw, captured before judging. */
+  readonly judgeFailure?: {
+    /** Judge exception, not a runtime failure. */
+    readonly message: string;
+    /** Completed invocation's input snapshot. */
+    readonly input: unknown;
+    /** Completed invocation's output snapshot. */
+    readonly output: unknown;
+  };
 }
 
 /** Options for {@link runStageEval}. */
@@ -162,6 +171,8 @@ export interface StageEvalOptions {
   readonly repeats: number;
   /** Turns in flight at once. Defaults to 1. */
   readonly concurrency?: number;
+  /** Preserve judge exceptions with completed evidence; by default they propagate. */
+  readonly captureJudgeFailure?: boolean;
   readonly logger?: Logger;
   /** Called after every turn, for progress output. */
   readonly onRecord?: (record: StageTurnRecord) => void;
@@ -237,6 +248,7 @@ export async function runStageEval<Input, Output, Detail, Deps>(
             scenario,
             repeat,
             prepared,
+            captureJudgeFailure: options.captureJudgeFailure,
           }),
         );
   }
@@ -290,6 +302,7 @@ async function runTurn<Input, Output, Detail, Deps>(
     readonly scenario: Scenario;
     readonly repeat: number;
     readonly prepared: Extract<PreparedInput<Input>, { applicable: true }>;
+    readonly captureJudgeFailure?: boolean;
   },
 ): Promise<StageTurnRecord<Detail>> {
   const { variant, scenario, repeat, prepared } = turn;
@@ -337,7 +350,24 @@ async function runTurn<Input, Output, Detail, Deps>(
       calls,
     };
   }
-  const judgement = module.judge(scenario, input, result.value);
+  const completed = turn.captureJudgeFailure
+    ? structuredClone({ input, output: result.value })
+    : undefined;
+  let judgement: Judgement<Detail>;
+  try {
+    judgement = module.judge(scenario, input, result.value);
+  } catch (error) {
+    if (completed === undefined) throw error;
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      ...own,
+      outcome: 'error',
+      reason: message,
+      stageMs,
+      calls,
+      judgeFailure: { message, ...completed },
+    };
+  }
   const missedDeferral =
     expectedDeferral !== undefined && judgement.outcome === 'pass';
   return {

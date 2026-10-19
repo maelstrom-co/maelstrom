@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "no-dual-target-plan-script",
+  "kind": "no-dual-target-plan-script",
+  "synthetic": true,
+  "data": {
+    "initial": {
+      "instances": [
+        {
+          "instanceId": "weather-main",
+          "vesselId": "weather",
+          "variant": "current"
+        },
+        {
+          "instanceId": "calendar-main",
+          "vesselId": "calendar",
+          "variant": "month"
+        }
+      ]
+    },
+    "response": {
+      "assistantText": "I like trains.",
+      "executionPlan": []
+    }
+  }
+}

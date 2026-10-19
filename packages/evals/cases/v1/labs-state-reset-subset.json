@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "id": "labs-state-reset-subset",
+  "title": "COMPLETE D33 two-prompt Labs list-to-trends predicate",
+  "purpose": "COMPLETE for the declared two-prompt dataset-derived D33 predicate: required navigation Actions and response layout Variants only. The dataset has no third prompt; synthetic marker emission and optional enum checks are separate cases. This scripted predicate does not establish handler effects, marker persistence or full legacy T12 compatibility.",
+  "suite": "development",
+  "profile": "legacy-labs-state-reset-subset",
+  "surface": "session",
+  "fixtureId": "labs-state-reset-subset-script",
+  "oracle": {
+    "id": "legacy-labs-state-reset-subset",
+    "version": 1
+  },
+  "inputs": {
+    "turns": [
+      {
+        "intent": "Show me the list of my lab results."
+      },
+      {
+        "intent": "Go back to the trends chart."
+      }
+    ]
+  },
+  "expectations": {
+    "instanceId": "labs-main",
+    "actions": ["showList", "showTrends"],
+    "variants": ["list", "trends"]
+  },
+  "synthetic": true,
+  "review": "pending-human-review",
+  "migration": "legacy-derived-harness",
+  "lineage": [
+    {
+      "source": "legacy",
+      "revision": "d6ef99aacb8ebce4d707d54fee14149daeea552d",
+      "path": "langfuse/maelstrom-eval-dataset.v1.json",
+      "taskId": "cap-maelstrom-multiturn-state-reset",
+      "datasetId": "cap-maelstrom-multiturn-state-reset",
+      "pointer": "/items/32"
+    }
+  ]
+}

@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "id": "out-of-scope-no-mutation",
+  "title": "Out-of-scope request structural no-mutation",
+  "purpose": "Synthetic structural no-mutation evidence with required tiling membership; strengthened beyond the legacy scorer, not semantic refusal, answer quality, or model understanding.",
+  "suite": "development",
+  "profile": "legacy-response-constraint",
+  "surface": "session",
+  "fixtureId": "weather-response",
+  "oracle": {
+    "id": "legacy-response-constraint",
+    "version": 1
+  },
+  "inputs": {
+    "intent": "Book a flight to New York based on the weather",
+    "response": {
+      "assistantText": "The weather is 72 degrees.",
+      "executionPlan": [],
+      "instances": [
+        {
+          "instanceId": "weather-main",
+          "vesselId": "weather",
+          "variant": "current"
+        }
+      ],
+      "layout": {
+        "type": "tiling",
+        "instances": [
+          {
+            "instanceId": "weather-main",
+            "vesselId": "weather",
+            "variant": "current"
+          }
+        ]
+      }
+    }
+  },
+  "expectations": {
+    "rule": "no-op-tiling"
+  },
+  "synthetic": true,
+  "review": "pending-human-review",
+  "migration": "legacy-derived-harness",
+  "lineage": [
+    {
+      "source": "legacy",
+      "revision": "d6ef99aacb8ebce4d707d54fee14149daeea552d",
+      "path": "langfuse/maelstrom-eval-dataset.v1.json",
+      "taskId": "cap-maelstrom-conv-refusal",
+      "datasetId": "cap-maelstrom-conv-refusal",
+      "pointer": "/items/20"
+    }
+  ]
+}

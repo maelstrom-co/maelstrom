@@ -539,6 +539,14 @@
         "tslib": "^2.3.0",
       },
     },
+    "tools/evals-langfuse": {
+      "name": "@maelstrom-co/evals-langfuse",
+      "version": "0.0.0",
+      "dependencies": {
+        "@langfuse/client": "catalog:",
+        "@opentelemetry/api": "catalog:",
+      },
+    },
   },
   "patchedDependencies": {
     "alchemy@2.0.0-beta.83": "patches/alchemy@2.0.0-beta.83.patch",
@@ -555,8 +563,9 @@
     "file-type": "21.3.4",
     "handlebars": "4.7.10",
     "hono": "4.13.11",
-    "http-cache-semantics": "4.3.0",
     "katex": "0.18.2",
+    "@langfuse/core": "5.13.1",
+    "@langfuse/tracing": "5.13.1",
     "lodash": "4.18.1",
     "miniflare": {
       "undici": "7.30.1",
@@ -586,6 +595,8 @@
     "@effect/sql-d1": "4.0.5",
     "@google-cloud/speech": "^7.3.0",
     "@google-cloud/text-to-speech": "^6.4.0",
+    "@langfuse/client": "5.13.1",
+    "@opentelemetry/api": "1.9.1",
     "@pgrabovets/json-view": "^2.8.1",
     "@radix-ui/react-scroll-area": "^1.2.10",
     "@ricky0123/vad-web": "0.0.30",
@@ -1247,6 +1258,12 @@
 
     "@keyv/serialize": ["@keyv/serialize@1.1.1", "", {}, "sha512-dXn3FZhPv0US+7dtJsIi2R+c7qWYiReoEh5zUntWCf4oSpMNib8FDhSoed6m3QyZdx5hK7iLFkYk3rNxwt8vTA=="],
 
+    "@langfuse/client": ["@langfuse/client@5.13.1", "", { "dependencies": { "@langfuse/core": "^5.13.1", "@langfuse/tracing": "^5.13.1", "mustache": "^4.2.0" }, "peerDependencies": { "@opentelemetry/api": "^1.9.0" } }, "sha512-m9FdxZ4kwoH4k9xFQPG0q9Clpi6VU7bJs9fvJ+0Vv7JHDnsKMw725llPtLuMrHy7BFgGmxgR0lwC+k8BbMDTdw=="],
+
+    "@langfuse/core": ["@langfuse/core@5.13.1", "", { "peerDependencies": { "@opentelemetry/api": "^1.9.0" } }, "sha512-/p8wfWQVeD58O7EzlQ0FkXYBlE3Q64a3gaQPRRGrAUUzshKZFAh+682Yb4eIpCtsxyMj4ZGlvkQ+Ph8LVKMFDA=="],
+
+    "@langfuse/tracing": ["@langfuse/tracing@5.13.1", "", { "dependencies": { "@langfuse/core": "^5.13.1" }, "peerDependencies": { "@opentelemetry/api": "^1.9.0" } }, "sha512-hFxiLWs/UGSPhM6f8nxmCAm2/9l6FN0vO3s0uvh93FnXXg2Y4Aauo+6n8LuvrL5wbCgR766GnRuswiKqRcfYqw=="],
+
     "@libsql/client": ["@libsql/client@0.17.4", "", { "dependencies": { "@libsql/core": "^0.17.4", "@libsql/hrana-client": "^0.10.0", "js-base64": "^3.7.5", "libsql": "^0.5.28", "promise-limit": "^2.7.0" } }, "sha512-lYayFWasDV78A+TjlEhr6ubb3odBV6OHjb+wdp8VQcyWWAEIjuwbCHaraEUS4m4yWoo0BvZo96It4VdzZRmRWw=="],
 
     "@libsql/core": ["@libsql/core@0.17.4", "", { "dependencies": { "js-base64": "^3.7.5" } }, "sha512-LqF9gIvnJ38nmAH1y/ChizHqDO/MO1wLgA96XrraulEEbqXxLjleSH92YWTolbuJKgPUmGu4aJk9W3UnAcxLOQ=="],
@@ -1346,6 +1363,8 @@
     "@maelstrom-co/engine": ["@maelstrom-co/engine@workspace:packages/engine"],
 
     "@maelstrom-co/evals": ["@maelstrom-co/evals@workspace:packages/evals"],
+
+    "@maelstrom-co/evals-langfuse": ["@maelstrom-co/evals-langfuse@workspace:tools/evals-langfuse"],
 
     "@maelstrom-co/planner-jev": ["@maelstrom-co/planner-jev@workspace:packages/planner-jev"],
 
@@ -3404,6 +3423,8 @@
     "muggle-string": ["muggle-string@0.4.1", "", {}, "sha512-VNTrAak/KhO2i8dqqnqnAHOa3cYBwXEZe9h+D5h/1ZqFSTEFHdM65lR7RoIqq3tBBYavsOXV84NoHXZ0AkPyqQ=="],
 
     "murmurhash-js": ["murmurhash-js@1.0.0", "", {}, "sha512-TvmkNhkv8yct0SVBSy+o8wYzXjE4Zz3PCesbfs8HiCXXdcTuocApFv11UWlNFWKYsP2okqrhb7JNlSm9InBhIw=="],
+
+    "mustache": ["mustache@4.2.0", "", { "bin": { "mustache": "bin/mustache" } }, "sha512-71ippSywq5Yb7/tVYyGbkBggbU8H3u5Rz56fH60jGFgr8uHwxs+aSKeqmluIVzM0m0kB7xQjKS6qPfd0b2ZoqQ=="],
 
     "nanoid": ["nanoid@5.1.16", "", { "bin": { "nanoid": "bin/nanoid.js" } }, "sha512-kVrnsrJqMR8+oLJnGEmSWw9BivK5mt7H3FZatVRjrc5wGqFYuBxX1yG7+A7Gi5AefkX6t/oCkizcQgpu0cY1dQ=="],
 

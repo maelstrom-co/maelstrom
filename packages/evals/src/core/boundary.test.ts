@@ -21,6 +21,7 @@ const SELF = relative(CORE, import.meta.path);
 const FORBIDDEN_PACKAGES = [
   '@maelstrom-co/planner-jev',
   '@maelstrom-co/planner-llm',
+  '@maelstrom-co/client',
 ];
 
 // Stage and provider names of the planner families the plugins wrap. This
@@ -56,6 +57,27 @@ test('no core file imports a planner package or a module outside core', () => {
       })
       .map((specifier) => `${file}: ${specifier}`);
   });
+  expect(offenders).toEqual([]);
+});
+
+test('the runtime-neutral lifecycle imports only its own runtime contracts', () => {
+  const runtime = join(CORE, 'runtime');
+  const offenders = files
+    .filter(
+      (file) => file.startsWith(`runtime${sep}`) && !file.endsWith('.test.ts'),
+    )
+    .flatMap((file) =>
+      [...readFileSync(join(CORE, file), 'utf8').matchAll(SPECIFIER)]
+        .map((match) => match[1] ?? match[2] ?? '')
+        .filter(
+          (specifier) =>
+            !specifier.startsWith('.') ||
+            !resolve(dirname(join(CORE, file)), specifier).startsWith(
+              runtime + sep,
+            ),
+        )
+        .map((specifier) => `${file}: ${specifier}`),
+    );
   expect(offenders).toEqual([]);
 });
 

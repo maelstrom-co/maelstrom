@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "id": "weather-reuse-weekly",
+  "title": "Four-turn Weather weekly reuse",
+  "purpose": "Check a narrowed synthetic trajectory: current or hourly detail, decisive weekly change, then the same single weekly panel retained. No prompt understanding or Action-effect claim.",
+  "suite": "development",
+  "profile": "legacy-weather-reuse",
+  "surface": "session",
+  "fixtureId": "weather-reuse-script",
+  "oracle": {
+    "id": "legacy-weather-reuse",
+    "version": 1
+  },
+  "inputs": {
+    "turns": [
+      {
+        "intent": "I want more detail in the weather panel."
+      },
+      {
+        "intent": "Use the longer-range forecast."
+      },
+      {
+        "intent": "Reuse the existing panel."
+      },
+      {
+        "intent": "Do not create another weather widget."
+      }
+    ]
+  },
+  "expectations": {
+    "instanceId": "weather-main",
+    "action": "showWeekly",
+    "variant": "weekly",
+    "forbidNewInstances": true
+  },
+  "synthetic": true,
+  "review": "pending-human-review",
+  "migration": "legacy-derived-harness",
+  "lineage": [
+    {
+      "source": "legacy",
+      "revision": "d6ef99aacb8ebce4d707d54fee14149daeea552d",
+      "path": "langfuse/maelstrom-eval-dataset.v1.json",
+      "taskId": "cap-maelstrom-multiturn-weather-reuse-weekly",
+      "datasetId": "cap-maelstrom-multiturn-weather-reuse-weekly",
+      "pointer": "/items/21"
+    }
+  ]
+}

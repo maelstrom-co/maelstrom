@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "id": "labs-multi-marker-final-script",
+  "kind": "labs-multi-marker-final-script",
+  "synthetic": true,
+  "data": {
+    "initial": {
+      "layout": {
+        "type": "tiling",
+        "instances": [
+          { "instanceId": "labs-main", "vesselId": "labs", "variant": "trends" }
+        ]
+      }
+    },
+    "responses": [
+      {
+        "layout": {
+          "type": "tiling",
+          "instances": [
+            {
+              "instanceId": "labs-main",
+              "vesselId": "labs",
+              "variant": "trends"
+            }
+          ]
+        },
+        "executionPlan": []
+      },
+      {
+        "layout": {
+          "type": "tiling",
+          "instances": [
+            {
+              "instanceId": "labs-main",
+              "vesselId": "labs",
+              "variant": "trends"
+            }
+          ]
+        },
+        "executionPlan": [
+          {
+            "instanceId": "labs-main",
+            "action": "selectMarkers",
+            "params": { "markerSlugs": ["hemoglobin", "platelets"] }
+          }
+        ]
+      },
+      {
+        "layout": {
+          "type": "tiling",
+          "instances": [
+            {
+              "instanceId": "labs-main",
+              "vesselId": "labs",
+              "variant": "trends"
+            }
+          ]
+        },
+        "executionPlan": [
+          {
+            "instanceId": "labs-main",
+            "action": "selectMarkers",
+            "params": { "markerSlugs": ["hemoglobin", "platelets", "glucose"] }
+          }
+        ]
+      }
+    ]
+  }
+}

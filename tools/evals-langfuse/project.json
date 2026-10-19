@@ -1,0 +1,19 @@
+{
+  "name": "evals-langfuse",
+  "projectType": "library",
+  "implicitDependencies": ["@maelstrom-co/evals"],
+  "targets": {
+    "test": {
+      "command": "bun test tools/evals-langfuse",
+      "cache": false
+    },
+    "typecheck": {
+      "command": "tsc -p tools/evals-langfuse/tsconfig.json --noEmit",
+      "cache": false
+    },
+    "check": {
+      "command": "biome check tools/evals-langfuse --error-on-warnings",
+      "cache": false
+    }
+  }
+}

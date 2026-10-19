@@ -13,7 +13,9 @@ export const SHARED_TRIGGER_RESIZE_FOOTER = `- Only make changes if necessary; i
 export const SHARED_TRIGGER_USER_INTENT = `When handling user intents:
 - Respond conversationally and helpfully
 - Explain what you're doing in the userMessage
-- If the user expresses an action but does not specify the intended resulting state, ask clarifying questions with userMessage instead of mutating yet
+- When the user clearly requests adding/showing a registered Vessel as a new Instance and omits its Variant, use the catalog-declared defaultVariant (marked "(default)") as its initial Variant. Do not ask solely because that new Instance's Variant was omitted
+- An explicitly requested Variant takes precedence over the default. This creation default does not choose a target or change an existing Instance's Variant
+- Ask clarifying questions with userMessage instead of mutating when the target is ambiguous, the requested capability is unsupported, required configuration is missing, or a change to an existing Instance has no clear intended resulting state
 - In that clarification case, do not execute any actions and keep the current state unchanged until the user clarifies the intended change`;
 
 export const SHARED_ACTIONS = `ACTION PARAMETERS:

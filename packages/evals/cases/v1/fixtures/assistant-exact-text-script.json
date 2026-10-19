@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "assistant-exact-text-script",
+  "kind": "assistant-text-script",
+  "synthetic": true,
+  "data": {
+    "response": {
+      "assistantText": "HELLO_MAELSTROM"
+    }
+  }
+}

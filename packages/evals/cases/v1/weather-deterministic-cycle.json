@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "id": "weather-deterministic-cycle",
+  "title": "COMPLETE Weather hourly-weekly-current trajectory",
+  "purpose": "COMPLETE for the declared scripted dataset-aligned navigation: exact Actions valid in each incoming Variant, resulting membership and state continuity. No Engine, prompt interpretation, handler effects or legacy-runtime claim from this script. D40 deliberately corrects the legacy scorer's hourly/current/weekly mismatch to the dataset's hourly/weekly/current; historical scorer compatibility is out of scope.",
+  "suite": "development",
+  "profile": "legacy-weather-transition-chain",
+  "surface": "session",
+  "fixtureId": "weather-deterministic-cycle-script",
+  "oracle": {
+    "id": "legacy-weather-transition-chain",
+    "version": 1
+  },
+  "inputs": {
+    "turns": [
+      {
+        "intent": "Show me the hourly forecast"
+      },
+      {
+        "intent": "Now go straight to weekly"
+      },
+      {
+        "intent": "Go back to current"
+      }
+    ]
+  },
+  "expectations": {
+    "trajectory": "hourly-weekly-current",
+    "instanceId": "weather-main",
+    "actions": ["showHourly", "showWeekly", "showCurrent"],
+    "variants": ["hourly", "weekly", "current"],
+    "coverage": "COMPLETE"
+  },
+  "synthetic": true,
+  "review": "pending-human-review",
+  "migration": "legacy-derived-harness",
+  "lineage": [
+    {
+      "source": "legacy",
+      "revision": "d6ef99aacb8ebce4d707d54fee14149daeea552d",
+      "path": "langfuse/maelstrom-eval-dataset.v1.json",
+      "taskId": "cap-maelstrom-edge-deterministic-actions",
+      "datasetId": "cap-maelstrom-edge-deterministic-actions",
+      "pointer": "/items/39"
+    }
+  ]
+}

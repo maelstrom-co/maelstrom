@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "id": "three-vessel-addition",
+  "title": "COMPLETE D35 adjudicated Weather-only three-Vessel addition",
+  "purpose": "COMPLETE only for the user-adjudicated current contract: one fresh post-fix current-Engine sample passed in three dispatches with no retry; prior failures remain preserved. Weather/current only initially was user-adjudicated, then Labs/trends and Calendar/month, then Weather/weekly and Calendar/week. Preserve Labs identity and trends from creation onward, forbidding later Labs Actions. Exact membership and incoming-Variant Action validity; no required creation Action or empty-plan rule. Non-transition parameters/effects and layout geometry are unscored. One sample is not reliability or user semantic acceptance; review remains pending. No clinical data/trend fulfillment or client/handler effects are established by the Engine report. The legacy TASK_DEFINITIONS task preloads all three and scores different prompts; no source scorer/runtime equivalence or demo-factory parity is claimed.",
+  "suite": "development",
+  "profile": "three-vessel-addition",
+  "surface": "session",
+  "fixtureId": "three-vessel-addition-script",
+  "oracle": {
+    "id": "three-vessel-addition",
+    "version": 1
+  },
+  "inputs": {
+    "turns": [
+      {
+        "intent": "Add my lab results and calendar to the weather view."
+      },
+      {
+        "intent": "Switch the weather to weekly forecast."
+      },
+      {
+        "intent": "Show me the week view in the calendar."
+      }
+    ]
+  },
+  "expectations": {
+    "coverage": "COMPLETE",
+    "initialScene": "weather-only",
+    "labsPreservationBaseline": "after-addition",
+    "weatherAction": "showWeekly",
+    "calendarAction": "showWeek"
+  },
+  "synthetic": true,
+  "review": "pending-human-review",
+  "migration": "legacy-derived-harness",
+  "lineage": [
+    {
+      "source": "legacy",
+      "revision": "d6ef99aacb8ebce4d707d54fee14149daeea552d",
+      "path": "langfuse/maelstrom-eval-dataset.v1.json",
+      "taskId": "cap-maelstrom-multivessel-three",
+      "datasetId": "cap-maelstrom-multivessel-three",
+      "pointer": "/items/34"
+    }
+  ]
+}
