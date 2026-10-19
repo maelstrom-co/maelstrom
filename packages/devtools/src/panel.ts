@@ -63,6 +63,7 @@ interface PanelPreferences {
   labels: Map<string, string>;
   nextLabel: number;
   importedName?: string;
+  liveEventKeys: WeakMap<Fields, string>;
 }
 const preferencesByTools = new WeakMap<Devtools, PanelPreferences>();
 const mountedPanels = new WeakMap<
@@ -86,6 +87,7 @@ function Panel(tools: Devtools): HTMLElement {
     json: true,
     labels: new Map(),
     nextLabel: 1,
+    liveEventKeys: new WeakMap(),
   };
   preferencesByTools.set(tools, preferences);
   const [snapshot, setSnapshot] = createSignal(tools.getSnapshot());
@@ -204,8 +206,11 @@ function Panel(tools: Devtools): HTMLElement {
     if (liveReference !== state || !cachedLive) {
       liveReference = state;
       cachedLive = {
-        events: panelEvents(state.activity),
-        requestEvents: panelEvents(state.requestActivity),
+        events: panelEvents(state.activity, preferences.liveEventKeys),
+        requestEvents: panelEvents(
+          state.requestActivity,
+          preferences.liveEventKeys,
+        ),
         droppedRequestEvents: state.droppedRequestEvents,
         omittedRequestEvents: Math.max(
           0,

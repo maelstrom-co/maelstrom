@@ -118,7 +118,10 @@ export function eventIssue(event: PanelEvent): EventIssue | undefined {
   return undefined;
 }
 
-export function panelEvents(values: readonly unknown[]): PanelEvent[] {
+export function panelEvents(
+  values: readonly unknown[],
+  localKeys?: WeakMap<Fields, string>,
+): PanelEvent[] {
   const offset = Math.max(0, values.length - MAX_VIEW_EVENTS);
   const retained = values.slice(offset);
   const eventId = (value: unknown) => {
@@ -137,12 +140,19 @@ export function panelEvents(values: readonly unknown[]): PanelEvent[] {
     const metadata = fields(raw.metadata);
     const index = offset + position;
     const id = eventId(value);
+    let localKey = localKeys?.get(raw);
+    if (localKeys && !localKey) {
+      localKey = crypto.randomUUID();
+      localKeys.set(raw, localKey);
+    }
     return [
       {
         key: JSON.stringify(
-          id && counts.get(id) === 1
-            ? ['event', id]
-            : ['position', id ?? '', index],
+          localKey
+            ? ['local', localKey]
+            : id && counts.get(id) === 1
+              ? ['event', id]
+              : ['position', id ?? '', index],
         ),
         kind,
         at: numeric(raw.at),
