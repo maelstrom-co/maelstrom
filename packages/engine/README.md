@@ -120,7 +120,7 @@ The engine's `handle()` requires envelopes with all required fields. It has no p
 ```ts
 interface EngineConfig {
   /** Produces the candidate response for every chart_request. Required. */
-  planner: Planner;
+  planner: ClarifyingPlanner;
   /** Logger (defaults to consoleLogger). */
   logger?: Logger;
   /** Opt-in conversation history (see below). */
@@ -132,7 +132,7 @@ interface EngineConfig {
 }
 ```
 
-`planner` is a `Stage<PlanningInput, PlannerCandidate>`. Most consumers use `llmPlanner` from [`@maelstrom-co/planner-llm`](https://github.com/maelstrom-co/maelstrom/blob/main/packages/planner-llm/README.md), which makes a single structured-output LLM call per attempt.
+`planner` is usually a `Planner`, a `Stage<PlanningInput, PlannerCandidate>`. The field accepts the wider `ClarifyingPlanner` so a planner serving `skipReply` requests can also return replyless candidates or a needs-clarification result (see [skipReply and needs-clarification](#skipreply-and-needs-clarification)). Most consumers use `llmPlanner` from [`@maelstrom-co/planner-llm`](https://github.com/maelstrom-co/maelstrom/blob/main/packages/planner-llm/README.md), which makes a single structured-output LLM call per attempt.
 
 See [Planners and stages](#planners-and-stages) below for composing more than one LLM call, or non-LLM steps, into a planner.
 
@@ -274,7 +274,9 @@ The flag changes what validation accepts:
 - Without `skipReply`, a candidate must carry a non-blank `userMessage`. A needs-clarification result is `Err(ValidationError)` on field `'planner'`.
 - With `skipReply: true`, a candidate may omit `userMessage` (a blank one is dropped as if omitted), and a planner may return a `NeedsClarification` (`{ type: 'needs_clarification', question, options? }`, see `isNeedsClarification`) instead. Its diagnostics are empty and never recommend a retry, and `withRetry` returns it on the attempt that produced it.
 
-`PlannerCandidate` types `userMessage` as optional for this reason, and `PlannerOutput` is `PlannerCandidate | NeedsClarification`. A `Planner` that only returns candidates is still a valid `EngineConfig.planner`.
+The types keep the two cases apart. `PlannerCandidate` and `ValidatedCandidate` always carry a `userMessage`. `ReplylessCandidate` and `ValidatedReplylessCandidate` are the same shapes with `userMessage` optional, and `PlannerOutput` is `PlannerCandidate | ReplylessCandidate | NeedsClarification`. In a stage, `ctx.validate` returns a `ValidatedCandidate` for a `PlannerCandidate` and a `ValidatedReplylessCandidate` for a `ReplylessCandidate`. It does not accept a `NeedsClarification`.
+
+A plain `Planner` keeps its strict types through the combinators: `withRetry`, `withFallback` and `pipeline` return a `Planner` for it, and its `RetryFeedback.previous` is a `PlannerCandidate`. A stage whose output is wider gets a result that is just as wide. For example, `withRetry` on a stage returning any `PlannerOutput` yields a `ClarifyingPlanner` and hands it `Retryable<In, ReplylessCandidate>` feedback. A `Planner` that only returns strict candidates is still a valid `EngineConfig.planner`.
 
 `Engine.handle()` still answers with a `chart_response` whose `userMessage` is required. A `skipReply: true` request whose planner returns no `userMessage`, or a needs-clarification result, is refused with `Err(ValidationError)` on field `'skipReply'` until the Engine has a path that can return those outcomes.
 
