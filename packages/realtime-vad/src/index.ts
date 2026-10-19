@@ -30,3 +30,9 @@ export {
   createLocalAudioPreRoll,
   type LocalAudioPreRoll,
 } from './local-audio-pre-roll.js';
+
+export {
+  createPlaybackBargeIn,
+  type PlaybackBargeIn,
+  type PlaybackBargeInOptions,
+} from './playback-barge-in.js';

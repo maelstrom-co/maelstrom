@@ -44,7 +44,8 @@
   "dependencies": {
     "@maelstrom-co/protocol": "workspace:*",
     "@maelstrom-co/realtime": "workspace:*",
-    "@maelstrom-co/realtime-protocol": "workspace:*"
+    "@maelstrom-co/realtime-protocol": "workspace:*",
+    "@maelstrom-co/realtime-vad": "workspace:*"
   },
   "devDependencies": {
     "@maelstrom-co/engine": "workspace:*",

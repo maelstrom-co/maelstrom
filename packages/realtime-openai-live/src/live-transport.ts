@@ -17,6 +17,15 @@ import {
   type LiveSessionExchange,
   LiveTransportError,
 } from '@maelstrom-co/realtime-protocol/openai-live';
+import {
+  createPlaybackBargeIn,
+  type PlaybackBargeIn,
+} from '@maelstrom-co/realtime-vad';
+import {
+  type BrowserVadOptions,
+  type ResolvedBrowserVadConfig,
+  resolveBrowserVadConfig,
+} from '@maelstrom-co/realtime-vad/config';
 import { type LiveContextKind, LiveDiagnostics } from './live-diagnostics.js';
 
 /** Browser transport configuration. Factories must return exclusively owned resources. */
@@ -33,6 +42,14 @@ export interface LiveTransportOptions {
   readonly getMicrophone?: () => Promise<MediaStream>;
   /** Owned audio player factory; playback can be retried through activateAudio. */
   readonly createAudio?: () => HTMLAudioElement;
+  /**
+   * Experimental local playback gating, default off. Uses the existing mic;
+   * speech onset disables received audio tracks, not provider generation.
+   * Speech end plus 200ms of incoming quiet restores exact prior track values;
+   * misfires restore immediately. A reply with no quiet gap can be clipped.
+   * Unavailable detection falls back to provider-only behavior. preRollMs is unused.
+   */
+  readonly playbackBargeIn?: false | true | BrowserVadOptions;
 }
 
 /**
@@ -109,6 +126,7 @@ type Run = {
   mic?: MediaStream;
   playback?: MediaStream;
   audio?: HTMLAudioElement;
+  bargeIn?: PlaybackBargeIn;
   startupTimer?: ReturnType<typeof setTimeout>;
   closeTimer?: ReturnType<typeof setTimeout>;
   disconnectedTimer?: ReturnType<typeof setTimeout>;
@@ -145,6 +163,7 @@ export class OpenAILiveTransport
   private readonly changes = new Set<() => void>();
   private readonly handshakeMs: number;
   private readonly closeMs: number;
+  private readonly bargeInConfig: ResolvedBrowserVadConfig;
 
   /** Optional continuous evidence channel; transcript fragments never imply final turns. */
   readonly observations: AdapterVoiceObservations = {
@@ -158,6 +177,9 @@ export class OpenAILiveTransport
 
   /** Creates an inert transport. No media or billed session starts until connect. */
   constructor(private readonly options: LiveTransportOptions) {
+    this.bargeInConfig = resolveBrowserVadConfig(
+      options.playbackBargeIn ?? false,
+    );
     this.handshakeMs = options.handshakeTimeoutMs ?? 45_000;
     this.closeMs = options.closeTimeoutMs ?? 15_000;
     if (
@@ -291,6 +313,7 @@ export class OpenAILiveTransport
     if (!run) return Promise.resolve();
     if (run.closing) return run.ended.promise;
     run.closing = true;
+    run.bargeIn?.destroy();
     clearTimeout(run.disconnectedTimer);
     stop(run.mic);
     attempt(() => run.audio?.pause());
@@ -391,6 +414,7 @@ export class OpenAILiveTransport
       }
       run.playback ??= new MediaStream();
       run.playback.addTrack(event.track);
+      run.bargeIn?.attach(run.playback);
       if (run.audio) run.audio.srcObject = run.playback;
       const observe = () => {
         if (!this.current(run) || run.closing) return;
@@ -453,6 +477,24 @@ export class OpenAILiveTransport
     if (!run.mic) throw new LiveTransportError('microphone_unavailable');
     if (!run.mic.getAudioTracks().some((track) => track.readyState === 'live'))
       throw new LiveTransportError('microphone_unavailable');
+    if (this.bargeInConfig.enabled) {
+      run.bargeIn = createPlaybackBargeIn({
+        microphone: run.mic,
+        config: this.bargeInConfig,
+        onUnavailable: () => {
+          if (this.current(run) && !run.closing)
+            this.emit({
+              type: 'error',
+              error: new LiveTransportError('playback_barge_in_unavailable', {
+                fatal: false,
+              }),
+            });
+        },
+      });
+      if (run.playback) run.bargeIn.attach(run.playback);
+      await this.wait(run, run.bargeIn.ready);
+      this.assert(run);
+    }
     for (const track of run.mic.getAudioTracks()) {
       peer.addTrack(track, run.mic);
       this.listen(run, track, 'ended', () => {
@@ -655,6 +697,7 @@ export class OpenAILiveTransport
     clearTimeout(run.closeTimer);
     clearTimeout(run.disconnectedTimer);
     for (const release of run.releases) attempt(release);
+    run.bargeIn?.destroy();
     stop(run.mic);
     stop(run.playback);
     attempt(() => run.audio?.pause());

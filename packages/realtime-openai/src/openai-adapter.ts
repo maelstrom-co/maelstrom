@@ -21,6 +21,10 @@ import type {
   OpenAITokenGrant,
 } from '@maelstrom-co/realtime-protocol/openai';
 import {
+  createPlaybackBargeIn,
+  type PlaybackBargeIn,
+} from '@maelstrom-co/realtime-vad';
+import {
   type ResolvedBrowserVadConfig,
   resolveBrowserVadConfig,
 } from '@maelstrom-co/realtime-vad/config';
@@ -190,6 +194,8 @@ export class OpenAIAdapter
   readonly #voice: OpenAIBuiltInVoice;
   readonly #synthesizeGreeting: SynthesizeGreeting | undefined;
   readonly #greetingInterruption: ResolvedBrowserVadConfig;
+  readonly #playbackBargeInConfig: ResolvedBrowserVadConfig;
+  #playbackBargeIn: PlaybackBargeIn | undefined;
   readonly #greetingGate: MicrophonePublicationGate;
   readonly #greetingPresentation: GreetingPresentation;
   readonly #playoutDiagnostics: WebRtcPlayoutDiagnostics | undefined;
@@ -228,6 +234,9 @@ export class OpenAIAdapter
   constructor(options: OpenAIAdapterOptions) {
     this.#greetingInterruption = resolveGreetingInterruptionConfig(
       options.greetingInterruption,
+    );
+    this.#playbackBargeInConfig = resolveBrowserVadConfig(
+      options.playbackBargeIn ?? false,
     );
     const serverVadThreshold =
       options.serverVad?.threshold ?? DEFAULT_SERVER_VAD_THRESHOLD;
@@ -388,6 +397,17 @@ export class OpenAIAdapter
       this.#micStream = micStream;
       this.#connecting = false;
       this.#wireConnectionEvents(connection);
+      if (this.#playbackBargeInConfig.enabled) {
+        const playbackBargeIn = createPlaybackBargeIn({
+          microphone: micStream,
+          config: this.#playbackBargeInConfig,
+          onUnavailable: () =>
+            this.#logger.warn('local playback interruption unavailable'),
+        });
+        this.#playbackBargeIn = playbackBargeIn;
+        await playbackBargeIn.ready;
+        attempt.assertCurrent();
+      }
       const dataChannelReady = this.#openDataChannel(
         connection,
         opts,
@@ -567,6 +587,7 @@ export class OpenAIAdapter
       // current shared `#pc` may drive playback.
       if (connection !== this.#pc) return;
       this.#playbackStream = event.streams[0];
+      if (event.streams[0]) this.#playbackBargeIn?.attach(event.streams[0]);
       audio.srcObject = event.streams[0] ?? null;
     };
     connection.oniceconnectionstatechange = () => {
@@ -897,6 +918,8 @@ export class OpenAIAdapter
     this.#clearIceGraceTimer();
     // Abort greeting work and release owner-generated publication resources.
     // Fresh lifecycle state for a later reconnect; player context is retained.
+    this.#playbackBargeIn?.destroy();
+    this.#playbackBargeIn = undefined;
     this.#greetingPresentation.disconnect();
     this.#audioEl?.pause();
     if (this.#audioEl) this.#audioEl.srcObject = null;

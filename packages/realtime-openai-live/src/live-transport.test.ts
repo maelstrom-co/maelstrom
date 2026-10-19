@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, mock, test } from 'bun:test';
 import type {
   AdapterDiagnosticObservation,
   AdapterVoiceObservation,
@@ -104,6 +104,7 @@ function harness(
     exchangeGate?: Promise<void>;
     handshake?: number;
     close?: number;
+    playbackBargeIn?: boolean;
   } = {},
 ) {
   const peer = new Peer();
@@ -121,6 +122,7 @@ function harness(
   };
   const transport = new OpenAILiveTransport({
     handshakeTimeoutMs: options.handshake ?? 1000,
+    playbackBargeIn: options.playbackBargeIn,
     closeTimeoutMs: options.close ?? 5,
     createPeer: () => peer as unknown as RTCPeerConnection,
     createAudio: () => audio as unknown as HTMLAudioElement,
@@ -1043,4 +1045,95 @@ describe('continuous evidence and finalization', () => {
       globalThis.MediaStream = previous;
     }
   });
+});
+
+test('local Live barge-in gates received audio without sending unsupported cancellation or mutating capture', async () => {
+  const originalContext = globalThis.AudioContext;
+  const originalStream = globalThis.MediaStream;
+  let callbacks!: {
+    onSpeechStart(): Promise<void>;
+    onSpeechEnd(): Promise<void>;
+    onVADMisfire(): Promise<void>;
+  };
+  let vadStream: MediaStream | undefined;
+  let probeStopped = 0;
+  mock.module('@ricky0123/vad-web', () => ({
+    MicVAD: {
+      new: async (
+        options: typeof callbacks & { getStream(): Promise<MediaStream> },
+      ) => {
+        callbacks = options;
+        vadStream = await options.getStream();
+        return {
+          start: async () => {},
+          pause: async () => {},
+          destroy: async () => {},
+        };
+      },
+    },
+  }));
+  Object.assign(globalThis, {
+    MediaStream: Stream,
+    AudioContext: class {
+      state = 'running';
+      currentTime = 0;
+      async resume() {}
+      async close() {}
+      createMediaStreamSource() {
+        return { connect() {}, disconnect() {} };
+      }
+      createAnalyser() {
+        return {
+          fftSize: 1024,
+          disconnect() {},
+          getFloatTimeDomainData(samples: Float32Array) {
+            samples.fill(0.2);
+          },
+        };
+      }
+    },
+  });
+  const h = harness({ playbackBargeIn: true });
+  try {
+    const ready = h.start();
+    await tick();
+    h.started();
+    await ready;
+    const output = new Track();
+    Object.assign(output, {
+      clone: () => ({
+        enabled: true,
+        stop: () => {
+          probeStopped++;
+        },
+      }),
+    });
+    h.peer.dispatchEvent(Object.assign(new Event('track'), { track: output }));
+    expect(vadStream).toBe(h.transport.getAudioStreams().mic);
+    await callbacks.onSpeechStart();
+    expect(output.enabled).toBe(false);
+    expect(h.mic.enabled).toBe(true);
+    expect(h.peer.channel.sent).toEqual([]);
+    await callbacks.onVADMisfire();
+    expect(output.enabled).toBe(true);
+    await callbacks.onSpeechStart();
+    h.peer.channel.event('session.output_transcript.delta', {
+      delta: 'old tail',
+      start_ms: 0,
+      end_ms: 100,
+    });
+    await callbacks.onSpeechEnd();
+    expect(output.enabled).toBe(false);
+    await h.transport.disconnect();
+    expect(probeStopped).toBe(1);
+    expect(output.enabled).toBe(true);
+    await callbacks.onSpeechStart();
+    expect(output.enabled).toBe(true);
+  } finally {
+    await h.transport.disconnect();
+    Object.assign(globalThis, {
+      AudioContext: originalContext,
+      MediaStream: originalStream,
+    });
+  }
 });

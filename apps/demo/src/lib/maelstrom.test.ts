@@ -28,6 +28,7 @@ const state = vi.hoisted(() => ({
   realtimeOptions: undefined as DemoRealtimeOptions | undefined,
   liveKitAdapterOptions: [] as unknown[],
   openAIAdapterOptions: [] as unknown[],
+  liveAdapterOptions: [] as unknown[],
   openAIAdapterInstances: [] as Array<{ activateAudioCalls: number }>,
 }));
 
@@ -48,6 +49,16 @@ vi.mock('@maelstrom-co/react-realtime', async (importOriginal) => ({
   maelstromRealtime: (options: DemoRealtimeOptions) => {
     state.realtimeOptions = options;
     return state.extension;
+  },
+}));
+vi.mock('@maelstrom-co/realtime-openai-live', async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import('@maelstrom-co/realtime-openai-live')
+  >()),
+  OpenAILiveAdapter: class {
+    constructor(options: unknown) {
+      state.liveAdapterOptions.push(options);
+    }
   },
 }));
 vi.mock('@maelstrom-co/realtime-openai', async (importOriginal) => ({
@@ -112,10 +123,10 @@ function realtimeOptions(): DemoRealtimeOptions {
   return options;
 }
 
-function createAdapter(provider: 'livekit' | 'openai') {
+function createAdapter(provider: 'livekit' | 'live' | 'openai') {
   return realtimeOptions().createAdapter({
     sessionId: SessionId('session-1'),
-    provider: provider === 'livekit' ? 'livekit' : 'realtime',
+    provider: provider === 'openai' ? 'realtime' : provider,
   });
 }
 
@@ -142,6 +153,7 @@ afterEach(() => {
   clearPlaygroundKey();
   state.liveKitAdapterOptions.length = 0;
   state.openAIAdapterOptions.length = 0;
+  state.liveAdapterOptions.length = 0;
   state.openAIAdapterInstances.length = 0;
 });
 
@@ -397,3 +409,18 @@ describe('demo voice provider wiring', () => {
     expect(auths[1]).toBe('Bearer sk-second-key-0987654321');
   });
 });
+
+for (const hosted of ['0', '1']) {
+  it(`enables the local playback gate on both speech-native paths (hosted=${hosted})`, () => {
+    vi.stubEnv('VITE_HOSTED', hosted);
+    createAdapter('live');
+    createAdapter('openai');
+    for (const options of [
+      state.liveAdapterOptions.at(-1),
+      state.openAIAdapterOptions.at(-1),
+    ])
+      expect(options).toMatchObject({
+        playbackBargeIn: { providerOptions: { model: 'legacy' } },
+      });
+  });
+}
