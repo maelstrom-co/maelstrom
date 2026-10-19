@@ -261,7 +261,7 @@ If every attempt produces `recommend === true`, the **last** attempt's response 
 
 - **`pipeline(...stages)`** chains stages so each one's output feeds the next, typed end to end (up to nine stages). The first `Err` — a `Deferred` or an `EngineError` — stops the chain.
 - **`withFallback(primary, fallback)`** runs `fallback` only when `primary` returns a `Deferred` (a stage abstaining from the request via `deferred(reason)`, checked with `isDeferred`). A real `EngineError` from `primary` is never masked.
-- **`withRetry(stage, { max })`** is the same combinator the Engine applies by default around `EngineConfig.planner`. It wraps a stage that produces a `PlannerCandidate` (typically the last stage of a pipeline) and retries it when healing recommends a retry. When you place it yourself, set `retry: false` on the Engine so the retries do not multiply.
+- **`withRetry(stage, { max })`** is the same combinator the Engine applies by default around `EngineConfig.planner`. It wraps a stage that produces a `PlannerOutput` (typically the last stage of a pipeline) and retries it when healing recommends a retry. A needs-clarification result is returned without a retry. When you place it yourself, set `retry: false` on the Engine so the retries do not multiply.
 
 A `Deferred` that reaches the top of the configured planner with nothing to recover it becomes `Err(ValidationError)` on field `'planner'` — the Engine cannot ship a response without a candidate.
 
