@@ -301,7 +301,98 @@ describe('owned benchmark diagnostics', () => {
   });
 });
 
+async function prepareDockerRunner(root: string) {
+  const voice = join(root, 'apps/demo/e2e/voice');
+  for (const name of [
+    'run-tests.ts',
+    'ci-diagnostics.ts',
+    'docker-diagnostics.ts',
+    'benchmark-selection.ts',
+    'tts-cache-dir.ts',
+  ])
+    await copyFile(
+      resolve(import.meta.dir, '../apps/demo/e2e/voice', name),
+      join(voice, name),
+    );
+  await mkdir(join(voice, 'tests/audio'), { recursive: true });
+  for (const fixture of ['only-tasks', 'put-it-back', 'open-calendar'])
+    await writeFile(join(voice, 'tests/audio', `${fixture}.txt`), secret);
+  await mkdir(join(root, 'bin'));
+}
+
 describe('trusted Docker runner phase diagnostics', () => {
+  test('Docker signal termination logs the signal without fabricating an exit code', async () => {
+    const cache = await mkdtemp(join(tmpdir(), 'voice-diagnostic-cache-'));
+    try {
+      await runnerFixture(async (root, logs, run) => {
+        await prepareDockerRunner(root);
+        const docker = join(root, 'bin/docker');
+        await writeFile(
+          docker,
+          `#!${process.execPath}\nconsole.error(${JSON.stringify(secret)}); process.kill(process.pid, 'SIGTERM');`,
+        );
+        await chmod(docker, 0o700);
+        await expect(
+          run({
+            environment: {
+              ...credentials,
+              PATH: join(root, 'bin'),
+              XDG_CACHE_HOME: cache,
+            },
+          }),
+        ).rejects.toThrow();
+        const events = logs.map((line) =>
+          JSON.parse(line.slice('[voice-benchmark] '.length)),
+        );
+        expect(
+          events.filter((event) => event.category === 'docker-failed'),
+        ).toEqual([
+          {
+            phase: 'fixtures',
+            category: 'docker-failed',
+            signal: 'SIGTERM',
+            dockerOperation: 'run',
+            dockerFailure: 'unclassified',
+          },
+        ]);
+        expect(events).toContainEqual({
+          phase: 'fixtures',
+          category: 'signal-exit',
+          signal: 'SIGTERM',
+        });
+        expect(events).toContainEqual({
+          phase: 'benchmark',
+          category: 'nonzero-exit',
+          exitCode: 1,
+        });
+      });
+    } finally {
+      await rm(cache, { recursive: true, force: true });
+    }
+  });
+  test('missing Docker CLI remains spawn-failed, not a daemon hint', async () => {
+    const cache = await mkdtemp(join(tmpdir(), 'voice-diagnostic-cache-'));
+    try {
+      await runnerFixture(async (root, logs, run) => {
+        await prepareDockerRunner(root);
+        await expect(
+          run({
+            environment: {
+              ...credentials,
+              PATH: join(root, 'bin'),
+              XDG_CACHE_HOME: cache,
+            },
+          }),
+        ).rejects.toThrow();
+        expect(logs.join('\n')).toContain(
+          '"phase":"fixtures","category":"spawn-failed"',
+        );
+        expect(logs.join('\n')).not.toContain('"category":"docker-failed"');
+      });
+    } finally {
+      await rm(cache, { recursive: true, force: true });
+    }
+  });
   for (const [command, phase] of [
     ['run', 'fixtures'],
     ['build', 'docker-build'],
@@ -312,28 +403,16 @@ describe('trusted Docker runner phase diagnostics', () => {
       const cache = await mkdtemp(join(tmpdir(), 'voice-diagnostic-cache-'));
       try {
         await runnerFixture(async (root, logs, run) => {
-          const voice = join(root, 'apps/demo/e2e/voice');
-          for (const name of [
-            'run-tests.ts',
-            'ci-diagnostics.ts',
-            'benchmark-selection.ts',
-            'tts-cache-dir.ts',
-          ])
-            await copyFile(
-              resolve(import.meta.dir, '../apps/demo/e2e/voice', name),
-              join(voice, name),
-            );
-          await mkdir(join(voice, 'tests/audio'), { recursive: true });
-          for (const fixture of ['only-tasks', 'put-it-back', 'open-calendar'])
-            await writeFile(
-              join(voice, 'tests/audio', `${fixture}.txt`),
-              secret,
-            );
-          await mkdir(join(root, 'bin'));
+          await prepareDockerRunner(root);
           const docker = join(root, 'bin/docker');
+          const exitCode = command === 'run' ? 125 : 17;
+          const stderr =
+            command === 'run'
+              ? `docker: Error response from daemon: invalid mount config for type "bind": bind source path does not exist: /private/${secret}`
+              : secret;
           await writeFile(
             docker,
-            `#!${process.execPath}\nimport { writeFileSync } from 'node:fs'; import { join, basename } from 'node:path'; const args = process.argv.slice(2); console.log(${JSON.stringify(secret)}); console.error(${JSON.stringify(secret)}); if (args[0] === ${JSON.stringify(command)}) { if (args[0] === 'start') console.log('[voice-benchmark] {"phase":"tests","category":"test-failed"}'); process.exit(17); } if (${JSON.stringify(command)} === 'start' && args[0] === 'rm') process.exit(17); if (args[0] === 'run') { const mount = args.find(arg => arg.endsWith('dst=/work/audio')); const dir = mount.split(',src=')[1].split(',dst=')[0]; writeFileSync(join(dir, basename(args.at(-1))), 'wave'); }`,
+            `#!${process.execPath}\nimport { writeFileSync } from 'node:fs'; import { join, basename } from 'node:path'; const args = process.argv.slice(2); console.log(${JSON.stringify(secret)}); console.error(${JSON.stringify(secret)}); if (args[0] === ${JSON.stringify(command)}) { console.error(${JSON.stringify(stderr)}); if (args[0] === 'start') console.log('[voice-benchmark] {"phase":"tests","category":"test-failed"}'); process.exit(${exitCode}); } if (${JSON.stringify(command)} === 'start' && args[0] === 'rm') { console.error(${JSON.stringify(`Error response from daemon: no space left on device: /private/${secret}`)}); process.exit(17); } if (args[0] === 'run') { const mount = args.find(arg => arg.endsWith('dst=/work/audio')); const dir = mount.split(',src=')[1].split(',dst=')[0]; writeFileSync(join(dir, basename(args.at(-1))), 'wave'); }`,
           );
           await chmod(docker, 0o700);
           await expect(
@@ -349,8 +428,32 @@ describe('trusted Docker runner phase diagnostics', () => {
             `"phase":"${phase}","category":"started"`,
           );
           expect(logs.join('\n')).toContain(
-            `"phase":"${phase}","category":"nonzero-exit","exitCode":17`,
+            `"phase":"${phase}","category":"nonzero-exit","exitCode":${exitCode}`,
           );
+          const dockerFailures = logs
+            .map((line) => JSON.parse(line.slice('[voice-benchmark] '.length)))
+            .filter((event) => event.category === 'docker-failed');
+          expect(dockerFailures).toEqual([
+            {
+              phase,
+              category: 'docker-failed',
+              exitCode,
+              dockerOperation: command,
+              dockerFailure:
+                command === 'run' ? 'mount-configuration' : 'unclassified',
+            },
+            ...(command === 'start'
+              ? [
+                  {
+                    phase: 'cleanup',
+                    category: 'docker-failed',
+                    exitCode: 17,
+                    dockerOperation: 'rm',
+                    dockerFailure: 'resource-exhausted',
+                  },
+                ]
+              : []),
+          ]);
           if (command === 'start') {
             expect(logs.join('\n')).toContain(
               '"phase":"tests","category":"test-failed"',

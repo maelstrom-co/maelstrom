@@ -28,6 +28,7 @@ const categories = [
   'claim-check-failed',
   'spawn-failed',
   'nonzero-exit',
+  'docker-failed',
   'signal-exit',
   'cancelled',
   'deadline-exceeded',
@@ -66,6 +67,27 @@ const signals = [
   'SIGVTALRM',
   'SIGPROF',
 ] as const;
+const dockerOperations = [
+  'run',
+  'build',
+  'create',
+  'start',
+  'cp',
+  'logs',
+  'rm',
+  'image-rm',
+  'other',
+] as const;
+const dockerFailures = [
+  'daemon-unavailable',
+  'registry-auth',
+  'registry-network',
+  'image-unavailable',
+  'mount-configuration',
+  'resource-exhausted',
+  'runtime-start',
+  'unclassified',
+] as const;
 const prefix = '[voice-benchmark] ';
 
 export type VoiceDiagnostic = {
@@ -74,6 +96,8 @@ export type VoiceDiagnostic = {
   readonly credential?: (typeof credentials)[number];
   readonly exitCode?: number;
   readonly signal?: string;
+  readonly dockerOperation?: (typeof dockerOperations)[number];
+  readonly dockerFailure?: (typeof dockerFailures)[number];
 };
 
 function validateDiagnostic(value: unknown): VoiceDiagnostic | undefined {
@@ -82,9 +106,15 @@ function validateDiagnostic(value: unknown): VoiceDiagnostic | undefined {
   if (
     Object.keys(record).some(
       (key) =>
-        !['phase', 'category', 'credential', 'exitCode', 'signal'].includes(
-          key,
-        ),
+        ![
+          'phase',
+          'category',
+          'credential',
+          'exitCode',
+          'signal',
+          'dockerOperation',
+          'dockerFailure',
+        ].includes(key),
     ) ||
     !phases.some((phase) => phase === record.phase) ||
     !categories.some((category) => category === record.category) ||
@@ -96,7 +126,18 @@ function validateDiagnostic(value: unknown): VoiceDiagnostic | undefined {
         record.exitCode < 0 ||
         record.exitCode > 255)) ||
     (record.signal !== undefined &&
-      !signals.some((signal) => signal === record.signal))
+      !signals.some((signal) => signal === record.signal)) ||
+    (record.dockerOperation !== undefined &&
+      !dockerOperations.some(
+        (operation) => operation === record.dockerOperation,
+      )) ||
+    (record.dockerFailure !== undefined &&
+      !dockerFailures.some((failure) => failure === record.dockerFailure)) ||
+    (record.category === 'docker-failed'
+      ? record.dockerOperation === undefined ||
+        record.dockerFailure === undefined
+      : record.dockerOperation !== undefined ||
+        record.dockerFailure !== undefined)
   )
     return;
   return {
@@ -109,6 +150,18 @@ function validateDiagnostic(value: unknown): VoiceDiagnostic | undefined {
       ? { exitCode: record.exitCode as number }
       : {}),
     ...(record.signal !== undefined ? { signal: record.signal as string } : {}),
+    ...(record.dockerOperation !== undefined
+      ? {
+          dockerOperation:
+            record.dockerOperation as VoiceDiagnostic['dockerOperation'],
+        }
+      : {}),
+    ...(record.dockerFailure !== undefined
+      ? {
+          dockerFailure:
+            record.dockerFailure as VoiceDiagnostic['dockerFailure'],
+        }
+      : {}),
   };
 }
 
