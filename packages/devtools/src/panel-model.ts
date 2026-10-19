@@ -7,7 +7,8 @@ import {
 } from '@maelstrom-co/protocol';
 import type { TelemetryErrorCategory } from '@maelstrom-co/telemetry';
 import { projectDiagnosticMetadata } from '@maelstrom-co/telemetry/integration';
-import { identity } from './diagnostic-identity.js';
+import { eventIdentity, identity } from './diagnostic-identity.js';
+import type { LiveEventKeys } from './live-event-keys.js';
 
 export { identity } from './diagnostic-identity.js';
 export {
@@ -118,32 +119,35 @@ export function eventIssue(event: PanelEvent): EventIssue | undefined {
   return undefined;
 }
 
-export function panelEvents(values: readonly unknown[]): PanelEvent[] {
+export function panelEvents(
+  values: readonly unknown[],
+  liveKeys?: LiveEventKeys,
+): PanelEvent[] {
   const offset = Math.max(0, values.length - MAX_VIEW_EVENTS);
   const retained = values.slice(offset);
-  const eventId = (value: unknown) => {
-    const raw = fields(value);
-    return identity(raw.entryId) ?? identity(raw.id);
-  };
   const counts = new Map<string, number>();
-  for (const value of retained) {
-    const id = eventId(value);
-    if (id) counts.set(id, (counts.get(id) ?? 0) + 1);
-  }
+  if (!liveKeys)
+    for (const value of retained) {
+      const id = eventIdentity(value);
+      if (id) counts.set(id, (counts.get(id) ?? 0) + 1);
+    }
   return retained.flatMap((value, position) => {
     const raw = fields(value);
     const kind = text(raw.kind);
     if (!kind) return [];
     const metadata = fields(raw.metadata);
     const index = offset + position;
-    const id = eventId(value);
+    const id = eventIdentity(value);
+    const key =
+      liveKeys?.key(raw) ??
+      JSON.stringify(
+        id && counts.get(id) === 1
+          ? ['event', id]
+          : ['position', id ?? '', index],
+      );
     return [
       {
-        key: JSON.stringify(
-          id && counts.get(id) === 1
-            ? ['event', id]
-            : ['position', id ?? '', index],
-        ),
+        key,
         kind,
         at: numeric(raw.at),
         requestId: identity(raw.requestId),

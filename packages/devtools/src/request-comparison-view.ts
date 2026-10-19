@@ -189,6 +189,11 @@ export function requestComparisonView(
     ...context.evidence.events,
     ...(context.evidence.requestEvents ?? []),
   ];
+  const comparedKinds = new Set(
+    [requests.a, requests.b].flatMap((request) =>
+      (request?.events ?? []).map((event) => event.kind),
+    ),
+  );
   const sourceIncomplete = Boolean(
     context.evidence.unreadableEvents ||
       context.evidence.droppedRequestEvents ||
@@ -198,7 +203,8 @@ export function requestComparisonView(
       sourceEvents.some(
         (event) =>
           (!event.requestId || !event.clientId) &&
-          (event.raw.requestId !== undefined ||
+          (comparedKinds.has(event.kind) ||
+            event.raw.requestId !== undefined ||
             /^(?:client\.(?:request|response|command|action)|engine)\./.test(
               event.kind,
             )),

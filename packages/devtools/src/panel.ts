@@ -2,6 +2,7 @@ import { createEffect, createSignal, onCleanup } from 'solid-js';
 import { render } from 'solid-js/web';
 import { captureImportFileBytes } from './capture-import.js';
 import { createJsonInspector } from './json-inspector.js';
+import { LiveEventKeys } from './live-event-keys.js';
 import {
   countUnreadableEvents,
   errorCategories,
@@ -63,12 +64,21 @@ interface PanelPreferences {
   labels: Map<string, string>;
   nextLabel: number;
   importedName?: string;
+  liveEventKeys: LiveEventKeys;
 }
 const preferencesByTools = new WeakMap<Devtools, PanelPreferences>();
 const mountedPanels = new WeakMap<
   Devtools,
   { references: number; dispose: () => void }
 >();
+
+function liveKeySources(state: DevtoolsSnapshot) {
+  return [
+    state.activity.slice(-MAX_VIEW_EVENTS),
+    state.requestActivity.slice(-MAX_VIEW_EVENTS),
+    state.transportHistory.slice(-MAX_VIEW_EVENTS),
+  ];
+}
 
 function Panel(tools: Devtools): HTMLElement {
   const preferences: PanelPreferences = preferencesByTools.get(tools) ?? {
@@ -86,9 +96,12 @@ function Panel(tools: Devtools): HTMLElement {
     json: true,
     labels: new Map(),
     nextLabel: 1,
+    liveEventKeys: new LiveEventKeys(),
   };
   preferencesByTools.set(tools, preferences);
-  const [snapshot, setSnapshot] = createSignal(tools.getSnapshot());
+  let identitySnapshot = tools.getSnapshot();
+  preferences.liveEventKeys.begin(liveKeySources(identitySnapshot));
+  const [snapshot, setSnapshot] = createSignal(identitySnapshot);
   const [captureStatus, setCaptureStatus] = createSignal(
     tools.capture.getSnapshot(),
   );
@@ -122,6 +135,10 @@ function Panel(tools: Devtools): HTMLElement {
   const refresh = () => setRevision((value) => value + 1);
   const update = () => {
     const nextSnapshot = tools.getSnapshot();
+    if (nextSnapshot !== identitySnapshot) {
+      preferences.liveEventKeys.update(liveKeySources(nextSnapshot));
+      identitySnapshot = nextSnapshot;
+    }
     if (nextSnapshot.imported !== previousImport) {
       if (source() === 'imported') clearRequestSelection();
       previousImport = nextSnapshot.imported;
@@ -203,9 +220,10 @@ function Panel(tools: Devtools): HTMLElement {
   function liveEvidence(state: DevtoolsSnapshot): PanelEvidence {
     if (liveReference !== state || !cachedLive) {
       liveReference = state;
+      const keys = preferences.liveEventKeys;
       cachedLive = {
-        events: panelEvents(state.activity),
-        requestEvents: panelEvents(state.requestActivity),
+        events: panelEvents(state.activity, keys),
+        requestEvents: panelEvents(state.requestActivity, keys),
         droppedRequestEvents: state.droppedRequestEvents,
         omittedRequestEvents: Math.max(
           0,
@@ -1268,7 +1286,10 @@ function Panel(tools: Devtools): HTMLElement {
             : connectionsView(
                 context,
                 currentSource === 'live'
-                  ? panelEvents(state.transportHistory)
+                  ? panelEvents(
+                      state.transportHistory,
+                      preferences.liveEventKeys,
+                    )
                   : [],
               );
       navigation.replaceChildren(

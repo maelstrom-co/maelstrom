@@ -31,7 +31,8 @@ function event(
 }
 
 function mount(tools: Devtools) {
-  cleanups.push(() => tools.dispose(), mountDevtools(tools));
+  const unmount = mountDevtools(tools);
+  cleanups.push(() => tools.dispose(), unmount);
   const shadow = document.querySelector('[data-maelstrom-devtools]')!
     .shadowRoot!;
   const click = (name: string, scope: ParentNode = shadow) => {
@@ -53,7 +54,7 @@ function mount(tools: Devtools) {
     );
   const side = (name: 'A' | 'B') =>
     shadow.querySelector(`[aria-label="Comparison ${name}"]`)!;
-  return { shadow, click, select, pick, side };
+  return { shadow, click, select, pick, side, unmount };
 }
 
 function recording(events: object[]) {
@@ -139,6 +140,97 @@ test('both selected comparison events expose their full JSON at the same time', 
   expect(
     shadow.querySelector<HTMLElement>('[aria-label="JSON evidence"]')?.hidden,
   ).toBe(true);
+});
+
+test.each([
+  'A',
+  'B',
+] as const)('a redacted phase in %s stays selected until that observation expires', async (selectedSide) => {
+  const tools = createDevtools({
+    initialIsOpen: true,
+    maxRequestEvents: 4,
+    maxActivityEvents: 4,
+    redact: (value) =>
+      value && typeof value === 'object' && 'kind' in value && 'id' in value
+        ? { ...value, id: '[REDACTED]' }
+        : value,
+  });
+  const { client } = attach(tools);
+  client.diagnostics.emitDiagnostic(
+    'client.request.started',
+    {},
+    undefined,
+    'anchor',
+  );
+  const emit = (kind: string, marker: number) =>
+    client.diagnostics.emitDiagnostic(
+      kind,
+      { command: 'set_layout', marker },
+      undefined,
+      'request',
+    );
+  emit('client.request.started', 0);
+  emit('client.command.started', 1);
+  emit('client.command.completed', 2);
+  const { click, pick, side } = mount(tools);
+  if (selectedSide === 'B') pick('anchor');
+  click('Compare request');
+  if (selectedSide === 'B') pick('request');
+  const phase = side(selectedSide).querySelector('.phase-select');
+  if (!phase) throw new Error('Missing selected phase');
+  fireEvent.click(phase);
+  click(`${selectedSide} event JSON: Raw JSON`);
+  const raw = () => side(selectedSide).querySelector('.json-raw')?.textContent;
+  expect(raw()).toContain('"marker": 0');
+  expect(raw()).toContain('[REDACTED]');
+
+  emit('client.command.completed', 3);
+  await waitFor(() => expect(raw()).toContain('"marker": 0'));
+
+  emit('client.command.completed', 4);
+
+  await waitFor(() =>
+    expect(raw()).toContain('The selected event is no longer retained.'),
+  );
+  expect(raw()).not.toContain('"marker": 1');
+  expect(
+    side(selectedSide).querySelectorAll('.phase-select[aria-pressed="true"]')
+      .length,
+  ).toBe(0);
+});
+
+test('a retained comparison phase stays selected after returning to Requests and remounting', () => {
+  const tools = createDevtools({ initialIsOpen: true });
+  const { client } = attach(tools);
+  client.diagnostics.emitDiagnostic(
+    'client.request.started',
+    { marker: 'selected' },
+    undefined,
+    'request',
+  );
+  client.diagnostics.emitDiagnostic(
+    'client.command.started',
+    { command: 'set_layout', marker: 'latest' },
+    undefined,
+    'request',
+  );
+  const panel = mount(tools);
+  panel.click('Compare request');
+  const phase = panel.side('A').querySelector('.phase-select');
+  if (!phase) throw new Error('Missing selected phase');
+  fireEvent.click(phase);
+  panel.click('Exit comparison');
+  panel.click('Raw JSON');
+  expect(panel.shadow.querySelector('.json-raw')?.textContent).toContain(
+    '"marker": "selected"',
+  );
+  panel.unmount();
+
+  const remounted = mount(tools);
+
+  expect(remounted.shadow.querySelector('.json-raw')?.textContent).toContain(
+    '"marker": "selected"',
+  );
 });
 
 test('entering comparison preserves the request event shown after visiting Connections', () => {
@@ -479,6 +571,31 @@ test.each([
   expect(
     side('B').querySelectorAll('.phase-table tbody tr')[1].textContent,
   ).toContain('Unknown — incomplete A evidence');
+});
+
+test.each([
+  ['custom.phase.completed', 'Unknown — incomplete A evidence'],
+  ['app.heartbeat', 'Unmatched in retained A evidence'],
+])('unattributed %s evidence does not invent custom phase correspondence', (kind, expected) => {
+  const { click, pick, side } = recording([
+    event('a-start', 'a', 'client.request.started'),
+    event('a-custom', 'a', 'custom.phase.completed'),
+    event('a-end', 'a', 'client.response.applied'),
+    event('b-start', 'b', 'client.request.started'),
+    event('unattributed', undefined, kind),
+    event('b-end', 'b', 'client.response.applied'),
+  ]);
+  click('Compare request');
+  pick('a');
+  const row = Array.from(
+    side('B').querySelectorAll('.phase-table tbody tr'),
+  ).find((node) =>
+    node
+      .querySelector('.phase-select')
+      ?.textContent?.includes('Custom phase completed'),
+  );
+  if (!row) throw new Error('Missing custom request phase');
+  expect(row.querySelector('.phase-counterpart')?.textContent).toBe(expected);
 });
 
 test('both requests expose their recorded arguments together without starting capture', () => {
