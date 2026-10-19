@@ -161,6 +161,9 @@ export function attachRealtimeDiagnostics({
           kind,
           { ...identity, ...metadata },
           () => event,
+          typeof metadata.requestId === 'string'
+            ? metadata.requestId
+            : undefined,
         ),
     );
     void tools.drained.catch(() => {});
@@ -260,6 +263,16 @@ function attachDiagnosticSources(
               generation: 'generation' in event ? event.generation : undefined,
               generationScope: 'session',
               ...('callId' in event ? { callId: event.callId } : {}),
+              ...(event.type === 'media'
+                ? {
+                    microphone: event.media.microphone,
+                    userSpeech: event.media.userSpeech,
+                    incomingAudio: event.media.incomingAudio,
+                  }
+                : {}),
+              ...(event.type === 'transcript.entry'
+                ? { role: event.role, final: event.final }
+                : {}),
             },
             () => event,
           );
@@ -292,6 +305,11 @@ function attachDiagnosticSources(
                 ...identity,
                 generation: snapshot.generation,
                 generationScope: 'session',
+                fragmentId: fragment.id,
+                role: fragment.role,
+                final: fragment.final,
+                startMs: fragment.startMs,
+                endMs: fragment.endMs,
               },
               () => fragment,
             );
@@ -314,6 +332,8 @@ function attachDiagnosticSources(
                   'generation',
                   'providerGeneration',
                   'clientId',
+                  'responsePhase',
+                  'responseOutcome',
                 ].includes(key)
               )
                 metadata[key] = value;
@@ -322,6 +342,16 @@ function attachDiagnosticSources(
               `voice.provider.${observation.kind}`,
               {
                 ...metadata,
+                ...(observation.response
+                  ? {
+                      responseId: observation.response.id,
+                      responsePhase: observation.response.phase,
+                      responseOutcome:
+                        observation.response.phase === 'finished'
+                          ? observation.response.outcome
+                          : undefined,
+                    }
+                  : {}),
                 providerGeneration: observation.providerGeneration,
                 ...identity,
               } satisfies DiagnosticMetadata,

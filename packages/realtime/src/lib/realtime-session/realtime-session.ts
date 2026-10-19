@@ -1347,6 +1347,7 @@ export class RealtimeSession implements VoiceSession {
       started,
     );
     if (result.status === 'applied') {
+      invocation.requestId = result.response.requestId;
       await this.#sendUpdateUIResult(
         epoch,
         callId,

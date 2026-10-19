@@ -34,6 +34,7 @@ export type {
   AdapterAudioStreams,
   AdapterConnectOptions,
   AdapterDiagnosticObservation,
+  AdapterDiagnosticResponse,
   AdapterDiagnosticSource,
   AdapterGeneratedOpening,
   AdapterTransportSnapshot,

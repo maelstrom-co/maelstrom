@@ -2,6 +2,7 @@ import type { DiagnosticMetadata } from '@maelstrom-co/protocol';
 import { sanitizeDiagnosticValue } from '@maelstrom-co/protocol';
 import type {
   AdapterDiagnosticObservation,
+  AdapterDiagnosticResponse,
   AdapterDiagnosticSource,
 } from '@maelstrom-co/realtime';
 
@@ -18,6 +19,24 @@ const identifier = (value: unknown): string | undefined =>
   !/^sk-[a-zA-Z0-9_-]{32,}$/.test(value)
     ? value
     : undefined;
+
+function projectResponse(
+  id: string | undefined,
+  type: string,
+  status: unknown,
+): AdapterDiagnosticResponse | undefined {
+  if (!id) return undefined;
+  if (type === 'response.created') return { id, phase: 'started' };
+  if (type !== 'response.done' && type !== 'response.completed')
+    return { id, phase: 'observed' };
+  const outcome =
+    status === 'completed'
+      ? 'succeeded'
+      : status === 'failed' || status === 'cancelled' || status === 'incomplete'
+        ? status
+        : undefined;
+  return { id, phase: 'finished', ...(outcome ? { outcome } : {}) };
+}
 
 export class LiveDiagnostics implements AdapterDiagnosticSource {
   private readonly observers = new Set<
@@ -51,8 +70,13 @@ export class LiveDiagnostics implements AdapterDiagnosticSource {
       const event = object(envelope.event);
       const eventType = identifier(event.type);
       if (eventType?.endsWith('.delta')) return;
-      const response = object(event.response);
+      const response = object(event.response ?? envelope.response);
       const delegation = object(envelope.delegation);
+      const responseId =
+        identifier(event.response_id) ??
+        identifier(response.id) ??
+        identifier(envelope.response_id) ??
+        identifier(delegation.response_id);
       const item = object(event.item ?? envelope.item);
       const tool =
         item.type === 'function_call' &&
@@ -71,11 +95,7 @@ export class LiveDiagnostics implements AdapterDiagnosticSource {
           clientEventId: identifier(envelope.client_event_id),
           delegationId:
             identifier(envelope.delegation_id) ?? identifier(delegation.id),
-          responseId:
-            identifier(event.response_id) ??
-            identifier(response.id) ??
-            identifier(envelope.response_id) ??
-            identifier(delegation.response_id),
+          responseId,
           callId: identifier(item.call_id),
           tool,
           status: [
@@ -95,6 +115,11 @@ export class LiveDiagnostics implements AdapterDiagnosticSource {
         kind: 'wire',
         providerGeneration,
         metadata,
+        response: projectResponse(
+          responseId,
+          eventType ?? type,
+          response.status,
+        ),
         readContent: () => {
           if (
             item.type !== 'function_call' ||
