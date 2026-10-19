@@ -171,6 +171,7 @@ export function buildDiagnostics(records: DiagnosticRecords): FullDiagnostics {
       droppedLayoutEntries,
       skippedActions,
       warnings,
+      records.planIssues,
     ),
   };
 }

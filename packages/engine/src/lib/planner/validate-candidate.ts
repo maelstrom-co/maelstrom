@@ -14,13 +14,17 @@ import {
   TilingResponseSchema,
   TilingResponseWithoutReplySchema,
 } from '@maelstrom-co/protocol';
+import { z } from 'zod';
 
 import type { ActionParameterEnumSnapshot } from '../action-parameter-enum.js';
 import type { EngineError } from '../errors.js';
 import { validationError } from '../errors.js';
 import type { Logger } from '../logger.js';
 import type { ProcessResponseInput } from '../response/response-processor.js';
-import { processResponse } from '../response/response-processor.js';
+import {
+  buildDiagnostics,
+  processResponse,
+} from '../response/response-processor.js';
 import type {
   FullDiagnostics,
   FullValidatedCandidate,
@@ -32,6 +36,7 @@ import type {
   ReplylessCandidate,
 } from './candidate.js';
 import { isNeedsClarification } from './candidate.js';
+import type { PlanValidator } from './plan-validator.js';
 import type { ValidateCandidate } from './stage.js';
 
 export interface CandidateValidatorInput {
@@ -39,11 +44,21 @@ export interface CandidateValidatorInput {
   readonly enumSnapshot: ActionParameterEnumSnapshot;
   readonly messageId: MessageId;
   readonly logger: Logger;
+  readonly validatePlan?: PlanValidator;
   /** Called with every report the validator returns, cached ones included. */
   readonly onValidated?: (
     report: Result<FullValidatedPlannerOutput, EngineError>,
   ) => void;
 }
+
+const planIssuesSchema = z.array(
+  z
+    .object({
+      code: z.string().min(1),
+      message: z.string().min(1),
+    })
+    .strict(),
+);
 
 /**
  * A {@link ValidateCandidate} whose results keep the full diagnostics. It
@@ -87,9 +102,25 @@ export function createCandidateValidator(
     const cacheable = typeof candidate === 'object' && candidate !== null;
     let result = cacheable ? cache.get(candidate) : undefined;
     if (result === undefined) {
-      result = isNeedsClarification(candidate)
-        ? processNeedsClarification(input, candidate)
-        : processCandidate({ ...input, llmOutput: candidate });
+      if (isNeedsClarification(candidate)) {
+        result = processNeedsClarification(input, candidate);
+      } else {
+        const processed = processCandidate({ ...input, llmOutput: candidate });
+        const userMessage = processed.ok
+          ? processed.value.userMessage
+          : undefined;
+        result =
+          isErr(processed) ||
+          input.validatePlan === undefined ||
+          userMessage === undefined ||
+          userMessage.trim() === ''
+            ? processed
+            : validateApplicationPlan(
+                input,
+                { ...processed.value, userMessage },
+                input.validatePlan,
+              );
+      }
       if (cacheable) cache.set(candidate, result);
     }
     input.onValidated?.(result);
@@ -144,6 +175,51 @@ function processNeedsClarification(
     return err(failure);
   }
   return ok({ ...shape.data, diagnostics: EMPTY_DIAGNOSTICS });
+}
+
+function validateApplicationPlan(
+  input: CandidateValidatorInput,
+  processed: FullValidatedCandidate,
+  validatePlan: PlanValidator,
+): Result<FullValidatedCandidate, EngineError> {
+  try {
+    const { diagnostics, ...response } = processed;
+    const returned: unknown = validatePlan({
+      request: input.request,
+      response,
+    });
+    // Invalid async hooks must not leave a rejected Promise unobserved.
+    if (returned instanceof Promise) void returned.catch(() => undefined);
+    const planIssues = planIssuesSchema.parse(returned);
+    return ok({
+      ...response,
+      diagnostics: buildDiagnostics({
+        ...diagnostics,
+        planIssues,
+        retryHint:
+          planIssues.length === 0
+            ? diagnostics.retryHint
+            : {
+                severity:
+                  diagnostics.retryHint.severity === 'unrecoverable'
+                    ? 'unrecoverable'
+                    : 'medium',
+                recommend: true,
+              },
+      }),
+    });
+  } catch (cause) {
+    input.logger.error('Application plan validator failed', cause, {
+      messageId: input.messageId,
+    });
+    return err(
+      validationError(
+        'Application plan validator failed',
+        'validatePlan',
+        cause,
+      ),
+    );
+  }
 }
 
 // Heal helpers and exhaustiveness guards throw on Engine-internal invariant

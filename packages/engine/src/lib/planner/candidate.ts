@@ -13,6 +13,7 @@ import type {
   LayoutWarning,
   RetryHint,
 } from '../validation/llm-output/healed-layout.js';
+import type { PlanValidationIssue } from './plan-validator.js';
 
 /**
  * The raw plan a planner produces: the structured output shape for the
@@ -78,6 +79,8 @@ export type PipelineOutput<Out extends PlannerOutput> = [Out] extends [
  * Engine boundary. The detailed per-entry records stay inside the Engine.
  */
 export interface EngineDiagnostics {
+  /** Unmet application requirements; absent when no hook is configured. */
+  readonly planIssues?: readonly PlanValidationIssue[];
   /** Severity of the healed result and whether the Engine recommends a retry. */
   readonly retryHint: RetryHint;
   /** How many entries of each kind healing produced. */

@@ -237,6 +237,7 @@ export function createEngine(config: EngineConfig): Engine {
   const validated = validateEngineConfig(config);
   const {
     planner: configuredPlanner,
+    validatePlan,
     logger,
     history: historyConfig,
     instrument,
@@ -304,6 +305,7 @@ export function createEngine(config: EngineConfig): Engine {
       enumSnapshot,
       messageId: message.id,
       logger,
+      validatePlan,
       onValidated: (report) =>
         diagnosticsEmitter.emit(
           message.sessionId,
@@ -369,6 +371,7 @@ export function createEngine(config: EngineConfig): Engine {
         skipped: diagnostics.skippedActions.length,
         warnings: diagnostics.warnings.length,
         retry: diagnostics.retryHint.recommend,
+        planIssues: diagnostics.planIssues?.length ?? 0,
       },
       () => diagnostics,
     );
@@ -614,7 +617,23 @@ async function runPlanner(
       });
       return err(unhandledDeferralError(error));
     }
-    return validate(planned.value);
+    const report = validate(planned.value);
+    if (isErr(report)) return report;
+    const issues = report.value.diagnostics.planIssues;
+    if (issues !== undefined && issues.length > 0) {
+      ctx.logger.warn('Application plan requirements not satisfied', {
+        messageId: input.messageId,
+        planIssues: issues.length,
+      });
+      return err(
+        validationError(
+          'Application plan requirements not satisfied',
+          'validatePlan',
+          issues,
+        ),
+      );
+    }
+    return report;
   } catch (error) {
     return err(plannerThrowError(error, input.messageId, ctx));
   }

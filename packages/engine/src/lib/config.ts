@@ -3,6 +3,7 @@ import type { Logger } from './logger.js';
 import { consoleLogger } from './logger.js';
 import type { Instrument } from './planner/instrument.js';
 import { noopInstrument } from './planner/instrument.js';
+import type { PlanValidator } from './planner/plan-validator.js';
 import type { ClarifyingPlanner } from './planner/stage.js';
 import type { WithRetryOptions } from './planner/with-retry.js';
 
@@ -18,6 +19,13 @@ export interface EngineConfig {
    * then with `Err(ValidationError)` on field `skipReply`.
    */
   readonly planner: ClarifyingPlanner;
+  /**
+   * Optional synchronous check of application requirements on the healed response.
+   * Issues use the configured retry budget. Unresolved issues return a
+   * ValidationError on `validatePlan`, including when retries are disabled.
+   * Without this hook, the existing healing and retry policy is unchanged.
+   */
+  readonly validatePlan?: PlanValidator;
   /** Optional logger (defaults to consoleLogger). Stages receive it as `StageContext.logger`. */
   readonly logger?: Logger;
   /**
@@ -37,7 +45,7 @@ export interface EngineConfig {
   /**
    * Retry policy the Engine wraps around {@link EngineConfig.planner} with
    * `withRetry`. `{ max }` re-runs the planner up to `max` times while
-   * healing recommends a retry (`max` is a non-negative integer). `false`
+   * validation recommends a retry (`max` is a non-negative integer). `false`
    * (or `{ max: 0 }`) runs the planner once; the Engine still heals and
    * validates the candidate. Use `false` for planners that retry their own
    * steps. Default `{ max: 1 }`. See the README's Retry section for the full
@@ -50,6 +58,8 @@ export interface EngineConfig {
 export interface ResolvedEngineConfig {
   /** The configured planner, not yet wrapped in the retry policy. */
   readonly planner: ClarifyingPlanner;
+  /** The application requirement check, or `undefined` when not configured. */
+  readonly validatePlan: PlanValidator | undefined;
   /** The configured logger, or {@link consoleLogger}. */
   readonly logger: Logger;
   /** The configured history, or `undefined` when history is off. */
@@ -72,6 +82,7 @@ const DEFAULT_RETRY: WithRetryOptions = { max: 1 };
 export function resolveConfig(config: EngineConfig): ResolvedEngineConfig {
   return {
     planner: config.planner,
+    validatePlan: config.validatePlan,
     logger: config.logger ?? consoleLogger,
     history: config.history,
     instrument: config.instrument ?? noopInstrument,

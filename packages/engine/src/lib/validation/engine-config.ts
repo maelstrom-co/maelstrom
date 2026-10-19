@@ -5,6 +5,7 @@ import type { LLMContextMessage } from '../history/history-manager.js';
 import type { HistoryEntry, HistoryStore } from '../history/history-store.js';
 import type { Logger } from '../logger.js';
 import type { Instrument } from '../planner/instrument.js';
+import type { PlanValidator } from '../planner/plan-validator.js';
 import type { ClarifyingPlanner } from '../planner/stage.js';
 import { formatValidationIssues } from './format-validation-issues.js';
 
@@ -72,6 +73,7 @@ const retrySchema = z.union([
 const engineConfigSchema = z
   .object({
     planner: functionSchema<ClarifyingPlanner>(),
+    validatePlan: functionSchema<PlanValidator>().optional(),
     logger: loggerSchema.optional(),
     history: historySchema.optional(),
     instrument: instrumentSchema.optional(),
