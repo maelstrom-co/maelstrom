@@ -118,9 +118,9 @@ export interface Engine {
    * - `chart_request` → hands the request and prior history to the
    *   configured planner, heals its candidate against the request (drops
    *   broken pieces, returns a renderable layout), retries per
-   *   `EngineConfig.retry` when heal recommends, and records the turn.
-   *   Returns `Ok(chart_response)` for any renderable outcome (including
-   *   healed-with-drops).
+   *   `EngineConfig.retry` when validation recommends, and records the turn.
+   *   Returns `Ok(chart_response)` for renderable outcomes accepted by
+   *   `EngineConfig.validatePlan`, when configured (including healed-with-drops).
    * - `assistant_message` → persists developer-supplied content into
    *   session history. Does NOT invoke the planner. Returns
    *   `Ok(assistant_message_result)` with `outcome: 'inserted' | 'deduped'`.
@@ -133,11 +133,13 @@ export interface Engine {
    * response with a non-blank `userMessage`: a candidate without one or with
    * a blank one, or a needs-clarification result, is `Err(ValidationError)` on field
    * `'skipReply'`, since a `chart_response` always carries a reply.
+   * Invalid `validatePlan` callbacks and unmet application requirements also
+   * return `ValidationError` on field `'validatePlan'`.
    * Layout problems heal into diagnostics rather than surfacing here — see
    * {@link EngineDiagnostics} (planner stages see only a summary:
-   * `retryHint`, `counts` and rendered `feedback`; detailed records stay
-   * internal and are stripped before the response crosses the Engine
-   * boundary).
+   * `retryHint`, `counts`, rendered `feedback`, and optional `planIssues`;
+   * detailed healing records stay internal and are stripped before the response
+   * crosses the Engine boundary).
    *
    * `signal` cancels mid-flight: it reaches every planner stage as
    * `StageContext.signal`. A stage that calls a provider is expected to

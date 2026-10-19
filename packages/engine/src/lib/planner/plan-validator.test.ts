@@ -247,9 +247,9 @@ describe('application plan requirements', () => {
         return ok(candidate);
       },
     });
-    engine.observeDiagnostics((event) => {
+    engine.observeDiagnostics?.((event, readContent) => {
       if (event.kind === 'engine.candidate.validated')
-        reports.push(event.payload);
+        reports.push(readContent?.());
     });
 
     const result = await engine.handle(gridMessage());
@@ -352,6 +352,39 @@ describe('application plan requirements', () => {
         field: 'validatePlan',
       });
     expect(planner).toHaveBeenCalledTimes(1);
+  });
+
+  test('a rejected cross-realm validator cannot crash the host process', () => {
+    const probe = `
+      import { runInNewContext } from 'node:vm';
+      import { ChartRequestMessage, SessionId, ok } from '@maelstrom-co/protocol';
+      import { createEngine } from '../engine.ts';
+      import { buildGridResponse, makeGridRequest, silentLogger } from '../__test-helpers__/fixtures.ts';
+      let attempts = 0;
+      const engine = createEngine({
+        logger: silentLogger,
+        planner: async () => {
+          attempts++;
+          return ok(buildGridResponse());
+        },
+        validatePlan: () => runInNewContext('Promise.reject(new Error("broken hook"))'),
+      });
+      const result = await engine.handle(ChartRequestMessage({
+        sessionId: SessionId('cross-realm-validator'),
+        request: makeGridRequest(),
+      }));
+      if (result.ok || result.error._tag !== 'ValidationError' || result.error.field !== 'validatePlan')
+        throw new Error('The broken validator must return a validation error');
+      if (attempts !== 1) throw new Error('A broken validator must not retry');
+      await new Promise(resolve => setTimeout(resolve, 10));
+      console.log('validator rejected safely');
+    `;
+    const child = Bun.spawnSync(
+      [process.execPath, '--no-env-file', '--eval', probe],
+      { cwd: import.meta.dir, timeout: 5000 },
+    );
+    expect(child.exitCode, child.stderr.toString()).toBe(0);
+    expect(child.stdout.toString()).toContain('validator rejected safely');
   });
 
   test('rejects a non-callable hook at configuration time', () => {

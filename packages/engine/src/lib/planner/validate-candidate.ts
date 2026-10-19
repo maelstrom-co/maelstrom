@@ -189,7 +189,12 @@ function validateApplicationPlan(
       response,
     });
     // Invalid async hooks must not leave a rejected Promise unobserved.
-    if (returned instanceof Promise) void returned.catch(() => undefined);
+    if (
+      returned !== null &&
+      (typeof returned === 'object' || typeof returned === 'function') &&
+      'then' in returned
+    )
+      void Promise.resolve(returned).catch(() => undefined);
     const planIssues = planIssuesSchema.parse(returned);
     return ok({
       ...response,
