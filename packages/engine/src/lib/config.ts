@@ -3,7 +3,7 @@ import type { Logger } from './logger.js';
 import { consoleLogger } from './logger.js';
 import type { Instrument } from './planner/instrument.js';
 import { noopInstrument } from './planner/instrument.js';
-import type { Planner } from './planner/stage.js';
+import type { ClarifyingPlanner } from './planner/stage.js';
 import type { WithRetryOptions } from './planner/with-retry.js';
 
 /** Dependencies and optional policies used to construct an Engine. */
@@ -13,9 +13,11 @@ export interface EngineConfig {
    * planner implementation as is, or compose stages with `pipeline` and
    * `withFallback`. The Engine heals and
    * validates whatever the planner returns against the request the client
-   * sent.
+   * sent. Validation accepts a needs-clarification result only for a request
+   * that set `skipReply: true`, and `Engine.handle` currently refuses it even
+   * then with `Err(ValidationError)` on field `skipReply`.
    */
-  readonly planner: Planner;
+  readonly planner: ClarifyingPlanner;
   /** Optional logger (defaults to consoleLogger). Stages receive it as `StageContext.logger`. */
   readonly logger?: Logger;
   /**
@@ -47,7 +49,7 @@ export interface EngineConfig {
 /** {@link EngineConfig} with every default applied. */
 export interface ResolvedEngineConfig {
   /** The configured planner, not yet wrapped in the retry policy. */
-  readonly planner: Planner;
+  readonly planner: ClarifyingPlanner;
   /** The configured logger, or {@link consoleLogger}. */
   readonly logger: Logger;
   /** The configured history, or `undefined` when history is off. */

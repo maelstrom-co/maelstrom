@@ -1,7 +1,10 @@
 import type {
   GridResponse,
+  GridResponseWithoutReply,
   MaelstromResponse,
+  NeedsClarification,
   TilingResponse,
+  TilingResponseWithoutReply,
 } from '@maelstrom-co/protocol';
 
 import type { SkippedAction } from '../response/execution-plan/types.js';
@@ -23,6 +26,50 @@ import type {
 export type PlannerCandidate =
   | DeepReadonly<GridResponse>
   | DeepReadonly<TilingResponse>;
+
+/**
+ * A {@link PlannerCandidate} that may omit `userMessage`, for a request that
+ * set `skipReply: true`. A grid request expects a `GridResponseWithoutReply`;
+ * a tiling request a `TilingResponseWithoutReply`. Without that flag the
+ * Engine rejects a candidate whose `userMessage` is missing or blank. With it,
+ * a supplied `userMessage` is kept unchanged, even when blank.
+ *
+ * Every {@link PlannerCandidate} is a `ReplylessCandidate`. Like a
+ * `PlannerCandidate`, it is immutable: validation results are cached per
+ * candidate object.
+ */
+export type ReplylessCandidate =
+  | DeepReadonly<GridResponseWithoutReply>
+  | DeepReadonly<TilingResponseWithoutReply>;
+
+/**
+ * Everything a planner may return: a {@link PlannerCandidate}, a
+ * {@link ReplylessCandidate}, or a {@link NeedsClarification} when it cannot
+ * proceed without asking the user. Validation accepts a replyless candidate
+ * without `userMessage` and a needs-clarification result only for a request
+ * that set `skipReply: true`, and `Engine.handle` currently refuses both even
+ * then with `Err(ValidationError)` on field `skipReply`.
+ */
+export type PlannerOutput =
+  | PlannerCandidate
+  | ReplylessCandidate
+  | NeedsClarification;
+
+/**
+ * The narrowest of {@link PlannerCandidate}, {@link ReplylessCandidate} and
+ * {@link PlannerOutput} that contains `Out`. `pipeline` types the planner it
+ * builds with it, so a pipeline whose last stage returns strict candidates
+ * is a plain `Planner`.
+ *
+ * @typeParam Out - What the last stage of a planner produces.
+ */
+export type PipelineOutput<Out extends PlannerOutput> = [Out] extends [
+  PlannerCandidate,
+]
+  ? PlannerCandidate
+  : [Out] extends [ReplylessCandidate]
+    ? ReplylessCandidate
+    : PlannerOutput;
 
 /**
  * A summary of what healing changed in a candidate and whether another
@@ -60,6 +107,25 @@ export type ValidatedCandidate = MaelstromResponse & {
   readonly diagnostics: EngineDiagnostics;
 };
 
+/**
+ * A {@link ReplylessCandidate} after the Engine healed and validated it: a
+ * {@link ValidatedCandidate} whose `userMessage` may be absent.
+ */
+export type ValidatedReplylessCandidate = Omit<
+  MaelstromResponse,
+  'userMessage'
+> & {
+  /**
+   * The reply to the user. Always present and non-blank unless the request
+   * set `skipReply: true`, in which case the planner may have omitted it and
+   * a supplied reply passes through unchanged, even when blank. The Engine
+   * refuses an absent or blank reply at the ship boundary.
+   */
+  readonly userMessage?: string;
+  /** What healing changed, and whether a retry is recommended. */
+  readonly diagnostics: EngineDiagnostics;
+};
+
 /** {@link EngineDiagnostics} plus the detailed records the Engine logs. */
 export interface FullDiagnostics extends EngineDiagnostics {
   readonly skippedActions: readonly SkippedAction[];
@@ -73,6 +139,44 @@ export type DiagnosticRecords = Omit<FullDiagnostics, 'counts' | 'feedback'>;
 export type FullValidatedCandidate = ValidatedCandidate & {
   readonly diagnostics: FullDiagnostics;
 };
+
+/**
+ * A {@link ValidatedReplylessCandidate} as the Engine sees it, with full
+ * diagnostics.
+ */
+export type FullValidatedReplylessCandidate = ValidatedReplylessCandidate & {
+  readonly diagnostics: FullDiagnostics;
+};
+
+/**
+ * A needs-clarification result the Engine accepted. Its diagnostics are
+ * empty and never recommend a retry: there is no layout to heal.
+ */
+export type FullValidatedNeedsClarification = NeedsClarification & {
+  readonly diagnostics: FullDiagnostics;
+};
+
+/** What the Engine's validator returns for any {@link PlannerOutput}. */
+export type FullValidatedPlannerOutput =
+  | FullValidatedCandidate
+  | FullValidatedReplylessCandidate
+  | FullValidatedNeedsClarification;
+
+/**
+ * Whether a planner output is a needs-clarification result rather than a
+ * layout candidate. Layout candidates carry no `type` field. The guard checks
+ * only the `type` discriminant and does not validate `question` or `options`.
+ */
+export function isNeedsClarification(
+  output: unknown,
+): output is NeedsClarification {
+  return (
+    typeof output === 'object' &&
+    output !== null &&
+    'type' in output &&
+    output.type === 'needs_clarification'
+  );
+}
 
 type DeepReadonly<T> = T extends
   | string

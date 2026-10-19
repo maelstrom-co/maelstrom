@@ -103,6 +103,26 @@ describe('ClientEnvelope round-trip', () => {
     }
   });
 
+  test('chart_request with skipReply and intentFacts', () => {
+    const msg = ChartRequestMessage({
+      sessionId: SessionId('s-1'),
+      request: {
+        ...validChartRequest(),
+        skipReply: true,
+        intentFacts: { latestOrderSku: 'A123', similarSkus: ['B456'] },
+      },
+      id: MessageId('m-cr-facts'),
+      timestamp: 1_700_000_000_000,
+    });
+    const decoded = decodeClientEnvelope(encodeEnvelope(msg));
+    expect(decoded.ok).toBe(true);
+    if (decoded.ok && decoded.value.type === 'chart_request') {
+      expect(decoded.value).toEqual(msg);
+    } else {
+      throw new Error('expected chart_request');
+    }
+  });
+
   test('assistant_message', () => {
     const msg = AssistantInjectionMessage({
       sessionId: SessionId('s-1'),

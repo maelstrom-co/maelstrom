@@ -48,6 +48,8 @@ export {
 } from './lib/envelope.ts';
 export { MaelstromError } from './lib/errors/index.ts';
 export { InstanceId } from './lib/instance.ts';
+export type { JsonValue } from './lib/json-value.ts';
+export { JsonValueSchema } from './lib/json-value.ts';
 export type { LayoutMode } from './lib/layout.ts';
 export { MessageId, MessageIdSchema } from './lib/message.ts';
 export {
@@ -57,11 +59,16 @@ export {
   MAX_SPLIT_CHILDREN,
   MAX_SPLIT_WEIGHT,
 } from './lib/model-output-limits.ts';
+export type { NeedsClarification } from './lib/needs-clarification.ts';
+export { NeedsClarificationSchema } from './lib/needs-clarification.ts';
 export type {
   ChartRequest,
   ChartResizeReason,
   GridResponse,
+  GridResponseWithoutReply,
+  PlannerOutputFor,
   TilingResponse,
+  TilingResponseWithoutReply,
   UpdateReason,
   UserIntentReason,
   VesselInstanceSnapshot,
@@ -71,7 +78,9 @@ export {
   ChartRequestSchema,
   ChartResizeReasonSchema,
   GridResponseSchema,
+  GridResponseWithoutReplySchema,
   TilingResponseSchema,
+  TilingResponseWithoutReplySchema,
   UpdateReasonSchema,
   UserIntentReasonSchema,
   VesselMutationReasonSchema,
