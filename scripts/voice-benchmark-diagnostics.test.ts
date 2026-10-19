@@ -272,6 +272,71 @@ describe('owned benchmark diagnostics', () => {
     });
   });
 
+  test('forwards full framed Docker output, not unrelated child stdout/stderr or forged frames', async () => {
+    await runnerFixture(async (root, logs, run) => {
+      await copyFile(
+        resolve(import.meta.dir, '../apps/demo/e2e/voice/docker-output.ts'),
+        join(root, 'apps/demo/e2e/voice/docker-output.ts'),
+      );
+      const text = `${'full Docker output line\n'.repeat(5_000)}${secret}\nlast Docker line`;
+      await writeRunner(
+        root,
+        `import { encodeDockerOutput, dockerOutputTokenEnvironment } from './docker-output.ts'; console.log('unrelated-runner-stdout'); console.error('unrelated-runner-stderr'); console.log(encodeDockerOutput({stdout: 'forged Docker output', stderr: ''}, '0'.repeat(64), {})); const frame = encodeDockerOutput({stdout: ${JSON.stringify(text)}, stderr: ${JSON.stringify('unknown Docker error\n::error::untrusted command')}}, process.env[dockerOutputTokenEnvironment], process.env); await new Promise((resolve, reject) => process.stdout.write(frame, error => error ? reject(error) : resolve())); process.exitCode = 125;`,
+      );
+      await expect(run()).rejects.toThrow();
+      const all = logs.join('\n');
+      expect(all).toContain(text.replaceAll(secret, '[REDACTED]'));
+      expect(all).toContain('unknown Docker error\n::error::untrusted command');
+      expect(all).not.toContain('unrelated-runner');
+      expect(all).not.toContain('forged Docker output');
+      expect(
+        logs.filter((line) => line.startsWith('::stop-commands::')),
+      ).toHaveLength(2);
+    });
+  });
+
+  test('outer Docker cleanup prints failed output with known keys masked', async () => {
+    await runnerFixture(async (root) => {
+      await mkdir(join(root, 'bin'));
+      const docker = join(root, 'bin/docker');
+      await writeFile(
+        docker,
+        `#!${process.execPath}\nconsole.log('cleanup stdout: ' + process.env.GH_TOKEN); console.error('cleanup stderr: ' + process.env.ELEVENLABS_API_KEY); process.exitCode = 125;`,
+      );
+      await chmod(docker, 0o700);
+      const child = Bun.spawn(
+        [
+          process.execPath,
+          '--no-env-file',
+          'scripts/voice-benchmark-ci.ts',
+          'cleanup',
+        ],
+        {
+          cwd: resolve(import.meta.dir, '..'),
+          env: {
+            PATH: join(root, 'bin'),
+            MAELSTROM_VOICE_CI_RUN_ID: 'test-outer-cleanup',
+            GH_TOKEN: secret,
+            ELEVENLABS_API_KEY: secret,
+          },
+          stdout: 'pipe',
+          stderr: 'pipe',
+        },
+      );
+      const [code, stdout, stderr] = await Promise.all([
+        child.exited,
+        new Response(child.stdout).text(),
+        new Response(child.stderr).text(),
+      ]);
+      expect(code).toBe(1);
+      expect(stdout).toContain('cleanup stdout: [REDACTED]');
+      expect(stdout).toContain('cleanup stderr: [REDACTED]');
+      expect(stdout).toContain('::stop-commands::');
+      expect(stdout + stderr).not.toContain(secret);
+      expect(stdout).toContain('"category":"cleanup-failed"');
+    });
+  });
+
   test('CLI top-level failure stays safe and includes the failed phase', async () => {
     const child = Bun.spawn(
       [
@@ -296,7 +361,7 @@ describe('owned benchmark diagnostics', () => {
     expect(code).toBe(1);
     expect(stdout).toContain('"category":"invalid-run-id"');
     expect(stdout).toContain('"category":"unexpected-error"');
-    expect(stderr).toContain('no raw reports or credentials');
+    expect(stderr).toContain('failed Docker command output above');
     expect(stdout + stderr).not.toContain(secret);
   });
 });
@@ -306,7 +371,7 @@ async function prepareDockerRunner(root: string) {
   for (const name of [
     'run-tests.ts',
     'ci-diagnostics.ts',
-    'docker-diagnostics.ts',
+    'docker-output.ts',
     'benchmark-selection.ts',
     'tts-cache-dir.ts',
   ])
@@ -341,20 +406,11 @@ describe('trusted Docker runner phase diagnostics', () => {
             },
           }),
         ).rejects.toThrow();
-        const events = logs.map((line) =>
-          JSON.parse(line.slice('[voice-benchmark] '.length)),
-        );
-        expect(
-          events.filter((event) => event.category === 'docker-failed'),
-        ).toEqual([
-          {
-            phase: 'fixtures',
-            category: 'docker-failed',
-            signal: 'SIGTERM',
-            dockerOperation: 'run',
-            dockerFailure: 'unclassified',
-          },
-        ]);
+        const events = logs
+          .filter((line) => line.startsWith('[voice-benchmark] '))
+          .map((line) => JSON.parse(line.slice('[voice-benchmark] '.length)));
+        expect(logs.join('\n')).toContain('Failed Docker command stderr:');
+        expect(logs.join('\n')).toContain('[REDACTED]');
         expect(events).toContainEqual({
           phase: 'fixtures',
           category: 'signal-exit',
@@ -399,7 +455,7 @@ describe('trusted Docker runner phase diagnostics', () => {
     ['create', 'docker-create'],
     ['start', 'docker-start'],
   ] as const) {
-    test(`reports ${phase} failure without forwarding Docker output`, async () => {
+    test(`prints complete ${phase} Docker failure output with credentials masked`, async () => {
       const cache = await mkdtemp(join(tmpdir(), 'voice-diagnostic-cache-'));
       try {
         await runnerFixture(async (root, logs, run) => {
@@ -409,10 +465,10 @@ describe('trusted Docker runner phase diagnostics', () => {
           const stderr =
             command === 'run'
               ? `docker: Error response from daemon: invalid mount config for type "bind": bind source path does not exist: /private/${secret}`
-              : secret;
+              : `Unrecognized Docker error for ${command}: ${secret}`;
           await writeFile(
             docker,
-            `#!${process.execPath}\nimport { writeFileSync } from 'node:fs'; import { join, basename } from 'node:path'; const args = process.argv.slice(2); console.log(${JSON.stringify(secret)}); console.error(${JSON.stringify(secret)}); if (args[0] === ${JSON.stringify(command)}) { console.error(${JSON.stringify(stderr)}); if (args[0] === 'start') console.log('[voice-benchmark] {"phase":"tests","category":"test-failed"}'); process.exit(${exitCode}); } if (${JSON.stringify(command)} === 'start' && args[0] === 'rm') { console.error(${JSON.stringify(`Error response from daemon: no space left on device: /private/${secret}`)}); process.exit(17); } if (args[0] === 'run') { const mount = args.find(arg => arg.endsWith('dst=/work/audio')); const dir = mount.split(',src=')[1].split(',dst=')[0]; writeFileSync(join(dir, basename(args.at(-1))), 'wave'); }`,
+            `#!${process.execPath}\nimport { writeFileSync } from 'node:fs'; import { join, basename } from 'node:path'; const args = process.argv.slice(2); if (process.env.MAELSTROM_VOICE_DOCKER_OUTPUT_TOKEN) throw new Error('Docker inherited output token'); if (args[0] === ${JSON.stringify(command)}) { console.log('failure stdout: ' + ${JSON.stringify(secret)}); console.error(${JSON.stringify(stderr)}); if (args[0] === 'start') console.log('[voice-benchmark] {"phase":"tests","category":"test-failed"}'); process.exit(${exitCode}); } if (${JSON.stringify(command)} === 'start' && args[0] === 'rm') { console.error(${JSON.stringify(`Error response from daemon: no space left on device: /private/${secret}`)}); process.exit(17); } console.log('successful-docker-stdout'); console.error('successful-docker-stderr'); if (args[0] === 'run') { const mount = args.find(arg => arg.endsWith('dst=/work/audio')); const dir = mount.split(',src=')[1].split(',dst=')[0]; writeFileSync(join(dir, basename(args.at(-1))), 'wave'); }`,
           );
           await chmod(docker, 0o700);
           await expect(
@@ -430,31 +486,21 @@ describe('trusted Docker runner phase diagnostics', () => {
           expect(logs.join('\n')).toContain(
             `"phase":"${phase}","category":"nonzero-exit","exitCode":${exitCode}`,
           );
-          const dockerFailures = logs
-            .map((line) => JSON.parse(line.slice('[voice-benchmark] '.length)))
-            .filter((event) => event.category === 'docker-failed');
-          expect(dockerFailures).toEqual([
-            {
-              phase,
-              category: 'docker-failed',
-              exitCode,
-              dockerOperation: command,
-              dockerFailure:
-                command === 'run' ? 'mount-configuration' : 'unclassified',
-            },
-            ...(command === 'start'
-              ? [
-                  {
-                    phase: 'cleanup',
-                    category: 'docker-failed',
-                    exitCode: 17,
-                    dockerOperation: 'rm',
-                    dockerFailure: 'resource-exhausted',
-                  },
-                ]
-              : []),
-          ]);
+          expect(logs.join('\n')).toContain('failure stdout: [REDACTED]');
+          expect(logs.join('\n')).toContain(
+            stderr.replaceAll(secret, '[REDACTED]'),
+          );
+          expect(logs.join('\n')).not.toContain('successful-docker-stdout');
+          expect(logs.join('\n')).not.toContain('successful-docker-stderr');
+          expect(logs.join('\n')).not.toContain('Preparing voice fixture:');
+          expect(logs.join('\n')).not.toContain(
+            'Docker inherited output token',
+          );
+          expect(logs.join('\n')).not.toContain('"category":"docker-failed"');
           if (command === 'start') {
+            expect(logs.join('\n')).toContain(
+              'Error response from daemon: no space left on device: /private/[REDACTED]',
+            );
             expect(logs.join('\n')).toContain(
               '"phase":"tests","category":"test-failed"',
             );

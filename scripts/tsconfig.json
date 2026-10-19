@@ -12,6 +12,6 @@
     "../infra/platform/src/RateLimitContract.ts",
     "../apps/demo/e2e/voice/ci-metrics.ts",
     "../apps/demo/e2e/voice/ci-diagnostics.ts",
-    "../apps/demo/e2e/voice/docker-diagnostics.ts"
+    "../apps/demo/e2e/voice/docker-output.ts"
   ]
 }
