@@ -480,12 +480,20 @@ describe('handleEnvelope: client.agent.input', () => {
     test(`answers a ${input.type} input with a correlated engine.error without calling the engine`, async () => {
       const sessionId = SessionId('sess-1');
       const messageId = MessageId('agent-1');
+      let handleCalls = 0;
+      const engine = stubEngine({
+        handle: async () => {
+          handleCalls += 1;
+          throw new Error('engine.handle must not receive agent inputs');
+        },
+      });
 
       const reply = await handleEnvelope(
-        stubEngine({}),
+        engine,
         encodeEnvelope(AgentInputMessage({ sessionId, id: messageId, input })),
       );
 
+      expect(handleCalls).toBe(0);
       expect(reply?.type).toBe('engine.error');
       if (reply?.type !== 'engine.error') return;
       expect(reply.requestId).toBe(messageId);
