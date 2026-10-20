@@ -43,8 +43,6 @@ export function cartTotals(
   return calculateOrderTotals(lines);
 }
 
-// Test-only: restores the module-singleton store to its seeded state so
-// specs don't leak mutations into one another.
 export function __resetCartStoreForTests(): void {
   setState(INITIAL_STATE);
 }

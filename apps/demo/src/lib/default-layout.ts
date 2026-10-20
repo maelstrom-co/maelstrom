@@ -43,8 +43,10 @@ const ORDERS = InstanceId('orders-main');
 const CART = InstanceId('cart-main');
 
 /**
- * The `/shop` starting screen: past orders beside the cart. The catalog and
- * checkout stay off screen so asking for them goes through the Planner.
+ * Starting screen for the shop instance: past orders beside the cart. The
+ * catalog and checkout start off screen, so the Engine has to place them when
+ * the user asks for them. A proposal, as with DEFAULT_LAYOUT: the first chart
+ * request may resize or drop either tile.
  */
 export const SHOP_LAYOUT: TilingLayout = {
   type: 'tiling',

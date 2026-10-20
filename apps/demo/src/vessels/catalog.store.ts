@@ -49,13 +49,11 @@ export function getCatalogSnapshot(): CatalogState {
   return state;
 }
 
-// Test-only: restores the module-singleton store to its seeded state so
-// specs don't leak mutations into one another.
 export function __resetCatalogStoreForTests(): void {
   setState(INITIAL_STATE);
 }
 
-/** Resolves an exact SKU first, then falls back to a fuzzy product-name match. */
+/** Resolves a SKU (trimmed, case-insensitive) first, then falls back to a fuzzy product-name match. */
 export function findProduct(skuOrName: string): Product | undefined {
   return (
     productBySku(skuOrName) ??
@@ -101,11 +99,6 @@ export function searchProducts(
     .map(({ product }) => product);
 }
 
-/**
- * Same species and food type as the reference, with a compatible life stage
- * (identical, or either side is an all-life-stages formula). Sorted by fat
- * ascending so the leanest alternative comes first.
- */
 export function findSimilarProducts(
   reference: Product,
   options: SimilarOptions = {},
