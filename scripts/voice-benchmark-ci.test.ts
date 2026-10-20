@@ -23,18 +23,22 @@ import {
 const sha = 'a'.repeat(40);
 const other = 'b'.repeat(40);
 const repository = 'maelstrom-co/maelstrom';
+const runIdentity = { runId: '123456789', runAttempt: '1' };
+const provenance = { targetSha: sha, ...runIdentity };
 const options = {
+  runIdentity,
   repository,
   prNumber: '42',
   eventHeadSha: sha,
   workersDevSuffix: 'preview.workers.dev',
 };
 const metrics = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   status: 'passed',
-  assistant: { p95Ms: 1234, samples: 3 },
-  taskBargeIn: { p95Ms: 300, samples: 1 },
-  greetingBargeIn: { p95Ms: 400, samples: 1 },
+  provenance,
+  assistant: { status: 'validated', p95Ms: 1234, samples: 3 },
+  taskBargeIn: { status: 'validated', p95Ms: 300, samples: 1 },
+  greetingBargeIn: { status: 'validated', p95Ms: 400, samples: 1 },
 } as const;
 const bot = { login: 'github-actions[bot]', type: 'Bot' };
 
@@ -162,14 +166,14 @@ function fixture() {
       },
       globalThis.fetch,
     ),
-    run: async () => {
+    run: async (_context, _signal, currentProvenance) => {
       expect(parseVoiceClaim(state.comment?.body)).toMatchObject({
         sha,
         requestId: state.request,
         status: 'started',
       });
       state.launches++;
-      return metrics;
+      return { ...metrics, provenance: currentProvenance };
     },
     sleep: (_ms, signal) =>
       new Promise<void>((resolve) => {
@@ -217,6 +221,7 @@ describe('voice benchmark CI eligibility and idempotence', () => {
           repository,
           prNumber: '42',
           workersDevSuffix: options.workersDevSuffix,
+          runIdentity,
         },
         f.dependencies,
         new AbortController().signal,
@@ -274,10 +279,10 @@ describe('voice benchmark CI eligibility and idempotence', () => {
       const dependencies: VoiceCiDependencies = {
         ...f.dependencies,
         sleep: async () => {},
-        run: async (context, signal) => {
+        run: async (context, signal, currentProvenance) => {
           if (f.state.launches > 0) {
             order.push('replacement');
-            return f.dependencies.run(context, signal);
+            return f.dependencies.run(context, signal, currentProvenance);
           }
           f.state.launches++;
           f.state.history = [
@@ -795,6 +800,129 @@ describe('voice benchmark CI eligibility and idempotence', () => {
   });
 });
 
+describe('partial lane publication', () => {
+  test('an individually valid lane is published while invalid siblings keep the job and claim failed', async () => {
+    for (const lane of [
+      'assistant',
+      'taskBargeIn',
+      'greetingBargeIn',
+    ] as const) {
+      const f = fixture();
+      const partial = {
+        ...metrics,
+        status: 'failed',
+        [lane]: { status: 'unavailable', reason: 'benchmark-failed' },
+      };
+      const outcome = await executeVoiceBenchmark(
+        options,
+        { ...f.dependencies, run: async () => partial },
+        new AbortController().signal,
+      );
+      expect(outcome).toBe('failed');
+      expect(f.state.comment?.body).toContain('Status: failed');
+      const rows = {
+        assistant: ['Assistant response', '1234.0'],
+        taskBargeIn: ['Barge-in: task response', '300.0'],
+        greetingBargeIn: ['Barge-in: greeting', '400.0'],
+      };
+      for (const [key, [title, value]] of Object.entries(rows))
+        expect(f.state.comment?.body).toContain(
+          `${title} | ${key === lane ? 'N/A' : `${value} ms`}`,
+        );
+      expect(await f.execute()).toBe('skipped');
+    }
+  });
+  test('nonzero owned runner exit publishes current partial metrics and returns a failed job', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'voice-partial-publication-'));
+    try {
+      await mkdir(join(root, 'scripts'), { recursive: true });
+      await writeFile(join(root, 'scripts/preview-lifecycle.bunfig.toml'), '');
+      await mkdir(join(root, 'apps/demo/e2e/voice'), { recursive: true });
+      const partial = {
+        ...metrics,
+        status: 'failed',
+        greetingBargeIn: { status: 'unavailable', reason: 'benchmark-failed' },
+      };
+      await writeFile(
+        join(root, 'apps/demo/e2e/voice/run-tests.ts'),
+        `import { mkdirSync, writeFileSync } from 'node:fs'; mkdirSync('apps/demo/dist/docker-voice', {recursive:true}); writeFileSync('apps/demo/dist/docker-voice/voice-benchmark-metrics.json', ${JSON.stringify(JSON.stringify(partial))}); process.exitCode=17;`,
+      );
+      const f = fixture();
+      const result = await executeVoiceBenchmark(
+        options,
+        {
+          ...f.dependencies,
+          run: (context, signal, currentProvenance) =>
+            runOwnedBenchmark({
+              root,
+              runId: 'partial-publication',
+              target: context.url,
+              signal,
+              provenance: currentProvenance,
+              environment: {
+                MAELSTROM_E2E_OPENAI_API_KEY: 'fake-key',
+                ELEVENLABS_API_KEY: 'fake-tts',
+              },
+              cleanup: async () => {},
+              log: (line) => f.logs.push(line),
+            }),
+        },
+        new AbortController().signal,
+      );
+      expect(result).toBe('failed');
+      expect(f.state.comment?.body).toContain('Assistant response | 1234.0 ms');
+      expect(f.state.comment?.body).toContain(
+        'Barge-in: task response | 300.0 ms',
+      );
+      expect(f.state.comment?.body).toContain('Barge-in: greeting | N/A');
+      expect(f.state.comment?.body).toContain('Status: failed');
+      expect(f.state.comment?.body).toContain(
+        'Barge-in: greeting: benchmark-failed',
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('missing, malformed and mismatched current-attempt envelopes never publish any numbers', async () => {
+    for (const value of [
+      undefined,
+      {},
+      { ...metrics, provenance: { ...provenance, targetSha: other } },
+      { ...metrics, provenance: { ...provenance, runId: '999' } },
+      { ...metrics, provenance: { ...provenance, runAttempt: '2' } },
+    ]) {
+      const f = fixture();
+      expect(
+        await executeVoiceBenchmark(
+          options,
+          { ...f.dependencies, run: async () => value },
+          new AbortController().signal,
+        ),
+      ).toBe('failed');
+      expect(f.state.comment?.body).toContain('Status: failed');
+      expect(f.state.comment?.body?.match(/\| N\/A \|/g)).toHaveLength(3);
+    }
+  });
+  test('early runner failure still produces an all-unavailable failed comment', async () => {
+    const f = fixture();
+    expect(
+      await executeVoiceBenchmark(
+        options,
+        {
+          ...f.dependencies,
+          run: async () => {
+            throw new Error('early build failure');
+          },
+        },
+        new AbortController().signal,
+      ),
+    ).toBe('failed');
+    expect(f.state.comment?.body?.match(/\| N\/A \|/g)).toHaveLength(3);
+    expect(f.state.comment?.body).not.toContain('early build failure');
+  });
+});
+
 describe('explicit paid workflow attempts', () => {
   const manualOptions = (
     runId = '123456789',
@@ -804,6 +932,7 @@ describe('explicit paid workflow attempts', () => {
     prNumber: '42',
     workersDevSuffix: options.workersDevSuffix,
     manualRequest: { runId, runAttempt },
+    runIdentity: { runId, runAttempt },
   });
   const execute = (
     f: ReturnType<typeof fixture>,
@@ -852,11 +981,11 @@ describe('explicit paid workflow attempts', () => {
     f.state.approved = other;
     f.state.deployed = other;
     expect(await execute(f)).toBe('skipped');
-    const currentHead = {
+    const currentHead: VoiceCiDependencies = {
       ...f.dependencies,
-      run: async () => {
+      run: async (_context, _signal, currentProvenance) => {
         f.state.launches++;
-        return metrics;
+        return { ...metrics, provenance: currentProvenance };
       },
     };
     expect(await execute(f, manualOptions('123456789', '2'), currentHead)).toBe(
@@ -982,9 +1111,9 @@ describe('explicit paid workflow attempts', () => {
         expect(
           await execute(f, manualOptions('123456789', '2'), {
             ...f.dependencies,
-            run: async (context, signal) => {
+            run: async (context, signal, currentProvenance) => {
               order.push('replacement');
-              return f.dependencies.run(context, signal);
+              return f.dependencies.run(context, signal, currentProvenance);
             },
           }),
         ).toBe('passed');
@@ -1173,12 +1302,13 @@ describe('explicit paid workflow attempts', () => {
       run: async (
         context: Parameters<VoiceCiDependencies['run']>[0],
         signal: AbortSignal,
+        currentProvenance: typeof provenance,
       ) => {
         order.push('paid-run');
         expect(parseVoiceClaim(f.state.comment!.body)?.archive?.commentId).toBe(
           1001,
         );
-        return f.dependencies.run(context, signal);
+        return f.dependencies.run(context, signal, currentProvenance);
       },
     };
     await expect(execute(f, manualOptions(), dependencies)).rejects.toThrow();
@@ -1480,12 +1610,12 @@ describe('explicit paid workflow attempts', () => {
 
   test('invalid manual identities fail before any GitHub or paid request', async () => {
     const f = fixture();
-    await expect(execute(f, manualOptions('invalid'))).rejects.toThrow(
-      'Invalid manual',
-    );
-    await expect(execute(f, manualOptions('123', '0'))).rejects.toThrow(
-      'Invalid manual',
-    );
+    await expect(
+      execute(f, { ...manualOptions('invalid'), runIdentity }),
+    ).rejects.toThrow('Invalid manual');
+    await expect(
+      execute(f, { ...manualOptions('123', '0'), runIdentity }),
+    ).rejects.toThrow('Invalid manual');
     expect(f.calls).toHaveLength(0);
     expect(f.state.launches).toBe(0);
   });
@@ -1509,6 +1639,7 @@ describe('owned Docker cleanup', () => {
       const run = runOwnedBenchmark({
         root,
         runId: 'test-owned',
+        provenance,
         target: 'https://example.invalid/',
         environment: {
           PATH: process.env.PATH,
