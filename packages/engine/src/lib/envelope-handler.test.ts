@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import type {
+  AgentInput,
   ChartRequest,
   EngineOutput,
   MaelstromResponse,
@@ -10,6 +11,7 @@ import {
   AcknowledgedAssistantMessage,
   AGENT_WIRE_VERSION,
   AgentInputMessage,
+  ChangeId,
   ChartRequestMessage,
   encodeEnvelope,
   err,
@@ -456,34 +458,67 @@ describe('handleEnvelope — client.history.get', () => {
 // ---------------------------------------------------------------------------
 
 describe('handleEnvelope: client.agent.input', () => {
-  test('answers with a correlated engine.error without calling the engine', async () => {
-    const sessionId = SessionId('sess-1');
-    const messageId = MessageId('agent-1');
+  const inputs: AgentInput[] = [
+    {
+      type: 'utterance',
+      version: AGENT_WIRE_VERSION,
+      inputId: MessageId('in-1'),
+      text: 'show my calendar',
+      chart: validChartRequest(),
+      source: 'text',
+    },
+    {
+      type: 'ui_applied',
+      version: AGENT_WIRE_VERSION,
+      changeId: ChangeId('change-1'),
+      chart: validChartRequest(),
+      actionOutcomes: [{ actionIndex: 0, ok: true }],
+    },
+  ];
 
+  for (const input of inputs) {
+    test(`answers a ${input.type} input with a correlated engine.error without calling the engine`, async () => {
+      const sessionId = SessionId('sess-1');
+      const messageId = MessageId('agent-1');
+
+      const reply = await handleEnvelope(
+        stubEngine({}),
+        encodeEnvelope(AgentInputMessage({ sessionId, id: messageId, input })),
+      );
+
+      expect(reply?.type).toBe('engine.error');
+      if (reply?.type !== 'engine.error') return;
+      expect(reply.requestId).toBe(messageId);
+      expect(reply.sessionId).toBe(sessionId);
+      expect(reply.error).toBe('agent inputs are not supported yet');
+      expect(reply.code).toBe('UnsupportedInput');
+    });
+  }
+
+  test('rejects an agent input on an unknown wire version with a correlated invalid_envelope', async () => {
     const reply = await handleEnvelope(
       stubEngine({}),
-      encodeEnvelope(
-        AgentInputMessage({
-          sessionId,
-          id: messageId,
-          input: {
-            type: 'utterance',
-            version: AGENT_WIRE_VERSION,
-            inputId: MessageId('in-1'),
-            text: 'show my calendar',
-            chart: validChartRequest(),
-            source: 'text',
-          },
-        }),
-      ),
+      JSON.stringify({
+        type: 'client.agent.input',
+        id: 'a-1',
+        sessionId: 's-1',
+        input: {
+          type: 'utterance',
+          version: 2,
+          inputId: 'in-1',
+          text: 'hi',
+          chart: validChartRequest(),
+          source: 'text',
+        },
+      }),
     );
 
     expect(reply?.type).toBe('engine.error');
     if (reply?.type !== 'engine.error') return;
-    expect(reply.requestId).toBe(messageId);
-    expect(reply.sessionId).toBe(sessionId);
-    expect(reply.error).toBe('agent inputs are not supported yet');
-    expect(reply.code).toBe('UnsupportedInput');
+    expect(reply.code).toBe('invalid_envelope');
+    expect(reply.requestId).toBe(MessageId('a-1'));
+    expect(reply.sessionId).toBe(SessionId('s-1'));
+    expect(reply.error).toContain('input.version');
   });
 });
 
