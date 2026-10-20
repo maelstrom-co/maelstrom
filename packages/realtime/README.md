@@ -5,10 +5,10 @@ Framework-agnostic realtime voice foundation for Maelstrom.
 ## Install
 
 ```bash
-bun add @maelstrom-co/realtime @maelstrom-co/client @maelstrom-co/protocol
+bun add @maelstrom-co/realtime@alpha @maelstrom-co/client@alpha @maelstrom-co/protocol@alpha
 ```
 
-Or: `npm install` / `pnpm add` / `yarn add @maelstrom-co/realtime @maelstrom-co/client @maelstrom-co/protocol`
+Or: `npm install` / `pnpm add` / `yarn add @maelstrom-co/realtime@alpha @maelstrom-co/client@alpha @maelstrom-co/protocol@alpha`
 
 ## What it does
 

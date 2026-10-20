@@ -1,157 +1,48 @@
 ---
-title: Install the Private Beta
-description: How to authenticate to GitHub Packages and install a Maelstrom beta release or PR preview.
+title: Migrate to npm
+description: Remove the former GitHub Packages configuration and install Maelstrom from npm.
+sidebar:
+  hidden: true
 ---
 
-import { Aside, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+Maelstrom packages use the public npm registry. No repository invitation or
+GitHub token is required. This page preserves the former installation link for
+existing users.
 
-Maelstrom beta packages are private and hosted on GitHub Packages. Your GitHub account needs read access to the Maelstrom repository before your token can download them.
+## Remove the old registry configuration
 
-## Before you start
+Remove the `@maelstrom-co` GitHub Packages registry and authentication entries
+from your project and user `.npmrc` files. For Yarn, remove the matching
+`npmScopes.maelstrom-co` configuration from `.yarnrc.yml`.
 
-- Accept your invitation to the Maelstrom repository.
-- Ask the Maelstrom team for the release tag, version, or preview PR you should test.
+If your project explicitly configures a registry for this scope, use:
 
-## Configure GitHub Packages
-
-<Steps>
-1. **Create a classic personal access token.** Open [GitHub token settings](https://github.com/settings/tokens/new), select `read:packages`, and generate the token. GitHub Packages does not support fine-grained personal access tokens for npm authentication.
-
-   If the Maelstrom organization uses SAML SSO, authorize the token for the organization after creating it.
-
-2. **Expose the token to your package manager.** Set it in your current shell. Store the value in your password manager or CI secret store, not in the project.
-
-   ```bash
-   printf 'GitHub Packages token: '
-   read -rs GH_PACKAGES_TOKEN
-   printf '\n'
-   export GH_PACKAGES_TOKEN
-   ```
-
-3. **Route Maelstrom packages to GitHub.** Add the package-manager configuration beside your `package.json`. You can commit it because it contains an environment variable reference, not the token.
-
-   <Tabs syncKey="registry-config">
-     <TabItem label="npm, Bun, pnpm">
-       ```ini title=".npmrc"
-       @maelstrom-co:registry=https://npm.pkg.github.com
-       //npm.pkg.github.com/:_authToken=${GH_PACKAGES_TOKEN}
-       ```
-     </TabItem>
-     <TabItem label="Yarn">
-       ```yaml title=".yarnrc.yml"
-       npmScopes:
-         maelstrom-co:
-           npmRegistryServer: https://npm.pkg.github.com
-           npmAlwaysAuth: true
-           npmAuthToken: ${GH_PACKAGES_TOKEN}
-       ```
-     </TabItem>
-   </Tabs>
-
-4. **Install the requested package.** Use the `alpha` tag for the current beta release, or replace it with the exact version supplied by the Maelstrom team.
-
-   <Tabs syncKey="package-manager">
-     <TabItem label="npm">
-       ```bash
-       npm install @maelstrom-co/react@alpha
-       ```
-     </TabItem>
-     <TabItem label="bun">
-       ```bash
-       bun add @maelstrom-co/react@alpha
-       ```
-     </TabItem>
-     <TabItem label="pnpm">
-       ```bash
-       pnpm add @maelstrom-co/react@alpha
-       ```
-     </TabItem>
-     <TabItem label="Yarn">
-       ```bash
-       yarn add @maelstrom-co/react@alpha
-       ```
-     </TabItem>
-   </Tabs>
-</Steps>
-
-## Install a PR preview
-
-The preview bot posts an exact version and a `pr-<number>` tag on labeled pull requests. Prefer the exact version when reporting bugs so every tester runs the same build. Use the PR tag when you want subsequent installs to follow the newest preview from that pull request.
-
-<Tabs syncKey="package-manager">
-  <TabItem label="npm">
-    ```bash
-    npm install @maelstrom-co/react@0.0.0-pr.123.456.1
-    npm install @maelstrom-co/react@pr-123
-    ```
-  </TabItem>
-  <TabItem label="bun">
-    ```bash
-    bun add @maelstrom-co/react@0.0.0-pr.123.456.1
-    bun add @maelstrom-co/react@pr-123
-    ```
-  </TabItem>
-  <TabItem label="pnpm">
-    ```bash
-    pnpm add @maelstrom-co/react@0.0.0-pr.123.456.1
-    pnpm add @maelstrom-co/react@pr-123
-    ```
-  </TabItem>
-  <TabItem label="Yarn">
-    ```bash
-    yarn add @maelstrom-co/react@0.0.0-pr.123.456.1
-    yarn add @maelstrom-co/react@pr-123
-    ```
-  </TabItem>
-</Tabs>
-
-## Configure GitHub Actions
-
-Add the classic token as a repository secret named `GH_PACKAGES_TOKEN`. Configure npm before installing dependencies:
-
-```yaml title=".github/workflows/ci.yml"
-permissions:
-  contents: read
-
-steps:
-  - uses: actions/checkout@v7
-  - uses: actions/setup-node@v7
-    with:
-      node-version: 24
-      registry-url: https://npm.pkg.github.com
-      scope: '@maelstrom-co'
-  - run: npm ci
-    env:
-      NODE_AUTH_TOKEN: ${{ secrets.GH_PACKAGES_TOKEN }}
+```ini title=".npmrc"
+@maelstrom-co:registry=https://registry.npmjs.org
 ```
 
-<Aside type="caution">
-  Do not commit the token, paste it into `.npmrc`, or expose it through a `NEXT_PUBLIC_`, `VITE_`, or other client-side environment variable.
-</Aside>
+Remove `GH_PACKAGES_TOKEN` from your shell and CI configuration when no other
+package needs it. Revoke tokens created only for the former package setup in
+[GitHub token settings](https://github.com/settings/tokens).
 
-## Verify registry access
+## Install the current release
 
-Ask the configured registry for the current beta version:
+Run this command in your application directory:
 
 ```bash
-npm view @maelstrom-co/react@alpha version
+bun add @maelstrom-co/react@alpha
 ```
 
-An `E401` response means the token is missing or invalid. An `E404` response usually means the GitHub account that owns the token cannot access the repository, the SSO authorization is missing, or the requested version does not exist.
-
-## Verify the installed version
-
-Check the version installed in your local project:
+Use the same release version for all Maelstrom packages. Check the registry:
 
 ```bash
-npm list @maelstrom-co/react --depth=0
+npm view @maelstrom-co/react@alpha version --registry https://registry.npmjs.org
 ```
 
-## Remove access
+For a PR preview, use the exact version from the PR's package publication
+comment. A `pr-<number>` tag follows the most recent published preview for that
+PR. Preview packages use the same public registry.
 
-Delete the token from [GitHub token settings](https://github.com/settings/tokens) when the beta ends. Remove the corresponding CI secret from every repository where you stored it.
-
-## Next steps
-
-- [Quick Start](/getting-started/quick-start/) - build the smallest working Maelstrom chart
-- [Installation](/getting-started/installation/) - choose packages and review peer dependencies
+Continue with [Installation](/getting-started/installation/) for package choices
+and peer dependencies, then [Quick Start](/getting-started/quick-start/) to build
+your first Chart.

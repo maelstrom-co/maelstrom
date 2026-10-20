@@ -257,35 +257,41 @@ See the [README](./README.md) for the package architecture and core concepts.
 - PR titles follow [Conventional Commits](https://www.conventionalcommits.org)
   (`type(scope): summary`). Squash-merge lands the PR title verbatim as the
   commit subject, so the title is the permanent changelog entry.
-- To publish preview packages for a PR, add the `publish-preview` label. CI
-  publishes versioned previews to GitHub Packages and comments install
-  instructions on the PR. Preview versions use `0.0.0-pr.*` and a `pr-<number>`
-  dist-tag. Installing any package requires a classic `read:packages` PAT from a
-  GitHub user with repository access.
+- To publish preview packages for a same-repository PR, add the `publish-preview`
+  label. CI publishes public npm previews and comments install instructions on
+  the PR. Versions use `0.0.0-pr.*` and a `pr-<number>` dist-tag. Installation
+  requires no token. Fork PRs cannot publish packages through this workflow.
+  Publishing stays disabled while the repository is private.
 
 ## Releasing
 
 Releases are **cut locally and published by CI**. A maintainer versions, tags,
 and pushes from their machine; pushing the `v*` tag triggers
 [`.github/workflows/release.yml`](.github/workflows/release.yml), which builds
-and publishes every package to **GitHub Packages** (`npm.pkg.github.com`). CI
-authenticates with the repository's short-lived `GITHUB_TOKEN`; no package
-secret is stored.
+and publishes every SDK package to **npm** (`registry.npmjs.org`). CI uses npm
+trusted publishing through OIDC after package-level trust is configured.
+The first publication needs the bootstrap credentials described below.
 
 The workflow runs as **two jobs, and only the second one can publish**:
 
 | Job | Permissions | Does |
 | --- | --- | --- |
 | `prepare` | `contents: read` | Checks tag ancestry, installs, builds, packs tarballs |
-| `publish` | `contents: read`, `packages: write` | Downloads tarballs, publishes, verifies |
+| `publish` | `contents: read`, `id-token: write` | Downloads tarballs, publishes, verifies |
 
 `prepare` is where `bun install` runs dependency lifecycle scripts and the build
 executes package code, so it holds no package write permission. `publish` holds
 one, but `npm publish` is its only package-write operation. Artifact download
-and registry verification are read-only. The job runs no install, build, or
-dependency or package code. Keep it that way. Adding an install step to
-`publish` hands package write access back to the dependency tree and undoes the
-split.
+and registry verification are read-only. The publisher installs a pinned npm
+CLI with lifecycle scripts disabled. It never installs project dependencies or
+builds package code. Keep project installs and builds in `prepare`.
+
+The tarball handoff accepts canonical POSIX USTAR files and directories under
+one `package/` root. Paths use ASCII letters, digits, `.`, `_`, `@`, `+`, and `-`
+within each segment. PAX and GNU extension records, links, path aliases, and
+duplicate paths are rejected because archive parsers can interpret them
+differently. Each tarball is limited to 50 MiB compressed and 128 MiB expanded.
+The publisher validates the original bytes before any registry request.
 
 Cutting a release needs `gh` authenticated (or `GITHUB_TOKEN` set) — the script
 creates the GitHub release. Local package credentials are not needed because the
@@ -293,9 +299,9 @@ normal command uses `--skip-publish`.
 
 ### Release-boundary prerequisites (once per repository)
 
-A `v*` tag push publishes to GitHub Packages. Everything that decides *who can cause
-that* lives in repository settings, not in this repo — configure all of it
-**before the first release**:
+A `v*` tag push publishes public npm packages. Both publishing workflows block
+publication while the source repository is private. Configure these settings
+before the first npm release:
 
 1. **Protected tags.** Settings → Rules → Rulesets, target `refs/tags/v*`,
    restrict creation to maintainers. Without this, anyone who can push a tag can
@@ -308,15 +314,60 @@ that* lives in repository settings, not in this repo — configure all of it
    The gate sits on the `publish` job, so approval is requested after the build
    and ancestry check have already passed.
 
-3. **Package access.** For every package under the organization, open **Package
-   settings** and confirm the source repository is `maelstrom-co/maelstrom`.
-   Enable **Inherit access from repository**. Keep package visibility private.
-   Existing package records need this manual check because repository metadata
-   cannot change a package setting after publication.
+3. **npm scope and bootstrap.** Confirm ownership of the npm `@maelstrom-co`
+   organization and permission to publish every SDK package. Configure a
+   short-lived granular token as the `production` environment secret
+   `NPM_TOKEN`. It needs package write access and the npm permission required
+   for unattended publishing. Enter the token directly in GitHub settings;
+   never put it in source, terminal output, or a pull request. Keep this token
+   only until every package has its first npm version and trusted publishers.
 
-4. **Workflow access.** Repository-linked packages normally grant their source
-   repository Actions access. If publishing returns `permission_denied`, add
-   `maelstrom-co/maelstrom` under **Manage Actions access** with write access.
+4. **Trusted publishers.** After the first publication, configure GitHub
+   Actions trusted publishing for every package on npm. Set owner
+   `maelstrom-co`, repository `maelstrom`, environment `production`, and
+   workflow filename `release.yml`. Add a separate `publish-pr.yml` connection
+   when the first preview is ready. Each new connection must complete a
+   successful publish within two days, or it expires and must be recreated.
+   Do not publish previews before the first complete release. Explicitly allow
+   direct `npm publish`. Both publishing jobs use GitHub-hosted runners.
+   Keep `repository.url` equal to
+   `https://github.com/maelstrom-co/maelstrom.git`. Verify an OIDC publication,
+   revoke the bootstrap token, and remove `NPM_TOKEN`.
+
+Trusted publishing needs npm CLI 11.5.1 or later. The publisher pins its CLI
+version in both workflows. Tag-triggered releases generate npm provenance.
+PR previews and manual recovery disable automatic provenance because their
+artifacts can come from a different commit than the workflow event. They still
+use OIDC authentication and trusted publisher code. See
+[npm trusted publishing](https://docs.npmjs.com/trusted-publishers/).
+
+### npm dist-tag policy
+
+Alpha installation uses the explicit `@alpha` tag. The release workflow publishes
+prereleases under their preid and stable releases under `latest`. The registry
+may also initialize `latest` on a package's first publication; inspect the actual
+tags rather than assuming that the requested tag is the only tag changed.
+
+Before enabling previews, finish and verify the first release for every package.
+The preview publisher checks that every package already exists before publishing
+any archive. Missing packages and failed lookups stop the entire preview.
+
+During the pre-1.0 alpha period, a maintainer may promote a complete, verified
+alpha release to `latest` so bare installs select an intentional version:
+
+1. Verify all package versions and their `alpha` tags after the release succeeds.
+2. Inspect each package's current `latest`. Never replace an existing stable
+   release with an alpha, and never promote a `0.0.0-pr.*` preview.
+3. With authorized npm account credentials, run
+   `npm dist-tag add PACKAGE@VERSION latest --registry https://registry.npmjs.org`
+   for each SDK package, replacing PACKAGE and VERSION with the verified values.
+   This is a separate maintainer operation; trusted publication alone does not
+   establish permission to edit dist-tags.
+4. Verify `npm view PACKAGE dist-tags --json --registry https://registry.npmjs.org`
+   for every package. Both `alpha` and `latest` must select the intended release.
+   If promotion stops partway, finish the remaining packages and recheck all tags.
+5. Test bare installs in a clean consumer before advertising them. Do not enable
+   the production launch gate while tags or consumer checks remain incomplete.
 
 The workflow enforces one boundary on its own, independent of the settings
 above: `prepare` refuses to continue unless the tagged commit is reachable from
@@ -372,15 +423,16 @@ re-run work.
   re-running the workflow (see "Recovering a partial release"), never by
   re-cutting, which would bump the version again.
 - **`RELEASE_REGISTRY` is an override, not a requirement.** Publishing defaults
-  to GitHub Packages (`https://npm.pkg.github.com`). Set it only to aim somewhere
+  to npm (`https://registry.npmjs.org`). Set it only to aim somewhere
   else, such as local Verdaccio (`nx local-registry`, `http://localhost:4873`) to
   rehearse the whole flow without touching the real registry.
 - **`--dry-run` does not prove package access.** It validates manifests and
-  tarballs but does not upload. Use a labeled PR preview to test real GitHub
-  Packages authentication before the first tagged release.
-- **A new package links to this repository through `repository.url`.** The
-  metadata assertion enforces that URL and the GitHub registry. Confirm inherited
-  access in package settings after the first preview publishes it.
+  tarballs but does not upload. After the manual repository launch, verify the
+  first npm release and a same-repository PR preview before claiming publishing
+  works. Packages and preview contents become public when published.
+- **A new package needs npm trust.** The metadata assertion enforces the source
+  repository, public access, and npm registry. Bootstrap new package names and
+  configure their trusted publishers before relying on OIDC.
 - **`--preid` tells Nx which prerelease identifier to use when calculating a
   bump.** The npm dist-tag always comes from the resolved version:
   `0.1.0-alpha.0` publishes under `alpha`, while a stable version publishes

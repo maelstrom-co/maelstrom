@@ -2,7 +2,7 @@ import type { PostHog } from 'posthog-js';
 
 let analytics: Promise<PostHog> | undefined;
 
-export function captureBetaInviteClick(): void {
+export function captureCommunityInviteClick(): void {
   if (window.location.hostname !== 'demo.maelstrom-ai.co') return;
 
   // Load the SDK only for visitors who use the invitation, not the demo's initial bundle.
@@ -23,13 +23,15 @@ export function captureBetaInviteClick(): void {
   void analytics
     .then((client) =>
       client.capture(
-        'beta_discord_invite_clicked',
+        'community_discord_invite_clicked',
         { source: 'demo_header' },
         { transport: 'sendBeacon', send_instantly: true },
       ),
     )
     .catch(() => {
-      console.warn({ message: 'beta invitation click tracking unavailable' });
+      console.warn({
+        message: 'community invitation click tracking unavailable',
+      });
       analytics = undefined;
     });
 }

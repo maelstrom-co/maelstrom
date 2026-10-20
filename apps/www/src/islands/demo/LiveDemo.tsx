@@ -9,6 +9,7 @@ function DemoChrome({
   typedText,
   phase,
   rationale,
+  rationales,
   isProcessing,
   replay,
   Chart,
@@ -127,7 +128,7 @@ function DemoChrome({
                 )}
               </span>
             ) : (
-              <span className="text-text-muted/25 flex-1">
+              <span className="text-text-muted/25 flex-1 min-w-0 truncate">
                 Talk to your interface...
               </span>
             )}
@@ -206,10 +207,21 @@ function DemoChrome({
               </svg>
             </div>
           </div>
-          <p className="text-xs text-text-muted font-mono leading-relaxed">
-            <span className="text-[#0091FF]/70 mr-1">reasoning</span>
-            {rationale ?? ' '}
-          </p>
+          <div className="grid min-w-0 flex-1 text-xs text-text-muted font-mono leading-relaxed">
+            {rationales.map((text) => (
+              <p
+                key={text}
+                className="invisible [grid-area:1/1]"
+                aria-hidden="true"
+              >
+                <span className="mr-1">reasoning</span> {text}
+              </p>
+            ))}
+            <p className="[grid-area:1/1]">
+              <span className="text-[#0091FF]/70 mr-1">reasoning</span>{' '}
+              {rationale ?? ' '}
+            </p>
+          </div>
         </div>
       </div>
 

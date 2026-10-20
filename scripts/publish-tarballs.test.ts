@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   realpathSync,
@@ -8,7 +10,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join, resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import {
   type ArchiveProcessRequest,
@@ -25,7 +27,12 @@ function withArtifact(run: (dir: string, log: string[]) => void) {
     version: '1.2.3',
     tarball: `package-${index}.tgz`,
   }));
-  for (const pkg of packages) writeFileSync(join(dir, pkg.tarball), 'fixture');
+  for (const pkg of packages) {
+    writeFileSync(
+      join(dir, pkg.tarball),
+      packageTarball(pkg.name, pkg.version),
+    );
+  }
   writeFileSync(join(dir, PACKED_MANIFEST_FILENAME), JSON.stringify(packages));
   try {
     run(dir, log);
@@ -38,7 +45,14 @@ function archiveProcess(log: string[]) {
   return (request: ArchiveProcessRequest) => {
     const index = Number(request.archive.match(/(\d+)\.tgz$/)?.[1]);
     const pkg = PACKED_PACKAGE_NAMES[index]!;
-    log.push(`${request.argv[0] === '-tvzf' ? 'list' : 'read'}:${pkg}`);
+    log.push(`${request.argv[0] === '-xOzf' ? 'read' : 'list'}:${pkg}`);
+    if (request.argv[0] === '-tzf') {
+      return {
+        status: 0,
+        stdout: Buffer.from('package/package.json\n'),
+        stderr: Buffer.alloc(0),
+      };
+    }
     return request.argv[0] === '-tvzf'
       ? {
           status: 0,
@@ -70,34 +84,62 @@ function writeOctal(
   buffer[offset + length - 1] = 0;
 }
 
-function packageTarball(name: string, version: string) {
-  const body = Buffer.from(JSON.stringify({ name, version }));
+function tarMember(
+  path: string,
+  metadata: unknown,
+  options: {
+    prefix?: string;
+    version?: string;
+    type?: string;
+    rawBody?: string;
+  } = {},
+) {
+  const body = Buffer.from(options.rawBody ?? JSON.stringify(metadata));
   const header = Buffer.alloc(512);
-  header.write('package/package.json', 0, 100, 'utf8');
+  header.write(path, 0, 100, 'utf8');
   writeOctal(header, 100, 8, 0o644);
   writeOctal(header, 108, 8, 0);
   writeOctal(header, 116, 8, 0);
   writeOctal(header, 124, 12, body.length);
   writeOctal(header, 136, 12, 0);
   header.fill(0x20, 148, 156);
-  header.write('0', 156, 1, 'ascii');
+  header.write(options.type ?? '0', 156, 1, 'ascii');
   header.write('ustar\0', 257, 6, 'ascii');
-  header.write('00', 263, 2, 'ascii');
+  header.write(options.version ?? '00', 263, 2, 'ascii');
+  if (options.prefix) header.write(options.prefix, 345, 155, 'utf8');
   const checksum = header.reduce((sum, byte) => sum + byte, 0);
   header.write(checksum.toString(8).padStart(6, '0'), 148, 6, 'ascii');
   header[154] = 0;
   header[155] = 0x20;
+  return [header, body, Buffer.alloc((512 - (body.length % 512)) % 512)];
+}
+
+function packageTarball(name: string, version: string) {
   return gzipSync(
     Buffer.concat([
-      header,
-      body,
-      Buffer.alloc((512 - (body.length % 512)) % 512),
+      ...tarMember('package/package.json', { name, version }),
       Buffer.alloc(1024),
     ]),
   );
 }
 
+function paxRecord(key: string, value: string) {
+  const tail = ` ${key}=${value}\n`;
+  let length = Buffer.byteLength(tail) + 1;
+  while (length !== String(length).length + Buffer.byteLength(tail)) {
+    length = String(length).length + Buffer.byteLength(tail);
+  }
+  return `${length}${tail}`;
+}
+
 describe('parsePublishArgs', () => {
+  test('preview guard is explicit while release bootstrap remains possible', () => {
+    const args = ['--tag', 'pr-318', '--expected-version', '0.0.0-pr.318.1.1'];
+    expect(parsePublishArgs(args).requireExisting).toBe(false);
+    expect(
+      parsePublishArgs([...args, '--require-existing']).requireExisting,
+    ).toBe(true);
+  });
   test('requires exactly one canonical expected version', () => {
     expect(
       parsePublishArgs(
@@ -126,6 +168,288 @@ describe('parsePublishArgs', () => {
 });
 
 describe('publishTarballs', () => {
+  test('a preview checks the complete collection before its first publication', () =>
+    withArtifact((dir) => {
+      const checked: string[] = [];
+      const published: string[] = [];
+      const result = publishTarballs(
+        {
+          dir,
+          tag: 'pr-318',
+          registry: 'https://registry.npmjs.org',
+          expectedVersion: '1.2.3',
+          dryRun: false,
+          provenance: false,
+          skipPublished: false,
+          requireExisting: true,
+        },
+        {
+          hasPublishedPackage: (name) => {
+            checked.push(name);
+            return true;
+          },
+          publish: (_tarball, pkg) => {
+            expect(checked).toHaveLength(PACKED_PACKAGE_NAMES.length);
+            published.push(pkg.name);
+          },
+        },
+      );
+      expect(result.succeeded).toBe(PACKED_PACKAGE_NAMES.length);
+      expect(published).toEqual(checked);
+    }));
+  test('preview dry runs validate archives without registry access', () =>
+    withArtifact((dir) => {
+      const result = publishTarballs(
+        {
+          dir,
+          tag: 'pr-318',
+          registry: 'https://registry.npmjs.org',
+          expectedVersion: '1.2.3',
+          dryRun: true,
+          provenance: false,
+          skipPublished: false,
+          requireExisting: true,
+        },
+        {
+          hasPublishedPackage: () => {
+            throw new Error('unexpected registry access');
+          },
+          publish: () => {},
+        },
+      );
+      expect(result.succeeded).toBe(PACKED_PACKAGE_NAMES.length);
+    }));
+
+  test.each([
+    'missing',
+    'unavailable',
+  ])('a preview publishes nothing when a later package is %s', (failure) => {
+    withArtifact((dir) => {
+      const published: string[] = [];
+      expect(() =>
+        publishTarballs(
+          {
+            dir,
+            tag: 'pr-318',
+            registry: 'https://registry.npmjs.org',
+            expectedVersion: '1.2.3',
+            dryRun: false,
+            provenance: false,
+            skipPublished: false,
+            requireExisting: true,
+          },
+          {
+            hasPublishedPackage: (name) => {
+              if (name === PACKED_PACKAGE_NAMES[9]) {
+                if (failure === 'unavailable')
+                  throw new Error('registry unavailable');
+                return false;
+              }
+              return true;
+            },
+            publish: (_tarball, pkg) => {
+              published.push(pkg.name);
+            },
+          },
+        ),
+      ).toThrow(
+        failure === 'missing' ? 'first release' : 'registry unavailable',
+      );
+      expect(published).toEqual([]);
+    });
+  });
+
+  test.each([
+    'alternate root',
+    'USTAR version',
+    'PAX comment',
+  ])('rejects %s metadata collisions before any registry probe or publish', (variant) =>
+    withArtifact((dir, log) => {
+      const unsafeMetadata = {
+        name: PACKED_PACKAGE_NAMES[9],
+        version: '9.9.9',
+        publishConfig: { proxy: 'http://127.0.0.1:9', 'strict-ssl': false },
+      };
+      let extraMembers: Buffer[];
+      if (variant === 'USTAR version') {
+        extraMembers = tarMember('other/package.json', unsafeMetadata, {
+          prefix: 'package/dist',
+          version: '01',
+        });
+      } else if (variant === 'PAX comment') {
+        extraMembers = [
+          ...tarMember('package/PaxHeader', undefined, {
+            type: 'x',
+            rawBody: paxRecord(
+              'comment',
+              `hello\n${paxRecord('path', 'other/package.json')}`,
+            ),
+          }),
+          ...tarMember('package/dist/data.json', unsafeMetadata),
+        ];
+      } else {
+        extraMembers = tarMember('other/package.json', unsafeMetadata);
+      }
+      writeFileSync(
+        join(dir, 'package-9.tgz'),
+        gzipSync(
+          Buffer.concat([
+            ...tarMember('package/package.json', {
+              name: PACKED_PACKAGE_NAMES[9],
+              version: '1.2.3',
+            }),
+            ...extraMembers,
+            Buffer.alloc(1024),
+          ]),
+        ),
+      );
+
+      expect(() =>
+        publishTarballs(
+          {
+            dir,
+            tag: 'alpha',
+            registry: 'https://registry.npmjs.org',
+            expectedVersion: '1.2.3',
+            dryRun: false,
+            provenance: false,
+            skipPublished: true,
+            requireExisting: true,
+          },
+          {
+            hasPublishedPackage: () => {
+              log.push('probe');
+              return true;
+            },
+            isAlreadyPublished: () => {
+              log.push('probe');
+              return false;
+            },
+            publish: () => {
+              log.push('publish');
+            },
+          },
+        ),
+      ).toThrow('Archive');
+      expect(log).toEqual([]);
+    }));
+
+  test('the actual npm command requests public access and disables lifecycle hooks beside publishing identity', () =>
+    withArtifact((dir) => {
+      const bin = join(dir, 'bin');
+      const commandLog = join(dir, 'npm-commands.jsonl');
+      mkdirSync(bin);
+      writeFileSync(
+        join(bin, 'npm'),
+        `#!${process.execPath}\nconst fs = require('node:fs');\nfs.appendFileSync(process.env.NPM_COMMAND_LOG, JSON.stringify(process.argv.slice(2)) + '\\n');\n`,
+        { mode: 0o755 },
+      );
+      const result = spawnSync(
+        process.execPath,
+        [
+          resolve(import.meta.dirname, 'publish-tarballs.ts'),
+          '--dir',
+          dir,
+          '--expected-version',
+          '1.2.3',
+          '--tag',
+          'alpha',
+          '--registry',
+          'https://registry.npmjs.org',
+          '--dry-run',
+          '--provenance',
+        ],
+        {
+          env: {
+            ...process.env,
+            PATH: `${bin}${delimiter}${process.env.PATH}`,
+            NPM_COMMAND_LOG: commandLog,
+          },
+          encoding: 'utf8',
+          timeout: 30_000,
+        },
+      );
+      expect(result.status, result.stderr).toBe(0);
+      const commands = readFileSync(commandLog, 'utf8')
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line));
+      expect(commands).toEqual(
+        PACKED_PACKAGE_NAMES.map((_name, index) => [
+          'publish',
+          join(realpathSync(dir), `package-${index}.tgz`),
+          '--tag',
+          'alpha',
+          '--registry',
+          'https://registry.npmjs.org',
+          '--access',
+          'public',
+          '--ignore-scripts',
+          '--dry-run',
+          '--provenance',
+        ]),
+      );
+    }));
+
+  test.each([
+    { registry: 'https://example.invalid', access: 'public' },
+    { registry: 'https://registry.npmjs.org', access: 'restricted' },
+    {
+      registry: 'https://registry.npmjs.org',
+      access: 'public',
+      '@maelstrom-co:registry': 'https://example.invalid',
+    },
+    {
+      registry: 'https://registry.npmjs.org',
+      access: 'public',
+      proxy: 'https://example.invalid:8443',
+    },
+    {
+      registry: 'https://registry.npmjs.org',
+      access: 'public',
+      'strict-ssl': false,
+    },
+  ])('rejects artifact configuration that can redirect or weaken authenticated npm requests: %j', (publishConfig) =>
+    withArtifact((dir, log) => {
+      const inspect = archiveProcess(log);
+      expect(() =>
+        publishTarballs(
+          {
+            dir,
+            tag: 'alpha',
+            registry: 'https://registry.npmjs.org',
+            expectedVersion: '1.2.3',
+            dryRun: false,
+            provenance: false,
+            skipPublished: true,
+          },
+          {
+            runArchiveProcess: (request) => {
+              const result = inspect(request);
+              if (request.argv[0] === '-xOzf') {
+                result.stdout = Buffer.from(
+                  JSON.stringify({
+                    ...JSON.parse(result.stdout.toString()),
+                    publishConfig,
+                  }),
+                );
+              }
+              return result;
+            },
+            isAlreadyPublished: () => {
+              log.push('probe');
+              return false;
+            },
+            publish: () => {
+              log.push('publish');
+            },
+          },
+        ),
+      ).toThrow('Unsafe embedded publishConfig');
+      expect(log).not.toContain('probe');
+      expect(log).not.toContain('publish');
+    }));
+
   test('validates the complete collection before the first registry probe', () =>
     withArtifact((dir, log) => {
       publishTarballs(
@@ -151,7 +475,7 @@ describe('publishTarballs', () => {
         PACKED_PACKAGE_NAMES.length,
       );
       expect(log.findIndex((event) => event.startsWith('probe:'))).toBe(
-        PACKED_PACKAGE_NAMES.length * 2,
+        PACKED_PACKAGE_NAMES.length * 3,
       );
       expect(log.some((event) => event.startsWith('publish:'))).toBe(false);
     }));
@@ -217,11 +541,9 @@ describe('publishTarballs', () => {
       publishTarballs(options, dependencies);
       writeFileSync(join(dir, 'package-0.tgz'), 'changed bytes');
       log.push('rerun');
-      publishTarballs(options, dependencies);
+      expect(() => publishTarballs(options, dependencies)).toThrow('Archive');
       const rerun = log.indexOf('rerun');
-      expect(
-        log.slice(rerun + 1).findIndex((event) => event.startsWith('probe:')),
-      ).toBe(PACKED_PACKAGE_NAMES.length * 2);
+      expect(log.slice(rerun + 1)).toEqual([]);
     }));
 
   test('publishes the same canonical paths and bytes that were validated', () =>
@@ -293,7 +615,7 @@ describe('publishTarballs', () => {
           },
         ),
       ).toThrow('indeterminate');
-      expect(log.slice(PACKED_PACKAGE_NAMES.length * 2)).toEqual([
+      expect(log.slice(PACKED_PACKAGE_NAMES.length * 3)).toEqual([
         `probe:${PACKED_PACKAGE_NAMES[0]}`,
         `probe:${PACKED_PACKAGE_NAMES[1]}`,
         `publish:${PACKED_PACKAGE_NAMES[1]}`,
@@ -352,6 +674,7 @@ describe('workflow expected-version authority', () => {
 
   test('keeps trusted VERSION in each privileged publish step', async () => {
     const preview = await Bun.file('.github/workflows/publish-pr.yml').text();
+    expect(step(preview, 'Publish packages')).toContain('--require-existing');
     const release = await Bun.file('.github/workflows/release.yml').text();
     expectTrustedVersion(
       step(preview, 'Publish packages'),

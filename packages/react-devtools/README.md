@@ -1,13 +1,13 @@
 # Add Maelstrom devtools to React
 
 Install the React adapter alongside an application using `@maelstrom-co/react`.
-Packages use the repository's GitHub Packages registry configuration.
+Install packages from npm without a GitHub token.
 
 Read the [DevTools guide](https://docs.maelstrom-ai.co/guides/devtools/) for the
 installation and recording workflow.
 
 ```sh
-bun add @maelstrom-co/react-devtools
+bun add @maelstrom-co/react-devtools@alpha
 ```
 
 Apply the extension to your configured instance. This fragment uses your existing

@@ -10,10 +10,10 @@ Dependency-free wire contracts for Maelstrom's realtime voice packages.
 ## Install
 
 ```bash
-bun add @maelstrom-co/realtime-protocol
+bun add @maelstrom-co/realtime-protocol@alpha
 ```
 
-Or: `npm install` / `pnpm add` / `yarn add @maelstrom-co/realtime-protocol`
+Or: `npm install` / `pnpm add` / `yarn add @maelstrom-co/realtime-protocol@alpha`
 
 ## What it does
 

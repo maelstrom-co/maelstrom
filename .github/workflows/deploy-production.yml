@@ -23,6 +23,8 @@ jobs:
       github.event.workflow_run.conclusion == 'success'
       && github.event.workflow_run.event == 'push'
       && github.event.workflow_run.head_branch == 'main'
+      && github.event.repository.private == false
+      && vars.PUBLIC_LAUNCH_READY == 'true'
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 20
     environment: production

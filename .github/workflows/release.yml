@@ -40,11 +40,12 @@ concurrency:
 env:
   NODE_VERSION: '24'
   TARBALL_DIR: dist/tarballs
-  RELEASE_REGISTRY: https://npm.pkg.github.com
+  RELEASE_REGISTRY: https://registry.npmjs.org
 
 jobs:
   prepare:
     name: Build and pack
+    if: github.repository == 'maelstrom-co/maelstrom'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     # No `environment:` here. Approval belongs on the job that publishes; put
@@ -133,6 +134,16 @@ jobs:
           INPUT_DRY_RUN: ${{ inputs.dry_run }}
         run: bun scripts/resolve-release-target.ts
 
+      - name: Keep packages private until the repository launch
+        if: steps.meta.outputs.dry_run != 'true'
+        env:
+          REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
+        run: |
+          if [[ "$REPOSITORY_PRIVATE" != 'false' ]]; then
+            echo "::error::Public npm publishing is disabled until the repository is public."
+            exit 1
+          fi
+
       # Every tag-derived value below reaches the shell through `env:` rather
       # than `${{ }}` interpolation. The values are already constrained to
       # semver by resolve-release-target, but expressions are spliced into the
@@ -168,7 +179,7 @@ jobs:
           retention-days: 7
 
   publish:
-    name: Publish to GitHub Packages
+    name: Publish to npm
     needs: prepare
     # A branch rehearsal has no release version to validate. Its contract ends
     # after the unprivileged job builds and packs; tagged rehearsals continue
@@ -178,7 +189,7 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
-      packages: write
+      id-token: write
     # A tag push publishes with no human in the loop. Naming an
     # environment gives that an attachment point for required reviewers and
     # wait timers; GitHub creates it on first run, and it carries no protection
@@ -202,8 +213,7 @@ jobs:
 
       - name: Setup Bun
         # Only to run the publish scripts. `bun install` is never called in
-        # this job, so no dependency lifecycle script executes next to the
-          # package write token.
+        # this job. Project dependencies run only in the prepare job.
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           # One version for every workflow — see .bun-version.
@@ -215,9 +225,19 @@ jobs:
           name: release-tarballs
           path: ${{ env.TARBALL_DIR }}
 
-      - name: Configure GitHub Packages auth
+      - name: Setup npm for trusted publishing
+        run: npm install --global npm@12.2.0 --ignore-scripts
+
+      - name: Configure npm bootstrap auth
+        # Trusted publishing uses OIDC first. This token is only needed until
+        # the first npm versions exist and package-level trust is configured.
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          echo '//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}' > "$RUNNER_TEMP/.npmrc"
+          : > "$RUNNER_TEMP/.npmrc"
+          if [[ -n "$NODE_AUTH_TOKEN" ]]; then
+            echo '//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}' > "$RUNNER_TEMP/.npmrc"
+          fi
           echo "NPM_CONFIG_USERCONFIG=$RUNNER_TEMP/.npmrc" >> "$GITHUB_ENV"
 
       - name: Publish
@@ -229,7 +249,9 @@ jobs:
           VERSION: ${{ needs.prepare.outputs.version }}
           DIST_TAG: ${{ needs.prepare.outputs.dist_tag }}
           DRY_RUN: ${{ needs.prepare.outputs.dry_run == 'true' && '--dry-run' || '' }}
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          # A manual recovery can build an older tag than the dispatch SHA.
+          NPM_CONFIG_PROVENANCE: ${{ github.event_name == 'push' }}
         run: >-
           bun scripts/publish-tarballs.ts
           --dir "$TARBALL_DIR"
@@ -245,7 +267,7 @@ jobs:
         if: needs.prepare.outputs.dry_run != 'true'
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_CONFIG_USERCONFIG: /dev/null
         run: >-
           bun scripts/verify-published.ts
           --version "$VERSION"

@@ -414,10 +414,6 @@ Use the DevTools guide for request, layout, voice, and recording inspection. Aut
       },
       sidebar: [
         {
-          label: 'Private Beta',
-          items: [{ slug: 'getting-started/install-beta' }],
-        },
-        {
           label: 'Getting Started',
           items: [
             { slug: 'getting-started/introduction' },

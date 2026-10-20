@@ -10,10 +10,10 @@ Provider-neutral React binding for Maelstrom voice sessions.
 ## Install
 
 ```bash
-bun add @maelstrom-co/react-realtime @maelstrom-co/react @maelstrom-co/realtime @maelstrom-co/protocol
+bun add @maelstrom-co/react-realtime@alpha @maelstrom-co/react@alpha @maelstrom-co/realtime@alpha @maelstrom-co/protocol@alpha
 ```
 
-Or: `npm install` / `pnpm add` / `yarn add @maelstrom-co/react-realtime @maelstrom-co/react @maelstrom-co/realtime @maelstrom-co/protocol`
+Or: `npm install` / `pnpm add` / `yarn add @maelstrom-co/react-realtime@alpha @maelstrom-co/react@alpha @maelstrom-co/realtime@alpha @maelstrom-co/protocol@alpha`
 
 ## What it does
 

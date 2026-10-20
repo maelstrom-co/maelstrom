@@ -35,16 +35,16 @@ if (!hasReceipt) {
 ---
 
 <Layout
-  title={hasReceipt ? "You're confirmed — Maelstrom" : 'Maelstrom private beta'}
-  description="Your Maelstrom private beta signup is confirmed."
+  title={hasReceipt ? "You're confirmed — Maelstrom" : 'Maelstrom community'}
+  description="Your Maelstrom community signup is confirmed."
   analytics={hasReceipt}
 >
   {
     hasReceipt ? (
       <WaitlistResult
-        eyebrow="Private beta"
+        eyebrow="Maelstrom"
         title="You're confirmed"
-        message="Your place on the Maelstrom private beta waitlist is confirmed. Join the community to meet the maintainers and get access details."
+        message="Your place on the Maelstrom waitlist is confirmed. Join the community to meet the maintainers and ask questions."
       >
         <a
           class="btn btn-primary"
@@ -53,12 +53,12 @@ if (!hasReceipt) {
           rel="noopener noreferrer"
           data-waitlist-discord-invite
         >
-          Join the beta Discord
+          Join Discord
         </a>
       </WaitlistResult>
     ) : (
       <WaitlistResult
-        eyebrow="Private beta"
+        eyebrow="Maelstrom"
         title="This access link has expired"
         message="Confirmation access is short-lived. Enter your email to request another invitation."
       >

@@ -1,11 +1,13 @@
 name: Bug Report
 description: Report a bug in a @maelstrom-co package
-labels: ["bug"]
+labels: ["bug", "needs-triage"]
 body:
   - type: markdown
     attributes:
       value: |
         Thanks for taking the time to report this. Please fill in as much detail as you can.
+        Remove credentials, customer data, and private logs before posting.
+        Report vulnerabilities privately using [the security policy](https://github.com/maelstrom-co/maelstrom/security/policy).
 
   - type: input
     id: package
@@ -20,7 +22,7 @@ body:
     id: version
     attributes:
       label: Package Version
-      placeholder: "0.1.0-alpha.3"
+      placeholder: "0.1.0-alpha.8"
     validations:
       required: true
 

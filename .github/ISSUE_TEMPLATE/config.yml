@@ -1,0 +1,14 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and discussion
+    url: https://github.com/maelstrom-co/maelstrom/discussions
+    about: Ask questions and share ideas with the community.
+  - name: Discord community
+    url: https://maelstrom-ai.co/#community
+    about: Join Discord for community support and discussion.
+  - name: Documentation
+    url: https://docs.maelstrom-ai.co
+    about: Read installation instructions, guides, and API references.
+  - name: Security vulnerability
+    url: https://github.com/maelstrom-co/maelstrom/security/policy
+    about: Report security vulnerabilities privately using the security policy.

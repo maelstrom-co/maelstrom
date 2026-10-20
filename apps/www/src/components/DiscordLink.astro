@@ -2,7 +2,11 @@
 import { WAITLIST_DISCORD_INVITE_URL } from '@maelstrom-co/platform-infra/waitlist-contract';
 
 interface Props {
-  source: 'navigation' | 'beta_section' | 'footer_community' | 'launch_blog';
+  source:
+    | 'navigation'
+    | 'community_section'
+    | 'footer_community'
+    | 'launch_blog';
   class?: string;
 }
 
@@ -12,7 +16,7 @@ const { source, class: className } = Astro.props;
 <a
   href={WAITLIST_DISCORD_INVITE_URL}
   class={className}
-  data-beta-discord-source={source}
+  data-discord-source={source}
   target="_blank"
   rel="noopener noreferrer"
 >
@@ -22,10 +26,10 @@ const { source, class: className } = Astro.props;
 <script>
   import { captureWebsiteEvent } from '../lib/posthog';
 
-  document.querySelectorAll<HTMLAnchorElement>('[data-beta-discord-source]').forEach((link) => {
+  document.querySelectorAll<HTMLAnchorElement>('[data-discord-source]').forEach((link) => {
     link.addEventListener('click', () => {
-      captureWebsiteEvent('beta_discord_invite_clicked', {
-        source: link.dataset.betaDiscordSource ?? 'unknown',
+      captureWebsiteEvent('community_discord_invite_clicked', {
+        source: link.dataset.discordSource ?? 'unknown',
       });
     });
   });

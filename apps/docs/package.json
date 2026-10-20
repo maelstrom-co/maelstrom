@@ -57,7 +57,7 @@
     "fflate": "^0.8.3",
     "jsdom": "catalog:",
     "mermaid": "^11.15.0",
-    "js-yaml": "^4.3.0",
+    "js-yaml": "^4.3.2",
     "semver": "^7.7.4",
     "satteri": "^0.10.5",
     "starlight-llms-txt": "^0.11.0",

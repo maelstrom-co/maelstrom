@@ -50,13 +50,14 @@
   },
   "author": "Maelstrom (https://maelstrom-ai.co)",
   "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
+    "registry": "https://registry.npmjs.org",
+    "access": "public"
   },
   "dependencies": {
-    "@livekit/agents": "^1.4.8",
-    "@livekit/agents-plugin-cartesia": "^1.4.8",
-    "@livekit/agents-plugin-deepgram": "^1.4.8",
-    "@livekit/rtc-node": "^0.13.29",
+    "@livekit/agents": "1.9.3",
+    "@livekit/agents-plugin-cartesia": "1.9.3",
+    "@livekit/agents-plugin-deepgram": "1.9.3",
+    "@livekit/rtc-node": "^1.1.0",
     "@maelstrom-co/realtime-protocol": "0.1.0-alpha.8"
   },
   "nx": {

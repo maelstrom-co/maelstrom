@@ -129,7 +129,7 @@ const headings = [
         <dt>Intent finds no guides</dt><dd>First check whether the installed package ships a guide. For a listed exception, inspect its installed API artifacts instead. Otherwise check the workspace, installation, and <code>intent.skills</code>/<code>intent.exclude</code>. Planning can continue without SDK APIs.</dd>
         <dt>A guide disagrees with an API</dt><dd>Check the installed package manifest, exported declarations, and runtime entrypoint. Runtime JavaScript can be bundled in <code>dist/index.js</code>; declaration subpaths do not imply matching JavaScript files.</dd>
         <dt>The agent loads the wrong workflow</dt><dd>State the primary outcome and authority explicitly. Ask it to load <code>maelstrom</code>, select one procedure, and report which installed guide supports its API claims.</dd>
-        <dt>The bundle cannot be downloaded</dt><dd>Check the download response and docs deployment. Use the manual download only from a build with the required references. SDK package access is a separate <a href="/getting-started/install-beta/">private beta setup</a>.</dd>
+        <dt>The bundle cannot be downloaded</dt><dd>Check the download response and docs deployment. Use the manual download only from a build with the required references. Install SDK packages from npm using the <a href="/getting-started/installation/">installation guide</a>.</dd>
       </dl>
     </section>
     <p class="source-links">For source browsing only: <a href={sourceTree}>skills tree</a> and <a href={sourceFile}>maintainer README</a>.</p>

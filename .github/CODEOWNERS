@@ -4,6 +4,9 @@
 # that token. Founders review it.
 /.github/ @NachoVazquez @Jacarte @ktrz
 
+# Trusted publishing and deployment scripts run with release authority.
+/scripts/ @NachoVazquez @Jacarte @ktrz
+
 # Vale configuration and vocabulary define repository-wide editorial policy.
 /.vale.ini @NachoVazquez @Jacarte @ktrz
 /.vale/ @NachoVazquez @Jacarte @ktrz

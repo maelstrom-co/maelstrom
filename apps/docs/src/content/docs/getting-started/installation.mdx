@@ -7,8 +7,8 @@ import { Tabs, TabItem, Aside } from '@astrojs/starlight/components';
 
 Maelstrom is distributed as scoped packages so you can install only the layers your app needs. Most React apps start with `@maelstrom-co/react` in the browser and `@maelstrom-co/engine` on the server.
 
-<Aside type="caution">
-  Maelstrom is currently a private beta distributed through GitHub Packages. Complete [Install the private beta](/getting-started/install-beta/) before running the commands below.
+<Aside type="note" title="Alpha releases">
+  Install public packages from npm with the `alpha` tag. No GitHub token or repository invitation is required. Use the same version for all Maelstrom packages.
 </Aside>
 
 ## Packages
@@ -42,32 +42,32 @@ for installation, recording, and the explicit browser opt-in for production buil
   <TabItem label="npm">
   ```bash
   # Client-side React app
-  npm install @maelstrom-co/react
+  npm install @maelstrom-co/react@alpha
 
 # Server-side reference engine
 
-  npm install @maelstrom-co/engine
+  npm install @maelstrom-co/engine@alpha
 
   ```
   </TabItem>
   <TabItem label="bun">
   ```bash
   # Client-side React app
-  bun add @maelstrom-co/react
+  bun add @maelstrom-co/react@alpha
 
   # Server-side reference engine
-  bun add @maelstrom-co/engine
+  bun add @maelstrom-co/engine@alpha
   ```
 
   </TabItem>
   <TabItem label="pnpm">
   ```bash
   # Client-side React app
-  pnpm add @maelstrom-co/react
+  pnpm add @maelstrom-co/react@alpha
 
 # Server-side reference engine
 
-  pnpm add @maelstrom-co/engine
+  pnpm add @maelstrom-co/engine@alpha
 
   ```
   </TabItem>

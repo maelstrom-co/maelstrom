@@ -33,13 +33,13 @@ Speech therefore happens only after the matching interface update has settled.
 ## Install
 
 ```bash
-bun add @maelstrom-co/realtime-livekit-agent
+bun add @maelstrom-co/realtime-livekit-agent@alpha
 ```
 
 ```bash
-npm install @maelstrom-co/realtime-livekit-agent
-pnpm add @maelstrom-co/realtime-livekit-agent
-yarn add @maelstrom-co/realtime-livekit-agent
+npm install @maelstrom-co/realtime-livekit-agent@alpha
+pnpm add @maelstrom-co/realtime-livekit-agent@alpha
+yarn add @maelstrom-co/realtime-livekit-agent@alpha
 ```
 
 ## Create the worker entry

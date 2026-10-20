@@ -23,9 +23,9 @@ const SEMVER_PATTERN =
 const DIST_TAG_PATTERN = /^[A-Za-z][0-9A-Za-z._-]*$/;
 
 /**
- * A prerelease publishes under its own preid, never `latest`, so that a plain
- * `npm install @maelstrom-co/react` cannot resolve to one. `0.1.0-alpha.0`
- * carries preid `alpha`; a release version carries none.
+ * Selects the requested publish tag: a prerelease's preid or stable `latest`.
+ * Registry first-publication defaults and manual promotions can also set
+ * `latest`; callers must verify actual tags before advertising bare installs.
  */
 export function distTagForVersion(version: string): string {
   // Build metadata is not part of the prerelease, and it may itself contain a

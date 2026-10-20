@@ -1,7 +1,7 @@
 ---
-import BetaDiscordLink from '../components/BetaDiscordLink.astro';
+import DiscordLink from '../components/DiscordLink.astro';
 
-const BETA_PROGRAM = [
+const COMMUNITY = [
   {
     title: 'Build something real',
     body: 'Use Maelstrom in your own React project and test it against real product requirements.',
@@ -12,24 +12,24 @@ const BETA_PROGRAM = [
   },
   {
     title: 'Shape the open source API',
-    body: 'Help us make the developer experience solid before the first public release.',
+    body: 'Help us make the developer experience solid through feedback and contributions.',
   },
 ];
 ---
 
-<section class="cloud" id="waitlist">
+<div id="waitlist" aria-hidden="true"></div>
+<section class="cloud" id="community">
   <div class="container">
     <div class="how-head">
-      <span class="eyebrow">Open source private beta</span>
+      <span class="eyebrow">Community</span>
       <h2 class="section-h2">Help shape Maelstrom</h2>
       <p class="section-sub">
-        We are inviting React engineers to test the Maelstrom library in real
-        projects and help us prepare it for public release.
+        Build with Maelstrom, share what you learn, and help improve the library.
       </p>
     </div>
 
     <div class="cloud-grid">
-      {BETA_PROGRAM.map((item, i) => (
+      {COMMUNITY.map((item, i) => (
         <div class="cloud-card">
           <div class="cloud-icon">
             {i === 0 && (
@@ -59,15 +59,15 @@ const BETA_PROGRAM = [
     <div class="waitlist-card">
       <div class="waitlist-inner">
         <div>
-          <h3 class="waitlist-title">Become a beta tester</h3>
+          <h3 class="waitlist-title">Join the community</h3>
           <p class="waitlist-sub">
-            Join our Discord community for the beta role and instructions to
-            request GitHub access.
+            Ask questions, share your projects, and discuss ideas with the maintainers
+            on Discord. Track bugs and feature requests on GitHub.
           </p>
         </div>
-        <BetaDiscordLink source="beta_section" class="btn btn-primary beta-discord-cta">
-          Join the beta community on Discord
-        </BetaDiscordLink>
+        <DiscordLink source="community_section" class="btn btn-primary community-discord-cta">
+          Join the community on Discord
+        </DiscordLink>
       </div>
     </div>
   </div>

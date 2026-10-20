@@ -96,6 +96,7 @@ plans.local
 test-output
 graphify-out
 .codegraph
+/opencode.json
 
 # Browser VAD and ONNX Runtime assets (~80MB of .wasm and .onnx), copied out of
 # the pinned `onnxruntime-web` and `@ricky0123/vad-web` dependencies by the

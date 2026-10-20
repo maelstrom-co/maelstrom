@@ -71,7 +71,7 @@ describe('runVadAssetsCli', () => {
       output.io,
       async () => {
         throw new Error(
-          "EACCES:\u0000 permission\tdenied\nwhile replacing '/Users/javier/private/vad-web'",
+          "EACCES:\u0000 permission\tdenied\nwhile replacing '/Users/example/private/vad-web'",
         );
       },
     );
@@ -90,7 +90,7 @@ describe('runVadAssetsCli', () => {
         );
       }),
     ).toBeFalse();
-    expect(output.stderr[0]).not.toContain('/Users/javier');
+    expect(output.stderr[0]).not.toContain('/Users/example');
   });
 });
 

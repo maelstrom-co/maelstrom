@@ -12,10 +12,10 @@ issuer. The signing secret never ships to the browser.
 ## Install
 
 ```bash
-bun add @maelstrom-co/realtime-livekit-server
+bun add @maelstrom-co/realtime-livekit-server@alpha
 ```
 
-Or: `npm install` / `pnpm add` / `yarn add @maelstrom-co/realtime-livekit-server`
+Or: `npm install` / `pnpm add` / `yarn add @maelstrom-co/realtime-livekit-server@alpha`
 
 Do not install `@maelstrom-co/realtime-livekit` here. That is the browser
 adapter; it carries the LiveKit WebRTC peer surface and the browser VAD

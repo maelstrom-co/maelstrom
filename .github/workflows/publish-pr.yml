@@ -22,8 +22,10 @@ jobs:
   prepare:
     name: Build and pack preview packages
     if: >-
-      github.event.pull_request.head.repo.full_name == github.repository
+      github.repository == 'maelstrom-co/maelstrom'
+      && github.event.pull_request.head.repo.full_name == github.repository
       && github.event.label.name == 'publish-preview'
+      && github.event.repository.private == false
     runs-on: blacksmith-4vcpu-ubuntu-2404
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -67,6 +69,9 @@ jobs:
         env:
           PREVIEW_VERSION: ${{ steps.version.outputs.version }}
 
+      - name: Assert registry metadata is complete
+        run: bun scripts/assert-registry-metadata.ts
+
       - name: Build packages
         run: bunx nx run-many -t build --projects='packages/*'
 
@@ -84,10 +89,11 @@ jobs:
   publish:
     name: Publish Preview Packages
     needs: prepare
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
+    environment: production
     permissions:
       contents: read
-      packages: write
+      id-token: write
       pull-requests: write
     steps:
       # Only trusted base-branch publisher code runs beside the write token.
@@ -116,9 +122,17 @@ jobs:
           path: ${{ env.TARBALL_DIR }}
 
       # The file contains an environment reference, not the token itself.
-      - name: Configure GitHub Packages auth
+      - name: Setup npm for trusted publishing
+        run: npm install --global npm@12.2.0 --ignore-scripts
+
+      - name: Configure npm bootstrap auth
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          echo '//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}' > "$RUNNER_TEMP/.npmrc"
+          : > "$RUNNER_TEMP/.npmrc"
+          if [[ -n "$NODE_AUTH_TOKEN" ]]; then
+            echo '//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}' > "$RUNNER_TEMP/.npmrc"
+          fi
           echo "NPM_CONFIG_USERCONFIG=$RUNNER_TEMP/.npmrc" >> "$GITHUB_ENV"
 
       - name: Publish packages
@@ -127,11 +141,24 @@ jobs:
           --dir "$TARBALL_DIR"
           --expected-version "$VERSION"
           --tag "pr-${PR_NUMBER}"
-          --registry https://npm.pkg.github.com
+          --require-existing
+          --registry https://registry.npmjs.org
         env:
           VERSION: 0.0.0-pr.${{ github.event.pull_request.number }}.${{ github.run_number }}.${{ github.run_attempt }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          # OIDC otherwise attests the base event SHA, not the packed PR head.
+          NPM_CONFIG_PROVENANCE: 'false'
+
+      - name: Verify packages are live
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          NPM_CONFIG_USERCONFIG: /dev/null
+        run: >-
+          bun scripts/verify-published.ts
+          --version "$VERSION"
+          --manifest "$TARBALL_DIR/packed.json"
+          --registry https://registry.npmjs.org
 
       - name: Find previous preview comment
         uses: peter-evans/find-comment@b30e6a3c0ed37e7c023ccd3f1db5c6c0b0c23aad # v4.0.0
@@ -189,9 +216,9 @@ jobs:
 
             **Version:** `${{ needs.prepare.outputs.version }}`
             **Tag:** `pr-${{ github.event.pull_request.number }}`
-            **Registry:** GitHub Packages
+            **Registry:** npm
 
-            Follow the [beta installation guide](https://docs.maelstrom-ai.co/getting-started/install-beta/) once to configure GitHub Packages. Then install this preview by exact version:
+            Install this public npm preview by exact version. No GitHub token or registry setup is required:
 
             ```sh
             ${{ steps.packages.outputs.commands }}

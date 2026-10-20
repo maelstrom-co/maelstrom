@@ -1,5 +1,5 @@
 ---
-import BetaDiscordLink from '../components/BetaDiscordLink.astro';
+import DiscordLink from '../components/DiscordLink.astro';
 import MaelstromLogo from '../components/MaelstromLogo.astro';
 import { navLinks, socialLinks } from '../data/navigation';
 
@@ -34,7 +34,7 @@ const resourceLinks = navLinks.filter((link) => link.href.startsWith('http'));
       </div>
       <div>
         <div class="footer-col-h">Community</div>
-        <BetaDiscordLink source="footer_community">Discord</BetaDiscordLink>
+        <DiscordLink source="footer_community">Discord</DiscordLink>
         {socialLinks.map((link) => (
           <a href={link.href} target="_blank" rel="noopener noreferrer">
             {link.label}

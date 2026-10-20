@@ -45,6 +45,8 @@ export interface DemoRenderState {
   typedText: string;
   phase: DemoPhase;
   rationale: string | null;
+  /** Script text used to reserve space before playback and hydration. */
+  rationales: readonly string[];
   isProcessing: boolean;
   /** Restart playback from the opening layout. */
   replay: () => void;
@@ -74,6 +76,10 @@ const REPLAY_DELAY_MS = 6000;
 const INIT_SETTLE_MS = 100;
 const POST_INIT_MS = 1500;
 
+function EmptyChart() {
+  return null;
+}
+
 /**
  * Headless engine shared by every Maelstrom demo on the site. It owns the
  * Provider, the connector lifecycle, and the scripted auto-play/loop driver,
@@ -99,21 +105,36 @@ export function MaelstromDemo({
 
   const { Provider } = m;
   return (
-    <Provider
-      key={cycleKey}
-      connector={connector}
-      layoutMode={layoutMode}
-      tilingPaddingPx={tilingPaddingPx}
-    >
-      <DemoDriver
-        m={m}
-        initialIntent={initialIntent}
-        script={script}
-        onReplay={() => setCycleKey((k) => k + 1)}
-      >
-        {children}
-      </DemoDriver>
-    </Provider>
+    <div className="demo-shell">
+      <div className="demo-shell-placeholder" aria-hidden="true" inert>
+        {children({
+          typedText: '',
+          phase: 'idle',
+          rationale: null,
+          rationales: script.map((step) => step.rationale),
+          isProcessing: false,
+          replay: () => {},
+          Chart: EmptyChart,
+        })}
+      </div>
+      <div className="demo-shell-live">
+        <Provider
+          key={cycleKey}
+          connector={connector}
+          layoutMode={layoutMode}
+          tilingPaddingPx={tilingPaddingPx}
+        >
+          <DemoDriver
+            m={m}
+            initialIntent={initialIntent}
+            script={script}
+            onReplay={() => setCycleKey((k) => k + 1)}
+          >
+            {children}
+          </DemoDriver>
+        </Provider>
+      </div>
+    </div>
   );
 }
 
@@ -255,6 +276,7 @@ function DemoDriver({
         typedText,
         phase,
         rationale,
+        rationales: script.map((step) => step.rationale),
         isProcessing,
         replay: () => onReplayRef.current(),
         Chart: m.Chart,

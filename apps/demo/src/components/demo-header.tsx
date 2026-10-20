@@ -1,10 +1,10 @@
 import { WAITLIST_DISCORD_INVITE_URL } from '@maelstrom-co/platform-infra/waitlist-contract';
 import type { ReactNode } from 'react';
-import { captureBetaInviteClick } from '../lib/beta-analytics';
+import { captureCommunityInviteClick } from '../lib/community-analytics';
 
 const DEMO_LINKS = [
   { label: 'Docs', href: 'https://docs.maelstrom-ai.co' },
-  { label: 'Join beta on Discord', href: WAITLIST_DISCORD_INVITE_URL },
+  { label: 'Join Discord', href: WAITLIST_DISCORD_INVITE_URL },
   {
     label: 'Feedback on X',
     href: 'https://x.com/maelstrom_co',
@@ -24,14 +24,16 @@ export function DemoHeader({ children }: Readonly<{ children: ReactNode }>) {
         </div>
         <nav className="demo-nav" aria-label="Demo resources">
           {DEMO_LINKS.map((link) => {
-            const isBetaInvite = link.href === WAITLIST_DISCORD_INVITE_URL;
+            const isCommunityInvite = link.href === WAITLIST_DISCORD_INVITE_URL;
             return (
               <a
                 key={link.href}
                 href={link.href}
-                onClick={isBetaInvite ? captureBetaInviteClick : undefined}
-                target={isBetaInvite ? '_blank' : undefined}
-                rel={isBetaInvite ? 'noopener noreferrer' : undefined}
+                onClick={
+                  isCommunityInvite ? captureCommunityInviteClick : undefined
+                }
+                target={isCommunityInvite ? '_blank' : undefined}
+                rel={isCommunityInvite ? 'noopener noreferrer' : undefined}
               >
                 {link.label}
               </a>

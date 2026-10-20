@@ -6,8 +6,8 @@ Maelstrom is an AI-orchestrated dynamic UI framework. An LLM arranges and contro
 ## Skill Loading
 
 Before editing files for a substantial task:
-- Run `bunx @tanstack/intent@latest list` from the workspace root to see available local skills.
-- If a listed skill matches the task, run `bunx @tanstack/intent@latest load <package>#<skill>` before changing files.
+- Run `bunx @tanstack/intent@0.5.6 list` from the workspace root to see available local skills.
+- If a listed skill matches the task, run `bunx @tanstack/intent@0.5.6 load <package>#<skill>` before changing files.
 - Use the loaded `SKILL.md` guidance while making the change.
 <!-- intent-skills:end -->
 
@@ -49,7 +49,7 @@ The `@maelstrom-co/*` packages serve external consumers. The full contract is `a
 ## Workspace Conventions
 
 - Never commit provider keys. `.env.example` documents the variables.
-- Packages are private, published to GitHub Packages under the `@maelstrom-co` scope. `CONTRIBUTING.md` covers tokens and preview releases.
+- SDK packages publish publicly to npm under the `@maelstrom-co` scope. Apps, infrastructure, and tools stay private. `CONTRIBUTING.md` covers publishing and preview releases.
 - Keep Effect ecosystem versions aligned in the root catalog with Alchemy's peers. Do not pin `effect` or `@effect/platform-*` in app manifests, and do not add `@effect/language-service` until a `tsconfig` plugin loads it.
 
 ## Agent skills
