@@ -50,6 +50,24 @@ describe('searchProducts', () => {
     ).toBe(true);
   });
 
+  it('applies only the structured filters when the query is all filler words', () => {
+    expect(searchProducts({ query: 'food for my', species: 'cat' })).toEqual(
+      searchProducts({ species: 'cat' }),
+    );
+  });
+
+  it('returns nothing when no query token matches any product', () => {
+    expect(searchProducts({ query: 'unicorn' })).toEqual([]);
+  });
+
+  it('includes products whose fat equals maxFatPercent', () => {
+    expect(
+      searchProducts({ species: 'dog', foodType: 'dry', maxFatPercent: 10 })
+        .map((p) => p.sku)
+        .sort(),
+    ).toEqual(['DOG-DRY-HARVEST-SENIOR-26', 'DOG-DRY-NORTHPAW-LEAN-28']);
+  });
+
   it('falls back to any-token matches ranked by hits when no product matches every token', () => {
     const results = searchProducts({ query: 'turkey unicorn', species: 'dog' });
     expect(results.map((p) => p.sku)).toEqual([
