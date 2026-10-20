@@ -839,6 +839,53 @@ describe('WebSocketConnector engine.agent.event', () => {
       expect(warnSpy.mock.calls[0][0]).toContain(
         '[WebSocketConnector] engine.agent.event',
       );
+      expect(warnSpy.mock.calls[0][0]).toContain('event=message');
+    } finally {
+      warnSpy.mockRestore();
+    }
+
+    emitServer(
+      ws,
+      MaelstromResponseMessage({
+        requestId: envelope.id,
+        response: buildResponse(envelope.id, { userMessage: 'still pending' }),
+      }),
+    );
+    const response = await promise;
+    expect(response.userMessage).toBe('still pending');
+    await connector.disconnect();
+  });
+
+  test('drops an agent event on a newer wire version without touching a pending request', async () => {
+    const connector = new WebSocketConnector({ url: 'ws://test' });
+    const ws = await connectAndOpen(connector);
+
+    const envelope = buildEnvelope(MessageId('agent-pending-2'));
+    const promise = connector.process(envelope);
+
+    const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      expect(() =>
+        ws.onmessage?.({
+          data: JSON.stringify({
+            type: 'engine.agent.event',
+            id: 'agent-frame-2',
+            sessionId: 'session-1',
+            event: {
+              type: 'message',
+              version: 2,
+              runId: 'run-1',
+              turnId: 'turn-1',
+              delta: 'Hello',
+            },
+          }),
+        }),
+      ).not.toThrow();
+
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      const message = warnSpy.mock.calls[0][0];
+      expect(message).toContain('[WebSocketConnector] undecodable frame');
+      expect(message).not.toContain('no pending request');
     } finally {
       warnSpy.mockRestore();
     }
