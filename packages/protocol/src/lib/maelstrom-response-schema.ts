@@ -16,8 +16,9 @@ import {
 
 // `MaelstromResponse` ships as a hand-written interface built programmatically
 // by the engine. This parser validates it where it crosses a wire boundary
-// inbound. It differs from the LLM-output schemas in `request.ts`: the parsed
-// form carries the layout `type` discriminator and `params` as a decoded
+// from the engine host to the client: the server envelope and the `ui_change`
+// agent event. It differs from the LLM-output schemas in `request.ts`: the
+// parsed form carries the layout `type` discriminator and `params` as a decoded
 // object rather than the LLM's `paramsJson` string.
 
 const ActionExecutionParsedSchema = z.object({

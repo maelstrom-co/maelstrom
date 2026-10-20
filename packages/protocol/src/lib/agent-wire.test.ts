@@ -133,7 +133,7 @@ const eventFixtures: {
     type: 'error',
     version: AGENT_WIRE_VERSION,
     inputId: MessageId('in-1'),
-    error: 'unknown input',
+    error: 'unknown changeId',
   },
 };
 

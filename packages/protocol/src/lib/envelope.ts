@@ -127,7 +127,10 @@ export const AcknowledgedAssistantMessageSchema =
 export const AgentInputMessageSchema = z.object({
   /** Frame discriminator. */
   type: z.literal('client.agent.input'),
-  /** Frame id, unique per frame. */
+  /**
+   * Identifies this frame on the transport. Agent correlation uses the inner
+   * `inputId` and `changeId` fields.
+   */
   id: MessageIdSchema,
   /** Session whose Agent Session receives the input. */
   sessionId: SessionIdSchema,
@@ -170,10 +173,12 @@ export const AgentInputMessage = (args: {
  *
  * Every {@link ChartRequestMessage} / {@link AssistantInjectionMessage} —
  * i.e. every `EngineMessage` — is a valid ClientEnvelope; the envelope module
- * adds transport-only messages ({@link HistoryGetMessage} and
- * {@link AcknowledgedAssistantMessage}) that the LLM never sees. The legacy
- * assistant arm remains fire-and-forget; only the acknowledged arm requests a
- * response. Discriminated on `type`, so a host router can use one switch.
+ * adds the transport-only {@link HistoryGetMessage},
+ * {@link AcknowledgedAssistantMessage} and {@link DiagnosticSubscription},
+ * which the LLM never sees, and the {@link AgentInputMessage} that feeds the
+ * Agent Session. The legacy assistant arm remains fire-and-forget; only the
+ * acknowledged arm requests a response. Discriminated on `type`, so a host
+ * router can use one switch.
  */
 export type ClientEnvelope =
   | ChartRequestMessage
@@ -388,7 +393,10 @@ export const EngineErrorMessageSchema = z.object({
 export const AgentEventMessageSchema = z.object({
   /** Frame discriminator. */
   type: z.literal('engine.agent.event'),
-  /** Frame id, unique per frame. */
+  /**
+   * Identifies this frame on the transport. Agent correlation uses the inner
+   * `inputId` and `changeId` fields.
+   */
   id: MessageIdSchema,
   /** Session whose Agent Session emitted the event. */
   sessionId: SessionIdSchema,
@@ -398,8 +406,9 @@ export const AgentEventMessageSchema = z.object({
 
 /**
  * An `engine.agent.event` frame: carries one {@link AgentEvent} from the Agent
- * Session of `sessionId` to its client. Events are streamed, not correlated to
- * a single request, so the frame has its own `id` rather than a `requestId`.
+ * Session of `sessionId` to its client. Events are streamed and correlate to
+ * inputs through the inner event's `inputId` or `changeId`, not to a request,
+ * so the frame carries its own `id` rather than a `requestId`.
  */
 export type AgentEventMessage = z.infer<typeof AgentEventMessageSchema>;
 
@@ -427,10 +436,8 @@ export const AgentEventMessage = (args: {
 });
 
 /**
- * Every message an engine host may send to a client over the duplex stream:
- * a decision {@link MaelstromResponseMessage}, a {@link HistoryResponseMessage},
- * an {@link EngineErrorMessage}, or an {@link AgentEventMessage}, among others.
- * Discriminated on `type`.
+ * Every message an engine host may send to a client over the duplex stream,
+ * discriminated on `type`. See the union members below.
  */
 export type ServerEnvelope =
   | MaelstromResponseMessage

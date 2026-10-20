@@ -239,7 +239,10 @@ export const AgentUiChangeEventSchema = z.object({
   runId: RunIdSchema.nullable(),
   /** Id the browser echoes when it acknowledges the change. */
   changeId: ChangeIdSchema,
-  /** The Planner response to apply, in the existing chart response shape. */
+  /**
+   * The {@link MaelstromResponse} to apply: layout first, then the Execution
+   * Plan.
+   */
   response: maelstromResponseSchema(),
 });
 
@@ -294,9 +297,12 @@ export const AgentFinishedEventSchema = z
 export type AgentFinishedEvent = z.infer<typeof AgentFinishedEventSchema>;
 
 /**
- * A failure outside any Agent Run, such as a malformed or unknown input.
- * Failures inside a run are reported by `finished` with reason `error`.
- * `error` and `code` have the same meaning as on the `engine.error` frame.
+ * A failure outside any Agent Run that the Engine detects after the frame
+ * decoded, such as a `ui_applied` echoing an unknown `changeId`. A frame that
+ * does not decode is reported by the `engine.error` frame instead, never by
+ * this event. Failures inside a run are reported by `finished` with reason
+ * `error`. `error` and `code` have the same meaning as on the `engine.error`
+ * frame.
  */
 export const AgentErrorEventSchema = z.object({
   /** Member discriminator. */

@@ -18,7 +18,7 @@ export type RunId = Brand<string, 'RunId'>;
  *
  * @example
  * ```ts
- * const runId = RunId(event.runId);
+ * const runId = RunId(crypto.randomUUID());
  * ```
  */
 export const RunId = (value: string): RunId => {
@@ -55,7 +55,7 @@ export type CallId = Brand<string, 'CallId'>;
  *
  * @example
  * ```ts
- * const callId = CallId(answer.callId);
+ * const callId = CallId(crypto.randomUUID());
  * ```
  */
 export const CallId = (value: string): CallId => {
@@ -92,7 +92,7 @@ export type ChangeId = Brand<string, 'ChangeId'>;
  *
  * @example
  * ```ts
- * const changeId = ChangeId(event.changeId);
+ * const changeId = ChangeId(crypto.randomUUID());
  * ```
  */
 export const ChangeId = (value: string): ChangeId => {
