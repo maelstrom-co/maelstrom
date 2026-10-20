@@ -1,5 +1,6 @@
 import { err, ok } from '@maelstrom-co/protocol';
 import type { TypedVesselProps } from '@maelstrom-co/react';
+import { OrderTotalsTable } from '../components/order-totals-table';
 import { VesselCard } from '../components/vessel-card';
 import { VESSEL_ACCENTS } from '../lib/design-tokens';
 import { formatCents, type Order } from '../lib/pet-shop-fixtures';
@@ -138,24 +139,7 @@ function OrderDetail({ order }: { order: Order }) {
           ))}
         </tbody>
       </table>
-      <div className="mt-auto text-xs font-mono text-ink-3 space-y-0.5">
-        <div className="flex justify-between">
-          <span>Subtotal</span>
-          <span>{formatCents(order.totals.subtotalCents)}</span>
-        </div>
-        <div className="flex justify-between">
-          <span>Shipping</span>
-          <span>{formatCents(order.totals.shippingCents)}</span>
-        </div>
-        <div className="flex justify-between">
-          <span>Tax</span>
-          <span>{formatCents(order.totals.taxCents)}</span>
-        </div>
-        <div className="flex justify-between text-ink">
-          <span>Total</span>
-          <span>{formatCents(order.totals.totalCents)}</span>
-        </div>
-      </div>
+      <OrderTotalsTable totals={order.totals} className="mt-auto" />
     </div>
   );
 }
