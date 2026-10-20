@@ -1,9 +1,9 @@
-export type Species = 'dog' | 'cat';
-export type FoodType = 'dry' | 'wet';
-export type LifeStage = 'puppy' | 'kitten' | 'adult' | 'senior' | 'all';
+export const SPECIES = ['dog', 'cat'] as const;
+export const FOOD_TYPES = ['dry', 'wet'] as const;
 
-export const SPECIES: readonly Species[] = ['dog', 'cat'];
-export const FOOD_TYPES: readonly FoodType[] = ['dry', 'wet'];
+export type Species = (typeof SPECIES)[number];
+export type FoodType = (typeof FOOD_TYPES)[number];
+export type LifeStage = 'puppy' | 'kitten' | 'adult' | 'senior' | 'all';
 
 export interface Product {
   sku: string;
