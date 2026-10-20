@@ -1,9 +1,10 @@
 import { createContext, type ReactNode, useContext } from 'react';
-// Type-only on purpose: a value import would pull the home Vessels (and
-// maplibre) into every page that renders the shared chrome.
+// Type-only on purpose: a value import would evaluate the home instance
+// (vessel definitions, realtime wiring, devtools capture) on every page that
+// renders the shared chrome, even when that page hosts a different instance.
 import type { m } from './maelstrom';
 
-/** The slice of a demo Maelstrom instance the shared voice and intent chrome reads. */
+/** The members of a demo Maelstrom instance that the shared workspace, voice and intent chrome call. */
 export type DemoMaelstrom = Pick<
   typeof m,
   | 'Provider'

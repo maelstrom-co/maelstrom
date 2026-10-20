@@ -39,6 +39,9 @@ const hostedMintToken = createBrowserMintToken(
   DEMO_OPENAI_VOICE,
 );
 
+// Shared by every extension this module builds. The gesture-prepared adapter
+// goes to the next session built for the selected provider by any instance,
+// which holds while only one workspace is mounted at a time.
 let preparedBrowserOpenAIAdapter: OpenAIAdapter | undefined;
 let preparedProvider: DemoVoiceProvider | undefined;
 
@@ -49,16 +52,14 @@ export function prepareBrowserOpenAIVoice(): boolean {
   if (preparedProvider !== provider) preparedBrowserOpenAIAdapter = undefined;
   preparedProvider = provider;
   preparedBrowserOpenAIAdapter ??= createOpenAIAdapter(hostedMintToken);
-  void Promise.resolve(preparedBrowserOpenAIAdapter.activateAudio()).catch(
-    () => {},
-  );
+  preparedBrowserOpenAIAdapter.activateAudio();
   return true;
 }
 
 /**
- * The demo voice extension, fresh per call. An extension owns the session
- * registry of the instance it is installed on, so every `createMaelstrom`
- * chain needs its own rather than a shared one.
+ * Builds a new extension per call. `maelstromRealtime` allocates its session
+ * registry per extension, so each `createMaelstrom` chain gets its own
+ * registry instead of sharing one.
  */
 export function demoRealtime() {
   return maelstromRealtime({
