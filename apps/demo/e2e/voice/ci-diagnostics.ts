@@ -1,3 +1,10 @@
+import {
+  type VoiceRejectionReason,
+  type VoiceReportName,
+  voiceRejectionReasons,
+  voiceReportNames,
+} from './ci-metrics.ts';
+
 const phases = [
   'initialization',
   'context',
@@ -74,6 +81,8 @@ export type VoiceDiagnostic = {
   readonly credential?: (typeof credentials)[number];
   readonly exitCode?: number;
   readonly signal?: string;
+  readonly report?: VoiceReportName;
+  readonly reason?: VoiceRejectionReason;
 };
 
 function validateDiagnostic(value: unknown): VoiceDiagnostic | undefined {
@@ -82,10 +91,22 @@ function validateDiagnostic(value: unknown): VoiceDiagnostic | undefined {
   if (
     Object.keys(record).some(
       (key) =>
-        !['phase', 'category', 'credential', 'exitCode', 'signal'].includes(
-          key,
-        ),
+        ![
+          'phase',
+          'category',
+          'credential',
+          'exitCode',
+          'signal',
+          'report',
+          'reason',
+        ].includes(key),
     ) ||
+    ((record.report !== undefined || record.reason !== undefined) &&
+      (record.phase !== 'attachments' ||
+        record.category !== 'attachment-invalid' ||
+        typeof record.report !== 'string' ||
+        !Object.hasOwn(voiceReportNames, record.report) ||
+        !voiceRejectionReasons.some((reason) => reason === record.reason))) ||
     !phases.some((phase) => phase === record.phase) ||
     !categories.some((category) => category === record.category) ||
     (record.credential !== undefined &&
@@ -109,6 +130,12 @@ function validateDiagnostic(value: unknown): VoiceDiagnostic | undefined {
       ? { exitCode: record.exitCode as number }
       : {}),
     ...(record.signal !== undefined ? { signal: record.signal as string } : {}),
+    ...(record.report !== undefined
+      ? {
+          report: record.report as VoiceReportName,
+          reason: record.reason as VoiceRejectionReason,
+        }
+      : {}),
   };
 }
 

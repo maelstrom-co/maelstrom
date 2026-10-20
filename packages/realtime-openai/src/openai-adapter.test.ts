@@ -5727,3 +5727,118 @@ describe('OpenAIAdapter: transcript observations', () => {
     expect(fragments.map((fragment) => fragment.text)).toEqual(['old', 'new']);
   });
 });
+
+describe('OpenAIAdapter — local playback barge-in', () => {
+  let callbacks: {
+    onSpeechStart(): Promise<void>;
+    onSpeechEnd(): Promise<void>;
+    onVADMisfire(): Promise<void>;
+  };
+  let vadStream: MediaStream | undefined;
+  let adapter: OpenAIAdapter;
+  let originalContext: unknown;
+  let originalStream: unknown;
+  let probeStopped = 0;
+
+  beforeEach(() => {
+    originalContext = globalThis.AudioContext;
+    originalStream = globalThis.MediaStream;
+    probeStopped = 0;
+    mock.module('@ricky0123/vad-web', () => ({
+      MicVAD: {
+        new: async (
+          options: typeof callbacks & { getStream(): Promise<MediaStream> },
+        ) => {
+          callbacks = options;
+          vadStream = await options.getStream();
+          return {
+            start: async () => {},
+            pause: async () => {},
+            destroy: async () => {},
+          };
+        },
+      },
+    }));
+    Object.assign(globalThis, {
+      MediaStream: FakeMediaStream,
+      AudioContext: class {
+        state = 'running';
+        currentTime = 0;
+        async resume() {}
+        async close() {}
+        createMediaStreamSource() {
+          return { connect() {}, disconnect() {} };
+        }
+        createAnalyser() {
+          return {
+            fftSize: 1024,
+            disconnect() {},
+            getFloatTimeDomainData(samples: Float32Array) {
+              samples.fill(0.2);
+            },
+          };
+        }
+      },
+    });
+  });
+  afterEach(async () => {
+    await adapter?.disconnect();
+    restoreGlobal('AudioContext', originalContext);
+    restoreGlobal('MediaStream', originalStream);
+  });
+
+  it('gates the received stream before useful transcription without changing provider policy or the microphone', async () => {
+    adapter = new OpenAIAdapter({
+      mintToken: async () => fakeToken,
+      playbackBargeIn: true,
+      serverVad: { bargeInMode: 'transcript-confirmed' },
+    });
+    const connecting = adapter.connect(connectOpts);
+    await flushMicrotasks();
+    const peer = FakeRTCPeerConnection.instances.at(-1)!;
+    const channel = peer.dataChannel!;
+    channel.triggerOpen();
+    await connecting;
+    const output = new FakeTrack();
+    Object.assign(output, {
+      clone: () => ({
+        enabled: true,
+        stop: () => {
+          probeStopped++;
+        },
+      }),
+    });
+    const stream = new FakeMediaStream([output]);
+    peer.ontrack?.({ streams: [stream] });
+    expect(vadStream).toBe(adapter.getAudioStreams().mic);
+    channel.receive({ type: 'response.created', response: { id: 'speaking' } });
+    channel.receive({
+      type: 'output_audio_buffer.started',
+      response_id: 'speaking',
+    });
+    const sent = channel.sent.length;
+    await callbacks.onSpeechStart();
+    expect(output.enabled).toBe(false);
+    expect(vadStream?.getAudioTracks()[0]?.enabled).toBe(true);
+    expect(channel.sent.length).toBe(sent);
+    channel.receive({
+      type: 'conversation.item.input_audio_transcription.delta',
+      item_id: 'user',
+      delta: 'Stop',
+    });
+    expect(
+      sentFrames(channel)
+        .slice(-2)
+        .map((frame) => frame.type),
+    ).toEqual(['response.cancel', 'output_audio_buffer.clear']);
+    channel.receive({ type: 'output_audio_buffer.cleared' });
+    await callbacks.onSpeechEnd();
+    expect(output.enabled).toBe(false);
+    await adapter.disconnect();
+    expect(output.enabled).toBe(true);
+    expect(output.stopped).toBe(false);
+    expect(probeStopped).toBe(1);
+    await callbacks.onSpeechStart();
+    expect(output.enabled).toBe(true);
+  });
+});

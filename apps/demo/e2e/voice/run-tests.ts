@@ -310,6 +310,9 @@ async function main(): Promise<number> {
           'VOICE_BENCHMARK_REPETITIONS',
           'VOICE_BENCHMARK_SINGLE_TURN',
           'MAELSTROM_VOICE_CI_RUN_ID',
+          'VOICE_BENCHMARK_TARGET_SHA',
+          'VOICE_BENCHMARK_RUN_ID',
+          'VOICE_BENCHMARK_RUN_ATTEMPT',
           ...(process.env.MAELSTROM_E2E_OPENAI_API_KEY
             ? ['MAELSTROM_E2E_OPENAI_API_KEY']
             : []),

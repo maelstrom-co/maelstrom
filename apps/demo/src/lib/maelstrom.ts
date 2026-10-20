@@ -141,6 +141,7 @@ function createAdapter(
 function createLiveAdapter(): OpenAILiveAdapter {
   return new OpenAILiveAdapter({
     model: LIVE_MODEL,
+    playbackBargeIn: { providerOptions: { model: HOSTED_VAD_MODEL } },
     responses: { model: LIVE_BACKEND_MODEL },
     exchange: createDemoLiveExchange(
       usesBrowserKey() ? () => playgroundKeyStore.state.apiKey : undefined,
@@ -155,11 +156,12 @@ function createOpenAIAdapter(
   const browserKeyMode = usesBrowserKey();
   return new OpenAIAdapter({
     mintToken,
+    playbackBargeIn: { providerOptions: { model: HOSTED_VAD_MODEL } },
     ...(hosted
       ? {
           serverVad: {
             threshold: 0.8,
-            bargeInMode: 'transcript-confirmed',
+            bargeInMode: 'immediate',
           },
         }
       : {}),

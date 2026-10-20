@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { lstat, readFile, realpath } from 'node:fs/promises';
+import { lstat, readFile, realpath, rm } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import {
@@ -10,7 +10,10 @@ import {
 } from '../apps/demo/e2e/voice/ci-diagnostics.ts';
 import {
   readCiMetrics,
+  readCiProvenance,
+  type VoiceCiLane,
   type VoiceCiMetrics,
+  type VoiceCiProvenance,
 } from '../apps/demo/e2e/voice/ci-metrics.ts';
 import {
   dockerOutputConsumer,
@@ -25,38 +28,133 @@ import {
   type VoiceBenchmarkContext,
   type VoiceBenchmarkOptions,
 } from './preview-lifecycle.ts';
+import {
+  archiveVoiceHistory,
+  parseVoiceConsumed,
+  parseVoiceHistoryReference,
+  readVoiceHistory,
+  VOICE_HISTORY_CHUNK_SIZE,
+  type VoiceHistoryReference,
+} from './voice-benchmark-history.ts';
 
-type Claim = {
+type LegacyClaim = {
   readonly sha: string;
   readonly requestId: number;
   readonly status: 'started' | 'completed' | 'failed';
 };
+
+type Claim = LegacyClaim & {
+  readonly version?: 2 | 3;
+  readonly archive?: VoiceHistoryReference | null;
+  readonly execution?: string;
+  readonly consumed?: readonly string[];
+};
+type DurableClaim = Claim & {
+  readonly version: 3;
+  readonly archive: VoiceHistoryReference | null;
+  readonly execution: string;
+  readonly consumed: readonly string[];
+};
+
+/** Explicit payment authorization for one Actions workflow run attempt. */
+export interface ManualVoiceRequest {
+  /** Repository workflow run identity, not the Docker cleanup identity. */
+  readonly runId: string;
+  /** Reruns have a new attempt; duplicate execution of an attempt is suppressed. */
+  readonly runAttempt: string;
+}
+
+/** Eligibility plus optional authorization for an additional paid run. */
+export interface VoiceCiOptions extends VoiceBenchmarkOptions {
+  /** Native Actions identity for binding both successful and partial metrics. */
+  readonly runIdentity: { readonly runId: string; readonly runAttempt: string };
+  /** Only supplied by an opted-in workflow_dispatch. Labels and approval still apply. */
+  readonly manualRequest?: ManualVoiceRequest;
+}
+
+const actionIdentity = (value: unknown): value is string =>
+  typeof value === 'string' && /^[1-9]\d{0,19}$/.test(value);
+const labelExecution = (claim: Pick<Claim, 'sha' | 'requestId'>) =>
+  `label:${claim.sha}:${claim.requestId}`;
+const manualExecution = (request: ManualVoiceRequest) => {
+  if (!actionIdentity(request.runId) || !actionIdentity(request.runAttempt))
+    throw new Error('Invalid manual benchmark identity');
+  return `manual:${request.runId}:${request.runAttempt}`;
+};
+
+/** Reads the trusted workflow opt-in; normal dispatches and label events retain deduplication. */
+export function readManualVoiceRequest(
+  environment: Readonly<Record<string, string | undefined>>,
+): ManualVoiceRequest | undefined {
+  const flag = environment.VOICE_BENCHMARK_NEW_REQUEST;
+  if (flag === undefined || flag === 'false') return undefined;
+  if (flag !== 'true' || environment.GITHUB_EVENT_NAME !== 'workflow_dispatch')
+    throw new Error('Invalid manual benchmark authorization');
+  const request = {
+    runId: environment.GITHUB_RUN_ID ?? '',
+    runAttempt: environment.GITHUB_RUN_ATTEMPT ?? '',
+  };
+  manualExecution(request);
+  return request;
+}
 
 export function parseVoiceClaim(body: string | undefined): Claim | undefined {
   if (body === undefined) return undefined;
   const matches = [
     ...body.matchAll(/<!-- voice-benchmark-state (\{[^\n]*\}) -->/g),
   ];
-  if (body.split(VOICE_BENCHMARK_MARKER).length !== 2 || matches.length !== 1)
+  if (
+    body.split(VOICE_BENCHMARK_MARKER).length !== 2 ||
+    body.split('<!-- voice-benchmark-state').length !== 2 ||
+    matches.length !== 1
+  )
     throw new Error('Invalid benchmark claim');
   const value: unknown = JSON.parse(matches[0]?.[1] ?? '');
   if (!value || typeof value !== 'object' || Array.isArray(value))
     throw new Error('Invalid benchmark claim');
   const claim = value as Record<string, unknown>;
   if (
-    Object.keys(claim).length !== 3 ||
     typeof claim.sha !== 'string' ||
     !/^[a-f0-9]{40}$/.test(claim.sha) ||
     typeof claim.requestId !== 'number' ||
     !Number.isSafeInteger(claim.requestId) ||
     claim.requestId < 1 ||
-    !['started', 'completed', 'failed'].includes(String(claim.status))
+    typeof claim.status !== 'string' ||
+    !['started', 'completed', 'failed'].includes(claim.status)
   )
     throw new Error('Invalid benchmark claim');
-  return {
+  const base: LegacyClaim = {
     sha: claim.sha,
     requestId: claim.requestId,
     status: claim.status as Claim['status'],
+  };
+  if (Object.keys(claim).length === 3) return base;
+  if (
+    !(
+      (claim.version === 2 &&
+        Object.keys(claim).length === 6 &&
+        !('archive' in claim)) ||
+      (claim.version === 3 && Object.keys(claim).length === 7)
+    ) ||
+    typeof claim.execution !== 'string'
+  )
+    throw new Error('Invalid benchmark consumption ledger');
+  const consumed = parseVoiceConsumed(claim.consumed, base.requestId);
+  const archive =
+    claim.version === 3 ? parseVoiceHistoryReference(claim.archive) : undefined;
+  if (
+    !consumed.includes(labelExecution(base)) ||
+    !consumed.includes(claim.execution) ||
+    (claim.execution !== labelExecution(base) &&
+      !claim.execution.startsWith('manual:'))
+  )
+    throw new Error('Benchmark claim is missing consumption evidence');
+  return {
+    ...base,
+    version: claim.version as 2 | 3,
+    ...(archive !== undefined ? { archive } : {}),
+    execution: claim.execution,
+    consumed,
   };
 }
 
@@ -64,15 +162,30 @@ export function renderVoiceComment(
   claim: Claim,
   metrics?: VoiceCiMetrics,
 ): string {
-  const row = (name: string, metric?: { p95Ms: number; samples: number }) =>
-    `| ${name} | ${metric ? `${metric.p95Ms.toFixed(1)} ms` : 'N/A'} | ${metric?.samples ?? '—'} |`;
-  return `${VOICE_BENCHMARK_MARKER}\n<!-- voice-benchmark-state ${JSON.stringify(claim)} -->\n### Voice latency · \`${claim.sha.slice(0, 12)}\`\n\n| Metric | p95 | Samples |\n| --- | ---: | ---: |\n${row('Assistant response', metrics?.assistant)}\n${row('Barge-in: task response', metrics?.taskBargeIn)}\n${row('Barge-in: greeting', metrics?.greetingBargeIn)}\n\nStatus: ${claim.status}.`;
+  const row = (name: string, lane?: VoiceCiLane) =>
+    `| ${name} | ${lane?.status === 'validated' ? `${lane.p95Ms.toFixed(1)} ms` : 'N/A'} | ${lane?.status === 'validated' ? lane.samples : '—'} |`;
+  const unavailable = metrics
+    ? (
+        [
+          ['Assistant response', metrics.assistant],
+          ['Barge-in: task response', metrics.taskBargeIn],
+          ['Barge-in: greeting', metrics.greetingBargeIn],
+        ] as const
+      ).flatMap(([name, lane]) =>
+        lane.status === 'unavailable' ? [`${name}: ${lane.reason}`] : [],
+      )
+    : [];
+  const detail = metrics
+    ? `\n\nRun: ${metrics.provenance.runId}, attempt ${metrics.provenance.runAttempt}.`
+    : '';
+  return `${VOICE_BENCHMARK_MARKER}\n<!-- voice-benchmark-state ${JSON.stringify(claim)} -->\n### Voice latency · \`${claim.sha.slice(0, 12)}\`\n\n| Metric | p95 | Samples |\n| --- | ---: | ---: |\n${row('Assistant response', metrics?.assistant)}\n${row('Barge-in: task response', metrics?.taskBargeIn)}\n${row('Barge-in: greeting', metrics?.greetingBargeIn)}\n\nStatus: ${claim.status}.${detail}${unavailable.length ? `\n\nUnavailable lanes: ${unavailable.join('; ')}.` : ''}`;
 }
 
 export interface VoiceCiDependencies extends PreviewGithubDependencies {
   readonly run: (
     context: VoiceBenchmarkContext,
     signal: AbortSignal,
+    provenance: VoiceCiProvenance,
   ) => Promise<unknown>;
   readonly sleep: (milliseconds: number, signal: AbortSignal) => Promise<void>;
   readonly log?: (line: string) => void;
@@ -89,18 +202,22 @@ const sameRequest = (
 const ownsClaim = (
   context: VoiceBenchmarkContext | undefined,
   expected: VoiceBenchmarkContext,
+  expectedClaim: DurableClaim,
 ) => {
   if (!sameRequest(context, expected)) return false;
   const claim = parseVoiceClaim(context?.comment?.body);
   return (
     claim?.sha === expected.sha &&
     claim.requestId === expected.requestId &&
+    claim.execution === expectedClaim.execution &&
+    (!expected.comment || context?.comment?.id === expected.comment.id) &&
+    context?.comment?.body === renderVoiceComment(expectedClaim) &&
     claim.status === 'started'
   );
 };
 
 export async function executeVoiceBenchmark(
-  options: VoiceBenchmarkOptions,
+  options: VoiceCiOptions,
   dependencies: VoiceCiDependencies,
   signal: AbortSignal,
 ): Promise<'passed' | 'failed' | 'skipped'> {
@@ -117,6 +234,22 @@ export async function executeVoiceBenchmark(
   let phase: VoiceDiagnostic['phase'] = 'context';
   try {
     report({ phase, category: 'started' });
+    if (
+      !actionIdentity(options.runIdentity?.runId) ||
+      !actionIdentity(options.runIdentity?.runAttempt)
+    )
+      throw new Error('Invalid benchmark workflow identity');
+    const manual = options.manualRequest
+      ? manualExecution(options.manualRequest)
+      : undefined;
+    if (
+      manual &&
+      (options.manualRequest?.runId !== options.runIdentity.runId ||
+        options.manualRequest?.runAttempt !== options.runIdentity.runAttempt)
+    )
+      throw new Error('Manual request identity mismatch');
+    if (manual && options.eventHeadSha !== undefined)
+      throw new Error('Manual benchmark request cannot use a PR event head');
     const initial = await readVoiceBenchmarkContext(options, github());
     if (!initial) {
       report({ phase, category: 'ineligible' });
@@ -127,17 +260,43 @@ export async function executeVoiceBenchmark(
     const previous = parseVoiceClaim(initial.comment?.body);
     if (previous && previous.requestId > initial.requestId)
       throw new Error('Incomplete benchmark request history');
-    if (
-      previous?.sha === initial.sha &&
-      previous.requestId === initial.requestId
-    ) {
+    let active = new Set(
+      previous?.consumed ?? (previous ? [labelExecution(previous)] : []),
+    );
+    let archive = previous?.archive ?? null;
+    const consumed = await readVoiceHistory(
+      options,
+      initial.requestId,
+      [...active],
+      archive,
+      github,
+    );
+    const execution = manual ?? labelExecution(initial);
+    if (consumed.has(execution)) {
       report({ phase, category: 'already-claimed' });
       return 'skipped';
     }
-    const claim: Claim = {
+    // Manual execution consumes the label request too, without forgetting older
+    // attempts when the public results comment rolls into a new active chunk.
+    const next = new Set([...active, labelExecution(initial), execution]);
+    if (next.size > VOICE_HISTORY_CHUNK_SIZE) {
+      archive = await archiveVoiceHistory(
+        options,
+        initial.requestId,
+        [...active],
+        archive,
+        github,
+      );
+      active = new Set([labelExecution(initial), execution]);
+    } else active = next;
+    const claim: DurableClaim = {
       sha: initial.sha,
       requestId: initial.requestId,
       status: 'started',
+      version: 3,
+      archive,
+      execution,
+      consumed: [...active],
     };
     await saveVoiceBenchmarkComment(
       options,
@@ -146,7 +305,7 @@ export async function executeVoiceBenchmark(
       github(),
     );
     const claimed = await readVoiceBenchmarkContext(options, github());
-    if (!ownsClaim(claimed, initial) || !claimed) {
+    if (!ownsClaim(claimed, initial, claim) || !claimed) {
       report({ phase, category: 'claim-not-persisted' });
       throw new Error('Benchmark claim was not persisted');
     }
@@ -165,6 +324,7 @@ export async function executeVoiceBenchmark(
           owned = ownsClaim(
             await readVoiceBenchmarkContext(options, github(monitorSignal)),
             claimed,
+            claim,
           );
           consecutiveFailures = 0;
         } catch {
@@ -193,12 +353,18 @@ export async function executeVoiceBenchmark(
     phase = 'benchmark';
     report({ phase, category: 'started' });
     try {
+      const provenance = {
+        targetSha: claimed.sha,
+        runId: options.runIdentity.runId,
+        runAttempt: options.runIdentity.runAttempt,
+      };
       const result = await dependencies.run(
         claimed,
         AbortSignal.any([signal, revoke.signal]),
+        provenance,
       );
       phase = 'metrics';
-      metrics = readCiMetrics(result);
+      metrics = readCiMetrics(result, provenance);
     } catch {
       report({
         phase,
@@ -225,7 +391,7 @@ export async function executeVoiceBenchmark(
     report({ phase, category: 'started' });
     const current = await readVoiceBenchmarkContext(options, github());
     if (
-      !ownsClaim(current, claimed) ||
+      !ownsClaim(current, claimed, claim) ||
       !current ||
       current.comment?.id !== claimed.comment?.id ||
       current.comment?.body !== claimed.comment?.body
@@ -233,7 +399,7 @@ export async function executeVoiceBenchmark(
       report({ phase, category: 'claim-lost' });
       return 'failed';
     }
-    const status = metrics ? 'completed' : 'failed';
+    const status = metrics?.status === 'passed' ? 'completed' : 'failed';
     await saveVoiceBenchmarkComment(
       options,
       current,
@@ -241,7 +407,7 @@ export async function executeVoiceBenchmark(
       github(),
     );
     report({ phase, category: 'completed' });
-    return metrics ? 'passed' : 'failed';
+    return metrics?.status === 'passed' ? 'passed' : 'failed';
   } catch (error) {
     report({
       phase,
@@ -303,6 +469,7 @@ export async function runOwnedBenchmark(options: {
   readonly root: string;
   readonly runId: string;
   readonly target: string;
+  readonly provenance: VoiceCiProvenance;
   readonly environment: NodeJS.ProcessEnv;
   readonly signal: AbortSignal;
   readonly cleanup?: (runId: string) => Promise<void>;
@@ -313,6 +480,7 @@ export async function runOwnedBenchmark(options: {
     logVoiceDiagnostic(event, options.log);
   try {
     validateVoiceRunId(options.runId);
+    readCiProvenance(options.provenance);
   } catch (error) {
     report({ phase: 'initialization', category: 'invalid-run-id' });
     throw error;
@@ -349,6 +517,9 @@ export async function runOwnedBenchmark(options: {
     [dockerOutputTokenEnvironment]: dockerOutputToken,
     MAELSTROM_BASE_URL: options.target,
     MAELSTROM_VOICE_CI_RUN_ID: options.runId,
+    VOICE_BENCHMARK_TARGET_SHA: options.provenance.targetSha,
+    VOICE_BENCHMARK_RUN_ID: options.provenance.runId,
+    VOICE_BENCHMARK_RUN_ATTEMPT: options.provenance.runAttempt,
     VOICE_BENCHMARK_REPETITIONS: '1',
     NX_NO_CLOUD: 'true',
   });
@@ -356,6 +527,11 @@ export async function runOwnedBenchmark(options: {
     report({ phase: 'benchmark', category: 'cancelled' });
     options.signal.throwIfAborted();
   }
+  const file = resolve(
+    options.root,
+    'apps/demo/dist/docker-voice/voice-benchmark-metrics.json',
+  );
+  await rm(file, { force: true });
   report({ phase: 'benchmark', category: 'started' });
   let child: ReturnType<typeof spawn>;
   try {
@@ -442,16 +618,12 @@ export async function runOwnedBenchmark(options: {
         ...(code !== null ? { exitCode: code } : {}),
         ...(signal ? { signal } : {}),
       });
-      throw new Error('Voice benchmark failed');
-    }
-    report({ phase: 'benchmark', category: 'completed' });
+      if (options.signal.aborted || signal)
+        throw new Error('Voice benchmark failed');
+    } else report({ phase: 'benchmark', category: 'completed' });
     report({ phase: 'metrics', category: 'started' });
     let metricsExist = false;
     try {
-      const file = resolve(
-        options.root,
-        'apps/demo/dist/docker-voice/voice-benchmark-metrics.json',
-      );
       const stat = await lstat(file);
       metricsExist = true;
       const expected = resolve(
@@ -465,9 +637,12 @@ export async function runOwnedBenchmark(options: {
         stat.size > 4096
       )
         throw new Error('Invalid CI metrics file');
-      const metrics = readCiMetrics(JSON.parse(await readFile(file, 'utf8')));
+      const metrics = readCiMetrics(
+        JSON.parse(await readFile(file, 'utf8')),
+        options.provenance,
+      );
       report({ phase: 'metrics', category: 'completed' });
-      return metrics;
+      return code === 0 ? metrics : { ...metrics, status: 'failed' };
     } catch (error) {
       report({
         phase: 'metrics',
@@ -524,6 +699,11 @@ async function cli() {
           ? { eventHeadSha: process.env.EVENT_HEAD_SHA }
           : {}),
         workersDevSuffix: process.env.PREVIEW_WORKERS_DEV_SUFFIX ?? '',
+        manualRequest: readManualVoiceRequest(process.env),
+        runIdentity: {
+          runId: process.env.GITHUB_RUN_ID ?? '',
+          runAttempt: process.env.GITHUB_RUN_ATTEMPT ?? '',
+        },
       },
       {
         fetch,
@@ -531,11 +711,12 @@ async function cli() {
         sleep: async (ms, signal) => {
           await delay(ms, undefined, { signal });
         },
-        run: (context, signal) =>
+        run: (context, signal, provenance) =>
           runOwnedBenchmark({
             root: process.cwd(),
             runId,
             target: context.url,
+            provenance,
             environment: process.env,
             signal,
           }),

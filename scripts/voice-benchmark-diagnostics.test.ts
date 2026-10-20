@@ -22,12 +22,18 @@ const credentials = {
   MAELSTROM_E2E_OPENAI_API_KEY: secret,
   ELEVENLABS_API_KEY: secret,
 };
+const provenance = {
+  targetSha: 'a'.repeat(40),
+  runId: '123456789',
+  runAttempt: '1',
+};
 const metrics = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   status: 'passed',
-  assistant: { p95Ms: 1, samples: 1 },
-  taskBargeIn: { p95Ms: 2, samples: 1 },
-  greetingBargeIn: { p95Ms: 3, samples: 1 },
+  provenance,
+  assistant: { status: 'validated', p95Ms: 1, samples: 1 },
+  taskBargeIn: { status: 'validated', p95Ms: 2, samples: 1 },
+  greetingBargeIn: { status: 'validated', p95Ms: 3, samples: 1 },
 };
 const event = {
   phase: 'docker-build',
@@ -56,6 +62,7 @@ async function runnerFixture(
       runOwnedBenchmark({
         root,
         runId: 'test-diagnostics',
+        provenance,
         target: `https://example.invalid/${secret}`,
         environment: { ...credentials },
         signal: new AbortController().signal,
@@ -104,6 +111,28 @@ describe('bounded voice diagnostic records', () => {
     consume(record.slice(20));
     consume(record.slice(0, -1));
     expect(logs).toEqual([record.trimEnd()]);
+  });
+
+  test('report rejection diagnostics accept only paired allowlisted names and reasons', () => {
+    const logs: string[] = [];
+    const consume = voiceDiagnosticConsumer((line) => logs.push(line));
+    const safe = {
+      phase: 'attachments',
+      category: 'attachment-invalid',
+      report: 'voice-greeting-barge-in-benchmark.json',
+      reason: 'count-mismatch',
+    };
+    for (const change of [
+      { report: secret },
+      { reason: secret },
+      { report: undefined },
+      { reason: undefined },
+      { message: secret },
+      { phase: 'benchmark' },
+    ])
+      consume(`[voice-benchmark] ${JSON.stringify({ ...safe, ...change })}\n`);
+    consume(`[voice-benchmark] ${JSON.stringify(safe)}\n`);
+    expect(logs).toEqual([`[voice-benchmark] ${JSON.stringify(safe)}`]);
   });
 
   test('caps emitted records and validates direct emitters too', () => {
@@ -230,6 +259,88 @@ describe('owned benchmark diagnostics', () => {
     });
   }
 
+  test('nonzero test exit retains validated current-attempt lanes but never a passed status', async () => {
+    for (const partial of [
+      metrics,
+      {
+        ...metrics,
+        status: 'failed',
+        greetingBargeIn: { status: 'unavailable', reason: 'benchmark-failed' },
+      },
+    ]) {
+      await runnerFixture(async (root, logs, run) => {
+        await writeRunner(
+          root,
+          `${metricWriter(partial)} process.exitCode=17;`,
+        );
+        expect(await run()).toEqual({ ...partial, status: 'failed' });
+        expect(logs.join('\n')).toContain(
+          '"category":"nonzero-exit","exitCode":17',
+        );
+        expect(logs.join('\n')).toContain(
+          '"phase":"metrics","category":"completed"',
+        );
+      });
+    }
+  });
+
+  test('nonzero exit cannot use mismatched SHA, workflow run, or attempt provenance', async () => {
+    for (const change of [
+      { targetSha: 'b'.repeat(40) },
+      { runId: '999' },
+      { runAttempt: '2' },
+    ]) {
+      await runnerFixture(async (root, logs, run) => {
+        await writeRunner(
+          root,
+          `${metricWriter({ ...metrics, provenance: { ...provenance, ...change } })} process.exitCode=17;`,
+        );
+        await expect(run()).rejects.toThrow('provenance mismatch');
+        expect(logs.join('\n')).toContain('"category":"metrics-invalid"');
+      });
+    }
+  });
+
+  test('clears old output before launching, even for identical provenance and early failures', async () => {
+    for (const code of [0, 17])
+      await runnerFixture(async (root, logs, run) => {
+        const path = join(
+          root,
+          'apps/demo/dist/docker-voice/voice-benchmark-metrics.json',
+        );
+        await mkdir(join(root, 'apps/demo/dist/docker-voice'), {
+          recursive: true,
+        });
+        await writeFile(path, JSON.stringify(metrics));
+        await writeRunner(
+          root,
+          `import { existsSync } from 'node:fs'; if(existsSync('apps/demo/dist/docker-voice/voice-benchmark-metrics.json')) throw new Error('stale output'); process.exitCode=${code};`,
+        );
+        await expect(run()).rejects.toThrow();
+        await expect(readFile(path)).rejects.toThrow();
+        expect(logs.join('\n')).toContain('"category":"metrics-missing"');
+      });
+  });
+
+  test('passes the trusted provenance into the child rather than accepting environment overrides', async () => {
+    await runnerFixture(async (root, _logs, run) => {
+      await writeRunner(
+        root,
+        `${metricWriter(metrics)} const p={ targetSha:process.env.VOICE_BENCHMARK_TARGET_SHA, runId:process.env.VOICE_BENCHMARK_RUN_ID, runAttempt:process.env.VOICE_BENCHMARK_RUN_ATTEMPT }; if(JSON.stringify(p)!==${JSON.stringify(JSON.stringify(provenance))}) process.exitCode=9;`,
+      );
+      expect(
+        await run({
+          environment: {
+            ...credentials,
+            VOICE_BENCHMARK_TARGET_SHA: 'b'.repeat(40),
+            VOICE_BENCHMARK_RUN_ID: '999',
+            VOICE_BENCHMARK_RUN_ATTEMPT: '2',
+          },
+        }),
+      ).toEqual(metrics);
+    });
+  });
+
   test('CLI deadline emits its category and cancels the in-flight request without logging its reason', async () => {
     await runnerFixture(async (root) => {
       const preload = join(root, 'preload.ts');
@@ -252,6 +363,8 @@ describe('owned benchmark diagnostics', () => {
           env: {
             MAELSTROM_VOICE_CI_RUN_ID: 'test-deadline',
             GITHUB_REPOSITORY: 'maelstrom-co/maelstrom',
+            GITHUB_RUN_ID: provenance.runId,
+            GITHUB_RUN_ATTEMPT: provenance.runAttempt,
             PR_NUMBER: '42',
             PREVIEW_WORKERS_DEV_SUFFIX: 'preview.workers.dev',
             GH_TOKEN: secret,
@@ -371,6 +484,7 @@ async function prepareDockerRunner(root: string) {
   for (const name of [
     'run-tests.ts',
     'ci-diagnostics.ts',
+    'ci-metrics.ts',
     'docker-output.ts',
     'benchmark-selection.ts',
     'tts-cache-dir.ts',

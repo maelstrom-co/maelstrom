@@ -57,6 +57,15 @@ export interface OpenAIAdapterOptions {
    */
   readonly greetingInterruption?: false | true | BrowserVadOptions;
   /**
+   * Experimental local remote-audio gate, default off. Uses the existing mic
+   * capture; never changes provider cancellation or server VAD. Speech onset
+   * disables received audio tracks; speech end plus 200ms of incoming quiet
+   * restores them. Misfires restore immediately. A reply without a quiet gap
+   * can be clipped. Failure falls back to provider-only interruption. Transport
+   * preRollMs is unused. Fixed greetings retain their separate interrupter.
+   */
+  readonly playbackBargeIn?: false | true | BrowserVadOptions;
+  /**
    * OpenAI server-VAD tuning and barge-in policy.
    *
    * The threshold defaults to `0.5` and must be a finite number in `[0, 1]`.

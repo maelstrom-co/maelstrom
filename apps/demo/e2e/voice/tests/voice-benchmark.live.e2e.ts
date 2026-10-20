@@ -64,6 +64,10 @@ import {
   replyWav,
   silentTailMs,
 } from './reply-recorder.ts';
+import {
+  assessResponseLatencyRun,
+  completeResponseLatencyReport,
+} from './response-latency-report.ts';
 import type {
   AudioCaptureSetupDiagnostics,
   BrowserAudioTimelineSnapshot,
@@ -71,8 +75,8 @@ import type {
 import {
   type AudioTimelineMeasurement,
   computeAudioTimelineMeasurement,
-  humanTurnPauseMergeMs,
-  mergeHumanSpeechSegments,
+  type FixtureSpeechWindow,
+  fixtureCommandSpeechEnvelopes,
   type SpeechSegment,
   singleCommandSpeechEnvelope,
   vadPadding,
@@ -248,6 +252,14 @@ test.describe('voice benchmark', () => {
     await installAssistantCaptionMutationObserver(page);
     const capture = recordReplies('tts2mic_rx.monitor', recordingBudgetMs);
     const records: VoiceBenchmarkRecord[] = [];
+    const fixturePlaybacks: {
+      scenario: string;
+      repetition: number;
+      workletStartFrame: number;
+      workletEndFrame: number;
+    }[] = [];
+    let fixtureSpeechWindows: readonly FixtureSpeechWindow[] | null = null;
+    let logicalHumanTurns: readonly SpeechSegment[] | null = null;
     let failures = 0;
     let audioTimeline: BrowserAudioTimelineSnapshot | undefined;
     let responseLatency = unsupportedLatency(
@@ -412,6 +424,12 @@ test.describe('voice benchmark', () => {
               return timeline.mark();
             },
           );
+          fixturePlaybacks.push({
+            scenario,
+            repetition,
+            workletStartFrame: timeline,
+            workletEndFrame,
+          });
           await expect
             .poll(
               async () => {
@@ -584,24 +602,40 @@ test.describe('voice benchmark', () => {
             } else {
               rawVadSegments = [...vadValidation.segments];
               capturedVadSampleRate = vadValidation.sampleRate;
-              const humanTurns = selection.singleTurn
-                ? singleCommandSpeechEnvelope(vadValidation.segments)
-                : mergeHumanSpeechSegments(
-                    vadValidation.segments,
-                    audioTimeline.sampleRate,
-                  );
-              if (selection.singleTurn && vadValidation.segments.length === 0) {
-                responseLatency = unsupportedLatency(
-                  'Single-turn capture is unsupported: VAD detected no speech segments.',
+              if (selection.singleTurn) {
+                logicalHumanTurns = singleCommandSpeechEnvelope(
+                  vadValidation.segments,
                 );
+                if (logicalHumanTurns.length === 0)
+                  responseLatency = unsupportedLatency(
+                    'Single-turn capture is unsupported: VAD detected no speech segments.',
+                  );
               } else {
+                const grouping = fixtureCommandSpeechEnvelopes(
+                  vadValidation.segments,
+                  fixturePlaybacks,
+                  audioTimeline,
+                );
+                if (grouping.status === 'unsupported') {
+                  responseLatency = unsupportedLatency(grouping.reason);
+                } else {
+                  fixtureSpeechWindows = grouping.windows;
+                  logicalHumanTurns = grouping.windows.map(
+                    (window) => window.speech,
+                  );
+                }
+              }
+              if (logicalHumanTurns && logicalHumanTurns.length > 0) {
                 responseLatency = computeAudioTimelineMeasurement({
                   inputPcm16: input.pcm,
                   inputChannels: input.channels,
                   assistantPcm16: assistantOutput.pcm,
                   assistantChannels: assistantOutput.channels,
                   sampleRate: audioTimeline.sampleRate,
-                  speechSegments: humanTurns,
+                  speechSegments: logicalHumanTurns,
+                  responseWindowEndSamples: fixtureSpeechWindows?.map(
+                    (window) => window.responseEndSample,
+                  ),
                   missingBlocks: audioTimeline.missingBlocks,
                   rejectAssistantOnsetBeforeSpeechEnd: selection.singleTurn,
                 });
@@ -652,9 +686,12 @@ test.describe('voice benchmark', () => {
       singleTurnFailureReason = selection.singleTurn
         ? (singleTurnValidity?.reasons[0] ?? null)
         : null;
+      const responseValidity = selection.singleTurn
+        ? null
+        : assessResponseLatencyRun(responseLatency, attemptFailed);
       failures = addAttemptFailure(
         failures,
-        attemptFailed,
+        attemptFailed || responseValidity?.status === 'failed',
         singleTurnFailureReason,
       );
       if (singleTurnFailureReason) {
@@ -666,6 +703,9 @@ test.describe('voice benchmark', () => {
       }
       const output = {
         benchmark: 'playwright-voice',
+        ...(responseValidity
+          ? { status: responseValidity.status, validation: responseValidity }
+          : {}),
         attemptIndex: testInfo.retry,
         repetitions: count,
         mode: selection.singleTurn ? 'single-turn' : 'full-scenario-suite',
@@ -703,7 +743,10 @@ test.describe('voice benchmark', () => {
             command: 'voice-devtools vad',
             threshold: vadThreshold,
             padding: vadPadding,
-            turnPauseMergeMs: humanTurnPauseMergeMs,
+            turnPauseMergeMs: null,
+            turnGrouping: selection.singleTurn
+              ? 'single-playback-command-envelope'
+              : 'per-fixture-playback-command-envelope',
             fixturePreflight,
             capturedVADValidation: capturedVadValidation
               ? {
@@ -713,17 +756,14 @@ test.describe('voice benchmark', () => {
               : null,
             rawVADSegmentCount: rawVadSegments?.length ?? null,
             rawVADSegments: rawVadSegments,
-            logicalHumanTurnCount: selection.singleTurn
-              ? rawVadSegments === null
-                ? null
-                : rawVadSegments.length > 0
-                  ? 1
-                  : 0
-              : null,
+            logicalHumanTurnCount: logicalHumanTurns?.length ?? null,
+            logicalHumanTurns,
+            fixturePlaybacks,
+            fixtureSpeechWindows,
           },
           t0: selection.singleTurn
             ? 'first captured human VAD StartSample with zero VAD padding; latency baseline is the final raw VAD EndSample of the one-playback command envelope'
-            : 'first human VAD StartSample with zero VAD padding; sample index relative to the captured full-session PCM',
+            : 'first captured human VAD StartSample; each fixture command ends at its final captured VAD EndSample; all offsets remain relative to the full-session PCM',
           assistantOnsetThreshold: 0.01,
           assistantOnsetQuietMergeMs: 10,
           physicalOutputCapture:
@@ -759,11 +799,20 @@ test.describe('voice benchmark', () => {
       try {
         await attachReportAndCleanup(
           output,
-          async (report) =>
-            testInfo.attach('voice-benchmark.json', {
-              body: JSON.stringify(report, null, 2),
-              contentType: 'application/json',
-            }),
+          async (report) => {
+            const attach = (value: typeof report) =>
+              testInfo.attach('voice-benchmark.json', {
+                body: JSON.stringify(value, null, 2),
+                contentType: 'application/json',
+              });
+            if (responseValidity)
+              await completeResponseLatencyReport(
+                report,
+                responseValidity,
+                attach,
+              );
+            else await attach(report);
+          },
           [
             async () =>
               page

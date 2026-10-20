@@ -25,6 +25,9 @@
     },
     {
       "path": "../engine/tsconfig.lib.json"
+    },
+    {
+      "path": "../realtime-vad/tsconfig.lib.json"
     }
   ]
 }

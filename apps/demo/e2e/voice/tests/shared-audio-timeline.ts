@@ -57,6 +57,100 @@ export function singleCommandSpeechEnvelope(
   return [{ startSample: first.startSample, endSample: last.endSample }];
 }
 
+/** One known prerecorded command and its exclusive response-search boundary, in WAV-relative samples. */
+export type FixtureSpeechWindow = {
+  readonly playbackStartSample: number;
+  readonly playbackEndSample: number;
+  readonly responseEndSample: number;
+  readonly speech: SpeechSegment;
+};
+
+/** Groups only wholly contained captured speech; markers bound attribution, never replace VAD endpoints. */
+export function fixtureCommandSpeechEnvelopes(
+  segments: readonly SpeechSegment[],
+  playbackWindows: readonly {
+    readonly workletStartFrame: number;
+    readonly workletEndFrame: number;
+  }[],
+  capture: { readonly startFrame: number; readonly endFrame: number },
+):
+  | {
+      readonly status: 'grouped';
+      readonly windows: readonly FixtureSpeechWindow[];
+    }
+  | { readonly status: 'unsupported'; readonly reason: string } {
+  const invalidWindows = () => ({
+    status: 'unsupported' as const,
+    reason:
+      'Fixture playback windows are missing, unordered or outside the captured timeline.',
+  });
+  if (
+    !Number.isSafeInteger(capture.startFrame) ||
+    !Number.isSafeInteger(capture.endFrame) ||
+    capture.startFrame < 0 ||
+    capture.endFrame <= capture.startFrame ||
+    playbackWindows.length === 0
+  )
+    return invalidWindows();
+  let previousEnd = capture.startFrame;
+  for (const window of playbackWindows) {
+    if (
+      !Number.isSafeInteger(window.workletStartFrame) ||
+      !Number.isSafeInteger(window.workletEndFrame) ||
+      window.workletStartFrame < previousEnd ||
+      window.workletEndFrame <= window.workletStartFrame ||
+      window.workletEndFrame > capture.endFrame
+    )
+      return invalidWindows();
+    previousEnd = window.workletEndFrame;
+  }
+  try {
+    singleCommandSpeechEnvelope(segments);
+  } catch {
+    return {
+      status: 'unsupported',
+      reason: 'Invalid or overlapping human VAD window.',
+    };
+  }
+  const unassignedSpeech = () => ({
+    status: 'unsupported' as const,
+    reason: 'Captured human speech is outside its fixture playback window.',
+  });
+  const windows: FixtureSpeechWindow[] = [];
+  let cursor = 0;
+  for (const [index, window] of playbackWindows.entries()) {
+    const playbackStartSample = window.workletStartFrame - capture.startFrame;
+    const playbackEndSample = window.workletEndFrame - capture.startFrame;
+    const first = cursor;
+    while (cursor < segments.length) {
+      const segment = segments[cursor];
+      if (!segment || segment.startSample >= playbackEndSample) break;
+      if (
+        segment.startSample < playbackStartSample ||
+        segment.endSample > playbackEndSample
+      )
+        return unassignedSpeech();
+      cursor++;
+    }
+    const [speech] = singleCommandSpeechEnvelope(segments.slice(first, cursor));
+    if (!speech)
+      return {
+        status: 'unsupported',
+        reason: 'No human VAD segments were detected for a fixture playback.',
+      };
+    windows.push({
+      playbackStartSample,
+      playbackEndSample,
+      responseEndSample:
+        (playbackWindows[index + 1]?.workletStartFrame ?? capture.endFrame) -
+        capture.startFrame,
+      speech,
+    });
+  }
+  if (cursor !== segments.length) return unassignedSpeech();
+  return { status: 'grouped', windows };
+}
+
 export function mergeHumanSpeechSegments(
   segments: readonly SpeechSegment[],
   sampleRate: number,
@@ -90,6 +184,8 @@ export function computeAudioTimelineMeasurement(args: {
   readonly assistantChannels: number;
   readonly sampleRate: number;
   readonly speechSegments: readonly SpeechSegment[];
+  /** Optional exclusive response limits, no later than the next speech onset or capture end. */
+  readonly responseWindowEndSamples?: readonly number[];
   readonly missingBlocks: number;
   readonly rejectAssistantOnsetBeforeSpeechEnd?: boolean;
   readonly assistantThreshold?: number;
@@ -102,6 +198,7 @@ export function computeAudioTimelineMeasurement(args: {
     assistantChannels,
     sampleRate,
     speechSegments,
+    responseWindowEndSamples,
     missingBlocks,
     rejectAssistantOnsetBeforeSpeechEnd = false,
     assistantThreshold = assistantSampleThreshold,
@@ -144,10 +241,19 @@ export function computeAudioTimelineMeasurement(args: {
     quietSamplesAtLeast,
   );
 
+  if (
+    responseWindowEndSamples &&
+    responseWindowEndSamples.length !== speechSegments.length
+  )
+    return unsupported('Invalid response-search window.');
+
   const turns = speechSegments.map(
     (segment, index): AudioTimelineTurnMeasurement => {
       const nextSegment = speechSegments[index + 1];
-      const windowEnd = nextSegment?.startSample ?? assistantFrames;
+      const windowEnd =
+        responseWindowEndSamples === undefined
+          ? (nextSegment?.startSample ?? assistantFrames)
+          : responseWindowEndSamples[index];
       const common = {
         vadStartSample: segment.startSample,
         vadEndSample: segment.endSample,
@@ -159,6 +265,10 @@ export function computeAudioTimelineMeasurement(args: {
         segment.startSample < 0 ||
         segment.endSample <= segment.startSample ||
         segment.endSample > inputFrames ||
+        typeof windowEnd !== 'number' ||
+        !Number.isSafeInteger(windowEnd) ||
+        windowEnd > assistantFrames ||
+        windowEnd > (nextSegment?.startSample ?? assistantFrames) ||
         windowEnd <= segment.endSample
       )
         return unsupportedTurn(
@@ -197,13 +307,17 @@ export function computeAudioTimelineMeasurement(args: {
       if (!candidate) {
         return unsupportedTurn(
           common,
-          'No assistant onset occurred before the next human VAD turn or capture end.',
+          responseWindowEndSamples
+            ? 'No assistant onset occurred before the next fixture playback or capture end.'
+            : 'No assistant onset occurred before the next human VAD turn or capture end.',
         );
       }
       if (candidate.endSample > windowEnd) {
         return unsupportedTurn(
           common,
-          'Assistant audio overlaps the next human VAD turn.',
+          responseWindowEndSamples
+            ? 'Assistant audio overlaps the next fixture playback.'
+            : 'Assistant audio overlaps the next human VAD turn.',
         );
       }
       const latencySamples = candidate.startSample - segment.endSample;

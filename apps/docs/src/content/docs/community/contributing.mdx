@@ -59,6 +59,14 @@ When you open a pull request, optimize for reviewability rather than volume:
 
 If the change affects public API or generated docs, mention which package or page a reviewer should inspect after the docs build.
 
+## Voice benchmark PR previews
+
+The credentialed voice benchmark runs against a deployed preview for an open, same-repository PR. Apply both `deploy-preview` and `bench-voice`; deployment approval remains tied to the exact head SHA, and `bench-voice` does not authorize deployment. Workflow and harness changes must land on the default branch before they can run.
+
+To request a fresh paid benchmark after the current PR/head was already claimed, manually run **Deploy PR Preview** from the default branch with the PR number and `new_benchmark_request` set to `true`. This authorizes one benchmark per GitHub workflow attempt; rerunning that opted-in workflow authorizes another attempt, while duplicate execution within the same attempt remains suppressed. Leave the input false for normal deduplication. The open-PR, label, approved/deployed-SHA, preview-URL, ownership, and cleanup checks still apply.
+
+Benchmark request history is stored in bot-owned PR comments. The active claim rolls older identities into immutable, hash-linked archive comments every 256 entries; do not edit or delete them. Missing or corrupted history fails closed. Comment discovery is bounded to 50 pages of 100 comments, so PRs exceeding 5,000 comments cannot launch the benchmark until that limit is addressed.
+
 ## Development commands
 
 ```bash

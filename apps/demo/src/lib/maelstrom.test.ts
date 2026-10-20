@@ -28,6 +28,7 @@ const state = vi.hoisted(() => ({
   realtimeOptions: undefined as DemoRealtimeOptions | undefined,
   liveKitAdapterOptions: [] as unknown[],
   openAIAdapterOptions: [] as unknown[],
+  liveAdapterOptions: [] as unknown[],
   openAIAdapterInstances: [] as Array<{ activateAudioCalls: number }>,
 }));
 
@@ -48,6 +49,16 @@ vi.mock('@maelstrom-co/react-realtime', async (importOriginal) => ({
   maelstromRealtime: (options: DemoRealtimeOptions) => {
     state.realtimeOptions = options;
     return state.extension;
+  },
+}));
+vi.mock('@maelstrom-co/realtime-openai-live', async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import('@maelstrom-co/realtime-openai-live')
+  >()),
+  OpenAILiveAdapter: class {
+    constructor(options: unknown) {
+      state.liveAdapterOptions.push(options);
+    }
   },
 }));
 vi.mock('@maelstrom-co/realtime-openai', async (importOriginal) => ({
@@ -112,10 +123,10 @@ function realtimeOptions(): DemoRealtimeOptions {
   return options;
 }
 
-function createAdapter(provider: 'livekit' | 'openai') {
+function createAdapter(provider: 'livekit' | 'live' | 'openai') {
   return realtimeOptions().createAdapter({
     sessionId: SessionId('session-1'),
-    provider: provider === 'livekit' ? 'livekit' : 'realtime',
+    provider: provider === 'openai' ? 'realtime' : provider,
   });
 }
 
@@ -142,6 +153,7 @@ afterEach(() => {
   clearPlaygroundKey();
   state.liveKitAdapterOptions.length = 0;
   state.openAIAdapterOptions.length = 0;
+  state.liveAdapterOptions.length = 0;
   state.openAIAdapterInstances.length = 0;
 });
 
@@ -197,8 +209,12 @@ describe('demo voice provider wiring', () => {
     });
   });
 
-  it('leaves local OpenAI server VAD at adapter defaults', () => {
+  it.each([
+    '0',
+    '1',
+  ])('leaves non-hosted OpenAI server VAD at adapter defaults (browser key=%s)', (browserKeyMode) => {
     vi.stubEnv('VITE_HOSTED', '0');
+    vi.stubEnv('VITE_BROWSER_KEY_MODE', browserKeyMode);
     createAdapter('openai');
 
     expect(state.openAIAdapterOptions).toHaveLength(1);
@@ -214,14 +230,14 @@ describe('demo voice provider wiring', () => {
     expect(state.liveKitAdapterOptions).toHaveLength(0);
   });
 
-  it('uses server VAD with the hosted legacy greeting interrupter', () => {
+  it('uses immediate server VAD with the hosted legacy greeting interrupter', () => {
     vi.stubEnv('VITE_HOSTED', '1');
     createAdapter('openai');
 
     const options = state.openAIAdapterOptions[0] as OpenAIOptions;
     expect(options.serverVad).toEqual({
       threshold: 0.8,
-      bargeInMode: 'transcript-confirmed',
+      bargeInMode: 'immediate',
     });
     expect(options.transcription).toEqual({ model: 'gpt-4o-transcribe' });
     expect(options).not.toHaveProperty('vad');
@@ -240,6 +256,9 @@ describe('demo voice provider wiring', () => {
     expect(providerModule.prepareBrowserOpenAIVoice()).toBe(true);
     expect(state.openAIAdapterInstances).toHaveLength(1);
     expect(state.openAIAdapterInstances[0]?.activateAudioCalls).toBe(1);
+    expect(state.openAIAdapterOptions[0]).toMatchObject({
+      serverVad: { threshold: 0.8, bargeInMode: 'immediate' },
+    });
 
     const prepared = state.openAIAdapterInstances[0];
     expect(createAdapter('openai')).toBe(prepared);
@@ -397,3 +416,19 @@ describe('demo voice provider wiring', () => {
     expect(auths[1]).toBe('Bearer sk-second-key-0987654321');
   });
 });
+
+for (const hosted of ['0', '1']) {
+  it(`enables the local playback gate on both speech-native paths (hosted=${hosted})`, () => {
+    vi.stubEnv('VITE_HOSTED', hosted);
+    createAdapter('live');
+    createAdapter('openai');
+    for (const options of [
+      state.liveAdapterOptions.at(-1),
+      state.openAIAdapterOptions.at(-1),
+    ])
+      expect(options).toHaveProperty('playbackBargeIn', {
+        providerOptions: { model: 'legacy' },
+      });
+    expect(state.liveAdapterOptions.at(-1)).not.toHaveProperty('serverVad');
+  });
+}

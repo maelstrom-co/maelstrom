@@ -998,3 +998,92 @@ test('barge-in uses captured PCM endpoints with bounded lifecycle corroboration'
     JSON.stringify(result),
   );
 });
+
+test('remote track gating silences the benchmark tap while a private probe keeps receiving audio', async ({
+  page,
+}) => {
+  await prepareAudioPage(page);
+  await page.evaluate(installSharedAudioTimeline);
+  const result = await page.evaluate(async () => {
+    const context = new AudioContext({ sampleRate: 48_000 });
+    await context.resume();
+    const timeline = (
+      window as Window & {
+        __voiceAudioTimeline?: {
+          testAttachMicrophone(stream: MediaStream): Promise<void>;
+          waitForReady(): Promise<void>;
+          mark(): Promise<number>;
+          snapshot(): Promise<BrowserAudioTimelineSnapshot>;
+          dispose(): Promise<void>;
+        };
+      }
+    ).__voiceAudioTimeline;
+    if (!timeline) throw new Error('Missing audio timeline');
+    const microphone = context.createMediaStreamDestination();
+    const output = context.createMediaStreamDestination();
+    const oscillator = context.createOscillator();
+    oscillator.connect(output);
+    oscillator.start();
+    const track = output.stream.getAudioTracks()[0];
+    if (!track) throw new Error('Missing output track');
+    const probe = track.clone();
+    const analyser = context.createAnalyser();
+    context.createMediaStreamSource(new MediaStream([probe])).connect(analyser);
+    await timeline.testAttachMicrophone(microphone.stream);
+    const audio = new Audio();
+    audio.srcObject = output.stream;
+    await audio.play();
+    await timeline.waitForReady();
+    const wait = () => new Promise((resolve) => setTimeout(resolve, 300));
+    await wait();
+    const muteAt = await timeline.mark();
+    track.enabled = false;
+    await wait();
+    const samples = new Float32Array(analyser.fftSize);
+    analyser.getFloatTimeDomainData(samples);
+    const probeRms = Math.sqrt(
+      samples.reduce((sum, value) => sum + value * value, 0) / samples.length,
+    );
+    const restoreAt = await timeline.mark();
+    track.enabled = true;
+    await wait();
+    const snapshot = await timeline.snapshot();
+    oscillator.stop();
+    probe.stop();
+    track.stop();
+    await timeline.dispose();
+    await context.close();
+    return { snapshot, muteAt, restoreAt, probeRms };
+  });
+  const captured = wavPcm(
+    Buffer.from(result.snapshot.assistantWavBase64, 'base64'),
+  );
+  const rms = (start: number, end: number) => {
+    let energy = 0;
+    let samples = 0;
+    for (
+      let frame = start - result.snapshot.startFrame;
+      frame < end - result.snapshot.startFrame;
+      frame++
+    ) {
+      for (let channel = 0; channel < captured.channels; channel++) {
+        const value =
+          captured.pcm.readInt16LE((frame * captured.channels + channel) * 2) /
+          32768;
+        energy += value * value;
+        samples++;
+      }
+    }
+    return Math.sqrt(energy / samples);
+  };
+  const margin = result.snapshot.sampleRate * 0.1;
+  assert.ok(rms(result.muteAt - margin, result.muteAt) > 0.1);
+  assert.ok(rms(result.muteAt + margin, result.restoreAt - margin) < 0.001);
+  assert.ok(
+    rms(result.restoreAt + margin, result.restoreAt + margin * 2) > 0.1,
+  );
+  assert.ok(
+    result.probeRms > 0.1,
+    'probe must not mistake local muting for remote silence',
+  );
+});
