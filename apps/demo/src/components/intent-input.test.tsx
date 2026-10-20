@@ -22,6 +22,12 @@ import {
   clearPlaygroundKey,
   setPlaygroundKey,
 } from '../lib/playground-key-store';
+import { IntentInput } from './intent-input';
+
+vi.mock('../lib/hosted-mode', () => ({ usesBrowserKey: () => true }));
+vi.mock('./voice-control', () => ({ VoiceControl: () => null }));
+vi.mock('./voice-error-note', () => ({ VoiceErrorNote: () => null }));
+vi.mock('./captions', () => ({ Captions: () => null }));
 
 const INTENT_EXAMPLES = ['Plan my afternoon', 'Hide the weather'];
 
@@ -34,11 +40,6 @@ const demoMaelstrom = {
   useVoice: () => ({ state: voiceState }),
   VoiceOrb: () => <button type="button">Voice</button>,
 } as unknown as DemoMaelstrom;
-vi.doMock('../lib/hosted-mode', () => ({ usesBrowserKey: () => true }));
-vi.doMock('./voice-control', () => ({ VoiceControl: () => null }));
-vi.doMock('./voice-error-note', () => ({ VoiceErrorNote: () => null }));
-vi.doMock('./captions', () => ({ Captions: () => null }));
-const { IntentInput } = await import('./intent-input');
 
 afterEach(() => {
   cleanup();

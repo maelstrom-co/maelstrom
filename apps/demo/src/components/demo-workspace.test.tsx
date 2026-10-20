@@ -1,11 +1,16 @@
 // @vitest-environment happy-dom
 
+import { createMaelstrom } from '@maelstrom-co/react';
+import { devtools } from '@maelstrom-co/react-devtools/production';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FakeRealtimeSession } from '../lib/__tests__/fake-realtime-session';
 import { createMockConnector } from '../lib/__tests__/mock-connector';
 import { DEFAULT_LAYOUT, NARROW_LAYOUT } from '../lib/default-layout';
+import { demoRealtime } from '../lib/demo-realtime';
+import { diagnosticCapture } from '../lib/diagnostic-capture';
 import { m } from '../lib/maelstrom';
+import { orchestrationLegibility } from '../lib/orchestration-legibility';
 import {
   clearPlaygroundKey,
   setPlaygroundKey,
@@ -150,5 +155,47 @@ describe('DemoWorkspace', () => {
       expect(screen.getByTestId('option-sync')).toBeTruthy();
     });
     expect(initialLayout).toHaveBeenCalledWith(600);
+  });
+
+  it('renders the shared chrome from a second, vessel-less instance', async () => {
+    setPlaygroundKey('sk-test');
+    const other = createMaelstrom({ vessels: [] })
+      .with(demoRealtime())
+      .with(orchestrationLegibility)
+      .with(devtools({ capture: diagnosticCapture }));
+    function OtherOptionSync() {
+      const { connectionStatus } = other.useMaelstrom();
+      return <span data-testid="option-sync">{connectionStatus}</span>;
+    }
+
+    render(
+      <DemoWorkspace
+        maelstrom={other}
+        initialLayout={() => ({ type: 'tiling', tree: [], instances: [] })}
+        OptionSync={OtherOptionSync}
+        examples={EXAMPLES}
+        KeylessFallback={KeylessFallback}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('option-sync').textContent).toBe('connected');
+    });
+    const hint = screen.getByTestId('first-run-hint');
+    for (const example of EXAMPLES) {
+      expect(hint.textContent).toContain(example);
+    }
+    expect(
+      document.querySelector('[data-instance-id="calendar-main"]'),
+    ).toBeNull();
+    const suggestions = Array.from(
+      document.querySelectorAll('#demo-intent-examples option'),
+      (option) => option.getAttribute('value'),
+    );
+    expect(suggestions).toEqual(EXAMPLES);
+    expect(screen.getByLabelText('Voice provider')).toBeTruthy();
+    expect(
+      screen.getByRole('status', { name: 'Connection status: connected' }),
+    ).toBeTruthy();
   });
 });
