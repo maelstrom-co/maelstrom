@@ -124,14 +124,14 @@ test('only invocation identity joins reused tool IDs and proves related request 
     {
       key: JSON.stringify(['app', 'request-first']),
       requestId: 'request-first',
-      available: true,
+      state: 'available',
     },
   ]);
   expect(lane.groups[1].requests).toEqual([
     {
-      key: JSON.stringify(['app', 'request-second']),
       requestId: 'request-second',
-      available: false,
+      state: 'unavailable',
+      reason: 'not-retained',
     },
   ]);
 });
@@ -258,7 +258,7 @@ test('request history supplies related evidence without fabricating an order for
   expect(lanes[0].events.map((event) => event.kind)).toEqual([
     'voice.tool.result',
   ]);
-  expect(lanes[0].groups[0].requests[0].available).toBe(true);
+  expect(lanes[0].groups[0].requests[0].state).toBe('available');
 });
 
 test('request-link availability follows the Requests buffer when activity outlives it', () => {
@@ -271,7 +271,10 @@ test('request-link availability follows the Requests buffer when activity outliv
       observation('client.request.started', {}, 'new'),
     ]),
   });
-  expect(lane.groups[0].requests[0].available).toBe(false);
+  expect(lane.groups[0].requests[0]).toMatchObject({
+    state: 'unavailable',
+    reason: 'not-retained',
+  });
 });
 
 test('colliding native response lifecycles remain unlinked after redaction', () => {
@@ -375,7 +378,10 @@ test('a projected request-key collision cannot navigate into contradictory retai
       },
     ]),
   });
-  expect(lane.groups[0].requests[0].available).toBe(false);
+  expect(lane.groups[0].requests[0]).toMatchObject({
+    state: 'unavailable',
+    reason: 'ambiguous',
+  });
 });
 
 test.each([
@@ -411,8 +417,8 @@ test.each([
     ),
   });
   expect(lane.groups[0].requests[0]).toMatchObject({
-    available: false,
-    ambiguous: true,
+    state: 'unavailable',
+    reason: 'ambiguous',
   });
 });
 
@@ -441,8 +447,7 @@ test.each([
       end,
     ]),
   });
-  expect(lane.groups[0].requests[0].available).toBe(true);
-  expect(lane.groups[0].requests[0].ambiguous).toBeUndefined();
+  expect(lane.groups[0].requests[0].state).toBe('available');
 });
 
 test('voice events in the destination request buffer also disprove its session ownership', () => {
@@ -458,8 +463,10 @@ test('voice events in the destination request buffer also disprove its session o
       },
     ]),
   });
-  expect(lane.groups[0].requests[0].available).toBe(false);
-  expect(lane.groups[0].requests[0].ambiguous).toBe(true);
+  expect(lane.groups[0].requests[0]).toMatchObject({
+    state: 'unavailable',
+    reason: 'ambiguous',
+  });
 });
 
 test('a redacted result session cannot erase its invocation group context when linking requests', () => {
@@ -478,8 +485,10 @@ test('a redacted result session cannot erase its invocation group context when l
       },
     ]),
   });
-  expect(lane.groups[0].requests[0].available).toBe(false);
-  expect(lane.groups[0].requests[0].ambiguous).toBe(true);
+  expect(lane.groups[0].requests[0]).toMatchObject({
+    state: 'unavailable',
+    reason: 'ambiguous',
+  });
 });
 
 test.each([
@@ -501,8 +510,11 @@ test.each([
       },
     ]),
   });
-  expect(lane.groups[1].requests[0].available).toBe(available);
-  if (!available) expect(lane.groups[1].requests[0].ambiguous).toBe(true);
+  expect(lane.groups[1].requests[0].state).toBe(
+    available ? 'available' : 'unavailable',
+  );
+  if (!available)
+    expect(lane.groups[1].requests[0]).toMatchObject({ reason: 'ambiguous' });
 });
 
 test('response correlation uses neutral lifecycle facts instead of provider event names', () => {
@@ -564,6 +576,92 @@ test('legacy native-only response labels do not establish a normalized response 
   ]);
 });
 
+test.each([
+  'ambiguous',
+  'exhausted',
+] as const)('a %s history still permits independently proven direct links but cannot use Voice as destination proof', (state) => {
+  const result = observation(
+    'voice.tool.result',
+    { invocationId: 'one' },
+    'request',
+  );
+  const destination = observation('client.response.applied', {}, 'request');
+  for (const [sessionId, expected] of [
+    ['session', 'available'],
+    ['[REDACTED]', 'unavailable'],
+  ] as const) {
+    const [lane] = voiceTimeline(
+      {
+        events: panelEvents([result]),
+        requestEvents: panelEvents([{ ...destination, sessionId }, result]),
+      },
+      () => ({ state }),
+    );
+    expect(lane.groupingDisabled).toBe(true);
+    expect(lane.groups[0].requests[0].state).toBe(expected);
+    if (expected === 'unavailable')
+      expect(lane.groups[0].requests[0]).toMatchObject({
+        reason: 'unconfirmed',
+      });
+  }
+});
+
+test.each([
+  { state: 'unobserved' },
+  { state: 'observed' },
+  { state: 'ambiguous' },
+  { state: 'exhausted' },
+] as const)('missing source proof stays unconfirmed with $state history', (context) => {
+  const [lane] = voiceTimeline(
+    {
+      events: panelEvents([
+        {
+          ...observation(
+            'voice.tool.result',
+            { invocationId: 'one' },
+            'request',
+          ),
+          sessionId: '[REDACTED]',
+        },
+      ]),
+      requestEvents: panelEvents([
+        observation('client.response.applied', {}, 'request'),
+      ]),
+    },
+    () => context,
+  );
+  expect(lane.groups[0].requests[0]).toMatchObject({
+    state: 'unavailable',
+    reason: 'unconfirmed',
+  });
+});
+
+test.each([
+  'ambiguous',
+  'exhausted',
+] as const)('direct request ownership does not change when unrelated %s lane context expires', (state) => {
+  const unrelated = observation('voice.media');
+  const result = {
+    ...observation('voice.tool.result', { invocationId: 'one' }, 'request'),
+    sessionId: 'direct-session',
+  };
+  const destination = {
+    ...observation('client.response.applied', {}, 'request'),
+    sessionId: 'direct-session',
+  };
+  for (const events of [[unrelated, result], [result]]) {
+    const [lane] = voiceTimeline(
+      {
+        events: panelEvents(events),
+        requestEvents: panelEvents([destination, result]),
+      },
+      () => ({ state }),
+    );
+    expect(lane.groupingDisabled).toBe(true);
+    expect(lane.groups.at(-1)?.requests[0].state).toBe('available');
+  }
+});
+
 test('voice identity availability distinguishes withheld, malformed, and absent evidence without correlating it', () => {
   const lanes = voiceTimeline({
     events: panelEvents([
@@ -594,4 +692,66 @@ test('voice identity availability distinguishes withheld, malformed, and absent 
       lane.groups.every((group) => group.type === 'unlinked'),
     ),
   ).toBe(true);
+});
+
+test.each([
+  ['[REDACTED]', 'redacted'],
+  ['prefix[TRUNC', 'truncated'],
+  ['[MAX_DEPTH]', 'unreadable'],
+  [42, 'unreadable'],
+  [{ value: 'request' }, 'unreadable'],
+] as const)('unusable request identity %j retains its evidence without creating a navigation target', (requestId, reason) => {
+  const [lane] = voiceTimeline({
+    events: panelEvents([{ ...observation('voice.tool.result'), requestId }]),
+  });
+  expect(lane.groups[0].requests).toEqual([
+    { state: 'identity-unavailable', reason },
+  ]);
+  expect(lane.events[0].raw.requestId).toEqual(requestId);
+});
+
+test('a readable request ID cannot establish ownership without an app identity', () => {
+  const [lane] = voiceTimeline({
+    events: panelEvents([
+      observation('voice.tool.result', { clientId: '[REDACTED]' }, 'request'),
+    ]),
+    requestEvents: panelEvents([
+      observation('client.response.applied', {}, 'request'),
+    ]),
+  });
+  expect(lane.groups[0].requests).toEqual([
+    { state: 'unavailable', requestId: 'request', reason: 'unconfirmed' },
+  ]);
+});
+
+test('request provenance cannot hide a readable app and request identity with the same words', () => {
+  const [lane] = voiceTimeline({
+    events: panelEvents([
+      observation(
+        'voice.tool.called',
+        { clientId: 'identity-unavailable', invocationId: 'one' },
+        '[REDACTED]',
+      ),
+      observation(
+        'voice.tool.result',
+        { clientId: 'identity-unavailable', invocationId: 'one' },
+        'redacted',
+      ),
+    ]),
+    requestEvents: panelEvents([
+      observation(
+        'client.response.applied',
+        { clientId: 'identity-unavailable' },
+        'redacted',
+      ),
+    ]),
+  });
+  expect(lane.groups[0].requests).toEqual([
+    { state: 'identity-unavailable', reason: 'redacted' },
+    {
+      state: 'available',
+      key: JSON.stringify(['identity-unavailable', 'redacted']),
+      requestId: 'redacted',
+    },
+  ]);
 });

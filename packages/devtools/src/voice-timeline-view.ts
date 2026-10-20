@@ -14,6 +14,7 @@ import {
   type RenderedView,
   type ViewContext,
 } from './panel-views.js';
+import type { VoiceLaneContext } from './voice-timeline.js';
 import {
   type VoiceTimelineControls,
   type VoiceViewState,
@@ -78,9 +79,9 @@ export function voiceTimelineView(
   change: (next: VoiceViewState, resetPage?: boolean) => void,
   openRequest: (key: string) => void,
   controls: VoiceTimelineControls,
-  knownAmbiguities?: (laneKey: string) => boolean,
+  laneContext?: (laneKey: string) => VoiceLaneContext,
 ): RenderedView {
-  const all = voiceTimeline(context.evidence, knownAmbiguities)
+  const all = voiceTimeline(context.evidence, laneContext)
     .filter(
       (lane) =>
         context.clientId === 'all' || lane.clientId === context.clientId,
@@ -280,22 +281,33 @@ export function voiceTimelineView(
     const requests = element('section', undefined, 'voice-requests');
     requests.append(element('h3', 'Related request evidence'));
     for (const request of group.requests.slice(0, context.pageSize)) {
-      const node = button(`Open request ${request.requestId}`, () =>
-        openRequest(request.key),
-      );
-      node.disabled = !request.available;
-      if (!request.available)
-        node.title = request.ambiguous
-          ? 'Retained app context contradicts this request link.'
-          : 'Request identity was reported; supporting request events are not retained.';
+      if (request.state === 'identity-unavailable') {
+        requests.append(
+          element('p', `Request identity is ${request.reason}.`, 'muted small'),
+        );
+        continue;
+      }
+      const node = button(`Open request ${request.requestId}`, () => {
+        if (request.state === 'available') openRequest(request.key);
+      });
+      node.disabled = request.state !== 'available';
+      if (request.state === 'unavailable')
+        node.title =
+          request.reason === 'ambiguous'
+            ? 'Retained app context contradicts this request link.'
+            : request.reason === 'unconfirmed'
+              ? 'Retained session evidence does not establish request ownership.'
+              : 'Request identity was reported; supporting request events are not retained.';
       requests.append(node);
-      if (!request.available)
+      if (request.state === 'unavailable')
         requests.append(
           element(
             'p',
-            request.ambiguous
+            request.reason === 'ambiguous'
               ? 'Related request ownership is ambiguous.'
-              : 'Related request events are not retained.',
+              : request.reason === 'unconfirmed'
+                ? 'Related request ownership is unconfirmed.'
+                : 'Related request events are not retained.',
             'muted small',
           ),
         );
