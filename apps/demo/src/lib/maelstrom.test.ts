@@ -12,6 +12,8 @@ import {
   DEMO_GREETING_TTS_URL,
   DEMO_OPENAI_VOICE,
 } from './demo-greeting-tts';
+import { prepareBrowserOpenAIVoice } from './demo-realtime';
+import { registerDemoVoice } from './demo-voice';
 import { clearPlaygroundKey, setPlaygroundKey } from './playground-key-store';
 import type { DemoVoiceProvider } from './voice-provider';
 import { selectVoiceProvider } from './voice-provider';
@@ -109,12 +111,12 @@ vi.mock('./voice/get-livekit-token', () => ({
 
 // Static import of maelstrom under a stable specifier (existing pattern).
 const providerTestSpecifier = './maelstrom.ts' + '?provider-test';
-const providerModule = await import(providerTestSpecifier);
+await import(providerTestSpecifier);
 
 it('does not claim inert Live audio preparation succeeded when saving the first browser key', () => {
   vi.stubEnv('VITE_HOSTED', '1');
   selectVoiceProvider('live');
-  expect(providerModule.prepareBrowserOpenAIVoice()).toBe(false);
+  expect(prepareBrowserOpenAIVoice()).toBe(false);
 });
 
 function realtimeOptions(): DemoRealtimeOptions {
@@ -253,7 +255,7 @@ describe('demo voice provider wiring', () => {
     vi.stubEnv('VITE_VOICE_PROVIDER', 'openai');
     selectVoiceProvider('realtime');
 
-    expect(providerModule.prepareBrowserOpenAIVoice()).toBe(true);
+    expect(prepareBrowserOpenAIVoice()).toBe(true);
     expect(state.openAIAdapterInstances).toHaveLength(1);
     expect(state.openAIAdapterInstances[0]?.activateAudioCalls).toBe(1);
     expect(state.openAIAdapterOptions[0]).toMatchObject({
@@ -281,6 +283,7 @@ describe('demo voice provider wiring', () => {
       'realtime',
       'livekit',
     ]);
+    expect(realtimeOptions().onSession).toBe(registerDemoVoice);
     // Greeting must not disturb either provider's adapter construction.
     createAdapter('openai');
     createAdapter('livekit');

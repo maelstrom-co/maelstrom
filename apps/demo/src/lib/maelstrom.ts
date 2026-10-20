@@ -5,13 +5,13 @@ import { journalEntry } from '../vessels/journal.vessel';
 import { mapEntry } from '../vessels/map.vessel';
 import { tasksEntry } from '../vessels/tasks.vessel';
 import { weatherEntry } from '../vessels/weather.vessel';
-import { DEMO_GREETING, DEMO_OPENAI_VOICE } from './demo-greeting-tts';
-import { demoRealtime, prepareBrowserOpenAIVoice } from './demo-realtime';
+import { DEMO_GREETING } from './demo-greeting-tts';
+import { demoRealtime } from './demo-realtime';
 import { createDemoTelemetry } from './demo-telemetry';
 import { diagnosticCapture } from './diagnostic-capture';
 import { orchestrationLegibility } from './orchestration-legibility';
 
-export { DEMO_GREETING, DEMO_OPENAI_VOICE, prepareBrowserOpenAIVoice };
+export { DEMO_GREETING };
 
 const vessels = [
   calendarEntry,
