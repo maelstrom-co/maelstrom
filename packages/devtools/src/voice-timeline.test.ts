@@ -662,6 +662,71 @@ test.each([
   }
 });
 
+test.each([
+  'ambiguous',
+  'exhausted',
+] as const)('unreadable direct ownership stays unconfirmed when unrelated %s context expires', (state) => {
+  const unrelated = observation('voice.media');
+  const destination = {
+    ...observation('client.response.applied', {}, 'request'),
+    sessionId: 'destination-session',
+  };
+  for (const sessionId of ['[REDACTED]', undefined]) {
+    const result = {
+      ...observation('voice.tool.result', { invocationId: 'one' }, 'request'),
+      sessionId,
+    };
+    for (const events of [[unrelated, result], [result]]) {
+      const [lane] = voiceTimeline(
+        {
+          events: panelEvents(events),
+          requestEvents: panelEvents([destination, result]),
+        },
+        () => ({ state }),
+      );
+      expect(lane.groups.at(-1)?.requests[0]).toMatchObject({
+        state: 'unavailable',
+        reason: 'unconfirmed',
+      });
+    }
+  }
+});
+
+test.each([
+  'ambiguous',
+  'exhausted',
+] as const)('missing source proof cannot hide destination contradictions with %s history', (state) => {
+  const result = {
+    ...observation('voice.tool.result', { invocationId: 'one' }, 'request'),
+    sessionId: '[REDACTED]',
+  };
+  for (const requestEvents of [
+    [
+      observation('client.response.applied', {}, 'request'),
+      {
+        ...observation('engine.stage.completed', {}, 'request'),
+        sessionId: 'other-session',
+      },
+    ],
+    [
+      observation('client.request.started', {}, 'request'),
+      observation('client.request.started', {}, 'request'),
+    ],
+  ]) {
+    const [lane] = voiceTimeline(
+      {
+        events: panelEvents([result]),
+        requestEvents: panelEvents(requestEvents),
+      },
+      () => ({ state }),
+    );
+    expect(lane.groups[0].requests[0]).toMatchObject({
+      state: 'unavailable',
+      reason: 'ambiguous',
+    });
+  }
+});
+
 test('voice identity availability distinguishes withheld, malformed, and absent evidence without correlating it', () => {
   const lanes = voiceTimeline({
     events: panelEvents([

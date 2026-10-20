@@ -468,10 +468,9 @@ export function voiceTimeline(
         requests.add(key);
         const target = availableRequests.get(key);
         const directSession = identity(event.raw.sessionId);
-        const ownershipSessions =
-          lane.groupingDisabled && directSession
-            ? new Set([directSession])
-            : sourceSessions;
+        const ownershipSessions = lane.groupingDisabled
+          ? new Set(directSession ? [directSession] : [])
+          : sourceSessions;
         const ambiguous =
           ownershipSessions.size > 1 ||
           Boolean(

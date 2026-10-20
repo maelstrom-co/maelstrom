@@ -4,6 +4,49 @@ import { createVoicePanelHarness } from '../test-utils/voice.js';
 
 const { attach, event, mount } = createVoicePanelHarness();
 
+test('unsafe Voice history cannot turn missing session proof into a contradiction', () => {
+  const tools = createDevtools({
+    initialIsOpen: true,
+    maxActivityEvents: 3,
+    redact(value) {
+      if (!value || typeof value !== 'object' || Array.isArray(value))
+        return value;
+      const observation = value as Record<string, unknown>;
+      if (observation.kind === 'client.response.applied')
+        return { ...observation, sessionId: 'destination-session' };
+      if (observation.kind === 'voice.tool.result')
+        return { ...observation, sessionId: '[REDACTED]' };
+      return value;
+    },
+  });
+  const emit = attach(tools);
+  let view = mount(tools);
+  view.click('Voice');
+  emit('voice.tool.called', { invocationId: 'collapsed' });
+  emit('voice.tool.called', { invocationId: 'collapsed' });
+  emit('voice.media');
+  emit('client.response.applied', {}, 'request');
+  emit('voice.tool.result', { invocationId: 'other' }, 'request');
+  const expectUnconfirmed = () => {
+    expect(view.shadow.querySelector('.voice-requests')?.textContent).toContain(
+      'Related request ownership is unconfirmed.',
+    );
+    const link = Array.from(view.shadow.querySelectorAll('button')).find(
+      (node) => node.textContent === 'Open request request',
+    );
+    expect(link?.disabled).toBe(true);
+    expect(link?.title).toBe(
+      'Retained session evidence does not establish request ownership.',
+    );
+  };
+  expectUnconfirmed();
+  emit('client.connection', { state: 'connected' });
+  expectUnconfirmed();
+  view.unmount();
+  view = mount(tools);
+  expectUnconfirmed();
+});
+
 test.each([
   3, 2,
 ])('retaining %s observations cannot make a contradictory request navigable after source-session eviction', (limit) => {

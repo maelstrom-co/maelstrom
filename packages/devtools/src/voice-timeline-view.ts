@@ -22,6 +22,22 @@ import {
   voiceLifetimeLabel,
 } from './voice-timeline-controls.js';
 
+const unavailableRequestCopy = {
+  ambiguous: {
+    title: 'Retained app context contradicts this request link.',
+    message: 'Related request ownership is ambiguous.',
+  },
+  unconfirmed: {
+    title: 'Retained session evidence does not establish request ownership.',
+    message: 'Related request ownership is unconfirmed.',
+  },
+  'not-retained': {
+    title:
+      'Request identity was reported; supporting request events are not retained.',
+    message: 'Related request events are not retained.',
+  },
+};
+
 function label(event: PanelEvent): string {
   const labels: Record<string, string> = {
     'voice.tool.called': 'Tool called',
@@ -291,26 +307,13 @@ export function voiceTimelineView(
         if (request.state === 'available') openRequest(request.key);
       });
       node.disabled = request.state !== 'available';
-      if (request.state === 'unavailable')
-        node.title =
-          request.reason === 'ambiguous'
-            ? 'Retained app context contradicts this request link.'
-            : request.reason === 'unconfirmed'
-              ? 'Retained session evidence does not establish request ownership.'
-              : 'Request identity was reported; supporting request events are not retained.';
+      const copy =
+        request.state === 'unavailable'
+          ? unavailableRequestCopy[request.reason]
+          : undefined;
+      if (copy) node.title = copy.title;
       requests.append(node);
-      if (request.state === 'unavailable')
-        requests.append(
-          element(
-            'p',
-            request.reason === 'ambiguous'
-              ? 'Related request ownership is ambiguous.'
-              : request.reason === 'unconfirmed'
-                ? 'Related request ownership is unconfirmed.'
-                : 'Related request events are not retained.',
-            'muted small',
-          ),
-        );
+      if (copy) requests.append(element('p', copy.message, 'muted small'));
     }
     if (group.requests.length > context.pageSize)
       requests.append(
