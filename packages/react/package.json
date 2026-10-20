@@ -1,6 +1,6 @@
 {
   "name": "@maelstrom-co/react",
-  "version": "0.1.0-alpha.7",
+  "version": "0.1.0-alpha.8",
   "description": "React bindings for Maelstrom: Provider, Chart, connectors, vessel definitions, and hooks for AI-orchestrated dynamic UI.",
   "keywords": [
     "maelstrom",
@@ -52,8 +52,8 @@
     "registry": "https://npm.pkg.github.com"
   },
   "dependencies": {
-    "@maelstrom-co/client": "0.1.0-alpha.7",
-    "@maelstrom-co/protocol": "0.1.0-alpha.7",
+    "@maelstrom-co/client": "0.1.0-alpha.8",
+    "@maelstrom-co/protocol": "0.1.0-alpha.8",
     "@tanstack/react-store": "catalog:"
   },
   "devDependencies": {

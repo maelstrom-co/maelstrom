@@ -1,6 +1,6 @@
 {
   "name": "@maelstrom-co/react-realtime",
-  "version": "0.1.0-alpha.7",
+  "version": "0.1.0-alpha.8",
   "description": "React bindings for Maelstrom realtime voice: the maelstromRealtime() extension, useVoice, VoiceOrb, and a createLevelMeter audio-metering utility.",
   "keywords": [
     "maelstrom",
@@ -47,10 +47,10 @@
     "registry": "https://npm.pkg.github.com"
   },
   "dependencies": {
-    "@maelstrom-co/client": "0.1.0-alpha.7",
-    "@maelstrom-co/protocol": "0.1.0-alpha.7",
-    "@maelstrom-co/react": "0.1.0-alpha.7",
-    "@maelstrom-co/realtime": "0.1.0-alpha.7"
+    "@maelstrom-co/client": "0.1.0-alpha.8",
+    "@maelstrom-co/protocol": "0.1.0-alpha.8",
+    "@maelstrom-co/react": "0.1.0-alpha.8",
+    "@maelstrom-co/realtime": "0.1.0-alpha.8"
   },
   "peerDependencies": {
     "react": ">=18.0.0",

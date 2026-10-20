@@ -1,6 +1,6 @@
 {
   "name": "@maelstrom-co/planner-jev",
-  "version": "0.1.0-alpha.7",
+  "version": "0.1.0-alpha.8",
   "description": "Experimental server-only Maelstrom planner that lets TypeSafe Jev decide selection, actions and tiling layout, with a small LLM call for the user message.",
   "keywords": [
     "maelstrom",
@@ -58,8 +58,8 @@
     "registry": "https://npm.pkg.github.com"
   },
   "dependencies": {
-    "@maelstrom-co/engine": "0.1.0-alpha.7",
-    "@maelstrom-co/protocol": "0.1.0-alpha.7",
+    "@maelstrom-co/engine": "0.1.0-alpha.8",
+    "@maelstrom-co/protocol": "0.1.0-alpha.8",
     "@tanstack/ai": "catalog:",
     "zod": "catalog:"
   },
