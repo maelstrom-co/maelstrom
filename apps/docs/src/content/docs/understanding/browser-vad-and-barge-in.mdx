@@ -66,13 +66,15 @@ That condition is also what separates degrading from failing. If the adapter can
 
 Two consequences reach your components. `turnControl` is dynamic: it is absent in healthy automatic mode and appears only after `vad: false` or a safe degradation, so read it from current state and never cache it. And `turnModeError` tells you a degradation happened; its value is a diagnostic, so use its presence to choose fixed recovery copy and never render it or store it.
 
-## Why none of this applies to OpenAI Realtime
+## OpenAI playback gating is not turn detection
 
-OpenAI Realtime is a speech-native provider session. Ordinary turns stay provider-owned: turn detection, response cancellation, and spoken output remain OpenAI's. Adding browser-side turn control for those later turns would create two owners for one boundary, and the two would eventually disagree about when your turn ended.
+OpenAI Realtime and OpenAI Live keep their existing provider-side turn and response behavior. The demo also enables `playbackBargeIn` on both adapters: browser VAD reads the microphone stream the connection already owns and locally disables only received assistant audio tracks when it detects speech. The microphone continues to the provider; this gate does not create another turn owner or send a new cancellation command. Realtime's existing transcription-driven cancel/clear path remains unchanged.
 
-There is one narrow exception. `greetingInterruption` is OpenAI-only and greeting-only. Local VAD may accept one boundary while the fixed greeting is actually playing. After greeting settlement, OpenAI server VAD owns later turns again. The shared session still has no `vad` option.
+While playback is muted, a private clone of the received audio tracks keeps measuring remote output. The gate restores the tracks' original enabled values after local speech ends and incoming audio has stayed quiet for 200 ms. If detector setup fails, playback falls back to provider-only interruption. This quiet-gap heuristic can clip a new response that starts before the gap; browser VAD and acoustic behavior remain device-dependent.
 
-That is why the `vad` option lives on the LiveKit adapter rather than on the shared session. It is not a Maelstrom-wide voice setting; it is how one adapter solves a problem the other adapter does not have for ordinary turns. See [Configure experimental greeting interruption](/guides/voice/openai-realtime/#configure-experimental-greeting-interruption) for the OpenAI greeting option.
+This differs from LiveKit's VAD gate: LiveKit uses browser detection to control **upstream microphone publication**, admitting audio to the room only for accepted turns. OpenAI's `playbackBargeIn` gates **downstream playback** only, while mic audio continues to the provider. Neither option belongs on the shared session because their transport and turn contracts differ.
+
+OpenAI has a separate `greetingInterruption` option for locally interrupting the fixed greeting. It is greeting-only; after that greeting settles, provider turn handling continues normally. See [Configure experimental greeting interruption](/guides/voice/openai-realtime/#configure-experimental-greeting-interruption) for that option.
 
 ## Browser processing is a request, not a result
 
