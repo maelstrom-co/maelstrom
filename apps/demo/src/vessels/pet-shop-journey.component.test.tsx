@@ -1,8 +1,20 @@
 // @vitest-environment happy-dom
 
+import type { VesselDefinition } from '@maelstrom-co/protocol';
 import type { TypedVesselProps } from '@maelstrom-co/react';
-import { act, cleanup, fireEvent, render } from '@testing-library/react';
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  within,
+} from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { CATALOG_SKUS } from '../lib/pet-shop-fixtures';
+import { cartVessel } from './cart.vessel.def';
+import { catalogVessel } from './catalog.vessel.def';
+import { checkoutVessel } from './checkout.vessel.def';
+import { ordersVessel } from './orders.vessel.def';
 
 type Handler = (params?: Record<string, unknown>) => Promise<{
   ok: boolean;
@@ -10,6 +22,13 @@ type Handler = (params?: Record<string, unknown>) => Promise<{
 }>;
 
 const handlers = new Map<string, Record<string, Handler>>();
+
+const SHOP_VESSELS: Readonly<Record<string, VesselDefinition>> = {
+  orders: ordersVessel,
+  catalog: catalogVessel,
+  cart: cartVessel,
+  checkout: checkoutVessel,
+};
 
 vi.mock('../lib/pet-shop-maelstrom', () => ({
   shop: {
@@ -64,7 +83,9 @@ describe('pet-food reorder journey through the vessel action handlers', () => {
     expect(await invoke('orders', 'showMostRecentOrder')).toMatchObject({
       ok: true,
     });
-    expect(orders.getByText('DOG-DRY-SUMMIT-ADULT-30')).toBeTruthy();
+    expect(
+      within(orders.container).getByText('DOG-DRY-SUMMIT-ADULT-30'),
+    ).toBeTruthy();
 
     expect(
       await invoke('catalog', 'findSimilarProducts', {
@@ -77,14 +98,18 @@ describe('pet-food reorder journey through the vessel action handlers', () => {
       'DOG-DRY-SUMMIT-HW-30',
       'DOG-DRY-HARVEST-SENS-30',
     ]);
-    expect(catalog.getByText('Northpaw Lean Turkey & Oatmeal')).toBeTruthy();
+    expect(
+      within(catalog.container).getByText('Northpaw Lean Turkey & Oatmeal'),
+    ).toBeTruthy();
 
     expect(
       await invoke('cart', 'addToCart', { sku: 'DOG-DRY-SUMMIT-HW-30' }),
     ).toMatchObject({ ok: true });
     expect(
-      cart.getAllByText('Summit Trail Healthy Weight Chicken & Barley').length,
-    ).toBeGreaterThan(0);
+      within(cart.container).getByText(
+        'Summit Trail Healthy Weight Chicken & Barley',
+      ),
+    ).toBeTruthy();
 
     expect(await invoke('checkout', 'placeOrder')).toMatchObject({ ok: true });
     expect(getCartSnapshot().lines).toEqual([]);
@@ -108,6 +133,7 @@ describe('pet-food reorder journey through the vessel action handlers', () => {
   });
 
   it('returns descriptive errors the model can recover from', async () => {
+    render(<OrdersComponent {...props<TypedVesselProps<never>>('list')} />);
     render(<CatalogComponent {...props<TypedVesselProps<never>>('results')} />);
     render(<CartComponent {...props<TypedVesselProps<never>>('items')} />);
     render(<CheckoutComponent {...props<TypedVesselProps<never>>('review')} />);
@@ -123,6 +149,31 @@ describe('pet-food reorder journey through the vessel action handlers', () => {
     });
     expect(badSpecies?.error?.message).toContain('"dog" or "cat"');
 
+    const badFoodType = await invoke('catalog', 'searchProducts', {
+      foodType: 'raw',
+    });
+    expect(badFoodType?.error?.message).toContain('"dry" or "wet"');
+
+    const unknownOrder = await invoke('orders', 'showOrderDetails', {
+      orderId: 'ORD-1',
+    });
+    expect(unknownOrder?.error?.message).toContain(
+      'ORD-10455, ORD-10421, ORD-10388, ORD-10307',
+    );
+
+    const unknownProduct = await invoke('cart', 'addToCart', {
+      sku: 'NOT-A-SKU',
+    });
+    expect(unknownProduct?.error?.message).toContain(CATALOG_SKUS.join(', '));
+
+    const zeroToAdd = await invoke('cart', 'addToCart', {
+      sku: 'DOG-DRY-SUMMIT-HW-30',
+      quantity: 0,
+    });
+    expect(zeroToAdd?.error?.message).toBe(
+      'quantity must be a whole number of at least 1, got 0',
+    );
+
     const notInCart = await invoke('cart', 'removeFromCart', {
       sku: 'DOG-DRY-SUMMIT-HW-30',
     });
@@ -130,6 +181,26 @@ describe('pet-food reorder journey through the vessel action handlers', () => {
 
     const emptyCheckout = await invoke('checkout', 'placeOrder');
     expect(emptyCheckout?.error?.message).toContain('cart is empty');
+
+    cartActions.addToCart('DOG-DRY-SUMMIT-HW-30');
+    const negativeUpdate = await invoke('cart', 'updateCartQuantity', {
+      sku: 'DOG-DRY-SUMMIT-HW-30',
+      quantity: -1,
+    });
+    expect(negativeUpdate?.error?.message).toBe(
+      'quantity must be a whole number of 0 or more (0 removes the line), got -1',
+    );
+  });
+
+  it('lower-cases the species before searching', async () => {
+    render(<CatalogComponent {...props<TypedVesselProps<never>>('results')} />);
+    expect(
+      await invoke('catalog', 'searchProducts', { species: 'Dog' }),
+    ).toMatchObject({ ok: true });
+    expect(getCatalogSnapshot().view).toMatchObject({
+      kind: 'search',
+      criteria: { species: 'dog' },
+    });
   });
 });
 
@@ -166,6 +237,29 @@ describe('pet-shop vessels by hand', () => {
   });
 });
 
+describe('pet-shop vessel action runners', () => {
+  it('registers a runner for every action each vessel definition declares', () => {
+    render(<OrdersComponent {...props<TypedVesselProps<never>>('list')} />);
+    render(<CatalogComponent {...props<TypedVesselProps<never>>('results')} />);
+    render(<CartComponent {...props<TypedVesselProps<never>>('items')} />);
+    render(<CheckoutComponent {...props<TypedVesselProps<never>>('review')} />);
+
+    const registered = Object.fromEntries(
+      Object.keys(SHOP_VESSELS).map((vesselId) => [
+        vesselId,
+        Object.keys(handlers.get(vesselId) ?? {}).sort(),
+      ]),
+    );
+    const declared = Object.fromEntries(
+      Object.entries(SHOP_VESSELS).map(([vesselId, vessel]) => [
+        vesselId,
+        declaredActionNames(vessel),
+      ]),
+    );
+    expect(registered).toEqual(declared);
+  });
+});
+
 function props<P>(variant: string): P {
   return {
     instanceId: 'test',
@@ -186,4 +280,11 @@ async function invoke(
     result = await handler(params);
   });
   return result;
+}
+
+function declaredActionNames(vessel: VesselDefinition): string[] {
+  const names = Object.values(vessel.variants).flatMap((variant) =>
+    variant.actions.map((action) => action.name),
+  );
+  return [...new Set(names)].sort();
 }

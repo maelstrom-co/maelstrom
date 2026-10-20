@@ -1,4 +1,8 @@
-import { type ActionParameter, validateVessel } from '@maelstrom-co/protocol';
+import {
+  type VesselActionDefinition,
+  type VesselDefinition,
+  validateVessel,
+} from '@maelstrom-co/protocol';
 import { describe, expect, it } from 'vitest';
 import { SHOP_LAYOUT } from '../lib/default-layout';
 import {
@@ -28,29 +32,51 @@ describe('pet-shop vessel definitions', () => {
     expect(validateVessel(vessel)).toMatchObject({ valid: true });
   });
 
-  it('moves catalog to the product variant on showProductDetails', () => {
-    const action = catalogVessel.variants.results.actions.find(
-      (candidate) => candidate.name === 'showProductDetails',
+  it.each([
+    ['orders', 'list', 'showOrderDetails', 'detail'],
+    ['orders', 'list', 'showMostRecentOrder', 'detail'],
+    ['orders', 'detail', 'backToOrderList', 'list'],
+    ['catalog', 'results', 'showProductDetails', 'product'],
+    ['catalog', 'product', 'searchProducts', 'results'],
+    ['catalog', 'product', 'findSimilarProducts', 'results'],
+    ['catalog', 'product', 'clearSearch', 'results'],
+    ['catalog', 'product', 'backToResults', 'results'],
+    ['checkout', 'review', 'placeOrder', 'confirmation'],
+    ['checkout', 'confirmation', 'returnToCheckoutReview', 'review'],
+  ] as const)('moves %s from %s to the target variant on %s', (vesselId, variant, action, target) => {
+    expect(declaredAction(vesselId, variant, action)?.transitionsTo).toBe(
+      target,
     );
-    expect(action?.transitionsTo).toBe('product');
   });
 
-  it('moves checkout to the confirmation variant on placeOrder', () => {
-    const action = checkoutVessel.variants.review.actions.find(
-      (candidate) => candidate.name === 'placeOrder',
+  it('declares no transitions on the cart actions', () => {
+    const vessel: VesselDefinition = cartVessel;
+    const actions = Object.values(vessel.variants).flatMap(
+      (variant) => variant.actions,
     );
-    expect(action?.transitionsTo).toBe('confirmation');
+    expect(actions).not.toHaveLength(0);
+    expect(
+      actions.filter((action) => action.transitionsTo !== undefined),
+    ).toEqual([]);
   });
 
-  it('offers only catalog SKUs as product parameters', () => {
-    const addToCart = cartVessel.variants.items.actions.find(
-      (candidate) => candidate.name === 'addToCart',
-    );
-    // `defineVessel` infers the literal parameter shape, which has no `enum`
-    // key; `withActionOptions` adds it at runtime.
-    const parameters: readonly ActionParameter[] = addToCart?.parameters ?? [];
-    const sku = parameters.find((parameter) => parameter.name === 'sku');
-    expect(sku?.enum).toEqual([...CATALOG_SKUS]);
+  it.each([
+    ['cart', 'items', 'addToCart', 'sku', CATALOG_SKUS],
+    ['catalog', 'results', 'searchProducts', 'species', ['dog', 'cat']],
+    ['catalog', 'results', 'searchProducts', 'foodType', ['dry', 'wet']],
+    ['catalog', 'results', 'findSimilarProducts', 'sku', CATALOG_SKUS],
+    ['catalog', 'results', 'showProductDetails', 'sku', CATALOG_SKUS],
+    ['catalog', 'product', 'searchProducts', 'species', ['dog', 'cat']],
+    ['catalog', 'product', 'searchProducts', 'foodType', ['dry', 'wet']],
+    ['catalog', 'product', 'findSimilarProducts', 'sku', CATALOG_SKUS],
+    ['catalog', 'product', 'showProductDetails', 'sku', CATALOG_SKUS],
+  ] as const)('offers an enum on %s %s.%s %s', (vesselId, variant, action, parameter, values) => {
+    const declared = declaredAction(
+      vesselId,
+      variant,
+      action,
+    )?.parameters?.find((candidate) => candidate.name === parameter);
+    expect(declared?.enum).toEqual([...values]);
   });
 
   it('quotes the fixture pricing and customer in the cart and orders descriptions', () => {
@@ -78,3 +104,14 @@ describe('pet-shop vessel definitions', () => {
     }
   });
 });
+
+function declaredAction(
+  vesselId: keyof typeof SHOP_VESSELS,
+  variant: string,
+  action: string,
+): VesselActionDefinition | undefined {
+  const vessel: VesselDefinition = SHOP_VESSELS[vesselId];
+  return vessel.variants[variant]?.actions.find(
+    (candidate) => candidate.name === action,
+  );
+}
