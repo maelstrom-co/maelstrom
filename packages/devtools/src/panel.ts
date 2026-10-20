@@ -1367,7 +1367,7 @@ function Panel(tools: Devtools): HTMLElement {
                   },
                   voiceControls,
                   currentSource === 'live'
-                    ? preferences.voiceCorrelations.isAmbiguous
+                    ? preferences.voiceCorrelations.context
                     : undefined,
                 )
               : connectionsView(

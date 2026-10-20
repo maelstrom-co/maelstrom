@@ -28,13 +28,26 @@ export interface VoiceGroup {
   type: 'invocation' | 'response' | 'unlinked';
   label: string;
   events: PanelEvent[];
-  requests: {
-    key: string;
-    requestId: string;
-    available: boolean;
-    ambiguous?: boolean;
-  }[];
+  requests: VoiceRequestReference[];
 }
+
+type VoiceRequestReference =
+  | { state: 'available'; key: string; requestId: string }
+  | {
+      state: 'unavailable';
+      requestId: string;
+      reason: 'ambiguous' | 'not-retained' | 'unconfirmed';
+    }
+  | {
+      state: 'identity-unavailable';
+      reason: 'redacted' | 'truncated' | 'unreadable';
+    };
+
+export type VoiceLaneContext =
+  | { state: 'unobserved' }
+  | { state: 'observed'; sessionId?: string }
+  | { state: 'ambiguous' }
+  | { state: 'exhausted' };
 
 function generation(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
@@ -143,8 +156,14 @@ export class VoiceCorrelationHistory {
   >();
   private retained = 0;
   private exhausted = false;
-  readonly isAmbiguous = (key: string): boolean =>
-    this.exhausted || this.poisonedLanes.has(key);
+  readonly context = (key: string): VoiceLaneContext => {
+    if (this.exhausted) return { state: 'exhausted' };
+    if (this.poisonedLanes.has(key)) return { state: 'ambiguous' };
+    const lane = this.lanes.get(key);
+    return lane
+      ? { state: 'observed', sessionId: lane.sessionId }
+      : { state: 'unobserved' };
+  };
 
   observe(events: PanelEvent[]): void {
     if (this.exhausted) return;
@@ -301,13 +320,14 @@ function voiceLanes(events: readonly PanelEvent[]): VoiceLane[] {
 
 export function voiceTimeline(
   evidence: Pick<PanelEvidence, 'events' | 'requestEvents'>,
-  knownAmbiguities?: (laneKey: string) => boolean,
+  laneContext?: (laneKey: string) => VoiceLaneContext,
 ): VoiceLane[] {
   const lanes = voiceLanes(evidence.events);
   const availableRequests = new Map<
     string,
     {
       sessions: Set<string>;
+      supportingSessions: Set<string>;
       supported: boolean;
       starts: number;
       ends: number;
@@ -322,6 +342,7 @@ export function voiceTimeline(
     const key = JSON.stringify([event.clientId, event.requestId]);
     const request = availableRequests.get(key) ?? {
       sessions: new Set<string>(),
+      supportingSessions: new Set<string>(),
       supported: false,
       starts: 0,
       ends: 0,
@@ -329,7 +350,10 @@ export function voiceTimeline(
     };
     const sessionId = identity(event.raw.sessionId);
     if (sessionId) request.sessions.add(sessionId);
-    request.supported ||= !event.kind.startsWith('voice.');
+    if (!event.kind.startsWith('voice.')) {
+      request.supported = true;
+      if (sessionId) request.supportingSessions.add(sessionId);
+    }
     if (event.kind === 'client.request.started') {
       request.ambiguous ||= request.starts > 0 || request.ends > 0;
       request.starts++;
@@ -341,14 +365,18 @@ export function voiceTimeline(
     availableRequests.set(key, request);
   }
   for (const lane of lanes) {
+    const context = laneContext?.(lane.key);
     const sourceSessions = new Set(
       lane.events.flatMap((event) => {
         const id = identity(event.raw.sessionId);
         return id ? [id] : [];
       }),
     );
-    lane.groupingDisabled =
-      lane.contextAmbiguous || (knownAmbiguities?.(lane.key) ?? false);
+    if (context?.state === 'observed' && context.sessionId)
+      sourceSessions.add(context.sessionId);
+    const historyUnsafe =
+      context?.state === 'ambiguous' || context?.state === 'exhausted';
+    lane.groupingDisabled = lane.contextAmbiguous || historyUnsafe;
     const groups = new Map<string, VoiceGroup>();
     const ambiguous = ambiguousInvocations(lane.events);
     const responsesAmbiguous = ambiguousResponses(lane.events);
@@ -412,29 +440,65 @@ export function voiceTimeline(
     lane.groups = [...groups.values()];
     for (const group of lane.groups) {
       const requests = new Set<string>();
+      const unavailableIdentities = new Set<IdentityAvailability>();
       for (const event of group.events) {
-        if (!lane.clientId || !event.requestId) continue;
+        const availability = identityAvailability(event.raw.requestId);
+        if (availability === 'not-reported') continue;
+        if (availability !== 'reported') {
+          if (!unavailableIdentities.has(availability)) {
+            unavailableIdentities.add(availability);
+            group.requests.push({
+              state: 'identity-unavailable',
+              reason: availability,
+            });
+          }
+          continue;
+        }
+        if (!event.requestId) continue;
+        if (!lane.clientId) {
+          group.requests.push({
+            state: 'unavailable',
+            requestId: event.requestId,
+            reason: 'unconfirmed',
+          });
+          continue;
+        }
         const key = JSON.stringify([lane.clientId, event.requestId]);
         if (requests.has(key)) continue;
         requests.add(key);
         const target = availableRequests.get(key);
+        const directSession = identity(event.raw.sessionId);
+        const ownershipSessions = lane.groupingDisabled
+          ? new Set(directSession ? [directSession] : [])
+          : sourceSessions;
         const ambiguous =
-          sourceSessions.size > 1 ||
+          ownershipSessions.size > 1 ||
           Boolean(
             target &&
               (target.ambiguous ||
                 target.sessions.size > 1 ||
                 (target.sessions.size > 0 &&
-                  [...sourceSessions].some(
+                  [...ownershipSessions].some(
                     (session) => !target.sessions.has(session),
                   ))),
           );
-        group.requests.push({
-          key,
-          requestId: event.requestId,
-          available: Boolean(target?.supported && !ambiguous),
-          ...(ambiguous ? { ambiguous: true } : {}),
-        });
+        const confirmed = lane.groupingDisabled
+          ? Boolean(
+              directSession && target?.supportingSessions.has(directSession),
+            )
+          : [...sourceSessions].some((session) =>
+              target?.supportingSessions.has(session),
+            );
+        const reference = { requestId: event.requestId };
+        group.requests.push(
+          ambiguous
+            ? { ...reference, state: 'unavailable', reason: 'ambiguous' }
+            : !target?.supported
+              ? { ...reference, state: 'unavailable', reason: 'not-retained' }
+              : !confirmed
+                ? { ...reference, state: 'unavailable', reason: 'unconfirmed' }
+                : { ...reference, key, state: 'available' },
+        );
       }
     }
   }
