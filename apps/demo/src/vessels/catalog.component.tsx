@@ -132,15 +132,19 @@ export default function CatalogComponent({
             </thead>
             <tbody>
               {results.map((product) => (
-                <tr
-                  key={product.sku}
-                  onClick={() =>
-                    executeAction('showProductDetails', { sku: product.sku })
-                  }
-                  className="align-top cursor-pointer hover:bg-white/5"
-                >
+                <tr key={product.sku} className="align-top hover:bg-white/5">
                   <td className="py-1 pr-2">
-                    <div className="text-ink">{product.name}</div>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        executeAction('showProductDetails', {
+                          sku: product.sku,
+                        })
+                      }
+                      className="w-full text-left text-ink"
+                    >
+                      {product.name}
+                    </button>
                     <div className="text-xs text-ink-3">
                       {product.species} · {product.foodType} ·{' '}
                       {product.lifeStage} · {product.size}
