@@ -85,6 +85,32 @@ describe('cartActions', () => {
     });
   });
 
+  it('removes a line by name when the first catalog match is not in the cart', () => {
+    cartActions.addToCart('DOG-DRY-SUMMIT-HW-30');
+    expect(cartActions.removeFromCart('Healthy Weight')).toEqual({
+      ok: true,
+      line: null,
+    });
+    cartActions.addToCart('DOG-DRY-SUMMIT-HW-30');
+    expect(cartActions.removeFromCart('Summit Trail')).toEqual({
+      ok: true,
+      line: null,
+    });
+    expect(getCartSnapshot().lines).toEqual([]);
+  });
+
+  it('reports ambiguous when a name matches more than one cart line and leaves the lines alone', () => {
+    cartActions.addToCart('DOG-DRY-SUMMIT-ADULT-30');
+    cartActions.addToCart('DOG-DRY-SUMMIT-HW-30');
+    const before = getCartSnapshot().lines;
+    expect(cartActions.updateCartQuantity('Summit Trail', 3)).toEqual({
+      ok: false,
+      reason: 'ambiguous',
+      candidates: ['DOG-DRY-SUMMIT-ADULT-30', 'DOG-DRY-SUMMIT-HW-30'],
+    });
+    expect(getCartSnapshot().lines).toBe(before);
+  });
+
   it('removes one line and keeps the rest', () => {
     cartActions.addToCart('DOG-DRY-SUMMIT-HW-30');
     cartActions.addToCart('CAT-WET-WHISKER-PATE-24');

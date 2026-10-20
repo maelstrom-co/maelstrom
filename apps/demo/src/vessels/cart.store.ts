@@ -15,7 +15,13 @@ interface CartState {
 
 export type CartMutationResult =
   | { ok: true; line: CartLine | null }
-  | { ok: false; reason: 'unknown_product' | 'not_in_cart' | 'bad_quantity' };
+  | { ok: false; reason: 'unknown_product' | 'not_in_cart' | 'bad_quantity' }
+  | { ok: false; reason: 'ambiguous'; candidates: readonly string[] };
+
+type LineMatch =
+  | { kind: 'found'; line: CartLine }
+  | { kind: 'none' }
+  | { kind: 'ambiguous'; candidates: readonly string[] };
 
 const INITIAL_STATE: CartState = { lines: [] };
 
@@ -61,20 +67,20 @@ export const cartActions = {
     return { ok: true, line };
   },
   removeFromCart(skuOrName: string): CartMutationResult {
-    const line = findLine(skuOrName);
-    if (!line) return { ok: false, reason: 'not_in_cart' };
-    setState({ lines: state.lines.filter((l) => l.sku !== line.sku) });
+    const match = findLine(skuOrName);
+    if (match.kind !== 'found') return lineLookupFailure(match);
+    setState({ lines: state.lines.filter((l) => l.sku !== match.line.sku) });
     return { ok: true, line: null };
   },
   updateCartQuantity(skuOrName: string, quantity: number): CartMutationResult {
     if (quantity === 0) return cartActions.removeFromCart(skuOrName);
     if (!isPositiveInteger(quantity))
       return { ok: false, reason: 'bad_quantity' };
-    const existing = findLine(skuOrName);
-    if (!existing) return { ok: false, reason: 'not_in_cart' };
-    const line = { ...existing, quantity };
+    const match = findLine(skuOrName);
+    if (match.kind !== 'found') return lineLookupFailure(match);
+    const line = { ...match.line, quantity };
     setState({
-      lines: state.lines.map((l) => (l.sku === existing.sku ? line : l)),
+      lines: state.lines.map((l) => (l.sku === line.sku ? line : l)),
     });
     return { ok: true, line };
   },
@@ -97,11 +103,26 @@ function setState(next: CartState): void {
   for (const l of listeners) l();
 }
 
-function findLine(skuOrName: string): CartLine | undefined {
-  const product = findProduct(skuOrName);
-  return product
-    ? state.lines.find((line) => line.sku === product.sku)
-    : undefined;
+function findLine(skuOrName: string): LineMatch {
+  const query = skuOrName.trim();
+  const bySku = state.lines.find((line) => line.sku === query.toUpperCase());
+  if (bySku) return { kind: 'found', line: bySku };
+  const name = query.toLowerCase();
+  const byName = name
+    ? state.lines.filter((line) => line.name.toLowerCase().includes(name))
+    : [];
+  if (byName.length > 1) {
+    return { kind: 'ambiguous', candidates: byName.map((line) => line.sku) };
+  }
+  return byName[0] ? { kind: 'found', line: byName[0] } : { kind: 'none' };
+}
+
+function lineLookupFailure(
+  match: Exclude<LineMatch, { kind: 'found' }>,
+): CartMutationResult {
+  return match.kind === 'ambiguous'
+    ? { ok: false, reason: 'ambiguous', candidates: match.candidates }
+    : { ok: false, reason: 'not_in_cart' };
 }
 
 function lineFor(product: Product, quantity: number): CartLine {
