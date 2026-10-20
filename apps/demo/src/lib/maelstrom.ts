@@ -161,7 +161,7 @@ function createOpenAIAdapter(
       ? {
           serverVad: {
             threshold: 0.8,
-            bargeInMode: 'transcript-confirmed',
+            bargeInMode: 'immediate',
           },
         }
       : {}),

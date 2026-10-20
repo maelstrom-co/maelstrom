@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import { summarizeVoiceBenchmark } from './benchmark-metrics.ts';
 import {
   computeAudioTimelineMeasurement,
+  fixtureCommandSpeechEnvelopes,
   mergeHumanSpeechSegments,
   singleCommandSpeechEnvelope,
 } from './shared-audio-timeline.ts';
@@ -467,4 +468,322 @@ test('does not invent a latency when there is no human VAD input or assistant on
   });
   assert.equal(noReply.status, 'unsupported');
   assert.equal(noReply.turns[0]?.latencySamples, null);
+});
+
+function fixtureWindows() {
+  const capture = { startFrame: 10_000, endFrame: 15_000 };
+  const playbackWindows = [
+    { workletStartFrame: 10_000, workletEndFrame: 11_500 },
+    { workletStartFrame: 12_000, workletEndFrame: 13_500 },
+  ];
+  const segments = [
+    { startSample: 100, endSample: 200 },
+    { startSample: 840, endSample: 1_100 },
+    { startSample: 2_200, endSample: 2_400 },
+    { startSample: 3_040, endSample: 3_300 },
+  ];
+  return { capture, playbackWindows, segments };
+}
+
+test('fixture envelopes merge a 640ms internal pause but keep separate playbacks and absolute clock origins', () => {
+  const { capture, playbackWindows, segments } = fixtureWindows();
+  const before = structuredClone({ capture, playbackWindows, segments });
+  assert.equal(mergeHumanSpeechSegments(segments, 1_000).length, 4);
+  const grouping = fixtureCommandSpeechEnvelopes(
+    segments,
+    playbackWindows,
+    capture,
+  );
+  assert.equal(grouping.status, 'grouped');
+  if (grouping.status !== 'grouped')
+    throw new Error('Expected grouped fixture commands');
+  assert.deepEqual(grouping.windows, [
+    {
+      playbackStartSample: 0,
+      playbackEndSample: 1_500,
+      responseEndSample: 2_000,
+      speech: { startSample: 100, endSample: 1_100 },
+    },
+    {
+      playbackStartSample: 2_000,
+      playbackEndSample: 3_500,
+      responseEndSample: 5_000,
+      speech: { startSample: 2_200, endSample: 3_300 },
+    },
+  ]);
+  const assistant = silentPcm16(5_000);
+  addAssistantBurst(assistant, 1_600, 1_800);
+  addAssistantBurst(assistant, 3_900, 4_100);
+  const measured = computeAudioTimelineMeasurement({
+    inputPcm16: silentPcm16(5_000),
+    assistantPcm16: assistant,
+    inputChannels: 1,
+    assistantChannels: 1,
+    sampleRate: 1_000,
+    speechSegments: grouping.windows.map((window) => window.speech),
+    responseWindowEndSamples: grouping.windows.map(
+      (window) => window.responseEndSample,
+    ),
+    missingBlocks: 0,
+  });
+  assert.equal(measured.status, 'measured');
+  assert.equal(measured.t0Sample, 100);
+  assert.deepEqual(
+    measured.turns.map((turn) => turn.latencyMs),
+    [500, 600],
+  );
+  assert.equal(measured.turns[1]?.vadEndOffsetFromT0Samples, 3_200);
+  assert.equal(measured.turns[1]?.assistantOnsetOffsetFromT0Samples, 3_800);
+  assert.deepEqual({ capture, playbackWindows, segments }, before);
+});
+
+test('separate repeated-fixture windows do not merge even with less than 500ms between speech', () => {
+  const result = fixtureCommandSpeechEnvelopes(
+    [
+      { startSample: 100, endSample: 200 },
+      { startSample: 400, endSample: 500 },
+    ],
+    [
+      { workletStartFrame: 1_000, workletEndFrame: 1_300 },
+      { workletStartFrame: 1_300, workletEndFrame: 1_600 },
+    ],
+    { startFrame: 1_000, endFrame: 2_000 },
+  );
+  assert.equal(result.status, 'grouped');
+  if (result.status === 'grouped') {
+    assert.equal(result.windows.length, 2);
+    assert.deepEqual(
+      result.windows.map((window) => window.speech),
+      [
+        { startSample: 100, endSample: 200 },
+        { startSample: 400, endSample: 500 },
+      ],
+    );
+  }
+});
+
+test('fixture grouping never truncates crossing speech or discards unassigned later turns', () => {
+  const { capture, playbackWindows, segments } = fixtureWindows();
+  const firstSegment = segments[0];
+  const secondPlayback = playbackWindows[1];
+  assert.ok(firstSegment && secondPlayback);
+  for (const invalid of [
+    [{ startSample: -1, endSample: 100 }],
+    [{ startSample: 100, endSample: 1_501 }, ...segments.slice(2)],
+    [
+      ...segments.slice(0, 2),
+      { startSample: 1_800, endSample: 2_100 },
+      ...segments.slice(2),
+    ],
+    [...segments, { startSample: 4_500, endSample: 4_700 }],
+    [...segments, { startSample: 4_900, endSample: 5_100 }],
+    [...segments].reverse(),
+    [firstSegment, firstSegment, ...segments.slice(1)],
+  ]) {
+    const result = fixtureCommandSpeechEnvelopes(
+      invalid,
+      playbackWindows,
+      capture,
+    );
+    assert.equal(result.status, 'unsupported');
+  }
+  const beforeFirst = fixtureCommandSpeechEnvelopes(
+    [{ startSample: 10, endSample: 50 }, ...segments],
+    [{ workletStartFrame: 10_050, workletEndFrame: 11_500 }, secondPlayback],
+    capture,
+  );
+  assert.equal(beforeFirst.status, 'unsupported');
+});
+
+test('missing speech for any fixture invalidates grouping rather than reducing the population', () => {
+  const { capture, playbackWindows, segments } = fixtureWindows();
+  for (const missing of [[], segments.slice(0, 2), segments.slice(2)])
+    assert.deepEqual(
+      fixtureCommandSpeechEnvelopes(missing, playbackWindows, capture),
+      {
+        status: 'unsupported',
+        reason: 'No human VAD segments were detected for a fixture playback.',
+      },
+    );
+});
+
+test('fixture markers must be complete, ordered, disjoint and within the shared capture', () => {
+  const { capture, playbackWindows, segments } = fixtureWindows();
+  const firstPlayback = playbackWindows[0];
+  const secondPlayback = playbackWindows[1];
+  assert.ok(firstPlayback && secondPlayback);
+  for (const invalid of [
+    [],
+    [...playbackWindows].reverse(),
+    [{ workletStartFrame: 9_999, workletEndFrame: 11_500 }, secondPlayback],
+    [{ workletStartFrame: 10_000, workletEndFrame: 12_001 }, secondPlayback],
+    [{ workletStartFrame: 10_000, workletEndFrame: 10_000 }, secondPlayback],
+    [firstPlayback, { workletStartFrame: 12_000, workletEndFrame: 15_001 }],
+    [{ workletStartFrame: NaN, workletEndFrame: 11_500 }],
+    [{ workletStartFrame: 10_000, workletEndFrame: 11_500.5 }],
+  ])
+    assert.equal(
+      fixtureCommandSpeechEnvelopes(segments, invalid, capture).status,
+      'unsupported',
+    );
+  for (const invalidCapture of [
+    { startFrame: -1, endFrame: 15_000 },
+    { startFrame: 10_000, endFrame: 10_000 },
+    { startFrame: 10_000, endFrame: Infinity },
+  ])
+    assert.equal(
+      fixtureCommandSpeechEnvelopes(segments, playbackWindows, invalidCapture)
+        .status,
+      'unsupported',
+    );
+});
+
+test('assistant audio inside a fixture pause still invalidates latency despite a later reply', () => {
+  const { capture, playbackWindows, segments } = fixtureWindows();
+  const grouping = fixtureCommandSpeechEnvelopes(
+    segments,
+    playbackWindows,
+    capture,
+  );
+  assert.equal(grouping.status, 'grouped');
+  if (grouping.status !== 'grouped')
+    throw new Error('Expected grouped fixture commands');
+  const assistant = silentPcm16(5_000);
+  addAssistantBurst(assistant, 500, 600);
+  addAssistantBurst(assistant, 1_600, 1_800);
+  addAssistantBurst(assistant, 3_900, 4_100);
+  const result = computeAudioTimelineMeasurement({
+    inputPcm16: silentPcm16(5_000),
+    assistantPcm16: assistant,
+    inputChannels: 1,
+    assistantChannels: 1,
+    sampleRate: 1_000,
+    speechSegments: grouping.windows.map((window) => window.speech),
+    responseWindowEndSamples: grouping.windows.map(
+      (window) => window.responseEndSample,
+    ),
+    missingBlocks: 0,
+  });
+  assert.equal(result.status, 'partial');
+  assert.equal(result.turns[0]?.assistantOnsetSample, null);
+  assert.match(result.turns[0]?.reason ?? '', /overlapped/);
+  assert.equal(result.turns[1]?.latencyMs, 600);
+});
+
+test('a response after the next playback marker or crossing it cannot answer the preceding fixture', () => {
+  const { capture, playbackWindows, segments } = fixtureWindows();
+  const grouping = fixtureCommandSpeechEnvelopes(
+    segments,
+    playbackWindows,
+    capture,
+  );
+  if (grouping.status !== 'grouped')
+    throw new Error('Expected grouped fixture commands');
+  for (const [start, end] of [
+    [2_000, 2_100],
+    [1_900, 2_100],
+    [3_900, 4_100],
+  ] as const) {
+    const assistant = silentPcm16(5_000);
+    addAssistantBurst(assistant, start, end);
+    addAssistantBurst(assistant, 3_900, 4_100);
+    const result = computeAudioTimelineMeasurement({
+      inputPcm16: silentPcm16(5_000),
+      assistantPcm16: assistant,
+      inputChannels: 1,
+      assistantChannels: 1,
+      sampleRate: 1_000,
+      speechSegments: grouping.windows.map((window) => window.speech),
+      responseWindowEndSamples: grouping.windows.map(
+        (window) => window.responseEndSample,
+      ),
+      missingBlocks: 0,
+    });
+    assert.equal(result.status, 'partial');
+    assert.equal(result.turns[0]?.assistantOnsetSample, null);
+    assert.match(result.turns[0]?.reason ?? '', /next fixture playback/);
+    assert.equal(result.turns[1]?.assistantOnsetSample, 3_900);
+  }
+});
+
+test('invalid response bounds cannot widen a measurement beyond capture or the next human turn', () => {
+  const { input, assistant } = fixture();
+  for (const ends of [
+    [],
+    [500, 500],
+    [NaN, 500],
+    [180, 500],
+    [280, 501],
+    [280.5, 500],
+  ]) {
+    const result = computeAudioTimelineMeasurement({
+      inputPcm16: pcm16(input),
+      assistantPcm16: pcm16(assistant),
+      inputChannels: 1,
+      assistantChannels: 1,
+      sampleRate: 1_000,
+      speechSegments: [
+        { startSample: 100, endSample: 180 },
+        { startSample: 280, endSample: 350 },
+      ],
+      responseWindowEndSamples: ends,
+      missingBlocks: 0,
+    });
+    assert.notEqual(result.status, 'measured');
+  }
+});
+
+test('fixture speech keeps exact marker-boundary samples without padding or trimming', () => {
+  assert.deepEqual(
+    fixtureCommandSpeechEnvelopes(
+      [
+        { startSample: 50, endSample: 100 },
+        { startSample: 200, endSample: 400 },
+      ],
+      [
+        { workletStartFrame: 1_050, workletEndFrame: 1_100 },
+        { workletStartFrame: 1_200, workletEndFrame: 1_400 },
+      ],
+      { startFrame: 1_000, endFrame: 1_600 },
+    ),
+    {
+      status: 'grouped',
+      windows: [
+        {
+          playbackStartSample: 50,
+          playbackEndSample: 100,
+          responseEndSample: 200,
+          speech: { startSample: 50, endSample: 100 },
+        },
+        {
+          playbackStartSample: 200,
+          playbackEndSample: 400,
+          responseEndSample: 600,
+          speech: { startSample: 200, endSample: 400 },
+        },
+      ],
+    },
+  );
+});
+
+test('sparse response limits do not fall back to a wider generic human-turn window', () => {
+  const { input, assistant } = fixture();
+  const ends = new Array<number>(2);
+  ends[1] = 500;
+  const result = computeAudioTimelineMeasurement({
+    inputPcm16: pcm16(input),
+    assistantPcm16: pcm16(assistant),
+    inputChannels: 1,
+    assistantChannels: 1,
+    sampleRate: 1_000,
+    speechSegments: [
+      { startSample: 100, endSample: 180 },
+      { startSample: 280, endSample: 350 },
+    ],
+    responseWindowEndSamples: ends,
+    missingBlocks: 0,
+  });
+  assert.equal(result.status, 'partial');
+  assert.equal(result.turns[0]?.assistantOnsetSample, null);
+  assert.equal(result.turns[1]?.latencyMs, 30);
 });

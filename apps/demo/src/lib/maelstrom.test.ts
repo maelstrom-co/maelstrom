@@ -209,8 +209,12 @@ describe('demo voice provider wiring', () => {
     });
   });
 
-  it('leaves local OpenAI server VAD at adapter defaults', () => {
+  it.each([
+    '0',
+    '1',
+  ])('leaves non-hosted OpenAI server VAD at adapter defaults (browser key=%s)', (browserKeyMode) => {
     vi.stubEnv('VITE_HOSTED', '0');
+    vi.stubEnv('VITE_BROWSER_KEY_MODE', browserKeyMode);
     createAdapter('openai');
 
     expect(state.openAIAdapterOptions).toHaveLength(1);
@@ -226,14 +230,14 @@ describe('demo voice provider wiring', () => {
     expect(state.liveKitAdapterOptions).toHaveLength(0);
   });
 
-  it('uses server VAD with the hosted legacy greeting interrupter', () => {
+  it('uses immediate server VAD with the hosted legacy greeting interrupter', () => {
     vi.stubEnv('VITE_HOSTED', '1');
     createAdapter('openai');
 
     const options = state.openAIAdapterOptions[0] as OpenAIOptions;
     expect(options.serverVad).toEqual({
       threshold: 0.8,
-      bargeInMode: 'transcript-confirmed',
+      bargeInMode: 'immediate',
     });
     expect(options.transcription).toEqual({ model: 'gpt-4o-transcribe' });
     expect(options).not.toHaveProperty('vad');
@@ -252,6 +256,9 @@ describe('demo voice provider wiring', () => {
     expect(providerModule.prepareBrowserOpenAIVoice()).toBe(true);
     expect(state.openAIAdapterInstances).toHaveLength(1);
     expect(state.openAIAdapterInstances[0]?.activateAudioCalls).toBe(1);
+    expect(state.openAIAdapterOptions[0]).toMatchObject({
+      serverVad: { threshold: 0.8, bargeInMode: 'immediate' },
+    });
 
     const prepared = state.openAIAdapterInstances[0];
     expect(createAdapter('openai')).toBe(prepared);
@@ -419,8 +426,9 @@ for (const hosted of ['0', '1']) {
       state.liveAdapterOptions.at(-1),
       state.openAIAdapterOptions.at(-1),
     ])
-      expect(options).toMatchObject({
-        playbackBargeIn: { providerOptions: { model: 'legacy' } },
+      expect(options).toHaveProperty('playbackBargeIn', {
+        providerOptions: { model: 'legacy' },
       });
+    expect(state.liveAdapterOptions.at(-1)).not.toHaveProperty('serverVad');
   });
 }
