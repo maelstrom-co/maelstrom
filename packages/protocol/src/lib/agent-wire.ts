@@ -60,12 +60,11 @@ export type AgentFinishReason = z.infer<typeof AgentFinishReasonSchema>;
 
 /**
  * Outcome of one Action from an Execution Plan, reported by the browser after
- * it applied a UI change. `actionIndex` is the Action's position in plan
- * order. `error` describes the failure when `ok` is `false`.
+ * it applied a UI change. Outcomes are positional: entry i of
+ * `ui_applied.actionOutcomes` describes Action i of the Execution Plan.
+ * `error` describes the failure when `ok` is `false`.
  */
 export const AgentActionOutcomeSchema = z.object({
-  /** Zero-based position of the Action in the Execution Plan. */
-  actionIndex: z.number().int().nonnegative(),
   /** Whether the Action ran without error. */
   ok: z.boolean(),
   /** Human-readable failure description when the Action failed. */
@@ -120,7 +119,8 @@ export type AgentUtteranceInput = z.infer<typeof AgentUtteranceInputSchema>;
 
 /**
  * The browser's acknowledgement that it applied a UI change. Carries the
- * resulting Chart state and one outcome per Action in plan order.
+ * resulting Chart state and one outcome per Action. `actionOutcomes` is
+ * positional: entry i describes Action i of the Execution Plan.
  */
 export const AgentUiAppliedInputSchema = z.object({
   /** Member discriminator. */
@@ -131,7 +131,10 @@ export const AgentUiAppliedInputSchema = z.object({
   changeId: ChangeIdSchema,
   /** Chart state after the change was applied. */
   chart: chartSnapshotSchema(),
-  /** One outcome per Action in the Execution Plan, in plan order. */
+  /**
+   * One outcome per Action in the Execution Plan. Positional: entry i
+   * describes Action i of the Execution Plan.
+   */
   actionOutcomes: z.array(AgentActionOutcomeSchema),
 });
 

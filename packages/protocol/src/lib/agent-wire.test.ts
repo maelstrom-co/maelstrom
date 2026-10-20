@@ -77,8 +77,8 @@ const inputFixtures: {
     changeId: ChangeId('change-1'),
     chart: chart(),
     actionOutcomes: [
-      { actionIndex: 0, ok: true },
-      { actionIndex: 1, ok: false, error: 'Instance not mounted' },
+      { ok: true },
+      { ok: false, error: 'Instance not mounted' },
     ],
   },
 };
@@ -185,19 +185,27 @@ describe('AgentInput round-trip', () => {
     if (parsed.type !== 'ui_applied') throw new Error('expected ui_applied');
     expect(parsed.chart).toEqual(chart());
     expect(parsed.actionOutcomes).toEqual([
-      { actionIndex: 0, ok: true },
-      { actionIndex: 1, ok: false, error: 'Instance not mounted' },
+      { ok: true },
+      { ok: false, error: 'Instance not mounted' },
     ]);
   });
 
-  test('rejects a negative or fractional actionIndex', () => {
-    for (const actionIndex of [-1, 0.5]) {
-      const value = {
-        ...inputFixtures.ui_applied,
-        actionOutcomes: [{ actionIndex, ok: true }],
-      };
-      expect(AgentInputSchema.safeParse(value).success).toBe(false);
-    }
+  test('an action outcome carries only ok and an optional error and strips a legacy actionIndex', () => {
+    const actionOutcomes = [
+      { ok: true },
+      { ok: false, error: 'Instance not mounted' },
+    ];
+    const value = { ...inputFixtures.ui_applied, actionOutcomes };
+    expect(roundTrip(AgentInputSchema, value)).toEqual(value);
+
+    const legacy = {
+      ...inputFixtures.ui_applied,
+      actionOutcomes: actionOutcomes.map((outcome, actionIndex) => ({
+        actionIndex,
+        ...outcome,
+      })),
+    };
+    expect(roundTrip(AgentInputSchema, legacy)).toEqual(value);
   });
 
   test('rejects an unknown source', () => {

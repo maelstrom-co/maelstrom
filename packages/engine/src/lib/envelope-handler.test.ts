@@ -472,7 +472,7 @@ describe('handleEnvelope: client.agent.input', () => {
       version: AGENT_WIRE_VERSION,
       changeId: ChangeId('change-1'),
       chart: validChartRequest(),
-      actionOutcomes: [{ actionIndex: 0, ok: true }],
+      actionOutcomes: [{ ok: true }],
     },
   ];
 
