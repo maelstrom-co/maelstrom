@@ -4,10 +4,12 @@ import { VesselCard } from '../components/vessel-card';
 import { VESSEL_ACCENTS } from '../lib/design-tokens';
 import {
   CATALOG_SKUS,
+  FOOD_TYPES,
   type FoodType,
   formatCents,
   type Product,
   productBySku,
+  SPECIES,
   type Species,
 } from '../lib/pet-shop-fixtures';
 import { shop } from '../lib/pet-shop-maelstrom';
@@ -31,13 +33,17 @@ export default function CatalogComponent({
       const species = params?.species?.toLowerCase();
       if (species !== undefined && !isSpecies(species)) {
         return err(
-          new Error(`species must be "dog" or "cat", got "${species}"`),
+          new Error(
+            `species must be ${quotedChoices(SPECIES)}, got "${species}"`,
+          ),
         );
       }
       const foodType = params?.foodType?.toLowerCase();
       if (foodType !== undefined && !isFoodType(foodType)) {
         return err(
-          new Error(`foodType must be "dry" or "wet", got "${foodType}"`),
+          new Error(
+            `foodType must be ${quotedChoices(FOOD_TYPES)}, got "${foodType}"`,
+          ),
         );
       }
       catalogActions.searchProducts({
@@ -210,11 +216,15 @@ function describeView(view: CatalogView): string {
 }
 
 function isSpecies(value: string): value is Species {
-  return value === 'dog' || value === 'cat';
+  return (SPECIES as readonly string[]).includes(value);
 }
 
 function isFoodType(value: string): value is FoodType {
-  return value === 'dry' || value === 'wet';
+  return (FOOD_TYPES as readonly string[]).includes(value);
+}
+
+function quotedChoices(values: readonly string[]): string {
+  return values.map((value) => `"${value}"`).join(' or ');
 }
 
 function noMatchError(sku: string): Error {
