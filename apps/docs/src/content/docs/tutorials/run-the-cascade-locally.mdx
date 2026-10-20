@@ -62,7 +62,7 @@ If the UI moved but nothing was spoken, check your Cartesia key. If nothing happ
 
 Two pieces of the demo are worth reading now that you have watched them work.
 
-Every voice session gets one `LiveKitAdapter`. The callback that fetches the room grant is application-provided, which is what keeps LiveKit signing credentials out of the browser bundle. This is the shape you would write; the demo's own version at `apps/demo/src/lib/maelstrom.ts` passes extra options for its local setup:
+Every voice session gets one `LiveKitAdapter`. The callback that fetches the room grant is application-provided, which is what keeps LiveKit signing credentials out of the browser bundle. This is the shape you would write; the demo's own version at `apps/demo/src/lib/demo-realtime.ts` passes extra options for its local setup:
 
 ```ts title="src/voice/livekit-adapter.ts"
 export function createLiveKitAdapter({
