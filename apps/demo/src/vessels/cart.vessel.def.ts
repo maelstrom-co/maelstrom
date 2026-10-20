@@ -1,12 +1,17 @@
 import { defineVessel } from '@maelstrom-co/protocol';
-import { CATALOG_SKUS } from '../lib/pet-shop-fixtures';
+import {
+  CATALOG_SKUS,
+  FLAT_SHIPPING_CENTS,
+  FREE_SHIPPING_THRESHOLD_CENTS,
+  formatCents,
+  TAX_RATE,
+} from '../lib/pet-shop-fixtures';
 import { withActionOptions } from '../lib/vessel-options';
 
 const baseCartVessel = defineVessel({
   id: 'cart',
   name: 'Cart',
-  description:
-    'Shopping cart for the pet-food store. Shows each line item with quantity and price, plus subtotal, shipping (free at $49 or more, otherwise $5.99), 8% tax and total. Use addToCart with a catalog SKU to put a product in the cart, then the checkout vessel to place the order.',
+  description: `Shopping cart for the pet-food store. Shows each line item with quantity and price, plus subtotal, shipping (free at ${formatCents(FREE_SHIPPING_THRESHOLD_CENTS)} or more, otherwise ${formatCents(FLAT_SHIPPING_CENTS)}), ${TAX_RATE * 100}% tax and total. Use addToCart with a catalog SKU to put a product in the cart, then the checkout vessel to place the order.`,
   defaultVariant: 'items',
   variants: {
     items: {

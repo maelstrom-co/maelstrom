@@ -13,7 +13,7 @@ const SEARCH_PRODUCTS = {
       type: 'string',
       required: false,
       description:
-        'Free text matched against product name, brand and description. Leave out words already covered by the other filters.',
+        'Free text matched against product name, brand, description, species, food type and life stage. Filler words are ignored and kibble/canned map to dry/wet. Leave out words already covered by the other filters.',
     },
     {
       name: 'species',
@@ -90,7 +90,7 @@ const baseCatalogVessel = defineVessel({
   id: 'catalog',
   name: 'Pet Food Catalog',
   description:
-    'Pet-food store catalog of dog and cat food, dry and wet, with brand, bag or case size, price, crude fat % and protein %, and life stage. Results view lists products matching the latest search; product view shows one product in detail. Use it to search by species, food type, fat limit or free text, and to find alternatives similar to a product the customer already buys. Adding to the cart is done on the cart vessel with addToCart.',
+    'Pet-food store catalog of dog and cat food, dry and wet, with brand, bag or case size, price, crude fat % and protein %, and life stage. Results view lists the products from the latest search or similarity lookup; product view shows one product in detail. Use it to search by species, food type, fat limit or free text, and to find alternatives similar to a product the customer already buys. Adding to the cart is done on the cart vessel with addToCart.',
   defaultVariant: 'results',
   variants: {
     results: {
