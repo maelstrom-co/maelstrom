@@ -57,7 +57,7 @@ describe('VESSEL_ACCENTS', () => {
     expect(VESSEL_ACCENTS.tasks).toBe('amber');
   });
 
-  it('gives the pet-shop vessels distinct accents from the shipped palette', () => {
+  it('maps each pet-shop vessel to an accent from the shipped palette', () => {
     expect(VESSEL_ACCENTS.orders).toBe('brand');
     expect(VESSEL_ACCENTS.catalog).toBe('brand-2');
     expect(VESSEL_ACCENTS.cart).toBe('amber');

@@ -142,7 +142,7 @@ describe('cartTotals', () => {
     });
   });
 
-  it('ships free at or above the threshold and sums every line', () => {
+  it('ships free above the threshold and sums every line', () => {
     cartActions.addToCart('DOG-DRY-SUMMIT-HW-30');
     cartActions.addToCart('CAT-WET-WHISKER-PATE-24', 2);
     expect(cartTotals()).toEqual({
