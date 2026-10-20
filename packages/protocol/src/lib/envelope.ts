@@ -125,16 +125,9 @@ export const AcknowledgedAssistantMessageSchema =
  * {@link AgentInput}, including its `version`.
  */
 export const AgentInputMessageSchema = z.object({
-  /** Frame discriminator. */
   type: z.literal('client.agent.input'),
-  /**
-   * Identifies this frame on the transport. Agent correlation uses the inner
-   * `inputId` and `changeId` fields.
-   */
   id: MessageIdSchema,
-  /** Session whose Agent Session receives the input. */
   sessionId: SessionIdSchema,
-  /** The agent input carried by this frame. */
   input: AgentInputSchema,
 });
 
@@ -143,7 +136,19 @@ export const AgentInputMessageSchema = z.object({
  * to the Agent Session of `sessionId`. The inner input keeps its own `type`
  * discriminator, which cannot collide with transport frame types.
  */
-export type AgentInputMessage = z.infer<typeof AgentInputMessageSchema>;
+export interface AgentInputMessage {
+  /** Frame discriminator. */
+  type: 'client.agent.input';
+  /**
+   * Identifies this frame on the transport. Agent correlation uses the inner
+   * `inputId` and `changeId` fields.
+   */
+  id: MessageId;
+  /** Session whose Agent Session receives the input. */
+  sessionId: SessionId;
+  /** The agent input carried by this frame. */
+  input: AgentInput;
+}
 
 /**
  * Smart constructor for {@link AgentInputMessage}. Generates a fresh `id` via
@@ -391,16 +396,9 @@ export const EngineErrorMessageSchema = z.object({
  * {@link AgentEvent}, including its `version`.
  */
 export const AgentEventMessageSchema = z.object({
-  /** Frame discriminator. */
   type: z.literal('engine.agent.event'),
-  /**
-   * Identifies this frame on the transport. Agent correlation uses the inner
-   * `inputId` and `changeId` fields.
-   */
   id: MessageIdSchema,
-  /** Session whose Agent Session emitted the event. */
   sessionId: SessionIdSchema,
-  /** The agent event carried by this frame. */
   event: AgentEventSchema,
 });
 
@@ -410,7 +408,19 @@ export const AgentEventMessageSchema = z.object({
  * inputs through the inner event's `inputId` or `changeId`, not to a request,
  * so the frame carries its own `id` rather than a `requestId`.
  */
-export type AgentEventMessage = z.infer<typeof AgentEventMessageSchema>;
+export interface AgentEventMessage {
+  /** Frame discriminator. */
+  type: 'engine.agent.event';
+  /**
+   * Identifies this frame on the transport. Agent correlation uses the inner
+   * `inputId` and `changeId` fields.
+   */
+  id: MessageId;
+  /** Session whose Agent Session emitted the event. */
+  sessionId: SessionId;
+  /** The agent event carried by this frame. */
+  event: AgentEvent;
+}
 
 /**
  * Smart constructor for {@link AgentEventMessage}. Generates a fresh `id` via
@@ -673,6 +683,25 @@ const _eemBwd: Mutable<EngineErrorMessage> extends _InferredEngineErrorMessage
   ? true
   : false = true;
 
+// The agent frames match `z.infer` exactly, mutability included, so they are
+// compared without `Mutable<T>`, which would fail on the read-only
+// `ChartRequest` and `MaelstromResponse` payloads they carry.
+type _InferredAgentInputMessage = z.infer<typeof AgentInputMessageSchema>;
+const _agentInputMessageFwd: _InferredAgentInputMessage extends AgentInputMessage
+  ? true
+  : false = true;
+const _agentInputMessageBwd: AgentInputMessage extends _InferredAgentInputMessage
+  ? true
+  : false = true;
+
+type _InferredAgentEventMessage = z.infer<typeof AgentEventMessageSchema>;
+const _agentEventMessageFwd: _InferredAgentEventMessage extends AgentEventMessage
+  ? true
+  : false = true;
+const _agentEventMessageBwd: AgentEventMessage extends _InferredAgentEventMessage
+  ? true
+  : false = true;
+
 void [
   _hgFwd,
   _hgBwd,
@@ -684,4 +713,8 @@ void [
   _hrmBwd,
   _eemFwd,
   _eemBwd,
+  _agentInputMessageFwd,
+  _agentInputMessageBwd,
+  _agentEventMessageFwd,
+  _agentEventMessageBwd,
 ];

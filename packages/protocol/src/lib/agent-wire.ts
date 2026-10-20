@@ -1,8 +1,13 @@
 import { z } from 'zod';
 
-import { ChangeIdSchema, RunIdSchema } from './agent-ids.ts';
+import {
+  type ChangeId,
+  ChangeIdSchema,
+  type RunId,
+  RunIdSchema,
+} from './agent-ids.ts';
 import { MaelstromResponseSchema } from './maelstrom-response-schema.ts';
-import { MessageIdSchema } from './message.ts';
+import { type MessageId, MessageIdSchema } from './message.ts';
 import { type ChartRequest, ChartRequestSchema } from './request.ts';
 import type { MaelstromResponse } from './response.ts';
 
@@ -65,34 +70,43 @@ export type AgentFinishReason = z.infer<typeof AgentFinishReasonSchema>;
  * `error` describes the failure when `ok` is `false`.
  */
 export const AgentActionOutcomeSchema = z.object({
-  /** Whether the Action ran without error. */
   ok: z.boolean(),
-  /** Human-readable failure description when the Action failed. */
   error: z.string().optional(),
 });
 
 /** Outcome of one Action from an Execution Plan. */
-export type AgentActionOutcome = z.infer<typeof AgentActionOutcomeSchema>;
+export interface AgentActionOutcome {
+  /** Whether the Action ran without error. */
+  ok: boolean;
+  /** Human-readable failure description when the Action failed. */
+  error?: string;
+}
 
 /**
  * Counters describing the cost of one Agent Run. All values are non-negative
  * integers.
  */
 export const AgentRunMetricsSchema = z.object({
-  /** Loop model turns taken. */
   turns: z.number().int().nonnegative(),
-  /** Tool calls made across all turns. */
   toolCalls: z.number().int().nonnegative(),
-  /** Wall-clock duration of the run in milliseconds. */
   elapsedMs: z.number().int().nonnegative(),
-  /** Model input tokens consumed. */
   inputTokens: z.number().int().nonnegative(),
-  /** Model output tokens produced. */
   outputTokens: z.number().int().nonnegative(),
 });
 
 /** Counters describing the cost of one Agent Run. */
-export type AgentRunMetrics = z.infer<typeof AgentRunMetricsSchema>;
+export interface AgentRunMetrics {
+  /** Loop model turns taken. */
+  turns: number;
+  /** Tool calls made across all turns. */
+  toolCalls: number;
+  /** Wall-clock duration of the run in milliseconds. */
+  elapsedMs: number;
+  /** Model input tokens consumed. */
+  inputTokens: number;
+  /** Model output tokens produced. */
+  outputTokens: number;
+}
 
 /**
  * A user utterance sent to the agent. `chart` is the same Chart snapshot a
@@ -100,22 +114,29 @@ export type AgentRunMetrics = z.infer<typeof AgentRunMetricsSchema>;
  * correlate the `placeholder`, `accepted` and `error` events it causes.
  */
 export const AgentUtteranceInputSchema = z.object({
-  /** Member discriminator. */
   type: z.literal('utterance'),
-  /** Agent wire version, always {@link AGENT_WIRE_VERSION}. */
   version: z.literal(AGENT_WIRE_VERSION),
-  /** Client-assigned id for deduplication and correlation. */
   inputId: MessageIdSchema,
-  /** What the user said or typed. */
   text: z.string(),
-  /** Current Chart state when the user spoke. */
   chart: chartSnapshotSchema(),
-  /** Whether the text was typed or transcribed from voice. */
   source: AgentInputSourceSchema,
 });
 
 /** A user utterance sent to the agent. */
-export type AgentUtteranceInput = z.infer<typeof AgentUtteranceInputSchema>;
+export interface AgentUtteranceInput {
+  /** Member discriminator. */
+  type: 'utterance';
+  /** Agent wire version, always {@link AGENT_WIRE_VERSION}. */
+  version: typeof AGENT_WIRE_VERSION;
+  /** Client-assigned id for deduplication and correlation. */
+  inputId: MessageId;
+  /** What the user said or typed. */
+  text: string;
+  /** Current Chart state when the user spoke. */
+  chart: ChartRequest;
+  /** Whether the text was typed or transcribed from voice. */
+  source: AgentInputSource;
+}
 
 /**
  * The browser's acknowledgement that it applied a UI change. Carries the
@@ -123,23 +144,29 @@ export type AgentUtteranceInput = z.infer<typeof AgentUtteranceInputSchema>;
  * positional: entry i describes Action i of the Execution Plan.
  */
 export const AgentUiAppliedInputSchema = z.object({
-  /** Member discriminator. */
   type: z.literal('ui_applied'),
-  /** Agent wire version, always {@link AGENT_WIRE_VERSION}. */
   version: z.literal(AGENT_WIRE_VERSION),
-  /** Echoes the `changeId` of the applied `ui_change`. */
   changeId: ChangeIdSchema,
-  /** Chart state after the change was applied. */
   chart: chartSnapshotSchema(),
-  /**
-   * One outcome per Action in the Execution Plan. Positional: entry i
-   * describes Action i of the Execution Plan.
-   */
   actionOutcomes: z.array(AgentActionOutcomeSchema),
 });
 
 /** The browser's acknowledgement that it applied a UI change. */
-export type AgentUiAppliedInput = z.infer<typeof AgentUiAppliedInputSchema>;
+export interface AgentUiAppliedInput {
+  /** Member discriminator. */
+  type: 'ui_applied';
+  /** Agent wire version, always {@link AGENT_WIRE_VERSION}. */
+  version: typeof AGENT_WIRE_VERSION;
+  /** Echoes the `changeId` of the applied `ui_change`. */
+  changeId: ChangeId;
+  /** Chart state after the change was applied. */
+  chart: ChartRequest;
+  /**
+   * One outcome per Action in the Execution Plan. Positional: entry i
+   * describes Action i of the Execution Plan.
+   */
+  actionOutcomes: AgentActionOutcome[];
+}
 
 /**
  * Every input a client may send to the Agent Session, discriminated on
@@ -151,25 +178,30 @@ export const AgentInputSchema = z.discriminatedUnion('type', [
 ]);
 
 /** Every input a client may send to the Agent Session. */
-export type AgentInput = z.infer<typeof AgentInputSchema>;
+export type AgentInput = AgentUtteranceInput | AgentUiAppliedInput;
 
 /**
  * Immediate feedback for an input, sent before the Engine has decided how to
  * handle it. Clients render `text` until a later event replaces it.
  */
 export const AgentPlaceholderEventSchema = z.object({
-  /** Member discriminator. */
   type: z.literal('placeholder'),
-  /** Agent wire version, always {@link AGENT_WIRE_VERSION}. */
   version: z.literal(AGENT_WIRE_VERSION),
-  /** The input this placeholder answers. */
   inputId: MessageIdSchema,
-  /** Text to show while the input is being handled. */
   text: z.string(),
 });
 
 /** Immediate feedback for an input. */
-export type AgentPlaceholderEvent = z.infer<typeof AgentPlaceholderEventSchema>;
+export interface AgentPlaceholderEvent {
+  /** Member discriminator. */
+  type: 'placeholder';
+  /** Agent wire version, always {@link AGENT_WIRE_VERSION}. */
+  version: typeof AGENT_WIRE_VERSION;
+  /** The input this placeholder answers. */
+  inputId: MessageId;
+  /** Text to show while the input is being handled. */
+  text: string;
+}
 
 /**
  * The Engine's decision about an input: how it is handled and, when a run
@@ -180,20 +212,11 @@ export type AgentPlaceholderEvent = z.infer<typeof AgentPlaceholderEventSchema>;
  */
 export const AgentAcceptedEventSchema = z
   .object({
-    /** Member discriminator. */
     type: z.literal('accepted'),
-    /** Agent wire version, always {@link AGENT_WIRE_VERSION}. */
     version: z.literal(AGENT_WIRE_VERSION),
-    /** The input that was accepted. */
     inputId: MessageIdSchema,
-    /**
-     * The Agent Run that handles the input, or `null` when the disposition
-     * starts no run (`ui_only`, `noise`).
-     */
     runId: RunIdSchema.nullable(),
-    /** How the input is handled. */
     disposition: AgentDispositionSchema,
-    /** Short acknowledgement text. */
     ack: z.string(),
   })
   .refine(
@@ -207,50 +230,78 @@ export const AgentAcceptedEventSchema = z
   );
 
 /** The Engine's decision about an input. */
-export type AgentAcceptedEvent = z.infer<typeof AgentAcceptedEventSchema>;
+export interface AgentAcceptedEvent {
+  /** Member discriminator. */
+  type: 'accepted';
+  /** Agent wire version, always {@link AGENT_WIRE_VERSION}. */
+  version: typeof AGENT_WIRE_VERSION;
+  /** The input that was accepted. */
+  inputId: MessageId;
+  /**
+   * The Agent Run that handles the input, or `null` when the disposition
+   * starts no run (`ui_only`, `noise`).
+   */
+  runId: RunId | null;
+  /** How the input is handled. */
+  disposition: AgentDisposition;
+  /** Short acknowledgement text. */
+  ack: string;
+}
 
 /**
  * A streamed fragment of the loop model's text for one model turn. Clients
  * concatenate `delta` values sharing a `turnId` in arrival order.
  */
 export const AgentMessageEventSchema = z.object({
-  /** Member discriminator. */
   type: z.literal('message'),
-  /** Agent wire version, always {@link AGENT_WIRE_VERSION}. */
   version: z.literal(AGENT_WIRE_VERSION),
-  /** The Agent Run producing the text. */
   runId: RunIdSchema,
-  /** The model turn this fragment belongs to. */
   turnId: z.string().min(1),
-  /** Next fragment of text. */
   delta: z.string(),
 });
 
 /** A streamed fragment of the loop model's text. */
-export type AgentMessageEvent = z.infer<typeof AgentMessageEventSchema>;
+export interface AgentMessageEvent {
+  /** Member discriminator. */
+  type: 'message';
+  /** Agent wire version, always {@link AGENT_WIRE_VERSION}. */
+  version: typeof AGENT_WIRE_VERSION;
+  /** The Agent Run producing the text. */
+  runId: RunId;
+  /** The model turn this fragment belongs to. */
+  turnId: string;
+  /** Next fragment of text. */
+  delta: string;
+}
 
 /**
  * A UI change for the browser to apply: the layout first, then the Execution
  * Plan. The browser answers with a `ui_applied` input echoing `changeId`.
  */
 export const AgentUiChangeEventSchema = z.object({
-  /** Member discriminator. */
   type: z.literal('ui_change'),
-  /** Agent wire version, always {@link AGENT_WIRE_VERSION}. */
   version: z.literal(AGENT_WIRE_VERSION),
-  /** The Agent Run that caused the change, or `null` outside any run. */
   runId: RunIdSchema.nullable(),
-  /** Id the browser echoes when it acknowledges the change. */
   changeId: ChangeIdSchema,
-  /**
-   * The {@link MaelstromResponse} to apply: layout first, then the Execution
-   * Plan.
-   */
   response: maelstromResponseSchema(),
 });
 
 /** A UI change for the browser to apply. */
-export type AgentUiChangeEvent = z.infer<typeof AgentUiChangeEventSchema>;
+export interface AgentUiChangeEvent {
+  /** Member discriminator. */
+  type: 'ui_change';
+  /** Agent wire version, always {@link AGENT_WIRE_VERSION}. */
+  version: typeof AGENT_WIRE_VERSION;
+  /** The Agent Run that caused the change, or `null` outside any run. */
+  runId: RunId | null;
+  /** Id the browser echoes when it acknowledges the change. */
+  changeId: ChangeId;
+  /**
+   * The {@link MaelstromResponse} to apply: layout first, then the Execution
+   * Plan.
+   */
+  response: MaelstromResponse;
+}
 
 /**
  * The end of an Agent Run with its structured outcome. `ok` is determined by
@@ -260,32 +311,14 @@ export type AgentUiChangeEvent = z.infer<typeof AgentUiChangeEventSchema>;
  */
 export const AgentFinishedEventSchema = z
   .object({
-    /** Member discriminator. */
     type: z.literal('finished'),
-    /** Agent wire version, always {@link AGENT_WIRE_VERSION}. */
     version: z.literal(AGENT_WIRE_VERSION),
-    /** The Agent Run that ended. */
     runId: RunIdSchema,
-    /**
-     * `true` when the run ended as intended (`completed`, `waiting`), `false`
-     * for `cancelled`, `budget` and `error`.
-     */
     ok: z.boolean(),
-    /** Why the run ended. */
     reason: AgentFinishReasonSchema,
-    /**
-     * Full text of the final reply, empty when the run ended before producing
-     * one.
-     */
     reply: z.string(),
-    /** Cost counters for the run. */
     metrics: AgentRunMetricsSchema,
-    /** Human-readable failure description when `ok` is `false`. */
     error: z.string().optional(),
-    /**
-     * Optional machine-readable failure kind with no closed taxonomy, same
-     * meaning as on the `error` event.
-     */
     code: z.string().optional(),
   })
   .refine(
@@ -297,7 +330,35 @@ export const AgentFinishedEventSchema = z
   );
 
 /** The end of an Agent Run with its structured outcome. */
-export type AgentFinishedEvent = z.infer<typeof AgentFinishedEventSchema>;
+export interface AgentFinishedEvent {
+  /** Member discriminator. */
+  type: 'finished';
+  /** Agent wire version, always {@link AGENT_WIRE_VERSION}. */
+  version: typeof AGENT_WIRE_VERSION;
+  /** The Agent Run that ended. */
+  runId: RunId;
+  /**
+   * `true` when the run ended as intended (`completed`, `waiting`), `false`
+   * for `cancelled`, `budget` and `error`.
+   */
+  ok: boolean;
+  /** Why the run ended. */
+  reason: AgentFinishReason;
+  /**
+   * Full text of the final reply, empty when the run ended before producing
+   * one.
+   */
+  reply: string;
+  /** Cost counters for the run. */
+  metrics: AgentRunMetrics;
+  /** Human-readable failure description when `ok` is `false`. */
+  error?: string;
+  /**
+   * Optional machine-readable failure kind with no closed taxonomy, same
+   * meaning as on the `error` event.
+   */
+  code?: string;
+}
 
 /**
  * A failure outside any Agent Run that the Engine detects after the frame
@@ -309,26 +370,33 @@ export type AgentFinishedEvent = z.infer<typeof AgentFinishedEventSchema>;
  * meaning as on the `engine.error` frame.
  */
 export const AgentErrorEventSchema = z.object({
-  /** Member discriminator. */
   type: z.literal('error'),
-  /** Agent wire version, always {@link AGENT_WIRE_VERSION}. */
   version: z.literal(AGENT_WIRE_VERSION),
-  /** The offending input, when there is one. */
   inputId: MessageIdSchema.optional(),
+  changeId: ChangeIdSchema.optional(),
+  error: z.string(),
+  code: z.string().optional(),
+});
+
+/** A failure outside any Agent Run. */
+export interface AgentErrorEvent {
+  /** Member discriminator. */
+  type: 'error';
+  /** Agent wire version, always {@link AGENT_WIRE_VERSION}. */
+  version: typeof AGENT_WIRE_VERSION;
+  /** The offending input, when there is one. */
+  inputId?: MessageId;
   /**
    * The UI change the failure belongs to. Set for failures of a `ui_applied`
    * input, such as an unknown or stale `changeId`, because that input carries
    * no `inputId`.
    */
-  changeId: ChangeIdSchema.optional(),
+  changeId?: ChangeId;
   /** Human-readable failure description. */
-  error: z.string(),
+  error: string;
   /** Optional machine-readable failure kind with no closed taxonomy. */
-  code: z.string().optional(),
-});
-
-/** A failure outside any Agent Run. */
-export type AgentErrorEvent = z.infer<typeof AgentErrorEventSchema>;
+  code?: string;
+}
 
 /**
  * Every event the Engine may send on the agent event stream, discriminated on
@@ -344,7 +412,13 @@ export const AgentEventSchema = z.discriminatedUnion('type', [
 ]);
 
 /** Every event the Engine may send on the agent event stream. */
-export type AgentEvent = z.infer<typeof AgentEventSchema>;
+export type AgentEvent =
+  | AgentPlaceholderEvent
+  | AgentAcceptedEvent
+  | AgentMessageEvent
+  | AgentUiChangeEvent
+  | AgentFinishedEvent
+  | AgentErrorEvent;
 
 // The reused schemas infer mutable arrays, so values typed with the read-only
 // `ChartRequest` / `MaelstromResponse` interfaces would not be assignable.
@@ -358,3 +432,128 @@ function chartSnapshotSchema(): z.ZodType<ChartRequest> {
 function maelstromResponseSchema(): z.ZodType<MaelstromResponse> {
   return MaelstromResponseSchema;
 }
+
+// ---------------------------------------------------------------------------
+// Drift guards. The hand-written types match `z.infer` exactly, mutability
+// included, so each pair is compared directly. `Mutable<T>` from
+// `./_drift-guards.js` would strip `readonly` from the `ChartRequest` and
+// `MaelstromResponse` payloads, which the schemas output as those read-only
+// interfaces, and fail.
+// ---------------------------------------------------------------------------
+
+type _InferredAgentActionOutcome = z.infer<typeof AgentActionOutcomeSchema>;
+const _actionOutcomeFwd: _InferredAgentActionOutcome extends AgentActionOutcome
+  ? true
+  : false = true;
+const _actionOutcomeBwd: AgentActionOutcome extends _InferredAgentActionOutcome
+  ? true
+  : false = true;
+
+type _InferredAgentRunMetrics = z.infer<typeof AgentRunMetricsSchema>;
+const _runMetricsFwd: _InferredAgentRunMetrics extends AgentRunMetrics
+  ? true
+  : false = true;
+const _runMetricsBwd: AgentRunMetrics extends _InferredAgentRunMetrics
+  ? true
+  : false = true;
+
+type _InferredAgentUtteranceInput = z.infer<typeof AgentUtteranceInputSchema>;
+const _utteranceInputFwd: _InferredAgentUtteranceInput extends AgentUtteranceInput
+  ? true
+  : false = true;
+const _utteranceInputBwd: AgentUtteranceInput extends _InferredAgentUtteranceInput
+  ? true
+  : false = true;
+
+type _InferredAgentUiAppliedInput = z.infer<typeof AgentUiAppliedInputSchema>;
+const _uiAppliedInputFwd: _InferredAgentUiAppliedInput extends AgentUiAppliedInput
+  ? true
+  : false = true;
+const _uiAppliedInputBwd: AgentUiAppliedInput extends _InferredAgentUiAppliedInput
+  ? true
+  : false = true;
+
+type _InferredAgentInput = z.infer<typeof AgentInputSchema>;
+const _inputFwd: _InferredAgentInput extends AgentInput ? true : false = true;
+const _inputBwd: AgentInput extends _InferredAgentInput ? true : false = true;
+
+type _InferredAgentPlaceholderEvent = z.infer<
+  typeof AgentPlaceholderEventSchema
+>;
+const _placeholderEventFwd: _InferredAgentPlaceholderEvent extends AgentPlaceholderEvent
+  ? true
+  : false = true;
+const _placeholderEventBwd: AgentPlaceholderEvent extends _InferredAgentPlaceholderEvent
+  ? true
+  : false = true;
+
+type _InferredAgentAcceptedEvent = z.infer<typeof AgentAcceptedEventSchema>;
+const _acceptedEventFwd: _InferredAgentAcceptedEvent extends AgentAcceptedEvent
+  ? true
+  : false = true;
+const _acceptedEventBwd: AgentAcceptedEvent extends _InferredAgentAcceptedEvent
+  ? true
+  : false = true;
+
+type _InferredAgentMessageEvent = z.infer<typeof AgentMessageEventSchema>;
+const _messageEventFwd: _InferredAgentMessageEvent extends AgentMessageEvent
+  ? true
+  : false = true;
+const _messageEventBwd: AgentMessageEvent extends _InferredAgentMessageEvent
+  ? true
+  : false = true;
+
+type _InferredAgentUiChangeEvent = z.infer<typeof AgentUiChangeEventSchema>;
+const _uiChangeEventFwd: _InferredAgentUiChangeEvent extends AgentUiChangeEvent
+  ? true
+  : false = true;
+const _uiChangeEventBwd: AgentUiChangeEvent extends _InferredAgentUiChangeEvent
+  ? true
+  : false = true;
+
+type _InferredAgentFinishedEvent = z.infer<typeof AgentFinishedEventSchema>;
+const _finishedEventFwd: _InferredAgentFinishedEvent extends AgentFinishedEvent
+  ? true
+  : false = true;
+const _finishedEventBwd: AgentFinishedEvent extends _InferredAgentFinishedEvent
+  ? true
+  : false = true;
+
+type _InferredAgentErrorEvent = z.infer<typeof AgentErrorEventSchema>;
+const _errorEventFwd: _InferredAgentErrorEvent extends AgentErrorEvent
+  ? true
+  : false = true;
+const _errorEventBwd: AgentErrorEvent extends _InferredAgentErrorEvent
+  ? true
+  : false = true;
+
+type _InferredAgentEvent = z.infer<typeof AgentEventSchema>;
+const _eventFwd: _InferredAgentEvent extends AgentEvent ? true : false = true;
+const _eventBwd: AgentEvent extends _InferredAgentEvent ? true : false = true;
+
+void [
+  _actionOutcomeFwd,
+  _actionOutcomeBwd,
+  _runMetricsFwd,
+  _runMetricsBwd,
+  _utteranceInputFwd,
+  _utteranceInputBwd,
+  _uiAppliedInputFwd,
+  _uiAppliedInputBwd,
+  _inputFwd,
+  _inputBwd,
+  _placeholderEventFwd,
+  _placeholderEventBwd,
+  _acceptedEventFwd,
+  _acceptedEventBwd,
+  _messageEventFwd,
+  _messageEventBwd,
+  _uiChangeEventFwd,
+  _uiChangeEventBwd,
+  _finishedEventFwd,
+  _finishedEventBwd,
+  _errorEventFwd,
+  _errorEventBwd,
+  _eventFwd,
+  _eventBwd,
+];
