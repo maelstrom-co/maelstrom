@@ -100,7 +100,7 @@ export const recoverCorrelation = (
  * - **`client.history.get`** → `engine.getHistory`; `Ok` → `engine.history.response`,
  *   `Err` → `engine.error`.
  * - **`client.agent.input`** → a correlated `engine.error` with
- *   `code: 'UnsupportedInput'`. The Engine does not handle agent inputs yet.
+ *   `code: 'UnsupportedInput'`.
  *
  * Never rejects. A thrown exception (an engine contract violation) is caught
  * and mapped to an `engine.error` correlated to the in-scope frame, with no
