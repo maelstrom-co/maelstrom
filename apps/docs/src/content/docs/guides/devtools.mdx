@@ -242,6 +242,61 @@ The App instance selector identifies a Maelstrom client, not a voice provider.
 It filters inspection. Search also changes the displayed evidence, without
 changing what is recorded.
 
+### Follow voice evidence
+
+1. Open **Voice** and choose an **Evidence** source: live activity, a stopped
+   recording, or an imported recording. The optional realtime attachment must
+   have observed the interaction.
+2. Choose a **Voice provider lifetime** and **Voice generation** to narrow the
+   lanes. Session and provider generations remain separate even when their
+   numbers match. Older recordings without an explicit scope use a legacy lane.
+   Long lists offer search and **Show more**. Search by provider name, full
+   lifetime ID, or generation; searching the choices preserves the current event.
+3. Select a lane, then a numbered observation in its diagram or table. Both
+   selections open the same JSON evidence. Recorded transcript text appears
+   below the table; live metadata does not contain the text.
+   Without an explicit selection, the view follows the latest observed lane.
+4. Select **Open request** when a tool observation reports an Engine request
+   whose supporting events remain retained. This opens that request in
+   **Requests**. Returning to **Voice** preserves your filters and selected evidence.
+   An unavailable link means the request ID was reported but its
+   supporting events are not retained. Contradictory retained app context makes
+   request ownership ambiguous and also disables the link. Repeated request
+   lifecycles with the same identity disable the link too.
+
+The diagram shows retained buffer order, without aligning process or media clocks.
+Tool invocation IDs separate overlapping calls that reuse a provider tool ID.
+Provider adapters project response identity and lifecycle into common diagnostic
+fields. These fields group response observations within their provider generation.
+Older captures with only native event labels keep those observations unlinked.
+Missing or ambiguous identities leave observations unlinked. These groups do not
+establish complete conversational turns, speech-to-tool ownership, or audible
+playback. Expand **What can this timeline prove?** for these limits.
+
+Redacted, truncated, unreadable, and missing identities have separate labels.
+An **Unknown** tool outcome means the tools cannot confirm how the work finished.
+
+Once live identities conflict, grouping stays unavailable for that lane in the
+current collector, including across activity gaps and panel remounts. The tools
+keep bounded identity state. If that history fills, live grouping becomes
+unavailable across the collector. Individual observations remain inspectable.
+Completed lifecycle identities stay in that history after their events leave
+the live buffer, so a reused identity cannot inherit earlier evidence.
+
+Successful queued tools report their applied Engine response's request ID.
+Legacy immediate bridges and failed or unconfirmed work can lack that link.
+The view does not infer it from nearby events or matching tool IDs.
+
+Live voice lanes use the recent activity buffer. The separate request history
+supplies related-request availability, without adding older voice events to that
+sequence. Collector eviction and capture limits can remove observations; they
+do not establish loss at the voice source. This feed does not report that source
+loss. If a selected observation expires, its JSON becomes unavailable until you
+select another observation.
+
+Filtering leaves collection and recording scope unchanged. Opening this view
+does not connect voice, acquire a microphone, or start content capture.
+
 ## Inspect the Chart
 
 Open **Inspector** to see a schematic Chart, retained Instances, current

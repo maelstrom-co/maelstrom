@@ -1,4 +1,5 @@
 import { telemetryStyle } from './telemetry-style.js';
+import { voiceTimelineStyle } from './voice-timeline-style.js';
 
 export const panelStyle = `
 :host{all:initial;color-scheme:dark;font:13px/1.5 ui-sans-serif,system-ui,sans-serif;color:#dde4ef;--bg:#101722;--surface:#172230;--border:#2c3c50;--text:#e3ebf5;--muted:#a6b6cc;--accent:#78e8d1;--soft:#173a34;--warning:#f1c77b;--danger:#fca5a5}
@@ -36,4 +37,5 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.6 ui-monospace,SFMon
 .workspace[data-comparison=true] .comparison-column .comparison-json{flex:1;height:100%;grid-column:auto;grid-row:auto;margin:0}.phase-counterpart{font-size:11px;color:var(--muted)}
 .comparison-side-header{display:flex;align-items:center;gap:8px;flex-shrink:0}.comparison-side-header button{font-size:12px;padding:4px 8px}.comparison-side-header h3{margin:0}.comparison-identity{flex:1;min-width:0;margin:0;font-size:11px;line-height:1.5;white-space:nowrap;overflow:auto;overscroll-behavior:contain}.comparison-identity:focus-visible{outline:2px solid var(--accent);outline-offset:2px}.comparison-details{flex:1;min-height:110px;overflow:auto;overscroll-behavior:contain;padding-right:4px}.comparison-details>p{margin:4px 0}.comparison-details:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}.comparison-evidence{display:flex;flex:0 0 38%;min-height:180px;max-height:300px;margin-top:6px}.workspace[data-comparison-json=false] .comparison-evidence{display:none}@media(max-width:1000px){.comparison-columns{min-height:400px}.comparison-evidence{min-height:220px}}
 ${telemetryStyle}
+${voiceTimelineStyle}
 `;

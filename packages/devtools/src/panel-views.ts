@@ -63,7 +63,7 @@ function table(
   node.append(body);
   return node;
 }
-function empty(message: string): HTMLElement {
+export function empty(message: string): HTMLElement {
   return element('p', message, 'empty');
 }
 function date(value: unknown): string {
@@ -147,6 +147,7 @@ export interface RequestComparisonSelection {
 }
 export interface RenderedView {
   navigation?: HTMLElement;
+  controls?: HTMLElement;
   content: HTMLElement;
   raw: unknown;
   rawTitle: string;

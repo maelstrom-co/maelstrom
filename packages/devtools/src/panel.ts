@@ -30,12 +30,19 @@ import {
 } from './panel-views.js';
 import { telemetryView } from './telemetry-view.js';
 import type { Devtools, DevtoolsSnapshot } from './types.js';
+import { VoiceCorrelationHistory } from './voice-timeline.js';
+import {
+  createVoiceTimelineControls,
+  type VoiceViewState,
+} from './voice-timeline-controls.js';
+import { voiceTimelineView } from './voice-timeline-view.js';
 
 type Source = 'live' | 'recording' | 'imported';
 const tabs = [
   'Requests',
   'Inspector',
   'Connections',
+  'Voice',
   'Recordings',
   'Telemetry',
 ] as const;
@@ -65,6 +72,9 @@ interface PanelPreferences {
   nextLabel: number;
   importedName?: string;
   liveEventKeys: LiveEventKeys;
+  voice?: VoiceViewState;
+  voiceCorrelations: VoiceCorrelationHistory;
+  importKeys: WeakMap<object, string>;
 }
 const preferencesByTools = new WeakMap<Devtools, PanelPreferences>();
 const mountedPanels = new WeakMap<
@@ -97,10 +107,15 @@ function Panel(tools: Devtools): HTMLElement {
     labels: new Map(),
     nextLabel: 1,
     liveEventKeys: new LiveEventKeys(),
+    voiceCorrelations: new VoiceCorrelationHistory(),
+    importKeys: new WeakMap(),
   };
   preferencesByTools.set(tools, preferences);
   let identitySnapshot = tools.getSnapshot();
   preferences.liveEventKeys.begin(liveKeySources(identitySnapshot));
+  preferences.voiceCorrelations.observe(
+    panelEvents(identitySnapshot.activity, preferences.liveEventKeys),
+  );
   const [snapshot, setSnapshot] = createSignal(identitySnapshot);
   const [captureStatus, setCaptureStatus] = createSignal(
     tools.capture.getSnapshot(),
@@ -137,10 +152,13 @@ function Panel(tools: Devtools): HTMLElement {
     const nextSnapshot = tools.getSnapshot();
     if (nextSnapshot !== identitySnapshot) {
       preferences.liveEventKeys.update(liveKeySources(nextSnapshot));
+      preferences.voiceCorrelations.observe(
+        panelEvents(nextSnapshot.activity, preferences.liveEventKeys),
+      );
       identitySnapshot = nextSnapshot;
     }
     if (nextSnapshot.imported !== previousImport) {
-      if (source() === 'imported') clearRequestSelection();
+      if (source() === 'imported') clearEvidenceSelection();
       previousImport = nextSnapshot.imported;
       cachedImport = undefined;
       importedReference = undefined;
@@ -156,7 +174,7 @@ function Panel(tools: Devtools): HTMLElement {
           next.dropped === previousCapture.dropped)
       ) {
         headerMetadata = undefined;
-        if (source() === 'recording' && comparison) clearRequestSelection();
+        if (source() === 'recording' && comparison) clearEvidenceSelection();
       }
     }
     if (
@@ -165,7 +183,7 @@ function Panel(tools: Devtools): HTMLElement {
     ) {
       captureEpoch++;
       if (source() === 'recording') {
-        clearRequestSelection();
+        clearEvidenceSelection();
       }
       headerMetadata = undefined;
       cachedRecording = undefined;
@@ -306,8 +324,12 @@ function Panel(tools: Devtools): HTMLElement {
     preferences.stageTimingLimit = undefined;
     preferences.layoutView = undefined;
   }
-  function switchSource(next: Source): void {
+  function clearEvidenceSelection(): void {
+    preferences.voice = undefined;
     clearRequestSelection();
+  }
+  function switchSource(next: Source): void {
+    clearEvidenceSelection();
     preferences.issueCategory = 'all';
     preferences.instanceKey = '';
     setSelected('all');
@@ -410,7 +432,7 @@ function Panel(tools: Devtools): HTMLElement {
   scopeLabel.append(selector);
   const singleScope = element('span', undefined, 'muted small');
   selector.addEventListener('change', () => {
-    clearRequestSelection();
+    clearEvidenceSelection();
     setSelected(selector.value);
     preferences.instanceKey = '';
     pageSize = 50;
@@ -574,6 +596,15 @@ function Panel(tools: Devtools): HTMLElement {
   const workspace = element('div', undefined, 'workspace'),
     navigation = element('aside', undefined, 'list-pane'),
     content = element('div', undefined, 'content-pane');
+  const persistentControls = element('div', undefined, 'view-controls');
+  const contentBody = element('div');
+  const voiceControls = createVoiceTimelineControls();
+  const clearVoiceView = () => {
+    voiceControls.clear();
+    persistentControls.replaceChildren();
+    contentBody.replaceChildren();
+  };
+  onCleanup(clearVoiceView);
   navigation.tabIndex = content.tabIndex = 0;
   navigation.setAttribute('aria-label', 'Diagnostic list');
   content.setAttribute('aria-label', 'Diagnostic details');
@@ -780,6 +811,10 @@ function Panel(tools: Devtools): HTMLElement {
       'Connections',
       'Check Engine and voice connections. Each app and voice provider has its own lifetime.',
     ],
+    Voice: [
+      'Voice evidence',
+      'Follow observed media, transcripts, tools, and provider responses. Select an observation to inspect its evidence.',
+    ],
     Recordings: [
       'Recordings',
       'Record a problem, or inspect a saved recording. Live activity keeps metadata only.',
@@ -803,6 +838,7 @@ function Panel(tools: Devtools): HTMLElement {
       switchSource('live');
       return;
     }
+    if (currentTab !== 'Voice' || !open()) clearVoiceView();
     preferences.open = open();
     preferences.tab = currentTab;
     preferences.selected = selected();
@@ -1109,6 +1145,29 @@ function Panel(tools: Devtools): HTMLElement {
       clearJsonEvidence();
       return;
     }
+    let voiceSourceToken = 'live';
+    if (currentTab === 'Voice') {
+      if (currentSource === 'recording')
+        voiceSourceToken = `recording:${tools.capture.getEvidenceRevision()}`;
+      else if (
+        currentSource === 'imported' &&
+        state.imported &&
+        typeof state.imported === 'object'
+      ) {
+        let key = preferences.importKeys.get(state.imported);
+        if (!key) {
+          key = crypto.randomUUID();
+          preferences.importKeys.set(state.imported, key);
+        }
+        voiceSourceToken = `imported:${key}`;
+      }
+      if (preferences.voice?.sourceToken !== voiceSourceToken)
+        preferences.voice = {
+          provider: 'all',
+          generation: 'all',
+          sourceToken: voiceSourceToken,
+        };
+    }
     const context: ViewContext = {
       evidence: data,
       appLabel,
@@ -1209,14 +1268,14 @@ function Panel(tools: Devtools): HTMLElement {
           );
           return;
         }
-        clearRequestSelection();
+        clearEvidenceSelection();
         preferences.instanceKey = JSON.stringify([clientId, instanceId]);
         setSelected(clientId);
         setTab('Inspector');
         refresh();
       },
       selectApp: (clientId) => {
-        clearRequestSelection();
+        clearEvidenceSelection();
         setSelected(clientId);
         refresh();
       },
@@ -1246,6 +1305,7 @@ function Panel(tools: Devtools): HTMLElement {
       pinnedRequest,
       comparison,
       preferences.eventKey,
+      preferences.voice,
       preferences.phasePage,
       preferences.layoutView,
       preferences.instanceKey,
@@ -1260,6 +1320,7 @@ function Panel(tools: Devtools): HTMLElement {
       const shadow = root.getRootNode() as ShadowRoot;
       const focused = shadow.activeElement as HTMLElement | null;
       const focusKey = focused?.dataset.focusKey;
+      const focusFallback = focused?.dataset.focusFallback;
       const previousRendered = lastRendered;
       const scrollPositions = new Map(
         Array.from(
@@ -1283,15 +1344,41 @@ function Panel(tools: Devtools): HTMLElement {
           ? requestsView(context)
           : currentTab === 'Inspector'
             ? inspectorView(context)
-            : connectionsView(
-                context,
-                currentSource === 'live'
-                  ? panelEvents(
-                      state.transportHistory,
-                      preferences.liveEventKeys,
-                    )
-                  : [],
-              );
+            : currentTab === 'Voice'
+              ? voiceTimelineView(
+                  context,
+                  preferences.voice ?? { provider: 'all', generation: 'all' },
+                  (next, resetPage) => {
+                    preferences.voice = {
+                      ...next,
+                      sourceToken: voiceSourceToken,
+                    };
+                    if (resetPage) pageSize = 50;
+                    refresh();
+                  },
+                  (key) => {
+                    clearRequestSelection();
+                    preferences.requestKey = key;
+                    preferences.allEvents = false;
+                    preferences.issueCategory = 'all';
+                    setQuery('');
+                    setTab('Requests');
+                    refresh();
+                  },
+                  voiceControls,
+                  currentSource === 'live'
+                    ? preferences.voiceCorrelations.isAmbiguous
+                    : undefined,
+                )
+              : connectionsView(
+                  context,
+                  currentSource === 'live'
+                    ? panelEvents(
+                        state.transportHistory,
+                        preferences.liveEventKeys,
+                      )
+                    : [],
+                );
       navigation.replaceChildren(
         ...(lastRendered.navigation
           ? Array.from(lastRendered.navigation.childNodes)
@@ -1312,7 +1399,17 @@ function Panel(tools: Devtools): HTMLElement {
           'details[data-disclosure-key]',
         ))
           node.open = disclosures.get(node.dataset.disclosureKey) ?? node.open;
-        content.replaceChildren(lastRendered.content);
+        if (lastRendered.controls) {
+          // Keep editing controls connected through evidence redraws and composition.
+          if (lastRendered.controls.parentElement !== persistentControls)
+            persistentControls.replaceChildren(lastRendered.controls);
+          if (
+            persistentControls.parentElement !== content ||
+            contentBody.parentElement !== content
+          )
+            content.replaceChildren(persistentControls, contentBody);
+          contentBody.replaceChildren(lastRendered.content);
+        } else content.replaceChildren(lastRendered.content);
         for (const node of content.querySelectorAll<HTMLElement>(
           '[data-scroll-key]',
         )) {
@@ -1356,11 +1453,15 @@ function Panel(tools: Devtools): HTMLElement {
           )
             return;
           if (shadow.activeElement && shadow.activeElement !== focused) return;
+          const candidates = Array.from(
+            root.querySelectorAll<HTMLElement>('[data-focus-key]'),
+          );
           const replacement = focused.isConnected
             ? focused
-            : Array.from(
-                root.querySelectorAll<HTMLElement>('[data-focus-key]'),
-              ).find((node) => node.dataset.focusKey === focusKey);
+            : (candidates.find((node) => node.dataset.focusKey === focusKey) ??
+              candidates.find(
+                (node) => node.dataset.focusKey === focusFallback,
+              ));
           replacement?.focus({ preventScroll: true });
         });
     }
