@@ -537,6 +537,16 @@ describe('client.agent.input', () => {
   test('is not a server frame', () => {
     expect(decodeServerEnvelope(encodeEnvelope(msg)).ok).toBe(false);
   });
+
+  test('rejects a frame without a sessionId', () => {
+    const { sessionId: _omit, ...rest } = msg;
+    const decoded = decodeClientEnvelope(rest);
+    expect(decoded.ok).toBe(false);
+    if (!decoded.ok) {
+      expect(decoded.error.kind).toBe('invalid_envelope');
+      expect(decoded.error.message).toContain('sessionId');
+    }
+  });
 });
 
 describe('engine.agent.event', () => {

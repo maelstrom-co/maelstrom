@@ -293,6 +293,34 @@ describe('AgentEvent round-trip', () => {
       expect(result.error.issues[0]?.path).toEqual(['runId']);
   });
 
+  test('rejects empty or missing member ids', () => {
+    const { runId: _omit, ...uiChangeWithoutRunId } = eventFixtures.ui_change;
+    const rows: [
+      typeof AgentEventSchema | typeof AgentInputSchema,
+      unknown,
+      string[],
+    ][] = [
+      [AgentEventSchema, { ...eventFixtures.message, turnId: '' }, ['turnId']],
+      [AgentEventSchema, { ...eventFixtures.finished, runId: '' }, ['runId']],
+      [
+        AgentEventSchema,
+        { ...eventFixtures.ui_change, changeId: '  ' },
+        ['changeId'],
+      ],
+      [AgentEventSchema, uiChangeWithoutRunId, ['runId']],
+      [
+        AgentInputSchema,
+        { ...inputFixtures.ui_applied, changeId: '  ' },
+        ['changeId'],
+      ],
+    ];
+    for (const [schema, value, path] of rows) {
+      const result = schema.safeParse(value);
+      expect(result.success).toBe(false);
+      if (!result.success) expect(result.error.issues[0]?.path).toEqual(path);
+    }
+  });
+
   test('ui_change accepts a null runId for changes outside an Agent Run', () => {
     const value = { ...eventFixtures.ui_change, runId: null };
     expect(roundTrip(AgentEventSchema, value)).toEqual(value);
@@ -319,6 +347,30 @@ describe('AgentEvent round-trip', () => {
   });
 });
 
+describe('agent wire tolerates unknown optional fields', () => {
+  test('every input member strips an unknown field', () => {
+    for (const fixture of Object.values(inputFixtures)) {
+      const result = AgentInputSchema.safeParse({
+        ...fixture,
+        futureField: 'x',
+      });
+      expect(result.success).toBe(true);
+      if (result.success) expect(result.data).toEqual(fixture);
+    }
+  });
+
+  test('every event member strips an unknown field', () => {
+    for (const fixture of Object.values(eventFixtures)) {
+      const result = AgentEventSchema.safeParse({
+        ...fixture,
+        futureField: 'x',
+      });
+      expect(result.success).toBe(true);
+      if (result.success) expect(result.data).toEqual(fixture);
+    }
+  });
+});
+
 describe('agent wire decode failures', () => {
   test('unknown input type fails at the discriminator', () => {
     const result = AgentInputSchema.safeParse({
@@ -338,12 +390,14 @@ describe('agent wire decode failures', () => {
     if (!result.success) expect(result.error.issues[0]?.path).toEqual(['type']);
   });
 
-  test('a wrong version fails on every input member', () => {
+  test('a wrong or missing version fails on every input member', () => {
     for (const fixture of Object.values(inputFixtures)) {
-      const result = AgentInputSchema.safeParse({ ...fixture, version: 2 });
-      expect(result.success).toBe(false);
-      if (!result.success)
-        expect(result.error.issues[0]?.path).toEqual(['version']);
+      for (const version of [2, '1', undefined]) {
+        const result = AgentInputSchema.safeParse({ ...fixture, version });
+        expect(result.success).toBe(false);
+        if (!result.success)
+          expect(result.error.issues[0]?.path).toEqual(['version']);
+      }
     }
   });
 
