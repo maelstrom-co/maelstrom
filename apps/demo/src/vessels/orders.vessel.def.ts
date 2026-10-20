@@ -1,4 +1,9 @@
 import { defineVessel } from '@maelstrom-co/protocol';
+import { CUSTOMER } from '../lib/pet-shop-fixtures';
+
+const CUSTOMER_PETS = CUSTOMER.pets
+  .map((pet) => `a ${pet.species} (${pet.name}, ${pet.note})`)
+  .join(' and ');
 
 const SHOW_ORDER_DETAILS = {
   name: 'showOrderDetails',
@@ -24,8 +29,7 @@ const SHOW_MOST_RECENT_ORDER = {
 export const ordersVessel = defineVessel({
   id: 'orders',
   name: 'Orders',
-  description:
-    "Past pet-food orders for the signed-in customer, Sam Rivera, who has a dog (Biscuit, adult Labrador) and a cat (Miso, indoor adult). List view shows every order newest first with date, items and total; detail view shows one order's line items with SKU, name, quantity and price. Use this to review purchase history before reordering. New orders placed through the checkout vessel appear here automatically.",
+  description: `Past pet-food orders for the demo customer, ${CUSTOMER.name}, who has ${CUSTOMER_PETS}. List view shows every order newest first with date, items and total; detail view shows one order's line items with SKU, name, quantity and price. Use this to review purchase history before reordering. New orders placed through the checkout vessel appear here automatically.`,
   defaultVariant: 'list',
   variants: {
     list: {

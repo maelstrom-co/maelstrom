@@ -1,7 +1,14 @@
 import { type ActionParameter, validateVessel } from '@maelstrom-co/protocol';
 import { describe, expect, it } from 'vitest';
 import { SHOP_LAYOUT } from '../lib/default-layout';
-import { CATALOG_SKUS } from '../lib/pet-shop-fixtures';
+import {
+  CATALOG_SKUS,
+  CUSTOMER,
+  FLAT_SHIPPING_CENTS,
+  FREE_SHIPPING_THRESHOLD_CENTS,
+  formatCents,
+  TAX_RATE,
+} from '../lib/pet-shop-fixtures';
 import { cartVessel } from './cart.vessel.def';
 import { catalogVessel } from './catalog.vessel.def';
 import { checkoutVessel } from './checkout.vessel.def';
@@ -44,6 +51,19 @@ describe('pet-shop vessel definitions', () => {
     const parameters: readonly ActionParameter[] = addToCart?.parameters ?? [];
     const sku = parameters.find((parameter) => parameter.name === 'sku');
     expect(sku?.enum).toEqual([...CATALOG_SKUS]);
+  });
+
+  it('quotes the fixture pricing and customer in the cart and orders descriptions', () => {
+    expect(cartVessel.description).toContain(
+      formatCents(FREE_SHIPPING_THRESHOLD_CENTS),
+    );
+    expect(cartVessel.description).toContain(formatCents(FLAT_SHIPPING_CENTS));
+    expect(cartVessel.description).toContain(`${TAX_RATE * 100}% tax`);
+    expect(ordersVessel.description).toContain(CUSTOMER.name);
+    for (const pet of CUSTOMER.pets) {
+      expect(ordersVessel.description).toContain(pet.name);
+      expect(ordersVessel.description).toContain(pet.note);
+    }
   });
 
   it('starts SHOP_LAYOUT with only orders and cart, each in a declared variant', () => {
