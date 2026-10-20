@@ -27,18 +27,11 @@ export function getCheckoutSnapshot(): CheckoutState {
   return state;
 }
 
-// Test-only: restores the module-singleton store to its seeded state so
-// specs don't leak mutations into one another.
 export function __resetCheckoutStoreForTests(): void {
   setState(INITIAL_STATE);
 }
 
 export const checkoutActions = {
-  /**
-   * Turns the current cart into an order: records it in the orders store,
-   * empties the cart, and keeps the confirmation for display. Returns null
-   * when the cart is empty.
-   */
   placeOrder(today: Date = new Date()): OrderConfirmation | null {
     const { lines } = getCartSnapshot();
     if (lines.length === 0) return null;

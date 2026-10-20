@@ -24,8 +24,6 @@ export function getOrdersSnapshot(): OrdersState {
   return state;
 }
 
-// Test-only: restores the module-singleton store to its seeded state so
-// specs don't leak mutations into one another.
 export function __resetOrdersStoreForTests(): void {
   setState(INITIAL_STATE);
 }
