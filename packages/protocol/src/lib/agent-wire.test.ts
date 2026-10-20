@@ -222,12 +222,25 @@ describe('AgentEvent round-trip', () => {
       'error',
     ];
     for (const reason of reasons) {
+      const failed = reason === 'error' || reason === 'budget';
       const value = {
         ...eventFixtures.finished,
-        ok: reason !== 'error',
+        ok: reason === 'completed' || reason === 'waiting',
         reason,
+        ...(failed ? { error: 'model failed', code: 'model_error' } : {}),
       };
       expect(roundTrip(AgentEventSchema, value)).toEqual(value);
+    }
+  });
+
+  test('finished rejects an ok flag that contradicts the reason', () => {
+    for (const value of [
+      { ...eventFixtures.finished, ok: true, reason: 'error' },
+      { ...eventFixtures.finished, ok: false, reason: 'completed' },
+    ]) {
+      const result = AgentEventSchema.safeParse(value);
+      expect(result.success).toBe(false);
+      if (!result.success) expect(result.error.issues[0]?.path).toEqual(['ok']);
     }
   });
 

@@ -246,25 +246,48 @@ export const AgentUiChangeEventSchema = z.object({
 export type AgentUiChangeEvent = z.infer<typeof AgentUiChangeEventSchema>;
 
 /**
- * The end of an Agent Run with its structured outcome. `reply` is the last
- * turn's full text for clients that do not assemble `message` deltas.
+ * The end of an Agent Run with its structured outcome. `ok` is determined by
+ * `reason`, so consumers may branch on either. `reply` is the last turn's full
+ * text for clients that do not assemble `message` deltas. `error` and `code`
+ * carry the cause when the run did not end as intended.
  */
-export const AgentFinishedEventSchema = z.object({
-  /** Member discriminator. */
-  type: z.literal('finished'),
-  /** Agent wire version, always {@link AGENT_WIRE_VERSION}. */
-  version: z.literal(AGENT_WIRE_VERSION),
-  /** The Agent Run that ended. */
-  runId: RunIdSchema,
-  /** Whether the run ended without failure. */
-  ok: z.boolean(),
-  /** Why the run ended. */
-  reason: AgentFinishReasonSchema,
-  /** Full text of the final reply. */
-  reply: z.string(),
-  /** Cost counters for the run. */
-  metrics: AgentRunMetricsSchema,
-});
+export const AgentFinishedEventSchema = z
+  .object({
+    /** Member discriminator. */
+    type: z.literal('finished'),
+    /** Agent wire version, always {@link AGENT_WIRE_VERSION}. */
+    version: z.literal(AGENT_WIRE_VERSION),
+    /** The Agent Run that ended. */
+    runId: RunIdSchema,
+    /**
+     * `true` when the run ended as intended (`completed`, `waiting`), `false`
+     * for `cancelled`, `budget` and `error`.
+     */
+    ok: z.boolean(),
+    /** Why the run ended. */
+    reason: AgentFinishReasonSchema,
+    /**
+     * Full text of the final reply, empty when the run ended before producing
+     * one.
+     */
+    reply: z.string(),
+    /** Cost counters for the run. */
+    metrics: AgentRunMetricsSchema,
+    /** Human-readable failure description when `ok` is `false`. */
+    error: z.string().optional(),
+    /**
+     * Optional machine-readable failure kind with no closed taxonomy, same
+     * meaning as on the `error` event.
+     */
+    code: z.string().optional(),
+  })
+  .refine(
+    (e) => e.ok === (e.reason === 'completed' || e.reason === 'waiting'),
+    {
+      message: 'ok must be true exactly for completed and waiting',
+      path: ['ok'],
+    },
+  );
 
 /** The end of an Agent Run with its structured outcome. */
 export type AgentFinishedEvent = z.infer<typeof AgentFinishedEventSchema>;
