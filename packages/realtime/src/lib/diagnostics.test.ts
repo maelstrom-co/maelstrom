@@ -1,7 +1,17 @@
 import { afterEach, expect, spyOn, test } from 'bun:test';
-import { type DiagnosticObservation, Orchestrator } from '@maelstrom-co/client';
-import { type DiagnosticEvent, ToolCallId } from '@maelstrom-co/protocol';
+import {
+  type DiagnosticObservation,
+  type IntentResult,
+  type IntentSnapshot,
+  Orchestrator,
+} from '@maelstrom-co/client';
+import {
+  type DiagnosticEvent,
+  MessageId,
+  ToolCallId,
+} from '@maelstrom-co/protocol';
 import { createTelemetry, type TelemetryRecord } from '@maelstrom-co/telemetry';
+import { Store } from '@tanstack/store';
 import {
   type AdapterDiagnosticObservation,
   type AdapterVoiceObservation,
@@ -39,6 +49,170 @@ function pendingIntent() {
   });
   return { promise, resolve };
 }
+
+test('diagnostics distinguish overlapping reused tool IDs without exposing invocation identity to telemetry', async () => {
+  const first = pendingIntent();
+  const second = pendingIntent();
+  let submitted = 0;
+  const h = harness({
+    submitIntent: () => (++submitted === 1 ? first.promise : second.promise),
+  });
+  const events: DiagnosticEvent[] = [];
+  const detach = h.client.diagnostics.subscribe(({ event }) =>
+    events.push(event),
+  );
+  const { records, telemetry } = telemetryFixture();
+  const operational = attachRealtimeTelemetry({
+    session: h.session,
+    telemetry,
+  });
+  await h.session.connect();
+  const call = {
+    type: 'tool_call',
+    callId: ToolCallId('reused'),
+    name: 'update_ui',
+    argumentsJson: '{"intent":"change"}',
+  } as const;
+  h.emit(call);
+  h.emit(call);
+  const called = events.filter((event) => event.kind === 'voice.tool.called');
+  expect(called).toHaveLength(2);
+  const ids = called.map((event) => event.metadata.invocationId);
+  expect(ids.every((id) => typeof id === 'string' && id.length > 0)).toBe(true);
+  expect(ids[0]).not.toBe(ids[1]);
+
+  second.resolve({});
+  await tick();
+  first.resolve({});
+  await tick();
+
+  expect(
+    events
+      .filter((event) => event.kind === 'voice.tool.result')
+      .map((event) => event.metadata.invocationId),
+  ).toEqual([ids[1], ids[0]]);
+  await telemetry.flush();
+  expect(JSON.stringify(records)).not.toMatch(/invocationId|reused/);
+  operational.release();
+  detach();
+});
+
+test('a successfully applied queued voice tool links only its authoritative Engine response', async () => {
+  const result: Extract<IntentResult, { status: 'applied' }> = {
+    status: 'applied',
+    response: {
+      type: 'maelstrom_response',
+      requestId: MessageId('engine-request'),
+      rationale: 'fixture',
+      userMessage: 'Done',
+      executionPlan: [],
+      layout: { type: 'tiling', tree: [], instances: [] },
+    },
+  };
+  const h = harness({
+    createIntentScope: () => ({
+      enqueueIntent: () => ({
+        id: 'admission-ticket-is-not-request-id',
+        accepted: true,
+        store: new Store<IntentSnapshot>(result),
+        result: Promise.resolve(result),
+      }),
+      retire() {},
+    }),
+  });
+  const events: DiagnosticEvent[] = [];
+  const detach = h.client.diagnostics.subscribe(({ event }) =>
+    events.push(event),
+  );
+  await h.session.connect();
+  h.emit({
+    type: 'tool_call',
+    callId: ToolCallId('call'),
+    name: 'update_ui',
+    argumentsJson: '{"intent":"change"}',
+  });
+  await tick();
+
+  expect(
+    events.find((event) => event.kind === 'voice.tool.result')?.requestId,
+  ).toBe('engine-request');
+  expect(
+    events.find((event) => event.kind === 'voice.tool.called')?.requestId,
+  ).toBeUndefined();
+  expect(JSON.stringify(events)).not.toContain(
+    'admission-ticket-is-not-request-id',
+  );
+  detach();
+});
+
+test('live voice diagnostics expose media and fragment facts without reading transcript content', async () => {
+  const h = harness();
+  const events: DiagnosticEvent[] = [];
+  const detach = h.client.diagnostics.subscribe(({ event }) =>
+    events.push(event),
+  );
+  await h.session.connect();
+  h.fragment('CANARY_transcript');
+  h.observe({
+    type: 'media',
+    media: { userSpeech: 'active', incomingAudio: 'inactive' },
+  });
+
+  const fragment = events.find(
+    (event) => event.kind === 'voice.transcript.fragment',
+  );
+  expect(fragment?.metadata.fragmentId).toBe('fragment');
+  expect(fragment?.metadata.role).toBe('user');
+  const media = events.filter((event) => event.kind === 'voice.media').at(-1);
+  expect(media?.metadata.userSpeech).toBe('active');
+  expect(media?.metadata.incomingAudio).toBe('inactive');
+  expect(JSON.stringify(events)).not.toContain('CANARY_transcript');
+  detach();
+});
+
+test('diagnostic attachment projects normalized responses and does not trust native lifecycle metadata', () => {
+  const h = harness();
+  const events: DiagnosticEvent[] = [];
+  const detach = h.client.diagnostics.subscribe(({ event }) =>
+    events.push(event),
+  );
+  let reads = 0;
+  h.provider({
+    kind: 'wire',
+    providerGeneration: 7,
+    metadata: {
+      type: 'native.finished',
+      responseId: 'native-context',
+      responsePhase: 'started',
+      responseOutcome: 'failed',
+    },
+    response: { id: 'response', phase: 'finished', outcome: 'cancelled' },
+    readContent: () => {
+      reads++;
+      return { text: 'private' };
+    },
+  });
+  expect(events.at(-1)?.metadata).toMatchObject({
+    type: 'native.finished',
+    providerGeneration: 7,
+    responseId: 'response',
+    responsePhase: 'finished',
+    responseOutcome: 'cancelled',
+  });
+  h.provider({
+    kind: 'wire',
+    providerGeneration: 7,
+    metadata: {
+      responseId: 'legacy',
+      responsePhase: 'finished',
+      responseOutcome: 'succeeded',
+    },
+  });
+  expect(events.at(-1)?.metadata.responsePhase).toBeUndefined();
+  expect(events.at(-1)?.metadata.responseOutcome).toBeUndefined();
+  expect(reads).toBe(0);
+  detach();
+});
 
 test('voice telemetry never activates provider diagnostics, transcript snapshots, or content readers', async () => {
   const h = harness();
@@ -472,6 +646,9 @@ function harness(override: Partial<RealtimeInstance> = {}) {
     identity,
     emit: (event: RealtimeAdapterEvent) => {
       for (const listener of [...events]) listener(event);
+    },
+    observe: (event: AdapterVoiceObservation) => {
+      for (const listener of [...media]) listener(event);
     },
     fragment: (text: string) => {
       for (const listener of [...media])

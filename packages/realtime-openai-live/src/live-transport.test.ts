@@ -203,6 +203,38 @@ test('provider diagnostics keep arguments lazy and project only supported native
   release?.();
 });
 
+test('native response lifecycle is projected into provider-neutral diagnostic facts', async () => {
+  const h = harness();
+  const observations: AdapterDiagnosticObservation[] = [];
+  const release = h.transport.diagnostics.subscribe((observation) =>
+    observations.push(observation),
+  );
+  const ready = h.start();
+  await tick();
+  h.started();
+  await ready;
+  for (const event of [
+    { type: 'response.created', response: { id: 'response-1' } },
+    { type: 'response.output_item.done', response_id: 'response-1' },
+    {
+      type: 'response.completed',
+      response: { id: 'response-1', status: 'completed' },
+    },
+    {
+      type: 'response.done',
+      response: { id: 'response-2', status: 'cancelled' },
+    },
+  ])
+    h.peer.channel.event('response.event', { event });
+  expect(observations.map((observation) => observation.response)).toEqual([
+    { id: 'response-1', phase: 'started' },
+    { id: 'response-1', phase: 'observed' },
+    { id: 'response-1', phase: 'finished', outcome: 'succeeded' },
+    { id: 'response-2', phase: 'finished', outcome: 'cancelled' },
+  ]);
+  release();
+});
+
 test('diagnostic failures cannot change native sends and failed sends are not reported as successful', async () => {
   const h = harness();
   const observations: AdapterDiagnosticObservation[] = [];

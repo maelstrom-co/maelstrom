@@ -15,6 +15,7 @@ import {
 export const DEFAULT_PENDING_TOOLS = 1_000;
 export const DEFAULT_DRAIN_TIMEOUT_MS = 30_000;
 const DIAGNOSTIC_PENDING_TOOLS = 1_000;
+const diagnosticInvocationIds = new WeakMap<ToolInvocation, string>();
 type ToolKind = Extract<OperationalKind, `voice.tool.${string}`>;
 type ToolObservation = {
   [Kind in ToolKind]: {
@@ -141,7 +142,20 @@ export function observeTools(
     }
     try {
       const observation = projectToolObservation(event, invocation);
-      publish(event, observation.metadata, observation.kind);
+      let metadata: DiagnosticMetadata = observation.metadata;
+      if (policy.mode === 'diagnostics' && invocation) {
+        let id = diagnosticInvocationIds.get(invocation);
+        if (!id) {
+          id = crypto.randomUUID();
+          diagnosticInvocationIds.set(invocation, id);
+        }
+        metadata = {
+          ...metadata,
+          invocationId: id,
+          requestId: invocation.requestId,
+        };
+      }
+      publish(event, metadata, observation.kind);
     } finally {
       finish();
     }

@@ -258,6 +258,23 @@ export interface RealtimeProviderAdapter extends RealtimeTransportAdapter {
   readonly turnControl?: AdapterTurnControl;
 }
 
+/** Provider-reported response identity and lifecycle, independent of native event names. */
+export type AdapterDiagnosticResponse =
+  | {
+      /** Opaque response identity within the provider lifetime and generation. */
+      readonly id: string;
+      /** Start or intermediate evidence; neither establishes a terminal outcome. */
+      readonly phase: 'started' | 'observed';
+    }
+  | {
+      /** Opaque response identity within the provider lifetime and generation. */
+      readonly id: string;
+      /** Provider response processing ended; audio completion remains independent. */
+      readonly phase: 'finished';
+      /** Reported terminal outcome; omission preserves an unknown result. */
+      readonly outcome?: 'succeeded' | 'failed' | 'cancelled' | 'incomplete';
+    };
+
 /** Projected provider facts, separate from raw native envelopes and voice media. */
 export interface AdapterDiagnosticObservation {
   /** Provider-local category; consumers place it beneath a reserved voice namespace. */
@@ -266,6 +283,8 @@ export interface AdapterDiagnosticObservation {
   readonly providerGeneration: number;
   /** Scalar facts without prompts, arguments, instructions, credentials, or audio. */
   readonly metadata: DiagnosticMetadata;
+  /** Optional normalized response evidence; native metadata alone does not establish its lifecycle. */
+  readonly response?: AdapterDiagnosticResponse;
   /** Allowlisted application content, evaluated only by explicit recording. */
   readonly readContent?: () => unknown;
 }
