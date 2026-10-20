@@ -132,7 +132,7 @@ const eventFixtures: {
   error: {
     type: 'error',
     version: AGENT_WIRE_VERSION,
-    inputId: MessageId('in-1'),
+    changeId: ChangeId('change-1'),
     error: 'unknown changeId',
   },
 };
@@ -317,6 +317,11 @@ describe('AgentEvent round-trip', () => {
       ],
       [AgentEventSchema, uiChangeWithoutRunId, ['runId']],
       [
+        AgentEventSchema,
+        { ...eventFixtures.error, changeId: '  ' },
+        ['changeId'],
+      ],
+      [
         AgentInputSchema,
         { ...inputFixtures.ui_applied, changeId: '  ' },
         ['changeId'],
@@ -342,6 +347,22 @@ describe('AgentEvent round-trip', () => {
       code: 'token_refused',
     };
     expect(roundTrip(AgentEventSchema, value)).toEqual(value);
+  });
+
+  test('error round-trips correlated to an input or to a UI change', () => {
+    for (const correlation of [
+      { inputId: MessageId('in-1') },
+      { changeId: ChangeId('change-1') },
+    ]) {
+      const value: AgentEvent = {
+        type: 'error',
+        version: AGENT_WIRE_VERSION,
+        ...correlation,
+        error: 'rejected',
+        code: 'rejected_input',
+      };
+      expect(roundTrip(AgentEventSchema, value)).toEqual(value);
+    }
   });
 
   test('rejects negative or fractional metrics', () => {

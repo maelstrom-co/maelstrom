@@ -301,11 +301,12 @@ export type AgentFinishedEvent = z.infer<typeof AgentFinishedEventSchema>;
 
 /**
  * A failure outside any Agent Run that the Engine detects after the frame
- * decoded, such as a `ui_applied` echoing an unknown `changeId`. A frame that
- * does not decode is reported by the `engine.error` frame instead, never by
- * this event. Failures inside a run are reported by `finished` with reason
- * `error`. `error` and `code` have the same meaning as on the `engine.error`
- * frame.
+ * decoded, such as a `ui_applied` echoing an unknown `changeId`. `inputId`
+ * names the offending input and `changeId` the UI change a failed
+ * `ui_applied` refers to. A frame that does not decode is reported by the
+ * `engine.error` frame instead, never by this event. Failures inside a run are
+ * reported by `finished` with reason `error`. `error` and `code` have the same
+ * meaning as on the `engine.error` frame.
  */
 export const AgentErrorEventSchema = z.object({
   /** Member discriminator. */
@@ -314,6 +315,12 @@ export const AgentErrorEventSchema = z.object({
   version: z.literal(AGENT_WIRE_VERSION),
   /** The offending input, when there is one. */
   inputId: MessageIdSchema.optional(),
+  /**
+   * The UI change the failure belongs to. Set for failures of a `ui_applied`
+   * input, such as an unknown or stale `changeId`, because that input carries
+   * no `inputId`.
+   */
+  changeId: ChangeIdSchema.optional(),
   /** Human-readable failure description. */
   error: z.string(),
   /** Optional machine-readable failure kind with no closed taxonomy. */

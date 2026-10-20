@@ -154,7 +154,7 @@ type AgentEvent =
   | { type: 'message'; version: 1; runId: RunId; turnId: string; delta: string }
   | { type: 'ui_change'; version: 1; runId: RunId | null; changeId: ChangeId; response: MaelstromResponse }
   | { type: 'finished'; version: 1; runId: RunId; ok: boolean; reason: AgentFinishReason; reply: string; metrics: AgentRunMetrics; error?: string; code?: string }
-  | { type: 'error'; version: 1; inputId?: MessageId; error: string; code?: string };
+  | { type: 'error'; version: 1; inputId?: MessageId; changeId?: ChangeId; error: string; code?: string };
 ```
 
 `AgentInputMessage()` and `AgentEventMessage()` are smart constructors like the other frames, but they default only `id` (agent frames carry no `timestamp`):
