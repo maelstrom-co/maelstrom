@@ -8,10 +8,11 @@ import type { MaelstromResponse } from './response.ts';
 
 /**
  * Version of the agent wire contract that every {@link AgentInput} and
- * {@link AgentEvent} carries in its `version` field. An integer, not semver:
- * additive changes such as new members or new optional fields keep the
- * version, and only a breaking change bumps it. Decoders reject any other
- * value.
+ * {@link AgentEvent} carries in its `version` field. An integer, not semver.
+ * A new optional field on a member keeps the version, because decoders strip
+ * keys they do not know. A new union member or enum value is rejected by an
+ * older decoder as `invalid_envelope`, so such a change bumps the version.
+ * Decoders reject any other version value.
  */
 export const AGENT_WIRE_VERSION = 1 as const;
 
@@ -139,7 +140,7 @@ export type AgentUiAppliedInput = z.infer<typeof AgentUiAppliedInputSchema>;
 
 /**
  * Every input a client may send to the Agent Session, discriminated on
- * `type`. Each member carries `version: 1`.
+ * `type`. Each member carries `version` equal to {@link AGENT_WIRE_VERSION}.
  */
 export const AgentInputSchema = z.discriminatedUnion('type', [
   AgentUtteranceInputSchema,
@@ -315,7 +316,7 @@ export type AgentErrorEvent = z.infer<typeof AgentErrorEventSchema>;
 
 /**
  * Every event the Engine may send on the agent event stream, discriminated on
- * `type`. Each member carries `version: 1`.
+ * `type`. Each member carries `version` equal to {@link AGENT_WIRE_VERSION}.
  */
 export const AgentEventSchema = z.discriminatedUnion('type', [
   AgentPlaceholderEventSchema,

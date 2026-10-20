@@ -144,15 +144,27 @@ A non-finite `timestamp` (`NaN`, `±Infinity`) is rejected at construction — i
 The agent wire travels inside two wrapper frames. `client.agent.input` (`AgentInputMessage`) carries one `AgentInput` under `input`, and `engine.agent.event` (`AgentEventMessage`) carries one `AgentEvent` under `event`. Both frames carry `id` and `sessionId` and decode through `decodeClientEnvelope` / `decodeServerEnvelope`.
 
 ```ts
-type AgentInput = { type: 'utterance' | 'ui_applied'; version: 1; ... };
-type AgentEvent = {
-  type: 'placeholder' | 'accepted' | 'message' | 'ui_change' | 'finished' | 'error';
-  version: 1;
-  ...
-};
+type AgentInput =
+  | { type: 'utterance'; version: 1; inputId: MessageId; text: string; chart: ChartRequest; source: 'text' | 'voice' }
+  | { type: 'ui_applied'; version: 1; changeId: ChangeId; chart: ChartRequest; actionOutcomes: AgentActionOutcome[] };
+
+type AgentEvent =
+  | { type: 'placeholder'; version: 1; inputId: MessageId; text: string }
+  | { type: 'accepted'; version: 1; inputId: MessageId; runId: RunId | null; disposition: AgentDisposition; ack: string }
+  | { type: 'message'; version: 1; runId: RunId; turnId: string; delta: string }
+  | { type: 'ui_change'; version: 1; runId: RunId | null; changeId: ChangeId; response: MaelstromResponse }
+  | { type: 'finished'; version: 1; runId: RunId; ok: boolean; reason: AgentFinishReason; reply: string; metrics: AgentRunMetrics; error?: string; code?: string }
+  | { type: 'error'; version: 1; inputId?: MessageId; error: string; code?: string };
 ```
 
-Every member carries `version: 1` (`AGENT_WIRE_VERSION`). Additive changes keep the version, and a decoder rejects any other value with an `invalid_envelope` `EnvelopeError`. `CallId` is deliberately distinct from `ToolCallId`: provider tool call ids and agent loop call ids are separate id spaces.
+`AgentInputMessage()` and `AgentEventMessage()` are smart constructors like the other frames, but they default only `id` (agent frames carry no `timestamp`):
+
+```ts
+const frame = AgentInputMessage({ sessionId, input: utterance });
+ws.send(encodeEnvelope(frame));
+```
+
+Every member carries `version` equal to `AGENT_WIRE_VERSION` (currently 1). A new optional field keeps the version because decoders strip unknown keys. A new member or enum value is rejected by an older decoder as an `invalid_envelope` `EnvelopeError`, as is any other `version` value, so such a change bumps the version. `CallId` is deliberately distinct from `ToolCallId`: provider tool call ids and agent loop call ids are separate id spaces.
 
 ---
 
