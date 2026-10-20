@@ -168,23 +168,39 @@ export const AgentPlaceholderEventSchema = z.object({
 export type AgentPlaceholderEvent = z.infer<typeof AgentPlaceholderEventSchema>;
 
 /**
- * The Engine's decision about an input: which Agent Run handles it and how.
- * `ack` is a short acknowledgement the client may show or speak.
+ * The Engine's decision about an input: how it is handled and, when a run
+ * handles it, which one. A non-null `runId` is followed by exactly one
+ * `finished` event for that run. `ui_only` and `noise` start no run, so no
+ * `finished` follows them. `ack` is a short acknowledgement the client may
+ * show or speak.
  */
-export const AgentAcceptedEventSchema = z.object({
-  /** Member discriminator. */
-  type: z.literal('accepted'),
-  /** Agent wire version, always {@link AGENT_WIRE_VERSION}. */
-  version: z.literal(AGENT_WIRE_VERSION),
-  /** The input that was accepted. */
-  inputId: MessageIdSchema,
-  /** The Agent Run that handles the input. */
-  runId: RunIdSchema,
-  /** How the input is handled. */
-  disposition: AgentDispositionSchema,
-  /** Short acknowledgement text. */
-  ack: z.string(),
-});
+export const AgentAcceptedEventSchema = z
+  .object({
+    /** Member discriminator. */
+    type: z.literal('accepted'),
+    /** Agent wire version, always {@link AGENT_WIRE_VERSION}. */
+    version: z.literal(AGENT_WIRE_VERSION),
+    /** The input that was accepted. */
+    inputId: MessageIdSchema,
+    /**
+     * The Agent Run that handles the input, or `null` when the disposition
+     * starts no run (`ui_only`, `noise`).
+     */
+    runId: RunIdSchema.nullable(),
+    /** How the input is handled. */
+    disposition: AgentDispositionSchema,
+    /** Short acknowledgement text. */
+    ack: z.string(),
+  })
+  .refine(
+    (e) =>
+      (e.runId === null) ===
+      (e.disposition === 'ui_only' || e.disposition === 'noise'),
+    {
+      message: 'runId must be null exactly for ui_only and noise',
+      path: ['runId'],
+    },
+  );
 
 /** The Engine's decision about an input. */
 export type AgentAcceptedEvent = z.infer<typeof AgentAcceptedEventSchema>;

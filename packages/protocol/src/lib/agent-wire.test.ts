@@ -241,9 +241,43 @@ describe('AgentEvent round-trip', () => {
       'supersede',
       'noise',
     ] as const) {
-      const value = { ...eventFixtures.accepted, disposition };
+      const runId =
+        disposition === 'ui_only' || disposition === 'noise'
+          ? null
+          : RunId('run-1');
+      const value = { ...eventFixtures.accepted, disposition, runId };
       expect(roundTrip(AgentEventSchema, value)).toEqual(value);
     }
+  });
+
+  test('accepted rejects a null runId for a disposition that starts a run', () => {
+    const result = AgentEventSchema.safeParse({
+      ...eventFixtures.accepted,
+      disposition: 'agent',
+      runId: null,
+    });
+    expect(result.success).toBe(false);
+    if (!result.success)
+      expect(result.error.issues[0]?.path).toEqual(['runId']);
+  });
+
+  test('accepted rejects a runId for a disposition that starts no run', () => {
+    const result = AgentEventSchema.safeParse({
+      ...eventFixtures.accepted,
+      disposition: 'noise',
+      runId: RunId('run-1'),
+    });
+    expect(result.success).toBe(false);
+    if (!result.success)
+      expect(result.error.issues[0]?.path).toEqual(['runId']);
+  });
+
+  test('accepted rejects a missing runId', () => {
+    const { runId: _omit, ...withoutRunId } = eventFixtures.accepted;
+    const result = AgentEventSchema.safeParse(withoutRunId);
+    expect(result.success).toBe(false);
+    if (!result.success)
+      expect(result.error.issues[0]?.path).toEqual(['runId']);
   });
 
   test('ui_change accepts a null runId for changes outside an Agent Run', () => {
