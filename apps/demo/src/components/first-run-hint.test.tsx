@@ -54,7 +54,9 @@ describe('FirstRunHint', () => {
   }
 
   it('renders the spoken-style examples on an empty, idle chart', () => {
-    const { getByTestId } = renderHint(<FirstRunHint />);
+    const { getByTestId } = renderHint(
+      <FirstRunHint examples={FIRST_RUN_EXAMPLES} />,
+    );
 
     const hint = getByTestId('first-run-hint');
     for (const example of FIRST_RUN_EXAMPLES) {

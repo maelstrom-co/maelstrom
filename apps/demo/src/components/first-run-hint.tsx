@@ -20,8 +20,8 @@ export function isFirstRunHintVisible(
  * few concrete things to say, matched to what the suggestion chips offer.
  */
 export function FirstRunHint({
-  examples = FIRST_RUN_EXAMPLES,
-}: Readonly<{ examples?: readonly string[] }>) {
+  examples,
+}: Readonly<{ examples: readonly string[] }>) {
   const maelstrom = useDemoMaelstrom();
   const instanceCount = maelstrom.useInstanceCount();
   const { isProcessing } = maelstrom.useMaelstrom();
