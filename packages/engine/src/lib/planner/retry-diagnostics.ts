@@ -9,6 +9,7 @@ import type {
   LayoutWarning,
 } from '../validation/llm-output/healed-layout.js';
 import { isTreeDrop } from '../validation/llm-output/healed-layout.js';
+import type { PlanValidationIssue } from './plan-validator.js';
 
 const MAX_LIST_IDENTIFIERS = 16;
 const MAX_DIAGNOSTIC_LINES = 32;
@@ -20,6 +21,7 @@ const textEncoder = new TextEncoder();
 interface DiagnosticSection {
   /** Trusted heading selected by the renderer, never model-authored text. */
   readonly heading:
+    | 'Application requirements:'
     | 'Layout drops:'
     | 'Layout repairs:'
     | 'Response quality:'
@@ -63,11 +65,21 @@ export function renderRetryDiagnostics(
   drops: readonly DroppedLayoutEntry[],
   skippedActions: readonly SkippedAction[],
   warnings: readonly LayoutWarning[],
+  planIssues: readonly PlanValidationIssue[] = [],
 ): string {
   const describedDrops = describeLayoutDrops(drops);
   const described = describeLayoutWarnings(warnings);
   const describedSkips = describeSkippedActions(skippedActions);
   const sections = [
+    {
+      heading: 'Application requirements:' as const,
+      lines: planIssues
+        .slice(0, MAX_DIAGNOSTIC_LINES)
+        .map(
+          (issue) =>
+            `${quoteIdentifier(issue.code)}: ${quoteIdentifier(issue.message)}`,
+        ),
+    },
     { heading: 'Layout drops:' as const, lines: describedDrops.lines },
     { heading: 'Layout repairs:' as const, lines: described.repairs },
     { heading: 'Response quality:' as const, lines: described.quality },
@@ -76,7 +88,10 @@ export function renderRetryDiagnostics(
 
   return boundDiagnosticSection(
     sections,
-    describedDrops.omitted + described.omitted + describedSkips.omitted,
+    describedDrops.omitted +
+      described.omitted +
+      describedSkips.omitted +
+      Math.max(0, planIssues.length - MAX_DIAGNOSTIC_LINES),
   );
 }
 

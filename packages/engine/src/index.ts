@@ -77,6 +77,11 @@ export {
 } from './lib/planner/instrument.js';
 export { pipeline } from './lib/planner/pipeline.js';
 export type {
+  PlanValidationInput,
+  PlanValidationIssue,
+  PlanValidator,
+} from './lib/planner/plan-validator.js';
+export type {
   ClarifyingPlanner,
   Deferred,
   Planner,

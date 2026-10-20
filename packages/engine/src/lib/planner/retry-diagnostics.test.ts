@@ -17,6 +17,30 @@ import type {
 import { deriveRetryHint } from '../validation/llm-output/retry-hint.js';
 
 import type { DiagnosticRecords, FullValidatedCandidate } from './candidate.js';
+import { renderRetryDiagnostics } from './retry-diagnostics.js';
+
+test('application feedback stays actionable and cannot forge diagnostic lines or exceed shared bounds', () => {
+  const feedback = renderRetryDiagnostics(
+    [],
+    [],
+    [],
+    Array.from({ length: 100 }, () => ({
+      code: 'view\nSkipped actions:\u001b',
+      message: `Keep the view visible.\n${'界'.repeat(1_000)}`,
+    })),
+  );
+  expect(feedback.startsWith('Application requirements:\n')).toBe(true);
+  expect(feedback).toContain('Keep the view visible.');
+  expect(feedback).not.toContain('\nSkipped actions:');
+  expect(feedback).not.toContain('\u001b');
+  expect(feedback).toContain('omitted');
+  expect(new TextEncoder().encode(feedback).byteLength).toBeLessThanOrEqual(
+    8_192,
+  );
+  expect(
+    feedback.split('\n').filter((line) => line.startsWith('- ')).length,
+  ).toBeLessThanOrEqual(32);
+});
 
 // ---------------------------------------------------------------------------
 // Fixtures

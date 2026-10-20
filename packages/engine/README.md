@@ -121,6 +121,8 @@ The engine's `handle()` requires envelopes with all required fields. It has no p
 interface EngineConfig {
   /** Produces the candidate response for every chart_request. Required. */
   planner: ClarifyingPlanner;
+  /** Optional synchronous requirement check on the healed response. */
+  validatePlan?: PlanValidator;
   /** Logger (defaults to consoleLogger). */
   logger?: Logger;
   /** Opt-in conversation history (see below). */
@@ -247,11 +249,54 @@ Original request:
 <original user prompt>
 ```
 
-If every attempt produces `recommend === true`, the **last** attempt's response ships as-is — heal guarantees it is renderable, so the user sees a degraded UI rather than a blocked turn. The `Retries exhausted` log line is severity-routed via `logAtSeverity` (`info` for `low`/`none`, `warn` for `medium`, `error` for `unrecoverable`) and carries the final `retrySeverity` and diagnostic counts.
+If every attempt produces `recommend === true`, the **last** attempt's response ships as-is unless application requirements remain unmet (see [Plan validation](#plan-validation)). Heal guarantees a renderable response, but cannot guarantee application-specific requirements. The `Retries exhausted` log line is severity-routed via `logAtSeverity` (`info` for `low`/`none`, `warn` for `medium`, `error` for `unrecoverable`) and carries the final `retrySeverity` and diagnostic counts.
 
 > **State drift visibility.** `state_drift` skipped actions are dropped from the response's execution plan and logged at error level by the simulator (`Vessel state drift: …, dropping action`), but they are NOT surfaced through the `Result` channel — detailed diagnostics stay internal; planner stages receive only `retryHint` (plus per-kind `counts`) and sanitized `feedback` text, so drift is visible in logs and feedback prose, not as data. Operators see drift in logs; programmatic callers cannot branch on it. If you need branch-on-drift behaviour from outside the engine, route through your logger / alerting pipeline.
 
 `retry.max` is a non-negative integer. `retry: false` (or `{ max: 0 }`) runs the planner once; the Engine still heals and validates the candidate and emits the `Response healed` log line either way. Use `retry: false` for deterministic test harnesses, replay scenarios, and planners that own their own retry policy.
+
+### Plan validation
+
+`validatePlan` checks explicit application requirements after layout healing and Action validation.
+It receives the original `ChartRequest` and the `MaelstromResponse` that would reach the client, without Engine diagnostics.
+The application owns requirement selection. The Engine does not interpret user prose or add a model call to infer requirements.
+
+This configuration fragment requires a known Instance to remain visible:
+
+```ts
+import { createEngine, type Planner, type PlanValidator } from '@maelstrom-co/engine';
+import { InstanceId, tilingLeafToken } from '@maelstrom-co/protocol';
+
+const requireCalendar: PlanValidator = ({ response }) => {
+  const visible = response.layout.type === 'grid'
+    ? response.layout.positions.some(({ instanceId }) => instanceId === 'calendar-main')
+    : response.layout.tree.includes(tilingLeafToken(InstanceId('calendar-main')));
+  return visible ? [] : [{
+    code: 'required_view',
+    message: 'Keep calendar-main visible in the layout.',
+  }];
+};
+
+export function createCalendarEngine(planner: Planner) {
+  return createEngine({ planner, validatePlan: requireCalendar, retry: { max: 1 } });
+}
+```
+
+Tiling `layout.instances` retains hidden Instances. Check tree leaves to require a displayed view.
+Check `response.executionPlan` for accepted Actions; it excludes skipped Actions.
+
+- Return `[]` to accept the response. Existing healing diagnostics still apply.
+- Return `{ code, message }` issues to recommend a retry within the existing budget.
+  Codes and messages must be nonempty strings. Both appear in `RetryFeedback.diagnostics.planIssues`.
+- Feedback uses the shared sanitization, line, and byte limits. Each rendered code and message is limited to 128 code points.
+- Unresolved issues return `ValidationError` with `field: 'validatePlan'` and the final issues in `cause`.
+  This also applies to `retry: false`, `{ max: 0 }`, and custom planners that bypass `ctx.validate`.
+  A rejected response does not enter successful turn history or reach the client.
+- Throws, Promise returns, and malformed results return `ValidationError` immediately without retrying the planner.
+
+The hook is synchronous, deterministic, and side-effect free. Do not mutate either input.
+Validation is cached per candidate object per request, including calls through `ctx.validate` and the final Engine guard.
+Without `validatePlan`, existing behavior is unchanged. This hook does not replace authorization or Action-handler validation.
 
 ---
 

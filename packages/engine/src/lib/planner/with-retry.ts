@@ -27,7 +27,8 @@ export interface WithRetryOptions {
  * original input plus {@link RetryFeedback} about the attempt just rejected
  * (never earlier ones). Every `Err`, from the stage or from validation, is
  * returned at once without using the budget. When the budget runs out, the
- * last candidate ships as-is: healing keeps it renderable.
+ * last candidate returns to the Engine: healing keeps it renderable, but
+ * unresolved application requirements still prevent delivery.
  *
  * The signal is not checked between attempts; each attempt is responsible
  * for observing it.
