@@ -23,12 +23,22 @@ export default function CartComponent({
   const itemCount = lines.reduce((sum, line) => sum + line.quantity, 0);
 
   shop.useActions('cart', instanceId, {
-    addToCart: async ({ sku, quantity }) =>
-      toActionResult(cartActions.addToCart(sku, quantity ?? 1), sku),
+    addToCart: async ({ sku, quantity }) => {
+      const units = quantity ?? 1;
+      return toActionResult(cartActions.addToCart(sku, units), {
+        sku,
+        quantity: units,
+        quantityRule: 'a whole number of at least 1',
+      });
+    },
     removeFromCart: async ({ sku }) =>
-      toActionResult(cartActions.removeFromCart(sku), sku),
+      toActionResult(cartActions.removeFromCart(sku), { sku }),
     updateCartQuantity: async ({ sku, quantity }) =>
-      toActionResult(cartActions.updateCartQuantity(sku, quantity), sku),
+      toActionResult(cartActions.updateCartQuantity(sku, quantity), {
+        sku,
+        quantity,
+        quantityRule: 'a whole number of 0 or more (0 removes the line)',
+      }),
     clearCart: async () => {
       cartActions.clearCart();
       return ok(undefined);
@@ -101,7 +111,16 @@ export default function CartComponent({
   );
 }
 
-function toActionResult(result: CartMutationResult, sku: string) {
+interface CartActionRequest {
+  sku: string;
+  quantity?: number;
+  quantityRule?: string;
+}
+
+function toActionResult(
+  result: CartMutationResult,
+  { sku, quantity, quantityRule }: CartActionRequest,
+) {
   if (result.ok) return ok(undefined);
   switch (result.reason) {
     case 'unknown_product':
@@ -120,7 +139,15 @@ function toActionResult(result: CartMutationResult, sku: string) {
         ),
       );
     }
+    case 'ambiguous':
+      return err(
+        new Error(
+          `"${sku}" matches more than one cart line: ${result.candidates.join(', ')}. Pass the SKU.`,
+        ),
+      );
     case 'bad_quantity':
-      return err(new Error('quantity must be a whole number of at least 1'));
+      return err(
+        new Error(`quantity must be ${quantityRule}, got ${quantity}`),
+      );
   }
 }
