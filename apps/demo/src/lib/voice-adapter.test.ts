@@ -2,10 +2,21 @@ import { SessionId } from '@maelstrom-co/protocol';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { selectVoiceProvider } from './voice-provider';
 
+interface ConstructedOpenAIAdapter {
+  activateAudioCalls: number;
+  options: { mintToken: () => Promise<unknown> };
+}
+
 const constructed = vi.hoisted(() => ({
   liveKit: [] as Array<Record<string, unknown>>,
-  openAI: [] as Array<{ activateAudioCalls: number }>,
+  openAI: [] as ConstructedOpenAIAdapter[],
   live: [] as unknown[],
+  activateAudioError: undefined as Error | undefined,
+}));
+
+const mint = vi.hoisted(() => ({
+  server: vi.fn(() => Promise.resolve({})),
+  browser: vi.fn(() => Promise.resolve({})),
 }));
 
 vi.mock('@maelstrom-co/realtime-livekit', async (importOriginal) => ({
@@ -20,11 +31,16 @@ vi.mock('@maelstrom-co/realtime-openai', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@maelstrom-co/realtime-openai')>()),
   OpenAIAdapter: class {
     activateAudioCalls = 0;
-    constructor() {
+    options: ConstructedOpenAIAdapter['options'];
+    constructor(options: ConstructedOpenAIAdapter['options']) {
+      this.options = options;
       constructed.openAI.push(this);
     }
     activateAudio() {
       this.activateAudioCalls += 1;
+      return constructed.activateAudioError
+        ? Promise.reject(constructed.activateAudioError)
+        : Promise.resolve();
     }
   },
 }));
@@ -39,10 +55,8 @@ vi.mock('@maelstrom-co/realtime-openai-live', async (importOriginal) => ({
   },
 }));
 vi.mock('./mint-token', () => ({
-  mintOpenAIToken: () => Promise.resolve(),
-  createBrowserMintToken: () => async () => {
-    throw new Error('createBrowserMintToken should not be called in tests');
-  },
+  mintOpenAIToken: mint.server,
+  createBrowserMintToken: () => mint.browser,
 }));
 vi.mock('./voice/get-livekit-token', () => ({
   getLivekitToken: () => Promise.resolve(),
@@ -56,9 +70,11 @@ const sessionId = SessionId('session-1');
 
 afterEach(() => {
   vi.unstubAllEnvs();
+  vi.clearAllMocks();
   constructed.liveKit.length = 0;
   constructed.openAI.length = 0;
   constructed.live.length = 0;
+  constructed.activateAudioError = undefined;
 });
 
 describe('createAdapter', () => {
@@ -97,6 +113,32 @@ describe('createAdapter', () => {
     expect(constructed.live).toHaveLength(0);
     expect(constructed.liveKit).toHaveLength(0);
   });
+
+  it('mints a server token for the session when the server owns the key', async () => {
+    vi.stubEnv('VITE_HOSTED', '0');
+    vi.stubEnv('VITE_BROWSER_KEY_MODE', '0');
+
+    createAdapter('realtime', sessionId);
+    expect(mint.server).not.toHaveBeenCalled();
+
+    await constructed.openAI[0]?.options.mintToken();
+
+    expect(mint.server).toHaveBeenCalledExactlyOnceWith(sessionId);
+    expect(mint.browser).not.toHaveBeenCalled();
+  });
+
+  it('mints with the browser key in browser-key mode', async () => {
+    vi.stubEnv('VITE_HOSTED', '0');
+    vi.stubEnv('VITE_BROWSER_KEY_MODE', '1');
+
+    createAdapter('realtime', sessionId);
+    expect(mint.browser).not.toHaveBeenCalled();
+
+    await constructed.openAI[0]?.options.mintToken();
+
+    expect(mint.browser).toHaveBeenCalledOnce();
+    expect(mint.server).not.toHaveBeenCalled();
+  });
 });
 
 describe('prepareBrowserOpenAIVoice', () => {
@@ -128,5 +170,47 @@ describe('prepareBrowserOpenAIVoice', () => {
     expect(createAdapter('realtime', sessionId)).toBe(prepared);
     expect(createAdapter('realtime', sessionId)).not.toBe(prepared);
     expect(constructed.openAI).toHaveLength(2);
+  });
+
+  it('keeps the prepared adapter for realtime while other providers build fresh ones', () => {
+    vi.stubEnv('VITE_HOSTED', '1');
+    selectVoiceProvider('realtime');
+
+    expect(prepareBrowserOpenAIVoice()).toBe(true);
+    const prepared = constructed.openAI[0];
+
+    expect(createAdapter('livekit', sessionId)).not.toBe(prepared);
+    expect(createAdapter('live', sessionId)).not.toBe(prepared);
+    expect(constructed.liveKit).toHaveLength(1);
+    expect(constructed.live).toHaveLength(1);
+
+    expect(createAdapter('realtime', sessionId)).toBe(prepared);
+    expect(constructed.openAI).toHaveLength(1);
+  });
+
+  it('reuses one prepared adapter when prepared twice before a session', () => {
+    vi.stubEnv('VITE_HOSTED', '1');
+    selectVoiceProvider('realtime');
+
+    expect(prepareBrowserOpenAIVoice()).toBe(true);
+    expect(prepareBrowserOpenAIVoice()).toBe(true);
+
+    expect(constructed.openAI).toHaveLength(1);
+    const prepared = constructed.openAI[0];
+    expect(prepared?.activateAudioCalls).toBe(2);
+    expect(createAdapter('realtime', sessionId)).toBe(prepared);
+  });
+
+  it('still reports success when unlocking audio rejects', async () => {
+    vi.stubEnv('VITE_HOSTED', '1');
+    selectVoiceProvider('realtime');
+    constructed.activateAudioError = new Error('autoplay blocked');
+
+    expect(prepareBrowserOpenAIVoice()).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const prepared = constructed.openAI[0];
+    expect(prepared?.activateAudioCalls).toBe(1);
+    expect(createAdapter('realtime', sessionId)).toBe(prepared);
   });
 });

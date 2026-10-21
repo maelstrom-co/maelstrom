@@ -38,7 +38,12 @@ const hostedMintToken = createBrowserMintToken(
 let preparedBrowserOpenAIAdapter: OpenAIAdapter | undefined;
 let preparedProvider: DemoVoiceProvider | undefined;
 
-/** Unlocks the next browser-key Realtime adapter inside the current user gesture. Live waits for playback acceptance after connecting. */
+/**
+ * Creates and unlocks a browser-key OpenAI Realtime adapter inside the current
+ * user gesture so the next `createAdapter` call for realtime can take it over.
+ * Returns false and does nothing when the server owns the key or the selected
+ * provider is not realtime.
+ */
 export function prepareBrowserOpenAIVoice(): boolean {
   const provider = voiceProviderStore.state.provider;
   if (!usesBrowserKey() || provider !== 'realtime') return false;
@@ -51,6 +56,7 @@ export function prepareBrowserOpenAIVoice(): boolean {
   return true;
 }
 
+/** Hands a browser-key realtime session the adapter prepared by `prepareBrowserOpenAIVoice` exactly once, otherwise constructs a new adapter. */
 export function createAdapter(
   provider: DemoVoiceProvider,
   sessionId: SessionId,
