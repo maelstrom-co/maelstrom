@@ -4,7 +4,7 @@ export const notificationsVessel = defineVessel({
   id: 'notifications',
   name: 'Notifications',
   description:
-    'Setting. Turn new email alerts and the alert sound on or off. Use when someone wants fewer interruptions, quiet time, or to stop the pings.',
+    'Setting. Turn new email alerts and the alert sound on or off. Use when someone wants fewer interruptions, quiet time, or to stop the pings. Show it whenever someone wants to see, check or adjust notification settings, even before they say which one, so they can choose on screen.',
   defaultVariant: 'panel',
   variants: {
     panel: {

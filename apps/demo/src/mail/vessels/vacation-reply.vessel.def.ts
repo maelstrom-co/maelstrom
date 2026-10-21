@@ -4,7 +4,7 @@ export const vacationReplyVessel = defineVessel({
   id: 'vacation-reply',
   name: 'Vacation reply',
   description:
-    'Setting. An automatic reply sent while you are away. Use when someone is going on holiday, out of office, or away for a while.',
+    'Setting. An automatic reply sent while you are away. Use when someone is going on holiday, out of office, or away for a while. Show it whenever someone wants to set up, check or turn off an away reply, even before they give the wording, so they can set it on screen.',
   defaultVariant: 'panel',
   variants: {
     panel: {

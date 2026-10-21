@@ -4,7 +4,7 @@ export const blockedSendersVessel = defineVessel({
   id: 'blocked-senders',
   name: 'Blocked senders',
   description:
-    'Setting. The people and addresses you never want email from. Use when someone wants to block or unblock a sender, or stop spam from someone.',
+    'Setting. The people and addresses you never want email from. Use when someone wants to block or unblock a sender, or stop spam from someone. Show it whenever someone wants to block someone or see who is blocked, even before they say which address, so they can manage the list on screen.',
   defaultVariant: 'panel',
   variants: {
     panel: {

@@ -5,7 +5,7 @@ export const textSizeVessel = defineVessel({
   id: 'text-size',
   name: 'Text size',
   description:
-    'Setting. Make the email text bigger or smaller. Use when someone says the text is too small, wants bigger text, or a larger font.',
+    'Setting. Make the email text bigger or smaller. Use when someone says the text is too small, wants bigger text, or a larger font. Show it whenever someone wants to see, check or change the text size, even before they say how big, so they can choose on screen.',
   defaultVariant: 'panel',
   variants: {
     panel: {

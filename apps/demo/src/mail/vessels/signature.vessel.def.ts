@@ -4,7 +4,7 @@ export const signatureVessel = defineVessel({
   id: 'signature',
   name: 'Signature',
   description:
-    'Setting. The sign-off added to the bottom of every email you send. Use when someone wants to change how they sign their emails.',
+    'Setting. The sign-off added to the bottom of every email you send. Use when someone wants to change how they sign their emails. Show it whenever someone mentions their signature or wants to see or change it, even before they give the new wording, so they can edit it on screen.',
   defaultVariant: 'panel',
   variants: {
     panel: {
