@@ -21,3 +21,15 @@ export function requestTerminalStatus(kind: string): RequestStatus | undefined {
     ? terminalStatuses[kind]
     : undefined;
 }
+
+export function responseSource(
+  kind: string,
+  source: unknown,
+): 'request' | 'push' | undefined {
+  if (source !== 'request' && source !== 'push') return undefined;
+  return kind === 'client.response.received' ||
+    (kind.startsWith('client.response.') &&
+      requestTerminalStatus(kind) !== undefined)
+    ? source
+    : undefined;
+}

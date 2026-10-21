@@ -9,9 +9,11 @@ import type { TelemetryErrorCategory } from '@maelstrom-co/telemetry';
 import { projectDiagnosticMetadata } from '@maelstrom-co/telemetry/integration';
 import { eventIdentity, identity } from './diagnostic-identity.js';
 import type { LiveEventKeys } from './live-event-keys.js';
+import { requestEvidence } from './request-evidence.js';
 import {
   type RequestStatus,
   requestTerminalStatus,
+  responseSource,
 } from './request-lifecycle.js';
 
 export { identity } from './diagnostic-identity.js';
@@ -221,6 +223,8 @@ export function requestTimingComparison(
   a: RequestTrace | undefined,
   b: RequestTrace | undefined,
 ) {
+  if (a && requestEvidence(a).outcome === 'ambiguous') a = undefined;
+  if (b && requestEvidence(b).outcome === 'ambiguous') b = undefined;
   const measures = [
     [
       'Request round-trip',
@@ -365,12 +369,16 @@ export function groupRequests(events: readonly PanelEvent[]): RequestTrace[] {
           })
           .join('\n') || undefined;
     }
+    const terminal = requestTerminalStatus(event.kind);
+    const source = responseSource(event.kind, event.metadata.source);
+    if (source === 'push') {
+      trace.push = true;
+      trace.missingStart = false;
+    }
     if (event.kind === 'client.response.received') {
       if (trace.status === 'awaiting') trace.status = 'received';
-      if (event.metadata.source === 'push') {
-        trace.push = true;
-        trace.missingStart = false;
-      } else trace.transportMs = numeric(event.metadata.durationMs);
+      if (source === 'request')
+        trace.transportMs = numeric(event.metadata.durationMs);
     }
     if (event.kind === 'client.request.failed')
       trace.transportMs = numeric(event.metadata.durationMs);
@@ -389,7 +397,6 @@ export function groupRequests(events: readonly PanelEvent[]): RequestTrace[] {
       if (event.metadata.outcome === 'failed') trace.observedFailedActions++;
       if (event.metadata.outcome === 'skipped') trace.observedSkippedActions++;
     }
-    const terminal = requestTerminalStatus(event.kind);
     if (terminal) {
       trace.status =
         event.kind === 'client.request.failed' &&
@@ -475,6 +482,7 @@ export interface PanelEvidence {
   dropped?: number;
   omitted: number;
   unreadableEvents?: number;
+  unreadableRequestEvents?: number;
   note?: string;
   metadata: Fields;
 }
