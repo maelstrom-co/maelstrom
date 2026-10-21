@@ -8,7 +8,7 @@ import {
 import type { TelemetryErrorCategory } from '@maelstrom-co/telemetry';
 import { projectDiagnosticMetadata } from '@maelstrom-co/telemetry/integration';
 import { eventIdentity, identity } from './diagnostic-identity.js';
-import { type EventIssue, eventIssue } from './event-outcome.js';
+import { type EventIssue, eventIssue, eventOutcome } from './event-outcome.js';
 import type { LiveEventKeys } from './live-event-keys.js';
 import { requestEvidence } from './request-evidence.js';
 import {
@@ -217,11 +217,10 @@ export function requestTimingComparison(
 
 function diagnosticPhaseOutcome(event: PanelEvent): string {
   switch (event.kind) {
-    case 'engine.candidate.validated':
-      return event.metadata.outcome === 'failed' ||
-        event.metadata.outcome === 'succeeded'
-        ? humanize(event.metadata.outcome)
-        : 'Not reported';
+    case 'engine.candidate.validated': {
+      const outcome = eventOutcome(event);
+      return outcome === 'unreported' ? 'Not reported' : humanize(outcome);
+    }
     case 'engine.planner.failed':
       return event.metadata.outcome === 'cancelled' ? 'Cancelled' : 'Failed';
     case 'client.command.completed':

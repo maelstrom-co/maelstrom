@@ -89,6 +89,37 @@ test('event search, exact kind, and request selection keep reused IDs separate a
   ).toBe(0);
 });
 
+test('accepted candidate validations match success instead of hiding among events without reported outcomes', () => {
+  const values = [
+    event('engine.candidate.validated', 'app-a', 'request', {
+      outcome: 'succeeded',
+    }),
+    event('engine.candidate.validated', 'app-a', 'request', {
+      outcome: 'failed',
+    }),
+    event('engine.candidate.validated'),
+    event('engine.candidate.validated', 'app-a', 'request', {
+      outcome: 'unsupported',
+    }),
+  ];
+  const events = panelEvents(values);
+  expect(
+    queryEvents(events, { outcome: 'succeeded' }).events.map(
+      (entry) => entry.raw.id,
+    ),
+  ).toEqual([values[0].id]);
+  expect(
+    queryEvents(events, { outcome: 'failed' }).events.map(
+      (entry) => entry.raw.id,
+    ),
+  ).toEqual([values[1].id]);
+  expect(
+    queryEvents(events, { outcome: 'unreported' }).events.map(
+      (entry) => entry.raw.id,
+    ),
+  ).toEqual([values[2].id, values[3].id]);
+});
+
 test('reported time bounds include their endpoints and keep unavailable time out of a bounded search', () => {
   const values = [
     { ...event('app.event'), at: 0 },

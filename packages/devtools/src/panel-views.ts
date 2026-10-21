@@ -1,5 +1,5 @@
 import { matchesCategory } from './event-outcome.js';
-import { type EventQuery, queryEvents } from './event-query.js';
+import { type EventQuery, queryEvents, searchable } from './event-query.js';
 import {
   type LayoutViewSelection,
   layoutComparisonView,
@@ -82,15 +82,6 @@ function date(value: unknown): string {
     ? 'Time not reported'
     : time.toLocaleTimeString();
 }
-function searchable(event: PanelEvent, query: string): boolean {
-  return (
-    !query ||
-    `${event.kind} ${event.requestId ?? ''} ${JSON.stringify(event.metadata)}`
-      .toLowerCase()
-      .includes(query.toLowerCase())
-  );
-}
-
 export interface ViewContext {
   evidence: PanelEvidence;
   appLabel(id: string): string;

@@ -66,6 +66,138 @@ test('preset criteria remain editable and combine family, exact kind, and report
   ).toHaveLength(1);
 });
 
+test('successful Engine validations remain discoverable through the reported outcome selector', () => {
+  const view = imported([
+    event('accepted', 'engine.candidate.validated', { outcome: 'succeeded' }),
+    event('rejected', 'engine.candidate.validated', { outcome: 'failed' }),
+    event('missing', 'engine.candidate.validated'),
+  ]);
+  view.select('Event preset', 'engine');
+  view.select('Event outcome', 'succeeded');
+  expect(
+    view.shadow.querySelectorAll('.list-pane button[data-focus-key^="event:"]'),
+  ).toHaveLength(1);
+  view.click('Raw JSON');
+  expect(view.shadow.querySelector('.json-raw')?.textContent).toContain(
+    '"id": "accepted"',
+  );
+  view.select('Event outcome', 'unreported');
+  expect(
+    view.shadow.querySelectorAll('.list-pane button[data-focus-key^="event:"]'),
+  ).toHaveLength(1);
+  expect(view.shadow.querySelector('.json-raw')?.textContent).toContain(
+    '"id": "missing"',
+  );
+});
+
+test.each([
+  false,
+  true,
+])('Clear releases obsolete request and voice criteria so new events remain visible (remounted: %s)', (remounted) => {
+  const tools = createDevtools({ initialIsOpen: true });
+  const emit = attach(tools);
+  emit('voice.tool.result', { ok: false, outcome: 'failed' }, 'before-clear');
+  let view = mount(tools);
+  view.select('Activity view', 'events');
+  view.select('Event preset', 'voice');
+  view.select('Event outcome', 'failed');
+  view.select('Issue category', 'unreported');
+  for (const label of ['Request filter', 'Voice connection filter']) {
+    const select = view.shadow.querySelector<HTMLSelectElement>(
+      `[aria-label="${label}"]`,
+    )!;
+    view.select(label, select.options[1].value);
+  }
+  fireEvent.input(
+    view.shadow.querySelector('[aria-label="Filter diagnostic evidence"]')!,
+    { target: { value: 'before-clear' } },
+  );
+  expect(
+    view.shadow.querySelectorAll('.list-pane button[data-focus-key^="event:"]'),
+  ).toHaveLength(1);
+  if (remounted) view.unmount();
+  tools.clear();
+  emit(
+    'voice.tool.result',
+    { generation: 2, ok: true, outcome: 'succeeded' },
+    'after-clear',
+  );
+  if (remounted) view = mount(tools);
+  expect(
+    view.shadow.querySelector<HTMLSelectElement>(
+      '[aria-label="Request filter"]',
+    )?.value,
+  ).toBe('');
+  expect(
+    view.shadow.querySelector<HTMLSelectElement>(
+      '[aria-label="Voice connection filter"]',
+    )?.value,
+  ).toBe('');
+  expect(
+    view.shadow.querySelector<HTMLSelectElement>('[aria-label="Event preset"]')
+      ?.value,
+  ).toBe('all');
+  expect(
+    view.shadow.querySelector<HTMLInputElement>(
+      '[aria-label="Filter diagnostic evidence"]',
+    )?.value,
+  ).toBe('');
+  expect(
+    view.shadow.querySelector<HTMLSelectElement>(
+      '[aria-label="Issue category"]',
+    )?.value,
+  ).toBe('all');
+  expect(
+    view.shadow.querySelectorAll('.list-pane button[data-focus-key^="event:"]'),
+  ).toHaveLength(1);
+});
+
+test('ordinary retention and recording-only resets keep a live target explicit instead of broadening the view', () => {
+  const tools = createDevtools({ initialIsOpen: true, maxActivityEvents: 1 });
+  const emit = attach(tools);
+  emit('voice.tool.called', {}, 'selected');
+  const view = mount(tools);
+  view.select('Activity view', 'events');
+  view.select('Event preset', 'voice');
+  const request = view.shadow.querySelector<HTMLSelectElement>(
+    '[aria-label="Request filter"]',
+  )!;
+  const selected = request.options[1].value;
+  view.select('Request filter', selected);
+  tools.capture.clear();
+  expect(request.value).toBe(selected);
+  emit('voice.tool.called', { generation: 2 }, 'other');
+  expect(request.value).toBe(selected);
+  expect(
+    view.shadow.querySelectorAll('.list-pane button[data-focus-key^="event:"]'),
+  ).toHaveLength(0);
+  expect(request.selectedOptions[0]?.textContent).toContain(
+    'no longer retained',
+  );
+});
+
+test('composed filters inspect a stopped recording without removing events from its export', () => {
+  const tools = createDevtools({ initialIsOpen: true });
+  const emit = attach(tools);
+  tools.startCapture();
+  emit('voice.tool.result', { ok: true, outcome: 'succeeded' }, 'success');
+  emit('voice.tool.result', { ok: false, outcome: 'failed' }, 'failure');
+  tools.stopCapture();
+  const recorded = JSON.parse(tools.exportCapture()).capture.events;
+  const view = mount(tools);
+  view.select('Evidence source', 'recording');
+  view.select('Activity view', 'events');
+  view.select('Event preset', 'voice');
+  view.select('Event outcome', 'succeeded');
+  expect(
+    view.shadow.querySelectorAll('.list-pane button[data-focus-key^="event:"]'),
+  ).toHaveLength(1);
+  expect(view.shadow.querySelector('.toolbar')?.textContent).toContain(
+    '1 matching',
+  );
+  expect(JSON.parse(tools.exportCapture()).capture.events).toEqual(recorded);
+});
+
 test('readable request and voice connection choices do not combine reused identities across apps or scopes', () => {
   const view = imported([
     event('a', 'voice.tool.called', { clientId: 'app-a' }, 'shared'),

@@ -36,6 +36,15 @@ function eventRequestKey(event: PanelEvent): string | undefined {
     : undefined;
 }
 
+export function searchable(event: PanelEvent, query: string): boolean {
+  return (
+    !query ||
+    `${event.kind} ${event.requestId ?? ''} ${JSON.stringify(event.metadata)}`
+      .toLowerCase()
+      .includes(query.toLowerCase())
+  );
+}
+
 export function eventFilterChoices(events: readonly PanelEvent[]) {
   const requests = new Map<
     string,
@@ -102,10 +111,7 @@ export function queryEvents(
           (!query.voiceKey || voiceIdentity(event)?.key === query.voiceKey) &&
           ((query.from === undefined && query.until === undefined) ||
             (event.at !== undefined && event.at <= 8.64e15)) &&
-          (!query.query ||
-            `${event.kind} ${event.requestId ?? ''} ${JSON.stringify(event.metadata)}`
-              .toLowerCase()
-              .includes(query.query.toLowerCase())) &&
+          searchable(event, query.query ?? '') &&
           (query.from === undefined ||
             (event.at !== undefined && event.at >= query.from)) &&
           (query.until === undefined ||

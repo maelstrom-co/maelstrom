@@ -5,6 +5,7 @@ import { createEventFilterControls } from './event-filter-controls.js';
 import { type EventQuery, queryEvents } from './event-query.js';
 import { createJsonInspector } from './json-inspector.js';
 import { LiveEventKeys } from './live-event-keys.js';
+import { liveEvidenceEpoch } from './live-evidence.js';
 import {
   countUnreadableEvents,
   errorCategories,
@@ -108,7 +109,7 @@ function Panel(tools: Devtools): HTMLElement {
     tab: 'Requests',
     selected: 'all',
     query: '',
-    eventFilterSourceToken: 'live',
+    eventFilterSourceToken: `live:${liveEvidenceEpoch(tools)}`,
     requestKey: '',
     eventKey: '',
     instanceKey: '',
@@ -371,7 +372,7 @@ function Panel(tools: Devtools): HTMLElement {
       }
       return `imported:${key}`;
     }
-    return currentSource;
+    return `live:${liveEvidenceEpoch(tools)}`;
   }
   function switchSource(next: Source): void {
     preferences.overview = undefined;

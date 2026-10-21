@@ -13,6 +13,12 @@ export interface EventIssue {
   outcome: 'failed' | 'skipped' | 'unknown';
   category?: TelemetryErrorCategory;
 }
+const diagnosticFailureKinds = new Set([
+  'engine.planner.failed',
+  'client.command.failed',
+  'client.connection.failed',
+]);
+
 export function eventIssue(event: PanelEvent): EventIssue | undefined {
   const fact = projectDiagnosticMetadata(event.kind, event.metadata);
   if (
@@ -27,9 +33,7 @@ export function eventIssue(event: PanelEvent): EventIssue | undefined {
     };
   if (
     event.metadata.outcome !== 'cancelled' &&
-    (event.kind === 'engine.planner.failed' ||
-      event.kind === 'client.command.failed' ||
-      event.kind === 'client.connection.failed' ||
+    (diagnosticFailureKinds.has(event.kind) ||
       (event.kind === 'engine.candidate.validated' &&
         event.metadata.outcome === 'failed'))
   )
@@ -49,12 +53,13 @@ export function eventOutcome(event: PanelEvent): EventOutcome {
     return event.metadata.outcome;
   if (issue) return issue.outcome;
   if (
+    event.kind === 'engine.candidate.validated' &&
+    event.metadata.outcome === 'succeeded'
+  )
+    return 'succeeded';
+  if (
     event.metadata.outcome === 'cancelled' &&
-    [
-      'engine.planner.failed',
-      'client.command.failed',
-      'client.connection.failed',
-    ].includes(event.kind)
+    diagnosticFailureKinds.has(event.kind)
   )
     return 'cancelled';
   const terminal = requestTerminalStatus(event.kind);
