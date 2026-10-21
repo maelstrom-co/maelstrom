@@ -253,11 +253,44 @@ up to 200 visible Instances. Select a change in the table to reveal its Instance
 when it lies outside that set. Geometry that exceeds the viewer's limits remains
 unavailable while supported structural changes remain readable.
 
+## Filter retained events
+
+1. Open **Requests** and choose **All events** in the activity selector.
+2. Choose a preset: **Voice**, **Engine**, **Actions**, or **Failures**. A preset
+   fills editable criteria and clears the search and issue category.
+3. Open **Event filters** to combine a family, exact event kind, reported outcome,
+   request, voice connection, and time range. Use **App instance** to narrow the
+   source to one client lifetime. Every active criterion must match.
+4. Select a matching event to inspect its JSON. Choose **Reset** to clear the
+   event filters, search, and issue category. The evidence source and app scope
+   stay selected.
+
+The toolbar reports matching events and events hidden by filters. **Show more
+events** reveals additional matches; pagination does not count as filtering or
+evidence loss. Dropped, evicted, and omitted events remain separate counts.
+
+Outcome filters describe individual reported events. **Unknown** means the
+supported metadata does not establish an outcome. **Not reported** means the event has
+no supported outcome fact. **Failures** excludes cancellation, skipped work,
+and unknown outcomes. Grouped requests keep their complete retained evidence
+when you return to **Requests**.
+
+Time bounds include their endpoints and use your local time zone. They filter
+reported timestamps; producer clocks can differ. Events without valid timestamps
+do not match an active bound. A reversed range shows an error and no matches.
+
+Filters work with live activity, stopped recordings, and imports. They do not
+change retention, recording scope, or exported content. Changing the evidence
+source or replacing an import clears source-specific event filters.
+
 ## Find voice and connection events
 
-In **Requests**, switch the activity selector to **All events** and search for
-`voice.`. Narrow the results with **App instance** when several app lifetimes
-are present. Search matches event kinds, request IDs, and metadata.
+In **Requests**, choose **All events** and the **Voice** preset. Open **Event
+filters** and choose a **Voice connection filter** to isolate a retained app,
+provider lifetime, generation scope, and generation. The connection choices
+require those identities; the Voice preset also includes events with incomplete
+identities. Search matches event kinds, request IDs, and metadata. Captured
+content does not participate in search.
 
 Open **Connections** for Engine connection state and separate voice summaries.
 Select a connection or voice event to highlight its row and inspect its JSON.

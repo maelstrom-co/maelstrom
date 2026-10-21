@@ -1,3 +1,5 @@
+import { matchesCategory } from './event-outcome.js';
+import { type EventQuery, queryEvents } from './event-query.js';
 import {
   type LayoutViewSelection,
   layoutComparisonView,
@@ -95,6 +97,7 @@ export interface ViewContext {
   clientId: string;
   query: string;
   issueCategory?: string;
+  eventQuery?: EventQuery;
   requestKey: string;
   pinnedRequest?: string;
   comparison?: RequestComparisonSelection;
@@ -157,17 +160,6 @@ export interface RenderedView {
 function issueDescription(issue: EventIssue): string {
   const category = issue.category && errorCategories[issue.category];
   return `${humanize(issue.outcome)} · ${category?.label ?? 'Category not reported'}. ${category?.explanation ?? 'This event has no recognized error category.'}`;
-}
-
-function matchesCategory(
-  issue: EventIssue | undefined,
-  category?: string,
-): boolean {
-  return (
-    !category ||
-    category === 'all' ||
-    Boolean(issue && (issue.category ?? 'unreported') === category)
-  );
 }
 
 function stageTimingsView(
@@ -429,13 +421,12 @@ export function requestsView(context: ViewContext): RenderedView {
       context.clientId === 'all' || event.clientId === context.clientId,
   );
   if (context.allEvents) {
-    const events = scoped
-      .filter(
-        (event) =>
-          searchable(event, context.query) &&
-          matchesCategory(eventIssue(event), context.issueCategory),
-      )
-      .slice()
+    const events = queryEvents(scoped, {
+      ...context.eventQuery,
+      query: context.query,
+      issueCategory: context.issueCategory,
+    })
+      .events.slice()
       .reverse();
     const selected =
       events.find((event) => event.key === context.eventKey) ?? events[0];

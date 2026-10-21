@@ -1,3 +1,4 @@
+import { eventFilterStyle } from './event-filter-style.js';
 import { requestOverviewStyle } from './request-overview-style.js';
 import { telemetryStyle } from './telemetry-style.js';
 import { voiceTimelineStyle } from './voice-timeline-style.js';
@@ -40,4 +41,5 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.6 ui-monospace,SFMon
 ${telemetryStyle}
 ${voiceTimelineStyle}
 ${requestOverviewStyle}
+${eventFilterStyle}
 `;

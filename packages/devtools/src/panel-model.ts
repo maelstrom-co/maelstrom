@@ -8,6 +8,7 @@ import {
 import type { TelemetryErrorCategory } from '@maelstrom-co/telemetry';
 import { projectDiagnosticMetadata } from '@maelstrom-co/telemetry/integration';
 import { eventIdentity, identity } from './diagnostic-identity.js';
+import { type EventIssue, eventIssue } from './event-outcome.js';
 import type { LiveEventKeys } from './live-event-keys.js';
 import { requestEvidence } from './request-evidence.js';
 import {
@@ -17,6 +18,8 @@ import {
 } from './request-lifecycle.js';
 
 export { identity } from './diagnostic-identity.js';
+export { type EventIssue, eventIssue } from './event-outcome.js';
+export { queryEvents } from './event-query.js';
 export {
   type RequestCounterpart,
   requestCounterparts,
@@ -98,35 +101,6 @@ export const errorCategories: Readonly<
     explanation: 'The producer could not classify the problem.',
   },
 };
-export interface EventIssue {
-  eventKey: string;
-  outcome: 'failed' | 'skipped' | 'unknown';
-  category?: TelemetryErrorCategory;
-}
-export function eventIssue(event: PanelEvent): EventIssue | undefined {
-  const fact = projectDiagnosticMetadata(event.kind, event.metadata);
-  if (
-    fact?.outcome === 'failed' ||
-    fact?.outcome === 'skipped' ||
-    fact?.outcome === 'unknown'
-  )
-    return {
-      eventKey: event.key,
-      outcome: fact.outcome,
-      category: fact.errorCategory,
-    };
-  if (
-    event.metadata.outcome !== 'cancelled' &&
-    (event.kind === 'engine.planner.failed' ||
-      event.kind === 'client.command.failed' ||
-      event.kind === 'client.connection.failed' ||
-      (event.kind === 'engine.candidate.validated' &&
-        event.metadata.outcome === 'failed'))
-  )
-    return { eventKey: event.key, outcome: 'failed' };
-  return undefined;
-}
-
 export function panelEvents(
   values: readonly unknown[],
   liveKeys?: LiveEventKeys,

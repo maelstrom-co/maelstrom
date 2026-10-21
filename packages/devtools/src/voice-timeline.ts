@@ -5,18 +5,9 @@ import {
 } from './diagnostic-identity.js';
 import type { PanelEvent, PanelEvidence } from './panel-model.js';
 import { requestTerminalStatus } from './request-lifecycle.js';
+import { type VoiceIdentity, voiceIdentity } from './voice-identity.js';
 
-export interface VoiceLane {
-  key: string;
-  providerKey: string;
-  generationKey: string;
-  clientId?: string;
-  providerInstanceId?: string;
-  providerAvailability: IdentityAvailability;
-  provider?: string;
-  scope: 'session' | 'provider' | 'legacy' | 'unreported';
-  generation?: number;
-  generationAvailability: IdentityAvailability;
+export interface VoiceLane extends VoiceIdentity {
   events: PanelEvent[];
   groups: VoiceGroup[];
   groupingDisabled: boolean;
@@ -48,12 +39,6 @@ export type VoiceLaneContext =
   | { state: 'observed'; sessionId?: string }
   | { state: 'ambiguous' }
   | { state: 'exhausted' };
-
-function generation(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
-    ? value
-    : undefined;
-}
 
 interface LifecycleIdentity {
   starts: number;
@@ -245,57 +230,18 @@ function voiceLanes(events: readonly PanelEvent[]): VoiceLane[] {
   for (const event of events) {
     if (!event.kind.startsWith('voice.') || seen.has(event.key)) continue;
     seen.add(event.key);
-    const provider = identity(event.metadata.providerInstanceId);
-    const scope: VoiceLane['scope'] =
-      event.metadata.providerGeneration !== undefined
-        ? 'provider'
-        : event.metadata.generationScope === 'session'
-          ? 'session'
-          : event.metadata.generation !== undefined
-            ? 'legacy'
-            : 'unreported';
-    const generationValue =
-      scope === 'provider'
-        ? event.metadata.providerGeneration
-        : event.metadata.generation;
-    const number = generation(generationValue);
-    const availability = identityAvailability(generationValue);
-    const generationAvailability =
-      number !== undefined
-        ? 'reported'
-        : availability === 'reported'
-          ? 'unreadable'
-          : availability;
-    const providerKey =
-      event.clientId && provider
-        ? JSON.stringify([event.clientId, provider])
-        : JSON.stringify(['unattributed', event.key]);
-    const generationKey =
-      number === undefined
-        ? JSON.stringify([scope, null, generationAvailability])
-        : JSON.stringify([scope, number]);
-    const key = JSON.stringify([providerKey, generationKey]);
-    let lane = lanes.get(key);
+    const connection = voiceIdentity(event);
+    if (!connection) continue;
+    let lane = lanes.get(connection.key);
     if (!lane) {
       lane = {
-        key,
-        providerKey,
-        generationKey,
-        clientId: event.clientId,
-        providerInstanceId: provider,
-        providerAvailability: identityAvailability(
-          event.metadata.providerInstanceId,
-        ),
-        provider: identity(event.metadata.provider),
-        scope,
-        generation: number,
-        generationAvailability,
+        ...connection,
         events: [],
         groups: [],
         groupingDisabled: false,
         contextAmbiguous: false,
       };
-      lanes.set(key, lane);
+      lanes.set(connection.key, lane);
     }
     lane.events.push(event);
   }
