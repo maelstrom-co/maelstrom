@@ -31,7 +31,7 @@ export default function VacationReplyComponent({
         rows={3}
         value={vacationReply.message}
         onChange={(event) =>
-          settingsActions.setVacationReply(vacationReply.on, event.target.value)
+          settingsActions.setVacationMessage(event.target.value)
         }
       />
     </MailCard>

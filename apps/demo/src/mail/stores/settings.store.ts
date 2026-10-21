@@ -122,6 +122,9 @@ export const settingsActions = {
       },
     });
   },
+  setVacationMessage(message: string): void {
+    update({ vacationReply: { ...state.vacationReply, message } });
+  },
 };
 
 function initialSettingsState(): SettingsState {
