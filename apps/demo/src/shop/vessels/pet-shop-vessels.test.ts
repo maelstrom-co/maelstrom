@@ -49,6 +49,13 @@ describe('pet-shop vessel definitions', () => {
     );
   });
 
+  it('keeps the catalog on the product view after addToCart', () => {
+    const action = declaredAction('catalog', 'product', 'addToCart');
+    expect(action).toBeDefined();
+    expect(action?.transitionsTo).toBeUndefined();
+    expect(declaredAction('catalog', 'results', 'addToCart')).toBeUndefined();
+  });
+
   it('declares no transitions on the cart actions', () => {
     const vessel: VesselDefinition = cartVessel;
     const actions = Object.values(vessel.variants).flatMap(
@@ -70,6 +77,7 @@ describe('pet-shop vessel definitions', () => {
     ['catalog', 'product', 'searchProducts', 'foodType', ['dry', 'wet']],
     ['catalog', 'product', 'findSimilarProducts', 'sku', CATALOG_SKUS],
     ['catalog', 'product', 'showProductDetails', 'sku', CATALOG_SKUS],
+    ['catalog', 'product', 'addToCart', 'sku', CATALOG_SKUS],
   ] as const)('offers an enum on %s %s.%s %s', (vesselId, variant, action, parameter, values) => {
     const declared = declaredAction(
       vesselId,
