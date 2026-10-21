@@ -1,7 +1,14 @@
 import { err, ok } from '@maelstrom-co/protocol';
 import type { TypedVesselProps } from '@maelstrom-co/react';
-import { VesselCard } from '../components/vessel-card';
-import { VESSEL_ACCENTS } from '../lib/design-tokens';
+import { VesselCard } from '../../components/vessel-card';
+import { VESSEL_ACCENTS } from '../../lib/design-tokens';
+import { shopM } from '../maelstrom';
+import {
+  type CatalogView,
+  catalogActions,
+  findProduct,
+  useCatalogStore,
+} from '../stores/catalog.store';
 import {
   CATALOG_SKUS,
   FOOD_TYPES,
@@ -11,14 +18,7 @@ import {
   productBySku,
   SPECIES,
   type Species,
-} from '../lib/pet-shop-fixtures';
-import { shop } from '../lib/pet-shop-maelstrom';
-import {
-  type CatalogView,
-  catalogActions,
-  findProduct,
-  useCatalogStore,
-} from './catalog.store';
+} from '../stores/fixtures';
 import type { catalogVessel } from './catalog.vessel';
 
 export default function CatalogComponent({
@@ -28,7 +28,7 @@ export default function CatalogComponent({
 }: TypedVesselProps<typeof catalogVessel>) {
   const { view, results, selectedSku } = useCatalogStore();
 
-  shop.useActions('catalog', instanceId, {
+  shopM.useActions('catalog', instanceId, {
     searchProducts: async (params) => {
       const species = params?.species?.toLowerCase();
       if (species !== undefined && !isSpecies(species)) {

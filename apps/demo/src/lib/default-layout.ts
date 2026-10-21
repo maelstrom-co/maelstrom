@@ -38,29 +38,3 @@ export const NARROW_LAYOUT: TilingLayout = {
   ...DEFAULT_LAYOUT,
   tree: ['H', CALENDAR_LEAF, TASKS_LEAF],
 };
-
-const ORDERS = InstanceId('orders-main');
-const CART = InstanceId('cart-main');
-
-/**
- * Starting screen for the shop instance: past orders beside the cart. The
- * catalog and checkout start off screen, so the Engine has to place them when
- * the user asks for them. A proposal, as with DEFAULT_LAYOUT: the first chart
- * request may resize or drop either tile.
- */
-export const SHOP_LAYOUT: TilingLayout = {
-  type: 'tiling',
-  tree: ['V', tilingLeafToken(ORDERS), tilingLeafToken(CART)],
-  instances: [
-    {
-      instanceId: ORDERS,
-      vesselId: VesselId('orders'),
-      variant: VariantName('list'),
-    },
-    {
-      instanceId: CART,
-      vesselId: VesselId('cart'),
-      variant: VariantName('items'),
-    },
-  ],
-};

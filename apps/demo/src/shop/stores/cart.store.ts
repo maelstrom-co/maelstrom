@@ -1,11 +1,11 @@
 import { useSyncExternalStore } from 'react';
+import { findProduct } from './catalog.store';
 import {
   calculateOrderTotals,
   type OrderLineItem,
   type OrderTotals,
   type Product,
-} from '../lib/pet-shop-fixtures';
-import { findProduct } from './catalog.store';
+} from './fixtures';
 
 export type CartLine = OrderLineItem;
 

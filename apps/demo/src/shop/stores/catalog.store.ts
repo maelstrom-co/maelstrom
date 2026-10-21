@@ -1,12 +1,12 @@
 import { useSyncExternalStore } from 'react';
+import { findByFuzzyTitle } from '../../vessels/find-by-fuzzy-title';
 import {
   CATALOG_PRODUCTS,
   type FoodType,
   type Product,
   productBySku,
   type Species,
-} from '../lib/pet-shop-fixtures';
-import { findByFuzzyTitle } from './find-by-fuzzy-title';
+} from './fixtures';
 
 export interface SearchCriteria {
   query?: string;

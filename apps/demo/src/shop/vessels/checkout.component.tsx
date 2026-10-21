@@ -1,13 +1,13 @@
 import { err, ok } from '@maelstrom-co/protocol';
 import type { TypedVesselProps } from '@maelstrom-co/react';
-import { OrderTotalsTable } from '../components/order-totals-table';
-import { VesselCard } from '../components/vessel-card';
-import { VESSEL_ACCENTS } from '../lib/design-tokens';
-import { CUSTOMER, formatAddress } from '../lib/pet-shop-fixtures';
-import { shop } from '../lib/pet-shop-maelstrom';
-import { cartTotals, useCartStore } from './cart.store';
-import { checkoutActions, useCheckoutStore } from './checkout.store';
+import { VesselCard } from '../../components/vessel-card';
+import { VESSEL_ACCENTS } from '../../lib/design-tokens';
+import { shopM } from '../maelstrom';
+import { cartTotals, useCartStore } from '../stores/cart.store';
+import { checkoutActions, useCheckoutStore } from '../stores/checkout.store';
+import { CUSTOMER, formatAddress } from '../stores/fixtures';
 import type { checkoutVessel } from './checkout.vessel';
+import { OrderTotalsTable } from './order-totals-table';
 
 export default function CheckoutComponent({
   instanceId,
@@ -17,7 +17,7 @@ export default function CheckoutComponent({
   const { lines } = useCartStore();
   const { lastConfirmation } = useCheckoutStore();
 
-  shop.useActions('checkout', instanceId, {
+  shopM.useActions('checkout', instanceId, {
     placeOrder: async () => {
       if (!checkoutActions.placeOrder()) {
         return err(

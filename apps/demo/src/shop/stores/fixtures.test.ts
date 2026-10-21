@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calculateOrderTotals, SEED_ORDERS } from './pet-shop-fixtures';
+import { calculateOrderTotals, SEED_ORDERS } from './fixtures';
 
 describe('calculateOrderTotals', () => {
   it('charges flat shipping one cent below the free-shipping threshold', () => {

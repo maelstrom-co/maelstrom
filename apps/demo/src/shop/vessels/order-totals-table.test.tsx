@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { cleanup, render } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
-import { formatCents, type OrderTotals } from '../lib/pet-shop-fixtures';
+import { formatCents, type OrderTotals } from '../stores/fixtures';
 import { OrderTotalsTable } from './order-totals-table';
 
 afterEach(cleanup);

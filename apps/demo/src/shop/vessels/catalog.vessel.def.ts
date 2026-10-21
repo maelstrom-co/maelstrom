@@ -1,6 +1,6 @@
 import { defineVessel } from '@maelstrom-co/protocol';
-import { CATALOG_SKUS, FOOD_TYPES, SPECIES } from '../lib/pet-shop-fixtures';
-import { withActionOptions } from '../lib/vessel-options';
+import { withActionOptions } from '../../lib/vessel-options';
+import { CATALOG_SKUS, FOOD_TYPES, SPECIES } from '../stores/fixtures';
 
 const SEARCH_PRODUCTS = {
   name: 'searchProducts',

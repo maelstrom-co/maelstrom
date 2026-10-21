@@ -1,5 +1,5 @@
 import { defineVessel } from '@maelstrom-co/protocol';
-import { CUSTOMER } from '../lib/pet-shop-fixtures';
+import { CUSTOMER } from '../stores/fixtures';
 
 const CUSTOMER_PETS = CUSTOMER.pets
   .map((pet) => `a ${pet.species} (${pet.name}, ${pet.note})`)

@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import { type Order, SEED_ORDERS } from '../lib/pet-shop-fixtures';
+import { type Order, SEED_ORDERS } from './fixtures';
 
 interface OrdersState {
   /** Newest first. */
