@@ -1,12 +1,16 @@
 import { describe, expect, test } from 'bun:test';
 
 import { ActionName } from './action-name.js';
+import { RunId } from './agent-ids.js';
+import { AGENT_WIRE_VERSION } from './agent-wire.js';
 import {
   AssistantInjectionMessage,
   ChartRequestMessage,
 } from './engine-message.js';
 import {
   AcknowledgedAssistantMessage,
+  AgentEventMessage,
+  AgentInputMessage,
   AssistantMessageResultMessage,
   ClientEnvelopeSchema,
   decodeClientEnvelope,
@@ -460,8 +464,8 @@ describe('EngineMessage ↔ ClientEnvelope', () => {
   test('the direction schemas are the same discriminated-union contract', () => {
     // Guards against a member silently dropping out of a union: the schema a
     // host would safeParse against must accept exactly what the codec accepts.
-    expect(ClientEnvelopeSchema.options).toHaveLength(5);
-    expect(ServerEnvelopeSchema.options).toHaveLength(5);
+    expect(ClientEnvelopeSchema.options).toHaveLength(6);
+    expect(ServerEnvelopeSchema.options).toHaveLength(6);
   });
 
   test('diagnostic subscriptions remain transport control and diagnostic events retain request correlation', () => {
@@ -505,5 +509,114 @@ describe('split-shaped instance ids reaching the envelope boundary', () => {
       },
     });
     expect(isErr(decoded)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Agent wire wrapper frames
+// ---------------------------------------------------------------------------
+
+describe('client.agent.input', () => {
+  const msg = AgentInputMessage({
+    sessionId: SessionId('s-1'),
+    id: MessageId('m-ai'),
+    input: {
+      type: 'utterance',
+      version: AGENT_WIRE_VERSION,
+      inputId: MessageId('in-1'),
+      text: 'show my calendar',
+      chart: validChartRequest(),
+      source: 'text',
+    },
+  });
+
+  test('smart constructor generates an id when omitted', () => {
+    const generated = AgentInputMessage({
+      sessionId: SessionId('s-1'),
+      input: msg.input,
+    });
+    expect(generated.type).toBe('client.agent.input');
+    expect(generated.id.length).toBeGreaterThan(0);
+  });
+
+  test('round-trips through a JSON string', () => {
+    expect(decodeClientEnvelope(encodeEnvelope(msg))).toEqual(ok(msg));
+  });
+
+  test('round-trips through a Uint8Array', () => {
+    const bytes = new TextEncoder().encode(encodeEnvelope(msg));
+    expect(decodeClientEnvelope(bytes)).toEqual(ok(msg));
+  });
+
+  test('round-trips through a pre-parsed object', () => {
+    expect(decodeClientEnvelope(JSON.parse(encodeEnvelope(msg)))).toEqual(
+      ok(msg),
+    );
+  });
+
+  test('is not a server frame', () => {
+    expect(decodeServerEnvelope(encodeEnvelope(msg)).ok).toBe(false);
+  });
+
+  test('rejects a frame without a sessionId', () => {
+    const { sessionId: _omit, ...rest } = msg;
+    const decoded = decodeClientEnvelope(rest);
+    expect(decoded.ok).toBe(false);
+    if (!decoded.ok) {
+      expect(decoded.error.kind).toBe('invalid_envelope');
+      expect(decoded.error.message).toContain('sessionId');
+    }
+  });
+});
+
+describe('engine.agent.event', () => {
+  const msg = AgentEventMessage({
+    sessionId: SessionId('s-1'),
+    id: MessageId('m-ae'),
+    event: {
+      type: 'message',
+      version: AGENT_WIRE_VERSION,
+      runId: RunId('run-1'),
+      turnId: 'turn-1',
+      delta: 'Hello',
+    },
+  });
+
+  test('smart constructor generates an id when omitted', () => {
+    const generated = AgentEventMessage({
+      sessionId: SessionId('s-1'),
+      event: msg.event,
+    });
+    expect(generated.type).toBe('engine.agent.event');
+    expect(generated.id.length).toBeGreaterThan(0);
+  });
+
+  test('round-trips through a JSON string', () => {
+    expect(decodeServerEnvelope(encodeEnvelope(msg))).toEqual(ok(msg));
+  });
+
+  test('round-trips through a Uint8Array', () => {
+    const bytes = new TextEncoder().encode(encodeEnvelope(msg));
+    expect(decodeServerEnvelope(bytes)).toEqual(ok(msg));
+  });
+
+  test('round-trips through a pre-parsed object', () => {
+    expect(decodeServerEnvelope(JSON.parse(encodeEnvelope(msg)))).toEqual(
+      ok(msg),
+    );
+  });
+
+  test('is not a client frame', () => {
+    expect(decodeClientEnvelope(encodeEnvelope(msg)).ok).toBe(false);
+  });
+
+  test('rejects a frame without a sessionId', () => {
+    const { sessionId: _omit, ...rest } = msg;
+    const decoded = decodeServerEnvelope(rest);
+    expect(decoded.ok).toBe(false);
+    if (!decoded.ok) {
+      expect(decoded.error.kind).toBe('invalid_envelope');
+      expect(decoded.error.message).toContain('sessionId');
+    }
   });
 });

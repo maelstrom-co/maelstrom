@@ -99,6 +99,8 @@ export const recoverCorrelation = (
  *   Engine errors, and thrown failures map to a correlated `engine.error`.
  * - **`client.history.get`** → `engine.getHistory`; `Ok` → `engine.history.response`,
  *   `Err` → `engine.error`.
+ * - **`client.agent.input`** → a correlated `engine.error` with
+ *   `code: 'UnsupportedInput'`.
  *
  * Never rejects. A thrown exception (an engine contract violation) is caught
  * and mapped to an `engine.error` correlated to the in-scope frame, with no
@@ -211,6 +213,14 @@ export async function handleEnvelope(
           entries: result.value,
         });
       }
+
+      case 'client.agent.input':
+        return EngineErrorMessage({
+          requestId: envelope.id,
+          sessionId: envelope.sessionId,
+          error: 'agent inputs are not supported yet',
+          code: 'UnsupportedInput',
+        });
 
       default:
         return assertNever(envelope, 'handleEnvelope');

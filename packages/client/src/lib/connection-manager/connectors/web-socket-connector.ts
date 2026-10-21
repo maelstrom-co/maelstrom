@@ -733,6 +733,21 @@ export class WebSocketConnector implements AcknowledgedAssistantConnector {
         }
         return;
       }
+
+      case 'engine.agent.event': {
+        console.warn(
+          `[WebSocketConnector] engine.agent.event is not supported yet: event=${envelope.event.type}`,
+        );
+        return;
+      }
+
+      default: {
+        const unhandled: never = envelope;
+        console.warn(
+          `[WebSocketConnector] unhandled server frame: type=${(unhandled as { type: string }).type}`,
+        );
+        return;
+      }
     }
   }
 
