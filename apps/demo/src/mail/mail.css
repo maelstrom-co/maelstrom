@@ -83,9 +83,9 @@
 
 .mail-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 16px;
-  padding: 14px 24px;
+  padding: 8px 24px 2px;
 }
 
 .mail-brand {
@@ -95,6 +95,7 @@
   font-size: 20px;
   font-weight: 600;
   flex: 0 0 auto;
+  height: 44px;
 }
 
 .mail-brand-mark {
@@ -107,13 +108,17 @@
   color: var(--mail-accent-text);
 }
 
+.mail-search-column {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 640px;
+  margin: 0 auto;
+}
+
 .mail-search {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex: 1 1 auto;
-  max-width: 640px;
-  margin: 0 auto;
   padding: 0 6px 0 16px;
   height: 44px;
   border-radius: 999px;
@@ -164,6 +169,25 @@
   align-items: center;
   gap: 12px;
   flex: 0 0 auto;
+  height: 44px;
+}
+
+.mail-reply-line {
+  height: 18px;
+  margin: 0;
+  padding: 0 16px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--mail-accent);
+  opacity: 1;
+  transition: opacity 600ms ease;
+}
+
+.mail-reply-line[data-faded='true'] {
+  opacity: 0;
 }
 
 .mail-icon-button {
@@ -737,10 +761,11 @@
 @media (max-width: 640px) {
   .mail-header {
     flex-wrap: wrap;
-    padding: 12px 16px;
+    row-gap: 8px;
+    padding: 12px 16px 2px;
   }
 
-  .mail-search {
+  .mail-search-column {
     order: 3;
     flex-basis: 100%;
     max-width: none;
@@ -759,6 +784,7 @@
   .mail-switch::after,
   .mail-message-body,
   .mail-caption-line,
+  .mail-reply-line,
   .mail-voice-orb[data-state],
   .mail-chart-host::after,
   .mail-working-dots i,

@@ -1,3 +1,4 @@
+import type { IntentSubmission } from '@maelstrom-co/client';
 import { SessionId } from '@maelstrom-co/protocol';
 import { RealtimeVoiceError } from '@maelstrom-co/realtime';
 import { useStore } from '@tanstack/react-store';
@@ -32,6 +33,7 @@ import { MAIL_DEFAULT_LAYOUT, MAIL_NARROW_LAYOUT } from './default-layout';
 import { mailM } from './maelstrom';
 import { MailActionFlash, useMailWorking } from './mail-activity';
 import { MailOptionSync } from './mail-option-sync';
+import { MailReplyLine } from './mail-reply-line';
 import { MailVoiceCorner } from './mail-voice-corner';
 import { useSettingsStore } from './stores/settings.store';
 import './mail.css';
@@ -216,6 +218,8 @@ function MailWorkspace({
   const apiKey = useStore(playgroundKeyStore, (state) => state.apiKey);
   const needsKey = browserKeyMode && !apiKey;
   const working = useMailWorking();
+  const [replySubmission, setReplySubmission] =
+    useState<IntentSubmission | null>(null);
 
   useEffect(() => {
     if (!autoStartVoice) return;
@@ -246,7 +250,9 @@ function MailWorkspace({
       onBlockedSubmit();
       return;
     }
-    if (enqueueIntent(text).accepted) onIntentChange('');
+    const submission = enqueueIntent(text);
+    setReplySubmission(submission);
+    if (submission.accepted) onIntentChange('');
   };
 
   useEffect(() => {
@@ -269,6 +275,7 @@ function MailWorkspace({
         onIntentChange={onIntentChange}
         onSubmit={submit}
         onRequireKey={browserKeyMode ? onRequireKey : undefined}
+        replySubmission={replySubmission}
       />
       <main className="mail-main">
         <div className="mail-chart-host" data-working={working || undefined}>
@@ -319,6 +326,7 @@ interface MailHeaderProps {
   readonly onIntentChange: (intent: string) => void;
   readonly onSubmit: () => void;
   readonly onRequireKey?: () => void;
+  readonly replySubmission?: IntentSubmission | null;
 }
 
 function MailHeader({
@@ -326,6 +334,7 @@ function MailHeader({
   onIntentChange,
   onSubmit,
   onRequireKey,
+  replySubmission = null,
 }: MailHeaderProps) {
   const { notificationsOn } = useSettingsStore();
   const handleSubmit = (event: FormEvent) => {
@@ -341,24 +350,27 @@ function MailHeader({
         </span>
         Mail
       </div>
-      <form className="mail-search" onSubmit={handleSubmit}>
-        <Search size={18} aria-hidden="true" />
-        <input
-          type="text"
-          name="intent"
-          aria-label="Ask Mail"
-          value={intent}
-          onChange={(event) => onIntentChange(event.target.value)}
-          placeholder={MAIL_INTENT_PLACEHOLDER}
-        />
-        <button
-          type="submit"
-          className="mail-search-submit"
-          disabled={!intent.trim()}
-        >
-          Go
-        </button>
-      </form>
+      <div className="mail-search-column">
+        <form className="mail-search" onSubmit={handleSubmit}>
+          <Search size={18} aria-hidden="true" />
+          <input
+            type="text"
+            name="intent"
+            aria-label="Ask Mail"
+            value={intent}
+            onChange={(event) => onIntentChange(event.target.value)}
+            placeholder={MAIL_INTENT_PLACEHOLDER}
+          />
+          <button
+            type="submit"
+            className="mail-search-submit"
+            disabled={!intent.trim()}
+          >
+            Go
+          </button>
+        </form>
+        <MailReplyLine submission={replySubmission} />
+      </div>
       <div className="mail-header-actions">
         {onRequireKey ? (
           <button
