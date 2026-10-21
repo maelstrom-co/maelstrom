@@ -47,6 +47,18 @@ export function getSettingsSnapshot(): SettingsState {
   return state;
 }
 
+export function isTextSize(value: string): value is TextSize {
+  return (TEXT_SIZES as readonly string[]).includes(value);
+}
+
+export function isMailTheme(value: string): value is MailTheme {
+  return (THEMES as readonly string[]).includes(value);
+}
+
+export function isTextSizeDirection(value: string): value is TextSizeDirection {
+  return (TEXT_SIZE_DIRECTIONS as readonly string[]).includes(value);
+}
+
 export function __resetSettingsStoreForTests(): void {
   update(initialSettingsState());
 }
