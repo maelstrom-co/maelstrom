@@ -2,34 +2,28 @@ import type { UpdateVesselResult } from '@maelstrom-co/react';
 import { useEffect } from 'react';
 import { withActionOptions } from '../lib/vessel-options';
 import { mailM } from './maelstrom';
-import { useMailStore } from './stores/mail.store';
-import { inboxVessel } from './vessels/inbox.vessel';
+import { emailLabel, useMailStore } from './stores/mail.store';
+import { messageVessel } from './vessels/message.vessel';
 
 /**
- * Renders nothing. Publishes the inbox subjects as the allowed values of
- * `inbox.openEmail`, so the planner names a real email instead of relying on
- * the action's fuzzy fallback.
+ * Renders nothing. Publishes every email as "Sender: Subject" in the allowed
+ * values of `message.showEmail`, so the planner can name an email by sender,
+ * subject or both instead of relying on the action's fuzzy fallback.
  */
 export function MailOptionSync() {
   const { emails } = useMailStore();
   const isProcessing = mailM.useMaelstrom((state) => state.isProcessing);
-  const subjects = [
-    ...new Set(
-      emails
-        .map((email) => email.subject)
-        .filter((subject) => subject.trim().length > 0),
-    ),
-  ];
-  const subjectKey = JSON.stringify(subjects);
+  const labels = [...new Set(emails.map(emailLabel))];
+  const labelKey = JSON.stringify(labels);
 
   useEffect(
     () =>
       republishWithRetry(() =>
         mailM.updateVessel(
-          withActionOptions(inboxVessel, { openEmail: { subject: subjects } }),
+          withActionOptions(messageVessel, { showEmail: { email: labels } }),
         ),
       ),
-    [subjectKey, isProcessing],
+    [labelKey, isProcessing],
   );
 
   return null;

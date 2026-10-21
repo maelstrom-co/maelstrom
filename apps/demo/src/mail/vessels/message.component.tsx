@@ -1,8 +1,14 @@
-import { ok } from '@maelstrom-co/protocol';
+import { err, ok } from '@maelstrom-co/protocol';
 import type { TypedVesselProps } from '@maelstrom-co/react';
-import { type CSSProperties, useState } from 'react';
+import { type CSSProperties, useEffect, useState } from 'react';
 import { mailM } from '../maelstrom';
-import { selectedEmail, useMailStore } from '../stores/mail.store';
+import {
+  emailInReader,
+  emailLabel,
+  getMailSnapshot,
+  mailActions,
+  useMailStore,
+} from '../stores/mail.store';
 import { useSettingsStore } from '../stores/settings.store';
 import { MailCard } from './mail-card';
 import type { messageVessel } from './message.vessel';
@@ -13,10 +19,21 @@ export default function MessageComponent({
 }: TypedVesselProps<typeof messageVessel>) {
   const mail = useMailStore();
   const { textSize, signature, remoteImages } = useSettingsStore();
-  const email = selectedEmail(mail);
+  const email = emailInReader(mail, instanceId);
   const [replyStartedFor, setReplyStartedFor] = useState<string | null>(null);
 
+  useEffect(() => {
+    mailActions.readerMounted(instanceId);
+    return () => mailActions.readerUnmounted(instanceId);
+  }, [instanceId]);
+
   mailM.useActions('message', instanceId, {
+    showEmail: ({ email: query }) => {
+      if (!mailActions.showEmailInReader(instanceId, query)) {
+        return err(noMatchError(query));
+      }
+      return ok(undefined);
+    },
     reply: () => {
       setReplyStartedFor(email?.id ?? null);
       return ok(undefined);
@@ -57,4 +74,11 @@ export default function MessageComponent({
       </div>
     </MailCard>
   );
+}
+
+function noMatchError(query: string): Error {
+  const available = getMailSnapshot()
+    .emails.map((email) => `"${emailLabel(email)}"`)
+    .join(', ');
+  return new Error(`No email matches "${query}". Available: ${available}`);
 }

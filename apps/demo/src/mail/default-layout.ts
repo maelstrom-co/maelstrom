@@ -6,8 +6,11 @@ import {
   VesselId,
 } from '@maelstrom-co/protocol';
 
+/** The reader the default layout opens with, showing the newest email. */
+export const MAIL_DEFAULT_READER_ID = 'message-main';
+
 const INBOX = InstanceId('inbox-main');
-const MESSAGE = InstanceId('message-main');
+const MESSAGE = InstanceId(MAIL_DEFAULT_READER_ID);
 const INBOX_LEAF = tilingLeafToken(INBOX);
 const MESSAGE_LEAF = tilingLeafToken(MESSAGE);
 

@@ -64,7 +64,7 @@ describe('MessageComponent', () => {
 
 function props(): TypedVesselProps<typeof messageVessel> {
   return {
-    instanceId: 'message-test',
+    instanceId: 'message-main',
     variantProps: {},
     executeAction: vi.fn(),
   } as unknown as TypedVesselProps<typeof messageVessel>;

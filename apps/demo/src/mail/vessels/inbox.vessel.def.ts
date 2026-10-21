@@ -4,28 +4,13 @@ export const inboxVessel = defineVessel({
   id: 'inbox',
   name: 'Inbox',
   description:
-    'The list of received emails. Part of the main mail view and shown by default. Not a setting.',
+    'The list of received emails, each showing its sender and subject. Part of the main mail view and shown by default. Not a setting. It only lists emails. An email is opened in a Message, and emails can be found by sender or subject.',
   defaultVariant: 'list',
   variants: {
     list: {
       props: {},
       minSize: { width: 3, height: 4 },
-      actions: [
-        {
-          name: 'openEmail',
-          idempotent: true,
-          description:
-            'Open an email from the inbox so it shows in the message view',
-          parameters: [
-            {
-              name: 'subject',
-              type: 'string',
-              description:
-                'Subject of the email to open. Must be one of the subjects listed in the inbox.',
-            },
-          ],
-        },
-      ],
+      actions: [],
     },
   },
 });

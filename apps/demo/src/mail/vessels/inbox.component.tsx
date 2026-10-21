@@ -1,36 +1,26 @@
-import { err, ok } from '@maelstrom-co/protocol';
-import type { TypedVesselProps } from '@maelstrom-co/react';
 import { mailM } from '../maelstrom';
 import {
-  getMailSnapshot,
-  mailActions,
+  type Email,
+  emailIdsOpenInReaders,
   useMailStore,
 } from '../stores/mail.store';
-import type { inboxVessel } from './inbox.vessel';
 import { MailCard } from './mail-card';
 
-export default function InboxComponent({
-  instanceId,
-}: TypedVesselProps<typeof inboxVessel>) {
-  const { emails, selectedEmailId } = useMailStore();
-
-  mailM.useActions('inbox', instanceId, {
-    openEmail: async ({ subject }) => {
-      if (!mailActions.openEmail(subject)) return err(noMatchError(subject));
-      return ok(undefined);
-    },
-  });
+export default function InboxComponent() {
+  const mail = useMailStore();
+  const enqueueIntent = mailM.useMaelstrom((state) => state.enqueueIntent);
+  const openEmailIds = emailIdsOpenInReaders(mail);
 
   return (
-    <MailCard title="Inbox" meta={`${emails.length} emails`}>
+    <MailCard title="Inbox" meta={`${mail.emails.length} emails`}>
       <ul className="mail-list">
-        {emails.map((email) => (
+        {mail.emails.map((email) => (
           <li key={email.id}>
             <button
               type="button"
               className="mail-inbox-item"
-              aria-current={email.id === selectedEmailId ? 'true' : undefined}
-              onClick={() => mailActions.selectEmail(email.id)}
+              aria-current={openEmailIds.has(email.id) ? 'true' : undefined}
+              onClick={() => enqueueIntent(openEmailIntent(email))}
             >
               <span className="mail-inbox-sender">
                 <span>{email.senderName}</span>
@@ -46,9 +36,6 @@ export default function InboxComponent({
   );
 }
 
-function noMatchError(subject: string): Error {
-  const available = getMailSnapshot()
-    .emails.map((email) => `"${email.subject}"`)
-    .join(', ');
-  return new Error(`No email matches "${subject}". Available: ${available}`);
+function openEmailIntent(email: Email): string {
+  return `Open the email from ${email.senderName} titled "${email.subject}"`;
 }

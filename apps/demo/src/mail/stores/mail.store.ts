@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import { findByFuzzyTitle } from '../../vessels/find-by-fuzzy-title';
+import { MAIL_DEFAULT_READER_ID } from '../default-layout';
 
 export interface Email {
   readonly id: string;
@@ -13,7 +14,8 @@ export interface Email {
 
 export interface MailState {
   readonly emails: readonly Email[];
-  readonly selectedEmailId: string;
+  readonly emailIdByReader: Readonly<Record<string, string>>;
+  readonly mountedReaderIds: readonly string[];
 }
 
 export const SEED_EMAILS: readonly Email[] = [
@@ -124,10 +126,45 @@ export function getMailSnapshot(): MailState {
   return state;
 }
 
-export function selectedEmail(mailState: MailState): Email | undefined {
-  return mailState.emails.find(
-    (email) => email.id === mailState.selectedEmailId,
+export function emailLabel(email: Email): string {
+  return `${email.senderName}: ${email.subject}`;
+}
+
+export function emailInReader(
+  mailState: MailState,
+  readerId: string,
+): Email | undefined {
+  const emailId = mailState.emailIdByReader[readerId];
+  return mailState.emails.find((email) => email.id === emailId);
+}
+
+export function emailIdsOpenInReaders(
+  mailState: MailState,
+): ReadonlySet<string> {
+  return new Set(
+    mailState.mountedReaderIds.flatMap((readerId) => {
+      const emailId = mailState.emailIdByReader[readerId];
+      return emailId ? [emailId] : [];
+    }),
   );
+}
+
+export function findEmail(
+  emails: readonly Email[],
+  query: string,
+): Email | undefined {
+  const byId = emails.find((email) => email.id === query.trim());
+  if (byId) return byId;
+  for (const field of SEARCHABLE_FIELDS) {
+    const match = findByFuzzyTitle(
+      emails.flatMap((email) =>
+        field(email).map((title) => ({ title, email })),
+      ),
+      query,
+    );
+    if (match) return match.email;
+  }
+  return undefined;
 }
 
 export function __resetMailStoreForTests(): void {
@@ -135,23 +172,47 @@ export function __resetMailStoreForTests(): void {
 }
 
 export const mailActions = {
-  selectEmail(id: string): void {
-    if (!state.emails.some((email) => email.id === id)) return;
-    setState({ ...state, selectedEmailId: id });
+  showEmailInReader(readerId: string, query: string): Email | undefined {
+    const email = findEmail(state.emails, query);
+    if (!email) return undefined;
+    setState({
+      ...state,
+      emailIdByReader: { ...state.emailIdByReader, [readerId]: email.id },
+    });
+    return email;
   },
-  openEmail(subject: string): Email | undefined {
-    const match = findByFuzzyTitle(
-      state.emails.map((email) => ({ ...email, title: email.subject })),
-      subject,
-    );
-    if (!match) return undefined;
-    setState({ ...state, selectedEmailId: match.id });
-    return state.emails.find((email) => email.id === match.id);
+  readerMounted(readerId: string): void {
+    if (state.mountedReaderIds.includes(readerId)) return;
+    setState({
+      ...state,
+      mountedReaderIds: [...state.mountedReaderIds, readerId],
+    });
+  },
+  readerUnmounted(readerId: string): void {
+    setState({
+      ...state,
+      mountedReaderIds: state.mountedReaderIds.filter((id) => id !== readerId),
+    });
   },
 };
 
+const SEARCHABLE_FIELDS: readonly ((email: Email) => readonly string[])[] = [
+  (email) => [emailLabel(email)],
+  (email) => [email.subject],
+  (email) => [email.senderName, email.senderEmail],
+  (email) =>
+    email.senderName.split(/[^A-Za-z]+/).filter((word) => word.length >= 3),
+];
+
 function initialMailState(): MailState {
-  return { emails: SEED_EMAILS, selectedEmailId: SEED_EMAILS[0]?.id ?? '' };
+  const firstEmailId = SEED_EMAILS[0]?.id;
+  return {
+    emails: SEED_EMAILS,
+    emailIdByReader: firstEmailId
+      ? { [MAIL_DEFAULT_READER_ID]: firstEmailId }
+      : {},
+    mountedReaderIds: [],
+  };
 }
 
 function subscribe(listener: () => void): () => void {
