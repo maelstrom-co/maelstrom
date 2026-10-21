@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { CATALOG_PRODUCTS, productBySku } from '../lib/pet-shop-fixtures';
 import {
   __resetCatalogStoreForTests,
   catalogActions,
@@ -8,6 +7,7 @@ import {
   getCatalogSnapshot,
   searchProducts,
 } from './catalog.store';
+import { CATALOG_PRODUCTS, productBySku } from './fixtures';
 
 const USUAL_DOG_FOOD = 'DOG-DRY-SUMMIT-ADULT-30';
 

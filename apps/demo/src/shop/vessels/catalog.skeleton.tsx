@@ -1,9 +1,13 @@
-import { VesselCard } from '../components/vessel-card';
-import { VESSEL_ACCENTS } from '../lib/design-tokens';
+import { VesselCard } from '../../components/vessel-card';
+import { VESSEL_ACCENTS } from '../../lib/design-tokens';
 
-export function CartSkeleton(_props: { vesselId: string }) {
+export function CatalogSkeleton(_props: { vesselId: string }) {
   return (
-    <VesselCard accent={VESSEL_ACCENTS.cart} label="Cart" meta="Loading...">
+    <VesselCard
+      accent={VESSEL_ACCENTS.catalog}
+      label="Catalog"
+      meta="Loading..."
+    >
       <div className="flex-1 space-y-3 animate-pulse">
         {Array.from({ length: 4 }, (_, i) => (
           <div

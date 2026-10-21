@@ -1,18 +1,18 @@
 import { err, ok } from '@maelstrom-co/protocol';
 import type { TypedVesselProps } from '@maelstrom-co/react';
-import { OrderTotalsTable } from '../components/order-totals-table';
-import { VesselCard } from '../components/vessel-card';
-import { VESSEL_ACCENTS } from '../lib/design-tokens';
-import { CATALOG_SKUS, formatCents } from '../lib/pet-shop-fixtures';
-import { shop } from '../lib/pet-shop-maelstrom';
+import { VesselCard } from '../../components/vessel-card';
+import { VESSEL_ACCENTS } from '../../lib/design-tokens';
+import { shopM } from '../maelstrom';
 import {
   type CartMutationResult,
   cartActions,
   cartTotals,
   getCartSnapshot,
   useCartStore,
-} from './cart.store';
+} from '../stores/cart.store';
+import { CATALOG_SKUS, formatCents } from '../stores/fixtures';
 import type { cartVessel } from './cart.vessel';
+import { OrderTotalsTable } from './order-totals-table';
 
 export default function CartComponent({
   instanceId,
@@ -22,7 +22,7 @@ export default function CartComponent({
   const totals = cartTotals(lines);
   const itemCount = lines.reduce((sum, line) => sum + line.quantity, 0);
 
-  shop.useActions('cart', instanceId, {
+  shopM.useActions('cart', instanceId, {
     addToCart: async ({ sku, quantity }) => {
       const units = quantity ?? 1;
       return toActionResult(cartActions.addToCart(sku, units), {

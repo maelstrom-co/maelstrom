@@ -1,15 +1,15 @@
 import { err, ok } from '@maelstrom-co/protocol';
 import type { TypedVesselProps } from '@maelstrom-co/react';
-import { OrderTotalsTable } from '../components/order-totals-table';
-import { VesselCard } from '../components/vessel-card';
-import { VESSEL_ACCENTS } from '../lib/design-tokens';
-import { formatCents, type Order } from '../lib/pet-shop-fixtures';
-import { shop } from '../lib/pet-shop-maelstrom';
+import { VesselCard } from '../../components/vessel-card';
+import { VESSEL_ACCENTS } from '../../lib/design-tokens';
+import { shopM } from '../maelstrom';
+import { formatCents, type Order } from '../stores/fixtures';
 import {
   getOrdersSnapshot,
   ordersActions,
   useOrdersStore,
-} from './orders.store';
+} from '../stores/orders.store';
+import { OrderTotalsTable } from './order-totals-table';
 import type { ordersVessel } from './orders.vessel';
 
 export default function OrdersComponent({
@@ -19,7 +19,7 @@ export default function OrdersComponent({
 }: TypedVesselProps<typeof ordersVessel>) {
   const { orders, selectedOrderId } = useOrdersStore();
 
-  shop.useActions('orders', instanceId, {
+  shopM.useActions('orders', instanceId, {
     showOrderDetails: async ({ orderId }) => {
       if (!ordersActions.showOrderDetails(orderId)) {
         return err(noMatchError(orderId));

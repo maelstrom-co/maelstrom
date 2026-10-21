@@ -10,7 +10,7 @@ import {
   within,
 } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { CATALOG_SKUS } from '../lib/pet-shop-fixtures';
+import { CATALOG_SKUS } from '../stores/fixtures';
 import { cartVessel } from './cart.vessel.def';
 import { catalogVessel } from './catalog.vessel.def';
 import { checkoutVessel } from './checkout.vessel.def';
@@ -30,8 +30,8 @@ const SHOP_VESSELS: Readonly<Record<string, VesselDefinition>> = {
   checkout: checkoutVessel,
 };
 
-vi.mock('../lib/pet-shop-maelstrom', () => ({
-  shop: {
+vi.mock('../maelstrom', () => ({
+  shopM: {
     useActions: (
       vesselId: string,
       _instanceId: string,
@@ -43,14 +43,16 @@ vi.mock('../lib/pet-shop-maelstrom', () => ({
 }));
 
 const { __resetCartStoreForTests, cartActions, getCartSnapshot } = await import(
-  './cart.store'
+  '../stores/cart.store'
 );
 const { __resetCatalogStoreForTests, getCatalogSnapshot } = await import(
-  './catalog.store'
+  '../stores/catalog.store'
 );
-const { __resetCheckoutStoreForTests } = await import('./checkout.store');
+const { __resetCheckoutStoreForTests } = await import(
+  '../stores/checkout.store'
+);
 const { __resetOrdersStoreForTests, getOrdersSnapshot } = await import(
-  './orders.store'
+  '../stores/orders.store'
 );
 const OrdersComponent = (await import('./orders.component')).default;
 const CatalogComponent = (await import('./catalog.component')).default;

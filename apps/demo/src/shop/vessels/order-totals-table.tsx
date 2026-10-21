@@ -1,5 +1,5 @@
-import { cn } from '../lib/cn';
-import { formatCents, type OrderTotals } from '../lib/pet-shop-fixtures';
+import { cn } from '../../lib/cn';
+import { formatCents, type OrderTotals } from '../stores/fixtures';
 
 interface OrderTotalsTableProps {
   totals: OrderTotals;

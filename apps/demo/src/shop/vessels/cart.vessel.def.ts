@@ -1,12 +1,12 @@
 import { defineVessel } from '@maelstrom-co/protocol';
+import { withActionOptions } from '../../lib/vessel-options';
 import {
   CATALOG_SKUS,
   FLAT_SHIPPING_CENTS,
   FREE_SHIPPING_THRESHOLD_CENTS,
   formatCents,
   TAX_RATE,
-} from '../lib/pet-shop-fixtures';
-import { withActionOptions } from '../lib/vessel-options';
+} from '../stores/fixtures';
 
 const baseCartVessel = defineVessel({
   id: 'cart',

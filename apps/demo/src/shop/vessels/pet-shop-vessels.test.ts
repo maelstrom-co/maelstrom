@@ -4,7 +4,7 @@ import {
   validateVessel,
 } from '@maelstrom-co/protocol';
 import { describe, expect, it } from 'vitest';
-import { SHOP_LAYOUT } from '../lib/default-layout';
+import { SHOP_LAYOUT } from '../default-layout';
 import {
   CATALOG_SKUS,
   CUSTOMER,
@@ -12,7 +12,7 @@ import {
   FREE_SHIPPING_THRESHOLD_CENTS,
   formatCents,
   TAX_RATE,
-} from '../lib/pet-shop-fixtures';
+} from '../stores/fixtures';
 import { cartVessel } from './cart.vessel.def';
 import { catalogVessel } from './catalog.vessel.def';
 import { checkoutVessel } from './checkout.vessel.def';
