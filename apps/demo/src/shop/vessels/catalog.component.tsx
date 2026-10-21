@@ -3,6 +3,7 @@ import type { TypedVesselProps } from '@maelstrom-co/react';
 import { VesselCard } from '../../components/vessel-card';
 import { VESSEL_ACCENTS } from '../../lib/design-tokens';
 import { shopM } from '../maelstrom';
+import { cartActions, cartResultToAction } from '../stores/cart.store';
 import {
   type CatalogView,
   catalogActions,
@@ -78,6 +79,8 @@ export default function CatalogComponent({
       catalogActions.clearSearch();
       return ok(undefined);
     },
+    addToCart: async ({ sku }) =>
+      cartResultToAction(cartActions.addToCart(sku), { sku }),
   });
 
   if (variantProps.variant === 'product') {
@@ -96,7 +99,16 @@ export default function CatalogComponent({
           ← Results
         </button>
         {product ? (
-          <ProductDetail product={product} />
+          <>
+            <ProductDetail product={product} />
+            <button
+              type="button"
+              onClick={() => executeAction('addToCart', { sku: product.sku })}
+              className="mt-3 rounded-md bg-white/10 px-3 py-2 text-sm text-ink hover:bg-white/15"
+            >
+              Add to cart
+            </button>
+          </>
         ) : (
           <div className="flex-1 flex items-center justify-center text-sm text-ink-3">
             No product selected.

@@ -1,16 +1,15 @@
-import { err, ok } from '@maelstrom-co/protocol';
+import { ok } from '@maelstrom-co/protocol';
 import type { TypedVesselProps } from '@maelstrom-co/react';
 import { VesselCard } from '../../components/vessel-card';
 import { VESSEL_ACCENTS } from '../../lib/design-tokens';
 import { shopM } from '../maelstrom';
 import {
-  type CartMutationResult,
   cartActions,
+  cartResultToAction,
   cartTotals,
-  getCartSnapshot,
   useCartStore,
 } from '../stores/cart.store';
-import { CATALOG_SKUS, formatCents } from '../stores/fixtures';
+import { formatCents } from '../stores/fixtures';
 import type { cartVessel } from './cart.vessel';
 import { OrderTotalsTable } from './order-totals-table';
 
@@ -25,16 +24,16 @@ export default function CartComponent({
   shopM.useActions('cart', instanceId, {
     addToCart: async ({ sku, quantity }) => {
       const units = quantity ?? 1;
-      return toActionResult(cartActions.addToCart(sku, units), {
+      return cartResultToAction(cartActions.addToCart(sku, units), {
         sku,
         quantity: units,
         quantityRule: 'a whole number of at least 1',
       });
     },
     removeFromCart: async ({ sku }) =>
-      toActionResult(cartActions.removeFromCart(sku), { sku }),
+      cartResultToAction(cartActions.removeFromCart(sku), { sku }),
     updateCartQuantity: async ({ sku, quantity }) =>
-      toActionResult(cartActions.updateCartQuantity(sku, quantity), {
+      cartResultToAction(cartActions.updateCartQuantity(sku, quantity), {
         sku,
         quantity,
         quantityRule: 'a whole number of 0 or more (0 removes the line)',
@@ -109,45 +108,4 @@ export default function CartComponent({
       <OrderTotalsTable totals={totals} />
     </VesselCard>
   );
-}
-
-interface CartActionRequest {
-  sku: string;
-  quantity?: number;
-  quantityRule?: string;
-}
-
-function toActionResult(
-  result: CartMutationResult,
-  { sku, quantity, quantityRule }: CartActionRequest,
-) {
-  if (result.ok) return ok(undefined);
-  switch (result.reason) {
-    case 'unknown_product':
-      return err(
-        new Error(
-          `No catalog product matches "${sku}". Available SKUs: ${CATALOG_SKUS.join(', ')}`,
-        ),
-      );
-    case 'not_in_cart': {
-      const inCart = getCartSnapshot()
-        .lines.map((line) => line.sku)
-        .join(', ');
-      return err(
-        new Error(
-          `"${sku}" is not in the cart. Cart SKUs: ${inCart || '(cart is empty)'}`,
-        ),
-      );
-    }
-    case 'ambiguous':
-      return err(
-        new Error(
-          `"${sku}" matches more than one cart line: ${result.candidates.join(', ')}. Pass the SKU.`,
-        ),
-      );
-    case 'bad_quantity':
-      return err(
-        new Error(`quantity must be ${quantityRule}, got ${quantity}`),
-      );
-  }
 }
