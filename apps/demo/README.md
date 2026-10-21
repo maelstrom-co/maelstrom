@@ -187,6 +187,20 @@ The LiveKit cascade is also optional. It requires a local LiveKit server plus re
 - "Actually skip the gym, add coffee with Sam at 9"
 - "Start a journal entry about today's plan and jot down the key points"
 
+## Pet shop page
+
+`/shop` is a separate demo page with its own shell. It runs its own Maelstrom instance with only the four pet shop Vessels: `orders`, `catalog`, `cart` and `checkout`. Neither the Engine nor the voice model sees the day-planner Vessels there, and the home page never sees the shop ones.
+
+The page starts with past orders beside an empty cart. Drive it by hand, by typed intent or by voice. Typed and spoken intents go through the Engine, which brings in the catalog or checkout when you ask. By hand, open a product in the catalog and choose **Add to cart**, then choose **Place order** in checkout. Orders, products and the customer are fixtures, and nothing is charged.
+
+With the dev server from `bunx nx dev demo` running, open `http://localhost:3000/shop`. The key drawer works as on the home page. Tap the orb in the bottom-right corner to talk. The page has no provider picker or spoken greeting, so voice starts on the default provider described below.
+
+Things to type or say there:
+
+- "Show the catalog"
+- "Reorder my dog food but with less fat"
+- "Check out"
+
 ## How voice works
 
 Voice has three provider choices across two pipeline kinds: speech-native Live/Realtime and the LiveKit STT/TTS cascade.
