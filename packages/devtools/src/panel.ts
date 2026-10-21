@@ -28,6 +28,12 @@ import {
   requestsView,
   type ViewContext,
 } from './panel-views.js';
+import {
+  createRequestOverviewControls,
+  initialOverviewState,
+  type OverviewState,
+  requestOverviewView,
+} from './request-overview-view.js';
 import { telemetryView } from './telemetry-view.js';
 import type { Devtools, DevtoolsSnapshot } from './types.js';
 import { VoiceCorrelationHistory } from './voice-timeline.js';
@@ -39,6 +45,7 @@ import { voiceTimelineView } from './voice-timeline-view.js';
 
 type Source = 'live' | 'recording' | 'imported';
 const tabs = [
+  'Overview',
   'Requests',
   'Inspector',
   'Connections',
@@ -73,6 +80,7 @@ interface PanelPreferences {
   importedName?: string;
   liveEventKeys: LiveEventKeys;
   voice?: VoiceViewState;
+  overview?: OverviewState;
   voiceCorrelations: VoiceCorrelationHistory;
   importKeys: WeakMap<object, string>;
 }
@@ -243,6 +251,7 @@ function Panel(tools: Devtools): HTMLElement {
         events: panelEvents(state.activity, keys),
         requestEvents: panelEvents(state.requestActivity, keys),
         droppedRequestEvents: state.droppedRequestEvents,
+        unreadableRequestEvents: countUnreadableEvents(state.requestActivity),
         omittedRequestEvents: Math.max(
           0,
           state.requestActivity.length - MAX_VIEW_EVENTS,
@@ -329,6 +338,7 @@ function Panel(tools: Devtools): HTMLElement {
     clearRequestSelection();
   }
   function switchSource(next: Source): void {
+    preferences.overview = undefined;
     clearEvidenceSelection();
     preferences.issueCategory = 'all';
     preferences.instanceKey = '';
@@ -599,10 +609,13 @@ function Panel(tools: Devtools): HTMLElement {
   const persistentControls = element('div', undefined, 'view-controls');
   const contentBody = element('div');
   const voiceControls = createVoiceTimelineControls();
+  const overviewControls = createRequestOverviewControls();
   const clearVoiceView = () => {
     voiceControls.clear();
-    persistentControls.replaceChildren();
-    contentBody.replaceChildren();
+    if (persistentControls.contains(voiceControls.element)) {
+      persistentControls.replaceChildren();
+      contentBody.replaceChildren();
+    }
   };
   onCleanup(clearVoiceView);
   navigation.tabIndex = content.tabIndex = 0;
@@ -799,6 +812,10 @@ function Panel(tools: Devtools): HTMLElement {
   const scopeOptions = new Map<string, HTMLOptionElement>();
   const recordingOptions = new Map<string, HTMLOptionElement>();
   const purpose: Record<Tab, readonly [string, string]> = {
+    Overview: [
+      'Retained request overview',
+      'Find slow or unsuccessful requests in this evidence source. Select a point or table row to inspect its retained events.',
+    ],
     Requests: [
       'Request activity',
       'Follow a request from start to outcome. All events shows events from the selected Evidence source. To inspect a recording, select it under Evidence, then choose All events.',
@@ -909,16 +926,19 @@ function Panel(tools: Devtools): HTMLElement {
       inspections.clear();
     const data = evidence();
     const requestView = currentTab === 'Requests' && !preferences.allEvents;
+    const requestEvidenceView = requestView || currentTab === 'Overview';
     const comparing = requestView && Boolean(comparison);
-    const viewedEvents = requestView
+    const viewedEvents = requestEvidenceView
       ? (data.requestEvents ?? data.events)
       : data.events;
-    const droppedEvents = requestView
-      ? (data.droppedRequestEvents ?? data.dropped)
-      : data.dropped;
-    const omittedEvents = requestView
-      ? (data.omittedRequestEvents ?? data.omitted)
-      : data.omitted;
+    const droppedEvents =
+      requestEvidenceView && data.requestEvents
+        ? data.droppedRequestEvents
+        : data.dropped;
+    const omittedEvents =
+      requestEvidenceView && data.requestEvents
+        ? data.omittedRequestEvents
+        : data.omitted;
     const currentIds = new Set([
       ...state.sessions.map((session) => session.id),
       ...data.apps.map((app) => app.id),
@@ -1050,7 +1070,7 @@ function Panel(tools: Devtools): HTMLElement {
     highlightLabel.hidden =
       currentTab !== 'Inspector' || currentSource !== 'live';
     highlight.disabled = !tools.setHighlightedInstance;
-    jsonLabel.hidden = currentTab === 'Recordings';
+    jsonLabel.hidden = currentTab === 'Recordings' || currentTab === 'Overview';
     activityStatus.hidden = currentTab === 'Recordings';
     activityStatus.textContent = `${viewedEvents.length} ${currentSource === 'live' ? (requestView ? 'request metadata' : 'recent metadata') : 'recorded'} events${droppedEvents ? ` · ${droppedEvents} dropped or evicted` : ''}`;
     sourceBanner.hidden = currentSource === 'live' && !status.active;
@@ -1066,7 +1086,7 @@ function Panel(tools: Devtools): HTMLElement {
     errorView.hidden = !error();
     recording.hidden = currentTab !== 'Recordings';
     workspace.hidden = currentTab === 'Recordings';
-    toolbar.hidden = false;
+    toolbar.hidden = currentTab === 'Overview';
     start.disabled =
       currentSource !== 'live' ||
       status.active ||
@@ -1145,10 +1165,10 @@ function Panel(tools: Devtools): HTMLElement {
       clearJsonEvidence();
       return;
     }
-    let voiceSourceToken = 'live';
-    if (currentTab === 'Voice') {
+    let sourceToken = 'live';
+    if (currentTab === 'Voice' || currentTab === 'Overview') {
       if (currentSource === 'recording')
-        voiceSourceToken = `recording:${tools.capture.getEvidenceRevision()}`;
+        sourceToken = `recording:${tools.capture.getEvidenceRevision()}`;
       else if (
         currentSource === 'imported' &&
         state.imported &&
@@ -1159,15 +1179,37 @@ function Panel(tools: Devtools): HTMLElement {
           key = crypto.randomUUID();
           preferences.importKeys.set(state.imported, key);
         }
-        voiceSourceToken = `imported:${key}`;
+        sourceToken = `imported:${key}`;
       }
-      if (preferences.voice?.sourceToken !== voiceSourceToken)
+      if (
+        currentTab === 'Voice' &&
+        preferences.voice?.sourceToken !== sourceToken
+      )
         preferences.voice = {
           provider: 'all',
           generation: 'all',
-          sourceToken: voiceSourceToken,
+          sourceToken,
         };
+      if (currentTab === 'Overview') {
+        if (preferences.overview?.sourceToken !== sourceToken)
+          preferences.overview = { ...initialOverviewState(), sourceToken };
+        if (preferences.overview.clientId !== selected())
+          preferences.overview = {
+            ...preferences.overview,
+            clientId: selected(),
+            page: 0,
+          };
+      }
     }
+    const openRequest = (key: string) => {
+      clearRequestSelection();
+      preferences.requestKey = key;
+      preferences.allEvents = false;
+      preferences.issueCategory = 'all';
+      setQuery('');
+      setTab('Requests');
+      refresh();
+    };
     const context: ViewContext = {
       evidence: data,
       appLabel,
@@ -1306,6 +1348,7 @@ function Panel(tools: Devtools): HTMLElement {
       comparison,
       preferences.eventKey,
       preferences.voice,
+      preferences.overview,
       preferences.phasePage,
       preferences.layoutView,
       preferences.instanceKey,
@@ -1340,45 +1383,48 @@ function Panel(tools: Devtools): HTMLElement {
         ),
       );
       lastRendered =
-        currentTab === 'Requests'
-          ? requestsView(context)
-          : currentTab === 'Inspector'
-            ? inspectorView(context)
-            : currentTab === 'Voice'
-              ? voiceTimelineView(
-                  context,
-                  preferences.voice ?? { provider: 'all', generation: 'all' },
-                  (next, resetPage) => {
-                    preferences.voice = {
-                      ...next,
-                      sourceToken: voiceSourceToken,
-                    };
-                    if (resetPage) pageSize = 50;
-                    refresh();
-                  },
-                  (key) => {
-                    clearRequestSelection();
-                    preferences.requestKey = key;
-                    preferences.allEvents = false;
-                    preferences.issueCategory = 'all';
-                    setQuery('');
-                    setTab('Requests');
-                    refresh();
-                  },
-                  voiceControls,
-                  currentSource === 'live'
-                    ? preferences.voiceCorrelations.context
-                    : undefined,
-                )
-              : connectionsView(
-                  context,
-                  currentSource === 'live'
-                    ? panelEvents(
-                        state.transportHistory,
-                        preferences.liveEventKeys,
-                      )
-                    : [],
-                );
+        currentTab === 'Overview'
+          ? requestOverviewView(
+              context,
+              preferences.overview ?? initialOverviewState(),
+              (next) => {
+                preferences.overview = next;
+                refresh();
+              },
+              openRequest,
+              overviewControls,
+            )
+          : currentTab === 'Requests'
+            ? requestsView(context)
+            : currentTab === 'Inspector'
+              ? inspectorView(context)
+              : currentTab === 'Voice'
+                ? voiceTimelineView(
+                    context,
+                    preferences.voice ?? { provider: 'all', generation: 'all' },
+                    (next, resetPage) => {
+                      preferences.voice = {
+                        ...next,
+                        sourceToken,
+                      };
+                      if (resetPage) pageSize = 50;
+                      refresh();
+                    },
+                    openRequest,
+                    voiceControls,
+                    currentSource === 'live'
+                      ? preferences.voiceCorrelations.context
+                      : undefined,
+                  )
+                : connectionsView(
+                    context,
+                    currentSource === 'live'
+                      ? panelEvents(
+                          state.transportHistory,
+                          preferences.liveEventKeys,
+                        )
+                      : [],
+                  );
       navigation.replaceChildren(
         ...(lastRendered.navigation
           ? Array.from(lastRendered.navigation.childNodes)
@@ -1422,7 +1468,7 @@ function Panel(tools: Devtools): HTMLElement {
       }
       workspace.dataset.list = String(Boolean(lastRendered.navigation));
       navigation.hidden = !lastRendered.navigation;
-      if (comparing) jsonInspector.clear();
+      if (comparing || currentTab === 'Overview') jsonInspector.clear();
       else jsonInspector.set(lastRendered.raw, lastRendered.rawTitle);
       for (const side of ['a', 'b'] as const) {
         const inspector = comparisonInspectors[side];
@@ -1465,10 +1511,13 @@ function Panel(tools: Devtools): HTMLElement {
           replacement?.focus({ preventScroll: true });
         });
     }
-    workspace.dataset.json = String(preferences.json && !comparing);
+    workspace.dataset.json = String(
+      preferences.json && !comparing && currentTab !== 'Overview',
+    );
     workspace.dataset.comparison = String(comparing);
     workspace.dataset.comparisonJson = String(preferences.json);
-    jsonPane.hidden = !preferences.json || comparing;
+    jsonPane.hidden =
+      !preferences.json || comparing || currentTab === 'Overview';
     const highlighted =
       currentTab === 'Inspector' &&
       currentSource === 'live' &&

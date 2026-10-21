@@ -29,6 +29,12 @@ import {
   text,
 } from './panel-model.js';
 import { requestComparisonView } from './request-comparison-view.js';
+import { requestEvidence } from './request-evidence.js';
+import {
+  requestOutcomeLabels,
+  requestOutcomeTones,
+  requestTimingLabels,
+} from './request-presentation.js';
 
 export { button, element } from './panel-elements.js';
 
@@ -73,15 +79,6 @@ function date(value: unknown): string {
   return Number.isNaN(time.getTime())
     ? 'Time not reported'
     : time.toLocaleTimeString();
-}
-function tone(status: RequestStatus): string {
-  return status === 'failed'
-    ? 'error'
-    : status === 'applied'
-      ? 'success'
-      : ['applied-with-issues', 'discarded', 'abandoned'].includes(status)
-        ? 'warning'
-        : 'neutral';
 }
 function searchable(event: PanelEvent, query: string): boolean {
   return (
@@ -532,12 +529,14 @@ export function requestsView(context: ViewContext): RenderedView {
         'row-title',
       ),
     );
+    const facts = requestEvidence(request);
+    const outcome = facts.outcome;
     row.append(
       heading,
-      badge(statusLabels[request.status], tone(request.status)),
+      badge(requestOutcomeLabels[outcome], requestOutcomeTones[outcome]),
       element(
         'span',
-        `${context.appLabel(request.clientId)} · ${duration(request.transportMs)}`,
+        `${context.appLabel(request.clientId)} · ${facts.roundTrip.kind === 'reported' ? duration(facts.roundTrip.durationMs) : requestTimingLabels[facts.roundTrip.reason]}`,
         'row-detail',
       ),
     );
@@ -591,10 +590,40 @@ function requestDetailsView(
       ? undefined
       : selected.events.at(-1));
   const content = element('section');
+  const facts = requestEvidence(selected);
+  if (facts.outcome === 'ambiguous') {
+    const outcome = element('header', undefined, 'request-outcome');
+    outcome.append(
+      element('h3', 'Ambiguous request evidence'),
+      element(
+        'p',
+        'Retained events reuse this identity or report conflicting sessions. Aggregate outcome and timings are unavailable; inspect individual observations.',
+        'muted',
+      ),
+    );
+    content.append(outcome);
+    for (const event of selected.events.slice(0, context.pageSize)) {
+      const row = button(eventLabel(event), () =>
+        context.selectEvent(event.key),
+      );
+      row.dataset.focusKey = `event:${event.key}`;
+      row.setAttribute('aria-pressed', String(current?.key === event.key));
+      content.append(row);
+    }
+    if (selected.events.length > context.pageSize)
+      content.append(button('Show more ambiguous events', context.more));
+    if (current) content.append(eventDetails(current, context));
+    return {
+      content,
+      raw: current?.raw,
+      rawTitle: 'Selected ambiguous request event',
+      selectedRequestKey: selected.key,
+    };
+  }
   const outcome = element('header', undefined, 'request-outcome');
-  outcome.dataset.tone = tone(selected.status);
+  outcome.dataset.tone = requestOutcomeTones[facts.outcome];
   outcome.append(
-    badge(statusLabels[selected.status], tone(selected.status)),
+    badge(requestOutcomeLabels[facts.outcome], outcome.dataset.tone),
     element(
       'h3',
       selected.intent ??
@@ -614,7 +643,15 @@ function requestDetailsView(
     discarded: 'The client discarded this response. Inspect its reason below.',
     abandoned: 'Client work ended before the response batch completed.',
   };
-  outcome.append(element('p', summary[selected.status], 'muted'));
+  outcome.append(
+    element(
+      'p',
+      facts.outcome === 'unknown'
+        ? 'Retained evidence does not establish a final request outcome.'
+        : summary[selected.status],
+      'muted',
+    ),
+  );
   const pin = button(
     context.pinnedRequest === selected.key ? 'Unpin request' : 'Pin request',
     () =>
@@ -793,7 +830,11 @@ function requestDetailsView(
       element(
         'p',
         selected.push
-          ? 'Push receipt and outcome retained. Intermediate events may still be missing.'
+          ? selected.events.some(
+              (event) => event.kind === 'client.response.received',
+            )
+            ? 'Push receipt and outcome retained. Intermediate events may still be missing.'
+            : 'Push source and outcome retained in the terminal event.'
           : 'Start and outcome retained. Intermediate events may still be missing.',
         'muted small',
       ),

@@ -75,6 +75,40 @@ panel keeps collection active. Several mounts of `m.Devtools` share one panel.
 Each mounted Provider creates a separate app lifetime; an ended lifetime can
 remain visible as bounded history after a remount.
 
+## Find requests with Overview
+
+1. Select **Evidence** and the app instance you want to inspect.
+2. Open **Overview**. Choose **Request round-trip** or **Client application**
+   under **Timing measure** to keep the two reported durations separate.
+3. Filter by **Outcome** or **Timing availability**. Search by request ID or
+   recorded intent to narrow the retained sample.
+4. Select a chart point or a request in the table to open its supporting
+   events and JSON in **Requests**. Your Overview filters remain when you return.
+
+Each page contains at most 50 request identities. Only reported durations become
+chart points; requests without that timing remain in the table. Chart time uses
+each request's first retained client observation when the page has one usable
+client/session clock. Otherwise, its horizontal axis follows each request's
+first retained event in observation order. Use the table
+when points overlap or their client timestamps are unavailable.
+
+The window covers first retained observations across all retained requests.
+Later events do not extend it. Read this window and the counts before comparing
+results. The retained count
+and event-loss counts describe the selected evidence source. Matching, hidden,
+and missing-timing counts follow your filters. Paging hides additional matches
+without changing retention. An unreported loss count remains unknown.
+
+Cancelled, discarded, abandoned, failed, and applied-with-issues outcomes remain
+separate. Missing Action counters leave the outcome unknown unless application
+evidence confirms an issue. An explicit unknown request result stays unknown. Withheld or
+unreadable timings retain an explanation instead of becoming zero. A push
+response has no request round-trip measurement.
+
+Changing **Evidence** resets Overview filters and pagination. This view reads
+diagnostic request evidence; telemetry delivery counters do not supply request
+counts or timings. Opening Overview does not start a recording.
+
 ## Inspect a request
 
 Select a request to read its outcome and observed stages. Response receipt and
@@ -93,6 +127,10 @@ before executing the response's Actions.
 An applied outcome does not establish browser paint, animation completion, or
 audible speech. Missing or evicted stages remain partial evidence. Durations use
 the emitting process's clock; server and browser timestamps are independent.
+
+When retained events reuse one request identity or report conflicting sessions,
+**Ambiguous request evidence** exposes individual observations. Aggregate outcome
+and timing are unavailable for that group.
 
 Use **Issue category** to find timeout, transport, validation, readiness,
 application, provider, or unknown problems. **Category not reported** finds
