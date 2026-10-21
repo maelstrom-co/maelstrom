@@ -35,7 +35,9 @@ export default function MessageComponent({
       return ok(undefined);
     },
     reply: () => {
-      setReplyStartedFor(email?.id ?? null);
+      setReplyStartedFor(
+        emailInReader(getMailSnapshot(), instanceId)?.id ?? null,
+      );
       return ok(undefined);
     },
   });
