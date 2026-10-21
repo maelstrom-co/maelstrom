@@ -4,7 +4,7 @@ export const privacyVessel = defineVessel({
   id: 'privacy',
   name: 'Privacy',
   description:
-    'Setting. Control read receipts and whether pictures in emails load on their own. Use when someone asks about privacy, tracking, or who knows they read an email.',
+    'Setting. Control read receipts and whether pictures in emails load on their own. Use when someone asks about privacy, tracking, or who knows they read an email. Show it whenever someone wants to see, check or adjust privacy settings, even before they say which one, so they can choose on screen.',
   defaultVariant: 'panel',
   variants: {
     panel: {
