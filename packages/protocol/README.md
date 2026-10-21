@@ -67,11 +67,11 @@ Every identifier in Maelstrom is a branded string — structurally `string`, nom
 | Brand          | Auto-generated      | Used for                                  |
 |----------------|---------------------|-------------------------------------------|
 | `SessionId`    | `session-<Nano ID>` | One conversation                          |
-| `MessageId`    | Nano ID             | One envelope                              |
-| `InstanceId`   | No                  | One mounted vessel on the chart           |
-| `VesselId`     | No                  | A registered vessel type                  |
-| `VariantName`  | No                  | A state within a vessel                   |
-| `ActionName`   | No                  | A transition exposed by a variant         |
+| `MessageId`   | Nano ID             | One envelope                              |
+| `InstanceId`  | No                  | One mounted vessel on the chart           |
+| `VesselId`    | No                  | A registered vessel type                  |
+| `VariantName` | No                  | A state within a vessel                   |
+| `ActionName`  | No                  | A transition exposed by a variant         |
 
 ```ts
 import { SessionId, VesselId, MessageId } from '@maelstrom-co/protocol';
@@ -174,6 +174,8 @@ const request: ChartRequest = {
   intentFacts: { latestOrderSku: 'A123', similarSkus: ['B456'] },
 };
 ```
+
+**Built-in planner caveat:** These fields do not change the current `@maelstrom-co/planner-llm` behavior. Its prompt serializer does not include `intentFacts`, and it still requests the strict reply-bearing `GridResponseSchema` or `TilingResponseSchema`. Setting `intentFacts` alone therefore does not inform that planner's model, and setting `skipReply` does not make it emit a replyless candidate or `NeedsClarification`. A custom stage can read facts from `input.request.intentFacts` or adapt them into the LLM planner's `hints`. The reference `Engine.handle()` still refuses outcomes without a non-blank `userMessage` at its shipping boundary; see the [engine reference](https://github.com/maelstrom-co/maelstrom/blob/main/packages/engine/README.md#skipreply-and-needs-clarification).
 
 ### Update reasons
 
