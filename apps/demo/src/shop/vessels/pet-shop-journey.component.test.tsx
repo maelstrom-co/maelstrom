@@ -131,7 +131,10 @@ describe('pet-food reorder journey through the vessel action handlers', () => {
     );
     expect(confirmation.getByText('Order placed')).toBeTruthy();
     expect(confirmation.getByText('ORD-10456')).toBeTruthy();
-    expect(confirmation.getByText(/Visa ending 4242/)).toBeTruthy();
+    expect(confirmation.getByText(/Visa ending 4242/).textContent).toBe(
+      'Demo order, nothing charged (Visa ending 4242 on file)',
+    );
+    expect(confirmation.queryByText(/Charged to/)).toBeNull();
   });
 
   it('returns descriptive errors the model can recover from', async () => {

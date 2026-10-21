@@ -58,7 +58,8 @@ export default function CheckoutComponent({
               Ships to {lastConfirmation.shipTo}
             </div>
             <div className="text-xs text-ink-3">
-              Charged to {lastConfirmation.paymentMethod}
+              Demo order, nothing charged ({lastConfirmation.paymentMethod} on
+              file)
             </div>
             <OrderTotalsTable totals={lastConfirmation.order.totals} />
           </div>
