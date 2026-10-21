@@ -30,6 +30,7 @@ import { prepareBrowserOpenAIVoice } from '../lib/voice-adapter';
 import { voiceProviderStore } from '../lib/voice-provider';
 import { MAIL_DEFAULT_LAYOUT, MAIL_NARROW_LAYOUT } from './default-layout';
 import { mailM } from './maelstrom';
+import { MailActionFlash, useMailWorking } from './mail-activity';
 import { MailOptionSync } from './mail-option-sync';
 import { MailVoiceCorner } from './mail-voice-corner';
 import { useSettingsStore } from './stores/settings.store';
@@ -214,6 +215,7 @@ function MailWorkspace({
   const browserOpenAIVoice = usesBrowserOpenAIVoice();
   const apiKey = useStore(playgroundKeyStore, (state) => state.apiKey);
   const needsKey = browserKeyMode && !apiKey;
+  const working = useMailWorking();
 
   useEffect(() => {
     if (!autoStartVoice) return;
@@ -269,9 +271,10 @@ function MailWorkspace({
         onRequireKey={browserKeyMode ? onRequireKey : undefined}
       />
       <main className="mail-main">
-        <div className="mail-chart-host">
+        <div className="mail-chart-host" data-working={working || undefined}>
           <mailM.Chart />
         </div>
+        <MailActionFlash />
       </main>
       <footer className="mail-footer">
         <MailVoiceCorner needsKey={needsKey} onRequireKey={onBlockedSubmit} />

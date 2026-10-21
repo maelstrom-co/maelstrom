@@ -3,6 +3,7 @@ import { devtools } from '@maelstrom-co/react-devtools/production';
 import { maelstromRealtime } from '@maelstrom-co/react-realtime';
 import { registerDemoVoice } from '../lib/demo-voice';
 import { diagnosticCapture } from '../lib/diagnostic-capture';
+import { orchestrationLegibility } from '../lib/orchestration-legibility';
 import { createAdapter } from '../lib/voice-adapter';
 import {
   DEMO_VOICE_PROVIDERS,
@@ -42,4 +43,5 @@ export const mailM = createMaelstrom({ vessels: mailVessels })
       onSession: registerDemoVoice,
     }),
   )
+  .with(orchestrationLegibility)
   .with(devtools({ capture: diagnosticCapture }));

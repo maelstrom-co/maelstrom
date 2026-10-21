@@ -7,11 +7,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EMPTY_VOICE_OBSERVATIONS } from '../lib/__tests__/fake-realtime-session';
 
 let voiceResult: UseVoiceResult;
+let isProcessing = false;
 const orbClick = vi.fn();
 const prepareBrowserOpenAIVoice = vi.fn(() => true);
 
 vi.doMock('./maelstrom', () => ({
   mailM: {
+    useMaelstrom: (select: (state: { isProcessing: boolean }) => boolean) =>
+      select({ isProcessing }),
     useVoice: () => voiceResult,
     useVoiceObservations: () => ({ snapshot: EMPTY_VOICE_OBSERVATIONS }),
     VoiceOrb: (props: { className?: string }) => (
@@ -43,6 +46,7 @@ function renderCorner(state: VoiceSessionState, needsKey = false) {
 }
 
 beforeEach(() => {
+  isProcessing = false;
   orbClick.mockClear();
   prepareBrowserOpenAIVoice.mockClear();
 });
@@ -67,6 +71,30 @@ describe('MailVoiceCorner', () => {
     const { getByRole } = renderCorner(state);
     expect(getByRole('status').textContent).toBe(label);
     expect(voicePillLabel(state)).toBe(label);
+  });
+
+  it.each([
+    'idle',
+    'connected',
+    'listening',
+    'thinking',
+  ] as const)('shows "Working on it" from %s while a request is in flight', (state) => {
+    isProcessing = true;
+    const { getByRole } = renderCorner(state);
+    const pill = getByRole('status');
+    expect(pill.textContent).toBe('Working on it');
+    expect(pill.getAttribute('data-working')).toBe('true');
+  });
+
+  it.each([
+    ['connecting', 'Connecting'],
+    ['speaking', 'Speaking'],
+    ['error', 'Voice error'],
+  ] as const)('keeps %s as "%s" while a request is in flight', (state, label) => {
+    isProcessing = true;
+    const { getByRole } = renderCorner(state);
+    expect(getByRole('status').textContent).toBe(label);
+    expect(voicePillLabel(state, true)).toBe(label);
   });
 
   it('always shows the AI voice disclosure', () => {

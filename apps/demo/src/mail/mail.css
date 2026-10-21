@@ -221,6 +221,51 @@
   inset: 0 12px;
 }
 
+/* Working ring: a soft blue edge around the chart while a request is in
+   flight. A pseudo-element outside the chart, so it never changes its size. */
+.mail-chart-host::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  z-index: 3;
+  padding: 2px;
+  border-radius: calc(var(--mail-radius) + 4px);
+  pointer-events: none;
+  background: linear-gradient(
+    120deg,
+    var(--mail-accent-soft),
+    var(--mail-accent),
+    var(--mail-accent-soft)
+  );
+  background-size: 300% 300%;
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0;
+  transition: opacity 300ms ease;
+}
+
+.mail-chart-host[data-working='true']::after {
+  opacity: 0.85;
+  animation: mail-working-sweep 2.4s linear infinite;
+}
+
+/* Changed vessels: mail cards are opaque, so the shared wrapper ring would
+   sit hidden under them. The card itself carries the highlight instead. */
+.mail-app [data-flash='true'] {
+  animation: none;
+  box-shadow: none;
+}
+
+.mail-app [data-flash='true'] .mail-card {
+  animation: mail-card-touched 1.2s ease-out 1;
+}
+
 /* Vessel cards */
 
 .mail-card {
@@ -517,6 +562,37 @@
   white-space: nowrap;
 }
 
+.mail-voice-pill[data-working='true'] {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  border-color: var(--mail-accent);
+  background: var(--mail-accent-soft);
+  color: var(--mail-accent);
+}
+
+.mail-working-dots {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.mail-working-dots i {
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: currentColor;
+  animation: mail-working-dot 1.2s ease-in-out infinite;
+}
+
+.mail-working-dots i:nth-child(2) {
+  animation-delay: 150ms;
+}
+
+.mail-working-dots i:nth-child(3) {
+  animation-delay: 300ms;
+}
+
 .mail-voice-pill[data-state='error'] {
   color: var(--mail-danger);
 }
@@ -614,6 +690,50 @@
   }
 }
 
+@keyframes mail-working-sweep {
+  0% {
+    background-position: 0% 50%;
+  }
+  100% {
+    background-position: 300% 50%;
+  }
+}
+
+@keyframes mail-working-dot {
+  0%,
+  70%,
+  100% {
+    opacity: 0.3;
+  }
+  35% {
+    opacity: 1;
+  }
+}
+
+@keyframes mail-card-touched {
+  0% {
+    border-color: var(--mail-border);
+    background-color: var(--mail-surface);
+    box-shadow:
+      inset 0 0 0 0 transparent,
+      var(--mail-shadow);
+  }
+  20% {
+    border-color: var(--mail-accent);
+    background-color: var(--mail-accent-soft);
+    box-shadow:
+      inset 0 0 0 2px var(--mail-accent),
+      var(--mail-shadow);
+  }
+  100% {
+    border-color: var(--mail-border);
+    background-color: var(--mail-surface);
+    box-shadow:
+      inset 0 0 0 2px transparent,
+      var(--mail-shadow);
+  }
+}
+
 @media (max-width: 640px) {
   .mail-header {
     flex-wrap: wrap;
@@ -639,8 +759,22 @@
   .mail-switch::after,
   .mail-message-body,
   .mail-caption-line,
-  .mail-voice-orb[data-state] {
+  .mail-voice-orb[data-state],
+  .mail-chart-host::after,
+  .mail-working-dots i,
+  .mail-app [data-flash='true'] .mail-card {
     transition: none !important;
     animation: none !important;
+  }
+
+  .mail-working-dots i {
+    opacity: 0.7;
+  }
+
+  .mail-app [data-flash='true'] .mail-card {
+    border-color: var(--mail-accent);
+    box-shadow:
+      inset 0 0 0 2px var(--mail-accent),
+      var(--mail-shadow);
   }
 }
