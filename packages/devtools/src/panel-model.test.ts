@@ -241,7 +241,10 @@ test('receipt and Engine completion do not claim that the UI applied a response'
         durationMs: 80,
         serverAt: 999999,
       }),
-      event('client.response.received', 'app-a', 'request', { durationMs: 12 }),
+      event('client.response.received', 'app-a', 'request', {
+        source: 'request',
+        durationMs: 12,
+      }),
     ]),
   );
   expect(request.status).toBe('received');
@@ -258,6 +261,7 @@ test('whole application time stays separate from nested command work and server 
         serverAt: 999999,
       }),
       event('client.response.received', 'app-a', 'request', {
+        source: 'request',
         durationMs: 100,
       }),
       event('client.command.completed', 'app-a', 'request', { durationMs: 4 }),
