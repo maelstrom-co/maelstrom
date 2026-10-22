@@ -128,7 +128,7 @@ for (const width of [1280, 375]) {
       await expect(link).toBeVisible();
       await expect(link).toHaveAttribute(
         'href',
-        'https://discord.gg/XAjJqrF2u3',
+        'https://maelstrom-ai.co/discord',
       );
       await expect(link).toHaveAttribute('target', '_blank');
       await link.evaluate((element) => {
@@ -160,7 +160,7 @@ test('blog community invitation records its own source and opens Discord directl
   const captures = await installPostHogRecorder(page);
   await page.goto('/blog/hello-maelstrom/');
   const link = page.locator('[data-discord-source="launch_blog"]');
-  await expect(link).toHaveAttribute('href', 'https://discord.gg/XAjJqrF2u3');
+  await expect(link).toHaveAttribute('href', 'https://maelstrom-ai.co/discord');
   await link.evaluate((element) => {
     element.addEventListener('click', (event) => event.preventDefault());
   });
@@ -184,7 +184,7 @@ test('community invitation works without JavaScript or an analytics client', asy
     baseURL,
     javaScriptEnabled: false,
   });
-  await context.route('https://discord.gg/**', (route) =>
+  await context.route('https://maelstrom-ai.co/discord', (route) =>
     route.fulfill({ body: 'Discord invitation' }),
   );
   const page = await context.newPage();
@@ -192,6 +192,6 @@ test('community invitation works without JavaScript or an analytics client', asy
   const opened = context.waitForEvent('page');
   await page.locator('[data-discord-source="community_section"]').click();
   const invitation = await opened;
-  await expect(invitation).toHaveURL('https://discord.gg/XAjJqrF2u3');
+  await expect(invitation).toHaveURL('https://maelstrom-ai.co/discord');
   await context.close();
 });

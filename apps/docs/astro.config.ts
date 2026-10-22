@@ -1,6 +1,7 @@
 import react from '@astrojs/react';
 import sitemap from '@astrojs/sitemap';
 import starlight from '@astrojs/starlight';
+import { COMMUNITY_DISCORD_URL } from '@maelstrom-co/platform-infra/community-contract';
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig, fontProviders } from 'astro/config';
 import mermaid from 'astro-mermaid';
@@ -107,6 +108,16 @@ export default defineConfig({
           icon: 'github',
           label: 'GitHub',
           href: 'https://github.com/maelstrom-co/maelstrom',
+        },
+        {
+          icon: 'discord',
+          label: 'Discord',
+          href: COMMUNITY_DISCORD_URL,
+        },
+        {
+          icon: 'x.com',
+          label: 'X',
+          href: 'https://x.com/maelstrom_co',
         },
       ],
       editLink: {

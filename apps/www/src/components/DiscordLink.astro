@@ -1,5 +1,5 @@
 ---
-import { WAITLIST_DISCORD_INVITE_URL } from '@maelstrom-co/platform-infra/waitlist-contract';
+import { COMMUNITY_DISCORD_URL } from '@maelstrom-co/platform-infra/community-contract';
 
 interface Props {
   source:
@@ -14,7 +14,7 @@ const { source, class: className } = Astro.props;
 ---
 
 <a
-  href={WAITLIST_DISCORD_INVITE_URL}
+  href={COMMUNITY_DISCORD_URL}
   class={className}
   data-discord-source={source}
   target="_blank"

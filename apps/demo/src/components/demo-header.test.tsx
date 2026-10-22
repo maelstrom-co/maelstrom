@@ -28,7 +28,7 @@ describe('community invitation', () => {
   it('opens Discord even on previews without sending test activity to production', () => {
     const { getByRole } = render(<DemoHeader>{null}</DemoHeader>);
     const link = getByRole('link', { name: 'Join Discord' });
-    expect(link.getAttribute('href')).toBe('https://discord.gg/XAjJqrF2u3');
+    expect(link.getAttribute('href')).toBe('https://maelstrom-ai.co/discord');
     expect(link.getAttribute('target')).toBe('_blank');
     fireEvent.click(link);
     expect(init).not.toHaveBeenCalled();

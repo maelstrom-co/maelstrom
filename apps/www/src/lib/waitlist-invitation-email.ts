@@ -1,5 +1,5 @@
+import { COMMUNITY_DISCORD_URL } from '@maelstrom-co/platform-infra/community-contract';
 import {
-  WAITLIST_DISCORD_INVITE_URL,
   WAITLIST_ORIGIN,
   WAITLIST_SENDER_ADDRESS,
 } from '@maelstrom-co/platform-infra/waitlist-contract';
@@ -18,7 +18,7 @@ export function buildWaitlistInvitationEmail() {
       '',
       'Your email is confirmed. Join Discord to meet the maintainers, share feedback, and ask questions:',
       '',
-      WAITLIST_DISCORD_INVITE_URL,
+      COMMUNITY_DISCORD_URL,
       '',
       'Maelstrom - AI-orchestrated UI',
       WAITLIST_ORIGIN,
@@ -54,12 +54,12 @@ export function buildWaitlistInvitationEmail() {
                   <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 28px;">
                     <tr>
                       <td align="center" bgcolor="#5865f2" style="border-radius:999px;background-color:#5865f2;mso-padding-alt:14px 24px;">
-                        <a href="${WAITLIST_DISCORD_INVITE_URL}" target="_blank" style="display:inline-block;padding:14px 24px;color:#ffffff;font-size:15px;font-weight:700;line-height:1;text-decoration:none;">Join Discord</a>
+                        <a href="${COMMUNITY_DISCORD_URL}" target="_blank" style="display:inline-block;padding:14px 24px;color:#ffffff;font-size:15px;font-weight:700;line-height:1;text-decoration:none;">Join Discord</a>
                       </td>
                     </tr>
                   </table>
                   <p style="margin:0 0 8px;color:#737d8c;font-size:13px;line-height:1.6;">If the button does not work, open this link:</p>
-                  <p style="margin:0;font-size:13px;line-height:1.6;word-break:break-all;"><a href="${WAITLIST_DISCORD_INVITE_URL}" style="color:#00c2ff;text-decoration:underline;">${WAITLIST_DISCORD_INVITE_URL}</a></p>
+                  <p style="margin:0;font-size:13px;line-height:1.6;word-break:break-all;"><a href="${COMMUNITY_DISCORD_URL}" style="color:#00c2ff;text-decoration:underline;">${COMMUNITY_DISCORD_URL}</a></p>
                 </td>
               </tr>
               <tr>

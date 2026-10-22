@@ -646,8 +646,8 @@ describe('POST /api/waitlist/confirm', () => {
       expect.objectContaining({
         to: 'user@example.com',
         subject: 'Join the Maelstrom community',
-        text: expect.stringContaining('https://discord.gg/XAjJqrF2u3'),
-        html: expect.stringContaining('https://discord.gg/XAjJqrF2u3'),
+        text: expect.stringContaining('https://maelstrom-ai.co/discord'),
+        html: expect.stringContaining('https://maelstrom-ai.co/discord'),
       }),
     );
 

@@ -1,3 +1,4 @@
+export { COMMUNITY_DISCORD_URL } from './CommunityContract.js';
 export {
   workerObservability,
   workerObservabilityNoTraces,
@@ -23,7 +24,6 @@ export {
 export {
   CLOUDFLARE_TURNSTILE_TEST_SITE_KEY,
   isWaitlistProductionHostname,
-  WAITLIST_DISCORD_INVITE_URL,
   WAITLIST_ORIGIN,
   WAITLIST_PRODUCTION_HOSTNAMES,
   WAITLIST_SENDER_ADDRESS,

@@ -240,6 +240,7 @@ for why a voice model never plans your UI.
 ## Get Involved
 
 - Read the [docs](https://docs.maelstrom-ai.co).
+- Join [Discord](https://maelstrom-ai.co/discord) for help and community discussion.
 - Run the demo — see [`apps/demo/README.md`](./apps/demo/README.md) for local
   setup, including optional LiveKit voice.
 - See [CONTRIBUTING.md](./CONTRIBUTING.md) for setup instructions.

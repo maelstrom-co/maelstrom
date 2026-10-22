@@ -218,7 +218,7 @@ test('confirmed subscribers reach Discord through the confirmation flow', async 
   await expect(discordInvite).toBeVisible();
   await expect(discordInvite).toHaveAttribute(
     'href',
-    'https://discord.gg/XAjJqrF2u3',
+    'https://maelstrom-ai.co/discord',
   );
   await expect(page.getByLabel('Email address')).toHaveCount(0);
   await expect

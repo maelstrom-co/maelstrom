@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { WAITLIST_DISCORD_INVITE_URL } from '@maelstrom-co/platform-infra/waitlist-contract';
+import { COMMUNITY_DISCORD_URL } from '@maelstrom-co/platform-infra/community-contract';
 import { buildWaitlistInvitationEmail } from './waitlist-invitation-email';
 
 describe('waitlist invitation email', () => {
@@ -7,8 +7,8 @@ describe('waitlist invitation email', () => {
     const message = buildWaitlistInvitationEmail();
 
     expect(message.subject).toBe('Join the Maelstrom community');
-    expect(message.text).toContain(WAITLIST_DISCORD_INVITE_URL);
-    expect(message.html).toContain(`href="${WAITLIST_DISCORD_INVITE_URL}"`);
+    expect(message.text).toContain(COMMUNITY_DISCORD_URL);
+    expect(message.html).toContain(`href="${COMMUNITY_DISCORD_URL}"`);
     expect(message.html).toContain('>Join Discord</a>');
   });
 

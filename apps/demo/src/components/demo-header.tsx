@@ -1,10 +1,10 @@
-import { WAITLIST_DISCORD_INVITE_URL } from '@maelstrom-co/platform-infra/waitlist-contract';
+import { COMMUNITY_DISCORD_URL } from '@maelstrom-co/platform-infra/community-contract';
 import type { ReactNode } from 'react';
 import { captureCommunityInviteClick } from '../lib/community-analytics';
 
 const DEMO_LINKS = [
   { label: 'Docs', href: 'https://docs.maelstrom-ai.co' },
-  { label: 'Join Discord', href: WAITLIST_DISCORD_INVITE_URL },
+  { label: 'Join Discord', href: COMMUNITY_DISCORD_URL },
   {
     label: 'Feedback on X',
     href: 'https://x.com/maelstrom_co',
@@ -24,7 +24,7 @@ export function DemoHeader({ children }: Readonly<{ children: ReactNode }>) {
         </div>
         <nav className="demo-nav" aria-label="Demo resources">
           {DEMO_LINKS.map((link) => {
-            const isCommunityInvite = link.href === WAITLIST_DISCORD_INVITE_URL;
+            const isCommunityInvite = link.href === COMMUNITY_DISCORD_URL;
             return (
               <a
                 key={link.href}
