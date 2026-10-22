@@ -35,8 +35,9 @@ export async function getGitHubStarCount(
     const response = await request(REPOSITORY_API, {
       headers: {
         Accept: 'application/vnd.github+json',
-        'X-Request-ID': requestId,
       },
+      credentials: 'omit',
+      referrerPolicy: 'no-referrer',
       signal: AbortSignal.timeout(3_000),
     });
     if (!response.ok) return unavailable('http_error', response.status);
