@@ -14,7 +14,15 @@ import {
   screen,
   waitFor,
 } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest';
 import { FakeRealtimeSession } from '../lib/__tests__/fake-realtime-session';
 import { createMockConnector } from '../lib/__tests__/mock-connector';
 import { DEMO_GREETING, m } from '../lib/maelstrom';
@@ -24,10 +32,12 @@ import {
 } from '../lib/playground-key-store';
 import { selectVoiceProvider } from '../lib/voice-provider';
 import { calendarActions, resetCalendarStore } from '../vessels/calendar.store';
+import { calendarEntry } from '../vessels/calendar.vessel';
 import {
   __resetTasksStoreForTests,
   tasksActions,
 } from '../vessels/tasks.store';
+import { tasksEntry } from '../vessels/tasks.vessel';
 
 function enumFor(
   vessel: VesselDefinition,
@@ -834,6 +844,11 @@ describe('captions placement (footer chrome)', () => {
 });
 
 describe('the seeded first screen', () => {
+  beforeAll(async () => {
+    // Cold module compilation must not consume the layout polling deadline.
+    await Promise.all([calendarEntry.component(), tasksEntry.component()]);
+  });
+
   const resizeRequests: ChartRequestMessage[] = [];
 
   beforeEach(() => {

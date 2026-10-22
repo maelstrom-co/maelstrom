@@ -8,13 +8,18 @@ import {
 import type { TelemetryErrorCategory } from '@maelstrom-co/telemetry';
 import { projectDiagnosticMetadata } from '@maelstrom-co/telemetry/integration';
 import { eventIdentity, identity } from './diagnostic-identity.js';
+import { type EventIssue, eventIssue, eventOutcome } from './event-outcome.js';
 import type { LiveEventKeys } from './live-event-keys.js';
+import { requestEvidence } from './request-evidence.js';
 import {
   type RequestStatus,
   requestTerminalStatus,
+  responseSource,
 } from './request-lifecycle.js';
 
 export { identity } from './diagnostic-identity.js';
+export { type EventIssue, eventIssue } from './event-outcome.js';
+export { queryEvents } from './event-query.js';
 export {
   type RequestCounterpart,
   requestCounterparts,
@@ -96,35 +101,6 @@ export const errorCategories: Readonly<
     explanation: 'The producer could not classify the problem.',
   },
 };
-export interface EventIssue {
-  eventKey: string;
-  outcome: 'failed' | 'skipped' | 'unknown';
-  category?: TelemetryErrorCategory;
-}
-export function eventIssue(event: PanelEvent): EventIssue | undefined {
-  const fact = projectDiagnosticMetadata(event.kind, event.metadata);
-  if (
-    fact?.outcome === 'failed' ||
-    fact?.outcome === 'skipped' ||
-    fact?.outcome === 'unknown'
-  )
-    return {
-      eventKey: event.key,
-      outcome: fact.outcome,
-      category: fact.errorCategory,
-    };
-  if (
-    event.metadata.outcome !== 'cancelled' &&
-    (event.kind === 'engine.planner.failed' ||
-      event.kind === 'client.command.failed' ||
-      event.kind === 'client.connection.failed' ||
-      (event.kind === 'engine.candidate.validated' &&
-        event.metadata.outcome === 'failed'))
-  )
-    return { eventKey: event.key, outcome: 'failed' };
-  return undefined;
-}
-
 export function panelEvents(
   values: readonly unknown[],
   liveKeys?: LiveEventKeys,
@@ -221,6 +197,8 @@ export function requestTimingComparison(
   a: RequestTrace | undefined,
   b: RequestTrace | undefined,
 ) {
+  if (a && requestEvidence(a).outcome === 'ambiguous') a = undefined;
+  if (b && requestEvidence(b).outcome === 'ambiguous') b = undefined;
   const measures = [
     [
       'Request round-trip',
@@ -239,11 +217,10 @@ export function requestTimingComparison(
 
 function diagnosticPhaseOutcome(event: PanelEvent): string {
   switch (event.kind) {
-    case 'engine.candidate.validated':
-      return event.metadata.outcome === 'failed' ||
-        event.metadata.outcome === 'succeeded'
-        ? humanize(event.metadata.outcome)
-        : 'Not reported';
+    case 'engine.candidate.validated': {
+      const outcome = eventOutcome(event);
+      return outcome === 'unreported' ? 'Not reported' : humanize(outcome);
+    }
     case 'engine.planner.failed':
       return event.metadata.outcome === 'cancelled' ? 'Cancelled' : 'Failed';
     case 'client.command.completed':
@@ -365,12 +342,16 @@ export function groupRequests(events: readonly PanelEvent[]): RequestTrace[] {
           })
           .join('\n') || undefined;
     }
+    const terminal = requestTerminalStatus(event.kind);
+    const source = responseSource(event.kind, event.metadata.source);
+    if (source === 'push') {
+      trace.push = true;
+      trace.missingStart = false;
+    }
     if (event.kind === 'client.response.received') {
       if (trace.status === 'awaiting') trace.status = 'received';
-      if (event.metadata.source === 'push') {
-        trace.push = true;
-        trace.missingStart = false;
-      } else trace.transportMs = numeric(event.metadata.durationMs);
+      if (source === 'request')
+        trace.transportMs = numeric(event.metadata.durationMs);
     }
     if (event.kind === 'client.request.failed')
       trace.transportMs = numeric(event.metadata.durationMs);
@@ -389,7 +370,6 @@ export function groupRequests(events: readonly PanelEvent[]): RequestTrace[] {
       if (event.metadata.outcome === 'failed') trace.observedFailedActions++;
       if (event.metadata.outcome === 'skipped') trace.observedSkippedActions++;
     }
-    const terminal = requestTerminalStatus(event.kind);
     if (terminal) {
       trace.status =
         event.kind === 'client.request.failed' &&
@@ -475,6 +455,7 @@ export interface PanelEvidence {
   dropped?: number;
   omitted: number;
   unreadableEvents?: number;
+  unreadableRequestEvents?: number;
   note?: string;
   metadata: Fields;
 }

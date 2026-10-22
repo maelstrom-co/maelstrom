@@ -1,4 +1,34 @@
 export { ActionName } from './lib/action-name.ts';
+export {
+  CallId,
+  CallIdSchema,
+  ChangeId,
+  ChangeIdSchema,
+  RunId,
+  RunIdSchema,
+} from './lib/agent-ids.ts';
+export type {
+  AgentAcceptedEvent,
+  AgentActionOutcome,
+  AgentDisposition,
+  AgentErrorEvent,
+  AgentEvent,
+  AgentFinishedEvent,
+  AgentFinishReason,
+  AgentInput,
+  AgentInputSource,
+  AgentMessageEvent,
+  AgentPlaceholderEvent,
+  AgentRunMetrics,
+  AgentUiAppliedInput,
+  AgentUiChangeEvent,
+  AgentUtteranceInput,
+} from './lib/agent-wire.ts';
+export {
+  AGENT_WIRE_VERSION,
+  AgentEventSchema,
+  AgentInputSchema,
+} from './lib/agent-wire.ts';
 export type { Brand } from './lib/brand.ts';
 export type {
   ChartDimensions,
@@ -29,6 +59,10 @@ export type {
 export {
   AcknowledgedAssistantMessage,
   AcknowledgedAssistantMessageSchema,
+  AgentEventMessage,
+  AgentEventMessageSchema,
+  AgentInputMessage,
+  AgentInputMessageSchema,
   AssistantMessageResultMessage,
   AssistantMessageResultMessageSchema,
   ClientEnvelopeSchema,

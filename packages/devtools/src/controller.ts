@@ -12,6 +12,7 @@ import {
 } from './capture-import.js';
 import { createDevtools as createDisabledDevtools } from './disabled.js';
 import { layoutSnapshot } from './layout-snapshot.js';
+import { replaceLiveEvidence } from './live-evidence.js';
 import { retainRequestEvents } from './request-history.js';
 import type { Devtools, DevtoolsOptions, DevtoolsSnapshot } from './types.js';
 
@@ -402,6 +403,7 @@ class Controller implements Devtools {
   clear(): void {
     this.stopCapture();
     this.capture.clear();
+    replaceLiveEvidence(this);
     this.publish({
       sessions: this.snapshot.sessions.filter((session) => session.active),
       activity: [],

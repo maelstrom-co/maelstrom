@@ -1,6 +1,11 @@
 import { z } from 'zod';
 import type { Mutable } from './_drift-guards.ts';
-import { ActionName } from './action-name.ts';
+import {
+  type AgentEvent,
+  AgentEventSchema,
+  type AgentInput,
+  AgentInputSchema,
+} from './agent-wire.ts';
 import {
   type DiagnosticMessage,
   DiagnosticMessageSchema,
@@ -14,70 +19,13 @@ import {
   EngineMessageSchema,
 } from './engine-message.ts';
 import { MaelstromError } from './errors/index.ts';
+import { MaelstromResponseSchema } from './maelstrom-response-schema.ts';
 import { MessageId, MessageIdSchema } from './message.ts';
-import type {
-  ActionExecution,
-  GridLayout,
-  MaelstromResponse,
-  TilingLayout,
-} from './response.ts';
+import type { MaelstromResponse } from './response.ts';
 import { err, ok, type Result } from './result.ts';
-import {
-  GridLayoutSchema,
-  InstanceIdSchema,
-  TilingLayoutSchema,
-} from './schemas.ts';
 import { type SessionId, SessionIdSchema } from './session.ts';
 import type { SessionHistoryEntry } from './session-history-entry.ts';
 import { SessionHistoryEntryArraySchema } from './session-history-entry.ts';
-
-// ---------------------------------------------------------------------------
-// MaelstromResponse wire parser
-//
-// `MaelstromResponse` (the engine's output contract) ships only as a
-// hand-written interface — the engine builds it programmatically and no
-// schema validates it. The envelope module is the first wire boundary that
-// carries it *inbound* (engine host → client), so the parser is defined here.
-// It differs from the LLM-output schemas in `request.ts`: the parsed form
-// carries the layout `type` discriminator and `params` as a decoded object
-// (not the LLM's `paramsJson` string). A canonical home in `response.ts` /
-// `schemas.ts` is a future concern — kept local so this phase touches one file.
-// ---------------------------------------------------------------------------
-
-const ActionExecutionParsedSchema = z.object({
-  instanceId: InstanceIdSchema,
-  action: z.string().min(1, 'action is required').transform(ActionName),
-  params: z.record(z.string(), z.unknown()).optional(),
-});
-
-const GridLayoutParsedSchema = GridLayoutSchema.extend({
-  type: z.literal('grid'),
-});
-
-const TilingLayoutParsedSchema = TilingLayoutSchema.extend({
-  type: z.literal('tiling'),
-});
-
-const MaelstromLayoutSchema = z.discriminatedUnion('type', [
-  GridLayoutParsedSchema,
-  TilingLayoutParsedSchema,
-]);
-
-/**
- * Wire-format Zod parser for {@link MaelstromResponse}. Validates the engine's
- * decision output as it crosses back to the client: the discriminator, the
- * correlation `requestId`, the user-facing/debug text, the parsed execution
- * plan (`params` as an object, not a JSON string), and the layout — whose
- * `type` must be `'grid'` or `'tiling'` and whose shape must match that arm.
- */
-const MaelstromResponseSchema = z.object({
-  type: z.literal('maelstrom_response'),
-  requestId: MessageIdSchema,
-  userMessage: z.string(),
-  rationale: z.string(),
-  executionPlan: z.array(ActionExecutionParsedSchema),
-  layout: MaelstromLayoutSchema,
-});
 
 // ---------------------------------------------------------------------------
 // Client → engine-host envelopes
@@ -172,21 +120,78 @@ export const AcknowledgedAssistantMessageSchema =
   });
 
 /**
+ * Wire-format Zod parser for {@link AgentInputMessage}. Validates the
+ * discriminator, the branded `id` / `sessionId`, and the inner
+ * {@link AgentInput}, including its `version`.
+ */
+export const AgentInputMessageSchema = z.object({
+  type: z.literal('client.agent.input'),
+  id: MessageIdSchema,
+  sessionId: SessionIdSchema,
+  input: AgentInputSchema,
+});
+
+/**
+ * A `client.agent.input` frame: carries one {@link AgentInput} from a client
+ * to the Agent Session of `sessionId`. The inner input keeps its own `type`
+ * discriminator, which cannot collide with transport frame types.
+ */
+export interface AgentInputMessage {
+  /** Frame discriminator. */
+  type: 'client.agent.input';
+  /**
+   * Identifies this frame on the transport. Agent correlation uses the inner
+   * `inputId` and `changeId` fields.
+   */
+  id: MessageId;
+  /** Session whose Agent Session receives the input. */
+  sessionId: SessionId;
+  /** The agent input carried by this frame. */
+  input: AgentInput;
+}
+
+/**
+ * Smart constructor for {@link AgentInputMessage}. Generates a fresh `id` via
+ * `MessageId()` when omitted.
+ *
+ * @example
+ * ```ts
+ * ws.send(encodeEnvelope(AgentInputMessage({ sessionId, input: utterance })));
+ * ```
+ */
+export const AgentInputMessage = (args: {
+  /** Session whose Agent Session receives the input. */
+  sessionId: SessionId;
+  /** The agent input to carry. */
+  input: AgentInput;
+  /** Frame id; generated when omitted. */
+  id?: MessageId;
+}): AgentInputMessage => ({
+  type: 'client.agent.input',
+  id: args.id ?? MessageId(),
+  sessionId: args.sessionId,
+  input: args.input,
+});
+
+/**
  * Every message a client may send to an engine host over the duplex stream.
  *
  * Every {@link ChartRequestMessage} / {@link AssistantInjectionMessage} —
  * i.e. every `EngineMessage` — is a valid ClientEnvelope; the envelope module
- * adds transport-only messages ({@link HistoryGetMessage} and
- * {@link AcknowledgedAssistantMessage}) that the LLM never sees. The legacy
- * assistant arm remains fire-and-forget; only the acknowledged arm requests a
- * response. Discriminated on `type`, so a host router can use one switch.
+ * adds the transport-only {@link HistoryGetMessage},
+ * {@link AcknowledgedAssistantMessage} and {@link DiagnosticSubscription},
+ * which the LLM never sees, and the {@link AgentInputMessage} that feeds the
+ * Agent Session. The legacy assistant arm remains fire-and-forget; only the
+ * acknowledged arm requests a response. Discriminated on `type`, so a host
+ * router can use one switch.
  */
 export type ClientEnvelope =
   | ChartRequestMessage
   | AssistantInjectionMessage
   | AcknowledgedAssistantMessage
   | HistoryGetMessage
-  | DiagnosticSubscription;
+  | DiagnosticSubscription
+  | AgentInputMessage;
 
 /**
  * Wire-format Zod parser for the {@link ClientEnvelope} union. Reuses
@@ -199,6 +204,7 @@ export const ClientEnvelopeSchema = z.discriminatedUnion('type', [
   AcknowledgedAssistantMessageSchema,
   HistoryGetMessageSchema,
   DiagnosticSubscriptionSchema,
+  AgentInputMessageSchema,
 ]);
 
 // ---------------------------------------------------------------------------
@@ -385,16 +391,71 @@ export const EngineErrorMessageSchema = z.object({
 });
 
 /**
- * Every message an engine host may send to a client over the duplex stream:
- * a decision {@link MaelstromResponseMessage}, a {@link HistoryResponseMessage},
- * or an {@link EngineErrorMessage}. Discriminated on `type`.
+ * Wire-format Zod parser for {@link AgentEventMessage}. Validates the
+ * discriminator, the branded `id` / `sessionId`, and the inner
+ * {@link AgentEvent}, including its `version`.
+ */
+export const AgentEventMessageSchema = z.object({
+  type: z.literal('engine.agent.event'),
+  id: MessageIdSchema,
+  sessionId: SessionIdSchema,
+  event: AgentEventSchema,
+});
+
+/**
+ * An `engine.agent.event` frame: carries one {@link AgentEvent} from the Agent
+ * Session of `sessionId` to its client. Events are streamed and correlate to
+ * inputs through the inner event's `inputId` or `changeId`, not to a request,
+ * so the frame carries its own `id` rather than a `requestId`.
+ */
+export interface AgentEventMessage {
+  /** Frame discriminator. */
+  type: 'engine.agent.event';
+  /**
+   * Identifies this frame on the transport. Agent correlation uses the inner
+   * `inputId` and `changeId` fields.
+   */
+  id: MessageId;
+  /** Session whose Agent Session emitted the event. */
+  sessionId: SessionId;
+  /** The agent event carried by this frame. */
+  event: AgentEvent;
+}
+
+/**
+ * Smart constructor for {@link AgentEventMessage}. Generates a fresh `id` via
+ * `MessageId()` when omitted.
+ *
+ * @example
+ * ```ts
+ * ws.send(encodeEnvelope(AgentEventMessage({ sessionId, event: finished })));
+ * ```
+ */
+export const AgentEventMessage = (args: {
+  /** Session whose Agent Session emitted the event. */
+  sessionId: SessionId;
+  /** The agent event to carry. */
+  event: AgentEvent;
+  /** Frame id; generated when omitted. */
+  id?: MessageId;
+}): AgentEventMessage => ({
+  type: 'engine.agent.event',
+  id: args.id ?? MessageId(),
+  sessionId: args.sessionId,
+  event: args.event,
+});
+
+/**
+ * Every message an engine host may send to a client over the duplex stream,
+ * discriminated on `type`. See the union members below.
  */
 export type ServerEnvelope =
   | MaelstromResponseMessage
   | HistoryResponseMessage
   | AssistantMessageResultMessage
   | EngineErrorMessage
-  | DiagnosticMessage;
+  | DiagnosticMessage
+  | AgentEventMessage;
 
 /**
  * Wire-format Zod parser for the {@link ServerEnvelope} union, dispatching on
@@ -406,6 +467,7 @@ export const ServerEnvelopeSchema = z.discriminatedUnion('type', [
   AssistantMessageResultMessageSchema,
   EngineErrorMessageSchema,
   DiagnosticMessageSchema,
+  AgentEventMessageSchema,
 ]);
 
 // ---------------------------------------------------------------------------
@@ -570,42 +632,10 @@ export const decodeServerEnvelope = (
 // because `z.infer` does not synthesize it, and short-circuits on primitives
 // so branded ids don't expand into a string-prototype mapped type. The
 // `EngineMessage` arms of `ClientEnvelope` are already guarded in
-// `engine-message.ts`; guarded here are only the interfaces this module owns.
+// `engine-message.ts` and the `MaelstromResponse` payload in
+// `maelstrom-response-schema.ts`; guarded here are only the interfaces this
+// module owns.
 // ---------------------------------------------------------------------------
-
-type _InferredMaelstromResponse = z.infer<typeof MaelstromResponseSchema>;
-// Full-shape check including `layout`: like `ChartRequest` in `request.ts`, the
-// tiling arm's `vesselId` / `variant` / instance ids are branded by the shared
-// schema transforms, matching the hand-written interface end-to-end, so no
-// per-field carve-out is needed.
-const _mrFwd: _InferredMaelstromResponse extends Mutable<MaelstromResponse>
-  ? true
-  : false = true;
-const _mrBwd: Mutable<MaelstromResponse> extends _InferredMaelstromResponse
-  ? true
-  : false = true;
-
-type _InferredActionExecution = z.infer<typeof ActionExecutionParsedSchema>;
-const _aeFwd: _InferredActionExecution extends Mutable<ActionExecution>
-  ? true
-  : false = true;
-const _aeBwd: Mutable<ActionExecution> extends _InferredActionExecution
-  ? true
-  : false = true;
-
-type _InferredGridLayout = z.infer<typeof GridLayoutParsedSchema>;
-const _glFwd: _InferredGridLayout extends Mutable<GridLayout> ? true : false =
-  true;
-const _glBwd: Mutable<GridLayout> extends _InferredGridLayout ? true : false =
-  true;
-
-type _InferredTilingLayout = z.infer<typeof TilingLayoutParsedSchema>;
-const _tlFwd: _InferredTilingLayout extends Mutable<TilingLayout>
-  ? true
-  : false = true;
-const _tlBwd: Mutable<TilingLayout> extends _InferredTilingLayout
-  ? true
-  : false = true;
 
 type _InferredHistoryGet = z.infer<typeof HistoryGetMessageSchema>;
 const _hgFwd: _InferredHistoryGet extends Mutable<HistoryGetMessage>
@@ -653,15 +683,26 @@ const _eemBwd: Mutable<EngineErrorMessage> extends _InferredEngineErrorMessage
   ? true
   : false = true;
 
+// The agent frames match `z.infer` exactly, mutability included, so they are
+// compared without `Mutable<T>`, which would fail on the read-only
+// `ChartRequest` and `MaelstromResponse` payloads they carry.
+type _InferredAgentInputMessage = z.infer<typeof AgentInputMessageSchema>;
+const _agentInputMessageFwd: _InferredAgentInputMessage extends AgentInputMessage
+  ? true
+  : false = true;
+const _agentInputMessageBwd: AgentInputMessage extends _InferredAgentInputMessage
+  ? true
+  : false = true;
+
+type _InferredAgentEventMessage = z.infer<typeof AgentEventMessageSchema>;
+const _agentEventMessageFwd: _InferredAgentEventMessage extends AgentEventMessage
+  ? true
+  : false = true;
+const _agentEventMessageBwd: AgentEventMessage extends _InferredAgentEventMessage
+  ? true
+  : false = true;
+
 void [
-  _mrFwd,
-  _mrBwd,
-  _aeFwd,
-  _aeBwd,
-  _glFwd,
-  _glBwd,
-  _tlFwd,
-  _tlBwd,
   _hgFwd,
   _hgBwd,
   _aamFwd,
@@ -672,4 +713,8 @@ void [
   _hrmBwd,
   _eemFwd,
   _eemBwd,
+  _agentInputMessageFwd,
+  _agentInputMessageBwd,
+  _agentEventMessageFwd,
+  _agentEventMessageBwd,
 ];
