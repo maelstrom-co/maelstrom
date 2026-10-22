@@ -15,7 +15,7 @@ import LiveDemo from '../islands/demo/LiveDemo.tsx';
     </div>
 
     <div class="demo-frame">
-      <LiveDemo client:idle />
+      <LiveDemo client:idle={{ timeout: 1000 }} />
     </div>
 
     <div class="demo-cta">

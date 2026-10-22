@@ -23,9 +23,9 @@ const SEMVER_PATTERN =
 const DIST_TAG_PATTERN = /^[A-Za-z][0-9A-Za-z._-]*$/;
 
 /**
- * A prerelease publishes under its own preid, never `latest`, so that a plain
- * `npm install @maelstrom-co/react` cannot resolve to one. `0.1.0-alpha.0`
- * carries preid `alpha`; a release version carries none.
+ * Selects the requested publish tag: a prerelease's preid or stable `latest`.
+ * Registry first-publication defaults and manual promotions can also set
+ * `latest`; callers must verify actual tags before advertising bare installs.
  */
 export function distTagForVersion(version: string): string {
   // Build metadata is not part of the prerelease, and it may itself contain a
@@ -63,17 +63,22 @@ export function versionFromTag(tag: string): string {
 
 export type ResolveInput = {
   eventName: string;
-  /** Tag name for a tag push; ignored for a manual dispatch. */
+  /** Tag name for a published release; ignored for a manual dispatch. */
   refName: string;
   inputTag?: string;
   inputDryRun?: string;
 };
 
 export function resolveReleaseTarget(input: ResolveInput): ReleaseTarget {
-  const isPush = input.eventName === 'push';
-  const tag = (isPush ? input.refName : (input.inputTag ?? '')).trim();
-  // A tag push is always a real release; only a manual dispatch can rehearse.
-  const dryRun = isPush ? false : input.inputDryRun === 'true';
+  const isRelease = input.eventName === 'release';
+  if (!isRelease && input.eventName !== 'workflow_dispatch') {
+    throw new ReleaseTargetError(
+      `Unsupported release event "${input.eventName}"`,
+    );
+  }
+  const tag = (isRelease ? input.refName : (input.inputTag ?? '')).trim();
+  // A published release is always real; only a manual dispatch can rehearse.
+  const dryRun = isRelease ? false : input.inputDryRun === 'true';
 
   if (!tag) {
     if (!dryRun) {

@@ -4,12 +4,12 @@ import { listPublishablePackages } from './lib/workspace-packages.ts';
 
 // Nothing else in the release pipeline reads these fields: `publish-packages`
 // only rewrites dependency specs, and `verify-published` only checks versions.
-// Validate them before a local release creates an immutable tag and again in CI
-// before packing, so bad metadata cannot turn a recoverable edit into a release.
+// Validate them before release preparation edits manifests and again in CI
+// before packing, so incomplete metadata cannot reach publication.
 
 const MIN_KEYWORDS = 3;
 const EXPECTED_REPOSITORY = 'https://github.com/maelstrom-co/maelstrom.git';
-const EXPECTED_REGISTRY = 'https://npm.pkg.github.com';
+const EXPECTED_REGISTRY = 'https://registry.npmjs.org';
 
 type Manifest = {
   description?: string;
@@ -58,14 +58,21 @@ export function collectRegistryMetadataProblems(
 
     if (manifest.repository?.url !== EXPECTED_REPOSITORY) {
       fail(
-        `${pkg.name} repository.url must be "${EXPECTED_REPOSITORY}" so GitHub links the package to this repository`,
+        `${pkg.name} repository.url must be "${EXPECTED_REPOSITORY}" so npm can verify the source repository`,
       );
     }
     if (manifest.publishConfig?.registry !== EXPECTED_REGISTRY) {
       fail(`${pkg.name} publishConfig.registry must be "${EXPECTED_REGISTRY}"`);
     }
-    if (manifest.publishConfig?.access === 'public') {
-      fail(`${pkg.name} must not request public package visibility`);
+    if (manifest.publishConfig?.access !== 'public') {
+      fail(`${pkg.name} publishConfig.access must be "public"`);
+    }
+    if (
+      Object.keys(manifest.publishConfig ?? {}).some(
+        (key) => key !== 'registry' && key !== 'access',
+      )
+    ) {
+      fail(`${pkg.name} publishConfig must contain only registry and access`);
     }
 
     // A wrong `repository.directory` sends every "view source" link on the

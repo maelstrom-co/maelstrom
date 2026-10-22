@@ -66,15 +66,14 @@ and actions against the application's registered Vessels and current Chart.
 
 ## Install
 
-Maelstrom is currently a private beta on GitHub Packages. Configure access using
-the [beta installation guide](https://docs.maelstrom-ai.co/getting-started/install-beta/),
-then install the React package:
+Install the React package from npm:
 
 ```bash
-npm install @maelstrom-co/react@alpha
+npm install @maelstrom-co/react
 ```
 
-The guide includes npm, Bun, pnpm, and Yarn configuration. `@maelstrom-co/react`
+The [installation guide](https://docs.maelstrom-ai.co/getting-started/installation/)
+covers package selection and peer dependencies. No GitHub token is required. `@maelstrom-co/react`
 re-exports the vessel helpers and connectors, so you do not need to install
 `@maelstrom-co/client` or `@maelstrom-co/protocol` separately. Processing intent
 still requires a compatible Maelstrom engine endpoint.
@@ -241,6 +240,7 @@ for why a voice model never plans your UI.
 ## Get Involved
 
 - Read the [docs](https://docs.maelstrom-ai.co).
+- Join [Discord](https://maelstrom-ai.co/discord) for help and community discussion.
 - Run the demo — see [`apps/demo/README.md`](./apps/demo/README.md) for local
   setup, including optional LiveKit voice.
 - See [CONTRIBUTING.md](./CONTRIBUTING.md) for setup instructions.

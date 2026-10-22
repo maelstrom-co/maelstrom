@@ -24,11 +24,11 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe('beta invitation', () => {
+describe('community invitation', () => {
   it('opens Discord even on previews without sending test activity to production', () => {
     const { getByRole } = render(<DemoHeader>{null}</DemoHeader>);
-    const link = getByRole('link', { name: 'Join beta on Discord' });
-    expect(link.getAttribute('href')).toBe('https://discord.gg/XAjJqrF2u3');
+    const link = getByRole('link', { name: 'Join Discord' });
+    expect(link.getAttribute('href')).toBe('https://maelstrom-ai.co/discord');
     expect(link.getAttribute('target')).toBe('_blank');
     fireEvent.click(link);
     expect(init).not.toHaveBeenCalled();
@@ -43,7 +43,7 @@ describe('beta invitation', () => {
     expect(init).not.toHaveBeenCalled();
     fireEvent.click(getByRole('link', { name: 'Docs' }));
     expect(init).not.toHaveBeenCalled();
-    const link = getByRole('link', { name: 'Join beta on Discord' });
+    const link = getByRole('link', { name: 'Join Discord' });
     fireEvent.click(link);
     fireEvent.click(link);
     await waitFor(() => expect(capture).toHaveBeenCalledTimes(2));
@@ -62,7 +62,7 @@ describe('beta invitation', () => {
     );
     expect(capture).toHaveBeenCalledTimes(2);
     expect(capture).toHaveBeenCalledWith(
-      'beta_discord_invite_clicked',
+      'community_discord_invite_clicked',
       { source: 'demo_header' },
       { transport: 'sendBeacon', send_instantly: true },
     );

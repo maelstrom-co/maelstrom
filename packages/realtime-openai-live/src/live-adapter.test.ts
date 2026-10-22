@@ -23,6 +23,7 @@ import type {
   LiveCommand,
   LiveSessionConfig,
 } from '@maelstrom-co/realtime-protocol/openai-live';
+import FakeTimers from '@sinonjs/fake-timers';
 import {
   OpenAILiveAdapter,
   type OpenAILiveAdapterOptions,
@@ -1645,13 +1646,29 @@ test('call capacity closes before any incomplete batch is submitted', async () =
 
 test('an unacknowledged continuation expires without another send or replay', async () => {
   const h = await harness({}, { batchTimeoutMs: 10 });
-  h.channel.begin();
-  h.channel.call('one');
-  h.channel.done();
-  await new Promise((resolve) => setTimeout(resolve, 20));
-  expect(h.channel.continues()).toHaveLength(1);
-  expect(h.submissions).toHaveLength(1);
-  expect(h.session.lastError).toBeDefined();
+  const clock = FakeTimers.install({
+    toFake: ['setTimeout', 'clearTimeout'],
+    shouldClearNativeTimers: true,
+  });
+  try {
+    h.channel.begin();
+    h.channel.call('one');
+    h.channel.done();
+    await clock.tickAsync(0);
+    expect(h.channel.continues()).toHaveLength(1);
+    expect(h.submissions).toHaveLength(1);
+    expect(h.session.lastError).toBeUndefined();
+
+    await clock.tickAsync(9);
+    expect(h.session.lastError).toBeUndefined();
+    await clock.tickAsync(1);
+    expect(h.session.lastError).toBeDefined();
+    await clock.tickAsync(20);
+    expect(h.channel.continues()).toHaveLength(1);
+    expect(h.submissions).toHaveLength(1);
+  } finally {
+    clock.uninstall();
+  }
 });
 
 test('provider close during application work preserves its eventual outcome', async () => {

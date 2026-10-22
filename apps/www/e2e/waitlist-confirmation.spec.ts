@@ -68,9 +68,7 @@ test('hides the Discord invitation from visitors without a receipt', async ({
   await expect(
     page.getByRole('heading', { name: 'This access link has expired' }),
   ).toBeVisible();
-  await expect(
-    page.getByRole('link', { name: 'Join the beta Discord' }),
-  ).toHaveCount(0);
+  await expect(page.locator('[data-waitlist-discord-invite]')).toHaveCount(0);
   await expect(page.getByLabel('Email address')).toBeVisible();
   await expect(
     page.getByRole('button', { name: 'Resend invitation' }),
@@ -216,13 +214,11 @@ test('confirmed subscribers reach Discord through the confirmation flow', async 
   await page.getByRole('button', { name: 'Confirm my email' }).click();
   await expect(page).toHaveURL(/\/waitlist\/confirmed\/$/);
 
-  const discordInvite = page.getByRole('link', {
-    name: 'Join the beta Discord',
-  });
+  const discordInvite = page.locator('[data-waitlist-discord-invite]');
   await expect(discordInvite).toBeVisible();
   await expect(discordInvite).toHaveAttribute(
     'href',
-    'https://discord.gg/XAjJqrF2u3',
+    'https://maelstrom-ai.co/discord',
   );
   await expect(page.getByLabel('Email address')).toHaveCount(0);
   await expect
@@ -285,9 +281,7 @@ test('confirmation keeps its bearer token out of requests and telemetry', async 
   await page.getByRole('button', { name: 'Confirm my email' }).click();
 
   await expect(page).toHaveURL(/\/waitlist\/confirmed\/$/);
-  await expect(
-    page.getByRole('link', { name: 'Join the beta Discord' }),
-  ).toBeVisible();
+  await expect(page.locator('[data-waitlist-discord-invite]')).toBeVisible();
 
   expect(confirmationRequest?.method()).toBe('POST');
   expect(confirmationRequest?.url()).not.toContain(token);

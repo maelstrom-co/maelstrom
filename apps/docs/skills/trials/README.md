@@ -6,10 +6,9 @@ behavioral success. Record the agent/runtime, installed SDK package versions,
 loaded skill files, untouched task input, output, and observed repository diff
 when executing a trial.
 
-Historical implementation findings are recorded separately in the repository's
-`docs/research/agent-skill-task-completion-evaluation.md` and its structured JSON
-companion. Those trials support local task completion, not a consistent quality
-improvement or token saving over the baseline.
+A successful local task does not establish consistent quality improvement or
+token savings over a baseline. Use the matched comparisons below and report
+observed outcomes separately from structural checks.
 
 | Trial | Task input | Expected entry routing | Behavioral review focus |
 | --- | --- | --- | --- |

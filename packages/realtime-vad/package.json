@@ -67,7 +67,8 @@
   },
   "author": "Maelstrom (https://maelstrom-ai.co)",
   "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
+    "registry": "https://registry.npmjs.org",
+    "access": "public"
   },
   "dependencies": {
     "@ricky0123/vad-web": "catalog:",

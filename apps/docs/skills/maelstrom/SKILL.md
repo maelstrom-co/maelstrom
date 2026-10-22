@@ -8,7 +8,7 @@ description: >-
 license: MIT
 metadata:
   author: Maelstrom
-  version: 0.1.1
+  version: 0.1.2
 ---
 
 # Maelstrom task router
@@ -53,6 +53,6 @@ API exists.
 
 The linked procedures are useful without an SDK installed, but public API details
 must always come from the matching installed SDK guide or installed package
-artifacts. Bundled voice architecture and ADR references are self-contained;
+artifacts. Bundled voice and general architecture references are self-contained;
 provider-specific documentation may still require current, selected-provider
 sources.

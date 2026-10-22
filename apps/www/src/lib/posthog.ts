@@ -1,5 +1,5 @@
 type WebsiteEvent =
-  | 'beta_discord_invite_clicked'
+  | 'community_discord_invite_clicked'
   | 'waitlist_submission_accepted'
   | 'waitlist_confirmation_page_viewed'
   | 'waitlist_discord_invite_clicked';

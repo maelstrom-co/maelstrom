@@ -330,11 +330,13 @@ try {
     if (scenario.name === 'voice') {
       for (const suffix of [
         'realtime-voice-architecture.md',
-        '0001-realtime-providers-come-in-two-kinds.md',
-        '0002-credential-custody-is-a-dependency-edge.md',
-        '0003-turn-taking-is-provider-neutral.md',
+        'architecture.md',
       ])
-        assert(readPaths.some((path) => path.endsWith(suffix)));
+        assert(
+          readPaths.some(
+            (path) => path === suffix || path.endsWith(`/${suffix}`),
+          ),
+        );
       assert(
         !readPaths.some((path) => path.endsWith('provider-deployment.md')),
       );

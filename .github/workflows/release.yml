@@ -1,8 +1,8 @@
 name: Release
 
-# Publishing is CI's job, not a laptop's. `scripts/release.ts --skip-publish`
-# versions, tags, and pushes locally; pushing the tag lands here and this
-# workflow does the publish.
+# Prepare versions and notes in a release PR with `scripts/release.ts`.
+# After review and merge, publish a GitHub release targeting the merged commit.
+# Only that published release (or an explicit recovery) starts npm publishing.
 #
 # The workflow is split again internally, for a different reason. `prepare`
 # installs dependencies and builds; `publish` holds package write access.
@@ -11,13 +11,12 @@ name: Release
 # the job that has one uses `npm publish` as its only package-write operation
 # against tarballs that were already packed.
 on:
-  push:
-    tags:
-      - 'v*'
+  release:
+    types: [published]
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Release tag to publish, e.g. v0.1.0-alpha.0. Leave empty to dry-run the current branch.'
+        description: 'Release tag to publish, e.g. v0.1.0. Leave empty to dry-run the current branch.'
         required: false
         type: string
       dry_run:
@@ -34,33 +33,34 @@ concurrency:
   # release has to be finished, not restarted from scratch. Declared at the
   # workflow level so `prepare` and `publish` share one lock rather than
   # racing a second run's prepare against this run's publish.
-  group: release-${{ github.event_name == 'push' && github.ref_name || inputs.tag || github.ref }}
+  group: release-${{ github.event_name == 'release' && github.ref_name || inputs.tag || github.ref }}
   cancel-in-progress: false
 
 env:
   NODE_VERSION: '24'
   TARBALL_DIR: dist/tarballs
-  RELEASE_REGISTRY: https://npm.pkg.github.com
+  RELEASE_REGISTRY: https://registry.npmjs.org
 
 jobs:
   prepare:
     name: Build and pack
+    if: github.repository == 'maelstrom-co/maelstrom'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     # No `environment:` here. Approval belongs on the job that publishes; put
     # it here and a reviewer would be waved through before anything is built.
     outputs:
       commit: ${{ steps.commit.outputs.commit }}
-      # Tag pushes use the tagged publisher. A manual recovery launched from
-      # main uses that reviewed workflow revision while rebuilding the old tag.
+      # Published releases use the tagged publisher. Manual recovery from main
+      # uses that reviewed workflow revision while rebuilding the old tag.
       publisher_commit: ${{ github.event_name == 'workflow_dispatch' && github.sha || steps.commit.outputs.commit }}
       version: ${{ steps.meta.outputs.version }}
       dist_tag: ${{ steps.meta.outputs.dist_tag }}
       dry_run: ${{ steps.meta.outputs.dry_run }}
     steps:
       # Resolved as an expression rather than a script because it decides what
-      # to check out — nothing from the repo is available yet. A tag push is
-      # already on the right ref; a dispatch either names a tag or rehearses
+      # to check out — nothing from the repo is available yet. A release already
+      # names the right ref; a dispatch either names a tag or rehearses
       # whatever branch it was launched from.
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -92,7 +92,7 @@ jobs:
       # describe a tree that reached the protected branch — the workflow's own
       # backstop, independent of whether protected-tag rules are configured.
       - name: Assert the release commit is on main
-        if: github.event_name == 'push' || inputs.tag != ''
+        if: github.event_name == 'release' || inputs.tag != ''
         env:
           GH_TOKEN: ${{ github.token }}
           BASE_BRANCH: main
@@ -133,6 +133,16 @@ jobs:
           INPUT_DRY_RUN: ${{ inputs.dry_run }}
         run: bun scripts/resolve-release-target.ts
 
+      - name: Keep packages private until the repository launch
+        if: steps.meta.outputs.dry_run != 'true'
+        env:
+          REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
+        run: |
+          if [[ "$REPOSITORY_PRIVATE" != 'false' ]]; then
+            echo "::error::Public npm publishing is disabled until the repository is public."
+            exit 1
+          fi
+
       # Every tag-derived value below reaches the shell through `env:` rather
       # than `${{ }}` interpolation. The values are already constrained to
       # semver by resolve-release-target, but expressions are spliced into the
@@ -168,7 +178,7 @@ jobs:
           retention-days: 7
 
   publish:
-    name: Publish to GitHub Packages
+    name: Publish to npm
     needs: prepare
     # A branch rehearsal has no release version to validate. Its contract ends
     # after the unprivileged job builds and packs; tagged rehearsals continue
@@ -178,8 +188,8 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
-      packages: write
-    # A tag push publishes with no human in the loop. Naming an
+      id-token: write
+    # Publishing a GitHub release starts npm publication. Naming an
     # environment gives that an attachment point for required reviewers and
     # wait timers; GitHub creates it on first run, and it carries no protection
     # until one is configured in repository settings.
@@ -202,8 +212,7 @@ jobs:
 
       - name: Setup Bun
         # Only to run the publish scripts. `bun install` is never called in
-        # this job, so no dependency lifecycle script executes next to the
-          # package write token.
+        # this job. Project dependencies run only in the prepare job.
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           # One version for every workflow — see .bun-version.
@@ -215,9 +224,19 @@ jobs:
           name: release-tarballs
           path: ${{ env.TARBALL_DIR }}
 
-      - name: Configure GitHub Packages auth
+      - name: Setup npm for trusted publishing
+        run: npm install --global npm@12.2.0 --ignore-scripts
+
+      - name: Configure npm bootstrap auth
+        # Trusted publishing uses OIDC first. This token is only needed until
+        # the first npm versions exist and package-level trust is configured.
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          echo '//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}' > "$RUNNER_TEMP/.npmrc"
+          : > "$RUNNER_TEMP/.npmrc"
+          if [[ -n "$NODE_AUTH_TOKEN" ]]; then
+            echo '//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}' > "$RUNNER_TEMP/.npmrc"
+          fi
           echo "NPM_CONFIG_USERCONFIG=$RUNNER_TEMP/.npmrc" >> "$GITHUB_ENV"
 
       - name: Publish
@@ -229,7 +248,9 @@ jobs:
           VERSION: ${{ needs.prepare.outputs.version }}
           DIST_TAG: ${{ needs.prepare.outputs.dist_tag }}
           DRY_RUN: ${{ needs.prepare.outputs.dry_run == 'true' && '--dry-run' || '' }}
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          # A manual recovery can build an older tag than the dispatch SHA.
+          NPM_CONFIG_PROVENANCE: ${{ github.event_name == 'release' }}
         run: >-
           bun scripts/publish-tarballs.ts
           --dir "$TARBALL_DIR"
@@ -245,7 +266,7 @@ jobs:
         if: needs.prepare.outputs.dry_run != 'true'
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_CONFIG_USERCONFIG: /dev/null
         run: >-
           bun scripts/verify-published.ts
           --version "$VERSION"

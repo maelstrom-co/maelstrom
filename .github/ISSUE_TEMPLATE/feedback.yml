@@ -1,11 +1,13 @@
-name: Preview Feedback
-description: Share feedback as a design partner during the preview period
+name: Feedback and feature request
+description: Share feedback or request a capability
 labels: ["preview-feedback"]
 body:
   - type: markdown
     attributes:
       value: |
-        We appreciate your feedback during the preview. This helps us shape the API before 1.0.
+        Describe the workflow you want to support and what would improve it.
+        Remove credentials, customer data, and private logs before posting.
+        Report vulnerabilities privately using [the security policy](https://github.com/maelstrom-co/maelstrom/security/policy).
 
   - type: input
     id: package
@@ -20,7 +22,7 @@ body:
     id: version
     attributes:
       label: Version
-      placeholder: "0.1.0-alpha.3"
+      placeholder: "0.1.0"
     validations:
       required: true
 

@@ -74,7 +74,7 @@ export const skillTasks = [
     title: 'Plan optional voice',
     outcome: 'Add voice only when the product goal requires it.',
     request:
-      'Use the maelstrom skill to plan optional voice for [intent]. Provider and deployment are undecided. Keep those choices open, inspect the bundled architecture and ADRs, and make no edits or installations.',
+      'Use the maelstrom skill to plan optional voice for [intent]. Provider and deployment are undecided. Keep those choices open, inspect the bundled architecture requirements, and make no edits or installations.',
     evidence:
       'Browser/server/worker boundaries, unresolved choices, and untested microphone/provider scenarios.',
   },

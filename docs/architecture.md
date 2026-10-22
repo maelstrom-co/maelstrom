@@ -484,9 +484,66 @@ WORKER    realtime-livekit-agent
 - **realtime-livekit-agent**: Node voice-agent worker running the STT/TTS pipeline for the cascade provider
 
 `packages/realtime-protocol/src/layer-boundary.test.ts` enforces the layering
-and fails the build when it is broken. See `docs/adr/0001`–`0003`.
+and fails the build when it is broken. See the [voice package contracts](./realtime-voice-architecture.md#provider-package-contracts).
 
 ---
+
+## Planner provider call flow
+
+The TypeSafe and OpenAI Decisions clients share `createProviderCall` in
+`packages/planner-jev/src/lib/provider-call.ts`. It owns option limits,
+cancellation and timeouts, reply validation, failure-to-deferral mapping,
+logging, instrumentation, and the `onCall` record.
+
+The shared `postJson` step in `packages/planner-jev/src/lib/provider-fetch.ts`
+bounds response bodies and retains only short error identifiers that do not
+contain the provider key. A transport owns request encoding, reply decoding,
+and the location of provider-specific error fields. It cannot bypass the shared
+validation or error filtering.
+
+A replacement transport must pass every existing row of
+`packages/planner-jev/src/lib/provider-transport-contract.test.ts` without
+removing or weakening a case. An adapter bridge must also preserve these
+requirements, including those outside that suite:
+
+- Typed refusals name the refused questions and retain other answers and usage.
+  Report usage on refusals and failures as well as success.
+- Honor the per-call timeout and caller cancellation. Expose HTTP status as a
+  field, bound response bodies, and keep error bodies out of exception messages.
+  Preserve access to the raw reply and distinguish network failures by type.
+- Send score levels with separate labels and descriptions. Preserve duplicate
+  answer names until shared validation can inspect them.
+- Disable SDK retries by default or allow setting retries to zero per call.
+- Stringify structured choice-option text and non-string state before passing
+  them to TanStack `adapter.evaluate()`. This normalization belongs in the bridge.
+
+`decide()` remains excluded from this call flow. The shared validator must check
+answer key sets, probability sums, the most probable choice, and the model echo.
+The score is the most probable level, rather than a rounded score value.
+Passing a transport suite does not authorize weaker validation or changed scores.
+
+### Provider evaluation baseline
+
+Evaluate both provider arms with suite `all` and `--repeats 3`, using 465 turns
+per arm for this baseline. A cheap turn has no fallback call. Cheap correct and
+cheap wrong are passing and failing cheap turns, each divided by all turns.
+Fallback rate is the share of turns with any fallback call. Cheap p50 is the
+median duration of cheap turns.
+
+| Arm | Cheap correct | Cheap wrong | Fallback | Cheap p50 |
+| --- | --- | --- | --- | --- |
+| `jev-composed-pairs-screen-scope` (TypeSafe) | 69.2% | 12.7% | 18.1% | 2079 ms |
+| `decisions-composed-pairs-screen-scope-prose` (Decisions) | 53.1% | 25.8% | 21.1% | 2497 ms |
+
+A replacement must keep cheap-correct, cheap-wrong, and fallback rates within one
+percentage point of these baselines, and cheap-path median latency within 10%.
+Provider behavior can drift, so also run the existing and replacement transports
+at the same time under the same provider/model configuration and record both
+results. These are live evaluations and require the usual service and cost
+approval; passing local tests does not establish these measurements.
+
+The shared flow imports TanStack wire types only. A library upgrade alone does
+not replace the fetch transports or establish equivalent validation behavior.
 
 ## Future Considerations
 

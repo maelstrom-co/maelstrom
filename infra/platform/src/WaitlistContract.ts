@@ -13,9 +13,6 @@ export const WAITLIST_SENDING_DOMAIN = 'notifications.maelstrom-ai.co';
 /** Sender identity authorized by the waitlist sending subdomain. */
 export const WAITLIST_SENDER_ADDRESS = 'waitlist@notifications.maelstrom-ai.co';
 
-/** Permanent community invitation used by the confirmation result and email. */
-export const WAITLIST_DISCORD_INVITE_URL = 'https://discord.gg/XAjJqrF2u3';
-
 /** Action required from waitlist Turnstile tokens in production. */
 export const WAITLIST_TURNSTILE_ACTION = 'turnstile-spin-v1';
 

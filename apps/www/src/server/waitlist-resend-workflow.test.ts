@@ -101,7 +101,7 @@ describe('waitlist resend workflow', () => {
     const h = harness();
     await deliver(h, await begin(h));
     expect(h.events[1]).toContain(
-      'send:user@example.com:Join the Maelstrom beta community',
+      'send:user@example.com:Join the Maelstrom community',
     );
     expect(h.events[2]).toBe('accepted');
   });

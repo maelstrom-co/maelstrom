@@ -1,0 +1,36 @@
+---
+import { COMMUNITY_DISCORD_URL } from '@maelstrom-co/platform-infra/community-contract';
+
+interface Props {
+  source:
+    | 'navigation'
+    | 'community_section'
+    | 'footer_community'
+    | 'launch_blog';
+  class?: string;
+}
+
+const { source, class: className } = Astro.props;
+---
+
+<a
+  href={COMMUNITY_DISCORD_URL}
+  class={className}
+  data-discord-source={source}
+  target="_blank"
+  rel="noopener noreferrer"
+>
+  <slot />
+</a>
+
+<script>
+  import { captureWebsiteEvent } from '../lib/posthog';
+
+  document.querySelectorAll<HTMLAnchorElement>('[data-discord-source]').forEach((link) => {
+    link.addEventListener('click', () => {
+      captureWebsiteEvent('community_discord_invite_clicked', {
+        source: link.dataset.discordSource ?? 'unknown',
+      });
+    });
+  });
+</script>

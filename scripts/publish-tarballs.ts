@@ -11,12 +11,13 @@ import {
 } from './lib/packed-manifest.ts';
 import {
   authenticationFailureHint,
+  hasPublishedPackage,
   isAlreadyPublished,
   resolveRegistry,
 } from './lib/registry.ts';
 
 // The publishing half of the release. It runs in the only job that holds a
-// GitHub Packages identity, and it deliberately does nothing that could execute
+// npm publishing identity, and it deliberately does nothing that could execute
 // dependency or package code: no install, no build, no project graph. The
 // complete artifact collection is validated before any registry interaction.
 
@@ -28,11 +29,13 @@ export type PublishOptions = {
   dryRun: boolean;
   provenance: boolean;
   skipPublished: boolean;
+  requireExisting?: boolean;
 };
 
 type PublishDependencies = {
   runArchiveProcess?: (request: ArchiveProcessRequest) => ArchiveProcessResult;
   isAlreadyPublished?: typeof isAlreadyPublished;
+  hasPublishedPackage?: typeof hasPublishedPackage;
   publish?: (
     tarball: string,
     pkg: ValidatedPackedPackage,
@@ -75,6 +78,7 @@ export function parsePublishArgs(
           'dry-run': { type: 'boolean', default: false },
           provenance: { type: 'boolean', default: false },
           'skip-published': { type: 'boolean', default: false },
+          'require-existing': { type: 'boolean', default: false },
         },
         strict: true,
       });
@@ -99,6 +103,7 @@ export function parsePublishArgs(
     dryRun: values['dry-run'],
     provenance: values.provenance,
     skipPublished: values['skip-published'],
+    requireExisting: values['require-existing'],
   };
 }
 
@@ -114,6 +119,9 @@ function defaultPublish(
     options.tag,
     '--registry',
     options.registry,
+    '--access',
+    'public',
+    '--ignore-scripts',
   ];
   if (options.dryRun) args.push('--dry-run');
   if (options.provenance) args.push('--provenance');
@@ -153,6 +161,16 @@ export function publishTarballs(
     },
   );
   const probe = dependencies.isAlreadyPublished ?? isAlreadyPublished;
+  if (options.requireExisting && !options.dryRun) {
+    const exists = dependencies.hasPublishedPackage ?? hasPublishedPackage;
+    for (const pkg of packages) {
+      if (!exists(pkg.name, options.registry)) {
+        throw new Error(
+          `${pkg.name}: complete the first release before publishing previews.`,
+        );
+      }
+    }
+  }
   const publish = dependencies.publish ?? defaultPublish;
   const failures: string[] = [];
   let skipped = 0;

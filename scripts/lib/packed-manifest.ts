@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
-import { lstatSync, realpathSync, type Stats } from 'node:fs';
+import { lstatSync, readFileSync, realpathSync, type Stats } from 'node:fs';
 import { basename, join, resolve, sep } from 'node:path';
+import { gunzipSync } from 'node:zlib';
 
 /**
  * The required package namespace accepted by the privileged publisher. This is
@@ -31,6 +32,7 @@ export const PACKED_PACKAGE_NAMES = Object.freeze([
 ] as const);
 
 export const MAX_PACKED_TARBALL_BYTES = 50 * 1024 * 1024;
+export const MAX_UNPACKED_TARBALL_BYTES = 128 * 1024 * 1024;
 const MAX_ARCHIVE_OUTPUT_BYTES = 1024 * 1024;
 const ARCHIVE_TIMEOUT_MS = 10_000;
 const PACKAGE_MANIFEST_MEMBER = 'package/package.json';
@@ -189,13 +191,16 @@ function assertRegularBoundedFile(path: string) {
 function invokeArchive(
   archive: string,
   cwd: string,
-  mode: '-tvzf' | '-xOzf',
+  mode: '-tzf' | '-tvzf' | '-xOzf',
   execute: (request: ArchiveProcessRequest) => ArchiveProcessResult,
 ) {
   assertRegularBoundedFile(archive);
   const result = execute({
     archive,
-    argv: [mode, archive, PACKAGE_MANIFEST_MEMBER],
+    argv:
+      mode === '-xOzf'
+        ? [mode, archive, PACKAGE_MANIFEST_MEMBER]
+        : [mode, archive],
     cwd,
     env: { LC_ALL: 'C' },
     timeoutMs: ARCHIVE_TIMEOUT_MS,
@@ -212,38 +217,153 @@ function invokeArchive(
   return result.stdout;
 }
 
+function readTarPathField(header: Buffer, offset: number, length: number) {
+  const field = header.subarray(offset, offset + length);
+  const end = field.indexOf(0);
+  if (end !== -1 && field.subarray(end).some((byte) => byte !== 0)) {
+    throw new Error(
+      'Archive path field has nonzero bytes after its terminator',
+    );
+  }
+  return field.subarray(0, end === -1 ? field.length : end).toString('utf8');
+}
+
+function inspectCanonicalTarFormat(archive: string) {
+  let bytes: Buffer;
+  try {
+    bytes = gunzipSync(readFileSync(archive), {
+      maxOutputLength: MAX_UNPACKED_TARBALL_BYTES,
+    });
+  } catch (error) {
+    throw new Error(`Archive decompression failed for ${archive}`, {
+      cause: error,
+    });
+  }
+  if (bytes.length % 512 !== 0) {
+    throw new Error(`Archive has an incomplete tar block: ${archive}`);
+  }
+  const members: { path: string; directory: boolean }[] = [];
+  const seen = new Set<string>();
+  for (let offset = 0; offset + 512 <= bytes.length; ) {
+    const header = bytes.subarray(offset, offset + 512);
+    if (header.every((byte) => byte === 0)) {
+      if (
+        bytes.length - offset < 1024 ||
+        bytes.subarray(offset).some((byte) => byte !== 0)
+      ) {
+        throw new Error(`Archive has an invalid tar trailer: ${archive}`);
+      }
+      return members;
+    }
+    const checksumField = header.subarray(148, 156).toString('utf8');
+    let checksum = 8 * 0x20;
+    for (const [index, byte] of header.entries()) {
+      if (index < 148 || index >= 156) checksum += byte;
+    }
+    if (
+      !/^[0-7]+[ \0]*$/.test(checksumField) ||
+      Number.parseInt(checksumField, 8) !== checksum
+    ) {
+      throw new Error(
+        `Archive has an invalid unsigned header checksum: ${archive}`,
+      );
+    }
+    const sizeField = header.subarray(124, 136).toString('utf8');
+    const type = header[156];
+    // npm and system tar disagree on extension records and nonstandard USTAR versions.
+    if (
+      header.subarray(257, 265).toString('utf8') !== 'ustar\x0000' ||
+      !/^[0-7]{1,11} *\0$/.test(sizeField) ||
+      (type !== 0x30 && type !== 0x35)
+    ) {
+      throw new Error(
+        `Archive must contain only canonical USTAR files and directories: ${archive}`,
+      );
+    }
+    const size = Number.parseInt(sizeField, 8);
+    if (type === 0x35 && size !== 0) {
+      throw new Error(`Archive directory has a payload: ${archive}`);
+    }
+    const name = readTarPathField(header, 0, 100);
+    const prefix = readTarPathField(header, 345, 155);
+    const member = prefix ? `${prefix}/${name}` : name;
+    const directory = type === 0x35;
+    const path = directory ? member.slice(0, -1) : member;
+    const segments = path.split('/');
+    // Canonical ASCII paths avoid tar quoting and npm's strip-one aliases.
+    if (
+      !name ||
+      directory !== member.endsWith('/') ||
+      segments[0] !== 'package' ||
+      (segments.length === 1 && !directory) ||
+      segments.some(
+        (segment) =>
+          !/^[A-Za-z0-9@._+-]+$/.test(segment) ||
+          segment === '.' ||
+          segment === '..',
+      ) ||
+      seen.has(path)
+    ) {
+      throw new Error(
+        `Archive contains an unsafe or duplicate path: ${member}`,
+      );
+    }
+    seen.add(path);
+    members.push({ path: member, directory });
+    offset += 512 + Math.ceil(size / 512) * 512;
+    if (offset > bytes.length) {
+      throw new Error(`Archive has a truncated member: ${archive}`);
+    }
+  }
+  throw new Error(`Archive is missing its tar trailer: ${archive}`);
+}
+
 function validateArchive(
   pkg: PackedPackage,
   archive: string,
   cwd: string,
   execute: (request: ArchiveProcessRequest) => ArchiveProcessResult,
 ) {
-  const listing = invokeArchive(archive, cwd, '-tvzf', execute).toString(
-    'utf8',
-  );
-  const lines = listing.split('\n').filter(Boolean);
-  if (lines.length !== 1) {
-    throw new Error(
-      `Archive must contain exactly one literal ${PACKAGE_MANIFEST_MEMBER}`,
-    );
-  }
-  const [line] = lines;
-  if (line === undefined) {
-    throw new Error(
-      `Archive must contain exactly one literal ${PACKAGE_MANIFEST_MEMBER}`,
-    );
-  }
-  const match = line.match(
-    /^([-bcdhlps])[rwxStTs-]{9}\s+.*\s(package\/package\.json)(?:\s+(?:->|link to)\s+.*)?$/,
-  );
+  const expectedMembers = inspectCanonicalTarFormat(archive);
+  const members = invokeArchive(archive, cwd, '-tzf', execute)
+    .toString('utf8')
+    .split('\n');
+  const listing = invokeArchive(archive, cwd, '-tvzf', execute)
+    .toString('utf8')
+    .split('\n');
   if (
-    !match ||
-    match[2] !== PACKAGE_MANIFEST_MEMBER ||
-    match[1] !== '-' ||
-    !line.endsWith(PACKAGE_MANIFEST_MEMBER)
+    members.pop() !== '' ||
+    listing.pop() !== '' ||
+    members.length === 0 ||
+    members.length !== listing.length ||
+    members.length !== expectedMembers.length
   ) {
+    throw new Error(`Archive member listing is invalid for ${pkg.name}`);
+  }
+  let manifests = 0;
+  for (const [index, member] of members.entries()) {
+    const expected = expectedMembers[index];
+    if (!expected || member !== expected.path) {
+      throw new Error(
+        `Archive listing does not match its raw headers: ${archive}`,
+      );
+    }
+    const line = listing[index];
+    if (
+      !line ||
+      !/^[-d][rwxStTs-]{9}\s/.test(line) ||
+      line[0] !== (expected.directory ? 'd' : '-') ||
+      !line.endsWith(` ${member}`)
+    ) {
+      throw new Error(
+        `Archive member must be a regular file or directory: ${member}`,
+      );
+    }
+    if (member === PACKAGE_MANIFEST_MEMBER) manifests++;
+  }
+  if (manifests !== 1) {
     throw new Error(
-      `Archive metadata member must be one regular literal ${PACKAGE_MANIFEST_MEMBER}`,
+      `Archive must contain exactly one regular literal ${PACKAGE_MANIFEST_MEMBER}`,
     );
   }
 
@@ -263,6 +383,22 @@ function validateArchive(
     throw new Error(
       `Embedded package identity does not match trusted manifest entry for ${pkg.name}`,
     );
+  }
+  if (metadata.publishConfig !== undefined) {
+    const config = requireRecord(
+      metadata.publishConfig,
+      'Embedded publishConfig',
+    );
+    if (
+      Object.keys(config).some(
+        (key) => key !== 'registry' && key !== 'access',
+      ) ||
+      config.registry !== 'https://registry.npmjs.org' ||
+      config.access !== 'public'
+    ) {
+      // npm applies arbitrary publishConfig keys to credential-bearing requests.
+      throw new Error(`Unsafe embedded publishConfig for ${pkg.name}`);
+    }
   }
 }
 

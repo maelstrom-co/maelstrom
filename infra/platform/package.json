@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./waitlist-contract": "./src/WaitlistContract.ts",
-    "./waitlist-schema": "./src/waitlist-schema.ts"
+    "./waitlist-schema": "./src/waitlist-schema.ts",
+    "./community-contract": "./src/CommunityContract.ts"
   },
   "scripts": {
     "test": "bun test test",

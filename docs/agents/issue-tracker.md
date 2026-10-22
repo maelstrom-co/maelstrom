@@ -13,21 +13,18 @@ ClickUp remains the source of truth for private maintainer work. GitHub is the s
 
 - A `MAE-###` reference resolves to ClickUp. Preserve historical `MAE-###` references in commits and PR titles.
 - A `#123` issue reference resolves to GitHub unless the surrounding text says otherwise.
-- Unspecified maintainer planning, specs, and skill-generated internal tickets default to ClickUp.
-- Existing inbound community issues and new work explicitly designated public by a maintainer go to GitHub Issues.
+- New contributor work and unspecified public planning default to GitHub Issues.
+- Use ClickUp only for explicitly private maintainer work or an existing `MAE-###` task.
 - Moving private work to GitHub requires explicit maintainer approval. Approval authorizes only a scrubbed public summary.
 - Private ClickUp links and details never appear on GitHub. When work spans both trackers, link the public GitHub issue from ClickUp only.
 
 ## ClickUp
 
-The workspace structure below was confirmed after the Linear migration on 2026-07-21. Triage and wayfinder roles are represented as ClickUp tags. Historical `MAE-###` ids were preserved in repository history.
-
 ### Workspace
 
-- Space: `Maelstrom` (`901511445093`).
-- List: `Maelstrom List` (`901524483528`) under a hidden folder.
-- Tasks use `MAE-###` custom ids, but imported Linear numbers were remapped. The original Linear URL is stored in the `Linear Issue` custom field.
-- Statuses: `backlog`, `to do`, `in progress`, `in review`, `canceled`, `complete`.
+Resolve private workspace and list identifiers through authenticated tracker
+tools. Keep internal identifiers and migration details in private maintainer
+records. Historical `MAE-###` references remain valid in repository history.
 
 ### Operations
 
@@ -83,6 +80,6 @@ PRs as a request surface: no. Pull requests implement accepted work; `/triage` d
 
 ## Skill routing
 
-- When a skill says "publish to the issue tracker", use ClickUp unless a maintainer explicitly requests public or community visibility.
+- When a skill says "publish to the issue tracker", use GitHub Issues for contributor work. Use ClickUp only for explicitly private maintainer work.
 - When a skill says "fetch the relevant ticket", use the identifier and routing rules above to choose ClickUp or GitHub.
 - Triage incoming GitHub issues in GitHub. Triage private maintainer tasks in ClickUp.

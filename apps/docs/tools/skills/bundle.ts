@@ -5,9 +5,6 @@ import { zipSync } from 'fflate';
 export const CANONICAL_VOICE_DOCUMENTS = [
   'realtime-voice-architecture.md',
   'architecture.md',
-  'adr/0001-realtime-providers-come-in-two-kinds.md',
-  'adr/0002-credential-custody-is-a-dependency-edge.md',
-  'adr/0003-turn-taking-is-provider-neutral.md',
 ] as const;
 
 const BUNDLE_ROOT = 'apps/docs/skills';

@@ -39,21 +39,21 @@ test('production invitation sends a click event and opens Discord without submit
     }
     await route.fulfill({ json: { status: 1 } });
   });
-  await context.route('https://discord.gg/**', (route) =>
+  await context.route('https://maelstrom-ai.co/discord', (route) =>
     route.fulfill({ body: 'Discord invitation' }),
   );
 
   await page.goto('https://demo.maelstrom-ai.co/');
-  const link = page.getByRole('link', { name: 'Join beta on Discord' });
+  const link = page.getByRole('link', { name: 'Join Discord' });
   await expect(link).toBeVisible();
   expect(requests.some((url) => url.includes('posthog.com'))).toBe(false);
   const popup = page.waitForEvent('popup');
   await link.click();
   const invitation = await popup;
-  await expect(invitation).toHaveURL('https://discord.gg/XAjJqrF2u3');
+  await expect(invitation).toHaveURL('https://maelstrom-ai.co/discord');
   await expect
     .poll(() => ({ events: captures.map(({ event }) => event), errors }))
-    .toEqual({ events: ['beta_discord_invite_clicked'], errors: [] });
+    .toEqual({ events: ['community_discord_invite_clicked'], errors: [] });
   expect(captures[0]?.properties.source).toBe('demo_header');
   expect(captures[0]?.properties.$process_person_profile).toBe(false);
   expect(requests.some((url) => url.includes('/api/waitlist'))).toBe(false);

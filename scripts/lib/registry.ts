@@ -1,6 +1,41 @@
 import { execFileSync } from 'node:child_process';
 
-export const DEFAULT_REGISTRY = 'https://npm.pkg.github.com';
+export const DEFAULT_REGISTRY = 'https://registry.npmjs.org';
+
+/** Checks public package identity before a preview can claim a new name. */
+export function hasPublishedPackage(name: string, registry: string): boolean {
+  try {
+    const output = execFileSync(
+      'npm',
+      [
+        'view',
+        name,
+        'name',
+        '--registry',
+        registry,
+        '--json',
+        '--fetch-retries=1',
+      ],
+      {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: { ...process.env, NPM_CONFIG_USERCONFIG: '/dev/null' },
+        timeout: 30_000,
+        maxBuffer: 1024 * 1024,
+      },
+    );
+    if (JSON.parse(String(output)) !== name)
+      throw new Error('Unexpected identity');
+    return true;
+  } catch (error) {
+    const stderr = String(
+      (error as { stderr?: Buffer | string })?.stderr ?? '',
+    );
+    if (shouldTreatNotFoundAsUnpublished(stderr, registry)) return false;
+    throw new Error(
+      `${name}: could not verify public package existence. Refusing to publish a preview.`,
+    );
+  }
+}
 
 export function resolveRegistry(explicit?: string): string {
   return explicit ?? process.env.RELEASE_REGISTRY ?? DEFAULT_REGISTRY;

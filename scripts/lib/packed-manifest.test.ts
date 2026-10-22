@@ -9,10 +9,11 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { gzipSync } from 'node:zlib';
+import { gunzipSync, gzipSync } from 'node:zlib';
 import {
   type ArchiveProcessRequest,
   MAX_PACKED_TARBALL_BYTES,
+  MAX_UNPACKED_TARBALL_BYTES,
   PACKED_PACKAGE_NAMES,
   parsePackedManifest,
   validatePackedManifest,
@@ -24,6 +25,7 @@ type TarMember = {
   body?: string;
   type?: '0' | '1' | '2' | '3' | '4' | '5' | '6';
   linkName?: string;
+  prefix?: string;
 };
 
 function writeOctal(
@@ -53,13 +55,19 @@ function tarGzip(members: TarMember[]): Buffer {
     if (member.linkName) header.write(member.linkName, 157, 100, 'utf8');
     header.write('ustar\0', 257, 6, 'ascii');
     header.write('00', 263, 2, 'ascii');
-    const checksum = header.reduce((sum, byte) => sum + byte, 0);
-    header.write(checksum.toString(8).padStart(6, '0'), 148, 6, 'ascii');
-    header[154] = 0;
-    header[155] = 0x20;
+    if (member.prefix) header.write(member.prefix, 345, 155, 'utf8');
+    setTarChecksum(header);
     blocks.push(header, body, Buffer.alloc((512 - (body.length % 512)) % 512));
   }
   return gzipSync(Buffer.concat([...blocks, Buffer.alloc(1024)]));
+}
+
+function setTarChecksum(header: Buffer) {
+  header.fill(0x20, 148, 156);
+  const checksum = header.reduce((sum, byte) => sum + byte, 0);
+  header.write(checksum.toString(8).padStart(6, '0'), 148, 6, 'ascii');
+  header[154] = 0;
+  header[155] = 0x20;
 }
 
 function manifest(version = '1.2.3') {
@@ -80,13 +88,29 @@ function withTempDir(run: (dir: string) => void) {
 }
 
 function writeManifestFiles(dir: string, entries = manifest()) {
-  for (const entry of entries)
-    writeFileSync(join(dir, entry.tarball), 'fixture');
+  for (const entry of entries) {
+    writeFileSync(
+      join(dir, entry.tarball),
+      tarGzip([
+        {
+          name: 'package/package.json',
+          body: JSON.stringify({ name: entry.name, version: entry.version }),
+        },
+      ]),
+    );
+  }
 }
 
 function fakeArchiveProcess(request: ArchiveProcessRequest) {
   const name =
     PACKED_PACKAGE_NAMES[Number(request.archive.match(/(\d+)\.tgz$/)?.[1])];
+  if (request.argv[0] === '-tzf') {
+    return {
+      status: 0,
+      stdout: Buffer.from('package/package.json\n'),
+      stderr: Buffer.alloc(0),
+    };
+  }
   return request.argv[0] === '-tvzf'
     ? {
         status: 0,
@@ -259,6 +283,26 @@ describe('validatePackedManifest policy', () => {
       ).toThrow('size limit');
       expect(calls).toBe(0);
     }));
+
+  test('bounds expanded archive bytes before tar inspection so a small gzip cannot exhaust the publisher', () =>
+    withTempDir((dir) => {
+      const entries = manifest();
+      writeManifestFiles(dir, entries);
+      writeFileSync(
+        join(dir, entries[0]!.tarball),
+        gzipSync(Buffer.alloc(MAX_UNPACKED_TARBALL_BYTES + 512)),
+      );
+      let calls = 0;
+      expect(() =>
+        validatePackedManifest(entries, '1.2.3', dir, {
+          runArchiveProcess: (request) => {
+            calls++;
+            return fakeArchiveProcess(request);
+          },
+        }),
+      ).toThrow('Archive decompression failed');
+      expect(calls).toBe(0);
+    }));
 });
 
 describe('validatePackedManifest archive process contract', () => {
@@ -269,6 +313,10 @@ describe('validatePackedManifest archive process contract', () => {
         writeFileSync(
           join(dir, entry.tarball),
           tarGzip([
+            { name: 'package/', type: '5' },
+            { name: 'package/dist/', type: '5' },
+            { name: 'package/dist/index.js', body: 'export {};' },
+            { name: 'prefixed.js', prefix: 'package/dist', body: 'export {};' },
             {
               name: 'package/package.json',
               body: JSON.stringify({
@@ -281,6 +329,171 @@ describe('validatePackedManifest archive process contract', () => {
       }
       expect(validatePackedManifest(entries, '1.2.3', dir)).toHaveLength(
         PACKED_PACKAGE_NAMES.length,
+      );
+    }));
+
+  test.each([
+    'partial block',
+    'one zero block',
+    'missing trailer',
+    'records after trailer',
+    'truncated member',
+    'nonzero path padding',
+    'non-octal size',
+    'invalid checksum',
+  ])('rejects %s before system tar can interpret a different archive', (kind) =>
+    withTempDir((dir) => {
+      const entries = manifest();
+      writeManifestFiles(dir, entries);
+      let raw = gunzipSync(
+        tarGzip([
+          {
+            name: 'package/package.json',
+            body: JSON.stringify({ name: entries[0]!.name, version: '1.2.3' }),
+          },
+        ]),
+      );
+      switch (kind) {
+        case 'partial block':
+          raw = raw.subarray(0, -1);
+          break;
+        case 'one zero block':
+          raw = raw.subarray(0, -512);
+          break;
+        case 'missing trailer':
+          raw = raw.subarray(0, -1024);
+          break;
+        case 'records after trailer':
+          raw = Buffer.concat([raw, Buffer.alloc(512, 1)]);
+          break;
+        case 'truncated member':
+          raw = raw.subarray(0, 512);
+          break;
+        case 'nonzero path padding':
+          raw[99] = 1;
+          break;
+        case 'non-octal size':
+          raw[124] = 0x38;
+          break;
+        case 'invalid checksum':
+          raw[153] = raw[153] === 0x30 ? 0x31 : 0x30;
+          break;
+      }
+      if (kind !== 'invalid checksum') setTarChecksum(raw.subarray(0, 512));
+      writeFileSync(join(dir, entries[0]!.tarball), gzipSync(raw));
+      let calls = 0;
+      expect(() =>
+        validatePackedManifest(entries, '1.2.3', dir, {
+          runArchiveProcess: (request) => {
+            calls++;
+            return fakeArchiveProcess(request);
+          },
+        }),
+      ).toThrow('Archive');
+      expect(calls).toBe(0);
+    }));
+
+  test('rejects directory payloads before parsers can disagree on the next header offset', () =>
+    withTempDir((dir) => {
+      const entries = manifest();
+      writeManifestFiles(dir, entries);
+      writeFileSync(
+        join(dir, entries[0]!.tarball),
+        tarGzip([
+          { name: 'package/', type: '5', body: 'unexpected directory payload' },
+          {
+            name: 'package/package.json',
+            body: JSON.stringify({ name: entries[0]!.name, version: '1.2.3' }),
+          },
+        ]),
+      );
+      let calls = 0;
+      expect(() =>
+        validatePackedManifest(entries, '1.2.3', dir, {
+          runArchiveProcess: (request) => {
+            calls++;
+            return fakeArchiveProcess(request);
+          },
+        }),
+      ).toThrow('Archive directory has a payload');
+      expect(calls).toBe(0);
+    }));
+
+  test.each([
+    'other/package.json',
+    './package/package.json',
+    'package/./package.json',
+    'package//package.json',
+    'package/nested/../package.json',
+    'package/../package.json',
+    '/package/package.json',
+    'package\\package.json',
+    'package/escaped\npackage.json',
+    'package/space package.json',
+  ])('rejects %p beside a safe manifest so extraction cannot choose different metadata', (name) =>
+    withTempDir((dir) => {
+      const entries = manifest();
+      writeManifestFiles(dir, entries);
+      writeFileSync(
+        join(dir, entries[0]!.tarball),
+        tarGzip([
+          {
+            name: 'package/package.json',
+            body: JSON.stringify({ name: entries[0]!.name, version: '1.2.3' }),
+          },
+          {
+            name,
+            body: JSON.stringify({ name: entries[0]!.name, version: '9.9.9' }),
+          },
+        ]),
+      );
+      expect(() => validatePackedManifest(entries, '1.2.3', dir)).toThrow(
+        'Archive',
+      );
+    }));
+
+  test.each([
+    '1',
+    '2',
+    '3',
+    '4',
+    '6',
+  ] as const)('rejects nested member type %s before npm extraction can interpret it', (type) =>
+    withTempDir((dir) => {
+      const entries = manifest();
+      writeManifestFiles(dir, entries);
+      writeFileSync(
+        join(dir, entries[0]!.tarball),
+        tarGzip([
+          {
+            name: 'package/package.json',
+            body: JSON.stringify({ name: entries[0]!.name, version: '1.2.3' }),
+          },
+          { name: 'package/dist/redirect', type, linkName: '../package.json' },
+        ]),
+      );
+      expect(() => validatePackedManifest(entries, '1.2.3', dir)).toThrow(
+        'Archive',
+      );
+    }));
+
+  test('rejects duplicate canonical paths outside the manifest before npm normalizes the archive', () =>
+    withTempDir((dir) => {
+      const entries = manifest();
+      writeManifestFiles(dir, entries);
+      writeFileSync(
+        join(dir, entries[0]!.tarball),
+        tarGzip([
+          {
+            name: 'package/package.json',
+            body: JSON.stringify({ name: entries[0]!.name, version: '1.2.3' }),
+          },
+          { name: 'package/dist/index.js', body: 'first' },
+          { name: 'package/dist/index.js', body: 'second' },
+        ]),
+      );
+      expect(() => validatePackedManifest(entries, '1.2.3', dir)).toThrow(
+        'duplicate path',
       );
     }));
 
@@ -384,7 +597,7 @@ describe('validatePackedManifest archive process contract', () => {
         JSON.stringify({ name: entries[0]!.name, version: '9.9.9' }),
       ]) {
         const runArchiveProcess = (request: ArchiveProcessRequest) =>
-          request.argv[0] === '-tvzf'
+          request.argv[0] !== '-xOzf'
             ? fakeArchiveProcess(request)
             : { status: 0, stdout: Buffer.from(body), stderr: Buffer.alloc(0) };
         expect(() =>
@@ -405,19 +618,25 @@ describe('validatePackedManifest archive process contract', () => {
         },
       });
 
-      expect(requests).toHaveLength(PACKED_PACKAGE_NAMES.length * 2);
+      expect(requests).toHaveLength(PACKED_PACKAGE_NAMES.length * 3);
       for (let index = 0; index < entries.length; index++) {
         const canonicalDir = realpathSync(dir);
         const archive = join(canonicalDir, entries[index]!.tarball);
-        expect(requests[index * 2]).toMatchObject({
+        expect(requests[index * 3]).toMatchObject({
           archive,
-          argv: ['-tvzf', archive, 'package/package.json'],
+          argv: ['-tzf', archive],
           cwd: canonicalDir,
           env: { LC_ALL: 'C' },
         });
-        expect(requests[index * 2]!.timeoutMs).toBeGreaterThan(0);
-        expect(requests[index * 2]!.maxOutputBytes).toBeGreaterThan(0);
-        expect(requests[index * 2 + 1]).toMatchObject({
+        expect(requests[index * 3]!.timeoutMs).toBeGreaterThan(0);
+        expect(requests[index * 3]!.maxOutputBytes).toBeGreaterThan(0);
+        expect(requests[index * 3 + 1]).toMatchObject({
+          archive,
+          argv: ['-tvzf', archive],
+          cwd: canonicalDir,
+          env: { LC_ALL: 'C' },
+        });
+        expect(requests[index * 3 + 2]).toMatchObject({
           archive,
           argv: ['-xOzf', archive, 'package/package.json'],
           cwd: canonicalDir,

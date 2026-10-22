@@ -45,7 +45,7 @@ function validManifest() {
       url: 'https://github.com/maelstrom-co/maelstrom.git',
       directory: 'packages/example',
     },
-    publishConfig: { registry: 'https://npm.pkg.github.com' },
+    publishConfig: { access: 'public', registry: 'https://registry.npmjs.org' },
   };
 }
 
@@ -56,7 +56,7 @@ describe('registry metadata preflight', () => {
     ).toEqual([]);
   });
 
-  it('rejects npmjs metadata before a local release can create a tag', () => {
+  it('rejects private GitHub metadata before a release can target the wrong registry', () => {
     const cwd = workspace({
       ...validManifest(),
       repository: {
@@ -64,8 +64,8 @@ describe('registry metadata preflight', () => {
         directory: 'packages/example',
       },
       publishConfig: {
-        access: 'public',
-        registry: 'https://registry.npmjs.org',
+        access: 'restricted',
+        registry: 'https://npm.pkg.github.com',
       },
     });
 
@@ -74,21 +74,46 @@ describe('registry metadata preflight', () => {
     );
     spyOn(console, 'error').mockImplementation(() => {});
     expect(messages).toContain(
-      '@maelstrom-co/example publishConfig.registry must be "https://npm.pkg.github.com"',
+      '@maelstrom-co/example publishConfig.registry must be "https://registry.npmjs.org"',
     );
     expect(messages).toContain(
-      '@maelstrom-co/example must not request public package visibility',
+      '@maelstrom-co/example publishConfig.access must be "public"',
     );
     expect(() => assertRegistryMetadata(cwd)).toThrow(
       'Registry metadata validation failed.',
     );
   });
 
-  it('accepts complete GitHub Packages metadata', () => {
+  it('accepts public npm metadata for unauthenticated consumers', () => {
     const log = spyOn(console, 'log').mockImplementation(() => {});
     expect(collectRegistryMetadataProblems(workspace(validManifest()))).toEqual(
       [],
     );
     expect(log).not.toHaveBeenCalled();
+  });
+
+  it('rejects additional npm request options before packing beside a publishing identity', () => {
+    const manifest = validManifest();
+    const cwd = workspace({
+      ...manifest,
+      publishConfig: { ...manifest.publishConfig, 'strict-ssl': false },
+    });
+    expect(collectRegistryMetadataProblems(cwd)).toContainEqual({
+      file: 'packages/example/package.json',
+      message:
+        '@maelstrom-co/example publishConfig must contain only registry and access',
+    });
+  });
+
+  it('requires explicit public access so a scoped package cannot default to restricted', () => {
+    const manifest = validManifest();
+    const cwd = workspace({
+      ...manifest,
+      publishConfig: { registry: manifest.publishConfig.registry },
+    });
+    expect(collectRegistryMetadataProblems(cwd)).toContainEqual({
+      file: 'packages/example/package.json',
+      message: '@maelstrom-co/example publishConfig.access must be "public"',
+    });
   });
 });

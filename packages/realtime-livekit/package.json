@@ -45,7 +45,8 @@
   },
   "author": "Maelstrom (https://maelstrom-ai.co)",
   "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
+    "registry": "https://registry.npmjs.org",
+    "access": "public"
   },
   "dependencies": {
     "@maelstrom-co/client": "0.1.0-alpha.8",

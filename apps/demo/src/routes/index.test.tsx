@@ -1,7 +1,10 @@
 // @vitest-environment happy-dom
 
 import { WireEngineError } from '@maelstrom-co/client';
-import type { VesselDefinition } from '@maelstrom-co/protocol';
+import type {
+  ChartRequestMessage,
+  VesselDefinition,
+} from '@maelstrom-co/protocol';
 import { isInaccessible } from '@testing-library/dom';
 import {
   act,
@@ -193,9 +196,7 @@ describe('key drawer gating (hosted, no key)', () => {
     expect(FakeRealtimeSession.instances).toHaveLength(0);
     expect(screen.getByRole('status', { name: /key required/i })).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Docs' })).toBeTruthy();
-    expect(
-      screen.getByRole('link', { name: 'Join beta on Discord' }),
-    ).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Join Discord' })).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Feedback on X' })).toBeTruthy();
     expect(
       screen.getByRole<HTMLAnchorElement>('link', { name: 'Feedback on X' })
@@ -848,6 +849,28 @@ describe('the seeded first screen', () => {
     await Promise.all([calendarEntry.component(), tasksEntry.component()]);
   });
 
+  const resizeRequests: ChartRequestMessage[] = [];
+
+  beforeEach(() => {
+    resizeRequests.length = 0;
+    // Measuring the Chart sends a resize request. Its reply must preserve the
+    // seed, rather than race the assertions by clearing it with an empty grid.
+    connectorOverride.process = async (message) => {
+      const request = message as ChartRequestMessage;
+      if (
+        request.request.context.updateReasons.some(
+          (reason) => reason.type === 'chart_resize',
+        )
+      ) {
+        resizeRequests.push(request);
+      }
+      return {
+        ...(await createMockConnector().process(request)),
+        layout: request.request.layout,
+      };
+    };
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -889,6 +912,7 @@ describe('the seeded first screen', () => {
 
     // The hint can disappear before lazy Vessel content resolves.
     await waitFor(() => {
+      expect(resizeRequests.length).toBeGreaterThan(0);
       expect(connectorOverride.createCalls).toBe(1);
       expect(screen.queryByTestId('first-run-hint')).toBeNull();
       const calendar = must(
@@ -943,6 +967,7 @@ describe('the seeded first screen', () => {
     const { container } = render(<HomePage />);
 
     await waitFor(() => {
+      expect(resizeRequests.length).toBeGreaterThan(0);
       const calendarElement = container.querySelector<HTMLElement>(
         '[data-instance-id="calendar-main"]',
       );

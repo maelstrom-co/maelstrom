@@ -29,7 +29,7 @@ Application code supplies a `RealtimeProviderAdapter` to `RealtimeSession`, or p
 
 The core has a single entry point and carries no provider-specific code. Add a
 provider through its own packages, never through a subpath here. See
-[`docs/adr/0001-realtime-providers-come-in-two-kinds.md`](../../docs/adr/0001-realtime-providers-come-in-two-kinds.md).
+[provider package contracts](../../docs/realtime-voice-architecture.md#provider-package-contracts).
 
 ## Migrate custom adapters to observations
 

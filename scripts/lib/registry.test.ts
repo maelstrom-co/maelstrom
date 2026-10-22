@@ -185,3 +185,92 @@ describe('parsePublishedVersion', () => {
     ).toThrow('Refusing to guess');
   });
 });
+
+describe('hasPublishedPackage', () => {
+  test.each([
+    {
+      label: 'matching public package',
+      stdout: '"@maelstrom-co/react"',
+      stderr: '',
+      exit: '0',
+      expected: true,
+    },
+    {
+      label: 'absent package',
+      stdout: '',
+      stderr: 'npm error code E404',
+      exit: '1',
+      expected: false,
+    },
+    {
+      label: 'wrong identity',
+      stdout: '"@other/package"',
+      stderr: '',
+      exit: '0',
+      expected: undefined,
+    },
+    {
+      label: 'malformed response',
+      stdout: 'not json',
+      stderr: '',
+      exit: '0',
+      expected: undefined,
+    },
+    {
+      label: 'empty response',
+      stdout: '',
+      stderr: '',
+      exit: '0',
+      expected: undefined,
+    },
+    {
+      label: 'unavailable registry',
+      stdout: '',
+      stderr: 'private credential detail E503',
+      exit: '1',
+      expected: undefined,
+    },
+  ])('$label', (entry) => {
+    const binDir = mkdtempSync(join(tmpdir(), 'maelstrom-existence-'));
+    writeFileSync(
+      join(binDir, 'npm'),
+      '#!/bin/sh\n[ "$NPM_CONFIG_USERCONFIG" = /dev/null ] || exit 99\n[ "$1" = view ] && [ "$2" = @maelstrom-co/react ] && [ "$3" = name ] || exit 98\nprintf \'%s\' "$FAKE_NPM_STDOUT"\nprintf \'%s\' "$FAKE_NPM_STDERR" >&2\nexit "$FAKE_NPM_EXIT"\n',
+    );
+    chmodSync(join(binDir, 'npm'), 0o755);
+    try {
+      const result = spawnSync(
+        process.execPath,
+        [
+          '-e',
+          "import { hasPublishedPackage } from './scripts/lib/registry.ts'; console.log('RESULT:' + hasPublishedPackage('@maelstrom-co/react', 'https://registry.npmjs.org'));",
+        ],
+        {
+          cwd: process.cwd(),
+          encoding: 'utf8',
+          env: {
+            ...process.env,
+            PATH: `${binDir}:${process.env.PATH}`,
+            NPM_CONFIG_USERCONFIG: '/should-not-be-used',
+            FAKE_NPM_STDOUT: entry.stdout,
+            FAKE_NPM_STDERR: entry.stderr,
+            FAKE_NPM_EXIT: entry.exit,
+          },
+        },
+      );
+      if (entry.expected === undefined) {
+        expect(result.status).not.toBe(0);
+        expect(result.stderr).toContain(
+          'could not verify public package existence',
+        );
+      } else {
+        expect(result.status).toBe(0);
+        expect(result.stdout).toContain(`RESULT:${entry.expected}`);
+      }
+      expect(result.stdout + result.stderr).not.toContain(
+        'private credential detail',
+      );
+    } finally {
+      rmSync(binDir, { recursive: true, force: true });
+    }
+  });
+});

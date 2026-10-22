@@ -34,10 +34,7 @@ explains how that holds at runtime. Everything below is a consequence of it.
 Voice is one capability with several implementations, so the split follows the
 boundaries that would otherwise be honour-system conventions.
 
-The durable package rules are recorded in
-[the provider taxonomy ADR](./adr/0001-realtime-providers-come-in-two-kinds.md),
-[the credential custody ADR](./adr/0002-credential-custody-is-a-dependency-edge.md),
-and [the turn-taking ADR](./adr/0003-turn-taking-is-provider-neutral.md).
+The package rules below apply to every provider.
 `packages/realtime-protocol/src/layer-boundary.test.ts` is the executable
 authority for dependency direction.
 
@@ -86,6 +83,50 @@ does receive the words to speak: after a successful update that is the Engine's
 own message, or failing that a short summary of the settled UI. So UI-derived
 *text* does reach the worker. What never reaches it is UI *structure*, which is
 the thing a second planner would need.
+
+### Provider package contracts
+
+Speech-native providers own recognition, speech generation, and ordinary turn
+detection through their service. A cascade supplies transport and needs a
+server-side speech worker. Each provider has a browser adapter and a separate
+server credential or SDP-exchange package. Cascade workers remain separate from
+request-scoped token minters because they have different runtimes and dependencies.
+
+Shared wire contracts are subpaths of `@maelstrom-co/realtime-protocol`.
+Implementations have separate packages, so selecting one provider does not pull
+another provider's SDK into the application. Create provider packages with their
+implementation rather than publishing empty reserved packages.
+
+### Dependency boundaries
+
+The contract, browser, server, and worker layers keep credential custody explicit.
+Browser packages cannot import server or worker packages. Server and worker
+packages cannot depend on browser packages. Shared types belong in the contract
+layer. The boundary test checks package manifests and import restrictions.
+
+A browser package can include Node tooling behind a declared non-root entry point.
+For example, the VAD asset copier and CLI must remain unreachable from the root
+browser export. Server and worker packages declare `noRestrictedImports` in their
+own Biome configs: override paths resolve relative to the extending config, so
+repo-root path patterns do not protect those packages. The boundary test checks
+that each restriction covers the browser packages.
+
+### Runtime turn mode
+
+The VAD detector consumes a supplied `MediaStream` and emits speech boundaries;
+it does not acquire the microphone. The provider-neutral core owns turn policy,
+and each adapter owns its transport's reaction to a speech boundary.
+
+Adapters report usable turn mode through `TurnModeEvent`. Browser VAD can fail
+at startup or during a session and degrade to manual control, so turn mode is a
+runtime event. `RealtimeSession` exposes manual controls while the retained mode
+is `manual`; a fixed provider capability cannot represent that transition.
+
+LiveKit uses browser detection for ordinary turns. OpenAI Realtime's optional,
+default-off `greetingInterruption` uses it for one bounded interruption during
+fixed-greeting playback. OpenAI server VAD still owns ordinary turns afterward.
+This option does not add general browser endpointing or manual `turnControl`.
+Real-device acoustic effectiveness requires a live check.
 
 ## Two channels, deliberately unequal
 
