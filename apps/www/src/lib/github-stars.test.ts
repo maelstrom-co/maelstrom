@@ -1,6 +1,19 @@
 import { expect, spyOn, test } from 'bun:test';
 import { getGitHubStarCount } from './github-stars';
 
+test('browser refreshes use a public CORS request without credentials or page referrers', async () => {
+  const request = (async (input, options) => {
+    expect(input).toBe('https://api.github.com/repos/maelstrom-co/maelstrom');
+    expect(options?.credentials).toBe('omit');
+    expect(options?.referrerPolicy).toBe('no-referrer');
+    expect(Object.fromEntries(new Headers(options?.headers))).toEqual({
+      accept: 'application/vnd.github+json',
+    });
+    return Response.json({ stargazers_count: 12 });
+  }) as typeof fetch;
+  expect(await getGitHubStarCount(request)).toBe(12);
+});
+
 test('shows the real star count, including a repository with zero stars', async () => {
   for (const count of [0, 1234]) {
     const request = (async () =>

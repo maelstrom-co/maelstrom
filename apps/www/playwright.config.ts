@@ -39,6 +39,10 @@ export default defineConfig({
     // `!process.env.ASTRO_DEV_BACKGROUND`, so any non-empty value suppresses it
     // (the value is never compared). Also required for `--ignore-lock`, which
     // Astro rejects while agent detection is active.
-    env: { ASTRO_DEV_BACKGROUND: '0', WWW_E2E_FIXTURES: '1' },
+    env: {
+      ASTRO_DEV_BACKGROUND: '0',
+      WWW_E2E_FIXTURES: '1',
+      PUBLIC_GITHUB_STAR_COUNT: '42',
+    },
   },
 });
