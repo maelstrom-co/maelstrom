@@ -23,7 +23,7 @@ export function hasPublishedPackage(name: string, registry: string): boolean {
         maxBuffer: 1024 * 1024,
       },
     );
-    if (JSON.parse(String(output)) !== name)
+    if (parseNpmField(String(output)) !== name)
       throw new Error('Unexpected identity');
     return true;
   } catch (error) {
@@ -141,7 +141,7 @@ export function parsePublishedVersion(
 
   let published: unknown;
   try {
-    published = JSON.parse(value);
+    published = parseNpmField(value);
   } catch {
     throw new Error(
       `${name}: registry returned invalid JSON while checking ${version} on ${registry}.`,
@@ -152,4 +152,10 @@ export function parsePublishedVersion(
   throw new Error(
     `${name}: registry returned ${JSON.stringify(published)} while checking ${version} on ${registry}. Refusing to guess.`,
   );
+}
+
+function parseNpmField(output: string): unknown {
+  const value: unknown = JSON.parse(output);
+  // npm CLI versions differ in whether a single field is wrapped in an array.
+  return Array.isArray(value) && value.length === 1 ? value[0] : value;
 }
