@@ -177,6 +177,22 @@ answers with layout and actions; the Chart re-flows. Learn more in the
 
 ## How It Works
 
+<details>
+<summary>Show animated overview</summary>
+
+[![Animated overview: user intent and the current UI go to the Engine. The client applies the returned layout, then runs Actions on your components.](media/maelstrom-overview.gif)](media/maelstrom-overview.mp4?raw=true)
+
+</details>
+
+[Download the video with sound effects](media/maelstrom-overview.mp4?raw=true)
+
+You register your components as Vessels, with Variants and Actions. Maelstrom
+arranges those components from user intent. The client applies each response in
+order: first the layout, then the Actions.
+
+<details>
+<summary>View the static architecture diagram</summary>
+
 ```mermaid
 flowchart LR
   intent["User intent"] --> client["client"]
@@ -186,6 +202,8 @@ flowchart LR
   react --> chart["&lt;Chart /&gt; — your Vessels"]
   chart -.->|"ResizeObserver: container changed"| client
 ```
+
+</details>
 
 The engine holds no layout state: it receives the current state and returns where
 things go and what to invoke. In grid mode, it receives Chart dimensions in cells
