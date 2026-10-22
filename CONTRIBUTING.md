@@ -386,7 +386,7 @@ commit, tag, push, create a GitHub release, or publish packages.
 2. Rehearse the first stable release and inspect the generated notes:
 
    ```bash
-   bun run scripts/release.ts --version 0.1.0 --first-release --dry-run
+   bun run scripts/release.ts --version 0.1.0 --dry-run
    ```
 
    To rehearse CI, run the **Release** workflow via `workflow_dispatch` with
@@ -395,14 +395,18 @@ commit, tag, push, create a GitHub release, or publish packages.
 3. Prepare the versions and notes for review:
 
    ```bash
-   bun run scripts/release.ts --version 0.1.0 --first-release
+   bun run scripts/release.ts --version 0.1.0
+   bun install --lockfile-only --ignore-scripts
    ```
 
-   These commands prepare the first public release, with no prior `v*` tags.
-   For later stable releases, omit `--first-release` and select the next version
-   with `--version`.
-   Review every changed manifest and the generated notes. Edit the notes if
-   needed. Commit with a DCO sign-off and open a release PR titled
+   Keep the existing alpha tags. The explicit version graduates the SDK to
+   stable `0.1.0`. Nx leaves lockfile updates disabled, so refresh `bun.lock`
+   before review.
+
+   For later stable releases, select the next version with `--version`.
+   Add `--first-release` only when the repository has no prior `v*` tags.
+   Review every changed manifest, `bun.lock`, and the generated notes.
+   Edit the notes if needed. Commit with a DCO sign-off and open a release PR titled
    `chore(release): VERSION`. Wait for checks, review, and merge approval.
    Do not create a tag on the release branch.
 
