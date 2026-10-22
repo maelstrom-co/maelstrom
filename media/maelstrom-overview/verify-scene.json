@@ -1,0 +1,8 @@
+{
+  "name": "maelstrom-overview",
+  "package": "psychopomp-maelstrom-overview",
+  "plan": "target/maelstrom-overview/plan.json",
+  "theme": "maelstrom",
+  "times": [2, 7, 9.8, 12.4, 14.5, 18.5, 22.5, 25.9],
+  "shutter": [6.9, 13.6, 17.1, 24.4]
+}
