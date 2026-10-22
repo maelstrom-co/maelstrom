@@ -77,6 +77,7 @@ interface PanelPreferences {
   jsonMode?: 'tree' | 'raw';
   phaseBars?: boolean;
   phasePage?: ViewContext['phasePage'];
+  plannerPage?: ViewContext['plannerPage'];
   stageTimingLimit?: ViewContext['stageTimingLimit'];
   layoutView?: ViewContext['layoutView'];
   height?: number;
@@ -337,6 +338,7 @@ function Panel(tools: Devtools): HTMLElement {
     preferences.requestKey = '';
     preferences.eventKey = '';
     preferences.phasePage = undefined;
+    preferences.plannerPage = undefined;
     preferences.stageTimingLimit = undefined;
     preferences.layoutView = undefined;
   }
@@ -1301,6 +1303,7 @@ function Panel(tools: Devtools): HTMLElement {
             a: {
               ...selection.a,
               phaseBars: preferences.phaseBars ?? true,
+              plannerPage: preferences.plannerPage,
               stageTimingLimit: preferences.stageTimingLimit,
               layoutView: preferences.layoutView,
             },
@@ -1311,6 +1314,7 @@ function Panel(tools: Devtools): HTMLElement {
           preferences.requestKey = slot.key;
           preferences.eventKey = slot.eventKey ?? '';
           preferences.phasePage = slot.phasePage;
+          preferences.plannerPage = slot.plannerPage;
           preferences.phaseBars = slot.phaseBars ?? preferences.phaseBars;
           preferences.stageTimingLimit = slot.stageTimingLimit;
           preferences.layoutView = slot.layoutView;
@@ -1320,6 +1324,11 @@ function Panel(tools: Devtools): HTMLElement {
       },
       phaseBars: preferences.phaseBars ?? true,
       phasePage: preferences.phasePage,
+      plannerPage: preferences.plannerPage,
+      selectPlannerPage: (page) => {
+        preferences.plannerPage = page;
+        refresh();
+      },
       stageTimingLimit: preferences.stageTimingLimit,
       setStageTimingLimit: (limit) => {
         preferences.stageTimingLimit = limit;
@@ -1366,6 +1375,7 @@ function Panel(tools: Devtools): HTMLElement {
         }
         preferences.layoutView = undefined;
         preferences.phasePage = undefined;
+        preferences.plannerPage = undefined;
         preferences.stageTimingLimit = undefined;
         if (pinnedRequest !== key) pinnedRequest = undefined;
         preferences.requestKey = key;
@@ -1425,6 +1435,7 @@ function Panel(tools: Devtools): HTMLElement {
       preferences.voice,
       preferences.overview,
       preferences.phasePage,
+      preferences.plannerPage,
       preferences.layoutView,
       preferences.instanceKey,
       preferences.allEvents,
