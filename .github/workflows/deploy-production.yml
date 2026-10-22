@@ -182,9 +182,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          github_star_count="$(gh api "repos/${GITHUB_REPOSITORY}" --jq '.stargazers_count | select(type == "number" and . >= 0 and . <= 9007199254740991 and floor == .)')"
-          test -n "$github_star_count"
-          printf 'count=%s\n' "$github_star_count" >> "$GITHUB_OUTPUT"
+          if github_star_count="$(gh api "repos/${GITHUB_REPOSITORY}" --jq '.stargazers_count | select(type == "number" and . >= 0 and . <= 9007199254740991 and floor == .)' 2>/dev/null)" && [ -n "$github_star_count" ]; then
+            printf 'count=%s\n' "$github_star_count" >> "$GITHUB_OUTPUT"
+          else
+            echo '::warning::GitHub star metadata unavailable; using the public build fallback.' >&2
+          fi
 
       # Do not trust remote or local cache entries for production artifacts.
       # Credentials are intentionally absent while application code executes.

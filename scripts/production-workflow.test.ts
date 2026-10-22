@@ -1,6 +1,8 @@
 import { expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { delimiter, join, resolve } from 'node:path';
 
 const expression = (value: string) => ['$', `{{ ${value} }}`].join('');
 
@@ -54,5 +56,52 @@ test('supplies public GitHub metadata without giving application builds an ident
   }
   for (const permissions of [workflow.permissions, job.permissions]) {
     expect(Object.values(permissions ?? {})).not.toContain('write');
+  }
+});
+
+test('keeps optional star metadata from blocking a production build', async () => {
+  const workflow = Bun.YAML.parse(
+    readFileSync(
+      resolve(import.meta.dir, '../.github/workflows/deploy-production.yml'),
+      'utf8',
+    ),
+  ) as { jobs: { deploy: { steps: { id?: string; run?: string }[] } } };
+  const command = workflow.jobs.deploy.steps.find(
+    (step) => step.id === 'github-stars',
+  )?.run;
+  expect(command).toBeDefined();
+  const directory = await mkdtemp(join(tmpdir(), 'maelstrom-stars-'));
+  try {
+    for (const mode of ['success', 'unavailable', 'invalid']) {
+      const output = join(directory, `${mode}.txt`);
+      const child = Bun.spawn(['bash', '-c', command!], {
+        env: {
+          PATH: [
+            resolve(import.meta.dir, 'fixtures/github-stars'),
+            process.env.PATH ?? '',
+          ].join(delimiter),
+          GH_TOKEN: 'fixture',
+          GITHUB_REPOSITORY: 'fixture/ci',
+          GITHUB_OUTPUT: output,
+          STAR_LOOKUP_FIXTURE: mode,
+        },
+        stdout: 'pipe',
+        stderr: 'pipe',
+      });
+      const [stdout, stderr, code] = await Promise.all([
+        new Response(child.stdout).text(),
+        new Response(child.stderr).text(),
+        child.exited,
+      ]);
+      expect(code).toBe(0);
+      expect(`${stdout}${stderr}`).not.toContain('do-not-log-response');
+      expect(`${stdout}${stderr}`).not.toContain('Bearer fixture');
+      const count = (await Bun.file(output).exists())
+        ? await Bun.file(output).text()
+        : '';
+      expect(count).toBe(mode === 'success' ? 'count=0\n' : '');
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
   }
 });
