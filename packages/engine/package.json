@@ -1,6 +1,6 @@
 {
   "name": "@maelstrom-co/engine",
-  "version": "0.1.0-alpha.8",
+  "version": "0.1.0",
   "description": "Maelstrom orchestration engine: validates, heals and executes a planner's candidate into a layout and an execution plan for the current chart state.",
   "keywords": [
     "maelstrom",
@@ -51,8 +51,8 @@
     "access": "public"
   },
   "dependencies": {
-    "@maelstrom-co/telemetry": "0.1.0-alpha.8",
-    "@maelstrom-co/protocol": "0.1.0-alpha.8",
+    "@maelstrom-co/telemetry": "0.1.0",
+    "@maelstrom-co/protocol": "0.1.0",
     "zod": "catalog:"
   },
   "nx": {

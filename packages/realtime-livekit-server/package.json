@@ -1,6 +1,6 @@
 {
   "name": "@maelstrom-co/realtime-livekit-server",
-  "version": "0.1.0-alpha.8",
+  "version": "0.1.0",
   "description": "Server-only minting of LiveKit room access tokens for Maelstrom. The server sibling of @maelstrom-co/realtime-livekit.",
   "keywords": [
     "maelstrom",
@@ -52,8 +52,8 @@
     "access": "public"
   },
   "dependencies": {
-    "@maelstrom-co/protocol": "0.1.0-alpha.8",
-    "@maelstrom-co/realtime-protocol": "0.1.0-alpha.8",
+    "@maelstrom-co/protocol": "0.1.0",
+    "@maelstrom-co/realtime-protocol": "0.1.0",
     "livekit-server-sdk": "^2.13.1",
     "zod": "catalog:"
   },

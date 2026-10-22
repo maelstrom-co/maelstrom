@@ -1,6 +1,6 @@
 {
   "name": "@maelstrom-co/realtime-livekit",
-  "version": "0.1.0-alpha.8",
+  "version": "0.1.0",
   "description": "LiveKit browser adapter for Maelstrom realtime voice: a RealtimeProviderAdapter backed by a cascaded STT/TTS pipeline.",
   "keywords": [
     "maelstrom",
@@ -49,11 +49,11 @@
     "access": "public"
   },
   "dependencies": {
-    "@maelstrom-co/client": "0.1.0-alpha.8",
-    "@maelstrom-co/protocol": "0.1.0-alpha.8",
-    "@maelstrom-co/realtime": "0.1.0-alpha.8",
-    "@maelstrom-co/realtime-protocol": "0.1.0-alpha.8",
-    "@maelstrom-co/realtime-vad": "0.1.0-alpha.8",
+    "@maelstrom-co/client": "0.1.0",
+    "@maelstrom-co/protocol": "0.1.0",
+    "@maelstrom-co/realtime": "0.1.0",
+    "@maelstrom-co/realtime-protocol": "0.1.0",
+    "@maelstrom-co/realtime-vad": "0.1.0",
     "zod": "catalog:"
   },
   "peerDependencies": {

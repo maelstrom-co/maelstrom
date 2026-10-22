@@ -1,6 +1,6 @@
 {
   "name": "@maelstrom-co/realtime-openai-live",
-  "version": "0.1.0-alpha.8",
+  "version": "0.1.0",
   "description": "Browser WebRTC transport and continuous observations for OpenAI Live.",
   "keywords": [
     "maelstrom",
