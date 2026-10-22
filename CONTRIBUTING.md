@@ -436,8 +436,8 @@ re-run work.
 - **`--preid` tells Nx which prerelease identifier to use when calculating a
   bump.** The npm dist-tag always comes from the resolved version:
   `0.1.0-alpha.0` publishes under `alpha`, while a stable version publishes
-  under `latest`. Pass `--preid alpha` while calculating alpha releases so
-  `npm install @maelstrom-co/<pkg>` does not resolve to a prerelease.
+  under `latest`. Pass `--preid alpha` while calculating alpha releases, then
+  verify the actual registry tags using the npm dist-tag policy above.
 - **`--version`** overrides the bump inferred from Conventional Commits. It
   accepts an explicit version (`0.1.0-alpha.0`) or a bump (`patch` | `minor` |
   `major` | `prerelease`).
@@ -446,3 +446,21 @@ re-run work.
 - The publish step rewrites `workspace:*` and `catalog:` specs to concrete
   versions before packing (npm doesn't do this from a package dir), so those
   protocols stay the source of truth in the repo.
+
+### Production deployment
+
+The production workflow requires a public repository, a successful CI completion
+for a push to `main`, and the repository variable `PUBLIC_LAUNCH_READY=true`.
+This variable is not an application environment setting or a secret.
+
+Keep it false through the preparation merge and the owner's manual visibility
+change. Publish and verify the first complete npm release, inspect every package's
+dist-tags, and test installation in a clean consumer without GitHub credentials.
+Only then set `PUBLIC_LAUNCH_READY=true` and trigger a fresh successful CI
+completion for the latest `main` commit, such as rerunning its CI workflow.
+Rerunning a production deployment created while private retains that event's
+private flag and remains blocked.
+
+Verify the deployed website, docs, live GitHub star count, and installation paths
+before announcing availability. The variable can remain true for normal
+deployments; removing the one-time launch gate is separate cleanup.
