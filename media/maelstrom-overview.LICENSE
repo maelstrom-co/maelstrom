@@ -1,5 +1,15 @@
-Psychopomp animation and bundled sound effects in maelstrom-overview.gif and
-maelstrom-overview.mp4:
+This notice covers only sound effects copied from Psychopomp's bundled assets
+into maelstrom-overview.mp4. It does not cover the animation's original visuals
+or the silent GIF.
+
+Source: https://github.com/kitlangton/psychopomp/tree/1813f2f1d4170679a514cb16e8678f88210b9ac4/assets
+
+- visual-effects/task-running.wav
+- visual-effects/task-success.wav
+- opencode-hot-reload/save.wav
+- opencode-hot-reload/confirm.wav
+
+Psychopomp's repository license follows:
 
 MIT License
 
