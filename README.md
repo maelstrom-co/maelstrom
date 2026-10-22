@@ -177,10 +177,9 @@ answers with layout and actions; the Chart re-flows. Learn more in the
 
 ## How It Works
 
-[![Animated overview: user intent and the current UI go to the Engine. The client applies the returned layout, then runs Actions on your components.](media/maelstrom-overview.gif)](media/maelstrom-overview.mp4)
+[![Animated overview: user intent and the current UI go to the Engine. The client applies the returned layout, then runs Actions on your components.](media/maelstrom-overview.gif)](media/maelstrom-overview.mp4?raw=true)
 
-[Watch with sound effects](media/maelstrom-overview.mp4) ·
-[View a still frame](media/maelstrom-overview.png)
+[Download the video with sound effects](media/maelstrom-overview.mp4?raw=true)
 
 You register your components as Vessels, with Variants and Actions. Maelstrom
 arranges those components from user intent. The client applies each response in
