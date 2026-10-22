@@ -54,6 +54,9 @@
             "env": "PUBLIC_PLAYGROUND_URL"
           },
           {
+            "env": "PUBLIC_GITHUB_STAR_COUNT"
+          },
+          {
             "env": "PUBLIC_TURNSTILE_SITE_KEY"
           },
           {
