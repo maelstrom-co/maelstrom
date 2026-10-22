@@ -1,6 +1,6 @@
 {
   "name": "@maelstrom-co/client",
-  "version": "0.1.0-alpha.8",
+  "version": "0.1.0",
   "description": "Framework-agnostic Maelstrom client: chart manager, connection manager, command processor, vessel registry, and orchestrator, with a voice-session seam for realtime grounding.",
   "keywords": [
     "maelstrom",
@@ -47,9 +47,9 @@
     "access": "public"
   },
   "dependencies": {
-    "@maelstrom-co/telemetry": "0.1.0-alpha.8",
-    "@maelstrom-co/connectors": "0.1.0-alpha.8",
-    "@maelstrom-co/protocol": "0.1.0-alpha.8",
+    "@maelstrom-co/telemetry": "0.1.0",
+    "@maelstrom-co/connectors": "0.1.0",
+    "@maelstrom-co/protocol": "0.1.0",
     "@tanstack/store": "catalog:"
   },
   "devDependencies": {

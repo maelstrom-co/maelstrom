@@ -1,6 +1,6 @@
 {
   "name": "@maelstrom-co/realtime-protocol",
-  "version": "0.1.0-alpha.8",
+  "version": "0.1.0",
   "description": "Dependency-free wire contracts for Maelstrom realtime voice: token grants, mint-failure taxonomy, and shared wire topics.",
   "keywords": [
     "maelstrom",
@@ -74,7 +74,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@maelstrom-co/protocol": "0.1.0-alpha.8",
+    "@maelstrom-co/protocol": "0.1.0",
     "zod": "catalog:"
   },
   "nx": {
