@@ -1,8 +1,11 @@
 import { createEffect, createSignal, onCleanup } from 'solid-js';
 import { render } from 'solid-js/web';
 import { captureImportFileBytes } from './capture-import.js';
+import { createEventFilterControls } from './event-filter-controls.js';
+import { type EventQuery, queryEvents } from './event-query.js';
 import { createJsonInspector } from './json-inspector.js';
 import { LiveEventKeys } from './live-event-keys.js';
+import { liveEvidenceEpoch } from './live-evidence.js';
 import {
   countUnreadableEvents,
   errorCategories,
@@ -60,6 +63,8 @@ interface PanelPreferences {
   selected: string;
   query: string;
   issueCategory?: string;
+  eventFilters?: EventQuery;
+  eventFilterSourceToken?: string;
   requestKey: string;
   eventKey: string;
   instanceKey: string;
@@ -104,6 +109,7 @@ function Panel(tools: Devtools): HTMLElement {
     tab: 'Requests',
     selected: 'all',
     query: '',
+    eventFilterSourceToken: `live:${liveEvidenceEpoch(tools)}`,
     requestKey: '',
     eventKey: '',
     instanceKey: '',
@@ -141,6 +147,7 @@ function Panel(tools: Devtools): HTMLElement {
   let pinnedRequest: string | undefined;
   let comparison: RequestComparisonSelection | undefined;
   let captureEpoch = 0;
+  let eventFilterReset = 0;
   let previousCapture = tools.capture.getSnapshot();
   let previousEvidenceRevision = tools.capture.getEvidenceRevision?.() ?? 0;
   let headerMetadata: Fields | undefined;
@@ -166,7 +173,7 @@ function Panel(tools: Devtools): HTMLElement {
       identitySnapshot = nextSnapshot;
     }
     if (nextSnapshot.imported !== previousImport) {
-      if (source() === 'imported') clearEvidenceSelection();
+      if (source() === 'imported') clearEvidenceSelection(true);
       previousImport = nextSnapshot.imported;
       cachedImport = undefined;
       importedReference = undefined;
@@ -191,7 +198,7 @@ function Panel(tools: Devtools): HTMLElement {
     ) {
       captureEpoch++;
       if (source() === 'recording') {
-        clearEvidenceSelection();
+        clearEvidenceSelection(true);
       }
       headerMetadata = undefined;
       cachedRecording = undefined;
@@ -333,13 +340,43 @@ function Panel(tools: Devtools): HTMLElement {
     preferences.stageTimingLimit = undefined;
     preferences.layoutView = undefined;
   }
-  function clearEvidenceSelection(): void {
+  function clearEvidenceSelection(resetEventFilters = false): void {
+    if (resetEventFilters) {
+      preferences.eventFilters = undefined;
+      preferences.issueCategory = 'all';
+      preferences.query = '';
+      preferences.selected = 'all';
+      eventFilterReset++;
+      pageSize = 50;
+      setQuery('');
+      setSelected('all');
+    }
     preferences.voice = undefined;
     clearRequestSelection();
   }
+  function evidenceSourceToken(
+    currentSource: Source,
+    imported: unknown,
+  ): string {
+    if (currentSource === 'recording')
+      return `recording:${tools.capture.getEvidenceRevision()}`;
+    if (
+      currentSource === 'imported' &&
+      imported &&
+      typeof imported === 'object'
+    ) {
+      let key = preferences.importKeys.get(imported);
+      if (!key) {
+        key = crypto.randomUUID();
+        preferences.importKeys.set(imported, key);
+      }
+      return `imported:${key}`;
+    }
+    return `live:${liveEvidenceEpoch(tools)}`;
+  }
   function switchSource(next: Source): void {
     preferences.overview = undefined;
-    clearEvidenceSelection();
+    clearEvidenceSelection(true);
     preferences.issueCategory = 'all';
     preferences.instanceKey = '';
     setSelected('all');
@@ -443,9 +480,9 @@ function Panel(tools: Devtools): HTMLElement {
   const singleScope = element('span', undefined, 'muted small');
   selector.addEventListener('change', () => {
     clearEvidenceSelection();
+    pageSize = 50;
     setSelected(selector.value);
     preferences.instanceKey = '';
-    pageSize = 50;
   });
   const close = button('Close', () => {
     setOpen(false);
@@ -591,14 +628,28 @@ function Panel(tools: Devtools): HTMLElement {
     refresh();
   });
   const activityStatus = element('span', undefined, 'muted small');
+  const eventControls = createEventFilterControls((criteria, resetSearch) => {
+    preferences.eventFilters = criteria;
+    preferences.eventKey = '';
+    if (resetSearch) {
+      eventFilterReset++;
+      setQuery('');
+      preferences.issueCategory = 'all';
+    }
+    pageSize = 50;
+    refresh();
+  });
   toolbar.append(
     mode,
     filter,
     issueCategory,
+    eventControls.preset,
+    eventControls.reset,
     overlayLabel,
     highlightLabel,
     jsonLabel,
     activityStatus,
+    eventControls.element,
     help,
   );
   const errorView = element('p', undefined, 'error');
@@ -925,6 +976,11 @@ function Panel(tools: Devtools): HTMLElement {
     if (currentTab !== 'Inspector' || currentSource !== 'live')
       inspections.clear();
     const data = evidence();
+    const sourceToken = evidenceSourceToken(currentSource, state.imported);
+    if (preferences.eventFilterSourceToken !== sourceToken) {
+      preferences.eventFilterSourceToken = sourceToken;
+      clearEvidenceSelection(true);
+    }
     const requestView = currentTab === 'Requests' && !preferences.allEvents;
     const requestEvidenceView = requestView || currentTab === 'Overview';
     const comparing = requestView && Boolean(comparison);
@@ -956,6 +1012,7 @@ function Panel(tools: Devtools): HTMLElement {
     for (const slot of [comparison?.a, comparison?.b])
       if (slot) currentIds.add((JSON.parse(slot.key) as [string, string])[0]);
     if (recordingId) currentIds.add(recordingId);
+    if (selected() !== 'all') currentIds.add(selected());
     if (recordingTarget() !== 'all') currentIds.add(recordingTarget());
     for (const key of preferences.labels.keys())
       if (!currentIds.has(key)) preferences.labels.delete(key);
@@ -964,19 +1021,22 @@ function Panel(tools: Devtools): HTMLElement {
         !state.sessions.some((session) => session.id === key && session.active)
       )
         inspections.delete(key);
-    if (
-      selected() !== 'all' &&
-      !data.apps.some((app) => app.id === selected())
-    ) {
-      setSelected('all');
-      return;
-    }
+    const staleScope =
+      selected() !== 'all' && !data.apps.some((app) => app.id === selected());
     const options = [
       { value: 'all', label: 'All app instances' },
       ...data.apps.map((app) => ({
         value: app.id,
         label: `${appLabel(app.id)} · ${app.active === undefined ? 'recorded' : app.active ? 'active' : 'ended, retained'}`,
       })),
+      ...(staleScope
+        ? [
+            {
+              value: selected(),
+              label: `${appLabel(selected())} · app state not retained`,
+            },
+          ]
+        : []),
     ];
     const valid = new Set(options.map((option) => option.value));
     for (const [key, option] of scopeOptions)
@@ -1049,8 +1109,10 @@ function Panel(tools: Devtools): HTMLElement {
           : [],
       ),
     );
-    scopeLabel.hidden = data.apps.length <= 1 && unknownApps.size === 0;
-    singleScope.hidden = data.apps.length > 1 || unknownApps.size > 0;
+    scopeLabel.hidden =
+      !staleScope && data.apps.length <= 1 && unknownApps.size === 0;
+    singleScope.hidden =
+      staleScope || data.apps.length > 1 || unknownApps.size > 0;
     singleScope.textContent = data.apps[0]
       ? `${appLabel(data.apps[0].id)} · ${data.apps[0].active === undefined ? 'recorded' : data.apps[0].active ? 'active' : 'ended, retained'}`
       : currentSource === 'live'
@@ -1065,6 +1127,23 @@ function Panel(tools: Devtools): HTMLElement {
     if (filter.value !== query()) filter.value = query();
     issueCategory.hidden = currentTab !== 'Requests';
     issueCategory.value = preferences.issueCategory ?? 'all';
+    const filteringEvents = currentTab === 'Requests' && preferences.allEvents;
+    eventControls.preset.hidden = !filteringEvents;
+    eventControls.reset.hidden = !filteringEvents;
+    eventControls.element.hidden = !filteringEvents;
+    if (filteringEvents)
+      eventControls.update(
+        preferences.eventFilters ?? {},
+        Boolean(
+          query() ||
+            (preferences.issueCategory && preferences.issueCategory !== 'all'),
+        ),
+        data.events.filter(
+          (event) => selected() === 'all' || event.clientId === selected(),
+        ),
+        appLabel,
+        eventFilterReset,
+      );
     overlayLabel.hidden =
       currentSource !== 'live' || currentTab === 'Recordings';
     highlightLabel.hidden =
@@ -1073,6 +1152,15 @@ function Panel(tools: Devtools): HTMLElement {
     jsonLabel.hidden = currentTab === 'Recordings' || currentTab === 'Overview';
     activityStatus.hidden = currentTab === 'Recordings';
     activityStatus.textContent = `${viewedEvents.length} ${currentSource === 'live' ? (requestView ? 'request metadata' : 'recent metadata') : 'recorded'} events${droppedEvents ? ` · ${droppedEvents} dropped or evicted` : ''}`;
+    if (filteringEvents) {
+      const result = queryEvents(data.events, {
+        ...preferences.eventFilters,
+        clientId: selected() === 'all' ? undefined : selected(),
+        query: query(),
+        issueCategory: preferences.issueCategory,
+      });
+      activityStatus.textContent = `${result.total} retained events · ${result.matched} matching · ${result.hidden} hidden by filters${droppedEvents ? ` · ${droppedEvents} dropped or evicted` : ''}`;
+    }
     sourceBanner.hidden = currentSource === 'live' && !status.active;
     if (currentSource !== 'live')
       sourceBanner.textContent = `${currentSource === 'imported' ? (preferences.importedName ?? 'Imported recording') : 'Current recording'} · Read-only evidence${data.note ? ` · Note: ${data.note.slice(0, 500)}` : ''}`;
@@ -1165,22 +1253,7 @@ function Panel(tools: Devtools): HTMLElement {
       clearJsonEvidence();
       return;
     }
-    let sourceToken = 'live';
     if (currentTab === 'Voice' || currentTab === 'Overview') {
-      if (currentSource === 'recording')
-        sourceToken = `recording:${tools.capture.getEvidenceRevision()}`;
-      else if (
-        currentSource === 'imported' &&
-        state.imported &&
-        typeof state.imported === 'object'
-      ) {
-        let key = preferences.importKeys.get(state.imported);
-        if (!key) {
-          key = crypto.randomUUID();
-          preferences.importKeys.set(state.imported, key);
-        }
-        sourceToken = `imported:${key}`;
-      }
       if (
         currentTab === 'Voice' &&
         preferences.voice?.sourceToken !== sourceToken
@@ -1216,6 +1289,7 @@ function Panel(tools: Devtools): HTMLElement {
       clientId: selected(),
       query: query(),
       issueCategory: preferences.issueCategory,
+      eventQuery: preferences.eventFilters,
       requestKey: preferences.requestKey,
       pinnedRequest,
       comparison,
@@ -1343,6 +1417,7 @@ function Panel(tools: Devtools): HTMLElement {
       selected(),
       query(),
       preferences.issueCategory,
+      preferences.eventFilters,
       preferences.requestKey,
       pinnedRequest,
       comparison,

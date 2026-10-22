@@ -5,10 +5,12 @@ import {
   groupRequests,
   inspectState,
   panelEvents,
+  queryEvents,
   recordingEvidence,
   requestEventCoverage,
   requestPhases,
   requestTimingComparison,
+  voiceTimeline,
 } from './panel-model.js';
 
 function event(
@@ -28,6 +30,226 @@ function event(
     content,
   };
 }
+
+test('combined event filters isolate one failed Action without changing retained request evidence', () => {
+  const values = [
+    event('client.request.started'),
+    event('client.action.completed', 'app-a', 'request', { outcome: 'failed' }),
+    event('client.action.completed', 'app-a', 'request', {
+      outcome: 'succeeded',
+    }),
+    event('client.action.completed', 'app-b', 'request', { outcome: 'failed' }),
+    event('engine.stage.failed'),
+  ];
+  const events = panelEvents(values);
+  const result = queryEvents(events, {
+    clientId: 'app-a',
+    family: 'actions',
+    outcome: 'failed',
+  });
+  expect(result.events.map((entry) => entry.raw.id)).toEqual([values[1].id]);
+  expect(result).toMatchObject({ total: 5, matched: 1, hidden: 4 });
+  expect(
+    groupRequests(events).find((request) => request.clientId === 'app-a')
+      ?.events,
+  ).toHaveLength(4);
+});
+
+test('event search, exact kind, and request selection keep reused IDs separate and never search captured content', () => {
+  const values = [
+    event('client.action.completed', 'app-a', 'request', {
+      outcome: 'failed',
+      action: 'Open Calendar',
+    }),
+    event('client.action.completed', 'app-b', 'request', {
+      outcome: 'failed',
+      action: 'Open Calendar',
+    }),
+    event(
+      'client.request.started',
+      'app-a',
+      'request',
+      {},
+      { text: 'Open Calendar' },
+    ),
+    event('app.action.completed', 'app-a', 'request', {
+      action: 'Open Calendar',
+    }),
+  ];
+  const events = panelEvents(values);
+  const result = queryEvents(events, {
+    requestKey: '["app-a","request"]',
+    kind: 'client.action.completed',
+    query: 'CALENDAR',
+  });
+  expect(result.events.map((entry) => entry.raw.id)).toEqual([values[0].id]);
+  expect(
+    queryEvents(events, { kind: 'client.request.started', query: 'Calendar' })
+      .matched,
+  ).toBe(0);
+});
+
+test('accepted candidate validations match success instead of hiding among events without reported outcomes', () => {
+  const values = [
+    event('engine.candidate.validated', 'app-a', 'request', {
+      outcome: 'succeeded',
+    }),
+    event('engine.candidate.validated', 'app-a', 'request', {
+      outcome: 'failed',
+    }),
+    event('engine.candidate.validated'),
+    event('engine.candidate.validated', 'app-a', 'request', {
+      outcome: 'unsupported',
+    }),
+  ];
+  const events = panelEvents(values);
+  expect(
+    queryEvents(events, { outcome: 'succeeded' }).events.map(
+      (entry) => entry.raw.id,
+    ),
+  ).toEqual([values[0].id]);
+  expect(
+    queryEvents(events, { outcome: 'failed' }).events.map(
+      (entry) => entry.raw.id,
+    ),
+  ).toEqual([values[1].id]);
+  expect(
+    queryEvents(events, { outcome: 'unreported' }).events.map(
+      (entry) => entry.raw.id,
+    ),
+  ).toEqual([values[2].id, values[3].id]);
+});
+
+test('reported time bounds include their endpoints and keep unavailable time out of a bounded search', () => {
+  const values = [
+    { ...event('app.event'), at: 0 },
+    { ...event('app.event'), at: 10 },
+    { ...event('app.event'), at: 20 },
+    { ...event('app.event'), at: undefined },
+    { ...event('app.event'), at: Number.POSITIVE_INFINITY },
+  ];
+  const events = panelEvents(values);
+  expect(
+    queryEvents(events, { from: 0, until: 10 }).events.map(
+      (entry) => entry.raw.id,
+    ),
+  ).toEqual([values[0].id, values[1].id]);
+  expect(queryEvents(events).matched).toBe(5);
+  for (const bounds of [
+    { from: 20, until: 10 },
+    { from: Number.NaN },
+    { until: Number.POSITIVE_INFINITY },
+  ]) {
+    expect(queryEvents(events, bounds)).toMatchObject({
+      matched: 0,
+      hidden: 5,
+      invalidTimeRange: true,
+    });
+  }
+});
+
+test('a voice connection filter preserves app, provider, generation, and generation-scope ownership', () => {
+  const voice = (clientId: string, metadata: Record<string, unknown>) =>
+    event('voice.tool.result', clientId, 'request', {
+      providerInstanceId: 'provider',
+      generationScope: 'session',
+      generation: 1,
+      ...metadata,
+    });
+  const values = [
+    voice('app-a', {}),
+    voice('app-b', {}),
+    voice('app-a', { generation: 2 }),
+    voice('app-a', { providerGeneration: 1 }),
+    voice('app-a', { providerInstanceId: 'other' }),
+    voice('app-a', { providerInstanceId: '[REDACTED]' }),
+    event('client.request.started'),
+  ];
+  const events = panelEvents(values);
+  const lane = voiceTimeline({ events }).find(
+    (entry) =>
+      entry.clientId === 'app-a' &&
+      entry.providerInstanceId === 'provider' &&
+      entry.scope === 'session' &&
+      entry.generation === 1,
+  )!;
+  expect(
+    queryEvents(events, { voiceKey: lane.key }).events.map(
+      (entry) => entry.raw.id,
+    ),
+  ).toEqual([values[0].id]);
+  expect(queryEvents(events, { voiceKey: 'expired-connection' }).matched).toBe(
+    0,
+  );
+});
+
+test('failure filters keep diagnostic-only failures visible without treating unknown or custom metadata as failures', () => {
+  const values = [
+    event('client.connection.failed'),
+    event('client.request.failed', 'app-a', 'cancelled', {
+      outcome: 'cancelled',
+    }),
+    event('client.action.completed', 'app-a', 'unknown', {
+      outcome: '[REDACTED]',
+    }),
+    event('app.event', 'app-a', 'custom', { outcome: 'failed' }),
+    event('client.response.abandoned'),
+  ];
+  const events = panelEvents(values);
+  expect(
+    queryEvents(events, {
+      outcome: 'failed',
+      issueCategory: 'unreported',
+    }).events.map((entry) => entry.raw.id),
+  ).toEqual([values[0].id]);
+  expect(
+    queryEvents(events, { outcome: 'unknown' }).events.map(
+      (entry) => entry.raw.id,
+    ),
+  ).toEqual([values[2].id]);
+  expect(
+    queryEvents(events, { outcome: 'unreported' }).events.map(
+      (entry) => entry.raw.id,
+    ),
+  ).toEqual([values[3].id]);
+  expect(
+    queryEvents(events, { outcome: 'cancelled' }).events.map(
+      (entry) => entry.raw.id,
+    ),
+  ).toEqual([values[1].id]);
+  expect(
+    queryEvents(events, { outcome: 'abandoned' }).events.map(
+      (entry) => entry.raw.id,
+    ),
+  ).toEqual([values[4].id]);
+});
+
+test('an active time bound excludes finite timestamps outside the supported date range', () => {
+  const values = [
+    { ...event('app.event'), at: 1 },
+    { ...event('app.event'), at: 8.64e15 + 1 },
+  ];
+  const events = panelEvents(values);
+  expect(
+    queryEvents(events, { from: 0 }).events.map((entry) => entry.raw.id),
+  ).toEqual([values[0].id]);
+  expect(queryEvents(events).matched).toBe(2);
+});
+
+test.each([
+  ['engine.planner.failed', 'unknown'],
+  ['engine.planner.failed', 'skipped'],
+  ['client.command.failed', 'unknown'],
+  ['client.command.failed', 'skipped'],
+  ['client.connection.failed', 'unknown'],
+  ['client.connection.failed', 'skipped'],
+] as const)('explicit %s outcome %s stays outside the Failures preset', (kind, outcome) => {
+  const events = panelEvents([event(kind, 'app-a', 'request', { outcome })]);
+  expect(queryEvents(events, { outcome: 'failed' }).matched).toBe(0);
+  expect(
+    queryEvents(events, { outcome, issueCategory: 'unreported' }).matched,
+  ).toBe(1);
+});
 
 test('request comparison leaves missing and push timings unknown and never combines nested server work', () => {
   const requests = groupRequests(
