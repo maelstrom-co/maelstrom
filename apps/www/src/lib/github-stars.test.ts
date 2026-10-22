@@ -9,6 +9,63 @@ test('shows the real star count, including a repository with zero stars', async 
   }
 });
 
+test('renders prefetched public counts without another unauthenticated GitHub request', async () => {
+  let calls = 0;
+  const request = (async () => {
+    calls += 1;
+    return new Response(null, { status: 403 });
+  }) as typeof fetch;
+  for (const count of ['0', '1234']) {
+    expect(await getGitHubStarCount(request, count)).toBe(Number(count));
+  }
+  expect(calls).toBe(0);
+});
+
+test('rejects invalid prefetched metadata without exposing it in diagnostics', async () => {
+  const warn = spyOn(console, 'warn').mockImplementation(() => {});
+  let calls = 0;
+  const request = (async () => {
+    calls += 1;
+    return Response.json({ stargazers_count: 5 });
+  }) as typeof fetch;
+  try {
+    for (const count of [
+      '-1',
+      '1.5',
+      '1e2',
+      '01',
+      '9007199254740992',
+      'do-not-log-response',
+    ]) {
+      expect(await getGitHubStarCount(request, count)).toBeUndefined();
+    }
+    expect(calls).toBe(0);
+    expect(warn).toHaveBeenCalledTimes(6);
+    expect(
+      warn.mock.calls.every(
+        ([line]) =>
+          JSON.parse(String(line)).reason === 'invalid_prefetched_count',
+      ),
+    ).toBe(true);
+    expect(JSON.stringify(warn.mock.calls)).not.toContain(
+      'do-not-log-response',
+    );
+  } finally {
+    warn.mockRestore();
+  }
+});
+
+test('keeps the public API fallback for local builds without prefetched metadata', async () => {
+  let calls = 0;
+  const request = (async () => {
+    calls += 1;
+    return Response.json({ stargazers_count: 5 });
+  }) as typeof fetch;
+  expect(await getGitHubStarCount(request, undefined)).toBe(5);
+  expect(await getGitHubStarCount(request, '')).toBe(5);
+  expect(calls).toBe(2);
+});
+
 test('never invents a count when GitHub is private, unavailable, or returns invalid data', async () => {
   for (const body of [
     {},

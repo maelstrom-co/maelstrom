@@ -175,6 +175,17 @@ jobs:
             echo "Skipping stale revision $DEPLOY_SHA; latest green revision is $latest_green_sha"
           fi
 
+      - name: Fetch public GitHub star count
+        id: github-stars
+        if: steps.revision.outputs.current == 'true' && matrix.app == 'www'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          github_star_count="$(gh api "repos/${GITHUB_REPOSITORY}" --jq '.stargazers_count | select(type == "number" and . >= 0 and . <= 9007199254740991 and floor == .)')"
+          test -n "$github_star_count"
+          printf 'count=%s\n' "$github_star_count" >> "$GITHUB_OUTPUT"
+
       # Do not trust remote or local cache entries for production artifacts.
       # Credentials are intentionally absent while application code executes.
       - name: Build production artifact
@@ -184,6 +195,7 @@ jobs:
           DOCS_SOURCE_REF: ${{ env.DEPLOY_SHA }}
           PUBLIC_TURNSTILE_ENVIRONMENT: production
           PUBLIC_TURNSTILE_SITE_KEY: ${{ matrix.app == 'www' && needs.platform.outputs.turnstile-sitekey || '' }}
+          PUBLIC_GITHUB_STAR_COUNT: ${{ steps.github-stars.outputs.count }}
 
       # CI can turn green for a newer revision while this artifact builds.
       - name: Recheck deployment revision

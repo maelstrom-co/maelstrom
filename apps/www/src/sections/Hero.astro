@@ -6,7 +6,10 @@ import { getGitHubStarCount } from '../lib/github-stars';
 
 const DOCS_URL = 'https://docs.maelstrom-ai.co';
 const INSTALLATION_URL = `${DOCS_URL}/getting-started/installation/`;
-const starCount = await getGitHubStarCount();
+const starCount = await getGitHubStarCount(
+  undefined,
+  import.meta.env.PUBLIC_GITHUB_STAR_COUNT,
+);
 ---
 <section class="hero">
   <div class="container hero-inner">
