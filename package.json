@@ -164,13 +164,18 @@
   "overrides": {
     "@hono/node-server": "1.19.15",
     "compression": "1.8.2",
+    "file-type": "21.3.4",
     "handlebars": "4.7.10",
     "hono": "4.13.11",
+    "http-cache-semantics": "4.3.0",
     "@verdaccio/config>js-yaml": "5.5.0",
     "lodash": "4.18.1",
+    "katex": "0.18.2",
     "nx>undici": "7.29.1",
+    "qs": "6.16.1",
     "sharp": "0.35.5",
-    "shell-quote": "1.11.0"
+    "shell-quote": "1.11.0",
+    "valibot": "1.4.2"
   },
   "patchedDependencies": {
     "alchemy@2.0.0-beta.83": "patches/alchemy@2.0.0-beta.83.patch"
