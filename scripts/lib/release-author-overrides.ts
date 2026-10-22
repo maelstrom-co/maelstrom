@@ -16,7 +16,8 @@ const nachoCorrection: AuthorCorrection = {
   },
 };
 
-// Evidence for these mixed squash identities is in docs/research/github-squash-author-attribution.md.
+// These squash commits mixed the author name and merger email. Keep corrections
+// scoped to their full hashes and expected identity; leave commit objects intact.
 const releaseAuthorOverrides = new Map<string, AuthorCorrection>([
   ['bd29917d32a6bed291d28c20c0e5abee3a2a65e2', nachoCorrection],
   ['21e9f07ceaf98b3326eedf559a08c5c72d265914', nachoCorrection],

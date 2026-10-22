@@ -105,9 +105,6 @@
           "{projectRoot}/tools/skills/**/*",
           "{workspaceRoot}/docs/realtime-voice-architecture.md",
           "{workspaceRoot}/docs/architecture.md",
-          "{workspaceRoot}/docs/adr/0001-realtime-providers-come-in-two-kinds.md",
-          "{workspaceRoot}/docs/adr/0002-credential-custody-is-a-dependency-edge.md",
-          "{workspaceRoot}/docs/adr/0003-turn-taking-is-provider-neutral.md",
           {
             "externalDependencies": [
               "astro"
@@ -207,10 +204,7 @@
         "inputs": [
           "default",
           "{workspaceRoot}/docs/realtime-voice-architecture.md",
-          "{workspaceRoot}/docs/architecture.md",
-          "{workspaceRoot}/docs/adr/0001-realtime-providers-come-in-two-kinds.md",
-          "{workspaceRoot}/docs/adr/0002-credential-custody-is-a-dependency-edge.md",
-          "{workspaceRoot}/docs/adr/0003-turn-taking-is-provider-neutral.md"
+          "{workspaceRoot}/docs/architecture.md"
         ],
         "options": {
           "cwd": "{projectRoot}"

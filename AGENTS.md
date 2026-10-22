@@ -36,7 +36,7 @@ Rationale for these lives in `docs/architecture.md`.
 - Browser realtime packages never hold provider secrets. Server packages mint ephemeral tokens or provider grants.
 - Realtime code sits in four layers: CONTRACT, BROWSER, SERVER, WORKER. No server or worker package may depend on a browser package. `packages/realtime-protocol/src/layer-boundary.test.ts` enforces the rule and documents the regression that prompted it.
 
-Read `docs/realtime-voice-architecture.md` and `docs/adr/0001`–`0003` when the work touches realtime voice.
+Read `docs/realtime-voice-architecture.md` when the work touches realtime voice, including its provider package contracts, dependency boundaries, and runtime turn mode.
 
 ## Published APIs
 

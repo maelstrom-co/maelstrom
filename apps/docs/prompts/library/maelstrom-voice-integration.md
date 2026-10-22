@@ -1,6 +1,6 @@
 ---
 id: maelstrom-voice-integration
-prompt_version: 0.1.0
+prompt_version: 0.1.1
 compatibility:
   sdk:
     "@maelstrom-co/react-realtime": "0.1.0-alpha.4"
@@ -19,16 +19,14 @@ Implementation authorized: [YES / NO]
 
 Inspect the app's current intent flow, React shell, server routes/deployment,
 installed package versions, and the canonical voice architecture before proposing
-changes. Read `docs/realtime-voice-architecture.md` and ADRs 0001, 0002, and 0003
-from the app checkout when present. For a portable skill bundle, resolve the
-installed skill root (commonly `.agents/skills/` or `.claude/skills/`) and read
-`references/canonical-voice/docs/realtime-voice-architecture.md` and the ADRs
-under `references/canonical-voice/docs/adr/`. For standalone use, retrieve the
-canonical files from the Maelstrom source repository at
-`https://github.com/maelstrom-co/maelstrom/tree/main/docs/` and
-`https://github.com/maelstrom-co/maelstrom/tree/main/docs/adr/`. If none is
-available, ask for the materials before implementation; do not infer their
-contents or assume a public guide links the ADRs. Confirm selected
+changes. Read `docs/realtime-voice-architecture.md` and `docs/architecture.md`
+from the app checkout when present, including the provider package contracts,
+dependency boundaries, and runtime turn mode. For a portable skill bundle,
+resolve the installed skill root (commonly `.agents/skills/` or `.claude/skills/`)
+and read both files under `references/canonical-voice/docs/`. For standalone use,
+retrieve the canonical files from the Maelstrom source repository at
+`https://github.com/maelstrom-co/maelstrom/tree/main/docs/`. If neither source is
+available, ask for the materials before implementation. Confirm selected
 APIs against installed package exports/types/source/tests. Use a provider guide
 as version-specific evidence only when its version matches the installed SDK; label
 current external docs as unversioned when that match is unknown. Do not assume a

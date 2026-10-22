@@ -62,6 +62,19 @@ async function generatedBundle(): Promise<Record<string, Uint8Array>> {
 }
 
 describe('portable agent skill bundle', () => {
+  test('voice downloads preserve contributor rules without private decision records', async () => {
+    const archive = await generatedBundle();
+    expect(
+      Object.keys(archive).filter((path) => path.includes('/docs/adr/')),
+    ).toEqual([]);
+    const voice = new TextDecoder().decode(
+      archive[`${canonicalBundleRoot}/realtime-voice-architecture.md`],
+    );
+    expect(voice).toContain('TurnModeEvent');
+    expect(voice).toContain('non-root entry point');
+    expect(voice).toContain('noRestrictedImports');
+  });
+
   test('has one uniquely named lead per documented task, with valid frontmatter', async () => {
     const files = await markdownFiles(skillsRoot);
     const skillFiles = files.filter((file) =>
@@ -219,7 +232,7 @@ describe('portable agent skill bundle', () => {
         await readFile(
           join(
             skillRoot,
-            'references/canonical-voice/docs/adr/0001-realtime-providers-come-in-two-kinds.md',
+            'references/canonical-voice/docs/realtime-voice-architecture.md',
           ),
           'utf8',
         ),
@@ -364,7 +377,7 @@ describe('portable agent skill bundle', () => {
     expect(skill).toContain('Keep Vessel/Chart structure out of every worker');
   });
 
-  test('voice references route to the canonical docs origin and bundled ADR evidence', async () => {
+  test('voice references include both public architecture documents', async () => {
     for (const file of [
       'browser-react.md',
       'connectors-and-auth.md',
@@ -386,11 +399,9 @@ describe('portable agent skill bundle', () => {
     expect(voiceReferences.join('\n')).toContain(
       'https://docs.maelstrom-ai.co/understanding/voice-architecture/',
     );
-    for (const adr of CANONICAL_VOICE_DOCUMENTS.filter((file) =>
-      file.startsWith('adr/'),
-    ))
+    for (const file of ['realtime-voice-architecture.md', 'architecture.md'])
       expect(voiceReferences.join('\n')).toContain(
-        `canonical-voice/docs/${adr}`,
+        `canonical-voice/docs/${file}`,
       );
     expect(voiceReferences.join('\n')).toContain('version-specific only when');
   });
