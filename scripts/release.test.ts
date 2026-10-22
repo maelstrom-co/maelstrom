@@ -12,6 +12,10 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import {
+  assertNoProtocolLiterals,
+  substituteManifest,
+} from './publish-packages.ts';
 
 const roots: string[] = [];
 afterEach(() => {
@@ -19,7 +23,11 @@ afterEach(() => {
     rmSync(root, { recursive: true, force: true });
 });
 
-function fixture({ firstRelease = false, initialVersion = '0.1.0' } = {}) {
+function fixture({
+  firstRelease = false,
+  initialVersion = '0.1.0',
+  withSharedPackage = false,
+} = {}) {
   const { releaseTag } = JSON.parse(
     readFileSync(resolve('nx.json'), 'utf8'),
   ).release;
@@ -35,8 +43,9 @@ function fixture({ firstRelease = false, initialVersion = '0.1.0' } = {}) {
     workspaces: ['packages/*'],
   });
   write('nx.json', {
+    cli: { packageManager: 'bun' },
     release: {
-      projects: ['sdk'],
+      projects: withSharedPackage ? ['sdk', 'shared'] : ['sdk'],
       projectsRelationship: 'fixed',
       releaseTag,
       version: {
@@ -73,6 +82,30 @@ function fixture({ firstRelease = false, initialVersion = '0.1.0' } = {}) {
   });
   writeFileSync(join(cwd, 'packages/sdk/README.md'), '# SDK\n');
   writeFileSync(join(cwd, 'packages/sdk/LICENSE'), 'MIT\n');
+  if (withSharedPackage) {
+    const sdk = JSON.parse(
+      readFileSync(join(cwd, 'packages/sdk/package.json'), 'utf8'),
+    );
+    mkdirSync(join(cwd, 'packages/shared'));
+    write('packages/shared/package.json', {
+      ...sdk,
+      name: '@maelstrom-co/shared',
+      nx: { name: 'shared' },
+      repository: { ...sdk.repository, directory: 'packages/shared' },
+    });
+    writeFileSync(join(cwd, 'packages/shared/README.md'), '# Shared\n');
+    writeFileSync(join(cwd, 'packages/shared/LICENSE'), 'MIT\n');
+    write('packages/sdk/package.json', {
+      ...sdk,
+      dependencies: { '@maelstrom-co/shared': sdk.version },
+      devDependencies: { '@maelstrom-co/shared': 'workspace:*' },
+      optionalDependencies: { '@maelstrom-co/shared': 'workspace:*' },
+      peerDependencies: {
+        '@maelstrom-co/shared': 'workspace:*',
+        react: '^19.0.0',
+      },
+    });
+  }
   writeFileSync(join(cwd, '.gitignore'), 'node_modules/\n.nx/\n');
   symlinkSync(resolve('node_modules'), join(cwd, 'node_modules'));
   const git = (args: string[]) => {
@@ -223,6 +256,53 @@ test('the first public release graduates the tagged alpha without deleting histo
   ).toContain('correct sdk example');
   expect(f.git(['rev-parse', 'HEAD'])).toBe(f.head);
   expect(f.git(['tag', '--list'])).toBe('v0.1.0-alpha.8');
+  expect(f.git(['diff', '--cached', '--name-only'])).toBe('');
+  expect(existsSync(f.calls)).toBe(false);
+}, 40000);
+
+test('stable preparation does not require alpha packages to install an internal dependency', () => {
+  const f = fixture({
+    initialVersion: '0.1.0-alpha.8',
+    withSharedPackage: true,
+  });
+  const rehearsal = f.run('--version', '0.1.0', '--dry-run');
+  expect(rehearsal.status, rehearsal.stderr + rehearsal.stdout).toBe(0);
+  expect(f.git(['status', '--porcelain'])).toBe('');
+
+  const prepared = f.run('--version', '0.1.0');
+  expect(prepared.status, prepared.stderr + prepared.stdout).toBe(0);
+  const sdk = JSON.parse(
+    readFileSync(join(f.cwd, 'packages/sdk/package.json'), 'utf8'),
+  );
+  const shared = JSON.parse(
+    readFileSync(join(f.cwd, 'packages/shared/package.json'), 'utf8'),
+  );
+  expect(sdk.version).toBe('0.1.0');
+  expect(shared.version).toBe('0.1.0');
+  expect(sdk.dependencies['@maelstrom-co/shared']).toBe('0.1.0');
+  expect(sdk.peerDependencies['@maelstrom-co/shared']).toBe('workspace:*');
+  const published = substituteManifest(
+    {
+      catalog: {},
+      workspaceVersions: new Map([
+        [sdk.name, sdk.version],
+        [shared.name, shared.version],
+      ]),
+    },
+    sdk,
+  );
+  assertNoProtocolLiterals(published);
+  for (const field of [
+    'dependencies',
+    'devDependencies',
+    'peerDependencies',
+    'optionalDependencies',
+  ] as const) {
+    expect(published[field]?.['@maelstrom-co/shared']).toBe('0.1.0');
+  }
+  expect(published.peerDependencies?.react).toBe('^19.0.0');
+  expect(f.git(['rev-parse', 'HEAD'])).toBe(f.head);
+  expect(f.git(['tag', '--list'])).toBe(f.tags);
   expect(f.git(['diff', '--cached', '--name-only'])).toBe('');
   expect(existsSync(f.calls)).toBe(false);
 }, 40000);
