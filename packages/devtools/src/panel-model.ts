@@ -20,6 +20,7 @@ import {
 export { identity } from './diagnostic-identity.js';
 export { type EventIssue, eventIssue } from './event-outcome.js';
 export { queryEvents } from './event-query.js';
+export { plannerEvidence } from './planner-evidence.js';
 export {
   type RequestCounterpart,
   requestCounterparts,
