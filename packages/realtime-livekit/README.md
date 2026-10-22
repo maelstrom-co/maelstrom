@@ -46,13 +46,13 @@ The Node-only token minter is a **separate package**, not a subpath here:
 ## Install
 
 ```bash
-bun add @maelstrom-co/realtime@alpha @maelstrom-co/realtime-livekit@alpha @maelstrom-co/realtime-vad@alpha livekit-client
+bun add @maelstrom-co/realtime @maelstrom-co/realtime-livekit @maelstrom-co/realtime-vad livekit-client
 ```
 
 ```bash
-npm install @maelstrom-co/realtime@alpha @maelstrom-co/realtime-livekit@alpha @maelstrom-co/realtime-vad@alpha livekit-client
-pnpm add @maelstrom-co/realtime@alpha @maelstrom-co/realtime-livekit@alpha @maelstrom-co/realtime-vad@alpha livekit-client
-yarn add @maelstrom-co/realtime@alpha @maelstrom-co/realtime-livekit@alpha @maelstrom-co/realtime-vad@alpha livekit-client
+npm install @maelstrom-co/realtime @maelstrom-co/realtime-livekit @maelstrom-co/realtime-vad livekit-client
+pnpm add @maelstrom-co/realtime @maelstrom-co/realtime-livekit @maelstrom-co/realtime-vad livekit-client
+yarn add @maelstrom-co/realtime @maelstrom-co/realtime-livekit @maelstrom-co/realtime-vad livekit-client
 ```
 
 `@maelstrom-co/realtime` is listed explicitly because the usage below imports

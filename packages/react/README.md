@@ -9,10 +9,10 @@ React bindings for Maelstrom — AI-orchestrated dynamic UIs.
 ## Install
 
 ```bash
-bun add @maelstrom-co/react@alpha
+bun add @maelstrom-co/react
 ```
 
-Or: `npm install` / `pnpm add` / `yarn add @maelstrom-co/react@alpha`
+Or: `npm install` / `pnpm add` / `yarn add @maelstrom-co/react`
 
 ## What it does
 

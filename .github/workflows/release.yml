@@ -16,7 +16,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Release tag to publish, e.g. v0.1.0-alpha.0. Leave empty to dry-run the current branch.'
+        description: 'Release tag to publish, e.g. v0.1.0. Leave empty to dry-run the current branch.'
         required: false
         type: string
       dry_run:

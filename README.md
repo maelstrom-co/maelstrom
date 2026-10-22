@@ -66,10 +66,10 @@ and actions against the application's registered Vessels and current Chart.
 
 ## Install
 
-Install the React package from npm. The current release uses the `alpha` tag:
+Install the React package from npm:
 
 ```bash
-npm install @maelstrom-co/react@alpha
+npm install @maelstrom-co/react
 ```
 
 The [installation guide](https://docs.maelstrom-ai.co/getting-started/installation/)

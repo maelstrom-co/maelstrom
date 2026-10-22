@@ -347,31 +347,26 @@ use OIDC authentication and trusted publisher code. See
 
 ### npm dist-tag policy
 
-Alpha installation uses the explicit `@alpha` tag. The release workflow publishes
-prereleases under their preid and stable releases under `latest`. The registry
-may also initialize `latest` on a package's first publication; inspect the actual
-tags rather than assuming that the requested tag is the only tag changed.
+The first public release is stable `0.1.0`. Stable releases publish under `latest`,
+so users can install packages without a dist-tag or version suffix. Verify that
+every SDK package's `latest` resolves to the intended release before launch.
 
 Before enabling previews, finish and verify the first release for every package.
 The preview publisher checks that every package already exists before publishing
 any archive. Missing packages and failed lookups stop the entire preview.
 
-During the pre-1.0 alpha period, a maintainer may promote a complete, verified
-alpha release to `latest` so bare installs select an intentional version:
+1. Verify that the first release publishes version `0.1.0` for every SDK package.
+2. Run `npm view PACKAGE dist-tags --json --registry https://registry.npmjs.org`
+   for every package, replacing PACKAGE with its name. Each `latest` must resolve
+   to `0.1.0` for the first release.
+3. Test bare installs in a clean consumer and confirm the installed versions.
+   Keep the production launch gate disabled while tags or consumer checks remain
+   incomplete.
 
-1. Verify all package versions and their `alpha` tags after the release succeeds.
-2. Inspect each package's current `latest`. Never replace an existing stable
-   release with an alpha, and never promote a `0.0.0-pr.*` preview.
-3. With authorized npm account credentials, run
-   `npm dist-tag add PACKAGE@VERSION latest --registry https://registry.npmjs.org`
-   for each SDK package, replacing PACKAGE and VERSION with the verified values.
-   This is a separate maintainer operation; trusted publication alone does not
-   establish permission to edit dist-tags.
-4. Verify `npm view PACKAGE dist-tags --json --registry https://registry.npmjs.org`
-   for every package. Both `alpha` and `latest` must select the intended release.
-   If promotion stops partway, finish the remaining packages and recheck all tags.
-5. Test bare installs in a clean consumer before advertising them. Do not enable
-   the production launch gate while tags or consumer checks remain incomplete.
+PR previews use `pr-<number>` tags and must never become `latest`. Any future
+prerelease uses its explicit prerelease tag. Do not replace a stable `latest`
+with a prerelease. Correcting an unexpected registry tag is a separate maintainer
+operation that requires authorized npm account credentials.
 
 The workflow enforces one boundary on its own, independent of the settings
 above: `prepare` refuses to continue unless the tagged commit is reachable from
@@ -388,10 +383,10 @@ commit, tag, push, create a GitHub release, or publish packages.
 1. Start a release branch from current `main` with a clean working tree.
    Install dependencies with `bun install`.
 
-2. Rehearse the version calculation and inspect the generated notes:
+2. Rehearse the first stable release and inspect the generated notes:
 
    ```bash
-   bun run scripts/release.ts --preid alpha --dry-run
+   bun run scripts/release.ts --version 0.1.0 --first-release --dry-run
    ```
 
    To rehearse CI, run the **Release** workflow via `workflow_dispatch` with
@@ -400,10 +395,12 @@ commit, tag, push, create a GitHub release, or publish packages.
 3. Prepare the versions and notes for review:
 
    ```bash
-   bun run scripts/release.ts --preid alpha
+   bun run scripts/release.ts --version 0.1.0 --first-release
    ```
 
-   For the first release with no prior `v*` tags, add `--first-release`.
+   These commands prepare the first public release, with no prior `v*` tags.
+   For later stable releases, omit `--first-release` and select the next version
+   with `--version`.
    Review every changed manifest and the generated notes. Edit the notes if
    needed. Commit with a DCO sign-off and open a release PR titled
    `chore(release): VERSION`. Wait for checks, review, and merge approval.
@@ -424,12 +421,13 @@ commit, tag, push, create a GitHub release, or publish packages.
    ```bash
    gh release create vVERSION --repo maelstrom-co/maelstrom \
      --target MERGED_COMMIT_SHA --title vVERSION \
-     --notes-file .github/releases/vVERSION.md --prerelease
+     --notes-file .github/releases/vVERSION.md
    ```
 
-   Keep `--prerelease` for alpha, beta, or release-candidate versions. Omit it
-   for a stable release. This command creates the tag on GitHub and publishes
-   the release. It does not push a version commit to `main`. A bare tag push
+   The first release uses `VERSION=0.1.0` and no `--prerelease` flag. Add that
+   flag only for an explicitly planned future prerelease. This command creates
+   the tag on GitHub and publishes the release. It does not push a version commit
+   to `main`. A bare tag push
    no longer starts npm publishing. See the
    [GitHub CLI release reference](https://cli.github.com/manual/gh_release_create).
 
@@ -465,12 +463,11 @@ re-run work.
   repository, public access, and npm registry. Bootstrap new package names and
   configure their trusted publishers before relying on OIDC.
 - **`--preid` tells Nx which prerelease identifier to use when calculating a
-  bump.** The npm dist-tag always comes from the resolved version:
-  `0.1.0-alpha.0` publishes under `alpha`, while a stable version publishes
-  under `latest`. Pass `--preid alpha` while calculating alpha releases, then
-  verify the actual registry tags using the npm dist-tag policy above.
+  bump.** Stable releases, including the first `0.1.0`, omit this flag and
+  publish under `latest`. Reserve it for explicitly planned future prereleases;
+  their npm dist-tag comes from the resolved version's prerelease identifier.
 - **`--version`** overrides the bump inferred from Conventional Commits. It
-  accepts an explicit version (`0.1.0-alpha.0`) or a bump (`patch` | `minor` |
+  accepts an explicit version (`0.1.0`) or a bump (`patch` | `minor` |
   `major` | `prerelease`).
 - **`--skip-publish` was removed.** Preparation always stops before VCS or
   remote release operations. Use the reviewed release PR process above.

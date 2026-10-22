@@ -7,7 +7,7 @@ Read the [DevTools guide](https://docs.maelstrom-ai.co/guides/devtools/) for the
 installation and recording workflow.
 
 ```sh
-bun add @maelstrom-co/react-devtools@alpha
+bun add @maelstrom-co/react-devtools
 ```
 
 Apply the extension to your configured instance. This fragment uses your existing

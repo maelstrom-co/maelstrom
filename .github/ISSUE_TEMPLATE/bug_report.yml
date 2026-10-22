@@ -22,7 +22,7 @@ body:
     id: version
     attributes:
       label: Package Version
-      placeholder: "0.1.0-alpha.8"
+      placeholder: "0.1.0"
     validations:
       required: true
 

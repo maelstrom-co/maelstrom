@@ -19,7 +19,7 @@ afterEach(() => {
     rmSync(root, { recursive: true, force: true });
 });
 
-function fixture() {
+function fixture({ firstRelease = false } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'release-pr-'));
   roots.push(root);
   const cwd = join(root, 'repo');
@@ -54,7 +54,7 @@ function fixture() {
   });
   write('packages/sdk/package.json', {
     name: '@maelstrom-co/sdk',
-    version: '0.1.0',
+    version: firstRelease ? '0.1.0-alpha.8' : '0.1.0',
     nx: { name: 'sdk' },
     description: 'A release fixture',
     keywords: ['ui', 'ai', 'sdk'],
@@ -81,7 +81,7 @@ function fixture() {
   git(['config', 'user.name', 'Release fixture']);
   git(['add', '.']);
   git(['-c', 'commit.gpgsign=false', 'commit', '-m', 'feat: add sdk']);
-  git(['tag', 'v0.1.0']);
+  if (!firstRelease) git(['tag', 'v0.1.0']);
   writeFileSync(
     join(cwd, 'packages/sdk/README.md'),
     '# SDK\n\nA corrected example.\n',
@@ -161,7 +161,7 @@ test('rejects the removed publish flag before changing release files', () => {
   expect(existsSync(f.calls)).toBe(false);
 }, 40000);
 
-test('the documented alpha preparation keeps the inferred release on its prerelease channel', () => {
+test('explicit prerelease preparation keeps the inferred release on its requested channel', () => {
   const f = fixture();
   const rehearsal = f.run('--preid', 'alpha', '--dry-run');
   expect(rehearsal.status, rehearsal.stderr + rehearsal.stdout).toBe(0);
@@ -177,5 +177,27 @@ test('the documented alpha preparation keeps the inferred release on its prerele
   ).toContain('correct sdk example');
   expect(f.git(['rev-parse', 'HEAD'])).toBe(f.head);
   expect(f.git(['tag', '--list'])).toBe(f.tags);
+  expect(existsSync(f.calls)).toBe(false);
+}, 40000);
+
+test('the first public release graduates the existing alpha to stable 0.1.0 without remote operations', () => {
+  const f = fixture({ firstRelease: true });
+  const rehearsal = f.run('--version', '0.1.0', '--first-release', '--dry-run');
+  expect(rehearsal.status, rehearsal.stderr + rehearsal.stdout).toBe(0);
+  expect(rehearsal.stdout).toContain('Would write .github/releases/v0.1.0.md');
+  expect(f.git(['status', '--porcelain'])).toBe('');
+
+  const prepared = f.run('--version', '0.1.0', '--first-release');
+  expect(prepared.status, prepared.stderr + prepared.stdout).toBe(0);
+  expect(
+    JSON.parse(readFileSync(join(f.cwd, 'packages/sdk/package.json'), 'utf8'))
+      .version,
+  ).toBe('0.1.0');
+  expect(
+    readFileSync(join(f.cwd, '.github/releases/v0.1.0.md'), 'utf8'),
+  ).toContain('correct sdk example');
+  expect(f.git(['rev-parse', 'HEAD'])).toBe(f.head);
+  expect(f.git(['tag', '--list'])).toBe('');
+  expect(f.git(['diff', '--cached', '--name-only'])).toBe('');
   expect(existsSync(f.calls)).toBe(false);
 }, 40000);

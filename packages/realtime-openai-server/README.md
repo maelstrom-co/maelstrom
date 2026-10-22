@@ -8,10 +8,10 @@ This is the only Maelstrom package that touches raw provider API keys
 ## Install
 
 ```bash
-bun add @maelstrom-co/realtime-openai-server@alpha @maelstrom-co/protocol@alpha
+bun add @maelstrom-co/realtime-openai-server @maelstrom-co/protocol
 ```
 
-Or: `npm install` / `pnpm add` / `yarn add @maelstrom-co/realtime-openai-server@alpha @maelstrom-co/protocol@alpha`
+Or: `npm install` / `pnpm add` / `yarn add @maelstrom-co/realtime-openai-server @maelstrom-co/protocol`
 
 ## What it does
 

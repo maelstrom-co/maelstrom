@@ -9,10 +9,10 @@ Framework-agnostic client core for Maelstrom.
 ## Install
 
 ```bash
-bun add @maelstrom-co/client@alpha @maelstrom-co/protocol@alpha
+bun add @maelstrom-co/client @maelstrom-co/protocol
 ```
 
-Or: `npm install` / `pnpm add` / `yarn add @maelstrom-co/client@alpha @maelstrom-co/protocol@alpha`
+Or: `npm install` / `pnpm add` / `yarn add @maelstrom-co/client @maelstrom-co/protocol`
 
 ## What it does
 
