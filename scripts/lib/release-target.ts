@@ -63,17 +63,22 @@ export function versionFromTag(tag: string): string {
 
 export type ResolveInput = {
   eventName: string;
-  /** Tag name for a tag push; ignored for a manual dispatch. */
+  /** Tag name for a published release; ignored for a manual dispatch. */
   refName: string;
   inputTag?: string;
   inputDryRun?: string;
 };
 
 export function resolveReleaseTarget(input: ResolveInput): ReleaseTarget {
-  const isPush = input.eventName === 'push';
-  const tag = (isPush ? input.refName : (input.inputTag ?? '')).trim();
-  // A tag push is always a real release; only a manual dispatch can rehearse.
-  const dryRun = isPush ? false : input.inputDryRun === 'true';
+  const isRelease = input.eventName === 'release';
+  if (!isRelease && input.eventName !== 'workflow_dispatch') {
+    throw new ReleaseTargetError(
+      `Unsupported release event "${input.eventName}"`,
+    );
+  }
+  const tag = (isRelease ? input.refName : (input.inputTag ?? '')).trim();
+  // A published release is always real; only a manual dispatch can rehearse.
+  const dryRun = isRelease ? false : input.inputDryRun === 'true';
 
   if (!tag) {
     if (!dryRun) {

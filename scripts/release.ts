@@ -1,170 +1,82 @@
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { releaseChangelog, releaseVersion } from 'nx/release';
-import {
-  getCommitHash,
-  gitCommit,
-  gitPush,
-  gitTag,
-} from 'nx/src/command-line/release/utils/git';
-import { createRemoteReleaseClient } from 'nx/src/command-line/release/utils/remote-release-clients/remote-release-client';
-import {
-  createCommitMessageValues,
-  createGitTagValues,
-  handleDuplicateGitTags,
-} from 'nx/src/command-line/release/utils/shared';
 import { assertRegistryMetadata } from './assert-registry-metadata.ts';
-import { resolveRegistry } from './lib/registry.ts';
-import { distTagForVersion } from './lib/release-target.ts';
-import { publishWorkspacePackages } from './publish-packages.ts';
+import { versionFromTag } from './lib/release-target.ts';
 
 const { values } = parseArgs({
   options: {
     version: { type: 'string' },
     'dry-run': { type: 'boolean', short: 'd', default: false },
     verbose: { type: 'boolean', default: false },
-    'skip-publish': { type: 'boolean', default: false },
     'first-release': { type: 'boolean', default: false },
     preid: { type: 'string' },
   },
 });
 
-const dryRun = values['dry-run'] ?? false;
-const verbose = values.verbose ?? false;
-const firstRelease = values['first-release'] ?? false;
-const preid = values.preid;
+const dryRun = values['dry-run'];
+const verbose = values.verbose;
+const firstRelease = values['first-release'];
 
-// Fail before Nx versions manifests or creates release state. CI repeats this
-// check before packing, but by then the release commit and tag already exist.
 assertRegistryMetadata();
 
-// Step 1: Version — bump package.json files, stage only (no commit/tag)
-const { workspaceVersion, projectsVersionData, releaseGraph } =
-  await releaseVersion({
-    specifier: values.version,
-    preid,
-    firstRelease,
-    dryRun,
-    verbose,
-    stageChanges: true,
-    gitCommit: false,
-    gitTag: false,
-  });
-
-// Step 2: Changelog — generate changelog content, stage only (no commit/tag/push/release)
-const changelogResult = await releaseChangelog({
-  releaseGraph,
-  versionData: projectsVersionData,
-  version: workspaceVersion,
-  firstRelease,
-  dryRun,
-  verbose,
-  stageChanges: true,
+// Explicit overrides keep repository defaults from pushing unreviewed release
+// changes. Preparation must also leave a colocated Jujutsu index untouched.
+const localOnly = {
+  stageChanges: false,
   gitCommit: false,
   gitTag: false,
   gitPush: false,
-  createRelease: false,
-});
-
-// Step 3: Commit all staged changes
-const commitMessage = 'chore(release): {version}';
-const commitMessageValues = createCommitMessageValues(
-  releaseGraph.releaseGroups,
-  releaseGraph.releaseGroupToFilteredProjects,
-  projectsVersionData,
-  commitMessage,
-);
-await gitCommit({
-  messages: commitMessageValues,
-  additionalArgs: '',
-  dryRun,
-  verbose,
-});
-
-// Step 4: Tag the commit
-const gitTagValues = createGitTagValues(
-  releaseGraph.releaseGroups,
-  releaseGraph.releaseGroupToFilteredProjects,
-  projectsVersionData,
-);
-handleDuplicateGitTags(gitTagValues);
-for (const tag of gitTagValues) {
-  await gitTag({
-    tag,
-    message: '',
-    additionalArgs: '',
+};
+const { workspaceVersion, projectsVersionData, releaseGraph } =
+  await releaseVersion({
+    ...localOnly,
+    specifier: values.version,
+    preid: values.preid,
+    firstRelease,
     dryRun,
     verbose,
   });
-}
 
-// Step 5: Push to remote (required for GitHub release)
-await gitPush({
-  dryRun,
-  verbose,
-  additionalArgs: '',
-});
-
-// Step 6: Create GitHub release
-if (changelogResult.workspaceChangelog) {
-  const remoteReleaseClient = await createRemoteReleaseClient({
-    provider: 'github',
-    hostname: 'github.com',
-    apiBaseUrl: 'https://api.github.com',
-  });
-  // Nx returns null when it cannot build a client (unauthenticated `gh`, no
-  // GITHUB_TOKEN). Fail here rather than at a property access: by this point
-  // the commit and tag are already pushed, so a clear cause matters.
-  if (!remoteReleaseClient) {
-    throw new Error(
-      'Could not create a GitHub release client. Authenticate `gh` or set GITHUB_TOKEN.',
-    );
-  }
-  const latestCommit = await getCommitHash('HEAD');
-  await remoteReleaseClient.createOrUpdateRelease(
-    changelogResult.workspaceChangelog.releaseVersion,
-    changelogResult.workspaceChangelog.contents,
-    latestCommit,
-    { dryRun },
-  );
-}
-
-if (values['skip-publish']) {
-  console.log('Skipping publish.');
+if (!workspaceVersion) {
+  console.log('No package changes need a release.');
   process.exit(0);
 }
 
-// Step 7: Publish each non-private project. The publish step bypasses Nx's
-// `releasePublish` because `publishWorkspacePackages` rewrites `workspace:*`
-// and `catalog:` specs to concrete versions in the manifest before
-// `npm publish`, which neither npm nor a from-package-dir invocation does for
-// us — consumers would otherwise get literal protocol strings they can't
-// resolve.
-const publishVersion =
-  workspaceVersion ??
-  Object.values(projectsVersionData).find((data) => data.newVersion)
-    ?.newVersion;
-if (!publishVersion) {
-  throw new Error('The release resolved no version to publish.');
-}
-const npmTag = distTagForVersion(publishVersion);
-const registry = resolveRegistry();
-const versionOverrides = dryRun
-  ? new Map(
-      Object.entries(projectsVersionData).flatMap(([name, data]) =>
-        data.newVersion ? [[name, data.newVersion] as const] : [],
-      ),
-    )
-  : undefined;
-
-const { failures } = await publishWorkspacePackages({
-  tag: npmTag,
-  registry,
+const version = versionFromTag(`v${workspaceVersion}`);
+const notesPath = join('.github', 'releases', `v${version}.md`);
+const changelogResult = await releaseChangelog({
+  ...localOnly,
+  releaseGraph,
+  versionData: projectsVersionData,
+  version,
+  firstRelease,
   dryRun,
   verbose,
-  versionOverrides,
+  createRelease: false,
+  // nx.json disables changelog files. Consume the custom renderer in memory
+  // so the release PR can include its SDK-scoped notes without a remote release.
+  forceChangelogGeneration: true,
 });
 
-if (failures.length > 0) {
-  console.error(`\nPublish failed for: ${failures.join(', ')}`);
-  process.exit(1);
+const notes = changelogResult.workspaceChangelog?.contents;
+if (!notes?.trim()) {
+  throw new Error(
+    'The release resolved no notes. Review the changelog configuration.',
+  );
 }
+
+if (dryRun) {
+  console.log(`Would write ${notesPath}:\n\n${notes}`);
+} else {
+  mkdirSync(dirname(notesPath), { recursive: true });
+  writeFileSync(notesPath, `${notes.trim()}\n`, { flag: 'wx' });
+  console.log(
+    `Prepared ${version}. Review the manifests and ${notesPath} in a release PR.`,
+  );
+}
+
+console.log(
+  'After that PR merges, create the GitHub release from its merged commit. See CONTRIBUTING.md.',
+);

@@ -9,6 +9,7 @@ type Step = {
 };
 type Workflow = {
   env?: Record<string, string>;
+  on?: Record<string, unknown>;
   jobs: Record<
     string,
     {
@@ -114,7 +115,8 @@ test('previews and manual recovery cannot attest the event revision as their art
     'github',
     `return (${expression!.slice(3, -2)});`,
   );
-  expect(enabled({ event_name: 'push' })).toBe(true);
+  expect(enabled({ event_name: 'release' })).toBe(true);
+  expect(enabled({ event_name: 'push' })).toBe(false);
   expect(enabled({ event_name: 'workflow_dispatch' })).toBe(false);
 });
 
@@ -191,4 +193,19 @@ test('forks use hosted CI without shared caching and cannot run owner operations
       false,
     );
   }
+});
+
+test('only publishing a GitHub release starts automatic npm publication', async () => {
+  const workflow = await readWorkflow('release');
+  expect(workflow.on?.release).toEqual({ types: ['published'] });
+  expect(workflow.on?.push).toBeUndefined();
+  const guard = workflow.jobs.prepare!.steps.find(
+    (s) => s.name === 'Assert the release commit is on main',
+  );
+  const enabled = new Function('github', 'inputs', `return (${guard!.if});`);
+  expect(enabled({ event_name: 'release' }, {})).toBe(true);
+  expect(enabled({ event_name: 'workflow_dispatch' }, { tag: 'v1.0.0' })).toBe(
+    true,
+  );
+  expect(enabled({ event_name: 'workflow_dispatch' }, { tag: '' })).toBe(false);
 });

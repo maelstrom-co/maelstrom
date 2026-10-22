@@ -84,11 +84,11 @@ describe('versionFromTag', () => {
 });
 
 describe('resolveReleaseTarget', () => {
-  it('treats a tag push as a real release regardless of inputs', () => {
-    // dry_run is a dispatch-only input; a pushed tag must never be a rehearsal,
+  it('treats a published release as a real release regardless of inputs', () => {
+    // dry_run is a dispatch-only input; a published release must never be a rehearsal,
     // or a release would silently publish nothing.
     const target = resolveReleaseTarget({
-      eventName: 'push',
+      eventName: 'release',
       refName: 'v1.0.0',
       inputDryRun: 'true',
     });
@@ -97,6 +97,15 @@ describe('resolveReleaseTarget', () => {
       distTag: 'latest',
       dryRun: false,
     });
+  });
+
+  it('rejects bare tag pushes so preparation cannot start publication', () => {
+    expect(() =>
+      resolveReleaseTarget({
+        eventName: 'push',
+        refName: 'v1.0.0',
+      }),
+    ).toThrow('Unsupported release event');
   });
 
   it('rehearses a branch when dispatched with no tag', () => {

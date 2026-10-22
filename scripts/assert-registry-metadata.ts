@@ -4,8 +4,8 @@ import { listPublishablePackages } from './lib/workspace-packages.ts';
 
 // Nothing else in the release pipeline reads these fields: `publish-packages`
 // only rewrites dependency specs, and `verify-published` only checks versions.
-// Validate them before a local release creates an immutable tag and again in CI
-// before packing, so bad metadata cannot turn a recoverable edit into a release.
+// Validate them before release preparation edits manifests and again in CI
+// before packing, so incomplete metadata cannot reach publication.
 
 const MIN_KEYWORDS = 3;
 const EXPECTED_REPOSITORY = 'https://github.com/maelstrom-co/maelstrom.git';
