@@ -26,6 +26,12 @@ describe('isAlreadyPublished', () => {
       expected: true,
     },
     {
+      name: 'recognizes npm 12 singleton output so recovery skips immutable versions',
+      registry: 'https://registry.npmjs.org',
+      stdout: '["0.2.0-alpha.1"]',
+      expected: true,
+    },
+    {
       name: 'treats GitHub Packages empty success as unpublished',
       registry: 'https://npm.pkg.github.com',
       stdout: '',
@@ -174,6 +180,37 @@ describe('parsePublishedVersion', () => {
     ).toBe(false);
   });
 
+  test('accepts a singleton field array from npm 12', () => {
+    expect(
+      parsePublishedVersion(
+        '["0.2.0-alpha.1"]\n',
+        '@maelstrom-co/react',
+        '0.2.0-alpha.1',
+        'https://registry.npmjs.org',
+      ),
+    ).toBe(true);
+  });
+
+  test.each([
+    { label: 'empty arrays', output: '[]' },
+    { label: 'a different singleton version', output: '["0.2.0-alpha.0"]' },
+    { label: 'repeated versions', output: '["0.2.0-alpha.1","0.2.0-alpha.1"]' },
+    {
+      label: 'conflicting versions',
+      output: '["0.2.0-alpha.1","0.2.0-alpha.0"]',
+    },
+    { label: 'nested arrays', output: '[["0.2.0-alpha.1"]]' },
+  ])('rejects $label rather than guessing publication state', ({ output }) => {
+    expect(() =>
+      parsePublishedVersion(
+        output,
+        '@maelstrom-co/react',
+        '0.2.0-alpha.1',
+        'https://registry.npmjs.org',
+      ),
+    ).toThrow('Refusing to guess');
+  });
+
   test('rejects an unexpected version instead of skipping a required publish', () => {
     expect(() =>
       parsePublishedVersion(
@@ -194,6 +231,42 @@ describe('hasPublishedPackage', () => {
       stderr: '',
       exit: '0',
       expected: true,
+    },
+    {
+      label:
+        'matching npm 12 singleton output permits an existing-package preview',
+      stdout: '["@maelstrom-co/react"]',
+      stderr: '',
+      exit: '0',
+      expected: true,
+    },
+    {
+      label: 'empty identity array',
+      stdout: '[]',
+      stderr: '',
+      exit: '0',
+      expected: undefined,
+    },
+    {
+      label: 'wrong singleton identity',
+      stdout: '["@other/package"]',
+      stderr: '',
+      exit: '0',
+      expected: undefined,
+    },
+    {
+      label: 'multiple identity results',
+      stdout: '["@maelstrom-co/react","@maelstrom-co/react"]',
+      stderr: '',
+      exit: '0',
+      expected: undefined,
+    },
+    {
+      label: 'nested identity array',
+      stdout: '[["@maelstrom-co/react"]]',
+      stderr: '',
+      exit: '0',
+      expected: undefined,
     },
     {
       label: 'absent package',
