@@ -24,7 +24,10 @@ test('a newcomer can install all skills and request planning without granting ed
   await expect(
     page.getByRole('heading', { name: 'Choose your task' }),
   ).toBeVisible();
-  await expect(page.locator('[data-task-skill]')).toHaveCount(7);
+  await expect(page.locator('[data-task-skill]')).toHaveCount(8);
+  await expect(
+    page.locator('[data-task-skill="maelstrom-voice-devtools"]'),
+  ).toContainText('Do not inject audio or edit files.');
   for (const card of await page.locator('[data-task-skill]').all()) {
     const procedure = await card.getAttribute('data-task-skill');
     await card.locator('summary').click();
