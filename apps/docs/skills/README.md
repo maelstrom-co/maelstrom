@@ -46,6 +46,7 @@ For an installation managed by Vercel Skills, rerun the same `add` command to re
 | Add event reporting | [`maelstrom-observability/SKILL.md`](maelstrom-observability/SKILL.md) | Security before logging request data, credentials, or user content. |
 | Update a Vessel definition or runtime state | [`maelstrom-state-sync/SKILL.md`](maelstrom-state-sync/SKILL.md) | Actions/idempotence if operations are added or removed. |
 | Integrate voice when the product goal requires it | [`maelstrom-voice-integration/SKILL.md`](maelstrom-voice-integration/SKILL.md) | Browser/React, lifecycle/turn-taking, or deployment only for the selected concern; provider guidance only after selection. |
+| Benchmark, stress, and test voice through a connected desktop MCP | [`maelstrom-voice-devtools/SKILL.md`](maelstrom-voice-devtools/SKILL.md) | Local VAD timing and sequential easy/medium/hard benchmark protocols for the external workbench, not SDK integration or browser VAD. |
 
 For a mixed request, use the lead matching its primary outcome; that skill may point to relevant references. These are task-selection conventions, not automated orchestration. When no task clearly matches, use the relevant standalone prompt or ask the user to narrow the task rather than loading several competing leads.
 
@@ -69,6 +70,10 @@ apps/docs/skills/
 ├── maelstrom-observability/SKILL.md
 ├── maelstrom-state-sync/SKILL.md
 ├── maelstrom-voice-integration/SKILL.md
+├── maelstrom-voice-devtools/SKILL.md
+├── maelstrom-voice-devtools/references/
+│   ├── maelstrom-voice-devtools/references/vad-timing.md
+│   └── maelstrom-voice-devtools/references/benchmark-protocol.md
 ├── trials/README.md
 └── references/
     ├── actions-and-idempotence.md
