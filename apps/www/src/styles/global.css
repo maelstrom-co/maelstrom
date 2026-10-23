@@ -961,6 +961,9 @@ section {
   }
 }
 
+.how-steps-column {
+  min-width: 0;
+}
 .how-steps {
   display: flex;
   flex-direction: column;
@@ -1003,7 +1006,8 @@ section {
 .hs-progress {
   margin-top: 28px;
   height: 2px;
-  width: 80px;
+  width: 100%;
+  max-width: 480px;
   background: var(--line);
   border-radius: 2px;
   overflow: hidden;
@@ -1012,10 +1016,6 @@ section {
   width: 0%;
   height: 100%;
   background: var(--brand);
-  transition: width 600ms;
-}
-.how-step.active .hs-progress-bar {
-  width: 100%;
 }
 
 .how-sticky {

@@ -123,26 +123,28 @@ const STEPS: Step[] = [
     </div>
 
     <div class="how-grid">
-      <div class="how-steps">
-        {STEPS.map((s, i) => (
-          <div data-idx={i} class={`how-step ${i === 0 ? "active" : ""}`}>
-            <div class="hs-num">{s.n}</div>
-            <h3 class="hs-title">{s.title}</h3>
-            <p class="hs-body">{s.body}</p>
-            <div class="hs-progress">
-              <div class="hs-progress-bar"></div>
-            </div>
-            <div class="how-code-mobile win">
-              <div class="win-bar">
-                <div class="dot r"></div>
-                <div class="dot y"></div>
-                <div class="dot g"></div>
-                <div class="title">{s.file}</div>
+      <div class="how-steps-column">
+        <div class="how-steps">
+          {STEPS.map((s, i) => (
+            <div data-idx={i} class={`how-step ${i === 0 ? "active" : ""}`}>
+              <div class="hs-num">{s.n}</div>
+              <h3 class="hs-title">{s.title}</h3>
+              <p class="hs-body">{s.body}</p>
+              <div class="hs-progress" aria-hidden="true">
+                <div class="hs-progress-bar"></div>
               </div>
-              <pre class="code"><code set:html={s.code} /></pre>
+              <div class="how-code-mobile win">
+                <div class="win-bar">
+                  <div class="dot r"></div>
+                  <div class="dot y"></div>
+                  <div class="dot g"></div>
+                  <div class="title">{s.file}</div>
+                </div>
+                <pre class="code"><code set:html={s.code} /></pre>
+              </div>
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
 
       <div class="how-sticky">
@@ -167,19 +169,57 @@ const STEPS: Step[] = [
 <script>
   const steps = Array.from(document.querySelectorAll<HTMLElement>(".how-step[data-idx]"));
   const cards = Array.from(document.querySelectorAll<HTMLElement>(".how-code-card[data-card]"));
+  const progressBars = steps.map((step) => step.querySelector<HTMLElement>(".hs-progress-bar"));
   if (steps.length) {
-    const obs = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((e) => {
-          if (e.isIntersecting) {
-            const idx = parseInt((e.target as HTMLElement).dataset.idx || "0", 10);
-            steps.forEach((s, i) => s.classList.toggle("active", i === idx));
-            cards.forEach((c, i) => c.classList.toggle("active", i === idx));
-          }
-        });
-      },
-      { rootMargin: "-30% 0px -55% 0px", threshold: 0 }
-    );
-    steps.forEach((el) => obs.observe(el));
+    let activeIndex = -1;
+    let framePending = false;
+
+    const updateSteps = () => {
+      framePending = false;
+      const bandTop = window.innerHeight * 0.3;
+      const bandBottom = window.innerHeight * 0.45;
+      const activationPoint = (bandTop + bandBottom) / 2;
+      const bounds = steps.map((step) => step.getBoundingClientRect());
+      let nearestIndex = 0;
+      let nearestDistance = Infinity;
+
+      // Nearest bounds keep gaps and jumps outside the activation band deterministic.
+      bounds.forEach((stepBounds, index) => {
+        const distance = Math.max(stepBounds.top - activationPoint, activationPoint - stepBounds.bottom, 0);
+        if (distance < nearestDistance) {
+          nearestDistance = distance;
+          nearestIndex = index;
+        }
+      });
+
+      const firstBounds = bounds[0];
+      const lastBounds = bounds[bounds.length - 1];
+      const progress = Math.min(
+        1,
+        Math.max(
+          0,
+          (bandBottom - firstBounds.top) /
+            (lastBounds.bottom - firstBounds.top + bandBottom - bandTop),
+        ),
+      );
+      progressBars.forEach((progressBar) => {
+        if (progressBar) progressBar.style.width = `${progress * 100}%`;
+      });
+
+      if (nearestIndex === activeIndex) return;
+      activeIndex = nearestIndex;
+      steps.forEach((step, index) => step.classList.toggle("active", index === activeIndex));
+      cards.forEach((card, index) => card.classList.toggle("active", index === activeIndex));
+    };
+
+    const scheduleUpdate = () => {
+      if (framePending) return;
+      framePending = true;
+      requestAnimationFrame(updateSteps);
+    };
+
+    window.addEventListener("scroll", scheduleUpdate, { passive: true });
+    window.addEventListener("resize", scheduleUpdate);
+    updateSteps();
   }
 </script>
