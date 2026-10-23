@@ -84,6 +84,7 @@ export async function callLlm<T>(
     signal?.addEventListener('abort', abort, { once: true });
     const output = await chat({
       adapter: llm.adapter,
+      threadId: sessionId,
       messages: [
         ...recentHistory(history),
         { role: 'user' as const, content: prompt },

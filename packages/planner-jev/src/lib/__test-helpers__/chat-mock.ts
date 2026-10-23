@@ -3,6 +3,8 @@ import type { z } from 'zod';
 
 /** The options `chat()` receives, as far as tests inspect them. */
 export interface ChatCall {
+  /** Stable conversation id shared by calls within one Maelstrom session. */
+  readonly threadId: string;
   readonly messages: readonly {
     readonly role: string;
     readonly content: string;

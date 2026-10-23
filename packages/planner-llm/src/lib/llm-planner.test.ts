@@ -59,6 +59,7 @@ afterEach(() => {
 
 interface ChatArgs {
   readonly adapter: unknown;
+  readonly threadId: string;
   readonly messages: ReadonlyArray<{ role: string; content: string }>;
   readonly systemPrompts: readonly string[];
   readonly outputSchema: unknown;
@@ -113,6 +114,26 @@ const overflowingResponse = buildGridResponse({
       },
     ],
   },
+});
+
+test('keeps model calls in their session without sharing threads across sessions', async () => {
+  mockChat.mockResolvedValue(buildGridResponse());
+  const planner = llmPlanner({ adapter: dummyAdapter });
+  for (const [index, session] of [
+    'session-1',
+    'session-1',
+    'session-2',
+  ].entries()) {
+    const input = {
+      ...makePlanningInput(),
+      messageId: MessageId(`req-${index}`),
+      sessionId: SessionId(session),
+    };
+    expect((await planner(input, makeStageContext({ origin: input }))).ok).toBe(
+      true,
+    );
+    expect(chatCall(index).threadId).toBe(session);
+  }
 });
 
 describe('createEngine — system prompt memoization', () => {
@@ -292,6 +313,7 @@ describe('llmPlanner', () => {
       expect(comparableChatCalls()).toEqual([
         {
           adapter: dummyAdapter,
+          threadId: 'session-1',
           messages: [
             { role: 'user', content: buildUserPrompt(request, prompt) },
           ],
@@ -331,6 +353,8 @@ describe('llmPlanner', () => {
 
       expect(isOk(result)).toBe(true);
       expect(mockChat).toHaveBeenCalledTimes(2);
+      expect(chatCall(0).threadId).toBe(input.sessionId);
+      expect(chatCall(1).threadId).toBe(input.sessionId);
       expect(chatCall(1).systemPrompts).toEqual(chatCall(0).systemPrompts);
       if (retry === undefined)
         throw new Error('second attempt must be a retry');

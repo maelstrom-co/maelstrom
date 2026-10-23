@@ -45,7 +45,11 @@ test('real TanStack planner failures do not print provider secrets outside the e
     import { makeContext, makeRequest } from ${JSON.stringify(join(jev, '__test-helpers__', 'fixtures.ts'))};
     import { completionPlan } from ${JSON.stringify(join(jev, '__test-helpers__', 'layout-fixtures.ts'))};
 
-    const fail = () => { throw new Error('rejected fake-provider-key-for-tests'); };
+    let providerCalls = 0;
+    const fail = () => {
+      providerCalls++;
+      throw new Error('rejected fake-provider-key-for-tests');
+    };
     const adapter = {
       kind: 'text', name: 'offline', model: 'offline',
       supportsCombinedToolsAndSchema: () => true,
@@ -55,12 +59,15 @@ test('real TanStack planner failures do not print provider secrets outside the e
     const plan = completionPlan(makeRequest('hide the tasks'));
     const ctx = makeContext(plan.plan.selection.input);
     const results = await Promise.all([
-      callLLM(adapter, 'system', 'user', GridResponseSchema, []),
+      callLLM(adapter, 'system', 'user', GridResponseSchema, [], ctx.origin.sessionId),
       llmComplete({ adapter })(plan, ctx),
       callLlm({ adapter }, 'user', z.object({ userMessage: z.string() }), [], ctx),
     ]);
     if (results.some(result => result.ok || result.error._tag !== 'ProviderError')) {
       throw new Error('Expected provider failures from every planner call');
+    }
+    if (providerCalls !== 3) {
+      throw new Error('Every planner call must reach the provider, not fail TanStack preflight');
     }
   `;
   const run = Bun.spawnSync(
@@ -70,6 +77,47 @@ test('real TanStack planner failures do not print provider secrets outside the e
   expect(run.exitCode).toBe(0);
   expect(run.stdout.toString()).toBe('');
   expect(run.stderr.toString()).toBe('');
+});
+
+test('real TanStack planners accept structured replies without provider requests', () => {
+  const packages = join(SRC, '..', '..');
+  const jev = join(packages, 'planner-jev', 'src', 'lib');
+  const probe = `
+    import { callLLM } from ${JSON.stringify(join(packages, 'planner-llm', 'src', 'lib', 'call-llm.ts'))};
+    import { GridResponseSchema } from '@maelstrom-co/protocol';
+    import { z } from 'zod';
+    import { callLlm } from ${JSON.stringify(join(jev, 'llm-call.ts'))};
+    import { makeContext, makeInput, makeRequest } from ${JSON.stringify(join(jev, '__test-helpers__', 'fixtures.ts'))};
+
+    const reply = { userMessage: 'Done.', rationale: 'Offline test', executionPlan: [], layout: { positions: [] } };
+    let providerCalls = 0;
+    const adapter = {
+      kind: 'text', name: 'offline', model: 'offline',
+      supportsCombinedToolsAndSchema: () => true,
+      async *chatStream() {
+        providerCalls++;
+        yield { type: 'TEXT_MESSAGE_START', messageId: 'reply', role: 'assistant', timestamp: 1 };
+        yield { type: 'TEXT_MESSAGE_CONTENT', messageId: 'reply', delta: JSON.stringify(reply), timestamp: 2 };
+        yield { type: 'TEXT_MESSAGE_END', messageId: 'reply', timestamp: 3 };
+        yield { type: 'RUN_FINISHED', runId: 'run', threadId: 'session-1', finishReason: 'stop', timestamp: 4 };
+      },
+    };
+    const ctx = makeContext(makeInput(makeRequest('hide the tasks')));
+    const results = await Promise.all([
+      callLLM(adapter, 'system', 'user', GridResponseSchema, [], ctx.origin.sessionId),
+      callLlm({ adapter }, 'user', z.object({ userMessage: z.string() }), [], ctx),
+    ]);
+    if (providerCalls !== 2 || results.some(result => !result.ok || result.value.userMessage !== 'Done.')) {
+      throw new Error('Expected validated structured replies from both real TanStack planner paths');
+    }
+  `;
+  const run = Bun.spawnSync(
+    [process.execPath, '--conditions=@maelstrom-co/source', '-e', probe],
+    { cwd: join(SRC, '..') },
+  );
+  expect(run.stderr.toString()).toBe('');
+  expect(run.exitCode).toBe(0);
+  expect(run.stdout.toString()).toBe('');
 });
 
 test('only test files import values from @maelstrom-co/planner-jev/_testing', async () => {

@@ -26,6 +26,7 @@ export async function callLLM(
   userPrompt: string,
   outputSchema: typeof GridResponseSchema | typeof TilingResponseSchema,
   historyMessages: readonly LLMContextMessage[],
+  threadId: string,
   signal?: AbortSignal,
   modelOptions?: Record<string, unknown>,
   middleware: ChatMiddleware[] = [],
@@ -43,6 +44,7 @@ export async function callLLM(
   try {
     const output = await chat({
       adapter,
+      threadId,
       messages: [
         ...historyMessages,
         { role: 'user' as const, content: userPrompt },

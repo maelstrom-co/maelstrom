@@ -37,6 +37,7 @@ test.each([
       'synthetic-test-key',
     ),
     messages: [{ role: 'user', content: 'synthetic' }],
+    threadId: 'synthetic-thread',
     debug: false,
   })) {
     if (chunk.type === 'RUN_FINISHED') usage = chunk.usage;
