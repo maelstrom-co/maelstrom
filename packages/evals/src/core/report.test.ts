@@ -209,7 +209,7 @@ describe('summarize', () => {
   });
 
   test('reports LLM calls and tokens by role for every arm', () => {
-    expect(jev?.tokens.llm).toEqual({
+    expect(jev?.tokens.llm).toMatchObject({
       calls: 1,
       input: 900,
       output: 40,
@@ -218,7 +218,7 @@ describe('summarize', () => {
         complete: { calls: 1, input: 900, output: 40, withoutUsage: 0 },
       },
     });
-    expect(base?.tokens.llm.byRole).toEqual({
+    expect(base?.tokens.llm.byRole).toMatchObject({
       planner: { calls: 2, input: 3000, output: 500, withoutUsage: 1 },
     });
     expect(base?.latency.llmCall.planner).toEqual({
@@ -226,6 +226,76 @@ describe('summarize', () => {
       p95: 2000,
       samples: 2,
     });
+  });
+
+  test('reports cache and cost coverage by role without treating missing usage as a cache miss', () => {
+    const summaries = summarize(
+      [
+        baseline({
+          llmCalls: [
+            {
+              role: 'planner',
+              latencyMs: 100,
+              usage: {
+                inputTokens: 120,
+                outputTokens: 20,
+                cachedInputTokens: 80,
+                cacheWriteInputTokens: 20,
+                cost: 0.012,
+              },
+            },
+            {
+              role: 'planner',
+              latencyMs: 200,
+              usage: {
+                inputTokens: 50,
+                outputTokens: 10,
+                cachedInputTokens: 0,
+                cost: 0,
+              },
+            },
+            { role: 'planner', latencyMs: 300 },
+            {
+              role: 'complete',
+              latencyMs: 400,
+              usage: { inputTokens: 70, outputTokens: 10 },
+            },
+          ],
+        }),
+      ],
+      plugins,
+    );
+    const summary = summaries.find((row) => row.suite === 'all');
+    expect(summary?.tokens.llm).toMatchObject({
+      input: 240,
+      output: 40,
+      cacheRead: { total: 80, reportedCalls: 2, missingCalls: 2 },
+      cacheWrite: { total: 20, reportedCalls: 1, missingCalls: 3 },
+      cost: { total: 0.012, reportedCalls: 2, missingCalls: 2 },
+      byRole: {
+        planner: {
+          cacheRead: { total: 80, reportedCalls: 2, missingCalls: 1 },
+          cacheWrite: { total: 20, reportedCalls: 1, missingCalls: 2 },
+          cost: { total: 0.012, reportedCalls: 2, missingCalls: 1 },
+        },
+        complete: {
+          cacheRead: { total: 0, reportedCalls: 0, missingCalls: 1 },
+        },
+      },
+    });
+    const markdown = renderMarkdown(summaries, {}, { plugins });
+    expect(markdown).toContain(
+      '| LLM cache-read input tokens (reported calls / all calls) | 80 (2 / 4) |',
+    );
+    expect(markdown).toContain(
+      '| LLM planner cache-write input tokens (reported calls / all calls) | 20 (1 / 3) |',
+    );
+    expect(markdown).toContain(
+      '| LLM complete cache-read input tokens (reported calls / all calls) | n/a (0 / 1) |',
+    );
+    expect(markdown).toContain(
+      '| LLM provider-reported cost (reported calls / all calls) | 0.012 (2 / 4) |',
+    );
   });
 
   test('pairs decisive turns with the baseline on the same scenario and repeat', () => {

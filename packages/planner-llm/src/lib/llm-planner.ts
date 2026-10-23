@@ -90,8 +90,12 @@ export type LlmPlannerInput = Retryable<
  * (`ok`, `error` or `cancelled`), `maelstrom.latency_ms`, and the origin's
  * `maelstrom.message_id` and `maelstrom.session_id`. Adapter-reported usage
  * is summed across model calls as `gen_ai.usage.input_tokens` and
- * `gen_ai.usage.output_tokens`; missing usage remains absent. Prompts, output,
- * provider errors, and credentials are never included in these events. Counters
+ * `gen_ai.usage.output_tokens`. Cache reads and writes use
+ * `gen_ai.usage.cache_read.input_tokens` and
+ * `gen_ai.usage.cache_creation.input_tokens`; provider-reported monetary cost
+ * uses `gen_ai.usage.cost`, without price estimates or currency conversion.
+ * Cache counters do not change input-token totals. Missing usage remains absent.
+ * Prompts, output, provider errors, and credentials never appear in these events. Counters
  * normalized or omitted by an adapter cannot be recovered here.
  *
  * @throws {Error} If `options` is invalid or a system-prompt customizer is
@@ -156,7 +160,15 @@ export function llmPlanner(
     }
 
     const started = performance.now();
-    let usage: { input?: number; output?: number } | undefined;
+    let usage:
+      | {
+          input?: number;
+          output?: number;
+          cacheRead?: number;
+          cacheWrite?: number;
+          cost?: number;
+        }
+      | undefined;
     let usageRecorded = false;
     const middleware: ChatMiddleware = {
       // Each provider call gets a fresh snapshot, including separate finalization.
@@ -167,28 +179,52 @@ export function llmPlanner(
       onChunk: (_ctx, chunk) => {
         if (
           (chunk.type !== 'RUN_FINISHED' && chunk.type !== 'RUN_ERROR') ||
-          !chunk.usage ||
           usageRecorded
         )
           return;
         const entries = Array.isArray(chunk.usage)
           ? chunk.usage
-          : [
-              {
-                inputTokens: chunk.usage.promptTokens,
-                outputTokens: chunk.usage.completionTokens,
-              },
-            ];
+          : chunk.usage
+            ? [
+                {
+                  inputTokens: chunk.usage.promptTokens,
+                  outputTokens: chunk.usage.completionTokens,
+                  cachedInputTokens:
+                    chunk.usage.promptTokensDetails?.cachedTokens,
+                  cacheWriteInputTokens:
+                    chunk.usage.promptTokensDetails?.cacheWriteTokens,
+                },
+              ]
+            : [];
+        const current: NonNullable<typeof usage> = {};
         for (const entry of entries) {
+          for (const [key, value] of [
+            ['input', entry.inputTokens],
+            ['output', entry.outputTokens],
+            ['cacheRead', entry.cachedInputTokens],
+            ['cacheWrite', entry.cacheWriteInputTokens],
+          ] as const) {
+            if (
+              typeof value === 'number' &&
+              Number.isFinite(value) &&
+              value >= 0
+            )
+              current[key] = (current[key] ?? 0) + value;
+          }
+        }
+        const details = Array.isArray(chunk.usage)
+          ? chunk.metadata?.tanstack?.usage
+          : (chunk.usage ?? chunk.metadata?.tanstack?.usage);
+        current.cacheRead ??= details?.promptTokensDetails?.cachedTokens;
+        current.cacheWrite ??= details?.promptTokensDetails?.cacheWriteTokens;
+        current.cost = details?.cost;
+        for (const key of Object.keys(current) as (keyof typeof current)[]) {
+          const value = current[key];
+          if (value === undefined || !Number.isFinite(value) || value < 0)
+            continue;
           usage ??= {};
-          if (entry.inputTokens !== undefined) {
-            usage.input = (usage.input ?? 0) + entry.inputTokens;
-            usageRecorded = true;
-          }
-          if (entry.outputTokens !== undefined) {
-            usage.output = (usage.output ?? 0) + entry.outputTokens;
-            usageRecorded = true;
-          }
+          usage[key] = (usage[key] ?? 0) + value;
+          usageRecorded = true;
         }
       },
     };
@@ -215,6 +251,13 @@ export function llmPlanner(
       ...(usage?.output !== undefined && {
         'gen_ai.usage.output_tokens': usage.output,
       }),
+      ...(usage?.cacheRead !== undefined && {
+        'gen_ai.usage.cache_read.input_tokens': usage.cacheRead,
+      }),
+      ...(usage?.cacheWrite !== undefined && {
+        'gen_ai.usage.cache_creation.input_tokens': usage.cacheWrite,
+      }),
+      ...(usage?.cost !== undefined && { 'gen_ai.usage.cost': usage.cost }),
       'maelstrom.outcome': isErr(result)
         ? result.error._tag === 'CancellationError'
           ? 'cancelled'

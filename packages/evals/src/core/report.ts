@@ -12,7 +12,7 @@ import {
 import type { RunRecord } from './run.js';
 import type { Suite } from './scenarios.js';
 import { PLANNER_RATIO, percentile, type Ratio, ratio } from './stats.js';
-import { LLM_ROLES, type LlmCall } from './usage-adapter.js';
+import { LLM_ROLES, type LlmCall, type LlmUsage } from './usage-adapter.js';
 
 export interface Percentiles {
   readonly p50: number | undefined;
@@ -26,6 +26,26 @@ export interface TokenTotals {
   readonly output: number;
   /** Calls missing input or output usage; totals sum only reported counters. */
   readonly withoutUsage: number;
+}
+
+/** A sum over reported values, with coverage so unknown is never presented as zero. */
+export interface ReportedTotal {
+  /** Sum of reported values only; read reportedCalls before interpreting zero. */
+  readonly total: number;
+  /** Calls reporting this counter, including explicit zero values. */
+  readonly reportedCalls: number;
+  /** Calls that did not report this counter. */
+  readonly missingCalls: number;
+}
+
+/** Cache counters stay separate because providers differ on input-token accounting. */
+export interface LlmTokenTotals extends TokenTotals {
+  /** Provider-reported cache-read input tokens and reporting coverage. */
+  readonly cacheRead: ReportedTotal;
+  /** Provider-reported cache-write input tokens and reporting coverage. */
+  readonly cacheWrite: ReportedTotal;
+  /** Provider-reported cost only, without a price-table estimate or currency conversion. */
+  readonly cost: ReportedTotal;
 }
 
 /** The grader's verdicts on one arm's planned turns; secondary to the rule-based pass. */
@@ -108,8 +128,8 @@ export interface ArmSummary {
   };
   readonly tokens: {
     readonly [field: string]: unknown;
-    readonly llm: TokenTotals & {
-      readonly byRole: Readonly<Record<string, TokenTotals>>;
+    readonly llm: LlmTokenTotals & {
+      readonly byRole: Readonly<Record<string, LlmTokenTotals>>;
     };
   };
 }
@@ -241,6 +261,20 @@ export function renderMarkdown(
           },
         ),
       );
+    for (const [field, label] of [
+      ['cacheRead', 'cache-read input tokens'],
+      ['cacheWrite', 'cache-write input tokens'],
+      ['cost', 'provider-reported cost'],
+    ] as const) {
+      row(`LLM ${label} (reported calls / all calls)`, (s) =>
+        reported(s.tokens.llm[field]),
+      );
+      for (const role of roles)
+        row(`LLM ${role} ${label} (reported calls / all calls)`, (s) => {
+          const counters = s.tokens.llm.byRole[role];
+          return counters ? reported(counters[field]) : 'n/a';
+        });
+    }
     if (gate?.validated) {
       for (const dimension of GRADER_DIMENSIONS) {
         row(`Grader ${dimension} mean`, (s) =>
@@ -630,15 +664,46 @@ function fixed(value: number | undefined): string {
   return value === undefined ? 'n/a' : value.toFixed(3);
 }
 
-function llmTotals(
-  calls: readonly LlmCall[],
-): TokenTotals & { readonly byRole: Readonly<Record<string, TokenTotals>> } {
-  const byRole: Record<string, TokenTotals> = {};
+function llmTotals(calls: readonly LlmCall[]): LlmTokenTotals & {
+  readonly byRole: Readonly<Record<string, LlmTokenTotals>>;
+} {
+  const byRole: Record<string, LlmTokenTotals> = {};
   for (const role of LLM_ROLES) {
     const subset = calls.filter((call) => call.role === role);
-    if (subset.length > 0) byRole[role] = tokenTotals(subset);
+    if (subset.length > 0) byRole[role] = llmTokenTotals(subset);
   }
-  return { ...tokenTotals(calls), byRole };
+  return { ...llmTokenTotals(calls), byRole };
+}
+
+function llmTokenTotals(calls: readonly LlmCall[]): LlmTokenTotals {
+  return {
+    ...tokenTotals(calls),
+    cacheRead: reportedTotal(calls, 'cachedInputTokens'),
+    cacheWrite: reportedTotal(calls, 'cacheWriteInputTokens'),
+    cost: reportedTotal(calls, 'cost'),
+  };
+}
+
+function reportedTotal(
+  calls: readonly LlmCall[],
+  key: keyof LlmUsage,
+): ReportedTotal {
+  const values = calls.flatMap((call) => {
+    const value = call.usage?.[key];
+    return typeof value === 'number' && Number.isFinite(value) && value >= 0
+      ? [value]
+      : [];
+  });
+  return {
+    total: values.reduce((sum, value) => sum + value, 0),
+    reportedCalls: values.length,
+    missingCalls: calls.length - values.length,
+  };
+}
+
+function reported(value: ReportedTotal): string {
+  const coverage = `(${value.reportedCalls} / ${value.reportedCalls + value.missingCalls})`;
+  return `${value.reportedCalls === 0 ? 'n/a' : String(value.total)} ${coverage}`;
 }
 
 function verdict(record: RunRecord): string {
