@@ -9,7 +9,8 @@ async function openFixture(
     | 'request-comparison'
     | 'connection-events'
     | 'planner-evidence'
-    | 'planner-retention',
+    | 'planner-retention'
+    | 'evidence-guidance',
   query = '',
 ) {
   const bundle = execFileSync(
@@ -44,6 +45,88 @@ async function openTelemetryFixture(page: Page, scenario = 'steady') {
   await openFixture(page, 'telemetry', `?${new URLSearchParams({ scenario })}`);
   await page.getByRole('tab', { name: 'Telemetry', exact: true }).click();
 }
+
+test('evidence guidance preserves source and app provenance without activating collection', async ({
+  page,
+}, testInfo) => {
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await openFixture(page, 'evidence-guidance');
+  const trigger = page.getByRole('button', {
+    name: 'Evidence & setup',
+    exact: true,
+  });
+  await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+  await trigger.focus();
+  await page.keyboard.press('Enter');
+  await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+  const details = page.getByRole('region', {
+    name: 'Evidence and setup details',
+    exact: true,
+  });
+  const guidance = details;
+  await expect(details).toContainText('Current Engine state: disconnected');
+  await expect(details).toContainText('No server events in the viewer window');
+  await page.keyboard.press('Tab');
+  await expect(details).toBeFocused();
+  await page.keyboard.press('End');
+  await expect(
+    guidance.getByRole('heading', { name: 'Observation limits', exact: true }),
+  ).toBeInViewport();
+  await expect(trigger).toBeInViewport();
+  await page.keyboard.press('Home');
+  const workspace = page.locator('.workspace');
+  const expandedWorkspaceHeight = (await workspace.boundingBox())?.height;
+  expect(expandedWorkspaceHeight).toBeGreaterThan(100);
+  await trigger.click();
+  await expect(details).toBeHidden();
+  expect((await workspace.boundingBox())?.height).toBeGreaterThan(
+    expandedWorkspaceHeight ?? 0,
+  );
+  await trigger.click();
+  await expect(page.getByLabel('Fixture collection status')).toHaveText(
+    'Connections: 0. Content reads: 0. Recording: false.',
+  );
+  await page
+    .getByRole('combobox', { name: 'Evidence source', exact: true })
+    .selectOption('imported');
+  await page
+    .getByRole('combobox', { name: 'Activity view', exact: true })
+    .selectOption('events');
+  await page
+    .getByRole('combobox', { name: 'Event preset', exact: true })
+    .selectOption('voice');
+  await expect(details).toContainText('2 events hidden by view filters');
+  await expect(details).toContainText('Server events retained');
+  await expect(details).toContainText('2 recording events dropped');
+  await expect(details).not.toContainText('Current Engine state');
+  await guidance.locator('[data-guidance="filters"]').scrollIntoViewIfNeeded();
+  const screenshotPath = testInfo.outputPath('evidence-guidance.png');
+  await page.screenshot({ path: screenshotPath });
+  await testInfo.attach('evidence-guidance', {
+    path: screenshotPath,
+    contentType: 'image/png',
+  });
+  await page
+    .getByRole('combobox', { name: 'App instance', exact: true })
+    .selectOption('recorded-a');
+  await expect(details).toContainText('No voice events in the viewer window');
+  await expect(details).toContainText('Server events retained');
+  await page
+    .getByRole('combobox', { name: 'Evidence source', exact: true })
+    .selectOption('live');
+  await page
+    .getByRole('button', { name: 'End fixture app', exact: true })
+    .click();
+  await expect(details).toContainText('Ended, retained');
+  await expect(details).toContainText(
+    'Last retained Engine state: disconnected',
+  );
+  await expect(page.getByLabel('Fixture collection status')).toHaveText(
+    'Connections: 0. Content reads: 0. Recording: false.',
+  );
+  expect(errors).toEqual([]);
+});
 
 test('planner observations expose their own evidence and preserve both comparison inspectors', async ({
   page,
