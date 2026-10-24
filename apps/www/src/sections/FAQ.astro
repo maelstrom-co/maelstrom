@@ -34,72 +34,48 @@ const FAQS = [
     </div>
     <div class="faq-list">
       {FAQS.map((f, i) => (
-        <div class={`faq-item ${i === 0 ? "open" : ""}`}>
-          <h3 class="faq-q-h">
-            <button
-              type="button"
-              class="faq-q"
-              id={`faq-q-${i}`}
-              aria-expanded={i === 0 ? "true" : "false"}
-              aria-controls={`faq-a-${i}`}
-            >
+        <details class="faq-item" name="maelstrom-faq" open={i === 0}>
+          <summary class="faq-q" id={`faq-q-${i}`}>
+            <h3 class="faq-q-h">
               <span class="faq-num mono">0{i + 1}</span>
               <span class="faq-q-text">{f.q}</span>
-              <span class="faq-toggle" aria-hidden="true">{i === 0 ? "−" : "+"}</span>
-            </button>
-          </h3>
+              <span class="faq-toggle" aria-hidden="true"></span>
+            </h3>
+          </summary>
           <div class="faq-a-wrap" id={`faq-a-${i}`}>
             <p class="faq-a">{f.a}</p>
           </div>
-        </div>
+        </details>
       ))}
     </div>
   </div>
 </section>
 <script>
-  const items = Array.from(document.querySelectorAll<HTMLElement>(".faq-item"));
-  const buttons = items
-    .map((it) => it.querySelector<HTMLButtonElement>(".faq-q"))
-    .filter((b): b is HTMLButtonElement => b !== null);
-
-  const setOpen = (item: HTMLElement, open: boolean) => {
-    item.classList.toggle("open", open);
-    const btn = item.querySelector<HTMLButtonElement>(".faq-q");
-    const tog = item.querySelector(".faq-toggle");
-    if (btn) btn.setAttribute("aria-expanded", String(open));
-    if (tog) tog.textContent = open ? "−" : "+";
-  };
-
-  buttons.forEach((btn, idx) => {
-    const item = items[idx];
-    // A real <button> already fires click on Enter/Space, so we only handle the
-    // accordion-pattern navigation keys here.
-    btn.addEventListener("click", () => {
-      const willOpen = !item.classList.contains("open");
-      items.forEach((it) => setOpen(it, false));
-      if (willOpen) setOpen(item, true);
-    });
-    btn.addEventListener("keydown", (e) => {
+  const questions = Array.from(document.querySelectorAll<HTMLElement>(".faq-q"));
+  questions.forEach((question, idx) => {
+    question.addEventListener("keydown", (e) => {
       switch (e.key) {
         case "ArrowDown":
           e.preventDefault();
-          buttons[(idx + 1) % buttons.length].focus();
+          questions[(idx + 1) % questions.length].focus();
           break;
         case "ArrowUp":
           e.preventDefault();
-          buttons[(idx - 1 + buttons.length) % buttons.length].focus();
+          questions[(idx - 1 + questions.length) % questions.length].focus();
           break;
         case "Home":
           e.preventDefault();
-          buttons[0].focus();
+          questions[0].focus();
           break;
         case "End":
           e.preventDefault();
-          buttons[buttons.length - 1].focus();
+          questions[questions.length - 1].focus();
           break;
-        case "Escape":
-          if (item.classList.contains("open")) setOpen(item, false);
+        case "Escape": {
+          const item = question.closest('details');
+          if (item) item.open = false;
           break;
+        }
       }
     });
   });

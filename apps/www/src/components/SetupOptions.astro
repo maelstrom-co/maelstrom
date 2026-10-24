@@ -4,7 +4,6 @@ import {
   skillBundleUrl,
   skillInstaller,
 } from '../../../docs/src/lib/skill-onboarding';
-import { INSTALL_COMMAND } from '../data/navigation';
 import CopyButton from './CopyButton.astro';
 
 const frontmatter = /^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/.exec(promptSource);
@@ -12,10 +11,11 @@ if (!frontmatter)
   throw new Error('The canonical onboarding prompt needs frontmatter');
 const prompt = promptSource.slice(frontmatter[0].length);
 const skillsCommand = `bunx ${skillInstaller} add ${skillBundleUrl} --skill '*' --copy`;
+const starterCommands = 'bun install\nbun run typecheck\nbun run start';
 const methods = [
   { id: 'prompt', label: 'With your agent' },
   { id: 'skills', label: 'Agent skills' },
-  { id: 'npm', label: 'Manual setup' },
+  { id: 'starter', label: 'React starter' },
 ] as const;
 ---
 
@@ -26,6 +26,7 @@ const methods = [
       <button type="button" role="tab" id={`setup-tab-${id}`} aria-controls={`setup-panel-${id}`} aria-selected={index === 0 ? 'true' : 'false'} tabindex={index === 0 ? 0 : -1} data-setup-tab={id}>{label}</button>
     ))}
   </div>
+  <noscript><p>Select the prompt or commands and copy them manually.</p></noscript>
   <section id="setup-panel-prompt" data-setup-panel="prompt" aria-labelledby="setup-prompt-heading">
     <h3 id="setup-prompt-heading">Build with your coding agent</h3>
     <p>Paste the prompt into your coding agent. It asks what you want to build and whether this is a new or existing app.</p>
@@ -42,14 +43,21 @@ const methods = [
     <div class="setup-copy-row"><code>{skillsCommand}</code><CopyButton text={skillsCommand} label="Copy skill install command" method="skills" /></div>
     <a href="https://docs.maelstrom-ai.co/agents/skills/">Installation and supported tools →</a>
   </section>
-  <section id="setup-panel-npm" data-setup-panel="npm" aria-labelledby="setup-npm-heading">
-    <h3 id="setup-npm-heading">Set up the SDK yourself</h3>
-    <div class="setup-copy-row"><code>{INSTALL_COMMAND}</code><CopyButton text={INSTALL_COMMAND} method="npm" /></div>
-    <p>Follow the quickstart, or download the runnable React starter. Its local planner needs no API key.</p>
-    <a href="https://docs.maelstrom-ai.co/getting-started/quick-start/">Quickstart →</a>
-    <a href="https://docs.maelstrom-ai.co/getting-started/starter/">Runnable starter →</a>
+  <section id="setup-panel-starter" data-setup-panel="starter" aria-labelledby="setup-starter-heading">
+    <h3 id="setup-starter-heading">Run a working React app</h3>
+    <p>The starter includes a React app and a local Engine. Its deterministic planner shows a greeting without calling a model.</p>
+    <a class="setup-download" href="https://docs.maelstrom-ai.co/getting-started/starter.zip">Download the React starter ZIP</a>
+    <ol class="setup-steps">
+      <li>Extract the ZIP into an empty folder.</li>
+      <li>Open a terminal in that folder and run:
+        <div class="setup-copy-row"><pre><code>{starterCommands}</code></pre><CopyButton text={starterCommands} label="Copy starter commands" method="starter" /></div>
+      </li>
+      <li>Open <code>http://127.0.0.1:3001</code> and submit “Show the greeting”.</li>
+    </ol>
+    <a href="https://docs.maelstrom-ai.co/getting-started/starter/">Full starter guide →</a>
+    <a href="https://docs.maelstrom-ai.co/getting-started/quick-start/">Existing app quickstart →</a>
+    <p class="setup-hint">The existing app quickstart requires a running Engine.</p>
   </section>
-  <noscript><p>Choose a setup method below. Select and copy the displayed text manually.</p></noscript>
 </section>
 
 <script>
@@ -101,7 +109,12 @@ const methods = [
   button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; }
   .setup-copy-row { display: flex; align-items: center; gap: 10px; padding: 12px; margin-bottom: 12px; background: rgba(0, 0, 0, .3); border-radius: 8px; font-size: 12px; }
   .setup-copy-row code, .setup-copy-row span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .setup-copy-row pre { flex: 1; min-width: 0; margin: 0; padding: 0; font-size: inherit; }
   a { display: inline-block; color: var(--brand); font-size: 12px; margin: 4px 12px 0 0; }
+  .setup-download { display: block; padding: 12px; margin: 0 0 16px; border: 1px solid var(--line-2); border-radius: 8px; color: white; text-align: center; background: rgba(59, 130, 246, .22); }
+  .setup-steps { padding-left: 20px; color: var(--text-2); font-size: 13px; line-height: 1.6; }
+  .setup-steps li { margin-bottom: 10px; }
+  .setup-steps .setup-copy-row { margin-top: 8px; margin-bottom: 0; }
   summary { cursor: pointer; color: var(--text-2); font-size: 12px; }
   pre { max-height: 220px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; padding: 12px 0; }
   section[hidden] { display: none; }
