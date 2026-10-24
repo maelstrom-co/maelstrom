@@ -180,6 +180,34 @@ it. Starting a new recording clears the pin while **Evidence** is set to
 selected because their evidence is unchanged. Pins last until the panel unmounts.
 Closing and reopening the panel preserves the pin.
 
+### Inspect planner evidence
+
+Select a request and expand **Planner evidence** to inspect retained planning
+outcomes, attempt markers, candidate validations, and model-call reports. Select
+an observation to open its JSON. In comparison, each column keeps its own selection.
+Comparisons omit the section when no planner observations are retained.
+
+Read the reported model, duration, input tokens, and output tokens on each
+model-call report. A reported zero stays zero. Missing, redacted, truncated,
+and invalid values retain their own labels. These values come from planner
+instrumentation; they can include several internal provider calls. The panel
+does not sum usage or overlapping durations.
+
+Attempt rows show the producer's reported number, starting at zero. They do not
+link nearby calls or validations to that attempt. A passed validation does not establish candidate
+acceptance or client application. Read the request's final outcome separately.
+
+The section shows at most 50 planner observations per page. Use **Next planner
+observations** and **Previous planner observations** to inspect the rest. Each
+comparison column keeps its own page. New observations preserve your current page.
+View limits and filters leave recordings unchanged. The section uses the same evidence in
+live activity, current recordings, and imported recordings.
+
+If no planner observations are retained, check
+[optional Engine evidence](#enable-optional-engine-evidence) and reproduce the
+request after observation starts. Opening this section does not enable host
+forwarding or start recording.
+
 ## Compare two requests
 
 Select a request in **Requests** and choose **Compare request**. It becomes

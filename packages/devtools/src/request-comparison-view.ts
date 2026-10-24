@@ -268,6 +268,8 @@ export function requestComparisonView(
         requestKey: request.key,
         eventKey: slot.eventKey ?? '',
         phasePage: slot.phasePage,
+        plannerPage: slot.plannerPage,
+        selectPlannerPage: (plannerPage) => updateSlot({ plannerPage }),
         stageTimingLimit: slot.stageTimingLimit,
         setStageTimingLimit: (stageTimingLimit) =>
           updateSlot({ stageTimingLimit }),
@@ -306,8 +308,11 @@ export function requestComparisonView(
         );
       for (const node of detail.content.querySelectorAll<HTMLElement>(
         '[data-focus-key]',
-      ))
+      )) {
         node.dataset.focusKey = `comparison-${side}:${node.dataset.focusKey}`;
+        if (node.dataset.focusFallback)
+          node.dataset.focusFallback = `comparison-${side}:${node.dataset.focusFallback}`;
+      }
       for (const [index, node] of Array.from(
         detail.content.querySelectorAll('details'),
       ).entries()) {

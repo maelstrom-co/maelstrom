@@ -30,6 +30,7 @@ import {
   statusLabels,
   text,
 } from './panel-model.js';
+import { plannerEvidenceView } from './planner-evidence-view.js';
 import { requestComparisonView } from './request-comparison-view.js';
 import { requestEvidence } from './request-evidence.js';
 import {
@@ -109,6 +110,8 @@ export interface ViewContext {
   layoutView?: LayoutViewSelection;
   setLayoutView(view: LayoutViewSelection, eventKey?: string): void;
   selectPhasePage(page: NonNullable<ViewContext['phasePage']>): void;
+  plannerPage?: { requestKey: string; index: number };
+  selectPlannerPage(page: NonNullable<ViewContext['plannerPage']>): void;
   eventKey: string;
   instanceKey: string;
   allEvents: boolean;
@@ -127,6 +130,7 @@ export interface ComparisonRequest {
   phaseBars?: boolean;
   eventKey?: string;
   phasePage?: ViewContext['phasePage'];
+  plannerPage?: ViewContext['plannerPage'];
   stageTimingLimit?: ViewContext['stageTimingLimit'];
   layoutView?: LayoutViewSelection;
 }
@@ -572,6 +576,10 @@ function requestDetailsView(
       ? undefined
       : selected.events.at(-1));
   const content = element('section');
+  content.tabIndex = 0;
+  content.dataset.focusKey = 'details';
+  content.setAttribute('role', 'region');
+  content.setAttribute('aria-label', 'Request details');
   const facts = requestEvidence(selected);
   if (facts.outcome === 'ambiguous') {
     const outcome = element('header', undefined, 'request-outcome');
@@ -753,6 +761,7 @@ function requestDetailsView(
         ['Client application', duration(selected.applicationMs)],
       ]),
     );
+  content.append(plannerEvidenceView(selected, current?.key, context));
   const coverage = element('details', undefined, 'help');
   coverage.dataset.disclosurePurpose = 'timings';
   coverage.append(
@@ -893,6 +902,7 @@ function requestDetailsView(
       context.issueCategory,
       context.eventKey,
       context.phasePage,
+      context.plannerPage,
       context.stageTimingLimit,
       context.layoutView,
       context.clientId,

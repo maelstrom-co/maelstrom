@@ -4,7 +4,12 @@ import { expect, type Page, test } from '@playwright/test';
 
 async function openFixture(
   page: Page,
-  fixture: 'telemetry' | 'request-comparison' | 'connection-events',
+  fixture:
+    | 'telemetry'
+    | 'request-comparison'
+    | 'connection-events'
+    | 'planner-evidence'
+    | 'planner-retention',
   query = '',
 ) {
   const bundle = execFileSync(
@@ -38,6 +43,228 @@ async function openFixture(
 async function openTelemetryFixture(page: Page, scenario = 'steady') {
   await openFixture(page, 'telemetry', `?${new URLSearchParams({ scenario })}`);
   await page.getByRole('tab', { name: 'Telemetry', exact: true }).click();
+}
+
+test('planner observations expose their own evidence and preserve both comparison inspectors', async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await openFixture(page, 'planner-evidence');
+  await page
+    .getByRole('combobox', { name: 'Evidence source', exact: true })
+    .selectOption('imported');
+  const planner = page.locator('details[aria-label="Planner evidence"]');
+  await expect(planner).not.toHaveAttribute('open');
+  await planner.locator('summary').click();
+  await expect(planner).toContainText('Output tokens: 0');
+  await expect(planner).toContainText('Input tokens: Redacted');
+  const rejected = planner.getByRole('button', {
+    name: 'Validation failed',
+    exact: true,
+  });
+  await rejected.focus();
+  await page.keyboard.press('Enter');
+  await page.getByRole('button', { name: 'Raw JSON', exact: true }).click();
+  await expect(
+    page.getByRole('region', { name: 'Raw JSON', exact: true }),
+  ).toContainText('b-validation-0');
+  await page
+    .getByRole('button', { name: 'Compare request', exact: true })
+    .click();
+  await page
+    .locator('.list-pane')
+    .getByRole('button')
+    .filter({ has: page.getByText('Request a', { exact: true }) })
+    .click();
+  const a = page.getByRole('region', {
+    name: 'A request details',
+    exact: true,
+  });
+  const b = page.getByRole('region', {
+    name: 'B request details',
+    exact: true,
+  });
+  const ad = a.locator('details[aria-label="Planner evidence"]');
+  const bd = b.locator('details[aria-label="Planner evidence"]');
+  if (!((await ad.getAttribute('open')) !== null))
+    await ad.locator('summary').click();
+  if (!((await bd.getAttribute('open')) !== null))
+    await bd.locator('summary').click();
+  await ad
+    .getByRole('button', { name: 'Validation failed', exact: true })
+    .click();
+  await bd
+    .getByRole('button', { name: 'Validation passed', exact: true })
+    .click();
+  await page
+    .getByRole('button', { name: 'A event JSON: Raw JSON', exact: true })
+    .click();
+  await page
+    .getByRole('button', { name: 'B event JSON: Raw JSON', exact: true })
+    .click();
+  await expect(
+    page
+      .getByRole('complementary', { name: 'A event JSON', exact: true })
+      .locator('.json-raw'),
+  ).toContainText('b-validation-0');
+  await expect(
+    page
+      .getByRole('complementary', { name: 'B event JSON', exact: true })
+      .locator('.json-raw'),
+  ).toContainText('a-validation-1');
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth > innerWidth,
+    ),
+  ).toBe(false);
+  expect(errors).toEqual([]);
+});
+
+test('planner rows remain bounded and independently scrollable for long retained histories', async ({
+  page,
+}) => {
+  await openFixture(page, 'planner-evidence', '?long-history');
+  await page
+    .getByRole('combobox', { name: 'Evidence source', exact: true })
+    .selectOption('imported');
+  const planner = page.locator('details[aria-label="Planner evidence"]');
+  await planner.locator('summary').click();
+  const rows = planner.getByRole('region', {
+    name: 'Planner observations',
+    exact: true,
+  });
+  await expect(rows.getByRole('button')).toHaveCount(50);
+  await expect(planner).toContainText(
+    'Showing 1–50 of 68 retained planner observations',
+  );
+  const limits = await rows.evaluate((node) => ({
+    client: node.clientHeight,
+    scroll: node.scrollHeight,
+    overflow: getComputedStyle(node).overflowY,
+  }));
+  expect(limits.client).toBeLessThanOrEqual(300);
+  expect(limits.scroll).toBeGreaterThan(limits.client);
+  expect(limits.overflow).toBe('auto');
+  await rows.getByRole('button').last().focus();
+  await page.keyboard.press('Enter');
+  await expect(rows.getByRole('button').last()).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  const next = planner.getByRole('button', {
+    name: 'Next planner observations',
+    exact: true,
+  });
+  await next.focus();
+  await page.keyboard.press('Enter');
+  await expect(planner).toContainText(
+    'Showing 51–68 of 68 retained planner observations',
+  );
+  await expect(rows.getByRole('button')).toHaveCount(18);
+  await expect(next).toBeFocused();
+  await expect(next).toHaveAttribute('aria-disabled', 'true');
+  await rows
+    .getByRole('button', { name: 'Planning outcome · Succeeded', exact: false })
+    .click();
+  await page.getByRole('button', { name: 'Raw JSON', exact: true }).click();
+  await expect(
+    page.getByRole('region', { name: 'Raw JSON', exact: true }),
+  ).toContainText('b-planned');
+  await planner
+    .getByRole('button', { name: 'Previous planner observations', exact: true })
+    .click();
+  await expect(rows.getByRole('button')).toHaveCount(50);
+  await expect(
+    page.getByRole('region', { name: 'Raw JSON', exact: true }),
+  ).toContainText('b-planned');
+});
+
+for (const scenario of [
+  'single',
+  'comparison-a',
+  'comparison-b',
+  'controls',
+] as const) {
+  test(`planner retention preserves keyboard ownership in ${scenario}`, async ({
+    page,
+  }) => {
+    const errors: string[] = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    await openFixture(page, 'planner-retention', `?scenario=${scenario}`);
+    const side =
+      scenario === 'comparison-a'
+        ? 'A'
+        : scenario === 'comparison-b'
+          ? 'B'
+          : undefined;
+    const selectRequest = async (requestId: string) =>
+      page
+        .locator('.list-pane')
+        .getByRole('button')
+        .filter({
+          has: page.getByText(`Request ${requestId}`, { exact: true }),
+        })
+        .click();
+    if (side) {
+      if (side === 'B') await selectRequest('other');
+      await page
+        .getByRole('button', { name: 'Compare request', exact: true })
+        .click();
+      await selectRequest(side === 'A' ? 'other' : 'active');
+    }
+    const request = page.getByRole('region', {
+      name: side ? `${side} request details` : 'Request details',
+      exact: true,
+    });
+    const planner = request.locator('details[aria-label="Planner evidence"]');
+    await planner.locator('summary').click();
+    await planner
+      .getByRole('button', { name: 'Next planner observations', exact: true })
+      .click();
+    await page
+      .getByRole('button', {
+        name: side ? `${side} event JSON: Raw JSON` : 'Raw JSON',
+        exact: true,
+      })
+      .click();
+    const rows = planner.getByRole('region', {
+      name: 'Planner observations',
+      exact: true,
+    });
+    await rows.getByRole('button').click();
+    const focused =
+      scenario === 'controls'
+        ? planner.getByRole('button', {
+            name: 'Next planner observations',
+            exact: true,
+          })
+        : rows.getByRole('button');
+    await focused.focus();
+    await expect(focused).toBeFocused();
+    await page.keyboard.press('Alt+n');
+    await expect(request).toBeFocused();
+    await expect(planner).toHaveAttribute('open');
+    if (scenario === 'controls') {
+      await expect(
+        planner.getByRole('button', {
+          name: 'Next planner observations',
+          exact: true,
+        }),
+      ).toHaveCount(0);
+      await expect(rows.getByRole('button')).toHaveCount(50);
+    } else await expect(rows).toContainText('Model: model-51');
+    const json = side
+      ? page
+          .getByRole('complementary', {
+            name: `${side} event JSON`,
+            exact: true,
+          })
+          .locator('.json-raw')
+      : page.getByRole('region', { name: 'Raw JSON', exact: true });
+    await expect(json).toContainText('model-50');
+    expect(errors).toEqual([]);
+  });
 }
 
 async function openRequestComparisonFixture(page: Page, query = '') {
