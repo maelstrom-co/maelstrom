@@ -28,10 +28,13 @@ record ID or other domain output. The separate read supplies those values.
 The test changes the allocated ID from the demo value to detect hard-coded
 result binding. The goal never contains that ID.
 
-The frontend is headless. A fixture registers Action handlers after the real
-layout store changes, in place of a framework mount. The existing React Chart
-renderer, connectors, Variants, and Action contracts remain intact. Browser
-mounting, paint, resize, and routing were not exercised.
+The original demo is headless. A fixture registers Action handlers after the
+real layout store changes. The browser experiment instead mounts the existing
+React Chart and registers handlers through `useActions`. Chromium verifies
+the visible Notes Vessel, exact record focus, command order, and a 12×8 grid
+measured from the 960×640 container. Its viewport is 1200×1100. The create Action
+calls the loopback server; the delegated read observes that server-owned record.
+Resize races, routing, and multi-writer behavior remain untested.
 
 ## Release-specific protocol translation
 
@@ -100,6 +103,16 @@ and child resume are unsupported. After child abort, this parent cannot resume;
 it remains stopped. The child is an application-owned nested `chat()` call,
 not TanStack's subagent API. Its raw trace is separate; no AG-UI `SUBAGENT_*`
 events or distributed child recovery are claimed.
+
+The separate `src/child.test.ts` experiment uses TanStack's actual `defineAgent`
+and routed `subagents` APIs. A child tool with `needsApproval` suspends the
+parent. `StreamProcessor` records child state; `uiMessagesToWire` serializes it
+for `chatParamsFromRequestBody`. A new parent run forwards the approval and
+resumes the same `subagentRunId`. Approval performs one read; denial performs
+none. Both cases pass through the official SSE serializer and AG-UI validators.
+This establishes child approval continuation in the released runtime. The
+workspace host still rejects these interrupts. Restart durability and a combined
+workspace-plus-child-approval flow remain unproven.
 
 The revision policy covers this single writer only. It does not observe arbitrary
 manual edits, resize races, other Charts, or other processes. Structural settlement

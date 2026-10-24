@@ -59,8 +59,15 @@
         "@maelstrom-co/client": "workspace:*",
         "@maelstrom-co/engine": "workspace:*",
         "@maelstrom-co/protocol": "workspace:*",
+        "@maelstrom-co/react": "workspace:*",
         "@tanstack/ai": "1.0.0",
+        "react": "catalog:",
+        "react-dom": "catalog:",
         "zod": "catalog:",
+      },
+      "devDependencies": {
+        "@types/react": "catalog:",
+        "@types/react-dom": "catalog:",
       },
     },
     "apps/demo": {

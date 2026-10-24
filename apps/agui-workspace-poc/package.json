@@ -4,15 +4,23 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "demo": "bun --conditions=@maelstrom-co/source src/demo.ts"
+    "demo": "bun --conditions=@maelstrom-co/source src/demo.ts",
+    "browser": "bun --conditions=@maelstrom-co/source src/browser-server.ts"
   },
   "dependencies": {
     "@ag-ui/core": "1.0.0",
     "@maelstrom-co/client": "workspace:*",
     "@maelstrom-co/engine": "workspace:*",
     "@maelstrom-co/protocol": "workspace:*",
+    "@maelstrom-co/react": "workspace:*",
     "@tanstack/ai": "1.0.0",
+    "react": "catalog:",
+    "react-dom": "catalog:",
     "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:"
   },
   "nx": {
     "targets": {
@@ -23,7 +31,14 @@
         "command": "tsc -p apps/agui-workspace-poc/tsconfig.json --noEmit"
       },
       "test": {
-        "command": "bun --conditions=@maelstrom-co/source test apps/agui-workspace-poc/src"
+        "executor": "nx:run-commands",
+        "options": {
+          "parallel": false,
+          "commands": [
+            "bun --conditions=@maelstrom-co/source test apps/agui-workspace-poc/src",
+            "bun apps/agui-workspace-poc/src/browser-check.ts"
+          ]
+        }
       },
       "demo": {
         "command": "bun --conditions=@maelstrom-co/source apps/agui-workspace-poc/src/demo.ts"

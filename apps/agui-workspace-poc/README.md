@@ -24,6 +24,9 @@ The application decisions and assertions are deterministic.
 
 ## Verify
 
+The browser check uses Playwright Chromium in an isolated profile. Install its
+browser binary once if it is absent: `bunx playwright install chromium`.
+
 ```sh
 bunx nx run-many --projects=@maelstrom-co/agui-workspace-poc --targets=typecheck,test,check --skip-nx-cache --skip-sync --output-style=static
 ```
@@ -31,6 +34,22 @@ bunx nx run-many --projects=@maelstrom-co/agui-workspace-poc --targets=typecheck
 `--skip-sync` keeps Nx's workspace-reference generator from editing unrelated
 project configuration. The explicit typecheck target reads built dependency
 declarations. Nx builds those dependencies first. The tests include a complete
-three-run exchange over loopback HTTP on an ephemeral port.
+three-run exchange over loopback HTTP on an ephemeral port. The test target also
+starts a fresh browser server, checks the real React Chart, and stops that server.
 
-Read [the proof and its limits](./PROOF.md) before reusing this example.
+## Run the browser experiment
+
+```sh
+bun run --cwd apps/agui-workspace-poc browser
+```
+
+Open `http://127.0.0.1:4318` and select **Run one goal**. The page ends with
+**Complete** and **Focused exact ID and version**. It prints the structural
+snapshot and command order. Restart the server before running another goal.
+
+The automated browser check writes screenshots and measured evidence under
+`tmp/research/agui-browser-*`. It uses a 960×640 Chart inside a 1200×1100 viewport
+to distinguish container measurement from viewport measurement.
+
+Read [the walkthrough](./WALKTHROUGH.md) for the change and its benefit, and
+[the proof and its limits](./PROOF.md) before reusing this example.

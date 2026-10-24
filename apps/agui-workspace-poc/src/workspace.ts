@@ -54,6 +54,10 @@ export class Workspace {
       actionGate?: () => Promise<void>;
       fail?: boolean;
       unavailable?: boolean;
+      binding?: {
+        orchestrator: Orchestrator;
+        push: (response: MaelstromResponse) => void;
+      };
     } = {},
   ) {
     const connector: PushConnector = {
@@ -75,15 +79,23 @@ export class Workspace {
         };
       },
     };
-    this.orchestrator = new Orchestrator(connector, {
-      vessels: [notes],
-      readyTimeoutMs: 10,
-    });
+    this.orchestrator =
+      options.binding?.orchestrator ??
+      new Orchestrator(connector, {
+        vessels: [notes],
+        readyTimeoutMs: 10,
+      });
+    if (options.binding) this.push = options.binding.push;
     const processor = this.orchestrator.commandProcessor;
     let mounted = false;
     processor.events.on('command_complete', ({ command }) => {
       this.commands.push(command.kind);
-      if (command.kind !== 'set_layout' || mounted || options.unavailable)
+      if (
+        command.kind !== 'set_layout' ||
+        mounted ||
+        options.unavailable ||
+        options.binding
+      )
         return;
       if (!processor.store.state.instances.has(InstanceId('notes-1'))) return;
       mounted = true;
