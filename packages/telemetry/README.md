@@ -196,9 +196,11 @@ Producer integrations share `normalizeLlmUsage` and its input and output types
 through the internal `@maelstrom-co/telemetry/usage` subpath. It has no provider
 dependency and does not add usage fields to `TelemetryFact` or send records to a sink.
 
-The function accepts legacy aggregate usage or an array of per-source token
-counters. Its optional second argument supplies cache details and quoted cost
-for array snapshots or absent usage. A legacy aggregate owns its own details.
+The function accepts aggregate usage or an array of per-source token counters.
+TanStack 1.0 produces both: aggregate counters use `promptTokens` and
+`completionTokens`; source entries use `inputTokens` and `outputTokens`.
+The optional second argument supplies cache details and quoted cost for array
+snapshots or absent usage. An aggregate owns its own details.
 
 ```ts
 import { normalizeLlmUsage } from '@maelstrom-co/telemetry/usage';

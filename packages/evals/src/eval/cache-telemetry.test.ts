@@ -18,14 +18,14 @@ test('real TanStack paths retain cache accounting once in events and evaluation 
     let checked = 0;
     for (const mode of ['combined', 'stream-finalization', 'direct-finalization']) {
       for (const entry of ['planner', 'complete', 'inline']) {
-        for (const shape of ['spec', 'legacy', 'zero', 'missing', 'error']) {
+        for (const shape of ['spec', 'aggregate', 'zero', 'missing', 'error']) {
           if (mode === 'direct-finalization' && shape === 'error') continue;
           const missing = shape === 'missing';
           const failed = shape === 'error';
           const cached = shape === 'zero' ? 0 : 8;
           const written = shape === 'zero' ? 0 : 4;
           const cost = shape === 'zero' ? 0 : 0.03;
-          const legacy = { promptTokens: 16, completionTokens: 5, totalTokens: 21, promptTokensDetails: { cachedTokens: cached, cacheWriteTokens: written }, cost };
+          const aggregate = { promptTokens: 16, completionTokens: 5, totalTokens: 21, promptTokensDetails: { cachedTokens: cached, cacheWriteTokens: written }, cost };
           const spec = [
             { inputTokens: 12, outputTokens: 3, totalTokens: 15, cachedInputTokens: cached, cacheWriteInputTokens: written },
             { inputTokens: 4, outputTokens: 2, totalTokens: 6 },
@@ -34,7 +34,7 @@ test('real TanStack paths retain cache accounting once in events and evaluation 
           const terminal = {
             type: failed ? 'RUN_ERROR' : 'RUN_FINISHED', runId: 'r', threadId: 't', timestamp: 5,
             ...(failed ? { message: 'Private provider error.' } : { finishReason: 'stop' }),
-            usage: missing ? [] : shape === 'legacy' ? legacy : spec,
+            usage: missing ? [] : shape === 'aggregate' ? aggregate : spec,
             metadata: { tanstack: { usage: missing ? undefined : { cost, promptTokensDetails: { cacheWriteTokens: written }, providerUsageDetails: { secret: 'private-key' } } } },
           };
           async function* stream() {
@@ -57,7 +57,7 @@ test('real TanStack paths retain cache accounting once in events and evaluation 
             supportsCombinedToolsAndSchema: () => mode === 'combined',
             chatStream: stream,
             ...(mode === 'stream-finalization' ? { structuredOutputStream: stream } : {}),
-            async structuredOutput() { return { data, rawText: JSON.stringify(data), ...(missing ? {} : { usage: legacy }) }; },
+            async structuredOutput() { return { data, rawText: JSON.stringify(data), ...(missing ? {} : { usage: aggregate }) }; },
           }, entry === 'planner' ? 'planner' : 'complete', call => calls.push(call));
           const plan = completionPlan(makeRequest('hide the tasks'));
           const ctx = makeContext(plan.plan.selection.input, { instrument });

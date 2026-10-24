@@ -30,8 +30,8 @@ export interface LlmUsageDetails {
   readonly cost?: number;
 }
 
-/** Legacy aggregate token counters with supplemental cache and cost details. @internal */
-export interface LegacyLlmUsage extends LlmUsageDetails {
+/** Aggregate token counters with cache and cost details. @internal */
+export interface AggregateLlmUsage extends LlmUsageDetails {
   /** Reported input tokens. */
   readonly promptTokens?: number;
   /** Reported output tokens. */
@@ -40,14 +40,14 @@ export interface LegacyLlmUsage extends LlmUsageDetails {
   readonly totalTokens?: number;
 }
 
-/** Either legacy aggregate usage or a snapshot containing all source counters. @internal */
-export type LlmUsageInput = LegacyLlmUsage | readonly LlmUsageEntry[];
+/** Either aggregate usage or a snapshot containing all source counters. @internal */
+export type LlmUsageInput = AggregateLlmUsage | readonly LlmUsageEntry[];
 
 /**
  * Normalizes one usage snapshot without mutating its input or copying metadata.
  * Sums finite, nonnegative source counters and preserves explicit zero.
  * Source cache counters take precedence over supplemental details, so duplicate
- * representations are not added twice. Legacy usage owns its own details.
+ * representations are not added twice. Aggregate usage owns its own details.
  * Returns `undefined` when no valid counter or quoted cost was reported.
  * Provider or adapter omissions cannot be recovered at this boundary.
  * Callers own call lifecycles, repeated-snapshot handling, and currency selection.

@@ -60,7 +60,7 @@ async function drain(stream: AsyncIterable<StreamChunk>) {
 describe('withUsage', () => {
   test.each([
     {
-      name: 'legacy counters',
+      name: 'aggregate counters',
       reported: {
         ...usage,
         promptTokensDetails: { cachedTokens: 80, cacheWriteTokens: 20 },

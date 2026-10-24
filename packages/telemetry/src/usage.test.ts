@@ -15,7 +15,7 @@ describe('normalizeLlmUsage', () => {
   }>([
     { name: 'missing usage is not zero work' },
     { name: 'empty source snapshots are not zero work', usage: [] },
-    { name: 'empty legacy snapshots are not zero work', usage: {} },
+    { name: 'empty aggregate snapshots are not zero work', usage: {} },
     {
       name: 'source totals include all model work without deriving missing totals',
       usage: [{ inputTokens: 7 }, { inputTokens: 3, outputTokens: 2 }],
@@ -27,7 +27,7 @@ describe('normalizeLlmUsage', () => {
       expected: { totalTokens: 9 },
     },
     {
-      name: 'legacy cache counters do not inflate input totals',
+      name: 'aggregate cache counters do not inflate input totals',
       usage: {
         promptTokens: 12,
         completionTokens: 3,
@@ -89,7 +89,7 @@ describe('normalizeLlmUsage', () => {
       expected: { cachedInputTokens: 8, cacheWriteInputTokens: 2, cost: 0 },
     },
     {
-      name: 'legacy snapshots own their details rather than mixing representations',
+      name: 'aggregate snapshots own their details rather than mixing representations',
       usage: { promptTokens: 7 },
       supplemental: { promptTokensDetails: { cachedTokens: 8 }, cost: 1 },
       expected: { inputTokens: 7 },
