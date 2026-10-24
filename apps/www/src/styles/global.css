@@ -622,50 +622,6 @@ section {
   font-family: var(--font-mono);
 }
 
-.hero-install {
-  margin-top: 32px;
-  max-width: 440px;
-  border: 1px solid var(--line-2);
-  border-radius: 10px;
-  background: rgba(7, 9, 15, 0.7);
-  backdrop-filter: blur(10px);
-  overflow: hidden;
-}
-.hero-install-bar {
-  display: flex;
-  gap: 6px;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--line);
-}
-.hero-install-bar .dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-}
-.hero-install-bar .dot.r {
-  background: #ff5f57;
-}
-.hero-install-bar .dot.y {
-  background: #febc2e;
-}
-.hero-install-bar .dot.g {
-  background: #28c840;
-}
-.hero-install-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 14px;
-  font-family: var(--font-mono);
-  font-size: 13px;
-  color: var(--text);
-}
-.hero-install-row .prompt {
-  color: var(--text-3);
-}
-.hero-install-row .cmd {
-  flex: 1;
-}
 .copy-btn {
   background: transparent;
   border: 1px solid var(--line-2);
@@ -1599,15 +1555,17 @@ section {
   border-bottom: 1px solid var(--line);
 }
 .faq-q-h {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 24px;
+  align-items: center;
   margin: 0;
   font-size: inherit;
   font-weight: inherit;
 }
 .faq-q {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  gap: 24px;
-  align-items: center;
+  display: block;
+  list-style: none;
   width: 100%;
   padding: 0;
   background: transparent;
@@ -1620,6 +1578,9 @@ section {
   font-weight: 400;
   letter-spacing: 0;
   transition: color 200ms;
+}
+.faq-q::-webkit-details-marker {
+  display: none;
 }
 .faq-item:hover .faq-q {
   color: var(--brand);
@@ -1636,20 +1597,11 @@ section {
   width: 24px;
   text-align: center;
 }
-.faq-a-wrap {
-  display: grid;
-  grid-template-rows: 0fr;
-  visibility: hidden;
-  transition:
-    grid-template-rows 400ms cubic-bezier(0.2, 0.7, 0.2, 1),
-    visibility 0s linear 400ms;
+.faq-toggle::before {
+  content: '+';
 }
-.faq-item.open .faq-a-wrap {
-  grid-template-rows: 1fr;
-  visibility: visible;
-  transition:
-    grid-template-rows 400ms cubic-bezier(0.2, 0.7, 0.2, 1),
-    visibility 0s;
+.faq-item[open] .faq-toggle::before {
+  content: '−';
 }
 .faq-a {
   overflow: hidden;
@@ -1660,7 +1612,7 @@ section {
   line-height: 1.6;
   max-width: 640px;
 }
-.faq-item.open .faq-a {
+.faq-item[open] .faq-a {
   padding-top: 16px;
 }
 

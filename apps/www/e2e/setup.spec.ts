@@ -42,11 +42,12 @@ test('the default setup copies the canonical stable prompt without page metadata
     ]);
 });
 
-test('keyboard users can choose skills and manual setup and copy the selected command', async ({
+test('keyboard users can choose skills or a complete runnable starter and copy its commands', async ({
   page,
   context,
 }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  const captures = await installPostHogRecorder(page);
   await page.goto('/');
   const first = page.getByRole('tab', { name: 'With your agent', exact: true });
   await first.focus();
@@ -64,12 +65,40 @@ test('keyboard users can choose skills and manual setup and copy the selected co
     );
   await skills.focus();
   await skills.press('End');
+  await expect(
+    page.getByRole('tab', { name: 'React starter', exact: true }),
+  ).toHaveAttribute('aria-selected', 'true');
+  const starter = page.getByRole('tabpanel', {
+    name: 'React starter',
+    exact: true,
+  });
+  await expect(
+    starter.getByRole('link', { name: 'Download the React starter ZIP' }),
+  ).toHaveAttribute(
+    'href',
+    'https://docs.maelstrom-ai.co/getting-started/starter.zip',
+  );
+  await expect(starter).toContainText('http://127.0.0.1:3001');
+  await expect(starter).toContainText('Show the greeting');
+  await expect(starter).toContainText('without calling a model');
   await page
-    .getByRole('button', { name: 'Copy install command', exact: true })
+    .getByRole('button', { name: 'Copy starter commands', exact: true })
     .click();
   await expect
     .poll(() => page.evaluate(() => navigator.clipboard.readText()))
-    .toBe('npm install @maelstrom-co/react');
+    .toBe('bun install\nbun run typecheck\nbun run start');
+  await expect
+    .poll(() => captures)
+    .toEqual([
+      {
+        event: 'setup_copied',
+        properties: { method: 'skills', source: 'hero' },
+      },
+      {
+        event: 'setup_copied',
+        properties: { method: 'starter', source: 'hero' },
+      },
+    ]);
 });
 
 test('a failed copy offers the source and does not record a successful setup action', async ({
@@ -127,7 +156,7 @@ test('new onboarding links record intent without activating external services', 
     ]);
 });
 
-test('manual setup and readable prompt remain available without JavaScript', async ({
+test('the complete starter path and readable prompt remain available without JavaScript', async ({
   browser,
   baseURL,
 }) => {
@@ -140,10 +169,16 @@ test('manual setup and readable prompt remain available without JavaScript', asy
     const page = await context.newPage();
     await page.goto('/');
     await expect(
-      page.getByRole('heading', { name: 'Set up the SDK yourself' }),
+      page.getByRole('heading', { name: 'Run a working React app' }),
     ).toBeVisible();
-    await expect(page.locator('#setup-panel-npm')).toContainText(
-      'npm install @maelstrom-co/react',
+    await expect(page.locator('#setup-panel-starter pre')).toHaveText(
+      'bun install\nbun run typecheck\nbun run start',
+    );
+    await expect(
+      page.getByRole('link', { name: 'Download the React starter ZIP' }),
+    ).toHaveAttribute(
+      'href',
+      'https://docs.maelstrom-ai.co/getting-started/starter.zip',
     );
     await page.getByText('Read the prompt', { exact: true }).click();
     await expect(page.locator('#setup-panel-prompt pre')).toBeVisible();
