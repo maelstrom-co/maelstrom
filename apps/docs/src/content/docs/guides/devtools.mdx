@@ -75,6 +75,42 @@ panel keeps collection active. Several mounts of `m.Devtools` share one panel.
 Each mounted Provider creates a separate app lifetime; an ended lifetime can
 remain visible as bounded history after a remount.
 
+## Explain missing evidence
+
+Choose an **Evidence** source and **App instance**, then open **Evidence & setup**.
+The section shows what DevTools knows about that selection and suggests setup
+checks. It stays collapsed until you open it and scrolls separately from the workspace.
+
+For live apps, **Attached** and **Current Engine state** describe the collector's
+latest projected state. Ended apps and recordings show the last retained Engine
+state. An imported recording cannot establish a current connection or attachment.
+
+Use the reported limitation to choose the next step:
+
+| Signal | What it means | Next step |
+| --- | --- | --- |
+| Hidden by view filters | Events remain retained. | Reset event filters or widen the app selection. |
+| Collection filter configured | The application can exclude events before retention. Exclusions have no count here. | Check `DevtoolsOptions.filter` before reproducing the problem. |
+| Recent or request events evicted | A collector buffer discarded older metadata. Counts cover the entire source, including other apps. | Record a reproduction or increase the relevant retention limit. |
+| Recording events dropped | Capture bounds or later redaction discarded events. The count does not locate them. | Check capture limits and redaction before a new recording. |
+| Events omitted by the viewer | Earlier retained events sit outside the viewer window. | Read the collector snapshot for live metadata or inspect an exported recording outside this viewer. |
+| Live metadata only | Application content is absent from this feed, including while recording. | [Record before reproducing the problem](#record-and-reopen-a-problem), then inspect **Current recording**. |
+
+**Server events retained** and **Voice events retained** report observations,
+not current setup permissions or provider support. Their absence leaves setup
+unknown. Check [optional Engine evidence](#enable-optional-engine-evidence) or
+[voice observation](#find-voice-and-connection-events) when the corresponding
+events are missing.
+
+Live guidance includes retained terminal voice observations after they leave the
+recent activity buffer. Recordings use only their own saved evidence. If an app
+snapshot falls outside the viewer window, its absence from the view does not
+establish loss from the recording.
+
+In a recording, absent fields may be unrecorded, redacted, truncated, or unsupported.
+An unreported loss count also stays unknown. Raw audio is excluded. Opening this
+guidance does not start recording or change collection setup.
+
 ## Find requests with Overview
 
 1. Select **Evidence** and the app instance you want to inspect.

@@ -20,6 +20,7 @@ import {
 export { identity } from './diagnostic-identity.js';
 export { type EventIssue, eventIssue } from './event-outcome.js';
 export { queryEvents } from './event-query.js';
+export { evidenceGuidance } from './evidence-guidance.js';
 export { plannerEvidence } from './planner-evidence.js';
 export {
   type RequestCounterpart,
@@ -450,6 +451,7 @@ export interface PanelApp {
 export interface PanelEvidence {
   events: PanelEvent[];
   requestEvents?: PanelEvent[];
+  transportHistory?: PanelEvent[];
   droppedRequestEvents?: number;
   omittedRequestEvents?: number;
   apps: PanelApp[];
