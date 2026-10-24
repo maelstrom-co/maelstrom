@@ -1,0 +1,10 @@
+<script>
+  import { captureWebsiteEvent } from '../lib/posthog';
+
+  document.querySelectorAll<HTMLAnchorElement>('[data-start-source]').forEach((link) => {
+    link.addEventListener('click', () => captureWebsiteEvent('get_started_clicked', { source: link.dataset.startSource ?? 'unknown' }));
+  });
+  document.querySelectorAll<HTMLAnchorElement>('[data-playground-source]').forEach((link) => {
+    link.addEventListener('click', () => captureWebsiteEvent('playground_opened', { source: link.dataset.playgroundSource ?? 'unknown' }));
+  });
+</script>

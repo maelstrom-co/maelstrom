@@ -1,12 +1,14 @@
 ---
 id: maelstrom-project-onboarding
-prompt_version: 0.1.1
+prompt_version: 0.2.0
 compatibility:
   sdk:
-    "@maelstrom-co/react": "0.1.0-alpha.4"
+    "@maelstrom-co/react": "0.1.0"
 ---
 
-Inspect the existing React application and plan a bounded Maelstrom integration
+Help me get started with Maelstrom. Ask what I want to build and whether I am
+starting a new application or integrating an existing one, unless that is already
+clear from the conversation. Inspect the project and plan a bounded integration
 for this goal:
 
 [PRODUCT GOAL]
@@ -23,7 +25,17 @@ material decision outside the authorized goal.
 
 ## Inspect and select
 
-1. Read package manifests and lockfile, React entry/root, routing, relevant UI,
+For a new app, inspect the destination before creating anything. Start from the
+runnable React starter at https://docs.maelstrom-ai.co/getting-started/starter/
+when React fits the goal. Its deterministic local planner needs no provider key;
+do not describe that run as live model verification. For PLAN ONLY, describe the
+starter and checks without downloading, installing, or editing. For an authorized
+implementation, use an empty destination, follow its README, then adapt the
+smallest useful capability to the stated goal. Preserve existing files when the
+destination is not empty. If the installed maelstrom skill is available, use its
+entry workflow and selected procedure; this prompt also works without skills.
+
+1. Read package manifests and lockfile, application entry/root, routing, relevant UI,
    state/data/network code, server boundary, and existing tests. Record installed
    `@maelstrom-co/*` package versions; do not infer them from documentation or a
    version tag.

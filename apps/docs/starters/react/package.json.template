@@ -1,0 +1,25 @@
+{
+  "name": "maelstrom-react-starter",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "vite build && bun --no-env-file server.ts",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@maelstrom-co/engine": "0.1.0",
+    "@maelstrom-co/protocol": "0.1.0",
+    "@maelstrom-co/react": "0.1.0",
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
+  },
+  "devDependencies": {
+    "@types/bun": "1.4.3",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "typescript": "6.0.3",
+    "vite": "8.3.4"
+  }
+}

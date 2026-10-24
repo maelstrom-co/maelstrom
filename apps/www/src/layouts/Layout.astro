@@ -3,6 +3,7 @@ import { isWaitlistProductionHostname } from '@maelstrom-co/platform-infra/waitl
 import Nav from '../components/Nav.astro';
 import PostHog from '../components/PostHog.astro';
 import ShaderBackground from '../components/ShaderBackground.astro';
+import WebsiteActions from '../components/WebsiteActions.astro';
 
 interface Props {
   title: string;
@@ -101,6 +102,7 @@ const jsonLd = JSON.stringify({
     <div class="noise" aria-hidden="true" />
     <Nav />
     <slot />
+    <WebsiteActions />
   </body>
 </html>
 

@@ -64,8 +64,10 @@ const headings = [
 
     <section aria-labelledby="first-task-heading">
       <h2 id="first-task-heading">Run a safe first task</h2>
-      <h3>Plan a first integration</h3>
+      <h3>Start a new app or integrate an existing one</h3>
+      <p>Ask for <code>maelstrom</code>. It asks about your goal and starting point when they are missing, then selects one existing procedure. You do not need to choose a procedure first.</p>
       <pre data-first-plan><code>{firstPlanRequest}</code></pre>
+      <p>For a new React app, the <a href="/getting-started/starter/">runnable starter</a> verifies the local client-to-Engine path without a provider key. For an existing app, the procedure inspects your application and selects one bounded capability.</p>
       <p>Expect one selected procedure, evidence from your app, a bounded pilot, and a verification/rollback plan. With no SDK installed, expect the agent to say which API details remain unverified.</p>
       <h3>Authorize a bounded implementation</h3>
       <pre><code>{firstImplementationRequest}</code></pre>
