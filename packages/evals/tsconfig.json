@@ -8,6 +8,9 @@
   "include": ["src/**/*.ts"],
   "references": [
     {
+      "path": "../telemetry"
+    },
+    {
       "path": "../protocol"
     },
     {

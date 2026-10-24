@@ -1,9 +1,8 @@
-import type {
-  AnyTextAdapter,
-  SpecTokenUsage,
-  StreamChunk,
-  TokenUsage,
-} from '@tanstack/ai';
+import {
+  normalizeLlmUsage,
+  type ReportedLlmUsage,
+} from '@maelstrom-co/telemetry/usage';
+import type { AnyTextAdapter, StreamChunk } from '@tanstack/ai';
 
 /** Every LLM role, in report order. */
 export const LLM_ROLES = [
@@ -18,20 +17,7 @@ export const LLM_ROLES = [
 export type LlmRole = (typeof LLM_ROLES)[number];
 
 /** Provider counters, without inferred zeros, token totals, or price estimates. */
-export interface LlmUsage {
-  /** Adapter-reported input tokens; absent when the adapter omitted this counter. */
-  readonly inputTokens?: number;
-  /** Adapter-reported output tokens; absent when the adapter omitted this counter. */
-  readonly outputTokens?: number;
-  /** Adapter-reported total tokens; this wrapper does not derive them. */
-  readonly totalTokens?: number;
-  /** Cache-read input tokens; not added to inputTokens. */
-  readonly cachedInputTokens?: number;
-  /** Cache-write input tokens; not added to inputTokens. */
-  readonly cacheWriteInputTokens?: number;
-  /** Provider-reported monetary cost, in the provider's units; absent without a quote. */
-  readonly cost?: number;
-}
+export type LlmUsage = ReportedLlmUsage;
 
 export interface LlmCall {
   readonly role: LlmRole;
@@ -70,7 +56,7 @@ export function withUsage(
           let usage: LlmUsage | undefined;
           try {
             const result = await value.apply(target, args);
-            usage = reportedUsage(result?.usage);
+            usage = normalizeLlmUsage(result?.usage);
             return result;
           } finally {
             sink(call(role, started, usage));
@@ -91,67 +77,15 @@ async function* recordStream(
   try {
     for await (const chunk of stream) {
       if (chunk.type === 'RUN_FINISHED' || chunk.type === 'RUN_ERROR')
-        usage ??= reportedUsage(chunk.usage, chunk.metadata?.tanstack?.usage);
+        usage ??= normalizeLlmUsage(
+          chunk.usage,
+          chunk.metadata?.tanstack?.usage,
+        );
       yield chunk;
     }
   } finally {
     sink(call(role, started, usage));
   }
-}
-
-function reportedUsage(
-  usage: TokenUsage | SpecTokenUsage[] | undefined,
-  leftover?: Omit<
-    TokenUsage,
-    'promptTokens' | 'completionTokens' | 'totalTokens'
-  >,
-): LlmUsage | undefined {
-  const details = Array.isArray(usage) ? leftover : (usage ?? leftover);
-  const entries = Array.isArray(usage)
-    ? usage
-    : usage
-      ? [
-          {
-            inputTokens: usage.promptTokens,
-            outputTokens: usage.completionTokens,
-            totalTokens: usage.totalTokens,
-            cachedInputTokens: usage.promptTokensDetails?.cachedTokens,
-            cacheWriteInputTokens: usage.promptTokensDetails?.cacheWriteTokens,
-          },
-        ]
-      : [];
-  const totals: {
-    inputTokens?: number;
-    outputTokens?: number;
-    totalTokens?: number;
-    cachedInputTokens?: number;
-    cacheWriteInputTokens?: number;
-    cost?: number;
-  } = {};
-  for (const entry of entries) {
-    for (const key of [
-      'inputTokens',
-      'outputTokens',
-      'totalTokens',
-      'cachedInputTokens',
-      'cacheWriteInputTokens',
-    ] as const) {
-      const value = entry[key];
-      if (typeof value === 'number' && Number.isFinite(value) && value >= 0)
-        totals[key] = (totals[key] ?? 0) + value;
-    }
-  }
-  // Cache writes can appear in both AG-UI counters and TanStack leftovers.
-  totals.cachedInputTokens ??= details?.promptTokensDetails?.cachedTokens;
-  totals.cacheWriteInputTokens ??=
-    details?.promptTokensDetails?.cacheWriteTokens;
-  totals.cost = details?.cost;
-  for (const key of Object.keys(totals) as (keyof typeof totals)[]) {
-    const value = totals[key];
-    if (value === undefined || !Number.isFinite(value) || value < 0)
-      delete totals[key];
-  }
-  return Object.keys(totals).length > 0 ? totals : undefined;
 }
 
 function call(

@@ -183,9 +183,42 @@ configuration. It ignores diagnostic provider labels, custom stage names,
 identifiers, error text, content, and raw provider frames.
 
 The projector does not deduplicate observations or establish their ownership.
-Producer adapters must publish each owned fact once. Detailed trace correlation,
-usage reporting, and additional producer coverage need separate contracts.
+Producer adapters must publish each owned fact once. Detailed trace correlation
+and additional producer coverage need separate contracts.
 
 Telemetry does not enable DevTools, content recording, or Engine-to-browser
 forwarding. Application success and task acceptance require application-owned
 product signals.
+
+## Normalize LLM usage
+
+Producer integrations share `normalizeLlmUsage` and its input and output types
+through the internal `@maelstrom-co/telemetry/usage` subpath. It has no provider
+dependency and does not add usage fields to `TelemetryFact` or send records to a sink.
+
+The function accepts legacy aggregate usage or an array of per-source token
+counters. Its optional second argument supplies cache details and quoted cost
+for array snapshots or absent usage. A legacy aggregate owns its own details.
+
+```ts
+import { normalizeLlmUsage } from '@maelstrom-co/telemetry/usage';
+
+const usage = normalizeLlmUsage(
+  [{ inputTokens: 12, cachedInputTokens: 0 }],
+  { cost: 0 },
+);
+console.log(usage);
+```
+
+Expected output: `{ inputTokens: 12, cachedInputTokens: 0, cost: 0 }`.
+
+Normalization sums finite, nonnegative source counters and preserves explicit
+zero. Source cache counters take precedence over supplemental cache details,
+so duplicate representations are not counted twice. Cache counters never
+increase input totals. Total tokens and monetary cost are not inferred.
+Cost retains the provider's units; callers must select comparable currencies.
+
+Missing counters remain absent. The function returns `undefined` when no valid
+counter or quoted cost is present. It does not mutate inputs or copy unknown
+metadata. Counters already omitted by a provider or adapter cannot be recovered.
+Callers own call boundaries, repeated-snapshot handling, and event emission.

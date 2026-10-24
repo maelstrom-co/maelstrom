@@ -25,6 +25,10 @@ import {
   ok,
   TilingResponseSchema,
 } from '@maelstrom-co/protocol';
+import {
+  normalizeLlmUsage,
+  type ReportedLlmUsage,
+} from '@maelstrom-co/telemetry/usage';
 import type { AnyTextAdapter, ChatMiddleware } from '@tanstack/ai';
 
 import { callLLM, logLLMCallError } from './call-llm.js';
@@ -160,15 +164,7 @@ export function llmPlanner(
     }
 
     const started = performance.now();
-    let usage:
-      | {
-          input?: number;
-          output?: number;
-          cacheRead?: number;
-          cacheWrite?: number;
-          cost?: number;
-        }
-      | undefined;
+    let usage: Partial<Record<keyof ReportedLlmUsage, number>> | undefined;
     let usageRecorded = false;
     const middleware: ChatMiddleware = {
       // Each provider call gets a fresh snapshot, including separate finalization.
@@ -182,46 +178,20 @@ export function llmPlanner(
           usageRecorded
         )
           return;
-        const entries = Array.isArray(chunk.usage)
-          ? chunk.usage
-          : chunk.usage
-            ? [
-                {
-                  inputTokens: chunk.usage.promptTokens,
-                  outputTokens: chunk.usage.completionTokens,
-                  cachedInputTokens:
-                    chunk.usage.promptTokensDetails?.cachedTokens,
-                  cacheWriteInputTokens:
-                    chunk.usage.promptTokensDetails?.cacheWriteTokens,
-                },
-              ]
-            : [];
-        const current: NonNullable<typeof usage> = {};
-        for (const entry of entries) {
-          for (const [key, value] of [
-            ['input', entry.inputTokens],
-            ['output', entry.outputTokens],
-            ['cacheRead', entry.cachedInputTokens],
-            ['cacheWrite', entry.cacheWriteInputTokens],
-          ] as const) {
-            if (
-              typeof value === 'number' &&
-              Number.isFinite(value) &&
-              value >= 0
-            )
-              current[key] = (current[key] ?? 0) + value;
-          }
-        }
-        const details = Array.isArray(chunk.usage)
-          ? chunk.metadata?.tanstack?.usage
-          : (chunk.usage ?? chunk.metadata?.tanstack?.usage);
-        current.cacheRead ??= details?.promptTokensDetails?.cachedTokens;
-        current.cacheWrite ??= details?.promptTokensDetails?.cacheWriteTokens;
-        current.cost = details?.cost;
-        for (const key of Object.keys(current) as (keyof typeof current)[]) {
+        const current = normalizeLlmUsage(
+          chunk.usage,
+          chunk.metadata?.tanstack?.usage,
+        );
+        if (!current) return;
+        for (const key of [
+          'inputTokens',
+          'outputTokens',
+          'cachedInputTokens',
+          'cacheWriteInputTokens',
+          'cost',
+        ] as const) {
           const value = current[key];
-          if (value === undefined || !Number.isFinite(value) || value < 0)
-            continue;
+          if (value === undefined) continue;
           usage ??= {};
           usage[key] = (usage[key] ?? 0) + value;
           usageRecorded = true;
@@ -245,17 +215,17 @@ export function llmPlanner(
       'gen_ai.request.model': adapter.model,
       'maelstrom.message_id': ctx.origin.messageId,
       'maelstrom.session_id': ctx.origin.sessionId,
-      ...(usage?.input !== undefined && {
-        'gen_ai.usage.input_tokens': usage.input,
+      ...(usage?.inputTokens !== undefined && {
+        'gen_ai.usage.input_tokens': usage.inputTokens,
       }),
-      ...(usage?.output !== undefined && {
-        'gen_ai.usage.output_tokens': usage.output,
+      ...(usage?.outputTokens !== undefined && {
+        'gen_ai.usage.output_tokens': usage.outputTokens,
       }),
-      ...(usage?.cacheRead !== undefined && {
-        'gen_ai.usage.cache_read.input_tokens': usage.cacheRead,
+      ...(usage?.cachedInputTokens !== undefined && {
+        'gen_ai.usage.cache_read.input_tokens': usage.cachedInputTokens,
       }),
-      ...(usage?.cacheWrite !== undefined && {
-        'gen_ai.usage.cache_creation.input_tokens': usage.cacheWrite,
+      ...(usage?.cacheWriteInputTokens !== undefined && {
+        'gen_ai.usage.cache_creation.input_tokens': usage.cacheWriteInputTokens,
       }),
       ...(usage?.cost !== undefined && { 'gen_ai.usage.cost': usage.cost }),
       'maelstrom.outcome': isErr(result)
