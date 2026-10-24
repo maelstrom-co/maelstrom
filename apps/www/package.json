@@ -23,17 +23,18 @@
     "react-dom": "catalog:"
   },
   "devDependencies": {
-    "@effect/platform-bun": "catalog:",
-    "@effect/platform-node": "catalog:",
     "@astrojs/check": "catalog:",
     "@astrojs/cloudflare": "catalog:",
     "@cloudflare/workers-types": "catalog:",
+    "@effect/platform-bun": "catalog:",
+    "@effect/platform-node": "catalog:",
     "@playwright/test": "^1.61.1",
     "@tailwindcss/vite": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "alchemy": "2.0.0-beta.83",
     "effect": "catalog:",
+    "posthog-js": "1.438.21",
     "tailwindcss": "catalog:",
     "typescript": "catalog:",
     "vite-tsconfig-paths": "catalog:"
@@ -61,7 +62,9 @@
           },
           {
             "env": "PUBLIC_TURNSTILE_ENVIRONMENT"
-          }
+          },
+          "{workspaceRoot}/apps/docs/prompts/library/maelstrom-project-onboarding.md",
+          "{workspaceRoot}/apps/docs/src/lib/skill-onboarding.ts"
         ],
         "outputs": [
           "{projectRoot}/dist",
@@ -94,7 +97,9 @@
             ]
           },
           "^default",
-          "{projectRoot}/tsconfig.json"
+          "{projectRoot}/tsconfig.json",
+          "{workspaceRoot}/apps/docs/prompts/library/maelstrom-project-onboarding.md",
+          "{workspaceRoot}/apps/docs/src/lib/skill-onboarding.ts"
         ]
       },
       "infra-typecheck": {

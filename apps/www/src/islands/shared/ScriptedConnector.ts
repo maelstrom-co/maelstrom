@@ -59,8 +59,9 @@ export function buildScriptedSteps(
 }
 
 /**
- * Deterministic connector that replays a fixed list of steps in order — one per
- * request — with a simulated engine delay on non-initial calls. Shared by the
+ * Deterministic connector that replays a fixed list of steps in order, with a
+ * simulated engine delay. Resize-only updates preserve the current scene so
+ * container sizing cannot replay recorded side effects. Shared by the
  * site's scripted demos (hero, "See It In Action"); each supplies its own steps
  * and vessels. `steps` is exposed so the demo driver can derive its typed script
  * from the same source it replays (no separate, desyncable script list).
@@ -82,12 +83,17 @@ export class ScriptedConnector implements EngineConnector {
   async disconnect(): Promise<void> {}
 
   async process(message: ChartRequestMessage): Promise<MaelstromResponse> {
-    this.requestCount++;
+    const reasons = message.request.context.updateReasons;
+    const resizeOnly =
+      reasons.length > 0 &&
+      reasons.every((reason) => reason.type === 'chart_resize');
+    const advance = this.requestCount === 0 || !resizeOnly;
+    if (advance) this.requestCount++;
     const stepIndex = Math.min(this.requestCount - 1, this.steps.length - 1);
     const step = this.steps[stepIndex];
 
     // Simulate engine latency for non-initial calls.
-    if (this.requestCount > 1) {
+    if (advance && this.requestCount > 1) {
       await new Promise((resolve) => setTimeout(resolve, this.delayMs));
     }
 
@@ -96,7 +102,7 @@ export class ScriptedConnector implements EngineConnector {
       requestId: message.id,
       userMessage: step.userMessage,
       rationale: step.rationale,
-      executionPlan: step.executionPlan,
+      executionPlan: advance ? step.executionPlan : [],
       layout: step.layout,
     };
   }

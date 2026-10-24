@@ -1,0 +1,50 @@
+---
+title: Run the React Starter
+description: How to run a local Maelstrom chart with a real Engine and a deterministic planner, without a provider key.
+---
+
+Use this starter to learn the client-to-Engine path in a new React app.
+It uses the public 0.1.0 packages and requires Bun. You do not need a provider
+account or API key for this example.
+
+The local planner always selects one greeting capability after an intent. This
+verifies SDK wiring; it does not verify a model's decisions.
+
+## Download and run
+
+1. [Download the React starter](/getting-started/starter.zip).
+2. Extract the ZIP into a new, empty folder. Open a terminal in that folder.
+3. Install dependencies and check the source:
+
+   ```sh
+   bun install
+   bun run typecheck
+   ```
+
+4. Build and start the local app:
+
+   ```sh
+   bun run start
+   ```
+
+5. Open `http://127.0.0.1:3001`. Submit **Show the greeting**.
+
+Expect a card titled **Hello from Maelstrom** inside the Chart. The status reads
+**Local preview complete. No model was called.** This confirms that the client
+sent an intent, the Engine returned a layout, and the Chart rendered your Vessel.
+
+Stop the server with Ctrl+C. Rerun `bun run start` after editing the example.
+
+## Change one capability
+
+Edit `src/App.tsx` to change the greeting renderer or its Vessel declaration.
+The form and app state stay in React. `server.ts` owns the Engine and planner.
+The preview uses loopback and in-memory history; it does not configure production
+authentication, durable storage, or deployment.
+
+To process intent with a model, follow [Use a custom LLM provider](/guides/engine/custom-llm-providers/).
+Configure the selected planner on the server and verify that live path separately.
+
+For an existing app, use [Build with an agent](/agents/skills/) to select a bounded
+integration, or follow the [Quick Start](/getting-started/quick-start/) with your
+existing Engine host.

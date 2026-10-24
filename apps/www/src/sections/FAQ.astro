@@ -2,27 +2,27 @@
 const FAQS = [
   {
     q: 'Does Maelstrom replace my UI components?',
-    a: 'No — it orchestrates them. You bring your existing React components (or a design system); Maelstrom decides which ones to show, in what variant, and where to place them based on user intent.',
+    a: 'You keep your components and application behavior. Maelstrom arranges the Vessels you define and invokes only their declared actions.',
   },
   {
-    q: 'Which LLMs are supported?',
-    a: 'Out of the box: Anthropic, OpenAI, Google, and any OpenAI-compatible endpoint. Bring-your-own provider via the `connector` interface.',
+    q: 'What do I need to get started?',
+    a: 'The React starter needs Bun and runs locally without a provider key. It uses a deterministic planner to verify the integration. For a live model, configure a server-side planner and any credentials your provider requires.',
   },
   {
-    q: 'Is the layout deterministic?',
-    a: 'The Engine returns a typed `Plan` with explicit positions and variants. You can pin layouts, constrain ranges, or hand-author plans alongside AI-generated ones.',
+    q: 'Which frameworks can I use?',
+    a: 'Maelstrom ships React bindings and a framework-independent TypeScript client. The starter uses React. Other renderers require their own integration with the client.',
   },
   {
-    q: 'How do I handle streaming?',
-    a: 'Plans stream token-by-token and apply incrementally. Vessels animate into position as the model is still thinking. The user feels response in <300ms.',
+    q: 'Do I need an account or a GitHub token?',
+    a: 'Public npm installation needs no Maelstrom account or GitHub token. Provider accounts and usage charges depend on the model service you choose.',
   },
   {
-    q: 'What about offline / air-gapped?',
-    a: "Run any local model via the `engine` adapter. We've validated against Llama 3, Qwen, and Mistral on consumer hardware.",
+    q: 'How stable is the API?',
+    a: 'The first public release is 0.1.0. The API is still in the 0.x series and may change in later releases. Use the same version for all Maelstrom packages and read the release notes before upgrading.',
   },
   {
-    q: 'Open source?',
-    a: 'Yes — `@maelstrom-co/*` packages are MIT. Maelstrom Cloud is an optional managed runtime with paid tiers.',
+    q: 'What is the license?',
+    a: 'Maelstrom is released under the MIT license. You can use it in commercial or personal projects under that license. The repository contains the full license text and contribution guide.',
   },
 ];
 ---

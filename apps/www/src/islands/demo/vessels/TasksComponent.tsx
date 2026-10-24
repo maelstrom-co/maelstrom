@@ -14,18 +14,20 @@ const TASKS = [
 export default function TasksComponent({
   instanceId,
 }: TypedVesselProps<typeof tasksVessel>) {
-  const [extraTasks, setExtraTasks] = useState<string[]>([]);
+  const [extraTasks, setExtraTasks] = useState<{ id: string; title: string }[]>(
+    [],
+  );
 
   m.useActions('tasks', instanceId, {
     addTask: async ({ title }) => {
-      setExtraTasks((prev) => [...prev, title]);
+      setExtraTasks((prev) => [...prev, { id: crypto.randomUUID(), title }]);
       return ok(undefined);
     },
   });
 
   const allTasks = [
     ...TASKS,
-    ...extraTasks.map((t) => ({ title: t, done: false })),
+    ...extraTasks.map((task) => ({ title: task.title, done: false })),
   ];
   const doneCount = allTasks.filter((t) => t.done).length;
   const progress =
@@ -89,14 +91,19 @@ export default function TasksComponent({
           </div>
         ))}
         {extraTasks.map((task) => (
-          <div key={task} className="flex items-center gap-2.5 animate-fade-in">
+          <div
+            key={task.id}
+            className="flex items-center gap-2.5 animate-fade-in"
+          >
             <div
               className="w-3.5 h-3.5 rounded shrink-0 flex items-center justify-center"
               style={{ border: '1.5px solid rgba(110, 91, 255, 0.25)' }}
             >
               <div className="w-1 h-1 rounded-full bg-[#6E5BFF]/40" />
             </div>
-            <span className="text-[11px] text-text/80 truncate">{task}</span>
+            <span className="text-[11px] text-text/80 truncate">
+              {task.title}
+            </span>
           </div>
         ))}
       </div>

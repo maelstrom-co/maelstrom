@@ -13,17 +13,19 @@ import MaelstromLogo from './MaelstromLogo.astro';
       {navLinks.map((link) => (
         <a
           href={link.href}
+          data-playground-source={link.label === 'Playground' ? 'navigation' : undefined}
           target={link.href.startsWith('http') ? '_blank' : undefined}
           rel={link.href.startsWith('http') ? 'noopener noreferrer' : undefined}
         >
           {link.label}
         </a>
       ))}
+      <DiscordLink source="navigation">Discord</DiscordLink>
       <a href={GITHUB_REPO_URL} target="_blank" rel="noopener noreferrer">
         GitHub
       </a>
     </nav>
-    <DiscordLink source="navigation" class="btn btn-primary nav-cta">Join Discord</DiscordLink>
+    <a href="/#get-started" class="btn btn-primary nav-cta" data-start-source="navigation">Get started</a>
     <button
       type="button"
       class="nav-toggle"
