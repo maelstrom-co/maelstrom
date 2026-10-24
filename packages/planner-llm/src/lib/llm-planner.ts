@@ -200,6 +200,7 @@ export function llmPlanner(
         : buildRetryPrompt(userPrompt, input.retry.diagnostics),
       mode === 'grid' ? GridResponseSchema : TilingResponseSchema,
       input.history,
+      ctx.origin.sessionId,
       signal,
       modelOptions,
       [middleware],

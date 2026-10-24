@@ -91,7 +91,7 @@ function mockProvider() {
   mockChat.mockImplementation(async (options) => {
     const { adapter } = options as ChatCall & { adapter: AnyTextAdapter };
     await adapter.structuredOutput({} as never);
-    if (!('layout' in options.outputSchema.shape))
+    if (!('layout' in (options.outputSchema.properties ?? {})))
       return { userMessage: 'Done.' };
     return BASELINE_RESPONSE;
   });

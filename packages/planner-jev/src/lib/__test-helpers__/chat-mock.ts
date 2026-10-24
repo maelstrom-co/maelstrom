@@ -1,14 +1,18 @@
-import type { AnyTextAdapter, ChatMiddleware } from '@tanstack/ai';
-import type { z } from 'zod';
+import type { AnyTextAdapter, ChatMiddleware, JSONSchema } from '@tanstack/ai';
+import { convertSchemaToJsonSchema } from '@tanstack/ai';
+
+const convertOutputSchema = convertSchemaToJsonSchema;
 
 /** The options `chat()` receives, as far as tests inspect them. */
 export interface ChatCall {
+  /** Stable conversation id shared by calls within one Maelstrom session. */
+  readonly threadId: string;
   readonly messages: readonly {
     readonly role: string;
     readonly content: string;
   }[];
   readonly systemPrompts: readonly string[];
-  readonly outputSchema: z.ZodObject<z.ZodRawShape>;
+  readonly outputSchema: JSONSchema;
   readonly abortController: AbortController;
   /** Disables provider console logs that bypass the engine logger. */
   readonly debug: boolean;
@@ -42,6 +46,7 @@ export function installMockChat<Mock extends ChatFunction>(
 ): Mock {
   mock.module('@tanstack/ai', () => ({
     chat: (options: ChatCall) => chat(options),
+    convertSchemaToJsonSchema: convertOutputSchema,
   }));
   return chat;
 }

@@ -123,7 +123,7 @@ describe('a layout hand-off through createEngine', () => {
       conversation({ select: { 'view/tasks-main': 'hide' } }),
     );
     const schema = mockChat.mock.calls[0]?.[0].outputSchema;
-    expect(Object.keys(schema?.shape ?? {})).toContain('layout');
+    expect(Object.keys(schema?.properties ?? {})).toContain('layout');
     expect(response.layout.tree).toEqual(tree);
     expect(fallbackInputs).toHaveLength(0);
   });

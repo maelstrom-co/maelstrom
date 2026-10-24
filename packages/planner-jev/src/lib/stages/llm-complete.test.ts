@@ -161,7 +161,9 @@ describe('llmComplete', () => {
     mockChat.mockResolvedValue({ userMessage: 'Done.' });
     const { result } = await run(completionPlan(makeRequest('hide the tasks')));
     expect(candidateOf(result).userMessage).toBe('Done.');
-    expect(Object.keys(chatCall().outputSchema.shape)).toEqual(['userMessage']);
+    expect(Object.keys(chatCall().outputSchema.properties ?? {})).toEqual([
+      'userMessage',
+    ]);
   });
 
   test('the schema has exactly the pending slots, typed from their parameters', async () => {
@@ -190,20 +192,21 @@ describe('llmComplete', () => {
         ],
       }),
     );
-    const params = chatCall().outputSchema.shape.params as unknown as {
-      shape: Record<
-        string,
-        { safeParse: (v: unknown) => { success: boolean } }
-      >;
-    };
-    expect(Object.keys(params.shape)).toEqual(['p0', 'p1', 'p2', 'p3']);
-    expect(params.shape.p0?.safeParse('Tokyo').success).toBe(true);
-    expect(params.shape.p0?.safeParse(null).success).toBe(true);
-    expect(params.shape.p1?.safeParse('3').success).toBe(false);
-    expect(params.shape.p1?.safeParse(3).success).toBe(true);
-    expect(params.shape.p2?.safeParse('Buy milk').success).toBe(true);
-    expect(params.shape.p2?.safeParse('Buy bread').success).toBe(false);
-    expect(params.shape.p3?.safeParse('{"a":1}').success).toBe(true);
+    expect(chatCall().outputSchema.properties?.params).toMatchObject({
+      type: 'object',
+      required: ['p0', 'p1', 'p2', 'p3'],
+      properties: {
+        p0: { anyOf: [{ type: 'string' }, { type: 'null' }] },
+        p1: { anyOf: [{ type: 'number' }, { type: 'null' }] },
+        p2: {
+          anyOf: [
+            { anyOf: [{ const: 'Buy milk' }, { const: 'Send invoice' }] },
+            { type: 'null' },
+          ],
+        },
+        p3: { anyOf: [{ type: 'string' }, { type: 'null' }] },
+      },
+    });
   });
 
   test('merges filled values into paramsJson', async () => {

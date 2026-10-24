@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import type { InstrumentAttributes } from '@maelstrom-co/engine';
-import { MessageId } from '@maelstrom-co/protocol';
+import { MessageId, SessionId } from '@maelstrom-co/protocol';
 import type {
   ChatMiddleware,
   RunErrorEvent,
@@ -14,6 +14,7 @@ import {
   makeRequest,
 } from './__test-helpers__/fixtures.js';
 import {
+  chatCall,
   dummyAdapter,
   installMockChat,
   mockChat,
@@ -61,6 +62,23 @@ async function reportUsage(
 }
 
 describe('completion call instrumentation', () => {
+  test('keeps completion calls in their session without sharing threads across sessions', async () => {
+    mockChat.mockResolvedValue({ userMessage: 'Done.' });
+    for (const [index, session] of [
+      'session-1',
+      'session-1',
+      'session-2',
+    ].entries()) {
+      const input = {
+        ...makeInput(makeRequest('hide the tasks')),
+        messageId: MessageId(`req-${index}`),
+        sessionId: SessionId(session),
+      };
+      expect((await complete(makeContext(input))).ok).toBe(true);
+      expect(chatCall(index).threadId).toBe(session);
+    }
+  });
+
   test('counts a failed provider run once when terminal usage is repeated', async () => {
     mockChat.mockImplementationOnce(async ({ middleware }) => {
       await reportUsage(middleware, {

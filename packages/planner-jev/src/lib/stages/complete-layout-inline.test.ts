@@ -101,7 +101,7 @@ describe('completeLayoutInline', () => {
     const [pocCall, nextCall] = [chatCall(0), chatCall(1)];
     expect(nextCall.messages).toEqual(pocCall.messages);
     expect(nextCall.systemPrompts).toEqual(pocCall.systemPrompts);
-    expect(Object.keys(nextCall.outputSchema.shape)).toEqual([
+    expect(Object.keys(nextCall.outputSchema.properties ?? {})).toEqual([
       'userMessage',
       'params',
     ]);
@@ -112,7 +112,7 @@ describe('completeLayoutInline', () => {
     const tree = ['H', 'ID:weather-main', 'ID:calendar-main'];
     mockChat.mockResolvedValue({ userMessage: 'Done.', layout: { tree } });
     const result = await run(handOff(hidden()));
-    expect(Object.keys(chatCall().outputSchema.shape)).toEqual([
+    expect(Object.keys(chatCall().outputSchema.properties ?? {})).toEqual([
       'userMessage',
       'layout',
     ]);
@@ -138,7 +138,6 @@ describe('completeLayoutInline', () => {
       },
     ],
     ['is malformed', { tree: ['V:1,1,1', 'ID:calendar-main'] }],
-    ['is missing', undefined],
   ])('on a hand-off, defers invalid_layout when the tree %s', async (_name, layout) => {
     mockChat.mockResolvedValue({
       userMessage: 'Done.',
@@ -146,6 +145,12 @@ describe('completeLayoutInline', () => {
     });
     const result = await run(handOff(hidden()));
     expect(deferralOf(result)).toBe('llmComplete/invalid_layout');
+  });
+
+  test('on a hand-off, rejects a missing layout before candidate validation', async () => {
+    mockChat.mockResolvedValue({ userMessage: 'Done.' });
+    const result = await run(handOff(hidden()));
+    expect(errorTagOf(result)).toBe('ProviderError');
   });
 
   test('on a hand-off, defers invalid_layout when a region is below its minimum size', async () => {
