@@ -1,17 +1,27 @@
 ---
 interface Props {
   text: string;
+  label?: string;
+  method?: 'prompt' | 'skills' | 'starter';
+  showLabel?: boolean;
 }
-const { text } = Astro.props;
+const {
+  text,
+  label = 'Copy install command',
+  method,
+  showLabel = false,
+} = Astro.props;
 ---
-<button class="copy-btn" type="button" aria-label="Copy install command" data-copy={text}>
+<button class:list={['copy-btn', 'ph-no-capture', { 'copy-btn-labeled': showLabel }]} type="button" aria-label={label} data-copy={text} data-copy-method={method}>
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
     <rect x="9" y="9" width="13" height="13" rx="2"></rect>
     <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
   </svg>
+  {showLabel && <span>{label}</span>}
 </button>
 <span class="copy-status" aria-live="polite" data-copy-status></span>
 <style>
+  .copy-btn-labeled { display: flex; align-items: center; justify-content: center; width: 100%; min-height: 40px; gap: 8px; font: inherit; font-size: 13px; color: white; background: rgba(0, 145, 255, .18); }
   /* Visually hidden, but announced by screen readers when its text changes. */
   .copy-status {
     position: absolute;
@@ -30,6 +40,7 @@ const { text } = Astro.props;
   }
 </style>
 <script>
+  import { captureWebsiteEvent } from '../lib/posthog';
   document.querySelectorAll<HTMLButtonElement>(".copy-btn[data-copy]").forEach((btn) => {
     const next = btn.nextElementSibling;
     const status =
@@ -49,6 +60,7 @@ const { text } = Astro.props;
       try {
         await navigator.clipboard.writeText(text);
         flash("copied", "Copied to clipboard", 1200);
+        if (btn.dataset.copyMethod) captureWebsiteEvent('setup_copied', { method: btn.dataset.copyMethod, source: 'hero' });
       } catch (err) {
         console.error("[CopyButton] clipboard write failed", err);
         flash("copy-failed", "Copy failed — select the command and copy manually", 2000);

@@ -1,0 +1,65 @@
+---
+title: 'Maelstrom is now open source'
+description: 'Maelstrom 0.1.0 is available on npm. Start a new app or integrate your existing components with the public SDK.'
+date: '2026-10-24'
+image: /og.png
+labels: 'release, open source, maelstrom'
+author: Maelstrom
+authorUrl: https://maelstrom-ai.co
+keywords: [Maelstrom, open source, React, UI, 0.1.0]
+---
+
+Maelstrom is open source, and the first public release, **0.1.0**, is available
+on npm.
+
+Maelstrom lets a model arrange your application's components, select their
+states, and invoke the actions you expose. Your code owns the components,
+application data, authorization, and effects.
+
+<video controls playsInline preload="none" aria-label="Maelstrom runtime overview" style={{ width: '100%', borderRadius: '12px' }}>
+  <source src="https://raw.githubusercontent.com/maelstrom-co/maelstrom/962fd803664796a8b96d6a8370893b9b1a0d86ff/media/maelstrom-overview.mp4" type="video/mp4" />
+  <track kind="captions" src="/videos/maelstrom-overview.vtt" srcLang="en" label="English" default />
+  <a href="https://github.com/maelstrom-co/maelstrom/blob/main/media/maelstrom-overview.mp4">Watch the runtime overview</a>.
+</video>
+
+The overview illustrates the runtime flow: the client sends intent and current
+UI state to the Engine, then applies the returned layout before running actions.
+The [sound-effects license](https://github.com/maelstrom-co/maelstrom/blob/main/media/maelstrom-overview.LICENSE) is included in the repository.
+
+## Start with one capability
+
+For an existing app, choose one useful workflow and identify the components it
+needs. Declare their available states and actions as Vessels, then connect the
+client to an Engine. Keep the first integration small enough to verify against
+the behavior your application already supports.
+
+For a new app, the [React starter](https://docs.maelstrom-ai.co/getting-started/starter/)
+runs locally without a provider key. Its deterministic planner verifies the
+client-to-Engine path; it does not call a model. Connect a selected model planner
+when you are ready to test model decisions.
+
+The [Maelstrom skill](https://docs.maelstrom-ai.co/agents/skills/) asks about your
+goal and starting point, then routes to the existing workflow for that task.
+The [standalone prompts](https://docs.maelstrom-ai.co/agents/prompts/) are also
+available when you prefer a copyable instruction without installing skills.
+
+## Install the public SDK
+
+```sh
+npm install @maelstrom-co/react
+```
+
+No GitHub token or repository invitation is required. Use matching Maelstrom
+package versions. The [installation guide](https://docs.maelstrom-ai.co/getting-started/installation/)
+explains the browser and server packages.
+
+The SDK uses the MIT license. It is still in the 0.x series, so read the
+[release notes](https://github.com/maelstrom-co/maelstrom/releases/tag/v0.1.0)
+before upgrading.
+
+## Help improve Maelstrom
+
+Use [Discord](https://maelstrom-ai.co/discord) for setup questions and discussion.
+Report reproducible bugs through [GitHub issues](https://github.com/maelstrom-co/maelstrom/issues/new/choose).
+The [contribution guide](https://github.com/maelstrom-co/maelstrom/blob/main/CONTRIBUTING.md)
+describes the checks and sign-off requirements for a pull request.

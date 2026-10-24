@@ -4,6 +4,12 @@ This directory is the canonical Markdown source for Maelstrom coding-agent skill
 
 ## Consumer entrypoint
 
+The `maelstrom` entry skill asks about the goal and whether the user is starting
+a new app or integrating an existing one when that context is missing. New React
+apps can start from the runnable starter; existing apps keep their behavior while
+the onboarding procedure selects a bounded pilot. Other focused tasks still use
+the same seven procedures.
+
 Install the complete bundle in the selected tool's project-scoped skill directory, then invoke the `maelstrom` entry skill for any Maelstrom task. It inspects the task and installed package versions, selects exactly one procedure, and routes API-specific work to guides shipped inside the SDK packages. The entry skill remains useful before any SDK is installed. A standalone prompt can be used without a skill; skills do not assemble, modify, or supply prompt bodies. Follow the user's authorization: plan-only work stops at a plan, while explicitly authorized implementation proceeds after inspection unless inspection reveals a material unresolved decision.
 
 ### Install, discover, update, and remove
@@ -75,6 +81,7 @@ apps/docs/skills/
     ├── browser-react.md
     ├── connectors-and-auth.md
     ├── debugging-evidence.md
+    ├── new-project.md
     ├── provider-deployment.md
     ├── rollback.md
     ├── security-and-telemetry.md

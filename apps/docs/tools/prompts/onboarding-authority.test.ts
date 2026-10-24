@@ -22,5 +22,7 @@ test('copying the onboarding prompt does not grant implementation authority by d
   expect(prompt.body).toContain(
     'For PLAN ONLY, make no edits or installations.',
   );
-  expect(prompt.metadata.prompt_version).toBe('0.1.1');
+  expect(prompt.metadata.compatibility.sdk['@maelstrom-co/react']).toBe(
+    '0.1.0',
+  );
 });

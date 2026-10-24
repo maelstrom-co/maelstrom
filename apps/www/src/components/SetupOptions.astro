@@ -1,0 +1,121 @@
+---
+import promptSource from '../../../docs/prompts/library/maelstrom-project-onboarding.md?raw';
+import {
+  skillBundleUrl,
+  skillInstaller,
+} from '../../../docs/src/lib/skill-onboarding';
+import CopyButton from './CopyButton.astro';
+
+const frontmatter = /^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/.exec(promptSource);
+if (!frontmatter)
+  throw new Error('The canonical onboarding prompt needs frontmatter');
+const prompt = promptSource.slice(frontmatter[0].length);
+const skillsCommand = `bunx ${skillInstaller} add ${skillBundleUrl} --skill '*' --copy`;
+const starterCommands = 'bun install\nbun run typecheck\nbun run start';
+const methods = [
+  { id: 'prompt', label: 'With your agent' },
+  { id: 'skills', label: 'Agent skills' },
+  { id: 'starter', label: 'React starter' },
+] as const;
+---
+
+<section class="setup-options ph-no-capture" id="get-started" aria-labelledby="setup-heading" tabindex="-1" data-setup-options>
+  <h2 id="setup-heading">Start building</h2>
+  <div class="setup-tabs" role="tablist" aria-label="Setup method" hidden>
+    {methods.map(({ id, label }, index) => (
+      <button type="button" role="tab" id={`setup-tab-${id}`} aria-controls={`setup-panel-${id}`} aria-selected={index === 0 ? 'true' : 'false'} tabindex={index === 0 ? 0 : -1} data-setup-tab={id}>{label}</button>
+    ))}
+  </div>
+  <noscript><p>Select the prompt or commands and copy them manually.</p></noscript>
+  <section id="setup-panel-prompt" data-setup-panel="prompt" aria-labelledby="setup-prompt-heading">
+    <h3 id="setup-prompt-heading">Build with your coding agent</h3>
+    <p>Paste the prompt into your coding agent. It asks what you want to build and whether this is a new or existing app.</p>
+    <p class="setup-hint">Review the plan before making changes.</p>
+    <div class="setup-copy-row">
+      <CopyButton text={prompt} label="Copy integration prompt" method="prompt" showLabel />
+    </div>
+    <details><summary>Read the prompt</summary><pre>{prompt}</pre></details>
+    <a href="https://docs.maelstrom-ai.co/agents/prompts/maelstrom-project-onboarding/">Prompt guide →</a>
+  </section>
+  <section id="setup-panel-skills" data-setup-panel="skills" aria-labelledby="setup-skills-heading">
+    <h3 id="setup-skills-heading">Install the Maelstrom skills</h3>
+    <p>Run this in your project folder. Choose your coding agent and Project scope, then ask it to use <code>maelstrom</code>.</p>
+    <div class="setup-copy-row"><code>{skillsCommand}</code><CopyButton text={skillsCommand} label="Copy skill install command" method="skills" /></div>
+    <a href="https://docs.maelstrom-ai.co/agents/skills/">Installation and supported tools →</a>
+  </section>
+  <section id="setup-panel-starter" data-setup-panel="starter" aria-labelledby="setup-starter-heading">
+    <h3 id="setup-starter-heading">Run a working React app</h3>
+    <p>The starter includes a React app and a local Engine. Its deterministic planner shows a greeting without calling a model.</p>
+    <a class="setup-download" href="https://docs.maelstrom-ai.co/getting-started/starter.zip">Download the React starter ZIP</a>
+    <ol class="setup-steps">
+      <li>Extract the ZIP into an empty folder.</li>
+      <li>Open a terminal in that folder and run:
+        <div class="setup-copy-row"><pre><code>{starterCommands}</code></pre><CopyButton text={starterCommands} label="Copy starter commands" method="starter" /></div>
+      </li>
+      <li>Open <code>http://127.0.0.1:3001</code> and submit “Show the greeting”.</li>
+    </ol>
+    <a href="https://docs.maelstrom-ai.co/getting-started/starter/">Full starter guide →</a>
+    <a href="https://docs.maelstrom-ai.co/getting-started/quick-start/">Existing app quickstart →</a>
+    <p class="setup-hint">The existing app quickstart requires a running Engine.</p>
+  </section>
+</section>
+
+<script>
+  document.querySelectorAll<HTMLElement>('[data-setup-options]').forEach((root) => {
+    const tabs = Array.from(root.querySelectorAll<HTMLButtonElement>('[data-setup-tab]'));
+    const panels = Array.from(root.querySelectorAll<HTMLElement>('[data-setup-panel]'));
+    const select = (tab: HTMLButtonElement) => {
+      for (const button of tabs) {
+        const selected = button === tab;
+        button.setAttribute('aria-selected', String(selected));
+        button.tabIndex = selected ? 0 : -1;
+      }
+      for (const panel of panels) {
+        panel.hidden = panel.dataset.setupPanel !== tab.dataset.setupTab;
+        panel.setAttribute('role', 'tabpanel');
+        panel.setAttribute('aria-labelledby', `setup-tab-${panel.dataset.setupPanel}`);
+      }
+    };
+    for (const [index, tab] of tabs.entries()) {
+      tab.addEventListener('click', () => select(tab));
+      tab.addEventListener('keydown', (event) => {
+        let next: number;
+        if (event.key === 'ArrowRight') next = (index + 1) % tabs.length;
+        else if (event.key === 'ArrowLeft') next = (index + tabs.length - 1) % tabs.length;
+        else if (event.key === 'Home') next = 0;
+        else if (event.key === 'End') next = tabs.length - 1;
+        else return;
+        event.preventDefault();
+        select(tabs[next]);
+        tabs[next].focus();
+      });
+    }
+    if (tabs[0]) select(tabs[0]);
+    const tablist = root.querySelector<HTMLElement>('[role="tablist"]');
+    if (tablist) tablist.hidden = false;
+  });
+</script>
+
+<style>
+  .setup-options { margin-top: 28px; max-width: 100%; padding: 20px; border: 1px solid var(--line-2); border-radius: 12px; background: rgba(5, 12, 20, .75); scroll-margin-top: 100px; }
+  .setup-options:target { border-color: var(--brand); }
+  h2 { font-size: 17px; margin: 0 0 14px; }
+  h3 { font-size: 14px; margin: 16px 0 8px; }
+  p { font-size: 13px; line-height: 1.6; color: var(--text-2); margin-bottom: 12px; }
+  .setup-hint { font-size: 12px; }
+  .setup-tabs:not([hidden]) { display: flex; gap: 4px; padding-bottom: 8px; border-bottom: 1px solid var(--line-2); }
+  .setup-tabs button { flex: 1; padding: 9px 5px; border: 0; border-radius: 6px; font: inherit; font-size: 12px; background: transparent; color: var(--text-2); cursor: pointer; }
+  .setup-tabs button[aria-selected="true"] { color: white; background: rgba(59, 130, 246, .22); }
+  button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; }
+  .setup-copy-row { display: flex; align-items: center; gap: 10px; padding: 12px; margin-bottom: 12px; background: rgba(0, 0, 0, .3); border-radius: 8px; font-size: 12px; }
+  .setup-copy-row code, .setup-copy-row span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .setup-copy-row pre { flex: 1; min-width: 0; margin: 0; padding: 0; font-size: inherit; }
+  a { display: inline-block; color: var(--brand); font-size: 12px; margin: 4px 12px 0 0; }
+  .setup-download { display: block; padding: 12px; margin: 0 0 16px; border: 1px solid var(--line-2); border-radius: 8px; color: white; text-align: center; background: rgba(59, 130, 246, .22); }
+  .setup-steps { padding-left: 20px; color: var(--text-2); font-size: 13px; line-height: 1.6; }
+  .setup-steps li { margin-bottom: 10px; }
+  .setup-steps .setup-copy-row { margin-top: 8px; margin-bottom: 0; }
+  summary { cursor: pointer; color: var(--text-2); font-size: 12px; }
+  pre { max-height: 220px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; padding: 12px 0; }
+  section[hidden] { display: none; }
+</style>
