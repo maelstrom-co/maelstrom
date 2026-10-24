@@ -109,7 +109,7 @@ describe('the Jev plugin', () => {
 /**
  * Key-set parity with a run recorded before the plugin seam: the summary
  * the current plugins build from that run's records must have the same
- * keys, at every depth, as the summary the pre-seam code wrote, and every
+ * legacy keys, at every depth, as the summary the pre-seam code wrote, and every
  * record field must still be one the runner or the Jev plugin writes.
  *
  * `fixtures/preseam-run/` is committed: the baseline and one gated Jev arm
@@ -186,9 +186,14 @@ async function expectSummaryParity(dir: string): Promise<void> {
   );
   for (const [index, summary] of rebuilt.entries()) {
     const before = recorded.summaries[index];
-    expect(keyPaths(JSON.parse(JSON.stringify(summary)))).toEqual(
-      keyPaths(before),
+    // Cache and cost coverage extend historical summaries; every legacy path must remain.
+    const legacyPaths = keyPaths(JSON.parse(JSON.stringify(summary))).filter(
+      (path) =>
+        !/^tokens\.llm\.(?:byRole\.[^.]+\.)?(?:cacheRead|cacheWrite|cost)(?:\.|$)/.test(
+          path,
+        ),
     );
+    expect(legacyPaths).toEqual(keyPaths(before));
   }
 }
 

@@ -26,6 +26,7 @@ export default defineConfig({
       external: [
         '@maelstrom-co/engine',
         '@maelstrom-co/protocol',
+        '@maelstrom-co/telemetry/usage',
         '@tanstack/ai',
         'zod',
       ],

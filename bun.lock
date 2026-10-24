@@ -281,6 +281,7 @@
         "@maelstrom-co/planner-jev": "0.1.0",
         "@maelstrom-co/planner-llm": "0.1.0",
         "@maelstrom-co/protocol": "0.1.0",
+        "@maelstrom-co/telemetry": "0.1.0",
         "@tanstack/ai": "catalog:",
         "@tanstack/ai-openai": "catalog:",
         "zod": "catalog:",
@@ -292,6 +293,7 @@
       "dependencies": {
         "@maelstrom-co/engine": "0.1.0",
         "@maelstrom-co/protocol": "0.1.0",
+        "@maelstrom-co/telemetry": "0.1.0",
         "@tanstack/ai": "catalog:",
         "zod": "catalog:",
       },
@@ -302,6 +304,7 @@
       "dependencies": {
         "@maelstrom-co/engine": "0.1.0",
         "@maelstrom-co/protocol": "0.1.0",
+        "@maelstrom-co/telemetry": "0.1.0",
         "@tanstack/ai": "catalog:",
         "zod": "catalog:",
       },

@@ -1134,6 +1134,8 @@ describe('llmPlanner instrumentation', () => {
         promptTokens: 12,
         completionTokens: 3,
         totalTokens: 15,
+        promptTokensDetails: { cachedTokens: 8, cacheWriteTokens: 4 },
+        cost: 0.01,
       });
       await barrier;
       return buildGridResponse();
@@ -1143,6 +1145,8 @@ describe('llmPlanner instrumentation', () => {
         promptTokens: 40,
         completionTokens: 10,
         totalTokens: 50,
+        promptTokensDetails: { cachedTokens: 30, cacheWriteTokens: 0 },
+        cost: 0.03,
       });
       release();
       return buildGridResponse();
@@ -1164,10 +1168,16 @@ describe('llmPlanner instrumentation', () => {
     expect(attributes('first')).toMatchObject({
       'gen_ai.usage.input_tokens': 12,
       'gen_ai.usage.output_tokens': 3,
+      'gen_ai.usage.cache_read.input_tokens': 8,
+      'gen_ai.usage.cache_creation.input_tokens': 4,
+      'gen_ai.usage.cost': 0.01,
     });
     expect(attributes('second')).toMatchObject({
       'gen_ai.usage.input_tokens': 40,
       'gen_ai.usage.output_tokens': 10,
+      'gen_ai.usage.cache_read.input_tokens': 30,
+      'gen_ai.usage.cache_creation.input_tokens': 0,
+      'gen_ai.usage.cost': 0.03,
     });
     mockChat.mockResolvedValueOnce(buildGridResponse());
     const third = { ...makePlanningInput(), messageId: MessageId('third') };
@@ -1181,6 +1191,13 @@ describe('llmPlanner instrumentation', () => {
     expect(attributes('third')).not.toHaveProperty(
       'gen_ai.usage.output_tokens',
     );
+    expect(attributes('third')).not.toHaveProperty(
+      'gen_ai.usage.cache_read.input_tokens',
+    );
+    expect(attributes('third')).not.toHaveProperty(
+      'gen_ai.usage.cache_creation.input_tokens',
+    );
+    expect(attributes('third')).not.toHaveProperty('gen_ai.usage.cost');
   });
 
   test('counts a failed provider run once when terminal usage is repeated', async () => {
@@ -1247,8 +1264,20 @@ describe('llmPlanner instrumentation', () => {
     mockChat.mockImplementationOnce(async (options) => {
       const middleware = (options as ChatArgs).middleware[0];
       for (const usage of [
-        { promptTokens: 12, completionTokens: 3, totalTokens: 15 },
-        { promptTokens: 4, completionTokens: 2, totalTokens: 6 },
+        {
+          promptTokens: 12,
+          completionTokens: 3,
+          totalTokens: 15,
+          promptTokensDetails: { cachedTokens: 8, cacheWriteTokens: 2 },
+          cost: 0.01,
+        },
+        {
+          promptTokens: 4,
+          completionTokens: 2,
+          totalTokens: 6,
+          promptTokensDetails: { cachedTokens: 0, cacheWriteTokens: 4 },
+          cost: 0.03,
+        },
       ])
         await reportUsage(middleware, usage);
       return buildGridResponse();
@@ -1262,6 +1291,9 @@ describe('llmPlanner instrumentation', () => {
     expect(events[0]?.attributes).toMatchObject({
       'gen_ai.usage.input_tokens': 16,
       'gen_ai.usage.output_tokens': 5,
+      'gen_ai.usage.cache_read.input_tokens': 8,
+      'gen_ai.usage.cache_creation.input_tokens': 6,
+      'gen_ai.usage.cost': 0.04,
       'maelstrom.message_id': 'req-1',
       'maelstrom.session_id': 'session-1',
       'maelstrom.outcome': 'ok',
