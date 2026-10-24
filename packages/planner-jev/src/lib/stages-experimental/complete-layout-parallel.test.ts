@@ -90,9 +90,7 @@ describe('completeLayoutParallel', () => {
     expect(mockChat.mock.calls.length).toBe(2);
     expect(chatCall(1).messages).toEqual(chatCall(0).messages);
     expect(chatCall(1).systemPrompts).toEqual(chatCall(0).systemPrompts);
-    expect(Object.keys(chatCall(1).outputSchema.shape)).toEqual(
-      Object.keys(chatCall(0).outputSchema.shape),
-    );
+    expect(chatCall(1).outputSchema).toEqual(chatCall(0).outputSchema);
     expect(plain(parallel)).toEqual(plain(inline));
   });
 
@@ -102,10 +100,12 @@ describe('completeLayoutParallel', () => {
       .mockResolvedValueOnce({ userMessage: 'Done.' })
       .mockResolvedValueOnce({ tree });
     const result = await run(handOff(hidden()));
-    expect(Object.keys(chatCall(0).outputSchema.shape)).toEqual([
+    expect(Object.keys(chatCall(0).outputSchema.properties ?? {})).toEqual([
       'userMessage',
     ]);
-    expect(Object.keys(chatCall(1).outputSchema.shape)).toEqual(['tree']);
+    expect(Object.keys(chatCall(1).outputSchema.properties ?? {})).toEqual([
+      'tree',
+    ]);
     expect(chatPrompt(1)).toContain('## Layout to write');
     if (!isOk(result)) throw new Error(`deferred: ${deferralOf(result)}`);
     expect(plain(result.value.layout)).toMatchObject({ tree });
@@ -141,12 +141,12 @@ describe('completeLayoutParallel', () => {
     expect(deferralOf(result)).toBe('llmComplete/invalid_layout');
   });
 
-  test('on a hand-off, defers invalid_layout when the layout call omits the tree', async () => {
+  test('on a hand-off, rejects a layout reply that omits the required tree', async () => {
     mockChat
       .mockResolvedValueOnce({ userMessage: 'Done.' })
       .mockResolvedValueOnce({});
     const result = await run(handOff(hidden()));
-    expect(deferralOf(result)).toBe('llmComplete/invalid_layout');
+    expect(errorTagOf(result)).toBe('ProviderError');
   });
 
   test('a provider failure in the message call is a ProviderError, not a deferral', async () => {

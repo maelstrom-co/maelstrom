@@ -805,7 +805,6 @@
         }
       ],
       "schema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
         "properties": {
           "userMessage": {
@@ -829,15 +828,13 @@
             },
             "required": [
               "p0"
-            ],
-            "additionalProperties": false
+            ]
           }
         },
         "required": [
           "userMessage",
           "params"
-        ],
-        "additionalProperties": false
+        ]
       }
     }
   ],

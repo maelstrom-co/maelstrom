@@ -5,12 +5,7 @@ import type {
   PlannerCandidate,
 } from '@maelstrom-co/engine';
 import { cancellationError, providerError } from '@maelstrom-co/engine';
-import type {
-  GridResponse,
-  MessageId,
-  Result,
-  TilingResponse,
-} from '@maelstrom-co/protocol';
+import type { MessageId, Result } from '@maelstrom-co/protocol';
 import {
   err,
   type GridResponseSchema,
@@ -18,7 +13,7 @@ import {
   type TilingResponseSchema,
 } from '@maelstrom-co/protocol';
 import type { AnyTextAdapter, ChatMiddleware } from '@tanstack/ai';
-import { chat } from '@tanstack/ai';
+import { chat, convertSchemaToJsonSchema } from '@tanstack/ai';
 
 export async function callLLM(
   adapter: AnyTextAdapter,
@@ -50,7 +45,9 @@ export async function callLLM(
         { role: 'user' as const, content: userPrompt },
       ],
       systemPrompts: [systemPrompt],
-      outputSchema,
+      // TanStack 1.0 stops before terminal usage when its validator rejects a result.
+      // Keep provider constraints, then validate locally after the stream drains.
+      outputSchema: convertSchemaToJsonSchema(outputSchema),
       stream: false,
       debug: false,
       middleware,
@@ -64,12 +61,7 @@ export async function callLLM(
           signal.reason,
         ),
       );
-    // @tanstack/ai infers `chat()`'s output from the Zod schema's INPUT type
-    // (pre-transform), but at runtime the schema's `.transform(<Brand>)` calls
-    // do run during parse, so the value IS branded. Cast to align the type
-    // with the runtime contract. The branding-at-parse contract is asserted
-    // by the `schema branding` suite in `packages/protocol/src/lib/request.test.ts`.
-    return ok(output as GridResponse | TilingResponse);
+    return ok(outputSchema.parse(output));
   } catch (error) {
     // Canonical AbortError — unambiguous cancellation
     if (error instanceof DOMException && error.name === 'AbortError') {

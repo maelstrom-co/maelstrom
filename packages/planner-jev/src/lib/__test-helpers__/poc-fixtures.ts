@@ -15,7 +15,6 @@ import {
   SessionId,
 } from '@maelstrom-co/protocol';
 import type { AnyTextAdapter } from '@tanstack/ai';
-import { z } from 'zod';
 
 import { createStageDeps } from '../planners/jev-stage-planner.js';
 import type { JevDeps } from '../stages/stage-deps.js';
@@ -246,7 +245,7 @@ async function planPocCase(
     plain({
       systemPrompts: options.systemPrompts,
       messages: options.messages,
-      schema: z.toJSONSchema(options.outputSchema),
+      schema: options.outputSchema,
     }),
   );
   mockChat.mockReset();

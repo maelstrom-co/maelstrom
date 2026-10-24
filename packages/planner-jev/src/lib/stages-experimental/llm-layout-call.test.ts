@@ -54,7 +54,9 @@ describe('llmLayoutCall', () => {
       visible,
       makeContext(decision.plan.selection.input),
     );
-    expect(Object.keys(chatCall().outputSchema.shape)).toEqual(['tree']);
+    expect(Object.keys(chatCall().outputSchema.properties ?? {})).toEqual([
+      'tree',
+    ]);
     expect(chatPrompt()).toContain('## Layout to write');
     expect(chatPrompt()).toContain('- ID:weather-main (weather, current view');
     expect(chatPrompt()).not.toContain('ID:calendar-main (');

@@ -36,6 +36,7 @@ import type {
   RunFinishedEvent,
   TokenUsage,
 } from '@tanstack/ai';
+import { convertSchemaToJsonSchema } from '@tanstack/ai';
 
 import {
   dummyAdapter,
@@ -48,9 +49,11 @@ import { buildSystemPrompt, buildUserPrompt } from './prompt/prompt-builder.js';
 import { buildRetryPrompt } from './retry-prompt.js';
 
 const mockChat = mock<(...args: unknown[]) => Promise<unknown>>();
+const convertOutputSchema = convertSchemaToJsonSchema;
 
 mock.module('@tanstack/ai', () => ({
   chat: (...args: unknown[]) => mockChat(...args),
+  convertSchemaToJsonSchema: convertOutputSchema,
 }));
 
 afterEach(() => {
@@ -318,8 +321,9 @@ describe('llmPlanner', () => {
             { role: 'user', content: buildUserPrompt(request, prompt) },
           ],
           systemPrompts: [buildSystemPrompt(mode, prompt)],
-          outputSchema:
+          outputSchema: convertOutputSchema(
             mode === 'grid' ? GridResponseSchema : TilingResponseSchema,
+          ),
           stream: false,
           debug: false,
           modelOptions,

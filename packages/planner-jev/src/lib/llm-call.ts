@@ -7,7 +7,11 @@ import {
   type StageContext,
 } from '@maelstrom-co/engine';
 import { err, ok, type Result } from '@maelstrom-co/protocol';
-import { type ChatMiddleware, chat } from '@tanstack/ai';
+import {
+  type ChatMiddleware,
+  chat,
+  convertSchemaToJsonSchema,
+} from '@tanstack/ai';
 import type { z } from 'zod';
 import { recentHistory } from './questions.js';
 import type { CompletionLlm } from './stages/stage-deps.js';
@@ -90,7 +94,9 @@ export async function callLlm<T>(
         { role: 'user' as const, content: prompt },
       ],
       systemPrompts: [SYSTEM_PROMPT],
-      outputSchema: schema,
+      // TanStack 1.0 stops before terminal usage when its validator rejects a result.
+      // Keep provider constraints, then validate locally after the stream drains.
+      outputSchema: convertSchemaToJsonSchema(schema),
       stream: false,
       debug: false,
       middleware: [middleware],
@@ -101,8 +107,9 @@ export async function callLlm<T>(
     });
     if (signal?.aborted)
       return cancelled('Request cancelled before accepting the response');
+    const parsed = schema.parse(output);
     outcome = 'ok';
-    return ok(output as T);
+    return ok(parsed);
   } catch (error) {
     if (signal?.aborted)
       return cancelled(

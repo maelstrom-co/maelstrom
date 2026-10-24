@@ -415,9 +415,9 @@ describe('jevPlanner through createEngine', () => {
     expect(fallback.inputs).toHaveLength(0);
   });
 
-  test('the Jev pipeline runs once when its candidate recommends a retry, then falls back', async () => {
+  test('a schema-invalid completion fails without retrying or running the fallback', async () => {
     mockChat.mockResolvedValue({ userMessage: 'x', params: { p0: 'many' } });
-    const { result, calls, fallback, entries } = await run(
+    const { result, calls, fallback } = await run(
       makeRequest('show as many tasks as fit'),
       talk({
         actions: [
@@ -429,14 +429,10 @@ describe('jevPlanner through createEngine', () => {
         layout: 'preserve',
       }),
     );
-    expect(shipped(result).userMessage).toBe('from the fallback');
+    expect(isErr(result) && result.error._tag).toBe('ProviderError');
     expect(calls.filter((call) => 'scope' in call.questions)).toHaveLength(1);
     expect(mockChat).toHaveBeenCalledTimes(1);
-    expect(fallback.inputs).toHaveLength(1);
-    expect(
-      entries.find((e) => e.msg === 'Planner stage deferred, running fallback')
-        ?.data?.reason,
-    ).toBe('llmComplete/retry_recommended');
+    expect(fallback.inputs).toHaveLength(0);
   });
 
   test('the fallback is retried once and its second candidate ships', async () => {
