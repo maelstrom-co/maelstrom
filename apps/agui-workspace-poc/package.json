@@ -1,0 +1,33 @@
+{
+  "name": "@maelstrom-co/agui-workspace-poc",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "demo": "bun --conditions=@maelstrom-co/source src/demo.ts"
+  },
+  "dependencies": {
+    "@ag-ui/core": "1.0.0",
+    "@maelstrom-co/client": "workspace:*",
+    "@maelstrom-co/engine": "workspace:*",
+    "@maelstrom-co/protocol": "workspace:*",
+    "@tanstack/ai": "1.0.0",
+    "zod": "catalog:"
+  },
+  "nx": {
+    "targets": {
+      "typecheck": {
+        "dependsOn": [
+          "^build"
+        ],
+        "command": "tsc -p apps/agui-workspace-poc/tsconfig.json --noEmit"
+      },
+      "test": {
+        "command": "bun --conditions=@maelstrom-co/source test apps/agui-workspace-poc/src"
+      },
+      "demo": {
+        "command": "bun --conditions=@maelstrom-co/source apps/agui-workspace-poc/src/demo.ts"
+      }
+    }
+  }
+}
