@@ -34,7 +34,9 @@ The built preview is the verified browser path. A local Vite development run enc
 
 Choose **Live model · browser-owned OpenAI key** before starting the experimental session. Supply a key in the password field. The local Engine holds it in memory for the session; it never falls back to the normal server key.
 
-The Planner uses `createDemoOpenaiChat`, including the existing `ENGINE_MODEL` override. Live inference has not been verified. The journey remains a fixed two-step state machine in both modes; the live option invokes the model-backed Planner for workspace decisions.
+The Planner uses `createDemoOpenaiChat`, including the existing `ENGINE_MODEL` override. The narrow live-model journey passed in Chromium with a manually supplied browser-owned key: two planning runs, two acknowledgment runs, and no console or page errors. The journey remains a fixed two-step state machine in both modes; this does not establish general-purpose planning reliability.
+
+The first live attempt proposed a Journal `list` layout and stopped before any Journal write because the demo requires `entry`. The prompt now states that requirement explicitly. Engine plan validation can request one candidate correction before delivery. This corrects an unexecuted plan; it never replays an application write. Exhausted planning requirements produce the private `DEMO_PLANNING_REJECTED` error code.
 
 ## Inspect the result
 
@@ -71,4 +73,4 @@ From the repository root:
 bunx nx run-many --projects=@maelstrom-co/demo --targets=typecheck,test,check --skip-nx-cache --skip-sync --output-style=static
 ```
 
-Focused session and transport tests live in `src/lib/agui-session.test.ts` and `src/server/agui-handler.test.ts`. The separate [headless AG-UI proof](../agui-workspace-poc/PROOF.md) remains available.
+Focused tests live in `src/lib/agui-session.test.ts`, `src/server/agui-handler.test.ts`, and `src/server/agui-engine.test.ts`. They cover session correlation, transport guards, and bounded candidate correction before delivery. The separate [headless AG-UI proof](../agui-workspace-poc/PROOF.md) remains available.

@@ -6,7 +6,11 @@ import {
 } from '@tanstack/ai';
 import { z } from 'zod';
 import { OperationSchema } from '../lib/agui-contract';
-import { createAgentEngine, DemoAgentEngine } from './agui-engine';
+import {
+  createAgentEngine,
+  DemoAgentEngine,
+  ExperimentalPlanningError,
+} from './agui-engine';
 
 const StartSchema = z.object({
   sessionId: z.string().uuid(),
@@ -100,12 +104,18 @@ export async function handleAguiRequest(request: Request): Promise<Response> {
           runId: input.runId,
           timestamp: Date.now(),
         };
-      } catch {
+      } catch (error) {
         engine.close();
         yield {
           type: EventType.RUN_ERROR,
+          code:
+            error instanceof ExperimentalPlanningError
+              ? 'DEMO_PLANNING_REJECTED'
+              : 'DEMO_SESSION_STOPPED',
           message:
-            'Experimental session stopped. Application outcome may be unknown. Do not repeat the write automatically.',
+            error instanceof ExperimentalPlanningError
+              ? error.message
+              : 'Experimental session stopped. Application outcome may be unknown. Do not repeat the write automatically.',
           timestamp: Date.now(),
         };
       } finally {
