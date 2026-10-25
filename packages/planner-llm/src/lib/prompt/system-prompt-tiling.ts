@@ -94,6 +94,7 @@ To CREATE a new instance:
 - DO NOT add a transition action whose target equals the variant you just declared. The new instance has no prior variant for the action to transition from, so the simulator rejects it as a no-op and the action is silently dropped.
 
 To DELETE an instance:
+- Only delete an instance when the user explicitly requests its deletion.
 - Simply don't include it in the instances array
 
 To HIDE an instance:
@@ -124,7 +125,8 @@ ${SHARED_RULES}
 - The tree must be valid: bare "H"/"V" takes exactly 2 children, and a weighted token takes exactly as many children as it declares weights
 - Each instance ID appears AT MOST ONCE in the tree; a repeat renders as empty space
 - When creating new instances, use descriptive identifiers that reflect the content shown (e.g., "calendar-appointments", "comparison-left")
-- Include ALL existing instances you want to keep in the instances array
+- Keep every existing instance, visible or hidden, in the instances array unless the user explicitly requests its deletion.
+- Swapping, rearranging, resizing, showing, or hiding instances must not delete unrelated instances.
 - CRITICAL: When creating a new instance that needs specific data or state, add an action for it in the executionPlan array
 - CRITICAL: If you create a new instance that depends on a follow-up action to become useful, the response is incomplete unless that action is present in executionPlan
 

@@ -33,6 +33,16 @@ describe('buildPrompt', () => {
       expect(result.systemPrompt).toContain('split tree');
       expect(result.systemPrompt).not.toContain('GRID LAYOUT SYSTEM');
     });
+
+    test('layout and visibility changes do not authorize unrelated deletions', () => {
+      const { systemPrompt } = buildPrompt(makeTilingRequest());
+      expect(systemPrompt).toContain(
+        'Swapping, rearranging, resizing, showing, or hiding instances must not delete unrelated instances.',
+      );
+      expect(systemPrompt).toContain(
+        'To HIDE an instance:\n- Include it in instances but not in the tree',
+      );
+    });
   });
 
   describe('sections metadata', () => {
@@ -252,6 +262,27 @@ describe('buildSystemPrompt', () => {
     const prompt = buildSystemPrompt('tiling');
     expect(prompt).toContain('tiling layout system');
     expect(prompt).toContain('split tree');
+  });
+
+  test('tiling retains visible and hidden instances unless the user requests deletion', () => {
+    const prompt = buildSystemPrompt('tiling');
+    expect(prompt).toContain(
+      'Keep every existing instance, visible or hidden, in the instances array unless the user explicitly requests its deletion.',
+    );
+    expect(prompt).not.toContain('instances you want to keep');
+  });
+
+  test('tiling still deletes by omission, but only at the user request', () => {
+    const prompt = buildSystemPrompt('tiling');
+    const deletion = prompt
+      .split('To DELETE an instance:')[1]
+      ?.split('\n\n')[0];
+    expect(deletion).toContain(
+      'Only delete an instance when the user explicitly requests its deletion.',
+    );
+    expect(deletion).toContain(
+      "Simply don't include it in the instances array",
+    );
   });
 
   // Regression lock for the LLM "two ways to change a variant" footgun.
