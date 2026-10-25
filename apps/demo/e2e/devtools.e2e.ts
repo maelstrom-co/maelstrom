@@ -9,7 +9,8 @@ async function openFixture(
     | 'request-comparison'
     | 'connection-events'
     | 'planner-evidence'
-    | 'planner-retention',
+    | 'planner-retention'
+    | 'evidence-guidance',
   query = '',
 ) {
   const bundle = execFileSync(
@@ -44,6 +45,141 @@ async function openTelemetryFixture(page: Page, scenario = 'steady') {
   await openFixture(page, 'telemetry', `?${new URLSearchParams({ scenario })}`);
   await page.getByRole('tab', { name: 'Telemetry', exact: true }).click();
 }
+
+test('evidence guidance preserves source and app provenance without activating collection', async ({
+  page,
+}, testInfo) => {
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await openFixture(page, 'evidence-guidance');
+  const trigger = page.getByRole('button', {
+    name: 'Evidence & setup',
+    exact: true,
+  });
+  await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+  await trigger.focus();
+  await page.keyboard.press('Enter');
+  await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+  const details = page.getByRole('region', {
+    name: 'Evidence and setup details',
+    exact: true,
+  });
+  const guidance = details;
+  await expect(guidance.locator('.guidance-item[open]')).toHaveCount(0);
+  const planner = guidance.locator('[data-guidance="server"]');
+  await expect(planner.locator('p').first()).toBeHidden();
+  await planner.locator('summary').focus();
+  await page.keyboard.press('Space');
+  await expect(planner.locator('p').first()).toBeVisible();
+  await guidance.locator('[data-guidance="apps"] summary').focus();
+  await page.keyboard.press('Enter');
+  await expect(planner).toHaveAttribute('open', '');
+  await expect(details).toContainText('Current Engine state: disconnected');
+  await expect(details).toContainText(
+    'Planner details unavailable in this view',
+  );
+  await trigger.focus();
+  await page.keyboard.press('Tab');
+  await expect(details).toBeFocused();
+  await page.keyboard.press('End');
+  await expect(
+    guidance.locator('[data-guidance="support"] summary'),
+  ).toBeInViewport();
+  await expect(trigger).toBeInViewport();
+  await page.keyboard.press('Home');
+  const workspace = page.locator('.workspace');
+  const expandedWorkspaceHeight = (await workspace.boundingBox())?.height;
+  expect(expandedWorkspaceHeight).toBeGreaterThan(100);
+  await trigger.click();
+  await expect(details).toBeHidden();
+  expect((await workspace.boundingBox())?.height).toBeGreaterThan(
+    expandedWorkspaceHeight ?? 0,
+  );
+  await trigger.click();
+  await expect(page.getByLabel('Fixture collection status')).toHaveText(
+    'Connections: 0. Content reads: 0. Recording: false.',
+  );
+  await page
+    .getByRole('combobox', { name: 'Evidence source', exact: true })
+    .selectOption('imported');
+  await page
+    .getByRole('combobox', { name: 'Activity view', exact: true })
+    .selectOption('events');
+  await page
+    .getByRole('combobox', { name: 'Event preset', exact: true })
+    .selectOption('voice');
+  await expect(details).toContainText('2 events hidden by view filters');
+  await expect(details).toContainText('Engine diagnostics available');
+  await expect(details).toContainText('2 recording events dropped');
+  await expect(details).not.toContainText('Current Engine state');
+  await expect(planner).toHaveAttribute('open', '');
+  await guidance.locator('[data-guidance="filters"] summary').click();
+  await expect(
+    guidance.locator('[data-guidance="filters"] p').first(),
+  ).toBeVisible();
+  await trigger.focus();
+  await guidance.locator('[data-guidance="filters"]').scrollIntoViewIfNeeded();
+  const screenshotPath = testInfo.outputPath('evidence-guidance.png');
+  await page.screenshot({ path: screenshotPath });
+  await testInfo.attach('evidence-guidance', {
+    path: screenshotPath,
+    contentType: 'image/png',
+  });
+  await page
+    .getByRole('combobox', { name: 'App instance', exact: true })
+    .selectOption('recorded-a');
+  await expect(details).toContainText('No voice activity in this view');
+  await expect(details).toContainText('Engine diagnostics available');
+  await page
+    .getByRole('combobox', { name: 'Evidence source', exact: true })
+    .selectOption('live');
+  await page
+    .getByRole('button', { name: 'End fixture app', exact: true })
+    .click();
+  await expect(details).toContainText('No longer attached');
+  await expect(details).toContainText(
+    'Last observed Engine state: disconnected',
+  );
+  await expect(page.getByLabel('Fixture collection status')).toHaveText(
+    'Connections: 0. Content reads: 0. Recording: false.',
+  );
+  expect(errors).toEqual([]);
+});
+
+test('new loss rows keep the focused guidance summary visible while other explanations stay open', async ({
+  page,
+}) => {
+  await openFixture(page, 'evidence-guidance');
+  await page
+    .getByRole('button', { name: 'Evidence & setup', exact: true })
+    .click();
+  const guidance = page.getByRole('region', {
+    name: 'Evidence and setup details',
+    exact: true,
+  });
+  for (const id of ['server', 'voice'])
+    await guidance.locator(`[data-guidance="${id}"] summary`).click();
+  const summary = guidance.locator('[data-guidance="content"] summary');
+  await summary.focus();
+  await expect(summary).toBeInViewport();
+  await page.keyboard.press('F9');
+  await expect(guidance.locator('[data-guidance="recent-loss"]')).toHaveCount(
+    1,
+  );
+  await expect(guidance.locator('[data-guidance="request-loss"]')).toHaveCount(
+    1,
+  );
+  await expect(summary).toBeFocused();
+  await expect(summary).toBeInViewport();
+  for (const id of ['server', 'voice'])
+    await expect(guidance.locator(`[data-guidance="${id}"]`)).toHaveAttribute(
+      'open',
+      '',
+    );
+  await expect(page.getByLabel('Fixture collection status')).toHaveText(
+    'Connections: 0. Content reads: 0. Recording: false.',
+  );
+});
 
 test('planner observations expose their own evidence and preserve both comparison inspectors', async ({
   page,

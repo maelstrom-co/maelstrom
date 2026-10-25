@@ -3,12 +3,14 @@ import { render } from 'solid-js/web';
 import { captureImportFileBytes } from './capture-import.js';
 import { createEventFilterControls } from './event-filter-controls.js';
 import { type EventQuery, queryEvents } from './event-query.js';
+import { createEvidenceGuidance } from './evidence-guidance-view.js';
 import { createJsonInspector } from './json-inspector.js';
 import { LiveEventKeys } from './live-event-keys.js';
 import { liveEvidenceEpoch } from './live-evidence.js';
 import {
   countUnreadableEvents,
   errorCategories,
+  evidenceGuidance,
   type Fields,
   groupRequests,
   identity,
@@ -258,6 +260,7 @@ function Panel(tools: Devtools): HTMLElement {
       cachedLive = {
         events: panelEvents(state.activity, keys),
         requestEvents: panelEvents(state.requestActivity, keys),
+        transportHistory: panelEvents(state.transportHistory, keys),
         droppedRequestEvents: state.droppedRequestEvents,
         unreadableRequestEvents: countUnreadableEvents(state.requestActivity),
         omittedRequestEvents: Math.max(
@@ -532,6 +535,7 @@ function Panel(tools: Devtools): HTMLElement {
   const title = element('h2'),
     description = element('p', undefined, 'muted');
   const help = element('details', undefined, 'help');
+  const guidance = createEvidenceGuidance(`${id}-evidence-guidance`);
   help.append(
     element('summary', 'Using DevTools'),
     description,
@@ -653,6 +657,7 @@ function Panel(tools: Devtools): HTMLElement {
     activityStatus,
     eventControls.element,
     help,
+    guidance.trigger,
   );
   const errorView = element('p', undefined, 'error');
   errorView.setAttribute('role', 'alert');
@@ -849,7 +854,7 @@ function Panel(tools: Devtools): HTMLElement {
     tools.options.telemetry,
     () => open() && tab() === 'Telemetry',
   );
-  body.append(controls, recording, workspace, telemetry);
+  body.append(controls, guidance.element, recording, workspace, telemetry);
   panel.append(resize, header, body);
   root.append(trigger, panel);
   root.addEventListener('keydown', (event) => {
@@ -936,6 +941,13 @@ function Panel(tools: Devtools): HTMLElement {
     telemetry.hidden = !viewingTelemetry;
     sourceLabel.hidden = viewingTelemetry;
     help.hidden = viewingTelemetry;
+    guidance.element.hidden =
+      viewingTelemetry ||
+      guidance.trigger.getAttribute('aria-expanded') !== 'true';
+    guidance.trigger.hidden = viewingTelemetry;
+    const guidanceControls = currentTab === 'Overview' ? controls : toolbar;
+    if (guidance.trigger.parentElement !== guidanceControls)
+      guidanceControls.append(guidance.trigger);
     title.hidden = viewingTelemetry;
     description.hidden = viewingTelemetry;
     for (const node of tabButtons) {
@@ -1154,15 +1166,33 @@ function Panel(tools: Devtools): HTMLElement {
     jsonLabel.hidden = currentTab === 'Recordings' || currentTab === 'Overview';
     activityStatus.hidden = currentTab === 'Recordings';
     activityStatus.textContent = `${viewedEvents.length} ${currentSource === 'live' ? (requestView ? 'request metadata' : 'recent metadata') : 'recorded'} events${droppedEvents ? ` · ${droppedEvents} dropped or evicted` : ''}`;
-    if (filteringEvents) {
-      const result = queryEvents(data.events, {
-        ...preferences.eventFilters,
-        clientId: selected() === 'all' ? undefined : selected(),
-        query: query(),
-        issueCategory: preferences.issueCategory,
-      });
-      activityStatus.textContent = `${result.total} retained events · ${result.matched} matching · ${result.hidden} hidden by filters${droppedEvents ? ` · ${droppedEvents} dropped or evicted` : ''}`;
-    }
+    const filteredEvents = filteringEvents
+      ? queryEvents(data.events, {
+          ...preferences.eventFilters,
+          clientId: selected() === 'all' ? undefined : selected(),
+          query: query(),
+          issueCategory: preferences.issueCategory,
+        })
+      : undefined;
+    if (filteredEvents)
+      activityStatus.textContent = `${filteredEvents.total} retained events · ${filteredEvents.matched} matching · ${filteredEvents.hidden} hidden by filters${droppedEvents ? ` · ${droppedEvents} dropped or evicted` : ''}`;
+    guidance.update(
+      evidenceGuidance({
+        evidence: data,
+        source: currentSource,
+        clientId: selected(),
+        hiddenEvents: filteredEvents?.hidden,
+        requestFiltersActive:
+          requestView &&
+          Boolean(
+            query() ||
+              (preferences.issueCategory &&
+                preferences.issueCategory !== 'all'),
+          ),
+        collectionFilter: Boolean(tools.options.filter),
+      }),
+      appLabel,
+    );
     sourceBanner.hidden = currentSource === 'live' && !status.active;
     if (currentSource !== 'live')
       sourceBanner.textContent = `${currentSource === 'imported' ? (preferences.importedName ?? 'Imported recording') : 'Current recording'} · Read-only evidence${data.note ? ` · Note: ${data.note.slice(0, 500)}` : ''}`;
@@ -1502,15 +1532,7 @@ function Panel(tools: Devtools): HTMLElement {
                       ? preferences.voiceCorrelations.context
                       : undefined,
                   )
-                : connectionsView(
-                    context,
-                    currentSource === 'live'
-                      ? panelEvents(
-                          state.transportHistory,
-                          preferences.liveEventKeys,
-                        )
-                      : [],
-                  );
+                : connectionsView(context, data.transportHistory ?? []);
       navigation.replaceChildren(
         ...(lastRendered.navigation
           ? Array.from(lastRendered.navigation.childNodes)
