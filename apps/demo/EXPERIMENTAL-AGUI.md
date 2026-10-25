@@ -2,6 +2,8 @@
 
 Create a Journal entry, read its generated application ID, then write that ID into the entry. This local experiment uses the real demo Chart and Journal renderer.
 
+HTTP requests with SSE responses are a prototype-only transport deviation. Runtime v1 excludes plain-HTTP transport. AG-UI does not require HTTP/SSE or a change from WebSocket. The normal demo keeps its existing WebSocket path. This experiment does not establish an approved production transport architecture.
+
 ## Before you start
 
 Use this branch with the workspace dependencies installed. The [demo prerequisites](./README.md#prerequisites) describe Bun and Node versions. The offline fixture needs no provider key. The experiment is unavailable in hosted mode.
