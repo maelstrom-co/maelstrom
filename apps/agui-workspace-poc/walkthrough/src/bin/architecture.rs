@@ -318,7 +318,12 @@ fn verdict(narration: &Narration) -> Result<ScenePlan> {
 
 fn main() -> Result<()> {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let narration = Narration::load(&root.join("narration-v2"))?;
+    let (narration_dir, plan_file) = match std::env::args().nth(1).as_deref() {
+        None => ("narration-v2", "architecture.reel.json"),
+        Some("nacho") => ("narration-nacho", "architecture-nacho.reel.json"),
+        Some(_) => anyhow::bail!("usage: architecture [nacho]"),
+    };
+    let narration = Narration::load(&root.join(narration_dir))?;
     let chapters = [
         CodeChapter {
             id: "planner",
@@ -468,7 +473,7 @@ fn main() -> Result<()> {
                 .into_iter()
                 .map(|media| {
                     let path = match media.path.strip_prefix("narration") {
-                        Ok(file) => PathBuf::from("narration-v2").join(file),
+                        Ok(file) => PathBuf::from(narration_dir).join(file),
                         Err(_) => media.path.clone(),
                     };
                     MediaPlan { path, ..media }
@@ -478,10 +483,7 @@ fn main() -> Result<()> {
         })
         .collect::<Result<Vec<_>>>()?;
     let reel = ReelPlan::dipped("agui-architecture-code", scenes, seconds(0.6))?;
-    fs::write(
-        root.join("architecture.reel.json"),
-        serde_json::to_string_pretty(&reel)?,
-    )?;
+    fs::write(root.join(plan_file), serde_json::to_string_pretty(&reel)?)?;
     println!("{:.2}s", reel.duration_nanos() as f64 / 1e9);
     Ok(())
 }

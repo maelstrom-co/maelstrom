@@ -72,21 +72,23 @@ concurrent writers, and voice need further experiments. See
 
 ## Video
 
-The replacement architectural and code walkthrough lasts 5 minutes 33 seconds:
+The final architectural and code walkthrough uses Nacho's ElevenLabs voice and
+lasts 5 minutes 34 seconds:
 
 - 0:00: ownership and the server/browser boundary.
 - 0:25: proposed layout and declared Actions.
 - 0:49: complete frontend tool delivery.
 - 1:13: existing layout-before-Actions dispatch.
-- 1:39: settlement and structural acknowledgment.
-- 2:05: correlation and the unknown-outcome policy.
-- 2:30: native child approval and forwarded context.
-- 2:54: the actual browser at the approval pause.
-- 3:19: admission of the pending child's answer.
-- 3:46: outer run framing and message serialization.
+- 1:40: settlement and structural acknowledgment.
+- 2:06: correlation and the unknown-outcome policy.
+- 2:32: native child approval and forwarded context.
+- 2:55: the actual browser at the approval pause.
+- 3:20: admission of the pending child's answer.
+- 3:47: outer run framing and message serialization.
 - 4:13: binding the observed record into focus.
 - 4:38: disconnect and side-effect assertions.
-- 5:03: conclusions and the next reconciliation experiment.
+- 5:05: conclusions and the next reconciliation experiment.
 
-The delivered MP4 is `~/Movies/maelstrom-agui-architecture-code-v2.mp4`.
+The delivered MP4 is `~/Movies/maelstrom-agui-architecture-code-nacho.mp4`.
+The audio-only export has the same name with an `.m4a` extension.
 Editable scene source and narration text are in [walkthrough](./walkthrough/).

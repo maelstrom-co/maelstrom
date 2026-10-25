@@ -1,5 +1,36 @@
 # Rebuild the walkthrough
 
+## Final narration in Nacho's voice
+
+The final cut uses ElevenLabs `eleven_v4` with the saved Nacho voice, stability
+`0.5`, and similarity `0.75`. Its delivery cue is warm, conversational, and
+measured. The scene uses provider word alignment to retime every phrase anchor.
+
+`src/bin/voice.rs` reads the same script as the draft. Psychopomp Media saves
+each generated clip in `narration-nacho/media.lock.json` and reuses it on later
+runs. Set `ELEVENLABS_API_KEY` in the environment for new generations.
+
+```sh
+PSYCHOPOMP_MEDIA=plan cargo run --manifest-path apps/agui-workspace-poc/walkthrough/Cargo.toml --bin voice
+cargo run --manifest-path apps/agui-workspace-poc/walkthrough/Cargo.toml --bin voice
+cargo run --manifest-path apps/agui-workspace-poc/walkthrough/Cargo.toml --bin architecture -- nacho
+../psychopomp/target/release/psychopomp plan validate apps/agui-workspace-poc/walkthrough/architecture-nacho.reel.json
+../psychopomp/target/release/psychopomp plan render apps/agui-workspace-poc/walkthrough/architecture-nacho.reel.json tmp/research/agui-architecture-nacho-raw.mp4 --theme neutral
+```
+
+Plan mode exits with a cost estimate when audio needs generating. Once generated,
+the voice command reports 13 cached clips and zero API calls.
+
+The delivered files are in `~/Movies/`:
+
+- `maelstrom-agui-architecture-code-nacho.mp4`: retimed 334.13-second film.
+- `maelstrom-agui-architecture-code-nacho.m4a`: audio-only export.
+- `maelstrom-agui-architecture-code-nacho-source.tar.gz`: editable source and media.
+
+The final MP4 is 1920×1080 at 60 fps with H.264 video and AAC audio. After the
+audio-only normalization pass, it measures `-16.51 LUFS` and `-1.43 dBTP`.
+The archive includes the generation lock, voice assets, and provider word timings.
+
 ## Architectural and code walkthrough
 
 The replacement film uses `src/bin/architecture.rs` and `narration-v2/script.json`.
