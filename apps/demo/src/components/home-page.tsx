@@ -22,7 +22,10 @@ import {
   setPlaygroundKey,
 } from '../lib/playground-key-store';
 import { useFlashInstances } from '../lib/use-touched-instances';
-import { voiceProviderStore } from '../lib/voice-provider';
+import {
+  availableVoiceProviders,
+  voiceProviderStore,
+} from '../lib/voice-provider';
 import { DemoHeader } from './demo-header';
 import { FirstRunHint } from './first-run-hint';
 import { IntentInput } from './intent-input';
@@ -274,7 +277,10 @@ function DemoApp({
   return (
     <div className="demo-shell relative z-[2]">
       <DemoHeader>
-        <VoiceProviderSelect />
+        <VoiceProviderSelect
+          useVoice={m.useVoice}
+          options={availableVoiceProviders()}
+        />
         {browserKeyMode && (
           <button
             type="button"

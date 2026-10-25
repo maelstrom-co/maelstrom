@@ -5,14 +5,12 @@ import { createDemoTelemetry } from '../lib/demo-telemetry';
 import { registerDemoVoice } from '../lib/demo-voice';
 import { diagnosticCapture } from '../lib/diagnostic-capture';
 import { createAdapter } from '../lib/voice-adapter';
-import {
-  DEMO_VOICE_PROVIDERS,
-  voiceProviderStore,
-} from '../lib/voice-provider';
+import { voiceProviderStore } from '../lib/voice-provider';
 import { cartEntry } from './vessels/cart.vessel';
 import { catalogEntry } from './vessels/catalog.vessel';
 import { checkoutEntry } from './vessels/checkout.vessel';
 import { ordersEntry } from './vessels/orders.vessel';
+import { SHOP_VOICE_PROVIDERS, shopVoiceProvider } from './voice-providers';
 
 const shopTelemetry = createDemoTelemetry();
 if (import.meta.hot) import.meta.hot.dispose(() => shopTelemetry.dispose());
@@ -26,8 +24,9 @@ export const shopM = createMaelstrom({
 })
   .with(
     maelstromRealtime({
-      providers: DEMO_VOICE_PROVIDERS,
-      initialProvider: () => voiceProviderStore.state.provider,
+      providers: SHOP_VOICE_PROVIDERS,
+      initialProvider: () =>
+        shopVoiceProvider(voiceProviderStore.state.provider),
       createAdapter: ({ provider, sessionId }) =>
         createAdapter(provider, sessionId),
       onSession: registerDemoVoice,

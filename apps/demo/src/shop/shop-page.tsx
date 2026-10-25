@@ -4,6 +4,7 @@ import { RealtimeVoiceError } from '@maelstrom-co/realtime';
 import { useStore } from '@tanstack/react-store';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { KeyDrawer } from '../components/key-drawer';
+import { VoiceProviderSelect } from '../components/voice-provider-select';
 import { createDemoConnector } from '../lib/connector';
 import { isDebugRequested } from '../lib/debug-mode';
 import { STATUS_COLORS } from '../lib/design-tokens';
@@ -33,6 +34,7 @@ import { ShopIntentForm } from './shop-intent-form';
 import { ShopKeylessPreview } from './shop-keyless-preview';
 import { ShopOptionSync } from './shop-option-sync';
 import { ShopVoiceCorner } from './shop-voice-corner';
+import { SHOP_VOICE_PROVIDERS, shopVoiceProvider } from './voice-providers';
 import './shop.css';
 
 export function ShopPage() {
@@ -153,7 +155,8 @@ export function ShopPage() {
             setResumeIntent(blockedSubmit && intent.trim().length > 0);
             setAutoStartVoice(
               firstKey &&
-                (voiceProviderStore.state.provider === 'live' ||
+                (shopVoiceProvider(voiceProviderStore.state.provider) ===
+                  'live' ||
                   prepareBrowserOpenAIVoice()),
             );
             setBlockedSubmit(false);
@@ -306,6 +309,10 @@ function ShopWorkspace({
   return (
     <div className="demo-shell shop-shell relative z-[2]">
       <ShopHeader>
+        <VoiceProviderSelect
+          useVoice={shopM.useVoice}
+          options={SHOP_VOICE_PROVIDERS}
+        />
         {browserKeyMode && (
           <button
             type="button"

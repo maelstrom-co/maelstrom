@@ -30,3 +30,12 @@ it.each([
   const { voiceProviderStore } = await import('./voice-provider');
   expect(voiceProviderStore.state.provider).toBe(expected);
 });
+
+it.each([
+  ['0', ['live', 'realtime', 'livekit']],
+  ['1', ['live', 'realtime']],
+] as const)('offers LiveKit only outside hosted mode (hosted=%s)', async (hosted, expected) => {
+  vi.stubEnv('VITE_HOSTED', hosted);
+  const { availableVoiceProviders } = await import('./voice-provider');
+  expect(availableVoiceProviders()).toEqual(expected);
+});

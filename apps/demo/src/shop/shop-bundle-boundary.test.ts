@@ -50,7 +50,6 @@ const HOME_ONLY_MODULES = new Set([
   'components/intent-input.tsx',
   'components/demo-header.tsx',
   'components/first-run-hint.tsx',
-  'components/voice-provider-select.tsx',
 ]);
 const HOME_VESSEL_MODULE = /^vessels\/(?:calendar|tasks|journal|map|weather)\./;
 

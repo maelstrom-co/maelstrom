@@ -2,10 +2,8 @@ import { SessionId } from '@maelstrom-co/protocol';
 import { describe, expect, it, vi } from 'vitest';
 import { registerDemoVoice } from '../lib/demo-voice';
 import { diagnosticCapture } from '../lib/diagnostic-capture';
-import {
-  DEMO_VOICE_PROVIDERS,
-  selectVoiceProvider,
-} from '../lib/voice-provider';
+import { selectVoiceProvider, voiceProviderStore } from '../lib/voice-provider';
+import { SHOP_VOICE_PROVIDERS } from './voice-providers';
 
 const state = vi.hoisted(() => ({
   vesselIds: [] as string[],
@@ -90,9 +88,10 @@ describe('shop instance', () => {
     expect(state.telemetryOwners).toBe(1);
   });
 
-  it('offers the demo voice providers with no spoken opening', () => {
+  it('offers GPT-Live and OpenAI Realtime with no spoken opening', () => {
     const [options] = state.realtimeOptions;
-    expect(options?.providers).toBe(DEMO_VOICE_PROVIDERS);
+    expect(options?.providers).toBe(SHOP_VOICE_PROVIDERS);
+    expect(SHOP_VOICE_PROVIDERS).toEqual(['live', 'realtime']);
     expect(options?.onSession).toBe(registerDemoVoice);
     expect(options).not.toHaveProperty('opening');
     expect(options).not.toHaveProperty('greeting');
@@ -107,6 +106,15 @@ describe('shop instance', () => {
     expect(initialProvider?.()).toBe('realtime');
     selectVoiceProvider('live');
     expect(initialProvider?.()).toBe('live');
+  });
+
+  it('starts on GPT-Live when the stored choice is LiveKit', () => {
+    const initialProvider = state.realtimeOptions[0]?.initialProvider as
+      | (() => string)
+      | undefined;
+    voiceProviderStore.setState(() => ({ provider: 'livekit' }));
+    expect(initialProvider?.()).toBe('live');
+    selectVoiceProvider('live');
   });
 
   it('builds adapters through the shared voice adapter factory', () => {

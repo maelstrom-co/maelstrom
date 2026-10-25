@@ -193,7 +193,7 @@ The LiveKit cascade is also optional. It requires a local LiveKit server plus re
 
 The page starts with past orders beside an empty cart. Drive it by hand, by typed intent or by voice. Typed and spoken intents go through the Engine, which brings in the catalog or checkout when you ask. By hand, open a product in the catalog and choose **Add to cart**, then choose **Place order** in checkout. Orders, products and the customer are fixtures, and nothing is charged.
 
-With the dev server from `bunx nx dev demo` running, open `http://localhost:3000/shop`. The key drawer works as on the home page. Tap the orb in the bottom-right corner to talk. The page has no provider picker or spoken greeting, so voice starts on the default provider described below.
+With the dev server from `bunx nx dev demo` running, open `http://localhost:3000/shop`. The key drawer works as on the home page. Tap the orb in the bottom-right corner to talk. The header has a voice picker for GPT-Live and OpenAI Realtime, described below. LiveKit is not offered there, so a LiveKit selection starts the page on GPT-Live. The page has no spoken greeting.
 
 Things to type or say there:
 

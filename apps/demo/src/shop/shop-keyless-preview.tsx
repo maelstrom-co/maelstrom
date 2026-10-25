@@ -1,8 +1,10 @@
+import { KeylessVoiceProviderSelect } from '../components/voice-provider-select';
 import { ShopHeader } from './shop-header';
 import { ShopIntentForm } from './shop-intent-form';
 import { cartTotals, useCartStore } from './stores/cart.store';
 import { formatCents } from './stores/fixtures';
 import { useOrdersStore } from './stores/orders.store';
+import { SHOP_VOICE_PROVIDERS } from './voice-providers';
 
 const PREVIEW_ORDER_COUNT = 3;
 
@@ -24,6 +26,7 @@ export function ShopKeylessPreview({
   return (
     <div className="demo-shell keyless-shell relative z-[2]">
       <ShopHeader>
+        <KeylessVoiceProviderSelect options={SHOP_VOICE_PROVIDERS} />
         <button
           type="button"
           onClick={onRequireKey}

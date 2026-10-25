@@ -27,6 +27,9 @@ interface VoiceResultStub {
   state: string;
   error: unknown;
   connect: () => Promise<void>;
+  provider: string;
+  switching: boolean;
+  switchProvider: (provider: string) => Promise<void>;
 }
 
 let voiceResult: VoiceResultStub;
@@ -149,7 +152,14 @@ beforeEach(() => {
   chartHostWidth = 1024;
   seededLayouts.length = 0;
   orchestrator = undefined;
-  voiceResult = { state: 'idle', error: undefined, connect: async () => {} };
+  voiceResult = {
+    state: 'idle',
+    error: undefined,
+    connect: async () => {},
+    provider: 'live',
+    switching: false,
+    switchProvider: async () => {},
+  };
 });
 
 afterEach(() => {
@@ -343,6 +353,33 @@ describe('ShopPage chrome', () => {
     await renderShop();
 
     expect(seededLayouts.at(-1)?.tree[0]).toBe('V');
+  });
+
+  it('offers only GPT-Live and OpenAI Realtime in the voice picker', async () => {
+    const h = await renderShop();
+
+    const picker = h.view.getByRole('combobox', { name: 'Voice provider' });
+    expect(
+      Array.from(
+        picker.querySelectorAll('option'),
+        (option) => option.textContent,
+      ),
+    ).toEqual(['GPT-Live', 'OpenAI Realtime']);
+    expect(
+      h.view.getByRole('option', { name: 'GPT-Live', selected: true }),
+    ).toBeTruthy();
+  });
+
+  it('switches the shop voice session from the picker', async () => {
+    const switchProvider = vi.fn(async () => {});
+    voiceResult.switchProvider = switchProvider;
+    const h = await renderShop();
+
+    fireEvent.change(h.view.getByRole('combobox', { name: 'Voice provider' }), {
+      target: { value: 'realtime' },
+    });
+
+    expect(switchProvider).toHaveBeenCalledWith('realtime');
   });
 
   it('renders DevTools without the debug query', async () => {
