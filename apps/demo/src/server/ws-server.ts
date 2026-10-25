@@ -11,6 +11,8 @@
  * and @maelstrom-co/protocol as the hosted transport (`src/worker/session-do.ts`),
  * via the shared dispatchFrame core in `./dispatch`.
  */
+
+import { AguiWorkspaceSession } from '@maelstrom-co/agui/server';
 import { HEARTBEAT_PONG_FRAME } from '@maelstrom-co/connectors';
 import {
   createDiagnosticConnection,
@@ -23,7 +25,6 @@ import {
   encodeEnvelope,
   isErr,
 } from '@maelstrom-co/protocol';
-import { AguiWorkspaceSession } from './agui-workspace-session';
 import { dispatchFrame } from './dispatch';
 import { engineMetadataFrame } from './engine-model';
 import { buildLocalEngine, buildSharedEngine } from './local-planner';

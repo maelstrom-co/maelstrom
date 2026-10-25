@@ -40,6 +40,11 @@
  * intermittent and unreproducible.
  */
 import { DurableObject } from 'cloudflare:workers';
+import { readWorkspaceRun } from '@maelstrom-co/agui/contract';
+import {
+  AguiWorkspaceSession,
+  rejectWorkspaceRun,
+} from '@maelstrom-co/agui/server';
 import {
   HEARTBEAT_PING_FRAME,
   HEARTBEAT_PONG_FRAME,
@@ -47,11 +52,6 @@ import {
 import { encodeEnvelope } from '@maelstrom-co/protocol';
 import { Effect, Layer, ManagedRuntime } from 'effect';
 import * as Result from 'effect/Result';
-import { readWorkspaceRun } from '../lib/agui-workspace-protocol';
-import {
-  AguiWorkspaceSession,
-  rejectWorkspaceRun,
-} from '../server/agui-workspace-session';
 import { dispatchFrame, encodeEngineErrorReply } from '../server/dispatch';
 import { engineMetadataFrame } from '../server/engine-model';
 import { resolvePreHelloDispatch } from '../server/playground-frames';

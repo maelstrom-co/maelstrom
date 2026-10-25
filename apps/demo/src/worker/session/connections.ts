@@ -18,11 +18,12 @@
  * buffering would be a memory-growth vector on a socket that never answers
  * the rehello.
  */
-import { Context, Layer } from 'effect';
+
 import {
   type WorkspaceCheckpoint,
   WorkspaceCheckpointSchema,
-} from '../../lib/agui-workspace-protocol';
+} from '@maelstrom-co/agui/contract';
+import { Context, Layer } from 'effect';
 
 /** Non-secret, survives hibernation. See the module doc for what must NOT. */
 export interface ConnectionMarker {

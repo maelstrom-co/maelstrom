@@ -1,3 +1,4 @@
+import { AguiWebSocketConnector } from '@maelstrom-co/agui/browser';
 import {
   DEFAULT_HEARTBEAT_INTERVAL_MS,
   WebSocketConnector,
@@ -9,66 +10,65 @@ import { SessionId } from '@maelstrom-co/protocol';
 // src/server — it defines the contract, not a server implementation of it.
 import { PLAYGROUND_NOKEY_FRAME } from '../server/playground-frames';
 import { parsePlaygroundMetadata } from '../server/playground-metadata';
-import { AguiWorkspaceClient } from './agui-workspace-client';
 import { withBrowserCalendarContext } from './calendar-context';
 import { diagnosticCapture } from './diagnostic-capture';
 import { engineMetadata } from './engine-metadata';
 import { isHosted, usesBrowserKey } from './hosted-mode';
 import { playgroundKeyStore } from './playground-key-store';
 
-class DemoConnector extends WebSocketConnector {
-  private readonly metadataOwner: symbol;
-  constructor(
-    options: ConstructorParameters<typeof WebSocketConnector>[0],
-    readonly workspace?: AguiWorkspaceClient,
-  ) {
-    const owner = Symbol('engine connection');
-    super({
-      ...options,
-      onOpen: (send, sessionId) => {
-        if (import.meta.env.DEV) engineMetadata.begin(owner);
-        options.onOpen?.(send, sessionId);
-        workspace?.open(send, sessionId);
-      },
-      onFrame: (raw, send, sessionId, isCurrentConnection) => {
-        if (workspace?.receive(raw, isCurrentConnection !== false)) return true;
-        const metadata = import.meta.env.DEV
-          ? parsePlaygroundMetadata(raw)
-          : undefined;
-        if (metadata) {
-          if (isCurrentConnection === false) return true;
-          engineMetadata.receive(owner, metadata);
-          if (engineMetadata.getSnapshot() === metadata)
-            diagnosticCapture.record('engine_metadata', {
-              sessionId,
-              ...metadata,
-            });
-          return true;
+function createTransport(
+  options: ConstructorParameters<typeof WebSocketConnector>[0],
+  protocol?: 'native' | 'agui',
+): WebSocketConnector | AguiWebSocketConnector {
+  const Base =
+    protocol === 'agui' ? AguiWebSocketConnector : WebSocketConnector;
+  class DemoConnector extends Base {
+    private readonly metadataOwner: symbol;
+    constructor(options: ConstructorParameters<typeof WebSocketConnector>[0]) {
+      const owner = Symbol('engine connection');
+      super({
+        ...options,
+        onOpen: (send, sessionId) => {
+          if (import.meta.env.DEV) engineMetadata.begin(owner);
+          options.onOpen?.(send, sessionId);
+        },
+        onFrame: (raw, send, sessionId, isCurrentConnection) => {
+          const metadata = import.meta.env.DEV
+            ? parsePlaygroundMetadata(raw)
+            : undefined;
+          if (metadata) {
+            if (isCurrentConnection === false) return true;
+            engineMetadata.receive(owner, metadata);
+            if (engineMetadata.getSnapshot() === metadata)
+              diagnosticCapture.record('engine_metadata', {
+                sessionId,
+                ...metadata,
+              });
+            return true;
+          }
+          return (
+            options.onFrame?.(raw, send, sessionId, isCurrentConnection) ??
+            false
+          );
+        },
+      });
+      this.metadataOwner = owner;
+      this.subscribe((event) => {
+        if (event.type === 'disconnected') {
+          engineMetadata.clear(owner);
         }
-        return (
-          options.onFrame?.(raw, send, sessionId, isCurrentConnection) ?? false
-        );
-      },
-    });
-    this.metadataOwner = owner;
-    this.subscribe((event) => {
-      if (event.type === 'disconnected') {
-        engineMetadata.clear(owner);
-        workspace?.disconnect();
-      }
-    });
+      });
+    }
+    override disconnect() {
+      engineMetadata.clear(this.metadataOwner);
+      return super.disconnect();
+    }
+    override process(message: Parameters<WebSocketConnector['process']>[0]) {
+      const request = withBrowserCalendarContext(message);
+      return super.process(request);
+    }
   }
-  override disconnect() {
-    this.workspace?.disconnect();
-    engineMetadata.clear(this.metadataOwner);
-    return super.disconnect();
-  }
-  override process(message: Parameters<WebSocketConnector['process']>[0]) {
-    const request = withBrowserCalendarContext(message);
-    return this.workspace
-      ? this.workspace.process(request)
-      : super.process(request);
-  }
+  return new DemoConnector(options);
 }
 
 export interface CreateDemoConnectorOptions {
@@ -201,7 +201,7 @@ export function createDemoConnector(options: CreateDemoConnectorOptions = {}) {
 
   const diagnosticsUrl = new URL(wsUrl);
   if (import.meta.env.DEV) diagnosticsUrl.searchParams.set('diagnostics', '1');
-  return new DemoConnector(
+  return createTransport(
     {
       url: diagnosticsUrl.toString(),
       // Client-side liveness detection: the DO answers each ping via
@@ -245,6 +245,6 @@ export function createDemoConnector(options: CreateDemoConnectorOptions = {}) {
           }
         : undefined,
     },
-    options.protocol === 'agui' ? new AguiWorkspaceClient() : undefined,
+    options.protocol,
   );
 }

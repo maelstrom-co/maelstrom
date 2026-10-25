@@ -6,6 +6,16 @@
  * implementation of the handshake/heartbeat/dispatch ordering instead of two
  * that are free to drift.
  */
+
+import {
+  MAX_WORKSPACE_FRAME_BYTES,
+  WORKSPACE_RUN,
+  WorkspaceRunSchema,
+} from '@maelstrom-co/agui/contract';
+import {
+  type AguiWorkspaceSession,
+  rejectWorkspaceRun,
+} from '@maelstrom-co/agui/server';
 import {
   type Engine,
   handleEnvelope,
@@ -17,15 +27,6 @@ import {
   encodeEnvelope,
   isErr,
 } from '@maelstrom-co/protocol';
-import {
-  MAX_WORKSPACE_FRAME_BYTES,
-  WORKSPACE_RUN,
-  WorkspaceRunSchema,
-} from '../lib/agui-workspace-protocol';
-import {
-  type AguiWorkspaceSession,
-  rejectWorkspaceRun,
-} from './agui-workspace-session';
 import {
   classifyIncomingFrame,
   type PlaygroundHelloFrame,

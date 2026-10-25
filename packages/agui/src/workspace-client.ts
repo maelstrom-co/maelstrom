@@ -1,21 +1,20 @@
 import { EventSchemas } from '@ag-ui/core/schemas';
-import type { Orchestrator } from '@maelstrom-co/client';
+import type { ApplicationSettlement } from '@maelstrom-co/client';
 import type { ChartRequestMessage, SessionId } from '@maelstrom-co/protocol';
 import { ChartRequestMessageSchema } from '@maelstrom-co/protocol';
-import { sameValue } from './agui-contract';
 import {
   APPLICATION_RESULT,
   ApplicationResultSchema,
   MAX_WORKSPACE_FRAME_BYTES,
   WORKSPACE_RESULT,
   WORKSPACE_RUN,
-  type WorkspaceApplication,
   WorkspaceApplicationSchema,
   type WorkspaceOperation,
   type WorkspaceResult,
   WorkspaceResultSchema,
   workspaceRun,
-} from './agui-workspace-protocol';
+} from './contract.js';
+import { sameCorrelation } from './correlation.js';
 
 type PendingRun = {
   id: string;
@@ -27,6 +26,7 @@ type PendingRun = {
   timeout: ReturnType<typeof setTimeout>;
 };
 
+/** Framework-independent run validation and application acknowledgment state. */
 export class AguiWorkspaceClient {
   private send: ((data: string) => void) | undefined;
   private threadId = '';
@@ -34,13 +34,14 @@ export class AguiWorkspaceClient {
   private revision = 0;
   private run: PendingRun | undefined;
   private application: WorkspaceResult | undefined;
-  private acknowledged: Promise<void> = Promise.resolve();
   private stopped = false;
   private error: string | null = null;
   private listeners = new Set<() => void>();
   private generation = 0;
 
+  /** Read the first terminal protocol error, or null while usable. */
   snapshot = () => this.error;
+  /** Observe terminal protocol errors; returns subscription cleanup. */
   observe = (listener: () => void) => {
     this.listeners.add(listener);
     return () => {
@@ -48,8 +49,10 @@ export class AguiWorkspaceClient {
     };
   };
 
+  /** Bound every protocol run, including application acknowledgment. */
   constructor(private readonly timeoutMs = 60_000) {}
 
+  /** Bind a live socket to its application session. */
   open(send: (data: string) => void, sessionId: SessionId) {
     if (this.run || this.application)
       this.fail(
@@ -64,6 +67,7 @@ export class AguiWorkspaceClient {
     this.revision = 0;
   }
 
+  /** Fence unresolved work without replaying it. */
   disconnect() {
     this.generation++;
     if (this.run || this.application)
@@ -87,6 +91,7 @@ export class AguiWorkspaceClient {
     }
   }
 
+  /** Consume AG-UI output; false delegates unrelated host frames to the transport. */
   receive(raw: string, current: boolean) {
     let value: unknown;
     try {
@@ -188,15 +193,11 @@ export class AguiWorkspaceClient {
     });
   }
 
+  /** Request a workspace response and validate its complete run before application. */
   async process(message: ChartRequestMessage) {
     const generation = this.generation;
     try {
-      await this.acknowledged;
-      if (
-        generation !== this.generation ||
-        this.application ||
-        message.sessionId !== this.threadId
-      )
+      if (this.application || message.sessionId !== this.threadId)
         throw new Error('Unsettled AG-UI workspace.');
       const value = await this.request(
         {
@@ -227,85 +228,53 @@ export class AguiWorkspaceClient {
     }
   }
 
-  attach(orchestrator: Orchestrator) {
-    let actions: WorkspaceApplication['actions'] = [];
-    const matches = (requestId?: string) =>
-      this.application?.correlation.requestId === requestId &&
-      !!this.application;
-    const acknowledge = (status: WorkspaceApplication['status']) => {
+  /** Report client-owned settlement and await correlated server acceptance. */
+  async applicationSettled(settlement: ApplicationSettlement): Promise<void> {
+    const generation = this.generation;
+    try {
       const application = this.application;
-      if (!application || this.stopped) return;
+      if (
+        !application ||
+        this.stopped ||
+        application.correlation.requestId !== settlement.requestId
+      ) {
+        throw new Error('Unmatched AG-UI application settlement.');
+      }
+      const value = await this.request(
+        {
+          kind: 'applied',
+          sequence: ++this.sequence,
+          application: WorkspaceApplicationSchema.parse({
+            correlation: application.correlation,
+            status: settlement.result.status,
+            actions: settlement.actions,
+            chart: settlement.chart,
+          }),
+        },
+        APPLICATION_RESULT,
+      );
+      const result = ApplicationResultSchema.parse(value);
+      if (
+        generation !== this.generation ||
+        this.stopped ||
+        !sameCorrelation(result.correlation, application.correlation) ||
+        result.revision !== this.revision + 1 ||
+        result.status !== settlement.result.status
+      ) {
+        throw new Error('AG-UI application acknowledgment failed.');
+      }
       this.application = undefined;
-      const generation = this.generation;
-      const operation: WorkspaceOperation = {
-        kind: 'applied',
-        sequence: ++this.sequence,
-        application: {
-          correlation: application.correlation,
-          status,
-          actions,
-          chart: WorkspaceApplicationSchema.shape.chart.parse(
-            orchestrator.getStructuralSnapshot(),
-          ),
-        },
-      };
-      actions = [];
-      this.acknowledged = this.request(operation, APPLICATION_RESULT)
-        .then((value) => {
-          if (generation !== this.generation) return;
-          const result = ApplicationResultSchema.parse(value);
-          if (
-            !sameValue(result.correlation, application.correlation) ||
-            result.revision !== this.revision + 1 ||
-            result.status !== 'applied'
-          ) {
-            throw new Error('AG-UI application acknowledgment failed.');
-          }
-          this.revision = result.revision;
-        })
-        .catch(() => {
-          if (generation === this.generation)
-            this.fail(
-              'AG-UI application outcome is uncertain; do not replay the write.',
-            );
-        });
-    };
-    const releases = [
-      orchestrator.commandProcessor.events.on(
-        'actions_completed',
-        ({ command, result }) => {
-          if (matches(command.requestId))
-            actions = result.actions.map((action) => ({
-              instanceId: action.instanceId,
-              action: action.action,
-              succeeded: !action.skipped && action.result.ok,
-            }));
-        },
-      ),
-      orchestrator.commandProcessor.events.on(
-        'processing_error',
-        ({ command }) => {
-          if (matches(command.requestId)) acknowledge('failed');
-        },
-      ),
-      orchestrator.commandProcessor.events.on(
-        'command_complete',
-        ({ command }) => {
-          if (
-            matches(command.requestId) &&
-            command.kind === 'execute_actions'
-          ) {
-            acknowledge(
-              actions.every((action) => action.succeeded)
-                ? 'applied'
-                : 'failed',
-            );
-          }
-        },
-      ),
-    ];
-    return () => {
-      for (const release of releases) release();
-    };
+      this.revision = result.revision;
+      if (result.status !== 'applied')
+        this.fail(
+          'AG-UI application did not complete; start a new session after inspecting the application.',
+        );
+    } catch (error) {
+      if (generation === this.generation)
+        this.fail(
+          'AG-UI application outcome is uncertain; do not replay the write.',
+        );
+      throw error;
+    }
   }
 }

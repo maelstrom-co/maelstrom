@@ -80,6 +80,9 @@
     },
     {
       "path": "./packages/telemetry"
+    },
+    {
+      "path": "./packages/agui"
     }
   ],
   "compilerOptions": {}

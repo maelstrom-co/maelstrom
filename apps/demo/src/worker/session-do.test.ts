@@ -1,4 +1,8 @@
 import {
+  WorkspaceResultSchema,
+  workspaceRun,
+} from '@maelstrom-co/agui/contract';
+import {
   HEARTBEAT_PING_FRAME,
   HEARTBEAT_PONG_FRAME,
 } from '@maelstrom-co/connectors';
@@ -9,10 +13,6 @@ import {
   SessionId,
 } from '@maelstrom-co/protocol';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  WorkspaceResultSchema,
-  workspaceRun,
-} from '../lib/agui-workspace-protocol';
 
 // DurableObject only exists as a virtual module inside a real Workers
 // runtime, not under plain vitest — mirrors worker/index.test.ts's mock of

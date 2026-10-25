@@ -1,3 +1,7 @@
+import {
+  AguiWebSocketConnector,
+  type AguiWorkspaceClient,
+} from '@maelstrom-co/agui/browser';
 import { SessionId } from '@maelstrom-co/protocol';
 import { RealtimeVoiceError } from '@maelstrom-co/realtime';
 import { useStore } from '@tanstack/react-store';
@@ -9,7 +13,6 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
-import type { AguiWorkspaceClient } from '../lib/agui-workspace-client';
 import { createDemoConnector } from '../lib/connector';
 import { isDebugRequested } from '../lib/debug-mode';
 import { DEFAULT_LAYOUT, NARROW_LAYOUT } from '../lib/default-layout';
@@ -178,7 +181,11 @@ function NormalHomePage({
         >
           <VesselOptionSync />
           <DemoApp
-            workspace={connector.workspace}
+            workspace={
+              connector instanceof AguiWebSocketConnector
+                ? connector.workspace
+                : undefined
+            }
             protocol={protocol}
             onProtocolChange={onProtocolChange}
             onRequireKey={() => setDrawerOpen(true)}
@@ -325,7 +332,7 @@ function DemoApp({
     <div className="demo-shell relative z-[2]">
       <DemoHeader>
         <WorkspaceProtocolSelect value={protocol} onChange={onProtocolChange} />
-        {workspace && <WorkspaceApplicationObserver workspace={workspace} />}
+        {workspace && <WorkspaceProtocolError workspace={workspace} />}
         <VoiceProviderSelect />
         {browserKeyMode && (
           <button
@@ -364,18 +371,16 @@ function DemoApp({
   );
 }
 
-function WorkspaceApplicationObserver({
+function WorkspaceProtocolError({
   workspace,
 }: {
   workspace: AguiWorkspaceClient;
 }) {
-  const orchestrator = m.useExperimentalOrchestrator();
   const error = useSyncExternalStore(
     workspace.observe,
     workspace.snapshot,
     workspace.snapshot,
   );
-  useEffect(() => workspace.attach(orchestrator), [workspace, orchestrator]);
   return error ? (
     <span role="alert" className="text-xs text-pink max-w-64">
       {error} Switch workspace protocol or reload to start a new session.

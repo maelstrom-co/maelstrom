@@ -1,6 +1,5 @@
 import type { Engine } from '@maelstrom-co/engine';
 import { handleEnvelope } from '@maelstrom-co/engine';
-import { sameValue } from '../lib/agui-contract';
 import {
   APPLICATION_RESULT,
   actionDigest,
@@ -8,10 +7,12 @@ import {
   type WorkspaceCheckpoint,
   WorkspaceCheckpointSchema,
   type WorkspaceRun,
-} from '../lib/agui-workspace-protocol';
+} from './contract.js';
+import { sameCorrelation } from './correlation.js';
 
 type Send = (event: unknown) => void;
 
+/** Emit a terminal rejection without invoking the Engine. */
 export function rejectWorkspaceRun(
   input: WorkspaceRun,
   send: Send,
@@ -26,10 +27,12 @@ export function rejectWorkspaceRun(
   });
 }
 
+/** Host-independent admission and acknowledgment state for one socket session. */
 export class AguiWorkspaceSession {
   private state: WorkspaceCheckpoint;
   private running = false;
 
+  /** Restore non-content evidence through a host-owned synchronous checkpoint store. */
   constructor(
     threadId: string,
     checkpoint?: unknown,
@@ -43,10 +46,12 @@ export class AguiWorkspaceSession {
       throw new Error('Workspace session mismatch');
   }
 
+  /** Fence pending work when its owning connection retires. */
   close() {
     this.state = { ...this.state, stopped: true };
   }
 
+  /** Dispatch a validated operation, preserving Engine entry and application gating. */
   async run(
     input: WorkspaceRun,
     getEngine: () => Engine | null | Promise<Engine | null>,
@@ -108,7 +113,7 @@ export class AguiWorkspaceSession {
         const pending = this.state.pending;
         if (
           !pending ||
-          !sameValue(pending.correlation, application.correlation)
+          !sameCorrelation(pending.correlation, application.correlation)
         ) {
           throw new Error('Unmatched application result');
         }
@@ -135,7 +140,11 @@ export class AguiWorkspaceSession {
           value: {
             correlation: application.correlation,
             revision: this.state.revision,
-            status: succeeded ? 'applied' : 'failed',
+            status: succeeded
+              ? 'applied'
+              : application.status === 'failed'
+                ? 'failed'
+                : 'unknown',
           },
         });
       }

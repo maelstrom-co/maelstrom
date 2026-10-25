@@ -37,12 +37,6 @@
   ],
   "references": [
     {
-      "path": "../../packages/telemetry/tsconfig.lib.json"
-    },
-    {
-      "path": "../../packages/devtools/tsconfig.lib.json"
-    },
-    {
       "path": "../../packages/react-devtools/tsconfig.lib.json"
     },
     {
@@ -82,22 +76,31 @@
       "path": "../../packages/react/tsconfig.lib.json"
     },
     {
-      "path": "../../packages/protocol/tsconfig.lib.json"
-    },
-    {
       "path": "../../packages/planner-llm/tsconfig.lib.json"
     },
     {
       "path": "../../packages/planner-jev/tsconfig.lib.json"
     },
     {
-      "path": "../../packages/engine/tsconfig.lib.json"
-    },
-    {
       "path": "../../packages/connectors/tsconfig.lib.json"
     },
     {
+      "path": "../../packages/telemetry/tsconfig.lib.json"
+    },
+    {
       "path": "../../packages/client/tsconfig.lib.json"
+    },
+    {
+      "path": "../../packages/devtools/tsconfig.lib.json"
+    },
+    {
+      "path": "../../packages/agui/tsconfig.lib.json"
+    },
+    {
+      "path": "../../packages/protocol/tsconfig.lib.json"
+    },
+    {
+      "path": "../../packages/engine/tsconfig.lib.json"
     },
     {
       "path": "../../infra/platform/tsconfig.lib.json"

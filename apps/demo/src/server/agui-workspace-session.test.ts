@@ -1,3 +1,10 @@
+import {
+  type WorkspaceCheckpoint,
+  type WorkspaceOperation,
+  WorkspaceResultSchema,
+  workspaceRun,
+} from '@maelstrom-co/agui/contract';
+import { AguiWorkspaceSession } from '@maelstrom-co/agui/server';
 import { createEngine } from '@maelstrom-co/engine';
 import {
   ChartRequestMessageSchema,
@@ -6,14 +13,7 @@ import {
   TilingResponseSchema,
 } from '@maelstrom-co/protocol';
 import { describe, expect, it, vi } from 'vitest';
-import {
-  type WorkspaceCheckpoint,
-  type WorkspaceOperation,
-  WorkspaceResultSchema,
-  workspaceRun,
-} from '../lib/agui-workspace-protocol';
 import { journalVessel } from '../vessels/journal.vessel.def';
-import { AguiWorkspaceSession } from './agui-workspace-session';
 import { dispatchFrame } from './dispatch';
 
 function setup() {
@@ -179,7 +179,7 @@ describe('hosted AG-UI workspace admission', () => {
     const applied = h.apply(await h.run(h.plan()));
     applied.application.actions[0].succeeded = false;
     const events = await h.run(applied);
-    expect(events[1]).toMatchObject({ value: { status: 'failed' } });
+    expect(events[1]).toMatchObject({ value: { status: 'unknown' } });
     expect(h.checkpoint()?.stopped).toBe(true);
   });
 

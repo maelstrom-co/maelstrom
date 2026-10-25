@@ -1,3 +1,4 @@
+import { AguiWorkspaceSession } from '@maelstrom-co/agui/server';
 import { Orchestrator } from '@maelstrom-co/client';
 import { createEngine, createInMemoryStore } from '@maelstrom-co/engine';
 import {
@@ -15,7 +16,6 @@ import {
   type ToolResult,
 } from '@maelstrom-co/realtime';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { AguiWorkspaceSession } from '../server/agui-workspace-session';
 import { dispatchFrame } from '../server/dispatch';
 import { journalActions } from '../vessels/journal.store';
 import { journalVessel } from '../vessels/journal.vessel.def';
@@ -134,9 +134,7 @@ async function setup(
     readyTimeoutMs: 50,
     intentQueue: { connectionGraceMs: 50 },
   });
-  const release = connector.workspace?.attach(client);
   cleanups.push(async () => {
-    release?.();
     await client.dispose();
   });
   client.commandProcessor.events.on('command_complete', ({ command }) => {

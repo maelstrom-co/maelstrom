@@ -4,6 +4,8 @@ The demo's **Workspace → AG-UI** selection carries workspace planning and appl
 
 ## Transport and ownership
 
+The experimental [`@maelstrom-co/agui` package](../../packages/agui/README.md) owns the browser adapter, server session, and shared wire schemas. The demo supplies authentication, host dispatch, Engine configuration, and socket checkpoint storage.
+
 The hosted Worker routes `/ws` to the session's existing Durable Object. The same origin checks, connection rate limiter, browser-owned key handshake, heartbeat, and Engine factory serve both protocol selections. Local development uses the existing Bun WebSocket host.
 
 The Engine remains the planning entry point. Its normal Planner, validation, retry policy, and history configuration remain in use. The client Orchestrator admits typed and voice intents through one FIFO and builds the authoritative request snapshot at dispatch. Resize and mutation updates retain their existing coalescing behavior.
@@ -30,7 +32,7 @@ A successful run emits `RUN_STARTED`, one `CUSTOM` result, then `RUN_FINISHED` a
 - `demo:workspace-result` carries the validated Engine response and its session, run, request, call, and revision correlation.
 - `demo:application-result` confirms acceptance of the correlated application result and advances the workspace revision.
 
-The connector validates the complete run before returning a workspace response. The Orchestrator applies layout before Actions. Exact command completion supplies Action outcomes and the structural snapshot. A later plan waits for the server's acknowledgment of that application result. A failed or incomplete application stops this protocol session.
+The connector validates the complete run before returning a workspace response. The Orchestrator applies layout before Actions. Its canonical batch settlement supplies Action outcomes and the structural snapshot through `EngineConnector.applicationSettled`. The client awaits this callback before admitting later planning. A failed or incomplete application stops this protocol session. Partial execution is reported as `unknown`. React subscribes to protocol errors for display; acknowledgment requires no component attachment.
 
 Both demo protocol selections allow five seconds for a lazy Vessel's Action runner to register. Cold module loading can exceed the client's default 500 ms. Readiness expiry still skips the Action; it never triggers a write retry.
 

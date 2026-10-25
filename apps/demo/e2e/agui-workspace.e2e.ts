@@ -1,7 +1,7 @@
+import { AguiWorkspaceSession } from '@maelstrom-co/agui/server';
 import { createEngine, createInMemoryStore } from '@maelstrom-co/engine';
 import { ok, TilingResponseSchema } from '@maelstrom-co/protocol';
 import { expect, test } from '@playwright/test';
-import { AguiWorkspaceSession } from '../src/server/agui-workspace-session';
 import { dispatchFrame } from '../src/server/dispatch';
 
 test('runs the hosted demo through AG-UI and returns to the normal protocol', async ({
