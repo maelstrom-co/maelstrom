@@ -22,6 +22,7 @@
 }
 
 .shop-app .shop-voice-corner {
+  position: relative;
   display: grid;
   width: 340px;
   height: 72px;
@@ -31,6 +32,30 @@
   column-gap: 12px;
   row-gap: 8px;
   align-items: center;
+}
+
+/* Recovery controls float above the corner instead of joining the dock, so
+   showing them never resizes the Chart host. */
+.shop-app .shop-voice-actions {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 20px);
+  display: flex;
+  max-width: 100%;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.shop-app .shop-voice-actions > * {
+  border-radius: 999px;
+  background: var(--color-bg-1);
+  pointer-events: auto;
+}
+
+.shop-app .shop-voice-actions > span {
+  padding: 4px 10px;
 }
 
 .shop-app .shop-caption {

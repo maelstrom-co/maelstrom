@@ -1,5 +1,7 @@
 import type { VoiceSessionState } from '@maelstrom-co/client';
 import type { MouseEvent } from 'react';
+import { EnablePlaybackButton } from '../components/enable-playback-button';
+import { HoldToTalkControl } from '../components/hold-to-talk-control';
 import { prepareBrowserOpenAIVoice } from '../lib/voice-adapter';
 import { shopM } from './maelstrom';
 import { ShopCaption } from './shop-caption';
@@ -29,7 +31,15 @@ export function ShopVoiceCorner({
   readonly needsKey: boolean;
   readonly onRequireKey: () => void;
 }) {
-  const { state } = shopM.useVoice();
+  const {
+    state,
+    provider,
+    session,
+    switching,
+    turnControl,
+    turnMode,
+    turnModeError,
+  } = shopM.useVoice();
 
   // The orb owns its click handler, so the capture phase runs first: it
   // blocks the click when no key is on hand, and otherwise unlocks browser
@@ -46,6 +56,20 @@ export function ShopVoiceCorner({
 
   return (
     <div className="shop-voice-corner">
+      <div className="shop-voice-actions">
+        <HoldToTalkControl
+          state={state}
+          turnControl={turnControl}
+          turnMode={turnMode}
+          turnModeError={turnModeError}
+        />
+        <EnablePlaybackButton
+          provider={provider}
+          state={state}
+          session={session}
+          switching={switching}
+        />
+      </div>
       <ShopCaption />
       <div className="shop-voice-status">
         <span
