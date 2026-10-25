@@ -5,6 +5,7 @@ import type {
   EngineOutput,
   MessageId,
   Result,
+  RunId,
   SessionHistoryEntry,
   SessionId,
 } from '@maelstrom-co/protocol';
@@ -12,6 +13,11 @@ import { err, isErr, ok } from '@maelstrom-co/protocol';
 import { operationalKinds } from '@maelstrom-co/telemetry/integration';
 import type { ActionParameterEnumSnapshot } from './action-parameter-enum.js';
 import { buildActionParameterEnumSnapshot } from './action-parameter-enum.js';
+import {
+  type AgentConnection,
+  createAgentConnection,
+  type OpenConnectionOptions,
+} from './agent-session/index.js';
 import { assertNever } from './assert-never.js';
 import { createChartRequestDedup } from './chart-request-dedup.js';
 import type { EngineConfig } from './config.js';
@@ -23,7 +29,10 @@ import {
 } from './diagnostics.js';
 import type { EngineError } from './errors.js';
 import { cancellationError, historyError, validationError } from './errors.js';
-import type { HistoryManager } from './history/history-manager.js';
+import type {
+  HistoryManager,
+  LLMContextMessage,
+} from './history/history-manager.js';
 import { createHistoryManager } from './history/history-manager.js';
 import type { HistoryEntry } from './history/history-store.js';
 import { loadHistoryContext } from './history/load-history-context.js';
@@ -108,7 +117,9 @@ function isChartRequestCandidate(message: unknown): boolean {
  * requests that may reach different instances.
  */
 export interface Engine {
-  /** Observes development evidence. Once overlapping session/request IDs are detected, diagnostic events are suppressed except engine.request.finished. Metadata observers are unaffected. Hosts must opt in before forwarding. */
+  /** Opens an isolated Agent Session with host-authorized identity. The UI-only route does not use the legacy history store. */
+  openConnection(options: OpenConnectionOptions): AgentConnection;
+  /** Observes development evidence. Overlapping legacy request IDs suppress request-correlated events except engine.request.finished. Run-owned events and metadata observers are unaffected. Hosts must opt in before forwarding. */
   observeDiagnostics?: (observer: EngineDiagnosticObserver) => () => void;
   /** Observes server-local metadata in every environment, without granting content or browser forwarding. */
   observeMetadata?: (observer: EngineMetadataObserver) => () => void;
@@ -256,8 +267,11 @@ export function createEngine(config: EngineConfig): Engine {
   const runChartRequest = async (
     message: ChartRequestMessage,
     signal?: AbortSignal,
+    sessionHistory?: readonly LLMContextMessage[],
+    runId?: RunId,
   ): Promise<Result<ChartResponseOutput, EngineError>> => {
     const { request } = message;
+    const diagnosticOwner = runId ? { runId, inputId: message.id } : message.id;
     logger.debug('Processing chart_request', {
       messageId: message.id,
       sessionId: message.sessionId,
@@ -286,12 +300,15 @@ export function createEngine(config: EngineConfig): Engine {
     // returned promise and break the documented `Promise<Result<…>>`
     // contract — surface it as a HistoryError so callers see the same Err
     // shape they see for assistant_message persistence failures.
-    const historyContext = await loadHistoryContext(
-      history,
-      message.sessionId,
-      message.id,
-      logger,
-    );
+    const historyContext =
+      sessionHistory !== undefined
+        ? ok(sessionHistory)
+        : await loadHistoryContext(
+            history,
+            message.sessionId,
+            message.id,
+            logger,
+          );
     if (isErr(historyContext)) {
       return historyContext;
     }
@@ -311,7 +328,7 @@ export function createEngine(config: EngineConfig): Engine {
       onValidated: (report) =>
         diagnosticsEmitter.emit(
           message.sessionId,
-          message.id,
+          diagnosticOwner,
           'engine.candidate.validated',
           { outcome: report.ok ? 'succeeded' : 'failed' },
           () => report,
@@ -323,7 +340,7 @@ export function createEngine(config: EngineConfig): Engine {
       instrument: diagnosticsEmitter.instrument(
         instrument,
         message.sessionId,
-        message.id,
+        diagnosticOwner,
       ),
       origin: input,
       validate,
@@ -333,7 +350,7 @@ export function createEngine(config: EngineConfig): Engine {
     const start = performance.now();
     diagnosticsEmitter.emit(
       message.sessionId,
-      message.id,
+      diagnosticOwner,
       operationalKinds.enginePlannerStarted,
       {},
       () => input,
@@ -345,7 +362,7 @@ export function createEngine(config: EngineConfig): Engine {
       : requireShippableReply(planned.value, message.id, logger);
     diagnosticsEmitter.emit(
       message.sessionId,
-      message.id,
+      diagnosticOwner,
       operationalKinds.enginePlannerCompleted,
       {
         durationMs,
@@ -366,7 +383,7 @@ export function createEngine(config: EngineConfig): Engine {
     const { diagnostics, ...response } = shippable.value;
     diagnosticsEmitter.emit(
       message.sessionId,
-      message.id,
+      diagnosticOwner,
       'engine.validation.completed',
       {
         dropped: diagnostics.droppedLayoutEntries.length,
@@ -416,6 +433,33 @@ export function createEngine(config: EngineConfig): Engine {
   });
 
   return {
+    openConnection: (options) =>
+      createAgentConnection(
+        options,
+        async (input) => {
+          const result = await runChartRequest(
+            {
+              type: 'chart_request',
+              id: input.messageId,
+              sessionId: options.sessionId,
+              timestamp: Date.now(),
+              request: input.request,
+            },
+            input.signal,
+            [],
+            input.runId,
+          );
+          return isErr(result) ? result : ok(result.value.response);
+        },
+        (runId, inputId, kind, metadata, readContent) =>
+          diagnosticsEmitter.emit(
+            options.sessionId,
+            { runId, inputId },
+            kind,
+            metadata,
+            readContent,
+          ),
+      ),
     observeDiagnostics: (observer) => diagnosticsEmitter.subscribe(observer),
     observeMetadata: (observer) =>
       diagnosticsEmitter.subscribeMetadata(observer),

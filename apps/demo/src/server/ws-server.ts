@@ -7,9 +7,9 @@
  * browser's memory-only key through playground.hello and each connection
  * owns its engine.
  *
- * Speaks the same handleEnvelope/encodeEnvelope loop from @maelstrom-co/engine
- * and @maelstrom-co/protocol as the hosted transport (`src/worker/session-do.ts`),
- * via the shared dispatchFrame core in `./dispatch`.
+ * Routes agent frames through one streaming connection handle. Legacy frames
+ * keep the handleEnvelope/encodeEnvelope path shared with the hosted transport
+ * (`src/worker/session-do.ts`) through `dispatchFrame`.
  */
 import { HEARTBEAT_PONG_FRAME } from '@maelstrom-co/connectors';
 import {
@@ -20,9 +20,12 @@ import {
 } from '@maelstrom-co/engine';
 import {
   decodeClientEnvelope,
+  EngineErrorMessage,
   encodeEnvelope,
   isErr,
+  SessionId,
 } from '@maelstrom-co/protocol';
+import { type AgentTransport, openAgentTransport } from './agent-transport';
 import { dispatchFrame } from './dispatch';
 import { engineMetadataFrame } from './engine-model';
 import { buildLocalEngine, buildSharedEngine } from './local-planner';
@@ -59,6 +62,9 @@ export function truncateCloseReason(reason: string, maxBytes = 123): string {
 }
 
 export interface SocketData {
+  agent?: AgentTransport;
+  sessionId?: SessionId;
+  closed?: boolean;
   diagnostics?: DiagnosticConnection;
   helloReceived: boolean;
   reportMetadata?: boolean;
@@ -90,14 +96,50 @@ export function createWebSocketHandlers(
       if (ws.data.reportMetadata) ws.send(engineMetadataFrame());
     },
     close(ws) {
+      ws.data.closed = true;
+      ws.data.agent?.connection.close();
+      ws.data.agent = undefined;
       ws.data.diagnostics?.dispose();
+      ws.data.diagnostics = undefined;
+      ws.data.browserApiKey = undefined;
+      ws.data.browserEngine = undefined;
+      ws.data.browserEngineInitError = undefined;
     },
     async message(ws, raw) {
+      if (ws.data.closed) return;
       const browserApiKey = ws.data.browserApiKey;
       const result = await dispatchFrame(raw, {
         helloReceived: ws.data.helloReceived,
         handle: async (engine, frame) => {
+          if (ws.data.closed) return null;
           const decoded = decodeClientEnvelope(frame);
+          if (!isErr(decoded) && decoded.value.type === 'client.agent.input') {
+            const envelope = decoded.value;
+            const sessionId =
+              ws.data.sessionId ??
+              ws.data.agent?.sessionId ??
+              envelope.sessionId;
+            if (sessionId !== envelope.sessionId)
+              return encodeEnvelope(
+                EngineErrorMessage({
+                  sessionId: envelope.sessionId,
+                  requestId: envelope.id,
+                  code: 'session_mismatch',
+                  error: 'The input belongs to a different session.',
+                }),
+              );
+            ws.data.agent ??= openAgentTransport(engine, sessionId, (wire) => {
+              if (!ws.data.closed)
+                ws.send(
+                  redactSecrets(wire, [
+                    ...secrets,
+                    ...(ws.data.browserApiKey ? [ws.data.browserApiKey] : []),
+                  ]),
+                );
+            });
+            await ws.data.agent.connection.send(envelope.input);
+            return null;
+          }
           if (!ws.data.diagnostics && !isErr(decoded))
             ws.data.diagnostics = createDiagnosticConnection(engine, {
               enabled: ws.data.reportMetadata === true,
@@ -125,11 +167,15 @@ export function createWebSocketHandlers(
           'engine unavailable',
       });
 
+      if (ws.data.closed) return;
       switch (result.kind) {
         case 'heartbeat':
           ws.send(HEARTBEAT_PONG_FRAME);
           return;
         case 'hello': {
+          ws.data.agent?.connection.close();
+          ws.data.agent = undefined;
+          ws.data.sessionId = SessionId(result.frame.sessionId);
           const built = buildSharedEngine(result.frame.apiKey, [
             ...secrets,
             result.frame.apiKey,

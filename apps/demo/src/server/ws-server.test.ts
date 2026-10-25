@@ -75,6 +75,9 @@ const chartRequest = encodeEnvelope(
 /** A stub Engine whose handled messages always succeed. */
 function stubEngine(): Engine {
   return {
+    openConnection: () => {
+      throw new Error('unexpected streaming connection');
+    },
     handle: async (message) => {
       switch (message.type) {
         case 'assistant_message':

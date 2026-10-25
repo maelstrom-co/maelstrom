@@ -44,9 +44,20 @@ import {
   HEARTBEAT_PING_FRAME,
   HEARTBEAT_PONG_FRAME,
 } from '@maelstrom-co/connectors';
-import { encodeEnvelope } from '@maelstrom-co/protocol';
+import { handleEnvelope } from '@maelstrom-co/engine';
+import {
+  decodeClientEnvelope,
+  EngineErrorMessage,
+  encodeEnvelope,
+  isErr,
+  SessionId,
+} from '@maelstrom-co/protocol';
 import { Effect, Layer, ManagedRuntime } from 'effect';
 import * as Result from 'effect/Result';
+import {
+  type AgentTransport,
+  openAgentTransport,
+} from '../server/agent-transport';
 import { dispatchFrame, encodeEngineErrorReply } from '../server/dispatch';
 import { engineMetadataFrame } from '../server/engine-model';
 import { resolvePreHelloDispatch } from '../server/playground-frames';
@@ -83,6 +94,9 @@ const sessionLayer = Layer.mergeAll(ConnectionsLive, enginesLive);
 
 export class SessionDO extends DurableObject<PlaygroundEnv> {
   readonly #runtime = ManagedRuntime.make(sessionLayer);
+  readonly #agents = new WeakMap<WebSocket, AgentTransport>();
+  readonly #closed = new WeakSet<WebSocket>();
+  readonly #epochs = new WeakMap<WebSocket, object>();
 
   constructor(ctx: DurableObjectState, env: PlaygroundEnv) {
     super(ctx, env);
@@ -117,6 +131,7 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
     ws: WebSocket,
     message: string | ArrayBuffer,
   ): Promise<void> {
+    if (this.#closed.has(ws)) return Promise.resolve();
     const raw = typeof message === 'string' ? message : '';
     // runPromise awaits the layer build on first use, so a callback racing
     // composition still runs only once the services exist.
@@ -124,11 +139,20 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
   }
 
   override webSocketClose(ws: WebSocket): Promise<void> {
+    this.#closeConnection(ws);
     return this.#runtime.runPromise(this.#teardown(ws));
   }
 
   override webSocketError(ws: WebSocket): Promise<void> {
+    this.#closeConnection(ws);
     return this.#runtime.runPromise(this.#teardown(ws));
+  }
+
+  #closeConnection(ws: WebSocket): void {
+    this.#closed.add(ws);
+    this.#epochs.delete(ws);
+    this.#agents.get(ws)?.connection.close();
+    this.#agents.delete(ws);
   }
 
   /**
@@ -164,6 +188,9 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
       const connections = yield* Connections;
       const engines = yield* Engines;
 
+      if (this.#closed.has(ws)) return;
+      const epoch = this.#epochs.get(ws) ?? {};
+      this.#epochs.set(ws, epoch);
       const key = connections.keyOf(ws);
       // The attachment read is a platform call whose result is only used on
       // the keyless path (wasHelloed requires key === null), so skip it for
@@ -182,6 +209,43 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
             helloReceived: key !== null,
             getEngine: () =>
               key ? Effect.runPromise(engines.forApiKey(key)) : null,
+            handle: async (engine, frame) => {
+              if (this.#closed.has(ws) || this.#epochs.get(ws) !== epoch)
+                return null;
+              const decoded = decodeClientEnvelope(frame);
+              if (
+                !isErr(decoded) &&
+                decoded.value.type === 'client.agent.input'
+              ) {
+                const envelope = decoded.value;
+                const sessionId = connections.markerOf(ws)?.sessionId;
+                if (sessionId !== envelope.sessionId)
+                  return encodeEnvelope(
+                    EngineErrorMessage({
+                      sessionId: envelope.sessionId,
+                      requestId: envelope.id,
+                      code: 'session_mismatch',
+                      error: 'The input belongs to a different session.',
+                    }),
+                  );
+                let agent = this.#agents.get(ws);
+                if (!agent) {
+                  agent = openAgentTransport(
+                    engine,
+                    SessionId(sessionId),
+                    (wire) => {
+                      if (this.#epochs.get(ws) === epoch)
+                        this.#send(ws, wire, key);
+                    },
+                  );
+                  this.#agents.set(ws, agent);
+                }
+                await agent.connection.send(envelope.input);
+                return null;
+              }
+              const reply = await handleEnvelope(engine, frame);
+              return reply ? encodeEnvelope(reply) : null;
+            },
             wasHelloed: marker?.helloed === true && !connections.declined(ws),
             engineUnavailableReason: 'session engine unavailable',
           }),
@@ -196,6 +260,7 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
               ),
       }).pipe(Effect.result);
 
+      if (this.#closed.has(ws) || this.#epochs.get(ws) !== epoch) return;
       if (Result.isFailure(dispatched)) {
         // Safe to log precisely because the factory redacted the message:
         // without a server-side line, a deployment where every visitor's
@@ -215,6 +280,9 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
 
       switch (result.kind) {
         case 'hello': {
+          this.#agents.get(ws)?.connection.close();
+          this.#agents.delete(ws);
+          this.#epochs.set(ws, {});
           connections.markHello(
             ws,
             result.frame.apiKey,
@@ -229,6 +297,9 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
           return;
         }
         case 'hello-declined': {
+          this.#agents.get(ws)?.connection.close();
+          this.#agents.delete(ws);
+          this.#epochs.set(ws, {});
           // The client answered the rehello with "I have no key".
           // Definitive, so the buffered frame is never going to be replayable
           // — answer it now with the actionable error rather than holding it
@@ -260,6 +331,7 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
           return;
         }
         case 'close':
+          this.#closeConnection(ws);
           ws.close(result.code, result.reason);
           return;
         case 'reply':
@@ -301,6 +373,6 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
    * frame most likely to be carrying a provider error.
    */
   #send(ws: WebSocket, wire: string, key: string | null): void {
-    ws.send(redactSecrets(wire, key ?? undefined));
+    if (!this.#closed.has(ws)) ws.send(redactSecrets(wire, key ?? undefined));
   }
 }

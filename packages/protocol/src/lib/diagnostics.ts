@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { RunIdSchema } from './agent-ids.ts';
 import { MessageIdSchema } from './message.ts';
 import { SessionIdSchema } from './session.ts';
 
@@ -19,6 +20,8 @@ export interface DiagnosticEvent {
   readonly sessionId: string;
   /** Originating request when the producer can prove the association. */
   readonly requestId?: string;
+  /** Server-minted Agent Run whose work produced this event. */
+  readonly runId?: string;
   /** Metadata that excludes transcripts, prompts, arguments, and credentials. */
   readonly metadata: DiagnosticMetadata;
   /** Explicitly recorded application content, after producer-side redaction. */
@@ -32,6 +35,7 @@ export const DiagnosticEventSchema = z.object({
   at: z.number().finite().nonnegative(),
   sessionId: z.string().min(1),
   requestId: z.string().min(1).optional(),
+  runId: RunIdSchema.optional(),
   metadata: z
     .record(
       z.string().max(128),
