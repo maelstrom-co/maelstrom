@@ -187,6 +187,16 @@ describe('preview workflows', () => {
     expect(permits('labeled', 'unrelated')).toBe(false);
     expect(permits('unlabeled', 'unrelated')).toBe(false);
     expect(permits('synchronize', 'bench-voice')).toBe(false);
+    expect(
+      evaluate(
+        { event_name: 'workflow_run', event: {} },
+        { deploy: { result: 'success' } },
+        {},
+        () => true,
+        () => false,
+        () => '',
+      ),
+    ).toBe(false);
   });
 
   test('deploy records approval before the shared queue and isolates PR builds from credentials', () => {
@@ -211,14 +221,14 @@ describe('preview workflows', () => {
       ),
     ).not.toContain('concurrency:');
     expect(workflow).toContain(
-      `group: deploy-preview-pr-${expression('github.event.pull_request.number')}`,
+      `group: deploy-preview-pr-${expression('needs.approve.outputs.pr-number')}`,
     );
     expect(workflow).toContain('cancel-in-progress: false');
     expect(workflow).toContain('queue: max');
     expect(workflow).toContain(`ref: ${expression('github.workflow_sha')}`);
     expect(workflow).toContain('path: source');
     expect(workflow).toContain(
-      `ref: ${expression('github.event.pull_request.head.sha')}`,
+      `ref: ${expression('needs.approve.outputs.head-sha')}`,
     );
     for (const name of [
       'Install source dependencies',
@@ -228,6 +238,84 @@ describe('preview workflows', () => {
       expect(step(workflow, name)).not.toMatch(
         /CLOUDFLARE_(?:API_TOKEN|ACCOUNT_ID)|GH_TOKEN|ALCHEMY_PROFILE/,
       );
+    }
+  });
+
+  test('successful CI selects a live maintainer revision through trusted code before checkout', () => {
+    const workflow = Bun.YAML.parse(read('deploy-preview.yml')) as {
+      on: { workflow_run: { workflows: string[]; types: string[] } };
+      permissions: Record<string, string>;
+      jobs: Record<
+        string,
+        {
+          if: string;
+          environment?: string;
+          outputs?: Record<string, string>;
+          concurrency?: { group: string };
+          steps: {
+            name: string;
+            if?: string;
+            env?: Record<string, string>;
+            with?: Record<string, unknown>;
+            run?: string;
+          }[];
+        }
+      >;
+    };
+    expect(workflow.on.workflow_run).toEqual({
+      workflows: ['CI'],
+      types: ['completed'],
+    });
+    expect(workflow.permissions.actions).toBe('read');
+    const approval = workflow.jobs.approve!;
+    const automatic = approval.steps.find(
+      (entry) =>
+        entry.name ===
+        'Approve current maintainer revision after successful CI',
+    )!;
+    expect(automatic.if).toBe("github.event_name == 'workflow_run'");
+    expect(automatic.env?.CI_RUN_ID).toBe(
+      expression('github.event.workflow_run.id'),
+    );
+    expect(automatic.run).toContain('preview-lifecycle.ts approve-ci');
+    expect(approval.steps[0]?.with?.ref).toBe(
+      expression('github.workflow_sha'),
+    );
+    expect(JSON.stringify(approval)).not.toContain('secrets.');
+    expect(approval.if).toContain(
+      "github.ref == format('refs/heads/{0}', github.event.repository.default_branch)",
+    );
+    const deploy = workflow.jobs.deploy!;
+    expect(deploy.environment).toBe(
+      expression(
+        "github.event_name == 'workflow_run' && 'preview-auto' || 'preview'",
+      ),
+    );
+    expect(
+      read('deploy-preview.yml').slice(
+        read('deploy-preview.yml').indexOf('  voice-benchmark:'),
+      ),
+    ).toContain('environment: preview');
+    expect(deploy.if).toContain("needs.approve.outputs.pr-number != ''");
+    expect(deploy.concurrency?.group).toContain(
+      'needs.approve.outputs.pr-number',
+    );
+    expect(
+      deploy.steps.find((entry) => entry.name === 'Checkout approved source')
+        ?.with?.ref,
+    ).toBe(expression('needs.approve.outputs.head-sha'));
+    for (const name of ['Deploy demo preview', 'Deploy remaining previews']) {
+      const mutation = deploy.steps.find((entry) => entry.name === name)!;
+      expect(mutation.env?.APPROVED_SHA).toBe(
+        expression('needs.approve.outputs.head-sha'),
+      );
+      expect(mutation.env?.CI_RUN_ID).toBe(
+        expression("github.event.workflow_run.id || ''"),
+      );
+      expect(mutation.env?.PR_NUMBER).toBe(
+        expression('needs.approve.outputs.pr-number'),
+      );
+      expect(mutation.run).toContain('scripts/preview-trust.ts');
     }
   });
 

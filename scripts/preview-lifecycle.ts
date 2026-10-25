@@ -4,6 +4,10 @@ import {
   deletePreviewWorkers,
   discoverPreviewPrNumbers,
 } from './delete-preview-workers.ts';
+import {
+  isMaintainerPreview,
+  selectMaintainerPreview,
+} from './preview-trust.ts';
 import { validatePreviewWorkerUrl } from './preview-worker-url.ts';
 
 const COMMENT_MARKER = '<!-- pr-preview-demo -->';
@@ -647,7 +651,7 @@ const assertApprovalEligible = (
 const readApprovalSnapshot = async (
   repository: string,
   prNumber: string,
-  dependencies: LifecycleDependencies,
+  dependencies: PreviewGithubDependencies,
 ) => ({
   pull: await readPull(repository, prNumber, dependencies),
   comment: await readPreviewComment(repository, prNumber, dependencies),
@@ -659,7 +663,7 @@ export const approvePreview = async (
     readonly prNumber: string;
     readonly eventHeadSha: string;
   },
-  dependencies: LifecycleDependencies,
+  dependencies: PreviewGithubDependencies,
 ) => {
   validateRepository(options.repository);
   validatePrNumber(options.prNumber);
@@ -705,12 +709,41 @@ export const approvePreview = async (
   );
 };
 
+/** Records an automatic approval only after the trusted CI selector authorizes the current head. */
+export const approveMaintainerPreview = async (
+  options: { readonly repository: string; readonly runId: string },
+  dependencies: LifecycleDependencies,
+) => {
+  const selected = await selectMaintainerPreview(options, dependencies);
+  if (!selected) return false;
+  await approvePreview(
+    {
+      repository: options.repository,
+      prNumber: selected.prNumber,
+      eventHeadSha: selected.headSha,
+    },
+    dependencies,
+  );
+  dependencies.writeOutput('pr-number', selected.prNumber);
+  dependencies.writeOutput('head-sha', selected.headSha);
+  return true;
+};
+
 const readIntent = async (
   repository: string,
   prNumber: string,
   approvedSha: string,
   dependencies: LifecycleDependencies,
+  ciRunId?: string,
 ) => {
+  if (ciRunId !== undefined) {
+    const selected = await selectMaintainerPreview(
+      { repository, runId: ciRunId },
+      dependencies,
+    );
+    if (selected?.prNumber !== prNumber || selected.headSha !== approvedSha)
+      throw new Error('Automatic preview CI authority is no longer current');
+  }
   const pull = await readPull(repository, prNumber, dependencies);
   const comment = await readPreviewComment(repository, prNumber, dependencies);
   const marker = comment ? parsePreviewComment(comment.body) : {};
@@ -754,6 +787,7 @@ export const invalidatePreviewApproval = async (
     readonly prNumber: string;
     readonly beforeSha: string;
     readonly afterSha: string;
+    readonly actor?: string;
   },
   dependencies: LifecycleDependencies,
 ) => {
@@ -778,11 +812,49 @@ export const invalidatePreviewApproval = async (
       pull.state !== 'open' ||
       pull.headRepository !== options.repository ||
       pull.headSha !== options.afterSha ||
-      !pull.labeled ||
-      marker.approvedSha !== options.beforeSha
+      !pull.labeled
     ) {
       return 'stale-event' as const;
     }
+    if (
+      options.actor &&
+      (await isMaintainerPreview(
+        {
+          repository: options.repository,
+          prNumber: options.prNumber,
+          headSha: options.afterSha,
+          actors: [{ login: options.actor, type: 'User' }],
+        },
+        dependencies,
+      ))
+    ) {
+      await approvePreview(
+        {
+          repository: options.repository,
+          prNumber: options.prNumber,
+          eventHeadSha: options.afterSha,
+        },
+        dependencies,
+      );
+      return 'maintainer-update' as const;
+    }
+    const latest = await readApprovalSnapshot(
+      options.repository,
+      options.prNumber,
+      dependencies,
+    );
+    if (
+      latest.comment &&
+      parsePreviewComment(latest.comment.body).approvedSha === options.afterSha
+    )
+      return 'superseded' as const;
+    if (
+      latest.pull.state !== 'open' ||
+      latest.pull.headRepository !== options.repository ||
+      latest.pull.headSha !== options.afterSha ||
+      !latest.pull.labeled
+    )
+      return 'stale-event' as const;
     // GitHub offers no conditional label DELETE. Do not restore after this
     // request: that could override a maintainer's intentional unlabel.
     const result = await deletePreviewLabel(
@@ -898,6 +970,7 @@ const deployApp = async (
     readonly repository: string;
     readonly prNumber: string;
     readonly approvedSha: string;
+    readonly ciRunId?: string;
     readonly bunExecutable: string;
     readonly sourceRoot: string;
     readonly accountId: string;
@@ -924,6 +997,7 @@ const deployApp = async (
     options.prNumber,
     options.approvedSha,
     dependencies,
+    options.ciRunId,
   );
   const cwd = `${options.sourceRoot}/apps/${metadata.directory}`;
   const env = cloudflareEnvironment(
@@ -1029,6 +1103,7 @@ export const finishPreviewDeployment = async (
     readonly repository: string;
     readonly prNumber: string;
     readonly approvedSha: string;
+    readonly ciRunId?: string;
     readonly bunExecutable: string;
     readonly sourceRoot: string;
     readonly accountId: string;
@@ -1070,6 +1145,7 @@ export const finishPreviewDeployment = async (
     options.prNumber,
     options.approvedSha,
     dependencies,
+    options.ciRunId,
   );
   const cleaned = await dependencies.deleteWorkers(
     {
@@ -1085,6 +1161,7 @@ export const finishPreviewDeployment = async (
         options.prNumber,
         options.approvedSha,
         dependencies,
+        options.ciRunId,
       );
       return true;
     },
@@ -1095,6 +1172,7 @@ export const finishPreviewDeployment = async (
     options.prNumber,
     options.approvedSha,
     dependencies,
+    options.ciRunId,
   );
   await upsertPreviewComment(
     options.repository,
@@ -1132,19 +1210,29 @@ const readTeardownPolicy = async (
   const comment = await readPreviewComment(repository, prNumber, dependencies);
   const marker = comment ? parsePreviewComment(comment.body) : {};
   const approvedSha = marker.approvedSha ?? marker.deployedSha;
+  const pendingMaintainer =
+    pull.state === 'open' &&
+    pull.headRepository === repository &&
+    pull.labeled &&
+    approvedSha !== pull.headSha &&
+    (await isMaintainerPreview(
+      { repository, prNumber, headSha: pull.headSha },
+      dependencies,
+    ));
   return {
     scope: decideTeardownScope(trigger, {
       state: pull.state,
       sameRepository: pull.headRepository === repository,
       labeled: pull.labeled,
       headSha: pull.headSha,
-      approvedSha,
+      approvedSha: pendingMaintainer ? pull.headSha : approvedSha,
     }),
     comment,
     staleLabeledApproval:
       pull.state === 'open' &&
       pull.headRepository === repository &&
       pull.labeled &&
+      !pendingMaintainer &&
       approvedSha !== pull.headSha,
   };
 };
@@ -1387,6 +1475,22 @@ const cli = async () => {
       },
       dependencies,
     );
+    dependencies.writeOutput('pr-number', prNumber);
+    dependencies.writeOutput(
+      'head-sha',
+      required(environment, 'EVENT_HEAD_SHA'),
+    );
+    return;
+  }
+  if (command === 'approve-ci') {
+    if (
+      !(await approveMaintainerPreview(
+        { repository, runId: required(environment, 'CI_RUN_ID') },
+        dependencies,
+      ))
+    ) {
+      console.log('No current maintainer preview is eligible for this CI run');
+    }
     return;
   }
   if (command === 'invalidate') {
@@ -1396,6 +1500,7 @@ const cli = async () => {
         prNumber,
         beforeSha: required(environment, 'EVENT_BEFORE_SHA'),
         afterSha: required(environment, 'EVENT_AFTER_SHA'),
+        actor: environment.GITHUB_ACTOR,
       },
       dependencies,
     );
@@ -1407,6 +1512,7 @@ const cli = async () => {
         repository,
         prNumber,
         approvedSha: required(environment, 'APPROVED_SHA'),
+        ciRunId: environment.CI_RUN_ID || undefined,
         bunExecutable: required(environment, 'BUN_EXECUTABLE'),
         sourceRoot: required(environment, 'SOURCE_ROOT'),
         accountId: required(environment, 'CLOUDFLARE_ACCOUNT_ID'),
@@ -1433,6 +1539,7 @@ const cli = async () => {
         repository,
         prNumber,
         approvedSha: required(environment, 'APPROVED_SHA'),
+        ciRunId: environment.CI_RUN_ID || undefined,
         bunExecutable: required(environment, 'BUN_EXECUTABLE'),
         sourceRoot: required(environment, 'SOURCE_ROOT'),
         accountId: required(environment, 'CLOUDFLARE_ACCOUNT_ID'),
