@@ -13,7 +13,7 @@ jobs:
     name: Discover Preview Candidates
     if: github.repository == 'maelstrom-co/maelstrom'
     runs-on: blacksmith-2vcpu-ubuntu-2404
-    environment: preview
+    environment: preview-auto
     timeout-minutes: 5
     outputs:
       pr-numbers: ${{ steps.discover.outputs.pr-numbers }}
@@ -73,7 +73,7 @@ jobs:
       matrix:
         pr-number: ${{ fromJSON(needs.discover.outputs.pr-numbers) }}
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    environment: preview
+    environment: preview-auto
     timeout-minutes: 45
     concurrency:
       group: deploy-preview-pr-${{ matrix.pr-number }}
