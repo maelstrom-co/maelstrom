@@ -1,9 +1,8 @@
-import type {
-  AnyTextAdapter,
-  SpecTokenUsage,
-  StreamChunk,
-  TokenUsage,
-} from '@tanstack/ai';
+import {
+  normalizeLlmUsage,
+  type ReportedLlmUsage,
+} from '@maelstrom-co/telemetry/usage';
+import type { AnyTextAdapter, StreamChunk } from '@tanstack/ai';
 
 /** Every LLM role, in report order. */
 export const LLM_ROLES = [
@@ -17,14 +16,8 @@ export const LLM_ROLES = [
 /** What an LLM call did for the turn. */
 export type LlmRole = (typeof LLM_ROLES)[number];
 
-export interface LlmUsage {
-  /** Adapter-reported input tokens; absent when the adapter omitted this counter. */
-  readonly inputTokens?: number;
-  /** Adapter-reported output tokens; absent when the adapter omitted this counter. */
-  readonly outputTokens?: number;
-  /** Adapter-reported total tokens; this wrapper does not derive them. */
-  readonly totalTokens?: number;
-}
+/** Provider counters, without inferred zeros, token totals, or price estimates. */
+export type LlmUsage = ReportedLlmUsage;
 
 export interface LlmCall {
   readonly role: LlmRole;
@@ -63,7 +56,7 @@ export function withUsage(
           let usage: LlmUsage | undefined;
           try {
             const result = await value.apply(target, args);
-            usage = reportedUsage(result?.usage);
+            usage = normalizeLlmUsage(result?.usage);
             return result;
           } finally {
             sink(call(role, started, usage));
@@ -84,39 +77,15 @@ async function* recordStream(
   try {
     for await (const chunk of stream) {
       if (chunk.type === 'RUN_FINISHED' || chunk.type === 'RUN_ERROR')
-        usage ??= reportedUsage(chunk.usage);
+        usage ??= normalizeLlmUsage(
+          chunk.usage,
+          chunk.metadata?.tanstack?.usage,
+        );
       yield chunk;
     }
   } finally {
     sink(call(role, started, usage));
   }
-}
-
-function reportedUsage(
-  usage: TokenUsage | SpecTokenUsage[] | undefined,
-): LlmUsage | undefined {
-  if (!usage) return undefined;
-  const entries = Array.isArray(usage)
-    ? usage
-    : [
-        {
-          inputTokens: usage.promptTokens,
-          outputTokens: usage.completionTokens,
-          totalTokens: usage.totalTokens,
-        },
-      ];
-  const totals: {
-    inputTokens?: number;
-    outputTokens?: number;
-    totalTokens?: number;
-  } = {};
-  for (const entry of entries) {
-    for (const key of ['inputTokens', 'outputTokens', 'totalTokens'] as const) {
-      const value = entry[key];
-      if (typeof value === 'number') totals[key] = (totals[key] ?? 0) + value;
-    }
-  }
-  return Object.keys(totals).length > 0 ? totals : undefined;
 }
 
 function call(

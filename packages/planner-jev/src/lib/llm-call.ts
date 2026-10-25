@@ -8,6 +8,10 @@ import {
 } from '@maelstrom-co/engine';
 import { err, ok, type Result } from '@maelstrom-co/protocol';
 import {
+  normalizeLlmUsage,
+  type ReportedLlmUsage,
+} from '@maelstrom-co/telemetry/usage';
+import {
   type ChatMiddleware,
   chat,
   convertSchemaToJsonSchema,
@@ -26,7 +30,11 @@ const SYSTEM_PROMPT = `You write the reply of a dashboard assistant after its pl
  * Runs a structured completion with caller cancellation and engine error logging.
  * Reports one `llm.call` event with the model, request correlation, duration,
  * outcome, and the sum of adapter-reported input/output tokens. Missing usage
- * stays absent. The event excludes prompts, output, errors, and credentials.
+ * stays absent. Cache reads and writes use `gen_ai.usage.cache_read.input_tokens`
+ * and `gen_ai.usage.cache_creation.input_tokens`; `gen_ai.usage.cost` preserves
+ * provider-reported monetary cost without price estimates or currency conversion.
+ * Cache counters do not change input-token totals.
+ * The event excludes prompts, output, errors, and credentials.
  * Counters normalized or omitted by an adapter cannot be recovered here.
  */
 export async function callLlm<T>(
@@ -40,7 +48,7 @@ export async function callLlm<T>(
   const { messageId, sessionId } = ctx.origin;
   const started = performance.now();
   let outcome: 'ok' | 'error' | 'cancelled' = 'error';
-  let usage: { input?: number; output?: number } | undefined;
+  let usage: Partial<Record<keyof ReportedLlmUsage, number>> | undefined;
   let usageRecorded = false;
   const middleware: ChatMiddleware = {
     // Each provider call gets a fresh snapshot, including separate finalization.
@@ -51,28 +59,26 @@ export async function callLlm<T>(
     onChunk: (_ctx, chunk) => {
       if (
         (chunk.type !== 'RUN_FINISHED' && chunk.type !== 'RUN_ERROR') ||
-        !chunk.usage ||
         usageRecorded
       )
         return;
-      const entries = Array.isArray(chunk.usage)
-        ? chunk.usage
-        : [
-            {
-              inputTokens: chunk.usage.promptTokens,
-              outputTokens: chunk.usage.completionTokens,
-            },
-          ];
-      for (const entry of entries) {
+      const current = normalizeLlmUsage(
+        chunk.usage,
+        chunk.metadata?.tanstack?.usage,
+      );
+      if (!current) return;
+      for (const key of [
+        'inputTokens',
+        'outputTokens',
+        'cachedInputTokens',
+        'cacheWriteInputTokens',
+        'cost',
+      ] as const) {
+        const value = current[key];
+        if (value === undefined) continue;
         usage ??= {};
-        if (entry.inputTokens !== undefined) {
-          usage.input = (usage.input ?? 0) + entry.inputTokens;
-          usageRecorded = true;
-        }
-        if (entry.outputTokens !== undefined) {
-          usage.output = (usage.output ?? 0) + entry.outputTokens;
-          usageRecorded = true;
-        }
+        usage[key] = (usage[key] ?? 0) + value;
+        usageRecorded = true;
       }
     },
   };
@@ -129,12 +135,19 @@ export async function callLlm<T>(
       'maelstrom.session_id': sessionId,
       'maelstrom.outcome': outcome,
       'maelstrom.latency_ms': performance.now() - started,
-      ...(usage?.input !== undefined && {
-        'gen_ai.usage.input_tokens': usage.input,
+      ...(usage?.inputTokens !== undefined && {
+        'gen_ai.usage.input_tokens': usage.inputTokens,
       }),
-      ...(usage?.output !== undefined && {
-        'gen_ai.usage.output_tokens': usage.output,
+      ...(usage?.outputTokens !== undefined && {
+        'gen_ai.usage.output_tokens': usage.outputTokens,
       }),
+      ...(usage?.cachedInputTokens !== undefined && {
+        'gen_ai.usage.cache_read.input_tokens': usage.cachedInputTokens,
+      }),
+      ...(usage?.cacheWriteInputTokens !== undefined && {
+        'gen_ai.usage.cache_creation.input_tokens': usage.cacheWriteInputTokens,
+      }),
+      ...(usage?.cost !== undefined && { 'gen_ai.usage.cost': usage.cost }),
     });
   }
 }

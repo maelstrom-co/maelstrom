@@ -146,6 +146,23 @@ The nx targets run in `packages/evals`, so pass an absolute `--out` (`EVAL_OUT` 
 - **Stage calls per turn**: provider calls (TypeSafe or Decisions) over all turns of the arm.
 - **Latency**: p50 and p95 of the whole turn, each live stage (replayed stages show `replayed`), each stage call and each LLM call by role.
 - **Tokens**: stage call usage from the provider replies, in total and per turn, and OpenAI usage per role (`planner`, `fallback`, `complete`), recorded by wrapping the text adapter.
+- **Cache and cost**: reported cache-read tokens, cache-write tokens, and monetary cost, in total and per LLM role. Each row shows calls reporting that counter over all calls. An unreported counter shows `n/a`; a reported zero shows `0`. Cache counters never increase the input-token total. Cost uses the provider's units, with no price estimate or currency conversion. Compare costs only within the same provider and currency. These rows exclude the grader.
+
+### Measure a cache baseline
+
+Use the existing full-planner runner before changing prompts or cache settings. Run from the workspace root with Bun dependencies installed and `OPENAI_API_KEY` configured. This command makes paid provider requests.
+
+1. Record five repetitions of one fixed case, with only the baseline arm and an explicit model:
+
+   ```sh
+   bun --conditions=@maelstrom-co/source packages/evals/src/eval/cli.ts --arm baseline --suite development --case swap --model gpt-6-luna --repeats 5 --out tmp/evals/cache-baseline
+   ```
+
+2. Inspect `tmp/evals/cache-baseline/records.json` for per-call cache counters and latency. Compare the first repetition with later repetitions, but do not assume the first request was cold. The provider may already cache its prefix. This workload repeats a fixed request without growing history; it does not model a conversation.
+3. Check `report.md` for planner-call latency p50/p95, cache counter coverage, errors, and arrangement pass. Five repetitions are a smoke baseline, not enough to establish a performance gain. TanStack's OpenAI and Gemini adapters at version 1.0.0 omit zero cache-read counts. A provider-reported zero can therefore appear as `n/a`; counter-reporting coverage is not a cache-hit rate. OpenAI may omit cache-write counts and monetary cost; missing values are not zero cost or zero cache writes.
+4. Repeat into a new output directory with the same model, cases, repeat count, and concurrency. Change one setting at a time. Record cache-read coverage for both runs, and retain per-call results to check variance. Control the warm-up procedure so a warm cache does not look like a prompt improvement. Reject a latency improvement that reduces planner quality.
+
+Use `summary.json` for machine comparisons: `tokens.llm.cacheRead`, `cacheWrite`, and `cost` each contain `total`, `reportedCalls`, and `missingCalls`. `tokens.llm.byRole` carries the same fields. Totals sum only reported values. Keep a short record of the baseline, result, and verdict for each experiment, including rejected experiments.
 
 ### Grader (secondary)
 

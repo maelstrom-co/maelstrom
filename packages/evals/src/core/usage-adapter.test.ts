@@ -58,6 +58,127 @@ async function drain(stream: AsyncIterable<StreamChunk>) {
 }
 
 describe('withUsage', () => {
+  test.each([
+    {
+      name: 'aggregate counters',
+      reported: {
+        ...usage,
+        promptTokensDetails: { cachedTokens: 80, cacheWriteTokens: 20 },
+        cost: 0.012,
+      },
+      expected: {
+        inputTokens: 120,
+        outputTokens: 30,
+        totalTokens: 150,
+        cachedInputTokens: 80,
+        cacheWriteInputTokens: 20,
+        cost: 0.012,
+      },
+    },
+    {
+      name: 'AG-UI entries with duplicated cache-write leftovers',
+      reported: [
+        {
+          inputTokens: 100,
+          outputTokens: 20,
+          cachedInputTokens: 60,
+          cacheWriteInputTokens: 10,
+        },
+        {
+          inputTokens: 20,
+          outputTokens: 10,
+          cachedInputTokens: 20,
+          cacheWriteInputTokens: 10,
+        },
+      ],
+      leftover: {
+        promptTokensDetails: { cacheWriteTokens: 20 },
+        cost: 0.012,
+        providerUsageDetails: { secret: 'private-key' },
+      },
+      expected: {
+        inputTokens: 120,
+        outputTokens: 30,
+        cachedInputTokens: 80,
+        cacheWriteInputTokens: 20,
+        cost: 0.012,
+      },
+    },
+    {
+      name: 'metadata-only usage',
+      reported: undefined,
+      leftover: {
+        promptTokensDetails: { cachedTokens: 80, cacheWriteTokens: 20 },
+        cost: 0.012,
+      },
+      expected: {
+        cachedInputTokens: 80,
+        cacheWriteInputTokens: 20,
+        cost: 0.012,
+      },
+    },
+    {
+      name: 'reported zero is not missing',
+      reported: [{ cachedInputTokens: 0, cacheWriteInputTokens: 0 }],
+      leftover: { cost: 0 },
+      expected: { cachedInputTokens: 0, cacheWriteInputTokens: 0, cost: 0 },
+    },
+    {
+      name: 'unknown cache and cost remain absent',
+      reported: usage,
+      expected: { inputTokens: 120, outputTokens: 30, totalTokens: 150 },
+    },
+    {
+      name: 'invalid values cannot poison benchmark sums',
+      reported: [{ cachedInputTokens: Number.NaN, cacheWriteInputTokens: -1 }],
+      leftover: { cost: Number.POSITIVE_INFINITY },
+      expected: undefined,
+    },
+  ])('preserves cache accounting without inflating input tokens: $name', async ({
+    reported,
+    leftover,
+    expected,
+  }) => {
+    const terminal = {
+      type: 'RUN_FINISHED',
+      runId: 'r',
+      threadId: 't',
+      timestamp: 1,
+      usage: reported,
+      metadata: { tanstack: { usage: leftover } },
+    } as unknown as StreamChunk;
+    const { adapter, calls } = wrap(new FakeAdapter([terminal, terminal]));
+    await drain(adapter.chatStream({} as never));
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.usage).toEqual(expected);
+    expect(JSON.stringify(calls)).not.toContain('private-key');
+  });
+
+  test('direct structured output retains cache counters and quoted cost too', async () => {
+    const { adapter, calls } = wrap({
+      async structuredOutput() {
+        return {
+          data: { ok: true },
+          rawText: '{}',
+          usage: {
+            ...usage,
+            promptTokensDetails: { cachedTokens: 80, cacheWriteTokens: 20 },
+            cost: 0,
+          },
+        };
+      },
+    });
+    await adapter.structuredOutput({} as never);
+    expect(calls[0]?.usage).toEqual({
+      inputTokens: 120,
+      outputTokens: 30,
+      totalTokens: 150,
+      cachedInputTokens: 80,
+      cacheWriteInputTokens: 20,
+      cost: 0,
+    });
+  });
+
   test('records a streamed call once, with the finishing chunk’s usage', async () => {
     const { adapter, calls } = wrap(new FakeAdapter(finished));
     const structuredOutputStream = adapter.structuredOutputStream;

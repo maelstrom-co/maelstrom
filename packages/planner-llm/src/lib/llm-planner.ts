@@ -25,6 +25,10 @@ import {
   ok,
   TilingResponseSchema,
 } from '@maelstrom-co/protocol';
+import {
+  normalizeLlmUsage,
+  type ReportedLlmUsage,
+} from '@maelstrom-co/telemetry/usage';
 import type { AnyTextAdapter, ChatMiddleware } from '@tanstack/ai';
 
 import { callLLM, logLLMCallError } from './call-llm.js';
@@ -90,8 +94,12 @@ export type LlmPlannerInput = Retryable<
  * (`ok`, `error` or `cancelled`), `maelstrom.latency_ms`, and the origin's
  * `maelstrom.message_id` and `maelstrom.session_id`. Adapter-reported usage
  * is summed across model calls as `gen_ai.usage.input_tokens` and
- * `gen_ai.usage.output_tokens`; missing usage remains absent. Prompts, output,
- * provider errors, and credentials are never included in these events. Counters
+ * `gen_ai.usage.output_tokens`. Cache reads and writes use
+ * `gen_ai.usage.cache_read.input_tokens` and
+ * `gen_ai.usage.cache_creation.input_tokens`; provider-reported monetary cost
+ * uses `gen_ai.usage.cost`, without price estimates or currency conversion.
+ * Cache counters do not change input-token totals. Missing usage remains absent.
+ * Prompts, output, provider errors, and credentials never appear in these events. Counters
  * normalized or omitted by an adapter cannot be recovered here.
  *
  * @throws {Error} If `options` is invalid or a system-prompt customizer is
@@ -156,7 +164,7 @@ export function llmPlanner(
     }
 
     const started = performance.now();
-    let usage: { input?: number; output?: number } | undefined;
+    let usage: Partial<Record<keyof ReportedLlmUsage, number>> | undefined;
     let usageRecorded = false;
     const middleware: ChatMiddleware = {
       // Each provider call gets a fresh snapshot, including separate finalization.
@@ -167,28 +175,26 @@ export function llmPlanner(
       onChunk: (_ctx, chunk) => {
         if (
           (chunk.type !== 'RUN_FINISHED' && chunk.type !== 'RUN_ERROR') ||
-          !chunk.usage ||
           usageRecorded
         )
           return;
-        const entries = Array.isArray(chunk.usage)
-          ? chunk.usage
-          : [
-              {
-                inputTokens: chunk.usage.promptTokens,
-                outputTokens: chunk.usage.completionTokens,
-              },
-            ];
-        for (const entry of entries) {
+        const current = normalizeLlmUsage(
+          chunk.usage,
+          chunk.metadata?.tanstack?.usage,
+        );
+        if (!current) return;
+        for (const key of [
+          'inputTokens',
+          'outputTokens',
+          'cachedInputTokens',
+          'cacheWriteInputTokens',
+          'cost',
+        ] as const) {
+          const value = current[key];
+          if (value === undefined) continue;
           usage ??= {};
-          if (entry.inputTokens !== undefined) {
-            usage.input = (usage.input ?? 0) + entry.inputTokens;
-            usageRecorded = true;
-          }
-          if (entry.outputTokens !== undefined) {
-            usage.output = (usage.output ?? 0) + entry.outputTokens;
-            usageRecorded = true;
-          }
+          usage[key] = (usage[key] ?? 0) + value;
+          usageRecorded = true;
         }
       },
     };
@@ -209,12 +215,19 @@ export function llmPlanner(
       'gen_ai.request.model': adapter.model,
       'maelstrom.message_id': ctx.origin.messageId,
       'maelstrom.session_id': ctx.origin.sessionId,
-      ...(usage?.input !== undefined && {
-        'gen_ai.usage.input_tokens': usage.input,
+      ...(usage?.inputTokens !== undefined && {
+        'gen_ai.usage.input_tokens': usage.inputTokens,
       }),
-      ...(usage?.output !== undefined && {
-        'gen_ai.usage.output_tokens': usage.output,
+      ...(usage?.outputTokens !== undefined && {
+        'gen_ai.usage.output_tokens': usage.outputTokens,
       }),
+      ...(usage?.cachedInputTokens !== undefined && {
+        'gen_ai.usage.cache_read.input_tokens': usage.cachedInputTokens,
+      }),
+      ...(usage?.cacheWriteInputTokens !== undefined && {
+        'gen_ai.usage.cache_creation.input_tokens': usage.cacheWriteInputTokens,
+      }),
+      ...(usage?.cost !== undefined && { 'gen_ai.usage.cost': usage.cost }),
       'maelstrom.outcome': isErr(result)
         ? result.error._tag === 'CancellationError'
           ? 'cancelled'

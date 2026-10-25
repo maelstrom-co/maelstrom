@@ -12,7 +12,8 @@
   "include": ["src/**/*.ts"],
   "references": [
     { "path": "../engine/tsconfig.lib.json" },
-    { "path": "../protocol/tsconfig.lib.json" }
+    { "path": "../protocol/tsconfig.lib.json" },
+    { "path": "../telemetry/tsconfig.lib.json" }
   ],
   "exclude": [
     "src/**/*.test.ts",
