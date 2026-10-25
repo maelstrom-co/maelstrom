@@ -47,6 +47,11 @@ import {
 import { encodeEnvelope } from '@maelstrom-co/protocol';
 import { Effect, Layer, ManagedRuntime } from 'effect';
 import * as Result from 'effect/Result';
+import { readWorkspaceRun } from '../lib/agui-workspace-protocol';
+import {
+  AguiWorkspaceSession,
+  rejectWorkspaceRun,
+} from '../server/agui-workspace-session';
 import { dispatchFrame, encodeEngineErrorReply } from '../server/dispatch';
 import { engineMetadataFrame } from '../server/engine-model';
 import { resolvePreHelloDispatch } from '../server/playground-frames';
@@ -83,6 +88,7 @@ const sessionLayer = Layer.mergeAll(ConnectionsLive, enginesLive);
 
 export class SessionDO extends DurableObject<PlaygroundEnv> {
   readonly #runtime = ManagedRuntime.make(sessionLayer);
+  readonly #workspaces = new WeakMap<WebSocket, AguiWorkspaceSession>();
 
   constructor(ctx: DurableObjectState, env: PlaygroundEnv) {
     super(ctx, env);
@@ -143,6 +149,8 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
       const engines = yield* Engines;
 
       connections.forget(ws);
+      this.#workspaces.get(ws)?.close();
+      this.#workspaces.delete(ws);
       // getWebSockets() still includes the closing socket while this handler
       // is running (verified empirically against workerd via `wrangler dev`:
       // a probe log inside webSocketClose reported length=2/includes(ws)=true
@@ -179,6 +187,32 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
       const dispatched = yield* Effect.tryPromise({
         try: () =>
           dispatchFrame(raw, {
+            workspace: {
+              active: () =>
+                this.#workspaces.has(ws) ||
+                connections.markerOf(ws)?.workspace !== undefined,
+              session: (threadId) => {
+                const connection = connections.markerOf(ws);
+                if (connection?.sessionId !== threadId)
+                  throw new Error('Workspace session mismatch');
+                let workspace = this.#workspaces.get(ws);
+                if (!workspace) {
+                  workspace = new AguiWorkspaceSession(
+                    threadId,
+                    connection.workspace,
+                    (checkpoint) => {
+                      ws.serializeAttachment({
+                        ...connection,
+                        workspace: checkpoint,
+                      });
+                    },
+                  );
+                  this.#workspaces.set(ws, workspace);
+                }
+                return workspace;
+              },
+              send: (event) => this.#send(ws, JSON.stringify(event), key),
+            },
             helloReceived: key !== null,
             getEngine: () =>
               key ? Effect.runPromise(engines.forApiKey(key)) : null,
@@ -208,7 +242,7 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
             ? 'engine construction failed'
             : 'frame dispatch failed';
         console.error(`[session-do] ${label}: ${failure.message}`);
-        this.#send(ws, encodeEngineErrorReply(raw, failure.message), key);
+        this.#replyError(ws, raw, failure.message, key);
         return;
       }
       const result = dispatched.success;
@@ -249,11 +283,7 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
             // would be a lie while the client's hello is in flight. The
             // ORIGINAL buffered frame stays put and is replayed when that
             // hello lands.
-            this.#send(
-              ws,
-              encodeEngineErrorReply(raw, REAUTHENTICATING_ERROR),
-              key,
-            );
+            this.#replyError(ws, raw, REAUTHENTICATING_ERROR, key);
             return;
           }
           ws.send(JSON.stringify({ type: 'playground.rehello' }));
@@ -284,6 +314,15 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
    * close for traffic that isn't even a protocol envelope.
    */
   #replyPreHello(ws: WebSocket, raw: string): void {
+    const input = readWorkspaceRun(raw);
+    if (input) {
+      rejectWorkspaceRun(
+        input,
+        (event) => this.#send(ws, JSON.stringify(event), null),
+        'No API key set — open the key drawer to add one.',
+      );
+      return;
+    }
     const outcome = resolvePreHelloDispatch(raw);
     if (outcome.kind === 'close') {
       ws.close(1002, 'expected playground.hello as the first frame');
@@ -302,5 +341,16 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
    */
   #send(ws: WebSocket, wire: string, key: string | null): void {
     ws.send(redactSecrets(wire, key ?? undefined));
+  }
+
+  #replyError(ws: WebSocket, raw: string, message: string, key: string | null) {
+    const input = readWorkspaceRun(raw);
+    if (input)
+      rejectWorkspaceRun(
+        input,
+        (event) => this.#send(ws, JSON.stringify(event), key),
+        message,
+      );
+    else this.#send(ws, encodeEngineErrorReply(raw, message), key);
   }
 }

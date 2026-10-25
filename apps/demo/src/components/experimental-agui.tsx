@@ -89,6 +89,7 @@ export function ExperimentalAgui({ onExit }: { onExit: () => void }) {
         <m.Provider
           sessionId={session.id}
           connector={session.connector}
+          readyTimeoutMs={5_000}
           initialLayout={DEFAULT_LAYOUT}
         >
           <AguiWriteGuard.Provider value={session.connector.allowWrite}>

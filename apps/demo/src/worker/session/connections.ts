@@ -19,11 +19,16 @@
  * the rehello.
  */
 import { Context, Layer } from 'effect';
+import {
+  type WorkspaceCheckpoint,
+  WorkspaceCheckpointSchema,
+} from '../../lib/agui-workspace-protocol';
 
 /** Non-secret, survives hibernation. See the module doc for what must NOT. */
 export interface ConnectionMarker {
   readonly helloed: true;
   readonly sessionId: string;
+  readonly workspace?: WorkspaceCheckpoint;
 }
 
 export interface ConnectionsService {
@@ -119,9 +124,17 @@ export const ConnectionsLive: Layer.Layer<Connections> = Layer.sync(
       markHello: (ws, apiKey, sessionId) => {
         keys.set(ws, apiKey);
         declined.delete(ws);
+        const previous: unknown = ws.deserializeAttachment();
+        const workspace =
+          typeof previous === 'object' &&
+          previous !== null &&
+          'workspace' in previous
+            ? WorkspaceCheckpointSchema.safeParse(previous.workspace)
+            : undefined;
         ws.serializeAttachment({
           helloed: true,
           sessionId,
+          ...(workspace?.success ? { workspace: workspace.data } : {}),
         } satisfies ConnectionMarker);
       },
       bufferPending: (ws, raw) => {

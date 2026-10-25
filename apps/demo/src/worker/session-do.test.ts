@@ -4,10 +4,15 @@ import {
 } from '@maelstrom-co/connectors';
 import {
   ChartRequestMessage,
+  ChartRequestMessageSchema,
   encodeEnvelope,
   SessionId,
 } from '@maelstrom-co/protocol';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  WorkspaceResultSchema,
+  workspaceRun,
+} from '../lib/agui-workspace-protocol';
 
 // DurableObject only exists as a virtual module inside a real Workers
 // runtime, not under plain vitest — mirrors worker/index.test.ts's mock of
@@ -193,6 +198,72 @@ describe('SessionDO', () => {
     // anywhere the platform retains. This assertion is the custody invariant.
     expect(serialized).toContain('helloed');
     expect(serialized).not.toContain('sk-');
+  });
+
+  it('restores an AG-UI pending acknowledgment across rehello without repeating planning or retaining content', async () => {
+    const engine = fakeEngine();
+    createEngineMock.mockReturnValue(engine);
+    const ws = new FakeWs();
+    const first = new SessionDO(makeCtx([ws]) as never, {} as never);
+    await first.webSocketMessage(ws as never, HELLO);
+    const run = workspaceRun('s-1', {
+      kind: 'plan',
+      sequence: 1,
+      revision: 0,
+      message: ChartRequestMessageSchema.parse(JSON.parse(CHART_REQUEST)),
+    });
+    await first.webSocketMessage(
+      ws as never,
+      JSON.stringify({ type: 'demo.agui.run', input: run }),
+    );
+    const result = WorkspaceResultSchema.parse(JSON.parse(ws.sent[1]).value);
+    expect(engine.handle).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(ws.attachment)).not.toContain(A_KEY);
+    expect(JSON.stringify(ws.attachment)).not.toContain('because');
+    const ack = workspaceRun('s-1', {
+      kind: 'applied',
+      sequence: 2,
+      application: {
+        correlation: result.correlation,
+        status: 'applied',
+        actions: [],
+        chart: {
+          instances: [],
+          layout: null,
+          layoutMode: 'grid',
+          chartDimensions: { rows: 8, columns: 12 },
+        },
+      },
+    });
+    const second = new SessionDO(makeCtx([ws]) as never, {} as never);
+    ws.sent.length = 0;
+    await second.webSocketMessage(
+      ws as never,
+      JSON.stringify({ type: 'demo.agui.run', input: ack }),
+    );
+    expect(ws.sent).toEqual([JSON.stringify({ type: 'playground.rehello' })]);
+    ws.sent.length = 0;
+    await second.webSocketMessage(ws as never, HELLO);
+    expect(ws.sent.map((wire) => JSON.parse(wire).type)).toEqual([
+      'RUN_STARTED',
+      'CUSTOM',
+      'RUN_FINISHED',
+    ]);
+    expect(JSON.parse(ws.sent[1]).value).toMatchObject({
+      revision: 1,
+      status: 'applied',
+    });
+    expect(engine.handle).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(ws.attachment)).not.toContain(A_KEY);
+    const third = new SessionDO(makeCtx([ws]) as never, {} as never);
+    await third.webSocketMessage(ws as never, HELLO);
+    ws.sent.length = 0;
+    await third.webSocketMessage(
+      ws as never,
+      JSON.stringify({ type: 'demo.agui.run', input: ack }),
+    );
+    expect(JSON.parse(ws.sent.at(-1) ?? '{}').type).toBe('RUN_ERROR');
+    expect(engine.handle).toHaveBeenCalledTimes(1);
   });
 
   it('requests a rehello after a wake, and replays the buffered frame', async () => {

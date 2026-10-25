@@ -17,7 +17,11 @@ Before starting, install or confirm the following:
 
 The baseline does not require microphone permission, a LiveKit server, Deepgram, or Cartesia.
 
-For the opt-in result-dependent Journal experiment, see [Run the experimental AG-UI mode](./EXPERIMENTAL-AGUI.md).
+The **Workspace** selector switches between **Maelstrom** and **AG-UI** in the same application, including hosted PR previews. Both use the normal typed input, Chart, Vessels, and native voice providers. Maelstrom is the default.
+
+Choose **AG-UI**, supply your browser-owned key, and submit a typed request or start voice. A successful request updates the Chart through the selected protocol. Changing the protocol starts a new workspace session and disconnects voice; reconnect voice afterward. Application data remains in this tab's memory.
+
+See the [AG-UI workspace contract](./AGUI.md) for framing, acknowledgments, and recovery behavior. The separate [result-dependent Journal experiment](./EXPERIMENTAL-AGUI.md) remains available locally.
 
 ## Start the typed demo
 
