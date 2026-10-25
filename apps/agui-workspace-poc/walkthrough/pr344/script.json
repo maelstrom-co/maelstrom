@@ -1,0 +1,40 @@
+{
+  "clips": [
+    {
+      "id": "intro",
+      "text": "Pull request three forty four brings A G U I into the existing Maelstrom demo. Watch three things: the workspace selector, the protocol exchange, and who owns application completion. The benefit is a reusable integration around the same Engine, Chart, and Vessels, with explicit evidence that a workspace update actually finished."
+    },
+    {
+      "id": "native",
+      "text": "Start in Maelstrom mode. Ask for a Journal entry and observe the entry appear. This is the normal application, including the existing voice control. These browser images use a deterministic planner fixture. They show the real renderer and application path, while keeping the planner output fixed for a fair protocol comparison."
+    },
+    {
+      "id": "agui",
+      "text": "Switch the workspace selector to A G U I. The switch creates a fresh session and disconnects voice; reconnect voice when you want to speak. The same request should produce the same visible workspace. Application data stays in this tab. The important difference is the transport and acknowledgment path, not a second interface or a better model."
+    },
+    {
+      "id": "wire",
+      "text": "In the network inspector, look at the WebSocket frames. Native mode exchanges a Chart request and an Engine response. A G U I mode wraps planning in a run: started, a custom workspace result, then finished. After application, a second run carries the correlated acknowledgment. These private operations are our binding; they do not establish a standard channel for input during a run."
+    },
+    {
+      "id": "settlement",
+      "text": "A finished response does not prove that the interface changed. The Orchestrator applies layout first, then executes Actions against the mounted Instances. It records the outcomes and the resulting structural snapshot. Only after the server accepts that evidence can later planning begin. Typed input and voice requests share this queue, so the next request observes the completed workspace."
+    },
+    {
+      "id": "ownership",
+      "text": "The first hosted version worked, but the demo owned the protocol machinery and a React observer activated acknowledgments. Now that ownership moves into libraries. The adapter has separate browser, server, and contract entrypoints. The client owns settlement. The demo supplies authentication, Vessels, native voice, and deployment. Another application can reuse the integration without copying this demo."
+    },
+    {
+      "id": "code",
+      "text": "The key code change is an optional application settled callback on the connector. This source excerpt shows the Orchestrator awaiting the command batch, then delivering the request identifier, outcome, Actions, and snapshot. It awaits acknowledgment before releasing admission. React only displays errors. This gives a future headless evaluation harness the same completion boundary as the real application."
+    },
+    {
+      "id": "failure",
+      "text": "Also inspect the failure path. If a write happens but its acknowledgment is lost, the outcome is unknown. The adapter stops continuation and does not replay the write. Typed failure reasons let the application explain recovery without embedding demo instructions in the library. This reduces the risk of reporting success too early or creating duplicate application data."
+    },
+    {
+      "id": "evidence",
+      "text": "The checks cover headless application, protocol correlation, native voice integration with fixtures, and desktop and mobile rendering. An earlier deployed revision also passed a live voice check and recovery after sixteen minutes idle. That live evidence predates this extraction. The package remains private and experimental. Next, paired evaluations can compare real application results through both protocols using this shared implementation."
+    }
+  ]
+}

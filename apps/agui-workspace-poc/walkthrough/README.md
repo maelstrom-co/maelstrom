@@ -1,5 +1,69 @@
 # Rebuild the walkthrough
 
+## PR 344 workspace integration
+
+The nine-chapter film uses `src/bin/pr344.rs` and `pr344/script.json`.
+It compares the normal demo's workspace modes, explains client-owned settlement,
+and shows the reuse benefits. [The evidence map](./pr344/EVIDENCE.md) identifies
+the source for each claim and the boundary of earlier live verification.
+
+Use the active Psychopomp checkout at `../psychopomp`, Rust, Bun, FFmpeg, and
+Playwright Chromium. Run from this repository root with dependencies installed.
+The source archive includes captured images, cached narration, and the generated
+reel. Regenerating browser images requires the full repository and hosted build:
+
+```sh
+bunx nx run @maelstrom-co/demo:build-hosted --skip-nx-cache --skip-sync
+bun --conditions=@maelstrom-co/source apps/agui-workspace-poc/walkthrough/pr344/capture.ts
+```
+
+The capture uses a fixture Planner and a fake key. It starts a local server on
+port 4189 and checks both modes for the Journal result and browser errors.
+
+Generate the scene from the cached Nacho narration:
+
+```sh
+cargo run --manifest-path apps/agui-workspace-poc/walkthrough/Cargo.toml --bin pr344-voice
+cargo run --manifest-path apps/agui-workspace-poc/walkthrough/Cargo.toml --bin pr344
+../psychopomp/target/release/psychopomp plan validate apps/agui-workspace-poc/walkthrough/pr344/walkthrough.reel.json
+```
+
+An unchanged voice run reports nine cached clips and zero API calls. New narration
+requires `ELEVENLABS_API_KEY`; use `PSYCHOPOMP_MEDIA=plan` first to inspect the cost.
+The reel lasts 222.811 seconds. Review frames and a short motion window before
+rendering the full film:
+
+```sh
+../psychopomp/target/release/psychopomp plan snapshot apps/agui-workspace-poc/walkthrough/pr344/walkthrough.reel.json 24,56,88,114,141,160,191,220 tmp/research/pr344-review --theme neutral --shutter
+../psychopomp/target/release/psychopomp plan render apps/agui-workspace-poc/walkthrough/pr344/walkthrough.reel.json tmp/research/pr344-motion.mp4 --theme neutral --range 99..103
+../psychopomp/target/release/psychopomp plan render apps/agui-workspace-poc/walkthrough/pr344/walkthrough.reel.json tmp/research/pr344-raw.mp4 --theme neutral
+```
+
+Check Rust formatting and Clippy with the manifest above. Check the capture with:
+
+```sh
+bunx biome check apps/agui-workspace-poc/walkthrough/pr344
+bunx tsc --ignoreConfig --noEmit --strict --skipLibCheck --target es2022 --module esnext --moduleResolution bundler --types bun --customConditions @maelstrom-co/source --allowImportingTsExtensions apps/agui-workspace-poc/walkthrough/pr344/capture.ts
+```
+
+The TypeScript source condition must match the capture command so host imports
+and the relative adapter import resolve to the same class declaration.
+
+Deliveries live in `~/Movies/`:
+
+- `maelstrom-pr344-walkthrough-nacho-20261025.mp4`
+- `maelstrom-pr344-walkthrough-nacho-source-20261025.tar.gz`
+
+The archive includes the scene, voice generator, script, cached media, word timings,
+reel, screenshots, and embedded Orchestrator source. Extract it into a repository
+folder beside the active Psychopomp checkout to retain relative dependency paths.
+It can rebuild the film without a provider key. Browser recapture requires the
+full Maelstrom checkout. Verify the export with `ffprobe`: 1920×1080, 60 fps,
+H.264, AAC, and about 222.82 seconds. Normalize narration near -16 LUFS with peaks
+below -1 dBTP before delivery.
+
+The delivered export measures -16.48 LUFS and -1.33 dBTP after normalization.
+
 ## Final narration in Nacho's voice
 
 The final cut uses ElevenLabs `eleven_v4` with the saved Nacho voice, stability
