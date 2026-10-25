@@ -63,6 +63,11 @@ test("returning through client navigation reveals this build's install commands"
 }) => {
   await page.goto('/agents/skills/');
   await expect(page.locator('[data-install-agent="pi"]')).toBeVisible();
+  // Commands render on the server; navigation needs the shared client scripts.
+  await expect(page.locator('html')).toHaveAttribute(
+    'data-sidebar-collapse-ready',
+    'true',
+  );
   await page.evaluate(() =>
     Object.assign(window, { onboardingNavigationProbe: true }),
   );
