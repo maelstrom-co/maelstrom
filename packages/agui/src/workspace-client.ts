@@ -15,6 +15,7 @@ import {
   workspaceRun,
 } from './contract.js';
 import { sameCorrelation } from './correlation.js';
+import { WorkspaceError, type WorkspaceErrorCode } from './workspace-error.js';
 
 type PendingRun = {
   id: string;
@@ -35,7 +36,7 @@ export class AguiWorkspaceClient {
   private run: PendingRun | undefined;
   private application: WorkspaceResult | undefined;
   private stopped = false;
-  private error: string | null = null;
+  private error: WorkspaceError | null = null;
   private listeners = new Set<() => void>();
   private generation = 0;
 
@@ -56,10 +57,10 @@ export class AguiWorkspaceClient {
   open(send: (data: string) => void, sessionId: SessionId) {
     if (this.run || this.application)
       this.fail(
-        'AG-UI connection changed with unfinished work; do not replay the write.',
+        'connection_lost',
+        'AG-UI connection changed with unfinished work.',
       );
-    if (this.stopped)
-      throw new Error('AG-UI session stopped; switch protocol or reload.');
+    if (this.error) throw this.error;
     this.generation++;
     this.send = send;
     this.threadId = sessionId;
@@ -72,23 +73,25 @@ export class AguiWorkspaceClient {
     this.generation++;
     if (this.run || this.application)
       this.fail(
-        'AG-UI connection lost with unfinished work; do not replay the write.',
+        'connection_lost',
+        'AG-UI connection lost with unfinished work.',
       );
     this.send = undefined;
   }
 
-  private fail(message: string) {
+  private fail(code: WorkspaceErrorCode, message: string): WorkspaceError {
     this.stopped = true;
     if (this.error === null) {
-      this.error = message;
+      this.error = new WorkspaceError(code, message);
       for (const listener of this.listeners) listener();
     }
     const run = this.run;
     this.run = undefined;
     if (run) {
       clearTimeout(run.timeout);
-      run.reject(new Error(message));
+      run.reject(this.error);
     }
+    return this.error;
   }
 
   /** Consume AG-UI output; false delegates unrelated host frames to the transport. */
@@ -116,7 +119,7 @@ export class AguiWorkspaceClient {
       !run ||
       new TextEncoder().encode(raw).byteLength > MAX_WORKSPACE_FRAME_BYTES
     ) {
-      this.fail('Unexpected AG-UI event; start a new session.');
+      this.fail('invalid_run', 'Unexpected AG-UI event.');
       return true;
     }
     const event = parsed.data;
@@ -126,17 +129,17 @@ export class AguiWorkspaceClient {
         event.runId !== run.id ||
         event.threadId !== this.threadId
       ) {
-        this.fail('AG-UI run correlation mismatch.');
+        this.fail('invalid_run', 'AG-UI run correlation mismatch.');
       } else run.started = true;
     } else if (!run.started) {
-      this.fail('AG-UI event arrived before its run started.');
+      this.fail('invalid_run', 'AG-UI event arrived before its run started.');
     } else if (event.type === 'CUSTOM') {
       if (event.name !== run.resultName || run.value !== undefined)
-        this.fail('Unexpected AG-UI result.');
+        this.fail('invalid_run', 'Unexpected AG-UI result.');
       else if (event.name === WORKSPACE_RESULT) {
         const result = WorkspaceResultSchema.safeParse(event.value);
         if (!result.success || result.data.correlation.runId !== run.id)
-          this.fail('AG-UI result correlation mismatch.');
+          this.fail('invalid_run', 'AG-UI result correlation mismatch.');
         else run.value = result.data;
       } else run.value = event.value;
     } else if (event.type === 'RUN_FINISHED') {
@@ -145,17 +148,15 @@ export class AguiWorkspaceClient {
         event.threadId !== this.threadId ||
         run.value === undefined
       ) {
-        this.fail('Incomplete AG-UI run.');
+        this.fail('invalid_run', 'Incomplete AG-UI run.');
       } else {
         this.run = undefined;
         clearTimeout(run.timeout);
         run.resolve(run.value);
       }
     } else if (event.type === 'RUN_ERROR') {
-      this.fail(
-        'AG-UI workspace run stopped. Check the API key and application; switch protocol or reload to start a new session.',
-      );
-    } else this.fail('Unsupported AG-UI workspace event.');
+      this.fail('run_failed', 'AG-UI workspace run stopped.');
+    } else this.fail('invalid_run', 'Unsupported AG-UI workspace event.');
     return true;
   }
 
@@ -168,9 +169,11 @@ export class AguiWorkspaceClient {
     const input = workspaceRun(this.threadId, operation);
     const wire = JSON.stringify({ type: WORKSPACE_RUN, input });
     if (new TextEncoder().encode(wire).byteLength > MAX_WORKSPACE_FRAME_BYTES) {
-      this.fail('AG-UI request exceeds the workspace limit.');
       return Promise.reject(
-        new Error('AG-UI request exceeds the workspace limit.'),
+        this.fail(
+          'request_too_large',
+          'AG-UI request exceeds the workspace limit.',
+        ),
       );
     }
     return new Promise((resolve, reject) => {
@@ -181,14 +184,14 @@ export class AguiWorkspaceClient {
         resolve,
         reject,
         timeout: setTimeout(
-          () => this.fail('AG-UI run timed out; do not replay the write.'),
+          () => this.fail('run_timeout', 'AG-UI run timed out.'),
           this.timeoutMs,
         ),
       };
       try {
         this.send?.(wire);
       } catch {
-        this.fail('AG-UI send failed; do not replay the write.');
+        this.fail('send_failed', 'AG-UI send failed.');
       }
     });
   }
@@ -223,7 +226,8 @@ export class AguiWorkspaceClient {
       this.application = result;
       return result.envelope.response;
     } catch (error) {
-      if (generation === this.generation) this.fail('AG-UI planning stopped.');
+      if (generation === this.generation)
+        throw this.fail('planning_failed', 'AG-UI planning stopped.');
       throw error;
     }
   }
@@ -267,12 +271,18 @@ export class AguiWorkspaceClient {
       this.revision = result.revision;
       if (result.status !== 'applied')
         this.fail(
-          'AG-UI application did not complete; start a new session after inspecting the application.',
+          result.status === 'failed'
+            ? 'application_failed'
+            : 'application_unknown',
+          result.status === 'failed'
+            ? 'AG-UI application failed.'
+            : 'AG-UI application outcome is uncertain.',
         );
     } catch (error) {
       if (generation === this.generation)
-        this.fail(
-          'AG-UI application outcome is uncertain; do not replay the write.',
+        throw this.fail(
+          'application_unknown',
+          'AG-UI application outcome is uncertain.',
         );
       throw error;
     }

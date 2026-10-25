@@ -255,6 +255,8 @@ one API key, one command — then the
 mode, and [the voice boundary](https://docs.maelstrom-ai.co/understanding/voice-architecture/)
 for why a voice model never plans your UI.
 
+The experimental [`@maelstrom-co/agui` adapter](./packages/agui/README.md) is a private workspace package, not an npm release. It provides opt-in AG-UI mode in the [demo](./apps/demo/README.md) with the same Chart, Vessels, and native voice integration.
+
 ## Get Involved
 
 - Read the [docs](https://docs.maelstrom-ai.co).

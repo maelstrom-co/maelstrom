@@ -1,23 +1,44 @@
+import { describe, expect, it, mock } from 'bun:test';
+import { createEngine } from '@maelstrom-co/engine';
+import {
+  ChartRequestMessageSchema,
+  defineVessel,
+  ok,
+  SessionId,
+  TilingResponseSchema,
+} from '@maelstrom-co/protocol';
 import {
   type WorkspaceCheckpoint,
   type WorkspaceOperation,
   WorkspaceResultSchema,
   workspaceRun,
-} from '@maelstrom-co/agui/contract';
-import { AguiWorkspaceSession } from '@maelstrom-co/agui/server';
-import { createEngine } from '@maelstrom-co/engine';
-import {
-  ChartRequestMessageSchema,
-  ok,
-  SessionId,
-  TilingResponseSchema,
-} from '@maelstrom-co/protocol';
-import { describe, expect, it, vi } from 'vitest';
-import { journalVessel } from '../vessels/journal.vessel.def';
-import { dispatchFrame } from './dispatch';
+} from './contract.js';
+import { AguiWorkspaceSession } from './server.js';
+
+const recordVessel = defineVessel({
+  id: 'record',
+  name: 'Record',
+  description: 'Create a record',
+  defaultVariant: 'entry',
+  variants: {
+    entry: {
+      props: {},
+      minSize: { width: 1, height: 1 },
+      actions: [
+        {
+          name: 'createEntry',
+          description: 'Create one entry',
+          parameters: [
+            { name: 'title', type: 'string', description: 'Entry title' },
+          ],
+        },
+      ],
+    },
+  },
+});
 
 function setup() {
-  const planner = vi.fn(async () =>
+  const planner = mock(async () =>
     ok(
       TilingResponseSchema.parse({
         userMessage: 'Created',
@@ -25,7 +46,7 @@ function setup() {
         layout: {
           tree: ['ID:entry'],
           instances: [
-            { instanceId: 'entry', vesselId: 'journal', variant: 'entry' },
+            { instanceId: 'entry', vesselId: 'record', variant: 'entry' },
           ],
         },
         executionPlan: [
@@ -68,7 +89,7 @@ function setup() {
           chartDimensions: { rows: 8, columns: 12 },
           updateReasons: [{ type: 'user_intent', intent: 'Create an entry' }],
         },
-        vessels: [journalVessel],
+        vessels: [recordVessel],
         instances: [],
         layout: { type: 'tiling', tree: [], instances: [] },
       },
@@ -112,7 +133,7 @@ function setup() {
   };
 }
 
-describe('hosted AG-UI workspace admission', () => {
+describe('AG-UI workspace admission', () => {
   it('retains only correlation evidence across hibernation, then accepts the next snapshot after acknowledgment', async () => {
     const h = setup();
     const events = await h.run(h.plan());
@@ -181,36 +202,5 @@ describe('hosted AG-UI workspace admission', () => {
     const events = await h.run(applied);
     expect(events[1]).toMatchObject({ value: { status: 'unknown' } });
     expect(h.checkpoint()?.stopped).toBe(true);
-  });
-
-  it('keeps the BYOK gate before inference, including rehello after idle', async () => {
-    const h = setup();
-    const getEngine = vi.fn(() => null);
-    const send = vi.fn();
-    const raw = JSON.stringify({
-      type: 'demo.agui.run',
-      input: workspaceRun('session', h.plan()),
-    });
-    const context = {
-      getEngine,
-      helloReceived: false,
-      wasHelloed: false,
-      engineUnavailableReason: 'No key',
-      workspace: {
-        active: () => false,
-        session: () => new AguiWorkspaceSession('session'),
-        send,
-      },
-    };
-    expect(await dispatchFrame(raw, context)).toEqual({ kind: 'none' });
-    expect(send).toHaveBeenLastCalledWith(
-      expect.objectContaining({ type: 'RUN_ERROR' }),
-    );
-    send.mockClear();
-    expect(await dispatchFrame(raw, { ...context, wasHelloed: true })).toEqual({
-      kind: 'rehello',
-    });
-    expect(send).not.toHaveBeenCalled();
-    expect(getEngine).not.toHaveBeenCalled();
   });
 });

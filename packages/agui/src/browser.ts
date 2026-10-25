@@ -47,3 +47,4 @@ export class AguiWebSocketConnector extends WebSocketConnector {
 }
 
 export { AguiWorkspaceClient } from './workspace-client.js';
+export { WorkspaceError, type WorkspaceErrorCode } from './workspace-error.js';

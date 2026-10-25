@@ -42,7 +42,12 @@ afterEach(async () => {
 });
 
 async function setup(
-  options: { failAction?: boolean; loseAck?: boolean; truncate?: boolean } = {},
+  options: {
+    failAction?: boolean;
+    loseAck?: boolean;
+    truncate?: boolean;
+    rejectRun?: boolean;
+  } = {},
 ) {
   const sessionId = SessionId('headless');
   const workspace = new AguiWorkspaceClient(100);
@@ -82,6 +87,25 @@ async function setup(
       workspace.open((wire) => {
         const input = WorkspaceRunSchema.parse(JSON.parse(wire).input);
         operations.push(input.forwardedProps);
+        if (options.rejectRun) {
+          workspace.receive(
+            JSON.stringify({
+              type: 'RUN_STARTED',
+              threadId: input.threadId,
+              runId: input.runId,
+            }),
+            true,
+          );
+          workspace.receive(
+            JSON.stringify({
+              type: 'RUN_ERROR',
+              message: 'provider-secret-canary',
+              code: 'UNTRUSTED_HOST_CODE',
+            }),
+            true,
+          );
+          return;
+        }
         if (options.loseAck && input.forwardedProps.kind === 'applied') {
           workspace.disconnect();
           return;
@@ -184,6 +208,7 @@ describe('headless workspace adapter', () => {
     );
     expect(h.plans()).toBe(1);
     expect(h.writes()).toBe(0);
+    expect(h.workspace.snapshot()?.code).toBe('application_unknown');
   });
 
   it('reports lost acknowledgment as unknown without replaying the committed write', async () => {
@@ -196,6 +221,7 @@ describe('headless workspace adapter', () => {
     );
     expect(h.writes()).toBe(1);
     expect(h.plans()).toBe(1);
+    expect(h.workspace.snapshot()?.code).toBe('connection_lost');
   });
 
   it('never applies a response from an incomplete run', async () => {
@@ -205,5 +231,21 @@ describe('headless workspace adapter', () => {
     );
     expect(h.writes()).toBe(0);
     expect(h.settlements).toHaveLength(0);
+    expect(h.workspace.snapshot()?.code).toBe('run_timeout');
+  });
+
+  it('exposes a stable local failure reason without forwarding remote text to application UI', async () => {
+    const h = await setup({ rejectRun: true });
+    const result = await h.client.enqueueIntent('increment').result;
+    expect(result).toMatchObject({
+      status: 'unknown',
+      error: { code: 'run_failed' },
+    });
+    const failure = h.workspace.snapshot();
+    expect(failure?.message).not.toContain('provider-secret-canary');
+    await h.client.enqueueIntent('later').result;
+    expect(h.workspace.snapshot()).toBe(failure);
+    expect(h.operations).toHaveLength(1);
+    expect(h.writes()).toBe(0);
   });
 });

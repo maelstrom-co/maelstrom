@@ -383,7 +383,9 @@ function WorkspaceProtocolError({
   );
   return error ? (
     <span role="alert" className="text-xs text-pink max-w-64">
-      {error} Switch workspace protocol or reload to start a new session.
+      {error.message} Inspect the workspace before starting a new session.
+      Switch workspace protocol or reload; do not repeat an uncertain write
+      automatically.
     </span>
   ) : null;
 }

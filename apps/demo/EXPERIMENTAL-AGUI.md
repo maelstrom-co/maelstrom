@@ -1,6 +1,6 @@
 # Run the experimental AG-UI mode
 
-For the normal hosted demo with typed input and voice, use **Workspace → AG-UI**. Its [WebSocket contract](./AGUI.md) is separate from this bounded local experiment.
+For the normal hosted demo with typed input and voice, use **Workspace → AG-UI**. Its [WebSocket contract](../../packages/agui/CONTRACT.md) is separate from this bounded local experiment.
 
 Create a Journal entry, read its generated application ID, then write that ID into the entry. This local experiment uses the real demo Chart and Journal renderer.
 

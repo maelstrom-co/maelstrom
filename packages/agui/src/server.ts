@@ -66,11 +66,7 @@ export class AguiWorkspaceSession {
     ) {
       this.close();
       this.save(this.state);
-      rejectWorkspaceRun(
-        input,
-        send,
-        'Workspace sequence rejected. Start a new session; do not replay a write.',
-      );
+      rejectWorkspaceRun(input, send, 'Workspace sequence rejected.');
       return;
     }
     this.running = true;
@@ -159,8 +155,7 @@ export class AguiWorkspaceSession {
       send({
         type: 'RUN_ERROR',
         code: 'WORKSPACE_STOPPED',
-        message:
-          'Workspace run stopped. Inspect the application before starting a new session; writes are not replayed.',
+        message: 'Workspace run stopped.',
         rawEvent: { threadId: input.threadId, runId: input.runId },
       });
     } finally {
