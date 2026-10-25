@@ -1,4 +1,4 @@
-import type { Message } from '@ag-ui/core';
+import { EventType, type Message } from '@ag-ui/core';
 import {
   MessagesSnapshotEventSchema,
   RunAgentInputSchema,
@@ -9,11 +9,14 @@ import {
   type ModelMessage,
   maxIterations,
   type StreamChunk,
+  StreamProcessor,
   toolDefinition,
   toServerSentEventsResponse,
+  uiMessagesToWire,
 } from '@tanstack/ai';
 import { fakeText } from '@tanstack/ai/testing';
 import { z } from 'zod';
+import { ApprovedLookup, lookupOutcome } from './approved-lookup.js';
 import { toAgui } from './boundary.js';
 import {
   type Ack,
@@ -45,11 +48,16 @@ export class Host {
   private active = false;
   private ended = false;
   private history: Message[] = [];
+  private approvalId?: string;
+  readonly approvedLookup: ApprovedLookup;
 
   constructor(
     private readonly store: FixtureStore,
     private readonly childGate?: (signal: AbortSignal) => Promise<void>,
-  ) {}
+    private readonly mode: 'nested' | 'approval' = 'nested',
+  ) {
+    this.approvedLookup = new ApprovedLookup(store, childGate);
+  }
 
   async handle(request: Request): Promise<Response> {
     if (request.method !== 'POST')
@@ -73,7 +81,7 @@ export class Host {
     if (
       this.active ||
       this.ended ||
-      this.run >= 3 ||
+      this.run >= (this.mode === 'approval' ? 4 : 3) ||
       body.threadId !== 'workspace-poc' ||
       body.runId !== `run-${this.run + 1}` ||
       body.parentRunId !== (this.run ? `run-${this.run}` : undefined)
@@ -82,14 +90,28 @@ export class Host {
         status: 409,
       });
     if (
-      body.resume?.length ||
+      (body.resume?.length && !this.approvalId) ||
       JSON.stringify(body.tools) !== JSON.stringify(frontendTools) ||
       body.context.length ||
       Object.keys(body.forwardedProps ?? {}).length
     )
       return new Response('Unsupported input extensions', { status: 400 });
     let ack: Ack | undefined;
-    if (this.pending) {
+    const resumingChild = this.approvalId !== undefined;
+    if (resumingChild) {
+      if (JSON.stringify(body.messages) !== JSON.stringify(this.history))
+        return new Response('Child history changed', { status: 409 });
+      const resume = body.resume;
+      if (
+        resume?.length !== 1 ||
+        resume[0]?.interruptId !== this.approvalId ||
+        resume[0]?.status !== 'resolved' ||
+        typeof resume[0]?.payload !== 'boolean'
+      )
+        return new Response('Matching child approval required', {
+          status: 409,
+        });
+    } else if (this.pending) {
       if (
         JSON.stringify(body.messages.slice(0, -1)) !==
         JSON.stringify(this.history)
@@ -141,6 +163,7 @@ export class Host {
     this.run++;
     if (ack) this.accepted.push(ack);
     this.pending = undefined;
+    this.approvalId = undefined;
     const controller = new AbortController();
     const abort = () => {
       this.ended = true;
@@ -219,6 +242,47 @@ export class Host {
           };
         },
       ]);
+    } else if (this.mode === 'approval' && (this.run === 2 || resumingChild)) {
+      const settled = this.accepted[0];
+      if (!settled) throw new Error('Missing workspace settlement');
+      adapter.setResponses(
+        resumingChild
+          ? [
+              async ({ request: modelRequest }) => {
+                const result = z
+                  .object({ result: z.string() })
+                  .parse(toolResult(modelRequest.messages, 'lookup-approved'));
+                const fact = lookupOutcome.parse(JSON.parse(result.result));
+                if ('denied' in fact)
+                  return {
+                    text: 'Read denied. The created note remains; focus was not attempted.',
+                  };
+                const input = {
+                  expectedRevision: settled.revision,
+                  response: await plan(
+                    settled.snapshot,
+                    'change-2',
+                    candidate(fact),
+                  ),
+                };
+                this.pending = { id: 'apply-2', input };
+                return {
+                  toolCalls: [{ id: 'apply-2', name: applyTool.name, input }],
+                };
+              },
+            ]
+          : [
+              {
+                toolCalls: [
+                  {
+                    id: 'lookup-approved',
+                    name: this.approvedLookup.agent.name,
+                    input: { prompt: 'Read the created record.' },
+                  },
+                ],
+              },
+            ],
+      );
     } else if (this.run === 2 && ack) {
       const settled = ack;
       adapter.setResponses([
@@ -252,22 +316,36 @@ export class Host {
         },
       ]);
     }
+    const nativeChild =
+      this.mode === 'approval' &&
+      (resumingChild || (this.run === 2 && ack?.status === 'applied'));
+    const processor =
+      this.mode === 'approval' ? new StreamProcessor() : undefined;
+    processor?.processChunk({
+      type: EventType.MESSAGES_SNAPSHOT,
+      messages: body.messages,
+    });
     const stream = chat({
       adapter,
       messages: params.messages,
       threadId: params.threadId,
       runId: params.runId,
       parentRunId: params.parentRunId,
-      resume: ack
-        ? [
-            {
-              interruptId: `client_tool_${ack.callId}`,
-              status: 'resolved',
-              payload: ack,
-            },
-          ]
-        : undefined,
+      resume: resumingChild
+        ? params.resume
+        : ack
+          ? [
+              {
+                interruptId: `client_tool_${ack.callId}`,
+                status: 'resolved',
+                payload: ack,
+              },
+            ]
+          : undefined,
       tools: [applyTool, lookup],
+      subagents: nativeChild
+        ? { agents: [this.approvedLookup.agent] }
+        : undefined,
       abortController: controller,
       agentLoopStrategy: maxIterations(4),
       debug: false,
@@ -275,20 +353,56 @@ export class Host {
     const host = this;
     async function* observed(): AsyncIterable<StreamChunk> {
       try {
+        if (processor) {
+          const start = {
+            type: EventType.RUN_STARTED,
+            threadId: body.threadId,
+            runId: body.runId,
+            parentRunId: body.parentRunId,
+          } as const;
+          processor.processChunk(start);
+          yield start;
+        }
         for await (const event of stream) {
           host.trace.push(event);
-          if (event.type === 'MESSAGES_SNAPSHOT')
+          if (processor && event.type === 'RUN_STARTED') continue;
+          processor?.processChunk(event);
+          if (
+            nativeChild &&
+            event.type === 'RUN_FINISHED' &&
+            event.outcome?.type === 'interrupt'
+          ) {
+            const item = event.outcome.interrupts[0];
+            if (
+              event.outcome.interrupts.length === 1 &&
+              item?.toolCallId === 'approved-read' &&
+              item.metadata?.kind === 'approval'
+            )
+              host.approvalId = item.id;
+          }
+          if (!processor && event.type === 'MESSAGES_SNAPSHOT')
             host.history = MessagesSnapshotEventSchema.parse(event).messages;
-          yield event;
+          if (!processor || event.type !== 'MESSAGES_SNAPSHOT') yield event;
+        }
+        if (processor) {
+          host.history = MessagesSnapshotEventSchema.parse({
+            type: EventType.MESSAGES_SNAPSHOT,
+            messages: uiMessagesToWire(processor.getMessages()),
+          }).messages;
+          yield { type: EventType.MESSAGES_SNAPSHOT, messages: host.history };
         }
       } finally {
         host.active = false;
-        if (!host.pending || controller.signal.aborted) host.ended = true;
+        if ((!host.pending && !host.approvalId) || controller.signal.aborted)
+          host.ended = true;
         request.signal.removeEventListener('abort', abort);
       }
     }
-    return toServerSentEventsResponse(toAgui(observed()), {
-      abortController: controller,
-    });
+    return toServerSentEventsResponse(
+      toAgui(observed(), nativeChild ? 'approved-read' : undefined),
+      {
+        abortController: controller,
+      },
+    );
   }
 }

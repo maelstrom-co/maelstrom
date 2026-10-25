@@ -31,6 +31,7 @@ const connector: PushConnector = {
   },
 };
 const store = new FixtureStore();
+const approvalMode = document.documentElement.dataset.approval === 'true';
 let workspace: Workspace | undefined;
 const m = createMaelstrom({ vessels: [vessel(notes, Notes)] }).with((ctx) => {
   ctx.onOrchestrator?.((orchestrator) => {
@@ -86,6 +87,9 @@ function Notes({ instanceId }: TypedVesselProps<typeof notes>) {
 function App() {
   const [status, setStatus] = useState('Ready');
   const [evidence, setEvidence] = useState('');
+  const [approval, setApproval] = useState<{
+    resolve: (approved: boolean) => void;
+  }>();
   const { connectionStatus } = m.useMaelstrom();
   async function run() {
     setStatus('Running');
@@ -98,7 +102,9 @@ function App() {
           content: 'Create a note and focus the new record.',
         },
       ]);
-      for (let run = 1; run <= 3; run++) {
+      const budget = approvalMode ? 4 : 3;
+      let denied = false;
+      for (let run = 1; run <= budget; run++) {
         const events = await decode(
           await fetch('/run', {
             method: 'POST',
@@ -106,13 +112,44 @@ function App() {
             body: JSON.stringify(body),
           }),
         );
+        const terminal = events.at(-1);
+        if (
+          terminal?.type === 'RUN_FINISHED' &&
+          terminal.outcome?.type === 'interrupt'
+        ) {
+          const interrupt = terminal.outcome.interrupts[0];
+          if (
+            terminal.outcome.interrupts.length !== 1 ||
+            interrupt?.toolCallId !== 'approved-read'
+          )
+            throw new Error('Unexpected interrupt');
+          setStatus('Awaiting approval');
+          const approved = await new Promise<boolean>((resolve) =>
+            setApproval({ resolve }),
+          );
+          denied = !approved;
+          setApproval(undefined);
+          setStatus('Running');
+          body = {
+            ...runRequest(toolHistory(events), run + 1),
+            resume: [
+              {
+                interruptId: interrupt.id,
+                status: 'resolved',
+                payload: approved,
+              },
+            ],
+          };
+          continue;
+        }
         const call = frontendCall(events);
         if (!call) {
-          if (run !== 3 || !store.focused)
+          if (!denied && (run !== budget || !store.focused))
             throw new Error('Goal ended before focus settled');
           break;
         }
-        if (run === 3) throw new Error('Goal exceeded the fixture run budget');
+        if (run === budget)
+          throw new Error('Goal exceeded the fixture run budget');
         const ack = await workspace.apply(call.id, call.input);
         if (ack.status !== 'applied')
           throw new Error(`Action outcome: ${ack.status}`);
@@ -142,7 +179,7 @@ function App() {
           2,
         ),
       );
-      setStatus('Complete');
+      setStatus(denied ? 'Stopped: read denied' : 'Complete');
     } catch (error) {
       setStatus(`Failed: ${String(error)}`);
     }
@@ -159,6 +196,17 @@ function App() {
         Run one goal
       </button>
       <p role="status">{status}</p>
+      {approval && (
+        <aside aria-label="Child approval">
+          <p>The note exists. Allow the child to read its ID and version?</p>
+          <button type="button" onClick={() => approval.resolve(true)}>
+            Allow read
+          </button>
+          <button type="button" onClick={() => approval.resolve(false)}>
+            Deny read
+          </button>
+        </aside>
+      )}
       <div id="chart">
         <m.Chart />
       </div>

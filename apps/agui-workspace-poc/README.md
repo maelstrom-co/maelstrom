@@ -51,5 +51,28 @@ The automated browser check writes screenshots and measured evidence under
 `tmp/research/agui-browser-*`. It uses a 960×640 Chart inside a 1200×1100 viewport
 to distinguish container measurement from viewport measurement.
 
+## Pause a child inside the workspace goal
+
+```sh
+APPROVAL=1 bun run --cwd apps/agui-workspace-poc browser
+```
+
+Select **Run one goal**. The note appears before the approval controls. Select
+**Allow read** to resume the same child, read the canonical ID/version, and focus
+the record. Select **Deny read** to stop after create. Denial leaves that record
+intact. Restart the server between scenarios.
+
+Run the same flow without a browser to inspect every wire event:
+
+```sh
+bun --conditions=@maelstrom-co/source apps/agui-workspace-poc/src/approval-demo.ts
+bun --conditions=@maelstrom-co/source apps/agui-workspace-poc/src/approval-demo.ts --deny
+```
+
+Approval completes in four runs. The paused checkpoint has one create and zero
+child reads. The final approved checkpoint has one read and matching record and
+focus values. Denial has zero reads and no focus. The test target checks all
+three browser modes: baseline, approval, and denial.
+
 Read [the walkthrough](./WALKTHROUGH.md) for the change and its benefit, and
 [the proof and its limits](./PROOF.md) before reusing this example.

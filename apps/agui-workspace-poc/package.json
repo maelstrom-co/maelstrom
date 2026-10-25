@@ -36,7 +36,9 @@
           "parallel": false,
           "commands": [
             "bun --conditions=@maelstrom-co/source test apps/agui-workspace-poc/src",
-            "bun apps/agui-workspace-poc/src/browser-check.ts"
+            "bun apps/agui-workspace-poc/src/browser-check.ts",
+            "APPROVAL=1 bun apps/agui-workspace-poc/src/browser-check.ts",
+            "APPROVAL=1 DENY=1 bun apps/agui-workspace-poc/src/browser-check.ts"
           ]
         }
       },

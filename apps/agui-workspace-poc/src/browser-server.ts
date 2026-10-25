@@ -9,7 +9,8 @@ const bundle = await Bun.build({
 if (!bundle.success)
   throw new AggregateError(bundle.logs, 'Browser build failed');
 const store = new FixtureStore(() => crypto.randomUUID());
-const host = new Host(store);
+const approvalMode = process.env.APPROVAL === '1';
+const host = new Host(store, undefined, approvalMode ? 'approval' : 'nested');
 const server = Bun.serve({
   hostname: '127.0.0.1',
   port: Number(process.env.PORT ?? 4318),
@@ -28,7 +29,7 @@ const server = Bun.serve({
       });
     if (path === '/')
       return new Response(
-        `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>AG-UI workspace proof</title><style>
+        `<!doctype html><html lang="en" data-approval="${approvalMode}"><head><meta charset="utf-8"><title>AG-UI workspace proof</title><style>
       body{margin:0;padding:32px;background:#111827;color:#e5e7eb;font:18px system-ui}button{font:inherit;padding:12px 18px}section{box-sizing:border-box;background:#1f2937;padding:24px;border:1px solid #4b5563;height:100%}#chart{width:960px;height:640px;margin-top:24px}pre{white-space:pre-wrap;font-size:14px}
       </style></head><body><div id="root"></div><script type="module" src="/app.js"></script></body></html>`,
         { headers: { 'content-type': 'text/html' } },

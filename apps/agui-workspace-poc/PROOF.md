@@ -98,11 +98,9 @@ subpath. These release-specific facts take precedence over older examples.
 - Parent request abort or SSE reader disconnect reaches the nested read's
   abort signal. The parent stops before the dependent frontend call.
 
-The nested read has no approval or frontend pause. Child interrupt persistence
-and child resume are unsupported. After child abort, this parent cannot resume;
-it remains stopped. The child is an application-owned nested `chat()` call,
-not TanStack's subagent API. Its raw trace is separate; no AG-UI `SUBAGENT_*`
-events or distributed child recovery are claimed.
+The default nested read has no approval or frontend pause. After child abort,
+that parent remains stopped. This baseline uses an application-owned nested
+`chat()` call. Its raw trace remains separate from the parent wire events.
 
 The separate `src/child.test.ts` experiment uses TanStack's actual `defineAgent`
 and routed `subagents` APIs. A child tool with `needsApproval` suspends the
@@ -110,9 +108,32 @@ parent. `StreamProcessor` records child state; `uiMessagesToWire` serializes it
 for `chatParamsFromRequestBody`. A new parent run forwards the approval and
 resumes the same `subagentRunId`. Approval performs one read; denial performs
 none. Both cases pass through the official SSE serializer and AG-UI validators.
-This establishes child approval continuation in the released runtime. The
-workspace host still rejects these interrupts. Restart durability and a combined
-workspace-plus-child-approval flow remain unproven.
+The optional approval mode now combines native child continuation with the
+workspace flow. After create settles, the parent calls `record-reader` as a
+native agent tool. Its `needsApproval` read suspends run 2. Run 3 resumes that
+same child, consumes its actual tool result, and emits the dependent focus.
+Run 4 consumes focus settlement and reports completion. Denial ends run 3
+without reading or focusing. The approval checkpoint is experimental policy.
+
+The host requires the saved conversation, exact interrupt ID, boolean reply,
+and expected run ancestry. Missing, stale, duplicate, and edited requests fail.
+A fresh host rejects the old continuation; no restart recovery is implemented.
+Disconnect during the delayed approved read reaches the child abort signal,
+prevents the read and focus, and forbids replay. The earlier create remains.
+
+This combined path exposed two more release-specific adaptations. Resumed child
+events can precede TanStack's own `RUN_STARTED`. Approval mode therefore emits
+the outer start before draining the runtime and suppresses its later start.
+`StreamProcessor` collects child state, and `uiMessagesToWire` serializes the
+final snapshot. Internal UI-message snapshots are not sent directly. The boundary
+preserves the one known child approval; it still translates frontend execution
+interrupts and rejects other interrupt kinds. Each completed wire run passes
+the AG-UI validators and has one outer start and terminal.
+
+Chromium verifies baseline, approved, and denied goals. At the pause, the Notes
+Vessel displays a record while focus remains pending. The approved result focuses
+that record; the denied result retains it without focus. Browser console warnings
+and errors are checked in all three runs.
 
 The revision policy covers this single writer only. It does not observe arbitrary
 manual edits, resize races, other Charts, or other processes. Structural settlement
@@ -144,7 +165,8 @@ Production needs authenticated session ownership, authorization at each business
 operation, trusted reconciliation, bounded input streams and waits, durable
 operation identity, and broader transport tests. The local store has no external
 effects. The host serves one fixed fixture thread and is not a deployable service.
-The example accepts at most three parent runs and eight workspace call identities.
+The baseline accepts three parent runs; approval mode accepts four. Each workspace
+accepts at most eight call identities.
 
 AG-UI supplies interaction semantics. Maelstrom supplies its workspace model.
 Generic tools, components, shared state, approvals, and navigation are not

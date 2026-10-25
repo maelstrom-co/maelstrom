@@ -4,6 +4,9 @@ import { chromium, expect } from '@playwright/test';
 const output = new URL('../../../tmp/research/', import.meta.url).pathname;
 await mkdir(output, { recursive: true });
 const browser = await chromium.launch({ headless: true });
+const approvalMode = process.env.APPROVAL === '1';
+const denied = process.env.DENY === '1';
+const label = approvalMode ? (denied ? 'deny' : 'approve') : 'browser';
 const server = process.env.POC_URL
   ? undefined
   : Bun.spawn(
@@ -38,21 +41,31 @@ try {
   await expect(
     page.getByRole('button', { name: 'Run one goal' }),
   ).toBeEnabled();
-  await page.screenshot({ path: `${output}/agui-browser-before.png` });
+  await page.screenshot({ path: `${output}/agui-${label}-before.png` });
   await page.getByRole('button', { name: 'Run one goal' }).click();
-  await expect(page.getByRole('status')).toHaveText('Complete');
+  if (approvalMode) {
+    await expect(page.getByRole('status')).toHaveText('Awaiting approval');
+    await expect(page.getByTestId('focus')).toHaveText('Waiting for focus');
+    await expect(page.getByTestId('record')).not.toHaveText('No record');
+    await page.screenshot({ path: `${output}/agui-${label}-waiting.png` });
+    await page
+      .getByRole('button', { name: denied ? 'Deny read' : 'Allow read' })
+      .click();
+  }
+  await expect(page.getByRole('status')).toHaveText(
+    denied ? 'Stopped: read denied' : 'Complete',
+  );
   await expect(page.getByTestId('focus')).toHaveText(
-    'Focused exact ID and version',
+    denied ? 'Waiting for focus' : 'Focused exact ID and version',
   );
   const evidence = JSON.parse(await page.getByTestId('evidence').innerText());
   expect(evidence.creates).toBe(1);
-  expect(evidence.focused).toEqual(evidence.record);
-  expect(evidence.commands).toEqual([
-    'set_layout',
-    'execute_actions',
-    'set_layout',
-    'execute_actions',
-  ]);
+  expect(evidence.focused).toEqual(denied ? undefined : evidence.record);
+  expect(evidence.commands).toEqual(
+    denied
+      ? ['set_layout', 'execute_actions']
+      : ['set_layout', 'execute_actions', 'set_layout', 'execute_actions'],
+  );
   expect(evidence.snapshot.chartDimensions).toEqual({ columns: 12, rows: 8 });
   const box = await page
     .getByRole('region', { name: 'Notes Vessel' })
@@ -60,13 +73,13 @@ try {
   expect(box?.width).toBeGreaterThan(900);
   expect(box?.height).toBeGreaterThan(580);
   expect(errors).toEqual([]);
-  await page.screenshot({ path: `${output}/agui-browser-after.png` });
+  await page.screenshot({ path: `${output}/agui-${label}-after.png` });
   await Bun.write(
-    `${output}/agui-browser-evidence.json`,
+    `${output}/agui-${label}-evidence.json`,
     JSON.stringify({ evidence, box, errors }, null, 2),
   );
   console.log(
-    'Verified real Chart mounting, Action ordering, exact record focus, and 12×8 container measurement.',
+    `Verified ${label}: real Chart, Action ordering, approval policy, and 12×8 container measurement.`,
   );
 } finally {
   await browser.close();
