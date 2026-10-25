@@ -1,6 +1,6 @@
 ---
 title: 'Maelstrom is now open source'
-description: "Let AI work with your app's own interface. Maelstrom is open source, with guided setup and a working starter to help you begin."
+description: "We built Maelstrom to let AI work with your app's own interface. Now it's open source, with guided setup and a working starter."
 date: '2026-10-24'
 image: /og.png
 labels: 'release, open source, maelstrom'
@@ -9,33 +9,36 @@ authorUrl: https://maelstrom-ai.co
 keywords: [Maelstrom, open source, React, UI, 0.1.0]
 ---
 
-Maelstrom is a framework that lets AI rearrange your app's interface and act
-inside it as people work. It uses the components your team has built, from a
-calendar to a task list.
+We kept building AI features and coming back to the same frustration. A model
+could understand what someone wanted, but the interface still made them find
+the right screen and do each step themselves.
 
-We're releasing Maelstrom as open source under the MIT license. Version 0.1.0
-is available now, and you can explore the [code on GitHub](https://github.com/maelstrom-co/maelstrom).
+We'd spent years learning how to make software easier to use. A calendar can
+make a busy week easier to understand because someone made choices about what
+matters and how to show it. That knowledge should still shape how AI works
+inside an app.
+
+With Maelstrom, you build the components and decide what they can do. The
+framework lets a model arrange them around the user's task and run the actions
+you've made available.
+
+Maelstrom is now open source under the MIT license. Our first public release,
+0.1.0, is available, and you can explore the [code on GitHub](https://github.com/maelstrom-co/maelstrom).
 
 ## An interface that follows the task
 
-Imagine a planning app. A user asks to see their tasks beside their calendar,
-then asks to add a task. Maelstrom lets the model arrange those components on
-screen and run the task list's add action.
+Imagine someone planning their week. They ask to see their tasks beside their
+calendar, then ask to add a task. Maelstrom can bring those components into view
+and run the task list's add action. They can still click and type in the app.
 
-As the user moves to the next task, the interface can change with them. People
-can also use the same buttons and controls to make changes themselves.
+As their focus changes, the model can change the arrangement. The components
+keep the design and behavior your team gave them. You decide how each can
+appear and which actions it offers.
 
-Developers define which components AI can use, how each can appear, and which
-actions it can run. Your team controls the design and behavior of those
-components.
+This is the kind of interaction we're building Maelstrom for: dashboards and
+workspaces where the useful view changes with the task.
 
-Maelstrom is designed for apps where the useful layout depends on what someone
-is trying to do, such as dashboards and workspaces with several tools.
-
-## See how it works
-
-This short overview shows how a request reaches the app and changes its
-interface.
+This short overview shows how the pieces connect:
 
 <video controls playsInline preload="none" aria-label="Maelstrom runtime overview" style={{ width: '100%', borderRadius: '12px' }}>
   <source src="https://raw.githubusercontent.com/maelstrom-co/maelstrom/962fd803664796a8b96d6a8370893b9b1a0d86ff/media/maelstrom-overview.mp4" type="video/mp4" />
@@ -43,25 +46,26 @@ interface.
   <a href="https://github.com/maelstrom-co/maelstrom/blob/main/media/maelstrom-overview.mp4">Watch the runtime overview</a>.
 </video>
 
-## Start building
+## Try it in your app
 
-If you already have an app, use our [guided setup](/#get-started). Copy the
-integration prompt into your coding agent. It asks what you want to build,
-looks at your project, and helps you plan a small first integration. You review
-the plan before making changes.
+If you already have an app, start with our [guided setup](/#get-started).
+Copy the integration prompt into your coding agent. It asks what you want to
+build, looks at your project, and helps you plan a small first integration.
+You review the plan before making changes.
 
-You can also install the [Maelstrom skills](https://docs.maelstrom-ai.co/agents/skills/)
-to give your coding agent guidance for setup and later development tasks.
-The entry skill asks whether you're starting fresh or working in an existing app.
+Our [Maelstrom skills](https://docs.maelstrom-ai.co/agents/skills/) give your
+coding agent guidance for setup and later development tasks. The entry skill
+asks whether you're starting fresh or working in an existing app.
 
 For a new project, clone the [React starter](https://github.com/maelstrom-co/react-starter)
 and follow the [run guide](https://docs.maelstrom-ai.co/getting-started/starter/).
-It includes a working app and local server. The first example uses a fixed
-response, so you can run it without a model API key. The guide also explains
-how to connect a model when you're ready.
+It includes a working app and local server. It starts with a fixed greeting
+response, so you can run it without a model API key. The guide explains how
+to connect a model when you're ready.
 
 ## Build with us
 
-If you try Maelstrom, we'd like to hear what you're building and where you get
-stuck. Join us on [Discord](https://maelstrom-ai.co/discord) for questions and
-feedback, or [contribute on GitHub](https://github.com/maelstrom-co/maelstrom/blob/main/CONTRIBUTING.md).
+We're early, and we want to learn from people building with Maelstrom. Tell us
+which workflow you try first and where you get stuck. Join us on
+[Discord](https://maelstrom-ai.co/discord) for questions and feedback, or
+[contribute on GitHub](https://github.com/maelstrom-co/maelstrom/blob/main/CONTRIBUTING.md).
