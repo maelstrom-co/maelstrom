@@ -3,6 +3,7 @@ import type { MouseEvent } from 'react';
 import { EnablePlaybackButton } from '../components/enable-playback-button';
 import { HoldToTalkControl } from '../components/hold-to-talk-control';
 import { prepareBrowserOpenAIVoice } from '../lib/voice-adapter';
+import { isVoiceConnected } from '../lib/voice-session-state';
 import { shopM } from './maelstrom';
 import { ShopCaption } from './shop-caption';
 
@@ -54,22 +55,29 @@ export function ShopVoiceCorner({
     if (state === 'idle' || state === 'error') prepareBrowserOpenAIVoice();
   };
 
+  const showHoldToTalk = turnMode === 'manual' && turnControl !== undefined;
+  const showEnablePlayback = provider === 'live' && isVoiceConnected(state);
+
   return (
     <div className="shop-voice-corner">
-      <div className="shop-voice-actions">
-        <HoldToTalkControl
-          state={state}
-          turnControl={turnControl}
-          turnMode={turnMode}
-          turnModeError={turnModeError}
-        />
-        <EnablePlaybackButton
-          provider={provider}
-          state={state}
-          session={session}
-          switching={switching}
-        />
-      </div>
+      {(showHoldToTalk || showEnablePlayback) && (
+        <div className="shop-voice-actions">
+          <HoldToTalkControl
+            state={state}
+            turnControl={turnControl}
+            turnMode={turnMode}
+            turnModeError={turnModeError}
+          />
+          {showEnablePlayback && (
+            <EnablePlaybackButton
+              provider={provider}
+              state={state}
+              session={session}
+              switching={switching}
+            />
+          )}
+        </div>
+      )}
       <ShopCaption />
       <div className="shop-voice-status">
         <span

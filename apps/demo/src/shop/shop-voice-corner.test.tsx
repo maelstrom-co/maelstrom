@@ -225,10 +225,23 @@ describe('ShopVoiceCorner playback recovery', () => {
     expect(activateAudio).toHaveBeenCalledTimes(1);
   });
 
-  it('disables Enable playback until the session connects', () => {
-    const { getByRole } = renderLive('idle');
-    const button = getByRole('button', { name: 'Enable playback' });
-    expect(button.hasAttribute('disabled')).toBe(true);
+  it.each([
+    'idle',
+    'connecting',
+    'error',
+  ] as const)('omits Enable playback while %s on GPT-Live', (state) => {
+    const { queryByRole } = renderLive(state);
+    expect(queryByRole('button', { name: 'Enable playback' })).toBeNull();
+  });
+
+  it('renders no actions container when no control is visible', () => {
+    const { container } = renderLive('idle');
+    expect(container.querySelector('.shop-voice-actions')).toBeNull();
+  });
+
+  it('renders the actions container once playback is available', () => {
+    const { container } = renderLive('connected');
+    expect(container.querySelector('.shop-voice-actions')).not.toBeNull();
   });
 
   it('disables Enable playback while the provider switches', () => {
