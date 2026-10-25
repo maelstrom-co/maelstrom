@@ -5,7 +5,7 @@ import {
   firstImplementationRequest,
   firstPlanRequest,
   skillAgents,
-  skillBundleUrl,
+  skillRepository,
   skillInstaller,
   skillTasks,
 } from '../../../lib/skill-onboarding';
@@ -15,6 +15,7 @@ const sourceTree = `https://github.com/maelstrom-co/maelstrom/tree/${sourceRef}/
 const sourceFile = `https://github.com/maelstrom-co/maelstrom/blob/${sourceRef}/apps/docs/skills/README.md`;
 const headings = [
   { depth: 2, slug: 'install-heading', text: 'Install the complete bundle' },
+  { depth: 2, slug: 'plugins-heading', text: 'Install a native plugin' },
   { depth: 2, slug: 'verify-heading', text: 'Verify discovery' },
   { depth: 2, slug: 'first-task-heading', text: 'Run a safe first task' },
   { depth: 2, slug: 'tasks-heading', text: 'Choose your task' },
@@ -40,17 +41,23 @@ const headings = [
       {skillAgents.map((agent) => (
         <div class="agent-install">
           <h3>{agent.name}</h3>
-          <pre data-bundle-command hidden data-install-agent={agent.id}><code>{`bunx ${skillInstaller} add ${skillBundleUrl} --skill '*' --agent ${agent.id} --copy`}</code></pre>
+          <pre data-skill-command data-install-agent={agent.id}><code>{`bunx ${skillInstaller} add ${skillRepository} --skill '*' --agent ${agent.id} --copy`}</code></pre>
           <p>Project location: <code>{agent.directory}</code></p>
         </div>
       ))}
-      <p>Install from the generated bundle. Individual procedure directories include their required references, including voice architecture requirements. The authored GitHub tree uses a different shared-reference layout.</p>
+      <p>Install from the public skills repository. Each procedure includes its required references, including voice architecture requirements. The documentation bundle below preserves the revision of this documentation build.</p>
       <details>
         <summary>Manual ZIP or a single procedure</summary>
         <p><a href="/agents/skills/bundle.zip" download="maelstrom-agent-skills.zip">Download the complete skills bundle</a>. Extract the contents of <code>apps/docs/skills/</code> into your agent's project skills directory.</p>
         <p>For only debugging, replace <code>--skill '*'</code> with <code>--skill maelstrom maelstrom-debugging</code>. Keep the entry skill so the same starting request still works. Copy whole directories for a manual installation.</p>
       </details>
-      <noscript><p>Use the manual ZIP download to install this build's skills when JavaScript is disabled.</p></noscript>
+      <noscript><p>The installation commands above remain available without JavaScript.</p></noscript>
+    </section>
+
+    <section aria-labelledby="plugins-heading">
+      <h2 id="plugins-heading">Install a native plugin</h2>
+      <p>The <a href="https://github.com/maelstrom-co/skills">public skills repository</a> also includes native plugin manifests for Codex, Claude Code, and Cursor, plus a Pi git package. Follow its README for installation. Choose one installation method to avoid duplicate skill names.</p>
+      <p>Repository installation works independently of reviewed directory listings. Listing and review status are tracked separately.</p>
     </section>
 
     <section aria-labelledby="verify-heading">
@@ -87,7 +94,7 @@ const headings = [
             <p>Installation: included in the complete bundle above.</p>
             <details>
               <summary>Install only this procedure and the entry skill</summary>
-              <pre data-bundle-command hidden><code>{`bunx ${skillInstaller} add ${skillBundleUrl} --skill maelstrom ${task.id} --agent pi --copy`}</code></pre>
+              <pre data-skill-command><code>{`bunx ${skillInstaller} add ${skillRepository} --skill maelstrom ${task.id} --agent pi --copy`}</code></pre>
               <p>Replace <code>pi</code> with your selected agent target. Choose Project at the scope prompt.</p>
             </details>
             <pre><code>{task.request}</code></pre>
@@ -137,21 +144,7 @@ const headings = [
     <p class="source-links">For source browsing only: <a href={sourceTree}>skills tree</a> and <a href={sourceFile}>maintainer README</a>.</p>
   </div>
 </StarlightPage>
-<script>
-  import { skillBundleUrl } from '../../../lib/skill-onboarding';
 
-  const initBundleCommands = () => {
-    const servedBundle = new URL('/agents/skills/bundle.zip', location.origin).href;
-    for (const pre of document.querySelectorAll<HTMLElement>('[data-bundle-command]')) {
-      const code = pre.querySelector('code');
-      if (!code?.textContent) continue;
-      code.textContent = code.textContent.replace(skillBundleUrl, servedBundle);
-      pre.hidden = false;
-    }
-  };
-  initBundleCommands();
-  document.addEventListener('astro:page-load', initBundleCommands);
-</script>
 <style>
   .skill-index { max-width: 58rem; }
   section { margin-top: 2rem; }

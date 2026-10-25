@@ -15,6 +15,7 @@ test('the consumer ZIP uses public stable dependencies and no checkout-relative 
   const tsconfig = JSON.parse(text(files['tsconfig.json']));
   expect(manifest.dependencies['@maelstrom-co/react']).toBe('0.1.0');
   expect(manifest.dependencies['@maelstrom-co/engine']).toBe('0.1.0');
+  expect(manifest.overrides.zod).toBe('4.6.6');
   expect(tsconfig.references).toBeUndefined();
   expect(Object.keys(files).some((name) => name.endsWith('.template'))).toBe(
     false,

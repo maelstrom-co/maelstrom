@@ -1,7 +1,8 @@
 ---
 import promptSource from '../../../docs/prompts/library/maelstrom-project-onboarding.md?raw';
 import {
-  skillBundleUrl,
+  reactStarterRepository,
+  skillRepository,
   skillInstaller,
 } from '../../../docs/src/lib/skill-onboarding';
 import CopyButton from './CopyButton.astro';
@@ -10,8 +11,8 @@ const frontmatter = /^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/.exec(promptSource);
 if (!frontmatter)
   throw new Error('The canonical onboarding prompt needs frontmatter');
 const prompt = promptSource.slice(frontmatter[0].length);
-const skillsCommand = `bunx ${skillInstaller} add ${skillBundleUrl} --skill '*' --copy`;
-const starterCommands = 'bun install\nbun run typecheck\nbun run start';
+const skillsCommand = `bunx ${skillInstaller} add ${skillRepository} --skill '*' --copy`;
+const starterCommands = `git clone ${reactStarterRepository}.git\ncd react-starter\nbun install\nbun run typecheck\nbun run start`;
 const methods = [
   { id: 'prompt', label: 'With your agent' },
   { id: 'skills', label: 'Agent skills' },
@@ -46,10 +47,10 @@ const methods = [
   <section id="setup-panel-starter" data-setup-panel="starter" aria-labelledby="setup-starter-heading">
     <h3 id="setup-starter-heading">Run a working React app</h3>
     <p>The starter includes a React app and a local Engine. Its deterministic planner shows a greeting without calling a model.</p>
-    <a class="setup-download" href="https://docs.maelstrom-ai.co/getting-started/starter.zip">Download the React starter ZIP</a>
+    <a class="setup-download" href={reactStarterRepository}>Open React starter on GitHub</a>
     <ol class="setup-steps">
-      <li>Extract the ZIP into an empty folder.</li>
-      <li>Open a terminal in that folder and run:
+      <li>Create your own repository with GitHub's <strong>Use this template</strong> button, or clone the example below.</li>
+      <li>To clone and run the example, open a terminal and run:
         <div class="setup-copy-row"><pre><code>{starterCommands}</code></pre><CopyButton text={starterCommands} label="Copy starter commands" method="starter" /></div>
       </li>
       <li>Open <code>http://127.0.0.1:3001</code> and submit “Show the greeting”.</li>

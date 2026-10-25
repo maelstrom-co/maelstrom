@@ -1,8 +1,13 @@
 export const skillBundleUrl =
   'https://docs.maelstrom-ai.co/agents/skills/bundle.zip';
+export const skillRepository = 'maelstrom-co/skills';
+export const reactStarterRepository =
+  'https://github.com/maelstrom-co/react-starter';
 export const skillInstaller = 'skills@1.7.0';
 
 export const skillAgents = [
+  { id: 'codex', name: 'Codex', directory: '.agents/skills/' },
+  { id: 'cursor', name: 'Cursor', directory: '.agents/skills/' },
   { id: 'pi', name: 'Pi', directory: '.pi/skills/' },
   { id: 'opencode', name: 'OpenCode', directory: '.agents/skills/' },
   { id: 'claude-code', name: 'Claude Code', directory: '.claude/skills/' },

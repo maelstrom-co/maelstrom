@@ -60,9 +60,7 @@ test('keyboard users can choose skills or a complete runnable starter and copy i
     .click();
   await expect
     .poll(() => page.evaluate(() => navigator.clipboard.readText()))
-    .toBe(
-      "bunx skills@1.7.0 add https://docs.maelstrom-ai.co/agents/skills/bundle.zip --skill '*' --copy",
-    );
+    .toBe("bunx skills@1.7.0 add maelstrom-co/skills --skill '*' --copy");
   await skills.focus();
   await skills.press('End');
   await expect(
@@ -73,11 +71,8 @@ test('keyboard users can choose skills or a complete runnable starter and copy i
     exact: true,
   });
   await expect(
-    starter.getByRole('link', { name: 'Download the React starter ZIP' }),
-  ).toHaveAttribute(
-    'href',
-    'https://docs.maelstrom-ai.co/getting-started/starter.zip',
-  );
+    starter.getByRole('link', { name: 'Open React starter on GitHub' }),
+  ).toHaveAttribute('href', 'https://github.com/maelstrom-co/react-starter');
   await expect(starter).toContainText('http://127.0.0.1:3001');
   await expect(starter).toContainText('Show the greeting');
   await expect(starter).toContainText('without calling a model');
@@ -86,7 +81,9 @@ test('keyboard users can choose skills or a complete runnable starter and copy i
     .click();
   await expect
     .poll(() => page.evaluate(() => navigator.clipboard.readText()))
-    .toBe('bun install\nbun run typecheck\nbun run start');
+    .toBe(
+      'git clone https://github.com/maelstrom-co/react-starter.git\ncd react-starter\nbun install\nbun run typecheck\nbun run start',
+    );
   await expect
     .poll(() => captures)
     .toEqual([
@@ -172,14 +169,11 @@ test('the complete starter path and readable prompt remain available without Jav
       page.getByRole('heading', { name: 'Run a working React app' }),
     ).toBeVisible();
     await expect(page.locator('#setup-panel-starter pre')).toHaveText(
-      'bun install\nbun run typecheck\nbun run start',
+      'git clone https://github.com/maelstrom-co/react-starter.git\ncd react-starter\nbun install\nbun run typecheck\nbun run start',
     );
     await expect(
-      page.getByRole('link', { name: 'Download the React starter ZIP' }),
-    ).toHaveAttribute(
-      'href',
-      'https://docs.maelstrom-ai.co/getting-started/starter.zip',
-    );
+      page.getByRole('link', { name: 'Open React starter on GitHub' }),
+    ).toHaveAttribute('href', 'https://github.com/maelstrom-co/react-starter');
     await page.getByText('Read the prompt', { exact: true }).click();
     await expect(page.locator('#setup-panel-prompt pre')).toBeVisible();
     expect(

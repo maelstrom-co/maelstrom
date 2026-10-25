@@ -7,7 +7,15 @@ a model or require credentials.
 
 ## Run
 
-Install Bun, then run these commands from this extracted directory:
+Install Bun. Select [Use this template](https://github.com/maelstrom-co/react-starter/generate)
+to create your own repository, then clone it. To try the example directly:
+
+```sh
+git clone https://github.com/maelstrom-co/react-starter.git
+cd react-starter
+```
+
+Run these commands from the starter directory:
 
 ```sh
 bun install
@@ -39,3 +47,11 @@ authorization, persistence, and operational policy.
 
 The Maelstrom SDK uses the MIT license. See
 https://github.com/maelstrom-co/maelstrom/blob/main/LICENSE for the license text.
+
+This example is generated from `apps/docs/starters/react` in the
+[Maelstrom repository](https://github.com/maelstrom-co/maelstrom).
+`SOURCE.json` in the standalone repository records the source revision.
+Report issues and propose changes in the main repository.
+
+The dependency override selects Zod 4.6.6 for the 0.1.0 SDK dependencies.
+This addresses [GHSA-mrhx-c7xc-m3w5](https://github.com/advisories/GHSA-mrhx-c7xc-m3w5).
