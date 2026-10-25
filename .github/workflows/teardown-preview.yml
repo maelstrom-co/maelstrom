@@ -26,7 +26,7 @@ jobs:
           || (github.event.action == 'unlabeled'
             && github.event.label.name == 'deploy-preview')))
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    environment: preview
+    environment: preview-auto
     timeout-minutes: 45
     concurrency:
       group: deploy-preview-pr-${{ github.event.pull_request.number || inputs.pr_number }}

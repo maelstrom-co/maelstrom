@@ -274,8 +274,9 @@ Successful CI for the current head then updates the same preview URLs. The
 previous preview stays available while CI is pending or fails.
 Each automatic deployment rechecks the CI run and maintainer access before it
 changes a preview.
-Automatic deployments use `preview-auto`. Manual deployments and paid voice
-benchmarks keep the reviewer gate in `preview`.
+Automatic deployments, preview teardown, and scheduled cleanup use `preview-auto`
+without reviewer approval. Manual deployments and paid voice benchmarks keep the
+reviewer gate in `preview`.
 
 For other contributors, each push removes the approval label. A maintainer
 must add it again to approve that exact commit. Fork branches cannot deploy

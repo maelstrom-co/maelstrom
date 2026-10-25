@@ -499,6 +499,17 @@ describe('preview workflows', () => {
     );
   });
 
+  test.each([
+    ['teardown-preview.yml', 'teardown'],
+    ['reconcile-previews.yml', 'discover'],
+    ['reconcile-previews.yml', 'reconcile'],
+  ])('%s %s uses the ungated environment so cleanup cannot wait for approval', (file, job) => {
+    const workflow = Bun.YAML.parse(read(file)) as {
+      jobs: Record<string, { environment: string }>;
+    };
+    expect(workflow.jobs[job]!.environment).toBe('preview-auto');
+  });
+
   test('event teardown is trusted, manually default-branch guarded, and one lifecycle command', () => {
     const workflow = read('teardown-preview.yml');
     expect(workflow).toContain('types: [unlabeled, closed]');
