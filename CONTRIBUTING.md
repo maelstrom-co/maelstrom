@@ -488,6 +488,14 @@ so packages that already landed are skipped and only the missing ones go out. np
 re-publishing one that succeeded is a hard error; that flag is what makes the
 re-run work.
 
+When retained tarballs are still available, rerun only the failed publish job to
+reuse the prepared artifacts. Rerunning preparation or dispatching a manual
+recovery rebuilds the selected tag and audits its lockfile against current advisories.
+A previously published tag can therefore fail today's audit, including on newly
+disclosed development dependencies. If that happens, stop and review the blocked
+dependency paths and a recovery plan. Keep the existing tag unchanged; historical
+publication does not grant an audit exception.
+
 ### Flags and gotchas
 
 - **The GitHub release exists before npm publication finishes.** A failed

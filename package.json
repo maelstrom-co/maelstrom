@@ -53,7 +53,7 @@
     "typescript": "~6.0.3",
     "vite": "^8.3.4",
     "vite-tsconfig-paths": "^5.1.4",
-    "zod": "4.6.6",
+    "zod": "4.6.7",
     "solid-js": "^1.9.9"
   },
   "devDependencies": {
@@ -62,10 +62,8 @@
     "@biomejs/biome": "2.4.10",
     "@microsoft/api-extractor": "^7.59.0",
     "@nx/devkit": "24.0.2",
-    "@nx/jest": "24.0.2",
     "@nx/js": "24.0.2",
     "@nx/playwright": "24.0.2",
-    "@nx/plugin": "24.0.2",
     "@nx/react": "24.0.2",
     "@nx/vite": "24.0.2",
     "@nx/vitest": "24.0.2",

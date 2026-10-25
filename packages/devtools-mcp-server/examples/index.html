@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Local DevTools MCP</title></head>
+<body style="font:16px system-ui;margin:32px;background:#10131b;color:#e4e8ee">
+<h1>Inspect a local app through MCP</h1>
+<p>This fixture emits synthetic request metadata. It makes no Engine or provider calls.</p>
+<label>Private pairing file <input id="pairing" type="file" accept="application/json,.json"></label>
+<button id="connect" type="button">Pair local inspector</button>
+<p><output id="status" aria-live="polite">Not paired.</output></p>
+<button id="sample" type="button">Emit a sample failed request</button>
+<script type="module" src="/browser.js"></script>
+</body>
+</html>

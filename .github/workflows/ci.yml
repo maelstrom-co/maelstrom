@@ -53,9 +53,7 @@ jobs:
       - run: bun install --frozen-lockfile
 
       - name: Audit dependency advisories
-        # Unused Jest config dependency; recheck by 2026-11-11.
-        # See docs/dependency-audit-exceptions.md.
-        run: bun audit --ignore GHSA-gcqx-w48m-w2h4
+        run: bun audit
 
       - name: Validate canonical prompt sources and versions
         if: github.event_name == 'pull_request'

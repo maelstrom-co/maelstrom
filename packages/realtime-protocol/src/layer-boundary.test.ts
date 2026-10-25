@@ -141,6 +141,7 @@ function classify(name: string): Layer {
   if (
     name === '@maelstrom-co/protocol' ||
     name === '@maelstrom-co/realtime-protocol' ||
+    name === '@maelstrom-co/devtools-protocol' ||
     name === '@maelstrom-co/telemetry' ||
     // Shared client/host wire contracts (heartbeat frames, close-code
     // semantics): a contract leaf so engine hosts import it directly instead

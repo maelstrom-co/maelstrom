@@ -1,0 +1,57 @@
+{
+  "extends": "//",
+  "linter": {
+    "rules": {
+      "style": {
+        "noRestrictedImports": {
+          "level": "error",
+          "options": {
+            "paths": {
+              "@maelstrom-co/client": {
+                "message": "Server and worker packages may not import @maelstrom-co/client — it's a browser package. See packages/realtime-protocol/src/layer-boundary.test.ts for the enforced layering rule."
+              },
+              "@maelstrom-co/react": {
+                "message": "Server and worker packages may not import @maelstrom-co/react — it's a browser package. See packages/realtime-protocol/src/layer-boundary.test.ts for the enforced layering rule."
+              },
+              "@maelstrom-co/react-realtime": {
+                "message": "Server and worker packages may not import @maelstrom-co/react-realtime — it's a browser package. See packages/realtime-protocol/src/layer-boundary.test.ts for the enforced layering rule."
+              },
+              "@maelstrom-co/react/_testing": {
+                "message": "Server and worker packages may not import @maelstrom-co/react/_testing — it's a browser package. See packages/realtime-protocol/src/layer-boundary.test.ts for the enforced layering rule."
+              },
+              "@maelstrom-co/realtime": {
+                "message": "Server and worker packages may not import @maelstrom-co/realtime — it's a browser package. See packages/realtime-protocol/src/layer-boundary.test.ts for the enforced layering rule."
+              },
+              "@maelstrom-co/realtime-livekit": {
+                "message": "Server and worker packages may not import @maelstrom-co/realtime-livekit — it's a browser package (it peer-depends on the livekit-client WebRTC SDK). See packages/realtime-protocol/src/layer-boundary.test.ts for the enforced layering rule."
+              },
+              "@maelstrom-co/realtime-openai": {
+                "message": "Server and worker packages may not import @maelstrom-co/realtime-openai — it's a browser package. See packages/realtime-protocol/src/layer-boundary.test.ts for the enforced layering rule."
+              },
+              "@maelstrom-co/realtime-openai-live": {
+                "message": "Browser imports violate packages/realtime-protocol/src/layer-boundary.test.ts."
+              },
+              "@maelstrom-co/realtime-vad": {
+                "message": "Server and worker packages may not import @maelstrom-co/realtime-vad — it's a browser package. See packages/realtime-protocol/src/layer-boundary.test.ts for the enforced layering rule."
+              },
+              "@maelstrom-co/realtime-vad/asset-manifest": {
+                "message": "Server and worker packages may not import @maelstrom-co/realtime-vad/asset-manifest — it's a browser package. See packages/realtime-protocol/src/layer-boundary.test.ts for the enforced layering rule."
+              },
+              "@maelstrom-co/realtime-vad/assets": {
+                "message": "Server and worker packages may not import @maelstrom-co/realtime-vad/assets — it's a browser package. See packages/realtime-protocol/src/layer-boundary.test.ts for the enforced layering rule."
+              },
+              "@maelstrom-co/realtime-vad/config": {
+                "message": "Server and worker packages may not import @maelstrom-co/realtime-vad/config — it's a browser package. See packages/realtime-protocol/src/layer-boundary.test.ts for the enforced layering rule."
+              },
+              "@maelstrom-co/devtools": "Browser diagnostics are forbidden in server/worker packages. See packages/realtime-protocol/src/layer-boundary.test.ts.",
+              "@maelstrom-co/react-devtools": "Browser diagnostics are forbidden in server/worker packages. See packages/realtime-protocol/src/layer-boundary.test.ts.",
+              "@maelstrom-co/devtools/production": "Browser diagnostics are forbidden in server/worker packages. See packages/realtime-protocol/src/layer-boundary.test.ts.",
+              "@maelstrom-co/react-devtools/production": "Browser diagnostics are forbidden in server/worker packages. See packages/realtime-protocol/src/layer-boundary.test.ts.",
+              "@maelstrom-co/devtools/mcp-bridge": "Browser diagnostics are forbidden in server/worker packages. See packages/realtime-protocol/src/layer-boundary.test.ts."
+            }
+          }
+        }
+      }
+    }
+  }
+}

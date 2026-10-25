@@ -412,6 +412,15 @@ See the [DevTools guide](https://docs.maelstrom-ai.co/guides/devtools/) for setu
 recording, redaction, and inspection. These tools do not replace the application's
 production telemetry.
 
+Local MCP inspection uses three modules. `@maelstrom-co/devtools-protocol` owns
+runtime-neutral wire schemas. The explicit `@maelstrom-co/devtools/mcp-bridge` browser
+bridge reads projected metadata through existing filter and request models.
+`@maelstrom-co/devtools-mcp-server` owns the stdio interface and authenticated loopback
+listener. Its runtime dependencies must not include browser packages.
+Pairing is independent of panel visibility. It grants metadata reads without
+capture, app inspection, or application Action authority. Production activation
+remains disabled for this local, read-only integration.
+
 `@maelstrom-co/telemetry` defines operational facts and bounded sink delivery for
 browser and server consumers. It has no runtime dependencies. Its fixed field
 allowlist excludes content, identifiers, arbitrary labels, and error text.

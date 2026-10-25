@@ -1,0 +1,75 @@
+{
+  "name": "@maelstrom-co/devtools-mcp-server",
+  "version": "0.1.1",
+  "description": "Local read-only MCP server for Maelstrom DevTools.",
+  "keywords": [
+    "maelstrom",
+    "devtools",
+    "diagnostics"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "@maelstrom-co/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "skills",
+    "!**/*.tsbuildinfo"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/maelstrom-co/maelstrom.git",
+    "directory": "packages/devtools-mcp-server"
+  },
+  "homepage": "https://maelstrom-ai.co",
+  "bugs": {
+    "url": "https://github.com/maelstrom-co/maelstrom/issues"
+  },
+  "author": "Maelstrom (https://maelstrom-ai.co)",
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org",
+    "access": "public"
+  },
+  "dependencies": {
+    "@maelstrom-co/devtools-protocol": "0.1.1",
+    "@modelcontextprotocol/server": "2.4.0",
+    "ws": "8.22.0",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@maelstrom-co/devtools": "0.1.1",
+    "@maelstrom-co/client": "0.1.1",
+    "@maelstrom-co/protocol": "0.1.1",
+    "@modelcontextprotocol/client": "2.4.0",
+    "@types/ws": "^8.18.1"
+  },
+  "nx": {
+    "targets": {
+      "typecheck": {
+        "command": "tsc -p tsconfig.lib.json --noEmit && tsc -p tsconfig.spec.json --noEmit",
+        "options": {
+          "cwd": "{projectRoot}"
+        }
+      },
+      "test": {
+        "command": "bun --conditions=development test",
+        "options": {
+          "cwd": "{projectRoot}"
+        },
+        "dependsOn": [
+          "build"
+        ]
+      }
+    }
+  }
+}

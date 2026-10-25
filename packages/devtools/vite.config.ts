@@ -17,6 +17,7 @@ export default defineConfig({
     lib: {
       entry: {
         index: 'src/index.ts',
+        'mcp-bridge': 'src/mcp-bridge.ts',
         disabled: 'src/disabled.ts',
         production: 'src/production.ts',
       },

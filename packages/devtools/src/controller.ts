@@ -12,7 +12,11 @@ import {
 } from './capture-import.js';
 import { createDevtools as createDisabledDevtools } from './disabled.js';
 import { layoutSnapshot } from './layout-snapshot.js';
-import { replaceLiveEvidence } from './live-evidence.js';
+import {
+  replaceLiveEvidence,
+  retainLiveEventOwner,
+  retireLiveEvidence,
+} from './live-evidence.js';
 import { retainRequestEvents } from './request-history.js';
 import type { Devtools, DevtoolsOptions, DevtoolsSnapshot } from './types.js';
 
@@ -198,6 +202,7 @@ class Controller implements Devtools {
         if (!checked.success) return;
         const metadata: DiagnosticEvent = checked.data;
         if (this.options.filter && !this.options.filter(metadata)) return;
+        retainLiveEventOwner(this, metadata, id);
         const recording =
           this.capture.getSnapshot().active &&
           (!this.selectedCapture || this.selectedCapture === id);
@@ -485,6 +490,7 @@ class Controller implements Devtools {
         });
   }
   dispose(): void {
+    retireLiveEvidence(this);
     this.stopCapture();
     for (const { release } of [...this.attached.values()]) release();
     this.capture.clear();

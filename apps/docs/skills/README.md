@@ -109,6 +109,8 @@ inventory matches an older or newer release.
 | `@maelstrom-co/client` | Shipped |
 | `@maelstrom-co/connectors` | Shipped |
 | `@maelstrom-co/devtools` | Shipped |
+| `@maelstrom-co/devtools-mcp-server` | Shipped |
+| `@maelstrom-co/devtools-protocol` | Shipped |
 | `@maelstrom-co/engine` | Shipped |
 | `@maelstrom-co/protocol` | Shipped |
 | `@maelstrom-co/react` | Shipped |
