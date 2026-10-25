@@ -26,7 +26,7 @@ import {
 } from '../lib/playground-key-store';
 import { prepareBrowserOpenAIVoice } from '../lib/voice-adapter';
 import { voiceProviderStore } from '../lib/voice-provider';
-import { SHOP_LAYOUT } from './default-layout';
+import { selectShopLayout } from './default-layout';
 import { shopM } from './maelstrom';
 import { ShopHeader } from './shop-header';
 import { ShopIntentForm } from './shop-intent-form';
@@ -94,6 +94,10 @@ export function ShopPage() {
     return () => observer.disconnect();
   }, [connector, layoutHostWidth]);
   const debug = useMemo(() => isDebugRequested(), []);
+  const initialLayout = useMemo(
+    () => selectShopLayout(layoutHostWidth),
+    [layoutHostWidth],
+  );
 
   return (
     <div ref={layoutHostRef} className="demo-layout-host shop-app">
@@ -102,7 +106,7 @@ export function ShopPage() {
           key={keyEpoch}
           sessionId={sessionId}
           connector={connector}
-          initialLayout={SHOP_LAYOUT}
+          initialLayout={initialLayout}
           debug={debug}
         >
           <ShopOptionSync />
@@ -126,7 +130,7 @@ export function ShopPage() {
           onBlockedSubmit={handleBlockedSubmit}
         />
       )}
-      {debug && <shopM.Devtools />}
+      <shopM.Devtools />
       {browserKeyMode && (
         <KeyDrawer
           isOpen={drawerOpen}

@@ -328,6 +328,30 @@ describe('ShopPage voice key errors', () => {
   });
 });
 
+describe('ShopPage chrome', () => {
+  it('seeds the stacked shop screen when the chart host is narrow', async () => {
+    chartHostWidth = 390;
+
+    await renderShop();
+
+    expect(seededLayouts.at(-1)?.tree[0]).toBe('H');
+  });
+
+  it('seeds the side-by-side shop screen when the chart host is wide', async () => {
+    chartHostWidth = 1024;
+
+    await renderShop();
+
+    expect(seededLayouts.at(-1)?.tree[0]).toBe('V');
+  });
+
+  it('renders DevTools without the debug query', async () => {
+    const h = await renderShop();
+
+    expect(h.view.getByTestId('shop-devtools')).toBeTruthy();
+  });
+});
+
 async function renderShop() {
   setPlaygroundKey('test-only-not-a-provider-key');
   const engine = scriptedEngine();

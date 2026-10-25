@@ -10,6 +10,7 @@ const ORDERS = InstanceId('orders-main');
 const CART = InstanceId('cart-main');
 const ORDERS_LEAF = tilingLeafToken(ORDERS);
 const CART_LEAF = tilingLeafToken(CART);
+const NARROW_CHART_HOST_WIDTH = 640;
 
 /**
  * Starting screen for the shop instance: past orders beside the cart. The
@@ -33,3 +34,19 @@ export const SHOP_LAYOUT: TilingLayout = {
     },
   ],
 };
+
+/** The same starting screen stacked, orders above the cart, for a narrow chart host. */
+export const SHOP_NARROW_LAYOUT: TilingLayout = {
+  ...SHOP_LAYOUT,
+  tree: ['H', ORDERS_LEAF, CART_LEAF],
+};
+
+/**
+ * Picks the starting screen from the measured chart host width, never the
+ * browser viewport. An unmeasured host gets the side-by-side screen.
+ */
+export function selectShopLayout(chartHostWidth: number | null): TilingLayout {
+  return chartHostWidth !== null && chartHostWidth <= NARROW_CHART_HOST_WIDTH
+    ? SHOP_NARROW_LAYOUT
+    : SHOP_LAYOUT;
+}
