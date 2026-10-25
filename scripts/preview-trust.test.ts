@@ -43,6 +43,7 @@ const fixture = () => {
     state: 'open',
     user: user('author'),
     head: { sha: HEAD, ref: 'feature', repo: { full_name: REPOSITORY } },
+    base: { ref: 'main', repo: { full_name: REPOSITORY } },
     labels: [{ name: 'deploy-preview' }],
   };
   const comment = {
@@ -338,6 +339,18 @@ describe('maintainer preview authority', () => {
       },
     ],
     [
+      'retargeted live PR',
+      (f) => {
+        f.pull.base.ref = 'release';
+      },
+    ],
+    [
+      'foreign live base',
+      (f) => {
+        f.pull.base.repo.full_name = 'outsider/fork';
+      },
+    ],
+    [
       'opted-out PR',
       (f) => {
         f.pull.labels = [];
@@ -434,11 +447,13 @@ describe('maintainer preview lifetime', () => {
     'pusher',
     'rerunner',
     'CI',
+    'base',
   ])('a queued deployment stops when %s loses its authority', async (identity) => {
     const f = fixture();
     expect(await approve(f)).toBe(true);
     f.outputs.clear();
     if (identity === 'CI') f.run.status = 'in_progress';
+    else if (identity === 'base') f.pull.base.ref = 'release';
     else f.roles.delete(identity);
     const deploymentDependencies = {
       ...f.dependencies,

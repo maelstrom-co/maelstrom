@@ -70,6 +70,7 @@ export const isMaintainerPreview = async (
     readonly repository: string;
     readonly prNumber: string;
     readonly headSha: string;
+    readonly baseBranch?: string;
     readonly actors?: readonly unknown[];
   },
   dependencies: PreviewGithubDependencies,
@@ -95,7 +96,12 @@ export const isMaintainerPreview = async (
     !Array.isArray(pull.labels) ||
     !pull.labels.some(
       (label) => isRecord(label) && label.name === 'deploy-preview',
-    )
+    ) ||
+    (options.baseBranch !== undefined &&
+      (!isRecord(pull.base) ||
+        pull.base.ref !== options.baseBranch ||
+        !isRecord(pull.base.repo) ||
+        pull.base.repo.full_name !== options.repository))
   )
     return false;
   const logins = [pull.user, ...(options.actors ?? [])].map(userLogin);
@@ -172,6 +178,7 @@ export const selectMaintainerPreview = async (
     {
       ...selected,
       repository: options.repository,
+      baseBranch: repository.default_branch,
       actors: [run.actor, run.triggering_actor],
     },
     dependencies,
