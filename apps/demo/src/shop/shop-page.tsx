@@ -2,7 +2,14 @@ import type { IntentSubmission } from '@maelstrom-co/client';
 import { SessionId } from '@maelstrom-co/protocol';
 import { RealtimeVoiceError } from '@maelstrom-co/realtime';
 import { useStore } from '@tanstack/react-store';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { KeyDrawer } from '../components/key-drawer';
 import { VoiceProviderSelect } from '../components/voice-provider-select';
 import { createDemoConnector } from '../lib/connector';
@@ -245,7 +252,9 @@ function ShopWorkspace({
   const draftRevision = useRef(0);
   const latestSubmission = useRef<IntentSubmission | null>(null);
   const current = useRef({ intent, onIntentChange, onMintError });
-  current.current = { intent, onIntentChange, onMintError };
+  useLayoutEffect(() => {
+    current.current = { intent, onIntentChange, onMintError };
+  });
   const lifetime = useRef({ active: true });
 
   useEffect(() => {

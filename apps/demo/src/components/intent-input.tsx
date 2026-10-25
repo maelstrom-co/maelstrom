@@ -1,6 +1,6 @@
 import type { IntentSnapshot, IntentSubmission } from '@maelstrom-co/client';
 import { useStore } from '@tanstack/react-store';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { usesBrowserKey } from '../lib/hosted-mode';
 import { isInvalidKeyError } from '../lib/invalid-key-error';
 import { m } from '../lib/maelstrom';
@@ -38,7 +38,9 @@ export function IntentInput({
   const draftRevision = useRef(0);
   const latestSubmission = useRef<IntentSubmission | null>(null);
   const current = useRef({ intent, onIntentChange, onMintError });
-  current.current = { intent, onIntentChange, onMintError };
+  useLayoutEffect(() => {
+    current.current = { intent, onIntentChange, onMintError };
+  });
   const lifetime = useRef({
     active: true,
     subscriptions: new Set<() => void>(),
