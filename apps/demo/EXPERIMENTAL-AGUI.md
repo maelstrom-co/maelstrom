@@ -46,6 +46,21 @@ The demo-private `demo:workspace` and `demo:state` custom events use AG-UI 1.0.0
 
 Every workspace response passes through a stateless Planner, Engine validation, and the existing Orchestrator. Automatic resize and mutation requests share its FIFO and acknowledgment gate. Neither Vessel Actions nor layout changes are exposed as loop tools. The normal voice provider adapters retain their native transport.
 
+### Private ingress mapping
+
+[AG-UI 1.0 frontend tools](https://docs.ag-ui.com/spec/1.0/events/tool-calls.md#frontend-tools) have no consumer-to-producer mid-run channel. Their results return as tool messages in the next `RunAgentInput`. Using WebSocket does not add standard input semantics.
+
+This experiment uses a separate, private mapping. It sends empty `messages` and `tools` arrays and carries operations in `RunAgentInput.forwardedProps`:
+
+- **Typed task:** `enqueueIntent` admits each task step through the existing FIFO. The next planning run carries `kind: 'plan'`, the Chart request, and the initial goal when applicable. The form accepts one goal and disables further submission; it does not demonstrate utterance ingress during active work.
+- **Resize and mutations:** the existing Orchestrator buffers and coalesces local updates while work is active. They travel with a later Chart request. The connector waits for the preceding application acknowledgment before starting another planning run.
+- **UI-applied result:** exact command settlement supplies Action outcomes, authoritative Chart state, and the private Journal read. A new run carries `kind: 'ack'` and the correlated result in `forwardedProps`. This is not a standard frontend-tool result message or mid-run input.
+- **Mode exit and disconnect:** local abort and the private session DELETE endpoint retire work. These controls implement neither the planned interruption classifier nor AG-UI interrupt/resume.
+
+The connector buffers each SSE response until completion and validates its terminal framing before applying a workspace response. The server rejects overlapping runs and planning while an application result is pending. Streaming output therefore proves neither active-run ingress nor non-blocking Planner/ack parity.
+
+The normal WebSocket control/admission path remains intact. A production mapping for utterances, resize, mutations, and UI-applied ingress during active work remains a separate contract decision. This proof does not resolve that decision or implement the interruption classifier.
+
 Sessions last at most ten minutes and accept one goal. A disconnect, rejected result, changed Journal selection, or uncertain application stops continuation. Inspect the existing entry before starting another session; a new session is not reconciliation. Durability, restart recovery, general-purpose task planning, and experimental voice delivery are outside this proof.
 
 ## Run the checks
