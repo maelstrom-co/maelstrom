@@ -1,3 +1,4 @@
+import type { IntentSubmission } from '@maelstrom-co/client';
 import { SessionId } from '@maelstrom-co/protocol';
 import { RealtimeVoiceError } from '@maelstrom-co/realtime';
 import { useStore } from '@tanstack/react-store';
@@ -13,6 +14,11 @@ import {
   usesBrowserOpenAIVoice,
 } from '../lib/hosted-mode';
 import { preloadHostedVadAssets } from '../lib/hosted-vad';
+import {
+  isInvalidKeyError,
+  isLiveInvalidKeyError,
+} from '../lib/invalid-key-error';
+import { liveErrorMessage } from '../lib/live-exchange';
 import {
   clearPlaygroundKey,
   playgroundKeyStore,
@@ -206,10 +212,15 @@ function ShopWorkspace({
     void connectVoice().catch(() => {});
   }, [autoStartVoice, connectVoice, onAutoStartVoiceHandled]);
 
-  // A browser-key mint failure means the visitor's key is missing or
-  // rejected, so the drawer reopens with the mint layer's safe message.
+  // A browser-key mint failure, or a Live exchange the key could not
+  // authorize, means the visitor's key is missing or rejected, so the drawer
+  // reopens with that layer's safe message.
   useEffect(() => {
     if (!browserOpenAIVoice || voiceState !== 'error') return;
+    if (isLiveInvalidKeyError(voiceError)) {
+      onMintError(liveErrorMessage(voiceError.cause));
+      return;
+    }
     if (
       !(voiceError instanceof RealtimeVoiceError) ||
       voiceError.code !== 'TOKEN_MINT_FAILED'
@@ -224,28 +235,69 @@ function ShopWorkspace({
     );
   }, [browserOpenAIVoice, voiceState, voiceError, onMintError]);
 
-  const submit = () => {
-    const text = intent.trim();
-    if (!text) return;
-    if (needsKey) {
-      onBlockedSubmit();
-      return;
-    }
-    if (enqueueIntent(text).accepted) onIntentChange('');
+  const draftRevision = useRef(0);
+  const latestSubmission = useRef<IntentSubmission | null>(null);
+  const current = useRef({ intent, onIntentChange, onMintError });
+  current.current = { intent, onIntentChange, onMintError };
+  const lifetime = useRef({ active: true });
+
+  useEffect(() => {
+    const owner = { active: true };
+    lifetime.current = owner;
+    return () => {
+      owner.active = false;
+    };
+  }, [enqueueIntent]);
+
+  const changeDraft = (value: string) => {
+    draftRevision.current++;
+    onIntentChange(value);
   };
 
+  const submit = (): boolean => {
+    const text = intent.trim();
+    if (!text) return false;
+    if (needsKey) {
+      onBlockedSubmit();
+      return false;
+    }
+    const ticket = enqueueIntent(text);
+    const owner = lifetime.current;
+    latestSubmission.current = ticket;
+    if (ticket.accepted) changeDraft('');
+    const revision = draftRevision.current;
+    void ticket.result.then((result) => {
+      if (!owner.active) return;
+      if (
+        browserKeyMode &&
+        (result.status === 'failed' || result.status === 'unknown') &&
+        isInvalidKeyError(result.error)
+      ) {
+        if (
+          latestSubmission.current === ticket &&
+          draftRevision.current === revision &&
+          !current.current.intent
+        )
+          current.current.onIntentChange(intent);
+        current.current.onMintError('Invalid API key.');
+      }
+    });
+    return ticket.accepted;
+  };
+
+  // A refused resume stays pending and retries only when processing changes,
+  // so a full queue is retried as it drains rather than in a tight loop.
   useEffect(() => {
     if (!resumeIntent || connectionStatus !== 'connected') return;
     let live = true;
     queueMicrotask(() => {
       if (!live) return;
-      onResumeIntentHandled();
-      submit();
+      if (!intent.trim() || submit()) onResumeIntentHandled();
     });
     return () => {
       live = false;
     };
-  }, [resumeIntent, connectionStatus]);
+  }, [resumeIntent, connectionStatus, isProcessing]);
 
   return (
     <div className="demo-shell shop-shell relative z-[2]">
@@ -274,7 +326,7 @@ function ShopWorkspace({
       <footer className="shop-dock border-t bg-bg-1">
         <ShopIntentForm
           intent={intent}
-          onIntentChange={onIntentChange}
+          onIntentChange={changeDraft}
           onSubmit={submit}
           submitLabel="Send"
         />
