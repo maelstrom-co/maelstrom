@@ -394,11 +394,16 @@ describe('invalidatePreviewApproval', () => {
     expect(calls.filter(({ init }) => init?.method === 'DELETE')).toHaveLength(
       3,
     );
-    expect(
-      calls.filter(
-        ({ url, init }) => url.endsWith('/pulls/42') && !init?.method,
-      ),
-    ).toHaveLength(3);
+    let previousDelete = -1;
+    for (let index = 0; index < calls.length; index += 1) {
+      if (calls[index]?.init?.method !== 'DELETE') continue;
+      const lookups = calls.slice(previousDelete + 1, index);
+      expect(lookups.some(({ url }) => url.endsWith('/pulls/42'))).toBeTrue();
+      expect(
+        lookups.some(({ url }) => url.includes('/issues/42/comments')),
+      ).toBeTrue();
+      previousDelete = index;
+    }
     expect(sleeps).toEqual([2_000, 4_000]);
     expect(state.labeled).toBeFalse();
   });

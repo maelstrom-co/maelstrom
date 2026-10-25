@@ -263,6 +263,36 @@ See the [README](./README.md) for the package architecture and core concepts.
   requires no token. Fork PRs cannot publish packages through this workflow.
   Publishing stays disabled while the repository is private.
 
+### Preview the applications
+
+Add `deploy-preview` to an open PR whose branch is in this repository. The
+deployment workflow posts website, documentation, and demo URLs on the PR.
+
+For automatic updates, the PR author, CI actor, and CI rerun actor must have
+`maintain` or `admin` access. Later pushes by maintainers keep the opt-in label.
+Successful CI for the current head then updates the same preview URLs. The
+previous preview stays available while CI is pending or fails.
+Each automatic deployment rechecks the CI run and maintainer access before it
+changes a preview.
+Automatic deployments use `preview-auto`. Manual deployments and paid voice
+benchmarks keep the reviewer gate in `preview`.
+
+For other contributors, each push removes the approval label. A maintainer
+must add it again to approve that exact commit. Fork branches cannot deploy
+previews through this workflow.
+
+Check the deployed commit in the preview comment before reviewing a change.
+Remove `deploy-preview` or close the PR to remove its previews. Automatic
+updates do not publish npm packages or run paid voice benchmarks.
+
+Repository administrators must configure `preview-auto` before enabling automatic
+updates. Allow only the `main` branch through a selected-branch deployment rule,
+with no required reviewers. Add `CLOUDFLARE_PREVIEW_API_TOKEN` and
+`CLOUDFLARE_PREVIEW_ACCOUNT_ID` as environment secrets, using the preview account.
+Set `CLOUDFLARE_PREVIEW_WORKERS_DEV_SUFFIX` as an environment variable. Keep model
+and voice provider keys in `preview`. The default-branch workflow checks current
+maintainer authority before accessing the automatic deployment environment.
+
 ## Releasing
 
 Prepare package versions and release notes in a reviewed release PR. After it
