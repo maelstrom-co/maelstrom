@@ -22,6 +22,7 @@ import {
 import { useFlashInstances } from '../lib/use-touched-instances';
 import { voiceProviderStore } from '../lib/voice-provider';
 import { DemoHeader } from './demo-header';
+import { ExperimentalAgui } from './experimental-agui';
 import { FirstRunHint } from './first-run-hint';
 import { IntentInput } from './intent-input';
 import { KeyDrawer } from './key-drawer';
@@ -30,6 +31,26 @@ import { VesselOptionSync } from './vessel-option-sync';
 import { VoiceProviderSelect } from './voice-provider-select';
 
 export function HomePage() {
+  const [experimental, setExperimental] = useState(false);
+  if (experimental)
+    return <ExperimentalAgui onExit={() => setExperimental(false)} />;
+  return (
+    <>
+      {!isHosted() && (
+        <button
+          type="button"
+          className="status-pill fixed right-4 bottom-24 z-50 px-3 py-2"
+          onClick={() => setExperimental(true)}
+        >
+          Experimental AG-UI
+        </button>
+      )}
+      <NormalHomePage />
+    </>
+  );
+}
+
+function NormalHomePage() {
   const hosted = isHosted();
   const browserKeyMode = usesBrowserKey();
   const apiKey = useStore(playgroundKeyStore, (state) => state.apiKey);

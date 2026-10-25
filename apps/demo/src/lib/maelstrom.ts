@@ -6,6 +6,7 @@ import { journalEntry } from '../vessels/journal.vessel';
 import { mapEntry } from '../vessels/map.vessel';
 import { tasksEntry } from '../vessels/tasks.vessel';
 import { weatherEntry } from '../vessels/weather.vessel';
+import { aguiExperiment } from './agui-extension';
 import { DEMO_GREETING, DEMO_OPENAI_VOICE } from './demo-greeting-tts';
 import { createDemoTelemetry } from './demo-telemetry';
 import { demoVoiceOpening, registerDemoVoice } from './demo-voice';
@@ -41,6 +42,7 @@ export const m = createMaelstrom({
     }),
   )
   .with(orchestrationLegibility)
+  .with(aguiExperiment)
   .with(demoTelemetry.extension)
   .with(
     devtools({

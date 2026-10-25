@@ -17,6 +17,8 @@ Before starting, install or confirm the following:
 
 The baseline does not require microphone permission, a LiveKit server, Deepgram, or Cartesia.
 
+For the opt-in result-dependent Journal experiment, see [Run the experimental AG-UI mode](./EXPERIMENTAL-AGUI.md).
+
 ## Start the typed demo
 
 Clone the repository from its public Git URL, then change into the clone directory:

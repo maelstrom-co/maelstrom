@@ -74,6 +74,7 @@
       "name": "@maelstrom-co/demo",
       "version": "0.0.1",
       "dependencies": {
+        "@ag-ui/core": "1.0.0",
         "@fontsource/inter": "^5.2.8",
         "@fontsource/jetbrains-mono": "^5.2.8",
         "@maelstrom-co/client": "workspace:*",
