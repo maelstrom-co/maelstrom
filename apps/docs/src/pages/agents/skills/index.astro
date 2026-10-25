@@ -134,7 +134,7 @@ const headings = [
       <h2 id="troubleshoot-heading">Troubleshoot discovery</h2>
       <dl>
         <dt>The installer lists the skill, but the agent does not</dt><dd>Check the selected agent, project directory, trust/skill permissions, and reload behavior. Ask it to read the installed entry file. Do not treat a global installation as a project installation.</dd>
-        <dt>A referenced file is missing</dt><dd>Refresh from the generated ZIP and copy the complete procedure directory. A copied <code>SKILL.md</code> from GitHub does not include build-generated references.</dd>
+        <dt>A referenced file is missing</dt><dd>Refresh from the public skills repository and copy the complete procedure directory. A lone <code>SKILL.md</code> from the authored monorepo layout omits its generated references. The documentation ZIP is also available for a copy from this build.</dd>
         <dt>Intent finds no guides</dt><dd>First check whether the installed package ships a guide. For a listed exception, inspect its installed API artifacts instead. Otherwise check the workspace, installation, and <code>intent.skills</code>/<code>intent.exclude</code>. Planning can continue without SDK APIs.</dd>
         <dt>A guide disagrees with an API</dt><dd>Check the installed package manifest, exported declarations, and runtime entrypoint. Runtime JavaScript can be bundled in <code>dist/index.js</code>; declaration subpaths do not imply matching JavaScript files.</dd>
         <dt>The agent loads the wrong workflow</dt><dd>State the primary outcome and authority explicitly. Ask it to load <code>maelstrom</code>, select one procedure, and report which installed guide supports its API claims.</dd>

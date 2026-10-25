@@ -5,9 +5,11 @@ destination directory, and plan-only or implementation authority from the reques
 Inspect the destination and its parent instructions before creating files. Use an
 empty destination; ask for another path if creating the app would overwrite work.
 
-For React, start from the [runnable React starter](https://docs.maelstrom-ai.co/getting-started/starter/).
-Download its complete ZIP into the approved destination and read the included
-README and package scripts. The starter pins public npm packages at 0.1.0 and
+For React, start from the [React starter repository](https://github.com/maelstrom-co/react-starter).
+Clone the example into the approved empty destination and read its README and
+package scripts. Use the GitHub template action when the user requests a new
+GitHub repository.
+The starter pins public npm packages at 0.1.0 and
 runs a real Engine with a deterministic local planner. It needs Bun and no provider
 key. Describe this as local integration verification, not a live model test.
 

@@ -8,7 +8,7 @@ description: >-
 license: MIT
 metadata:
   author: Maelstrom
-  version: 0.2.0
+  version: 0.2.1
 ---
 
 # Maelstrom project onboarding

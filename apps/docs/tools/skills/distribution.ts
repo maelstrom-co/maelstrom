@@ -46,7 +46,7 @@ export async function createPublicDistributions(
     );
     if (relative) skills[`skills/${relative[1]}/${relative[2]}`] = bytes;
   }
-  const version = '0.2.0';
+  const version = '0.2.1';
   const identity = {
     name: 'maelstrom',
     version,
