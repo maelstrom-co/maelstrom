@@ -12,17 +12,19 @@ export function EnablePlaybackButton({
   state,
   session,
   switching,
+  className = 'status-pill min-h-11 rounded-full px-3 text-xs',
 }: {
   readonly provider: string | undefined;
   readonly state: VoiceSessionState;
   readonly session: RealtimeSession;
   readonly switching: boolean;
+  readonly className?: string;
 }) {
   if (provider !== 'live') return null;
   return (
     <button
       type="button"
-      className="status-pill min-h-11 rounded-full px-3 text-xs"
+      className={className}
       disabled={!isVoiceConnected(state) || switching}
       onClick={() => {
         const adapter = demoVoiceSession(session)?.adapter;

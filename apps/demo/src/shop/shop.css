@@ -6,11 +6,7 @@
   --shop-devtools-clearance: 184px;
 }
 
-/* Chart instance wrappers are positioned with z-index 1, so the dock sits
-   above them for the recovery controls that float over the chart. */
 .shop-app .shop-dock {
-  position: relative;
-  z-index: 3;
   display: flex;
   height: 96px;
   align-items: center;
@@ -45,30 +41,6 @@
   column-gap: 12px;
   row-gap: 8px;
   align-items: center;
-}
-
-/* Recovery controls float above the dock instead of joining it, so showing
-   them never resizes the Chart host. */
-.shop-app .shop-voice-actions {
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: 24px;
-  display: flex;
-  max-width: calc(100% - 48px);
-  align-items: center;
-  justify-content: flex-start;
-  gap: 8px;
-  pointer-events: none;
-}
-
-.shop-app .shop-voice-actions > * {
-  border-radius: 999px;
-  background: var(--color-bg-1);
-  pointer-events: auto;
-}
-
-.shop-app .shop-voice-actions > span {
-  padding: 4px 10px;
 }
 
 .shop-app .shop-caption {
@@ -120,6 +92,19 @@
   color: var(--color-ink-2);
   font-size: 12px;
   white-space: nowrap;
+}
+
+.shop-app .shop-voice-playback {
+  width: auto;
+  min-width: 104px;
+  padding: 0 12px;
+  color: var(--color-brand-2);
+  cursor: pointer;
+}
+
+.shop-app .shop-voice-playback:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .shop-app .shop-voice-pill[data-state='connected'],
@@ -183,11 +168,6 @@
     align-items: flex-start;
     justify-content: center;
     gap: 2px;
-  }
-
-  .shop-app .shop-voice-actions {
-    left: 16px;
-    max-width: calc(100% - 32px);
   }
 }
 

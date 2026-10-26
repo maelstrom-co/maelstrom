@@ -31,18 +31,41 @@ vi.doMock('./maelstrom', () => ({
 
 vi.doMock('../lib/voice-adapter', () => ({ prepareBrowserOpenAIVoice }));
 
+type LivePlayback = 'unavailable' | 'pending' | 'accepted' | 'blocked';
+
 const activateAudio = vi.fn(async () => {});
+let livePlayback: LivePlayback = 'accepted';
+const playbackListeners = new Set<() => void>();
 class FakeLiveAdapter {
   activateAudio = activateAudio;
+  getTransportSnapshot() {
+    return { playback: livePlayback };
+  }
+  generatedOpening = {
+    readiness: {
+      subscribe: (handler: () => void) => {
+        playbackListeners.add(handler);
+        return () => {
+          playbackListeners.delete(handler);
+        };
+      },
+    },
+  };
 }
 const liveSession = {};
+const liveAdapter = new FakeLiveAdapter();
 vi.doMock('@maelstrom-co/realtime-openai-live', () => ({
   OpenAILiveAdapter: FakeLiveAdapter,
 }));
 vi.doMock('../lib/demo-voice', () => ({
   demoVoiceSession: (session: unknown) =>
-    session === liveSession ? { adapter: new FakeLiveAdapter() } : undefined,
+    session === liveSession ? { adapter: liveAdapter } : undefined,
 }));
+
+function setLivePlayback(playback: LivePlayback) {
+  livePlayback = playback;
+  for (const listener of [...playbackListeners]) listener();
+}
 
 const { ShopVoiceCorner, voicePillLabel } = await import('./shop-voice-corner');
 
@@ -79,6 +102,8 @@ beforeEach(() => {
   orbClick.mockClear();
   prepareBrowserOpenAIVoice.mockClear();
   activateAudio.mockClear();
+  livePlayback = 'accepted';
+  playbackListeners.clear();
 });
 
 afterEach(cleanup);
@@ -148,67 +173,6 @@ describe('ShopVoiceCorner', () => {
   });
 });
 
-describe('ShopVoiceCorner hold-to-talk fallback', () => {
-  function renderManual(
-    state: VoiceSessionState,
-    turnControl: AdapterTurnControl | undefined,
-    overrides: Partial<ShopVoiceResult> = {},
-  ) {
-    voiceResult = makeVoiceResult(state, {
-      turnMode: 'manual',
-      turnControl,
-      ...overrides,
-    });
-    return render(<ShopVoiceCorner needsKey={false} onRequireKey={vi.fn()} />);
-  }
-
-  it('starts and ends a manual turn while the button is held', async () => {
-    const turnControl = makeTurnControl();
-    const { getByRole } = renderManual('connected', turnControl);
-    const button = getByRole('button', { name: 'Hold to talk' });
-    await act(async () => {
-      fireEvent.pointerDown(button, { pointerId: 1 });
-    });
-    expect(turnControl.startTurn).toHaveBeenCalledTimes(1);
-    await act(async () => {
-      fireEvent.pointerUp(button, { pointerId: 1 });
-    });
-    expect(turnControl.endTurn).toHaveBeenCalledTimes(1);
-  });
-
-  it('explains the fallback when automatic voice detection failed', () => {
-    const { getByText } = renderManual('connected', makeTurnControl(), {
-      turnModeError: new Error('vad failed'),
-    });
-    expect(
-      getByText('Automatic voice detection unavailable; hold to talk.'),
-    ).toBeTruthy();
-  });
-
-  it('ends an active press when the session disconnects', async () => {
-    const turnControl = makeTurnControl();
-    const { getByRole, rerender } = renderManual('listening', turnControl);
-    await act(async () => {
-      fireEvent.pointerDown(getByRole('button', { name: 'Hold to talk' }), {
-        pointerId: 1,
-      });
-    });
-    voiceResult = makeVoiceResult('idle', {
-      turnMode: 'manual',
-      turnControl,
-    });
-    rerender(<ShopVoiceCorner needsKey={false} onRequireKey={vi.fn()} />);
-    expect(turnControl.endTurn).toHaveBeenCalledTimes(1);
-  });
-
-  it('hides hold-to-talk while automatic detection controls turns', () => {
-    const { queryByRole } = renderManual('connected', makeTurnControl(), {
-      turnMode: 'automatic',
-    });
-    expect(queryByRole('button', { name: 'Hold to talk' })).toBeNull();
-  });
-});
-
 describe('ShopVoiceCorner playback recovery', () => {
   function renderLive(state: VoiceSessionState, switching = false) {
     voiceResult = makeVoiceResult(state, {
@@ -219,42 +183,97 @@ describe('ShopVoiceCorner playback recovery', () => {
     return render(<ShopVoiceCorner needsKey={false} onRequireKey={vi.fn()} />);
   }
 
+  it.each([
+    'accepted',
+    'pending',
+    'unavailable',
+  ] as const)('keeps the status pill while GPT-Live playback is %s', (playback) => {
+    livePlayback = playback;
+    const { getByRole, queryByRole } = renderLive('listening');
+    expect(queryByRole('button', { name: 'Enable playback' })).toBeNull();
+    expect(getByRole('status', { name: 'Voice status' }).textContent).toBe(
+      'Listening',
+    );
+  });
+
+  it('shows Enable playback in place of the pill while playback is blocked', () => {
+    livePlayback = 'blocked';
+    const { container, getByRole, queryByRole } = renderLive('listening');
+    const button = getByRole('button', { name: 'Enable playback' });
+    expect(queryByRole('status', { name: 'Voice status' })).toBeNull();
+    expect(button.parentElement?.className).toBe('shop-voice-status');
+    expect(container.querySelector('.shop-voice-actions')).toBeNull();
+  });
+
   it('unlocks GPT-Live playback from a click on Enable playback', () => {
+    livePlayback = 'blocked';
     const { getByRole } = renderLive('connected');
     fireEvent.click(getByRole('button', { name: 'Enable playback' }));
     expect(activateAudio).toHaveBeenCalledTimes(1);
+  });
+
+  it('brings the pill back once blocked playback is accepted', () => {
+    livePlayback = 'blocked';
+    const { getByRole, queryByRole } = renderLive('speaking');
+    expect(getByRole('button', { name: 'Enable playback' })).toBeTruthy();
+    act(() => setLivePlayback('accepted'));
+    expect(queryByRole('button', { name: 'Enable playback' })).toBeNull();
+    expect(getByRole('status', { name: 'Voice status' }).textContent).toBe(
+      'Speaking',
+    );
+  });
+
+  it('shows Enable playback when playback becomes blocked after render', () => {
+    const { getByRole, queryByRole } = renderLive('listening');
+    expect(queryByRole('button', { name: 'Enable playback' })).toBeNull();
+    act(() => setLivePlayback('blocked'));
+    expect(getByRole('button', { name: 'Enable playback' })).toBeTruthy();
   });
 
   it.each([
     'idle',
     'connecting',
     'error',
-  ] as const)('omits Enable playback while %s on GPT-Live', (state) => {
-    const { queryByRole } = renderLive(state);
+  ] as const)('keeps the pill while %s on GPT-Live', (state) => {
+    livePlayback = 'blocked';
+    const { getByRole, queryByRole } = renderLive(state);
     expect(queryByRole('button', { name: 'Enable playback' })).toBeNull();
-  });
-
-  it('renders no actions container when no control is visible', () => {
-    const { container } = renderLive('idle');
-    expect(container.querySelector('.shop-voice-actions')).toBeNull();
-  });
-
-  it('renders the actions container once playback is available', () => {
-    const { container } = renderLive('connected');
-    expect(container.querySelector('.shop-voice-actions')).not.toBeNull();
+    expect(getByRole('status', { name: 'Voice status' }).textContent).toBe(
+      voicePillLabel(state),
+    );
   });
 
   it('disables Enable playback while the provider switches', () => {
+    livePlayback = 'blocked';
     const { getByRole } = renderLive('connected', true);
     const button = getByRole('button', { name: 'Enable playback' });
     expect(button.hasAttribute('disabled')).toBe(true);
   });
 
   it('omits Enable playback for OpenAI Realtime', () => {
+    livePlayback = 'blocked';
     voiceResult = makeVoiceResult('connected', { provider: 'realtime' });
-    const { queryByRole } = render(
+    const { getByRole, queryByRole } = render(
       <ShopVoiceCorner needsKey={false} onRequireKey={vi.fn()} />,
     );
     expect(queryByRole('button', { name: 'Enable playback' })).toBeNull();
+    expect(getByRole('status', { name: 'Voice status' })).toBeTruthy();
+  });
+});
+
+describe('ShopVoiceCorner turn controls', () => {
+  it('never shows hold-to-talk, even in manual turn mode', () => {
+    voiceResult = makeVoiceResult('connected', {
+      turnMode: 'manual',
+      turnControl: makeTurnControl(),
+      turnModeError: new Error('vad failed'),
+    });
+    const { queryByRole, queryByText } = render(
+      <ShopVoiceCorner needsKey={false} onRequireKey={vi.fn()} />,
+    );
+    expect(queryByRole('button', { name: 'Hold to talk' })).toBeNull();
+    expect(
+      queryByText('Automatic voice detection unavailable; hold to talk.'),
+    ).toBeNull();
   });
 });
