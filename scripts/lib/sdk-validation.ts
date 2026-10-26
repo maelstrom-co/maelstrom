@@ -31,24 +31,19 @@ export function assertBoundedSdkValidation(schema: BoundedSdkSchema): void {
   }
 }
 
-/** Checks the Zod version markers emitted by the SDK's pinned library compiler. */
+/** Checks literal versions bound to the Zod metadata emitted by the SDK's library compiler. */
 export function assertBundledValidationSources(
   sources: readonly string[],
   name: string,
 ): void {
   for (const source of sources) {
     if (!source.includes('_zod')) continue;
-    const versions = [
-      ...source.matchAll(
-        /\bmajor:\s*(\d+),\s*minor:\s*(\d+),\s*patch:\s*(\d+)/g,
-      ),
-    ];
-    if (versions.length === 0)
+    const versions = embeddedZodVersions(source);
+    if (!versions?.length)
       throw new Error(
         `${name}: embedded validator version could not be verified`,
       );
-    for (const match of versions) {
-      const [major, minor, patch] = match.slice(1).map(Number);
+    for (const [major, minor, patch] of versions) {
       if (
         major < 4 ||
         (major === 4 && (minor < 6 || (minor === 6 && patch < 6)))
@@ -133,3 +128,5 @@ export function assertBoundedClientValidation(
       'Client validation must reject oversized enums before parsing their entries.',
     );
 }
+
+import { embeddedZodVersions } from './zod-runtime-versions.ts';
