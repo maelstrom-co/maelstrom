@@ -102,7 +102,7 @@ export async function callLlm<T>(
       systemPrompts: [SYSTEM_PROMPT],
       // TanStack 1.0 stops before terminal usage when its validator rejects a result.
       // Keep provider constraints, then validate locally after the stream drains.
-      outputSchema: convertSchemaToJsonSchema(schema),
+      outputSchema: preserveNullableBranches(convertSchemaToJsonSchema(schema)),
       stream: false,
       debug: false,
       middleware: [middleware],
@@ -150,4 +150,68 @@ export async function callLlm<T>(
       ...(usage?.cost !== undefined && { 'gen_ai.usage.cost': usage.cost }),
     });
   }
+}
+
+function preserveNullableBranches(
+  schema: ReturnType<typeof convertSchemaToJsonSchema>,
+): ReturnType<typeof convertSchemaToJsonSchema> {
+  const normalize = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(normalize);
+    if (value === null || typeof value !== 'object') return value;
+    const schemaMaps = new Set([
+      'properties',
+      'patternProperties',
+      '$defs',
+      'definitions',
+      'dependentSchemas',
+    ]);
+    const schemas = new Set([
+      'items',
+      'prefixItems',
+      'additionalItems',
+      'contains',
+      'additionalProperties',
+      'unevaluatedProperties',
+      'unevaluatedItems',
+      'propertyNames',
+      'allOf',
+      'anyOf',
+      'oneOf',
+      'not',
+      'if',
+      'then',
+      'else',
+      'contentSchema',
+    ]);
+    const fields: Record<string, unknown> = Object.fromEntries(
+      Object.entries(value).map(([key, child]) => [
+        key,
+        schemaMaps.has(key) &&
+        child !== null &&
+        typeof child === 'object' &&
+        !Array.isArray(child)
+          ? Object.fromEntries(
+              Object.entries(child).map(([name, schema]) => [
+                name,
+                normalize(schema),
+              ]),
+            )
+          : schemas.has(key)
+            ? normalize(child)
+            : child,
+      ]),
+    );
+    if (
+      Array.isArray(fields.type) &&
+      fields.type.length === 2 &&
+      fields.type.includes('null') &&
+      fields.type.every((type) => typeof type === 'string') &&
+      fields.anyOf === undefined
+    ) {
+      const { type, ...rest } = fields;
+      return { anyOf: type.map((item) => ({ type: item })), ...rest };
+    }
+    return fields;
+  };
+  return normalize(schema) as ReturnType<typeof convertSchemaToJsonSchema>;
 }
