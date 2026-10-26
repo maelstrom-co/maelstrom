@@ -9,7 +9,7 @@
  * owned by the Effect services under `./session/`:
  *
  *   - `Connections` holds keys per connection, tracks rehello declines, and
- *     buffers at most one triggering frame per socket.
+ *     reserves one native frame and one workspace frame per socket during rehello.
  *   - `Engines` owns the object-scoped engine cache and its last-socket
  *     teardown rule.
  *   - `EngineFactory` is the typed-error boundary: a failed engine build can
@@ -172,6 +172,7 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
       const connections = yield* Connections;
       const engines = yield* Engines;
 
+      if (connections.retired(ws)) return;
       const key = connections.keyOf(ws);
       // The attachment read is a platform call whose result is only used on
       // the keyless path (wasHelloed requires key === null), so skip it for
@@ -230,6 +231,7 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
               ),
       }).pipe(Effect.result);
 
+      if (connections.retired(ws)) return;
       if (Result.isFailure(dispatched)) {
         // Safe to log precisely because the factory redacted the message:
         // without a server-side line, a deployment where every visitor's
@@ -254,10 +256,8 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
             result.frame.apiKey,
             result.frame.sessionId,
           );
-          // Replay whatever triggered the rehello, so the visitor's request
-          // is answered rather than silently lost.
-          const pending = connections.takePending(ws);
-          if (pending !== undefined) {
+          for (const pending of connections.takePending(ws)) {
+            if (connections.retired(ws)) return;
             yield* this.#onMessage(ws, pending);
           }
           return;
@@ -270,23 +270,21 @@ export class SessionDO extends DurableObject<PlaygroundEnv> {
           // request to die on the client's correlator timeout with no
           // diagnostic at all.
           connections.markDecline(ws);
-          const pending = connections.takePending(ws);
-          if (pending !== undefined) this.#replyPreHello(ws, pending);
+          for (const pending of connections.takePending(ws))
+            this.#replyPreHello(ws, pending);
           return;
         }
         case 'rehello': {
-          if (!connections.bufferPending(ws, raw)) {
-            // A rehello for this socket is already outstanding and this
-            // frame raced its answer. Only one frame can be buffered, so
-            // this one gets an immediate reply instead — an accurate
-            // "re-authenticating" error, not the key-drawer copy, which
-            // would be a lie while the client's hello is in flight. The
-            // ORIGINAL buffered frame stays put and is replayed when that
-            // hello lands.
+          const buffered = connections.bufferPending(
+            ws,
+            raw,
+            readWorkspaceRun(raw) ? 'workspace' : 'native',
+          );
+          if (buffered === 'full') {
             this.#replyError(ws, raw, REAUTHENTICATING_ERROR, key);
-            return;
+          } else if (buffered === 'first') {
+            ws.send(JSON.stringify({ type: 'playground.rehello' }));
           }
-          ws.send(JSON.stringify({ type: 'playground.rehello' }));
           return;
         }
         case 'close':

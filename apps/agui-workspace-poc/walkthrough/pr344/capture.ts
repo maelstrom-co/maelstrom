@@ -30,6 +30,7 @@ try {
     viewport: { width: 1440, height: 900 },
   });
   const errors: string[] = [];
+  let title = '';
   page.on('pageerror', (error) => errors.push(error.message));
   await page.route('https://api.openai.com/**', () => {});
   await page.addInitScript(() => {
@@ -60,7 +61,7 @@ try {
                   {
                     instanceId: 'review-entry',
                     action: 'createEntry',
-                    paramsJson: '{"title":"Protocol review"}',
+                    paramsJson: JSON.stringify({ title }),
                   },
                 ]
               : [],
@@ -100,6 +101,7 @@ try {
   const selector = page.getByRole('combobox', { name: 'Workspace protocol' });
   await selector.selectOption('agui');
   for (const mode of ['native', 'agui']) {
+    title = `${mode === 'native' ? 'Native' : 'AG-UI'} protocol review`;
     await selector.selectOption(mode);
     await expect(page.locator('button.voice-orb')).toHaveAttribute(
       'data-state',
@@ -108,12 +110,14 @@ try {
     const input = page.getByPlaceholder(
       'Tell Maelstrom what you want to arrange...',
     );
-    await input.fill('Create a Journal entry titled Protocol review.');
+    const intent = `Create a Journal entry titled ${title}.`;
+    await input.fill(intent);
     await input.press('Enter');
+    await expect(page.getByText(title, { exact: true })).toBeVisible();
     await expect(
-      page.getByText('Protocol review', { exact: true }),
-    ).toBeVisible();
-    await page.waitForTimeout(800);
+      page.getByRole('region', { name: 'Maelstrom response' }),
+    ).toContainText(`“${intent}”: Applied`);
+    await expect(page.getByRole('alert')).toHaveCount(0);
     await page.screenshot({
       path: resolve(import.meta.dirname, `assets/${mode}.png`),
     });

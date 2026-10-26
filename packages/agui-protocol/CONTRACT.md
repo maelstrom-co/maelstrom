@@ -25,8 +25,12 @@ Typed and voice utterances received during active work wait in the client FIFO. 
 
 A successful run emits `RUN_STARTED`, one `CUSTOM` result, then `RUN_FINISHED` as separate WebSocket messages.
 
+`RUN_FINISHED` may omit `outcome` or report `success` with no pending tool calls. Interruptions, cancellation, and pending tool calls stop this binding before it accepts the result.
+
 - `demo:workspace-result` carries the validated Engine response and its session, run, request, call, and revision correlation.
 - `demo:application-result` confirms acceptance of the correlated application result and advances the workspace revision.
+
+Action identities in application evidence use the same nonempty string domain as response Actions. The 256-character correlation-ID limit does not apply to Action names or Instance IDs. Encoded workspace frames retain their size limit.
 
 The connector validates the complete run before returning a workspace response. The Orchestrator applies layout before Actions. Its canonical batch settlement supplies Action outcomes and the structural snapshot through `EngineConnector.applicationSettled`. The client awaits this callback before admitting later planning. A failed or incomplete application stops this protocol session. Partial execution is reported as `unknown`. React subscribes to protocol errors for display; acknowledgment requires no component attachment.
 
@@ -49,6 +53,8 @@ Package tests cover correlation, sequence, duplicate acknowledgments, incomplete
 ## Local failure reasons
 
 `WorkspaceError` carries a `code` and a sanitized `message`. `snapshot()` returns the first terminal error and retains that same object after later failures. Remote error text is not forwarded to application UI.
+
+Pending work settles before error observers run. Observer exceptions are isolated so display failures cannot block protocol cleanup or other observers.
 
 - `connection_lost`: the connection changed or closed with unfinished work.
 - `invalid_run`: output violated event order, completeness, or correlation.

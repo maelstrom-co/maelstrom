@@ -81,15 +81,22 @@ export class AguiWorkspaceClient {
 
   private fail(code: WorkspaceErrorCode, message: string): WorkspaceError {
     this.stopped = true;
-    if (this.error === null) {
-      this.error = new WorkspaceError(code, message);
-      for (const listener of this.listeners) listener();
-    }
+    const notify = this.error === null;
+    this.error ??= new WorkspaceError(code, message);
     const run = this.run;
     this.run = undefined;
     if (run) {
       clearTimeout(run.timeout);
       run.reject(this.error);
+    }
+    if (notify) {
+      for (const listener of [...this.listeners]) {
+        try {
+          listener();
+        } catch {
+          // Display observers cannot prevent settlement or other notifications.
+        }
+      }
     }
     return this.error;
   }
@@ -146,7 +153,10 @@ export class AguiWorkspaceClient {
       if (
         event.runId !== run.id ||
         event.threadId !== this.threadId ||
-        run.value === undefined
+        run.value === undefined ||
+        (event.outcome !== undefined &&
+          (event.outcome.type !== 'success' ||
+            (event.outcome.pendingToolCallIds?.length ?? 0) > 0))
       ) {
         this.fail('invalid_run', 'Incomplete AG-UI run.');
       } else {
@@ -211,9 +221,10 @@ export class AguiWorkspaceClient {
         },
         WORKSPACE_RESULT,
       );
+      if (generation !== this.generation)
+        throw new Error('AG-UI workspace binding changed.');
       const result = WorkspaceResultSchema.parse(value);
       if (
-        generation !== this.generation ||
         this.stopped ||
         result.correlation.threadId !== this.threadId ||
         result.correlation.requestId !== message.id ||
@@ -222,7 +233,7 @@ export class AguiWorkspaceClient {
         result.envelope.sessionId !== this.threadId ||
         result.envelope.response.requestId !== message.id
       )
-        throw new Error('AG-UI workspace correlation mismatch.');
+        throw this.fail('invalid_run', 'AG-UI workspace correlation mismatch.');
       this.application = result;
       return result.envelope.response;
     } catch (error) {
@@ -257,15 +268,22 @@ export class AguiWorkspaceClient {
         },
         APPLICATION_RESULT,
       );
-      const result = ApplicationResultSchema.parse(value);
+      if (generation !== this.generation)
+        throw new Error('AG-UI workspace binding changed.');
+      const parsed = ApplicationResultSchema.safeParse(value);
+      if (!parsed.success)
+        throw this.fail('invalid_run', 'Invalid AG-UI application result.');
+      const result = parsed.data;
       if (
-        generation !== this.generation ||
         this.stopped ||
         !sameCorrelation(result.correlation, application.correlation) ||
         result.revision !== this.revision + 1 ||
         result.status !== settlement.result.status
       ) {
-        throw new Error('AG-UI application acknowledgment failed.');
+        throw this.fail(
+          'invalid_run',
+          'AG-UI application acknowledgment failed.',
+        );
       }
       this.application = undefined;
       this.revision = result.revision;

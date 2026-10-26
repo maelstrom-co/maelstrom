@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it } from 'bun:test';
+import { EventSchemas } from '@ag-ui/core/schemas';
 import {
+  APPLICATION_RESULT,
+  ApplicationResultSchema,
+  WORKSPACE_RESULT,
   type WorkspaceCheckpoint,
   type WorkspaceOperation,
   WorkspaceRunSchema,
@@ -47,9 +51,13 @@ async function setup(
     loseAck?: boolean;
     truncate?: boolean;
     rejectRun?: boolean;
+    instanceId?: string;
+    replaceAfterPlan?: boolean;
+    output?: (event: unknown, operation: WorkspaceOperation) => unknown;
   } = {},
 ) {
   const sessionId = SessionId('headless');
+  const instanceId = options.instanceId ?? 'counter';
   const workspace = new AguiWorkspaceClient(100);
   const operations: WorkspaceOperation[] = [];
   const settlements: ApplicationSettlement[] = [];
@@ -69,13 +77,11 @@ async function setup(
           userMessage: 'Done',
           rationale: '',
           layout: {
-            tree: ['ID:counter'],
-            instances: [
-              { instanceId: 'counter', vesselId: 'counter', variant: 'main' },
-            ],
+            tree: [`ID:${instanceId}`],
+            instances: [{ instanceId, vesselId: 'counter', variant: 'main' }],
           },
           executionPlan: [
-            { instanceId: 'counter', action: 'increment', paramsJson: '{}' },
+            { instanceId, action: 'increment', paramsJson: '{}' },
           ],
         }),
       );
@@ -119,7 +125,17 @@ async function setup(
               (event as { type: string }).type === 'RUN_FINISHED'
             )
               return;
-            workspace.receive(JSON.stringify(event), true);
+            const output = options.output
+              ? options.output(event, input.forwardedProps)
+              : event;
+            if (output !== undefined)
+              workspace.receive(JSON.stringify(output), true);
+            if (
+              options.replaceAfterPlan &&
+              input.forwardedProps.kind === 'plan' &&
+              EventSchemas.parse(event).type === 'RUN_FINISHED'
+            )
+              workspace.open(() => {}, sessionId);
           },
         );
       }, sessionId),
@@ -145,7 +161,7 @@ async function setup(
   client.commandProcessor.events.on('command_complete', ({ command }) => {
     if (command.kind === 'set_layout')
       client.commandProcessor.registerRunner<typeof vessel>(
-        InstanceId('counter'),
+        InstanceId(instanceId),
         {
           increment: () => {
             if (options.failAction) return err(new Error('Write unavailable'));
@@ -171,6 +187,171 @@ async function setup(
 }
 
 describe('headless workspace adapter', () => {
+  it('does not poison a replacement binding when an old planning promise resumes', async () => {
+    const h = await setup({ replaceAfterPlan: true });
+    expect((await h.client.enqueueIntent('increment').result).status).toBe(
+      'unknown',
+    );
+    expect(h.workspace.snapshot()).toBeNull();
+    expect(h.writes()).toBe(0);
+    expect(h.settlements).toHaveLength(0);
+  });
+  for (const kind of ['plan', 'applied'] as const) {
+    for (const outcome of [
+      {
+        type: 'interrupt',
+        interrupts: [{ id: 'approval', reason: 'approval-required' }],
+      },
+      { type: 'cancelled' },
+      { type: 'success', pendingToolCallIds: ['unresolved'] },
+    ]) {
+      it(`stops ${kind} with unsupported terminal ${outcome.type} without replaying writes`, async () => {
+        const h = await setup({
+          output: (value, operation) => {
+            const event = EventSchemas.parse(value);
+            return operation.kind === kind && event.type === 'RUN_FINISHED'
+              ? EventSchemas.parse({ ...event, outcome })
+              : event;
+          },
+        });
+        expect((await h.client.enqueueIntent('increment').result).status).toBe(
+          'unknown',
+        );
+        expect(h.workspace.snapshot()?.code).toBe('invalid_run');
+        expect((await h.client.enqueueIntent('later').result).status).toBe(
+          'unknown',
+        );
+        expect(h.plans()).toBe(1);
+        expect(h.writes()).toBe(kind === 'plan' ? 0 : 1);
+        expect(h.settlements).toHaveLength(kind === 'plan' ? 0 : 1);
+      });
+    }
+  }
+
+  it('accepts explicit success only when no tool calls remain pending', async () => {
+    const h = await setup({
+      output: (value) => {
+        const event = EventSchemas.parse(value);
+        return event.type === 'RUN_FINISHED'
+          ? EventSchemas.parse({
+              ...event,
+              outcome: { type: 'success', pendingToolCallIds: [] },
+            })
+          : event;
+      },
+    });
+    expect((await h.client.enqueueIntent('increment').result).status).toBe(
+      'applied',
+    );
+    expect((await h.client.enqueueIntent('again').result).status).toBe(
+      'applied',
+    );
+    expect(h.writes()).toBe(2);
+  });
+
+  it('settles a timed-out acknowledgment even when an error observer throws', async () => {
+    const h = await setup({
+      output: (event, operation) =>
+        operation.kind === 'applied' ? undefined : event,
+    });
+    const observed: unknown[] = [];
+    h.workspace.observe(() => {
+      throw new Error('Broken display observer');
+    });
+    h.workspace.observe(() => {
+      observed.push(h.workspace.snapshot());
+    });
+    const first = h.client.enqueueIntent('increment');
+    const second = h.client.enqueueIntent('later');
+    expect((await first.result).status).toBe('unknown');
+    expect((await second.result).status).toBe('unknown');
+    expect(h.workspace.snapshot()?.code).toBe('run_timeout');
+    expect(observed).toEqual([h.workspace.snapshot()]);
+    expect(h.writes()).toBe(1);
+    expect(h.plans()).toBe(1);
+  });
+
+  it('acknowledges a valid long Instance identity and admits subsequent work', async () => {
+    const h = await setup({ instanceId: 'x'.repeat(257) });
+    expect((await h.client.enqueueIntent('increment').result).status).toBe(
+      'applied',
+    );
+    expect((await h.client.enqueueIntent('again').result).status).toBe(
+      'applied',
+    );
+    expect(h.writes()).toBe(2);
+    expect(h.workspace.snapshot()).toBeNull();
+  });
+
+  for (const field of ['threadId', 'requestId', 'revision'] as const) {
+    it(`classifies mismatched result ${field} as invalid output before application`, async () => {
+      const h = await setup({
+        output: (value) => {
+          const event = EventSchemas.parse(value);
+          if (event.type !== 'CUSTOM' || event.name !== WORKSPACE_RESULT)
+            return event;
+          return {
+            ...event,
+            value: {
+              ...event.value,
+              correlation: {
+                ...event.value.correlation,
+                [field]: field === 'revision' ? 99 : 'wrong',
+              },
+            },
+          };
+        },
+      });
+      await h.client.enqueueIntent('increment').result;
+      expect(h.workspace.snapshot()?.code).toBe('invalid_run');
+      expect(h.writes()).toBe(0);
+      expect(h.settlements).toHaveLength(0);
+    });
+  }
+
+  for (const field of [
+    'threadId',
+    'runId',
+    'requestId',
+    'callId',
+    'revision',
+    'acceptedRevision',
+    'shape',
+  ] as const) {
+    it(`rejects invalid acknowledgment ${field} without replaying the committed Action`, async () => {
+      const h = await setup({
+        output: (value) => {
+          const event = EventSchemas.parse(value);
+          if (event.type !== 'CUSTOM' || event.name !== APPLICATION_RESULT)
+            return event;
+          const result = ApplicationResultSchema.parse(event.value);
+          if (field === 'shape') return { ...event, value: null };
+          if (field === 'acceptedRevision')
+            return { ...event, value: { ...result, revision: 99 } };
+          return {
+            ...event,
+            value: {
+              ...result,
+              correlation: {
+                ...result.correlation,
+                [field]: field === 'revision' ? 99 : 'wrong',
+              },
+            },
+          };
+        },
+      });
+      expect((await h.client.enqueueIntent('increment').result).status).toBe(
+        'unknown',
+      );
+      expect(h.workspace.snapshot()?.code).toBe('invalid_run');
+      expect((await h.client.enqueueIntent('later').result).status).toBe(
+        'unknown',
+      );
+      expect(h.writes()).toBe(1);
+      expect(h.plans()).toBe(1);
+    });
+  }
+
   it('applies and acknowledges FIFO work without a React observer, then resumes from a checkpoint', async () => {
     const h = await setup();
     const first = h.client.enqueueIntent('increment');

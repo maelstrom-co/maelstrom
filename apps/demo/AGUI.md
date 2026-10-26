@@ -20,6 +20,8 @@ Engine history reads and acknowledged message insertion use native control frame
 
 The Durable Object stores the adapter's non-content checkpoint in the socket attachment. After hibernation, `playground.rehello` restores the browser-owned key while the checkpoint preserves the acknowledgment gate. The attachment contains no key or application content.
 
+While rehello is outstanding, each socket reserves one native frame and one workspace frame in memory. The host dispatches them once, in arrival order, after hello. These frames have not entered workspace admission. Further frames of the same kind are rejected. Declining rehello answers both reservations; closing the socket discards them. This buffer is not durable and does not replay an uncertain write.
+
 Attachments last only as long as the socket. Engine history remains memory-only. Socket loss during planning or acknowledgment stops continuation without replay. Inspect the workspace before starting a new session through the selector or page reload; a new session does not reconcile an uncertain write.
 
 ## Verification

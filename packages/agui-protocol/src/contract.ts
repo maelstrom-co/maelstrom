@@ -35,8 +35,8 @@ export const WorkspaceApplicationSchema = z.object({
   actions: z
     .array(
       z.object({
-        instanceId: Id,
-        action: Id,
+        instanceId: z.string().min(1),
+        action: z.string().min(1),
         succeeded: z.boolean(),
       }),
     )

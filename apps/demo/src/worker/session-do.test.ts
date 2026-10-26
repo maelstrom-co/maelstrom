@@ -1,4 +1,5 @@
 import {
+  type WorkspaceResult,
   WorkspaceResultSchema,
   workspaceRun,
 } from '@maelstrom-co/agui-protocol';
@@ -13,6 +14,7 @@ import {
   SessionId,
 } from '@maelstrom-co/protocol';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import * as dispatch from '../server/dispatch';
 
 // DurableObject only exists as a virtual module inside a real Workers
 // runtime, not under plain vitest — mirrors worker/index.test.ts's mock of
@@ -131,7 +133,7 @@ function fakeEngine() {
         },
       },
     })),
-    getHistory: vi.fn(),
+    getHistory: vi.fn(async () => ({ ok: true as const, value: [] })),
   };
 }
 
@@ -177,6 +179,51 @@ const CHART_REQUEST = encodeEnvelope(
   }),
 );
 
+const HISTORY_REQUEST = JSON.stringify({
+  type: 'client.history.get',
+  id: 'history-1',
+  sessionId: 's-1',
+});
+
+function planRun(sequence = 1, revision = 0) {
+  return workspaceRun('s-1', {
+    kind: 'plan',
+    sequence,
+    revision,
+    message: ChartRequestMessageSchema.parse(JSON.parse(CHART_REQUEST)),
+  });
+}
+
+function appliedRun(result: WorkspaceResult) {
+  return workspaceRun('s-1', {
+    kind: 'applied',
+    sequence: 2,
+    application: {
+      correlation: result.correlation,
+      status: 'applied',
+      actions: [],
+      chart: {
+        instances: [],
+        layout: null,
+        layoutMode: 'grid',
+        chartDimensions: { rows: 8, columns: 12 },
+      },
+    },
+  });
+}
+
+function workspaceFrame(input: ReturnType<typeof workspaceRun>) {
+  return JSON.stringify({ type: 'demo.agui.run', input });
+}
+
+function gate() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
 describe('SessionDO', () => {
   // createEngineMock is module-scoped (vi.hoisted, above), so its call count
   // otherwise carries across tests. This does not replace the explicit
@@ -187,6 +234,178 @@ describe('SessionDO', () => {
   beforeEach(() => {
     createEngineMock.mockClear();
   });
+
+  for (const finish of ['close', 'error'] as const) {
+    for (const frame of [CHART_REQUEST, HELLO]) {
+      it(`fences a suspended ${JSON.parse(frame).type} decision after ${finish}`, async () => {
+        const engine = fakeEngine();
+        createEngineMock.mockReturnValue(engine);
+        const ws = new FakeWs();
+        ws.attachment = { helloed: true, sessionId: 's-1' };
+        const attachmentWrites = vi.spyOn(ws, 'serializeAttachment');
+        const woken = new SessionDO(makeCtx([ws]) as never, {} as never);
+        const entered = gate();
+        const release = gate();
+        const original = dispatch.dispatchFrame;
+        const delayed = vi
+          .spyOn(dispatch, 'dispatchFrame')
+          .mockImplementationOnce(async (...args) => {
+            const result = await original(...args);
+            entered.resolve();
+            await release.promise;
+            return result;
+          });
+        try {
+          const pending = woken.webSocketMessage(ws as never, frame);
+          await entered.promise;
+          if (finish === 'close') await woken.webSocketClose(ws as never);
+          else await woken.webSocketError(ws as never);
+          release.resolve();
+          await pending;
+          expect(ws.sent).toEqual([]);
+          expect(attachmentWrites).not.toHaveBeenCalled();
+          await woken.webSocketMessage(ws as never, HELLO);
+          await woken.webSocketMessage(ws as never, CHART_REQUEST);
+          expect(ws.sent).toEqual([]);
+          expect(createEngineMock).not.toHaveBeenCalled();
+          expect(engine.handle).not.toHaveBeenCalled();
+        } finally {
+          release.resolve();
+          delayed.mockRestore();
+        }
+      });
+    }
+
+    it(`does not drain the workspace reservation after ${finish} during history dispatch`, async () => {
+      const engine = fakeEngine();
+      const entered = gate();
+      const release = gate();
+      engine.getHistory.mockImplementationOnce(async () => {
+        entered.resolve();
+        await release.promise;
+        return { ok: true as const, value: [] };
+      });
+      createEngineMock.mockReturnValue(engine);
+      const ws = new FakeWs();
+      ws.attachment = { helloed: true, sessionId: 's-1' };
+      const woken = new SessionDO(makeCtx([ws]) as never, {} as never);
+      await woken.webSocketMessage(ws as never, HISTORY_REQUEST);
+      await woken.webSocketMessage(ws as never, workspaceFrame(planRun()));
+      ws.sent.length = 0;
+      const pending = woken.webSocketMessage(ws as never, HELLO);
+      await entered.promise;
+      if (finish === 'close') await woken.webSocketClose(ws as never);
+      else await woken.webSocketError(ws as never);
+      release.resolve();
+      await pending;
+      expect(ws.sent).toEqual([]);
+      expect(engine.handle).not.toHaveBeenCalled();
+    });
+  }
+
+  for (const kind of ['plan', 'applied'] as const) {
+    for (const order of ['history-first', 'workspace-first'] as const) {
+      it(`resumes ${kind} and native history after rehello in ${order} order`, async () => {
+        const engine = fakeEngine();
+        createEngineMock.mockReturnValue(engine);
+        const ws = new FakeWs();
+        const first = new SessionDO(makeCtx([ws]) as never, {} as never);
+        await first.webSocketMessage(ws as never, HELLO);
+        let input = planRun();
+        if (kind === 'applied') {
+          await first.webSocketMessage(ws as never, workspaceFrame(input));
+          input = appliedRun(
+            WorkspaceResultSchema.parse(JSON.parse(ws.sent[1]).value),
+          );
+        }
+        const plansBeforeWake = engine.handle.mock.calls.length;
+        ws.sent.length = 0;
+        const woken = new SessionDO(makeCtx([ws]) as never, {} as never);
+        const frames = [HISTORY_REQUEST, workspaceFrame(input)];
+        if (order === 'workspace-first') frames.reverse();
+        for (const frame of frames)
+          await woken.webSocketMessage(ws as never, frame);
+        expect(ws.sent.map((wire) => JSON.parse(wire).type)).toEqual([
+          'playground.rehello',
+        ]);
+        expect(engine.handle).toHaveBeenCalledTimes(plansBeforeWake);
+        await woken.webSocketMessage(ws as never, HELLO);
+        const events = ws.sent.map((wire) => JSON.parse(wire));
+        expect(
+          events.some(
+            (event) =>
+              event.type === 'RUN_ERROR' || event.type === 'engine.error',
+          ),
+        ).toBe(false);
+        expect(
+          events.filter((event) => event.type === 'RUN_FINISHED'),
+        ).toHaveLength(1);
+        expect(engine.getHistory).toHaveBeenCalledTimes(1);
+        expect(engine.handle).toHaveBeenCalledTimes(1);
+        if (kind === 'plan') {
+          const result = WorkspaceResultSchema.parse(
+            events.find((event) => event.type === 'CUSTOM').value,
+          );
+          await woken.webSocketMessage(
+            ws as never,
+            workspaceFrame(appliedRun(result)),
+          );
+        }
+        await woken.webSocketMessage(
+          ws as never,
+          workspaceFrame(planRun(3, 1)),
+        );
+        expect(engine.handle).toHaveBeenCalledTimes(2);
+        expect(JSON.parse(ws.sent.at(-1) ?? '{}').type).toBe('RUN_FINISHED');
+        expect(JSON.stringify(ws.attachment)).not.toContain(A_KEY);
+        expect(JSON.stringify(ws.attachment)).not.toContain('because');
+      });
+    }
+  }
+
+  it('bounds native wake traffic without taking the workspace reservation', async () => {
+    const engine = fakeEngine();
+    createEngineMock.mockReturnValue(engine);
+    const ws = new FakeWs();
+    ws.attachment = { helloed: true, sessionId: 's-1' };
+    const woken = new SessionDO(makeCtx([ws]) as never, {} as never);
+    await woken.webSocketMessage(ws as never, HISTORY_REQUEST);
+    await woken.webSocketMessage(ws as never, HISTORY_REQUEST);
+    await woken.webSocketMessage(ws as never, workspaceFrame(planRun()));
+    expect(ws.sent.map((wire) => JSON.parse(wire).type)).toEqual([
+      'playground.rehello',
+      'engine.error',
+    ]);
+    await woken.webSocketMessage(ws as never, HELLO);
+    expect(engine.getHistory).toHaveBeenCalledTimes(1);
+    expect(engine.handle).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(ws.sent.at(-1) ?? '{}').type).toBe('RUN_FINISHED');
+  });
+
+  for (const finish of ['decline', 'close', 'error'] as const) {
+    it(`clears both wake reservations on ${finish} without later replay`, async () => {
+      const engine = fakeEngine();
+      createEngineMock.mockReturnValue(engine);
+      const ws = new FakeWs();
+      ws.attachment = { helloed: true, sessionId: 's-1' };
+      const woken = new SessionDO(makeCtx([ws]) as never, {} as never);
+      await woken.webSocketMessage(ws as never, HISTORY_REQUEST);
+      await woken.webSocketMessage(ws as never, workspaceFrame(planRun()));
+      ws.sent.length = 0;
+      if (finish === 'decline') {
+        await woken.webSocketMessage(ws as never, NOKEY);
+        expect(ws.sent.map((wire) => JSON.parse(wire).type)).toEqual([
+          'engine.error',
+          'RUN_STARTED',
+          'RUN_ERROR',
+        ]);
+      } else if (finish === 'close') await woken.webSocketClose(ws as never);
+      else await woken.webSocketError(ws as never);
+      await woken.webSocketMessage(ws as never, HELLO);
+      expect(engine.handle).not.toHaveBeenCalled();
+      expect(engine.getHistory).not.toHaveBeenCalled();
+    });
+  }
 
   it('marks the connection helloed in the attachment without storing the key', async () => {
     const ws = new FakeWs();
@@ -603,9 +822,11 @@ describe('SessionDO', () => {
     sockets.splice(sockets.indexOf(a), 1);
     await does.webSocketClose(b as never);
 
-    await does.webSocketMessage(b as never, HELLO);
+    const c = new FakeWs();
+    sockets.splice(0, sockets.length, c);
+    await does.webSocketMessage(c as never, HELLO);
     createEngineMock.mockClear();
-    await does.webSocketMessage(b as never, CHART_REQUEST);
+    await does.webSocketMessage(c as never, CHART_REQUEST);
     // The object has no live socket left after B's close, so the engine (and
     // the key it was built from) must be gone -- this dispatch has to
     // rebuild it. This is the case that actually distinguishes `<= 1` from
