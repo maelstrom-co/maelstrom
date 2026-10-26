@@ -82,9 +82,9 @@ Actions are transitions in the state machine:
 This design allows the configured Planner to:
 
 1. Know which actions are available in the current variant.
-2. Enforce minimum dimensions for a variant in grid mode; tiling mode does not enforce `minSize`.
+2. Rely on Engine-side minimum-size validation in grid mode; tiling mode does not enforce `minSize`.
 3. Make intelligent trade-offs (e.g., "collapse Calendar to fit Weather").
-4. Return action requests that the client validates against the current variant before execution.
+4. Request Actions for Engine validation; only accepted Actions reach the client's `executionPlan`.
 
 ---
 
