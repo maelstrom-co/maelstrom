@@ -174,6 +174,7 @@
     "katex": "0.18.2",
     "miniflare>undici": "7.30.1",
     "nx>undici": "7.30.1",
+    "postcss-nested>postcss-selector-parser": "7.1.6",
     "qs": "6.16.1",
     "sharp": "0.35.5",
     "shell-quote": "1.11.0",
