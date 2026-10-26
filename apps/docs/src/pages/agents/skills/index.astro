@@ -120,7 +120,7 @@ const headings = [
 
     <section aria-labelledby="maintain-heading">
       <h2 id="maintain-heading">Update and remove</h2>
-      <p>For a Vercel Skills installation, rerun the original <code>add</code> command to refresh from the current docs bundle. To remove only Maelstrom skills, use their names and the original agent target:</p>
+      <p>For a Vercel Skills installation, rerun the original <code>add</code> command to refresh from the public skills repository. To remove only Maelstrom skills, use their names and the original agent target:</p>
       <pre><code>{`bunx ${skillInstaller} remove maelstrom ${skillTasks.map((task) => task.id).join(' ')} --agent pi`}</code></pre>
       <p>Replace the agent target as needed. Keep unrelated skills. SDK updates use your project's package manager and update their packaged API guides independently.</p>
       <details>
