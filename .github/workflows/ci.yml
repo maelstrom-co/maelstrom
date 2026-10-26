@@ -81,6 +81,8 @@ jobs:
       # fails the build rather than scrolling past.
       - name: Run check, test, build, typecheck, e2e
         run: bunx nx run-many -t check test build typecheck e2e
+      - name: Verify bundled SDK validation
+        run: bun --no-install scripts/assert-sdk-validation.ts
       # Reads apps/docs/dist, so it has to follow the build rather than join the
       # nx run above. The e2e suite link-checks a handful of pages it navigates;
       # this covers every page the build emits, including generated reference.
