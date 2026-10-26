@@ -1,47 +1,55 @@
 # Maelstrom
 
-An AI-orchestrated dynamic UI framework: an LLM arranges, controls, and interacts with UI components based on user intent and available screen space.
+An AI-orchestrated UI framework that arranges and controls application-defined Vessels based on user intent and available Chart space.
 
 ## Language
 
 **Vessel**:
-A state machine describing a UI component: a semantic description, a set of Variants, and the Actions that transition between them.
+A state machine describing a UI component, with a semantic description, Variants, and the Actions available in each Variant.
 _Avoid_: component, widget
 
 **Variant**:
-A discrete state of a Vessel with its own props and minimum size requirement.
+A discrete state of a Vessel with its own props, available Actions, and a minimum size enforced in grid layouts.
 _Avoid_: state, mode
 
 **Action**:
-A named transition a Vessel offers in a given Variant. Invoked locally by the user — the client applies the declared transition immediately and informs the Engine — or by the Engine through an Execution Plan, where the Layout Directive carries the resulting Variants.
+A named operation a Vessel offers in a given Variant, which may transition an Instance to another Variant. The client runs Actions from local input or an accepted Execution Plan.
 _Avoid_: command, event
 
 **Instance**:
-A live occurrence of a Vessel placed on a Chart. Several Instances of the same Vessel can coexist.
+A live occurrence of a Vessel retained by a Chart, whether visible or hidden. Several Instances of the same Vessel can coexist.
 _Avoid_: element, node
 
 **Chart**:
-The layout surface Instances are arranged on, sized by its container. In grid mode, addressed in integer grid coordinates, never pixels. In tiling mode, addressed as a split tree whose leaves derive their size from the tree and container.
+A container-sized surface for arranging Instances. Grid Layouts use integer cell coordinates; tiling Layouts divide its space with a split tree.
 _Avoid_: canvas, board, grid container
 
 **Weighted Split**:
-A tiling split token carrying comma-separated integer weights, as in `"V:1,1,1"`. The weight count declares the token's arity — how many following subtrees it consumes — and each child takes its weight over their sum. Bare `H`/`V` are the same thing with weights `1,1`.
+A tiling split whose positive integer weights define child regions and their relative shares of the available space. An unweighted split has two equal regions.
 _Avoid_: ratio node, proportional split, n-ary split
 
 **Engine**:
-The stateless decision core: takes user intent plus current Chart state and returns an Execution Plan and Layout Directives.
+The component that coordinates planning and validates a Planner's proposed Layout and Execution Plan. It can retain conversation history when configured.
 _Avoid_: brain, orchestrator (that names a client-side module)
 
+**Planner**:
+The configured decision stage that proposes a Layout and Execution Plan from the current Chart state, update reasons, and available history.
+_Avoid_: engine (that names the component that coordinates and validates planning)
+
 **Execution Plan**:
-The ordered list of Actions the Engine decided to invoke in response to an update.
+The ordered list of Actions the client runs after applying an accepted Layout.
 _Avoid_: action list, plan (unqualified)
 
+**Layout**:
+The arrangement of Instances on a Chart. A grid Layout uses positions and sizes; a tiling Layout uses a split tree and retained Instance identities and Variants.
+_Avoid_: layout directive (when referring to the complete Layout)
+
 **Layout Directive**:
-The Engine's placement decision for one Instance: grid position and size.
+A placement decision for one Instance in a grid Layout, with a position and size.
 _Avoid_: layout instruction
 
 **Envelope**:
-The unit of exchange on a duplex stream transport between client and engine host. ClientEnvelope names everything a client may send (every EngineMessage is one, plus transport-only queries); ServerEnvelope names everything a host may send back.
+The unit of exchange between a client and Engine host over a duplex transport. ClientEnvelope and ServerEnvelope define the two directions of the wire contract.
 _Avoid_: frame, packet, wire message
 
 **Connector**:
@@ -49,7 +57,7 @@ The client-side adapter that carries Envelopes (or their HTTP equivalents) over 
 _Avoid_: transport (that names the medium, not the adapter)
 
 **Provider Adapter**:
-The implementation that drives one voice provider's transport behind the shared realtime session seam. Everything provider-shaped lives below it.
+The implementation that drives one voice provider's transport through the shared realtime session interface. It owns provider-specific behavior.
 _Avoid_: driver, integration, plugin
 
 **Speech-native Provider**:

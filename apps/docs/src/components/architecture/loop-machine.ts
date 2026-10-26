@@ -8,9 +8,8 @@ export type LoopStep =
   | 'observe'
   | 'loop';
 
-// The client applies a response in a fixed, load-bearing order: layout before
-// actions. An action can transition a vessel to another variant (which carries
-// its own minSize), so positions and sizes are set before actions run.
+// Layout must establish an Instance before an Action in the same response
+// can target it.
 export const APPLY_ORDER: LoopStep[] = ['layout', 'actions'];
 
 // One full round-trip of the runtime feedback loop, in order. The final beat
@@ -64,14 +63,14 @@ export function loopReducer(state: LoopState, action: LoopAction): LoopState {
 }
 
 const CAPTIONS: Record<LoopStep, string> = {
-  intent: 'You ask for something — a user intent',
-  request: 'The client sends a ChartRequest to the engine',
-  decide: 'The engine runs an LLM to pick actions and a layout',
+  intent: 'A user intent starts a Chart update',
+  request: 'The client sends the Chart state in a ChartRequestMessage',
+  decide: 'The Planner proposes changes; the Engine validates them',
   respond: 'The engine returns a MaelstromResponse',
   layout: 'The client applies the new layout (set_layout)',
   actions: 'The client runs the executionPlan (execute_actions)',
-  observe: 'A ResizeObserver measures the result in grid cells',
-  loop: 'Changed cells become a chart_resize — the loop repeats',
+  observe: 'A ResizeObserver measures the Chart container',
+  loop: 'Changed cell dimensions start a new chart_resize request',
 };
 
 export function stepCaption(step: LoopStep): string {
