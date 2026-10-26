@@ -9,17 +9,21 @@ export type BoundedSdkSchema = {
   };
 };
 
-/** Rejects a bundle that validates oversized collection entries before its size bound. */
+/** Verifies valid identifier parsing and early rejection of oversized collections. */
 export function assertBoundedSdkValidation(schema: BoundedSdkSchema): void {
   let visits = 0;
-  const result = schema
+  const bounded = schema
     .transform((value) => {
       visits += 1;
       return value;
     })
     .array()
-    .max(1)
-    .safeParse(['first', 'second']);
+    .max(1);
+  const healthy = bounded.safeParse(['first']);
+  if (!healthy.success || visits !== 1)
+    throw new Error('SDK validation healthy control failed');
+  visits = 0;
+  const result = bounded.safeParse(['first', 'second']);
   if (result.success || visits !== 0) {
     throw new Error(
       'SDK validation must reject oversized collections before parsing their elements.',

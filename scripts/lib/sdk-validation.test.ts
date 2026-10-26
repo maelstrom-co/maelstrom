@@ -20,6 +20,15 @@ test('a stale client vendor runtime is rejected even when the protocol runtime i
   ).toThrow('client: bundles vulnerable');
 });
 
+test('the last vulnerable patch is rejected at the boundary of the security fix', () => {
+  expect(() =>
+    assertBundledValidationSources(
+      ['var _zod; var v={major:4,minor:6,patch:5}'],
+      'client',
+    ),
+  ).toThrow('client: bundles vulnerable Zod 4.6.5');
+});
+
 test('an unidentified embedded validator fails closed instead of inheriting a clean dependency audit', () => {
   expect(() =>
     assertBundledValidationSources(['var _zod = unknownRuntime;'], 'client'),
@@ -54,7 +63,7 @@ test('the artifact check catches a legacy validator even when its manifest resol
         max: () => ({
           safeParse: (input) => {
             input.forEach(visit);
-            return { success: false };
+            return { success: input.length <= 1 };
           },
         }),
       }),
@@ -65,11 +74,49 @@ test('the artifact check catches a legacy validator even when its manifest resol
 
 test('the artifact check also rejects a validator that accepts the oversized collection', () => {
   const accepting: BoundedSdkSchema = {
-    transform: () => ({
-      array: () => ({ max: () => ({ safeParse: () => ({ success: true }) }) }),
+    transform: (visit) => ({
+      array: () => ({
+        max: () => ({
+          safeParse: (input) => {
+            if (input.length === 1) input.forEach(visit);
+            return { success: true };
+          },
+        }),
+      }),
     }),
   };
   expect(() => assertBoundedSdkValidation(accepting)).toThrow(
     'reject oversized',
+  );
+});
+
+test('a broken bundle that rejects every valid identifier cannot pass the artifact check', () => {
+  const rejecting: BoundedSdkSchema = {
+    transform: (visit) => ({
+      array: () => ({
+        max: () => ({
+          safeParse: (input) => {
+            if (input.length === 1) input.forEach(visit);
+            return { success: false };
+          },
+        }),
+      }),
+    }),
+  };
+  expect(() => assertBoundedSdkValidation(rejecting)).toThrow(
+    'SDK validation healthy control failed',
+  );
+});
+
+test('a bundle that skips valid identifier parsing cannot pass the healthy control', () => {
+  const skipped: BoundedSdkSchema = {
+    transform: () => ({
+      array: () => ({
+        max: () => ({ safeParse: (input) => ({ success: input.length <= 1 }) }),
+      }),
+    }),
+  };
+  expect(() => assertBoundedSdkValidation(skipped)).toThrow(
+    'SDK validation healthy control failed',
   );
 });
