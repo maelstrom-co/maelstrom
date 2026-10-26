@@ -38,6 +38,9 @@ jobs:
           bun-version-file: .bun-version
       - run: bun install --frozen-lockfile
 
+      - name: Audit dependency advisories
+        run: bun audit
+
       - name: Validate canonical prompt sources and versions
         if: github.event_name == 'pull_request'
         env:
