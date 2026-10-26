@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as MailRouteImport } from './routes/mail'
 import { Route as ApiDemoGreetingTtsRouteImport } from './routes/api/demo-greeting-tts'
 import { Route as ApiLiveSessionRouteImport } from './routes/api/live-session'
 import { Route as ApiRealtimeTokenRouteImport } from './routes/api/realtime-token'
@@ -17,6 +18,11 @@ import { Route as ApiRealtimeTokenRouteImport } from './routes/api/realtime-toke
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MailRoute = MailRouteImport.update({
+  id: '/mail',
+  path: '/mail',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiDemoGreetingTtsRoute = ApiDemoGreetingTtsRouteImport.update({
@@ -37,12 +43,14 @@ const ApiRealtimeTokenRoute = ApiRealtimeTokenRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/mail': typeof MailRoute
   '/api/demo-greeting-tts': typeof ApiDemoGreetingTtsRoute
   '/api/live-session': typeof ApiLiveSessionRoute
   '/api/realtime-token': typeof ApiRealtimeTokenRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/mail': typeof MailRoute
   '/api/demo-greeting-tts': typeof ApiDemoGreetingTtsRoute
   '/api/live-session': typeof ApiLiveSessionRoute
   '/api/realtime-token': typeof ApiRealtimeTokenRoute
@@ -50,6 +58,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/mail': typeof MailRoute
   '/api/demo-greeting-tts': typeof ApiDemoGreetingTtsRoute
   '/api/live-session': typeof ApiLiveSessionRoute
   '/api/realtime-token': typeof ApiRealtimeTokenRoute
@@ -57,13 +66,22 @@ export interface FileRoutesById {
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
-    '/' | '/api/demo-greeting-tts' | '/api/live-session' | '/api/realtime-token'
+    | '/'
+    | '/mail'
+    | '/api/demo-greeting-tts'
+    | '/api/live-session'
+    | '/api/realtime-token'
   fileRoutesByTo: FileRoutesByTo
   to:
-    '/' | '/api/demo-greeting-tts' | '/api/live-session' | '/api/realtime-token'
+    | '/'
+    | '/mail'
+    | '/api/demo-greeting-tts'
+    | '/api/live-session'
+    | '/api/realtime-token'
   id:
     | '__root__'
     | '/'
+    | '/mail'
     | '/api/demo-greeting-tts'
     | '/api/live-session'
     | '/api/realtime-token'
@@ -71,6 +89,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  MailRoute: typeof MailRoute
   ApiDemoGreetingTtsRoute: typeof ApiDemoGreetingTtsRoute
   ApiLiveSessionRoute: typeof ApiLiveSessionRoute
   ApiRealtimeTokenRoute: typeof ApiRealtimeTokenRoute
@@ -83,6 +102,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/mail': {
+      id: '/mail'
+      path: '/mail'
+      fullPath: '/mail'
+      preLoaderRoute: typeof MailRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/demo-greeting-tts': {
@@ -111,6 +137,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  MailRoute: MailRoute,
   ApiDemoGreetingTtsRoute: ApiDemoGreetingTtsRoute,
   ApiLiveSessionRoute: ApiLiveSessionRoute,
   ApiRealtimeTokenRoute: ApiRealtimeTokenRoute,
