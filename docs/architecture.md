@@ -16,23 +16,23 @@ Maelstrom is designed as a layered architecture with clear separation of concern
                                   │
 ┌─────────────────────────────────┴───────────────────────────────┐
 │                     Framework Bindings                           │
-│  @maelstrom-co/react (or Vue, Svelte, etc. in the future)              │
+│  @maelstrom-co/react (or Vue, Svelte, etc. in the future)         │
 └─────────────────────────────────┬───────────────────────────────┘
                                   │
 ┌─────────────────────────────────┴───────────────────────────────┐
 │                     Client Core                                  │
-│  @maelstrom-co/client - Vessel Registry, Chart, Event System       │
+│  @maelstrom-co/client - Vessel Registry, Chart, Event System     │
 └─────────────────────────────────┬───────────────────────────────┘
                                   │
 ┌─────────────────────────────────┴───────────────────────────────┐
 │                     Protocol                                     │
-│  @maelstrom-co/protocol - Message definitions (transport-agnostic)      │
+│  @maelstrom-co/protocol - Message definitions (transport-agnostic)│
 └─────────────────────────────────┬───────────────────────────────┘
                                   │ (Any transport: WS, HTTP, etc.)
                                   │
 ┌─────────────────────────────────┴───────────────────────────────┐
 │                     Maelstrom Engine                            │
-│  @maelstrom-co/engine - planner seam, validation, orchestration        │
+│  @maelstrom-co/engine - planner seam, validation, orchestration  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -53,7 +53,7 @@ Each Vessel declares:
 | `id`             | Unique identifier for the Vessel                       |
 | `name`           | Human-readable name                                    |
 | `description`    | Semantic description for the LLM to understand purpose |
-| `defaultVariant` | Starting variant when the Vessel is created            |
+| `defaultVariant` | Starting variant when the Vessel is created           |
 | `variants`       | Map of variant names to variant definitions            |
 
 #### Variants
@@ -63,7 +63,7 @@ Each variant represents a discrete state of the Vessel:
 | Property  | Purpose                                                       |
 | --------- | ------------------------------------------------------------- |
 | `props`   | State properties for this variant (e.g., `{ view: 'month' }`) |
-| `minSize` | Minimum chart size required to display this variant           |
+| `minSize` | Minimum chart size required in grid layout mode               |
 | `actions` | Actions available when in this variant                        |
 
 #### Actions
@@ -79,42 +79,40 @@ Actions are transitions in the state machine:
 
 #### Benefits of state machines
 
-This design allows the LLM to:
+This design allows the configured Planner to:
 
-1. Know exactly what actions are available in the current variant
-2. Predict the size a Vessel will need after a transition
-3. Make intelligent trade-offs (e.g., "collapse Calendar to fit Weather")
-4. Never invoke invalid actions for the current state
+1. Know which actions are available in the current variant.
+2. Enforce minimum dimensions for a variant in grid mode; tiling mode does not enforce `minSize`.
+3. Make intelligent trade-offs (e.g., "collapse Calendar to fit Weather").
+4. Return action requests that the client validates against the current variant before execution.
 
 ---
 
 ### 2. Chart (Layout System)
 
-The Chart manages the visual arrangement of Vessels on screen using a grid-based system.
-
-**Important**: Grid calculations are based on the Chart container's size, not the browser viewport. This allows Charts to be embedded in any layout context - full-screen, split views, or nested containers.
+The Chart arranges Vessels on screen using either a tiling split tree (the default layout mode) or a grid of integer-cell positions and sizes. Grid calculations are based on the Chart container's size, not the browser viewport. This allows Charts to be embedded in any layout context: full-screen, split views, or nested containers.
 
 #### Grid System
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│ 0,0 │ 1,0 │ 2,0 │ 3,0 │ 4,0 │ 5,0 │ 6,0 │ 7,0 │ ...     │
-├─────┼─────┼─────┼─────┼─────┼─────┼─────┼─────┼─────────│
-│ 0,1 │ 1,1 │ 2,1 │ 3,1 │ 4,1 │ 5,1 │ 6,1 │ 7,1 │ ...     │
-├─────┼─────┼─────┼─────┼─────┼─────┼─────┼─────┼─────────│
-│ 0,2 │ 1,2 │ 2,2 │ 3,2 │ 4,2 │ 5,2 │ 6,2 │ 7,2 │ ...     │
+│ row 0: positions use integer columns and cell sizes      │
+├──────────────────────────────────────────────────────────┤
+│ row 1: positions use integer columns and cell sizes      │
+├──────────────────────────────────────────────────────────┤
+│ row 2: positions use integer columns and cell sizes      │
 └──────────────────────────────────────────────────────────┘
 ```
 
 **Key Properties:**
 
-- **Grid Unit**: Configurable (default 80px × 80px)
-- **Available Grid**: Calculated from Chart container size: `cols = floor(containerWidth / gridUnit)`
-- **Coordinates**: Always integers (the LLM never deals with pixels)
+- **Grid Unit**: Configurable (default 80px × 80px).
+- **Available Grid**: Calculated from Chart container size: `cols = floor(containerWidth / gridUnit)`; rows use the same calculation with container height.
+- **Coordinates**: Integer row and column values, with integer width and height; the model never deals with pixels.
 
 #### Container-Based Sizing
 
-The Chart observes its container element and recalculates the available grid when the container resizes:
+In grid mode, the Chart observes its container element and recalculates available cells when the container resizes:
 
 ```
 Container: 960px × 640px
@@ -131,102 +129,129 @@ This design allows:
 
 #### Benefits of a grid
 
-1. **LLM Simplicity**: Integer coordinates are easier for LLMs to reason about than pixels
-2. **Container Agnostic**: The same layout logic works regardless of where the Chart is placed
-3. **Predictable Layouts**: Components snap to grid, preventing overlap and alignment issues
-4. **Density Adaptation**: Grid unit can be adjusted for different device types (TV, watch, etc.)
+1. **LLM Simplicity**: Integer coordinates are easier for models to reason about than pixels.
+2. **Container Agnostic**: The same layout logic works regardless of where the Chart is placed.
+3. **Predictable Layouts**: Components snap to cells, preventing overlap and alignment issues.
+4. **Density Adaptation**: Grid unit can be adjusted for different device types (TV, watch, etc.).
 
 #### Layout Engine Responsibilities
 
-- Calculate available grid based on Chart container size
+- Calculate available grid based on Chart container size in grid mode
 - Register DOM elements for Vessels
 - Apply CSS transforms to position Vessels
 - Animate transitions between layouts
 - Clip visual overflow at the Chart boundary
 
+Tiling mode describes layout with an H/V split tree and retained Instance metadata. The split tree determines which Instances are visible; retained Instances omitted from the tree remain hidden rather than deleted.
+
 ---
 
 ### 3. Maelstrom Engine (Decision Core)
 
-The engine is the "brain" of the system. It takes context as input and produces layout decisions as output.
+The Engine receives a `ChartRequest` and a configured Planner's candidate, heals and validates the candidate, and returns a structured response. The Engine does not itself mutate the client Chart or execute Actions.
 
 #### Input: ChartRequest
 
-```
+`ChartRequest` is the payload inside a `ChartRequestMessage`. The message envelope carries `id`, `sessionId`, and `timestamp`; those fields are not part of the request payload.
+
+```ts
 {
+  type: 'chart_request',
   context: {
     updateReasons: [
-      { type: "user_intent", intent: "Show me my calendar for next week" }
+      { type: 'user_intent', intent: 'Show me my calendar for next week' }
     ],
     chartDimensions: { cols: 12, rows: 8 },
-    sessionId: "...",
-    timestamp: 1234567890
+    layoutMode: 'grid'
   },
   instances: [
-    { instanceId: "calendar-1", vesselId: "calendar", variant: "month", position: {...}, size: {...} }
+    { instanceId: 'calendar-1', vesselId: 'calendar', variant: 'month' }
   ],
-  vessels: [...]  // All registered Vessel definitions
+  vessels: [/* registered Vessel definitions */],
+  layout: {
+    type: 'grid',
+    positions: [
+      {
+        instanceId: 'calendar-1',
+        position: { row: 0, column: 0 },
+        size: { width: 6, height: 3 }
+      }
+    ]
+  }
 }
 ```
 
-Update reasons can include types such as:
+The `instances` array describes current Instance identity and variant. The `layout` carries current geometry: grid positions in grid mode, or a split tree plus retained Instance metadata in tiling mode. Update reasons can include:
 
 - `user_intent`: Explicit user request
-- `chart_resize`: The chart container was resized
-- `vessel_mutation`: A vessel's state was changed externally
+- `chart_resize`: The Chart container was resized, with previous and current dimensions
+- `vessel_mutation`: A Vessel's state was changed externally
 
 #### Output: MaelstromResponse
 
-```
+The response carries a `layout` and an `executionPlan`; it does not use a `layoutDirective` field. The client applies the layout before executing the Actions.
+
+```ts
 {
-  rationale: "Switching calendar to week view to show next week",
+  type: 'maelstrom_response',
+  requestId: 'message-123',
+  userMessage: 'Switching the calendar to week view.',
+  rationale: 'The user asked to see next week.',
   executionPlan: [
-    { instanceId: "calendar-1", action: "showWeek" }
+    { instanceId: 'calendar-1', action: 'showWeek' }
   ],
-  layoutDirective: [
-    { instanceId: "calendar-1", position: { x: 0, y: 0 }, size: { w: 6, h: 3 } }
-  ]
+  layout: {
+    type: 'grid',
+    positions: [
+      {
+        instanceId: 'calendar-1',
+        position: { row: 0, column: 0 },
+        size: { width: 6, height: 3 }
+      }
+    ]
+  }
 }
 ```
 
-#### Design Properties
+`requestId` echoes the originating message ID. `userMessage` is the user-facing text; `rationale` is for diagnostics, not the user-facing reply. `executionPlan` lists Action invocations, and `layout` is either a grid layout or a tiling layout.
 
-The engine is designed with clear boundaries:
+#### Engine behavior and boundaries
 
-- **Stateless**: No internal state between requests (context is passed in each time)
-- **Side-effect free**: Doesn't modify external systems, only returns decisions
-- **Transport Agnostic**: Can be called via WebSocket, HTTP, or direct function call
-- **Testable**: Easy to unit test with mock inputs and fixed LLM responses
+- **Session state is optional.** With `history` configured, the Engine reads and records session history and deduplicates identical chart requests by `(sessionId, messageId)`. Without history, requests are processed without retained conversation history.
+- **Request-level flow.** A chart request passes through history loading, the configured Planner (with retries when enabled), response healing and validation, and history recording when configured.
+- **No direct UI mutation.** The Engine returns a response; the client applies its layout and executes accepted Actions. Configured history stores, loggers, instrumentation, and planner code may perform their own side effects.
+- **Transport agnostic**: The protocol can travel over WebSocket, HTTP, or another compatible transport.
+- **Testable**: Engine behavior can be tested with mock inputs and planner results.
 
-Note that while the engine's logic is deterministic, the LLM responses are inherently stochastic - the same input may produce different (but hopefully semantically similar) outputs.
+The response processor heals recoverable layout and Action problems. Unrecoverable provider, validation, cancellation, or history failures return an error. A configured `validatePlan` hook can enforce application requirements on the healed response, using the existing retry budget.
 
 ---
 
 ### 4. Protocol (Message Contract)
 
-The protocol defines the structure of messages between client and engine, independent of how they're transported.
+The protocol defines message shapes between client and Engine host, independent of the transport.
 
 #### Message Types
 
-Messages travel as **envelopes** over the duplex stream. The `EngineMessage` variants (`chart_request`, `assistant_message`) are the frames the LLM sees; the envelope layer adds transport-only frames the LLM never sees.
+Messages travel as **envelopes** over the duplex stream. `EngineMessage` describes the `chart_request` and `assistant_message` inputs handled by the Engine. The envelope layer also contains transport and session-history frames and Agent Session frames. An assistant-message injection is persisted into history; it is not itself a planner request.
 
-**Client → Engine (`ClientEnvelope`):**
+**Client → Engine host (`ClientEnvelope`):**
 
-- `chart_request` (`ChartRequestMessage`): User intent + current state
+- `chart_request` (`ChartRequestMessage`): User intent and current Chart state
 - `assistant_message` (`AssistantInjectionMessage`): Inject an assistant turn into session history
 - `client.history.get` (`HistoryGetMessage`): Ask the host to replay recorded session history
 - `client.agent.input` (`AgentInputMessage`): Wraps one `AgentInput` (`utterance`, `ui_applied`) under `input`
 
-**Engine → Client (`ServerEnvelope`):**
+**Engine host → Client (`ServerEnvelope`):**
 
-- `engine.maelstrom.response` (`MaelstromResponseMessage`): Execution plan + layout directives
+- `engine.maelstrom.response` (`MaelstromResponseMessage`): User-facing message, execution plan, and layout
 - `engine.history.response` (`HistoryResponseMessage`): The recorded session-history entries
 - `engine.error` (`EngineErrorMessage`): A failure, correlated to the request when recoverable
 - `engine.agent.event` (`AgentEventMessage`): Wraps one `AgentEvent` (`placeholder`, `accepted`, `message`, `ui_change`, `finished`, `error`) under `event`
 
-`client.agent.input` carries `id` and `sessionId` like the other client frames. `engine.agent.event` carries its own `id` and `sessionId` in place of the `requestId` the other server frames echo. The inner agent members keep their own `type` discriminator and carry `version` equal to `AGENT_WIRE_VERSION` (currently 1). A new optional field keeps the version. A new member or enum value is rejected by an older decoder as `invalid_envelope`, so it bumps the version, and decoders reject any other version value. Agent ids are branded: `RunId` names an Agent Run, `CallId` a call the loop expects an answer to (separate from the provider's `ToolCallId`), and `ChangeId` a UI change the browser acknowledges.
+`client.agent.input` carries `id` and `sessionId` like the other client frames. `engine.agent.event` carries its own `id` and `sessionId` in place of the `requestId` the other server frames echo. The inner agent members keep their own `type` discriminator and carry `version` equal to `AGENT_WIRE_VERSION` (currently 1). A new optional field keeps the version. A new member or enum value is rejected by an older decoder as `invalid_envelope`, so it bumps the version, and decoders reject any other version value. Agent IDs are branded: `RunId` names an Agent Run, `CallId` a call the loop expects an answer to (separate from the provider's `ToolCallId`), and `ChangeId` a UI change the browser acknowledges.
 
-The **codec** owns parsing and validation: `encodeEnvelope` serializes any envelope, and `decodeClientEnvelope` / `decodeServerEnvelope` return a `Result` (never throw) — a malformed frame yields an `EnvelopeError` rather than a rejected promise, so a host or connector branches without a try/catch.
+The protocol package owns the envelope codecs: `encodeEnvelope` serializes an envelope, and `decodeClientEnvelope` / `decodeServerEnvelope` return a `Result` and never throw. A malformed frame yields an `EnvelopeError` rather than a rejected promise. The client `WebSocketConnector` and the Engine-side `handleEnvelope` use these codecs to adapt the wire contract to their respective boundaries; hosts should not hand-build or hand-parse wire shapes.
 
 #### Transport Agnostic
 
@@ -238,8 +263,6 @@ The protocol only defines message shapes. Transport is a separate concern:
 | HTTP      | Stateless, request/response       |
 | In-memory | Testing, embedded deployments     |
 
-The envelope module in `@maelstrom-co/protocol` is the single home of the stream wire contract. It has exactly two adapters: `WebSocketConnector` (client side) encodes outbound frames and decodes server envelopes, and `handleEnvelope` (engine side) decodes a client frame, dispatches it to the engine, and maps the outcome back to a `ServerEnvelope`. A host such as the demo's `ws-server.ts` owns only socket plumbing — it never hand-builds or hand-parses a wire shape.
-
 ---
 
 ## Data Flow
@@ -250,27 +273,27 @@ The envelope module in `@maelstrom-co/protocol` is the single home of the stream
 1. User expresses intent ("Show me weather for next week")
                                     │
                                     ▼
-2. Client builds request
-   - Captures user intent
-   - Snapshots current visible Vessels
-   - Includes Chart dimensions (cols × rows)
+2. Client builds a ChartRequestMessage
+   - Captures the update reason
+   - Snapshots current Instance identities and variants
+   - Includes the current layout and Chart dimensions
                                     │
                                     ▼
 3. Request sent via transport (WS/HTTP/etc.)
                                     │
                                     ▼
-4. Engine processes request
-   - Builds LLM prompt with context
-   - LLM decides actions and layout
-   - Parses and validates LLM response
+4. Engine processes the chart request
+   - Loads prior history when configured
+   - Runs the configured Planner and validates its candidate
+   - Heals recoverable layout and Action problems
                                     │
                                     ▼
 5. Response sent back to client
                                     │
                                     ▼
-6. Client executes response (STRICT ORDER):
-   a. Apply set_layout (declares instances and geometry)
-   b. Run execute_actions (may transition variants)
+6. Client applies the response in order:
+   a. Apply the response's layout
+   b. Run the response's executionPlan Actions
                                     │
                                     ▼
 7. UI updates, user sees result
@@ -278,92 +301,63 @@ The envelope module in `@maelstrom-co/protocol` is the single home of the stream
 
 ### Execution Order (Critical)
 
-The client MUST execute the response in this strict order:
+The client applies the response in this order:
 
-1. **Apply `set_layout` first**: Declare the response's instances and geometry.
-2. **Run `execute_actions`**: Execute actions sequentially after the layout exists.
+1. **Apply `layout` first**: Establish the response's Instances and geometry.
+2. **Run `executionPlan` Actions**: Execute the accepted Actions after the layout exists.
 
 This order matters because:
 
-- The client dispatches layout and actions as one atomic command batch.
-- `applyTilingLayout` builds a fresh instance map from `layout.instances` instead of merging with the previous map.
-- An action may target an instance introduced by the same tiling response. Layout must create that instance before its action runner can become available.
-- Applying geometry first also prevents a transitioning Vessel from rendering briefly at stale coordinates.
+- The client dispatches layout and Actions as one atomic command batch.
+- Applying a tiling layout builds the retained Instance map from `layout.instances`.
+- An Action may target an Instance introduced by the same tiling response. Layout must establish that Instance before its Action runner can become available.
+- Applying the geometry first also prevents a transitioning Vessel from rendering briefly at stale coordinates.
 
-The client does not run an inline minimum-size reconciliation or overflow resolver after actions. Grid `minSize` validation happens in the engine before the response reaches the client. Tiling does not enforce `minSize`. The Chart clips visual overflow with CSS.
+The client does not run an inline minimum-size reconciliation or overflow resolver after Actions. Grid `minSize` validation happens in the Engine before the response reaches the client. Tiling does not enforce `minSize`. The Chart clips visual overflow with CSS.
 
-The React Chart observes its container. When the container's pixel size crosses a whole-cell boundary, the `ResizeObserver` sends a new `chart_resize` request. That request starts a separate engine turn; it is not part of the response batch.
+The React Chart observes its container. When the container's pixel size crosses a whole-cell boundary, the `ResizeObserver` sends a new `chart_resize` request. That request starts a separate Engine turn; it is not part of the response batch.
 
 ---
 
 ## LLM Integration
 
-### Provider Interface
+### Planner Interface
 
-The engine uses an abstract provider interface:
-
-```
-LLMProvider
-  ├── generateResponse(context, prompt) → response
-  └── (implementation details hidden)
-```
-
-### Supported Providers
-
-- **OpenAI**: GPT-4 and compatible models
-- **Anthropic**: Claude models
-- **Custom**: Implement the interface for any provider
+The Engine accepts a configured Planner stage through `EngineConfig.planner`. The reference LLM Planner, `@maelstrom-co/planner-llm`, uses a provider adapter and returns a candidate for Engine validation. The Engine itself has no provider dependency; applications can supply another compatible Planner.
 
 ### Prompt Engineering
 
-The reference LLM planner (`@maelstrom-co/planner-llm`) constructs prompts that include:
+The reference LLM Planner (`@maelstrom-co/planner-llm`) constructs prompts that include:
 
-1. **System context**: What Maelstrom is and what the LLM should do
-2. **Available Vessels**: All registered Vessels with variants and available actions
-3. **Current state**: Visible instances with their current variant
-4. **Chart constraints**: Available grid space (cols × rows)
-5. **User intent**: What the user wants
+1. **System context**: What Maelstrom is and what the Planner should do
+2. **Available Vessels**: Registered Vessels with variants and available Actions
+3. **Current state**: The Instance snapshots and layout supplied in the ChartRequest
+4. **Chart constraints**: Chart dimensions in grid mode and the layout mode
+5. **User intent**: The update reason, when one is present
 
-The LLM knows:
+The Planner can use the available Actions and variant transitions to produce an execution plan. The Engine validates and heals the candidate against the original request. In grid mode, the Engine validates positions against Chart bounds and the active variant's `minSize`; tiling mode uses its split-tree layout and does not enforce `minSize`.
 
-- What actions are available in each instance's current variant
-- What variant each action transitions to
-- The current Chart dimensions in grid mode
-- The current allocated size of each grid instance
+The Planner returns structured output with:
 
-The initial prompt omits each variant's numeric `minSize`. In grid mode, the engine validates the returned placement against the active variant's minimum. If a placement is too small, the engine drops it and may include the required dimensions in a retry prompt. Tiling never reads `minSize`.
-
-The LLM returns structured JSON with:
-
-- Rationale (for debugging/logging)
-- Execution plan (actions to invoke, must be valid for current variant)
-- Layout directive (where to place Vessels; in grid mode, size must meet the active variant's `minSize`)
+- A user-facing message and a rationale
+- An execution plan of Action invocations
+- A grid or tiling layout, depending on the request's layout mode
 
 ---
 
 ## Error Handling
 
-### Hallucinated Coordinates
+### Invalid Layout Entries
 
-If the LLM returns coordinates outside the Chart grid:
-
-- Drop the overflowing position and keep valid positions from the same response
-- Record a structured `position_overflow` diagnostic for retry decisions and engine logs
+If the Planner returns an invalid grid position or an inconsistent tiling entry, the response processor can drop or repair the affected entry while preserving the rest of a recoverable response. Grid overflow is reported as a structured diagnostic. A response that heals to an empty layout may recommend a retry when the request included Instances.
 
 ### Invalid Actions
 
-If the LLM references an action that doesn't exist or isn't available in the current variant:
-
-- Skip the action
-- Log warning
-- Continue with remaining actions
+If the Planner references an Action that does not exist or is not available in the current variant, the Engine skips that Action and records a structured diagnostic. It can continue with the remaining valid Actions; the response-healed summary log is severity-routed.
 
 ### Malformed Responses
 
-If the LLM returns invalid JSON or unexpected structure:
-
-- Return error to client
-- Client can retry or show error state
+Invalid JSON or a structurally invalid Planner result can return an error. Semantic layout and Action problems that the response processor can recover from are healed and reported through diagnostics rather than failing the whole turn.
 
 ---
 
@@ -549,7 +543,10 @@ not replace the fetch transports or establish equivalent validation behavior.
 
 ### Streaming Responses
 
-Currently, the engine returns complete responses. Future versions may support streaming for:
+The `chart_request` path returns a complete response. A separate Agent Session
+wire contract includes streamed `message` events; that wire contract does not
+mean the Engine's chart-response path streams. Future work may add streaming to
+that path for:
 
 - Showing partial results as they're generated
 - Better perceived performance
