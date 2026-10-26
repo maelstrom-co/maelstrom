@@ -40,7 +40,7 @@
     "@google-cloud/text-to-speech": "^6.4.0",
     "astro": "^7.4.0",
     "effect": "4.0.5",
-    "happy-dom": "^20.8.4",
+    "happy-dom": "21.0.4",
     "hono": "^4.13.11",
     "jsdom": "^27.3.0",
     "nanoid": "^5.1.11",
