@@ -344,13 +344,13 @@ function ShopWorkspace({
       </main>
 
       <footer className="shop-dock border-t bg-bg-1">
+        <ShopVoiceCorner needsKey={needsKey} onRequireKey={onBlockedSubmit} />
         <ShopIntentForm
           intent={intent}
           onIntentChange={changeDraft}
           onSubmit={submit}
           submitLabel="Send"
         />
-        <ShopVoiceCorner needsKey={needsKey} onRequireKey={onBlockedSubmit} />
       </footer>
     </div>
   );
