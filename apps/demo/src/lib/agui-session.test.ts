@@ -46,8 +46,9 @@ async function setup(options: Options = {}) {
       : response;
   });
   const connector = new AguiConnector('fixture', null);
+  const sessionId = SessionId(crypto.randomUUID());
   const orchestrator = new Orchestrator(connector, {
-    sessionId: SessionId(crypto.randomUUID()),
+    sessionId,
     vessels: [journalVessel],
     layoutMode: 'tiling',
     readyTimeoutMs: 50,
@@ -89,10 +90,32 @@ async function setup(options: Options = {}) {
   });
   orchestrator.chartManager.setDimensions({ columns: 12, rows: 8 });
   await orchestrator.connect();
-  return { connector, orchestrator, requests, creates: () => creates };
+  return {
+    connector,
+    orchestrator,
+    sessionId,
+    requests,
+    creates: () => creates,
+  };
 }
 
 describe('experimental Journal session', () => {
+  it('cannot revive a session by reconnecting while completed work is being retired', async () => {
+    const harness = await setup();
+    await harness.connector.runGoal(
+      harness.orchestrator,
+      'Retire completed work',
+    );
+    expect(harness.connector.state.phase).toBe('complete');
+    const disconnect = harness.connector.disconnect();
+    await expect(harness.connector.connect(harness.sessionId)).rejects.toThrow(
+      'Experimental session retired',
+    );
+    await disconnect;
+    await harness.connector.runGoal(harness.orchestrator, 'Do not replay');
+    expect(harness.connector.state.phase).toBe('stopped');
+    expect(harness.creates()).toBe(1);
+  });
   it('fences a delayed plan when the mode exits before application', async () => {
     const harness = await setup({
       changeResponse: async (response, body) => {

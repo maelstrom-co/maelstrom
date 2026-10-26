@@ -34,6 +34,9 @@ export class AguiConnector implements EngineConnector {
   private token: string | undefined;
   private sessionId = '';
   private closed = false;
+  private connection: Promise<void> | undefined;
+  private binding = 0;
+  private workStarted = false;
   private abort = new AbortController();
   private handlers = new Set<(event: ConnectorEvent) => void>();
   private listeners = new Set<() => void>();
@@ -83,32 +86,57 @@ export class AguiConnector implements EngineConnector {
 
   async connect(sessionId: SessionId) {
     if (this.closed) throw new Error('Experimental session retired');
+    if (this.sessionId && this.sessionId !== sessionId)
+      throw new Error('Experimental session identity changed');
+    this.binding++;
     this.sessionId = sessionId;
+    this.connection ??= this.startSession();
+    await this.connection;
+    if (this.closed) throw new Error('Experimental session retired');
+  }
+  private async startSession() {
     const result = await this.post({
-      sessionId,
+      sessionId: this.sessionId,
       mode: this.mode,
       ...(this.mode === 'live' ? { apiKey: this.apiKey } : {}),
     });
     const body = z.object({ token: z.string() }).parse(await result.json());
-    this.token = body.token;
     this.apiKey = null;
-    if (this.closed) await this.disconnect();
+    if (this.closed) {
+      await this.deleteSession(body.token);
+      throw new Error('Experimental session retired');
+    }
+    this.token = body.token;
   }
   async disconnect() {
+    if (!this.workStarted) {
+      const binding = this.binding;
+      // StrictMode may reconnect an unused binding in the same effect replay.
+      await Promise.resolve();
+      if (binding !== this.binding) return;
+    }
+    await this.retire();
+  }
+  async retire() {
+    if (this.closed) return;
     this.closed = true;
     this.apiKey = null;
     this.abort.abort();
     this.publish({ ...this.state, phase: 'stopped' });
-    if (this.token)
-      await fetch('/api/experimental-agui', {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${this.token}` },
-        keepalive: true,
-      }).catch(() => undefined);
+    const token = this.token;
+    this.token = undefined;
+    if (token) await this.deleteSession(token);
+  }
+  private async deleteSession(token: string) {
+    await fetch('/api/experimental-agui', {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+      keepalive: true,
+    }).catch(() => undefined);
   }
   private fail() {
     if (this.closed) return;
-    void this.disconnect();
+    void this.retire();
     for (const handler of this.handlers)
       handler({
         type: 'disconnected',
@@ -183,6 +211,7 @@ export class AguiConnector implements EngineConnector {
   }
 
   async process(message: ChartRequestMessage) {
+    this.workStarted = true;
     try {
       await this.acknowledged;
       if (this.closed || this.pending)
@@ -305,7 +334,6 @@ export class AguiConnector implements EngineConnector {
     ];
     return () => {
       for (const release of releases) release();
-      void this.disconnect();
     };
   }
 

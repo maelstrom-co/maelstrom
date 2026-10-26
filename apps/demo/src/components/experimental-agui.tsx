@@ -14,7 +14,7 @@ export function ExperimentalAgui({ onExit }: { onExit: () => void }) {
     connector: AguiConnector;
   } | null>(null);
   const exit = () => {
-    void session?.connector.disconnect();
+    void session?.connector.retire();
     onExit();
   };
   return (
