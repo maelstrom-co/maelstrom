@@ -73,16 +73,16 @@ test('keyboard users can choose skills or a complete runnable starter and copy i
   await expect(
     starter.getByRole('link', { name: 'Open React starter on GitHub' }),
   ).toHaveAttribute('href', 'https://github.com/maelstrom-co/react-starter');
-  await expect(starter).toContainText('http://127.0.0.1:3001');
-  await expect(starter).toContainText('Show the greeting');
-  await expect(starter).toContainText('without calling a model');
+  await expect(starter).toContainText('http://127.0.0.1:5173');
+  await expect(starter).toContainText('Rearrange the workspace');
+  await expect(starter).toContainText('without a model API key');
   await page
     .getByRole('button', { name: 'Copy starter commands', exact: true })
     .click();
   await expect
     .poll(() => page.evaluate(() => navigator.clipboard.readText()))
     .toBe(
-      'git clone https://github.com/maelstrom-co/react-starter.git\ncd react-starter\nbun install\nbun run typecheck\nbun run start',
+      'git clone https://github.com/maelstrom-co/react-starter.git\ncd react-starter\nbun install --frozen-lockfile\nbun run typecheck\nbun run dev',
     );
   await expect
     .poll(() => captures)
@@ -169,7 +169,7 @@ test('the complete starter path and readable prompt remain available without Jav
       page.getByRole('heading', { name: 'Run a working React app' }),
     ).toBeVisible();
     await expect(page.locator('#setup-panel-starter pre')).toHaveText(
-      'git clone https://github.com/maelstrom-co/react-starter.git\ncd react-starter\nbun install\nbun run typecheck\nbun run start',
+      'git clone https://github.com/maelstrom-co/react-starter.git\ncd react-starter\nbun install --frozen-lockfile\nbun run typecheck\nbun run dev',
     );
     await expect(
       page.getByRole('link', { name: 'Open React starter on GitHub' }),

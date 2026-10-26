@@ -9,12 +9,12 @@ const source = resolve(import.meta.dir, '../../starters/react');
 const license = resolve(import.meta.dir, '../../../../LICENSE');
 const text = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
 
-test('the consumer ZIP uses public stable dependencies and no checkout-relative TypeScript references', async () => {
+test('the starter archive pins compatible SDK dependencies and standalone TypeScript settings', async () => {
   const files = unzipSync(await createReactStarter(source, license));
   const manifest = JSON.parse(text(files['package.json']));
   const tsconfig = JSON.parse(text(files['tsconfig.json']));
-  expect(manifest.dependencies['@maelstrom-co/react']).toBe('0.1.0');
-  expect(manifest.dependencies['@maelstrom-co/engine']).toBe('0.1.0');
+  expect(manifest.dependencies['@maelstrom-co/react']).toBe('0.1.1');
+  expect(manifest.dependencies['@maelstrom-co/engine']).toBe('0.1.1');
   expect(manifest.overrides.zod).toBe('4.6.6');
   expect(tsconfig.references).toBeUndefined();
   expect(Object.keys(files).some((name) => name.endsWith('.template'))).toBe(
@@ -38,7 +38,10 @@ test('local credentials, installed packages, and build output cannot enter the s
     }
     const files = unzipSync(await createReactStarter(directory, license));
     expect(
-      Object.keys(files).some((name) => /\.env|node_modules|dist\//.test(name)),
+      Object.keys(files).some(
+        (name) =>
+          name !== '.env.example' && /\.env|node_modules|dist\//.test(name),
+      ),
     ).toBe(false);
     expect(
       Object.values(files).some((bytes) =>

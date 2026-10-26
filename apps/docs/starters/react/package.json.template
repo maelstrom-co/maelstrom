@@ -6,21 +6,32 @@
   "scripts": {
     "start": "vite build && bun --no-env-file server.ts",
     "build": "vite build",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "start:live": "vite build && bun --env-file=.env.local server.ts --live",
+    "dev": "bun --no-env-file dev.ts",
+    "dev:live": "bun --env-file=.env.local dev.ts --live",
+    "check": "biome check .",
+    "test": "bun --no-env-file test server.test.ts",
+    "e2e": "playwright test"
   },
   "dependencies": {
-    "@maelstrom-co/engine": "0.1.0",
-    "@maelstrom-co/protocol": "0.1.0",
-    "@maelstrom-co/react": "0.1.0",
+    "@maelstrom-co/engine": "0.1.1",
+    "@maelstrom-co/protocol": "0.1.1",
+    "@maelstrom-co/react": "0.1.1",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "@maelstrom-co/planner-llm": "0.1.1",
+    "@tanstack/ai-openai": "1.0.0"
   },
   "devDependencies": {
     "@types/bun": "1.4.3",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
     "typescript": "6.0.3",
-    "vite": "8.3.4"
+    "vite": "8.3.4",
+    "@biomejs/biome": "2.4.10",
+    "@vitejs/plugin-react": "6.1.2",
+    "@playwright/test": "1.62.1"
   },
   "overrides": {
     "zod": "4.6.6"

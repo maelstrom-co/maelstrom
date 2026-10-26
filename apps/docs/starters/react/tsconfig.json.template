@@ -7,13 +7,17 @@
     "strict": true,
     "noEmit": true,
     "skipLibCheck": true,
-    "types": [
-      "bun",
-      "vite/client"
-    ]
+    "types": ["bun", "vite/client"]
   },
   "include": [
     "src",
-    "server.ts"
+    "server.ts",
+    "planner.ts",
+    "local-planner.ts",
+    "dev.ts",
+    "vite.config.ts",
+    "server.test.ts",
+    "playwright.config.ts",
+    "e2e"
   ]
 }

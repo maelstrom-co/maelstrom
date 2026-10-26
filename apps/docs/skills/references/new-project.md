@@ -9,14 +9,14 @@ For React, start from the [React starter repository](https://github.com/maelstro
 Clone the example into the approved empty destination and read its README and
 package scripts. Use the GitHub template action when the user requests a new
 GitHub repository.
-The starter pins public npm packages at 0.1.0 and
+The starter pins its SDK dependencies and
 runs a real Engine with a deterministic local planner. It needs Bun and no provider
 key. Describe this as local integration verification, not a live model test.
 
 For plan-only work, describe the selected starter and checks without creating
 files, installing dependencies, or starting services. For an authorized
 implementation, install with the project's package manager, run the starter's
-checks, start it locally, and observe its greeting capability after an intent.
+checks, start it locally, and verify its layout, view, and action examples.
 Then apply the onboarding procedure to the user's smallest useful product goal.
 
 For a different framework or an existing preferred scaffold, inspect its actual

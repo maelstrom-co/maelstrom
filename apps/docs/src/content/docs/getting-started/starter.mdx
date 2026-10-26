@@ -1,60 +1,81 @@
 ---
 title: Run the React Starter
-description: How to run a local Maelstrom chart with a real Engine and a deterministic planner, without a provider key.
+description: How to run a local workspace with tasks, an editable note, layout changes, and an action, without a provider key.
 ---
 
-Use this starter to learn the client-to-Engine path in a new React app.
-It uses the public 0.1.0 packages and requires Bun. You do not need a provider
-account or API key for this example.
-
-The local planner always selects one greeting capability after an intent. This
-verifies SDK wiring; it does not verify a model's decisions.
+Use this starter to try Maelstrom in a new React app. The local walkthrough
+follows predefined requests. It includes the app and Engine, and needs Bun.
+You do not need a model account or API key for this walkthrough.
 
 ## Clone and run
 
 1. Open the [React starter repository](https://github.com/maelstrom-co/react-starter).
    Select **Use this template** to create your own repository, then clone it.
-2. To try the example directly, open a terminal and run:
+   To try the example directly:
 
    ```sh
    git clone https://github.com/maelstrom-co/react-starter.git
    cd react-starter
    ```
 
-3. Install dependencies and check the source:
+2. Install dependencies and check the source:
 
    ```sh
-   bun install
+   bun install --frozen-lockfile
    bun run typecheck
    ```
 
-4. Build and start the local app:
+3. Start the app and Engine:
 
    ```sh
-   bun run start
+   bun run dev
    ```
 
-5. Open `http://127.0.0.1:3001`. Submit **Show the greeting**.
+4. Open `http://127.0.0.1:5173`. Expect a task list and launch note.
 
-Expect a card titled **Hello from Maelstrom** inside the Chart. The status reads
-**Local preview complete. No model was called.** This confirms that the client
-sent an intent, the Engine returned a layout, and the Chart rendered your Vessel.
+## Try the workflow
 
-Stop the server with Ctrl+C. Rerun `bun run start` after editing the example.
+1. Choose **Rearrange the workspace**. The note opens its editor and gets more
+   space. Edit the note directly.
+2. Choose **Run an action**. Expect **Prepare the launch** in the task list.
+   The Engine response names the declared `addTask` action; the React app's
+   handler changes the data.
+3. Complete a task yourself, then choose **Restore the layout**. The note returns
+   to its preview. Your edited note and task state remain in the app.
+4. Resize the window. Narrow containers stack the components. The added task
+   remains a single item; resizing does not repeat the action.
+
+The same components stay interactive throughout the walkthrough. Local mode
+accepts the example requests, including a different quoted title in
+`Add "your task" to my tasks`. Other text returns guidance.
+
+Stop both servers with Ctrl+C. React and CSS edits update in the browser.
+Server edits restart the Engine.
+Reloading resets the app's in-memory task and note data. Restarting the server
+clears its local history.
 
 For a copy from this documentation build, [download the source archive](/getting-started/starter.zip)
-and run the same Bun commands from the extracted directory.
+and run the same commands from the extracted directory.
 
 ## Change one capability
 
-Edit `src/App.tsx` to change the greeting renderer or its Vessel declaration.
-The form and app state stay in React. `server.ts` owns the Engine and planner.
-The preview uses loopback and in-memory history; it does not configure production
-authentication, durable storage, or deployment.
+`src/workspace.ts` defines the views, action, and initial layout.
+`src/App.tsx` owns the React components and application data.
+`local-planner.ts` selects among the declared capabilities for the walkthrough.
+`server.ts` hosts the Engine and validates HTTP input.
 
-To process intent with a model, follow [Use a custom LLM provider](/guides/engine/custom-llm-providers/).
-Configure the selected planner on the server and verify that live path separately.
+Change one renderer or declaration and repeat the workflow. Keep data
+and business rules in the app's handlers. This local example does not configure
+production authentication, durable storage, or deployment.
 
-For an existing app, use [Build with an agent](/agents/skills/) to select a bounded
-integration, or follow the [Quick Start](/getting-started/quick-start/) with your
-existing Engine host.
+## Use a live model
+
+The optional live mode uses OpenAI's `gpt-6-luna`. Follow
+[Connect OpenAI](https://github.com/maelstrom-co/react-starter#connect-openai)
+in the starter README to create `.env.local` and run `bun run dev:live`.
+Keep the API key on the server. Live requests send your intent, recent
+conversation, and workspace structure to OpenAI and can incur API charges.
+Loading and resizing the workspace make no model calls.
+
+For an existing app, use [Build with an agent](/agents/skills/) to select a first
+integration and review its plan.

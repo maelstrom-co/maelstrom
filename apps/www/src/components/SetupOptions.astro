@@ -12,7 +12,7 @@ if (!frontmatter)
   throw new Error('The canonical onboarding prompt needs frontmatter');
 const prompt = promptSource.slice(frontmatter[0].length);
 const skillsCommand = `bunx ${skillInstaller} add ${skillRepository} --skill '*' --copy`;
-const starterCommands = `git clone ${reactStarterRepository}.git\ncd react-starter\nbun install\nbun run typecheck\nbun run start`;
+const starterCommands = `git clone ${reactStarterRepository}.git\ncd react-starter\nbun install --frozen-lockfile\nbun run typecheck\nbun run dev`;
 const methods = [
   { id: 'prompt', label: 'With your agent' },
   { id: 'skills', label: 'Agent skills' },
@@ -46,14 +46,14 @@ const methods = [
   </section>
   <section id="setup-panel-starter" data-setup-panel="starter" aria-labelledby="setup-starter-heading">
     <h3 id="setup-starter-heading">Run a working React app</h3>
-    <p>The starter includes a React app and a local Engine. Its deterministic planner shows a greeting without calling a model.</p>
+    <p>The starter includes a React workspace and a local Engine. Rearrange tasks and notes, edit the note, and run an add-task action without a model API key.</p>
     <a class="setup-download" href={reactStarterRepository}>Open React starter on GitHub</a>
     <ol class="setup-steps">
       <li>Create your own repository with GitHub's <strong>Use this template</strong> button, or clone the example below.</li>
       <li>To clone and run the example, open a terminal and run:
         <div class="setup-copy-row"><pre><code>{starterCommands}</code></pre><CopyButton text={starterCommands} label="Copy starter commands" method="starter" /></div>
       </li>
-      <li>Open <code>http://127.0.0.1:3001</code> and submit “Show the greeting”.</li>
+      <li>Open <code>http://127.0.0.1:5173</code> and choose “Rearrange the workspace”.</li>
     </ol>
     <a href={`${reactStarterRepository}#run`}>Full starter guide →</a>
     <a href="https://docs.maelstrom-ai.co/getting-started/quick-start/">Existing app quickstart →</a>

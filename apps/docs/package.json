@@ -69,7 +69,9 @@
     "@maelstrom-co/devtools": "workspace:*",
     "@maelstrom-co/react-devtools": "workspace:*",
     "@maelstrom-co/telemetry": "workspace:*",
-    "@maelstrom-co/engine": "workspace:*"
+    "@maelstrom-co/engine": "workspace:*",
+    "@maelstrom-co/planner-llm": "workspace:*",
+    "@tanstack/ai-openai": "catalog:"
   },
   "nx": {
     "implicitDependencies": [
