@@ -427,12 +427,14 @@ commit, tag, push, create a GitHub release, or publish packages.
 
    ```bash
    bun run scripts/release.ts --version 0.1.0
-   bun install --lockfile-only --ignore-scripts
+   bun install --force --ignore-scripts
+   bun install --frozen-lockfile --ignore-scripts
    ```
 
    Keep the existing alpha tags. The explicit version graduates the SDK to
-   stable `0.1.0`. Nx leaves lockfile updates disabled, so refresh `bun.lock`
-   before review.
+   stable `0.1.0`. Force the install to refresh internal dependency pins in
+   `bun.lock`. Bun 1.4.3's lockfile-only mode can retain the previous pins.
+   Confirm that the following frozen install passes before review.
 
    For later stable releases, select the next version with `--version`.
    Add `--first-release` only when the repository has no prior `v*` tags.

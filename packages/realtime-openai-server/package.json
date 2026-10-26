@@ -1,6 +1,6 @@
 {
   "name": "@maelstrom-co/realtime-openai-server",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Server-only minting of ephemeral OpenAI realtime credentials for Maelstrom. Never ships to the browser.",
   "keywords": [
     "maelstrom",
@@ -52,8 +52,8 @@
     "access": "public"
   },
   "dependencies": {
-    "@maelstrom-co/protocol": "0.1.0",
-    "@maelstrom-co/realtime-protocol": "0.1.0",
+    "@maelstrom-co/protocol": "0.1.1",
+    "@maelstrom-co/realtime-protocol": "0.1.1",
     "zod": "catalog:"
   },
   "nx": {

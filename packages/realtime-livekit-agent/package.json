@@ -1,6 +1,6 @@
 {
   "name": "@maelstrom-co/realtime-livekit-agent",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Node LiveKit voice agent worker for Maelstrom: transcribes room audio via Deepgram STT and publishes the transcript back to the room; synthesizes engine responses via Cartesia TTS and publishes them into the room as an audio track.",
   "keywords": [
     "maelstrom",
@@ -58,7 +58,7 @@
     "@livekit/agents-plugin-cartesia": "1.9.3",
     "@livekit/agents-plugin-deepgram": "1.9.3",
     "@livekit/rtc-node": "^1.1.0",
-    "@maelstrom-co/realtime-protocol": "0.1.0"
+    "@maelstrom-co/realtime-protocol": "0.1.1"
   },
   "nx": {
     "targets": {
