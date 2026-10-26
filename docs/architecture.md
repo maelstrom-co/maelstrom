@@ -1,6 +1,6 @@
 # Maelstrom Architecture
 
-This document provides a deep dive into the Maelstrom system architecture, explaining how the components work together to enable AI-orchestrated UIs.
+Maelstrom separates planning, validation, and UI updates. The Planner proposes a layout and Actions, the Engine validates them, and the client applies the accepted response. This page explains those responsibilities and the order of a Chart update.
 
 ---
 
@@ -79,62 +79,37 @@ Actions are transitions in the state machine:
 
 #### Benefits of state machines
 
-This design allows the configured Planner to:
-
-1. Know which actions are available in the current variant.
-2. Rely on Engine-side minimum-size validation in grid mode; tiling mode does not enforce `minSize`.
-3. Make intelligent trade-offs (e.g., "collapse Calendar to fit Weather").
-4. Request Actions for Engine validation; only accepted Actions reach the client's `executionPlan`.
+Variants and Actions describe the choices available to the configured Planner. For example, it can request an Action that collapses a Calendar to make room for Weather. The Engine validates each requested Action against the Vessel definition before including it in the client's `executionPlan`.
 
 ---
 
 ### 2. Chart (Layout System)
 
-The Chart arranges Vessels on screen using either a tiling split tree (the default layout mode) or a grid of integer-cell positions and sizes. Grid calculations are based on the Chart container's size, not the browser viewport. This allows Charts to be embedded in any layout context: full-screen, split views, or nested containers.
+The Chart arranges Instances within its container. It supports tiling, the default layout mode, and a grid of integer-cell positions and sizes. Both modes use the Chart container's size, so a Chart can fill a screen or sit beside other content.
 
-#### Grid System
+#### Tiling layout
 
-```
-┌──────────────────────────────────────────────────────────┐
-│ row 0: positions use integer columns and cell sizes      │
-├──────────────────────────────────────────────────────────┤
-│ row 1: positions use integer columns and cell sizes      │
-├──────────────────────────────────────────────────────────┤
-│ row 2: positions use integer columns and cell sizes      │
-└──────────────────────────────────────────────────────────┘
-```
+A tiling layout divides the container with a tree of horizontal (`H`) and vertical (`V`) splits. Horizontal splits divide height; vertical splits divide width. Each leaf identifies a visible Instance or an empty region. The client calculates each region's size from the tree and the container dimensions.
 
-**Key Properties:**
+The layout also carries an `instances` array with the identity and Variant of every retained Instance. The tree controls visibility: an Instance listed in `instances` but omitted from the tree remains retained and hidden. Removing it from `instances` removes it from the client's Instance map.
 
-- **Grid Unit**: Configurable (default 80px × 80px).
-- **Available Grid**: Calculated from Chart container size: `cols = floor(containerWidth / gridUnit)`; rows use the same calculation with container height.
-- **Coordinates**: Integer row and column values, with integer width and height; the model never deals with pixels.
+This separation lets the Planner change which Instances are visible while retaining their identities for later layouts. See [Grid vs Tiling Layout](https://docs.maelstrom-ai.co/understanding/grid-vs-tiling/) for split examples and weights.
 
-#### Container-Based Sizing
+#### Grid layout
 
-In grid mode, the Chart observes its container element and recalculates available cells when the container resizes:
+A grid layout gives each visible Instance an integer row, column, width, and height. The client converts these cell values to positions within the Chart container.
 
-```
+The configurable grid unit defaults to 80px × 80px. Available columns are `floor(containerWidth / gridUnit)`; rows use the same calculation with container height. The Chart observes its container, not the browser viewport:
+
+```text
 Container: 960px × 640px
 Grid Unit: 80px
-Available: 12 cols × 8 rows
+Available: 12 columns × 8 rows
 ```
 
-This design allows:
+The Engine checks grid positions against the Chart bounds and the active Variant's `minSize`. It drops placements that overflow or fall below the minimum. Tiling does not enforce `minSize`; its leaf sizes come from the split tree and container dimensions.
 
-- Full-viewport Charts (container = viewport)
-- Split layouts (Chart beside other content)
-- Nested Charts (Chart inside another component)
-- Multiple Charts on a single page
-
-#### Benefits of a grid
-
-1. **LLM Simplicity**: Integer coordinates are easier for models to reason about than pixels.
-2. **Container Agnostic**: The same layout logic works regardless of where the Chart is placed.
-3. **Predictable Layouts**: Components snap to cells, preventing overlap and alignment issues.
-4. **Density Adaptation**: Grid unit can be adjusted for different device types (TV, watch, etc.).
-
-#### Layout Engine Responsibilities
+#### Client layout responsibilities
 
 - Calculate available grid based on Chart container size in grid mode
 - Register DOM elements for Vessels
@@ -142,17 +117,17 @@ This design allows:
 - Animate transitions between layouts
 - Clip visual overflow at the Chart boundary
 
-Tiling mode describes layout with an H/V split tree and retained Instance metadata. The split tree determines which Instances are visible; retained Instances omitted from the tree remain hidden rather than deleted.
-
 ---
 
 ### 3. Maelstrom Engine (Decision Core)
 
-The Engine receives a `ChartRequest` and a configured Planner's candidate, heals and validates the candidate, and returns a structured response. The Engine does not itself mutate the client Chart or execute Actions.
+The Engine passes a `ChartRequest` to the configured Planner, repairs recoverable problems in its candidate, and validates the result. It returns the accepted layout and Actions for the client to apply.
 
 #### Input: ChartRequest
 
 `ChartRequest` is the payload inside a `ChartRequestMessage`. The message envelope carries `id`, `sessionId`, and `timestamp`; those fields are not part of the request payload.
+
+Illustrative grid-mode request payload, with Vessel definitions omitted:
 
 ```ts
 {
@@ -161,7 +136,7 @@ The Engine receives a `ChartRequest` and a configured Planner's candidate, heals
     updateReasons: [
       { type: 'user_intent', intent: 'Show me my calendar for next week' }
     ],
-    chartDimensions: { cols: 12, rows: 8 },
+    chartDimensions: { columns: 12, rows: 8 },
     layoutMode: 'grid'
   },
   instances: [
@@ -189,7 +164,9 @@ The `instances` array describes current Instance identity and variant. The `layo
 
 #### Output: MaelstromResponse
 
-The response carries a `layout` and an `executionPlan`; it does not use a `layoutDirective` field. The client applies the layout before executing the Actions.
+The Engine returns a `layout` and an `executionPlan`. The client applies the layout first so Actions can target Instances created by that response. See [Execution order](#execution-order-critical) for the atomic command batch.
+
+Illustrative grid-mode response payload:
 
 ```ts
 {
@@ -213,7 +190,7 @@ The response carries a `layout` and an `executionPlan`; it does not use a `layou
 }
 ```
 
-`requestId` echoes the originating message ID. `userMessage` is the user-facing text; `rationale` is for diagnostics, not the user-facing reply. `executionPlan` lists Action invocations, and `layout` is either a grid layout or a tiling layout.
+`requestId` echoes the originating message ID. `userMessage` is the user-facing text; `rationale` is for diagnostics.
 
 #### Engine behavior and boundaries
 
@@ -313,7 +290,7 @@ This order matters because:
 - An Action may target an Instance introduced by the same tiling response. Layout must establish that Instance before its Action runner can become available.
 - Applying the geometry first also prevents a transitioning Vessel from rendering briefly at stale coordinates.
 
-The client does not run an inline minimum-size reconciliation or overflow resolver after Actions. Grid `minSize` validation happens in the Engine before the response reaches the client. Tiling does not enforce `minSize`. The Chart clips visual overflow with CSS.
+The client does not run an inline minimum-size reconciliation or overflow resolver after Actions. The Engine handles the [layout constraints](#grid-layout) before returning the response, and the Chart clips visual overflow with CSS.
 
 The React Chart observes its container. When the container's pixel size crosses a whole-cell boundary, the `ResizeObserver` sends a new `chart_resize` request. That request starts a separate Engine turn; it is not part of the response batch.
 
@@ -335,7 +312,7 @@ The reference LLM Planner (`@maelstrom-co/planner-llm`) constructs prompts that 
 4. **Chart constraints**: Chart dimensions in grid mode and the layout mode
 5. **User intent**: The update reason, when one is present
 
-The Planner can use the available Actions and variant transitions to produce an execution plan. The Engine validates and heals the candidate against the original request. In grid mode, the Engine validates positions against Chart bounds and the active variant's `minSize`; tiling mode uses its split-tree layout and does not enforce `minSize`.
+The Planner uses the available Actions and Variant transitions to propose an execution plan. The Engine validates that candidate against the original request and repairs recoverable layout and Action problems before the client receives it.
 
 The Planner returns structured output with:
 
@@ -353,7 +330,7 @@ If the Planner returns an invalid grid position or an inconsistent tiling entry,
 
 ### Invalid Actions
 
-If the Planner references an Action that does not exist or is not available in the current variant, the Engine skips that Action and records a structured diagnostic. It can continue with the remaining valid Actions; the response-healed summary log is severity-routed.
+If the Planner requests an Action that does not exist or is unavailable in the current Variant, the Engine skips it. It records a diagnostic explaining why and continues with the remaining valid Actions.
 
 ### Malformed Responses
 
