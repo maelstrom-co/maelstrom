@@ -2,32 +2,30 @@
   "name": "@maelstrom-co/agui",
   "version": "0.1.0",
   "private": true,
-  "description": "Experimental workspace AG-UI binding with separate browser, server, and contract entrypoints.",
+  "description": "Experimental browser workspace AG-UI connector and application acknowledgment.",
   "type": "module",
   "sideEffects": false,
   "exports": {
-    "./browser": {
+    ".": {
       "@maelstrom-co/source": "./src/browser.ts",
       "types": "./dist/browser.d.ts",
       "import": "./dist/browser.js"
     },
-    "./server": {
-      "@maelstrom-co/source": "./src/server.ts",
-      "types": "./dist/server.d.ts",
-      "import": "./dist/server.js"
-    },
-    "./contract": {
-      "@maelstrom-co/source": "./src/contract.ts",
-      "types": "./dist/contract.d.ts",
-      "import": "./dist/contract.js"
+    "./browser": {
+      "@maelstrom-co/source": "./src/browser.ts",
+      "types": "./dist/browser.d.ts",
+      "import": "./dist/browser.js"
     }
   },
   "dependencies": {
     "@ag-ui/core": "1.0.0",
+    "@maelstrom-co/agui-protocol": "workspace:*",
     "@maelstrom-co/client": "0.1.0",
-    "@maelstrom-co/engine": "0.1.0",
-    "@maelstrom-co/protocol": "0.1.0",
-    "zod": "catalog:"
+    "@maelstrom-co/protocol": "0.1.0"
+  },
+  "devDependencies": {
+    "@maelstrom-co/agui-server": "workspace:*",
+    "@maelstrom-co/engine": "0.1.0"
   },
   "nx": {
     "targets": {

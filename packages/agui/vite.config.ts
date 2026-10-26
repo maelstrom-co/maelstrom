@@ -17,8 +17,6 @@ export default defineConfig({
     lib: {
       entry: {
         browser: 'src/browser.ts',
-        server: 'src/server.ts',
-        contract: 'src/contract.ts',
       },
       formats: ['es'],
     },

@@ -12,7 +12,7 @@
  * via the shared dispatchFrame core in `./dispatch`.
  */
 
-import { AguiWorkspaceSession } from '@maelstrom-co/agui/server';
+import { AguiWorkspaceSession } from '@maelstrom-co/agui-server';
 import { HEARTBEAT_PONG_FRAME } from '@maelstrom-co/connectors';
 import {
   createDiagnosticConnection,

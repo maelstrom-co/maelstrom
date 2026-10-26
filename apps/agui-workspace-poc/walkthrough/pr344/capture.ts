@@ -2,7 +2,7 @@ import { resolve } from 'node:path';
 import { createEngine } from '@maelstrom-co/engine';
 import { ok, TilingResponseSchema } from '@maelstrom-co/protocol';
 import { chromium, expect } from '@playwright/test';
-import { AguiWorkspaceSession } from '../../../../packages/agui/src/server';
+import { AguiWorkspaceSession } from '../../../../packages/agui-server/src/server';
 import { dispatchFrame } from '../../../demo/src/server/dispatch';
 
 const root = resolve(import.meta.dirname, '../../../..');

@@ -117,6 +117,7 @@ function discoverWorkspacePackages(): WorkspacePackage[] {
  * reach the browser.
  */
 const BROWSER_PACKAGES = new Set([
+  '@maelstrom-co/agui',
   '@maelstrom-co/client',
   '@maelstrom-co/devtools',
   '@maelstrom-co/react-devtools',
@@ -140,6 +141,7 @@ const BROWSER_PACKAGES = new Set([
 function classify(name: string): Layer {
   if (
     name === '@maelstrom-co/protocol' ||
+    name === '@maelstrom-co/agui-protocol' ||
     name === '@maelstrom-co/realtime-protocol' ||
     name === '@maelstrom-co/telemetry' ||
     // Shared client/host wire contracts (heartbeat frames, close-code
@@ -523,6 +525,14 @@ function resolveWorkspaceImport(
 
 describe('package layering — Node-only code must stay unreachable from "."', () => {
   const forbiddenRootEdges = [
+    {
+      origin: '@maelstrom-co/agui',
+      destination: '@maelstrom-co/agui-server',
+    },
+    {
+      origin: '@maelstrom-co/agui-protocol',
+      destination: '@maelstrom-co/agui-server',
+    },
     {
       origin: '@maelstrom-co/realtime-openai',
       destination: '@maelstrom-co/realtime-openai-server',

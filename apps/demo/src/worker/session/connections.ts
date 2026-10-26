@@ -22,7 +22,7 @@
 import {
   type WorkspaceCheckpoint,
   WorkspaceCheckpointSchema,
-} from '@maelstrom-co/agui/contract';
+} from '@maelstrom-co/agui-protocol';
 import { Context, Layer } from 'effect';
 
 /** Non-secret, survives hibernation. See the module doc for what must NOT. */

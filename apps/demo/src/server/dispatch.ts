@@ -11,11 +11,11 @@ import {
   MAX_WORKSPACE_FRAME_BYTES,
   WORKSPACE_RUN,
   WorkspaceRunSchema,
-} from '@maelstrom-co/agui/contract';
+} from '@maelstrom-co/agui-protocol';
 import {
   type AguiWorkspaceSession,
   rejectWorkspaceRun,
-} from '@maelstrom-co/agui/server';
+} from '@maelstrom-co/agui-server';
 import {
   type Engine,
   handleEnvelope,

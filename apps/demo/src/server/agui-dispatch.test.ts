@@ -1,5 +1,5 @@
-import { workspaceRun } from '@maelstrom-co/agui/contract';
-import { AguiWorkspaceSession } from '@maelstrom-co/agui/server';
+import { workspaceRun } from '@maelstrom-co/agui-protocol';
+import { AguiWorkspaceSession } from '@maelstrom-co/agui-server';
 import { ChartRequestMessage, SessionId } from '@maelstrom-co/protocol';
 import { expect, it, vi } from 'vitest';
 import { dispatchFrame } from './dispatch';

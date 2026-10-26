@@ -1,14 +1,14 @@
-import type { Engine } from '@maelstrom-co/engine';
-import { handleEnvelope } from '@maelstrom-co/engine';
 import {
   APPLICATION_RESULT,
   actionDigest,
+  sameCorrelation,
   WORKSPACE_RESULT,
   type WorkspaceCheckpoint,
   WorkspaceCheckpointSchema,
   type WorkspaceRun,
-} from './contract.js';
-import { sameCorrelation } from './correlation.js';
+} from '@maelstrom-co/agui-protocol';
+import type { Engine } from '@maelstrom-co/engine';
+import { handleEnvelope } from '@maelstrom-co/engine';
 
 type Send = (event: unknown) => void;
 

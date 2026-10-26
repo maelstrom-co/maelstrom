@@ -1,0 +1,38 @@
+{
+  "name": "@maelstrom-co/agui-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Experimental server AG-UI workspace admission and Engine dispatch.",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "@maelstrom-co/source": "./src/server.ts",
+      "types": "./dist/server.d.ts",
+      "import": "./dist/server.js"
+    }
+  },
+  "dependencies": {
+    "@maelstrom-co/agui-protocol": "workspace:*",
+    "@maelstrom-co/engine": "0.1.0"
+  },
+  "devDependencies": {
+    "@maelstrom-co/protocol": "0.1.0"
+  },
+  "nx": {
+    "targets": {
+      "typecheck": {
+        "command": "tsc -p tsconfig.lib.json --noEmit && tsc -p tsconfig.spec.json --noEmit",
+        "options": {
+          "cwd": "{projectRoot}"
+        }
+      },
+      "test": {
+        "command": "bun --conditions=@maelstrom-co/source test",
+        "options": {
+          "cwd": "{projectRoot}"
+        }
+      }
+    }
+  }
+}

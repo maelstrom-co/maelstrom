@@ -7,5 +7,9 @@
     "lib": ["es2022", "dom"]
   },
   "include": ["src/**/*.test.ts"],
-  "references": [{ "path": "./tsconfig.lib.json" }]
+  "references": [
+    { "path": "./tsconfig.lib.json" },
+    { "path": "../agui-server/tsconfig.lib.json" },
+    { "path": "../engine/tsconfig.lib.json" }
+  ]
 }

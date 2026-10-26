@@ -1,7 +1,7 @@
 import {
   WorkspaceResultSchema,
   workspaceRun,
-} from '@maelstrom-co/agui/contract';
+} from '@maelstrom-co/agui-protocol';
 import {
   HEARTBEAT_PING_FRAME,
   HEARTBEAT_PONG_FRAME,

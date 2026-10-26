@@ -40,11 +40,11 @@
  * intermittent and unreproducible.
  */
 import { DurableObject } from 'cloudflare:workers';
-import { readWorkspaceRun } from '@maelstrom-co/agui/contract';
+import { readWorkspaceRun } from '@maelstrom-co/agui-protocol';
 import {
   AguiWorkspaceSession,
   rejectWorkspaceRun,
-} from '@maelstrom-co/agui/server';
+} from '@maelstrom-co/agui-server';
 import {
   HEARTBEAT_PING_FRAME,
   HEARTBEAT_PONG_FRAME,

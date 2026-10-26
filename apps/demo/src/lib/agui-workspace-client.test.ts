@@ -1,4 +1,4 @@
-import { AguiWorkspaceSession } from '@maelstrom-co/agui/server';
+import { AguiWorkspaceSession } from '@maelstrom-co/agui-server';
 import { Orchestrator } from '@maelstrom-co/client';
 import { createEngine, createInMemoryStore } from '@maelstrom-co/engine';
 import {

@@ -1,5 +1,6 @@
 import type { WorkspaceCorrelation } from './contract.js';
 
+/** Compare every identity field required to acknowledge one workspace response. */
 export function sameCorrelation(
   left: WorkspaceCorrelation,
   right: WorkspaceCorrelation,

@@ -78,6 +78,8 @@
         "@fontsource/inter": "^5.2.8",
         "@fontsource/jetbrains-mono": "^5.2.8",
         "@maelstrom-co/agui": "workspace:*",
+        "@maelstrom-co/agui-protocol": "workspace:*",
+        "@maelstrom-co/agui-server": "workspace:*",
         "@maelstrom-co/client": "workspace:*",
         "@maelstrom-co/connectors": "workspace:*",
         "@maelstrom-co/devtools": "workspace:*",
@@ -258,10 +260,33 @@
       "version": "0.1.0",
       "dependencies": {
         "@ag-ui/core": "1.0.0",
+        "@maelstrom-co/agui-protocol": "workspace:*",
         "@maelstrom-co/client": "0.1.0",
+        "@maelstrom-co/protocol": "0.1.0",
+      },
+      "devDependencies": {
+        "@maelstrom-co/agui-server": "workspace:*",
         "@maelstrom-co/engine": "0.1.0",
+      },
+    },
+    "packages/agui-protocol": {
+      "name": "@maelstrom-co/agui-protocol",
+      "version": "0.1.0",
+      "dependencies": {
+        "@ag-ui/core": "1.0.0",
         "@maelstrom-co/protocol": "0.1.0",
         "zod": "catalog:",
+      },
+    },
+    "packages/agui-server": {
+      "name": "@maelstrom-co/agui-server",
+      "version": "0.1.0",
+      "dependencies": {
+        "@maelstrom-co/agui-protocol": "workspace:*",
+        "@maelstrom-co/engine": "0.1.0",
+      },
+      "devDependencies": {
+        "@maelstrom-co/protocol": "0.1.0",
       },
     },
     "packages/client": {
@@ -1380,6 +1405,10 @@
     "@livekit/typed-emitter": ["@livekit/typed-emitter@3.0.0", "", {}, "sha512-9bl0k4MgBPZu3Qu3R3xy12rmbW17e3bE9yf4YY85gJIQ3ezLEj/uzpKHWBsLaDoL5Mozz8QCgggwIBudYQWeQg=="],
 
     "@maelstrom-co/agui": ["@maelstrom-co/agui@workspace:packages/agui"],
+
+    "@maelstrom-co/agui-protocol": ["@maelstrom-co/agui-protocol@workspace:packages/agui-protocol"],
+
+    "@maelstrom-co/agui-server": ["@maelstrom-co/agui-server@workspace:packages/agui-server"],
 
     "@maelstrom-co/agui-workspace-poc": ["@maelstrom-co/agui-workspace-poc@workspace:apps/agui-workspace-poc"],
 

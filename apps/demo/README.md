@@ -21,7 +21,7 @@ The **Workspace** selector switches between **Maelstrom** and **AG-UI** in the s
 
 Choose **AG-UI**, supply your browser-owned key, and submit a typed request or start voice. A successful request updates the Chart through the selected protocol. Changing the protocol starts a new workspace session and disconnects voice; reconnect voice afterward. Application data remains in this tab's memory.
 
-See the [AG-UI demo integration](./AGUI.md) for host wiring and native voice, and the [adapter contract](../../packages/agui/CONTRACT.md) for framing, acknowledgments, and recovery limits. The separate [result-dependent Journal experiment](./EXPERIMENTAL-AGUI.md) remains available locally.
+See the [AG-UI demo integration](./AGUI.md) for host wiring and native voice, and the [adapter contract](../../packages/agui-protocol/CONTRACT.md) for framing, acknowledgments, and recovery limits. The separate [result-dependent Journal experiment](./EXPERIMENTAL-AGUI.md) remains available locally.
 
 ## Start the typed demo
 

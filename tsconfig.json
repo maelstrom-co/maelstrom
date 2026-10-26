@@ -83,6 +83,12 @@
     },
     {
       "path": "./packages/agui"
+    },
+    {
+      "path": "./packages/agui-protocol"
+    },
+    {
+      "path": "./packages/agui-server"
     }
   ],
   "compilerOptions": {}

@@ -25,19 +25,15 @@ function dependencies(entry: string, seen = new Set<string>()): Set<string> {
 it('keeps server dependencies out of the browser and client dependencies out of the server', () => {
   expect([...dependencies('browser.ts')].sort()).toEqual([
     '@ag-ui/core/schemas',
+    '@maelstrom-co/agui-protocol',
     '@maelstrom-co/client',
     '@maelstrom-co/protocol',
-    'zod',
   ]);
-  expect([...dependencies('server.ts')].sort()).toEqual([
-    '@ag-ui/core/schemas',
+  expect([...dependencies('../../agui-server/src/server.ts')].sort()).toEqual([
+    '@maelstrom-co/agui-protocol',
     '@maelstrom-co/engine',
-    '@maelstrom-co/protocol',
-    'zod',
   ]);
-  expect([...dependencies('contract.ts')].sort()).toEqual([
-    '@ag-ui/core/schemas',
-    '@maelstrom-co/protocol',
-    'zod',
-  ]);
+  expect(
+    [...dependencies('../../agui-protocol/src/contract.ts')].sort(),
+  ).toEqual(['@ag-ui/core/schemas', '@maelstrom-co/protocol', 'zod']);
 });

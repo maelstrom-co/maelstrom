@@ -1,6 +1,6 @@
 # AG-UI in the demo
 
-Select **Workspace → AG-UI** to use the experimental adapter with the normal demo's typed input, Chart, Vessels, and native voice. The [demo README](./README.md) covers startup and key entry. The package owns the [wire contract](../../packages/agui/CONTRACT.md), including private ingress, correlation, settlement, and recovery limits.
+Select **Workspace → AG-UI** to use the experimental adapter with the normal demo's typed input, Chart, Vessels, and native voice. The [demo README](./README.md) covers startup and key entry. The protocol package owns the [wire contract](../../packages/agui-protocol/CONTRACT.md), including private ingress, correlation, settlement, and recovery limits.
 
 ## Application and host wiring
 

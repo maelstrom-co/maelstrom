@@ -1,4 +1,10 @@
 import { describe, expect, it, mock } from 'bun:test';
+import {
+  type WorkspaceCheckpoint,
+  type WorkspaceOperation,
+  WorkspaceResultSchema,
+  workspaceRun,
+} from '@maelstrom-co/agui-protocol';
 import { createEngine } from '@maelstrom-co/engine';
 import {
   ChartRequestMessageSchema,
@@ -7,12 +13,6 @@ import {
   SessionId,
   TilingResponseSchema,
 } from '@maelstrom-co/protocol';
-import {
-  type WorkspaceCheckpoint,
-  type WorkspaceOperation,
-  WorkspaceResultSchema,
-  workspaceRun,
-} from './contract.js';
 import { AguiWorkspaceSession } from './server.js';
 
 const recordVessel = defineVessel({

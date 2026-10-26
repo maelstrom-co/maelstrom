@@ -2,6 +2,8 @@
 
 The film explains the hosted workspace integration and its library extraction. It does not replace the earlier bounded Journal and child-approval films.
 
+The delivered film records `c9acb82b5ae5`. A later CI correction splits the mixed adapter manifest into browser `@maelstrom-co/agui`, server `@maelstrom-co/agui-server`, and contract `@maelstrom-co/agui-protocol` packages. The film's ownership diagram shows the earlier subpath names. Settlement and wire behavior are unchanged; the source references below describe the recorded revision.
+
 | Chapter | Claim source |
 | --- | --- |
 | Intro and browser comparison | `apps/demo/src/components/home-page.tsx`, `workspace-protocol-select.tsx`, and `apps/demo/e2e/agui-workspace.e2e.ts` |

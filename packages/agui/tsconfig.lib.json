@@ -11,7 +11,7 @@
   "exclude": ["src/**/*.test.ts"],
   "references": [
     { "path": "../client/tsconfig.lib.json" },
-    { "path": "../engine/tsconfig.lib.json" },
+    { "path": "../agui-protocol/tsconfig.lib.json" },
     { "path": "../protocol/tsconfig.lib.json" }
   ]
 }

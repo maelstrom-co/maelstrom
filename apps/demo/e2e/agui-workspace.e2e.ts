@@ -1,4 +1,4 @@
-import { AguiWorkspaceSession } from '@maelstrom-co/agui/server';
+import { AguiWorkspaceSession } from '@maelstrom-co/agui-server';
 import { createEngine, createInMemoryStore } from '@maelstrom-co/engine';
 import { ok, TilingResponseSchema } from '@maelstrom-co/protocol';
 import { expect, test } from '@playwright/test';

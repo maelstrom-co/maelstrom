@@ -1,11 +1,9 @@
 import { EventSchemas } from '@ag-ui/core/schemas';
-import type { ApplicationSettlement } from '@maelstrom-co/client';
-import type { ChartRequestMessage, SessionId } from '@maelstrom-co/protocol';
-import { ChartRequestMessageSchema } from '@maelstrom-co/protocol';
 import {
   APPLICATION_RESULT,
   ApplicationResultSchema,
   MAX_WORKSPACE_FRAME_BYTES,
+  sameCorrelation,
   WORKSPACE_RESULT,
   WORKSPACE_RUN,
   WorkspaceApplicationSchema,
@@ -13,8 +11,10 @@ import {
   type WorkspaceResult,
   WorkspaceResultSchema,
   workspaceRun,
-} from './contract.js';
-import { sameCorrelation } from './correlation.js';
+} from '@maelstrom-co/agui-protocol';
+import type { ApplicationSettlement } from '@maelstrom-co/client';
+import type { ChartRequestMessage, SessionId } from '@maelstrom-co/protocol';
+import { ChartRequestMessageSchema } from '@maelstrom-co/protocol';
 import { WorkspaceError, type WorkspaceErrorCode } from './workspace-error.js';
 
 type PendingRun = {

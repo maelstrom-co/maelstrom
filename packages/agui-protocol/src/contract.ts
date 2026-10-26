@@ -203,3 +203,4 @@ export async function actionDigest(
     b.toString(16).padStart(2, '0'),
   ).join('');
 }
+export { sameCorrelation } from './correlation.js';

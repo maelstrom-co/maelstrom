@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it } from 'bun:test';
 import {
+  type WorkspaceCheckpoint,
+  type WorkspaceOperation,
+  WorkspaceRunSchema,
+} from '@maelstrom-co/agui-protocol';
+import { AguiWorkspaceSession } from '@maelstrom-co/agui-server';
+import {
   type ApplicationSettlement,
   type EngineConnector,
   Orchestrator,
@@ -14,12 +20,6 @@ import {
   TilingResponseSchema,
 } from '@maelstrom-co/protocol';
 import { AguiWorkspaceClient } from './browser.js';
-import {
-  type WorkspaceCheckpoint,
-  type WorkspaceOperation,
-  WorkspaceRunSchema,
-} from './contract.js';
-import { AguiWorkspaceSession } from './server.js';
 
 const vessel = defineVessel({
   id: 'counter',
