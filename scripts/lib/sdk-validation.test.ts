@@ -26,6 +26,18 @@ test('an unidentified embedded validator fails closed instead of inheriting a cl
   ).toThrow('could not be verified');
 });
 
+test('a separate runtime cannot lend its version marker to an unidentified validator', () => {
+  expect(() =>
+    assertBundledValidationSources(
+      [
+        'var _zod = unknownRuntime;',
+        'var version = {major:4,minor:6,patch:6};',
+      ],
+      'client',
+    ),
+  ).toThrow('could not be verified');
+});
+
 test('packages without embedded validation code do not require a vendor version marker', () => {
   expect(() =>
     assertBundledValidationSources(

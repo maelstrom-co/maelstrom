@@ -158,8 +158,48 @@ function preserveNullableBranches(
   const normalize = (value: unknown): unknown => {
     if (Array.isArray(value)) return value.map(normalize);
     if (value === null || typeof value !== 'object') return value;
+    const schemaMaps = new Set([
+      'properties',
+      'patternProperties',
+      '$defs',
+      'definitions',
+      'dependentSchemas',
+    ]);
+    const schemas = new Set([
+      'items',
+      'prefixItems',
+      'additionalItems',
+      'contains',
+      'additionalProperties',
+      'unevaluatedProperties',
+      'unevaluatedItems',
+      'propertyNames',
+      'allOf',
+      'anyOf',
+      'oneOf',
+      'not',
+      'if',
+      'then',
+      'else',
+      'contentSchema',
+    ]);
     const fields: Record<string, unknown> = Object.fromEntries(
-      Object.entries(value).map(([key, child]) => [key, normalize(child)]),
+      Object.entries(value).map(([key, child]) => [
+        key,
+        schemaMaps.has(key) &&
+        child !== null &&
+        typeof child === 'object' &&
+        !Array.isArray(child)
+          ? Object.fromEntries(
+              Object.entries(child).map(([name, schema]) => [
+                name,
+                normalize(schema),
+              ]),
+            )
+          : schemas.has(key)
+            ? normalize(child)
+            : child,
+      ]),
     );
     if (
       Array.isArray(fields.type) &&

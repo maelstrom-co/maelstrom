@@ -32,24 +32,27 @@ export function assertBundledValidationSources(
   sources: readonly string[],
   name: string,
 ): void {
-  const source = sources.join('\n');
-  if (!source.includes('_zod')) return;
-  const versions = [
-    ...source.matchAll(/\bmajor:\s*(\d+),\s*minor:\s*(\d+),\s*patch:\s*(\d+)/g),
-  ];
-  if (versions.length === 0)
-    throw new Error(
-      `${name}: embedded validator version could not be verified`,
-    );
-  for (const match of versions) {
-    const [major, minor, patch] = match.slice(1).map(Number);
-    if (
-      major < 4 ||
-      (major === 4 && (minor < 6 || (minor === 6 && patch < 6)))
-    ) {
+  for (const source of sources) {
+    if (!source.includes('_zod')) continue;
+    const versions = [
+      ...source.matchAll(
+        /\bmajor:\s*(\d+),\s*minor:\s*(\d+),\s*patch:\s*(\d+)/g,
+      ),
+    ];
+    if (versions.length === 0)
       throw new Error(
-        `${name}: bundles vulnerable Zod ${major}.${minor}.${patch}`,
+        `${name}: embedded validator version could not be verified`,
       );
+    for (const match of versions) {
+      const [major, minor, patch] = match.slice(1).map(Number);
+      if (
+        major < 4 ||
+        (major === 4 && (minor < 6 || (minor === 6 && patch < 6)))
+      ) {
+        throw new Error(
+          `${name}: bundles vulnerable Zod ${major}.${minor}.${patch}`,
+        );
+      }
     }
   }
 }
