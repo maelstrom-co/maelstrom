@@ -77,7 +77,7 @@ try {
 }
 ```
 
-## CLI: local use and future CI
+## CLI: Local use and future CI
 
 Run from the workspace root with **Node ≥24** and installed workspace dependencies.
 Native Node TypeScript support is sufficient; the CLI needs no build or loader,
@@ -297,7 +297,7 @@ No bound is silently raised.
 - **3**: partial/uncertain delivery or uncertain shutdown, even if delivery was
   accepted. This must not be treated as success by CI.
 
-The sink is always shut down after the publication attempt(s) in `finally`. The process exits
+The sink is always shut down in `finally` after publication. The process exits
 after that bounded wait; abort or process exit does not prove remote
 cancellation. There are **no automatic retries**. An explicitly authorized retry
 reuses the same saved result, timestamp, settings and approval hash, not a new

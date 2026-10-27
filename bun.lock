@@ -563,6 +563,7 @@
     "file-type": "21.3.4",
     "handlebars": "4.7.10",
     "hono": "4.13.11",
+    "http-cache-semantics": "4.3.0",
     "katex": "0.18.2",
     "@langfuse/core": "5.13.1",
     "@langfuse/tracing": "5.13.1",

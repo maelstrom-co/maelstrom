@@ -1,4 +1,4 @@
-# Unified evals: offline contract slice
+# Unified evals: Offline contract slice
 
 Case completion follows the [declared-scope convention](../../packages/evals/cases/README.md#completion-scope); it is separate from sample outcome and human review.
 
