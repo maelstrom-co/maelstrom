@@ -254,3 +254,21 @@ test('invalid sample identities are rejected before initialization', async () =>
       'positive integer',
     );
 });
+
+test('explicit unscored policy preserves complete evidence and telemetry cleanup cannot change correctness', async () => {
+  const result = await evaluateSample(identity, {
+    ...good,
+    score: () => ({ outcome: 'unscored', failures: [] }),
+  });
+  expect(result.completeness).toBe('complete');
+  expect(result.evaluation).toBe('unscored');
+  const failed = await evaluateSample(identity, {
+    ...good,
+    async finalizeOperational() {
+      throw new Error('collector failed');
+    },
+  });
+  expect(failed.evaluation).toBe('pass');
+  expect(failed.cleanupError).toBe('collector failed');
+  expect(failed.operational).toBeUndefined();
+});

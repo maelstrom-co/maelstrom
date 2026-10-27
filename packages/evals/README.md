@@ -248,7 +248,7 @@ paid result, or full migration is claimed by these three data migrations.
 
 ### Pluggable publication and optional Langfuse sink
 
-`src/core/publication.ts` defines the internal `EvaluationResultSink` boundary **after** `evaluateSample` has returned, including cleanup. It is separate from execution/scoring, the existing report writers, and operational telemetry. Canonical cases/fixtures remain in the monorepo. The private [`tools/evals-langfuse`](../../tools/evals-langfuse/README.md) package provides an opt-in sink using the public `@langfuse/client` 5.13.1 batch API for self-hosted Langfuse OSS 3.163.0 on Node ≥24. It is not automatically activated: there is no CLI, provisioning, dataset sync, durable archive, or request to the user's deployment yet. A live smoke test needs explicit destination credentials and version assertion, a reviewed synthetic publication, and verification of deployment access, retention and receipt behavior. The core eval package's Node ≥20 baseline is unchanged.
+`src/core/publication.ts` defines the internal `EvaluationResultSink` boundary **after** `evaluateSample` has returned, including cleanup. It is separate from execution/scoring, the existing report writers, and operational telemetry. Canonical cases/fixtures remain in the monorepo. The private [`tools/evals-langfuse`](../../tools/evals-langfuse/README.md) package provides an opt-in sink using the public `@langfuse/client` 5.13.1 batch API for self-hosted Langfuse OSS 3.163.0 on Node ≥24. It is not automatically activated: its CLI previews saved evidence and publishes only explicitly approved bytes; there is no provisioning, dataset sync, durable archive, or request to the user's deployment. A live smoke test needs explicit destination credentials and version assertion, a reviewed synthetic publication, and verification of deployment access, retention and receipt behavior. The core eval package's Node ≥20 baseline is unchanged.
 
 The explicit sequence is:
 
@@ -263,6 +263,72 @@ The immutable JSON is canonicalized and SHA-256 hashed. `publicationKey` binds d
 `accepted`, `partial`, `failed` and `uncertain` are publication states, never eval verdicts. `accepted` means the sink's declared acknowledgment, not durable storage; a merely queued/flush-resolved SDK operation cannot honestly promise more than its delivery evidence. `failed` requires known rejection. Thrown/invalid sink responses and timeout return `uncertain` without copying raw exception messages. Deadline expiry requests abort but does not prove cancellation; a still-active timed-out send blocks another attempt. Late completion does not rewrite the returned receipt. Retrying a partial/failed/uncertain publication is an explicit caller action with the same ID/bytes, may require backend reconciliation, and **never reruns evaluation**. There is no automatic retry, storage, CLI activation, or sink registry.
 
 `src/core/publication.test.ts` uses synthetic in-memory sinks and denies global fetch. It covers bounded JSON/review rejection, partial/failure/timeout behavior, concurrent deduplication, conflicting bytes, immutable evidence, and independent re-export. Existing CLI and live-eval paths are unchanged.
+
+### Shared native lifecycle and operational evidence
+
+`src/core/run-orchestration.ts` owns catalog-order selection, case × repeat ×
+runtime expansion, prepare-once execution, the bounded worker pool, sample/result
+accounting, progress callbacks, and final reporting. Native `runEval` and
+`runStageEval` supply source-policy hooks rather than separate loops/schedulers.
+`tools/evals-offline/run.ts` uses the same orchestrator for the existing synthetic
+session, planner and isolated-stage cases. Each invocation uses `evaluateSample`.
+
+Planner ordering remains serial; stages retain configured concurrency, once-per-
+scenario preparation and one N/A sample per variant. Replay lookup uses the actual
+repeat. Native fields, grading, correctness denominators and report formats remain
+source-owned. The CLI report writers are registered with the common `report` hook:
+reporting is awaited once, only after a completed run. A fatal source-policy or
+progress error stops new admission and drains in-flight samples before rejecting;
+it cannot produce a complete report for partial work.
+
+The common result contains `records`, finalized `samples`, `runId`, explicit
+`policy`, and accounting for selected cases, planned/completed samples, execution
+and evaluation outcomes, and cleanup failures. These are labeled policy-specific
+counts, not a new universal accuracy metric. Both native APIs accept `runId`,
+`onEvaluation`, and `report`; the latter receives the common run result. Native
+APIs still return their existing record arrays. Selection retains existing
+suite/ID intersection and catalog ordering; repeats/concurrency and duplicate
+sample identities are validated before executing samples.
+
+Reusable turn adapters keep preparation, collected telemetry, returned response
+and original exception state keyed by invocation context. Native-only grading and
+exception helpers are private one-shot completion hooks, not closure-wide getters
+on reusable adapters.
+
+Scoring policy is surface-specific: `planner-response` adapter checks still
+assert expected deferrals; `planner-native` and imported `planner-report`
+expected-deferral samples remain unscored with separate deferral facts. Do not
+pool these surfaces into an unlabeled correctness average. Secondary graders
+remain outside measured Engine execution and operational collection.
+
+Each newly owned Engine gets an isolated operational collector attached before
+handling a request. Isolated stages emit eval-owned `engine.stage` start/result
+facts around the actual call; they do not pretend to be Engine requests or
+provider telemetry. Preparation and judging are outside that duration. Native
+records add an optional `operational` aggregate; old records and uninstrumented
+scripted sessions remain unavailable, not zero-operation measurements. Replay
+collection measures the current invocation only, not the historical upstream
+provider's time or cost.
+
+The dependency-free runtime operational schema (version 1) groups only bounded
+operation/outcome pairs. Collection retires attachments, waits at most one second
+for drainage, flushes, disposes, then freezes aggregates and delivery/loss state.
+An undrained source or dropped facts marks collection partial without changing
+correctness. Empty observed collections have no score groups. Missing durations
+stay absent; measured zero stays zero. Token/cost usage remains a separate source.
+
+Reviewed sample publications include these finalized aggregates. Separately
+owned run collectors use `prepareRunTelemetryPublication` and a genuine run-only
+identity, never a fictitious sample or duplicated run scores on sample traces.
+The Langfuse tool exports counts, duration means in milliseconds, and measured
+sample counts under `eval.operational.*`; see its README for the mapping and
+`run-telemetry` CLI input. Run ownership must be established by the caller: lack
+of sample attribution is not evidence of run attribution. Retries reuse reviewed
+bytes and stable score IDs without execution, collection, or rescoring.
+
+This integration does not change the 41-row lineage accounting, bounded case
+contracts, unit-only evidence, or eight exclusions; it is not full legacy
+behavioral equivalence or certification of a live backend.
 
 ## Plugins
 

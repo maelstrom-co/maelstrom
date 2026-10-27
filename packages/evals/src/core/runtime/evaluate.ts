@@ -1,3 +1,8 @@
+import {
+  type OperationalTelemetry,
+  validateOperationalTelemetry,
+} from './operational-telemetry.js';
+
 /** Internal provisional identity; repeats are samples, not retries. */
 export interface SampleIdentity {
   readonly runId: string;
@@ -8,7 +13,7 @@ export interface SampleIdentity {
 
 /** Correctness is separate from runtime disposition and execution failure. */
 export interface Verdict {
-  readonly outcome: 'pass' | 'fail';
+  readonly outcome: 'pass' | 'fail' | 'unscored';
   readonly failures: readonly string[];
 }
 
@@ -46,11 +51,15 @@ export interface EvaluationAdapter<T> {
   readonly surface: string;
   readonly provenance: string;
   /** Must reject incompatible inputs without executing the runtime. */
-  preflight?(): void | Promise<void>;
+  preflight?(context: EvaluationContext): void | Promise<void>;
   execute(context: EvaluationContext): Promise<Observation<T>>;
   score(value: T): Verdict;
   /** Release resources created for this invocation, including on failure. */
   dispose?(): void | Promise<void>;
+  /** Finalize owned telemetry after runtime cleanup, never infer it from diagnostic records. */
+  finalizeOperational?(
+    context: EvaluationContext,
+  ): Promise<OperationalTelemetry>;
 }
 
 /** Serializable sample evidence; no provider token count is inferred from absence. */
@@ -72,6 +81,8 @@ export interface EvaluationResult<T> {
     readonly message: string;
   };
   readonly cleanupError?: string;
+  /** Optional finalized operational evidence; absence means collection unavailable. */
+  readonly operational?: OperationalTelemetry;
 }
 
 /** Executes one sample through the same preparation, evidence, scoring and cleanup lifecycle. */
@@ -126,7 +137,7 @@ export async function evaluateSample<T>(
   let observation: Observation<T> | undefined;
   let result: EvaluationResult<T>;
   try {
-    await adapter.preflight?.();
+    await adapter.preflight?.(context);
     phase = 'execution';
     observation = structuredClone(await adapter.execute(context));
     if (observation.error !== undefined) throw new Error(observation.error);
@@ -181,6 +192,21 @@ export async function evaluateSample<T>(
       await adapter.dispose?.();
     } catch (error) {
       result = { ...result, cleanupError: describeError(error) };
+    }
+  }
+  if (phase !== 'preflight' && adapter.finalizeOperational) {
+    try {
+      const operational = validateOperationalTelemetry(
+        await adapter.finalizeOperational(context),
+      );
+      if (operational.scope !== 'sample')
+        throw new Error('Sample requires sample-owned telemetry');
+      result = { ...result, operational };
+    } catch (error) {
+      result = {
+        ...result,
+        cleanupError: result.cleanupError ?? describeError(error),
+      };
     }
   }
   return structuredClone(result);

@@ -380,3 +380,44 @@ test('compatible synthetic replay keeps provenance; incompatible replay rejects 
   expect(calls.count).toBe(0);
   expect(rejected.records).toHaveLength(0);
 });
+
+test('offline planner and stage paths collect real bounded operational facts while scripted legacy does not invent them', async () => {
+  const planned = await evaluateSample(
+    identity('planner', 'fake', 2),
+    planner(),
+  );
+  expect(planned.observation?.repeat).toBe(2);
+  expect(planned.operational?.scope).toBe('sample');
+  expect(
+    planned.operational?.groups.some((g) => g.operation === 'engine.request'),
+  ).toBe(true);
+  const isolated = await evaluateSample(
+    identity('stage'),
+    stage('enum-route-short-name', false).adapter,
+  );
+  expect(isolated.operational?.groups.map((g) => g.operation)).toEqual([
+    'engine.stage',
+    'engine.stage',
+  ]);
+  const legacyCase = loadOfflineCases().find(
+    (item) => item.definition.profile === 'legacy-assistant-identity',
+  );
+  expect(legacyCase).toBeDefined();
+  if (!legacyCase) throw new Error('Missing synthetic case');
+  const legacy = await evaluateSample(
+    identity('legacy'),
+    caseAdapter(legacyCase),
+  );
+  expect(legacy.operational).toBeUndefined();
+  const publication = prepareEvaluationPublication(legacy, {
+    destinationId: 'offline',
+    artifactId: 'summary',
+    policy: { maxBytes: 4096, review: () => true },
+  });
+  expect(JSON.parse(publication.json).operational).toEqual({
+    schemaVersion: 1,
+    scope: 'sample',
+    completeness: 'unavailable',
+    groups: [],
+  });
+});

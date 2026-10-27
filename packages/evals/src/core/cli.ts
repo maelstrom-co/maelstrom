@@ -183,7 +183,7 @@ export async function runEvalCli(
       .map(([key, value]) => `, ${key}=${value}`)
       .join('')})`,
   );
-  const records = await runEval({
+  await runEval({
     scenarios,
     arms,
     repeats,
@@ -196,6 +196,26 @@ export async function runEvalCli(
       replayThrough && {
         replay: { source: replay.source, through: replayThrough },
       }),
+    report: async ({ records }) => {
+      await writeReport(
+        out,
+        records,
+        {
+          suite,
+          arms: arms.map(({ arm }) => arm.name).join(', '),
+          repeats,
+          scenarios: scenarios.length,
+          llmModel: model,
+          ...pluginMeta,
+          date: new Date().toISOString(),
+          ...(replay && { replay: replay.meta }),
+          ...(values.grader && {
+            grader: graderValidationPath ?? 'not validated',
+          }),
+        },
+        { plugins, graderValidation },
+      );
+    },
     onRecord: (record) =>
       console.log(
         `${record.arm.padEnd(10)} ${record.scenarioId} #${record.repeat} ${Math.round(record.turnMs)} ms ${
@@ -215,22 +235,7 @@ export async function runEvalCli(
         }`,
       ),
   });
-  await writeReport(
-    out,
-    records,
-    {
-      suite,
-      arms: arms.map(({ arm }) => arm.name).join(', '),
-      repeats,
-      scenarios: scenarios.length,
-      llmModel: model,
-      ...pluginMeta,
-      date: new Date().toISOString(),
-      ...(replay && { replay: replay.meta }),
-      ...(values.grader && { grader: graderValidationPath ?? 'not validated' }),
-    },
-    { plugins, graderValidation },
-  );
+
   console.log(`Report written to ${out}/report.md`);
 }
 

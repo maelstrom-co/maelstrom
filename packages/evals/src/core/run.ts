@@ -1,4 +1,5 @@
 import {
+  attachEngineTelemetry,
   createEngine,
   type Instrument,
   type Logger,
@@ -17,6 +18,7 @@ import {
   SessionId,
   type VesselInstanceSnapshot,
 } from '@maelstrom-co/protocol';
+import type { TelemetryAttachment } from '@maelstrom-co/telemetry';
 import type { AnyTextAdapter } from '@tanstack/ai';
 import type { RegisteredArm } from './arms.js';
 import {
@@ -31,6 +33,10 @@ import {
   type StageReplacements,
 } from './instrument.js';
 import {
+  createOperationalCollector,
+  type OperationalTelemetry,
+} from './operational-telemetry.js';
+import {
   extendOwned,
   type Judge,
   type Phase,
@@ -44,6 +50,16 @@ import {
   verifyReplayShape,
   writeStageFile,
 } from './replay.js';
+import {
+  type EvaluationRun,
+  type RunInvocation,
+  runEvaluationRun,
+} from './run-orchestration.js';
+import type {
+  EvaluationAdapter,
+  EvaluationContext,
+  EvaluationResult,
+} from './runtime/evaluate.js';
 import type { Scenario, Suite } from './scenarios.js';
 import { type ArrangedScore, scoreResponse } from './score.js';
 import { type LlmCall, type LlmRole, withUsage } from './usage-adapter.js';
@@ -96,6 +112,8 @@ export interface RunRecord {
   readonly instances?: readonly VesselInstanceSnapshot[];
   /** The judge's verdict on the shipped response (`--grader`, planned scenarios only), with its own calls. */
   readonly grader?: GraderRecord;
+  /** Finalized isolated Engine operational collection, separate from provider usage. */
+  readonly operational?: OperationalTelemetry;
 }
 
 /** The fields of {@link RunRecord} the runner owns; no plugin's `recordTurn` may set one. */
@@ -122,6 +140,7 @@ export const RUN_RECORD_FIELDS = [
   'executionPlan',
   'instances',
   'grader',
+  'operational',
 ] as const satisfies readonly (keyof RunRecord)[];
 
 /** What {@link runEval} runs: the scenarios, the arms and how, and where the results go. */
@@ -130,6 +149,14 @@ export interface EvalOptions {
   /** Run in this order for every scenario and repeat. */
   readonly arms: readonly RegisteredArm[];
   readonly repeats: number;
+  /** Shared-lifecycle run identity; generated once when omitted. */
+  readonly runId?: string;
+  /** Finalized native-policy sample evidence, separate from the native report. */
+  readonly onEvaluation?: (result: EvaluationResult<RunRecord>) => void;
+  /** Native report writer dispatched by the shared run lifecycle after completion. */
+  readonly report?: (
+    run: EvaluationRun<RunRecord, RunRecord>,
+  ) => void | Promise<void>;
   /** Text adapter behind every LLM role; each role gets its own recording wrapper. */
   readonly adapter: AnyTextAdapter;
   /** The planner staged arms fall back to, on the `fallback` role's adapter. */
@@ -165,40 +192,87 @@ const silent: Logger = { debug() {}, info() {}, warn() {}, error() {} };
  * @throws {Error} When a plugin's `recordTurn` sets a field the runner owns.
  */
 export async function runEval(options: EvalOptions): Promise<RunRecord[]> {
-  const unmapped = unmappedPhases(options.arms, options.scenarios);
-  if (unmapped.length > 0) throw new Error(unmapped.join('\n'));
-  if (options.replay) {
-    verifyReplay(options.replay.source, options.scenarios, options.repeats);
-    verifyReplayShape(
-      options.replay.source,
-      options.scenarios,
-      options.repeats,
-      options.replay.through,
-      options.arms.filter(isStaged),
-    );
-  }
-  const { judge } = options;
-  const records: RunRecord[] = [];
-  for (const scenario of options.scenarios)
-    for (let repeat = 1; repeat <= options.repeats; repeat++)
-      for (const registered of options.arms) {
-        const turn = await runTurn(options, registered, scenario, repeat);
-        const record =
-          judge && turn.response
-            ? {
-                ...turn.record,
-                grader: await grade(
-                  judge,
-                  scenario,
-                  turn.response,
-                  options.logger ?? silent,
-                ),
-              }
-            : turn.record;
-        records.push(record);
-        options.onRecord?.(record);
+  const run = await runEvaluationRun({
+    runId: options.runId,
+    policy: 'native:planner/v1',
+    cases: options.scenarios,
+    runtimes: options.arms,
+    repeats: options.repeats,
+    concurrency: 1,
+    caseId: (scenario) => scenario.id,
+    runtimeId: (_scenario, registered) => registered.arm.name,
+    prepare: (scenario) => scenario,
+    preflight() {
+      const unmapped = unmappedPhases(options.arms, options.scenarios);
+      if (unmapped.length > 0) throw new Error(unmapped.join('\n'));
+      if (options.replay) {
+        verifyReplay(options.replay.source, options.scenarios, options.repeats);
+        verifyReplayShape(
+          options.replay.source,
+          options.scenarios,
+          options.repeats,
+          options.replay.through,
+          options.arms.filter(isStaged),
+        );
       }
-  return records;
+    },
+    invocation: (scenario, _prepared, registered) =>
+      plannerInvocation(options, registered, scenario),
+    onEvaluation: options.onEvaluation,
+    onRecord: options.onRecord,
+    report: options.report,
+  });
+  return [...run.records];
+}
+
+function plannerInvocation(
+  options: EvalOptions,
+  registered: RegisteredArm,
+  scenario: Scenario,
+): RunInvocation<RunRecord, RunRecord> {
+  const turn = createPlannerTurn({
+    scenario,
+    arm: registered,
+    runtime: options,
+    policy: 'native',
+    provenance:
+      options.replay && isStaged(registered)
+        ? `native:planner-replay/v1; through:${options.replay.through}; source:${options.replay.source.dir}`
+        : 'native:planner/v1',
+  });
+  let context: EvaluationContext | undefined;
+  return {
+    adapter: {
+      ...turn.adapter,
+      preflight(current) {
+        context = current;
+        return turn.adapter.preflight?.(current);
+      },
+    },
+    async finish(result) {
+      const state = context && turn.states.get(context);
+      if (state?.thrown) throw state.thrown.error;
+      if (!result.observation)
+        throw new Error(
+          result.error?.message ?? 'Planner produced no observation',
+        );
+      const record = {
+        ...result.observation,
+        ...(result.operational && { operational: result.operational }),
+      };
+      return options.judge && state?.response
+        ? {
+            ...record,
+            grader: await grade(
+              options.judge,
+              scenario,
+              state.response,
+              options.logger ?? silent,
+            ),
+          }
+        : record;
+    },
+  };
 }
 
 /**
@@ -290,6 +364,8 @@ async function runTurn(
   registered: RegisteredArm,
   scenario: Scenario,
   repeat: number,
+  collector: ReturnType<typeof createOperationalCollector>,
+  attachments: TelemetryAttachment[],
 ): Promise<{ record: RunRecord; response?: MaelstromResponse }> {
   const { arm, plugin } = registered;
   const staged = isStaged(registered);
@@ -327,6 +403,8 @@ async function runTurn(
     arm.name,
     planner,
     recorder.instrument,
+    collector,
+    attachments,
   );
   const owned: RunRecord = {
     ...base(scenario, repeat, registered, turn),
@@ -359,6 +437,118 @@ async function runTurn(
     ...(turn.response &&
       scenario.expected.status === 'planned' && { response: turn.response }),
   };
+}
+
+type PlannerTurnOptions = {
+  readonly scenario: Scenario;
+  readonly arm: RegisteredArm;
+  readonly runtime: Pick<
+    EvalOptions,
+    'adapter' | 'fallback' | 'logger' | 'replay' | 'out'
+  >;
+  readonly provenance: string;
+  readonly policy: 'native' | 'adapter';
+};
+
+/** Reusable planner adapter; native-only response/exception state is not exposed. */
+export function plannerTurnAdapter(
+  options: PlannerTurnOptions,
+): EvaluationAdapter<RunRecord> {
+  return createPlannerTurn(options).adapter;
+}
+
+function createPlannerTurn(options: PlannerTurnOptions) {
+  const states = new WeakMap<
+    EvaluationContext,
+    {
+      collector: ReturnType<typeof createOperationalCollector>;
+      attachments: TelemetryAttachment[];
+      response?: MaelstromResponse;
+      thrown?: { error: unknown };
+    }
+  >();
+  const adapter: EvaluationAdapter<RunRecord> = {
+    surface:
+      options.policy === 'native' ? 'planner-native' : 'planner-response',
+    provenance: options.provenance,
+    preflight(context) {
+      const errors = unmappedPhases([options.arm], [options.scenario]);
+      if (errors.length) throw new Error(errors.join('\n'));
+      if (options.runtime.replay) {
+        const { source, through } = options.runtime.replay;
+        verifyReplay(source, [options.scenario], context.identity.sample);
+        verifyReplayShape(
+          source,
+          [options.scenario],
+          context.identity.sample,
+          through,
+          [options.arm].filter(isStaged),
+        );
+      }
+    },
+    async execute(context) {
+      const collector = createOperationalCollector('sample');
+      const attachments: TelemetryAttachment[] = [];
+      const state: {
+        collector: typeof collector;
+        attachments: TelemetryAttachment[];
+        response?: MaelstromResponse;
+        thrown?: { error: unknown };
+      } = { collector, attachments };
+      states.set(context, state);
+      try {
+        const turn = await runTurn(
+          {
+            ...options.runtime,
+            scenarios: [options.scenario],
+            arms: [options.arm],
+            repeats: 1,
+          },
+          options.arm,
+          options.scenario,
+          context.identity.sample,
+          collector,
+          attachments,
+        );
+        state.response = turn.response;
+        for (const stage of turn.record.stages ?? [])
+          context.record({ kind: 'stage', value: stage });
+        context.record({ kind: 'turn', value: turn.record });
+        return {
+          completeness: turn.record.error ? 'partial' : 'complete',
+          disposition: turn.record.deferral ? 'deferred' : 'planned',
+          value: turn.record,
+          ...(turn.record.error && { error: turn.record.error.message }),
+        };
+      } catch (error) {
+        state.thrown = { error };
+        throw error;
+      }
+    },
+    score(record) {
+      if (record.expectedDeferral)
+        return options.policy === 'native'
+          ? { outcome: 'unscored', failures: [] }
+          : {
+              outcome: record.deferredAsExpected ? 'pass' : 'fail',
+              failures: record.deferredAsExpected
+                ? []
+                : ['Expected planner deferral was not observed'],
+            };
+      if (!record.score)
+        throw new Error('Planner record lacks correctness evidence');
+      return {
+        outcome: record.score.pass ? 'pass' : 'fail',
+        failures: record.score.failures,
+      };
+    },
+    async finalizeOperational(context) {
+      const collection = states.get(context);
+      if (!collection) throw new Error('Planner collection unavailable');
+      return collection.collector.finalize(collection.attachments);
+    },
+  };
+  return { adapter, states };
 }
 
 function stagedFields(
@@ -405,6 +595,8 @@ async function handle(
   arm: string,
   planner: Planner,
   instrument: Instrument,
+  collector: ReturnType<typeof createOperationalCollector>,
+  attachments: TelemetryAttachment[],
 ): Promise<Turn> {
   const withHistory: Planner = (input, ctx) =>
     planner(
@@ -417,6 +609,7 @@ async function handle(
     logger: options.logger ?? silent,
     instrument,
   });
+  attachments.push(attachEngineTelemetry(engine, collector.telemetry));
   const started = performance.now();
   const result = await engine.handle(
     ChartRequestMessage({

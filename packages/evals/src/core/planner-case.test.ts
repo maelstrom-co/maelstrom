@@ -225,8 +225,10 @@ test('fixed canonical files drive a fresh live registry and fail closed without 
   const root = mkdtempSync(join(tmpdir(), 'planner-snapshot-'));
   try {
     const core = join(root, 'src/core');
+    const runtime = join(core, 'runtime');
     const cases = join(root, 'cases/v1');
     mkdirSync(core, { recursive: true });
+    mkdirSync(runtime, { recursive: true });
     mkdirSync(cases, { recursive: true });
     for (const file of [
       'planner-case.ts',
@@ -235,8 +237,14 @@ test('fixed canonical files drive a fresh live registry and fail closed without 
       'scenario-snapshot.ts',
       'scenarios.ts',
       'scenario-registry.ts',
+      'run-orchestration.ts',
     ])
       copyFileSync(new URL(file, import.meta.url), join(core, file));
+    for (const file of ['evaluate.ts', 'operational-telemetry.ts'])
+      copyFileSync(
+        new URL(`runtime/${file}`, import.meta.url),
+        join(runtime, file),
+      );
     cpSync(
       new URL('../../scenarios', import.meta.url),
       join(root, 'scenarios'),

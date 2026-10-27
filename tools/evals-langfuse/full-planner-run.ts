@@ -1,6 +1,10 @@
 import { createHash } from 'node:crypto';
 import type { EvaluationPublicationMetadata } from '../../packages/evals/src/core/publication.js';
 import type { EvaluationResult } from '../../packages/evals/src/core/runtime/evaluate.js';
+import {
+  unavailableOperationalTelemetry,
+  validateOperationalTelemetry,
+} from '../../packages/evals/src/core/runtime/operational-telemetry.ts';
 
 /** One conservatively mapped native planner sample, with non-score facts kept separate. */
 export interface ImportedPlannerSample {
@@ -103,8 +107,15 @@ export function importFullPlannerRun(
     const score = object(record.score) ? record.score : undefined;
     const scored =
       !error && !record.expectedDeferral && typeof score?.pass === 'boolean';
+    const operational =
+      record.operational === undefined
+        ? unavailableOperationalTelemetry()
+        : validateOperationalTelemetry(record.operational);
+    if (operational.scope !== 'sample')
+      throw new Error('Native turn requires sample-owned telemetry');
     return {
       result: {
+        operational,
         schemaVersion: 1,
         identity,
         sampleKey: JSON.stringify([

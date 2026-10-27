@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { LangfuseClient } from '@langfuse/client';
 import type { EvaluationPublication } from '../../packages/evals/src/core/publication.js';
+import { validateOperationalTelemetry } from '../../packages/evals/src/core/runtime/operational-telemetry.ts';
 import type { LangfuseV3Config } from './sink.js';
 
 type BatchRequest = Parameters<LangfuseClient['api']['ingestion']['batch']>[0];
@@ -24,32 +25,44 @@ export function mapLangfuseV3Publication(
   )
     throw new Error('Invalid publication');
   const payload = JSON.parse(publication.json);
+  const run =
+    payload?.schemaVersion === 2 &&
+    payload.scope === 'run' &&
+    payload.kind === 'operational-summary';
   if (
     !payload ||
-    payload.schemaVersion !== 1 ||
-    !['summary', 'recording'].includes(payload.kind)
+    (!run &&
+      (payload.schemaVersion !== 1 ||
+        !['summary', 'recording'].includes(payload.kind)))
   )
     throw new Error('Unsupported publication schema');
   const identity = payload.identity;
   for (const value of [
     identity?.runId,
-    identity?.caseId,
+    ...(run ? [] : [identity?.caseId]),
     identity?.runtimeId,
     publication.artifactId,
   ])
     if (typeof value !== 'string' || !value.trim())
       throw new Error('Invalid publication identity');
-  if (!Number.isSafeInteger(identity.sample) || identity.sample < 1)
+  if (!run && (!Number.isSafeInteger(identity.sample) || identity.sample < 1))
     throw new Error('Invalid sample');
-  const sampleKey = JSON.stringify([
-    identity.runId,
-    identity.caseId,
-    identity.runtimeId,
-    identity.sample,
-  ]);
+  if (
+    run &&
+    Object.keys(identity).some((key) => !['runId', 'runtimeId'].includes(key))
+  )
+    throw new Error('Invalid run identity');
+  const sampleKey = run
+    ? JSON.stringify(['run', identity.runId, identity.runtimeId])
+    : JSON.stringify([
+        identity.runId,
+        identity.caseId,
+        identity.runtimeId,
+        identity.sample,
+      ]);
   const key = hash(
     JSON.stringify([
-      1,
+      run ? 2 : 1,
       config.destinationId,
       sampleKey,
       publication.artifactId,
@@ -62,15 +75,16 @@ export function mapLangfuseV3Publication(
   )
     throw new Error('Inconsistent publication identity');
   if (
-    !['completed', 'error', 'invalid'].includes(payload.execution) ||
-    !['pass', 'fail', 'unscored', 'not_applicable'].includes(
-      payload.evaluation,
-    ) ||
-    !['complete', 'partial', 'absent'].includes(payload.completeness) ||
-    ![null, 'planned', 'deferred', 'handed_off', 'not_applicable'].includes(
-      payload.disposition,
-    ) ||
-    ![null, 'preflight', 'execution', 'scoring'].includes(payload.errorPhase)
+    !run &&
+    (!['completed', 'error', 'invalid'].includes(payload.execution) ||
+      !['pass', 'fail', 'unscored', 'not_applicable'].includes(
+        payload.evaluation,
+      ) ||
+      !['complete', 'partial', 'absent'].includes(payload.completeness) ||
+      ![null, 'planned', 'deferred', 'handed_off', 'not_applicable'].includes(
+        payload.disposition,
+      ) ||
+      ![null, 'preflight', 'execution', 'scoring'].includes(payload.errorPhase))
   )
     throw new Error('Invalid publication status');
   const eventId = (kind: string) =>
@@ -91,10 +105,17 @@ export function mapLangfuseV3Publication(
     payloadDigest: publication.payloadDigest,
     artifactId: publication.artifactId,
     ...identity,
-    execution: payload.execution,
-    evaluation: payload.evaluation,
-    completeness: payload.completeness,
-    disposition: payload.disposition,
+    scope: run ? 'run' : 'sample',
+    ...(run
+      ? {}
+      : {
+          surface: payload.surface,
+          provenance: payload.provenance,
+          execution: payload.execution,
+          evaluation: payload.evaluation,
+          completeness: payload.completeness,
+          disposition: payload.disposition,
+        }),
     timing: 'publication only; not evaluation latency',
   };
   const batch: BatchRequest['batch'] = [
@@ -129,6 +150,7 @@ export function mapLangfuseV3Publication(
     },
   ];
   if (
+    !run &&
     ['pass', 'fail'].includes(payload.evaluation) &&
     payload.execution === 'completed' &&
     payload.completeness === 'complete' &&
@@ -149,6 +171,44 @@ export function mapLangfuseV3Publication(
         environment: 'maelstrom-eval',
       },
     });
+  if (payload.operational !== undefined) {
+    const operational = validateOperationalTelemetry(payload.operational);
+    if (operational.scope !== (run ? 'run' : 'sample'))
+      throw new Error('Operational scope mismatch');
+    for (const group of operational.groups) {
+      const prefix = `eval.operational.${group.operation}.${group.outcome}`;
+      const metrics: [string, number][] = [
+        ['count', group.count],
+        ['duration_sample_count', group.durationSampleCount],
+      ];
+      if (group.durationMeanMs !== undefined)
+        metrics.push(['duration_mean_ms', group.durationMeanMs]);
+      for (const [metric, value] of metrics) {
+        const key = JSON.stringify([
+          'operational',
+          operational.schemaVersion,
+          operational.scope,
+          group.operation,
+          group.outcome,
+          metric,
+        ]);
+        batch.push({
+          type: 'score-create',
+          id: eventId(`score-create:${key}`),
+          timestamp,
+          body: {
+            id: eventId(`score:${key}`),
+            traceId,
+            observationId: spanId,
+            name: `${prefix}.${metric}`,
+            dataType: 'NUMERIC',
+            value,
+            environment: 'maelstrom-eval',
+          },
+        });
+      }
+    }
+  } else if (run) throw new Error('Run telemetry missing');
   const request = { batch };
   if (Buffer.byteLength(JSON.stringify(request)) > config.maxBatchBytes)
     throw new Error('Langfuse batch exceeds limit');

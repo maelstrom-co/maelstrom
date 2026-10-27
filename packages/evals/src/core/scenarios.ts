@@ -6,6 +6,7 @@ import {
 } from '@maelstrom-co/protocol';
 import { demoVessels } from './fixtures/demo-vessels.js';
 import type { Phase } from './plugin.js';
+import { selectEvaluationCases } from './run-orchestration.js';
 import { loadScenarioRegistry } from './scenario-registry.js';
 import type {
   Expectation,
@@ -69,11 +70,11 @@ export function selectScenarios(
   suite: Suite | 'all',
   ids: readonly string[] = [],
 ): readonly Scenario[] {
-  return scenarios.filter(
-    (scenario) =>
-      (suite === 'all' || scenario.suite === suite) &&
-      (ids.length === 0 || ids.includes(scenario.id)),
-  );
+  return selectEvaluationCases(scenarios, {
+    id: (scenario) => scenario.id,
+    ids,
+    include: (scenario) => suite === 'all' || scenario.suite === suite,
+  });
 }
 
 /** A development scenario expecting a plan that meets `expected`, on the demo board changed by `options`. */

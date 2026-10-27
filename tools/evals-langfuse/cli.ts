@@ -11,6 +11,8 @@ import {
   type PublicationOutcome,
   type PublicationStatus,
   prepareEvaluationPublication,
+  prepareRunTelemetryPublication,
+  type RunTelemetryResult,
 } from '../../packages/evals/src/core/publication.ts';
 import type { EvaluationResult } from '../../packages/evals/src/core/runtime/evaluate.js';
 import { importFullPlannerRun } from './full-planner-run.ts';
@@ -92,7 +94,7 @@ export async function runLangfuseCli(
         output: {
           status: 'help',
           usage:
-            '--input FILE_OR_DIRECTORY [--input-format result|manual-report|full-planner-run] --destination ID --artifact ID --prepared-at UTC --base-url URL --server-version 3.163.0 (--preview-out FILE | --publish --approve-sha256 HASH)',
+            '--input FILE_OR_DIRECTORY [--input-format result|manual-report|full-planner-run|run-telemetry] --destination ID --artifact ID --prepared-at UTC --base-url URL --server-version 3.163.0 (--preview-out FILE | --publish --approve-sha256 HASH)',
           documentation: 'tools/evals-langfuse/README.md',
         },
       };
@@ -101,7 +103,14 @@ export async function runLangfuseCli(
     const artifactId = required(values.artifact);
     const preparedAt = required(values['prepared-at']);
     const inputFormat = values['input-format'];
-    if (!['result', 'manual-report', 'full-planner-run'].includes(inputFormat))
+    if (
+      ![
+        'result',
+        'manual-report',
+        'full-planner-run',
+        'run-telemetry',
+      ].includes(inputFormat)
+    )
       throw new Error();
     const fullRun = inputFormat === 'full-planner-run';
     if (
@@ -163,7 +172,7 @@ export async function runLangfuseCli(
     code = 'invalid_input';
     let source: ReturnType<typeof importFullPlannerRun>['source'] | undefined;
     let samples: {
-      result: EvaluationResult<unknown>;
+      result: EvaluationResult<unknown> | RunTelemetryResult;
       metadata?: EvaluationPublicationMetadata;
     }[];
     if (fullRun) {
@@ -186,11 +195,14 @@ export async function runLangfuseCli(
       );
       samples = [
         {
-          result: readResult(
-            inputFormat === 'manual-report' && isObject(inputJson)
-              ? inputJson.result
-              : inputJson,
-          ),
+          result:
+            inputFormat === 'run-telemetry'
+              ? (inputJson as RunTelemetryResult)
+              : readResult(
+                  inputFormat === 'manual-report' && isObject(inputJson)
+                    ? inputJson.result
+                    : inputJson,
+                ),
         },
       ];
     }
@@ -198,13 +210,23 @@ export async function runLangfuseCli(
       sample: (typeof samples)[number],
       review: (publication: EvaluationPublication) => boolean,
     ) =>
-      prepareEvaluationPublication(sample.result, {
-        destinationId: config.destinationId,
-        artifactId,
-        preparedAt,
-        metadata: sample.metadata,
-        policy: { maxBytes: maxPublicationBytes, review },
-      });
+      inputFormat === 'run-telemetry'
+        ? prepareRunTelemetryPublication(sample.result as RunTelemetryResult, {
+            destinationId: config.destinationId,
+            artifactId,
+            preparedAt,
+            policy: { maxBytes: maxPublicationBytes, review },
+          })
+        : prepareEvaluationPublication(
+            sample.result as EvaluationResult<unknown>,
+            {
+              destinationId: config.destinationId,
+              artifactId,
+              preparedAt,
+              metadata: sample.metadata,
+              policy: { maxBytes: maxPublicationBytes, review },
+            },
+          );
     const candidates: EvaluationPublication[] = [];
     let candidateBytes = 0;
     const previewOnly = new Error();

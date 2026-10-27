@@ -12,6 +12,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { createOperationalCollector } from '../../packages/evals/src/core/operational-telemetry.js';
 import type { EvaluationResult } from '../../packages/evals/src/core/runtime/evaluate.js';
 import { runLangfuseCli } from './cli.ts';
 import { type LangfuseV3Transport, startLangfuseV3Sink } from './sink.js';
@@ -1311,4 +1312,102 @@ test('full batch preflights later samples against exact mapped transport overhea
   expect(outcome.output.code).toBe('invalid_input');
   expect(credentialReads).toEqual([]);
   expect(starts).toBe(0);
+});
+
+test('saved run-owned telemetry uses standalone preview approval and deterministic operational scores', async () => {
+  const collector = createOperationalCollector('run');
+  collector.telemetry.record({
+    operation: 'engine.request',
+    outcome: 'succeeded',
+    durationMs: 13,
+  });
+  await writeFile(
+    input,
+    JSON.stringify({
+      schemaVersion: 1,
+      identity: { runId: 'owned-run', runtimeId: 'owned-runtime' },
+      operational: await collector.finalize(),
+    }),
+  );
+  const overrides = { 'input-format': 'run-telemetry' };
+  const { approval, json } = await preview(overrides);
+  const payload = JSON.parse(JSON.parse(json).publication.json);
+  expect(payload.identity).toEqual({
+    runId: 'owned-run',
+    runtimeId: 'owned-runtime',
+  });
+  expect(payload.scope).toBe('run');
+  expect(credentialReads).toEqual([]);
+  expect(
+    (await runLangfuseCli(publishArgs(approval, overrides), dependencies()))
+      .exitCode,
+  ).toBe(0);
+  expect(
+    batches[0].batch
+      .filter((e) => e.type === 'score-create')
+      .map((e) => e.body.name),
+  ).toEqual([
+    'eval.operational.engine.request.succeeded.count',
+    'eval.operational.engine.request.succeeded.duration_sample_count',
+    'eval.operational.engine.request.succeeded.duration_mean_ms',
+  ]);
+  const path = join(directory, 'node-run-preview.json');
+  execFileSync('node', [
+    'tools/evals-langfuse/cli.ts',
+    ...args(overrides),
+    '--preview-out',
+    path,
+  ]);
+  expect(JSON.parse(await readFile(path, 'utf8'))).toEqual(JSON.parse(json));
+});
+
+test('native full-planner imports finalized telemetry but never converts usage or timings into observations', async () => {
+  const collector = createOperationalCollector('sample');
+  collector.telemetry.record({
+    operation: 'engine.request',
+    outcome: 'failed',
+    durationMs: 3,
+  });
+  const operational = await collector.finalize();
+  const { importFullPlannerRun } = await import('./full-planner-run.ts');
+  const record = {
+    scenarioId: 'case',
+    arm: 'baseline',
+    repeat: 1,
+    suite: 'development',
+    kind: 'baseline',
+    expectedDeferral: true,
+    turnMs: 999,
+    llmCalls: [{ latencyMs: 99, usage: { inputTokens: 42 } }],
+    operational,
+  };
+  const summary = Buffer.from(
+    JSON.stringify({
+      meta: { arms: 'baseline', repeats: 1, scenarios: 1 },
+      summaries: [],
+    }),
+  );
+  const imported = importFullPlannerRun(
+    Buffer.from(JSON.stringify([record])),
+    summary,
+    1,
+  );
+  expect(imported.samples[0].result.operational).toEqual(operational);
+  expect(imported.samples[0].result.evaluation).toBe('unscored');
+  const { operational: _omit, ...old } = record;
+  expect(
+    importFullPlannerRun(Buffer.from(JSON.stringify([old])), summary, 1)
+      .samples[0].result.operational?.completeness,
+  ).toBe('unavailable');
+  expect(() =>
+    importFullPlannerRun(
+      Buffer.from(
+        JSON.stringify([
+          { ...record, operational: { ...operational, scope: 'run' } },
+        ]),
+      ),
+      summary,
+      1,
+    ),
+  ).toThrow('sample-owned telemetry');
 });

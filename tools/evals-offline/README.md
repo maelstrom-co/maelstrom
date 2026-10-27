@@ -582,9 +582,55 @@ rows remain separate despite sharing an ID: D38/D40/D41 have complete bounded ca
 and D39 has a separate action-backed transition case. No ledger entry is executed.
 Canonical cases/fixtures belong in the monorepo; the separate archive repo
 is deferred and untouched. Beyond the bounded JSON batch, this slice does not implement full canonical case migration,
-DevTools draft UI, Langfuse sync, persistence/retention, a whole-run scheduler,
-retry/budget enforcement, or label-triggered paid CI. No historical score parity
+DevTools draft UI, Langfuse sync, persistence/retention,
+retry/budget enforcement, or label-triggered paid CI. The shared local run
+scheduler described below does not add those paid-run or durability policies. No historical score parity
 or human baseline acceptance is claimed.
 
 The five-path acceptance here is an executable contract proof. Broader data and
 runtime migration should reuse this lifecycle, not create a competing runner.
+
+## Shared lifecycle and operational telemetry
+
+`runOfflineCases` in `run.ts` selects validated cases by ID/profile and delegates
+expansion, repeats, concurrent scheduling, accounting and reporting to the same
+`runEvaluationRun` used by native planner/stage batches. It returns the common run
+envelope with both finalized samples and records; its optional `report` callback
+runs once after completion, not after partially failed work. Session state remains
+fresh per invocation while turns inside each session stay sequential.
+
+```ts
+import { runOfflineCases } from './tools/evals-offline/run.ts';
+
+const run = await runOfflineCases({
+  runId: 'synthetic-comparison',
+  ids: ['weather-chain', 'planner-preserve', 'stage-bound'],
+  repeats: 2,
+  concurrency: 3,
+});
+console.log(run.accounting);
+```
+
+Planner and isolated-stage adapters use the same single-turn implementations as
+native batches, carrying the actual repeat into replay lookup and `turnInput`.
+Native stage preparation remains once per scenario; a source-policy hook retains
+one N/A sample per variant. Native expected-deferral reports remain unscored;
+adapter deferral-contract assertions retain their existing pass/fail policy.
+The shared run result labels its policy `offline:declared-case/v1`, and each
+sample retains its own surface/provenance. Reusable adapter response/error state
+is invocation-keyed; native exception/grade helpers are not public reusable APIs.
+
+An isolated Engine produces sample-owned operational aggregates. Isolated stages
+produce only eval-owned stage-start/result observations around the actual stage
+call, not fake Engine/provider observations. Synthetic sessions without producer
+instrumentation have unavailable telemetry. No token/cost or diagnostic record
+is silently converted to a telemetry fact.
+
+Finalized results optionally carry version-1 `operational` evidence, separate from
+correctness: bounded operation/outcome groups, count, measured-duration count,
+optional mean milliseconds, and local collection/flush/drop/drain state. A partial
+collection cannot change the eval verdict; absent measurements never become zero.
+Reviewed publication can export these metrics through `tools/evals-langfuse`.
+Run-level publication requires its own genuinely owned collection, never a guessed
+fallback for shared concurrent events. No live/provider or backend run is implied
+by these offline checks or by this integration.

@@ -10,10 +10,12 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { LangfuseClient } from '@langfuse/client';
 import { trace } from '@opentelemetry/api';
+import { createOperationalCollector } from '../../packages/evals/src/core/operational-telemetry.js';
 import {
   createEvaluationPublisher,
   type PublicationStatus,
   prepareEvaluationPublication,
+  prepareRunTelemetryPublication,
 } from '../../packages/evals/src/core/publication.js';
 import {
   type EvaluationResult,
@@ -599,4 +601,103 @@ test('core remains SDK-independent and all installed Langfuse packages are pinne
     ),
   ].map((match) => match[1]);
   expect(versions).toEqual(['5.13.1', '5.13.1', '5.13.1']);
+});
+
+test('operational score mapping preserves counts, duration denominator, zero and missing timing', async () => {
+  const collector = createOperationalCollector('sample');
+  for (const outcome of ['started', 'succeeded'] as const)
+    collector.telemetry.record({ operation: 'engine.request', outcome });
+  collector.telemetry.record({
+    operation: 'engine.request',
+    outcome: 'succeeded',
+    durationMs: 0,
+  });
+  collector.telemetry.record({
+    operation: 'engine.request',
+    outcome: 'succeeded',
+    durationMs: 20,
+  });
+  const publication = prepare(
+    result({ evaluation: 'unscored', operational: await collector.finalize() }),
+  );
+  const sink = start();
+  await publish(sink, publication);
+  await publish(sink, publication);
+  const scores = requests[0].batch.filter(
+    (event) => event.type === 'score-create',
+  );
+  expect(
+    scores.map((event) => [
+      event.body.name,
+      event.body.dataType,
+      event.body.value,
+    ]),
+  ).toEqual([
+    ['eval.operational.engine.request.started.count', 'NUMERIC', 1],
+    [
+      'eval.operational.engine.request.started.duration_sample_count',
+      'NUMERIC',
+      0,
+    ],
+    ['eval.operational.engine.request.succeeded.count', 'NUMERIC', 3],
+    [
+      'eval.operational.engine.request.succeeded.duration_sample_count',
+      'NUMERIC',
+      2,
+    ],
+    [
+      'eval.operational.engine.request.succeeded.duration_mean_ms',
+      'NUMERIC',
+      10,
+    ],
+  ]);
+  expect(requests[1]).toEqual(requests[0]);
+  expect(new Set(scores.map((event) => event.id)).size).toBe(5);
+});
+
+test('run telemetry publishes once on an honest run artifact without any correctness or sample identity', async () => {
+  const collector = createOperationalCollector('run');
+  collector.telemetry.record({
+    operation: 'engine.stage',
+    outcome: 'failed',
+    durationMs: 0,
+  });
+  const publication = prepareRunTelemetryPublication(
+    {
+      schemaVersion: 1,
+      identity: { runId: 'run-owned', runtimeId: 'runtime' },
+      operational: await collector.finalize(),
+    },
+    {
+      destinationId: config.destinationId,
+      artifactId: 'run-metrics',
+      policy: { maxBytes: 16_384, review: () => true },
+    },
+  );
+  const sink = start();
+  const publisher = createEvaluationPublisher({
+    destinationId: config.destinationId,
+    sink,
+    timeoutMs: 100,
+    maxEntries: 2,
+  });
+  await Promise.all([
+    publisher.publish(publication),
+    publisher.publish(publication),
+  ]);
+  expect(requests).toHaveLength(1);
+  const scores = requests[0].batch.filter(
+    (event) => event.type === 'score-create',
+  );
+  expect(scores).toHaveLength(3);
+  expect(scores.every((event) => event.body.name !== 'eval.correctness')).toBe(
+    true,
+  );
+  expect(
+    scores.find((event) => event.body.name.endsWith('duration_mean_ms'))?.body
+      .value,
+  ).toBe(0);
+  const root = requests[0].batch[0];
+  expect(root.body).toMatchObject({ metadata: { scope: 'run' } });
+  expect(JSON.stringify(root.body)).not.toContain('"sample"');
 });

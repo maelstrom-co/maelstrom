@@ -377,3 +377,55 @@ smoke test against the actual v3.163.0 server, verified size/idempotency/retriev
 behavior and retention/deletion policy. No private archive repository is used.
 Hosted dataset-run comparisons and a separate run-level aggregate publication
 remain future work; full-planner import emits per-sample publications.
+
+## Operational telemetry scores (mapping version 1)
+
+Finalized sample `operational` evidence is included in the exact-byte review and
+native full-planner import. Older reports without it are explicitly unavailable;
+`turnMs`, stage diagnostics, token usage, and cost are never reinterpreted as
+collected operational telemetry. Unscored/error samples may still have valid
+operational observations, without acquiring a correctness score.
+
+Groups use only the versioned bounded operation/outcome vocabulary. Started and
+terminal outcomes are different groups. Optional provider/layout/error dimensions
+are intentionally rolled up, not encoded as arbitrary score names.
+
+| Score suffix under `eval.operational.<operation>.<outcome>` | Langfuse type | Unit / aggregation |
+| --- | --- | --- |
+| `count` | NUMERIC | observed operations, sum of counters |
+| `duration_sample_count` | NUMERIC | number of actually measured durations |
+| `duration_mean_ms` | NUMERIC | mean measured milliseconds, omitted without duration observations |
+
+A measured zero duration is exported as zero; absent duration is not. No observed
+group means no score, not a fabricated zero. Collection completeness, local loss,
+flush outcome and drainage evidence remain in the reviewed span output. Partial
+collections report only observed measurements, not whole-run totals. Nested stage
+means are not summed into request latency, and Langfuse's unweighted score average
+is not necessarily the duration-weighted native mean. Publication timestamps are
+still export markers, never execution timings.
+
+Per-sample attribution is valid only for isolated eval-owned producer lifetimes.
+For a separately owned run collector, use the new **`--input-format run-telemetry`**
+with a saved JSON object:
+
+```ts
+const saved = {
+  schemaVersion: 1,
+  identity: { runId: 'synthetic-run', runtimeId: 'owned-runtime' },
+  operational: await ownedRunCollector.finalize(ownedAttachments),
+};
+```
+
+`ownedRunCollector` is created with `createOperationalCollector('run')`; the
+caller must own all attached producers for that run, stop them before finalizing,
+and never attach shared producers whose work belongs to other runs. No current-case
+global or inferred attribution is used. Unknown ownership cannot be repaired by
+labeling a collection run-level.
+
+Use the existing preview/approval/publish procedure with that input format. The
+run publication uses schema version 2, `scope: 'run'`, and no case/sample identity
+or `eval.correctness`. It is published once as its own artifact. Operational score
+IDs bind publication identity, mapping version, scope and group/metric key. Retrying
+a saved publication reuses finalized bytes/IDs, not collection or evaluation.
+The existing in-memory publisher coalesces concurrent sends; cross-process
+exactly-once delivery and backend persistence remain unverified.

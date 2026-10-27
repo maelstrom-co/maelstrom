@@ -1,6 +1,7 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
+    "allowImportingTsExtensions": true,
     "composite": false,
     "declarationMap": false,
     "emitDeclarationOnly": false,
@@ -10,8 +11,20 @@
   },
   "include": ["./**/*.ts"],
   "references": [
-    { "path": "../../packages/client/tsconfig.lib.json" },
-    { "path": "../../packages/engine/tsconfig.lib.json" },
-    { "path": "../../packages/protocol/tsconfig.lib.json" }
+    {
+      "path": "../../packages/planner-jev"
+    },
+    {
+      "path": "../../packages/engine"
+    },
+    {
+      "path": "../../packages/protocol"
+    },
+    {
+      "path": "../../packages/client"
+    },
+    {
+      "path": "../../packages/evals"
+    }
   ]
 }

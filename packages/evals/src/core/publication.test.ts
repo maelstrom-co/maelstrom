@@ -7,12 +7,14 @@ import {
   test,
 } from 'bun:test';
 import { createHash } from 'node:crypto';
+import { createOperationalCollector } from './operational-telemetry.js';
 import {
   createEvaluationPublisher,
   type EvaluationPublication,
   type EvaluationResultSink,
   type PublicationStatus,
   prepareEvaluationPublication,
+  prepareRunTelemetryPublication,
 } from './publication.js';
 import { type EvaluationResult, evaluateSample } from './runtime/evaluate.js';
 
@@ -715,4 +717,76 @@ test('publication metadata rejects getters without invoking them', () => {
     }),
   ).toThrow();
   expect(reads).toBe(0);
+});
+
+test('finalized operational aggregates are reviewed and hash-bound independently of correctness', async () => {
+  const collector = createOperationalCollector('sample');
+  collector.telemetry.record({
+    operation: 'engine.request',
+    outcome: 'failed',
+    durationMs: 4,
+  });
+  const operational = await collector.finalize();
+  const source = { ...result(), operational };
+  const publication = prepare(source);
+  expect(JSON.parse(publication.json).operational).toEqual(operational);
+  expect(JSON.parse(publication.json).evaluation).toBe('fail');
+  const changed = prepare({
+    ...source,
+    operational: {
+      ...operational,
+      groups: [{ ...operational.groups[0], durationMeanMs: 5 }],
+    },
+  });
+  expect(changed.publicationKey).toBe(publication.publicationKey);
+  expect(changed.publicationId).not.toBe(publication.publicationId);
+  const bad = {
+    ...source,
+    operational: { ...operational, scope: 'run' as const },
+  };
+  expect(() => prepare(bad)).toThrow('sample telemetry');
+});
+
+test('run telemetry has its own reviewed identity and retries only finalized bytes', async () => {
+  const collector = createOperationalCollector('run');
+  collector.telemetry.record({ operation: 'engine.plan', outcome: 'started' });
+  const run = {
+    schemaVersion: 1 as const,
+    identity: { runId: 'owned-run', runtimeId: 'owned-runtime' },
+    operational: await collector.finalize(),
+  };
+  const options = {
+    destinationId: 'synthetic-one',
+    artifactId: 'operational',
+    policy,
+    preparedAt,
+  };
+  const publication = prepareRunTelemetryPublication(run, options);
+  expect(JSON.parse(publication.json)).toMatchObject({
+    schemaVersion: 2,
+    scope: 'run',
+    identity: run.identity,
+  });
+  expect(JSON.parse(publication.json).identity.sample).toBeUndefined();
+  expect(JSON.parse(publication.json).evaluation).toBeUndefined();
+  const bodies: string[] = [];
+  const sender = publisher({
+    async publish(value) {
+      bodies.push(value.json);
+      return { status: bodies.length === 1 ? 'partial' : 'accepted' };
+    },
+  });
+  expect((await sender.publish(publication)).status).toBe('partial');
+  expect((await sender.publish(publication)).status).toBe('accepted');
+  await sender.publish(publication);
+  expect(bodies).toEqual([publication.json, publication.json]);
+  expect(prepareRunTelemetryPublication(run, options).publicationId).toBe(
+    publication.publicationId,
+  );
+  expect(() =>
+    prepareRunTelemetryPublication(
+      { ...run, operational: { ...run.operational, scope: 'sample' } },
+      options,
+    ),
+  ).toThrow('run-owned telemetry');
 });

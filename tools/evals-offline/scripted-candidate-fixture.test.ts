@@ -316,6 +316,7 @@ test('scripted candidate snapshots remain independent across samples and caller 
   expect(second.observation).toEqual({
     ...first.observation,
     turnMs: second.observation.turnMs,
+    repeat: 2,
   });
   expect(first.records[0].value).not.toBe(second.records[0].value);
 });

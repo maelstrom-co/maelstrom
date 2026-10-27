@@ -1,5 +1,10 @@
 import { createHash } from 'node:crypto';
 import type { EvaluationResult } from './runtime/evaluate.js';
+import {
+  type OperationalTelemetry,
+  unavailableOperationalTelemetry,
+  validateOperationalTelemetry,
+} from './runtime/operational-telemetry.ts';
 
 /** Explicitly projected evidence, never an automatic copy of raw runtime values. */
 export interface RecordingProjection {
@@ -197,12 +202,21 @@ export function prepareEvaluationPublication(
       return { sequence, kind: source.kind, value };
     })
     .sort((a, b) => a.sequence - b.sequence);
+  const operational =
+    result.operational === undefined
+      ? unavailableOperationalTelemetry()
+      : validateOperationalTelemetry(
+          JSON.parse(boundedJson(result.operational, policy.maxBytes)),
+        );
+  if (operational.scope !== 'sample')
+    throw new Error('Sample publication requires sample telemetry');
   const json = boundedJson(
     {
       schemaVersion: 1,
       kind: recording ? 'recording' : 'summary',
       preparedAt,
       identity,
+      operational,
       surface: result.surface,
       provenance: result.provenance,
       execution: result.execution,
@@ -237,9 +251,105 @@ export function prepareEvaluationPublication(
     },
     policy.maxBytes,
   );
+  return sealPublication(json, 1, sampleKey, options);
+}
+
+/** Saved run-owned telemetry, never a fabricated sample or a correctness result. */
+export interface RunTelemetryResult {
+  /** Version of the saved run-level envelope. */
+  readonly schemaVersion: 1;
+  /** Run ownership, without an invented case or sample. */
+  readonly identity: {
+    /** Caller-assigned run identity, retained across publication retries. */
+    readonly runId: string;
+    /** Runtime whose producers belonged exclusively to this collection. */
+    readonly runtimeId: string;
+  };
+  /** Finalized run-scoped aggregates and their collection evidence. */
+  readonly operational: OperationalTelemetry;
+}
+
+/** Prepares a separate run artifact; callers must own the run's collection boundary. */
+export function prepareRunTelemetryPublication(
+  result: RunTelemetryResult,
+  options: {
+    readonly destinationId: string;
+    readonly artifactId: string;
+    readonly policy: PublicationPolicy;
+    readonly preparedAt?: string;
+  },
+): EvaluationPublication {
+  positiveInteger(options.policy.maxBytes);
+  const source = JSON.parse(boundedJson(result, options.policy.maxBytes));
+  if (
+    !source ||
+    source.schemaVersion !== 1 ||
+    Object.keys(source).some(
+      (key) => !['schemaVersion', 'identity', 'operational'].includes(key),
+    ) ||
+    !source.identity ||
+    Object.keys(source.identity).some(
+      (key) => !['runId', 'runtimeId'].includes(key),
+    )
+  )
+    throw new Error('Invalid run telemetry');
+  for (const value of [
+    source.identity.runId,
+    source.identity.runtimeId,
+    options.destinationId,
+    options.artifactId,
+  ]) {
+    if (
+      typeof value !== 'string' ||
+      !value.trim() ||
+      Buffer.byteLength(value) > options.policy.maxBytes
+    )
+      throw new Error('Invalid run identity');
+  }
+  const operational = validateOperationalTelemetry(source.operational);
+  if (operational.scope !== 'run')
+    throw new Error('Run publication requires run-owned telemetry');
+  const identity = {
+    runId: source.identity.runId,
+    runtimeId: source.identity.runtimeId,
+  };
+  const json = boundedJson(
+    {
+      schemaVersion: 2,
+      scope: 'run',
+      kind: 'operational-summary',
+      identity,
+      preparedAt: preparationTime(options.preparedAt),
+      operational,
+    },
+    options.policy.maxBytes,
+  );
+  return sealPublication(
+    json,
+    2,
+    JSON.stringify(['run', identity.runId, identity.runtimeId]),
+    options,
+  );
+}
+
+function sealPublication(
+  json: string,
+  version: number,
+  identityKey: string,
+  options: {
+    readonly destinationId: string;
+    readonly artifactId: string;
+    readonly policy: PublicationPolicy;
+  },
+): EvaluationPublication {
   const payloadDigest = digest(json);
   const publicationKey = digest(
-    JSON.stringify([1, options.destinationId, sampleKey, options.artifactId]),
+    JSON.stringify([
+      version,
+      options.destinationId,
+      identityKey,
+      options.artifactId,
+    ]),
   );
   const publication = Object.freeze({
     destinationId: options.destinationId,
@@ -250,7 +360,7 @@ export function prepareEvaluationPublication(
     json,
     bytes: Buffer.byteLength(json),
   });
-  if (policy.review(publication) !== true)
+  if (options.policy.review(publication) !== true)
     throw new Error('Publication review rejected');
   reviewed.add(publication);
   return publication;
