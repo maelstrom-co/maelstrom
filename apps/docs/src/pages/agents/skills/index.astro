@@ -34,7 +34,7 @@ const headings = [
 
     <section aria-labelledby="install-heading">
       <h2 id="install-heading">Install the complete bundle</h2>
-      <p>Run one command from your application's root directory. Choose your coding agent below. The commands select all eight skills.</p>
+      <p>Run one command from your application's root directory. Choose your coding agent below. The commands select the complete skills bundle.</p>
       <p>Choose Project at the installation scope prompt.</p>
       <p>Use Bun, or replace <code>bunx</code> with <code>npx</code> when using Node.js. Review the skill source and confirm the installer prompt.</p>
       {skillAgents.map((agent) => (
@@ -57,7 +57,7 @@ const headings = [
       <h2 id="verify-heading">Verify discovery</h2>
       <p>List the installation for your selected agent. Replace <code>pi</code> with <code>opencode</code> or <code>claude-code</code> when needed.</p>
       <pre><code>bunx skills@1.7.0 list --agent pi</code></pre>
-      <p>Expect <code>maelstrom</code> and seven procedure names. Restart or reload an already running coding agent so it discovers the new files.</p>
+      <p>Expect <code>maelstrom</code> and the procedure names listed below. Restart or reload an already running coding agent so it discovers the new files.</p>
       <blockquote>Show the Maelstrom skills available in this project. Read the maelstrom entry skill and report its task procedures. Do not edit files or install packages.</blockquote>
       <p>Check that the agent reads this project's installed files. An installer listing proves files are present; it does not prove the agent loaded or followed them. Automatic selection depends on the agent. Explicitly request <code>maelstrom</code> when needed.</p>
     </section>
