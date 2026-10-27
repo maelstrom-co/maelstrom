@@ -3,6 +3,10 @@
   "projectType": "library",
   "implicitDependencies": ["@maelstrom-co/evals"],
   "targets": {
+    "cli": {
+      "command": "node tools/evals-langfuse/cli.ts",
+      "cache": false
+    },
     "test": {
       "command": "bun test tools/evals-langfuse",
       "cache": false

@@ -5,6 +5,7 @@
     "declarationMap": false,
     "emitDeclarationOnly": false,
     "noEmit": true,
+    "allowImportingTsExtensions": true,
     "types": ["bun", "node"],
     "lib": ["es2022", "dom"]
   },

@@ -634,3 +634,85 @@ test('bounded local ledger never evicts conflict protection and refuses unreview
       ),
     ).toThrow();
 });
+
+test('explicit deferral metadata is detached, reviewed and content-bound without changing the score', () => {
+  const metadata = { expectedDeferral: true, deferredAsExpected: false };
+  let reviewed: EvaluationPublication | undefined;
+  const options = {
+    destinationId: 'synthetic-one',
+    artifactId: 'summary',
+    preparedAt,
+    metadata,
+    policy: {
+      ...policy,
+      review(value: EvaluationPublication) {
+        reviewed = value;
+        return true;
+      },
+    },
+  };
+  const publication = prepareEvaluationPublication(result(), options);
+  expect(reviewed).toBe(publication);
+  expect(JSON.parse(publication.json)).toMatchObject({
+    kind: 'summary',
+    evaluation: 'fail',
+    metadata: { expectedDeferral: true, deferredAsExpected: false },
+  });
+  metadata.deferredAsExpected = true;
+  expect(JSON.parse(publication.json).metadata.deferredAsExpected).toBe(false);
+  expect(
+    prepareEvaluationPublication(result(), options).publicationId,
+  ).not.toBe(publication.publicationId);
+  expect(JSON.parse(prepare().json).metadata).toBeUndefined();
+});
+
+test.each(
+  [
+    null,
+    [],
+    {},
+    { expectedDeferral: 'true' },
+    { expectedDeferral: true, deferredAsExpected: null },
+    { expectedDeferral: false, private: 'raw text' },
+    { expectedDeferral: false, toJSON: 'raw text' },
+  ].map((value) => [value]),
+)('rejects metadata outside the boolean allowlist %# before review', (metadata) => {
+  let reviews = 0;
+  expect(() =>
+    prepareEvaluationPublication(result(), {
+      destinationId: 'synthetic-one',
+      artifactId: 'summary',
+      preparedAt,
+      metadata: metadata as Parameters<
+        typeof prepareEvaluationPublication
+      >[1]['metadata'],
+      policy: {
+        ...policy,
+        review() {
+          reviews++;
+          return true;
+        },
+      },
+    }),
+  ).toThrow();
+  expect(reviews).toBe(0);
+});
+
+test('publication metadata rejects getters without invoking them', () => {
+  let reads = 0;
+  expect(() =>
+    prepareEvaluationPublication(result(), {
+      destinationId: 'synthetic-one',
+      artifactId: 'summary',
+      preparedAt,
+      policy,
+      metadata: {
+        get expectedDeferral() {
+          reads++;
+          return true;
+        },
+      },
+    }),
+  ).toThrow();
+  expect(reads).toBe(0);
+});

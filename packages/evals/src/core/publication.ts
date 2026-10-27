@@ -12,6 +12,14 @@ export interface RecordingProjection {
   }[];
 }
 
+/** Explicit non-score deferral facts; neither flag establishes correctness or runtime disposition. */
+export interface EvaluationPublicationMetadata {
+  /** Whether the source scenario expects a deferral. */
+  readonly expectedDeferral: boolean;
+  /** Optional source assertion about deferring at the expected phase. */
+  readonly deferredAsExpected?: boolean;
+}
+
 /** Immutable serialized bytes reviewed for a particular destination. */
 export interface EvaluationPublication {
   /** Caller-owned destination identity, not a URL resolved by this module. */
@@ -79,6 +87,8 @@ export function prepareEvaluationPublication(
     readonly artifactId: string;
     readonly policy: PublicationPolicy;
     readonly recording?: RecordingProjection;
+    /** Explicit allowlisted non-score facts, included in the exact-byte review. */
+    readonly metadata?: EvaluationPublicationMetadata;
     /** UTC preparation time (ISO date-time with Z); defaults to now, persisted for retries. */
     readonly preparedAt?: string;
   },
@@ -86,6 +96,22 @@ export function prepareEvaluationPublication(
   const { policy } = options;
   positiveInteger(policy.maxBytes);
   const preparedAt = preparationTime(options.preparedAt);
+  const metadata =
+    options.metadata === undefined
+      ? undefined
+      : JSON.parse(boundedJson(options.metadata, policy.maxBytes));
+  if (
+    metadata !== undefined &&
+    (!metadata ||
+      Array.isArray(metadata) ||
+      typeof metadata.expectedDeferral !== 'boolean' ||
+      (Object.hasOwn(metadata, 'deferredAsExpected') &&
+        typeof metadata.deferredAsExpected !== 'boolean') ||
+      Object.keys(metadata).some(
+        (key) => !['expectedDeferral', 'deferredAsExpected'].includes(key),
+      ))
+  )
+    throw new Error('Invalid publication metadata');
   const recording =
     options.recording === undefined
       ? undefined
@@ -186,6 +212,7 @@ export function prepareEvaluationPublication(
       failureCount: result.failures.length,
       errorPhase: result.error?.phase ?? null,
       cleanupFailed: result.cleanupError !== undefined,
+      ...(metadata !== undefined && { metadata }),
       evidence: {
         sourceRecordCount: result.records.length,
         omittedRecordCount: result.records.length - records.length,
