@@ -18,15 +18,21 @@ const lockfile = readFileSync(
 );
 const versions = resolvedVersions(lockfile);
 
-const duplicated = SINGLE_COPY.filter(
-  (name) => (versions.get(name)?.size ?? 0) > 1,
+// A missing entry fails too, so a lockfile format the pattern no longer
+// matches cannot pass without checking anything.
+const failing = SINGLE_COPY.filter(
+  (name) => (versions.get(name)?.size ?? 0) !== 1,
 );
-for (const name of duplicated) {
-  const found = [...(versions.get(name) ?? [])].join(' and ');
-  console.error(`::error file=bun.lock::${name} resolves to ${found}`);
+for (const name of failing) {
+  const found = [...(versions.get(name) ?? [])];
+  const message =
+    found.length === 0
+      ? `${name} has no entry in bun.lock`
+      : `${name} resolves to ${found.join(' and ')}`;
+  console.error(`::error file=bun.lock::${message}`);
 }
 
-if (duplicated.length > 0) process.exit(1);
+if (failing.length > 0) process.exit(1);
 
 console.log(`Single resolved version of ${SINGLE_COPY.join(', ')}.`);
 
