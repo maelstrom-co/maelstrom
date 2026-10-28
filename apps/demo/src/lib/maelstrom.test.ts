@@ -179,6 +179,7 @@ describe('demo voice provider wiring', () => {
       state.extension,
       state.orchestrationExtension,
       expect.any(Function),
+      expect.any(Function),
       state.devtoolsExtension,
     ]);
     expect(state.devtoolsOptions?.telemetry?.getSnapshot).toBeTypeOf(

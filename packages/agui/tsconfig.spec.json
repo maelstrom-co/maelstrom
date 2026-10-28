@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "out-tsc/test",
+    "types": ["bun"],
+    "lib": ["es2022", "dom"]
+  },
+  "include": ["src/**/*.test.ts"],
+  "references": [
+    { "path": "./tsconfig.lib.json" },
+    { "path": "../agui-server/tsconfig.lib.json" },
+    { "path": "../engine/tsconfig.lib.json" }
+  ]
+}

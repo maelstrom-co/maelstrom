@@ -1,6 +1,8 @@
 import { err, ok } from '@maelstrom-co/protocol';
 import type { TypedVesselProps } from '@maelstrom-co/react';
+import { useContext } from 'react';
 import { VesselCard } from '../components/vessel-card';
+import { AguiWriteGuard } from '../lib/agui-context';
 import { ACCENT_HEX, accentAlpha, VESSEL_ACCENTS } from '../lib/design-tokens';
 import { m } from '../lib/maelstrom';
 import {
@@ -17,9 +19,12 @@ export default function JournalComponent({
   variantProps,
 }: TypedVesselProps<typeof journalVessel>) {
   const { entries, activeEntryId } = useJournalStore();
+  const writeGuard = useContext(AguiWriteGuard);
 
   m.useActions('journal', instanceId, {
     createEntry: async ({ title }) => {
+      if (writeGuard && !writeGuard('createEntry'))
+        return err(new Error('Experimental write retired'));
       journalActions.createEntry(title);
       return ok(undefined);
     },
@@ -40,6 +45,10 @@ export default function JournalComponent({
       return ok(undefined);
     },
     writeContent: async ({ text }) => {
+      if (writeGuard && !writeGuard('writeContent'))
+        return err(
+          new Error('Observed Journal selection changed or write retired'),
+        );
       if (!journalActions.writeContent(text)) {
         return err(
           new Error(

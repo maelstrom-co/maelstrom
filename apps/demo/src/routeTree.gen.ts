@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiDemoGreetingTtsRouteImport } from './routes/api/demo-greeting-tts'
+import { Route as ApiExperimentalAguiRouteImport } from './routes/api/experimental-agui'
 import { Route as ApiLiveSessionRouteImport } from './routes/api/live-session'
 import { Route as ApiRealtimeTokenRouteImport } from './routes/api/realtime-token'
 
@@ -22,6 +23,11 @@ const IndexRoute = IndexRouteImport.update({
 const ApiDemoGreetingTtsRoute = ApiDemoGreetingTtsRouteImport.update({
   id: '/api/demo-greeting-tts',
   path: '/api/demo-greeting-tts',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiExperimentalAguiRoute = ApiExperimentalAguiRouteImport.update({
+  id: '/api/experimental-agui',
+  path: '/api/experimental-agui',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiLiveSessionRoute = ApiLiveSessionRouteImport.update({
@@ -38,12 +44,14 @@ const ApiRealtimeTokenRoute = ApiRealtimeTokenRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/api/demo-greeting-tts': typeof ApiDemoGreetingTtsRoute
+  '/api/experimental-agui': typeof ApiExperimentalAguiRoute
   '/api/live-session': typeof ApiLiveSessionRoute
   '/api/realtime-token': typeof ApiRealtimeTokenRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/api/demo-greeting-tts': typeof ApiDemoGreetingTtsRoute
+  '/api/experimental-agui': typeof ApiExperimentalAguiRoute
   '/api/live-session': typeof ApiLiveSessionRoute
   '/api/realtime-token': typeof ApiRealtimeTokenRoute
 }
@@ -51,20 +59,30 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/api/demo-greeting-tts': typeof ApiDemoGreetingTtsRoute
+  '/api/experimental-agui': typeof ApiExperimentalAguiRoute
   '/api/live-session': typeof ApiLiveSessionRoute
   '/api/realtime-token': typeof ApiRealtimeTokenRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
-    '/' | '/api/demo-greeting-tts' | '/api/live-session' | '/api/realtime-token'
+    | '/'
+    | '/api/demo-greeting-tts'
+    | '/api/experimental-agui'
+    | '/api/live-session'
+    | '/api/realtime-token'
   fileRoutesByTo: FileRoutesByTo
   to:
-    '/' | '/api/demo-greeting-tts' | '/api/live-session' | '/api/realtime-token'
+    | '/'
+    | '/api/demo-greeting-tts'
+    | '/api/experimental-agui'
+    | '/api/live-session'
+    | '/api/realtime-token'
   id:
     | '__root__'
     | '/'
     | '/api/demo-greeting-tts'
+    | '/api/experimental-agui'
     | '/api/live-session'
     | '/api/realtime-token'
   fileRoutesById: FileRoutesById
@@ -72,6 +90,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ApiDemoGreetingTtsRoute: typeof ApiDemoGreetingTtsRoute
+  ApiExperimentalAguiRoute: typeof ApiExperimentalAguiRoute
   ApiLiveSessionRoute: typeof ApiLiveSessionRoute
   ApiRealtimeTokenRoute: typeof ApiRealtimeTokenRoute
 }
@@ -90,6 +109,13 @@ declare module '@tanstack/react-router' {
       path: '/api/demo-greeting-tts'
       fullPath: '/api/demo-greeting-tts'
       preLoaderRoute: typeof ApiDemoGreetingTtsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/experimental-agui': {
+      id: '/api/experimental-agui'
+      path: '/api/experimental-agui'
+      fullPath: '/api/experimental-agui'
+      preLoaderRoute: typeof ApiExperimentalAguiRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/live-session': {
@@ -112,6 +138,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ApiDemoGreetingTtsRoute: ApiDemoGreetingTtsRoute,
+  ApiExperimentalAguiRoute: ApiExperimentalAguiRoute,
   ApiLiveSessionRoute: ApiLiveSessionRoute,
   ApiRealtimeTokenRoute: ApiRealtimeTokenRoute,
 }

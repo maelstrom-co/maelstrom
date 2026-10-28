@@ -41,6 +41,7 @@ import type {
 } from '@maelstrom-co/protocol';
 
 import type { Unsubscribe } from '../types.js';
+import type { ApplicationSettlement } from './application-settlement.js';
 
 // ============================================================================
 // Connection Status
@@ -321,6 +322,15 @@ export interface EngineConnector {
    * equals `message.id`, regardless of the underlying transport.
    */
   process(message: ChartRequestMessage): Promise<MaelstromResponse>;
+
+  /**
+   * Receive the canonical application result for this connector's response.
+   * The Orchestrator awaits this optional acknowledgment before releasing
+   * admission for later planning. Implementations must bound their wait.
+   * Rejection makes queued intent completion unknown; application is never
+   * retried. Retired connectors receive no new settlement notifications.
+   */
+  applicationSettled?(settlement: ApplicationSettlement): Promise<void>;
 
   /**
    * Subscribe to transport-level events.

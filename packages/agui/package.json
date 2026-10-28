@@ -1,0 +1,46 @@
+{
+  "name": "@maelstrom-co/agui",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Experimental browser workspace AG-UI connector and application acknowledgment.",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "@maelstrom-co/source": "./src/browser.ts",
+      "types": "./dist/browser.d.ts",
+      "import": "./dist/browser.js"
+    },
+    "./browser": {
+      "@maelstrom-co/source": "./src/browser.ts",
+      "types": "./dist/browser.d.ts",
+      "import": "./dist/browser.js"
+    }
+  },
+  "dependencies": {
+    "@ag-ui/core": "1.0.0",
+    "@maelstrom-co/agui-protocol": "workspace:*",
+    "@maelstrom-co/client": "0.1.0",
+    "@maelstrom-co/protocol": "0.1.0"
+  },
+  "devDependencies": {
+    "@maelstrom-co/agui-server": "workspace:*",
+    "@maelstrom-co/engine": "0.1.0"
+  },
+  "nx": {
+    "targets": {
+      "typecheck": {
+        "command": "tsc -p tsconfig.lib.json --noEmit && tsc -p tsconfig.spec.json --noEmit",
+        "options": {
+          "cwd": "{projectRoot}"
+        }
+      },
+      "test": {
+        "command": "bun --conditions=@maelstrom-co/source test",
+        "options": {
+          "cwd": "{projectRoot}"
+        }
+      }
+    }
+  }
+}

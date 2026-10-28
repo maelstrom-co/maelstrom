@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import {
+  ActionName,
   type ChartRequestMessage,
   type DiagnosticEvent,
   err,
@@ -18,6 +19,7 @@ import {
   createMockResponse,
 } from '../../../test-utils/mocks.js';
 import type { ActionResult } from '../command-processor/action-result.js';
+import type { ApplicationSettlement } from '../connection-manager/application-settlement.js';
 import { ConnectorSupersededError } from './connector-superseded-error.js';
 import { Orchestrator } from './orchestrator.js';
 import type { OrchestratorOptions } from './orchestrator.types.js';
@@ -61,7 +63,151 @@ describe('Orchestrator intent queue', () => {
     return { client, connector, sent, responses };
   }
 
+  for (const retirement of ['replace', 'dispose'] as const) {
+    it(`does not notify a retired connector when ${retirement} occurs during application`, async () => {
+      const { client, connector, sent, responses } = await setup();
+      const acknowledge = mock(async (_value: ApplicationSettlement) => {});
+      Object.assign(connector, { applicationSettled: acknowledge });
+      const action = deferred<ActionResult>();
+      client.commandProcessor.registerRunner(InstanceId('active'), {
+        show: () => action.promise,
+      });
+      const ticket = client.enqueueIntent('show active');
+      await flushMicrotasks();
+      responses[0].resolve(createMockResponse(sent[0].id, 'active', 'show'));
+      await flushMicrotasks();
+      if (retirement === 'dispose') await client.dispose();
+      else await client.setConnector(createMockConnector());
+      action.resolve(ok(undefined));
+      await flushMicrotasks();
+      expect((await ticket.result).status).toBe('unknown');
+      expect(acknowledge).not.toHaveBeenCalled();
+    });
+
+    it(`fences a late acknowledgment after ${retirement}`, async () => {
+      const { client, connector, sent, responses } = await setup();
+      const acknowledgment = deferred<void>();
+      const acknowledge = mock(() => acknowledgment.promise);
+      Object.assign(connector, { applicationSettled: acknowledge });
+      const ticket = client.enqueueIntent('empty');
+      await flushMicrotasks();
+      responses[0].resolve(createMockEmptyResponse(sent[0].id));
+      await flushMicrotasks();
+      expect(acknowledge).toHaveBeenCalledTimes(1);
+      if (retirement === 'dispose') await client.dispose();
+      else await client.setConnector(createMockConnector());
+      acknowledgment.resolve();
+      await flushMicrotasks();
+      expect((await ticket.result).status).toBe('unknown');
+    });
+  }
+
+  it('reports layout refusal as failed and missing Action readiness as unknown', async () => {
+    for (const failure of ['layout', 'readiness'] as const) {
+      const { client, connector, sent, responses } = await setup({
+        readyTimeoutMs: 1,
+      });
+      const settlements: ApplicationSettlement[] = [];
+      Object.assign(connector, {
+        applicationSettled: async (value: ApplicationSettlement) => {
+          settlements.push(value);
+        },
+      });
+      const ticket = client.enqueueIntent('show active');
+      await flushMicrotasks();
+      let response = createMockResponse(sent[0].id, 'active', 'show');
+      if (failure === 'layout' && response.layout.type === 'tiling') {
+        response = {
+          ...response,
+          layout: {
+            ...response.layout,
+            tree: [
+              'V',
+              tilingLeafToken(InstanceId('active')),
+              tilingLeafToken(InstanceId('active')),
+            ],
+          },
+        };
+      }
+      responses[0].resolve(response);
+      await clock.tickAsync(5);
+      const status = failure === 'layout' ? 'failed' : 'unknown';
+      expect((await ticket.result).status).toBe(status);
+      expect(settlements).toHaveLength(1);
+      expect(settlements[0].result.status).toBe(status);
+      expect(settlements[0].actions).toEqual(
+        failure === 'layout'
+          ? []
+          : [
+              {
+                instanceId: InstanceId('active'),
+                action: ActionName('show'),
+                succeeded: false,
+              },
+            ],
+      );
+    }
+  });
+
   for (const ingress of ['queued', 'immediate', 'flush', 'timer'] as const) {
+    it(`holds admission for ${ingress} application acknowledgment and reports the settled snapshot`, async () => {
+      const { client, connector, sent, responses } = await setup();
+      const acknowledgment = deferred<void>();
+      const settlements: ApplicationSettlement[] = [];
+      Object.assign(connector, {
+        applicationSettled: (value: ApplicationSettlement) => {
+          settlements.push(value);
+          return acknowledgment.promise;
+        },
+      });
+      const action = deferred<ActionResult>();
+      client.commandProcessor.registerRunner(InstanceId('active'), {
+        show: () => action.promise,
+      });
+      client.chartManager.setDimensions({ columns: 10, rows: 6 });
+      const ticket =
+        ingress === 'queued' ? client.enqueueIntent('show active') : undefined;
+      const immediate =
+        ingress === 'immediate'
+          ? client.processIntent('show active')
+          : undefined;
+      const flush = ingress === 'flush' ? client.flushUpdates() : undefined;
+      if (ingress === 'timer') await clock.tickAsync(350);
+      else await flushMicrotasks();
+      let response = createMockResponse(sent[0].id, 'active', 'show');
+      if (response.layout.type === 'tiling')
+        response = {
+          ...response,
+          layout: {
+            ...response.layout,
+            tree: [tilingLeafToken(InstanceId('active'))],
+          },
+        };
+      responses[0].resolve(response);
+      await flushMicrotasks();
+      expect(settlements).toHaveLength(0);
+      const later = client.enqueueIntent('later');
+      action.resolve(ok(undefined));
+      await flushMicrotasks();
+      expect(settlements).toHaveLength(1);
+      expect(settlements[0]).toMatchObject({
+        requestId: sent[0].id,
+        result: { status: 'applied' },
+        actions: [{ instanceId: 'active', action: 'show', succeeded: true }],
+        chart: { instances: [{ instanceId: 'active' }] },
+      });
+      expect(sent).toHaveLength(1);
+      expect(client.intentScheduler.store.state.phase).toBe('applying');
+      acknowledgment.resolve();
+      await flushMicrotasks();
+      expect(sent).toHaveLength(2);
+      responses[1].resolve(createMockEmptyResponse(sent[1].id));
+      if (ticket) expect((await ticket.result).status).toBe('applied');
+      await immediate;
+      await flush;
+      expect((await later.result).status).toBe('applied');
+    });
+
     it(`correlates ${ingress} diagnostics through atomic Action settlement`, async () => {
       const { client, sent, responses } = await setup();
       const diagnosticEvents: DiagnosticEvent[] = [];

@@ -11,6 +11,8 @@
  * and @maelstrom-co/protocol as the hosted transport (`src/worker/session-do.ts`),
  * via the shared dispatchFrame core in `./dispatch`.
  */
+
+import { AguiWorkspaceSession } from '@maelstrom-co/agui-server';
 import { HEARTBEAT_PONG_FRAME } from '@maelstrom-co/connectors';
 import {
   createDiagnosticConnection,
@@ -59,6 +61,8 @@ export function truncateCloseReason(reason: string, maxBytes = 123): string {
 }
 
 export interface SocketData {
+  workspace?: AguiWorkspaceSession;
+  sessionId?: string;
   diagnostics?: DiagnosticConnection;
   helloReceived: boolean;
   reportMetadata?: boolean;
@@ -90,11 +94,29 @@ export function createWebSocketHandlers(
       if (ws.data.reportMetadata) ws.send(engineMetadataFrame());
     },
     close(ws) {
+      ws.data.workspace?.close();
       ws.data.diagnostics?.dispose();
     },
     async message(ws, raw) {
       const browserApiKey = ws.data.browserApiKey;
       const result = await dispatchFrame(raw, {
+        workspace: {
+          active: () => ws.data.workspace !== undefined,
+          session: (threadId) => {
+            if (ws.data.sessionId && ws.data.sessionId !== threadId)
+              throw new Error('Workspace session mismatch');
+            ws.data.sessionId = threadId;
+            ws.data.workspace ??= new AguiWorkspaceSession(threadId);
+            return ws.data.workspace;
+          },
+          send: (event) =>
+            ws.send(
+              redactSecrets(JSON.stringify(event), [
+                ...secrets,
+                ...(browserApiKey ? [browserApiKey] : []),
+              ]),
+            ),
+        },
         helloReceived: ws.data.helloReceived,
         handle: async (engine, frame) => {
           const decoded = decodeClientEnvelope(frame);
@@ -135,6 +157,7 @@ export function createWebSocketHandlers(
             result.frame.apiKey,
           ]);
           ws.data.browserApiKey = result.frame.apiKey;
+          ws.data.sessionId = result.frame.sessionId;
           ws.data.browserEngine = built.engine;
           ws.data.browserEngineInitError = built.initError;
           ws.data.helloReceived = true;

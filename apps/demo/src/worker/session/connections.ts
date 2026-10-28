@@ -10,7 +10,7 @@
  * is never written to storage or to `serializeAttachment`, both of which the
  * platform retains; only the non-secret {@link ConnectionMarker} survives.
  *
- * At most one frame PER SOCKET is buffered while a rehello is outstanding,
+ * One native frame and one workspace frame per socket may await rehello,
  * cleared on that socket's hello and on its close. Keyed by WebSocket (not a
  * single object-scoped slot) because two sockets on the same object can each
  * wake from hibernation and need a rehello independently — a single slot
@@ -18,15 +18,23 @@
  * buffering would be a memory-growth vector on a socket that never answers
  * the rehello.
  */
+
+import {
+  type WorkspaceCheckpoint,
+  WorkspaceCheckpointSchema,
+} from '@maelstrom-co/agui-protocol';
 import { Context, Layer } from 'effect';
 
 /** Non-secret, survives hibernation. See the module doc for what must NOT. */
 export interface ConnectionMarker {
   readonly helloed: true;
   readonly sessionId: string;
+  readonly workspace?: WorkspaceCheckpoint;
 }
 
 export interface ConnectionsService {
+  /** Whether teardown has permanently retired this socket. */
+  readonly retired: (ws: WebSocket) => boolean;
   /** This connection's key, or null while it has none in hand. */
   readonly keyOf: (ws: WebSocket) => string | null;
 
@@ -61,15 +69,17 @@ export interface ConnectionsService {
   ) => void;
 
   /**
-   * Buffers `raw` as the frame to replay when the outstanding rehello is
-   * answered. Returns false — buffering nothing — when a frame is already
-   * buffered for this socket; the caller answers such races immediately
-   * instead.
+   * Reserves one frame per kind until authentication returns. The first
+   * reservation requests hello; further frames of the same kind are refused.
    */
-  readonly bufferPending: (ws: WebSocket, raw: string) => boolean;
+  readonly bufferPending: (
+    ws: WebSocket,
+    raw: string,
+    kind: 'native' | 'workspace',
+  ) => 'first' | 'buffered' | 'full';
 
-  /** Takes the buffered triggering frame, if any. */
-  readonly takePending: (ws: WebSocket) => string | undefined;
+  /** Removes buffered frames in arrival order. */
+  readonly takePending: (ws: WebSocket) => readonly string[];
 
   /**
    * Drops everything held for this connection. Shared by close and error
@@ -89,10 +99,15 @@ export const ConnectionsLive: Layer.Layer<Connections> = Layer.sync(
   Connections,
   () => {
     const keys = new WeakMap<WebSocket, string>();
-    const pending = new Map<WebSocket, string>();
+    const pending = new Map<
+      WebSocket,
+      { kind: 'native' | 'workspace'; raw: string }[]
+    >();
     const declined = new WeakSet<WebSocket>();
+    const retired = new WeakSet<WebSocket>();
 
     return Connections.of({
+      retired: (ws) => retired.has(ws),
       keyOf: (ws) => keys.get(ws) ?? null,
       markerOf: (ws) => {
         // The attachment was written by markHello with a satisfies-checked
@@ -119,22 +134,33 @@ export const ConnectionsLive: Layer.Layer<Connections> = Layer.sync(
       markHello: (ws, apiKey, sessionId) => {
         keys.set(ws, apiKey);
         declined.delete(ws);
+        const previous: unknown = ws.deserializeAttachment();
+        const workspace =
+          typeof previous === 'object' &&
+          previous !== null &&
+          'workspace' in previous
+            ? WorkspaceCheckpointSchema.safeParse(previous.workspace)
+            : undefined;
         ws.serializeAttachment({
           helloed: true,
           sessionId,
+          ...(workspace?.success ? { workspace: workspace.data } : {}),
         } satisfies ConnectionMarker);
       },
-      bufferPending: (ws, raw) => {
-        if (pending.has(ws)) return false;
-        pending.set(ws, raw);
-        return true;
+      bufferPending: (ws, raw, kind) => {
+        const frames = pending.get(ws) ?? [];
+        if (frames.some((frame) => frame.kind === kind)) return 'full';
+        frames.push({ kind, raw });
+        pending.set(ws, frames);
+        return frames.length === 1 ? 'first' : 'buffered';
       },
       takePending: (ws) => {
-        const raw = pending.get(ws);
+        const frames = pending.get(ws) ?? [];
         pending.delete(ws);
-        return raw;
+        return frames.map((frame) => frame.raw);
       },
       forget: (ws) => {
+        retired.add(ws);
         keys.delete(ws);
         pending.delete(ws);
       },

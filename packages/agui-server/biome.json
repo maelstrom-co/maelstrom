@@ -1,0 +1,34 @@
+{
+  "extends": "//",
+  "linter": {
+    "rules": {
+      "style": {
+        "noRestrictedImports": {
+          "level": "error",
+          "options": {
+            "paths": {
+              "@maelstrom-co/agui": "Browser imports violate packages/realtime-protocol/src/layer-boundary.test.ts.",
+              "@maelstrom-co/agui/browser": "Browser imports violate packages/realtime-protocol/src/layer-boundary.test.ts.",
+              "@maelstrom-co/client": "Browser imports violate packages/realtime-protocol/src/layer-boundary.test.ts.",
+              "@maelstrom-co/devtools": "Browser imports violate packages/realtime-protocol/src/layer-boundary.test.ts.",
+              "@maelstrom-co/devtools/production": "Browser imports violate packages/realtime-protocol/src/layer-boundary.test.ts.",
+              "@maelstrom-co/react": "Browser imports violate packages/realtime-protocol/src/layer-boundary.test.ts.",
+              "@maelstrom-co/react/_testing": "Browser imports violate packages/realtime-protocol/src/layer-boundary.test.ts.",
+              "@maelstrom-co/react-devtools": "Browser imports violate packages/realtime-protocol/src/layer-boundary.test.ts.",
+              "@maelstrom-co/react-devtools/production": "Browser imports violate packages/realtime-protocol/src/layer-boundary.test.ts.",
+              "@maelstrom-co/react-realtime": "Browser imports violate packages/realtime-protocol/src/layer-boundary.test.ts.",
+              "@maelstrom-co/realtime": "Browser imports violate packages/realtime-protocol/src/layer-boundary.test.ts.",
+              "@maelstrom-co/realtime-livekit": "Browser imports violate packages/realtime-protocol/src/layer-boundary.test.ts.",
+              "@maelstrom-co/realtime-openai": "Browser imports violate packages/realtime-protocol/src/layer-boundary.test.ts.",
+              "@maelstrom-co/realtime-openai-live": "Browser imports violate packages/realtime-protocol/src/layer-boundary.test.ts.",
+              "@maelstrom-co/realtime-vad": "Browser imports violate packages/realtime-protocol/src/layer-boundary.test.ts.",
+              "@maelstrom-co/realtime-vad/assets": "Browser imports violate packages/realtime-protocol/src/layer-boundary.test.ts.",
+              "@maelstrom-co/realtime-vad/asset-manifest": "Browser imports violate packages/realtime-protocol/src/layer-boundary.test.ts.",
+              "@maelstrom-co/realtime-vad/config": "Browser imports violate packages/realtime-protocol/src/layer-boundary.test.ts."
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "name": "@maelstrom-co/agui-protocol",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Private AG-UI workspace wire schemas and correlation evidence.",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "@maelstrom-co/source": "./src/contract.ts",
+      "types": "./dist/contract.d.ts",
+      "import": "./dist/contract.js"
+    }
+  },
+  "dependencies": {
+    "@ag-ui/core": "1.0.0",
+    "@maelstrom-co/protocol": "0.1.0",
+    "zod": "catalog:"
+  },
+  "nx": {
+    "targets": {
+      "typecheck": {
+        "command": "tsc -p tsconfig.lib.json --noEmit",
+        "options": {
+          "cwd": "{projectRoot}"
+        }
+      }
+    }
+  }
+}

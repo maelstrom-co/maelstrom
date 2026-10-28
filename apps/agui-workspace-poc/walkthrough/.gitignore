@@ -1,0 +1,15 @@
+/target/
+/narration/*.mp3
+/narration/*.words.json
+/narration/narration.json
+/walkthrough.reel.json
+/narration-v2/*.mp3
+/narration-v2/*.words.json
+/narration-v2/narration.json
+/architecture.reel.json
+/assets/
+/narration-nacho/
+/architecture-nacho.reel.json
+/pr344/narration/
+/pr344/assets/
+/pr344/*.reel.json

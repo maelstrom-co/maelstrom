@@ -1,0 +1,14 @@
+[package]
+name = "agui-workspace-walkthrough"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+anyhow = "1.0"
+psychopomp = { path = "../../../../psychopomp/crates/psychopomp" }
+psychopomp-media = { path = "../../../../psychopomp/crates/psychopomp-media" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
