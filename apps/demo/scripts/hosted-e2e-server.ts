@@ -14,6 +14,12 @@ import {
   createWebSocketHandlers,
   type SocketData,
 } from '../src/server/ws-server';
+import {
+  buildHostedE2EEngine,
+  denyHostedE2ENetwork,
+} from './hosted-e2e-engine';
+
+globalThis.fetch = denyHostedE2ENetwork;
 
 const PORT = Number(process.env.HOSTED_E2E_PORT ?? 4173);
 const clientRoot = resolve(import.meta.dirname, '../dist/client');
@@ -40,6 +46,7 @@ const headerRules = parseHeaderRules(await Bun.file(headersFile).text());
 const websocket = createWebSocketHandlers({
   sharedEngine: null,
   sharedEngineInitError: 'No server OpenAI key configured.',
+  buildBrowserEngine: buildHostedE2EEngine,
 });
 
 const server = Bun.serve<SocketData>({

@@ -1,5 +1,5 @@
 import { gunzipSync } from 'node:zlib';
-import { expect, test } from '@playwright/test';
+import { expect, test } from './test';
 
 test('production invitation sends a click event and opens Discord without submitting a signup', async ({
   context,

@@ -15,8 +15,15 @@ import {
   type RunTelemetryResult,
 } from '../../packages/evals/src/core/publication.ts';
 import type { EvaluationResult } from '../../packages/evals/src/core/runtime/evaluate.js';
+import {
+  defaultDatasetName,
+  type LangfuseV3DatasetItem,
+  mapLangfuseV3DatasetItem,
+  validateDatasetName,
+} from './dataset.ts';
 import { importFullPlannerRun } from './full-planner-run.ts';
-import { mapLangfuseV3Publication } from './mapping.ts';
+import { publishRunLinks, type RunLinkClient } from './run-link-publisher.ts';
+import { planRunLinks } from './run-links.ts';
 import type { LangfuseV3Config, LangfuseV3Sink } from './sink.js';
 
 const maxInputBytes = 8 * 1024 * 1024;
@@ -24,12 +31,15 @@ const flagOptions = {
   input: { type: 'string' },
   'input-format': { type: 'string', default: 'result' },
   destination: { type: 'string' },
+  'dataset-name': { type: 'string', default: defaultDatasetName },
   artifact: { type: 'string' },
   'prepared-at': { type: 'string' },
   'base-url': { type: 'string' },
   'server-version': { type: 'string' },
   'preview-out': { type: 'string' },
   publish: { type: 'boolean', default: false },
+  'link-only': { type: 'boolean', default: false },
+  'confirm-no-active-evaluators': { type: 'boolean', default: false },
   'approve-sha256': { type: 'string' },
   'max-input-bytes': { type: 'string', default: String(maxInputBytes) },
   'max-publications': { type: 'string', default: '1000' },
@@ -45,6 +55,9 @@ const flagOptions = {
 type Dependencies = {
   readonly nodeVersion?: string;
   readonly env?: Readonly<Record<string, string | undefined>>;
+  readonly startLinkClient?: (
+    config: LangfuseV3Config,
+  ) => RunLinkClient | Promise<RunLinkClient>;
   readonly startSink?: (
     config: LangfuseV3Config,
   ) => LangfuseV3Sink | Promise<LangfuseV3Sink>;
@@ -94,7 +107,7 @@ export async function runLangfuseCli(
         output: {
           status: 'help',
           usage:
-            '--input FILE_OR_DIRECTORY [--input-format result|manual-report|full-planner-run|run-telemetry] --destination ID --artifact ID --prepared-at UTC --base-url URL --server-version 3.163.0 (--preview-out FILE | --publish --approve-sha256 HASH)',
+            '--input FILE_OR_DIRECTORY [--input-format result|manual-report|full-planner-run|run-telemetry] --destination ID --artifact ID --prepared-at UTC --base-url URL --server-version 3.163.0 [--link-only] (--preview-out FILE | --publish --approve-sha256 HASH [--confirm-no-active-evaluators])',
           documentation: 'tools/evals-langfuse/README.md',
         },
       };
@@ -113,10 +126,22 @@ export async function runLangfuseCli(
     )
       throw new Error();
     const fullRun = inputFormat === 'full-planner-run';
+    const linkOnly = values['link-only'];
+    if (
+      (linkOnly && !fullRun) ||
+      (values['confirm-no-active-evaluators'] && (!linkOnly || !values.publish))
+    )
+      throw new Error();
+    if (linkOnly && values.publish && !values['confirm-no-active-evaluators']) {
+      code = 'evaluator_confirmation_required';
+      throw new Error();
+    }
     if (
       !fullRun &&
       names.some((name) =>
-        ['max-publications', 'max-preview-bytes'].includes(name),
+        ['max-publications', 'max-preview-bytes', 'dataset-name'].includes(
+          name,
+        ),
       )
     )
       throw new Error();
@@ -146,7 +171,9 @@ export async function runLangfuseCli(
       url.hash
     )
       throw new Error();
+    if (fullRun) validateDatasetName(values['dataset-name']);
     const config = {
+      ...(fullRun && { datasetName: values['dataset-name'] }),
       serverVersion: '3.163.0' as const,
       destinationId: required(values.destination),
       baseUrl,
@@ -155,6 +182,7 @@ export async function runLangfuseCli(
       shutdownTimeoutMs: limit(values['shutdown-timeout-ms'], 60_000),
       maxInFlight: limit(values['max-in-flight'], 16),
     };
+    if (linkOnly && config.maxInFlight !== 1) throw new Error();
     const maxPublicationBytes = limit(
       values['max-publication-bytes'],
       config.maxBatchBytes,
@@ -228,12 +256,20 @@ export async function runLangfuseCli(
             },
           );
     const candidates: EvaluationPublication[] = [];
+    const datasetItems: LangfuseV3DatasetItem[] = [];
     let candidateBytes = 0;
     const previewOnly = new Error();
     for (const sample of samples) {
       try {
         prepare(sample, (publication) => {
-          if (fullRun) mapLangfuseV3Publication(publication, config);
+          if (fullRun) {
+            const item = mapLangfuseV3DatasetItem(publication, {
+              ...config,
+              datasetName: values['dataset-name'],
+            });
+            datasetItems.push(item);
+            candidateBytes += Buffer.byteLength(JSON.stringify(item));
+          }
           candidateBytes += Buffer.byteLength(JSON.stringify(publication));
           if (fullRun && candidateBytes > maxPreviewBytes) throw new Error();
           candidates.push(publication);
@@ -244,12 +280,13 @@ export async function runLangfuseCli(
         if (error !== previewOnly) throw error;
       }
     }
-    const json = `${JSON.stringify(
+    const catalogJson = `${JSON.stringify(
       fullRun
         ? {
-            schemaVersion: 2,
+            schemaVersion: 3,
             inputFormat,
             source,
+            dataset: { name: config.datasetName, items: datasetItems },
             limits: {
               maxInputBytes: inputLimit,
               maxPublicationBytes,
@@ -273,6 +310,35 @@ export async function runLangfuseCli(
       null,
       2,
     )}\n`;
+    const links =
+      linkOnly && source
+        ? planRunLinks(
+            candidates,
+            datasetItems,
+            source,
+            createHash('sha256').update(catalogJson).digest('hex'),
+            config.maxBatchBytes,
+          )
+        : undefined;
+    const json = links
+      ? `${JSON.stringify(
+          {
+            schemaVersion: 1,
+            operation: 'link-only',
+            inputFormat,
+            sink: config,
+            limits: {
+              maxInputBytes: inputLimit,
+              maxPublicationBytes,
+              maxEntries: maxPublications,
+              maxPreviewBytes,
+            },
+            ...links,
+          },
+          null,
+          2,
+        )}\n`
+      : catalogJson;
     if (fullRun && Buffer.byteLength(json) > maxPreviewBytes) throw new Error();
     const approvalSha256 = createHash('sha256').update(json).digest('hex');
     const identifiers: Record<string, string | number> = fullRun
@@ -295,11 +361,49 @@ export async function runLangfuseCli(
       await writeFile(required(previewPath), json, { flag: 'wx', mode: 0o600 });
       return {
         exitCode: 0,
-        output: { mode: 'preview', status: 'preview', ...identifiers },
+        output: {
+          mode: linkOnly ? 'link-preview' : 'preview',
+          status: 'preview',
+          ...identifiers,
+        },
       };
     }
     code = 'approval_mismatch';
     if (approvalSha256 !== values['approve-sha256']) throw new Error();
+    if (links) {
+      code = 'invalid_credentials';
+      const env = dependencies.env ?? process.env;
+      const publicKey = required(env.LANGFUSE_PUBLIC_KEY);
+      const secretKey = required(env.LANGFUSE_SECRET_KEY);
+      code = 'run_link_journal_unavailable';
+      const result = await publishRunLinks({
+        plan: links,
+        approvalSha256,
+        journalPath: join(input, links.journalFile),
+        timeoutMs: config.timeoutMs,
+        shutdownTimeoutMs: config.shutdownTimeoutMs,
+        startClient: () =>
+          dependencies.startLinkClient
+            ? dependencies.startLinkClient({ ...config, publicKey, secretKey })
+            : withQuietSdk(async () =>
+                (await import('./sink.ts')).startLangfuseRunLinkClient({
+                  ...config,
+                  publicKey,
+                  secretKey,
+                }),
+              ),
+      });
+      return {
+        exitCode:
+          result.shutdown !== 'closed' ||
+          ['partial', 'uncertain'].includes(result.status)
+            ? 3
+            : result.status === 'failed'
+              ? 1
+              : 0,
+        output: { mode: 'link-publish', ...identifiers, ...result },
+      };
+    }
     const approved = samples.map((sample, index) =>
       prepare(
         sample,
@@ -323,7 +427,8 @@ export async function runLangfuseCli(
       const publisher = createEvaluationPublisher({
         destinationId: config.destinationId,
         sink,
-        timeoutMs: config.timeoutMs,
+        // Let the sink retain confirmed partial delivery before the fallback aborts it.
+        timeoutMs: config.timeoutMs + 1_000,
         maxEntries: maxPublications,
       });
       for (const publication of approved) {
@@ -379,6 +484,12 @@ export async function runLangfuseCli(
 async function startStandaloneSink(
   config: LangfuseV3Config,
 ): Promise<LangfuseV3Sink> {
+  return withQuietSdk(async () =>
+    (await import('./sink.ts')).startLangfuseV3Sink(config),
+  );
+}
+
+async function withQuietSdk<T>(start: () => Promise<T>): Promise<T> {
   const controls = {
     LANGFUSE_DEBUG: 'false',
     LANGFUSE_LOG_LEVEL: 'NONE',
@@ -394,7 +505,7 @@ async function startStandaloneSink(
       else process.env[name] = value;
     }
     // The pinned SDK captures logger settings at import and flush settings at construction.
-    return (await import('./sink.ts')).startLangfuseV3Sink(config);
+    return await start();
   } finally {
     for (const [name, value] of original) {
       if (value === undefined) delete process.env[name];

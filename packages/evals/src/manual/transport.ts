@@ -18,6 +18,7 @@ export function manualTransport(
 ) {
   const wire = z.strictObject({
     model: z.literal(model),
+    prompt_cache_key: z.string().min(1).max(64).regex(/\S/).optional(),
     instructions: z.string(),
     input: z.array(
       z.strictObject({

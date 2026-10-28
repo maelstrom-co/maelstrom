@@ -701,3 +701,135 @@ test('run telemetry publishes once on an honest run artifact without any correct
   expect(root.body).toMatchObject({ metadata: { scope: 'run' } });
   expect(JSON.stringify(root.body)).not.toContain('"sample"');
 });
+
+function catalogPublication() {
+  return prepare(
+    result({
+      surface: 'planner-report',
+      provenance: 'imported:full-planner-run/v1',
+    }),
+  );
+}
+function catalogTransport(calls: string[]): LangfuseV3Transport {
+  return {
+    async batch(request) {
+      calls.push('trace');
+      requests.push(request);
+      return accept(request);
+    },
+    async createDataset(request, options) {
+      calls.push('dataset');
+      expect(request).toEqual({ name: 'maelstrom-evals-v1' });
+      expect(options.maxRetries).toBe(0);
+      return { id: 'catalog', name: request.name };
+    },
+    async createDatasetItem(request, options) {
+      calls.push('item');
+      expect(request.input).toEqual({
+        caseId: identity.caseId,
+        arm: identity.runtimeId,
+        repeat: identity.sample,
+      });
+      expect(request).not.toHaveProperty('expectedOutput');
+      expect(bodyId(requests.at(-1)!.batch[0])).toBe(request.sourceTraceId);
+      expect(options.maxRetries).toBe(0);
+      return { ...request, datasetId: 'catalog' };
+    },
+  };
+}
+const catalogConfig = { datasetName: 'maelstrom-evals-v1' };
+
+test('catalog publication sends trace before dataset upsert and item; retries preserve the exact item', async () => {
+  const calls: string[] = [];
+  const transport = catalogTransport(calls);
+  const items: unknown[] = [];
+  const create = transport.createDatasetItem!;
+  transport.createDatasetItem = async (item, options) => {
+    items.push(structuredClone(item));
+    return create(item, options);
+  };
+  const sink = start(transport, catalogConfig);
+  const publication = catalogPublication();
+  expect(await publish(sink, publication)).toEqual({ status: 'accepted' });
+  expect(await publish(sink, publication)).toEqual({ status: 'accepted' });
+  expect(calls).toEqual(['trace', 'dataset', 'item', 'trace', 'item']);
+  expect(items[0]).toEqual(items[1]);
+  expect(JSON.stringify(items)).not.toContain('RAW');
+});
+
+test.each([
+  'dataset',
+  'item',
+  'dataset-receipt',
+  'item-receipt',
+])('catalog %s failure after trace acceptance is partial, never fully accepted', async (failure) => {
+  const calls: string[] = [];
+  const transport = catalogTransport(calls);
+  if (failure.startsWith('dataset'))
+    transport.createDataset = async () => {
+      calls.push('dataset');
+      if (failure === 'dataset') throw new Error('PRIVATE SDK FAILURE');
+      return { id: 'wrong', name: 'wrong' };
+    };
+  else
+    transport.createDatasetItem = async (item) => {
+      calls.push('item');
+      if (failure === 'item') throw new Error('PRIVATE SDK FAILURE');
+      return { ...item, id: 'wrong', datasetId: 'wrong' };
+    };
+  expect(
+    await publish(start(transport, catalogConfig), catalogPublication()),
+  ).toEqual({ status: 'partial' });
+  expect(calls).toEqual(
+    failure.startsWith('dataset')
+      ? ['trace', 'dataset']
+      : ['trace', 'dataset', 'item'],
+  );
+});
+
+test('catalog writes do not follow unconfirmed traces or unsupported input/transport', async () => {
+  const calls: string[] = [];
+  const transport = catalogTransport(calls);
+  transport.batch = async () => {
+    calls.push('trace');
+    return { successes: [], errors: [] };
+  };
+  expect(
+    await publish(start(transport, catalogConfig), catalogPublication()),
+  ).toEqual({ status: 'uncertain' });
+  expect(calls).toEqual(['trace']);
+  expect(await publish(start(catalogTransport(calls), catalogConfig))).toEqual({
+    status: 'failed',
+  });
+  expect(
+    await publish(start(undefined, catalogConfig), catalogPublication()),
+  ).toEqual({ status: 'failed' });
+  expect(calls).toEqual(['trace']);
+});
+
+test.each([
+  'dataset',
+  'item',
+])('catalog timeout during %s preserves partial outcome and admission bound', async (stage) => {
+  const calls: string[] = [];
+  const transport = catalogTransport(calls);
+  const gate = deferred<never>();
+  if (stage === 'dataset') transport.createDataset = () => gate.promise;
+  else transport.createDatasetItem = () => gate.promise;
+  const sink = start(transport, {
+    ...catalogConfig,
+    timeoutMs: 10,
+    shutdownTimeoutMs: 10,
+    maxInFlight: 1,
+  });
+  expect(await publish(sink, catalogPublication())).toEqual({
+    status: 'partial',
+  });
+  expect(await publish(sink, catalogPublication())).toEqual({
+    status: 'failed',
+  });
+  expect(await sink.shutdown()).toBe('uncertain');
+  gate.reject(new Error('PRIVATE LATE FAILURE'));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(calls).not.toContain('item');
+});

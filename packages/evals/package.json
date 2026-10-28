@@ -35,6 +35,15 @@
           "cwd": "{projectRoot}"
         }
       },
+      "build": {
+        "command": "tsc --build tsconfig.json --emitDeclarationOnly",
+        "outputs": [
+          "{projectRoot}/out-tsc/eval"
+        ],
+        "options": {
+          "cwd": "{projectRoot}"
+        }
+      },
       "typecheck": {
         "command": "tsc -p tsconfig.json --noEmit",
         "dependsOn": [

@@ -7,7 +7,7 @@ import { defineConfig, devices } from '@playwright/test';
 // Note: this config intentionally avoids importing `@nx/devkit` / the Nx preset.
 // Playwright loads the config in a process where Nx's native binding fails under
 // the Bun runtime; the `@nx/playwright/plugin` still infers the `e2e` target.
-const baseURL = process.env.BASE_URL || 'http://localhost:4322';
+const baseURL = process.env.BASE_URL || 'http://localhost:4324';
 
 export default defineConfig({
   testDir: './e2e',
@@ -26,11 +26,11 @@ export default defineConfig({
     //
     // `--ignore-lock`: the lock is keyed on the project root, not the port
     // (`<root>/.astro/dev.json`), so a contributor already running `nx dev docs`
-    // on 4321 makes `astro dev --port 4322` abort with "Another astro dev server
-    // is already running". `reuseExistingServer` cannot rescue that — it probes
-    // 4322, where nothing is listening. Ignoring the lock also means this server
+    // on 4322 makes `astro dev --port 4324` abort with "Another astro dev server
+    // is already running". A dedicated port keeps E2E on its own development
+    // environment rather than reusing a contributor's server. Ignoring the lock also means this server
     // writes no lock file, so it can't mislabel the one a real dev server owns.
-    command: 'bunx astro dev --port 4322 --ignore-lock',
+    command: 'bunx astro dev --port 4324 --ignore-lock',
     // Deliberately not the page under test. Readiness has to prove Astro
     // compiles pages — Astro 7's Rust compiler errors on markup it used to
     // auto-correct, and the architecture page is the only hand-authored
@@ -43,8 +43,8 @@ export default defineConfig({
     // the first page compiles (measured warm; CI is colder, since the 362
     // generated reference pages are gitignored). It would move that compile out
     // of this 120s budget and into the first test's much smaller one.
-    url: 'http://localhost:4322/getting-started/introduction/',
-    reuseExistingServer: !process.env.CI,
+    url: 'http://localhost:4324/getting-started/introduction/',
+    reuseExistingServer: false,
     timeout: 120_000,
     // ASTRO_DEV_BACKGROUND: Astro detaches `astro dev` into a background daemon
     // when it detects an AI coding agent (CLAUDECODE, AI_AGENT, …); the

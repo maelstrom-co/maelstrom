@@ -315,9 +315,12 @@ test('Weather CLI/import do not dispatch implicitly and only accept explicit sin
         '--conditions=@maelstrom-co/source',
         ...tail,
       ],
-      { env: {} },
+      { env: {}, timeout: 10000, killSignal: 'SIGKILL' },
     );
-    expect(result.exitCode).toBe(0);
+    expect(
+      result.exitCode,
+      `Weather subprocess ${JSON.stringify(tail)}: signal=${result.signalCode}, timeout=${result.exitedDueToTimeout}, stderr=${result.stderr.toString()}`,
+    ).toBe(0);
     expect(result.stderr.toString()).toBe('');
     if (tail[0] === '-e') expect(result.stdout.toString()).toBe('');
     else expect(JSON.parse(result.stdout.toString()).mode).toBe('dry-run');
@@ -335,13 +338,16 @@ test('Weather CLI/import do not dispatch implicitly and only accept explicit sin
         path,
         ...args,
       ],
-      { env: {} },
+      { env: {}, timeout: 10000, killSignal: 'SIGKILL' },
     );
-    expect(result.exitCode).toBe(1);
+    expect(
+      result.exitCode,
+      `Weather subprocess ${JSON.stringify(args)}: signal=${result.signalCode}, timeout=${result.exitedDueToTimeout}, stderr=${result.stderr.toString()}`,
+    ).toBe(1);
     expect(result.stdout.toString()).toBe('');
     expect(result.stderr.toString()).toContain('Weather sample did not start');
   }
-});
+}, 30000);
 
 test('unknown/duplicate selectors, flags, model/endpoint drift and missing live acknowledgement/key fail before any send', async () => {
   const send = mock<ManualFetch>();

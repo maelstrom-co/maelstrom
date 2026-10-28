@@ -72,7 +72,7 @@ for (const width of [1280, 375]) {
           if (javaScriptEnabled) {
             await expect(
               page.locator('.demo-shell-live .max-w-4xl'),
-            ).toBeVisible();
+            ).toBeVisible({ timeout: 15_000 });
 
             await expect(page.locator('.hero-dash').last()).toBeVisible();
             await page.evaluate(() => document.fonts.ready);

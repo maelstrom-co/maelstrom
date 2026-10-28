@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './test';
 
 test('serves the hosted VAD runtime instead of the SPA fallback', async ({
   request,

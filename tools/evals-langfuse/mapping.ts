@@ -124,12 +124,15 @@ export function mapLangfuseV3Publication(
   const batch: BatchRequest['batch'] = [
     {
       type: 'trace-create',
-      id: eventId('trace-create'),
+      // Rename existing traces without reusing the old trace-create event's deduplication key.
+      id: eventId(run ? 'trace-create' : 'trace-create:case-name/v1'),
       timestamp,
       body: {
         id: traceId,
         timestamp,
-        name: 'maelstrom.eval.publication',
+        name: run
+          ? 'maelstrom.eval.publication'
+          : `maelstrom.eval.${identity.caseId}`,
         sessionId: identity.runId,
         environment: 'maelstrom-eval',
         public: false,

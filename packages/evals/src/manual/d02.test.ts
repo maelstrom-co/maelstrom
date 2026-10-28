@@ -187,6 +187,7 @@ test('current Engine and real LLM/OpenAI adapter send MAR and retain actual repl
     expect(requests[index].redirect).toBe('error');
     expect(body).toMatchObject({
       model: 'gpt-6-luna',
+      prompt_cache_key: report.result.identity.runId,
       max_output_tokens: 2048,
       service_tier: 'default',
       store: false,
@@ -381,6 +382,13 @@ test('transport reserves before awaiting: duplicate/concurrent generation poison
 test('transport blocks additional features, remote references, wrong model and non-generation URLs before network', async () => {
   for (const request of [
     wire({ model: 'other' }),
+    wire({ prompt_cache_key: '' }),
+    wire({ prompt_cache_key: '   ' }),
+    wire({ prompt_cache_key: 123 }),
+    wire({ prompt_cache_key: null }),
+    wire({ prompt_cache_key: 'x'.repeat(65) }),
+    wire({ prompt_cache_key: `${' '.repeat(64)}x` }),
+    wire({ prompt_cache_retention: '24h' }),
     wire({ max_output_tokens: 4096 }),
     wire({ service_tier: 'priority' }),
     wire({ store: true }),
