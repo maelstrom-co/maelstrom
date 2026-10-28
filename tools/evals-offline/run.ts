@@ -1,4 +1,6 @@
 import type { LoadedCase } from '../../packages/evals/src/adapters/offline-case.js';
+import { validateJudgeSelection } from '../../packages/evals/src/core/judge.js';
+import type { EvalOptions } from '../../packages/evals/src/core/run.js';
 import {
   type EvaluationRun,
   runEvaluationRun,
@@ -12,6 +14,10 @@ import { loadOfflineCases } from './cases.js';
 export function runOfflineCases(options: {
   /** Explicit catalog override for tests; otherwise uses the validated checked-in registry. */
   readonly cases?: readonly LoadedCase[];
+  /** Explicit optional provider; the runner never reads environment or enables providers itself. */
+  readonly judge?: EvalOptions['judge'];
+  /** Independent surface/legacy rubric choice. */
+  readonly judgeRubric?: EvalOptions['judgeRubric'];
   /** Catalog-order subset; no IDs means every catalog case. */
   readonly ids?: readonly string[];
   /** Optional profile subset, intersected with selected IDs. */
@@ -20,7 +26,7 @@ export function runOfflineCases(options: {
   readonly repeats: number;
   readonly concurrency?: number;
   readonly onEvaluation?: (result: EvaluationResult<unknown>) => void;
-  /** Local reporting hook; no upload or provider execution is installed. */
+  /** Local reporting hook; publishing never triggers additional judge calls. */
   readonly report?: (
     run: EvaluationRun<unknown, EvaluationResult<unknown>>,
   ) => void | Promise<void>;
@@ -41,9 +47,10 @@ export function runOfflineCases(options: {
     concurrency: options.concurrency,
     caseId: (value) => value.definition.id,
     runtimeId: (value) => value.definition.profile,
+    preflight: () => validateJudgeSelection(options.judge, options.judgeRubric),
     prepare: (value) => value,
     invocation: (value) => ({
-      adapter: caseAdapter(value),
+      adapter: caseAdapter(value, options),
       finish: (result) => result,
     }),
     onEvaluation: options.onEvaluation,

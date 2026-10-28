@@ -9,9 +9,7 @@
     "types": ["bun", "node"],
     "lib": ["es2022", "dom"]
   },
-  "include": [
-    "./**/*.ts"
-  ],
+  "include": ["./**/*.ts"],
   "references": [
     {
       "path": "../../packages/evals"

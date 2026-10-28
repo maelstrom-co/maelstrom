@@ -724,7 +724,12 @@ function plannerRecord(overrides: Record<string, unknown> = {}) {
     stages: ['PRIVATE STAGE'],
     llmCalls: ['PRIVATE LLM'],
     rawOutput: 'PRIVATE RAW',
-    grader: { pass: true, reason: 'PRIVATE GRADER' },
+    grader: {
+      graderVersion: 2,
+      verbalizerVersion: 1,
+      failure: 'PRIVATE GRADER',
+      calls: [],
+    },
     ...overrides,
   };
 }

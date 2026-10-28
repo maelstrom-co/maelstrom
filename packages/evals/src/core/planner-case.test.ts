@@ -238,9 +238,14 @@ test('fixed canonical files drive a fresh live registry and fail closed without 
       'scenarios.ts',
       'scenario-registry.ts',
       'run-orchestration.ts',
+      'judge-result.ts',
     ])
       copyFileSync(new URL(file, import.meta.url), join(core, file));
-    for (const file of ['evaluate.ts', 'operational-telemetry.ts'])
+    for (const file of [
+      'evaluate.ts',
+      'operational-telemetry.ts',
+      'judge-result.ts',
+    ])
       copyFileSync(
         new URL(`runtime/${file}`, import.meta.url),
         join(runtime, file),

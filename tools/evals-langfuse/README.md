@@ -429,3 +429,17 @@ IDs bind publication identity, mapping version, scope and group/metric key. Retr
 a saved publication reuses finalized bytes/IDs, not collection or evaluation.
 The existing in-memory publisher coalesces concurrent sends; cross-process
 exactly-once delivery and backend persistence remain unverified.
+
+## Secondary judge results
+
+Summary and recording publications include the finalized bounded `judge` envelope.
+Native `grader`-only reports are normalized without executing a provider; historical
+absence becomes `not_run/historical_unknown`. Invalid numeric grades are rejected,
+not converted to zero. Status, rubric/version and provider/model remain in metadata.
+Only `scored` samples create numeric
+`eval.judge.<rubric>.v<version>.<llm|heuristic|unknown>.<dimension>` scores. The legacy
+scalar rubric and native dimensions stay distinct; heuristics are explicitly non-LLM.
+All exported judge values are labeled unvalidated. Judge prompts, rationale, raw calls
+and failure messages are not automatically exported. Correctness and operational
+scores retain their existing semantics, and telemetry-only run artifacts have no
+judge score. Retry/re-export uses finalized reviewed bytes and never regrades.

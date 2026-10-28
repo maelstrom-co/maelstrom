@@ -70,7 +70,7 @@ policies are deliberately disabled for this authorized sample.
 - Output is limited to **2,048 tokens per turn, including reasoning**, a bounded
   setting for this short identity sample. Truncation is incomplete evidence, not
   a reason to retry. Reasoning effort is otherwise the model default.
-- No judge, fallback, token-count API, Langfuse, telemetry attachment/upload,
+- No judge by default; optional secondary judging is described below. No fallback, token-count API, Langfuse, telemetry attachment/upload,
   external history store, or automatic report publication. `store: false` is not
   a guarantee about the provider's separate abuse-monitoring retention policy.
 - JSON output includes configuration, session/sample identity, generation count,
@@ -630,3 +630,30 @@ effects. No semantic-quality, reliability, source scorer/runtime or legacy
 bun --no-env-file test --conditions=@maelstrom-co/source packages/evals/src/manual/d35.test.ts tools/evals-offline/three-vessel-addition-fixture.test.ts
 bunx nx run-many -t test,typecheck,check -p demo,@maelstrom-co/evals,evals-offline --skip-nx-cache --skipSync
 ```
+
+## Optional judge for every manual probe
+
+D02, D14, D17, D25, D33, D35 and the Weather probes honor
+`MAELSTROM_ENABLE_LLM_JUDGE` and the provider/model/rubric variables documented in
+[the eval guide](../../README.md#grader-secondary). This is an explicit additional
+opt-in, not part of the fixed planner dispatch budget. Verify adequate hard caps
+and permission for **every** configured provider before a live invocation. Dry-run
+still reads no credentials and makes no planner or judge calls; its judge status
+is `not_run/dry_run`.
+
+Library callers can provide a fourth `ManualJudgeOptions` argument with explicit
+`configuration` overrides or an injected `judge` (used by offline tests). Explicit
+`configuration.enabled: false` overrides environment activation. Invalid enabled
+judge configuration rejects before planner execution. The judge never relaxes,
+retries or consumes a planner generation slot. Reports keep `generationDispatches`
+and `judgeCalls` separate: attempts, provider-reported calls, and attempts whose
+call count is unknown after an exception. Heuristic attempts report zero provider
+calls and remain labeled non-LLM.
+
+The judge reads only actual returned responses or retained partial-session turns
+and the case inputs/expectations. Missing output is not graded. Surface mode uses
+the session-outcome rubric (a single-response probe is a one-turn interaction);
+legacy mode uses the distinct adapted scalar rubric. Neither can change the
+existing deterministic result, exit status or pending human semantic review.
+The bounded result is stored under `result.judge`, ready for reviewed publication;
+no upload or judging occurs during report rendering.

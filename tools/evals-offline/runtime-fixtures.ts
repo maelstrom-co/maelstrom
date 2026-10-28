@@ -46,6 +46,7 @@ export function planner(
   defer = false,
   selected = defer ? getScenario('generate-content') : preserve,
   messages = { userMessage: 'Unchanged', rationale: 'Keep synthetic layout' },
+  judging: Pick<EvalOptions, 'judge' | 'judgeRubric'> = {},
 ) {
   const answer: PlannerCandidate = {
     ...candidate,
@@ -73,6 +74,7 @@ export function planner(
       ? 'synthetic-upstream-replay/downstream-mock'
       : 'real-engine/mocked-planner',
     runtime: {
+      ...judging,
       adapter: unusedAdapter,
       fallback: () => async () => ok(answer),
       ...(replay && { replay: { source: replay, through: 'select' } }),
@@ -85,6 +87,7 @@ export function stage(
   pending = true,
   destination = 'Studio Vortex HQ',
   pick = 'map-main/showRoute',
+  judging: Pick<EvalOptions, 'judge' | 'judgeRubric'> = {},
 ) {
   const transport = scriptedFetch(
     conversation({
@@ -109,6 +112,7 @@ export function stage(
   });
   return {
     adapter: stageAdapter({
+      ...judging,
       module: registerStageEval(module),
       scenario: getScenario(id),
       variant: 'stepwise',

@@ -1,11 +1,11 @@
 import { describe, expect, test } from 'bun:test';
-
 import {
   fakePluginWith,
   TOKYO_CANDIDATE,
 } from './__test-helpers__/fake-planner.js';
 import { GRADER_VERSION } from './grader.js';
 import type { GraderValidation } from './grader-validate.js';
+import { judgeFromGrader } from './judge-result.js';
 import { renderMarkdown, renderPaired, summarize } from './report.js';
 import type { RunRecord } from './run.js';
 import { percentile } from './stats.js';
@@ -497,6 +497,70 @@ describe('grader', () => {
     expect(markdown).toContain(
       '| Grader calls / input / output tokens | 2 / 600 / 8 | 3 / 600 / 8 (1 without usage) |',
     );
+  });
+
+  test('an unbound historical calibration does not validate a known provider using the native rubric', () => {
+    const current = records.map((record) => ({
+      ...record,
+      judge: judgeFromGrader(record.grader, {
+        kind: 'llm',
+        provider: 'openai',
+        model: 'fake',
+      }),
+    }));
+    const report = renderMarkdown(
+      summarize(current, plugins),
+      {},
+      { plugins, graderValidation: passing },
+    );
+    expect(report).not.toContain('grader: validated');
+    expect(report).not.toContain('| Grader request_satisfied mean');
+    expect(report).toContain('openai/fake');
+    expect(report).toContain('unvalidated');
+  });
+
+  test('known judge headlines require matching rubric version, provider and model calibration', () => {
+    const provenance = {
+      kind: 'llm' as const,
+      provider: 'custom',
+      model: 'model-one',
+    };
+    const current = records.map((record) => ({
+      ...record,
+      judge: judgeFromGrader(record.grader, provenance),
+    }));
+    const matching = renderMarkdown(
+      summarize(current, plugins),
+      {},
+      { plugins, graderValidation: { ...passing, provenance } },
+    );
+    expect(matching).toContain('grader: validated');
+    const wrongModel = renderMarkdown(
+      summarize(current, plugins),
+      {},
+      {
+        plugins,
+        graderValidation: {
+          ...passing,
+          provenance: { ...provenance, model: 'model-two' },
+        },
+      },
+    );
+    expect(wrongModel).not.toContain('grader: validated');
+    const oldRubric = current.map((record) => ({
+      ...record,
+      judge:
+        record.judge.status === 'scored'
+          ? { ...record.judge, rubric: { ...record.judge.rubric, version: 99 } }
+          : record.judge,
+    }));
+    expect(
+      renderMarkdown(
+        summarize(oldRubric, plugins),
+        {},
+        { plugins, graderValidation: { ...passing, provenance } },
+      ),
+    ).not.toContain('grader: validated');
   });
 
   test('prints the unvalidated line instead of grader rows when validation failed or did not run', () => {

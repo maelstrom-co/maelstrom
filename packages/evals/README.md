@@ -347,7 +347,7 @@ A plugin declares:
 | `verifyReplay(record, arm)` | What a replayed stage output lacks for the arm to read it, checked before any turn runs. |
 | `recordTurn(scenario, stages, calls)` | Fields added to a staged turn's record in `records.json`. Naming a field the runner owns throws. |
 | `summarizeArm(records)`, `reportRows(summaries)` | Fields added to an arm's summary in `summary.json` (`latency` and `tokens` merge into the runner's; naming a field the runner owns throws), and rows added to each suite's table in `report.md`, by section. |
-| `judge` | Rates shipped responses for `--grader` (`Judge`: one `score(input, ctx)` call per grading, returning a level and level probabilities per dimension, with its own provider calls). The grader's questions, levels, state and resampling stay in `src/core/grader.ts`; the TypeSafe judge in `src/plugins/jev/typesafe-judge.ts` only maps them to a TypeSafe call. Only the Jev plugin offers a judge, so `--grader` grades every arm with TypeSafe, Decisions arms included, and the scores stay comparable. |
+| `judge` | Rates shipped responses for `--grader` (`Judge`: one `score(input, ctx)` call per grading, returning a level and level probabilities per dimension, with its own provider calls). The grader's questions, levels, state and resampling stay in `src/core/grader.ts`; the TypeSafe judge in `src/plugins/jev/typesafe-judge.ts` only maps them to a TypeSafe call. The Jev plugin offers the TypeSafe provider. CLI judge configuration can select TypeSafe or OpenAI independently of the rubric; heuristic mode is explicitly non-LLM. Every arm uses the selected judge. |
 | `stageModules` | Single-stage evals for `--stage`, each a `StageEvalModule` (`src/core/stage-eval.ts`): its `name`, the `stage` it records, `variants` as factories over the module's own `Deps`, `makeDeps(onCall)` building those deps for one turn, optional CLI `flags` with a `configure(values, run)` that returns the module to run and the settings for `meta.json`, plus `prepare`, `judge` and `reportSections` as before. |
 | `meta()` | Settings printed with the run's meta whenever one of the plugin's arms runs (the Jev plugin adds `jevModel`, the Decisions plugin `decisionsModel`). |
 
@@ -376,10 +376,11 @@ OPENAI_API_KEY=... TYPESAFE_API_KEY=... JEV_MODEL=jev-1.13.0 \
 | `--replay-from` | none | A previous run's output directory to replay upstream stages from. Needs `--replay-through`. |
 | `--replay-through` | none | `select`, `actions` or `layout`: every staged arm replays its plugin's stages up to and including the one mapped to this phase from the recorded run, and runs the rest live. |
 | `--replay-arm` | none | The arm of the recorded run whose stages are replayed. Required with `--replay-from`. |
-| `--grader` | off | Grades every planned shipped response with the first plugin's judge, TypeSafe today (see Grader below). |
+| `--grader` | off unless env-enabled | Enables secondary judging for all eligible samples (TypeSafe + surface rubric unless overridden). `--no-grader` overrides env activation. |
+| `--judge-provider`, `--judge-model`, `--judge-rubric` | see below | Provider/model and rubric are independent; each explicit judge setting also enables judging. |
 | `--grader-validation` | none | A `grader-validation.json` written by `src/eval/grader-validate.ts`. The grader's rows appear in `report.md` only when it passed the gate. Needs `--grader`. |
 
-Without a variable the run needs (`OPENAI_API_KEY` always, and it is all the Decisions arms need; the Jev arms also need `TYPESAFE_API_KEY` and `JEV_MODEL`, and so does `--grader`, whatever the arms) the runner writes `status.json` naming the missing variables and exits with code 2. Live runs are not part of `nx test`; the offline tests use scripted TypeSafe and Decisions transports and a mocked `chat()`.
+Without a variable the run needs (`OPENAI_API_KEY` always, and it is all the Decisions arms need; the Jev arms also need `TYPESAFE_API_KEY` and `JEV_MODEL`, and so does a TypeSafe judge, whatever the arms) the runner writes `status.json` naming the missing planner variables and exits with code 2. Invalid enabled judge configuration fails earlier, before any evaluation work. Live runs are not part of `nx test`; the offline tests use scripted TypeSafe and Decisions transports and a mocked `chat()`.
 
 Each staged turn writes its stages' inputs and outputs to `<out>/stages/<arm>/<scenarioId>-<repeat>.json`. Replay reads them back: a replayed stage returns the recorded output (or the same deferral), so the stage after it runs on identical upstream results. Jev and LLM replies are not deterministic, so replay isolates one stage; it never stands in for an end-to-end result. A turn with no recorded stage fails with an error naming the stage and turn. Before any call, the runner also refuses a recording that lacks what an arm's plugin says it reads from a replayed stage: stage-library arms read `minConfidence` from a replayed action plan, gated arms read every gate from a replayed selection and action plan, so a run recorded before the select stage asked a gate (such as `dependsOnScreen`) no longer replays into a gated arm and is refused as having no complete gates, and ungated arms refuse a recording that carries gates, since their actions stage would act on them. Replay gated arms from a gated arm's run and ungated arms from an ungated one.
 
@@ -492,9 +493,39 @@ Use `summary.json` for machine comparisons: `tokens.llm.cacheRead`, `cacheWrite`
 
 ### Grader (secondary)
 
-`src/core/grader.ts` rates each shipped response of a planned scenario with one judge call, a TypeSafe call asking two `score` questions of five descriptive levels each: `request_satisfied` (did everything the user asked happen, and nothing else) and `arrangement_match` (does the layout match the stated arrangement, or with none stated, keep the previous one or use a sensible default). The state it reads is the user's intent, the layout before and after in words (`src/core/verbalize-tree.ts`), the shipped execution plan and the user message. A score is the fractional level normalised to 0 to 1. A dimension whose two most probable levels are within 0.15 of each other is asked twice more on its own and scores the mean of the three samples. Grading runs after the turn's latency is measured, on its own TypeSafe client: its usage is reported in the grader rows and never in an arm's stage tokens. A failed grade (provider error, deferral, or `grader/exception: <message>` when the judge throws, with the judge calls made before it) is recorded in the turn's `grader` field and counted, and never changes the turn or any rule-based metric.
+Providers and rubrics are independent. `--judge-provider=typesafe|openai` selects an
+LLM provider; `--judge-rubric=surface|legacy` selects surface-specific dimensions or
+the distinct `legacy_task/v2` scalar `llm_judge_score`. The legacy task wording is
+adapted to available evidence; no historical score equivalence is claimed. Stage
+runs always use the isolated-stage rubric, including actual deferrals/handoffs.
+OpenAI uses fractional levels without invented level probabilities or resampling.
+`--judge-provider=heuristic --judge-rubric=legacy` retains normalized exact text
+(1/0), nonempty text (0.5), and empty text (0) behavior, explicitly **non-LLM**.
+Without actual assistant text the heuristic records `not_run/no_valid_evidence`.
 
-The rule-based pass stays the primary metric. The grader reads the LLM-written `userMessage` and the plan, so it may prefer fluent messages and plans shaped like Jev's own (self-preference). That is why it is secondary and must be validated before it appears in a report:
+Both CLIs support the judge flags. Env-only activation uses
+`MAELSTROM_ENABLE_LLM_JUDGE=true|1`, `MAELSTROM_LLM_JUDGE_PROVIDER` (legacy default
+`heuristic`), `MAELSTROM_LLM_JUDGE_MODEL` (OpenAI default `gpt-5.4-mini`; TypeSafe
+falls back to `JEV_MODEL`), and `MAELSTROM_LLM_JUDGE_RUBRIC` (env-only default
+`legacy`). Explicit flags override env defaults; credentials alone do not opt in.
+Invalid enabled config fails before spending, without a heuristic fallback.
+`MAELSTROM_LLM_JUDGE_THRESHOLD` is not applied to current deterministic verdicts.
+Library runners take explicit `judge`/`judgeRubric`; `configureJudge(options, env)`
+is the optional application-boundary resolver, not an implicit runner env read.
+
+The common lifecycle finalizes secondary judging after cleanup and before callbacks,
+record projection and reporting. Every sample has a bounded `judge` envelope with
+`scored`, `failed` or `not_run`; scores include rubric/version, provider/model, kind,
+named dimensions and ranges. Reports include coverage and rubric/provider-separated
+means labeled unvalidated. Raw native calls remain local in `grader`. Publications
+and Langfuse preserve bounded judge evidence, not raw prompts/rationale/errors.
+Historical missing evidence is unknown, not disabled or zero. Re-export and report
+rebuilding do not grade again. Stage reports also write `summary.json`.
+
+
+`src/core/grader.ts` rates each shipped response, including expected-deferral scenarios with actual responses, with one judge call asking two `score` questions of five descriptive levels each: `request_satisfied` (did everything the user asked happen, and nothing else) and `arrangement_match` (does the layout match the stated arrangement, or with none stated, keep the previous one or use a sensible default). The state it reads is the user's intent, the layout before and after in words (`src/core/verbalize-tree.ts`), the shipped execution plan and the user message. A score is the fractional level normalised to 0 to 1. A dimension whose two most probable levels are within 0.15 of each other is asked twice more on its own and scores the mean of the three samples. Grading runs after the turn's latency is measured, on its own provider client: its usage is reported in the grader rows and never in an arm's stage tokens. A failed grade (provider error, deferral, or `grader/exception: <message>` when the judge throws, with the judge calls made before it) is recorded in the turn's `grader` field and counted, and never changes the turn or any rule-based metric.
+
+The rule-based pass stays the primary metric. The grader reads the LLM-written `userMessage` and the plan, so it may prefer fluent messages and plans shaped like Jev's own (self-preference). That is why it is secondary: descriptive scores remain labeled unvalidated, and validated native headline rows still require calibration:
 
 ```sh
 # from the workspace root, so Bun loads .env
@@ -506,3 +537,5 @@ It grades the hand-labelled responses and every planned development turn whose s
 The labels live in `src/core/fixtures/grader-labels.ts`, which exports `graderLabels`: hand scores from 0 to 1 per dimension for 15 to 20 recorded responses, each identified by the record's `scenarioId`, `arm` and `repeat` (type `GraderLabel` in `src/core/grader-validate.ts`), with an optional `note`. Without the file there are no labels. Validation reports, per dimension, the Spearman rank correlation and the mean absolute error against the labels, and the pass/fail agreement (a grade of at least 0.5 against the rule-based arrangement pass). The gate passes when at least 10 labels matched, the weaker dimension's rank correlation is at least 0.7 and agreement is at least 85%, with the current grader and verbalizer versions. Otherwise, or without `--grader-validation`, `report.md` prints `grader: unvalidated (rho=..., agreement=...)` in place of the grader rows, `n/a` for a value that could not be computed; `summary.json` keeps the grader numbers either way.
 
 `records.json` also carries every answer of the turn's live Jev calls with its confidence (deferred stages included; replayed stages make no calls) and the lowest confidence among the answers the completed stages consumed, replayed stages included. It is recorded, not enforced.
+
+Current judge headline validation also requires matching provider/model provenance. Historical cached calibration without provenance remains valid only for historical unbound grades; it cannot validate an identified current judge. Descriptive per-rubric scores remain explicitly unvalidated.

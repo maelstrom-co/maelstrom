@@ -97,6 +97,13 @@ test('shared expansion owns case/repeat/runtime ordering, prepare-once and compl
         execution: { completed: 6, error: 0, invalid: 0 },
         evaluation: { pass: 6, fail: 0, unscored: 0, not_applicable: 0 },
         cleanupFailures: 0,
+        judge: {
+          scored: 0,
+          failed: 0,
+          notRun: 6,
+          reasons: { disabled: 6 },
+          means: [],
+        },
       });
     },
   });

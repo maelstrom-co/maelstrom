@@ -115,3 +115,24 @@ test('reports a reply that answers only some dimensions as an invalid reply', as
     'grader/provider_invalid_reply',
   );
 });
+
+test('TypeSafe accepts the independent legacy scalar rubric without native dimension remapping', async () => {
+  const { judge, payloads } = judgeWith((payload) => ({
+    reply: scoreReply(payload, { llm_judge_score: 0.7 }),
+  }));
+  const { judgeEvidence } = await import('../../core/judge.js');
+  const result = await judgeEvidence(
+    judge,
+    'legacy_task',
+    { observation: ['actual'] },
+    ctx,
+  );
+  expect(result).toMatchObject({
+    status: 'scored',
+    rubric: { id: 'legacy_task', version: 2 },
+    provenance: { provider: 'typesafe', model: TEST_MODEL },
+    scores: [{ name: 'llm_judge_score', value: 0.7 }],
+  });
+  expect(payloads).toHaveLength(1);
+  expect(Object.keys(payloads[0].questions)).toEqual(['llm_judge_score']);
+});

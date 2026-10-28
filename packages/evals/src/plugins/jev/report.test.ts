@@ -138,7 +138,7 @@ describe('the Jev summary fields', () => {
     );
   });
 
-  test('keeps the same summary keys for a Jev arm as before the plugin seam', () => {
+  test('keeps pre-seam summary keys and adds explicit secondary judge coverage', () => {
     expect(Object.keys(jev ?? {}).sort()).toEqual([
       'arm',
       'arrangement',
@@ -148,6 +148,7 @@ describe('the Jev summary fields', () => {
       'expectedDeferrals',
       'fallbacks',
       'fill',
+      'judge',
       'kind',
       'latency',
       'overall',

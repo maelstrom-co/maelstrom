@@ -14,6 +14,8 @@ The evaluator owns execution and scores. Operational telemetry describes runtime
 flowchart TD
   Cases["Cases + planner/stage adapters"] --> Runner["Shared evaluation runner"]
   Runner --> Verdict["Correctness verdict"]
+  Runner --> Judge["Optional judge: provider + surface rubric"]
+  Judge --> Publication
   Runner --> Telemetry["Operational telemetry"]
   Telemetry --> Aggregate["Bounded operational aggregates"]
   Verdict --> Publication["Reviewed immutable publication"]
@@ -34,7 +36,76 @@ To publish to another system, leave the evaluator core unchanged and add a desti
 3. Derive destination event/score IDs from the stable publication identity plus the event or metric key, so retries of the same reviewed bytes do not create duplicates. Return `accepted`, `partial`, `failed`, or `uncertain` according to what the destination actually acknowledged; acceptance is not proof of durable storage.
 4. Add fake-transport tests for exact payload mapping, bounds/privacy, partial and uncertain delivery, aborts, and retry identity. Preview and review must remain offline and credential-free; only an explicitly approved publish may send data.
 
-Keep correctness scores separate from operational metrics, and preserve missing measurements as missing. A destination adapter may project either signal, but must not turn telemetry into task correctness.
+Keep deterministic correctness, secondary judge scores and operational metrics separate, and preserve missing measurements as missing. A destination adapter may project either signal, but must not turn telemetry into task correctness.
+
+## Optional judging, independent of the sink
+
+1. **Choose a provider.** `typesafe` and `openai` are LLM judges. `heuristic`
+   preserves the legacy text check but is explicitly labeled **non-LLM**; it is
+   never a fallback when an LLM request fails.
+2. **Choose a rubric separately.** `surface` uses the native planner dimensions
+   `request_satisfied` and `arrangement_match`, a stage-decision rubric for isolated
+   stages, and session/client rubrics for their actual observations. `legacy` uses
+   the separate scalar `llm_judge_score` for planner/session evidence. This adapted
+   rubric is version 2, not a claim of historical score parity. Isolated stages
+   always use their stage rubric: a routing decision is not a finished user task.
+3. **Opt in before running.** Both planner and stage CLIs accept `--grader`,
+   `--judge-provider`, `--judge-model` and `--judge-rubric`. Supplying a judge setting
+   also enables judging. Explicit flags override environment defaults; `--no-grader`
+   explicitly disables it. Provider credentials alone do not enable it.
+
+For example, append `--grader --judge-provider=openai --judge-rubric=surface
+--judge-model=gpt-5.4-mini` to the planner command below. OpenAI uses
+`OPENAI_API_KEY`; TypeSafe uses `TYPESAFE_API_KEY` and an explicit judge model or
+`JEV_MODEL`. Enabled missing credentials, empty models and unknown providers/rubrics
+fail before evaluation work. These are potentially paid calls: review the case
+content before sending it to either provider.
+
+Legacy environment activation is supported:
+
+| Setting | Meaning |
+| --- | --- |
+| `MAELSTROM_ENABLE_LLM_JUDGE=true` | Enable judging (`1` also works; `false`/`0` disable). |
+| `MAELSTROM_LLM_JUDGE_PROVIDER` | `openai`, `typesafe` or `heuristic`. Env-only activation retains the legacy `heuristic` default. |
+| `MAELSTROM_LLM_JUDGE_MODEL` | Judge model, independent of the tested planner. OpenAI defaults to `gpt-5.4-mini`; TypeSafe falls back to `JEV_MODEL`. |
+| `MAELSTROM_LLM_JUDGE_RUBRIC` | `surface` or `legacy`. Env-only activation defaults to `legacy`; explicit `--grader` defaults to TypeSafe + `surface` unless overridden. |
+
+The heuristic requires the `legacy` rubric and actual assistant text: normalized
+exact text scores 1/0; otherwise nonempty text scores 0.5 and empty text scores 0.
+A stage or session without assistant text gets `not_run/no_valid_evidence`, not an
+invented score. `MAELSTROM_LLM_JUDGE_THRESHOLD` does **not** gate current deterministic
+correctness; the old composite `task_pass` policy remains a distinct historical contract.
+
+Library runners do not read environment implicitly. Call
+`configureJudge(options, process.env)` from `packages/evals/src/plugins/judging/config.ts`
+at the application boundary, then spread its `{ judge, judgeRubric }` into
+`runEval`, `runStageEval` or `runOfflineCases`. Synthetic offline observations stay
+synthetic even if an optional live judge rates them.
+
+Every selected sample records `scored`, `failed` or `not_run`. Enabled judging runs
+once per eligible sample/repeat, including deterministic failures, actual deferrals
+and retained partial-session evidence—not only passes. Missing runtime output or
+inapplicable stage inputs remain explicit coverage gaps. TypeSafe's intentional
+near-boundary resampling remains part of one logical native grade; OpenAI does not
+supply calibrated level probabilities, so no probabilities or resampling are invented.
+
+Judging finishes before evaluation callbacks, record projection and reports. JSON,
+Markdown (including paired reports), generic publications and Langfuse retain its
+status/result. Run summaries show coverage and rubric/provider-separated descriptive
+means labeled **unvalidated**. The existing native calibration gate remains separate
+and requires matching provider/model provenance for current records. Unbound historical calibration cannot validate a newly identified judge. Historic missing
+judge data is `historical_unknown`, never zero. Reports, publishing and retries
+reuse the saved result; they never call a judge.
+
+The separately acknowledged manual probes also honor judge environment activation.
+Their planner dispatch caps do not change: judge calls are reported separately in
+`judgeCalls`, dry-run makes neither call, and missing output is not graded. Review
+provider budgets before enabling a judge on these one-shot probes.
+
+Langfuse emits numeric scores only for `scored` results, under
+`eval.judge.<rubric>.v<version>.<llm|heuristic|unknown>.<dimension>`, with provenance
+and status in metadata. These scores neither replace `eval.correctness` nor become
+operational telemetry. A run-only telemetry artifact has no fabricated judge score.
 
 ## Example sink: Langfuse v3
 
@@ -209,7 +280,7 @@ The script checks the selected preview's hash; the CLI then re-prepares from the
 
 ## What is imported
 
-Import emits **per-sample summaries**, not a hosted dataset experiment or full replay archive. Only an explicit planned Boolean `score.pass` becomes Boolean `eval.correctness`. Runner errors, expected deferrals and missing scores remain unscored, never inferred failures. Alongside identity and bounded status/count summaries, only the expected-deferral flags `expectedDeferral` and optional `deferredAsExpected` are allowlisted metadata. No raw prompts, messages, Execution Plans, trees, stages, LLM calls, grader output or error text is exported. A scored fallback remains scored even if an earlier stage deferred; deferral flags alone do not establish final runtime disposition.
+Import emits **per-sample summaries**, not a hosted dataset experiment or full replay archive. Only an explicit planned Boolean `score.pass` becomes Boolean `eval.correctness`. Runner errors, expected deferrals and missing scores remain unscored, never inferred failures. Alongside identity and bounded status/count summaries, only the expected-deferral flags `expectedDeferral` and optional `deferredAsExpected` are allowlisted metadata. No raw prompts, messages, Execution Plans, trees, stages, LLM calls, judge prompts/rationale or error text is exported. Bounded judge status, rubric/version, provider/model and named scores are included separately from correctness. A scored fallback remains scored even if an earlier stage deferred; deferral flags alone do not establish final runtime disposition.
 
 Langfuse correctness averages may differ from native `overall`: native denominators include planned errors and missing-score rows, whereas this import leaves them unscored. The secondary grader does not replace the native deterministic score.
 

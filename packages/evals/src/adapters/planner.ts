@@ -14,7 +14,7 @@ export function plannerAdapter(options: {
   readonly provenance: string;
   readonly runtime: Pick<
     EvalOptions,
-    'adapter' | 'fallback' | 'logger' | 'replay'
+    'adapter' | 'fallback' | 'logger' | 'replay' | 'judge' | 'judgeRubric'
   >;
 }): EvaluationAdapter<RunRecord> {
   return plannerTurnAdapter({ ...options, policy: 'adapter' });

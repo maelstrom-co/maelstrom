@@ -430,3 +430,89 @@ test('reused stage adapters isolate out-of-order judge errors and subsequent suc
   expect(third.observation?.detail).toBe('sample-3');
   expect(second.error).toBeUndefined();
 });
+
+test('optional secondary judge sees actual isolated-stage evidence, including failures and deferrals, before callbacks', async () => {
+  const inputs: unknown[] = [];
+  const finalized: EvaluationResult<StageTurnRecord>[] = [];
+  const records = await runStageEval(shoutModule(), {
+    scenarios: selectScenarios('all', ['swap', 'ambiguous']),
+    variants: ['upper', 'same', 'defer', 'throw'],
+    repeats: 2,
+    concurrency: 3,
+    judge: {
+      async score(input) {
+        inputs.push(input.state);
+        expect(input.dimensions[0].name).toBe('stage_alignment');
+        expect(input.state.input).toBe('swap');
+        expect('output' in input.state || 'deferral' in input.state).toBe(true);
+        return {
+          answers: { stage_alignment: { score: 4, probabilities: {} } },
+          calls: [],
+        };
+      },
+    },
+    onEvaluation: (sample) => {
+      finalized.push(sample);
+    },
+    report(run) {
+      expect(run.accounting.judge).toMatchObject({
+        scored: 6,
+        notRun: 6,
+        failed: 0,
+      });
+    },
+  });
+  expect(inputs).toHaveLength(6);
+  expect(finalized).toHaveLength(12);
+  expect(
+    records
+      .filter((record) => record.outcome === 'fail')
+      .every((record) => record.judge?.status === 'scored'),
+  ).toBe(true);
+  expect(
+    records
+      .filter(
+        (record) =>
+          record.outcome === 'not_applicable' || record.outcome === 'error',
+      )
+      .every((record) => record.judge?.status === 'not_run'),
+  ).toBe(true);
+  expect(
+    records
+      .filter((record) => record.outcome === 'deferred')
+      .every((record) => record.judge?.status === 'scored'),
+  ).toBe(true);
+});
+
+test('secondary evidence serialization cannot turn a real stage deferral into an execution failure', async () => {
+  const records = await runStageEval(
+    {
+      name: 'nonserializable',
+      stage: 'nonserializable',
+      variants: { defer: () => async () => err(deferred('bounded/expected')) },
+      makeDeps: () => ({}),
+      prepare: async (_scenario, context) => ({
+        applicable: true,
+        input: { callback() {} },
+        origin: context.origin,
+      }),
+      judge: () => ({ outcome: 'pass', failures: [], detail: {} }),
+    },
+    {
+      scenarios: selectScenarios('all', ['preserve']),
+      variants: ['defer'],
+      repeats: 1,
+      judge: {
+        async score() {
+          throw new Error('No serializable evidence should reach provider');
+        },
+      },
+    },
+  );
+  expect(records[0].outcome).toBe('deferred');
+  expect(records[0].reason).toBe('bounded/expected');
+  expect(records[0].judge).toMatchObject({
+    status: 'failed',
+    reason: 'exception',
+  });
+});

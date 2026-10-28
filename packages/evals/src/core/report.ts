@@ -1,9 +1,18 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-
 import { pluginOf } from './arms.js';
-import { GRADER_DIMENSIONS, type GraderDimension } from './grader.js';
+import {
+  GRADER_DIMENSIONS,
+  GRADER_VERSION,
+  type GraderDimension,
+} from './grader.js';
 import { type GraderValidation, graderGate } from './grader-validate.js';
+import {
+  type JudgeSummary,
+  recordJudgeResult,
+  renderJudgeSummary,
+  summarizeJudges,
+} from './judge-result.js';
 import {
   extendOwned,
   type PlannerEvalPlugin,
@@ -13,6 +22,7 @@ import type { RunRecord } from './run.js';
 import type { Suite } from './scenarios.js';
 import { PLANNER_RATIO, percentile, type Ratio, ratio } from './stats.js';
 import { LLM_ROLES, type LlmCall, type LlmUsage } from './usage-adapter.js';
+import { VERBALIZER_VERSION } from './verbalize-tree.js';
 
 export interface Percentiles {
   readonly p50: number | undefined;
@@ -119,6 +129,8 @@ export interface ArmSummary {
   readonly replayed: readonly string[];
   /** Present when any of the arm's turns was graded. */
   readonly grader?: GraderSummary;
+  /** Judge coverage across every selected sample, separate from deterministic correctness. */
+  readonly judge: JudgeSummary;
   readonly latency: {
     readonly [field: string]: unknown;
     readonly turn: Percentiles;
@@ -191,8 +203,23 @@ export function renderMarkdown(
     lines.push(
       `- ${key}: ${typeof value === 'object' ? JSON.stringify(value) : String(value)}`,
     );
+  const nativeCalibration = summaries.every((summary) =>
+    summary.judge.means.every(
+      (mean) =>
+        mean.rubric ===
+          `planner_response_text_${VERBALIZER_VERSION}/v${GRADER_VERSION}` &&
+        ((mean.provenance.kind === 'unknown' &&
+          options.graderValidation?.provenance === undefined) ||
+          (mean.provenance.kind ===
+            options.graderValidation?.provenance?.kind &&
+            mean.provenance.provider ===
+              options.graderValidation?.provenance?.provider &&
+            mean.provenance.model ===
+              options.graderValidation?.provenance?.model)),
+    ),
+  );
   const gate = summaries.some((summary) => summary.grader !== undefined)
-    ? graderGate(options.graderValidation)
+    ? graderGate(nativeCalibration ? options.graderValidation : undefined)
     : undefined;
   if (gate) lines.push('', gate.line);
   const suites = [...new Set(summaries.map((summary) => summary.suite))];
@@ -211,6 +238,7 @@ export function renderMarkdown(
         row(entry.label, (summary) => entry.cell(summary));
     };
     row('Runs', (s) => String(s.runs));
+    row('Secondary judge (unvalidated)', (s) => renderJudgeSummary(s.judge));
     row('Overall pass', (s) => ratio(s.overall, PLANNER_RATIO));
     row('Arrangement pass', (s) => ratio(s.arrangement, PLANNER_RATIO));
     row('Errors', (s) => String(s.errors));
@@ -337,6 +365,11 @@ export function renderPaired(records: readonly RunRecord[]): string {
   }
   if (lines.length === 2)
     lines.push('No scenario where arms disagree on pass.');
+  lines.push('', '## Secondary judge results (unvalidated)', '');
+  for (const record of records)
+    lines.push(
+      `- ${record.arm} / ${record.scenarioId} #${record.repeat}: ${renderJudgeSummary(summarizeJudges([recordJudgeResult(record)]))}`,
+    );
   return `${lines.join('\n')}\n`;
 }
 
@@ -350,6 +383,10 @@ export async function writeReport(
   meta: Readonly<Record<string, unknown>>,
   options: ReportOptions,
 ): Promise<ArmSummary[]> {
+  records = records.map((record) => ({
+    ...record,
+    judge: recordJudgeResult(record),
+  }));
   const summaries = summarize(records, options.plugins);
   await mkdir(out, { recursive: true });
   await writeFile(join(out, 'records.json'), JSON.stringify(records, null, 2));
@@ -455,6 +492,7 @@ function summarizeArm(
     kind,
     suite,
     runs: records.length,
+    judge: summarizeJudges(records.map(recordJudgeResult)),
     overall: passed(planned),
     arrangement: {
       count: ruled.filter((record) => record.score?.arrangement?.pass === true)
@@ -608,6 +646,7 @@ const ARM_SUMMARY_FIELDS = [
   'fallbacks',
   'replayed',
   'grader',
+  'judge',
   'latency',
   'tokens',
 ] as const satisfies readonly (keyof ArmSummary)[];

@@ -1,5 +1,11 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import {
+  type JudgeSummary,
+  normalizeJudgeResult,
+  renderJudgeSummary,
+  summarizeJudges,
+} from './judge-result.js';
 
 import type { StageRunMeta, StageTurnRecord } from './stage-eval.js';
 import { percentile, type Ratio, ratio, STAGE_RATIO } from './stats.js';
@@ -23,6 +29,8 @@ export interface ExpectedDeferralSummary {
  */
 export interface VariantSummary {
   readonly variant: string;
+  /** Secondary judge coverage and rubric-separated descriptive scores. */
+  readonly judge: JudgeSummary;
   /** Turns that ran; not-applicable scenarios are left out. */
   readonly turns: number;
   /** Passes over every turn that ran. */
@@ -87,6 +95,7 @@ export function summarizeVariant(
     ran.length === 0 ? undefined : value / ran.length;
   return {
     variant,
+    judge: summarizeJudges(own.map((record) => record.judge)),
     turns: ran.length,
     pass: { count: passes, total: ran.length },
     passScored: { count: passes, total: passes + count('fail') },
@@ -178,6 +187,7 @@ export function renderStageReport(
   ];
   const row = (label: string, cell: (summary: VariantSummary) => string) =>
     rows.push(`| ${label} | ${summaries.map(cell).join(' | ')} |`);
+  row('Secondary judge (unvalidated)', (s) => renderJudgeSummary(s.judge));
   row('Turns run', (s) => String(s.turns));
   row('Pass (hand-offs and deferrals count as failures)', (s) =>
     ratio(s.pass, STAGE_RATIO),
@@ -232,6 +242,11 @@ export function renderStageReport(
     '## Per scenario',
     'Passes over turns run; `h` handed off, `d` deferred, `e` errors.',
     renderScenarioTable(records, variants),
+    '## Secondary judge results (unvalidated)',
+    ...records.map(
+      (record) =>
+        `- ${record.variant} / ${record.scenarioId} #${record.repeat}: ${renderJudgeSummary(summarizeJudges([record.judge]))}`,
+    ),
   ].join('\n\n');
 }
 
@@ -244,7 +259,19 @@ export async function writeStageReport(
   meta: StageRunMeta,
   sections: readonly string[] = [],
 ): Promise<void> {
+  records = records.map((record) => ({
+    ...record,
+    judge: normalizeJudgeResult(record.judge),
+  }));
   await mkdir(out, { recursive: true });
+  await writeFile(
+    join(out, 'summary.json'),
+    JSON.stringify(
+      variants.map((variant) => summarizeVariant(records, variant)),
+      null,
+      2,
+    ),
+  );
   await writeFile(
     join(out, 'records.json'),
     `${JSON.stringify(records, null, 2)}\n`,

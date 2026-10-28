@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { LangfuseClient } from '@langfuse/client';
+import { normalizeJudgeResult } from '../../packages/evals/src/core/judge-result.ts';
 import type { EvaluationPublication } from '../../packages/evals/src/core/publication.js';
 import { validateOperationalTelemetry } from '../../packages/evals/src/core/runtime/operational-telemetry.ts';
 import type { LangfuseV3Config } from './sink.js';
@@ -99,7 +100,9 @@ export function mapLangfuseV3Publication(
     new Date(timestamp).toISOString() !== timestamp
   )
     throw new Error('Invalid publication preparation time');
+  const judge = run ? undefined : normalizeJudgeResult(payload.judge);
   const metadata = {
+    ...(judge && { judge }),
     publicationId: publication.publicationId,
     publicationKey: publication.publicationKey,
     payloadDigest: publication.payloadDigest,
@@ -171,6 +174,26 @@ export function mapLangfuseV3Publication(
         environment: 'maelstrom-eval',
       },
     });
+  if (judge?.status === 'scored') {
+    for (const score of judge.scores) {
+      const name = `eval.judge.${judge.rubric.id}.v${judge.rubric.version}.${judge.provenance.kind}.${score.name}`;
+      batch.push({
+        type: 'score-create',
+        id: eventId(`score-create:${name}`),
+        timestamp,
+        body: {
+          id: eventId(`score:${name}`),
+          traceId,
+          observationId: spanId,
+          name,
+          dataType: 'NUMERIC',
+          value: score.value,
+          comment: `unvalidated; range [${score.min}, ${score.max}]; provider ${judge.provenance.provider}`,
+          environment: 'maelstrom-eval',
+        },
+      });
+    }
+  }
   if (payload.operational !== undefined) {
     const operational = validateOperationalTelemetry(payload.operational);
     if (operational.scope !== (run ? 'run' : 'sample'))
