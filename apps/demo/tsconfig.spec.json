@@ -17,6 +17,9 @@
     "rootDir": "."
   },
   "include": [
+    "scripts/hosted-e2e-engine.ts",
+    "e2e/network-guard.ts",
+    "e2e/test.ts",
     "vite.config.mts",
     "vitest.config.ts",
     "vitest.config.mts",

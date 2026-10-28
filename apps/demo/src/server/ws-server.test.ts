@@ -208,6 +208,35 @@ describe('createWebSocketHandlers pre-hello frame handling', () => {
 });
 
 describe('createWebSocketHandlers send paths (local mode)', () => {
+  it('uses the injected connection engine for BYOK instead of constructing a provider', async () => {
+    const engine = stubEngine();
+    const constructions = createEngineMock.mock.calls.length;
+    const factory = vi.fn(() => ({ engine, initError: null }));
+    const handlers = createWebSocketHandlers({
+      sharedEngine: null,
+      sharedEngineInitError: null,
+      buildBrowserEngine: factory,
+    });
+    const ws = makeFakeWs(false);
+    await handlers.message(
+      ws as unknown as Parameters<typeof handlers.message>[0],
+      JSON.stringify({
+        type: 'playground.hello',
+        sessionId: 's-1',
+        apiKey: 'sk-test-ui-not-a-real-key-1234567890',
+      }),
+    );
+    expect(factory).toHaveBeenCalledOnce();
+    expect(createEngineMock.mock.calls).toHaveLength(constructions);
+    expect(ws.data.browserEngine).toBe(engine);
+    await handlers.message(
+      ws as unknown as Parameters<typeof handlers.message>[0],
+      chartRequest,
+    );
+    expect(JSON.parse(ws.sent[0]!)).toMatchObject({
+      type: 'engine.maelstrom.response',
+    });
+  });
   it.each([
     false,
     true,
