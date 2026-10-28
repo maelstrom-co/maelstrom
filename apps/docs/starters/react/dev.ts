@@ -46,18 +46,28 @@ const api = Bun.spawn(
   ],
   {
     cwd: import.meta.dir,
+    detached: process.platform !== 'win32',
     stdin: 'ignore',
     stdout: 'inherit',
     stderr: 'inherit',
   },
 );
+console.log(`Maelstrom Engine PID: ${api.pid}`);
+function signalApi(signal: NodeJS.Signals) {
+  try {
+    if (process.platform === 'win32') api.kill(signal);
+    else process.kill(-api.pid, signal);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
+  }
+}
 let stopping = false;
 async function stop(code: number) {
   if (stopping) return;
   stopping = true;
+  signalApi('SIGTERM');
   await web.close();
-  api.kill('SIGTERM');
-  const force = setTimeout(() => api.kill('SIGKILL'), 2000);
+  const force = setTimeout(() => signalApi('SIGKILL'), 2000);
   await api.exited;
   clearTimeout(force);
   process.exit(code);

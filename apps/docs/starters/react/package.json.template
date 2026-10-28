@@ -11,7 +11,7 @@
     "dev": "bun --no-env-file dev.ts",
     "dev:live": "bun --env-file=.env.local dev.ts --live",
     "check": "biome check .",
-    "test": "bun --no-env-file test server.test.ts",
+    "test": "bun --no-env-file test server.test.ts dev.test.ts",
     "e2e": "playwright test"
   },
   "dependencies": {

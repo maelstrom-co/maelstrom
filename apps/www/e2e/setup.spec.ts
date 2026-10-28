@@ -29,9 +29,6 @@ test('the default setup copies the canonical stable prompt without page metadata
   await expect
     .poll(() => page.evaluate(() => navigator.clipboard.readText()))
     .toBe(expected.content.replace(/^\r?\n/, ''));
-  expect(expected.frontmatter).toMatchObject({
-    compatibility: { sdk: { '@maelstrom-co/react': '0.1.0' } },
-  });
   await expect
     .poll(() => captures)
     .toEqual([

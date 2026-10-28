@@ -14,6 +14,7 @@ const files = [
   'index.html',
   'server.ts',
   'server.test.ts',
+  'dev.test.ts',
   'local-planner.ts',
   'planner.ts',
   'dev.ts',
