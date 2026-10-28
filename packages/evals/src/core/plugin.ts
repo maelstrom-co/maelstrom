@@ -8,6 +8,7 @@ import type {
 import type { AnyTextAdapter } from '@tanstack/ai';
 import type { GraderContext } from './grader.js';
 import type { StageRecord } from './instrument.js';
+import type { JudgeProvenance } from './judge-result.js';
 import type { ArmSummary } from './report.js';
 import type { RunRecord } from './run.js';
 import type { Scenario } from './scenarios.js';
@@ -104,6 +105,8 @@ export type JudgeVerdict =
 
 /** Rates shipped responses for the grader; the grader never knows the provider behind it. */
 export interface Judge {
+  /** Identity of new judge calls, independent of the tested planner/provider. */
+  readonly provenance?: JudgeProvenance;
   /** Environment variables the judge needs; the CLI refuses `--grader` without them. */
   readonly requiredEnv?: readonly string[];
   score(input: JudgeInput, ctx: GraderContext): Promise<JudgeVerdict>;

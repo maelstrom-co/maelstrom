@@ -139,6 +139,7 @@ describe('summary.json and records.json parity with a pre-seam run', () => {
     expect([...written].filter((key) => !recorded.has(key)).sort()).toEqual([
       'error',
       'grader',
+      'judge',
       'operational',
     ]);
   });
@@ -190,6 +191,7 @@ async function expectSummaryParity(dir: string): Promise<void> {
     // Cache and cost coverage extend historical summaries; every legacy path must remain.
     const legacyPaths = keyPaths(JSON.parse(JSON.stringify(summary))).filter(
       (path) =>
+        !/^judge(?:\.|$)/.test(path) &&
         !/^tokens\.llm\.(?:byRole\.[^.]+\.)?(?:cacheRead|cacheWrite|cost)(?:\.|$)/.test(
           path,
         ),

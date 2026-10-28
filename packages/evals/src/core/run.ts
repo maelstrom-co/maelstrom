@@ -33,6 +33,17 @@ import {
   type StageReplacements,
 } from './instrument.js';
 import {
+  type JudgeRubric,
+  judgeEvidence,
+  judgeProvenance,
+  validateJudgeSelection,
+} from './judge.js';
+import {
+  type EvaluationJudgeResult,
+  judgeFromGrader,
+  judgeNotRun,
+} from './judge-result.js';
+import {
   createOperationalCollector,
   type OperationalTelemetry,
 } from './operational-telemetry.js';
@@ -110,8 +121,10 @@ export interface RunRecord {
   readonly executionPlan?: readonly ActionExecution[];
   /** Every retained instance the shipped layout declares; absent from records written before the grader. */
   readonly instances?: readonly VesselInstanceSnapshot[];
-  /** The judge's verdict on the shipped response (`--grader`, planned scenarios only), with its own calls. */
+  /** The judge's verdict on the shipped response (`--grader`), with its own calls. */
   readonly grader?: GraderRecord;
+  /** Secondary verdict and coverage, independent of rule-based correctness. */
+  readonly judge?: EvaluationJudgeResult;
   /** Finalized isolated Engine operational collection, separate from provider usage. */
   readonly operational?: OperationalTelemetry;
 }
@@ -140,6 +153,7 @@ export const RUN_RECORD_FIELDS = [
   'executionPlan',
   'instances',
   'grader',
+  'judge',
   'operational',
 ] as const satisfies readonly (keyof RunRecord)[];
 
@@ -168,8 +182,10 @@ export interface EvalOptions {
   readonly onRecord?: (record: RunRecord) => void;
   /** Output directory; each staged turn's stage records are written under `<out>/stages/<arm>/`. */
   readonly out?: string;
-  /** Grades every planned shipped response after the turn's latency is measured. */
+  /** Grades every shipped response after the turn's latency is measured. */
   readonly judge?: Judge;
+  /** Independent rubric selection; defaults to the native planner rubric. */
+  readonly judgeRubric?: JudgeRubric;
   /** The phase through which every staged arm replays a recorded run instead of running live. */
   readonly replay?: {
     readonly source: ReplaySource;
@@ -203,6 +219,7 @@ export async function runEval(options: EvalOptions): Promise<RunRecord[]> {
     runtimeId: (_scenario, registered) => registered.arm.name,
     prepare: (scenario) => scenario,
     preflight() {
+      validateJudgeSelection(options.judge, options.judgeRubric);
       const unmapped = unmappedPhases(options.arms, options.scenarios);
       if (unmapped.length > 0) throw new Error(unmapped.join('\n'));
       if (options.replay) {
@@ -260,17 +277,11 @@ function plannerInvocation(
         ...result.observation,
         ...(result.operational && { operational: result.operational }),
       };
-      return options.judge && state?.response
-        ? {
-            ...record,
-            grader: await grade(
-              options.judge,
-              scenario,
-              state.response,
-              options.logger ?? silent,
-            ),
-          }
-        : record;
+      return {
+        ...record,
+        judge: result.judge,
+        ...(state?.grader && { grader: state.grader }),
+      };
     },
   };
 }
@@ -434,8 +445,7 @@ async function runTurn(
     });
   return {
     record,
-    ...(turn.response &&
-      scenario.expected.status === 'planned' && { response: turn.response }),
+    ...(turn.response && { response: turn.response }),
   };
 }
 
@@ -444,7 +454,13 @@ type PlannerTurnOptions = {
   readonly arm: RegisteredArm;
   readonly runtime: Pick<
     EvalOptions,
-    'adapter' | 'fallback' | 'logger' | 'replay' | 'out'
+    | 'adapter'
+    | 'fallback'
+    | 'logger'
+    | 'replay'
+    | 'out'
+    | 'judge'
+    | 'judgeRubric'
   >;
   readonly provenance: string;
   readonly policy: 'native' | 'adapter';
@@ -464,6 +480,7 @@ function createPlannerTurn(options: PlannerTurnOptions) {
       collector: ReturnType<typeof createOperationalCollector>;
       attachments: TelemetryAttachment[];
       response?: MaelstromResponse;
+      grader?: GraderRecord;
       thrown?: { error: unknown };
     }
   >();
@@ -472,6 +489,10 @@ function createPlannerTurn(options: PlannerTurnOptions) {
       options.policy === 'native' ? 'planner-native' : 'planner-response',
     provenance: options.provenance,
     preflight(context) {
+      validateJudgeSelection(
+        options.runtime.judge,
+        options.runtime.judgeRubric,
+      );
       const errors = unmappedPhases([options.arm], [options.scenario]);
       if (errors.length) throw new Error(errors.join('\n'));
       if (options.runtime.replay) {
@@ -542,6 +563,37 @@ function createPlannerTurn(options: PlannerTurnOptions) {
         failures: record.score.failures,
       };
     },
+    ...(options.runtime.judge && {
+      async judge(
+        _result: EvaluationResult<RunRecord>,
+        context: EvaluationContext,
+      ) {
+        const state = states.get(context);
+        if (!state?.response) return judgeNotRun('no_valid_evidence');
+        const judge = options.runtime.judge;
+        if (!judge) return judgeNotRun('disabled');
+        if (options.runtime.judgeRubric === 'legacy')
+          return judgeEvidence(
+            judge,
+            'legacy_task',
+            {
+              request: options.scenario.request,
+              history: options.scenario.history ?? [],
+              expected: options.scenario.expected,
+              output: state.response,
+              assistantText: state.response.userMessage,
+            },
+            { logger: options.runtime.logger ?? silent },
+          );
+        state.grader = await grade(
+          judge,
+          options.scenario,
+          state.response,
+          options.runtime.logger ?? silent,
+        );
+        return judgeFromGrader(state.grader, judgeProvenance(judge));
+      },
+    }),
     async finalizeOperational(context) {
       const collection = states.get(context);
       if (!collection) throw new Error('Planner collection unavailable');

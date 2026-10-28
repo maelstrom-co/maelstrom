@@ -18,6 +18,14 @@ import { TYPESAFE_ENV, type TypeSafeSettings } from './typesafe-settings.js';
 export function createTypeSafeJudge(typesafe: TypeSafeSettings): Judge {
   return {
     requiredEnv: TYPESAFE_ENV,
+    get provenance() {
+      const model = typesafe().model;
+      return {
+        kind: 'llm' as const,
+        provider: 'typesafe',
+        ...(model && { model }),
+      };
+    },
     async score(input, ctx) {
       const calls: GraderCall[] = [];
       const ask = createTypeSafeClient({
