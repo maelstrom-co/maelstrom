@@ -1,5 +1,4 @@
 import type { ParseArgsOptionDescriptor } from 'node:util';
-
 import {
   isDeferred,
   type Logger,
@@ -10,11 +9,17 @@ import {
 } from '@maelstrom-co/engine';
 import { isErr, MessageId, SessionId } from '@maelstrom-co/protocol';
 import {
+  type JudgeRubric,
+  judgeEvidence,
+  validateJudgeSelection,
+} from './judge.js';
+import { type EvaluationJudgeResult, judgeNotRun } from './judge-result.js';
+import {
   createOperationalCollector,
   type OperationalTelemetry,
   unavailableOperationalTelemetry,
 } from './operational-telemetry.js';
-import type { ProviderCall } from './plugin.js';
+import type { Judge, ProviderCall } from './plugin.js';
 import { type EvaluationRun, runEvaluationRun } from './run-orchestration.js';
 import type {
   EvaluationAdapter,
@@ -165,6 +170,8 @@ export interface StageTurnRecord<Detail = unknown> {
   readonly expectedDeferral?: string;
   /** Finalized stage-owned collection; absence is not zero operations. */
   readonly operational?: OperationalTelemetry;
+  /** Optional historical field; current runs always record a secondary judge status. */
+  readonly judge?: EvaluationJudgeResult;
   /** Opt-in evidence of a completed stage whose judge threw, captured before judging. */
   readonly judgeFailure?: {
     /** Judge exception, not a runtime failure. */
@@ -178,6 +185,10 @@ export interface StageTurnRecord<Detail = unknown> {
 
 /** Options for {@link runStageEval}. */
 export interface StageEvalOptions {
+  /** Optional LLM/heuristic provider, separate from module.judge deterministic assertions. */
+  readonly judge?: Judge;
+  /** Rubric choice independent of provider. */
+  readonly judgeRubric?: JudgeRubric;
   /** Shared-lifecycle identity generated once when omitted. */
   readonly runId?: string;
   /** Native-policy finalized result for each stage invocation. */
@@ -222,6 +233,8 @@ export interface RegisteredStageEval {
     readonly scenario: Scenario;
     readonly variant: string;
     readonly provenance: string;
+    readonly judge?: Judge;
+    readonly judgeRubric?: JudgeRubric;
   }) => EvaluationAdapter<StageTurnRecord>;
   readonly run: (options: StageEvalOptions) => Promise<StageTurnRecord[]>;
   readonly reportSections: (
@@ -253,6 +266,7 @@ export async function runStageEval<Input, Output, Detail, Deps>(
     caseId: (scenario) => scenario.id,
     runtimeId: (_scenario, variant) => `${module.name}/${variant}`,
     preflight() {
+      validateJudgeSelection(options.judge, options.judgeRubric);
       const unknown = options.variants.filter(
         (name) => !Object.hasOwn(module.variants, name),
       );
@@ -271,6 +285,8 @@ export async function runStageEval<Input, Output, Detail, Deps>(
         variant,
         logger,
         provenance: 'native:stage/v1',
+        judge: options.judge,
+        judgeRubric: options.judgeRubric,
       });
       let context: EvaluationContext | undefined;
       return {
@@ -291,6 +307,7 @@ export async function runStageEval<Input, Output, Detail, Deps>(
             );
           return {
             ...result.observation,
+            judge: result.judge,
             ...(result.operational && { operational: result.operational }),
           };
         },
@@ -353,6 +370,7 @@ async function runTurn<Input, Output, Detail, Deps>(
     readonly prepared: Extract<PreparedInput<Input>, { applicable: true }>;
     readonly captureJudgeFailure?: boolean;
     readonly collector?: ReturnType<typeof createOperationalCollector>;
+    readonly onEvidence?: (evidence: Record<string, unknown>) => void;
   },
 ): Promise<StageTurnRecord<Detail>> {
   const { variant, scenario, repeat, prepared } = turn;
@@ -404,6 +422,10 @@ async function runTurn<Input, Output, Detail, Deps>(
     durationMs: stageMs,
   });
   if (isErr(result)) {
+    if (isDeferred(result.error))
+      turn.onEvidence?.({ input, deferral: { reason: result.error.reason } });
+  } else turn.onEvidence?.({ input, output: result.value });
+  if (isErr(result)) {
     const { error } = result;
     const deferred = isDeferred(error);
     const reason = isDeferred(error)
@@ -454,6 +476,8 @@ async function runTurn<Input, Output, Detail, Deps>(
 }
 
 type StageTurnOptions<Input> = {
+  readonly judge?: Judge;
+  readonly judgeRubric?: JudgeRubric;
   readonly scenario: Scenario;
   readonly variant: string;
   readonly provenance: string;
@@ -480,12 +504,15 @@ function createStageTurn<Input, Output, Detail, Deps>(
       prepared: PreparedInput<Input>;
       collector?: ReturnType<typeof createOperationalCollector>;
       judgeError?: { error: unknown };
+      evidence?: Record<string, unknown>;
+      evidenceError?: boolean;
     }
   >();
   const adapter: EvaluationAdapter<StageTurnRecord<Detail>> = {
     surface: 'isolated-stage',
     provenance: options.provenance,
     async preflight(context) {
+      validateJudgeSelection(options.judge, options.judgeRubric);
       if (!Object.hasOwn(module.variants, options.variant))
         throw new Error(`Unknown stage variant: ${options.variant}`);
       states.set(context, {
@@ -537,6 +564,15 @@ function createStageTurn<Input, Output, Detail, Deps>(
             prepared,
             captureJudgeFailure: true,
             collector,
+            ...(options.judge && {
+              onEvidence: (evidence: Record<string, unknown>) => {
+                try {
+                  state.evidence = structuredClone(evidence);
+                } catch {
+                  state.evidenceError = true;
+                }
+              },
+            }),
           },
         );
       }
@@ -570,6 +606,36 @@ function createStageTurn<Input, Output, Detail, Deps>(
             : [record.reason ?? record.outcome],
       };
     },
+    ...(options.judge && {
+      async judge(
+        _result: EvaluationResult<StageTurnRecord<Detail>>,
+        context: EvaluationContext,
+      ) {
+        const state = states.get(context);
+        if (state?.evidenceError)
+          return {
+            schemaVersion: 1 as const,
+            status: 'failed' as const,
+            reason: 'exception' as const,
+          };
+        const evidence = state?.evidence;
+        if (!evidence) return judgeNotRun('no_valid_evidence');
+        const judge = options.judge;
+        if (!judge) return judgeNotRun('disabled');
+        return judgeEvidence(
+          judge,
+          'stage_output',
+          {
+            stage: module.stage,
+            request: options.scenario.request,
+            history: options.scenario.history ?? [],
+            expected: options.scenario.expected,
+            ...evidence,
+          },
+          { logger },
+        );
+      },
+    }),
     async finalizeOperational(context) {
       const collector = states.get(context)?.collector;
       return collector

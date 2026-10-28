@@ -1,4 +1,9 @@
 import {
+  type EvaluationJudgeResult,
+  evaluationJudgeSchema,
+  judgeNotRun,
+} from './judge-result.js';
+import {
   type OperationalTelemetry,
   validateOperationalTelemetry,
 } from './operational-telemetry.js';
@@ -54,6 +59,11 @@ export interface EvaluationAdapter<T> {
   preflight?(context: EvaluationContext): void | Promise<void>;
   execute(context: EvaluationContext): Promise<Observation<T>>;
   score(value: T): Verdict;
+  /** Optional secondary grading after cleanup, before any result callback or report. */
+  judge?(
+    result: EvaluationResult<NoInfer<T>>,
+    context: EvaluationContext,
+  ): Promise<EvaluationJudgeResult>;
   /** Release resources created for this invocation, including on failure. */
   dispose?(): void | Promise<void>;
   /** Finalize owned telemetry after runtime cleanup, never infer it from diagnostic records. */
@@ -83,6 +93,8 @@ export interface EvaluationResult<T> {
   readonly cleanupError?: string;
   /** Optional finalized operational evidence; absence means collection unavailable. */
   readonly operational?: OperationalTelemetry;
+  /** Finalized secondary verdict; absent only on historical input. */
+  readonly judge?: EvaluationJudgeResult;
 }
 
 /** Executes one sample through the same preparation, evidence, scoring and cleanup lifecycle. */
@@ -209,7 +221,20 @@ export async function evaluateSample<T>(
       };
     }
   }
-  return structuredClone(result);
+  let judge = judgeNotRun('disabled');
+  if (adapter.judge) {
+    try {
+      const parsed = evaluationJudgeSchema.safeParse(
+        await adapter.judge(structuredClone(result), context),
+      );
+      judge = parsed.success
+        ? parsed.data
+        : { schemaVersion: 1, status: 'failed', reason: 'invalid_result' };
+    } catch {
+      judge = { schemaVersion: 1, status: 'failed', reason: 'exception' };
+    }
+  }
+  return structuredClone({ ...result, judge });
 }
 
 function describeError(error: unknown): string {

@@ -2,7 +2,6 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
-
 import {
   consoleLogger,
   createEngine,
@@ -31,6 +30,8 @@ import {
   type ShippedResponse,
 } from './grader.js';
 import type { StageRecord } from './instrument.js';
+import { judgeProvenance } from './judge.js';
+import { evaluationJudgeSchema, type JudgeProvenance } from './judge-result.js';
 import type { PlannerEvalPlugin } from './plugin.js';
 import type { StageFile } from './replay.js';
 import type { RunRecord } from './run.js';
@@ -68,11 +69,15 @@ export interface GradedResponse {
   readonly scenarioId: string;
   readonly repeat: number;
   readonly grade: GraderGrade;
+  /** Provider/model that produced the cached score, when recorded. */
+  readonly provenance?: JudgeProvenance;
   readonly calls?: readonly GraderCall[];
 }
 
 /** How the grader's scores compare with the hand labels and the rule-based score, and whether it passed the gate. */
 export interface GraderValidation {
+  /** Present only when all contributing cached grades share known provenance. */
+  readonly provenance?: JudgeProvenance;
   readonly graderVersion: number;
   readonly verbalizerVersion: number;
   /** Labels given, and those whose response has a usable grade. */
@@ -183,7 +188,14 @@ export function validateGrader(input: {
       agree += 1;
   }
 
+  const source = input.grades[0]?.provenance;
+  const sameSource =
+    source &&
+    input.grades.every(
+      (entry) => JSON.stringify(entry.provenance) === JSON.stringify(source),
+    );
   return {
+    ...(sameSource && { provenance: source }),
     graderVersion: GRADER_VERSION,
     verbalizerVersion: VERBALIZER_VERSION,
     labels: { total: input.labels.length, matched: matched.length },
@@ -234,6 +246,13 @@ export function graderGate(validation: GraderValidation | undefined): {
 export function isGraderValidation(value: unknown): value is GraderValidation {
   return (
     isRecord(value) &&
+    (value.provenance === undefined ||
+      evaluationJudgeSchema.safeParse({
+        schemaVersion: 1,
+        status: 'failed',
+        reason: 'exception',
+        provenance: value.provenance,
+      }).success) &&
     isFiniteNumber(value.graderVersion) &&
     isFiniteNumber(value.verbalizerVersion) &&
     isRecord(value.labels) &&
@@ -545,6 +564,7 @@ export async function runGraderValidateCli(
         repeat: record.repeat,
         grade,
         calls,
+        provenance: judgeProvenance(judge),
       };
       if (grade.dimensions) {
         graded += 1;

@@ -1,15 +1,19 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
-
 import { consoleLogger } from '@maelstrom-co/engine';
 import { createOpenaiChat, type OpenAIChatModel } from '@tanstack/ai-openai';
-
 import { defaultArms, type RegisteredArm, resolveArms } from './arms.js';
 import {
   type GraderValidation,
   isGraderValidation,
 } from './grader-validate.js';
+import {
+  type ConfigureJudge,
+  MissingJudgeEnvironment,
+  unconfiguredJudge,
+} from './judge.js';
+import { renderJudgeSummary, summarizeJudges } from './judge-result.js';
 import type { PlannerEvalPlugin } from './plugin.js';
 import { loadReplay, type ReplaySource, replayedStages } from './replay.js';
 import { writeReport } from './report.js';
@@ -31,6 +35,7 @@ const OPENAI_KEY = 'OPENAI_API_KEY';
 export async function runEvalCli(
   plugins: readonly PlannerEvalPlugin[],
   argv: readonly string[],
+  configureJudge: ConfigureJudge = unconfiguredJudge,
 ): Promise<void> {
   const { values } = parseArgs({
     args: argv.slice(2),
@@ -45,7 +50,11 @@ export async function runEvalCli(
       'replay-from': { type: 'string' },
       'replay-through': { type: 'string' },
       'replay-arm': { type: 'string' },
-      grader: { type: 'boolean', default: false },
+      grader: { type: 'boolean' },
+      'no-grader': { type: 'boolean' },
+      'judge-provider': { type: 'string' },
+      'judge-model': { type: 'string' },
+      'judge-rubric': { type: 'string' },
       'grader-validation': { type: 'string' },
     },
   });
@@ -92,20 +101,39 @@ export async function runEvalCli(
         new Date().toISOString().replace(/[:.]/g, '-'),
       ),
   );
-  const judge = values.grader
-    ? plugins.map((plugin) => plugin.judge).find((candidate) => candidate)
-    : undefined;
-  if (values.grader && judge === undefined)
-    fail('--grader needs a plugin with a judge');
+  if (values.grader && values['no-grader'])
+    fail('--grader and --no-grader conflict');
+  let judgeMissing: readonly string[] = [];
+  const judging = (() => {
+    try {
+      return configureJudge(
+        {
+          enabled: values['no-grader'] ? false : values.grader,
+          provider: values['judge-provider'],
+          model: values['judge-model'],
+          rubric: values['judge-rubric'],
+        },
+        process.env,
+      );
+    } catch (error) {
+      if (error instanceof MissingJudgeEnvironment) {
+        judgeMissing = error.missing;
+        return {};
+      }
+      return fail(error instanceof Error ? error.message : String(error));
+    }
+  })();
+  const { judge } = judging;
   const fallback = plugins
     .map((plugin) => plugin.fallback?.bind(plugin))
     .find((candidate) => candidate);
   if (staged.length > 0 && fallback === undefined)
     fail('a staged arm needs a plugin that offers a fallback planner');
 
-  const missing = requiredEnv(arms, judge?.requiredEnv).filter(
-    (name) => (process.env[name]?.trim() ?? '').length === 0,
-  );
+  const missing = requiredEnv(arms, [
+    ...judgeMissing,
+    ...(judge?.requiredEnv ?? []),
+  ]).filter((name) => (process.env[name]?.trim() ?? '').length === 0);
   if (missing.length > 0) {
     await mkdir(out, { recursive: true });
     await writeFile(
@@ -146,7 +174,7 @@ export async function runEvalCli(
   }
 
   const graderValidationPath = values['grader-validation'];
-  if (graderValidationPath !== undefined && !values.grader)
+  if (graderValidationPath !== undefined && !judge)
     fail('--grader-validation needs --grader');
   let graderValidation: GraderValidation | undefined;
   if (graderValidationPath !== undefined) {
@@ -190,7 +218,7 @@ export async function runEvalCli(
     adapter: createOpenaiChat(model as OpenAIChatModel, openaiKey),
     fallback: fallback ?? unusedFallback,
     out,
-    ...(judge && { judge }),
+    ...judging,
     ...(values.verbose && { logger: consoleLogger }),
     ...(replay &&
       replayThrough && {
@@ -209,7 +237,7 @@ export async function runEvalCli(
           ...pluginMeta,
           date: new Date().toISOString(),
           ...(replay && { replay: replay.meta }),
-          ...(values.grader && {
+          ...(judge && {
             grader: graderValidationPath ?? 'not validated',
           }),
         },
@@ -232,7 +260,7 @@ export async function runEvalCli(
           record.grader?.failure
             ? ` (grader failed: ${record.grader.failure})`
             : ''
-        }`,
+        } (${renderJudgeSummary(summarizeJudges([record.judge]))})`,
       ),
   });
 

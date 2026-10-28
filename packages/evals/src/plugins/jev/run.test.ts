@@ -501,13 +501,13 @@ const gradedTokyo: Script = (payload, call) =>
       }
     : tokyo(payload, call);
 
-test('grades every planned shipped response after the turn, its calls kept apart from the arm', async () => {
+test('grades every shipped response including expected deferrals after the turn, its calls kept apart from the arm', async () => {
   mockProvider();
   const records = await run(gradedTokyo, ['quoted-location', 'ambiguous'], {
     grader: true,
   });
   const [baseline, jev, baselineDeferral, jevDeferral] = records;
-  for (const record of [baseline, jev]) {
+  for (const record of [baseline, jev, baselineDeferral, jevDeferral]) {
     expect(record?.grader?.dimensions).toEqual({
       request_satisfied: { score: 1, samples: [4] },
       arrangement_match: { score: 0.75, samples: [3] },
@@ -534,9 +534,8 @@ test('grades every planned shipped response after the turn, its calls kept apart
     'map-main',
     'journal-main',
   ]);
-  // Expected-deferral scenarios are left out of every planned metric.
-  expect(baselineDeferral?.grader).toBe(undefined);
-  expect(jevDeferral?.grader).toBe(undefined);
+  expect(baselineDeferral?.score).toBeUndefined();
+  expect(jevDeferral?.score).toBeUndefined();
 });
 
 test('a grader failure is recorded without touching the turn', async () => {

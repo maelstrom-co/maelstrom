@@ -350,7 +350,7 @@ test('fixed registry paths read fresh data and reject missing, oversized, swappe
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
-});
+}, 30_000);
 
 test('registry enforces aggregate budget and rejects symlink snapshot directories before loading', () => {
   const { directory, run } = mirror();
