@@ -411,13 +411,17 @@ That check is a backstop, not a replacement for protected tags — it constrains
 SDK release notes to `.github/releases/vVERSION.md`. It does not stage files,
 commit, tag, push, create a GitHub release, or publish packages.
 
+CI and release builds audit the complete lockfile.
+[Temporary audit exceptions](docs/dependency-audit-exceptions.md) record the
+affected paths and review dates.
+
 1. Start a release branch from current `main` with a clean working tree.
    Install dependencies with `bun install`.
 
-2. Rehearse the first stable release and inspect the generated notes:
+2. Rehearse the automatic release and inspect the generated notes:
 
    ```bash
-   bun run scripts/release.ts --version 0.1.0 --dry-run
+   bun run scripts/release.ts --dry-run
    ```
 
    To rehearse CI, run the **Release** workflow via `workflow_dispatch` with
@@ -426,15 +430,19 @@ commit, tag, push, create a GitHub release, or publish packages.
 3. Prepare the versions and notes for review:
 
    ```bash
-   bun run scripts/release.ts --version 0.1.0
+   bun run scripts/release.ts
    bun install --lockfile-only --ignore-scripts
+   bun install --force --ignore-scripts
+   bun install --frozen-lockfile --ignore-scripts
    ```
 
-   Keep the existing alpha tags. The explicit version graduates the SDK to
-   stable `0.1.0`. Nx leaves lockfile updates disabled, so refresh `bun.lock`
-   before review.
+   Nx infers the next version from Conventional Commits since the last release.
+   Nx leaves lockfile updates disabled. Refresh the lockfile, then force the
+   install to update internal dependency pins in `bun.lock`. Bun 1.4.3's
+   lockfile-only mode can retain the previous pins. Check those pins against
+   the manifests and confirm that the frozen install passes.
 
-   For later stable releases, select the next version with `--version`.
+   Use `--version` only when you need to override the inferred version.
    Add `--first-release` only when the repository has no prior `v*` tags.
    Review every changed manifest, `bun.lock`, and the generated notes.
    Edit the notes if needed. Commit with a DCO sign-off and open a release PR titled

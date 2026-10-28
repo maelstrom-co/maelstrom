@@ -1,6 +1,6 @@
 {
   "name": "@maelstrom-co/connectors",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Transport-level connection contracts shared by Maelstrom clients and engine hosts — heartbeat wire shapes, close-code classification, and correlation guards.",
   "keywords": [
     "maelstrom",
@@ -46,7 +46,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@maelstrom-co/protocol": "0.1.0"
+    "@maelstrom-co/protocol": "0.1.1"
   },
   "nx": {
     "name": "@maelstrom-co/connectors",
