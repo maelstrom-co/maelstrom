@@ -15,7 +15,7 @@ The defect can change the prototype of an object returned by a merge.
 The reviewed advisory lists no patched version.
 
 The only dependency path reaches `deepmerge` through `jest-config@30.4.2`,
-`@nx/jest@23.3.0`, and root development tooling. `@nx/plugin` also depends on
+`@nx/jest@24.0.2`, and root development tooling. `@nx/plugin` also depends on
 `@nx/jest`. The vulnerable calls merge Jest configuration.
 
 This repository registers Vitest, with no Jest targets or configuration.
