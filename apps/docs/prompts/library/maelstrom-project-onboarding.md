@@ -1,9 +1,9 @@
 ---
 id: maelstrom-project-onboarding
-prompt_version: 0.2.0
+prompt_version: 0.2.1
 compatibility:
   sdk:
-    "@maelstrom-co/react": "0.1.0"
+    "@maelstrom-co/react": "^0.1.0"
 ---
 
 Help me get started with Maelstrom. Ask what I want to build and whether I am
@@ -26,7 +26,7 @@ material decision outside the authorized goal.
 ## Inspect and select
 
 For a new app, inspect the destination before creating anything. Start from the
-runnable React starter at https://docs.maelstrom-ai.co/getting-started/starter/
+runnable React starter at https://github.com/maelstrom-co/react-starter#run
 when React fits the goal. Its deterministic local planner needs no provider key;
 do not describe that run as live model verification. For PLAN ONLY, describe the
 starter and checks without downloading, installing, or editing. For an authorized

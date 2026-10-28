@@ -1,11 +1,11 @@
 ---
 id: maelstrom-sdk-scaffold
-prompt_version: 0.1.0
+prompt_version: 0.1.1
 compatibility:
   sdk:
-    "@maelstrom-co/react": "0.1.0"
-    "@maelstrom-co/client": "0.1.0"
-    "@maelstrom-co/protocol": "0.1.0"
+    "@maelstrom-co/react": "^0.1.0"
+    "@maelstrom-co/client": "^0.1.0"
+    "@maelstrom-co/protocol": "^0.1.0"
 ---
 
 Integrate the Maelstrom SDK into this application for the following bounded goal:
