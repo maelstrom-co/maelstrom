@@ -12,6 +12,7 @@ import { variantScenarioFromCase } from '../../packages/evals/src/core/variant-c
 export function scriptedCandidate(
   fixture: ScriptedCandidateData,
   definition: unknown,
+  judging: Pick<EvalOptions, 'judge' | 'judgeRubric'> = {},
 ) {
   const { candidate } = scriptedCandidateDataSchema.parse(fixture);
   const plugin = fakePluginWith({
@@ -22,6 +23,7 @@ export function scriptedCandidate(
     arm: resolveArms([plugin], ['fake-baseline'])[0],
     provenance: 'real-engine/scripted-candidate/no-model; json-backed variant',
     runtime: {
+      ...judging,
       adapter: {
         kind: 'text',
         name: 'forbidden',

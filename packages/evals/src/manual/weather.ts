@@ -35,6 +35,7 @@ import { evalCaseSchema } from '../core/case-schema.js';
 import { evaluateSample, type Verdict } from '../core/runtime/evaluate.js';
 import { request } from '../core/scenarios.js';
 import { SYSTEM_RULES } from '../plugins/llm/plugin.js';
+import { type ManualJudgeOptions, manualJudge } from './judge.js';
 import { type ManualFetch, manualTransport } from './transport.js';
 
 const model = 'gpt-6-luna';
@@ -341,6 +342,7 @@ export async function runWeatherSample(
   args: readonly string[] = [],
   env: Readonly<Record<string, string | undefined>> = process.env,
   send: ManualFetch = globalThis.fetch,
+  judgingOptions: ManualJudgeOptions = {},
 ) {
   const selected = selection(args);
   const sample = samples[selected];
@@ -370,7 +372,16 @@ export async function runWeatherSample(
     source: value.lineage,
   };
   if (!args.includes('--live'))
-    return { mode: 'dry-run' as const, configuration, generationDispatches: 0 };
+    return {
+      mode: 'dry-run' as const,
+      configuration,
+      generationDispatches: 0,
+      judge: {
+        schemaVersion: 1,
+        status: 'not_run',
+        reason: 'dry_run',
+      } as const,
+    };
   if (!args.includes('--confirm-capped-key'))
     throw new Error(
       'Live Weather samples require prior external capped-key confirmation',
@@ -379,6 +390,7 @@ export async function runWeatherSample(
   if (!apiKey)
     throw new Error('OPENAI_API_KEY is required for live Weather samples');
 
+  const judging = manualJudge(value, env, judgingOptions);
   const transport = manualTransport(
     send,
     apiKey,
@@ -398,6 +410,7 @@ export async function runWeatherSample(
       sample: 1,
     },
     {
+      ...(judging.judge && { judge: judging.judge }),
       surface: 'session',
       provenance: configuration.provenance,
       async execute(context) {
@@ -499,6 +512,7 @@ export async function runWeatherSample(
     mode: 'live' as const,
     configuration,
     generationDispatches: transport.count(),
+    judgeCalls: { ...judging.calls },
     result,
     semanticReview: {
       status:
