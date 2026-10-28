@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path';
 const [statusPath, raw] = process.argv.slice(2);
 const { cwd, args, timeoutMs } = JSON.parse(raw);
 let finished = false;
+let timedOut = false;
 let deadline;
 let child;
 const state = { supervisorPid: process.pid, pgid: process.pid };
@@ -42,12 +43,23 @@ try {
   });
   child.once('error', () => complete('failed'));
   child.once('exit', (code, signal) =>
-    complete(code === 0 && signal === null ? 'passed' : 'failed', {
-      code,
-      signal,
-    }),
+    complete(
+      timedOut
+        ? 'timeout'
+        : code === 0 && signal === null
+          ? 'passed'
+          : 'failed',
+      {
+        code,
+        signal,
+      },
+    ),
   );
-  deadline = setTimeout(() => complete('timeout'), timeoutMs);
+  deadline = setTimeout(() => {
+    timedOut = true;
+    // Reap the direct child before exiting; group verification still belongs to the caller.
+    child.kill('SIGKILL');
+  }, timeoutMs);
   publish('started');
 } catch {
   process.kill(-process.pid, 'SIGKILL');
