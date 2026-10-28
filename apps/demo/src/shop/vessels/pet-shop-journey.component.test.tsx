@@ -131,7 +131,10 @@ describe('pet-food reorder journey through the vessel action handlers', () => {
     );
     expect(confirmation.getByText('Order placed')).toBeTruthy();
     expect(confirmation.getByText('ORD-10456')).toBeTruthy();
-    expect(confirmation.getByText(/Visa ending 4242/)).toBeTruthy();
+    expect(confirmation.getByText(/Visa ending 4242/).textContent).toBe(
+      'Demo order, nothing charged (Visa ending 4242 on file)',
+    );
+    expect(confirmation.queryByText(/Charged to/)).toBeNull();
   });
 
   it('returns descriptive errors the model can recover from', async () => {
@@ -167,6 +170,13 @@ describe('pet-food reorder journey through the vessel action handlers', () => {
       sku: 'NOT-A-SKU',
     });
     expect(unknownProduct?.error?.message).toContain(CATALOG_SKUS.join(', '));
+
+    const unknownFromCatalog = await invoke('catalog', 'addToCart', {
+      sku: 'NOT-A-SKU',
+    });
+    expect(unknownFromCatalog?.error?.message).toContain(
+      CATALOG_SKUS.join(', '),
+    );
 
     const zeroToAdd = await invoke('cart', 'addToCart', {
       sku: 'DOG-DRY-SUMMIT-HW-30',
@@ -226,6 +236,31 @@ describe('pet-shop vessels by hand', () => {
 
     fireEvent.click(checkout.getByRole('button', { name: 'Place order' }));
     expect(checkoutProps.executeAction).toHaveBeenCalledWith('placeOrder');
+  });
+
+  it('adds the open product to the cart through the catalog addToCart runner', async () => {
+    const catalogProps = props<TypedVesselProps<never>>('product');
+    const catalog = render(<CatalogComponent {...catalogProps} />);
+    expect(
+      await invoke('catalog', 'showProductDetails', {
+        sku: 'DOG-DRY-SUMMIT-HW-30',
+      }),
+    ).toMatchObject({ ok: true });
+
+    fireEvent.click(catalog.getByRole('button', { name: 'Add to cart' }));
+    expect(catalogProps.executeAction).toHaveBeenCalledWith('addToCart', {
+      sku: 'DOG-DRY-SUMMIT-HW-30',
+    });
+    expect(getCartSnapshot().lines).toEqual([]);
+
+    for (let i = 0; i < 2; i++) {
+      expect(
+        await invoke('catalog', 'addToCart', { sku: 'DOG-DRY-SUMMIT-HW-30' }),
+      ).toMatchObject({ ok: true });
+    }
+    expect(getCartSnapshot().lines).toEqual([
+      expect.objectContaining({ sku: 'DOG-DRY-SUMMIT-HW-30', quantity: 2 }),
+    ]);
   });
 
   it('disables Place order while the cart is empty', () => {

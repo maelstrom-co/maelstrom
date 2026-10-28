@@ -1,17 +1,9 @@
 import type { VoiceSessionState } from '@maelstrom-co/client';
 import { RealtimeVoiceError } from '@maelstrom-co/realtime';
-import { OpenAILiveAdapter } from '@maelstrom-co/realtime-openai-live';
-import {
-  type KeyboardEvent,
-  type PointerEvent,
-  useCallback,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from 'react';
-import { demoVoiceSession } from '../lib/demo-voice';
 import { liveErrorMessage } from '../lib/live-exchange';
 import { m } from '../lib/maelstrom';
+import { EnablePlaybackButton } from './enable-playback-button';
+import { HoldToTalkControl } from './hold-to-talk-control';
 import { getVoiceErrorStatusLabel } from './voice-error-copy';
 
 const STATE_LABEL: Record<VoiceSessionState, string> = {
@@ -23,13 +15,6 @@ const STATE_LABEL: Record<VoiceSessionState, string> = {
   speaking: 'Speaking…',
   error: 'Voice error',
 };
-
-const CONNECTED_STATES: ReadonlySet<VoiceSessionState> = new Set([
-  'connected',
-  'listening',
-  'thinking',
-  'speaking',
-]);
 
 const ACTIVE_STATES: ReadonlySet<VoiceSessionState> = new Set([
   'listening',
@@ -72,7 +57,6 @@ export function VoiceControl({ showOrb = true }: VoiceControlProps = {}) {
     switching,
   } = m.useVoice();
   const { snapshot } = m.useVoiceObservations();
-  const isConnected = CONNECTED_STATES.has(state);
   const isPreparing =
     greetingState === 'preparing' && state !== 'idle' && state !== 'error';
   let statusLabel = STATE_LABEL[state];
@@ -92,54 +76,6 @@ export function VoiceControl({ showOrb = true }: VoiceControlProps = {}) {
   }
   if (provider === 'live')
     statusLabel = `${snapshot.connection} · Mic ${snapshot.media.microphone}`;
-  // Keep input handlers independent from the latest rendered session state.
-  const pressActiveRef = useRef(false);
-  const [pressActive, setPressActive] = useState(false);
-
-  const startPress = () => {
-    pressActiveRef.current = true;
-    setPressActive(true);
-    void turnControl?.startTurn();
-  };
-
-  const endPress = useCallback(() => {
-    if (!pressActiveRef.current) return;
-    pressActiveRef.current = false;
-    setPressActive(false);
-    void turnControl?.endTurn();
-  }, [turnControl]);
-
-  // A fatal error can flip the button disabled mid-press, and browsers
-  // suppress the pointerup/keyup that would normally reach endPress() on a
-  // disabled control. Without this, the stale ref permanently eats the next
-  // keydown's guard, even after reconnecting.
-  useLayoutEffect(() => {
-    if (!isConnected) endPress();
-  }, [endPress, isConnected]);
-
-  // Keep the button mounted through this layout cleanup. Clearing the ref
-  // makes a stale release harmless after automatic mode takes over.
-  useLayoutEffect(() => {
-    if (turnMode !== 'manual') endPress();
-    return endPress;
-  }, [endPress, turnMode]);
-
-  const showManualControl =
-    turnControl !== undefined && (turnMode === 'manual' || pressActive);
-
-  const handleKeyDown = (e: KeyboardEvent<HTMLButtonElement>) => {
-    if (e.repeat || pressActiveRef.current) return;
-    if (e.key !== 'Enter' && e.key !== ' ') return;
-    // Space's default action scrolls the page; Enter's would submit/click.
-    e.preventDefault();
-    startPress();
-  };
-
-  const handleKeyUp = (e: KeyboardEvent<HTMLButtonElement>) => {
-    if (e.key !== 'Enter' && e.key !== ' ') return;
-    endPress();
-  };
-
   return (
     <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
       {showOrb && <m.VoiceOrb size={20} />}
@@ -180,18 +116,12 @@ export function VoiceControl({ showOrb = true }: VoiceControlProps = {}) {
                 : 'Reconnect'
               : 'End voice'}
           </button>
-          <button
-            type="button"
-            className="status-pill min-h-11 rounded-full px-3 text-xs"
-            disabled={!isConnected || switching}
-            onClick={() => {
-              const adapter = demoVoiceSession(session)?.adapter;
-              if (adapter instanceof OpenAILiveAdapter)
-                void adapter.activateAudio().catch(() => {});
-            }}
-          >
-            Enable playback
-          </button>
+          <EnablePlaybackButton
+            provider={provider}
+            state={state}
+            session={session}
+            switching={switching}
+          />
           {state === 'error' && (
             <span
               role="alert"
@@ -213,29 +143,12 @@ export function VoiceControl({ showOrb = true }: VoiceControlProps = {}) {
           Skip greeting
         </button>
       )}
-      {turnMode === 'manual' && turnControl && turnModeError !== undefined && (
-        <span className="min-w-0 text-xs text-amber-300">
-          Automatic voice detection unavailable; hold to talk.
-        </span>
-      )}
-      {showManualControl && (
-        <button
-          type="button"
-          disabled={!isConnected}
-          onPointerDown={(e: PointerEvent<HTMLButtonElement>) => {
-            e.currentTarget.setPointerCapture(e.pointerId);
-            startPress();
-          }}
-          onPointerUp={endPress}
-          onPointerLeave={endPress}
-          onPointerCancel={endPress}
-          onKeyDown={handleKeyDown}
-          onKeyUp={handleKeyUp}
-          className="status-pill flex items-center gap-2 rounded-full px-3 py-1.5 font-mono text-xs uppercase tracking-[.1em] text-ink-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed select-none touch-none"
-        >
-          Hold to talk
-        </button>
-      )}
+      <HoldToTalkControl
+        state={state}
+        turnControl={turnControl}
+        turnMode={turnMode}
+        turnModeError={turnModeError}
+      />
     </div>
   );
 }

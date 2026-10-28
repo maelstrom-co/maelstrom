@@ -13,6 +13,8 @@ import {
   usesBrowserOpenAIVoice,
 } from '../lib/hosted-mode';
 import { preloadHostedVadAssets } from '../lib/hosted-vad';
+import { isLiveInvalidKeyError } from '../lib/invalid-key-error';
+import { liveErrorMessage } from '../lib/live-exchange';
 import { m, prepareBrowserOpenAIVoice } from '../lib/maelstrom';
 import {
   clearPlaygroundKey,
@@ -20,7 +22,10 @@ import {
   setPlaygroundKey,
 } from '../lib/playground-key-store';
 import { useFlashInstances } from '../lib/use-touched-instances';
-import { voiceProviderStore } from '../lib/voice-provider';
+import {
+  availableVoiceProviders,
+  voiceProviderStore,
+} from '../lib/voice-provider';
 import { DemoHeader } from './demo-header';
 import { FirstRunHint } from './first-run-hint';
 import { IntentInput } from './intent-input';
@@ -244,12 +249,17 @@ function DemoApp({
     void connectVoice().catch(() => {});
   }, [autoStartVoice, connectVoice, onAutoStartVoiceHandled]);
 
-  // For browser-key OpenAI voice, a mint failure means the visitor's key is
-  // missing or rejected, not a server misconfiguration. Reopen the drawer
-  // with the mint layer's safe error text instead of VoiceErrorNote's
-  // server-env copy, which does not apply without a server-side key.
+  // For browser-key OpenAI voice, a mint failure or a Live exchange the key
+  // could not authorize means the visitor's key is missing or rejected, not a
+  // server misconfiguration. Reopen the drawer with the safe error text
+  // instead of VoiceErrorNote's server-env copy, which does not apply without
+  // a server-side key.
   useEffect(() => {
     if (!browserOpenAIVoice || voiceState !== 'error') return;
+    if (isLiveInvalidKeyError(voiceError)) {
+      onMintError(liveErrorMessage(voiceError.cause));
+      return;
+    }
     if (
       !(voiceError instanceof RealtimeVoiceError) ||
       voiceError.code !== 'TOKEN_MINT_FAILED'
@@ -267,7 +277,10 @@ function DemoApp({
   return (
     <div className="demo-shell relative z-[2]">
       <DemoHeader>
-        <VoiceProviderSelect />
+        <VoiceProviderSelect
+          useVoice={m.useVoice}
+          options={availableVoiceProviders()}
+        />
         {browserKeyMode && (
           <button
             type="button"

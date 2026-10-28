@@ -90,7 +90,7 @@ const baseCatalogVessel = defineVessel({
   id: 'catalog',
   name: 'Pet Food Catalog',
   description:
-    'Pet-food store catalog of dog and cat food, dry and wet, with brand, bag or case size, price, crude fat % and protein %, and life stage. Results view lists the products from the latest search or similarity lookup; product view shows one product in detail. Use it to search by species, food type, fat limit or free text, and to find alternatives similar to a product the customer already buys. Adding to the cart is done on the cart vessel with addToCart.',
+    'Pet-food store catalog of dog and cat food, dry and wet, with brand, bag or case size, price, crude fat % and protein %, and life stage. Results view lists the products from the latest search or similarity lookup; product view shows one product in detail. Use it to search by species, food type, fat limit or free text, and to find alternatives similar to a product the customer already buys. Adding to the cart is done on the cart vessel with addToCart, or with addToCart in the product view for the open product.',
   defaultVariant: 'results',
   variants: {
     results: {
@@ -117,6 +117,17 @@ const baseCatalogVessel = defineVessel({
           description: 'Return to the list of search results',
           transitionsTo: 'results',
         },
+        {
+          name: 'addToCart',
+          description: 'Add the open product to the cart',
+          parameters: [
+            {
+              name: 'sku',
+              type: 'string',
+              description: 'SKU of the open product.',
+            },
+          ],
+        },
       ],
     },
   },
@@ -126,4 +137,5 @@ export const catalogVessel = withActionOptions(baseCatalogVessel, {
   searchProducts: { species: SPECIES, foodType: FOOD_TYPES },
   findSimilarProducts: { sku: CATALOG_SKUS },
   showProductDetails: { sku: CATALOG_SKUS },
+  addToCart: { sku: CATALOG_SKUS },
 });

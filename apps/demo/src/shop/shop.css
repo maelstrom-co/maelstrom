@@ -1,0 +1,196 @@
+/* Every size in the dock is fixed: a dock that grows with a caption or a
+   status word would resize the Chart host and start a chart_resize request.
+   The devtools launcher is fixed over the viewport's bottom-right corner, so
+   the dock keeps that corner empty instead of placing controls under it. */
+.shop-app {
+  --shop-devtools-clearance: 184px;
+}
+
+.shop-app .shop-dock {
+  display: flex;
+  height: 96px;
+  align-items: center;
+  gap: 24px;
+  padding: 12px var(--shop-devtools-clearance) 12px 24px;
+  border-color: var(--line);
+}
+
+.shop-app .shop-intent-form {
+  display: flex;
+  min-width: 0;
+  flex: 0 1 520px;
+  align-items: center;
+  gap: 8px;
+}
+
+.shop-app .keyless-input {
+  padding-right: var(--shop-devtools-clearance);
+}
+
+.shop-app .keyless-input .shop-intent-form {
+  width: 100%;
+}
+
+.shop-app .shop-voice-corner {
+  display: grid;
+  width: 300px;
+  height: 72px;
+  flex: 0 0 auto;
+  grid-template-columns: 56px minmax(0, 1fr);
+  grid-template-rows: 36px 28px;
+  column-gap: 12px;
+  row-gap: 8px;
+  align-items: center;
+}
+
+.shop-app .shop-caption {
+  display: flex;
+  height: 36px;
+  overflow: hidden;
+  grid-column: 2;
+  grid-row: 1;
+  align-items: flex-end;
+  justify-content: flex-start;
+}
+
+.shop-app .shop-caption-line {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: var(--color-ink-2);
+  font-size: 12px;
+  line-height: 18px;
+  text-align: left;
+  opacity: 1;
+  transition: opacity 0.4s ease-out;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.shop-app .shop-caption-line[data-faded='true'] {
+  opacity: 0;
+}
+
+.shop-app .shop-voice-status {
+  display: flex;
+  min-width: 0;
+  grid-column: 2;
+  grid-row: 2;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+}
+
+.shop-app .shop-voice-pill {
+  display: inline-flex;
+  width: 104px;
+  height: 28px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  color: var(--color-ink-2);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.shop-app .shop-voice-playback {
+  width: auto;
+  min-width: 104px;
+  padding: 0 12px;
+  color: var(--color-brand-2);
+  cursor: pointer;
+}
+
+.shop-app .shop-voice-playback:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.shop-app .shop-voice-pill[data-state='connected'],
+.shop-app .shop-voice-pill[data-state='listening'] {
+  color: var(--color-brand-2);
+}
+
+.shop-app .shop-voice-pill[data-state='error'] {
+  color: var(--color-pink);
+}
+
+.shop-app .shop-voice-disclosure {
+  color: var(--color-ink-3);
+  font-size: 11px;
+  line-height: 14px;
+  white-space: nowrap;
+}
+
+.shop-app .shop-voice-orb-wrap {
+  display: flex;
+  grid-column: 1;
+  grid-row: 1 / span 2;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Stacked, the input row sits above the launcher and the orb row stays at
+   the left of the band the launcher covers. */
+@media (max-width: 819px) {
+  .shop-app .shop-dock {
+    height: 168px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    padding: 12px 16px;
+  }
+
+  .shop-app .shop-intent-form {
+    width: 100%;
+    max-width: 560px;
+    flex: 0 0 auto;
+    order: -1;
+  }
+
+  .shop-app .shop-voice-corner {
+    width: 100%;
+    height: 88px;
+    grid-template-rows: 36px 44px;
+  }
+
+  .shop-app .shop-caption {
+    grid-column: 1 / -1;
+  }
+
+  .shop-app .shop-voice-orb-wrap {
+    grid-row: 2;
+  }
+
+  .shop-app .shop-voice-status {
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 2px;
+  }
+}
+
+@media (max-width: 639px) {
+  .shop-app .keyless-shell {
+    padding-bottom: 136px;
+  }
+
+  .shop-app .keyless-input {
+    padding: 12px 12px 16px;
+  }
+
+  .shop-app .keyless-input .shop-intent-form {
+    flex-wrap: wrap;
+  }
+
+  .shop-app .keyless-input .shop-intent-form input {
+    flex-basis: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shop-app .shop-caption-line {
+    transition: none;
+  }
+}
