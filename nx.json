@@ -137,5 +137,8 @@
   },
   "nxCloudId": "69b94146895823a3b98c76ba",
   "useDaemonProcess": false,
-  "analytics": true
+  "analytics": true,
+  "migrate": {
+    "agentic": true
+  }
 }
