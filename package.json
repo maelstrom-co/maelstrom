@@ -40,7 +40,7 @@
     "@google-cloud/text-to-speech": "^6.4.0",
     "astro": "^7.4.0",
     "effect": "4.0.5",
-    "happy-dom": "^20.8.4",
+    "happy-dom": "21.0.4",
     "hono": "^4.13.11",
     "jsdom": "^27.3.0",
     "nanoid": "^5.1.11",
@@ -53,7 +53,7 @@
     "typescript": "~6.0.3",
     "vite": "^8.3.4",
     "vite-tsconfig-paths": "^5.1.4",
-    "zod": "4.4.3",
+    "zod": "4.6.6",
     "solid-js": "^1.9.9"
   },
   "devDependencies": {
@@ -162,6 +162,7 @@
   },
   "dependencies": {},
   "overrides": {
+    "@effect/platform-node>undici": "8.12.2",
     "@hono/node-server": "1.19.15",
     "compression": "1.8.2",
     "file-type": "21.3.4",
@@ -171,11 +172,14 @@
     "@verdaccio/config>js-yaml": "5.5.0",
     "lodash": "4.18.1",
     "katex": "0.18.2",
-    "nx>undici": "7.29.1",
+    "miniflare>undici": "7.30.1",
+    "nx>undici": "7.30.1",
+    "postcss-nested>postcss-selector-parser": "7.1.6",
     "qs": "6.16.1",
     "sharp": "0.35.5",
     "shell-quote": "1.11.0",
-    "valibot": "1.4.2"
+    "valibot": "1.4.2",
+    "unifont>undici": "8.12.2"
   },
   "patchedDependencies": {
     "alchemy@2.0.0-beta.83": "patches/alchemy@2.0.0-beta.83.patch"

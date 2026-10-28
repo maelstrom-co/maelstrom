@@ -1,11 +1,10 @@
 ---
 name: maelstrom
 description: >-
-  Entry point for Maelstrom development tasks, starting a new application, or
-  integrating an existing app. Ask for the missing goal and starting point. Inspect
-  installed @maelstrom-co packages, then select exactly one task procedure and,
-  when available, the version-matched API guide shipped by that package. Useful
-  before any Maelstrom SDK package is installed.
+  Entry point for Maelstrom development, starting a new app, integrating an
+  existing app, and voice testing. Ask for missing task context, then select
+  exactly one procedure. For SDK work, check installed @maelstrom-co packages
+  and their version-matched API guides. Useful before any SDK is installed.
 license: MIT
 metadata:
   author: Maelstrom
@@ -18,16 +17,18 @@ Start here for any task involving Maelstrom. This entry skill is useful before
 an SDK is installed: it explains task selection without assuming any package or
 API exists.
 
-1. Establish the goal and starting point from the conversation. If either is
-   missing, ask what the user wants to build and whether they are starting a new
-   app or integrating an existing one. Reuse answers already supplied. Clarify
-   plan-only versus implementation only when the task leaves that undecided.
-   An empty directory is a valid new-project starting point; it does not
-   authorize replacing an existing application.
-2. Inspect the task and project instructions. Check the package manifest,
-   lockfile, and installed `node_modules/@maelstrom-co/*/package.json` files.
-   Record exact installed versions; do not infer APIs from current website docs,
-   this skill bundle, or a different package version.
+1. Establish the goal from the conversation. For onboarding, establish whether
+   the user is starting a new app or integrating an existing one. Ask only for
+   missing answers; reuse context already supplied. For other tasks, ask for
+   the task context needed to proceed. Clarify plan-only versus implementation
+   only when the task leaves that undecided. An empty directory is a valid
+   new-project starting point; it does not authorize replacing an existing app.
+2. Inspect the task and project instructions. For SDK work, check the package
+   manifest, lockfile, and installed `node_modules/@maelstrom-co/*/package.json`
+   files. Record exact installed versions; do not infer APIs from current website
+   docs, this skill bundle, or a different package version. Testing through the
+   external Voice DevTools desktop MCP instead uses its connected tool schemas
+   and workflow; no Maelstrom SDK installation is required.
 3. Select one procedure by the task's primary outcome. Load the procedure skill
    by its listed name using the selected agent's skill loader; follow that
    workflow and only the references it conditionally requires. When only this
@@ -57,6 +58,7 @@ API exists.
 | Add event reporting or telemetry | `maelstrom-observability` |
 | Update a Vessel definition or runtime state | `maelstrom-state-sync` |
 | Add or change optional voice input | `maelstrom-voice-integration` |
+| Benchmark, stress, and test voice through a connected Voice DevTools desktop MCP | `maelstrom-voice-devtools` |
 
 The linked procedures are useful without an SDK installed, but public API details
 must always come from the matching installed SDK guide or installed package

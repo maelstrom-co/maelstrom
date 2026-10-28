@@ -10,7 +10,7 @@ Run this from your application's root. Select your coding tool and Project scope
 npx skills@1.7.0 add maelstrom-co/skills --skill '*' --copy
 ```
 
-Bun users can replace `npx` with `bunx`. Select all eight skills so the entry workflow can reach its procedures. Use `--agent codex`, `--agent claude-code`, `--agent cursor`, `--agent opencode`, or `--agent pi` to select a tool explicitly.
+Bun users can replace `npx` with `bunx`. Select the complete collection so the entry workflow can reach its procedures. Use `--agent codex`, `--agent claude-code`, `--agent cursor`, `--agent opencode`, or `--agent pi` to select a tool explicitly.
 
 Then ask your coding tool:
 
@@ -29,7 +29,7 @@ claude plugin marketplace add maelstrom-co/skills
 claude plugin install maelstrom@maelstrom-skills
 ```
 
-Start with `/maelstrom:maelstrom`. The plugin contains the same eight skill folders.
+Start with `/maelstrom:maelstrom`. The plugin contains the same skill folders.
 
 Codex:
 
@@ -58,6 +58,7 @@ pi install git:github.com/maelstrom-co/skills
 | `maelstrom-observability` | Plan event reporting. |
 | `maelstrom-state-sync` | Update definitions or runtime state. |
 | `maelstrom-voice-integration` | Plan optional voice input. |
+| `maelstrom-voice-devtools` | Benchmark and test voice through a connected Voice DevTools desktop MCP. |
 
 Each procedure includes its required references. SDK-specific guidance comes from the installed package's version-matched artifacts. This package contains instructions and references; it runs no installation hooks and bundles no MCP server.
 

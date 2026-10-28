@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, posix, relative, resolve, sep } from 'node:path';
 import { unzipSync, zipSync } from 'fflate';
 import { load } from 'js-yaml';
+import { skillTasks } from '../../src/lib/skill-onboarding';
 import { CANONICAL_VOICE_DOCUMENTS, createSkillsBundle } from './bundle';
 import { installSkillsBundle, removeSkillsBundle } from './lifecycle';
 
@@ -25,6 +26,7 @@ const expectedLeads = [
   'maelstrom-react-migration',
   'maelstrom-state-sync',
   'maelstrom-vessel-modeling',
+  'maelstrom-voice-devtools',
   'maelstrom-voice-integration',
 ];
 const expectedProcedures = expectedLeads.filter((name) => name !== 'maelstrom');
@@ -106,6 +108,15 @@ describe('portable agent skill bundle', () => {
       .map((match) => match[1].replace('/SKILL.md', ''))
       .sort();
     expect(linkedLeads).toEqual(expectedProcedures);
+    expect(skillTasks.map((task) => task.id).sort()).toEqual(
+      expectedProcedures,
+    );
+    const router = await readFile(
+      join(skillsRoot, 'maelstrom/SKILL.md'),
+      'utf8',
+    );
+    for (const procedure of expectedProcedures)
+      expect(router).toContain(`\`${procedure}\``);
     expect(readme).toContain('maelstrom/SKILL.md');
     expect(readme).toContain('exactly one procedure');
     expect(readme).toContain('complete tree');
@@ -450,6 +461,10 @@ describe('portable agent skill bundle', () => {
     expect(trials).toContain('Onboarding');
     expect(trials).toContain('Migration');
     expect(trials).toContain('Debugging');
+    expect(trials).toContain('Desktop voice timing');
+    expect(trials).toContain('Repeated easy/medium/hard benchmark');
+    expect(trials).toContain('Incomplete voice timing');
+    expect(trials).toContain('Live desktop barge-in');
     expect(trials).toContain('not completed agent runs');
     expect(trials).toContain('Automated tests');
     expect(trials).toContain('Behavioral acceptance requires');

@@ -9,13 +9,19 @@ const source = resolve(import.meta.dir, '../../starters/react');
 const license = resolve(import.meta.dir, '../../../../LICENSE');
 const text = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
 
-test('the starter archive pins compatible SDK dependencies and standalone TypeScript settings', async () => {
+test('the starter archive pins compatible SDKs and a matching lockfile for standalone frozen installs', async () => {
   const files = unzipSync(await createReactStarter(source, license));
   const manifest = JSON.parse(text(files['package.json']));
   const tsconfig = JSON.parse(text(files['tsconfig.json']));
+  expect(files['bun.lock']).toBeDefined();
+  const lock = Bun.JSONC.parse(text(files['bun.lock']));
   expect(manifest.dependencies['@maelstrom-co/react']).toBe('0.1.1');
   expect(manifest.dependencies['@maelstrom-co/engine']).toBe('0.1.1');
-  expect(manifest.overrides.zod).toBe('4.6.6');
+  expect(lock.workspaces[''].dependencies).toEqual(manifest.dependencies);
+  expect(lock.workspaces[''].devDependencies).toEqual(manifest.devDependencies);
+  expect(text(files['bun.lock'])).not.toMatch(
+    /(?:workspace|catalog|file|link):/,
+  );
   expect(tsconfig.references).toBeUndefined();
   expect(Object.keys(files).some((name) => name.endsWith('.template'))).toBe(
     false,

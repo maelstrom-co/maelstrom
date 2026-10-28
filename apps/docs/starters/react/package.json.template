@@ -32,8 +32,5 @@
     "@biomejs/biome": "2.4.10",
     "@vitejs/plugin-react": "6.1.2",
     "@playwright/test": "1.62.1"
-  },
-  "overrides": {
-    "zod": "4.6.6"
   }
 }

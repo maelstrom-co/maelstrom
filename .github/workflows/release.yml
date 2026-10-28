@@ -160,6 +160,11 @@ jobs:
       - name: Assert registry metadata is complete
         run: bun scripts/assert-registry-metadata.ts
 
+      - name: Audit dependency advisories
+        # Unused Jest config dependency; recheck by 2026-11-11.
+        # See docs/dependency-audit-exceptions.md.
+        run: bun audit --ignore GHSA-gcqx-w48m-w2h4
+
       - name: Build packages
         run: bunx nx run-many -t build --projects='packages/*'
 
@@ -168,6 +173,9 @@ jobs:
       # booting a project graph it has no dependencies for.
       - name: Pack packages
         run: bun scripts/publish-packages.ts --pack-to "$TARBALL_DIR"
+
+      - name: Verify packed SDK validation
+        run: bun --no-install scripts/assert-sdk-validation.ts --tarballs-dir "$TARBALL_DIR"
 
       - name: Upload tarballs
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

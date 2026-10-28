@@ -84,4 +84,14 @@ export const skillTasks = [
     evidence:
       'Browser/server/worker boundaries, unresolved choices, and untested microphone/provider scenarios.',
   },
+  {
+    id: 'maelstrom-voice-devtools',
+    title: 'Benchmark voice through desktop MCP',
+    outcome:
+      'Benchmark, stress, and test Maelstrom with sequential repeats, harder tasks, VAD latency, and acoustic barge-in.',
+    request:
+      'Use the maelstrom skill to plan a Voice DevTools desktop MCP benchmark for [supported tasks]. Define easy/medium/hard conditions, exact repeated prompts, state resets, observation windows, and n/median/range reporting with failed/unmeasurable counts. Do not inject audio or edit files.',
+    evidence:
+      'A sequential bounded protocol, receipt-clock VAD endpoints and task checks; no concurrency flooding, small-sample p95, or causal interruption claims.',
+  },
 ] as const;

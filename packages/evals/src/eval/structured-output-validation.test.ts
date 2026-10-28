@@ -71,6 +71,20 @@ test('local validation preserves provider constraints and Zod semantics after te
         text: 'parsed:accepted', nullable: null, optionalNullable: null,
         defaulted: 'fallback', nested: [{ nullable: null }],
       }, mode + ': normalization');
+      // Preserve the pre-patch nullable wire format while retaining every provider constraint.
+      const expectedSchemas = structuredClone(baselineSchemas);
+      for (const providerSchema of expectedSchemas) {
+        const properties = providerSchema.properties;
+        for (const [field, type] of [
+          [properties.nullable, 'string'],
+          [properties.optionalNullable, 'string'],
+          [properties.nested.items.properties.nullable, 'number'],
+        ]) {
+          assert.deepEqual(field.type, [type, 'null']);
+          delete field.type;
+          field.anyOf = [{ type }, { type: 'null' }];
+        }
+      }
 
       for (const rejected of [false, true]) {
         const schemas = [];
@@ -85,7 +99,7 @@ test('local validation preserves provider constraints and Zod semantics after te
         );
         const label = mode + (rejected ? '/refinement-rejected' : '/valid');
         assert.equal(schemas.length, 1, label);
-        assert.deepEqual(schemas, baselineSchemas, label + ': provider constraints');
+        assert.deepEqual(schemas, expectedSchemas, label + ': provider constraints');
         assert.equal(result.ok, !rejected, label);
         assert.equal(transforms, rejected ? 0 : 1, label + ': exactly-once transform');
         if (result.ok) assert.deepEqual(result.value, baseline, label);

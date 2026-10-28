@@ -1,12 +1,13 @@
 import { expect, test } from 'bun:test';
 import { resolve } from 'node:path';
+import { skillTasks } from '../../src/lib/skill-onboarding';
 import { createPublicDistributions } from './distribution';
 
 const root = resolve(import.meta.dir, '../../../..');
 const revision = '3887c3fedee38d549733f015daa330e864e17f1e';
 const text = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
 
-test('standalone repositories contain runnable manifests and all eight independently copyable skills', async () => {
+test('standalone repositories include the runnable starter and every advertised skill with its local references', async () => {
   const { starter, skills } = await createPublicDistributions(root, revision);
   expect(JSON.parse(text(starter['package.json'])).scripts.start).toBe(
     'vite build && bun --no-env-file server.ts',
@@ -16,7 +17,18 @@ test('standalone repositories contain runnable manifests and all eight independe
   const leads = Object.keys(skills).filter((path) =>
     /^skills\/[^/]+\/SKILL\.md$/.test(path),
   );
-  expect(leads).toHaveLength(8);
+  expect(leads.sort()).toEqual(
+    [
+      'skills/maelstrom/SKILL.md',
+      ...skillTasks.map(({ id }) => `skills/${id}/SKILL.md`),
+    ].sort(),
+  );
+  const documented = [
+    ...text(skills['README.md']).matchAll(/^\| `([^`]+)` \|/gm),
+  ].map((match) => match[1]);
+  expect(documented.sort()).toEqual(
+    leads.map((path) => path.split('/')[1]).sort(),
+  );
   for (const lead of leads) {
     const folder = lead.slice(0, -'SKILL.md'.length);
     for (const [, target] of text(skills[lead]).matchAll(/\]\(([^)]+)\)/g)) {

@@ -17,6 +17,10 @@ observed outcomes separately from structural checks.
 | New app | Plan a new React application showing a greeting capability in this empty directory. Do not edit files or install packages. | `maelstrom` → `maelstrom-project-onboarding` → new-project reference. | Selects the starter, reports the deterministic planner accurately, and leaves the directory untouched. |
 | Migration | This React app has a controlled search form whose network request and authorization are app-owned. Migrate only the results display to Maelstrom; preserve the form and do not send a request. | `maelstrom` → `maelstrom-react-migration`; load package-owned React guide only if installed. | Incremental boundary preserves app-owned behavior; no request is sent; API names are backed by the installed version. |
 | Debugging | A redacted report shows a chart update followed by a transport timeout. Identify the failure layer and state the next evidence needed; do not change code. | `maelstrom` → `maelstrom-debugging`; load connector/auth reference only if evidence implicates it. | Distinguish observations from hypotheses; don't claim a root cause without evidence; plan-only means no edits. |
+| Desktop voice timing | Analyze the supplied Voice DevTools MCP VAD event excerpts in the timing reference. Calculate response-onset latency and barge-in stop delay; do not inject audio or edit files. | `maelstrom` → `maelstrom-voice-devtools`; use its local VAD timing reference, not a provider SDK guide. | Report approximate receipt-clock gaps of 250 ms (102→103) and 720 ms (204→205). Distinguish an observed stop from causal interruption; never turn fixture arithmetic into a live-success claim. |
+| Repeated easy/medium/hard benchmark | Plan five sequential repeats per easy/medium/hard condition in an Orders app, then summarize the supplied example samples from the benchmark reference. Do not inject audio or edit files. | `maelstrom` → `maelstrom-voice-devtools`; use its benchmark protocol and VAD timing rules. | Freeze exact prompt bytes per condition, reset task/conversation state, use 15/30/60-second windows, and report attempted/measured n, median/range and failed/unmeasurable counts separately. Expect 250 ms, 450 ms and 1000 ms example medians; p95 is unavailable. Hard tasks add supported steps/constraints, not hidden reasoning or concurrency flooding. |
+| Incomplete voice timing | A supplied desktop MCP trace has an active target start, an interrupt input start, then target end reason `capture_stopped` and a cursor `gap`. Determine the barge-in delay; do not send Speak. | `maelstrom` → `maelstrom-voice-devtools`. | Mark the metric unmeasurable, explain forced-end/history loss, and do not use transcript completion or a timeout as the missing acoustic endpoint. |
+| Live desktop barge-in | The desktop MCP is connected and the operator authorizes a long-answer prompt and an interrupt phrase. Measure the output-stop delay during the reply without editing the application. | `maelstrom` → `maelstrom-voice-devtools`; read the connected server's workflow and schemas first. | Check readiness, VAD, session/capture and prior injected-job completion. Inject the second utterance while target output is active; respect busy/recording guards. Report VAD endpoints/reason and uncertainty, not a fictional remote-stop tool. |
 
 ## Evidence levels
 
@@ -36,7 +40,7 @@ From a repository checkout on macOS with Pi already authenticated, run:
 bun run --cwd apps/docs skills:acceptance
 ```
 
-The optional runner installs all eight built workflow skills into fresh Pi
+The optional runner installs all built workflow skills into fresh Pi
 consumer projects. It uses normal project discovery, not explicit `--skill`
 registration. Requests describe onboarding, migration, and optional voice without
 naming a skill. The fixtures have no installed SDK; these checks cover workflow

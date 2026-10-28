@@ -104,5 +104,5 @@ CI runs the same checks from a frozen dependency install.
 The SDK uses the [MIT license](https://github.com/maelstrom-co/maelstrom/blob/main/LICENSE).
 This example is generated from `apps/docs/starters/react` in the
 [Maelstrom repository](https://github.com/maelstrom-co/maelstrom).
-`SOURCE.json` records its source revision. Report issues and propose changes in
-the main repository.
+The public repository's `SOURCE.json` records its source revision. Report issues
+and propose changes in the main repository.

@@ -8,6 +8,7 @@ const files = [
   '.github/workflows/ci.yml',
   '.env.example',
   'package.json.template',
+  'bun.lock.template',
   'tsconfig.json.template',
   'biome.json.template',
   'index.html',

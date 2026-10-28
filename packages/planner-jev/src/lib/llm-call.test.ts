@@ -62,6 +62,35 @@ async function reportUsage(
 }
 
 describe('completion call instrumentation', () => {
+  test('nullable schema compatibility keeps literal and annotation data unchanged', async () => {
+    const value = { type: ['string', 'null'] };
+    const metadata = {
+      const: value,
+      default: value,
+      examples: [value],
+      custom: value,
+    };
+    const output = { value, nullable: null };
+    mockChat.mockResolvedValue(output);
+    const result = await callLlm(
+      { adapter: dummyAdapter },
+      'offline',
+      z.object({
+        value: z.unknown().meta(metadata),
+        nullable: z.string().nullable(),
+      }),
+      [],
+      context().ctx,
+    );
+    expect(result.ok).toBe(true);
+    expect(chatCall(0).outputSchema).toMatchObject({
+      properties: {
+        value: metadata,
+        nullable: { anyOf: [{ type: 'string' }, { type: 'null' }] },
+      },
+    });
+  });
+
   test('keeps completion calls in their session without sharing threads across sessions', async () => {
     mockChat.mockResolvedValue({ userMessage: 'Done.' });
     for (const [index, session] of [

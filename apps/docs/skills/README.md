@@ -8,7 +8,7 @@ The `maelstrom` entry skill asks about the goal and whether the user is starting
 a new app or integrating an existing one when that context is missing. New React
 apps can start from the runnable starter; existing apps keep their behavior while
 the onboarding procedure selects a bounded pilot. Other focused tasks still use
-the same seven procedures.
+their dedicated procedures.
 
 Install the complete bundle in the selected tool's project-scoped skill directory, then invoke the `maelstrom` entry skill for any Maelstrom task. It inspects the task and installed package versions, selects exactly one procedure, and routes API-specific work to guides shipped inside the SDK packages. The entry skill remains useful before any SDK is installed. A standalone prompt can be used without a skill; skills do not assemble, modify, or supply prompt bodies. Follow the user's authorization: plan-only work stops at a plan, while explicitly authorized implementation proceeds after inspection unless inspection reveals a material unresolved decision.
 
@@ -52,6 +52,7 @@ For an installation managed by Vercel Skills, rerun the same `add` command to re
 | Add event reporting | [`maelstrom-observability/SKILL.md`](maelstrom-observability/SKILL.md) | Security before logging request data, credentials, or user content. |
 | Update a Vessel definition or runtime state | [`maelstrom-state-sync/SKILL.md`](maelstrom-state-sync/SKILL.md) | Actions/idempotence if operations are added or removed. |
 | Integrate voice when the product goal requires it | [`maelstrom-voice-integration/SKILL.md`](maelstrom-voice-integration/SKILL.md) | Browser/React, lifecycle/turn-taking, or deployment only for the selected concern; provider guidance only after selection. |
+| Benchmark, stress, and test voice through a connected desktop MCP | [`maelstrom-voice-devtools/SKILL.md`](maelstrom-voice-devtools/SKILL.md) | Local VAD timing and sequential easy/medium/hard benchmark protocols for the external workbench, not SDK integration or browser VAD. |
 
 For a mixed request, use the lead matching its primary outcome; that skill may point to relevant references. These are task-selection conventions, not automated orchestration. When no task clearly matches, use the relevant standalone prompt or ask the user to narrow the task rather than loading several competing leads.
 
@@ -75,6 +76,10 @@ apps/docs/skills/
 ├── maelstrom-observability/SKILL.md
 ├── maelstrom-state-sync/SKILL.md
 ├── maelstrom-voice-integration/SKILL.md
+├── maelstrom-voice-devtools/SKILL.md
+├── maelstrom-voice-devtools/references/
+│   ├── maelstrom-voice-devtools/references/vad-timing.md
+│   └── maelstrom-voice-devtools/references/benchmark-protocol.md
 ├── trials/README.md
 └── references/
     ├── actions-and-idempotence.md
