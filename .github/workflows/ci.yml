@@ -14,8 +14,7 @@ env:
   NX_NO_CLOUD: ${{ github.repository != 'maelstrom-co/maelstrom' || github.event.pull_request.head.repo.fork == true || vars.NX_NO_CLOUD == 'true' }}
 
 jobs:
-  # Reads only bun.lock, so it skips the install and reports as its own check
-  # instead of failing somewhere inside the root test target.
+  # Reads only bun.lock with Node built-ins, so it needs no install.
   single-copy-dependencies:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -23,11 +22,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          bun-version-file: .bun-version
+          node-version: 24
       - name: Assert single resolved versions of shared packages
-        run: bun test scripts/single-copy-dependencies.test.ts
+        run: node scripts/assert-single-copy-dependencies.mts
 
   main:
     runs-on: ${{ github.repository == 'maelstrom-co/maelstrom' && github.event.pull_request.head.repo.fork != true && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-latest' }}
