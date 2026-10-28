@@ -4,7 +4,7 @@ Private, non-published tooling for **self-hosted Langfuse OSS 3.163.0** and
 **Node ≥24**. It implements `EvaluationResultSink`; the evaluator does not depend
 on this package. Core evals still supports Node ≥20. A CLI supports explicit
 preview and publication of saved result summaries and native full-planner runs. No service provisioning,
-CI workflow, dataset sync, or automatic upload is installed.
+CI workflow or automatic upload is installed.
 
 ## Versioned API choice
 
@@ -13,7 +13,10 @@ This adapter uses the public **`LangfuseClient.api.ingestion.batch`** API from
 appropriate, `score-create` events. This is deliberately a **v3-only** adapter.
 It does not use SDK v6, `experiment.run`, private SDK internals, or an OTel global
 provider. The public batch endpoint supplies per-event delivery receipts rather
-than relying on a flush-only OTel acknowledgment.
+than relying on a flush-only OTel acknowledgment. Full-planner publication also uses
+`LangfuseClient.api.datasets.create` and `api.datasetItems.create` for the summary
+results catalog. These public SDK methods address `/api/public/v2/datasets` and
+`/api/public/dataset-items`.
 
 The installed 5.13.1 public API declarations document per-event `successes` and
 `errors`, the 3.5 MB batch limit, event-ID deduplication, and that this endpoint
@@ -32,9 +35,9 @@ Release-specific evidence:
 - [v5 → v6 migration and removal of ingestion](https://langfuse.com/docs/observability/sdk/upgrade-path/js-v5-to-v6)
 
 Offline tests verify the pinned public SDK actually addresses
-`POST /api/public/ingestion` and parses a mocked HTTP 207 response. No request to
-the user's deployment has run; exact deployment compatibility, permissions,
-retention and durable storage remain unverified. Reassess this adapter before
+`POST /api/public/ingestion` and parses a mocked HTTP 207 response. Tests make no
+requests to the user's deployment; live compatibility, permissions, retention and
+durable storage must be checked separately. Reassess this adapter before
 upgrading the server or SDK. It is not a Langfuse Cloud/v4 integration.
 
 ## Explicit lifecycle
@@ -158,6 +161,7 @@ args=(
   --prepared-at 2026-10-27T15:00:00.000Z
   --base-url https://langfuse.example.com
   --server-version 3.163.0
+  --max-input-bytes 16777216
 )
 node tools/evals-langfuse/cli.ts "${args[@]}" \
   --preview-out "$EVAL_OUT/langfuse-preview.json"
@@ -166,10 +170,13 @@ node tools/evals-langfuse/cli.ts "${args[@]}" \
   --publish --approve-sha256 'REVIEWED_PREVIEW_SHA256'
 ```
 
-The version-2 preview envelope binds **every** per-sample publication, both
-source-file SHA-256 digests, endpoint/destination, fixed preparation timestamp
-and all limits. Its `source.actualRecordCount` and `source.expectedRecordCount`
-show the validated count comparison. The opaque run ID is SHA-256 of the UTF-8 domain
+The version-3 preview envelope binds **every** per-sample publication, both
+source-file SHA-256 digests, endpoint/destination, fixed preparation timestamp,
+all limits, and the exact `dataset` plan (name and outbound items, including IDs,
+identifier inputs, scalar metadata and source trace IDs). Older previews require
+a fresh preview and approval; reuse the saved files and timestamp, not a new run.
+Its `source.actualRecordCount` and `source.expectedRecordCount` show the validated
+count comparison. The opaque run ID is SHA-256 of the UTF-8 domain
 `maelstrom/full-planner-run/v1` plus a NUL byte, then each file's unsigned
 8-byte big-endian byte length and exact bytes, in `records.json`, `summary.json`
 order. Even changes to whitespace or omitted raw fields change run identity.
@@ -179,7 +186,8 @@ Each sample is `(runId, scenarioId, arm, repeat)`; duplicate
 The importer exports only identity, bounded status/count summaries and the
 explicitly reviewed boolean metadata `expectedDeferral` and, when present,
 `deferredAsExpected`. It never copies summary metadata, prompts, user messages,
-plans, trees, stage/LLM payloads, grader outputs, error text or raw responses.
+plans, trees, stage/LLM payloads, raw grader outputs, error text or raw responses.
+Finalized bounded judge status, provenance, rubric and scores are exported separately.
 The metadata is a narrow core publication projection, not a recording or a new
 score type; it is visible in the reviewed summary stored as the span output.
 
@@ -214,6 +222,52 @@ was accepted before stopping, aggregate status is `partial`; otherwise it is the
 first non-accepted status. All accepted yields `accepted`. Shutdown uncertainty
 still exits 3. Preserve these receipts; there is no automatic retry/resume or
 cross-process exactly-once guarantee. No evaluations are rerun.
+
+### Shared summary results catalog
+
+Full-planner publication upserts one shared dataset, **`maelstrom-evals-v1`**, and
+one item per result publication. Optional `--dataset-name NAME` selects a different
+catalog; it is full-planner-only, 1–128 ASCII letters/digits/underscores/hyphens,
+starting with a letter or digit. Use the same name for all runs you want together.
+Single-result and run-telemetry modes do not create dataset items.
+
+Each item's input is exactly `{caseId, arm, repeat}`. `expectedOutput` is omitted.
+Scalar metadata contains publication/run IDs, execution/evaluation/completeness,
+judge status, known provider/model/kind and rubric/version, `unvalidated` calibration
+and named score values/scales when scored. Correctness is included only when its
+trace has a genuine Boolean score. No prompts, responses, raw errors, rationale or
+expected answers are sent. `sourceTraceId` links the corresponding private trace,
+named `maelstrom.eval.<caseId>`; the reviewed summary remains in its export span.
+The case-name mapping uses a new trace-create event key while retaining the trace
+ID, so the old generic-name event's deduplication does not suppress the update.
+
+Item IDs hash the dataset name and stable publication key, so retries target the
+same item. Distinct saved-run/provider publications produce separate rows in this
+one dataset; repeated case identifiers do not imply identical underlying evidence.
+Changing only the preparation timestamp retains the item ID but changes the trace
+link, so keep the approved timestamp for retries. Use a dedicated catalog: omitted
+fields do **not** erase any pre-existing expected output, metadata or schemas.
+Existing schemas may reject an identifier-only item.
+
+Ordinary publication creates a **results catalog, not a Langfuse experiment**:
+it does not create runs or run items. Judge scores stay attached to the source trace and
+are summarized in item metadata. The adapter never executes a judge; independently
+configured server-side evaluators are outside its control and must be reviewed
+before live activation.
+
+For each publication the trace batch must be accepted before dataset/item writes.
+The dataset is upserted by name, then items by ID; the sink reuses a confirmed dataset
+ID during its lifetime. A failed, unconfirmed or timed-out catalog write after trace
+acceptance returns `partial`, not success. Source-trace visibility can lag ingestion
+receipts. SDK calls disable automatic retries; stable IDs do not certify durable
+storage or cross-process exactly-once behavior.
+
+Dataset membership does **not calibrate a judge**. Calibration means checking its
+ratings against trusted reference judgments on representative, fixed evidence and
+an explicit rubric. Scores remain `unvalidated`. Comparing TypeSafe with OpenAI
+requires both to judge the **same underlying samples** with the same rubric/scale;
+a different planner run changes the evidence too. Provider agreement alone is not
+reference validation. Publishing saved results does not authorize another judge run.
 
 ### 2. Explicitly publish the reviewed summary
 
@@ -255,9 +309,9 @@ node tools/evals-langfuse/cli.ts "${args[@]}" \
 The CLI re-prepares through the common review callback, compares the full preview
 hash **before reading credentials**, and passes the returned reviewed object to
 the common publisher. No serialized-object import or review bypass is used.
-Changes to exported summary, endpoint, destination, artifact, timestamp, input
-format or limits require a new preview and approval. In single-result modes,
-changes to raw fields omitted from the summary do not change the approved bytes.
+Changes to exported summary, dataset name/item plan, endpoint, destination, artifact,
+timestamp, input format or limits require a new preview and approval. In single-result
+modes, changes to raw fields omitted from the summary do not change the approved bytes.
 Full-planner mode additionally binds both complete source files, including
 omitted fields, so any source-byte change requires a new preview. This is approval
 to export summaries, not approval of semantic quality or a reliability claim.
@@ -280,6 +334,12 @@ No CI workflow is added or enabled here.
 | `--max-input-bytes` | 8,388,608 | 1–134,217,728 (128 MiB) |
 | `--max-publications` (full-planner only) | 1,000 | 1–10,000 |
 | `--max-preview-bytes` (full-planner only) | 8,388,608 | 1–67,108,864 (64 MiB) |
+
+`--timeout-ms` remains the sink/send deadline, capped at 300,000 ms. The CLI's
+publisher fallback allows a fixed extra 1,000 ms for the sink's receipt to settle
+(at most 301,000 ms total), so confirmed partial delivery is not replaced by a
+premature uncertain timeout. SDK/send deadlines are not extended; shutdown has
+its separate bound.
 
 Limits are positive decimal integers and included in the preview approval. In
 full-planner mode the input byte limit covers **both files combined**; preview
@@ -313,7 +373,8 @@ policy still require approval before any real publication.
 - The root observation contains exactly the reviewed JSON payload, including
   omission/completeness markers. This is a projected recording, **not a full
   replay archive**. No raw evidence is fetched or reconstructed. No media upload
-  service runs and no canonical case/dataset is written remotely.
+  service runs. Full-planner mode writes only the reviewed summary results catalog,
+  not canonical runnable cases or expected answers.
 - Correctness is Boolean only for a completed, complete, error-free `pass` or
   `fail` verdict. Hand-offs, N/A, partial/absent evidence and execution/scoring
   errors keep their statuses without being converted to zero quality.
@@ -328,13 +389,15 @@ policy still require approval before any real publication.
   another. These IDs use documented event deduplication/upsert semantics, but
   **exactly-once delivery across retries/restarts is not certified**. Per-item
   receipts do not prove transactionality or completed background persistence.
-- `accepted`: every expected event has one valid success receipt. `partial`:
-  one or more valid event receipts confirm acceptance, but the batch is
-  incomplete; remaining events may be rejected or unconfirmed, including
-  missing receipts. `uncertain`: no accepted receipt is confirmed and the
-  result remains unknown. Duplicate, foreign or malformed receipts invalidate
-  receipt interpretation; transport errors, aborts and deadlines also remain
-  uncertain. `failed`: every event has known terminal per-item rejection
+- `accepted`: every expected event has one valid success receipt, and any configured
+  catalog writes returned matching dataset/item identities and source trace link.
+  `partial`: one or more valid event receipts confirm acceptance, but the batch is
+  incomplete; remaining events may be rejected or unconfirmed, including missing
+  receipts or an incomplete catalog write after trace acceptance. `uncertain`: no
+  accepted receipt is confirmed and the result remains unknown. Duplicate, foreign
+  or malformed receipts invalidate receipt interpretation; transport errors, aborts
+  and deadlines also remain uncertain (or partial after confirmed trace acceptance).
+  `failed`: every event has known terminal per-item rejection
   (4xx excluding timeout/rate-limit), or local validation/admission fails before
   sending. Adapter outcomes contain no raw SDK error text. The standalone CLI
   also suppresses SDK logging during startup; applications composing the sink
@@ -345,7 +408,8 @@ policy still require approval before any real publication.
   success is treated as delivery. A timed-out request remains counted against
   the in-flight limit until the transport actually settles.
 - The batch cap includes mapping overhead and duplication of metadata; it may
-  reject an approved payload that exceeds the configured transport budget.
+  reject an approved payload that exceeds the configured transport budget. Catalog
+  item request bytes are separately checked against the same cap.
   Configure it at or below 3,500,000 UTF-8 bytes. This does not verify server
   reverse-proxy or retention limits. The generic publisher performs review;
   directly calling a sink is trusted application code, not a review bypass
@@ -429,3 +493,17 @@ IDs bind publication identity, mapping version, scope and group/metric key. Retr
 a saved publication reuses finalized bytes/IDs, not collection or evaluation.
 The existing in-memory publisher coalesces concurrent sends; cross-process
 exactly-once delivery and backend persistence remain unverified.
+
+## Secondary judge results
+
+Summary and recording publications include the finalized bounded `judge` envelope.
+Native `grader`-only reports are normalized without executing a provider; historical
+absence becomes `not_run/historical_unknown`. Invalid numeric grades are rejected,
+not converted to zero. Status, rubric/version and provider/model remain in metadata.
+Only `scored` samples create numeric
+`eval.judge.<rubric>.v<version>.<llm|heuristic|unknown>.<dimension>` scores. The legacy
+scalar rubric and native dimensions stay distinct; heuristics are explicitly non-LLM.
+All exported judge values are labeled unvalidated. Judge prompts, rationale, raw calls
+and failure messages are not automatically exported. Correctness and operational
+scores retain their existing semantics, and telemetry-only run artifacts have no
+judge score. Retry/re-export uses finalized reviewed bytes and never regrades.
