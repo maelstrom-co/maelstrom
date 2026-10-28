@@ -35,11 +35,11 @@ test('docs typechecking cannot regenerate reference pages while the site build r
     ]);
     expect(exitCode, `${stdout}\n${stderr}`).toBe(0);
     const graph = (await Bun.file(graphPath).json()) as {
-      tasks: { dependencies: Record<string, string[]> };
+      tasks: { dependencies: Record<string, { id: string }[]> };
     };
     const ancestors = new Set<string>();
     const visit = (id: string) => {
-      for (const dependency of graph.tasks.dependencies[id] ?? []) {
+      for (const { id: dependency } of graph.tasks.dependencies[id] ?? []) {
         if (ancestors.has(dependency)) continue;
         ancestors.add(dependency);
         visit(dependency);
