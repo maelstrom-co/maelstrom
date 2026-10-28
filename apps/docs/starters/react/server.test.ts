@@ -165,7 +165,7 @@ test('live mode requires a server key and exposes only its public configuration'
   });
 });
 
-test('live intent reaches the real OpenAI adapter once, while resize and rejected requests never call it', async () => {
+test('a slow live intent completes once, while resize and rejected requests never call the provider', async () => {
   const calls: Record<string, unknown>[] = [];
   const candidate = {
     userMessage: 'Your note has more room.',
@@ -179,6 +179,7 @@ test('live intent reaches the real OpenAI adapter once, while resize and rejecte
   const provider = Bun.serve({
     hostname: '127.0.0.1',
     port: 0,
+    idleTimeout: 30,
     async fetch(request) {
       expect(new URL(request.url).pathname).toBe('/v1/responses');
       expect(request.headers.get('authorization')).toBe(
@@ -186,6 +187,7 @@ test('live intent reaches the real OpenAI adapter once, while resize and rejecte
       );
       const body = await request.json();
       calls.push(body);
+      await Bun.sleep(16_000);
       const text = JSON.stringify(candidate);
       const response = {
         id: 'resp_starter',
@@ -298,7 +300,7 @@ test('live intent reaches the real OpenAI adapter once, while resize and rejecte
     ),
   );
   expect(calls).toHaveLength(1);
-});
+}, 25_000);
 
 test('provider failures do not expose credentials or provider payloads to the browser', async () => {
   let calls = 0;

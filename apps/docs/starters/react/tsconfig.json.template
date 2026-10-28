@@ -17,6 +17,7 @@
     "dev.ts",
     "vite.config.ts",
     "server.test.ts",
+    "dev.test.ts",
     "playwright.config.ts",
     "e2e"
   ]

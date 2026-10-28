@@ -52,9 +52,9 @@ function listening(port: number): Promise<boolean> {
   });
 }
 
-test.skipIf(process.platform === 'win32')(
-  'backend edits reload through the proxy and stopping during reload closes both listeners',
-  async () => {
+test.skipIf(process.platform === 'win32').each(['SIGTERM', 'SIGHUP'] as const)(
+  '%s during backend reload stops both development listeners',
+  async (signal) => {
     const root = await mkdtemp(
       join(Bun.env.TMPDIR ?? '/tmp', 'maelstrom-dev-lifecycle-'),
     );
@@ -88,6 +88,8 @@ test.skipIf(process.platform === 'win32')(
     );
     const [webPort, apiPort] = slots.map((server) => server.port);
     await Promise.all(slots.map((server) => server.stop(true)));
+    if (webPort === undefined || apiPort === undefined)
+      throw new Error('The development fixture needs two TCP ports');
     try {
       for (const name of files) {
         const target = join(root, name);
@@ -175,7 +177,7 @@ test.skipIf(process.platform === 'win32')(
         'Backend edit never reached the development proxy',
       );
       await writeFile(serverFile, original);
-      child.kill('SIGTERM');
+      child.kill(signal);
       await bounded(child.exited, 4000);
       await until(
         async () => !(await listening(webPort)) && !(await listening(apiPort)),

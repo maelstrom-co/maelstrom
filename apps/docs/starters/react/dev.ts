@@ -74,6 +74,7 @@ async function stop(code: number) {
 }
 process.on('SIGINT', () => void stop(0));
 process.on('SIGTERM', () => void stop(0));
+process.on('SIGHUP', () => void stop(0));
 void api.exited.then((code) => {
   if (!stopping) void stop(code || 1);
 });

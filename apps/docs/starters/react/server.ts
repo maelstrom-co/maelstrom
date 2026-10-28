@@ -27,6 +27,7 @@ export function createStarterServer(
   return Bun.serve({
     hostname: '127.0.0.1',
     port,
+    idleTimeout: 30,
     maxRequestBodySize: 65_536,
     async fetch(request) {
       const url = new URL(request.url);

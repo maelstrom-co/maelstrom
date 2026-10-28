@@ -13,6 +13,7 @@ test('the starter archive pins compatible SDKs and a matching lockfile for stand
   const files = unzipSync(await createReactStarter(source, license));
   const manifest = JSON.parse(text(files['package.json']));
   const tsconfig = JSON.parse(text(files['tsconfig.json']));
+  expect(tsconfig.include).toContain('dev.test.ts');
   expect(files['bun.lock']).toBeDefined();
   const lock = Bun.JSONC.parse(text(files['bun.lock']));
   expect(manifest.dependencies['@maelstrom-co/react']).toBe('0.1.1');
