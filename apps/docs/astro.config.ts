@@ -100,6 +100,10 @@ export default defineConfig({
   server: { port: 4322 },
   redirects: {
     '/': { destination: '/getting-started/introduction/', status: 301 },
+    '/guides/engine/evaluations/': {
+      destination: '/evals/architecture/',
+      status: 301,
+    },
   },
   integrations: [
     mermaid({
@@ -180,6 +184,12 @@ Use the DevTools guide for request, layout, voice, and recording inspection. Aut
               paths: ['guides/**'],
               description:
                 'Task-oriented how-tos for React, Engine, and Client',
+            },
+            {
+              label: 'Evals',
+              paths: ['evals/**'],
+              description:
+                'Evaluation architecture, Langfuse workflow, cases, and coverage limits',
             },
             {
               label: 'API Reference',
@@ -513,7 +523,6 @@ Use the DevTools guide for request, layout, voice, and recording inspection. Aut
                 { slug: 'guides/engine/custom-llm-providers' },
                 { slug: 'guides/engine/system-prompt' },
                 { slug: 'guides/engine/conversation-history' },
-                { slug: 'guides/engine/evaluations' },
               ],
             },
             {
@@ -523,6 +532,14 @@ Use the DevTools guide for request, layout, voice, and recording inspection. Aut
                 { slug: 'guides/client/programmatic-layout' },
               ],
             },
+          ],
+        },
+        {
+          label: 'Evals',
+          items: [
+            { label: 'Architecture', slug: 'evals/architecture' },
+            { label: 'Langfuse', slug: 'evals/langfuse' },
+            { label: 'Cases', slug: 'evals/cases' },
           ],
         },
         {
