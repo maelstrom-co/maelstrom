@@ -3,6 +3,11 @@ import type {
   EvaluationResultSink,
   PublicationStatus,
 } from '../../packages/evals/src/core/publication.js';
+import {
+  type LangfuseV3DatasetItem,
+  mapLangfuseV3DatasetItem,
+  validateDatasetName,
+} from './dataset.ts';
 import { mapLangfuseV3Publication } from './mapping.ts';
 
 type Batch = LangfuseClient['api']['ingestion']['batch'];
@@ -14,6 +19,21 @@ type BatchReceipt = Awaited<ReturnType<Batch>>;
 export interface LangfuseV3Transport {
   /** Public SDK ingestion request/response contract; no internal SDK imports. */
   batch(request: BatchRequest, options: BatchOptions): Promise<BatchReceipt>;
+  /** Required only for catalog exports; public SDK request and bounded receipt subset. */
+  createDataset?(
+    request: Parameters<LangfuseClient['api']['datasets']['create']>[0],
+    options: BatchOptions,
+  ): Promise<{ id: string; name: string }>;
+  /** Catalog item upsert only. */
+  createDatasetItem?(
+    request: LangfuseV3DatasetItem,
+    options: BatchOptions,
+  ): Promise<{
+    id: string;
+    datasetId: string;
+    datasetName: string;
+    sourceTraceId: string | null;
+  }>;
 }
 
 /** Explicit configuration for the v3-only adapter; no environment defaults. */
@@ -22,6 +42,8 @@ export interface LangfuseV3Config {
   readonly serverVersion: '3.163.0';
   /** Must match the destination approved in the publication. */
   readonly destinationId: string;
+  /** Optional results catalog for full-planner summaries; bound by CLI preview approval. */
+  readonly datasetName?: string;
   /** Trusted self-hosted endpoint, independent of publication content. */
   readonly baseUrl: string;
   /** Caller-provided project key; never inferred from the environment. */
@@ -68,9 +90,18 @@ export function startLangfuseV3Sink(
       if (!client) throw new Error('Langfuse client unavailable');
       return client.api.ingestion.batch(request, options);
     },
+    createDataset: (request, options) => {
+      if (!client) throw new Error('Langfuse client unavailable');
+      return client.api.datasets.create(request, options);
+    },
+    createDatasetItem: (request, options) => {
+      if (!client) throw new Error('Langfuse client unavailable');
+      return client.api.datasetItems.create(request, options);
+    },
   };
   const active = new Map<Promise<void>, AbortController>();
   let closed = false;
+  let datasetId: string | undefined;
   let shutdown: Promise<'closed' | 'uncertain'> | undefined;
   return {
     async publish(publication, signal) {
@@ -78,8 +109,17 @@ export function startLangfuseV3Sink(
         return { status: 'failed' };
       if (signal.aborted) return { status: 'failed' };
       let request: BatchRequest;
+      let item: LangfuseV3DatasetItem | undefined;
       try {
         request = mapLangfuseV3Publication(publication, settings);
+        if (settings.datasetName !== undefined) {
+          if (!transport.createDataset || !transport.createDatasetItem)
+            return { status: 'failed' };
+          item = mapLangfuseV3DatasetItem(publication, {
+            ...settings,
+            datasetName: settings.datasetName,
+          });
+        }
       } catch {
         return { status: 'failed' };
       }
@@ -88,31 +128,62 @@ export function startLangfuseV3Sink(
       const result = new Promise<PublicationStatus>((resolve) => {
         complete = resolve;
       });
+      let traceAccepted = false;
+      const incomplete = (): PublicationStatus =>
+        traceAccepted ? 'partial' : 'uncertain';
       const abort = () => {
-        complete('uncertain');
+        complete(incomplete());
         controller.abort();
       };
       signal.addEventListener('abort', abort, { once: true });
-      controller.signal.addEventListener('abort', () => complete('uncertain'), {
-        once: true,
-      });
+      controller.signal.addEventListener(
+        'abort',
+        () => complete(incomplete()),
+        {
+          once: true,
+        },
+      );
       const timer = setTimeout(abort, settings.timeoutMs);
       const pending = Promise.resolve()
-        .then(() => {
-          if (controller.signal.aborted) return undefined;
-          return transport.batch(request, {
+        .then(async (): Promise<PublicationStatus> => {
+          if (controller.signal.aborted) return incomplete();
+          const options = {
             maxRetries: 0,
             timeoutInSeconds: settings.timeoutMs / 1_000,
             abortSignal: controller.signal,
-          });
+          };
+          const receipt = await transport.batch(request, options);
+          const status = receiptStatus(receipt, request);
+          traceAccepted = status === 'accepted' || status === 'partial';
+          if (controller.signal.aborted) return incomplete();
+          if (status !== 'accepted' || !item) return status;
+          if (!transport.createDataset || !transport.createDatasetItem)
+            return 'partial';
+          if (datasetId === undefined) {
+            const dataset = await transport.createDataset(
+              { name: item.datasetName },
+              options,
+            );
+            if (controller.signal.aborted) return incomplete();
+            if (
+              !dataset ||
+              dataset.name !== item.datasetName ||
+              typeof dataset.id !== 'string' ||
+              !dataset.id
+            )
+              return 'partial';
+            datasetId = dataset.id;
+          }
+          const saved = await transport.createDatasetItem(item, options);
+          if (controller.signal.aborted) return incomplete();
+          return saved?.id === item.id &&
+            saved.datasetId === datasetId &&
+            saved.datasetName === item.datasetName &&
+            saved.sourceTraceId === item.sourceTraceId
+            ? 'accepted'
+            : 'partial';
         })
-        .then(
-          (receipt): PublicationStatus =>
-            controller.signal.aborted
-              ? 'uncertain'
-              : receiptStatus(receipt, request),
-        )
-        .catch((): PublicationStatus => 'uncertain')
+        .catch(incomplete)
         .then((status) => {
           clearTimeout(timer);
           signal.removeEventListener('abort', abort);
@@ -151,6 +222,7 @@ export function startLangfuseV3Sink(
 }
 
 function validateConfig(config: LangfuseV3Config): void {
+  if (config.datasetName !== undefined) validateDatasetName(config.datasetName);
   if (config.serverVersion !== '3.163.0')
     throw new Error('This adapter targets Langfuse OSS 3.163.0 only');
   for (const value of [
