@@ -3,16 +3,22 @@ import DiscordLink from '../components/DiscordLink.astro';
 
 const COMMUNITY = [
   {
-    title: 'Build something real',
-    body: 'Use Maelstrom in your own React project and test it against real product requirements.',
+    title: 'Get help',
+    body: 'Ask setup questions and discuss your integration with other developers on Discord.',
+    href: 'https://maelstrom-ai.co/discord',
+    label: 'Ask the community →',
   },
   {
-    title: 'Work with the maintainers',
-    body: 'Share bugs, rough edges, and missing capabilities directly with the team building the library.',
+    title: 'Report a bug',
+    body: 'Open a GitHub issue with the package version, a reproduction, and the result you expected.',
+    href: 'https://github.com/maelstrom-co/maelstrom/issues/new/choose',
+    label: 'Open an issue →',
   },
   {
-    title: 'Shape the open source API',
-    body: 'Help us make the developer experience solid through feedback and contributions.',
+    title: 'Contribute',
+    body: 'Read the contribution guide, choose a focused change, and run the relevant checks before opening a pull request.',
+    href: 'https://github.com/maelstrom-co/maelstrom/blob/main/CONTRIBUTING.md',
+    label: 'Contribution guide →',
   },
 ];
 ---
@@ -51,6 +57,7 @@ const COMMUNITY = [
           </div>
           <h3 class="cloud-title">{item.title}</h3>
           <p class="cloud-body">{item.body}</p>
+          <a class="cloud-link" href={item.href} target="_blank" rel="noopener noreferrer">{item.label}</a>
           <div class="cloud-meta mono">0{i + 1} / 03</div>
         </div>
       ))}

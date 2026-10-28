@@ -64,19 +64,16 @@ Intent has many forms — voice, text, channels not yet invented. To the model
 they're the same signal. Each follows the same engine path for planning layout
 and actions against the application's registered Vessels and current Chart.
 
-## Install
+## Get started
 
-Install the React package from npm:
+For a new app, [clone and run the React starter](https://github.com/maelstrom-co/react-starter#run).
+It includes a React app and a local Engine. You can run the example without
+a model API key, then connect a model when you are ready.
 
-```bash
-npm install @maelstrom-co/react
-```
-
-The [installation guide](https://docs.maelstrom-ai.co/getting-started/installation/)
-covers package selection and peer dependencies. No GitHub token is required. `@maelstrom-co/react`
-re-exports the vessel helpers and connectors, so you do not need to install
-`@maelstrom-co/client` or `@maelstrom-co/protocol` separately. Processing intent
-still requires a compatible Maelstrom engine endpoint.
+For an existing app, [build with your coding agent](https://docs.maelstrom-ai.co/agents/skills/)
+to select a first integration and review its plan. The
+[installation guide](https://docs.maelstrom-ai.co/getting-started/installation/)
+explains package selection when you are ready to implement it.
 
 Want to see Maelstrom first? [Open the hosted BYOK demo](https://demo.maelstrom-ai.co)
 with your own OpenAI API key.

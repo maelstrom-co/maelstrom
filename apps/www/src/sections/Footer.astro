@@ -27,7 +27,7 @@ const resourceLinks = navLinks.filter((link) => link.href.startsWith('http'));
       <div>
         <div class="footer-col-h">Resources</div>
         {resourceLinks.map((link) => (
-          <a href={link.href} target="_blank" rel="noopener noreferrer">
+          <a href={link.href} data-playground-source={link.label === 'Playground' ? 'footer' : undefined} target="_blank" rel="noopener noreferrer">
             {link.label}
           </a>
         ))}

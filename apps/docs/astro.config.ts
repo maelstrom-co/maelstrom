@@ -428,6 +428,7 @@ Use the DevTools guide for request, layout, voice, and recording inspection. Aut
           label: 'Getting Started',
           items: [
             { slug: 'getting-started/introduction' },
+            { slug: 'getting-started/starter' },
             { slug: 'getting-started/quick-start' },
             { label: 'Build with an agent', link: '/agents/skills/' },
             { slug: 'getting-started/core-concepts' },

@@ -68,7 +68,10 @@
     "typescript": "catalog:",
     "@maelstrom-co/devtools": "workspace:*",
     "@maelstrom-co/react-devtools": "workspace:*",
-    "@maelstrom-co/telemetry": "workspace:*"
+    "@maelstrom-co/telemetry": "workspace:*",
+    "@maelstrom-co/engine": "workspace:*",
+    "@maelstrom-co/planner-llm": "workspace:*",
+    "@tanstack/ai-openai": "catalog:"
   },
   "nx": {
     "implicitDependencies": [
@@ -122,7 +125,9 @@
           "{workspaceRoot}/package.json",
           "{workspaceRoot}/bun.lock",
           "production",
-          "^production"
+          "^production",
+          "{projectRoot}/starters/**/*",
+          "{workspaceRoot}/LICENSE"
         ]
       },
       "deploy": {
@@ -158,7 +163,8 @@
           "^production",
           "{projectRoot}/e2e/**/*",
           "{projectRoot}/tsconfig.json",
-          "{projectRoot}/tsconfig.e2e.json"
+          "{projectRoot}/tsconfig.e2e.json",
+          "{projectRoot}/starters/**/*"
         ]
       },
       "infra-typecheck": {

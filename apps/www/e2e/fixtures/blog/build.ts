@@ -112,6 +112,14 @@ export async function withBlogBuild<T>(
     for (const path of ['node_modules', 'packages', 'infra']) {
       await symlink(join(repository, path), join(temporary, path), 'dir');
     }
+    for (const path of [
+      'prompts/library/maelstrom-project-onboarding.md',
+      'src/lib/skill-onboarding.ts',
+    ]) {
+      const target = resolve(root, '../docs', path);
+      await mkdir(dirname(target), { recursive: true });
+      await cp(join(repository, 'apps/docs', path), target);
+    }
     await mkdir(join(root, 'node_modules'));
     for (const dependency of await readdir(join(app, 'node_modules'))) {
       if (!dependency.startsWith('.')) {

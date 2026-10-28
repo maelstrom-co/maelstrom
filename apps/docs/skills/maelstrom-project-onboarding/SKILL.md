@@ -1,19 +1,23 @@
 ---
 name: maelstrom-project-onboarding
 description: >-
-  Use when introducing Maelstrom to an existing application, scaffolding its
+  Use when starting a new Maelstrom app, introducing it to an existing application, scaffolding its
   first bounded integration, or orienting a project before choosing a pilot.
   Not for a focused Vessel model, React migration, incident diagnosis, or a task
   whose primary outcome is instrumentation, state synchronization, or voice.
 license: MIT
 metadata:
   author: Maelstrom
-  version: 0.1.0
+  version: 0.2.1
 ---
 
 # Maelstrom project onboarding
 
 Own the integration from repository inspection through the authorized bounded change and verification. A standalone onboarding prompt remains complete on its own; do not construct or revise prompt bodies from this skill.
+
+For a new app, first read [new-project setup](../references/new-project.md).
+For an existing app, follow the inspection and pilot selection below. Ask about
+the starting point and product goal only when the user has not supplied them.
 
 1. **Inspect first.** Read the consumer's workspace instructions, manifests and lockfile, app entrypoints, UI/data flow, server/browser boundary, tests, and existing Maelstrom use. Record exact installed package versions. Confirm every proposed public symbol in installed exports/types/source/tests or matching docs; stop on unsupported or ambiguous contracts rather than guessing.
 2. **Choose a real capability.** Inventory user-visible capabilities and observed evidence. Choose only a capability the Engine can meaningfully select and present for a plausible intent. Keep incidental controls and implementation details inside their owning capability; a simple single-Variant Vessel without Actions is valid. Read the bundled [`references/vessel-modeling.md`](references/vessel-modeling.md) before making that choice.

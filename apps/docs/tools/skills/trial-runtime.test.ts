@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   credentialSandbox,
+  finishTrialCleanup,
   runTrialProcess,
   trialSnapshot,
 } from './trial-runtime';
@@ -42,14 +43,6 @@ async function childTerminated(pid: number): Promise<boolean> {
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ESRCH') return true;
     throw error;
-  }
-}
-
-function killFixtureProcess(pid: number): void {
-  try {
-    process.kill(pid, 'SIGKILL');
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
   }
 }
 
@@ -145,7 +138,7 @@ test.each([
     try {
       for (const pid of [parentPid && -parentPid, childPid]) {
         if (!pid) continue;
-        killFixtureProcess(pid);
+        await finishTrialCleanup(pid);
       }
       await trial;
     } finally {
