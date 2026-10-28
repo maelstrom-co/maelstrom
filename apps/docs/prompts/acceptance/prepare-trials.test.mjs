@@ -170,21 +170,28 @@ describe('trial bootstrap', () => {
     const result = Bun.spawnSync({
       cmd: [
         process.execPath,
+        '--no-env-file',
         join(import.meta.dir, 'prepare-trials.mjs'),
         workspace,
         parent,
       ],
       stdout: 'pipe',
       stderr: 'pipe',
+      timeout: 20_000,
+      killSignal: 'SIGKILL',
     });
     const stdout = result.stdout.toString();
+    expect(
+      result.exitedDueToTimeout,
+      `CLI timed out after 20s\nstdout:\n${stdout}\nstderr:\n${result.stderr.toString()}`,
+    ).toBe(false);
     expect(result.exitCode).not.toBe(0);
     expect(stdout).toContain('TRIAL_ROOT=');
     const trialRoot = stdout.match(/TRIAL_ROOT=(.+)/)?.[1]?.trim();
     expect(trialRoot).toContain(parent);
     expect(await readdir(parent)).toContain(trialRoot.split('/').at(-1));
     expect(result.stderr.toString()).toContain('npm');
-  });
+  }, 30_000);
 
   test('rejects a scratch parent inside the workspace before allocating a trial directory', async () => {
     const workspace = await temporaryDirectory('trial contained scratch ');

@@ -108,9 +108,27 @@ function fixture({
   }
   writeFileSync(join(cwd, '.gitignore'), 'node_modules/\n.nx/\n');
   symlinkSync(resolve('node_modules'), join(cwd, 'node_modules'));
+  // User signing defaults can turn a lightweight fixture tag into an editor prompt.
+  const env = {
+    ...process.env,
+    GIT_CONFIG_GLOBAL: '/dev/null',
+    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_PAGER: 'cat',
+    PAGER: 'cat',
+    GIT_EDITOR: 'false',
+    GIT_TERMINAL_PROMPT: '0',
+  };
   const git = (args: string[]) => {
-    const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
-    if (result.status !== 0) throw new Error(result.stderr);
+    const result = spawnSync('git', args, {
+      cwd,
+      encoding: 'utf8',
+      env,
+      timeout: 10000,
+    });
+    if (result.status !== 0)
+      throw new Error(
+        `git ${args.join(' ')} failed: ${result.error?.message ?? result.stderr}`,
+      );
     return result.stdout.trim();
   };
   git(['init', '-b', 'release/preparation']);
@@ -143,21 +161,46 @@ function fixture({
     chmodSync(path, 0o755);
   }
   const run = (...args: string[]) =>
-    spawnSync(process.execPath, [resolve('scripts/release.ts'), ...args], {
-      cwd,
-      encoding: 'utf8',
-      timeout: 30000,
-      env: {
-        ...process.env,
-        PATH: `${bin}:${process.env.PATH}`,
-        NX_DAEMON: 'false',
-        NX_ISOLATE_PLUGINS: 'false',
-        NX_NO_CLOUD: 'true',
-        NX_TUI: 'false',
+    spawnSync(
+      process.execPath,
+      ['--no-env-file', resolve('scripts/release.ts'), ...args],
+      {
+        cwd,
+        encoding: 'utf8',
+        timeout: 30000,
+        env: {
+          ...env,
+          PATH: `${bin}:${process.env.PATH}`,
+          NX_DAEMON: 'false',
+          NX_LOAD_DOT_ENV_FILES: 'false',
+          NX_ISOLATE_PLUGINS: 'false',
+          NX_NO_CLOUD: 'true',
+          NX_TUI: 'false',
+        },
       },
-    });
+    );
   return { cwd, git, head, tags, calls, run };
 }
+
+test('fixture tags stay lightweight despite user signing defaults', () => {
+  const root = mkdtempSync(join(tmpdir(), 'release-git-config-'));
+  roots.push(root);
+  const config = join(root, 'gitconfig');
+  writeFileSync(config, '[tag]\n  gpgSign = true\n[core]\n  editor = false\n');
+  const previous = process.env.GIT_CONFIG_GLOBAL;
+  process.env.GIT_CONFIG_GLOBAL = config;
+  try {
+    const f = fixture();
+    expect(f.git(['cat-file', '-t', 'refs/tags/v0.1.0'])).toBe('commit');
+    const result = f.run('--version', '0.2.0', '--dry-run');
+    expect(result.status, result.stderr + result.stdout).toBe(0);
+    expect(f.git(['status', '--porcelain'])).toBe('');
+    expect(existsSync(f.calls)).toBe(false);
+  } finally {
+    if (previous === undefined) delete process.env.GIT_CONFIG_GLOBAL;
+    else process.env.GIT_CONFIG_GLOBAL = previous;
+  }
+}, 40000);
 
 test('prepares reviewable versions and notes without staging, committing, tagging, pushing, or publishing', () => {
   const f = fixture();
