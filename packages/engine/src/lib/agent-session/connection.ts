@@ -415,7 +415,8 @@ export function createAgentConnection(
         resolve = done;
       });
       const ready = { promise, resolve };
-      if (!current && queue.length === 0) chart = input.chart;
+      // A Chart sent while a change awaits acknowledgement can predate it.
+      if (pending.size === 0) chart = input.chart;
       queue.push({ input, runId, started, ready });
       emit(
         {

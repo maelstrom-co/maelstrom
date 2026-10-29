@@ -386,6 +386,93 @@ test('queued utterances plan against the acknowledged Chart rather than an earli
   connection.close();
 });
 
+test('a queued utterance plans against its own newer Chart when the run before it fails during planning', async () => {
+  const planned: unknown[] = [];
+  const connection = createEngine({
+    logger: silentLogger,
+    retry: false,
+    planner: async (input) => {
+      planned.push(input.request.layout);
+      if (planned.length === 1) throw new Error('provider unavailable');
+      return ok({
+        userMessage: 'Done.',
+        rationale: '',
+        executionPlan: [],
+        layout: { tree: [], instances: [] },
+      });
+    },
+  }).openConnection({ sessionId: SessionId('failed-planning'), user: null });
+  try {
+    const failing = connection.send(utterance());
+    const newer = connection.send({
+      ...utterance(),
+      inputId: MessageId('newer'),
+      chart: makeTilingRequest({
+        instances: [],
+        layout: { type: 'tiling', tree: [], instances: [] },
+      }),
+    });
+    await failing;
+    await newer;
+    expect(planned[1]).toEqual({ type: 'tiling', tree: [], instances: [] });
+  } finally {
+    connection.close();
+  }
+});
+
+test('a run that fails during planning leaves later queued utterances on the acknowledged Chart', async () => {
+  const planned: unknown[] = [];
+  const events: AgentEvent[] = [];
+  const connection = createEngine({
+    logger: silentLogger,
+    retry: false,
+    planner: async (input) => {
+      planned.push(input.request.layout);
+      if (planned.length === 2) throw new Error('provider unavailable');
+      return ok({
+        userMessage: 'Done.',
+        rationale: '',
+        executionPlan: [],
+        layout: { tree: [], instances: [] },
+      });
+    },
+  }).openConnection({ sessionId: SessionId('failed-after-ack'), user: null });
+  connection.subscribe((event) => {
+    events.push(event);
+  });
+  try {
+    await connection.send(utterance());
+    const change = events.find((event) => event.type === 'ui_change');
+    if (!change) throw new Error('Missing change');
+    const failing = connection.send({
+      ...utterance(),
+      inputId: MessageId('failing'),
+    });
+    const later = connection.send({
+      ...utterance(),
+      inputId: MessageId('later'),
+    });
+    await connection.send({
+      type: 'ui_applied',
+      version: AGENT_WIRE_VERSION,
+      changeId: change.changeId,
+      chart: makeTilingRequest({
+        instances: [],
+        layout: { type: 'tiling', tree: [], instances: [] },
+      }),
+      actionOutcomes: [],
+    });
+    await failing;
+    await later;
+    expect(planned.slice(1)).toEqual([
+      { type: 'tiling', tree: [], instances: [] },
+      { type: 'tiling', tree: [], instances: [] },
+    ]);
+  } finally {
+    connection.close();
+  }
+});
+
 test('a missing or failed Action outcome cannot turn a UI change into a successful reply', async () => {
   const events: AgentEvent[] = [];
   const chart = makeGridRequest();
