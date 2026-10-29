@@ -72,8 +72,14 @@ import DevtoolsDiagram from '../../components/architecture/DevtoolsDiagram';
 
   <h3>The client applies it</h3>
   <p>
-    The client dispatches <code>set_layout</code> and <code>execute_actions</code>
-    as one atomic command batch, with layout first. A tiling response can introduce
+    The client queues <code>set_layout</code> and <code>execute_actions</code>
+    as one ordered batch, with layout first. Other queued commands cannot
+    interleave with that batch. Action failures or skips do not roll back the
+    layout or completed Action effects. Retrying the whole batch can repeat
+    effects from Actions that already ran.
+  </p>
+  <p>
+    A tiling response can introduce
     an Instance and request an Action on it in the same response. Applying the
     layout first establishes that Instance before the client waits for its
     Action runner. The runner must register before the readiness timeout;
@@ -101,7 +107,10 @@ import DevtoolsDiagram from '../../components/architecture/DevtoolsDiagram';
     <dt><strong>Variant</strong></dt>
     <dd>
       One discrete state of a Vessel, carrying its props, the Actions available in
-      that Variant, and a <code>minSize</code> enforced in grid mode.
+      that Variant, and a <code>minSize</code>. The Engine checks this minimum
+      against the request's Variant snapshot when validating grid positions.
+      A local Action can switch to a larger Variant without resizing its
+      allocation; the client schedules replanning.
     </dd>
     <dt><strong>Action</strong></dt>
     <dd>
