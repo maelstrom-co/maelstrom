@@ -1,8 +1,6 @@
 import {
   AGENT_WIRE_VERSION,
   type AgentEvent,
-  type AgentFinishReason,
-  AgentInputSchema,
   type AgentUiChangeEvent,
   type AgentUtteranceInput,
   ChangeId,
@@ -11,14 +9,19 @@ import {
   isErr,
   type MaelstromResponse,
   type MessageId,
-  MessageIdSchema,
   type Result,
   RunId,
   type SessionId,
 } from '@maelstrom-co/protocol';
 import type { EngineError } from '../errors.js';
 import type { Logger } from '../logger.js';
+import { createInputAdmission } from './input-admission.js';
 import { createOrderedEmitter } from './ordered-emitter.js';
+import {
+  buildAcceptanceEvents,
+  buildRunEnding,
+  type RunFailure,
+} from './run-events.js';
 
 /** Server-owned context and clock for one connection. Never supplied to the Planner. */
 export interface OpenConnectionOptions {
@@ -113,7 +116,7 @@ export function createAgentConnection(
       'acknowledgementTimeoutMs must be a positive timer duration.',
     );
   const pending = new Map<ChangeId, PendingChange>();
-  const seen = new Set<MessageId>();
+  const admission = createInputAdmission();
   const controller = new AbortController();
   const queue: UiRun[] = [];
   let current: UiRun | undefined;
@@ -126,51 +129,15 @@ export function createAgentConnection(
         eventLogData(options.sessionId, event),
       ),
   });
-  const complete = (
-    run: UiRun,
-    reply: string,
-    failure?: {
-      readonly error: string;
-      readonly code: string;
-      readonly reason?: AgentFinishReason;
-    },
-  ) => {
-    const { runId } = run;
-    const reason = failure?.reason ?? (failure ? 'error' : 'completed');
-    const metrics = {
-      turns: 0,
-      toolCalls: 0,
-      elapsedMs: Math.max(0, Math.round(clock() - run.started)),
-      inputTokens: 0,
-      outputTokens: 0,
-    };
-    const message: AgentEvent[] = failure
-      ? []
-      : [
-          {
-            type: 'message',
-            version: AGENT_WIRE_VERSION,
-            runId,
-            turnId: `${runId}:reply`,
-            delta: reply,
-          },
-        ];
-    events.emit(...message, {
-      type: 'finished',
-      version: AGENT_WIRE_VERSION,
-      runId,
-      ...failure,
-      ok: !failure,
-      reason,
-      reply: failure ? '' : reply,
-      metrics,
-    });
-    observe(runId, run.input.inputId, 'engine.agent.run.finished', {
-      reason,
-      outcome: failure ? 'failed' : 'succeeded',
-      ...metrics,
-      ...(failure ? { code: failure.code } : {}),
-    });
+  const complete = (run: UiRun, reply: string, failure?: RunFailure) => {
+    const ending = buildRunEnding(run, clock(), reply, failure);
+    events.emit(...ending.events);
+    observe(
+      run.runId,
+      run.input.inputId,
+      'engine.agent.run.finished',
+      ending.metadata,
+    );
   };
   const pump = async (): Promise<void> => {
     if (closed || events.isDelivering() || current) return;
@@ -266,7 +233,7 @@ export function createAgentConnection(
       controller.abort();
       for (const change of pending.values()) change.cancelTimeout();
       pending.clear();
-      seen.clear();
+      admission.forget();
       current?.ready.resolve();
       current = undefined;
       for (const run of queue) run.ready.resolve();
@@ -275,23 +242,13 @@ export function createAgentConnection(
     },
     async send(raw) {
       if (closed) return;
-      const decoded = AgentInputSchema.safeParse(raw);
-      if (!decoded.success) {
-        const inputId = MessageIdSchema.safeParse(
-          raw && typeof raw === 'object' && 'inputId' in raw
-            ? raw.inputId
-            : undefined,
-        );
-        events.emit({
-          type: 'error',
-          version: AGENT_WIRE_VERSION,
-          ...(inputId.success ? { inputId: inputId.data } : {}),
-          code: 'invalid_input',
-          error: 'Invalid Agent Session input.',
-        });
+      const admitted = admission.admit(raw, queue.length + (current ? 1 : 0));
+      if (admitted.kind === 'rejected') {
+        events.emit(admitted.event);
         return;
       }
-      const input = decoded.data;
+      if (admitted.kind === 'ignored') return;
+      const { input } = admitted;
       if (input.type === 'ui_applied') {
         const change = pending.get(input.changeId);
         if (change) {
@@ -349,28 +306,6 @@ export function createAgentConnection(
           });
         return;
       }
-      if (seen.has(input.inputId)) return;
-      if (queue.length + (current ? 1 : 0) >= 32) {
-        events.emit({
-          type: 'error',
-          version: AGENT_WIRE_VERSION,
-          inputId: input.inputId,
-          code: 'queue_full',
-          error: 'The connection already has 32 pending inputs.',
-        });
-        return;
-      }
-      if (seen.size >= 4096) {
-        events.emit({
-          type: 'error',
-          version: AGENT_WIRE_VERSION,
-          inputId: input.inputId,
-          code: 'session_capacity',
-          error: 'Open a new connection before sending more inputs.',
-        });
-        return;
-      }
-      seen.add(input.inputId);
       const started = clock();
       const runId = RunId(crypto.randomUUID());
       let resolve = () => {};
@@ -381,22 +316,7 @@ export function createAgentConnection(
       // A Chart sent while a change awaits acknowledgement can predate it.
       if (pending.size === 0) chart = input.chart;
       queue.push({ input, runId, started, ready });
-      events.emit(
-        {
-          type: 'placeholder',
-          version: AGENT_WIRE_VERSION,
-          inputId: input.inputId,
-          text: 'One moment.',
-        },
-        {
-          type: 'accepted',
-          version: AGENT_WIRE_VERSION,
-          inputId: input.inputId,
-          runId,
-          disposition: 'ui_only',
-          ack: 'On it.',
-        },
-      );
+      events.emit(...buildAcceptanceEvents(input.inputId, runId));
       observe(
         runId,
         input.inputId,
