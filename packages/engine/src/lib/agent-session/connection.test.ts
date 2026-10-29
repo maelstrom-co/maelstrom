@@ -114,6 +114,60 @@ test('a UI-only reply waits for its own applied acknowledgement before claiming 
   connection.close();
 });
 
+test('the placeholder reaches the browser before a slow Planner is called and never waits for it', async () => {
+  const time = install({ toFake: ['setTimeout', 'clearTimeout'] });
+  const events: AgentEvent[] = [];
+  const plannerCalls: { at: number; seen: string[] }[] = [];
+  const connection = createEngine({
+    logger: silentLogger,
+    retry: false,
+    planner: async () => {
+      plannerCalls.push({
+        at: time.now,
+        seen: events.map((event) => event.type),
+      });
+      await new Promise((resolve) => setTimeout(resolve, 5_000));
+      return ok({
+        userMessage: 'Done.',
+        rationale: '',
+        executionPlan: [],
+        layout: { tree: [], instances: [] },
+      });
+    },
+  }).openConnection({
+    sessionId: SessionId('slow-planner'),
+    user: null,
+    clock: () => time.now,
+  });
+  connection.subscribe((event) => {
+    events.push(event);
+  });
+  try {
+    let sent = false;
+    const sending = connection.send(utterance()).then(() => {
+      sent = true;
+    });
+    await time.tickAsync(0);
+    expect(events.map((event) => event.type)).toEqual([
+      'placeholder',
+      'accepted',
+    ]);
+    expect(plannerCalls).toEqual([
+      { at: 0, seen: ['placeholder', 'accepted'] },
+    ]);
+    await time.tickAsync(4_999);
+    expect(events.some((event) => event.type === 'ui_change')).toBe(false);
+    expect(sent).toBe(false);
+    await time.tickAsync(1);
+    expect(events.at(-1)?.type).toBe('ui_change');
+    await sending;
+    expect(sent).toBe(true);
+  } finally {
+    connection.close();
+    time.uninstall();
+  }
+});
+
 test('a repeated input never repeats its layout or spends another Planner call', async () => {
   const events: AgentEvent[] = [];
   let plans = 0;
