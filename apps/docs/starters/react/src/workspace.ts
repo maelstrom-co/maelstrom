@@ -58,9 +58,16 @@ export const notesVessel = defineVessel({
 export const tasksId = InstanceId('tasks-main');
 export const notesId = InstanceId('notes-main');
 export const examples = [
-  { label: 'Rearrange the workspace', intent: 'Give my notes more room' },
+  {
+    label: 'Rearrange the workspace',
+    intent:
+      'Make my note editable and give it more room while keeping my tasks visible',
+  },
   { label: 'Run an action', intent: 'Add "Prepare the launch" to my tasks' },
-  { label: 'Restore the layout', intent: 'Show tasks and notes' },
+  {
+    label: 'Restore the layout',
+    intent: 'Return to the starting layout with tasks and a note preview',
+  },
 ] as const;
 
 /** Keeps stable Instance identities while changing arrangement and note view. */
