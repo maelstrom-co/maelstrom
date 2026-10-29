@@ -766,6 +766,96 @@ test('run diagnostics describe acknowledgement and termination without publishin
   }
 });
 
+test('host debug logs follow the event stream with correlation fields only and stop at close', async () => {
+  const logs: { message: string; data?: Record<string, unknown> }[] = [];
+  const gate = Promise.withResolvers<void>();
+  let plans = 0;
+  const connection = createEngine({
+    logger: {
+      ...silentLogger,
+      debug: (message, data) => {
+        logs.push({ message, data });
+      },
+    },
+    retry: false,
+    planner: async () => {
+      if (++plans > 1) await gate.promise;
+      return ok({
+        userMessage: 'Your private calendar is visible.',
+        rationale: '',
+        executionPlan: [],
+        layout: { tree: [], instances: [] },
+      });
+    },
+  }).openConnection({
+    sessionId: SessionId('logged'),
+    user: { id: 'private-user' },
+    token: 'private-token',
+  });
+  let change: Extract<AgentEvent, { type: 'ui_change' }> | undefined;
+  connection.subscribe((event) => {
+    if (event.type === 'ui_change') change = event;
+  });
+  const agentLogs = () =>
+    logs.filter((entry) => entry.message.startsWith('agent.'));
+  try {
+    await connection.send(utterance());
+    if (!change) throw new Error('Missing UI change');
+    await connection.send({
+      type: 'ui_applied',
+      version: AGENT_WIRE_VERSION,
+      changeId: change.changeId,
+      chart: utterance().chart,
+      actionOutcomes: [],
+    });
+    expect(agentLogs().map((entry) => entry.message)).toEqual([
+      'agent.placeholder',
+      'agent.accepted',
+      'agent.ui_change',
+      'agent.message',
+      'agent.finished',
+    ]);
+    expect(agentLogs().map((entry) => entry.data)).toEqual([
+      { sessionId: 'logged', inputId: 'input-1' },
+      {
+        sessionId: 'logged',
+        inputId: 'input-1',
+        runId: change.runId,
+        disposition: 'ui_only',
+      },
+      { sessionId: 'logged', runId: change.runId, changeId: change.changeId },
+      { sessionId: 'logged', runId: change.runId },
+      {
+        sessionId: 'logged',
+        runId: change.runId,
+        ok: true,
+        reason: 'completed',
+      },
+    ]);
+    const logged = JSON.stringify(logs.map((entry) => entry.data));
+    for (const secret of [
+      'Keep my calendar visible',
+      'Your private calendar is visible.',
+      'private-user',
+      'private-token',
+    ])
+      expect(logged).not.toContain(secret);
+
+    const pending = connection.send({
+      ...utterance(),
+      inputId: MessageId('input-2'),
+    });
+    expect(agentLogs()).toHaveLength(7);
+    connection.close();
+    gate.resolve();
+    await pending;
+    await connection.send({ ...utterance(), inputId: MessageId('input-3') });
+    expect(agentLogs()).toHaveLength(7);
+  } finally {
+    connection.close();
+  }
+});
+
 test('closing from a placeholder observer releases admission without starting paid work or notifying later listeners', async () => {
   let plans = 0;
   const engine = createEngine({

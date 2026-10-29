@@ -459,6 +459,7 @@ export function createEngine(config: EngineConfig): Engine {
             metadata,
             readContent,
           ),
+        logger,
       ),
     observeDiagnostics: (observer) => diagnosticsEmitter.subscribe(observer),
     observeMetadata: (observer) =>

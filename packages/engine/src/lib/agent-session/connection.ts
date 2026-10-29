@@ -17,6 +17,7 @@ import {
   type SessionId,
 } from '@maelstrom-co/protocol';
 import type { EngineError } from '../errors.js';
+import type { Logger } from '../logger.js';
 
 /** Server-owned context and clock for one connection. Never supplied to the Planner. */
 export interface OpenConnectionOptions {
@@ -76,7 +77,8 @@ export function createAgentConnection(
     kind: string,
     metadata: DiagnosticMetadata,
     readContent?: () => unknown,
-  ) => void = () => {},
+  ) => void,
+  logger: Logger,
 ): AgentConnection {
   const clock = options.clock ?? (() => performance.now());
   const acknowledgementTimeoutMs = options.acknowledgementTimeoutMs ?? 30_000;
@@ -107,6 +109,14 @@ export function createAgentConnection(
       while (!closed && notifications.length) {
         const event = notifications.shift();
         if (!event) break;
+        try {
+          logger.debug(
+            `agent.${event.type}`,
+            eventLogData(options.sessionId, event),
+          );
+        } catch {
+          /* A failing logger cannot interrupt connection work or observers. */
+        }
         for (const listener of [...listeners]) {
           if (closed) break;
           try {
@@ -413,4 +423,23 @@ export function createAgentConnection(
       await ready.promise;
     },
   };
+}
+
+function eventLogData(
+  sessionId: SessionId,
+  event: AgentEvent,
+): Record<string, unknown> {
+  const fields = [
+    'inputId',
+    'runId',
+    'changeId',
+    'disposition',
+    'reason',
+    'ok',
+    'code',
+  ];
+  const data: Record<string, unknown> = { sessionId };
+  for (const [key, value] of Object.entries(event))
+    if (value !== undefined && fields.includes(key)) data[key] = value;
+  return data;
 }
