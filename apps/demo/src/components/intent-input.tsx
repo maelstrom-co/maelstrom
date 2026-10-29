@@ -1,11 +1,8 @@
-import {
-  type IntentSnapshot,
-  type IntentSubmission,
-  WireEngineError,
-} from '@maelstrom-co/client';
+import type { IntentSnapshot, IntentSubmission } from '@maelstrom-co/client';
 import { useStore } from '@tanstack/react-store';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { usesBrowserKey } from '../lib/hosted-mode';
+import { isInvalidKeyError } from '../lib/invalid-key-error';
 import { m } from '../lib/maelstrom';
 import { playgroundKeyStore } from '../lib/playground-key-store';
 import { AssistantResponse } from './assistant-response';
@@ -13,19 +10,6 @@ import { Captions } from './captions';
 import { FIRST_RUN_EXAMPLES } from './first-run-hint';
 import { VoiceControl } from './voice-control';
 import { VoiceErrorNote } from './voice-error-note';
-
-/**
- * True for a text-path (chart_request) failure caused by a rejected OpenAI
- * key — the browser-key analogue of the voice path's TOKEN_MINT_FAILED. The
- * wire error's `code` is the engine's `ProviderError._tag`, which covers
- * every LLM-adapter failure (network, rate limit, bad key); the message
- * text is what actually narrows it to a rejected key.
- */
-function isInvalidKeyError(error: Error): boolean {
-  const code = error instanceof WireEngineError ? error.code : undefined;
-  if (code !== 'ProviderError') return false;
-  return /\b401\b|invalid api key|incorrect api key/i.test(error.message);
-}
 
 interface IntentInputProps {
   readonly onBlockedSubmit: () => void;
@@ -44,7 +28,7 @@ export function IntentInput({
   resumeIntent,
   onResumeIntentHandled,
 }: IntentInputProps) {
-  const { enqueueIntent, connectionStatus } = m.useMaelstrom();
+  const { enqueueIntent, connectionStatus, isProcessing } = m.useMaelstrom();
   const { state: voiceState } = m.useVoice();
   const voiceActive = voiceState !== 'idle' && voiceState !== 'error';
   const browserKeyMode = usesBrowserKey();
@@ -54,7 +38,9 @@ export function IntentInput({
   const draftRevision = useRef(0);
   const latestSubmission = useRef<IntentSubmission | null>(null);
   const current = useRef({ intent, onIntentChange, onMintError });
-  current.current = { intent, onIntentChange, onMintError };
+  useLayoutEffect(() => {
+    current.current = { intent, onIntentChange, onMintError };
+  });
   const lifetime = useRef({
     active: true,
     subscriptions: new Set<() => void>(),
@@ -76,11 +62,11 @@ export function IntentInput({
     onIntentChange(value);
   };
 
-  const submit = () => {
-    if (!intent.trim()) return;
+  const submit = (): boolean => {
+    if (!intent.trim()) return false;
     if (needsKey) {
       onBlockedSubmit();
-      return;
+      return false;
     }
     const text = intent;
     const ticket = enqueueIntent(text);
@@ -119,20 +105,22 @@ export function IntentInput({
         current.current.onMintError('Invalid API key.');
       }
     });
+    return ticket.accepted;
   };
 
+  // A refused resume stays pending and retries only when processing changes,
+  // so a full queue is retried as it drains rather than in a tight loop.
   useEffect(() => {
     if (!resumeIntent || connectionStatus !== 'connected') return;
     let live = true;
     queueMicrotask(() => {
       if (!live) return;
-      onResumeIntentHandled();
-      submit();
+      if (!intent.trim() || submit()) onResumeIntentHandled();
     });
     return () => {
       live = false;
     };
-  }, [resumeIntent, connectionStatus]);
+  }, [resumeIntent, connectionStatus, isProcessing]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();

@@ -10,13 +10,11 @@ test('a newcomer can install all skills and request planning without granting ed
   await expect(
     page.getByText('Choose Project at the installation scope prompt.'),
   ).toBeVisible();
-  for (const agent of ['pi', 'opencode', 'claude-code']) {
+  for (const agent of ['codex', 'cursor', 'pi', 'opencode', 'claude-code']) {
     const command = page.locator(`[data-install-agent="${agent}"]`);
     await expect(command).toContainText("--skill '*'");
     await expect(command).toContainText(`--agent ${agent}`);
-    await expect(command).toContainText(
-      `${new URL(page.url()).origin}/agents/skills/bundle.zip`,
-    );
+    await expect(command).toContainText('maelstrom-co/skills');
     await expect(command).not.toContainText('--global');
   }
   const plan = page.locator('[data-first-plan]');
@@ -35,7 +33,7 @@ test('a newcomer can install all skills and request planning without granting ed
       `--skill maelstrom ${procedure}`,
     );
     await expect(card.locator('details pre code')).toContainText(
-      `${new URL(page.url()).origin}/agents/skills/bundle.zip`,
+      'maelstrom-co/skills',
     );
   }
   await expect(
@@ -68,6 +66,11 @@ test("returning through client navigation reveals this build's install commands"
 }) => {
   await page.goto('/agents/skills/');
   await expect(page.locator('[data-install-agent="pi"]')).toBeVisible();
+  // Commands render on the server; navigation needs the shared client scripts.
+  await expect(page.locator('html')).toHaveAttribute(
+    'data-sidebar-collapse-ready',
+    'true',
+  );
   await page.evaluate(() =>
     Object.assign(window, { onboardingNavigationProbe: true }),
   );
@@ -80,11 +83,9 @@ test("returning through client navigation reveals this build's install commands"
   ).toBe(true);
   await page.goBack();
   await expect(page).toHaveURL(/\/agents\/skills\/$/);
-  for (const agent of ['pi', 'opencode', 'claude-code']) {
+  for (const agent of ['codex', 'cursor', 'pi', 'opencode', 'claude-code']) {
     const command = page.locator(`[data-install-agent="${agent}"]`);
     await expect(command).toBeVisible();
-    await expect(command).toContainText(
-      `${new URL(page.url()).origin}/agents/skills/bundle.zip`,
-    );
+    await expect(command).toContainText('maelstrom-co/skills');
   }
 });

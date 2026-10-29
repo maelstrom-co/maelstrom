@@ -23,6 +23,12 @@
   ],
   "references": [
     {
+      "path": "../../packages/planner-llm"
+    },
+    {
+      "path": "../../packages/engine"
+    },
+    {
       "path": "../../packages/telemetry"
     },
     {

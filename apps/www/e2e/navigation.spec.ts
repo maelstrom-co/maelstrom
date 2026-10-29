@@ -16,10 +16,7 @@ test('public visitors can find installation and GitHub without beta access instr
   ).toHaveAttribute('href', 'https://github.com/maelstrom-co/maelstrom');
   await expect(
     page.getByRole('link', { name: 'Get started →' }),
-  ).toHaveAttribute(
-    'href',
-    'https://docs.maelstrom-ai.co/getting-started/installation/',
-  );
+  ).toHaveAttribute('href', '/#get-started');
   await expect(page.locator('body')).not.toContainText(
     /private beta|beta tester|request GitHub access/i,
   );
@@ -125,6 +122,8 @@ for (const width of [1280, 375]) {
     const sources = ['navigation', 'community_section', 'footer_community'];
     for (const source of sources) {
       const link = page.locator(`[data-discord-source="${source}"]`);
+      if (source === 'navigation' && width === 375)
+        await page.getByRole('button', { name: 'Open menu' }).click();
       await expect(link).toBeVisible();
       await expect(link).toHaveAttribute(
         'href',

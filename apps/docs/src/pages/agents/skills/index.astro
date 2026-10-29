@@ -5,8 +5,8 @@ import {
   firstImplementationRequest,
   firstPlanRequest,
   skillAgents,
-  skillBundleUrl,
   skillInstaller,
+  skillRepository,
   skillTasks,
 } from '../../../lib/skill-onboarding';
 
@@ -15,6 +15,7 @@ const sourceTree = `https://github.com/maelstrom-co/maelstrom/tree/${sourceRef}/
 const sourceFile = `https://github.com/maelstrom-co/maelstrom/blob/${sourceRef}/apps/docs/skills/README.md`;
 const headings = [
   { depth: 2, slug: 'install-heading', text: 'Install the complete bundle' },
+  { depth: 2, slug: 'plugins-heading', text: 'Install a native plugin' },
   { depth: 2, slug: 'verify-heading', text: 'Verify discovery' },
   { depth: 2, slug: 'first-task-heading', text: 'Run a safe first task' },
   { depth: 2, slug: 'tasks-heading', text: 'Choose your task' },
@@ -40,17 +41,23 @@ const headings = [
       {skillAgents.map((agent) => (
         <div class="agent-install">
           <h3>{agent.name}</h3>
-          <pre data-bundle-command hidden data-install-agent={agent.id}><code>{`bunx ${skillInstaller} add ${skillBundleUrl} --skill '*' --agent ${agent.id} --copy`}</code></pre>
+          <pre data-skill-command data-install-agent={agent.id}><code>{`bunx ${skillInstaller} add ${skillRepository} --skill '*' --agent ${agent.id} --copy`}</code></pre>
           <p>Project location: <code>{agent.directory}</code></p>
         </div>
       ))}
-      <p>Install from the generated bundle. Individual procedure directories include their required references, including voice architecture requirements. The authored GitHub tree uses a different shared-reference layout.</p>
+      <p>Install from the public skills repository. Each procedure includes its required references, including voice architecture requirements. The documentation bundle below preserves the revision of this documentation build.</p>
       <details>
         <summary>Manual ZIP or a single procedure</summary>
         <p><a href="/agents/skills/bundle.zip" download="maelstrom-agent-skills.zip">Download the complete skills bundle</a>. Extract the contents of <code>apps/docs/skills/</code> into your agent's project skills directory.</p>
         <p>For only debugging, replace <code>--skill '*'</code> with <code>--skill maelstrom maelstrom-debugging</code>. Keep the entry skill so the same starting request still works. Copy whole directories for a manual installation.</p>
       </details>
-      <noscript><p>Use the manual ZIP download to install this build's skills when JavaScript is disabled.</p></noscript>
+      <noscript><p>The installation commands above remain available without JavaScript.</p></noscript>
+    </section>
+
+    <section aria-labelledby="plugins-heading">
+      <h2 id="plugins-heading">Install a native plugin</h2>
+      <p>The <a href="https://github.com/maelstrom-co/skills">public skills repository</a> also includes native plugin manifests for Codex, Claude Code, and Cursor, plus a Pi git package. Follow its README for installation. Choose one installation method to avoid duplicate skill names.</p>
+      <p>Repository installation works independently of reviewed directory listings. Listing and review status are tracked separately.</p>
     </section>
 
     <section aria-labelledby="verify-heading">
@@ -64,8 +71,10 @@ const headings = [
 
     <section aria-labelledby="first-task-heading">
       <h2 id="first-task-heading">Run a safe first task</h2>
-      <h3>Plan a first integration</h3>
+      <h3>Start a new app or integrate an existing one</h3>
+      <p>Ask for <code>maelstrom</code>. It asks about your goal and starting point when they are missing, then selects one existing procedure. You do not need to choose a procedure first.</p>
       <pre data-first-plan><code>{firstPlanRequest}</code></pre>
+      <p>For a new React app, the <a href="/getting-started/starter/">runnable starter</a> verifies the local client-to-Engine path without a provider key. For an existing app, the procedure inspects your application and selects one bounded capability.</p>
       <p>Expect one selected procedure, evidence from your app, a bounded pilot, and a verification/rollback plan. With no SDK installed, expect the agent to say which API details remain unverified.</p>
       <h3>Authorize a bounded implementation</h3>
       <pre><code>{firstImplementationRequest}</code></pre>
@@ -85,7 +94,7 @@ const headings = [
             <p>Installation: included in the complete bundle above.</p>
             <details>
               <summary>Install only this procedure and the entry skill</summary>
-              <pre data-bundle-command hidden><code>{`bunx ${skillInstaller} add ${skillBundleUrl} --skill maelstrom ${task.id} --agent pi --copy`}</code></pre>
+              <pre data-skill-command><code>{`bunx ${skillInstaller} add ${skillRepository} --skill maelstrom ${task.id} --agent pi --copy`}</code></pre>
               <p>Replace <code>pi</code> with your selected agent target. Choose Project at the scope prompt.</p>
             </details>
             <pre><code>{task.request}</code></pre>
@@ -111,7 +120,7 @@ const headings = [
 
     <section aria-labelledby="maintain-heading">
       <h2 id="maintain-heading">Update and remove</h2>
-      <p>For a Vercel Skills installation, rerun the original <code>add</code> command to refresh from the current docs bundle. To remove only Maelstrom skills, use their names and the original agent target:</p>
+      <p>For a Vercel Skills installation, rerun the original <code>add</code> command to refresh from the public skills repository. To remove only Maelstrom skills, use their names and the original agent target:</p>
       <pre><code>{`bunx ${skillInstaller} remove maelstrom ${skillTasks.map((task) => task.id).join(' ')} --agent pi`}</code></pre>
       <p>Replace the agent target as needed. Keep unrelated skills. SDK updates use your project's package manager and update their packaged API guides independently.</p>
       <details>
@@ -125,7 +134,7 @@ const headings = [
       <h2 id="troubleshoot-heading">Troubleshoot discovery</h2>
       <dl>
         <dt>The installer lists the skill, but the agent does not</dt><dd>Check the selected agent, project directory, trust/skill permissions, and reload behavior. Ask it to read the installed entry file. Do not treat a global installation as a project installation.</dd>
-        <dt>A referenced file is missing</dt><dd>Refresh from the generated ZIP and copy the complete procedure directory. A copied <code>SKILL.md</code> from GitHub does not include build-generated references.</dd>
+        <dt>A referenced file is missing</dt><dd>Refresh from the public skills repository and copy the complete procedure directory. A lone <code>SKILL.md</code> from the authored monorepo layout omits its generated references. The documentation ZIP is also available for a copy from this build.</dd>
         <dt>Intent finds no guides</dt><dd>First check whether the installed package ships a guide. For a listed exception, inspect its installed API artifacts instead. Otherwise check the workspace, installation, and <code>intent.skills</code>/<code>intent.exclude</code>. Planning can continue without SDK APIs.</dd>
         <dt>A guide disagrees with an API</dt><dd>Check the installed package manifest, exported declarations, and runtime entrypoint. Runtime JavaScript can be bundled in <code>dist/index.js</code>; declaration subpaths do not imply matching JavaScript files.</dd>
         <dt>The agent loads the wrong workflow</dt><dd>State the primary outcome and authority explicitly. Ask it to load <code>maelstrom</code>, select one procedure, and report which installed guide supports its API claims.</dd>
@@ -135,21 +144,7 @@ const headings = [
     <p class="source-links">For source browsing only: <a href={sourceTree}>skills tree</a> and <a href={sourceFile}>maintainer README</a>.</p>
   </div>
 </StarlightPage>
-<script>
-  import { skillBundleUrl } from '../../../lib/skill-onboarding';
 
-  const initBundleCommands = () => {
-    const servedBundle = new URL('/agents/skills/bundle.zip', location.origin).href;
-    for (const pre of document.querySelectorAll<HTMLElement>('[data-bundle-command]')) {
-      const code = pre.querySelector('code');
-      if (!code?.textContent) continue;
-      code.textContent = code.textContent.replace(skillBundleUrl, servedBundle);
-      pre.hidden = false;
-    }
-  };
-  initBundleCommands();
-  document.addEventListener('astro:page-load', initBundleCommands);
-</script>
 <style>
   .skill-index { max-width: 58rem; }
   section { margin-top: 2rem; }

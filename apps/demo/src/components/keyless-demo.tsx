@@ -1,4 +1,5 @@
 import type { FormEvent } from 'react';
+import { availableVoiceProviders } from '../lib/voice-provider';
 import { useCalendarStore } from '../vessels/calendar.store';
 import { useTasksStore } from '../vessels/tasks.store';
 import { DemoHeader } from './demo-header';
@@ -32,7 +33,7 @@ export function KeylessDemo({
   return (
     <div className="demo-shell keyless-shell relative z-[2]">
       <DemoHeader>
-        <KeylessVoiceProviderSelect />
+        <KeylessVoiceProviderSelect options={availableVoiceProviders()} />
         <button
           type="button"
           className="text-sm text-ink-2"

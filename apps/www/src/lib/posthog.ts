@@ -1,4 +1,7 @@
 type WebsiteEvent =
+  | 'get_started_clicked'
+  | 'setup_copied'
+  | 'playground_opened'
   | 'community_discord_invite_clicked'
   | 'waitlist_submission_accepted'
   | 'waitlist_confirmation_page_viewed'
@@ -17,8 +20,12 @@ export function captureWebsiteEvent(
       ) => void;
     };
   };
-  posthog?.capture?.(event, properties, {
-    transport: 'sendBeacon',
-    send_instantly: true,
-  });
+  try {
+    posthog?.capture?.(event, properties, {
+      transport: 'sendBeacon',
+      send_instantly: true,
+    });
+  } catch {
+    console.warn('[website_analytics_failed]', event);
+  }
 }

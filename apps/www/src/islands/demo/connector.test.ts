@@ -47,6 +47,43 @@ async function processWithTick(
 }
 
 describe('ScriptedConnector (DEMO_STEPS)', () => {
+  it('resizing preserves the current scene without replaying its add-task side effect or skipping the next scene', async () => {
+    const steps = [
+      DEMO_STEPS[0],
+      DEMO_STEPS[1],
+      DEMO_STEPS[2],
+      { ...DEMO_STEPS[0], userMessage: 'Next scene' },
+    ] as const;
+    const connector = new ScriptedConnector(steps);
+    await connector.process(makeRequest());
+    await processWithTick(connector);
+    const action = await processWithTick(connector);
+    expect(action.executionPlan.some((item) => item.action === 'addTask')).toBe(
+      true,
+    );
+    const request = makeRequest();
+    const resized = await connector.process({
+      ...request,
+      request: {
+        ...request.request,
+        context: {
+          ...request.request.context,
+          updateReasons: [
+            {
+              type: 'chart_resize',
+              previous: { columns: 12, rows: 8 },
+              current: { columns: 10, rows: 6 },
+            },
+          ],
+        },
+      },
+    });
+    expect(resized.layout).toEqual(action.layout);
+    expect(resized.executionPlan).toEqual([]);
+    const next = await processWithTick(connector);
+    expect(next.layout).toEqual(steps[3].layout);
+    expect(next.userMessage).toBe('Next scene');
+  });
   it('returns initial layout on first request', async () => {
     const connector = new ScriptedConnector(DEMO_STEPS);
     const response = await connector.process(makeRequest());

@@ -73,9 +73,12 @@ async function setup(
   const onBlockedSubmit = vi.fn();
   const onResumeIntentHandled = vi.fn();
   const onDraft = vi.fn();
+  let requestResume = () => {};
   function Composer() {
     client = m.useContext().orchestrator;
     const [intent, setIntent] = useState(resume ? 'resume me' : '');
+    const [resumeIntent, setResumeIntent] = useState(resume);
+    requestResume = () => setResumeIntent(true);
     return (
       <IntentInput
         intent={intent}
@@ -85,8 +88,11 @@ async function setup(
         }}
         onMintError={onMintError}
         onBlockedSubmit={onBlockedSubmit}
-        resumeIntent={resume}
-        onResumeIntentHandled={onResumeIntentHandled}
+        resumeIntent={resumeIntent}
+        onResumeIntentHandled={() => {
+          onResumeIntentHandled();
+          setResumeIntent(false);
+        }}
       />
     );
   }
@@ -131,6 +137,10 @@ async function setup(
     onResumeIntentHandled,
     onDraft,
     tree,
+    requestResume: () =>
+      act(async () => {
+        requestResume();
+      }),
   };
 }
 
@@ -348,6 +358,34 @@ it('keeps key gating and resumes once on connection, clearing only the admitted 
   expect(h.onBlockedSubmit).toHaveBeenCalledOnce();
   expect(h.input().value).toBe('needs key');
   expect(h.sent).toHaveLength(1);
+});
+
+it('keeps a resumed intent the queue refused and retries it once processing changes', async () => {
+  const h = await setup({ capacity: 1 });
+  h.type('active');
+  await h.send();
+  h.type('queued');
+  await h.send();
+  h.type('resume me');
+  await h.requestResume();
+  expect(h.onResumeIntentHandled).not.toHaveBeenCalled();
+  expect(h.input().value).toBe('resume me');
+  expect(h.sent).toHaveLength(1);
+  await act(async () => {
+    h.finish(0);
+  });
+  await act(async () => {
+    h.finish(1);
+  });
+  expect(h.onResumeIntentHandled).toHaveBeenCalledOnce();
+  expect(h.input().value).toBe('');
+  expect(
+    h.sent.map((request) => request.request.context.updateReasons.at(-1)),
+  ).toEqual([
+    { type: 'user_intent', intent: 'active' },
+    { type: 'user_intent', intent: 'queued' },
+    { type: 'user_intent', intent: 'resume me' },
+  ]);
 });
 
 it('bounds completed feedback while retaining pending work', async () => {

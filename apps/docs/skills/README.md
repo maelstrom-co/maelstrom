@@ -1,25 +1,31 @@
 # Maelstrom agent skills
 
-This directory is the canonical Markdown source for Maelstrom coding-agent skills. The revision-matched consumer bundle is generated from this complete tree during the docs build and is available as a [direct ZIP download](https://docs.maelstrom-ai.co/agents/skills/bundle.zip) or from the [Agent Skills docs page](https://docs.maelstrom-ai.co/agents/skills/). The build copies each procedure's required shared references into its own directory and rewrites its links. Voice includes read-only projections of the canonical architecture requirements. Install from the generated bundle so these resources accompany the skill; GitHub source browsing exposes the authoring layout. The extracted files are plain Markdown and need no runtime package, registry, or repository checkout.
+This directory is the canonical Markdown source for Maelstrom coding-agent skills. Install from the generated [public skills repository](https://github.com/maelstrom-co/skills) or follow the [Agent Skills docs page](https://docs.maelstrom-ai.co/agents/skills/). Each distributed procedure includes its required shared references, including the voice architecture requirements. This monorepo directory retains the authoring layout. The docs build also provides a [revision-matched ZIP](https://docs.maelstrom-ai.co/agents/skills/bundle.zip). Skills contain plain Markdown and need no runtime package or SDK installation for planning.
 
 ## Consumer entrypoint
+
+The `maelstrom` entry skill asks about the goal and whether the user is starting
+a new app or integrating an existing one when that context is missing. New React
+apps can start from the runnable starter; existing apps keep their behavior while
+the onboarding procedure selects a bounded pilot. Other focused tasks still use
+their dedicated procedures.
 
 Install the complete bundle in the selected tool's project-scoped skill directory, then invoke the `maelstrom` entry skill for any Maelstrom task. It inspects the task and installed package versions, selects exactly one procedure, and routes API-specific work to guides shipped inside the SDK packages. The entry skill remains useful before any SDK is installed. A standalone prompt can be used without a skill; skills do not assemble, modify, or supply prompt bodies. Follow the user's authorization: plan-only work stops at a plan, while explicitly authorized implementation proceeds after inspection unless inspection reveals a material unresolved decision.
 
 ### Install, discover, update, and remove
 
-Start with [Build with an agent](https://docs.maelstrom-ai.co/agents/skills/) for installation, the task catalog, a safe first request, and troubleshooting. Install the generated complete bundle through the pinned Vercel Skills tool from your application directory. For Pi:
+Start with [Build with an agent](https://docs.maelstrom-ai.co/agents/skills/) for installation, the task catalog, a safe first request, and troubleshooting. Install the generated collection from the public repository through the pinned Vercel Skills tool. Run the command from your application directory. For Pi:
 
 ```sh
-bunx skills@1.7.0 add https://docs.maelstrom-ai.co/agents/skills/bundle.zip --skill '*' --agent pi --copy
+bunx skills@1.7.0 add maelstrom-co/skills --skill '*' --agent pi --copy
 bunx skills@1.7.0 list --agent pi
 ```
 
 Choose **Project** at the installation scope prompt. Global installation uses a
-different directory and is not the project installation described here. In a PR
-preview, copy the commands from the preview page to use that build's bundle.
+different directory and is not the project installation described here.
+For a copy from a particular documentation build, use that build's ZIP download.
 
-Replace `pi` with `opencode` or `claude-code` for those tools. Pi uses `.pi/skills/`, OpenCode uses `.agents/skills/`, and Claude Code uses `.claude/skills/`. Restart or reload the coding agent and ask it to read the installed `maelstrom` entry skill. An installer listing is not proof of activation or correct application. No global install, SDK install, or provider key is required for a planning task.
+Replace `pi` with `codex`, `cursor`, `opencode`, or `claude-code` for those tools. With the pinned installer, Pi uses `.pi/skills/`; Codex, Cursor, and OpenCode share `.agents/skills/`; Claude Code uses `.claude/skills/`. Restart or reload the coding agent and ask it to read the installed `maelstrom` entry skill. An installer listing is not proof of activation or correct application. No global install, SDK install, or provider key is required for a planning task.
 
 For manual installation, extract the ZIP's `apps/docs/skills/` contents into the selected tool's project skill directory. Preserve the complete tree. Use whole generated procedure directories for individual copies; authored GitHub files do not include the build projections.
 
@@ -30,12 +36,12 @@ For an existing checkout of this repository, `bun run --cwd apps/docs skills:ins
 With Bun installed, run this from your application directory to install the debugging procedure through [Vercel Skills](https://github.com/vercel-labs/skills):
 
 ```sh
-bunx skills@1.7.0 add https://docs.maelstrom-ai.co/agents/skills/bundle.zip --skill maelstrom-debugging
+bunx skills@1.7.0 add maelstrom-co/skills --skill maelstrom-debugging
 ```
 
 Choose your coding agent and project scope when prompted, then ask it to use `maelstrom-debugging`. Select another procedure with its name from the table below. Each generated procedure directory contains its required local references, including transitive references; copy the entire directory if installing manually. The shared sibling `references/` directory is retained for complete-bundle consumers, but individual procedures do not depend on it. The entry skill selects a procedure and asks for it to be installed when it is missing.
 
-For an installation managed by Vercel Skills, rerun the same `add` command to refresh it from the current docs bundle. Use `bunx skills@1.7.0 remove maelstrom-debugging` to remove that skill through the same installer. Keep manual, Vercel Skills, and repository-installer ownership separate when updating or removing files.
+For an installation managed by Vercel Skills, rerun the same `add` command to refresh it from the public skills repository. Use `bunx skills@1.7.0 remove maelstrom-debugging` to remove that skill through the same installer. Keep manual, Vercel Skills, and repository-installer ownership separate when updating or removing files.
 
 | Task | Lead skill | Reference selection |
 | --- | --- | --- |
@@ -80,6 +86,7 @@ apps/docs/skills/
     ├── browser-react.md
     ├── connectors-and-auth.md
     ├── debugging-evidence.md
+    ├── new-project.md
     ├── provider-deployment.md
     ├── rollback.md
     ├── security-and-telemetry.md

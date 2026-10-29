@@ -4,6 +4,35 @@ import { closeSync, openSync, realpathSync } from 'node:fs';
 import { lstat, readdir, readFile, readlink } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 
+type TrialSignal = (target: number, signal: NodeJS.Signals | 0) => boolean;
+
+export async function finishTrialCleanup(
+  target: number,
+  signal: TrialSignal = process.kill,
+): Promise<void> {
+  if (!Number.isSafeInteger(target) || Math.abs(target) < 2)
+    throw new RangeError('Use one retained process or group identity');
+  try {
+    signal(target, 'SIGKILL');
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'ESRCH') return;
+    if (code !== 'EPERM') throw error;
+    const deadline = performance.now() + 100;
+    for (;;) {
+      try {
+        signal(target, 0);
+      } catch (probe) {
+        const probeCode = (probe as NodeJS.ErrnoException).code;
+        if (probeCode === 'ESRCH') return;
+        if (probeCode !== 'EPERM') throw error;
+      }
+      if (performance.now() >= deadline) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+  }
+}
+
 export function credentialSandbox(paths: readonly string[]): string {
   const canonical = new Set(
     paths.flatMap((path) => [
@@ -55,7 +84,8 @@ export async function runTrialProcess(
       child.once('close', resolve);
     });
     if (expired) {
-      stopGroup('SIGKILL');
+      if (escalation) clearTimeout(escalation);
+      if (groupId && groupId > 1) await finishTrialCleanup(-groupId);
       throw new Error(
         `Trial timed out; inspect protected evidence at ${stderr}`,
       );

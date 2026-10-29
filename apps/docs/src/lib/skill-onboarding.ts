@@ -1,15 +1,20 @@
 export const skillBundleUrl =
   'https://docs.maelstrom-ai.co/agents/skills/bundle.zip';
+export const skillRepository = 'maelstrom-co/skills';
+export const reactStarterRepository =
+  'https://github.com/maelstrom-co/react-starter';
 export const skillInstaller = 'skills@1.7.0';
 
 export const skillAgents = [
+  { id: 'codex', name: 'Codex', directory: '.agents/skills/' },
+  { id: 'cursor', name: 'Cursor', directory: '.agents/skills/' },
   { id: 'pi', name: 'Pi', directory: '.pi/skills/' },
   { id: 'opencode', name: 'OpenCode', directory: '.agents/skills/' },
   { id: 'claude-code', name: 'Claude Code', directory: '.claude/skills/' },
 ] as const;
 
 export const firstPlanRequest =
-  'Use the maelstrom skill to inspect this app and plan one bounded Maelstrom integration. Report the selected capability, installed SDK versions, verification plan, and rollback. Do not edit files or install packages.';
+  'Use the maelstrom skill to help me get started. Ask what I want to build and whether this is a new app or an existing one, unless that is already clear. Plan one bounded integration. Report the selected capability, installed SDK versions, verification plan, and rollback. Do not edit files or install packages.';
 
 export const firstImplementationRequest =
   'Use the maelstrom skill to implement only the approved integration described below. Preserve application data, authorization, and the legacy path. Run the relevant typecheck, tests, and lint. Report live Engine checks separately. Approved goal: [describe the bounded capability].';
@@ -18,7 +23,8 @@ export const skillTasks = [
   {
     id: 'maelstrom-project-onboarding',
     title: 'Plan a first integration',
-    outcome: 'Inspect an existing app and choose one useful pilot.',
+    outcome:
+      'Start a new app or inspect an existing one, then choose one useful pilot.',
     request: firstPlanRequest,
     evidence:
       'An observed capability, exact installed versions or their absence, and a plan with no edits.',
