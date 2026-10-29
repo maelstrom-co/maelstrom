@@ -31,11 +31,32 @@ export interface OpenConnectionOptions {
   readonly capabilities?: unknown;
   /** Monotonic millisecond clock for measuring run duration. Defaults to performance.now. */
   readonly clock?: () => number;
-  /** Maximum wait for UI application before the run fails. Defaults to 30,000 milliseconds. */
+  /**
+   * Maximum wait in milliseconds for the browser to acknowledge a UI change
+   * with `ui_applied`. Defaults to 30,000. Must be a positive integer no
+   * greater than 2,147,483,647, or opening the connection throws. When it
+   * elapses, the run finishes with code `ui_ack_timeout`, every queued
+   * utterance finishes as `cancelled`, and the next utterance plans against
+   * its own Chart.
+   */
   readonly acknowledgementTimeoutMs?: number;
 }
 
-/** One connection's ordered Agent Session event stream. */
+/**
+ * One connection's ordered Agent Session event stream.
+ *
+ * Capacity is bounded per connection:
+ * - At most 32 utterances are pending, including the one being planned or
+ *   awaiting acknowledgement. A further utterance receives an `error` event
+ *   with code `queue_full` and is not remembered, so it can be sent again.
+ * - At most 4,096 input IDs are remembered, with no eviction, so a repeated
+ *   input is always ignored. After that, a new utterance receives an `error`
+ *   event with code `session_capacity`. The host must open a new connection
+ *   to continue.
+ * - Each UI change waits for acknowledgement for at most
+ *   {@link OpenConnectionOptions.acknowledgementTimeoutMs}, 30 seconds by
+ *   default. A timeout fails the run and cancels queued work.
+ */
 export interface AgentConnection {
   /** Accepts untrusted input. Resolves after handling it, without waiting for a later UI acknowledgement. */
   send(input: unknown): Promise<void>;
