@@ -72,7 +72,18 @@ test('shipped SDK recipes and voice README examples compile against published de
       }
     }
   }
-  expect(guideCount).toBe(16);
+  expect(guideCount).toBe(18);
+  const mcpGuide = await readFile(
+    join(root, 'apps/docs/src/content/docs/guides/devtools-mcp.mdx'),
+    'utf8',
+  );
+  const mcpBlocks = [...mcpGuide.matchAll(/```ts[^\n]*\n([\s\S]*?)\n```/g)];
+  expect(mcpBlocks.length).toBeGreaterThan(0);
+  for (const [index, match] of mcpBlocks.entries())
+    examples.set(
+      join(root, 'apps/docs', '__sdk_examples__', `devtools-mcp-${index}.ts`),
+      match[1],
+    );
   const liveGuide = await readFile(
     join(
       root,

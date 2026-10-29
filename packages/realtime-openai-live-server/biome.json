@@ -22,7 +22,8 @@
               "@maelstrom-co/devtools": "Browser diagnostics are forbidden in server/worker packages. See packages/realtime-protocol/src/layer-boundary.test.ts.",
               "@maelstrom-co/react-devtools": "Browser diagnostics are forbidden in server/worker packages. See packages/realtime-protocol/src/layer-boundary.test.ts.",
               "@maelstrom-co/devtools/production": "Browser diagnostics are forbidden in server/worker packages. See packages/realtime-protocol/src/layer-boundary.test.ts.",
-              "@maelstrom-co/react-devtools/production": "Browser diagnostics are forbidden in server/worker packages. See packages/realtime-protocol/src/layer-boundary.test.ts."
+              "@maelstrom-co/react-devtools/production": "Browser diagnostics are forbidden in server/worker packages. See packages/realtime-protocol/src/layer-boundary.test.ts.",
+              "@maelstrom-co/devtools/mcp-bridge": "Browser diagnostics are forbidden in server/worker packages. See packages/realtime-protocol/src/layer-boundary.test.ts."
             }
           }
         }

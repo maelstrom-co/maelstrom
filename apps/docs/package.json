@@ -71,7 +71,9 @@
     "@maelstrom-co/telemetry": "workspace:*",
     "@maelstrom-co/engine": "workspace:*",
     "@maelstrom-co/planner-llm": "workspace:*",
-    "@tanstack/ai-openai": "catalog:"
+    "@tanstack/ai-openai": "catalog:",
+    "@maelstrom-co/devtools-mcp-server": "workspace:*",
+    "@maelstrom-co/devtools-protocol": "workspace:*"
   },
   "nx": {
     "implicitDependencies": [
@@ -94,7 +96,9 @@
       "@maelstrom-co/realtime-livekit-agent",
       "@maelstrom-co/devtools",
       "@maelstrom-co/react-devtools",
-      "@maelstrom-co/telemetry"
+      "@maelstrom-co/telemetry",
+      "@maelstrom-co/devtools-mcp-server",
+      "@maelstrom-co/devtools-protocol"
     ],
     "targets": {
       "build": {

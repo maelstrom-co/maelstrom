@@ -23,6 +23,12 @@
   ],
   "references": [
     {
+      "path": "../../packages/devtools-protocol"
+    },
+    {
+      "path": "../../packages/devtools-mcp-server"
+    },
+    {
       "path": "../../packages/planner-llm"
     },
     {

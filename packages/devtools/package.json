@@ -25,6 +25,11 @@
       "types": "./dist/index.d.ts",
       "development": "./dist/index.js",
       "default": "./dist/disabled.js"
+    },
+    "./mcp-bridge": {
+      "@maelstrom-co/source": "./src/mcp-bridge.ts",
+      "types": "./dist/mcp-bridge.d.ts",
+      "default": "./dist/mcp-bridge.js"
     }
   },
   "files": [
@@ -52,7 +57,8 @@
     "@maelstrom-co/telemetry": "0.1.1",
     "@pgrabovets/json-view": "catalog:",
     "solid-js": "catalog:",
-    "zod": "catalog:"
+    "zod": "catalog:",
+    "@maelstrom-co/devtools-protocol": "0.1.1"
   },
   "devDependencies": {},
   "nx": {

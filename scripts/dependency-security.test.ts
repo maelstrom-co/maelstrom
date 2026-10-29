@@ -19,6 +19,68 @@ function installedDependency(start: string, ...chain: string[]) {
   return { require, root: dirname(manifest) };
 }
 
+test('deployment static files cannot bypass protected-route middleware through a second path decode', () => {
+  const prisma = installedDependency(
+    'infra/platform/package.json',
+    'alchemy',
+    '@prisma/dev',
+  );
+  const result = spawnSync(
+    Bun.which('node') ?? 'node',
+    [
+      '--input-type=module',
+      '-e',
+      `
+    import { createRequire } from 'node:module';
+    import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+    import { tmpdir } from 'node:os';
+    import { join } from 'node:path';
+    import { get } from 'node:http';
+    const require = createRequire(${JSON.stringify(join(prisma.root, 'package.json'))});
+    const { Hono } = require('hono');
+    const { serve } = require('@hono/node-server');
+    const { serveStatic } = require('@hono/node-server/serve-static');
+    const root = mkdtempSync(join(tmpdir(), 'deployment-static-'));
+    mkdirSync(join(root, 'static/admin'), { recursive: true });
+    writeFileSync(join(root, 'static/admin/secret.txt'), 'protected fixture');
+    writeFileSync(join(root, 'static/public.txt'), 'public fixture');
+    const app = new Hono();
+    app.use('/static/admin/*', context => context.text('Unauthorized', 401));
+    app.use('/static/*', serveStatic({ root }));
+    let server;
+    try {
+      const info = await new Promise(resolve => {
+        server = serve({ fetch: app.fetch, hostname: '127.0.0.1', port: 0, overrideGlobalObjects: false }, resolve);
+      });
+      const read = path => new Promise((resolve, reject) => {
+        get({ hostname: '127.0.0.1', port: info.port, path }, response => {
+          let body = '';
+          response.setEncoding('utf8');
+          response.on('data', chunk => body += chunk);
+          response.on('end', () => resolve({ status: response.statusCode, body }));
+        }).on('error', reject);
+      });
+      console.log(JSON.stringify({
+        public: await read('/static/public.txt'),
+        protected: await read('/static/admin/secret.txt'),
+        encoded: await read('/static/%%36%31dmin/secret.txt'),
+      }));
+    } finally {
+      if (server) await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+      rmSync(root, { recursive: true, force: true });
+    }
+  `,
+    ],
+    { timeout: 10000, encoding: 'utf8', maxBuffer: 1024 * 1024 },
+  );
+  expect(result.status, result.error?.message ?? result.stderr).toBe(0);
+  const response = JSON.parse(result.stdout);
+  expect(response.public).toEqual({ status: 200, body: 'public fixture' });
+  expect(response.protected.status).toBe(401);
+  expect(response.encoded.status).toBe(404);
+  expect(response.encoded.body).not.toContain('protected fixture');
+}, 15000);
+
 const qsPackage = installedDependency(
   'package.json',
   'verdaccio',
