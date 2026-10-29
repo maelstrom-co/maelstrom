@@ -109,11 +109,11 @@ type EngineOutput =
 
 **`ChartRequestMessage`** — asks the engine for a layout and execution plan. Carries a `ChartRequest` describing the current chart state, registered vessels, and the reasons for the update.
 
-**`AssistantInjectionMessage`** — persists developer-supplied content into session history without invoking the LLM. The corresponding `assistant_message_result` output reports `outcome: 'inserted' | 'deduped'` so idempotent replay paths can branch.
+**`AssistantInjectionMessage`** records developer-supplied content in configured Engine history without invoking the Planner. The Engine rejects injections when history is not configured. The corresponding `assistant_message_result` output reports `outcome: 'inserted' | 'deduped'`, subject to the retention limits described under [duplex wire envelopes](#duplex-wire-envelopes).
 
 ### Smart constructors
 
-Envelopes are constructed via factories that share their name with their type (the identifier doubles as type and value, exploiting TypeScript's separate namespaces). The factory fills in `id` (UUID) and `timestamp` (`Date.now()`) unless you pass them.
+Envelopes are constructed via factories that share their name with their type (the identifier doubles as type and value, exploiting TypeScript's separate namespaces). The factory fills in `id` (Nano ID) and `timestamp` (`Date.now()`) unless you pass them.
 
 ```ts
 import {
@@ -138,6 +138,54 @@ const injection = AssistantInjectionMessage({
 ```
 
 A non-finite `timestamp` (`NaN`, `±Infinity`) is rejected at construction — it would silently corrupt history ordering, which sorts by this field.
+
+### Duplex wire envelopes
+
+The duplex transport exchanges `ClientEnvelope` and `ServerEnvelope` values. Chart requests and assistant injections use these wire shapes (`?` marks an optional field):
+
+```text
+AcknowledgedAssistantMessage {
+  type: 'client.assistant_message.acknowledged';
+  id: MessageId;
+  sessionId: SessionId;
+  timestamp: number;
+  content: string;
+}
+
+AssistantMessageResultMessage {
+  type: 'engine.assistant_message.result';
+  requestId: MessageId;
+  sessionId: SessionId;
+  outcome: 'inserted' | 'deduped';
+}
+
+MaelstromResponseMessage {
+  type: 'engine.maelstrom.response';
+  requestId: MessageId;
+  sessionId?: SessionId;
+  response: MaelstromResponse;
+}
+
+EngineErrorMessage {
+  type: 'engine.error';
+  requestId?: MessageId;
+  sessionId?: SessionId;
+  error: string;
+  code?: string;
+}
+```
+
+`AcknowledgedAssistantMessage()` constructs an injection that requests a receipt. It generates `id` and defaults `timestamp` to `Date.now()` when omitted. The constructor rejects empty or whitespace-only IDs, empty content, and non-finite timestamps.
+
+Both injection variants require configured Engine history. Without it, the Engine rejects the injection and records no content. For a valid legacy `assistant_message`, `handleEnvelope` suppresses Engine failures and returns no reply. Use acknowledged injections when callers need failure responses.
+
+The Engine host maps the acknowledged request to an assistant injection. On success, it returns `engine.assistant_message.result`, with the request's `id` in `requestId` and the same `sessionId`. Failure produces a correlated `engine.error`.
+
+An `inserted` outcome means the store accepted the append. History limits may immediately remove that entry, so replaying its ID can return `inserted` again. A `deduped` outcome means the store found an entry with that ID in the session. The protocol does not guarantee permanent deduplication.
+
+A successful `chart_request` produces `engine.maelstrom.response`; failure produces `engine.error`. The response's `requestId` echoes the input's `id`. Errors can omit `requestId` when the host cannot recover it from the incoming frame. Clients must accept absent or unknown error codes and use `error` as the display message.
+
+The Engine's `handleEnvelope` adapter decodes an incoming frame and resolves to a `ServerEnvelope` or `null`. The host encodes each non-null reply with `encodeEnvelope` before sending it. Clients decode replies with `decodeServerEnvelope`.
 
 ### Agent wire frames
 

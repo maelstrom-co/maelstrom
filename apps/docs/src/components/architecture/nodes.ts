@@ -34,7 +34,7 @@ export const NODES: PackageNode[] = [
     label: '@maelstrom-co/engine',
     zone: 'server',
     tier: 'hero',
-    role: 'Server-side LLM decision core: turns context into an execution plan + layout directives.',
+    role: 'Runs the configured Planner and validates its proposed layout and Actions. Keeps conversation history when configured.',
     dependsOn: ['protocol'],
     deepDiveHref: '/understanding/engine/',
   },

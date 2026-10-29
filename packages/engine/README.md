@@ -14,6 +14,8 @@ This package is a **reference implementation** — it ships to demonstrate how t
 
 ## Quickstart
 
+The Gemini adapter reads its API key from `GOOGLE_API_KEY` or `GEMINI_API_KEY`.
+
 ```ts
 import { geminiText } from '@tanstack/ai-gemini';
 import {
@@ -25,7 +27,7 @@ import { createEngine } from '@maelstrom-co/engine';
 import { llmPlanner } from '@maelstrom-co/planner-llm';
 
 const engine = createEngine({
-  planner: llmPlanner({ adapter: geminiText('gemini-2.0-flash') }),
+  planner: llmPlanner({ adapter: geminiText('gemini-3.1-pro-preview') }),
 });
 
 const session = SessionId();
@@ -47,7 +49,7 @@ if (isOk(result) && result.value.type === 'chart_response') {
 
 ## The envelope model
 
-Every input to the engine is an `EngineMessage` — a tagged envelope carrying `sessionId`, `id`, and `timestamp` alongside the variant-specific payload. Every output mirrors that shape with an `EngineOutput` envelope.
+Every input to `Engine.handle()` is an `EngineMessage` carrying `sessionId`, `id`, and `timestamp` alongside its payload. A successful `EngineOutput` echoes the input's `sessionId` and `id`. The following notation shows the two input and output kinds:
 
 ```ts
 type EngineMessage =
@@ -59,7 +61,7 @@ type EngineOutput =
   | { type: 'assistant_message_result'; sessionId; id; outcome };
 ```
 
-The engine exposes a single public method that routes on `message.type`:
+The request entry point dispatches on `message.type`. This excerpt shows `handle()`; the full `Engine` interface also provides `getHistory()` and optional observation methods:
 
 ```ts
 interface Engine {
@@ -72,9 +74,11 @@ interface Engine {
 
 ### Why envelopes
 
-- **Uniform identity.** Every message is tagged with the same `sessionId` and `id`, so correlation, dedup, and audit work the same way across variants and across future message kinds.
-- **Wire format = engine format.** Connectors, transports, and server dispatch code are pure passthrough — they serialize and deserialize envelopes but never add, rename, or inject fields. The JSON on the wire is the `EngineMessage` the engine sees.
-- **Client constructs, intermediaries pass through.** The client edge (React provider, voice session loop, HTTP caller) calls the protocol factory functions and produces an envelope with all required fields. Nothing downstream mutates it.
+The client assigns message and session IDs before sending a request. The Engine echoes them in its result, which lets callers correlate responses and lets configured history identify duplicate requests.
+
+The duplex wire contract uses `ClientEnvelope` and `ServerEnvelope`. `handleEnvelope` decodes a client envelope, dispatches it, and maps the outcome back to the wire contract. For example, a successful `chart_response` becomes `engine.maelstrom.response`, with the input ID in `requestId`; a failed chart request becomes `engine.error`. The ordinary `assistant_message` wire envelope has no reply. Callers that need a receipt use `client.assistant_message.acknowledged`.
+
+The protocol's factories and codecs own the message shapes. A host supplies transport plumbing and calls the adapter instead of constructing wire responses itself.
 
 ### Message variants
 

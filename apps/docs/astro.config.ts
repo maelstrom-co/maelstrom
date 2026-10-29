@@ -139,7 +139,8 @@ export default defineConfig({
 ## Key Concepts
 - **Vessels**: State machines representing UI components with variants and actions
 - **Chart**: Layout surface in one of two modes — tiling (default: a preorder H/V split tree) or grid (integer cell coordinates)
-- **Engine**: Server-side LLM decision core that returns execution plans
+- **Engine**: Coordinates the configured Planner and validates its proposed layout and Actions; history is optional
+- **Planner**: Proposes a layout and execution plan from Chart state, update reasons, and available history
 - **Protocol**: Shared types and message definitions between client and engine
 
 ## Packages
@@ -147,7 +148,8 @@ export default defineConfig({
 - \`@maelstrom-co/client\` — Framework-agnostic client (Orchestrator, Connectors, ChartManager)
 - \`@maelstrom-co/protocol\` — Shared types, Zod schemas, message contract
 - \`@maelstrom-co/telemetry\` — Opt-in operational facts and bounded application-owned sink delivery
-- \`@maelstrom-co/engine\` — LLM decision engine (createEngine, LLMProvider)
+- \`@maelstrom-co/engine\`: Planning coordination and validation (createEngine, Engine, Planner)
+- \`@maelstrom-co/planner-llm\`: Reference LLM Planner (llmPlanner, prompt construction, provider adapter calls)
 - \`@maelstrom-co/react-devtools\` — Optional React diagnostics extension (devtools, m.Devtools)
 - \`@maelstrom-co/devtools\` — Optional framework-independent collector, explicit capture, and shared browser panel
 

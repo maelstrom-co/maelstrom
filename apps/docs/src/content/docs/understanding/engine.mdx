@@ -3,9 +3,11 @@ title: The Engine
 description: The reference decision core, and the boundary that keeps it swappable.
 ---
 
-The Engine is Maelstrom's decision core. Given the current chart state and a user intent, it asks an LLM to produce a layout and an execution plan, then returns a structured response.
+The Engine runs a configured Planner against the current Chart state and update reasons. It validates the proposed layout and execution plan, repairs recoverable problems, and returns a response for the client to apply.
 
-`@maelstrom-co/engine` is a **reference implementation**, not a mandate. Production systems may keep this package if its concurrency, history, logging, and safety trade-offs match their needs, or replace it with another implementation behind the same `Engine.handle()` contract. It ships so you can run Maelstrom locally, build demos, and understand how the contract works. It is not production-grade — production deployments supply their own implementation behind the same boundary.
+`@maelstrom-co/engine` is the reference implementation for local development and demos. Production deployments are expected to supply an implementation behind the same `Engine` interface. See [Deployment limits](#deployment-limits) for the reference implementation's storage and concurrency constraints.
+
+The Planner owns the decision process. The reference LLM Planner, `@maelstrom-co/planner-llm`, builds prompts and calls a provider adapter. Applications can supply another compatible Planner without replacing the Engine.
 
 ## Where it fits
 
@@ -18,7 +20,7 @@ Most React applications never import the engine directly. They use [`@maelstrom-
 
 ## The boundary
 
-The engine exposes a single durable contract:
+The request-handling part of the `Engine` interface is:
 
 ```ts title="Engine.handle()"
 interface Engine {
@@ -29,60 +31,65 @@ interface Engine {
 }
 ```
 
-Inputs and outputs are tagged envelopes (see [The Protocol](/understanding/protocol)). Every message carries a `sessionId`, `id`, and `timestamp`. Outputs carry `sessionId` and `id` so callers can correlate request and response. The wire format is the engine format — connectors and transports are pure passthrough.
+Every `EngineMessage` carries a `sessionId`, `id`, and `timestamp`. A successful `EngineOutput` echoes the input's `sessionId` and `id`. The interface also provides `getHistory()` to read recorded session history.
 
-This signature is the contract. The implementation behind it can change without anything else needing to know.
+The duplex wire contract uses `ClientEnvelope` and `ServerEnvelope`. The Engine-side `handleEnvelope` adapter decodes a client envelope, dispatches it, and maps the outcome to a server envelope. For example, `chart_response` becomes `engine.maelstrom.response`, with the input ID in `requestId`. Connectors use the protocol codecs to encode and decode those envelopes. See [The Protocol](/understanding/protocol#message-envelopes) for the distinction.
 
 ## Pipeline diagram
 
 ```mermaid
 flowchart TD
-  Request["ChartRequest"]
-  Prompt["Build prompt"]
-  Adapter["Call LLM adapter"]
-  Parse["Parse structured JSON"]
-  Validate["Validate protocol schema"]
+  Request["ChartRequestMessage"]
+  History["Load history when configured"]
+  Planner["Run configured Planner"]
+  Validate["Validate candidate shape"]
   Heal["Heal recoverable<br/>layout/action issues"]
-  Retry{"Would the user<br/>see a no-op?"}
+  Requirements["Check application requirements<br/>when validatePlan is configured"]
+  Retry{"Retry recommended<br/>and budget remains?"}
+  Record["Record accepted turn<br/>when history is configured"]
   Return["Return EngineOutput"]
 
-  Request --> Prompt
-  Prompt --> Adapter
-  Adapter --> Parse
-  Parse --> Validate
+  Request --> History
+  History --> Planner
+  Planner --> Validate
   Validate --> Heal
-  Heal --> Retry
-  Retry -->|"yes, within budget"| Prompt
-  Retry -->|"no"| Return
+  Heal --> Requirements
+  Requirements --> Retry
+  Retry -->|"yes"| Planner
+  Retry -->|"no, response accepted"| Record
+  Record --> Return
 ```
 
 ## What the reference implementation does
 
 For a `chart_request`, the engine runs:
 
-1. Build the prompt from your vessels, the current chart state, and any update reasons
-2. Call the configured LLM adapter
-3. Parse and validate the structured response
-4. Heal recoverable problems (drop overflowed positions, prune unreachable layouts)
-5. Retry once if the result would be empty
-6. Record the turn in history and return the response
+1. Validate the message and load prior session history when configured.
+2. Pass the request and history to the configured Planner.
+3. Validate the candidate's shape and heal recoverable layout and Action problems.
+4. Check application requirements through `validatePlan`, when configured.
+5. Retry if validation recommends it and the configured budget permits another attempt.
+6. Record the accepted turn when history is configured, then return the response.
 
-Errors short-circuit the pipeline; recoverable problems become diagnostics that consumers don't see.
+Without a history configuration, each request runs without retained conversation history. With history, identical requests sharing a session and message ID can reuse an in-flight or stored response.
+
+Errors end the request. Healing records diagnostics for logs and retry decisions; those records are omitted from the returned response.
 
 ## Validation and recovery
 
-The engine validates inputs at three boundaries and the LLM's output at a fourth:
+Validation follows the ownership boundaries:
 
-1. **Engine config**: `createEngine()` validates `EngineConfig` against a strict Zod schema; `llmPlanner()` (from `@maelstrom-co/planner-llm`) validates its own options the same way and eagerly builds system prompts at construction. Misconfigured system prompt customizers throw synchronously from `llmPlanner(...)`, but user prompt customizer errors still surface on the first request as a `ValidationError`.
-2. **Engine messages** — every inbound `EngineMessage` envelope is parsed against the protocol Zod schema. Malformed payloads short-circuit before any LLM call with a `RequestValidationError` carrying the structured `path` of the failing field.
-3. **LLM structured output** — the JSON the model returns is parsed against the protocol schemas inside the adapter call. Schema-violating output surfaces as a `ProviderError`; a structurally valid response missing required content (such as an empty `userMessage`) surfaces as a `ParseError`.
-4. **LLM output coherence** — even a parseable response can be incoherent: positions overflowing the chart, unknown vessel/variant references, duplicate instance IDs, malformed tiling trees. This layer doesn't fail; it heals.
+- `createEngine()` validates its configuration synchronously. The LLM Planner separately validates its options and builds system prompts at construction. Invalid system-prompt customizers throw there; user-prompt customizer failures return a `ValidationError` during a request.
+- The Engine parses each inbound `EngineMessage` against the protocol schema. A malformed message returns a `RequestValidationError` before the Planner runs.
+- The LLM Planner requests structured output through its provider adapter. Provider failures return a `ProviderError`. Every Planner's candidate must also pass the Engine's shape validation before healing begins; a missing required field returns a `ValidationError` at that boundary.
+- The response processor checks layout and Action coherence. Recoverable problems, such as an overflowing position or an invalid Action, produce diagnostics. A blank required `userMessage` returns a `ParseError`.
+- An optional `validatePlan` hook checks the healed response against application requirements. Unmet requirements can trigger a retry; requirements still unmet after the retry budget return a `ValidationError`.
 
 A request may set `skipReply: true` when its caller writes the user-facing reply itself. Validation then accepts a response without `userMessage`, passes a supplied `userMessage` through unchanged even when it is blank, and accepts a needs-clarification result that asks the user a question instead of changing the layout. `Engine.handle()` still returns only responses that carry a non-blank `userMessage`, so it refuses an absent or blank reply and a needs-clarification result with a `ValidationError` on field `skipReply`.
 
-### Heal, don't fail
+### Recoverable output problems
 
-For step 4, an empty UI is worse than a partial one. The heal layer drops invalid pieces and records each one with a structured reason — categorical labels such as `position_overflow`, `unknown_vessel`, `unknown_variant`, `size_below_minimum`, `duplicate_instance_id`, or `tree_missing_child`. Soft-failures like a missing `rationale` are recorded as warnings. Drop entries and warnings stay engine-internal: they feed the retry decision and engine logs, but the engine strips them at its boundary. Consumers receive only the surviving layout; rendering proceeds with whatever made it through.
+The response processor preserves valid parts of a candidate while dropping or repairing invalid entries. It records reasons such as `position_overflow`, `unknown_vessel`, `unknown_variant`, `size_below_minimum`, `duplicate_instance_id`, or `tree_missing_child`. A blank `rationale` produces a warning. These diagnostics feed retries and logs; the client receives the healed layout and accepted Actions.
 
 ### Example: Healed output
 
@@ -108,22 +115,26 @@ The dropped entry is logged for diagnostics, but consumers receive only the surv
 
 ### Resize-only turns
 
-A chart resize is the one trigger that arrives with no user or vessel signal, so the chart state the LLM sees on such a turn is identical to the state before an action it already ran, and the engine never sees vessel contents, so it cannot tell a first run from a replay. On a turn whose every update reason is a `chart_resize`, an action runs only if its definition declares `idempotent: true` **and** the model emitted it with no parameters. Missing the flag is recorded as `non_idempotent_on_resize`; carrying parameters despite the flag is recorded as `parameterized_on_resize`.
+A resize-only request carries no user intent or Vessel mutation. The Engine has no Vessel contents with which to distinguish a repeated side effect from new work. When every update reason is a `chart_resize`, it accepts an Action only if the definition declares `idempotent: true` and the Planner supplied no parameters. Missing the flag produces `non_idempotent_on_resize`; supplying parameters produces `parameterized_on_resize`.
 
-The parameter half is what the flag alone cannot cover. `idempotent` promises that running an action twice with the *same* parameters matches running it once; it says nothing about running it with different ones. A resize asks for nothing, so any parameter value the model emits can only have come from the conversation history: `showWeek()` is a reshape the new size may call for, while `setLocation("Tokyo")` is either a replay of an earlier turn or an overwrite nobody asked for, even on an action marked idempotent. Parameters count as the model emitted them, so an action free to take parameters but invoked with none still runs.
+Idempotence applies to repeated calls with the same parameters. A resize gives the Planner no reason to choose a new parameter value: `showWeek()` may adjust a view, while `setLocation("Tokyo")` changes application state. An Action that allows parameters can still run on resize if the Planner invokes it without them.
 
-One escape stays open by design: a resize batched together with a user intent or vessel mutation is an ordinary turn, and the guard never fires on it. A freshly declared instance id is not a second escape, because a vessel may back every instance of itself with one store, so an action replayed at a new id can still duplicate state an older id already holds. The same predicate drives a prompt-side instruction, so the LLM is told to return an empty plan before the guard ever has to refuse one.
+A resize batched with user intent or a Vessel mutation follows the ordinary Action rules. Newly introduced Instances still follow the resize-only rule because several Instances may share one application store. The reference LLM Planner also tells the model to return an empty execution plan for resize-only requests.
 
 ### When the engine retries
 
-After healing, the engine recommends retry only when the user would otherwise see a no-op:
+Healing recommends a retry in either of these cases:
 
-- **Empty-when-needed layout** — the request asked for instances but every position dropped (severity `unrecoverable`).
-- **All actions skipped for fixable reasons** — the proposed plan was non-empty but every action was rejected for a reason the LLM could plausibly fix on retry, e.g. `unknown_vessel`, `params_parse_failed`, `action_not_valid` (severity `medium`).
+- The request included Instances, but the healed layout is empty (severity `unrecoverable`).
+- The proposed execution plan was non-empty, every Action was skipped, and at least one skip had a fixable reason such as `unknown_vessel`, `params_parse_failed`, or `action_not_valid` (severity `medium`).
 
-A partial layout or partial action plan does **not** trigger retry — partial output beats waiting for a re-roll. Non-fixable skip reasons (`state_drift`, `self_transition_noop`, `non_idempotent_on_resize`, `parameterized_on_resize`) don't recommend retry on their own, but they don't suppress retry either: if any *other* skip in the same response is fixable and no actions survived, retry still fires. The retry budget is `EngineConfig.retry` (default `{ max: 1 }`).
+A partial layout or partial execution plan does not trigger a healing retry on its own. Non-fixable skip reasons (`state_drift`, `self_transition_noop`, `non_idempotent_on_resize`, `parameterized_on_resize`) do not recommend retry by themselves. They can occur alongside fixable skips that do recommend retry.
+
+Application requirements reported by `validatePlan` can also recommend a retry, even when part of the layout or execution plan is valid. The same `EngineConfig.retry` budget applies. Its default, `{ max: 1 }`, permits the initial attempt and one retry; `false` disables Engine-level retries. Planner errors return immediately.
 
 ## Configuration shape
+
+This example uses the reference LLM Planner with Gemini. The adapter reads its API key from `GOOGLE_API_KEY` or `GEMINI_API_KEY`.
 
 ```ts title="Configuring the engine"
 import { geminiText } from '@tanstack/ai-gemini';
@@ -131,18 +142,21 @@ import { createEngine } from '@maelstrom-co/engine';
 import { llmPlanner } from '@maelstrom-co/planner-llm';
 
 const engine = createEngine({
-  planner: llmPlanner({ adapter: geminiText('gemini-2.0-flash') }),
+  planner: llmPlanner({ adapter: geminiText('gemini-3.1-pro-preview') }),
   // logger, history store, instrument, retry policy: all optional.
 });
 ```
 
-The pluggable surfaces are intentionally small:
+The configuration assigns these responsibilities:
 
-- **`planner`** — produces the candidate response for every `chart_request`. `llmPlanner({ adapter, prompt?, modelOptions? })` from [`@maelstrom-co/planner-llm`](https://github.com/maelstrom-co/maelstrom/blob/main/packages/planner-llm/README.md) makes a single structured-output LLM call per attempt; `adapter` swaps the provider (Gemini, OpenAI, Anthropic, your own via TanStack AI), and `prompt` replaces, prepends, appends, or transforms individual prompt sections. `pipeline`, `withFallback`, and `withRetry` compose more than one stage into a planner — see the [engine README](https://github.com/maelstrom-co/maelstrom/blob/main/packages/engine/README.md#planners-and-stages).
-- **`history`** — opt-in conversation history with a store you supply (Redis, Postgres, SQLite). The reference engine ships an in-memory store for tests but never as a default.
-- **`instrument`** is the telemetry seam, defaulting to `noopInstrument`, which does nothing. `pipeline` wraps every stage with `instrument.stage(name, stage)` once per request, and stages report model calls and other events with `instrument.event(name, attributes)`, a flat attribute bag keyed by OpenTelemetry GenAI names where they apply. A logging implementation is five lines:
+- `planner` produces the candidate response for each `chart_request`. `llmPlanner({ adapter, prompt?, modelOptions? })` from [`@maelstrom-co/planner-llm`](https://github.com/maelstrom-co/maelstrom/blob/main/packages/planner-llm/README.md) makes one structured-output LLM call per attempt. Its `adapter` selects the provider, and `prompt` customizes prompt sections. `pipeline`, `withFallback`, and `withRetry` compose stages into a Planner. See the [engine README](https://github.com/maelstrom-co/maelstrom/blob/main/packages/engine/README.md#planners-and-stages).
+- `history` enables conversation history with an application-supplied store, such as Redis, Postgres, or SQLite. The bundled in-memory store must also be selected explicitly.
+- `validatePlan` checks the healed response against application requirements and returns issues for retry feedback.
+- `instrument` observes Planner stages and defaults to `noopInstrument`. `pipeline` wraps each stage with `instrument.stage(name, stage)` once per request. Stages report model calls and other events through `instrument.event(name, attributes)`, using OpenTelemetry GenAI attribute names where applicable. For example:
 
   ```ts title="A logging instrument"
+  import type { Instrument } from '@maelstrom-co/engine';
+
   const instrument: Instrument = {
     stage: (name, stage) => async (input, ctx) => {
       ctx.logger.info('stage', { name });
@@ -151,20 +165,20 @@ The pluggable surfaces are intentionally small:
     event: (name, attributes) => console.info(name, attributes),
   };
   ```
-- **`retry`** — `{ max }` re-runs the planner while healing recommends a retry; `false` runs it exactly once.
-- **`logger`** — any object with `debug` / `info` / `warn` / `error` works.
+- `retry` sets the maximum retries after validation recommends another attempt. `false` runs the configured Planner once.
+- `logger` provides `debug`, `info`, `warn`, and `error` methods.
 
-## What this implementation isn't
+## Deployment limits
 
-- **Multi-instance safe.** The per-session mutex is in-process. Production deployments need session affinity or a distributed lock.
-- **Persistent.** The bundled in-memory store is for tests; supply your own store for anything that needs to survive a process restart.
-- **Hardened against adversarial input.** It's a reference, not a security boundary.
+- History mutation locks and in-flight deduplication are process-local. Distinct requests in one session can still run their Planners concurrently. Deployments must coordinate those requests when ordering matters, including across server instances.
+- The bundled in-memory history store loses its contents on restart. Durable history requires an application-supplied store.
+- The reference Engine does not provide an application security boundary. Hosts and Action handlers must enforce the application's access rules.
 
-If your use case crosses any of these lines, plan to replace this engine with one of your own. The `Engine` interface is the only thing you need to keep stable.
+See the [engine reference](https://docs.maelstrom-ai.co/reference/engine/readme/) for storage and concurrency requirements when supplying an implementation.
 
 ## Next steps
 
-- [Quick Start](/getting-started/quick-start) — run it end-to-end in a browser
-- [Architecture Overview](/understanding/architecture) — see where the engine fits in the wider system
-- [The Protocol](/understanding/protocol) — the envelopes and types the engine speaks
-- [Engine package README](https://github.com/maelstrom-co/maelstrom/blob/main/packages/engine/README.md) — full technical reference for this implementation
+- [Quick Start](/getting-started/quick-start): run Maelstrom in a browser.
+- [Architecture Overview](/understanding/architecture): follow a request from the client through planning and back to the UI.
+- [The Protocol](/understanding/protocol): understand Engine messages and wire envelopes.
+- [Engine package README](https://github.com/maelstrom-co/maelstrom/blob/main/packages/engine/README.md): look up configuration and implementation requirements.

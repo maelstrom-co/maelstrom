@@ -14,7 +14,7 @@ import DevtoolsDiagram from '../../components/architecture/DevtoolsDiagram';
   frontmatter={{
     title: 'Architecture Overview',
     description:
-      'How Maelstrom works: the feedback loop between the browser and a server-side LLM, and the one contract they speak.',
+      'How the client sends Chart state, the Planner proposes changes, and the Engine validates a response for the client to apply.',
     // A src/pages route is not a content-collection entry, so Starlight cannot
     // auto-derive these the way it does for sibling docs. Set them explicitly:
     // the GitHub edit link, and prev/next pagination to the neighbouring
@@ -29,11 +29,11 @@ import DevtoolsDiagram from '../../components/architecture/DevtoolsDiagram';
   }}
 >
   <p>
-    Maelstrom turns a user's intent into a laid-out UI by running a loop between
-    your browser and an LLM on the server. Browser packages describe the current
-    state and capture input, the server <code>engine</code> decides what to show,
-    and <code>protocol</code> is the single contract both sides speak. The diagram
-    below traces one trip around that loop — press play, or explore a package.
+    Maelstrom turns a user's intent into a UI update. The client sends the current
+    Chart state and update reasons to an Engine host. A configured Planner
+    proposes changes, the Engine validates them, and the client applies the
+    accepted response. Play the diagram to follow a request, or select a package
+    to inspect its role.
   </p>
 
   <ArchitectureDiagram client:load />
@@ -47,77 +47,90 @@ import DevtoolsDiagram from '../../components/architecture/DevtoolsDiagram';
     <code>chart_resize</code> (the available grid changed), or a
     <code>vessel_mutation</code> (an Instance changed its active Variant).
     <a href="/understanding/llm-orchestration/"><code>@maelstrom-co/client</code></a>
-    batches the pending reasons and builds a <code>ChartRequest</code> — a snapshot
-    of the current Vessel instances, the chart's dimensions <em>in grid cells</em>,
-    the registered Vessels, and the layout mode — then sends it across the
-    deployment boundary.
+    batches the pending reasons and builds a <code>ChartRequest</code>. This
+    snapshot contains Instance identities and Variants, the current layout,
+    Chart dimensions in grid cells, registered Vessels, and the layout mode. A
+    <code>ChartRequestMessage</code> carries it with a session ID, message ID,
+    and timestamp.
   </p>
 
-  <h3>The engine decides</h3>
+  <h3>The Planner proposes and the Engine validates</h3>
   <p>
     <a href="/understanding/engine/"><code>@maelstrom-co/engine</code></a> holds
-    no layout state — the client owns that — and keeps prior turns only when you
-    configure a history store. It assembles a prompt, calls an LLM, and returns a
-    <code>MaelstromResponse</code> with four parts: a <code>userMessage</code>
-    (the conversational reply), a <code>rationale</code> (its private reasoning),
-    an <code>executionPlan</code> (the actions to run), and a new
-    <code>layout</code> (where everything goes).
+    no client layout state. It loads prior turns when history is configured and
+    passes the request to a Planner. The reference LLM Planner builds prompts
+    and calls a provider adapter; another Planner can use a different decision
+    process. The Engine validates the candidate and repairs recoverable layout
+    and Action problems.
+  </p>
+  <p>
+    The accepted <code>MaelstromResponse</code> contains a <code>userMessage</code>
+    for the user, a <code>rationale</code> for diagnostics, an
+    <code>executionPlan</code>, and a <code>layout</code>. Its
+    <code>requestId</code> identifies the originating message.
   </p>
 
   <h3>The client applies it</h3>
   <p>
-    The client applies the response in a fixed order — <strong>layout first, then
-    actions</strong>. <code>set_layout</code> positions and sizes every instance;
-    <code>execute_actions</code> then runs the <code>executionPlan</code>. The
-    order is load-bearing: an action can flip a Vessel to a different variant via
-    <code>transitionsTo</code>, and each variant declares its own
-    <code>minSize</code>, so positions must be set before actions change them.
+    The client queues <code>set_layout</code> and <code>execute_actions</code>
+    as one ordered batch, with layout first. Other queued commands cannot
+    interleave with that batch. Action failures or skips do not roll back the
+    layout or completed Action effects. Retrying the whole batch can repeat
+    effects from Actions that already ran.
+  </p>
+  <p>
+    A tiling response can introduce
+    an Instance and request an Action on it in the same response. Applying the
+    layout first establishes that Instance before the client waits for its
+    Action runner. The runner must register before the readiness timeout;
+    otherwise, the client skips the Action.
   </p>
 
   <h3>The loop closes</h3>
   <p>
-    Applying the response re-renders the UI. The <code>Chart</code>'s
-    <code>ResizeObserver</code> measures the result and floors it to whole grid
-    cells. If those cells changed, that is a new <code>chart_resize</code> reason —
-    and the round-trip runs again. That observer, quietly closing the loop, is what
-    lets the layout settle. There is no separate overflow pass; the grid is simply
-    clipped with CSS.
+    Applying the response updates the UI. The Chart's <code>ResizeObserver</code>
+    watches its container. When the container's pixel size changes enough to
+    change its whole-cell dimensions, the client sends a new
+    <code>chart_resize</code> request. That starts a separate Engine turn.
+    The client performs no inline size-reconciliation pass after Actions;
+    the Chart clips visual overflow with CSS.
   </p>
 
   <h2>The vocabulary</h2>
   <dl>
     <dt><strong>Vessel</strong></dt>
     <dd>
-      A registered UI definition — an id, a description, and a set of Variants.
-      The LLM reasons about Vessels by their descriptions. See the
+      A registered UI definition with an ID, a description, and a set of Variants.
+      The Planner uses these definitions to choose layouts and Actions. See the
       <a href="/understanding/vessel-state-machine/">vessel state machine</a>.
     </dd>
     <dt><strong>Variant</strong></dt>
     <dd>
       One discrete state of a Vessel, carrying its props, the Actions available in
-      that Variant, and a <code>minSize</code> — the smallest number of grid cells it
-      needs.
+      that Variant, and a <code>minSize</code>. The Engine checks this minimum
+      against the request's Variant snapshot when validating grid positions.
+      A local Action can switch to a larger Variant without resizing its
+      allocation; the client schedules replanning.
     </dd>
     <dt><strong>Action</strong></dt>
     <dd>
-      An operation the engine can invoke on an instance. An action may move the
-      instance to another variant via <code>transitionsTo</code>.
+      An operation the client runs on an Instance. It may move the Instance to
+      another Variant via <code>transitionsTo</code>.
     </dd>
     <dt><strong>Chart</strong></dt>
     <dd>
-      The surface the Vessels live in. Never pixels: in grid mode the engine
-      works in integer cells (<code>rows</code> × <code>columns</code>), and in
-      tiling mode — the default — in a preorder tree of <code>H</code>/
-      <code>V</code> splits. The <code>ResizeObserver</code> is what converts
-      either one to pixels.
+      The container that displays Instances. Grid layouts use integer cells
+      (<code>rows</code> × <code>columns</code>). Tiling, the default, uses a tree
+      of <code>H</code>/<code>V</code> splits. The client converts either layout
+      to pixel bounds using the container dimensions.
     </dd>
   </dl>
 
   <p>
-    <strong>The core pieces:</strong> <code>protocol</code> is the contract;
-    <code>client</code> orchestrates and <code>react</code> binds it to React, with
-    the <code>demo</code> app consuming them on the browser side; and
-    <code>engine</code> runs the decision on the server.
+    <code>protocol</code> defines the shared contracts. <code>client</code> manages
+    requests and applies responses; <code>react</code> binds it to React.
+    <code>engine</code> coordinates planning and validation on the server, and
+    <code>planner-llm</code> provides the reference LLM Planner.
   </p>
 
   <h2>Observe the workflow with DevTools</h2>
@@ -140,10 +153,10 @@ import DevtoolsDiagram from '../../components/architecture/DevtoolsDiagram';
 
   <h2>Where to go next</h2>
   <ul>
-    <li><a href="/getting-started/quick-start/">Quick start</a> — build a chart.</li>
-    <li><a href="/getting-started/core-concepts/">Core concepts</a> — Vessels, variants, and the chart.</li>
-    <li><a href="/understanding/protocol/">The protocol</a> — the message contract in full.</li>
-    <li><a href="/understanding/engine/">The engine</a> — how the LLM decision is made.</li>
-    <li><a href="/understanding/why-maelstrom/">Why Maelstrom</a> — the motivation.</li>
+    <li><a href="/getting-started/quick-start/">Quick start</a>: build a Chart.</li>
+    <li><a href="/getting-started/core-concepts/">Core concepts</a>: Vessels, Variants, and the Chart.</li>
+    <li><a href="/understanding/protocol/">The protocol</a>: Engine messages and wire envelopes.</li>
+    <li><a href="/understanding/engine/">The engine</a>: planning, validation, and history.</li>
+    <li><a href="/understanding/why-maelstrom/">Why Maelstrom</a>: the motivation.</li>
   </ul>
 </StarlightPage>
