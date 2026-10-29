@@ -18,6 +18,7 @@ import {
 } from '@maelstrom-co/protocol';
 import type { EngineError } from '../errors.js';
 import type { Logger } from '../logger.js';
+import { createOrderedEmitter } from './ordered-emitter.js';
 
 /** Server-owned context and clock for one connection. Never supplied to the Planner. */
 export interface OpenConnectionOptions {
@@ -111,7 +112,6 @@ export function createAgentConnection(
     throw new Error(
       'acknowledgementTimeoutMs must be a positive timer duration.',
     );
-  const listeners = new Set<(event: AgentEvent) => void>();
   const pending = new Map<ChangeId, PendingChange>();
   const seen = new Set<MessageId>();
   const controller = new AbortController();
@@ -119,44 +119,13 @@ export function createAgentConnection(
   let current: UiRun | undefined;
   let chart: ChartRequest | undefined;
   let closed = false;
-  let emitting = false;
-  const notifications: AgentEvent[] = [];
-  const emit = (...events: AgentEvent[]) => {
-    if (closed) return;
-    notifications.push(...events);
-    if (emitting) return;
-    emitting = true;
-    try {
-      while (!closed && notifications.length) {
-        const event = notifications.shift();
-        if (!event) break;
-        try {
-          logger.debug(
-            `agent.${event.type}`,
-            eventLogData(options.sessionId, event),
-          );
-        } catch {
-          /* A failing logger cannot interrupt connection work or observers. */
-        }
-        for (const listener of [...listeners]) {
-          if (closed) break;
-          try {
-            const result: unknown = listener(event);
-            if (
-              result &&
-              (typeof result === 'object' || typeof result === 'function') &&
-              'then' in result
-            )
-              void Promise.resolve(result).catch(() => {});
-          } catch {
-            /* One observer cannot interrupt connection work or other observers. */
-          }
-        }
-      }
-    } finally {
-      emitting = false;
-    }
-  };
+  const events = createOrderedEmitter<AgentEvent>({
+    onDeliver: (event) =>
+      logger.debug(
+        `agent.${event.type}`,
+        eventLogData(options.sessionId, event),
+      ),
+  });
   const complete = (
     run: UiRun,
     reply: string,
@@ -186,7 +155,7 @@ export function createAgentConnection(
             delta: reply,
           },
         ];
-    emit(...message, {
+    events.emit(...message, {
       type: 'finished',
       version: AGENT_WIRE_VERSION,
       runId,
@@ -204,7 +173,7 @@ export function createAgentConnection(
     });
   };
   const pump = async (): Promise<void> => {
-    if (closed || emitting || current) return;
+    if (closed || events.isDelivering() || current) return;
     const run = queue.shift();
     if (!run) return;
     current = run;
@@ -280,7 +249,7 @@ export function createAgentConnection(
       run,
       cancelTimeout: () => clearTimeout(timeout),
     });
-    emit(event);
+    events.emit(event);
     observe(runId, input.inputId, 'engine.agent.ui_change.emitted', {
       changeId: event.changeId,
       actions: event.response.executionPlan.length,
@@ -289,15 +258,11 @@ export function createAgentConnection(
     void pump();
   };
   return {
-    subscribe(listener) {
-      if (!closed) listeners.add(listener);
-      return () => {
-        listeners.delete(listener);
-      };
-    },
+    subscribe: (listener) => events.subscribe(listener),
     close() {
       if (closed) return;
       closed = true;
+      events.close();
       controller.abort();
       for (const change of pending.values()) change.cancelTimeout();
       pending.clear();
@@ -307,8 +272,6 @@ export function createAgentConnection(
       for (const run of queue) run.ready.resolve();
       queue.length = 0;
       chart = undefined;
-      listeners.clear();
-      notifications.length = 0;
     },
     async send(raw) {
       if (closed) return;
@@ -319,7 +282,7 @@ export function createAgentConnection(
             ? raw.inputId
             : undefined,
         );
-        emit({
+        events.emit({
           type: 'error',
           version: AGENT_WIRE_VERSION,
           ...(inputId.success ? { inputId: inputId.data } : {}),
@@ -336,7 +299,7 @@ export function createAgentConnection(
             input.actionOutcomes.length !==
             change.event.response.executionPlan.length
           ) {
-            emit({
+            events.emit({
               type: 'error',
               version: AGENT_WIRE_VERSION,
               changeId: input.changeId,
@@ -377,7 +340,7 @@ export function createAgentConnection(
           current = undefined;
           void pump();
         } else
-          emit({
+          events.emit({
             type: 'error',
             version: AGENT_WIRE_VERSION,
             changeId: input.changeId,
@@ -388,7 +351,7 @@ export function createAgentConnection(
       }
       if (seen.has(input.inputId)) return;
       if (queue.length + (current ? 1 : 0) >= 32) {
-        emit({
+        events.emit({
           type: 'error',
           version: AGENT_WIRE_VERSION,
           inputId: input.inputId,
@@ -398,7 +361,7 @@ export function createAgentConnection(
         return;
       }
       if (seen.size >= 4096) {
-        emit({
+        events.emit({
           type: 'error',
           version: AGENT_WIRE_VERSION,
           inputId: input.inputId,
@@ -418,7 +381,7 @@ export function createAgentConnection(
       // A Chart sent while a change awaits acknowledgement can predate it.
       if (pending.size === 0) chart = input.chart;
       queue.push({ input, runId, started, ready });
-      emit(
+      events.emit(
         {
           type: 'placeholder',
           version: AGENT_WIRE_VERSION,
