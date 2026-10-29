@@ -515,7 +515,7 @@ describe('handleEnvelope: client.agent.input', () => {
         sessionId: 's-1',
         input: {
           type: 'utterance',
-          version: 1,
+          version: 2,
           inputId: 'in-1',
           text: 'hi',
           chart: validChartRequest(),

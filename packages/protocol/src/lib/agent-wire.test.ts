@@ -147,8 +147,8 @@ const roundTrip = (
 ) => schema.parse(JSON.parse(JSON.stringify(value)));
 
 describe('AGENT_WIRE_VERSION', () => {
-  test('is the integer 2 for UI-only run lifecycles', () => {
-    expect(AGENT_WIRE_VERSION).toBe(2);
+  test('is the integer 1', () => {
+    expect(AGENT_WIRE_VERSION).toBe(1);
   });
 });
 
@@ -418,7 +418,7 @@ describe('agent wire decode failures', () => {
 
   test('a wrong or missing version fails on every input member', () => {
     for (const fixture of Object.values(inputFixtures)) {
-      for (const version of [1, 3, '2', undefined]) {
+      for (const version of [2, '1', undefined]) {
         const result = AgentInputSchema.safeParse({ ...fixture, version });
         expect(result.success).toBe(false);
         if (!result.success)
@@ -429,7 +429,7 @@ describe('agent wire decode failures', () => {
 
   test('a wrong or missing version fails on every event member', () => {
     for (const fixture of Object.values(eventFixtures)) {
-      for (const version of [1, 3, '2', undefined]) {
+      for (const version of [2, '1', undefined]) {
         const result = AgentEventSchema.safeParse({ ...fixture, version });
         expect(result.success).toBe(false);
         if (!result.success)
@@ -497,7 +497,7 @@ describe('agent wire through the Envelope codecs', () => {
       type: 'client.agent.input',
       id: 'frame-1',
       sessionId: 's-1',
-      input: { ...inputFixtures.utterance, version: 1 },
+      input: { ...inputFixtures.utterance, version: 2 },
     });
     expect(decoded.ok).toBe(false);
     if (!decoded.ok) {
@@ -511,7 +511,7 @@ describe('agent wire through the Envelope codecs', () => {
       type: 'engine.agent.event',
       id: 'frame-1',
       sessionId: 's-1',
-      event: { ...eventFixtures.finished, version: 1 },
+      event: { ...eventFixtures.finished, version: 2 },
     });
     expect(decoded.ok).toBe(false);
     if (!decoded.ok) {

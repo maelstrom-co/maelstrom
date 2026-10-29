@@ -193,16 +193,16 @@ The agent wire travels inside two wrapper frames. `client.agent.input` (`AgentIn
 
 ```ts
 type AgentInput =
-  | { type: 'utterance'; version: 2; inputId: MessageId; text: string; chart: ChartRequest; source: 'text' | 'voice' }
-  | { type: 'ui_applied'; version: 2; changeId: ChangeId; chart: ChartRequest; actionOutcomes: AgentActionOutcome[] };
+  | { type: 'utterance'; version: 1; inputId: MessageId; text: string; chart: ChartRequest; source: 'text' | 'voice' }
+  | { type: 'ui_applied'; version: 1; changeId: ChangeId; chart: ChartRequest; actionOutcomes: AgentActionOutcome[] };
 
 type AgentEvent =
-  | { type: 'placeholder'; version: 2; inputId: MessageId; text: string }
-  | { type: 'accepted'; version: 2; inputId: MessageId; runId: RunId | null; disposition: AgentDisposition; ack: string }
-  | { type: 'message'; version: 2; runId: RunId; turnId: string; delta: string }
-  | { type: 'ui_change'; version: 2; runId: RunId | null; changeId: ChangeId; response: MaelstromResponse }
-  | { type: 'finished'; version: 2; runId: RunId; ok: boolean; reason: AgentFinishReason; reply: string; metrics: AgentRunMetrics; error?: string; code?: string }
-  | { type: 'error'; version: 2; inputId?: MessageId; changeId?: ChangeId; error: string; code?: string };
+  | { type: 'placeholder'; version: 1; inputId: MessageId; text: string }
+  | { type: 'accepted'; version: 1; inputId: MessageId; runId: RunId | null; disposition: AgentDisposition; ack: string }
+  | { type: 'message'; version: 1; runId: RunId; turnId: string; delta: string }
+  | { type: 'ui_change'; version: 1; runId: RunId | null; changeId: ChangeId; response: MaelstromResponse }
+  | { type: 'finished'; version: 1; runId: RunId; ok: boolean; reason: AgentFinishReason; reply: string; metrics: AgentRunMetrics; error?: string; code?: string }
+  | { type: 'error'; version: 1; inputId?: MessageId; changeId?: ChangeId; error: string; code?: string };
 ```
 
 `AgentInputMessage()` and `AgentEventMessage()` are smart constructors like the other frames, but they default only `id` (agent frames carry no `timestamp`):
@@ -212,7 +212,7 @@ const frame = AgentInputMessage({ sessionId, input: utterance });
 ws.send(encodeEnvelope(frame));
 ```
 
-Every member carries `version` equal to `AGENT_WIRE_VERSION` (currently 2). A new optional field keeps the version because decoders strip unknown keys. A new member, enum value, or changed lifecycle requires a version bump. Decoders reject other versions as an `invalid_envelope` `EnvelopeError`. `CallId` is deliberately distinct from `ToolCallId`: provider tool call ids and agent loop call ids are separate id spaces.
+Every member carries `version` equal to `AGENT_WIRE_VERSION` (currently 1). A new optional field keeps the version because decoders strip unknown keys. A new member or enum value is rejected by an older decoder as an `invalid_envelope` `EnvelopeError`, as is any other `version` value, so such a change bumps the version. The wire is unstable until the client event applier ships, and version bumps apply from then on. `CallId` is deliberately distinct from `ToolCallId`: provider tool call ids and agent loop call ids are separate id spaces.
 
 UI-only utterances start a server-minted run without a model loop. Their event order is `placeholder`, `accepted`, `ui_change`, then `message` and `finished` after a valid `ui_applied`. In `accepted`, only `noise` has a null `runId`. The acknowledgement must contain one outcome per Action, in Execution Plan order. Failed outcomes end the run without a successful reply.
 

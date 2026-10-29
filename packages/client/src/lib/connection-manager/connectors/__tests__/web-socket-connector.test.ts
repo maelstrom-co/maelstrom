@@ -873,7 +873,7 @@ describe('WebSocketConnector engine.agent.event', () => {
             sessionId: 'session-1',
             event: {
               type: 'message',
-              version: 1,
+              version: 2,
               runId: 'run-1',
               turnId: 'turn-1',
               delta: 'Hello',
