@@ -94,7 +94,7 @@ Planning stays serialized through acknowledgement. Queued utterances use the ack
 
 The request/reply API and its history store remain separate. Streaming connections neither read nor write that store. Agent transcripts and the tool loop are not implemented by this route.
 
-Development diagnostics use `engine.agent.*` kinds and optional server-minted `runId` ownership. The originating `inputId` is metadata. Matching-session run diagnostics bypass legacy request-ID ambiguity and forwarding limits. Hosts still require explicit diagnostic opt-in; content requires `includeContent`. Production diagnostic forwarding remains disabled.
+Run-owned development diagnostics carry a server-minted `runId` in place of `requestId`, with the originating `inputId` in metadata. Planning-pipeline events keep their usual kinds, such as `engine.planner.started`. The connection's own lifecycle events use `engine.agent.*` kinds. Matching-session run diagnostics bypass legacy request-ID ambiguity and forwarding limits. Hosts still require explicit diagnostic opt-in; content requires `includeContent`. Production diagnostic forwarding remains disabled.
 
 ### Message variants
 

@@ -191,8 +191,9 @@ describe('local streaming WebSocket boundary', () => {
       expect(
         diagnostics.some(
           (value) =>
-            value.event.kind === 'engine.agent.planner.started' &&
-            value.event.runId,
+            value.event.kind === 'engine.planner.started' &&
+            value.event.runId &&
+            !value.event.requestId,
         ),
       ).toBe(true);
       expect(

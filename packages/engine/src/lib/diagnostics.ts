@@ -133,10 +133,7 @@ export class EngineDiagnosticEmitter {
       ...(typeof requestId === 'string'
         ? { requestId }
         : { runId: requestId.runId }),
-      kind:
-        typeof requestId === 'string'
-          ? kind
-          : kind.replace(/^engine\.(?!agent\.)/, 'engine.agent.'),
+      kind,
       at: Date.now(),
       metadata:
         typeof requestId === 'string'

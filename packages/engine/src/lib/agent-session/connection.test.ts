@@ -696,10 +696,22 @@ test('server-minted run diagnostics remain isolated when two connections reuse a
     expect(new Set(runs).size).toBe(2);
     expect(
       diagnostics
-        .filter((event) => event.kind === 'engine.agent.planner.started')
+        .filter((event) => event.kind === 'engine.planner.started')
         .map((event) => event.runId ?? null)
         .sort(),
     ).toEqual([...runs].sort());
+    expect(
+      new Set(
+        diagnostics
+          .map((event) => event.kind)
+          .filter((kind) => kind.startsWith('engine.agent.')),
+      ),
+    ).toEqual(
+      new Set([
+        'engine.agent.input.accepted',
+        'engine.agent.ui_change.emitted',
+      ]),
+    );
     expect(
       diagnostics.every(
         (event) =>

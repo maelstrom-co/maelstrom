@@ -1,5 +1,11 @@
 import { expect, test } from 'bun:test';
-import { groupRequests, panelEvents, plannerEvidence } from './panel-model.js';
+import {
+  eventIssue,
+  groupRequests,
+  panelEvents,
+  plannerEvidence,
+} from './panel-model.js';
+import { requestOverview } from './request-overview.js';
 
 function event(
   kind: string,
@@ -213,4 +219,51 @@ test.each([
     },
   ]);
   expect(plannerEvidence(request)).toHaveLength(1);
+});
+
+test('Agent Run Planner events never join a request or count as its failure while staying visible as event issues', () => {
+  const runEvent = (kind: string, metadata: Record<string, unknown> = {}) => {
+    const { requestId: _requestId, ...owned } = event(
+      kind,
+      'app-a',
+      'request',
+      {
+        inputId: 'input-1',
+        ...metadata,
+      },
+    );
+    return { ...owned, runId: 'run-1' };
+  };
+  const events = panelEvents([
+    event('client.request.started'),
+    event('engine.planner.started'),
+    runEvent('engine.planner.started'),
+    runEvent('engine.planner.failed', { outcome: 'failed', durationMs: 4 }),
+    event('engine.planner.completed', 'app-a', 'request', {
+      outcome: 'succeeded',
+      durationMs: 7,
+    }),
+    event('client.response.applied', 'app-a', 'request', {
+      actionFailures: 0,
+      skippedActions: 0,
+    }),
+  ]);
+  const requests = groupRequests(events);
+  expect(requests).toHaveLength(1);
+  expect(requests[0].events.some((entry) => entry.raw.runId)).toBe(false);
+  expect(requests[0].issues).toEqual([]);
+  expect(requests[0].status).toBe('applied');
+  expect(
+    plannerEvidence(requests[0]).map((observation) =>
+      observation.kind === 'planning' ? observation.phase : observation.kind,
+    ),
+  ).toEqual(['started', 'completed']);
+  expect(
+    requestOverview({ events, apps: [], omitted: 0, metadata: {} }).unassigned,
+  ).toBe(0);
+  const runFailure = events.find(
+    (entry) => entry.raw.runId && entry.kind === 'engine.planner.failed',
+  );
+  if (!runFailure) throw new Error('Missing run failure');
+  expect(eventIssue(runFailure)?.outcome).toBe('failed');
 });
