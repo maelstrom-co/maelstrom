@@ -35,6 +35,9 @@
     },
     {
       "path": "../telemetry/tsconfig.lib.json"
+    },
+    {
+      "path": "../devtools-protocol/tsconfig.lib.json"
     }
   ]
 }

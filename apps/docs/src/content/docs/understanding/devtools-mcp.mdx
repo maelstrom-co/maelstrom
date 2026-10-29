@@ -1,0 +1,83 @@
+---
+title: How DevTools MCP Connects
+description: The host, local server, browser pairing, and evidence identities used by DevTools MCP.
+sidebar:
+  label: DevTools MCP connections
+---
+
+DevTools MCP lets a coding assistant inspect diagnostic metadata retained by a local browser app.
+The [setup guide](/guides/devtools-mcp/) shows how to connect it.
+
+## The host owns the local server
+
+The **MCP host** is the application using the tools, such as Claude Code or Cursor.
+The MCP Inspector provides a separate client for testing tool calls.
+The [MCP architecture overview](https://modelcontextprotocol.io/docs/2026-07-28/learn/architecture) explains the host and client roles.
+
+For DevTools MCP, the host launches a Node process from your configured command and arguments.
+That process runs on your computer and communicates with the host over standard input and output, or **stdio**.
+You do not deploy it. It is separate from the Maelstrom Engine and your app's development server.
+
+| Connection | Transport | What travels |
+| --- | --- | --- |
+| MCP host ↔ local Node process | Stdio | Tool calls and results |
+| Local Node process ↔ browser bridge | Paired loopback WebSocket | Pairing and metadata reads |
+| Browser bridge → collector | In-page API | Scoped reads of retained evidence |
+| Application → collector | Diagnostic subscription | Metadata subject to redaction and retention |
+
+The browser bridge reads the existing collector. Redaction and retention still apply.
+The WebSocket connects the browser to the local Node process; it is not the MCP transport used by the host.
+
+## Why pairing uses a file
+
+The server writes its loopback endpoint and a temporary pairing token into a new file in your private directory.
+It uses [mode `0600`](https://nodejs.org/docs/latest-v24.x/api/fs.html#fsopenpath-flags-mode-callback) on macOS and Linux.
+On Windows, the directory's ACL must restrict read access; the CLI does not configure it.
+A browser page cannot read that local file on its own. Selecting it in the file picker grants the page access.
+This deliberate step authorizes the connection independently of opening the DevTools panel.
+
+The example page reads the selected file with `File.text()`, validates its fields, and calls `connectDevtoolsBridge`.
+The server accepts pairing only from its configured browser origin with the correct token.
+The token stays out of URLs and MCP tool results.
+
+The host must start the server before the browser can pair.
+Each server restart creates a new endpoint and token, so select the current file and pair again.
+The file path can stay the same after a graceful shutdown removes the previous file.
+After an abrupt stop, an existing file prevents startup. Confirm that its process stopped before removing that stale file.
+
+## Evidence terms
+
+| Term | Meaning | How to use it |
+| --- | --- | --- |
+| Target | One authenticated browser bridge connection to a collector | Pass the `id` from `list_targets` as `targetId`. It expires on disconnect. |
+| App handle | An opaque ID for one app lifetime observed by that collector | Pass the `id` from `list_apps` as `appId`. |
+| Reported identity | The app identity visible after metadata redaction | Treat `reportedId` as evidence. It does not replace the app handle. |
+| Snapshot | The retained evidence frozen for a paged query | New activity does not change the pages already being read. |
+| Cursor | A token for the next page of that query | Repeat the original arguments with the cursor. Expired cursors require a fresh query. |
+
+Missing or colliding reported identities leave evidence unavailable or ambiguous.
+The bridge does not guess which app owns an event.
+Reported durations come from the producer's clock; absent timings remain unknown.
+
+## Several apps and browser tabs
+
+A collector can observe several Orchestrators. They share a target and have separate app handles.
+Separate browser bridge connections receive separate target IDs, including connections from different tabs.
+One server accepts at most eight browser bridge connections, including connections still pairing.
+
+Each server allows one exact HTTP loopback origin: scheme, host, and port.
+Tabs from that origin can pair with the same process.
+Different origins need separate MCP server entries and pairing files.
+For example, `http://localhost:3000` and `http://127.0.0.1:3000` are different origins.
+
+Selecting a pairing file chooses which local process the browser connects to.
+In the MCP host, select that server's tools, then a target and an app handle.
+
+## Connecting a real application
+
+The current integration accepts a framework-independent DevTools collector that your app owns.
+The React extension keeps its collector private, so the demo's `<m.Devtools />` cannot connect through MCP yet.
+React installation and automatic Vite pairing remain follow-up work.
+
+The [application recipe](/guides/devtools-mcp/#connect-your-own-app) shows attachment, file selection, and cleanup.
+The MCP interface reads live metadata. Recordings, captured content, and application Actions remain separate browser workflows.

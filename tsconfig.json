@@ -80,6 +80,12 @@
     },
     {
       "path": "./packages/telemetry"
+    },
+    {
+      "path": "./packages/devtools-protocol"
+    },
+    {
+      "path": "./packages/devtools-mcp-server"
     }
   ],
   "compilerOptions": {}

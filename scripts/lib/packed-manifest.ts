@@ -11,6 +11,8 @@ export const PACKED_PACKAGE_NAMES = Object.freeze([
   '@maelstrom-co/client',
   '@maelstrom-co/connectors',
   '@maelstrom-co/devtools',
+  '@maelstrom-co/devtools-mcp-server',
+  '@maelstrom-co/devtools-protocol',
   '@maelstrom-co/engine',
   '@maelstrom-co/planner-jev',
   '@maelstrom-co/planner-llm',

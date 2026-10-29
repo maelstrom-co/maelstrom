@@ -14,6 +14,12 @@ import {
 
 const [devtoolsTypeDoc, devtoolsTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
+const [devtoolsBridgeTypeDoc, devtoolsBridgeTypeDocSidebarGroup] =
+  createStarlightTypeDocPlugin();
+const [devtoolsMcpTypeDoc, devtoolsMcpTypeDocSidebarGroup] =
+  createStarlightTypeDocPlugin();
+const [devtoolsProtocolTypeDoc, devtoolsProtocolTypeDocSidebarGroup] =
+  createStarlightTypeDocPlugin();
 const [reactDevtoolsTypeDoc, reactDevtoolsTypeDocSidebarGroup] =
   createStarlightTypeDocPlugin();
 const [reactTypeDoc, reactTypeDocSidebarGroup] = createStarlightTypeDocPlugin();
@@ -203,11 +209,41 @@ Use the DevTools guide for request, layout, voice, and recording inspection. Aut
           sidebar: { label: '@maelstrom-co/devtools', collapsed: true },
           typeDoc: multiEntryTypeDocOptions,
         }),
+        devtoolsBridgeTypeDoc({
+          entryPoints: ['../../packages/devtools/src/mcp-bridge.ts'],
+          tsconfig: '../../packages/devtools/tsconfig.lib.json',
+          output: 'reference/devtools-bridge',
+          sidebar: {
+            label: '@maelstrom-co/devtools/mcp-bridge',
+            collapsed: true,
+          },
+          typeDoc: multiEntryTypeDocOptions,
+        }),
         reactDevtoolsTypeDoc({
           entryPoints: ['../../packages/react-devtools/src/index.ts'],
           tsconfig: '../../packages/react-devtools/tsconfig.lib.json',
           output: 'reference/react-devtools',
           sidebar: { label: '@maelstrom-co/react-devtools', collapsed: true },
+          typeDoc: multiEntryTypeDocOptions,
+        }),
+        devtoolsMcpTypeDoc({
+          entryPoints: ['../../packages/devtools-mcp-server/src/index.ts'],
+          tsconfig: '../../packages/devtools-mcp-server/tsconfig.lib.json',
+          output: 'reference/devtools-mcp-server',
+          sidebar: {
+            label: '@maelstrom-co/devtools-mcp-server',
+            collapsed: true,
+          },
+          typeDoc: multiEntryTypeDocOptions,
+        }),
+        devtoolsProtocolTypeDoc({
+          entryPoints: ['../../packages/devtools-protocol/src/index.ts'],
+          tsconfig: '../../packages/devtools-protocol/tsconfig.lib.json',
+          output: 'reference/devtools-protocol',
+          sidebar: {
+            label: '@maelstrom-co/devtools-protocol',
+            collapsed: true,
+          },
           typeDoc: multiEntryTypeDocOptions,
         }),
         reactTypeDoc({
@@ -448,6 +484,7 @@ Use the DevTools guide for request, layout, voice, and recording inspection. Aut
           label: 'Guides',
           items: [
             { slug: 'guides/devtools' },
+            { slug: 'guides/devtools-mcp' },
             {
               label: 'Voice',
               items: [
@@ -490,6 +527,7 @@ Use the DevTools guide for request, layout, voice, and recording inspection. Aut
           items: [
             { slug: 'understanding/why-maelstrom' },
             { slug: 'understanding/comparison' },
+            { slug: 'understanding/devtools-mcp' },
             {
               label: 'Architecture Overview',
               link: '/understanding/architecture/',
@@ -509,6 +547,9 @@ Use the DevTools guide for request, layout, voice, and recording inspection. Aut
           items: [
             reactTypeDocSidebarGroup,
             devtoolsTypeDocSidebarGroup,
+            devtoolsBridgeTypeDocSidebarGroup,
+            devtoolsMcpTypeDocSidebarGroup,
+            devtoolsProtocolTypeDocSidebarGroup,
             reactDevtoolsTypeDocSidebarGroup,
             clientTypeDocSidebarGroup,
             connectorsTypeDocSidebarGroup,
