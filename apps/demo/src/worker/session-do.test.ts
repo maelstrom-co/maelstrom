@@ -532,9 +532,11 @@ describe('SessionDO', () => {
     sockets.splice(sockets.indexOf(a), 1);
     await does.webSocketClose(b as never);
 
-    await does.webSocketMessage(b as never, HELLO);
+    const c = new FakeWs();
+    sockets.splice(0, sockets.length, c);
+    await does.webSocketMessage(c as never, HELLO);
     createEngineMock.mockClear();
-    await does.webSocketMessage(b as never, CHART_REQUEST);
+    await does.webSocketMessage(c as never, CHART_REQUEST);
     // The object has no live socket left after B's close, so the engine (and
     // the key it was built from) must be gone -- this dispatch has to
     // rebuild it. This is the case that actually distinguishes `<= 1` from

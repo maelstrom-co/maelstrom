@@ -262,10 +262,7 @@ describe('AgentEvent round-trip', () => {
       'supersede',
       'noise',
     ] as const) {
-      const runId =
-        disposition === 'ui_only' || disposition === 'noise'
-          ? null
-          : RunId('run-1');
+      const runId = disposition === 'noise' ? null : RunId('run-1');
       const value = { ...eventFixtures.accepted, disposition, runId };
       expect(roundTrip(AgentEventSchema, value)).toEqual(value);
     }

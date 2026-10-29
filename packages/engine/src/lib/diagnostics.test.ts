@@ -195,6 +195,9 @@ test('server forwarding requires host opt-in and matching session; stopping prev
   let read = 0;
   const work = Promise.withResolvers<void>();
   const engine: Engine = {
+    openConnection: () => {
+      throw new Error('unexpected streaming connection');
+    },
     handle: async (message) => {
       await work.promise;
       return ok({
@@ -260,6 +263,9 @@ test('connections sharing a SessionId capture only their own in-flight requests,
   const emitter = new EngineDiagnosticEmitter();
   const work = Promise.withResolvers<void>();
   const engine: Engine = {
+    openConnection: () => {
+      throw new Error('unexpected streaming connection');
+    },
     handle: async (message) => {
       await work.promise;
       return ok({
@@ -488,6 +494,9 @@ test.each([
   const gate = Promise.withResolvers<void>();
   let started = false;
   const engine: Engine = {
+    openConnection: () => {
+      throw new Error('unexpected streaming connection');
+    },
     observeDiagnostics: (observer) => emitter.subscribe(observer),
     getHistory: async () => {
       started = true;

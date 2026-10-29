@@ -61,7 +61,7 @@ type EngineOutput =
   | { type: 'assistant_message_result'; sessionId; id; outcome };
 ```
 
-The request entry point dispatches on `message.type`. This excerpt shows `handle()`; the full `Engine` interface also provides `getHistory()` and optional observation methods:
+The request entry point dispatches on `message.type`. This excerpt shows `handle()`; the full `Engine` interface also provides `getHistory()`, `openConnection()`, and optional observation methods:
 
 ```ts
 interface Engine {
@@ -79,6 +79,22 @@ The client assigns message and session IDs before sending a request. The Engine 
 The duplex wire contract uses `ClientEnvelope` and `ServerEnvelope`. `handleEnvelope` decodes a client envelope, dispatches it, and maps the outcome back to the wire contract. For example, a successful `chart_response` becomes `engine.maelstrom.response`, with the input ID in `requestId`; a failed chart request becomes `engine.error`. The ordinary `assistant_message` wire envelope has no reply. Callers that need a receipt use `client.assistant_message.acknowledged`.
 
 The protocol's factories and codecs own the message shapes. A host supplies transport plumbing and calls the adapter instead of constructing wire responses itself.
+
+### Streaming connections
+
+`engine.openConnection(options)` returns an isolated `AgentConnection` with `send`, `subscribe`, and `close`. The host supplies the authorized `sessionId` and `user` (`null` for anonymous sessions). Optional `token` and `capabilities` are host context, not Planner inputs. Provider API keys do not belong in `token`.
+
+`send(input: unknown): Promise<void>` validates an [AgentInput](../protocol/README.md#agent-wire-frames). For an utterance, it resolves when planning ends or the connection closes, without waiting for a future acknowledgement. A queued send can remain pending until earlier work is acknowledged. `subscribe(listener)` observes future events and returns an unsubscribe function. Observer failures do not fail the run. `close()` aborts work, clears pending inputs and timers, and stops events. Calls after close do nothing.
+
+The UI-only route emits `placeholder` and `accepted` immediately, then calls the configured Planner with the utterance text and no `skipReply` flag. It emits the validated response as `ui_change`. The browser applies the Layout Directive, runs the Execution Plan, then sends `ui_applied`. Only then does the connection emit the Planner reply as `message` followed by `finished`. Missing Action outcomes leave the change pending. Failed Action outcomes fail the run without a successful reply.
+
+Planning stays serialized through acknowledgement. Queued utterances use the newest Chart the browser reported. An utterance sent while a UI change awaits acknowledgement uses the acknowledged Chart instead of its own. The connection admits at most 32 pending utterances and remembers at most 4,096 input IDs without eviction. Duplicate input IDs are ignored. New inputs beyond these limits receive `queue_full` or `session_capacity`; a capacity-limited session needs a new connection.
+
+`acknowledgementTimeoutMs` defaults to 30,000 milliseconds and accepts positive integers up to 2,147,483,647. Timeout fails the active run, cancels queued runs, and discards the uncertain Chart. A later utterance can supply a fresh Chart. Optional `clock` supplies monotonic milliseconds for elapsed-time metrics. UI-only loop-turn, tool-call, and loop-token counts are zero; elapsed time includes queueing and acknowledgement.
+
+The request/reply API and its history store remain separate. Streaming connections neither read nor write that store. Agent transcripts and the tool loop are not implemented by this route.
+
+Run-owned development diagnostics carry a server-minted `runId` in place of `requestId`, with the originating `inputId` in metadata. Planning-pipeline events keep their usual kinds, such as `engine.planner.started`. The connection's own lifecycle events use `engine.agent.*` kinds. Matching-session run diagnostics bypass legacy request-ID ambiguity and forwarding limits. Hosts still require explicit diagnostic opt-in; content requires `includeContent`. Production diagnostic forwarding remains disabled.
 
 ### Message variants
 

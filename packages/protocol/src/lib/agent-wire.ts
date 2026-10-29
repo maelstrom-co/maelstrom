@@ -17,7 +17,8 @@ import type { MaelstromResponse } from './response.ts';
  * A new optional field on a member keeps the version, because decoders strip
  * keys they do not know. A new union member or enum value is rejected by an
  * older decoder as `invalid_envelope`, so such a change bumps the version.
- * Decoders reject any other version value.
+ * The wire is unstable until the client event applier ships, and version
+ * bumps apply from then on. Decoders reject any other version value.
  */
 export const AGENT_WIRE_VERSION = 1 as const;
 
@@ -206,8 +207,8 @@ export interface AgentPlaceholderEvent {
 /**
  * The Engine's decision about an input: how it is handled and, when a run
  * handles it, which one. A non-null `runId` is followed by exactly one
- * `finished` event for that run. `ui_only` and `noise` start no run, so no
- * `finished` follows them. `ack` is a short acknowledgement the client may
+ * `finished` event for that run. `ui_only` starts a run without a model loop;
+ * `noise` starts no run. `ack` is a short acknowledgement the client may
  * show or speak.
  */
 export const AgentAcceptedEventSchema = z
@@ -219,15 +220,10 @@ export const AgentAcceptedEventSchema = z
     disposition: AgentDispositionSchema,
     ack: z.string(),
   })
-  .refine(
-    (e) =>
-      (e.runId === null) ===
-      (e.disposition === 'ui_only' || e.disposition === 'noise'),
-    {
-      message: 'runId must be null exactly for ui_only and noise',
-      path: ['runId'],
-    },
-  );
+  .refine((e) => (e.runId === null) === (e.disposition === 'noise'), {
+    message: 'runId must be null exactly for noise',
+    path: ['runId'],
+  });
 
 /** The Engine's decision about an input. */
 export interface AgentAcceptedEvent {
@@ -239,7 +235,7 @@ export interface AgentAcceptedEvent {
   inputId: MessageId;
   /**
    * The Agent Run that handles the input, or `null` when the disposition
-   * starts no run (`ui_only`, `noise`).
+   * starts no run (`noise`).
    */
   runId: RunId | null;
   /** How the input is handled. */

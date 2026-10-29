@@ -2,6 +2,7 @@ import type {
   DiagnosticEvent,
   DiagnosticMetadata,
   MessageId,
+  RunId,
   SessionId,
 } from '@maelstrom-co/protocol';
 import {
@@ -31,6 +32,10 @@ export type EngineDiagnosticObserver = (
 
 /** Raw server-local producer scalars for operational projection, without envelopes or content readers. */
 export type EngineMetadataObserver = TelemetryMetadataObserver;
+
+type DiagnosticOwner =
+  | MessageId
+  | { readonly runId: RunId; readonly inputId: MessageId };
 
 export class EngineDiagnosticEmitter {
   private readonly listeners = new Set<EngineDiagnosticObserver>();
@@ -75,7 +80,7 @@ export class EngineDiagnosticEmitter {
   }
   emit<Kind extends string>(
     sessionId: SessionId,
-    requestId: MessageId,
+    requestId: DiagnosticOwner,
     kind: Kind,
     ...args: [
       ...ObservationArguments<NoInfer<Kind>>,
@@ -84,7 +89,7 @@ export class EngineDiagnosticEmitter {
   ): void;
   emit(
     sessionId: SessionId,
-    requestId: MessageId,
+    requestId: DiagnosticOwner,
     kind: string,
     metadata: DiagnosticMetadata = {},
     readContent?: () => unknown,
@@ -100,7 +105,7 @@ export class EngineDiagnosticEmitter {
   }
   private publish(
     sessionId: SessionId,
-    requestId: MessageId,
+    requestId: DiagnosticOwner,
     kind: string,
     metadata: DiagnosticMetadata = {},
     readContent?: () => unknown,
@@ -110,24 +115,30 @@ export class EngineDiagnosticEmitter {
   }
   private publishDiagnostic(
     sessionId: SessionId,
-    requestId: MessageId,
+    requestId: DiagnosticOwner,
     kind: string,
     metadata: DiagnosticMetadata,
     readContent?: () => unknown,
   ): void {
     if (
       !this.listeners.size ||
-      (kind !== 'engine.request.finished' &&
+      (typeof requestId === 'string' &&
+        kind !== 'engine.request.finished' &&
         this.requests.get(sessionId)?.get(requestId)?.ambiguous)
     )
       return;
     const event: DiagnosticEvent = {
       id: crypto.randomUUID(),
       sessionId,
-      requestId,
+      ...(typeof requestId === 'string'
+        ? { requestId }
+        : { runId: requestId.runId }),
       kind,
       at: Date.now(),
-      metadata,
+      metadata:
+        typeof requestId === 'string'
+          ? metadata
+          : { ...metadata, inputId: requestId.inputId },
     };
     for (const listener of this.listeners) {
       try {
@@ -146,7 +157,7 @@ export class EngineDiagnosticEmitter {
   instrument(
     base: Instrument,
     sessionId: SessionId,
-    requestId: MessageId,
+    requestId: DiagnosticOwner,
   ): Instrument {
     if (this.listeners.size === 0 && this.metadataListeners.size === 0)
       return base;
@@ -255,9 +266,11 @@ export function createDiagnosticConnection(
   if (options.enabled === true && process.env.NODE_ENV !== 'production') {
     try {
       release = engine.observeDiagnostics?.((event, readContent) => {
-        if (event.sessionId !== options.sessionId || !event.requestId) return;
-        const owned = requests.has(event.requestId);
-        if (event.kind === 'engine.request.finished')
+        if (event.sessionId !== options.sessionId) return;
+        const owned =
+          event.runId !== undefined ||
+          (event.requestId !== undefined && requests.has(event.requestId));
+        if (event.kind === 'engine.request.finished' && event.requestId)
           requests.delete(event.requestId);
         if (!enabled || !owned) return;
         try {

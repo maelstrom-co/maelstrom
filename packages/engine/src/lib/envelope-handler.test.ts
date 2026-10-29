@@ -58,6 +58,9 @@ const maelstromResponse = (
 // stub — no mocking framework needed. Only the two methods handleEnvelope calls
 // are supplied; unused ones throw so an unexpected call is loud, not silent.
 const stubEngine = (overrides: Partial<Engine>): Engine => ({
+  openConnection: () => {
+    throw new Error('openConnection not stubbed');
+  },
   handle: () => {
     throw new Error('handle not stubbed');
   },
