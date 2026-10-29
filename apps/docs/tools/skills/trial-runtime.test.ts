@@ -4,18 +4,39 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  realpath,
   rm,
+  stat,
   symlink,
   writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  createTrialDirectory,
   credentialSandbox,
   finishTrialCleanup,
   runTrialProcess,
   trialSnapshot,
 } from './trial-runtime';
+
+test('trial evidence uses the physical directory when the temporary root has an alias', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'trial-directory-'));
+  try {
+    const physical = join(root, 'physical');
+    const alias = join(root, 'alias');
+    await mkdir(physical);
+    await symlink(physical, alias);
+    const directory = await createTrialDirectory(alias);
+    expect(directory).toBe(await realpath(directory));
+    expect(directory.startsWith(`${await realpath(physical)}/`)).toBe(true);
+    expect((await stat(directory)).mode & 0o777).toBe(0o700);
+    const second = await createTrialDirectory(alias);
+    expect(second).not.toBe(directory);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 function terminatedLinuxProcess(stat: string): boolean {
   const state = stat

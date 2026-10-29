@@ -1,10 +1,21 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { closeSync, openSync, realpathSync } from 'node:fs';
-import { lstat, readdir, readFile, readlink } from 'node:fs/promises';
+import {
+  lstat,
+  mkdtemp,
+  readdir,
+  readFile,
+  readlink,
+  realpath,
+} from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 
 type TrialSignal = (target: number, signal: NodeJS.Signals | 0) => boolean;
+
+export async function createTrialDirectory(parent: string): Promise<string> {
+  return realpath(await mkdtemp(join(parent, 'maelstrom-skill-discovery-')));
+}
 
 export async function finishTrialCleanup(
   target: number,
