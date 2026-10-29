@@ -66,7 +66,13 @@ async function send(base: string, envelope: ChartRequestMessage) {
 test('a local request changes both the note view and the space available to edit it', async () => {
   const value = await send(
     start(),
-    makeRequest([{ type: 'user_intent', intent: 'Give my notes more room' }]),
+    makeRequest([
+      {
+        type: 'user_intent',
+        intent:
+          'Make my note editable and give it more room while keeping my tasks visible',
+      },
+    ]),
   );
   expect(value.layout.tree).toEqual([
     'V:1,2',
@@ -78,6 +84,28 @@ test('a local request changes both the note view and the space available to edit
       (instance: { instanceId: string }) => instance.instanceId === notesId,
     ).variant,
   ).toBe('editor');
+  expect(value.executionPlan).toEqual([]);
+});
+
+test('restoring the starting view keeps both instances and returns the note to preview without an action', async () => {
+  const value = await send(
+    start(),
+    makeRequest(
+      [
+        {
+          type: 'user_intent',
+          intent: 'Return to the starting layout with tasks and a note preview',
+        },
+      ],
+      { layout: workspaceLayout(12, true) },
+    ),
+  );
+  expect(value.layout.tree).toEqual([
+    'V:3,2',
+    `ID:${tasksId}`,
+    `ID:${notesId}`,
+  ]);
+  expect(value.layout.instances).toEqual(workspaceLayout().instances);
   expect(value.executionPlan).toEqual([]);
 });
 

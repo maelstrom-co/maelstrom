@@ -1,6 +1,6 @@
 import type { Planner } from '@maelstrom-co/engine';
 import { ActionName, ok, type TilingResponse } from '@maelstrom-co/protocol';
-import { notesId, tasksId, workspaceLayout } from './src/workspace';
+import { examples, notesId, tasksId, workspaceLayout } from './src/workspace';
 
 export const localPlanner: Planner = async ({ request }) => {
   const intent = request.context.updateReasons.find(
@@ -33,10 +33,11 @@ export const localPlanner: Planner = async ({ request }) => {
   }
   if (intent?.type === 'user_intent') {
     const text = intent.intent.trim();
-    if (/^give my notes more room[.!]?$/i.test(text)) {
+    const normalized = text.replace(/[.!]$/, '').toLowerCase();
+    if (normalized === examples[0].intent.toLowerCase()) {
       expanded = true;
       userMessage = 'Your note has more room. You can edit it directly.';
-    } else if (/^show tasks and notes[.!]?$/i.test(text)) {
+    } else if (normalized === examples[2].intent.toLowerCase()) {
       expanded = false;
       userMessage = 'Tasks and notes are in view. Your changes are still here.';
     } else {

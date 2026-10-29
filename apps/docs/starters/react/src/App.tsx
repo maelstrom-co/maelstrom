@@ -129,7 +129,7 @@ function Notes({
       ) : (
         <p className="note-preview">
           {note ||
-            'Your note is empty. Try giving your notes more room to edit it.'}
+            'Your note is empty. Choose “Rearrange the workspace” to open the editor.'}
         </p>
       )}
       <p className="vessel-hint">Changes stay in this tab until you reload.</p>
