@@ -47,9 +47,9 @@ The Engine-side `handleEnvelope` adapter maps between these contracts:
 | `chart_request` | `EngineError` | `engine.error`, correlated through `requestId` |
 | `assistant_message` | `assistant_message_result` | No reply for this one-way message |
 
-Callers that need an injection receipt use `client.assistant_message.acknowledged`. The host maps it to an assistant injection and returns a correlated success or error envelope. The [protocol reference](https://docs.maelstrom-ai.co/reference/protocol/readme/) describes the full wire contract.
+Callers that need an injection receipt use `client.assistant_message.acknowledged`. The host maps it to an assistant injection and returns a correlated success or error envelope. The [duplex wire reference](https://github.com/maelstrom-co/maelstrom/blob/main/packages/protocol/README.md#duplex-wire-envelopes) describes the injection, receipt, response, and error shapes.
 
-The protocol owns `encodeEnvelope`, `decodeClientEnvelope`, and `decodeServerEnvelope`. The client `WebSocketConnector` and server `handleEnvelope` use those codecs; a host supplies the socket plumbing.
+The protocol owns `encodeEnvelope`, `decodeClientEnvelope`, and `decodeServerEnvelope`. The client `WebSocketConnector` uses these codecs to send and receive envelopes. The server's `handleEnvelope` adapter decodes the incoming frame and resolves to a `ServerEnvelope` or `null`. The host must encode each non-null reply with `encodeEnvelope` before sending it through the socket.
 
 Smart constructors fill in defaults. This fragment assumes `buildChartRequest()` supplies the current Chart snapshot:
 

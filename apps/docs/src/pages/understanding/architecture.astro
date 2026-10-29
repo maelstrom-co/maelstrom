@@ -76,7 +76,8 @@ import DevtoolsDiagram from '../../components/architecture/DevtoolsDiagram';
     as one atomic command batch, with layout first. A tiling response can introduce
     an Instance and request an Action on it in the same response. Applying the
     layout first establishes that Instance before the client waits for its
-    Action runner and executes the Action.
+    Action runner. The runner must register before the readiness timeout;
+    otherwise, the client skips the Action.
   </p>
 
   <h3>The loop closes</h3>

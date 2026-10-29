@@ -139,6 +139,50 @@ const injection = AssistantInjectionMessage({
 
 A non-finite `timestamp` (`NaN`, `±Infinity`) is rejected at construction — it would silently corrupt history ordering, which sorts by this field.
 
+### Duplex wire envelopes
+
+The duplex transport exchanges `ClientEnvelope` and `ServerEnvelope` values. Chart requests and assistant injections use these wire shapes (`?` marks an optional field):
+
+```text
+AcknowledgedAssistantMessage {
+  type: 'client.assistant_message.acknowledged';
+  id: MessageId;
+  sessionId: SessionId;
+  timestamp: number;
+  content: string;
+}
+
+AssistantMessageResultMessage {
+  type: 'engine.assistant_message.result';
+  requestId: MessageId;
+  sessionId: SessionId;
+  outcome: 'inserted' | 'deduped';
+}
+
+MaelstromResponseMessage {
+  type: 'engine.maelstrom.response';
+  requestId: MessageId;
+  sessionId?: SessionId;
+  response: MaelstromResponse;
+}
+
+EngineErrorMessage {
+  type: 'engine.error';
+  requestId?: MessageId;
+  sessionId?: SessionId;
+  error: string;
+  code?: string;
+}
+```
+
+`AcknowledgedAssistantMessage()` constructs an injection that requests a receipt. It generates `id` and defaults `timestamp` to `Date.now()` when omitted. The constructor rejects empty or whitespace-only IDs, empty content, and non-finite timestamps.
+
+The Engine host maps this request to an assistant injection. On success, it returns `engine.assistant_message.result`, with the request's `id` in `requestId` and the same `sessionId`. An `inserted` outcome means history gained an entry; `deduped` means that ID already existed. Failure produces a correlated `engine.error`. The legacy `assistant_message` wire envelope requests no reply.
+
+A successful `chart_request` produces `engine.maelstrom.response`; failure produces `engine.error`. The response's `requestId` echoes the input's `id`. Errors can omit `requestId` when the host cannot recover it from the incoming frame. Clients must accept absent or unknown error codes and use `error` as the display message.
+
+The Engine's `handleEnvelope` adapter decodes an incoming frame and resolves to a `ServerEnvelope` or `null`. The host encodes each non-null reply with `encodeEnvelope` before sending it. Clients decode replies with `decodeServerEnvelope`.
+
 ### Agent wire frames
 
 The agent wire travels inside two wrapper frames. `client.agent.input` (`AgentInputMessage`) carries one `AgentInput` under `input`, and `engine.agent.event` (`AgentEventMessage`) carries one `AgentEvent` under `event`. Both frames carry `id` and `sessionId` and decode through `decodeClientEnvelope` / `decodeServerEnvelope`.
