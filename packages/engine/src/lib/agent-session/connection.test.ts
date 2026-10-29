@@ -1199,9 +1199,9 @@ test('an utterance sent while a timed-out run finishes is not cancelled with the
     await time.tickAsync(100);
     await queued;
     await retry;
-    const retried = events.find(
-      (event) => event.type === 'accepted' && event.inputId === 'retry',
-    );
+    const retried = events
+      .filter((event) => event.type === 'accepted')
+      .find((event) => event.inputId === 'retry');
     expect(
       events
         .filter((event) => event.type === 'finished')
