@@ -1104,3 +1104,116 @@ test('the input-id bound rejects new work without forgetting an old input that c
     connection.close();
   }
 });
+
+test('an acknowledgement repeated from the run it finishes is unknown and cannot finish that run twice', async () => {
+  const events: AgentEvent[] = [];
+  const connection = createEngine({
+    logger: silentLogger,
+    retry: false,
+    planner: async () =>
+      ok({
+        userMessage: 'Done.',
+        rationale: '',
+        executionPlan: [],
+        layout: { tree: [], instances: [] },
+      }),
+  }).openConnection({ sessionId: SessionId('repeated-ack'), user: null });
+  let change: Extract<AgentEvent, { type: 'ui_change' }> | undefined;
+  const repeats: Promise<void>[] = [];
+  const acknowledge = (changeId: ChangeId) =>
+    connection.send({
+      type: 'ui_applied',
+      version: AGENT_WIRE_VERSION,
+      changeId,
+      chart: utterance().chart,
+      actionOutcomes: [],
+    });
+  connection.subscribe((event) => {
+    events.push(event);
+    if (event.type === 'ui_change') change = event;
+    if (event.type === 'message' && change)
+      repeats.push(acknowledge(change.changeId));
+  });
+  try {
+    await connection.send(utterance());
+    if (!change) throw new Error('Missing change');
+    await acknowledge(change.changeId);
+    await Promise.all(repeats);
+    expect(events.map((event) => event.type)).toEqual([
+      'placeholder',
+      'accepted',
+      'ui_change',
+      'message',
+      'finished',
+      'error',
+    ]);
+    expect(events.at(-1)).toMatchObject({
+      changeId: change.changeId,
+      code: 'unknown_change',
+    });
+  } finally {
+    connection.close();
+  }
+});
+
+test('an utterance sent while a timed-out run finishes is not cancelled with the queued work', async () => {
+  const time = install({ toFake: ['setTimeout', 'clearTimeout'] });
+  const planned: unknown[] = [];
+  const events: AgentEvent[] = [];
+  const connection = createEngine({
+    logger: silentLogger,
+    retry: false,
+    planner: async (input) => {
+      planned.push(input.request.layout);
+      return ok({
+        userMessage: 'Done.',
+        rationale: '',
+        executionPlan: [],
+        layout: { tree: [], instances: [] },
+      });
+    },
+  }).openConnection({
+    sessionId: SessionId('retry-after-timeout'),
+    user: null,
+    acknowledgementTimeoutMs: 100,
+  });
+  let retry: Promise<void> | undefined;
+  connection.subscribe((event) => {
+    events.push(event);
+    if (event.type === 'finished' && !retry)
+      retry = connection.send({
+        ...utterance(),
+        inputId: MessageId('retry'),
+        chart: makeTilingRequest({
+          instances: [],
+          layout: { type: 'tiling', tree: [], instances: [] },
+        }),
+      });
+  });
+  try {
+    await connection.send(utterance());
+    const queued = connection.send({
+      ...utterance(),
+      inputId: MessageId('queued'),
+    });
+    await time.tickAsync(100);
+    await queued;
+    await retry;
+    const retried = events.find(
+      (event) => event.type === 'accepted' && event.inputId === 'retry',
+    );
+    expect(
+      events
+        .filter((event) => event.type === 'finished')
+        .map((event) => event.reason),
+    ).toEqual(['error', 'cancelled']);
+    expect(events.at(-1)).toMatchObject({
+      type: 'ui_change',
+      runId: retried?.runId,
+    });
+    expect(planned[1]).toEqual({ type: 'tiling', tree: [], instances: [] });
+  } finally {
+    connection.close();
+    time.uninstall();
+  }
+});
