@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import {
   mkdir,
-  mkdtemp,
   readFile,
   realpath,
   symlink,
@@ -13,6 +12,7 @@ import { join, resolve, sep } from 'node:path';
 import { skillTasks } from '../../src/lib/skill-onboarding';
 import { createSkillsBundle } from './bundle';
 import {
+  createTrialDirectory,
   credentialSandbox,
   runTrialProcess,
   trialSnapshot,
@@ -32,9 +32,7 @@ interface SessionHeader {
 }
 
 const workspace = resolve(import.meta.dir, '../../../..');
-const evidence = await mkdtemp(
-  join(process.env.TMPDIR ?? tmpdir(), 'maelstrom-skill-discovery-'),
-);
+const evidence = await createTrialDirectory(process.env.TMPDIR ?? tmpdir());
 const originalProfile =
   process.env.PI_CODING_AGENT_DIR ?? join(homedir(), '.pi/agent');
 const profile = join(evidence, 'profile');
@@ -226,6 +224,15 @@ try {
       .split('\n')
       .filter((line) => line.startsWith('{'))
       .map((line) => JSON.parse(line));
+    const messages = events.filter(
+      (event) =>
+        event.type === 'message_end' && event.message.role === 'assistant',
+    );
+    assert.equal(
+      messages.at(-1)?.message.stopReason,
+      'stop',
+      'The model did not complete; inspect the private trial trace.',
+    );
     const header = events[0] as SessionHeader;
     assert.equal(header.type, 'session');
     assert.equal(header.cwd, project);
@@ -314,11 +321,6 @@ try {
       before,
       'Plan-only trial changed its consumer',
     );
-    const messages = events.filter(
-      (event) =>
-        event.type === 'message_end' && event.message.role === 'assistant',
-    );
-    assert.equal(messages.at(-1)?.message.stopReason, 'stop');
     const text = messages
       .flatMap((event) =>
         event.message.content
