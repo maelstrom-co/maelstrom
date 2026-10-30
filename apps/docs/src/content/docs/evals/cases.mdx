@@ -4,7 +4,7 @@ description: Learn how to read an evaluation case, what its checks measure, and 
 slug: evals/cases
 ---
 
-A **case** is one defined check: it supplies a task and starting state, observes what happens, and checks expected properties. For example, a weather case might check that asking for the weekly forecast selects the right Variant. It need not check every Action, layout detail, or user-visible effect.
+A **case** is one defined check: it supplies a task and starting state, observes what happens, and checks expected properties. For example, a weather case might check that asking for the weekly forecast selects the right Variant. It need not check every Action, layout detail, or effect visible to the user.
 
 Cases cover planner, stage, session, and client behavior. If these terms are new, start with [Evaluation architecture](/evals/architecture/). The [canonical case catalog](https://github.com/maelstrom-co/maelstrom/blob/main/packages/evals/cases/README.md) documents each contract and its limitations; the [v1 index](https://github.com/maelstrom-co/maelstrom/blob/main/packages/evals/cases/v1/index.json) is the authoritative membership list for the offline runner. Consult those sources for the current inventory rather than treating the examples below as an exhaustive list.
 
@@ -12,11 +12,11 @@ For a script that runs the full planner suite and optionally publishes reviewed 
 
 ## Case, scenario, and fixture
 
-- A **case** declares what is exercised and what its **oracle** (the programmed checker) verifies. Indexed JSON definitions drive `tools/evals-offline`; they are not merely documentation.
-- A **scenario** supplies task inputs in the separate [planner/stage registry](https://github.com/maelstrom-co/maelstrom/blob/main/packages/evals/scenarios/v1/index.json). The offline case catalog and provider-backed CLI select tasks separately. A reference to a scenario does not itself execute a case's checks: `variant`, `preserve`, and `generate-content` use case-owned full snapshots, while other case links reference scenario definitions.
-- A **fixture** supplies independent data, such as scripted responses or initial state, for a code-owned harness. Fixtures are explicitly indexed under `v1/fixtures`; expectations are not copied into observed output. A scripted response is not a live model response.
+* A **case** declares what is exercised and what its **oracle** (the programmed checker) verifies. Indexed JSON definitions drive `tools/evals-offline`; they are not merely documentation.
+* A **scenario** supplies task inputs in the separate [planner/stage registry](https://github.com/maelstrom-co/maelstrom/blob/main/packages/evals/scenarios/v1/index.json). The offline case catalog and CLI that calls providers each select tasks separately. A reference to a scenario does not itself execute a case's checks: `variant`, `preserve`, and `generate-content` use full snapshots defined by each case, while other case links reference scenario definitions.
+* A **fixture** supplies independent data, such as scripted responses or initial state, for a harness defined in code. Fixtures are explicitly indexed under `v1/fixtures`; expectations are not copied into observed output. A scripted response is not a live model response.
 
-Profiles, adapters, and scorers remain code-owned. JSON cannot select arbitrary modules, commands, URLs, or executable scorers. The loader validates the whole index and rejects unknown versions, invalid combinations, duplicate IDs, and missing references rather than silently falling back.
+Profiles, adapters, and scorers remain defined in code. JSON cannot select arbitrary modules, commands, URLs, or executable scorers. The loader validates the whole index and rejects unknown versions, invalid combinations, duplicate IDs, and missing references rather than silently falling back.
 
 ## How to read a case
 
@@ -28,7 +28,7 @@ Start with the purpose and coverage limits, not just the title or pass flag. For
 | Title and purpose | The bounded behavior under test and what is explicitly outside it. |
 | Suite and required surface | Development or validation membership, and whether the evidence concerns a planner, isolated stage, session, or client. |
 | Profile, fixture ID, oracle ID/version | The trusted execution harness, its independent data, and the predicate that judges observations. |
-| Inputs and expectations | Requests or turns actually executed, and the properties checked—not a promise to check the entire response. |
+| Inputs and expectations | Requests or turns actually executed, and the properties checked. This is not a promise to check the entire response. |
 | Source and review metadata | Where inputs came from, whether content is synthetic, and its declared review status. These declarations do not authenticate privacy or human approval. |
 
 Case and fixture provenance (the record of where evidence came from) includes hashes of exact file bytes, but those hashes do not cover adapters or referenced scenario code; record the code revision separately for reproducibility.
@@ -41,29 +41,29 @@ These are representative families, not interchangeable evidence levels. Follow t
 | --- | --- | --- |
 | Weather and Calendar navigation | `weather-weekly`, `weather-chain`, `weather-reuse-weekly`, `calendar-week-nav` | Scripted Variant transitions, ordered trajectories, delayed Actions, and Instance reuse or preservation. Not handler effects or model reliability. |
 | Labs Actions and enum safety | `labs-select-marker`, `labs-multi-marker-final`, `wrong-enum`, `labs-state-reset-optional-enum` | Action emission, selected parameter sets, or isolated enum predicates. `wrong-enum` permits no selection; it is negative safety, not task completion. |
-| Response constraints and conversation | `assistant-exact-text`, `assistant-identity-subset`, `assistant-json-refusal-lexical`, `history-assistant-injection-subset`, `out-of-scope-no-mutation` | Exact or lexical text predicates, scripted history continuity, or structural non-mutation—not semantic refusal, identity reliability, or injection robustness. |
-| Multi-Vessel targeting and structure | `target-disambiguation`, `multivessel-add-instance`, `cross-vessel`, `three-vessel-addition`, `tiling-add-vessel`, `grid-no-overlap` | Target isolation, membership, additions, tree validity, or cell allocation. Grid non-overlap does not prove compactness or minimum sizes; response structure does not prove client Action effects. |
-| Planner, stage, and replay controls | `scripted-variant`, `planner-preserve`, `planner-deferral`, `stage-handoff`, `stage-bound`, `stage-not-applicable`, `replay-incompatible` | Real Engine with an independent scripted candidate, mocked planner snapshots, scripted stage transport, and replay compatibility controls—not provider quality. |
-| Client ordering | `client-order` | Actual headless-client handler effects: preserve the source-Variant handler and make a new Instance available before its Action. This composed harness checks those ordering effects, not every aspect of client behavior. |
+| Response constraints and conversation | `assistant-exact-text`, `assistant-identity-subset`, `assistant-json-refusal-lexical`, `history-assistant-injection-subset`, `out-of-scope-no-mutation` | Exact or lexical text predicates, scripted history continuity, or checks that state remains unchanged, not semantic refusal, identity reliability, or injection robustness. |
+| Targeting and structure across Vessels | `target-disambiguation`, `multivessel-add-instance`, `cross-vessel`, `three-vessel-addition`, `tiling-add-vessel`, `grid-no-overlap` | Target isolation, membership, additions, tree validity, or cell allocation. A grid without overlapping cells does not prove compactness or minimum sizes; response structure does not prove client Action effects. |
+| Planner, stage, and replay controls | `scripted-variant`, `planner-preserve`, `planner-deferral`, `stage-handoff`, `stage-bound`, `stage-not-applicable`, `replay-incompatible` | Real Engine with an independent scripted candidate, mocked planner snapshots, scripted stage transport, and replay compatibility controls, not provider quality. |
+| Client ordering | `client-order` | Handler effects in a headless client: preserve the handler for the source Variant and make a new Instance available before its Action. This composed harness checks those ordering effects, not every aspect of client behavior. |
 
-An isolated stage's routing or literal-binding result is not a completed user task. A harness test that correctly observes hand-off, not-applicable, or invalid replay does not convert that evaluation result into a pass. Conversely, `client-order` observes real headless-client effects, unlike most scripted response observations. `multivessel-add-instance` checks a same-response Action target but does not itself prove client ordering.
+An isolated stage's routing or literal binding result is not a completed user task. A harness test that correctly observes handoff, an inapplicable stage, or invalid replay does not convert that evaluation result into a pass. Conversely, `client-order` observes real effects in a headless client, unlike most scripted response observations. `multivessel-add-instance` checks an Action target within the same response but does not itself prove client ordering.
 
 ## Reading completion and evidence
 
 **COMPLETE means the declared bounded case predicate is encoded and tested.** A predicate is the rule that decides whether an observation meets the case's expectation. Bounded coverage is not proof of complete task satisfaction, semantic acceptance, or model reliability. Human review (`pending-human-review`) and run evidence completeness (`partial`, `absent`, or `complete`) are independent of that label. Missing evidence is not promoted to success.
 
-Offline results remain synthetic harness evidence: scripted observations, not live model outputs. One accepted sample cannot establish future reliability, and separate app handler tests do not make a scripted case a handler-execution test. An optional **judge** rates observed results against grading criteria; using a live judge does not turn synthetic observations into live planner evidence.
+Offline results remain synthetic harness evidence: scripted observations, not live model outputs. One accepted sample cannot establish future reliability, and separate app handler tests do not make a scripted case a test of handler execution. An optional **judge** rates observed results against grading criteria; using a live judge does not turn synthetic observations into live planner evidence.
 
-### Case-specific coverage limits
+### Coverage limits for individual cases
 
-Use the kebab-case IDs shown in the catalog and `v1/index.json` to select cases. Keep these limits visible:
+Use the exact case IDs shown in the catalog and `v1/index.json` to select cases. Keep these limits visible:
 
-- **Ordinary history:** `history-assistant-injection-subset` has an injection-oriented name, but tests ordinary scripted history continuity. It is **not robust prompt-injection testing**; assistant-message injection and semantic reliance are out of scope.
-- **Text and refusal:** `assistant-non-json-subset` checks nonempty/non-container text. The separate `assistant-json-refusal-lexical` extension checks lexical refusal and Vessel-help cues, **not semantic refusal judgment** or state safety.
-- **Labs reset:** `labs-state-reset-subset` covers two prompts. `labs-state-reset-synthetic` adds a synthetic third-turn marker request; `labs-state-reset-optional-enum` isolates an optional first-match enum check. These do not prove full reset or handler persistence.
-- **Three-Vessel addition:** `three-vessel-addition` uses a **Weather-only starting scene**. Labs preservation starts after turn-0 creation. The separate `cross-vessel` case has different inputs and does not supply its initial scene.
-- **Weather sequences:** `weather-deterministic-cycle` checks the trajectory `hourly → weekly → current`. `weather-deterministic-return` is a distinct `hourly → current → weekly` trajectory.
+* **Ordinary history:** `history-assistant-injection-subset` has a name that suggests injection testing, but tests ordinary scripted history continuity. It is **not robust testing of prompt injection**; injection through assistant messages and semantic reliance are out of scope.
+* **Text and refusal:** `assistant-non-json-subset` checks for nonempty text that is not a container. The separate `assistant-json-refusal-lexical` extension checks lexical refusal and cues about help with Vessels, **not semantic refusal judgment** or state safety.
+* **Labs reset:** `labs-state-reset-subset` covers two prompts. `labs-state-reset-synthetic` adds a synthetic marker request on the third turn; `labs-state-reset-optional-enum` isolates an optional enum check for the first match. These do not prove full reset or handler persistence.
+* **Adding three Vessels:** `three-vessel-addition` uses a **starting scene containing only Weather**. Labs preservation starts after creation at turn zero. The separate `cross-vessel` case has different inputs and does not supply its initial scene.
+* **Weather sequences:** `weather-deterministic-cycle` checks the trajectory `hourly → weekly → current`. `weather-deterministic-return` is a distinct `hourly → current → weekly` trajectory.
 
 Validation case definitions are exposed data, not an untouched secret holdout. Excluded behavior is not a pass.
 
-For loading, authoring, offline checks, and the maintained per-case limitations, continue with the [catalog contract](https://github.com/maelstrom-co/maelstrom/blob/main/packages/evals/cases/README.md#contract-and-loading).
+For loading, authoring, offline checks, and the maintained limitations for each case, continue with the [catalog contract](https://github.com/maelstrom-co/maelstrom/blob/main/packages/evals/cases/README.md#contract-and-loading).
