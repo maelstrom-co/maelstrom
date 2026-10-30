@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "id": "invalid-action",
+  "title": "Invalid Action restraint",
+  "purpose": "Reject invented Action names and require initial Weather state in a tiling layout, response and retained state; synthetic response-oracle evidence only.",
+  "suite": "development",
+  "profile": "legacy-response-constraint",
+  "surface": "session",
+  "fixtureId": "weather-response",
+  "oracle": {
+    "id": "legacy-response-constraint",
+    "version": 1
+  },
+  "inputs": {
+    "intent": "Zoom into the weather map",
+    "response": {
+      "assistantText": "That Action is not available.",
+      "executionPlan": [],
+      "instances": [
+        {
+          "instanceId": "weather-main",
+          "vesselId": "weather",
+          "variant": "current"
+        }
+      ],
+      "layout": {
+        "type": "tiling",
+        "instances": [
+          {
+            "instanceId": "weather-main",
+            "vesselId": "weather",
+            "variant": "current"
+          }
+        ]
+      }
+    }
+  },
+  "expectations": {
+    "rule": "valid-actions-preserve-state"
+  },
+  "synthetic": true,
+  "review": "pending-human-review",
+  "migration": "legacy-derived-harness",
+  "lineage": [
+    {
+      "source": "legacy",
+      "revision": "d6ef99aacb8ebce4d707d54fee14149daeea552d",
+      "path": "langfuse/maelstrom-eval-dataset.v1.json",
+      "taskId": "cap-maelstrom-edge-invalid-action",
+      "datasetId": "cap-maelstrom-edge-invalid-action",
+      "pointer": "/items/17"
+    }
+  ]
+}

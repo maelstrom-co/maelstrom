@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "id": "client-order",
+  "kind": "client-identities",
+  "synthetic": true,
+  "data": {
+    "reportInstanceId": "report-main",
+    "createdInstanceId": "created"
+  }
+}

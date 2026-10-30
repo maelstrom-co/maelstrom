@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "id": "target-disambiguation",
+  "title": "Four-turn Weather target isolation and Calendar preservation",
+  "purpose": "Synthetic structural trajectory with strengthened all-turn membership and Calendar preservation; no semantic disambiguation, Action-effect or judge-quality claim.",
+  "suite": "development",
+  "profile": "legacy-target-disambiguation",
+  "surface": "session",
+  "fixtureId": "target-disambiguation-script",
+  "oracle": {
+    "id": "legacy-target-disambiguation",
+    "version": 1
+  },
+  "inputs": {
+    "turns": [
+      {
+        "intent": "Change the left panel."
+      },
+      {
+        "intent": "I mean the weather one."
+      },
+      {
+        "intent": "Make it weekly."
+      },
+      {
+        "intent": "Leave calendar exactly as it is."
+      }
+    ]
+  },
+  "expectations": {
+    "instanceId": "weather-main",
+    "action": "showWeekly",
+    "variant": "weekly",
+    "forbidActionsOn": ["calendar-main"],
+    "unchangedInstances": [
+      {
+        "instanceId": "calendar-main",
+        "variant": "month"
+      }
+    ],
+    "forbidNewInstances": true
+  },
+  "synthetic": true,
+  "review": "pending-human-review",
+  "migration": "legacy-derived-harness",
+  "lineage": [
+    {
+      "source": "legacy",
+      "revision": "d6ef99aacb8ebce4d707d54fee14149daeea552d",
+      "path": "langfuse/maelstrom-eval-dataset.v1.json",
+      "taskId": "cap-maelstrom-multiturn-target-disambiguation",
+      "datasetId": "cap-maelstrom-multiturn-target-disambiguation",
+      "pointer": "/items/23"
+    }
+  ]
+}

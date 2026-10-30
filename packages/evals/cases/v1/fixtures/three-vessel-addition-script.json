@@ -1,0 +1,468 @@
+{
+  "schemaVersion": 1,
+  "id": "three-vessel-addition-script",
+  "kind": "three-vessel-addition-script",
+  "synthetic": true,
+  "data": {
+    "catalog": [
+      {
+        "id": "weather",
+        "name": "Weather",
+        "description": "Weather widget showing current conditions or extended forecast. Can display current weather, hourly forecast, or weekly forecast.",
+        "defaultVariant": "current",
+        "variants": {
+          "current": {
+            "props": {},
+            "minSize": {
+              "width": 6,
+              "height": 4
+            },
+            "actions": [
+              {
+                "name": "setLocation",
+                "idempotent": true,
+                "description": "Try to load weather for a city or place without assuming the request succeeds",
+                "parameters": [
+                  {
+                    "name": "location",
+                    "type": "string",
+                    "description": "City or place to request weather for"
+                  }
+                ]
+              },
+              {
+                "name": "showHourly",
+                "idempotent": true,
+                "description": "Show hourly forecast for today",
+                "transitionsTo": "hourly"
+              },
+              {
+                "name": "showWeekly",
+                "idempotent": true,
+                "description": "Show weekly forecast",
+                "transitionsTo": "weekly"
+              }
+            ]
+          },
+          "hourly": {
+            "props": {},
+            "minSize": {
+              "width": 9,
+              "height": 4
+            },
+            "actions": [
+              {
+                "name": "setLocation",
+                "idempotent": true,
+                "description": "Try to load weather for a city or place without assuming the request succeeds",
+                "parameters": [
+                  {
+                    "name": "location",
+                    "type": "string",
+                    "description": "City or place to request weather for"
+                  }
+                ]
+              },
+              {
+                "name": "showCurrent",
+                "idempotent": true,
+                "description": "Show current conditions",
+                "transitionsTo": "current"
+              },
+              {
+                "name": "showWeekly",
+                "idempotent": true,
+                "description": "Show weekly forecast",
+                "transitionsTo": "weekly"
+              }
+            ]
+          },
+          "weekly": {
+            "props": {},
+            "minSize": {
+              "width": 8,
+              "height": 3
+            },
+            "actions": [
+              {
+                "name": "setLocation",
+                "idempotent": true,
+                "description": "Try to load weather for a city or place without assuming the request succeeds",
+                "parameters": [
+                  {
+                    "name": "location",
+                    "type": "string",
+                    "description": "City or place to request weather for"
+                  }
+                ]
+              },
+              {
+                "name": "showCurrent",
+                "idempotent": true,
+                "description": "Show current conditions",
+                "transitionsTo": "current"
+              },
+              {
+                "name": "showHourly",
+                "idempotent": true,
+                "description": "Show hourly forecast",
+                "transitionsTo": "hourly"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "labs",
+        "name": "Labs",
+        "description": "Demo-only lab marker selection with list and trends views. Use `labs-main` for the primary Instance ID; use a distinct ID for any additional Labs Instance. Requests to open or add the Labs panel can display its empty default trends view. No lab results or trend data are available; explain this limitation when opening the panel. Opening the panel does not retrieve or analyze results. Selecting a marker changes only its label; never claim measurements, trends or medical advice.",
+        "defaultVariant": "trends",
+        "variants": {
+          "list": {
+            "props": {},
+            "minSize": {
+              "width": 5,
+              "height": 3
+            },
+            "actions": [
+              {
+                "name": "showTrends",
+                "description": "Open the trends view; no trend data is available",
+                "transitionsTo": "trends",
+                "idempotent": true
+              }
+            ]
+          },
+          "trends": {
+            "props": {},
+            "minSize": {
+              "width": 5,
+              "height": 3
+            },
+            "actions": [
+              {
+                "name": "showList",
+                "description": "Open the list view; no lab results are available",
+                "transitionsTo": "list",
+                "idempotent": true
+              },
+              {
+                "name": "selectMarker",
+                "description": "Select a marker label only; no trend data is available",
+                "parameters": [
+                  {
+                    "name": "markerSlug",
+                    "type": "string",
+                    "required": true,
+                    "enum": ["hemoglobin", "platelets", "glucose"],
+                    "description": "Marker to select: hemoglobin, platelets or glucose"
+                  }
+                ],
+                "idempotent": true
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "calendar",
+        "name": "Calendar",
+        "description": "Calendar widget for viewing dates and scheduling. Supports month view, week view, and day view with hourly time blocks. Every view also supports addEvent, removeEvent, and moveEvent for today's schedule — use these whenever the user adds, cancels, or reschedules something for today. Today's day view starts with a 7:30 AM \"Gym\" and a 10:00 AM \"Design review — Studio Vortex HQ\". When the user asks about getting somewhere or being there by a time, pair with the map vessel's showRoute action, passing the event's location (e.g. \"Studio Vortex HQ\") as the destination.",
+        "defaultVariant": "month",
+        "variants": {
+          "month": {
+            "props": {},
+            "minSize": {
+              "width": 4,
+              "height": 4
+            },
+            "actions": [
+              {
+                "name": "showWeek",
+                "idempotent": true,
+                "description": "Switch to week view for event timeline",
+                "transitionsTo": "week"
+              },
+              {
+                "name": "showDay",
+                "idempotent": true,
+                "description": "Switch to day view for hourly schedule",
+                "transitionsTo": "day"
+              },
+              {
+                "name": "addEvent",
+                "description": "Add an event to today's schedule",
+                "parameters": [
+                  {
+                    "name": "title",
+                    "type": "string",
+                    "description": "Event title"
+                  },
+                  {
+                    "name": "time",
+                    "type": "string",
+                    "description": "Time like 9:00 or 14:30"
+                  }
+                ],
+                "transitionsTo": "day"
+              },
+              {
+                "name": "removeEvent",
+                "description": "Remove an event from today's schedule by title",
+                "parameters": [
+                  {
+                    "name": "title",
+                    "type": "string",
+                    "description": "Title of the event to remove"
+                  }
+                ],
+                "transitionsTo": "day"
+              },
+              {
+                "name": "moveEvent",
+                "idempotent": true,
+                "description": "Reschedule an event on today's schedule to a new time",
+                "parameters": [
+                  {
+                    "name": "title",
+                    "type": "string",
+                    "description": "Title of the event to move"
+                  },
+                  {
+                    "name": "time",
+                    "type": "string",
+                    "description": "New time like 9:00 or 14:30"
+                  }
+                ],
+                "transitionsTo": "day"
+              }
+            ]
+          },
+          "week": {
+            "props": {},
+            "minSize": {
+              "width": 6,
+              "height": 3
+            },
+            "actions": [
+              {
+                "name": "showMonth",
+                "idempotent": true,
+                "description": "Switch back to month view",
+                "transitionsTo": "month"
+              },
+              {
+                "name": "showDay",
+                "idempotent": true,
+                "description": "Switch to day view",
+                "transitionsTo": "day"
+              },
+              {
+                "name": "addEvent",
+                "description": "Add an event to today's schedule",
+                "parameters": [
+                  {
+                    "name": "title",
+                    "type": "string",
+                    "description": "Event title"
+                  },
+                  {
+                    "name": "time",
+                    "type": "string",
+                    "description": "Time like 9:00 or 14:30"
+                  }
+                ]
+              },
+              {
+                "name": "removeEvent",
+                "description": "Remove an event from today's schedule by title",
+                "parameters": [
+                  {
+                    "name": "title",
+                    "type": "string",
+                    "description": "Title of the event to remove"
+                  }
+                ]
+              },
+              {
+                "name": "moveEvent",
+                "idempotent": true,
+                "description": "Reschedule an event on today's schedule to a new time",
+                "parameters": [
+                  {
+                    "name": "title",
+                    "type": "string",
+                    "description": "Title of the event to move"
+                  },
+                  {
+                    "name": "time",
+                    "type": "string",
+                    "description": "New time like 9:00 or 14:30"
+                  }
+                ]
+              }
+            ]
+          },
+          "day": {
+            "props": {},
+            "minSize": {
+              "width": 4,
+              "height": 4
+            },
+            "actions": [
+              {
+                "name": "showMonth",
+                "idempotent": true,
+                "description": "Switch to month view",
+                "transitionsTo": "month"
+              },
+              {
+                "name": "showWeek",
+                "idempotent": true,
+                "description": "Switch to week view",
+                "transitionsTo": "week"
+              },
+              {
+                "name": "addEvent",
+                "description": "Add an event to today's schedule",
+                "parameters": [
+                  {
+                    "name": "title",
+                    "type": "string",
+                    "description": "Event title"
+                  },
+                  {
+                    "name": "time",
+                    "type": "string",
+                    "description": "Time like 9:00 or 14:30"
+                  }
+                ]
+              },
+              {
+                "name": "removeEvent",
+                "description": "Remove an event from today's schedule by title",
+                "parameters": [
+                  {
+                    "name": "title",
+                    "type": "string",
+                    "description": "Title of the event to remove"
+                  }
+                ]
+              },
+              {
+                "name": "moveEvent",
+                "idempotent": true,
+                "description": "Reschedule an event on today's schedule to a new time",
+                "parameters": [
+                  {
+                    "name": "title",
+                    "type": "string",
+                    "description": "Title of the event to move"
+                  },
+                  {
+                    "name": "time",
+                    "type": "string",
+                    "description": "New time like 9:00 or 14:30"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "initial": {
+      "layout": {
+        "type": "tiling",
+        "instances": [
+          {
+            "instanceId": "weather-main",
+            "vesselId": "weather",
+            "variant": "current"
+          }
+        ]
+      }
+    },
+    "responses": [
+      {
+        "layout": {
+          "type": "tiling",
+          "instances": [
+            {
+              "instanceId": "weather-main",
+              "vesselId": "weather",
+              "variant": "current"
+            },
+            {
+              "instanceId": "labs-main",
+              "vesselId": "labs",
+              "variant": "trends"
+            },
+            {
+              "instanceId": "calendar-main",
+              "vesselId": "calendar",
+              "variant": "month"
+            }
+          ]
+        },
+        "executionPlan": []
+      },
+      {
+        "layout": {
+          "type": "tiling",
+          "instances": [
+            {
+              "instanceId": "weather-main",
+              "vesselId": "weather",
+              "variant": "weekly"
+            },
+            {
+              "instanceId": "labs-main",
+              "vesselId": "labs",
+              "variant": "trends"
+            },
+            {
+              "instanceId": "calendar-main",
+              "vesselId": "calendar",
+              "variant": "month"
+            }
+          ]
+        },
+        "executionPlan": [
+          {
+            "instanceId": "weather-main",
+            "action": "showWeekly"
+          }
+        ]
+      },
+      {
+        "layout": {
+          "type": "tiling",
+          "instances": [
+            {
+              "instanceId": "weather-main",
+              "vesselId": "weather",
+              "variant": "weekly"
+            },
+            {
+              "instanceId": "labs-main",
+              "vesselId": "labs",
+              "variant": "trends"
+            },
+            {
+              "instanceId": "calendar-main",
+              "vesselId": "calendar",
+              "variant": "week"
+            }
+          ]
+        },
+        "executionPlan": [
+          {
+            "instanceId": "calendar-main",
+            "action": "showWeek"
+          }
+        ]
+      }
+    ]
+  }
+}

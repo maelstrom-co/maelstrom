@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "id": "labs-transitions",
+  "kind": "legacy-vessel-state",
+  "synthetic": true,
+  "data": {
+    "vessel": {
+      "id": "labs",
+      "variants": [
+        {
+          "name": "trends",
+          "actions": [
+            {
+              "name": "showList",
+              "transitionsTo": "list"
+            },
+            {
+              "name": "showUpload",
+              "transitionsTo": "upload"
+            }
+          ]
+        },
+        {
+          "name": "list",
+          "actions": [
+            {
+              "name": "showTrends",
+              "transitionsTo": "trends"
+            },
+            {
+              "name": "showUpload",
+              "transitionsTo": "upload"
+            }
+          ]
+        },
+        {
+          "name": "upload",
+          "actions": [
+            {
+              "name": "showTrends",
+              "transitionsTo": "trends"
+            },
+            {
+              "name": "showList",
+              "transitionsTo": "list"
+            }
+          ]
+        }
+      ]
+    },
+    "instances": [
+      {
+        "instanceId": "labs-main",
+        "vesselId": "labs",
+        "variant": "trends"
+      }
+    ]
+  }
+}

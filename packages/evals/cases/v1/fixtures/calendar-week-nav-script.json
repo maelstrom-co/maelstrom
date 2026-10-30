@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "id": "calendar-week-nav-script",
+  "kind": "calendar-week-nav-script",
+  "synthetic": true,
+  "data": {
+    "initial": {
+      "layout": {
+        "type": "tiling",
+        "instances": [
+          {
+            "instanceId": "calendar-main",
+            "vesselId": "calendar",
+            "variant": "month"
+          }
+        ]
+      }
+    },
+    "responses": [
+      {
+        "layout": {
+          "type": "tiling",
+          "instances": [
+            {
+              "instanceId": "calendar-main",
+              "vesselId": "calendar",
+              "variant": "week"
+            }
+          ]
+        },
+        "executionPlan": [
+          {
+            "instanceId": "calendar-main",
+            "action": "showWeekly"
+          }
+        ]
+      },
+      {
+        "layout": {
+          "type": "tiling",
+          "instances": [
+            {
+              "instanceId": "calendar-main",
+              "vesselId": "calendar",
+              "variant": "week"
+            }
+          ]
+        },
+        "executionPlan": []
+      },
+      {
+        "layout": {
+          "type": "tiling",
+          "instances": [
+            {
+              "instanceId": "calendar-main",
+              "vesselId": "calendar",
+              "variant": "month"
+            }
+          ]
+        },
+        "executionPlan": [
+          {
+            "instanceId": "calendar-main",
+            "action": "showMonthly"
+          }
+        ]
+      }
+    ]
+  }
+}

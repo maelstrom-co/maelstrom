@@ -1,0 +1,102 @@
+{
+  "schemaVersion": 1,
+  "id": "cross-vessel-script",
+  "kind": "cross-vessel-script",
+  "synthetic": true,
+  "data": {
+    "registeredVessels": ["weather", "calendar", "lab-results"],
+    "initial": {
+      "layout": {
+        "type": "tiling",
+        "instances": [
+          {
+            "instanceId": "weather-main",
+            "vesselId": "weather",
+            "variant": "current"
+          },
+          {
+            "instanceId": "calendar-main",
+            "vesselId": "calendar",
+            "variant": "month"
+          }
+        ]
+      }
+    },
+    "responses": [
+      {
+        "layout": {
+          "type": "tiling",
+          "instances": [
+            {
+              "instanceId": "weather-main",
+              "vesselId": "weather",
+              "variant": "hourly"
+            },
+            {
+              "instanceId": "calendar-main",
+              "vesselId": "calendar",
+              "variant": "month"
+            }
+          ]
+        },
+        "executionPlan": [
+          {
+            "instanceId": "weather-main",
+            "action": "showHourly"
+          }
+        ]
+      },
+      {
+        "layout": {
+          "type": "tiling",
+          "instances": [
+            {
+              "instanceId": "weather-main",
+              "vesselId": "weather",
+              "variant": "hourly"
+            },
+            {
+              "instanceId": "calendar-main",
+              "vesselId": "calendar",
+              "variant": "month"
+            },
+            {
+              "instanceId": "labs-main",
+              "vesselId": "lab-results",
+              "variant": "trends"
+            }
+          ]
+        },
+        "executionPlan": []
+      },
+      {
+        "layout": {
+          "type": "tiling",
+          "instances": [
+            {
+              "instanceId": "weather-main",
+              "vesselId": "weather",
+              "variant": "weekly"
+            },
+            {
+              "instanceId": "calendar-main",
+              "vesselId": "calendar",
+              "variant": "month"
+            },
+            {
+              "instanceId": "labs-main",
+              "vesselId": "lab-results",
+              "variant": "trends"
+            }
+          ]
+        },
+        "executionPlan": [
+          {
+            "instanceId": "weather-main",
+            "action": "showWeekly"
+          }
+        ]
+      }
+    ]
+  }
+}

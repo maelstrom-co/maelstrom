@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "id": "weather-delayed-action",
+  "title": "Three-turn delayed Weather weekly Action",
+  "purpose": "Intent-preserving rubric correction: two current no-op turns then a required weekly Action with exact single-Instance retention. No semantic understanding, Action-effect or legacy-runtime compatibility claim; optional judge guidance and its absent fourth turn are not run.",
+  "suite": "development",
+  "profile": "legacy-weather-delayed-action",
+  "surface": "session",
+  "fixtureId": "weather-delayed-action-script",
+  "oracle": { "id": "legacy-weather-delayed-action", "version": 1 },
+  "inputs": {
+    "turns": [
+      { "intent": "I need to check some weather data." },
+      { "intent": "What is the forecast looking like?" },
+      { "intent": "Show me the weekly view." }
+    ]
+  },
+  "expectations": {
+    "instanceId": "weather-main",
+    "action": "showWeekly",
+    "variant": "weekly",
+    "forbidNewInstances": true
+  },
+  "synthetic": true,
+  "review": "pending-human-review",
+  "migration": "legacy-derived-harness",
+  "lineage": [
+    {
+      "source": "legacy",
+      "revision": "d6ef99aacb8ebce4d707d54fee14149daeea552d",
+      "path": "langfuse/maelstrom-eval-dataset.v1.json",
+      "taskId": "cap-maelstrom-multiturn-delayed-action",
+      "datasetId": "cap-maelstrom-multiturn-delayed-action",
+      "pointer": "/items/31"
+    }
+  ]
+}
