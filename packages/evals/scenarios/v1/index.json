@@ -1,0 +1,625 @@
+{
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "kind": "case",
+      "id": "preserve"
+    },
+    {
+      "kind": "snapshot",
+      "id": "show-hidden"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hide"
+    },
+    {
+      "kind": "snapshot",
+      "id": "replace-side-by-side"
+    },
+    {
+      "kind": "snapshot",
+      "id": "additive-show"
+    },
+    {
+      "kind": "snapshot",
+      "id": "remove"
+    },
+    {
+      "kind": "snapshot",
+      "id": "delete"
+    },
+    {
+      "kind": "snapshot",
+      "id": "focus"
+    },
+    {
+      "kind": "snapshot",
+      "id": "column"
+    },
+    {
+      "kind": "case",
+      "id": "variant"
+    },
+    {
+      "kind": "snapshot",
+      "id": "enum-route"
+    },
+    {
+      "kind": "snapshot",
+      "id": "enum-route-short-name"
+    },
+    {
+      "kind": "snapshot",
+      "id": "enum-route-description"
+    },
+    {
+      "kind": "snapshot",
+      "id": "enum-route-unlisted"
+    },
+    {
+      "kind": "snapshot",
+      "id": "enum-route-unclear"
+    },
+    {
+      "kind": "snapshot",
+      "id": "show-then-route"
+    },
+    {
+      "kind": "snapshot",
+      "id": "show-then-add-task"
+    },
+    {
+      "kind": "snapshot",
+      "id": "quoted-location"
+    },
+    {
+      "kind": "snapshot",
+      "id": "two-actions"
+    },
+    {
+      "kind": "snapshot",
+      "id": "transition-sequence"
+    },
+    {
+      "kind": "snapshot",
+      "id": "create-configure"
+    },
+    {
+      "kind": "snapshot",
+      "id": "compare"
+    },
+    {
+      "kind": "snapshot",
+      "id": "task"
+    },
+    {
+      "kind": "snapshot",
+      "id": "unquoted-location"
+    },
+    {
+      "kind": "snapshot",
+      "id": "missing-enum"
+    },
+    {
+      "kind": "case",
+      "id": "generate-content"
+    },
+    {
+      "kind": "snapshot",
+      "id": "too-many-actions"
+    },
+    {
+      "kind": "snapshot",
+      "id": "ambiguous"
+    },
+    {
+      "kind": "snapshot",
+      "id": "small-chart"
+    },
+    {
+      "kind": "snapshot",
+      "id": "swap"
+    },
+    {
+      "kind": "snapshot",
+      "id": "big-right"
+    },
+    {
+      "kind": "snapshot",
+      "id": "top-and-pair"
+    },
+    {
+      "kind": "snapshot",
+      "id": "bottom-strip"
+    },
+    {
+      "kind": "snapshot",
+      "id": "bottom-strip-keep-row"
+    },
+    {
+      "kind": "snapshot",
+      "id": "bottom-strip-four-nested"
+    },
+    {
+      "kind": "snapshot",
+      "id": "half-of-left-column-nested"
+    },
+    {
+      "kind": "snapshot",
+      "id": "full-height-column-keep-row"
+    },
+    {
+      "kind": "snapshot",
+      "id": "narrow-column-pair"
+    },
+    {
+      "kind": "snapshot",
+      "id": "reorder-end"
+    },
+    {
+      "kind": "snapshot",
+      "id": "reverse-order"
+    },
+    {
+      "kind": "snapshot",
+      "id": "two-columns-left"
+    },
+    {
+      "kind": "snapshot",
+      "id": "grid-2x2"
+    },
+    {
+      "kind": "snapshot",
+      "id": "weather-under-calendar"
+    },
+    {
+      "kind": "snapshot",
+      "id": "map-full-width-bottom"
+    },
+    {
+      "kind": "snapshot",
+      "id": "preserve-resize"
+    },
+    {
+      "kind": "snapshot",
+      "id": "narrow-pair-stacked-triple"
+    },
+    {
+      "kind": "snapshot",
+      "id": "journal-half-of-right-column"
+    },
+    {
+      "kind": "snapshot",
+      "id": "edge-columns-nested-middle"
+    },
+    {
+      "kind": "snapshot",
+      "id": "ctl-add-task"
+    },
+    {
+      "kind": "snapshot",
+      "id": "ctl-set-location"
+    },
+    {
+      "kind": "snapshot",
+      "id": "ctl-calendar-week"
+    },
+    {
+      "kind": "snapshot",
+      "id": "ctl-weather-hourly"
+    },
+    {
+      "kind": "snapshot",
+      "id": "ctl-add-event"
+    },
+    {
+      "kind": "snapshot",
+      "id": "ctl-also-journal"
+    },
+    {
+      "kind": "snapshot",
+      "id": "resize"
+    },
+    {
+      "kind": "snapshot",
+      "id": "followup"
+    },
+    {
+      "kind": "snapshot",
+      "id": "history-route-gym-after-studio"
+    },
+    {
+      "kind": "snapshot",
+      "id": "history-route-studio-after-gym"
+    },
+    {
+      "kind": "snapshot",
+      "id": "history-route-gym-voice-paraphrase"
+    },
+    {
+      "kind": "snapshot",
+      "id": "history-route-back-reference"
+    },
+    {
+      "kind": "snapshot",
+      "id": "runtime-enum"
+    },
+    {
+      "kind": "snapshot",
+      "id": "tiny-resize"
+    },
+    {
+      "kind": "snapshot",
+      "id": "se-capital"
+    },
+    {
+      "kind": "snapshot",
+      "id": "se-landmark"
+    },
+    {
+      "kind": "snapshot",
+      "id": "se-olympics"
+    },
+    {
+      "kind": "snapshot",
+      "id": "ns-add-task"
+    },
+    {
+      "kind": "snapshot",
+      "id": "ns-weather-somewhere"
+    },
+    {
+      "kind": "snapshot",
+      "id": "ns-add-event"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-preserve"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-hide"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-show"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-weather-variant"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-calendar-variant"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-map-route"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-two-writes"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-event"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-new-instance"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-comparison"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-stack"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-three-writes"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-unknown-vessel"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-generated-content"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-unquoted"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-ambiguous"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-arr-swap"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-arr-sidebar"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-arr-banner"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-arr-focus"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-ctl-task"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-ctl-weekly"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-ctl-location"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-inner-third-of-column"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-inner-two-thirds-of-row"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-inner-twice-as-tall"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-inner-smaller-of-pair"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-inner-quarter-of-column"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-inner-most-of-column"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-inner-control-board-size"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-inner-control-column-no-size"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-fresh-half-of-left-column"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-fresh-middle-twice-as-wide"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-fresh-a-bit-smaller-than-neighbour"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-fresh-quarter-after-move-to-top"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-fresh-keep-column-trade-others"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-fresh-keep-row-move-single"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-fresh-keep-column-show-hidden"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-fresh-all-in-one-row"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-fresh-all-in-one-column"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-fresh-control-move-column-no-size"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-fresh-control-board-share-only"
+    },
+    {
+      "kind": "snapshot",
+      "id": "gate-show-route-to-studio"
+    },
+    {
+      "kind": "snapshot",
+      "id": "gate-show-hourly-forecast"
+    },
+    {
+      "kind": "snapshot",
+      "id": "gate-show-directions-to-gym"
+    },
+    {
+      "kind": "snapshot",
+      "id": "gate-show-price-chart"
+    },
+    {
+      "kind": "snapshot",
+      "id": "gate-show-contact-history"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-gate-show-weekly-forecast"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-gate-see-way-to-studio"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-gate-pull-up-news"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-gate-show-lyrics"
+    },
+    {
+      "kind": "snapshot",
+      "id": "gate-show-map"
+    },
+    {
+      "kind": "snapshot",
+      "id": "gate-hide-weather"
+    },
+    {
+      "kind": "snapshot",
+      "id": "gate-watchlist-next-to-player"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-gate-bring-tasks-back"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-gate-close-contacts"
+    },
+    {
+      "kind": "snapshot",
+      "id": "gate-capital-of-australia"
+    },
+    {
+      "kind": "snapshot",
+      "id": "gate-read-headlines"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-gate-banana-calories"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-gate-tell-joke"
+    },
+    {
+      "kind": "snapshot",
+      "id": "gate-add-task-buy-milk"
+    },
+    {
+      "kind": "snapshot",
+      "id": "gate-add-task-eiffel-city"
+    },
+    {
+      "kind": "snapshot",
+      "id": "gate-note-to-dana"
+    },
+    {
+      "kind": "snapshot",
+      "id": "gate-journal-groceries"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-gate-queue-bohemian-band"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-gate-add-apple-ticker"
+    },
+    {
+      "kind": "snapshot",
+      "id": "gate-task-per-calendar-event"
+    },
+    {
+      "kind": "snapshot",
+      "id": "gate-note-summarising-chart"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-gate-copy-tasks-to-journal"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-gate-log-call-open-contact"
+    },
+    {
+      "kind": "snapshot",
+      "id": "gate-write-call-mom"
+    },
+    {
+      "kind": "snapshot",
+      "id": "gate-log-call-with-dana"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-gate-add-send-invoice"
+    },
+    {
+      "kind": "snapshot",
+      "id": "gate-player-left-of-watchlist"
+    },
+    {
+      "kind": "snapshot",
+      "id": "gate-show-contacts"
+    },
+    {
+      "kind": "snapshot",
+      "id": "map-and-route-to-studio"
+    },
+    {
+      "kind": "snapshot",
+      "id": "route-there-again-short"
+    },
+    {
+      "kind": "snapshot",
+      "id": "journal-key-points-of-todays-plan"
+    },
+    {
+      "kind": "snapshot",
+      "id": "grid-without-quadrants"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-grid-without-quadrants"
+    },
+    {
+      "kind": "snapshot",
+      "id": "weather-bigger-size-only"
+    },
+    {
+      "kind": "snapshot",
+      "id": "tasks-shown-and-buy-milk"
+    },
+    {
+      "kind": "snapshot",
+      "id": "add-task-and-move-design-review"
+    },
+    {
+      "kind": "snapshot",
+      "id": "move-two-events"
+    },
+    {
+      "kind": "snapshot",
+      "id": "route-again-with-empty-first-slot"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-tasks-shown-and-add-invoice"
+    },
+    {
+      "kind": "snapshot",
+      "id": "hold-route-again-overview"
+    }
+  ]
+}

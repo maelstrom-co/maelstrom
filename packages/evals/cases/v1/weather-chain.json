@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "id": "weather-chain",
+  "title": "Sequential weather transition chain",
+  "purpose": "Carry prior state and history through hourly, weekly and current turns with fresh per-sample initialization.",
+  "suite": "development",
+  "profile": "weather-session",
+  "surface": "session",
+  "fixtureId": "weather",
+  "oracle": {
+    "id": "weather-transitions",
+    "version": 1
+  },
+  "inputs": {
+    "turns": ["hourly", "weekly", "current"]
+  },
+  "expectations": {
+    "variants": ["hourly", "weekly", "current"]
+  },
+  "synthetic": true,
+  "review": "pending-human-review",
+  "migration": "legacy-derived-harness",
+  "lineage": [
+    {
+      "source": "legacy",
+      "revision": "d6ef99aacb8ebce4d707d54fee14149daeea552d",
+      "path": "langfuse/maelstrom-eval-dataset.v1.json",
+      "taskId": "cap-maelstrom-multiturn-weather-variant-chain",
+      "datasetId": "cap-maelstrom-multiturn-weather-variant-chain",
+      "pointer": "/items/30"
+    }
+  ]
+}

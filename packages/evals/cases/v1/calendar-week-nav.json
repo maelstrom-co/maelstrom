@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "id": "calendar-week-nav",
+  "title": "Three-turn Calendar week to month round trip",
+  "purpose": "Source-scoring trajectory: weekly Action, weekly no-op, monthly Action. Task-local showMonthly differs from dataset showMonth. No response-quality, Action-effect, geometry, judge or engine-old compatibility claim.",
+  "suite": "development",
+  "profile": "legacy-calendar-week-nav",
+  "surface": "session",
+  "fixtureId": "calendar-week-nav-script",
+  "oracle": {
+    "id": "legacy-calendar-week-nav",
+    "version": 1
+  },
+  "inputs": {
+    "turns": [
+      {
+        "intent": "Show me the weekly schedule."
+      },
+      {
+        "intent": "What is on my calendar this week?"
+      },
+      {
+        "intent": "Go back to the monthly view."
+      }
+    ]
+  },
+  "expectations": {
+    "instanceId": "calendar-main",
+    "weeklyAction": "showWeekly",
+    "monthlyAction": "showMonthly",
+    "weeklyVariant": "week",
+    "monthlyVariant": "month"
+  },
+  "synthetic": true,
+  "review": "pending-human-review",
+  "migration": "legacy-derived-harness",
+  "lineage": [
+    {
+      "source": "legacy",
+      "revision": "d6ef99aacb8ebce4d707d54fee14149daeea552d",
+      "path": "langfuse/maelstrom-eval-dataset.v1.json",
+      "taskId": "cap-maelstrom-multiturn-calendar-week-nav",
+      "datasetId": "cap-maelstrom-multiturn-calendar-week-nav",
+      "pointer": "/items/28"
+    }
+  ]
+}

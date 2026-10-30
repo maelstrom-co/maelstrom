@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "id": "cross-vessel",
+  "title": "Dataset-aligned Weather change and Labs isolation",
+  "purpose": "Synthetic response-only D36 trajectory: hourly Weather, then labs-main/lab-results/trends, then weekly Weather without Labs Actions. Corrects scorer identity/Variant drift; no actual creation, continuity, geometry or handler-effect claim.",
+  "suite": "development",
+  "profile": "legacy-cross-vessel",
+  "surface": "session",
+  "fixtureId": "cross-vessel-script",
+  "oracle": {
+    "id": "legacy-cross-vessel",
+    "version": 1
+  },
+  "inputs": {
+    "turns": [
+      {
+        "intent": "Show me the hourly weather."
+      },
+      {
+        "intent": "Now show me my lab results."
+      },
+      {
+        "intent": "Switch the weather to weekly without touching labs."
+      }
+    ]
+  },
+  "expectations": {
+    "weather": {
+      "instanceId": "weather-main",
+      "vesselId": "weather",
+      "hourlyAction": "showHourly",
+      "hourlyVariant": "hourly",
+      "finalAction": "showWeekly",
+      "finalVariant": "weekly"
+    },
+    "calendar": {
+      "instanceId": "calendar-main",
+      "vesselId": "calendar",
+      "variant": "month"
+    },
+    "labs": {
+      "instanceId": "labs-main",
+      "vesselId": "lab-results",
+      "variant": "trends"
+    }
+  },
+  "synthetic": true,
+  "review": "pending-human-review",
+  "migration": "legacy-derived-harness",
+  "lineage": [
+    {
+      "source": "legacy",
+      "revision": "d6ef99aacb8ebce4d707d54fee14149daeea552d",
+      "path": "langfuse/maelstrom-eval-dataset.v1.json",
+      "taskId": "cap-maelstrom-multiturn-cross-vessel",
+      "datasetId": "cap-maelstrom-multiturn-cross-vessel",
+      "pointer": "/items/35"
+    }
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "id": "labs-upload",
+  "title": "Labs upload navigation",
+  "purpose": "Check the showUpload Action targets the existing labs Instance and retains upload state. Synthetic navigation harness only.",
+  "suite": "development",
+  "profile": "legacy-vessel-transition",
+  "surface": "session",
+  "fixtureId": "labs-transitions",
+  "oracle": {
+    "id": "legacy-vessel-transition",
+    "version": 1
+  },
+  "inputs": {
+    "intent": "I want to upload new lab results",
+    "instanceId": "labs-main",
+    "action": "showUpload"
+  },
+  "expectations": {
+    "instanceId": "labs-main",
+    "action": "showUpload",
+    "variant": "upload"
+  },
+  "synthetic": true,
+  "review": "pending-human-review",
+  "migration": "legacy-derived-harness",
+  "lineage": [
+    {
+      "source": "legacy",
+      "revision": "d6ef99aacb8ebce4d707d54fee14149daeea552d",
+      "path": "langfuse/maelstrom-eval-dataset.v1.json",
+      "taskId": "cap-maelstrom-vessel-labs-upload",
+      "datasetId": "cap-maelstrom-vessel-labs-upload",
+      "pointer": "/items/27"
+    }
+  ]
+}

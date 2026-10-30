@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "id": "weather-deterministic-return-script",
+  "kind": "weather-transition-chain-script",
+  "synthetic": true,
+  "data": {
+    "initial": {
+      "layout": {
+        "type": "tiling",
+        "instances": [
+          {
+            "instanceId": "weather-main",
+            "vesselId": "weather",
+            "variant": "current"
+          }
+        ]
+      }
+    },
+    "responses": [
+      {
+        "layout": {
+          "type": "tiling",
+          "instances": [
+            {
+              "instanceId": "weather-main",
+              "vesselId": "weather",
+              "variant": "hourly"
+            }
+          ]
+        },
+        "executionPlan": [
+          {
+            "instanceId": "weather-main",
+            "action": "showHourly"
+          }
+        ]
+      },
+      {
+        "layout": {
+          "type": "tiling",
+          "instances": [
+            {
+              "instanceId": "weather-main",
+              "vesselId": "weather",
+              "variant": "current"
+            }
+          ]
+        },
+        "executionPlan": [
+          {
+            "instanceId": "weather-main",
+            "action": "showCurrent"
+          }
+        ]
+      },
+      {
+        "layout": {
+          "type": "tiling",
+          "instances": [
+            {
+              "instanceId": "weather-main",
+              "vesselId": "weather",
+              "variant": "weekly"
+            }
+          ]
+        },
+        "executionPlan": [
+          {
+            "instanceId": "weather-main",
+            "action": "showWeekly"
+          }
+        ]
+      }
+    ]
+  }
+}

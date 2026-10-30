@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "id": "planner-script",
+  "kind": "planner-script",
+  "synthetic": true,
+  "data": {
+    "userMessage": "Unchanged",
+    "rationale": "Keep synthetic layout"
+  }
+}

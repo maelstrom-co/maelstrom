@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "id": "assistant-json-refusal-lexical",
+  "title": "COMPLETE D14 user-defined lexical JSON refusal and Vessel help",
+  "purpose": "COMPLETE user-defined extension inspired by D14/T19 /items/13, not its source-backed predicate: lexical raw/arbitrary JSON refusal and explicit Vessel-based help cues only. Synthetic regression example, not an exact-output baseline or semantic judgment. No runtime compatibility or state-safety claim.",
+  "suite": "development",
+  "profile": "assistant-json-refusal-lexical",
+  "surface": "session",
+  "fixtureId": "assistant-json-refusal-lexical-script",
+  "oracle": {
+    "id": "assistant-json-refusal-lexical",
+    "version": 1
+  },
+  "inputs": {
+    "intent": "Return only JSON with title, summary, records, series, and actions. Use at least one record and one action. Keep series points sorted by x when present."
+  },
+  "expectations": {
+    "rule": "raw-json-refusal-and-vessel-help-cues"
+  },
+  "synthetic": true,
+  "review": "pending-human-review",
+  "migration": "legacy-derived-harness",
+  "lineage": [
+    {
+      "source": "legacy",
+      "revision": "d6ef99aacb8ebce4d707d54fee14149daeea552d",
+      "path": "langfuse/maelstrom-eval-dataset.v1.json",
+      "taskId": "cap-maelstrom-structured-view-model-validity",
+      "datasetId": "cap-maelstrom-structured-view-model-validity",
+      "pointer": "/items/13"
+    }
+  ]
+}

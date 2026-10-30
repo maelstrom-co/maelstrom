@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "id": "weather-current-noop-state",
+  "kind": "legacy-response-state",
+  "synthetic": true,
+  "data": {
+    "vesselId": "weather",
+    "variants": [
+      {
+        "name": "current",
+        "actions": ["showHourly", "showWeekly"]
+      },
+      {
+        "name": "hourly",
+        "actions": ["showCurrent", "showWeekly"]
+      },
+      {
+        "name": "weekly",
+        "actions": ["showCurrent", "showHourly"]
+      }
+    ],
+    "instances": [
+      {
+        "instanceId": "weather-main",
+        "vesselId": "weather",
+        "variant": "current"
+      }
+    ]
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "labs-state-reset-optional-enum-script",
+  "kind": "labs-state-reset-optional-enum-script",
+  "synthetic": true,
+  "data": {
+    "response": {
+      "executionPlan": []
+    }
+  }
+}

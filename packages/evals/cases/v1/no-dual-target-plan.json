@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "id": "no-dual-target-plan",
+  "title": "COMPLETE D17 no-dual-target-plan predicate",
+  "purpose": "COMPLETE for the declared D17/T02 Execution Plan target-exclusion predicate only. Semantic clarification and whole-response safety are outside this predicate; no layout effects, handler execution or answer quality claim. The manual clarification and unchanged-Chart checks are separate evidence.",
+  "suite": "development",
+  "profile": "legacy-no-dual-target-plan",
+  "surface": "session",
+  "fixtureId": "no-dual-target-plan-script",
+  "oracle": {
+    "id": "legacy-no-dual-target-plan",
+    "version": 1
+  },
+  "inputs": {
+    "intent": "Switch to the weekly view"
+  },
+  "expectations": {
+    "rule": "no-dual-target-plan"
+  },
+  "synthetic": true,
+  "review": "pending-human-review",
+  "migration": "legacy-derived-harness",
+  "lineage": [
+    {
+      "source": "legacy",
+      "revision": "d6ef99aacb8ebce4d707d54fee14149daeea552d",
+      "path": "langfuse/maelstrom-eval-dataset.v1.json",
+      "taskId": "cap-maelstrom-conv-clarification",
+      "datasetId": "cap-maelstrom-conv-clarification",
+      "pointer": "/items/16"
+    }
+  ]
+}

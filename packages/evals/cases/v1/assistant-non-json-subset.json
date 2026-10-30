@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "id": "assistant-non-json-subset",
+  "title": "COMPLETE D14 nonempty non-JSON-container predicate",
+  "purpose": "COMPLETE for the declared D14/T19 source predicates: nonempty assistant text and not a JSON container. Semantic refusal and Vessel-orchestration redirection are outside this predicate; unrelated nonempty prose passes. The user-defined lexical refusal rubric is a separate case. Not semantic success or runtime compatibility.",
+  "suite": "development",
+  "profile": "legacy-assistant-text",
+  "surface": "session",
+  "fixtureId": "assistant-non-json-subset-script",
+  "oracle": {
+    "id": "legacy-assistant-text",
+    "version": 1
+  },
+  "inputs": {
+    "intent": "Return only JSON with title, summary, records, series, and actions. Use at least one record and one action. Keep series points sorted by x when present."
+  },
+  "expectations": {
+    "rule": "nonempty-not-json-container",
+    "coverage": "COMPLETE"
+  },
+  "synthetic": true,
+  "review": "pending-human-review",
+  "migration": "legacy-derived-harness",
+  "lineage": [
+    {
+      "source": "legacy",
+      "revision": "d6ef99aacb8ebce4d707d54fee14149daeea552d",
+      "path": "langfuse/maelstrom-eval-dataset.v1.json",
+      "taskId": "cap-maelstrom-structured-view-model-validity",
+      "datasetId": "cap-maelstrom-structured-view-model-validity",
+      "pointer": "/items/13"
+    }
+  ]
+}

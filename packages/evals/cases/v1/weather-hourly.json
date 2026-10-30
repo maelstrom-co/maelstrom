@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "id": "weather-hourly",
+  "title": "Weather hourly navigation",
+  "purpose": "Check the showHourly Action targets the existing weather Instance and retains hourly state. Synthetic navigation harness only.",
+  "suite": "development",
+  "profile": "legacy-vessel-transition",
+  "surface": "session",
+  "fixtureId": "weather-transitions",
+  "oracle": {
+    "id": "legacy-vessel-transition",
+    "version": 1
+  },
+  "inputs": {
+    "intent": "Show me the hourly weather forecast",
+    "instanceId": "weather-main",
+    "action": "showHourly"
+  },
+  "expectations": {
+    "instanceId": "weather-main",
+    "action": "showHourly",
+    "variant": "hourly"
+  },
+  "synthetic": true,
+  "review": "pending-human-review",
+  "migration": "legacy-derived-harness",
+  "lineage": [
+    {
+      "source": "legacy",
+      "revision": "d6ef99aacb8ebce4d707d54fee14149daeea552d",
+      "path": "langfuse/maelstrom-eval-dataset.v1.json",
+      "taskId": "cap-maelstrom-vessel-weather-hourly",
+      "datasetId": "cap-maelstrom-vessel-weather-hourly",
+      "pointer": "/items/26"
+    }
+  ]
+}

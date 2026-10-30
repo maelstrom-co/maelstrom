@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "id": "weather-deterministic-return",
+  "title": "COMPLETE Weather hourly-current-weekly trajectory",
+  "purpose": "COMPLETE for the declared scripted dataset-aligned navigation: exact Actions valid in each incoming Variant, resulting membership and state continuity. No Engine, prompt interpretation, handler effects or legacy-runtime claim from this script. D41 strengthens the permissive legacy scorer by requiring actual Actions, rejecting empty, extra or conflicting plans.",
+  "suite": "development",
+  "profile": "legacy-weather-transition-chain",
+  "surface": "session",
+  "fixtureId": "weather-deterministic-return-script",
+  "oracle": {
+    "id": "legacy-weather-transition-chain",
+    "version": 1
+  },
+  "inputs": {
+    "turns": [
+      {
+        "intent": "Show hourly"
+      },
+      {
+        "intent": "Just show current right now - skip weekly"
+      },
+      {
+        "intent": "Go to weekly"
+      }
+    ]
+  },
+  "expectations": {
+    "trajectory": "hourly-current-weekly",
+    "instanceId": "weather-main",
+    "actions": ["showHourly", "showCurrent", "showWeekly"],
+    "variants": ["hourly", "current", "weekly"],
+    "coverage": "COMPLETE"
+  },
+  "synthetic": true,
+  "review": "pending-human-review",
+  "migration": "legacy-derived-harness",
+  "lineage": [
+    {
+      "source": "legacy",
+      "revision": "d6ef99aacb8ebce4d707d54fee14149daeea552d",
+      "path": "langfuse/maelstrom-eval-dataset.v1.json",
+      "taskId": "cap-maelstrom-edge-deterministic-actions",
+      "datasetId": "cap-maelstrom-edge-deterministic-actions",
+      "pointer": "/items/40"
+    }
+  ]
+}

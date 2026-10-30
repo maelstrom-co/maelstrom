@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "id": "labs-state-reset-synthetic",
+  "title": "COMPLETE synthetic Labs post-reset marker Action extension",
+  "purpose": "COMPLETE for this separate synthetic D33/T12 contract: the first two prompts retain /items/32; the third prompt (What's the trend for hemoglobin?) is synthetic and absent from the dataset. Exact scripted showList/list, showTrends/trends, then selectMarker(hemoglobin)/trends emissions and layout-membership continuity only. Optional first-match enum safety is a separate case. No LLM semantics, handler effects, marker persistence, clinical trend fulfillment or current-app/runtime compatibility claim from this script.",
+  "suite": "development",
+  "profile": "labs-state-reset-synthetic",
+  "surface": "session",
+  "fixtureId": "labs-state-reset-synthetic-script",
+  "oracle": {
+    "id": "labs-state-reset-synthetic",
+    "version": 1
+  },
+  "inputs": {
+    "turns": [
+      {
+        "intent": "Show me the list of my lab results."
+      },
+      {
+        "intent": "Go back to the trends chart."
+      },
+      {
+        "intent": "What's the trend for hemoglobin?"
+      }
+    ]
+  },
+  "expectations": {
+    "instanceId": "labs-main",
+    "actions": ["showList", "showTrends", "selectMarker"],
+    "variants": ["list", "trends", "trends"],
+    "markerSlug": "hemoglobin",
+    "coverage": "COMPLETE"
+  },
+  "synthetic": true,
+  "review": "pending-human-review",
+  "migration": "legacy-derived-harness",
+  "lineage": [
+    {
+      "source": "legacy",
+      "revision": "d6ef99aacb8ebce4d707d54fee14149daeea552d",
+      "path": "langfuse/maelstrom-eval-dataset.v1.json",
+      "taskId": "cap-maelstrom-multiturn-state-reset",
+      "datasetId": "cap-maelstrom-multiturn-state-reset",
+      "pointer": "/items/32"
+    }
+  ]
+}

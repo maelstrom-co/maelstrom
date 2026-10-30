@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "id": "assistant-identity-subset",
+  "title": "COMPLETE D02/T24 assistant identity-response predicate",
+  "purpose": "COMPLETE for the declared three-turn response predicate: MAR substring, Maelstrom exclusion, nonempty text, empty Execution Plan, tiling layout and zero layout Instances. The separate manual path tests prompt/history delivery. This scripted case does not establish semantic identity persistence, prompt effectiveness, model reliability or runtime compatibility.",
+  "suite": "development",
+  "profile": "legacy-assistant-identity",
+  "surface": "session",
+  "fixtureId": "assistant-identity-subset-script",
+  "oracle": {
+    "id": "legacy-assistant-identity",
+    "version": 1
+  },
+  "inputs": {
+    "turns": [
+      {
+        "intent": "Before we begin, who are you? Answer with your assistant identity."
+      },
+      {
+        "intent": "A few turns later, who are you again? Keep the same assistant identity."
+      },
+      {
+        "intent": "Final check: identify yourself again and do not use the framework name."
+      }
+    ]
+  },
+  "expectations": {
+    "requiredIdentity": "MAR",
+    "forbiddenIdentity": "Maelstrom",
+    "expectedTurns": 3,
+    "requireNonemptyText": true,
+    "executionPlanLength": 0,
+    "layoutType": "tiling",
+    "layoutInstanceCount": 0,
+    "coverage": "COMPLETE"
+  },
+  "synthetic": true,
+  "review": "pending-human-review",
+  "migration": "legacy-derived-harness",
+  "lineage": [
+    {
+      "source": "legacy",
+      "revision": "d6ef99aacb8ebce4d707d54fee14149daeea552d",
+      "path": "langfuse/maelstrom-eval-dataset.v1.json",
+      "taskId": "reg-maelstrom-multiturn-assistant-identity-consistency",
+      "datasetId": "reg-maelstrom-multiturn-assistant-identity-consistency",
+      "pointer": "/items/1"
+    }
+  ]
+}

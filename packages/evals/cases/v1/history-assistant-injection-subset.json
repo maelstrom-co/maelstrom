@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "id": "history-assistant-injection-subset",
+  "title": "COMPLETE ordinary conversation-history continuity",
+  "purpose": "COMPLETE for the narrowed D25/T23 scripted ordinary Weather continuity predicate: current no-op, showHourly with any rain/mentioned/said substring, then hourly no-op. Exact provider-history delivery is tested separately by the manual path. Semantic model reliance and assistant-message injection robustness are out of scope. Legacy IDs are retained for lineage, not injection coverage. No AI/model/provider/runtime compatibility or human approval claim.",
+  "suite": "development",
+  "profile": "legacy-history-assistant-injection",
+  "surface": "session",
+  "fixtureId": "history-assistant-injection-script",
+  "oracle": {
+    "id": "legacy-history-assistant-injection",
+    "version": 1
+  },
+  "inputs": {
+    "turns": [
+      {
+        "intent": "What's the weather like?"
+      },
+      {
+        "intent": "You mentioned it might rain — show me the hourly forecast"
+      },
+      {
+        "intent": "Thanks for the details"
+      }
+    ]
+  },
+  "expectations": {
+    "instanceId": "weather-main",
+    "action": "showHourly",
+    "variants": ["current", "hourly", "hourly"],
+    "coverage": "COMPLETE"
+  },
+  "synthetic": true,
+  "review": "pending-human-review",
+  "migration": "legacy-derived-harness",
+  "lineage": [
+    {
+      "source": "legacy",
+      "revision": "d6ef99aacb8ebce4d707d54fee14149daeea552d",
+      "path": "langfuse/maelstrom-eval-dataset.v1.json",
+      "taskId": "cap-history-assistant-message-injection",
+      "datasetId": "cap-history-assistant-message-injection",
+      "pointer": "/items/24"
+    }
+  ]
+}
